@@ -452,6 +452,16 @@ export interface ExfilPayload {
   phase_note: string
 }
 
+/** Canonical EXFIL → TrafficFlowMap adapter shared by full and Zoom0 views. */
+export function buildSelectedExfilArchitecture(
+  data: ExfilPayload,
+  selectedPath: ExfilPath | null,
+): SystemArchitecture {
+  return selectedPath?.evidence_item
+    ? buildEvidenceLaneArchitecture(data, selectedPath)
+    : buildExfilArchitecture(data, selectedPath)
+}
+
 // ─── Component ────────────────────────────────────────────────────
 
 interface ExfilViewV3Props {
@@ -505,9 +515,7 @@ export function ExfilViewV3({
 
   const architecture = useMemo<SystemArchitecture | null>(() => {
     if (!data || !data.ok) return null
-    return selectedPath?.evidence_item
-      ? buildEvidenceLaneArchitecture(data, selectedPath)
-      : buildExfilArchitecture(data, selectedPath)
+    return buildSelectedExfilArchitecture(data, selectedPath)
   }, [data, selectedPath])
 
   if (!enabled) {

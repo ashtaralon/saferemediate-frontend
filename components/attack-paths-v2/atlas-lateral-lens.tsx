@@ -4,9 +4,9 @@ import { AlertTriangle, Loader2, RefreshCw, ShieldCheck, Waypoints } from "lucid
 import type {
   AtlasFootholdCandidate,
   AtlasFootholdEvaluation,
-  AtlasLateralChain,
   AtlasLateralResponse,
 } from "./use-atlas-lateral"
+import { AtlasLateralFlowMap } from "./atlas-lateral-flow-map"
 
 const LIKELIHOOD_LABEL = {
   EXPOSED: "Exposed foothold",
@@ -28,17 +28,6 @@ function evaluationLabel(candidate: AtlasFootholdCandidate): string {
   if (evaluation.state === "DEAD_END") return "modeled dead end"
   if (evaluation.state === "ERROR") return "evaluation error"
   return "not evaluated"
-}
-
-function stepResult(chain: AtlasLateralChain, index: number): string | null {
-  const delta = chain.steps[index]?.state_delta
-  return (
-    delta?.added_captured_identities?.[0] ??
-    delta?.added_accessible_resources?.[0] ??
-    delta?.added_compromised_workloads?.[0] ??
-    delta?.added_synthetic_nodes?.[0] ??
-    null
-  )
 }
 
 export function AtlasLateralLensPanel({
@@ -219,55 +208,5 @@ export function AtlasLateralChainCanvas({
       </div>
     )
   }
-  return (
-    <div className="h-full min-h-[360px] overflow-auto p-5" data-testid="atlas-lateral-chain-canvas">
-      <div className="space-y-4">
-        {response.chains.slice(0, 8).map((chain, chainIndex) => (
-          <div key={chain.chain_id} className="rounded-xl border border-red-200/80 bg-card p-4 shadow-sm dark:border-red-500/30">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="text-[11px] font-semibold uppercase tracking-wider text-red-700 dark:text-red-300">
-                Attack chain {chainIndex + 1} · {chain.steps.length} moves
-              </div>
-              <div className="text-[10px] font-mono text-muted-foreground">
-                feasibility {Math.round(chain.feasibility_score * 100)}% · cost {chain.total_cost}
-              </div>
-            </div>
-            <div className="mt-4 flex min-w-max items-stretch gap-2">
-              <div className="w-44 rounded-lg border border-amber-300/70 bg-amber-50 p-3 dark:border-amber-500/40 dark:bg-amber-500/10">
-                <div className="text-[9px] uppercase tracking-wider text-muted-foreground">Initial foothold</div>
-                <div className="mt-1 text-[12px] font-semibold text-foreground">{selectedFoothold.workload_name}</div>
-                <div className="text-[10px] text-muted-foreground">{selectedFoothold.workload_type}</div>
-              </div>
-              {chain.steps.map((step, index) => {
-                const result = stepResult(chain, index)
-                const last = index === chain.steps.length - 1
-                return (
-                  <div key={`${chain.chain_id}-${step.step_index}`} className="flex items-center gap-2">
-                    <span className="text-muted-foreground">→</span>
-                    <div className={`w-52 rounded-lg border p-3 ${last ? "border-red-300 bg-red-50 dark:border-red-500/40 dark:bg-red-500/10" : "border-border bg-muted/30"}`}>
-                      <div className="text-[9px] uppercase tracking-wider text-muted-foreground">Move {index + 1}</div>
-                      <div className="mt-1 break-words font-mono text-[10px] font-semibold text-foreground">{step.primitive_id.replaceAll("_", " ")}</div>
-                      {result ? <div className="mt-1 truncate text-[10px] text-muted-foreground" title={result}>{shortId(result)}</div> : null}
-                    </div>
-                  </div>
-                )
-              })}
-              <div className="flex items-center gap-2">
-                <span className="text-muted-foreground">→</span>
-                <div className="w-44 rounded-lg border border-red-400 bg-red-100 p-3 dark:border-red-500/50 dark:bg-red-500/15">
-                  <div className="text-[9px] uppercase tracking-wider text-red-700 dark:text-red-300">Crown jewel reached</div>
-                  <div className="mt-1 text-[12px] font-semibold text-foreground">{jewelName}</div>
-                </div>
-              </div>
-            </div>
-            {chain.assumptions_consumed.length > 0 ? (
-              <div className="mt-3 text-[10px] text-muted-foreground">
-                Assumptions: {chain.assumptions_consumed.join(" · ").replaceAll("_", " ")}
-              </div>
-            ) : null}
-          </div>
-        ))}
-      </div>
-    </div>
-  )
+  return <AtlasLateralFlowMap selectedFoothold={selectedFoothold} response={response} jewelName={jewelName} />
 }

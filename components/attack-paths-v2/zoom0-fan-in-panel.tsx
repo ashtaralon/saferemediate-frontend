@@ -62,6 +62,8 @@ import {
 } from "./choke-point-tiles"
 import { Zoom0RiskHeader } from "./zoom0-risk-header"
 import { Zoom0ExfilLensPanel } from "./zoom0-exfil-lens-panel"
+import { useZoom0Exfil } from "./use-zoom0-exfil"
+import { buildSelectedExfilArchitecture } from "./exfil-view-v3"
 import { CurrentAccessDossierPanel } from "./current-access-dossier-panel"
 import {
   AtlasLateralChainCanvas,
@@ -377,6 +379,29 @@ export function Zoom0FanInPanel({
     jewelRef: lateralJewelId,
     enabled: detailsPanel === "lateral",
   })
+
+  const zoom0Exfil = useZoom0Exfil({
+    systemName,
+    jewel,
+    enabled: detailsPanel === "exfiltration",
+  })
+  const [selectedExfilPathId, setSelectedExfilPathId] = useState<string | null>(null)
+  useEffect(() => {
+    if (detailsPanel !== "exfiltration") return
+    const paths = zoom0Exfil.data?.paths ?? []
+    if (selectedExfilPathId && paths.some((path) => path.path_id === selectedExfilPathId)) return
+    setSelectedExfilPathId(paths[0]?.path_id ?? null)
+  }, [detailsPanel, selectedExfilPathId, zoom0Exfil.data])
+  const selectedExfilPath = useMemo(
+    () => zoom0Exfil.data?.paths?.find((path) => path.path_id === selectedExfilPathId) ?? null,
+    [selectedExfilPathId, zoom0Exfil.data],
+  )
+  const exfilArchitecture = useMemo(
+    () => zoom0Exfil.data?.ok
+      ? buildSelectedExfilArchitecture(zoom0Exfil.data, selectedExfilPath)
+      : null,
+    [selectedExfilPath, zoom0Exfil.data],
+  )
 
   const mapSpotlightPaths = useMemo(() => {
     return zoom0MapSpotlightPaths(spotlightPaths, detailsPanel)
@@ -757,7 +782,14 @@ export function Zoom0FanInPanel({
         ) : null}
         {detailsPanel === "exfiltration" ? (
           <div className="mt-3 space-y-2">
-            <Zoom0ExfilLensPanel systemName={systemName} jewel={jewel} />
+            <Zoom0ExfilLensPanel
+              data={zoom0Exfil.data ?? null}
+              loading={zoom0Exfil.loading}
+              error={zoom0Exfil.error}
+              retry={zoom0Exfil.retry}
+              selectedPathId={selectedExfilPathId}
+              onSelectPath={setSelectedExfilPathId}
+            />
             {onRequestMode ? (
               <button
                 type="button"
@@ -789,12 +821,12 @@ export function Zoom0FanInPanel({
         ) : null}
       </div>
 
-      {detailsPanel !== "lateral" && loading && !convergenceData?.paths?.length ? (
+      {detailsPanel === "current_access" && loading && !convergenceData?.paths?.length ? (
         <div className="flex flex-1 min-h-[400px] items-center justify-center gap-2 text-[12px] text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" />
           Loading attack paths to this jewel…
         </div>
-      ) : detailsPanel !== "lateral" && error && !convergenceData?.paths?.length ? (
+      ) : detailsPanel === "current_access" && error && !convergenceData?.paths?.length ? (
         <div className="flex flex-1 min-h-[400px] flex-col items-center justify-center gap-3 text-[12px] text-muted-foreground">
           <AlertTriangle className="h-5 w-5 text-amber-500" />
           <span>Couldn&apos;t load jewel fan-in: {error}</span>
@@ -807,7 +839,7 @@ export function Zoom0FanInPanel({
             Retry
           </button>
         </div>
-      ) : detailsPanel !== "lateral" &&
+      ) : detailsPanel === "current_access" &&
         (!convergenceData || convergenceData.paths.length === 0) ? (
         (() => {
           const empty = zoom0EmptyCanvasMessage(convergenceData)
@@ -836,6 +868,38 @@ export function Zoom0FanInPanel({
               onSelectFoothold={atlasLateral.selectFoothold}
             />
           </div>
+        </div>
+      ) : detailsPanel === "exfiltration" ? (
+        <div className="flex flex-1 min-h-0 flex-col px-2 pb-2">
+          {zoom0Exfil.loading && !zoom0Exfil.data ? (
+            <div className="flex h-full min-h-[440px] items-center justify-center gap-2 rounded-xl border border-dashed border-violet-400/40 bg-violet-500/5 text-[12px] text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" /> Mapping accessor, workload, effective route and exit…
+            </div>
+          ) : zoom0Exfil.error && !zoom0Exfil.data ? (
+            <div className="flex h-full min-h-[440px] flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-red-400/40 bg-red-500/5 text-[12px] text-red-700 dark:text-red-300">
+              <AlertTriangle className="h-5 w-5" /> {zoom0Exfil.error}
+              <button type="button" onClick={zoom0Exfil.retry} className="underline">Retry</button>
+            </div>
+          ) : !selectedExfilPath || !exfilArchitecture ? (
+            <div className="flex h-full min-h-[440px] items-center justify-center rounded-xl border border-dashed border-border bg-muted/20 px-6 text-center text-[12px] text-muted-foreground">
+              No accessor-to-exit path is available to draw. Review the coverage statement above before treating this jewel as contained.
+            </div>
+          ) : (
+            <div className={`h-full overflow-hidden ${isExpanded ? "min-h-0" : "min-h-[520px]"}`} data-testid="zoom0-exfil-interactive-map">
+              <TrafficFlowMap
+                key={`zoom0-exfil-${selectedExfilPath.path_id}`}
+                systemName={systemName}
+                architectureOverride={exfilArchitecture}
+                observedMode={selectedExfilPath.accessor_provenance === "observed"}
+                titleOverride="Exfiltration Map"
+                innerTitleOverride={`Exfil path · ${selectedExfilPath.channel_label}`}
+                innerSubtitleOverride={`${selectedExfilPath.accessor_name} · ${selectedExfilPath.workload_count} workload${selectedExfilPath.workload_count === 1 ? "" : "s"} · ${selectedExfilPath.gateway_count} effective exit${selectedExfilPath.gateway_count === 1 ? "" : "s"}`}
+                pathBadgeOverride={`${jewel.name} → ${selectedExfilPath.destination_label ?? selectedExfilPath.channel_label}`}
+                defaultShowVPCBoundaries
+                fullscreenHeaderSlot={renderDetailsTabs("fullscreen")}
+              />
+            </div>
+          )}
         </div>
       ) : (() => {
         // The preceding non-lateral empty branch guarantees this. Keep an
@@ -901,14 +965,6 @@ export function Zoom0FanInPanel({
                 >
                   <Loader2 className="h-4 w-4 animate-spin" />
                   Loading hop topology for all paths to this jewel…
-                </div>
-              ) : detailsPanel !== "current_access" ? (
-                <div
-                  className="flex h-full min-h-[360px] items-center justify-center rounded-xl border border-dashed border-border bg-muted/30 px-6 text-center text-[12px] text-muted-foreground"
-                  data-testid="zoom0-lens-map-unavailable"
-                >
-                  Exfiltration evidence is summarized above. Open the full
-                  Exfiltration view for the selected accessor and route.
                 </div>
               ) : mapSpotlightPaths.length === 0 ? (
                 <div

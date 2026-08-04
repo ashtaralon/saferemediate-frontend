@@ -5,11 +5,8 @@
  * honesty when observed transport is unwired (PRD).
  */
 
-import { useMemo } from "react"
 import { ArrowRight, Cloud, KeyRound, Loader2, Network, Route, Server } from "lucide-react"
-import { useRetryFetch } from "@/lib/use-retry-fetch"
-import type { CrownJewelSummary } from "@/components/identity-attack-paths/types"
-import type { ExfilPayload } from "./exfil-view-v3"
+import type { ExfilPayloadWithCoverage } from "./use-zoom0-exfil"
 
 function readableAccessor(name: string, id: string, type: string): string {
   const value = name || id
@@ -20,55 +17,21 @@ function readableAccessor(name: string, id: string, type: string): string {
   return value
 }
 
-type ExfilPayloadWithCoverage = ExfilPayload & {
-  coverage_badge?: string | null
-  coverage_badge_text?: string | null
-}
-
 export function Zoom0ExfilLensPanel({
-  systemName,
-  jewel,
+  data,
+  loading,
+  error,
+  retry,
+  selectedPathId,
+  onSelectPath,
 }: {
-  systemName: string
-  jewel: CrownJewelSummary
+  data: ExfilPayloadWithCoverage | null
+  loading: boolean
+  error: string | null
+  retry: () => void
+  selectedPathId: string | null
+  onSelectPath: (pathId: string) => void
 }) {
-  const jewelId =
-    jewel.canonical_id ?? (jewel.id.startsWith("arn:") ? jewel.id : jewel.name)
-
-  const requestBody = useMemo(
-    () =>
-      JSON.stringify({
-        system_name: systemName,
-        jewel_id: jewelId,
-        include_capable: true,
-        include_observed: true,
-        max_destinations: 20,
-        include_atlas: false,
-        include_details: false,
-      }),
-    [systemName, jewelId],
-  )
-
-  const fetchInit = useMemo<RequestInit>(
-    () => ({
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: requestBody,
-    }),
-    [requestBody],
-  )
-
-  const enabled = Boolean(systemName && jewelId)
-  const { data, loading, error, retry } = useRetryFetch<ExfilPayloadWithCoverage>(
-    enabled ? "/api/proxy/attack-chain/exfil-paths" : null,
-    {
-      fetchInit,
-      refetchKey: `zoom0-exfil:${systemName}:${jewelId}`,
-      maxRetries: 2,
-      initialDelayMs: 1000,
-    },
-  )
-
   const coverageText =
     data?.coverage_badge_text ||
     (!data?.observed_exfil?.available
@@ -76,6 +39,9 @@ export function Zoom0ExfilLensPanel({
       : null)
 
   const paths = data?.paths ?? []
+  const selectedPath = paths.find((path) => path.path_id === selectedPathId) ?? paths[0] ?? null
+  const selectedWorkload = selectedPath?.workload_sample?.[0] ?? null
+  const selectedGateway = selectedPath?.gateway_sample?.find((item) => item.routed !== false) ?? selectedPath?.gateway_sample?.[0] ?? null
   const identityLane = data?.egress_lanes?.identity
   const propagationLane = data?.egress_lanes?.data_propagation
 
@@ -136,102 +102,35 @@ export function Zoom0ExfilLensPanel({
               coverage before treating this as contained.
             </p>
           ) : (
-            <div className="mt-2 space-y-2" data-testid="zoom0-exfil-paths">
-              {paths.slice(0, 4).map((path) => {
-                const workload = path.workload_sample?.[0] ?? null
-                const gateway = path.gateway_sample?.find((item) => item.routed !== false) ?? path.gateway_sample?.[0] ?? null
-                const publicEgressRules =
-                  path.remediation?.sg?.groups?.reduce(
-                    (total, group) => total + (group.public_egress_rules?.length ?? 0),
-                    0,
-                  ) ?? 0
-                const sourceVpcRestricted =
-                  path.remediation?.data_access?.has_source_vpc_condition
-                return (
-                  <div
-                    key={path.path_id}
-                    className="rounded-md border border-violet-200/70 bg-background/80 p-2 dark:border-violet-500/30"
-                  >
-                    <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
-                      <span className="inline-flex items-center gap-1 font-semibold text-foreground">
-                        <KeyRound className="h-3 w-3" />
-                        <span title={path.accessor_name}>
-                          {readableAccessor(
-                            path.accessor_name,
-                            path.accessor_id,
-                            path.accessor_type,
-                          )}
-                        </span>
-                      </span>
-                      <ArrowRight className="h-3 w-3 text-muted-foreground" />
-                      <span className="inline-flex items-center gap-1 text-foreground">
-                        {workload ? <Server className="h-3 w-3" /> : <Cloud className="h-3 w-3" />}
-                        {workload?.name || "external API client"}
-                      </span>
-                      <ArrowRight className="h-3 w-3 text-muted-foreground" />
-                      <span className="inline-flex items-center gap-1 font-semibold text-violet-800 dark:text-violet-300">
-                        <Route className="h-3 w-3" />
-                        {gateway?.kind || path.channel_label}
-                      </span>
-                    </div>
-                    <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
-                      <span>
-                        Access: {path.accessor_provenance === "observed" ? "observed" : "configured"}
-                      </span>
-                      {gateway ? (
-                        <>
-                          <span>
-                            Effective route: {gateway.routed === false ? "not selected" : "selected"}
-                            {gateway.route_destination_cidr
-                              ? ` · ${gateway.route_destination_cidr}`
-                              : gateway.route_target_service
-                                ? ` · ${gateway.route_target_service}`
-                                : ""}
-                          </span>
-                          {gateway.route_table?.id ? (
-                            <span>
-                              Route table: {gateway.route_table.name || gateway.route_table.id}
-                              {gateway.route_table.is_main === true ? " · main" : ""}
-                              {gateway.route_table.route_count != null
-                                ? ` · ${gateway.route_table.route_count} routes`
-                                : ""}
-                            </span>
-                          ) : null}
-                        </>
-                      ) : path.channel === "direct_api" ? (
-                        <span>VPC route and SG controls do not constrain this channel</span>
-                      ) : (
-                        <span>No effective gateway resolved</span>
-                      )}
-                    </div>
-                    <div className="mt-1 flex flex-wrap gap-1.5 text-[10px]">
-                      {publicEgressRules > 0 ? (
-                        <span className="rounded border border-red-300/70 bg-red-50 px-1.5 py-0.5 text-red-700 dark:border-red-500/40 dark:bg-red-500/10 dark:text-red-300">
-                          {publicEgressRules} public SG egress rule{publicEgressRules === 1 ? "" : "s"}
-                        </span>
-                      ) : null}
-                      {sourceVpcRestricted === false ? (
-                        <span className="rounded border border-amber-300/70 bg-amber-50 px-1.5 py-0.5 text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-300">
-                          resource policy does not require source VPC
-                        </span>
-                      ) : sourceVpcRestricted === true ? (
-                        <span className="rounded border border-emerald-300/70 bg-emerald-50 px-1.5 py-0.5 text-emerald-700 dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:text-emerald-300">
-                          source-VPC condition collected
-                        </span>
-                      ) : (
-                        <span className="rounded border border-border bg-muted/40 px-1.5 py-0.5 text-muted-foreground">
-                          resource-policy boundary unknown
-                        </span>
-                      )}
-                      {(path.remediation?.iam?.unused_actions?.length ?? 0) > 0 ? (
-                        <span className="rounded border border-amber-300/70 bg-amber-50 px-1.5 py-0.5 text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-300">
-                          {path.remediation?.iam.unused_actions.length} unused IAM actions
-                        </span>
-                      ) : null}
-                    </div>
-                  </div>
-                )
-              })}
+            <div className="mt-2 space-y-1.5" data-testid="zoom0-exfil-paths">
+              <select
+                value={selectedPath?.path_id ?? ""}
+                onChange={(event) => onSelectPath(event.target.value)}
+                className="w-full rounded-md border border-violet-300 bg-background px-2.5 py-1.5 text-[11px] text-foreground outline-none focus:ring-2 focus:ring-violet-500/30 dark:border-violet-500/40"
+                aria-label="Exfiltration path"
+              >
+                {paths.map((path, index) => {
+                  const workload = path.workload_sample?.[0]
+                  const gateway = path.gateway_sample?.find((item) => item.routed !== false) ?? path.gateway_sample?.[0]
+                  return (
+                    <option key={path.path_id} value={path.path_id}>
+                      #{index + 1} · {readableAccessor(path.accessor_name, path.accessor_id, path.accessor_type)} → {workload?.name || "external API client"} → {gateway?.kind || path.channel_label}
+                    </option>
+                  )
+                })}
+              </select>
+              {selectedPath ? (
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-violet-200/70 bg-background/80 px-2 py-1.5 text-[10px] dark:border-violet-500/30">
+                  <span className="inline-flex items-center gap-1 font-semibold text-foreground"><KeyRound className="h-3 w-3" />{readableAccessor(selectedPath.accessor_name, selectedPath.accessor_id, selectedPath.accessor_type)}</span>
+                  <ArrowRight className="h-3 w-3 text-muted-foreground" />
+                  <span className="inline-flex items-center gap-1">{selectedWorkload ? <Server className="h-3 w-3" /> : <Cloud className="h-3 w-3" />}{selectedWorkload?.name || "external API client"}</span>
+                  <ArrowRight className="h-3 w-3 text-muted-foreground" />
+                  <span className="inline-flex items-center gap-1 font-semibold text-violet-800 dark:text-violet-300"><Route className="h-3 w-3" />{selectedGateway?.kind || selectedPath.channel_label}</span>
+                  <span className="text-muted-foreground">· {selectedPath.accessor_provenance} access</span>
+                  {selectedGateway?.route_destination_cidr ? <span className="text-muted-foreground">· route {selectedGateway.route_destination_cidr}</span> : null}
+                  {selectedGateway?.route_table?.id ? <span className="text-muted-foreground">· {selectedGateway.route_table.name || selectedGateway.route_table.id}{selectedGateway.route_table.is_main ? " · main" : ""}</span> : null}
+                </div>
+              ) : null}
             </div>
           )}
 

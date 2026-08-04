@@ -58,6 +58,7 @@ describe("Zoom0 Lateral wiring", () => {
     expect(view).toContain("useAtlasLateral")
     expect(view).toContain("AtlasLateralLensPanel")
     expect(view).toContain("AtlasLateralChainCanvas")
+    expect(read("components/attack-paths-v2/atlas-lateral-flow-map.tsx")).toContain("<ReactFlow")
     expect(shell).toContain("<AtlasLateralView")
     expect(shell).not.toContain("<LateralMovementPanel")
   })
