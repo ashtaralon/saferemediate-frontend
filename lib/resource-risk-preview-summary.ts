@@ -131,8 +131,8 @@ export function previewEvidenceNeeds(safety: SimulateFixSafety): PreviewNeed[] {
   }
   if (reasonCodes.has("CUSTOMER_IN_SHADOW_BOOTSTRAP")) {
     add("shadow-bootstrap", {
-      label: "Safety onboarding is not complete",
-      action: "Complete this account's safety checks.",
+      label: "This environment is preview-only",
+      action: "Cyntro can analyze and simulate changes, but production changes are not enabled.",
     })
   }
 

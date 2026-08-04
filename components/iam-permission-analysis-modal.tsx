@@ -1072,9 +1072,9 @@ export function IAMPermissionAnalysisModal({
 
     if (applyDisabled) {
       toast({
-        title: 'Apply disabled',
+        title: 'Preview-only environment',
         description:
-          'Mutation requires a signed backend plan — Apply is disabled until the mutation boundary ships.',
+          'Cyntro can analyze and simulate this plan, but production changes are not enabled in this environment.',
       })
       return undefined
     }
@@ -2344,7 +2344,7 @@ export function IAMPermissionAnalysisModal({
                   {needs.map((need) => (
                     <li key={need.id} className="text-sm text-slate-800">
                       <div className="font-semibold">{need.label}</div>
-                      <div className="mt-0.5 text-xs text-slate-600"><span className="font-semibold">Next:</span> {need.action}</div>
+                      <div className="mt-0.5 text-xs text-slate-600">{need.action}</div>
                     </li>
                   ))}
                 </ul>
@@ -2884,20 +2884,26 @@ export function IAMPermissionAnalysisModal({
               // signals.
               const primaryReason = safetyContext?.unsafe_reasons?.[0] ?? cfg.sublabel
 
-              // Proposed change numbers — compute once, reuse below.
-              const removalCount = selectedPermissionsToRemove.size > 0
-                ? selectedPermissionsToRemove.size
-                : unusedCount
-              const planCounts = simulationPlanCounts(previewProblem, removalCount, {
+              // The signed plan is the only source of truth for editable
+              // deletion candidates. Gap-analysis groups can be older than
+              // Preview and previously produced the impossible combination
+              // "5 used / 23 protected / 13 deleted" for 27 total.
+              const deletionCandidates = planPermissions ?? []
+              const candidateSet = new Set(deletionCandidates)
+              const selectedForDeletion = deletionCandidates.filter(permission =>
+                selectedPermissionsToRemove.has(permission),
+              )
+              const planCounts = simulationPlanCounts(previewProblem, selectedForDeletion.length, {
                 usedCount,
                 unusedCount,
                 totalCount: totalPermissions,
               })
-              const removeExamples = unusedPermissions
-                .filter(p => selectedPermissionsToRemove.size === 0 || selectedPermissionsToRemove.has(p.permission))
-                .slice(0, 3)
-                .map(p => p.permission)
-              const keepExamples = usedPermissions.slice(0, 3).map(p => p.permission)
+              const manuallyKeptCount = deletionCandidates.length - selectedForDeletion.length
+              const keptCount = planCounts.observedUsedCount + manuallyKeptCount
+              const protectedCount = Math.max(
+                0,
+                planCounts.totalCount - planCounts.observedUsedCount - deletionCandidates.length,
+              )
 
               // Why-paused gates — each is a binary check the operator
               // can act on. Only includes gates that actually apply to
@@ -2976,67 +2982,93 @@ export function IAMPermissionAnalysisModal({
                   </div>
                   )}
 
-                  {/* Proposed change. */}
-                  <div className="p-4 rounded-xl border bg-white" style={{ borderColor: 'var(--border, #e5e7eb)' }}>
-                    <div className="text-[11px] font-semibold uppercase tracking-[0.12em] mb-2" style={{ color: 'var(--muted-foreground, #6b7280)' }}>Proposed change</div>
-                    <div className="text-sm" style={{ color: 'var(--foreground, #111827)' }}>
-                      Remove <strong>{planCounts.removeCount}</strong> permission{planCounts.removeCount === 1 ? '' : 's'}.{' '}
-                      <strong>{planCounts.remainCount}</strong> remain unchanged, including all{' '}
-                      <strong>{planCounts.observedUsedCount}</strong> observed in use.
-                    </div>
-                    {(removeExamples.length > 0 || keepExamples.length > 0) && (
-                      <div className="mt-2 grid grid-cols-2 gap-3 text-xs" style={{ color: 'var(--muted-foreground, #6b7280)' }}>
-                        {removeExamples.length > 0 && (
-                          <div>
-                            <div className="font-semibold mb-1">Examples removed</div>
-                            <div className="space-y-0.5">
-                              {removeExamples.map(p => <div key={`rm-${p}`} className="font-mono truncate">{p}</div>)}
-                              {planCounts.removeCount > removeExamples.length && (
-                                <div>… +{planCounts.removeCount - removeExamples.length} more</div>
-                              )}
-                            </div>
-                          </div>
-                        )}
-                        {keepExamples.length > 0 && (
-                          <div>
-                            <div className="font-semibold mb-1">Examples kept</div>
-                            <div className="space-y-0.5">
-                              {keepExamples.map(p => <div key={`kp-${p}`} className="font-mono truncate">{p}</div>)}
-                              {usedPermissions.length > keepExamples.length && (
-                                <div>… +{usedPermissions.length - keepExamples.length} more</div>
-                              )}
-                            </div>
-                          </div>
-                        )}
+                  <section className="rounded-xl border border-slate-200 bg-white p-4" data-testid="editable-change-plan">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Change plan</div>
+                    <div className="mt-3 grid grid-cols-3 gap-3">
+                      <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+                        <div className="text-2xl font-bold text-emerald-700">{keptCount}</div>
+                        <div className="text-sm font-semibold text-emerald-800">Keep</div>
+                        <div className="mt-1 text-xs text-emerald-700">
+                          {planCounts.observedUsedCount} observed in use
+                          {manuallyKeptCount > 0 ? ` + ${manuallyKeptCount} kept by you` : ''}
+                        </div>
                       </div>
-                    )}
-                    <div className="mt-2 text-xs" style={{ color: 'var(--muted-foreground, #6b7280)' }}>
-                      Modifies role policies in place. Rollback snapshot created before mutation.
+                      <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                        <div className="text-2xl font-bold text-slate-700">{protectedCount}</div>
+                        <div className="text-sm font-semibold text-slate-800">Protected</div>
+                        <div className="mt-1 text-xs text-slate-600">Not eligible for deletion</div>
+                      </div>
+                      <div className="rounded-lg border border-red-200 bg-red-50 p-3">
+                        <div className="text-2xl font-bold text-red-700">{selectedForDeletion.length}</div>
+                        <div className="text-sm font-semibold text-red-800">Delete</div>
+                        <div className="mt-1 text-xs text-red-700">Selected below</div>
+                      </div>
                     </div>
-                  </div>
 
-                  <details
-                    className="rounded-xl border border-slate-200 bg-slate-50 p-4"
-                    data-testid="simulation-technical-details"
-                  >
-                    <summary className="cursor-pointer text-sm font-semibold text-slate-700">
-                      Technical details
-                    </summary>
-                    <p className="mb-3 mt-2 text-xs text-slate-600">
-                      Engine metadata and scoring for audit or troubleshooting.
-                    </p>
-                    <div className="space-y-3">
-                      {renderSafetyVectorDecision()}
-                      {renderConfidenceCard()}
-                      {renderSafetyBreakdown()}
+                    <div className="mt-4 flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <div className="font-semibold text-slate-900">Permissions selected for deletion</div>
+                        <p className="mt-0.5 text-xs text-slate-600">
+                          All deletion candidates are selected by default. Uncheck any permission you want to keep.
+                        </p>
+                      </div>
+                      <div className="flex gap-2 text-xs">
+                        <button
+                          type="button"
+                          className="font-semibold text-red-700 hover:underline"
+                          onClick={() => setSelectedPermissionsToRemove(new Set(deletionCandidates))}
+                        >
+                          Delete all candidates
+                        </button>
+                        <span className="text-slate-300">|</span>
+                        <button
+                          type="button"
+                          className="font-semibold text-slate-700 hover:underline"
+                          onClick={() => {
+                            setSelectedPermissionsToRemove(prev => {
+                              const next = new Set(prev)
+                              for (const permission of candidateSet) next.delete(permission)
+                              return next
+                            })
+                          }}
+                        >
+                          Keep all candidates
+                        </button>
+                      </div>
                     </div>
-                  </details>
+
+                    <div className="mt-3 max-h-64 space-y-1 overflow-y-auto rounded-lg border border-red-200 bg-red-50 p-2">
+                      {deletionCandidates.map(permission => {
+                        const selected = selectedPermissionsToRemove.has(permission)
+                        return (
+                          <label
+                            key={permission}
+                            className={`flex cursor-pointer items-center gap-3 rounded-md border p-2 transition-colors ${selected ? 'border-red-200 bg-white text-red-800' : 'border-slate-200 bg-slate-50 text-slate-700'}`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selected}
+                              onChange={() => togglePermissionSelection(permission)}
+                              className="h-4 w-4 rounded border-red-300 text-red-600 focus:ring-red-500"
+                            />
+                            <span className="min-w-0 flex-1 truncate font-mono text-xs">{permission}</span>
+                            <span className={`text-[10px] font-bold uppercase ${selected ? 'text-red-700' : 'text-emerald-700'}`}>
+                              {selected ? 'Delete' : 'Keep'}
+                            </span>
+                          </label>
+                        )
+                      })}
+                    </div>
+                  </section>
                 </div>
               )
 
             })()}
-
-
+            {/* Legacy confidence-group and dependency panels are intentionally
+                removed from the rendered simulation workflow. They mix an
+                older gap-analysis snapshot with the signed Preview plan and
+                were the source of contradictory 4/5 and 23/9 counts. */}
+            <div className="hidden" aria-hidden="true">
             {/* Permissions to Remove — Grouped by Backend Confidence Engine */}
             <div>
               <div className="flex items-center justify-between mb-3">
@@ -3550,6 +3582,7 @@ export function IAMPermissionAnalysisModal({
                 )}
               </div>
             )}
+            </div>
 
           </div>
 
@@ -3563,6 +3596,7 @@ export function IAMPermissionAnalysisModal({
               ← BACK
             </button>
             <div className="flex items-center gap-4">
+              {!applyDisabled && (<>
               <label className="flex items-center gap-2 cursor-pointer" title="Create a snapshot before making changes so you can rollback if needed">
                 <input
                   type="checkbox"
@@ -3593,6 +3627,7 @@ export function IAMPermissionAnalysisModal({
                 />
                 <span className={`text-sm ${detachManagedPolicies ? 'text-[#ef4444] font-medium' : 'text-[var(--muted-foreground,#9ca3af)]'}`}>Detach ALL</span>
               </label>
+              </>)}
               {(() => {
                 const blocked = shouldBlockRemediation()
                 // Backend remediability gate (api/iam_gap_analysis.py). false ONLY
@@ -3613,15 +3648,21 @@ export function IAMPermissionAnalysisModal({
 
                 if (applyDisabled) {
                   return (
-                    <button
-                      disabled
-                      data-testid="iam-apply-disabled"
-                      className="px-6 py-2.5 bg-gray-400 text-white rounded-lg font-bold cursor-not-allowed flex items-center gap-2"
-                      title="Apply is disabled — mutation requires a signed backend plan"
-                    >
-                      <XCircle className="w-4 h-4" />
-                      Apply (disabled)
-                    </button>
+                    <div className="flex items-center gap-3">
+                      <div className="max-w-sm text-right">
+                        <div className="text-sm font-semibold text-slate-700">Apply unavailable in preview-only mode</div>
+                        <div className="text-xs text-slate-500">You can finalize and review the plan, but this environment cannot change production.</div>
+                      </div>
+                      <button
+                        disabled
+                        data-testid="iam-apply-disabled"
+                        className="px-6 py-2.5 bg-gray-400 text-white rounded-lg font-bold cursor-not-allowed flex items-center gap-2"
+                        title="Production changes are not enabled in this environment"
+                      >
+                        <XCircle className="w-4 h-4" />
+                        Apply unavailable
+                      </button>
+                    </div>
                   )
                 } else if (blocked) {
                   return (
