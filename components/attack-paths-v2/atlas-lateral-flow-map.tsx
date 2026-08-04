@@ -2,6 +2,7 @@
 
 import dynamic from "next/dynamic"
 import { useEffect, useMemo, useState } from "react"
+import { AlertTriangle, CheckCircle2, Scissors, ShieldCheck } from "lucide-react"
 import type {
   NodeType,
   ModeledMoveNode,
@@ -257,6 +258,10 @@ export function AtlasLateralFlowMap({
     [chain, selectedFoothold, jewelName, jewelId, jewelType],
   )
   if (!chain || !architecture) return null
+  const damage = chain.reachable_damage
+  const basisLabel = damage
+    ? `${damage.reachability.verdict} · ${damage.reachability.basis}`
+    : "Damage not evaluated"
 
   return (
     <div className="flex min-h-[640px] flex-col overflow-hidden rounded-xl border border-slate-700 bg-[#0b1828]" data-testid="atlas-interactive-flow-map">
@@ -271,14 +276,66 @@ export function AtlasLateralFlowMap({
               onClick={() => setChainIndex(index)}
               className={`rounded-md border px-2.5 py-1 text-[10px] font-semibold ${index === chainIndex ? "border-red-400 bg-red-500/15 text-red-200" : "border-slate-600 bg-slate-800/60 text-slate-300 hover:border-slate-400"}`}
             >
-              Chain {index + 1} · {item.steps.length} moves
+              #{index + 1} · {item.reachable_damage?.priority_score ?? 0} damage · {item.steps.length} moves
             </button>
           ))}
         </div>
         <div className="font-mono text-[9px] text-slate-400">
-          feasibility {Math.round(chain.feasibility_score * 100)}% · cost {chain.total_cost} · modeled transitions are dashed
+          {damage?.severity ?? "UNKNOWN"} · {basisLabel} · cost {chain.total_cost} · modeled transitions are dashed
         </div>
       </div>
+      {damage ? (
+        <div className="grid gap-2 border-b border-slate-700 bg-[#0d1d2f] p-3 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]" data-testid="atlas-reachable-damage">
+          <section className="rounded-lg border border-slate-700 bg-[#102236] p-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className={`rounded px-2 py-0.5 text-[10px] font-bold ${damage.severity === "CRITICAL" ? "bg-red-500/20 text-red-200" : damage.severity === "HIGH" ? "bg-orange-500/20 text-orange-200" : "bg-amber-500/20 text-amber-200"}`}>
+                {damage.priority_score}/100 · {damage.severity}
+              </span>
+              <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-violet-200">
+                <ShieldCheck className="h-3 w-3" /> {basisLabel}
+              </span>
+              {damage.narration?.verified ? (
+                <span className="inline-flex items-center gap-1 text-[10px] text-emerald-300">
+                  <CheckCircle2 className="h-3 w-3" /> explanation verified
+                </span>
+              ) : null}
+            </div>
+            <p className="mt-2 text-[12px] font-medium leading-5 text-slate-100">
+              {damage.narration?.executive ?? damage.deterministic_summary}
+            </p>
+            {damage.operations.length ? (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {damage.operations.map((operation) => (
+                  <span key={`${operation.action}:${operation.resource_scope}`} className="rounded border border-red-400/30 bg-red-500/10 px-2 py-1 font-mono text-[9px] text-red-200" title={operation.effect}>
+                    {operation.action} · {operation.damage_type}
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-2 text-[10px] text-amber-200">The route is modeled, but no concrete target operation is established by this catalog.</p>
+            )}
+            {damage.reachability.missing_evidence.length ? (
+              <p className="mt-2 flex items-start gap-1.5 text-[10px] text-amber-200">
+                <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+                Unverified evidence: {damage.reachability.missing_evidence.join(" · ")}
+              </p>
+            ) : null}
+          </section>
+          <section className="rounded-lg border border-emerald-500/25 bg-emerald-500/5 p-3">
+            <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-emerald-300">
+              <Scissors className="h-3.5 w-3.5" /> Recommended cut for this chain
+            </div>
+            <p className="mt-2 text-[11px] leading-5 text-slate-200">
+              {damage.choke_point?.intent ?? "Resolve the missing evidence before selecting a remediation."}
+            </p>
+            {damage.choke_point ? (
+              <p className="mt-1 text-[9px] text-slate-400">
+                Breaks move {damage.choke_point.step_index + 1}: {damage.choke_point.primitive_id.replaceAll("_", " ")}
+              </p>
+            ) : null}
+          </section>
+        </div>
+      ) : null}
       <div className="min-h-[580px] flex-1">
         <TrafficFlowMap
           key={`atlas-tfm-${chain.chain_id}`}
