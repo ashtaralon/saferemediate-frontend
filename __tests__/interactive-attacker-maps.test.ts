@@ -90,10 +90,16 @@ describe("interactive attacker maps", () => {
       join(ROOT, "components/attack-paths-v2/atlas-lateral-flow-map.tsx"),
       "utf8",
     )
+    const trafficMap = readFileSync(
+      join(ROOT, "components/dependency-map/traffic-flow-map.tsx"),
+      "utf8",
+    )
 
     expect(lateral).toContain("<TrafficFlowMap")
     expect(lateral).toContain("architectureOverride={architecture}")
     expect(lateral).toContain('titleOverride="Lateral Movement Map"')
+    expect(trafficMap).toContain('data-modeled-flow-motion="true"')
+    expect(trafficMap).toContain("forceModeledMotion={!!architecture.modeledMoves?.length")
     expect(zoom0).toContain("overflow-y-auto overscroll-contain")
     expect(zoom0).toContain('data-testid="zoom0-exfil-interactive-map"')
     expect(zoom0).toContain("architectureOverride={exfilArchitecture}")
