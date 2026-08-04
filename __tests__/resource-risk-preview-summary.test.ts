@@ -102,7 +102,7 @@ describe('Resource Risk Preview plain-language summary', () => {
 
     expect(needs.map((need) => need.label)).toEqual([
       'This role is shared by 3 systems',
-      'Safety onboarding is not complete',
+      'This environment is preview-only',
     ])
     expect(needs[0].action).toContain('split the role')
   })
