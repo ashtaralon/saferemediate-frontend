@@ -787,7 +787,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         // A timed-out forced refresh may still finish server-side and populate
         // the baseline cache. Its retry must consume that result, not repeat
         // force_refresh=true and deliberately launch another fresh analysis.
-        const requestUrl = attempt > 0 && previousStatus === 504 ? baseUrl : url
+        const requestUrl: string = attempt > 0 && previousStatus === 504 ? baseUrl : url
         response = await fetch(requestUrl, { cache: 'no-store', signal })
         if (response.ok) break
         const body = await response.json().catch(() => ({}))
