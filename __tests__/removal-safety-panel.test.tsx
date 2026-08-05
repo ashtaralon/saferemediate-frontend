@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest"
 import {
   buildCanonicalPermissionView,
   RemovalSafetyPanel,
+  resolveDefaultPermissionSelection,
   type RemovalSafetyBundle,
 } from "@/components/iam-permission-analysis-modal"
 
@@ -139,5 +140,49 @@ describe("RemovalSafetyPanel", () => {
     expect(view.protected.map(item => item.permission)).toEqual(["ssm:PutInventory"])
     expect(view.usedCount).toBe(2)
     expect(view.totalCount).toBe(3)
+
+    expect(resolveDefaultPermissionSelection(bundle, [
+      "ssm:PutInventory",
+    ])).toEqual([])
+  })
+
+  it("accepts a signed plan only when every planned action is a displayed candidate", () => {
+    const bundle: RemovalSafetyBundle = {
+      scorer_version: "2.0.0-shadow",
+      plan_score: 80,
+      scored_candidate_count: 1,
+      used_count: 0,
+      protected_count: 1,
+      insufficient_evidence_count: 0,
+      shadow_only: true,
+      groups: [{ band: "REVIEW", count: 1, permissions: ["iam:ListRoles"] }],
+      permissions: [
+        {
+          permission: "iam:ListRoles",
+          disposition: "REMOVAL_CANDIDATE",
+          score: 80,
+          band: "REVIEW",
+          consequence_class: "ROUTINE",
+          reason: "No use observed.",
+          limiting_factors: [],
+        },
+        {
+          permission: "sts:AssumeRole",
+          disposition: "PROTECTED",
+          score: null,
+          band: null,
+          consequence_class: "ROUTINE",
+          reason: "Protected baseline.",
+          limiting_factors: [],
+        },
+      ],
+    }
+
+    expect(resolveDefaultPermissionSelection(bundle, ["iam:ListRoles"]))
+      .toEqual(["iam:ListRoles"])
+    expect(resolveDefaultPermissionSelection(bundle, [
+      "iam:ListRoles",
+      "sts:AssumeRole",
+    ])).toEqual(["iam:ListRoles"])
   })
 })
