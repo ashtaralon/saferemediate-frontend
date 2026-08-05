@@ -11061,7 +11061,12 @@ export default function TrafficFlowMap({
   // Manual refresh: bump epoch so depMapUrl changes → hook useEffect
   // fires a fresh fetch with cache: 'no-store' (busts BOTH localStorage
   // and the proxy edge cache, matching pre-migration isManualRefresh=true).
+  // Also clear the enrichment de-duplication key. A manual retry must issue
+  // IAM/SG batch requests again even when the architecture itself is
+  // unchanged; otherwise the "Click Refresh Data to retry" affordance is a
+  // no-op after a transient backend failure.
   const handleManualRefresh = useCallback(() => {
+    lastBatchEnrichmentKeyRef.current = null;
     setManualBustEpoch(e => e + 1);
   }, []);
 
