@@ -162,28 +162,110 @@ function insightFromRecommendation(rec: Record<string, unknown>): Insight {
   }
 }
 
+type ExfiltrationAssessment = {
+  state?: string
+  severity?: string
+  summary?: string
+  observation_window_days?: number
+  configuration?: Record<string, unknown>
+  observed?: Record<string, unknown>
+  data_access?: Record<string, unknown>
+  missing_evidence?: unknown[]
+}
+
+function exfiltrationInsight(raw: unknown): Insight | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null
+
+  const assessment = raw as ExfiltrationAssessment
+  const state = String(assessment.state ?? "CANNOT_VERIFY")
+  const days = Number(assessment.observation_window_days ?? 0)
+  const configuration = assessment.configuration ?? {}
+  const observed = assessment.observed ?? {}
+  const dataAccess = assessment.data_access ?? {}
+  const storeCount = Number(dataAccess.graph_visible_store_count ?? 0)
+  const publicDestinationCount = Number(observed.public_destination_count ?? 0)
+  const tags: string[] = []
+
+  if (configuration.public_ip) tags.push(`Public IP ${configuration.public_ip}`)
+  if (storeCount > 0) tags.push(`${storeCount} graph-reachable data store${storeCount === 1 ? "" : "s"}`)
+
+  if (state === "OBSERVED_PATH") {
+    if (publicDestinationCount > 0) {
+      tags.push(`${publicDestinationCount} public destination${publicDestinationCount === 1 ? "" : "s"} observed`)
+    }
+    return {
+      severity: "critical",
+      title: storeCount > 0 ? "Observed outbound data path" : "Observed internet egress",
+      detail: String(assessment.summary ?? "Internet-bound traffic was observed from this workload."),
+      tags,
+    }
+  }
+
+  if (state === "CONFIGURED_PATH") {
+    if (days > 0) tags.push(`No internet traffic observed in ${days} days`)
+    return {
+      severity: "warning",
+      title: storeCount > 0 ? "Potential data-exfiltration path" : "Unused public egress is configured",
+      detail: String(
+        assessment.summary ??
+          "The graph shows an outbound internet path. No internet traffic was observed in the selected window.",
+      ),
+      tags,
+    }
+  }
+
+  if (state === "BLOCKED_PATH") {
+    return {
+      severity: "good",
+      title: "Direct internet exfiltration path is blocked",
+      detail: String(assessment.summary ?? "The graph shows no configured direct internet egress path."),
+      tags,
+    }
+  }
+
+  const missing = Array.isArray(assessment.missing_evidence)
+    ? assessment.missing_evidence.map(String).filter(Boolean)
+    : []
+  if (missing.length > 0) tags.push(`Missing: ${missing.join(", ")}`)
+  return {
+    severity: "info",
+    title: "Outbound path cannot be verified",
+    detail: String(
+      assessment.summary ??
+        "Cyntro does not have enough graph or traffic evidence to determine whether this workload can reach the internet.",
+    ),
+    tags,
+  }
+}
+
 /** EC2 / generic inspector `current` block. */
 export function insightsFromCurrentSection(section: Record<string, unknown>): Insight[] {
   const insights: Insight[] = []
   const network = section.network as Record<string, unknown> | undefined
   if (network) {
+    const exfiltration = exfiltrationInsight(network.exfiltration_assessment)
     const parts: string[] = []
     if (network.vpc_id) parts.push(`VPC ${network.vpc_id}`)
     if (network.subnet_id) parts.push(`subnet ${network.subnet_id}`)
     if (network.private_ip) parts.push(`private IP ${network.private_ip}`)
     if (network.public_ip) {
       parts.push(`public IP ${network.public_ip}`)
-      insights.push({
-        severity: "warning",
-        title: "Instance has a public IP",
-        detail: "Confirm security groups restrict inbound access appropriately.",
-      })
+      if (exfiltration) {
+        insights.push(exfiltration)
+      } else {
+        insights.push({
+          severity: "info",
+          title: "Public IP is assigned",
+          detail: "Cyntro has not yet evaluated this workload's outbound path from graph and traffic evidence.",
+        })
+      }
     } else if (parts.length) {
       insights.push({
         severity: "good",
         title: "Private network placement",
         detail: parts.join(" · "),
       })
+      if (exfiltration) insights.push(exfiltration)
     }
   }
 
