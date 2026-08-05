@@ -4,6 +4,7 @@ import { cleanup, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it } from "vitest"
 
 import {
+  buildCanonicalPermissionView,
   RemovalSafetyPanel,
   type RemovalSafetyBundle,
 } from "@/components/iam-permission-analysis-modal"
@@ -62,5 +63,81 @@ describe("RemovalSafetyPanel", () => {
     expect(screen.getByText("92")).toBeTruthy()
     expect(screen.queryByText(/supporting confidence/i)).toBeNull()
     expect(screen.queryByText(/SafetyVector decision/i)).toBeNull()
+  })
+
+  it("uses the simulation partition for every tab instead of legacy gap classifications", () => {
+    const bundle: RemovalSafetyBundle = {
+      scorer_version: "2.0.0-shadow",
+      plan_score: null,
+      scored_candidate_count: 0,
+      used_count: 2,
+      protected_count: 1,
+      insufficient_evidence_count: 0,
+      shadow_only: true,
+      groups: [],
+      permissions: [
+        {
+          permission: "ec2:DescribeInstances",
+          disposition: "USED",
+          score: null,
+          band: null,
+          consequence_class: "ROUTINE",
+          reason: "Observed in use.",
+          limiting_factors: [],
+        },
+        {
+          permission: "s3:GetObject",
+          disposition: "USED",
+          score: null,
+          band: null,
+          consequence_class: "ROUTINE",
+          reason: "Observed in use.",
+          limiting_factors: [],
+        },
+        {
+          permission: "ssm:PutInventory",
+          disposition: "PROTECTED",
+          score: null,
+          band: null,
+          consequence_class: "OPERATIONAL",
+          reason: "Active managed-instance baseline.",
+          limiting_factors: [],
+        },
+      ],
+    }
+    // Deliberately contradictory legacy response: it calls the two used
+    // actions unused/removable, exactly like the production screenshots.
+    const view = buildCanonicalPermissionView([
+      {
+        permission: "ec2:DescribeInstances",
+        status: "UNUSED",
+        risk_level: "MEDIUM",
+        recommendation: "Remove",
+        usage_count: 0,
+      },
+      {
+        permission: "s3:GetObject",
+        status: "UNUSED",
+        risk_level: "MEDIUM",
+        recommendation: "Remove",
+        usage_count: 0,
+      },
+      {
+        permission: "ssm:PutInventory",
+        status: "UNUSED",
+        risk_level: "MEDIUM",
+        recommendation: "Keep",
+        usage_count: 0,
+      },
+    ], bundle)
+
+    expect(view.used.map(item => item.permission)).toEqual([
+      "ec2:DescribeInstances",
+      "s3:GetObject",
+    ])
+    expect(view.removable).toEqual([])
+    expect(view.protected.map(item => item.permission)).toEqual(["ssm:PutInventory"])
+    expect(view.usedCount).toBe(2)
+    expect(view.totalCount).toBe(3)
   })
 })

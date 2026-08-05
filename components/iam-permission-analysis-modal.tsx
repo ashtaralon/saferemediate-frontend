@@ -52,13 +52,16 @@ import type {
   IamGapAnalysis,
 } from "@/components/iam-lp/types"
 
-interface PermissionAnalysis {
+export interface PermissionAnalysis {
   permission: string
   status: "USED" | "UNUSED"
   risk_level: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW"
   recommendation: string
   usage_count: number | null
   last_used?: string
+  removal_score?: number | null
+  removal_band?: "STRONG" | "REVIEW" | "LOW" | null
+  removal_reason?: string
 }
 
 interface PermissionRemovalSafety {
@@ -81,6 +84,82 @@ export interface RemovalSafetyBundle {
   groups: Array<{ band: "STRONG" | "REVIEW" | "LOW" | "CANNOT_ASSESS"; count: number; permissions: string[] }>
   permissions: PermissionRemovalSafety[]
   shadow_only: boolean
+}
+
+export interface CanonicalPermissionView {
+  used: PermissionAnalysis[]
+  removable: PermissionAnalysis[]
+  review: PermissionAnalysis[]
+  protected: PermissionAnalysis[]
+  totalCount: number
+  usedCount: number
+  unusedCount: number
+}
+
+/**
+ * Build every tab from the same simulate-fix snapshot.
+ *
+ * Gap analysis remains useful for presentation metadata (usage counts, risk
+ * labels), but it must never reclassify a permission after simulate-fix has
+ * returned the authoritative action-level disposition. This was the source of
+ * Summary showing 27 protected while Permissions showed 2 removable/25
+ * protected for the exact same role and modal session.
+ */
+export function buildCanonicalPermissionView(
+  legacyPermissions: PermissionAnalysis[],
+  removalSafety: RemovalSafetyBundle | null,
+): CanonicalPermissionView {
+  if (!removalSafety) {
+    const used = legacyPermissions.filter(item => item.status === "USED")
+    const removable = legacyPermissions.filter(item => item.status === "UNUSED")
+    return {
+      used,
+      removable,
+      review: [],
+      protected: [],
+      totalCount: legacyPermissions.length,
+      usedCount: used.length,
+      unusedCount: removable.length,
+    }
+  }
+
+  const legacyByPermission = new Map(
+    legacyPermissions.map(item => [item.permission.toLowerCase(), item]),
+  )
+  const materialize = (item: PermissionRemovalSafety): PermissionAnalysis => {
+    const legacy = legacyByPermission.get(item.permission.toLowerCase())
+    return {
+      permission: item.permission,
+      status: item.disposition === "USED" ? "USED" : "UNUSED",
+      risk_level: legacy?.risk_level ?? "MEDIUM",
+      recommendation: item.reason,
+      usage_count: legacy?.usage_count ?? null,
+      last_used: legacy?.last_used,
+      removal_score: item.score,
+      removal_band: item.band,
+      removal_reason: item.reason,
+    }
+  }
+  const select = (disposition: PermissionRemovalSafety["disposition"]) =>
+    removalSafety.permissions
+      .filter(item => item.disposition === disposition)
+      .map(materialize)
+
+  const used = select("USED")
+  const removable = select("REMOVAL_CANDIDATE")
+  const review = select("INSUFFICIENT_EVIDENCE")
+  const protectedPermissions = select("PROTECTED")
+  const totalCount = removalSafety.permissions.length
+
+  return {
+    used,
+    removable,
+    review,
+    protected: protectedPermissions,
+    totalCount,
+    usedCount: used.length,
+    unusedCount: totalCount - used.length,
+  }
 }
 
 export function RemovalSafetyPanel({ bundle }: { bundle: RemovalSafetyBundle }) {
@@ -772,18 +851,34 @@ export function IAMPermissionAnalysisModal({
     setApprovalActionState(buildApprovalActionInitialState())
   }
 
-  // Prefer the backend-signed plan's frozen set as the default selection once
-  // it arrives: it IS the SAFE_TO_STAGE set, and defaulting to it means the
-  // plan_token can be forwarded on Apply (exact-change binding active by
-  // default). Only when the role is remediable. Deps are [planPermissions,
-  // gapData] — neither changes on a manual row toggle, so this does not stomp
-  // the operator's customized selection mid-session (it re-runs only on load /
-  // refetch). Falls back to the gap-analysis default from fetchGapAnalysis when
-  // there is no plan (older backend, or nothing safely removable).
+  // One selection source for the entire modal. A signed plan wins; otherwise
+  // use exactly the REMOVAL_CANDIDATE actions from the same simulate-fix
+  // snapshot rendered by Summary and Permissions. Never initialize from the
+  // legacy gap-analysis classifications: the two requests can resolve in
+  // either order and previously made the selected count jump from 0 to 2.
   useEffect(() => {
-    if (!planPermissions || !gapData || gapData.is_remediable === false) return
-    setSelectedPermissionsToRemove(new Set(planPermissions))
-  }, [planPermissions, gapData])
+    if (!gapData || safetyLoading) return
+    if (gapData.is_remediable === false) {
+      setSelectedPermissionsToRemove(new Set())
+      return
+    }
+    if (planPermissions) {
+      setSelectedPermissionsToRemove(new Set(planPermissions))
+      return
+    }
+    if (removalSafety) {
+      setSelectedPermissionsToRemove(new Set(
+        removalSafety.permissions
+          .filter(item => item.disposition === "REMOVAL_CANDIDATE")
+          .map(item => item.permission),
+      ))
+      return
+    }
+    // Backward-compatible fallback only when simulate-fix returned no v2
+    // bundle. The UI labels this legacy state separately and Apply remains
+    // governed by the normal remediability gate.
+    setSelectedPermissionsToRemove(new Set(gapData.unused_permissions))
+  }, [planPermissions, removalSafety, gapData, safetyLoading])
 
   const fetchSafetyContext = async (): Promise<SimulateFixSafety | null> => {
     setSafetyLoading(true)
@@ -1005,25 +1100,6 @@ export function IAMPermissionAnalysisModal({
       })
       
       setGapData(mappedData)
-      // Honor the backend remediability contract. When the role is explicitly
-      // NOT remediable — no policy data, or usage was never measured
-      // (data_confidence UNKNOWN / reason 'usage_not_computed') — select nothing.
-      // Pre-checking a removal set on evidence we don't have is exactly the
-      // "not observed ≠ safe to remove" fabrication; the mutation gate below
-      // renders a "sync usage" CTA instead of Apply. (Old backends omit the
-      // field → undefined !== false → unchanged default behavior.)
-      if (mappedData.is_remediable === false) {
-        setSelectedPermissionsToRemove(new Set())
-      } else {
-        // Initialize unused permissions as selected by default, excluding protected/warn/reserved.
-        const excludedPerms = new Set(
-          (mappedData.confidence_groups?.groups ?? [])
-            .filter(g => g.protected || g.action === 'protected' || g.action === 'warn_before_removing' || g.action === 'reserved')
-            .flatMap(g => g.permissions.map(p => p.permission))
-        )
-        const unusedPermsSet = new Set(mappedData.unused_permissions.filter(p => !excludedPerms.has(p)))
-        setSelectedPermissionsToRemove(unusedPermsSet)
-      }
 
       // Containment (P0-A): do NOT auto-enable managed-policy detach here.
       // The trigger condition (empty permission list but unused_count > 0) is
@@ -2370,13 +2446,28 @@ export function IAMPermissionAnalysisModal({
   const overallRisk = gapData?.summary?.overall_risk ?? 'UNKNOWN'
   const cloudtrailEvents = gapData?.summary?.cloudtrail_events ?? 0
 
-  const usedPermissions = (gapData?.permissions_analysis ?? []).filter(p => p.status === 'USED')
-  const unusedPermissions = (gapData?.permissions_analysis ?? []).filter(p => p.status === 'UNUSED')
+  const permissionView = buildCanonicalPermissionView(
+    gapData?.permissions_analysis ?? [],
+    removalSafety,
+  )
+  const usedPermissions = permissionView.used
+  const unusedPermissions = [
+    ...permissionView.removable,
+    ...permissionView.review,
+    ...permissionView.protected,
+  ]
 
-  // Backend summary counts are authoritative — permission lists are supplementary detail
-  const usedCount = gapData?.summary?.used_count ?? usedPermissions.length
-  const unusedCount = gapData?.summary?.unused_count ?? unusedPermissions.length
-  const totalPermissions = gapData?.summary?.total_permissions ?? (usedCount + unusedCount)
+  // Once simulate-fix resolves, its immutable per-action partition is the
+  // count source for every tab. Gap-analysis counts are only a legacy fallback.
+  const usedCount = removalSafety
+    ? permissionView.usedCount
+    : gapData?.summary?.used_count ?? usedPermissions.length
+  const unusedCount = removalSafety
+    ? permissionView.unusedCount
+    : gapData?.summary?.unused_count ?? unusedPermissions.length
+  const totalPermissions = removalSafety
+    ? permissionView.totalCount
+    : gapData?.summary?.total_permissions ?? (usedCount + unusedCount)
   const lpScore = gapData?.summary?.lp_score ?? (totalPermissions > 0 ? Math.round((usedCount / totalPermissions) * 100) : 0)
   const hasPermissionLists = usedPermissions.length > 0 || unusedPermissions.length > 0
 
@@ -2401,10 +2492,16 @@ export function IAMPermissionAnalysisModal({
       .filter(g => g.warn || g.action === 'warn_before_removing')
       .flatMap(g => g.permissions.map(p => p.permission))
   )
-  const removablePerms = unusedPermissions.filter(p => !protectedSet.has(p.permission) && !warnSet.has(p.permission))
-  const warnPerms = unusedPermissions.filter(p => warnSet.has(p.permission))
-  const protectedPerms = unusedPermissions.filter(p => protectedSet.has(p.permission))
-  const removableCount = unusedCount - protectedPerms.length - warnPerms.length
+  const removablePerms = removalSafety
+    ? permissionView.removable
+    : unusedPermissions.filter(p => !protectedSet.has(p.permission) && !warnSet.has(p.permission))
+  const warnPerms = removalSafety
+    ? permissionView.review
+    : unusedPermissions.filter(p => warnSet.has(p.permission))
+  const protectedPerms = removalSafety
+    ? permissionView.protected
+    : unusedPermissions.filter(p => protectedSet.has(p.permission))
+  const removableCount = removablePerms.length
 
   const renderChangeStatusCard = () => {
     if (!safetyContext) return null
@@ -4043,7 +4140,16 @@ export function IAMPermissionAnalysisModal({
             ))}
           </div>
 
-          {analysisTab === 'summary' && iamLpGap && (
+          {(analysisTab === 'summary' || analysisTab === 'permissions') && safetyLoading && (
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-5" data-testid="permission-snapshot-loading">
+              <div className="flex items-center gap-2 text-sm font-medium text-slate-600">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading one verified permission snapshot…
+              </div>
+            </div>
+          )}
+
+          {analysisTab === 'summary' && !safetyLoading && iamLpGap && (
             <div className="space-y-3">
               {removalSafety && <RemovalSafetyPanel bundle={removalSafety} />}
               {!removalSafety && (
@@ -4501,7 +4607,7 @@ export function IAMPermissionAnalysisModal({
               the duplicate prose. */}
 
           {/* Permission Usage Breakdown - Only show if not remediated */}
-          {analysisTab === 'permissions' && totalPermissions > 0 && (
+          {analysisTab === 'permissions' && !safetyLoading && totalPermissions > 0 && (
           <div className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="rounded-lg border border-[var(--border,#e5e7eb)] bg-white p-4">
@@ -4585,6 +4691,11 @@ export function IAMPermissionAnalysisModal({
                             <div key={i} className="flex items-center gap-2 text-sm" title={damageLabel}>
                               <X className="w-4 h-4 flex-shrink-0" style={{ color: tierColor }} />
                               <span className="font-mono text-[var(--foreground,#374151)] truncate">{perm.permission}</span>
+                              {perm.removal_score !== null && perm.removal_score !== undefined && (
+                                <span className="ml-auto shrink-0 rounded bg-white px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-[#b91c1c] border border-[#fecaca]">
+                                  {perm.removal_score}/100
+                                </span>
+                              )}
                               {damageTier && damageTier !== 'READ' && (
                                 <span className="text-[10px] px-1.5 py-0.5 rounded font-medium flex-shrink-0" style={{
                                   color: tierColor,
