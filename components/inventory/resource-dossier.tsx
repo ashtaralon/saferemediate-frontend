@@ -33,6 +33,13 @@ interface Connection {
   egress_path: "public" | "vpce" | null
   via_vpce_id: string | null
   via_igw: boolean
+  transport_evidence_type?: "configured" | null
+  transport_evidence_source?: string | null
+  transport_coverage_state?: "complete" | "partial" | "unknown" | null
+  transport_route_kinds?: string[]
+  transport_route_table_ids?: string[]
+  transport_subnet_ids?: string[]
+  transport_last_seen?: string | null
 }
 
 interface ResourceDossierData {
@@ -112,6 +119,16 @@ function EvidenceBadge({ value }: { value: EvidenceType }) {
       ? "border-blue-200 bg-blue-50 text-blue-700"
       : "border-amber-200 bg-amber-50 text-amber-700"
   return <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${style}`}>{value}</span>
+}
+
+function transportLabel(connection: Connection) {
+  if (connection.transport_evidence_source !== "structural_s3_egress") return "Transport unknown"
+  if (connection.egress_path === "vpce") return `Private via ${connection.via_vpce_id ?? "VPC endpoint"}`
+  if (connection.egress_path === "public") {
+    const kinds = connection.transport_route_kinds?.join(" / ")
+    return kinds ? `Public AWS endpoint via ${kinds}` : "Public AWS endpoint route"
+  }
+  return "Transport unknown"
 }
 
 async function readJson(response: Response) {
@@ -291,7 +308,7 @@ export function ResourceDossier({
           <div className="space-y-4">
             <section className="rounded-xl border border-slate-200 bg-white p-4">
               <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Operational answer</div>
-              <h3 className="mt-2 text-lg font-bold text-slate-950">{data.dependencies.summary.consumer_count} actual consumer{data.dependencies.summary.consumer_count === 1 ? "" : "s"} depend on this resource.</h3>
+              <h3 className="mt-2 text-lg font-bold text-slate-950">{data.dependencies.summary.consumer_count} actual consumer{data.dependencies.summary.consumer_count === 1 ? "" : "s"} {data.dependencies.summary.consumer_count === 1 ? "depends" : "depend"} on this resource.</h3>
               <p className="mt-1 text-sm leading-6 text-slate-600">Use this view before encryption, endpoint, certificate, token, or policy changes to identify the systems that must move together.</p>
             </section>
             <section className="grid grid-cols-3 gap-3">
@@ -307,7 +324,7 @@ export function ResourceDossier({
 
         {data && tab === "dependencies" ? (
           <div className="space-y-4">
-            <div className="rounded-lg border border-teal-200 bg-teal-50 p-3 text-sm text-teal-900"><strong>Focus:</strong> observed links are behavioral proof. Configured and inferred links remain visible but never qualify a change as safe.</div>
+            <div className="rounded-lg border border-teal-200 bg-teal-50 p-3 text-sm text-teal-900"><strong>Two proofs:</strong> behavior shows who used the resource. Route configuration shows how that consumer reaches it. Cyntro requires both before a network change can proceed.</div>
             {[...data.dependencies.upstream, ...data.dependencies.downstream].length === 0 ? <div className="rounded-xl border border-slate-200 bg-white p-5 text-sm text-slate-500">No dependency links are available for this resource.</div> : null}
             {[...data.dependencies.upstream, ...data.dependencies.downstream].map((connection, index) => (
               <article key={`${connection.direction}-${connection.resource_id}-${index}`} className="rounded-xl border border-slate-200 bg-white p-4">
@@ -316,7 +333,11 @@ export function ResourceDossier({
                   <div className="min-w-0 flex-1"><div className="truncate font-semibold text-slate-950">{connection.resource_name}</div><div className="mt-0.5 text-xs text-slate-500">{connection.resource_type} | {connection.protocol ?? "relationship"}</div></div>
                   <EvidenceBadge value={connection.evidence_type} />
                 </div>
-                <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-600"><span>Path: {connection.egress_path ?? (connection.via_igw ? "unknown (IGW route present)" : "unknown")}</span><span>Last seen: {connection.last_seen ? new Date(connection.last_seen).toLocaleDateString() : "not recorded"}</span><span>VPC: {connection.vpc_id ?? "regional / unknown"}</span><span>Subnets: {connection.subnet_ids.length || "unknown"}</span></div>
+                <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-600"><span>Behavior: {connection.evidence_type === "observed" ? "Observed" : connection.evidence_type}</span><span>Last used: {connection.last_seen ? new Date(connection.last_seen).toLocaleDateString() : "not recorded"}</span><span>VPC: {connection.vpc_id ?? "regional / unknown"}</span><span>Source subnets: {connection.subnet_ids.length || "unknown"}</span></div>
+                <div className={`mt-3 rounded-lg border px-3 py-2 text-xs ${connection.transport_coverage_state === "complete" ? "border-blue-200 bg-blue-50 text-blue-900" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
+                  <div className="flex items-center justify-between gap-3"><strong>{transportLabel(connection)}</strong><span className="shrink-0 uppercase tracking-wide">{connection.transport_coverage_state === "complete" ? "Route proven" : "Proof missing"}</span></div>
+                  {connection.transport_route_table_ids?.length ? <div className="mt-1 font-mono text-[10px] opacity-75">{connection.transport_route_table_ids.join(", ")} · {connection.transport_subnet_ids?.length ?? 0} subnet{connection.transport_subnet_ids?.length === 1 ? "" : "s"}</div> : null}
+                </div>
               </article>
             ))}
           </div>
