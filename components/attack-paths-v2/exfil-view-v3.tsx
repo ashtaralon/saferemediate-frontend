@@ -49,6 +49,10 @@ import type {
   ExfilGateNode,
   TrafficFlow,
 } from "@/components/dependency-map/traffic-flow-map"
+import {
+  ExfiltrationSimulationSummary,
+  type ExfiltrationSimulation,
+} from "./exfiltration-simulation-summary"
 import type { CanvasEdge, CanvasRelationshipType } from "@/lib/types/attack-canvas"
 
 // Heavy renderer — lazy-load so the v2 page doesn't pull the full dep-map
@@ -411,6 +415,7 @@ export interface ExfilPath {
   evidence_item?: ExfilEvidenceItem
   destination_id?: string
   destination_label?: string
+  exfiltration_simulation?: ExfiltrationSimulation
 }
 
 interface ExfilDestination {
@@ -603,6 +608,11 @@ export function ExfilViewV3({
         keystones={data.keystones ?? []}
       />
       <EvidenceLaneStrip data={data} />
+      {selectedPath?.exfiltration_simulation ? (
+        <div className="px-4 pt-3">
+          <ExfiltrationSimulationSummary simulation={selectedPath.exfiltration_simulation} />
+        </div>
+      ) : null}
       <div className="relative" style={{ minHeight: "640px" }}>
         <TrafficFlowMap
           systemName={systemName}
