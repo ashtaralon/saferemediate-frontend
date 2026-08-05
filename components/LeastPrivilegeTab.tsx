@@ -3554,7 +3554,10 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         roleName={selectedIAMRole || ''}
         findingId={selectedIAMFindingId || undefined}
         systemName={systemName}
-        applyDisabled={LP_MUTATION_APPLY_DISABLED}
+        // This IAM flow is protected by the backend's verified signed-plan
+        // token and exact permission-set check. Keep sibling LP mutation
+        // surfaces behind LP_MUTATION_APPLY_DISABLED until they ship the same boundary.
+        applyDisabled={false}
         onApplyFix={(data) => {
           console.log('[IAM] Apply fix requested:', data)
         }}
