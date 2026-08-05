@@ -4046,60 +4046,64 @@ export function IAMPermissionAnalysisModal({
           {analysisTab === 'summary' && iamLpGap && (
             <div className="space-y-3">
               {removalSafety && <RemovalSafetyPanel bundle={removalSafety} />}
-              <VerdictHero
-                gap={iamLpGap}
-                split={iamLpSplit}
-                execution={iamLpExecution}
-                verdictBucket={verdictBucket}
-                blockedReason={blockedReason}
-              />
-              <EvidenceTable gap={iamLpGap} />
-              <ChangeSetCard
-                gap={iamLpGap}
-                split={iamLpSplit}
-                expanded={iamLpChangeSetExpanded}
-                onToggleExpanded={() => setIamLpChangeSetExpanded((value) => !value)}
-              />
-              <ExecutionPlan
-                gap={iamLpGap}
-                split={iamLpSplit}
-                execution={iamLpExecution}
-                verdictBucket={verdictBucket}
-                blockedReason={blockedReason}
-                onSimulate={handleIAMLpSimulate}
-                onApplySafeSet={handleIAMLpApplySafeSet}
-                onRequestApproval={handleIAMLpRequestApproval}
-                onRollback={async () => {
-                  if (roleName) {
-                    await fetch("/api/proxy/iam-roles/rollback", {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ role_name: roleName }),
-                    }).then(async (response) => {
-                      const result = await response.json().catch(() => ({}))
-                      if (!response.ok) {
-                        throw new Error(result.detail || result.error || "Rollback failed")
+              {!removalSafety && (
+                <>
+                  <VerdictHero
+                    gap={iamLpGap}
+                    split={iamLpSplit}
+                    execution={iamLpExecution}
+                    verdictBucket={verdictBucket}
+                    blockedReason={blockedReason}
+                  />
+                  <EvidenceTable gap={iamLpGap} />
+                  <ChangeSetCard
+                    gap={iamLpGap}
+                    split={iamLpSplit}
+                    expanded={iamLpChangeSetExpanded}
+                    onToggleExpanded={() => setIamLpChangeSetExpanded((value) => !value)}
+                  />
+                  <ExecutionPlan
+                    gap={iamLpGap}
+                    split={iamLpSplit}
+                    execution={iamLpExecution}
+                    verdictBucket={verdictBucket}
+                    blockedReason={blockedReason}
+                    onSimulate={handleIAMLpSimulate}
+                    onApplySafeSet={handleIAMLpApplySafeSet}
+                    onRequestApproval={handleIAMLpRequestApproval}
+                    onRollback={async () => {
+                      if (roleName) {
+                        await fetch("/api/proxy/iam-roles/rollback", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ role_name: roleName }),
+                        }).then(async (response) => {
+                          const result = await response.json().catch(() => ({}))
+                          if (!response.ok) {
+                            throw new Error(result.detail || result.error || "Rollback failed")
+                          }
+                          toast({
+                            title: "Rollback Successful",
+                            description: `Restored ${roleName} to pre-remediation state.`,
+                          })
+                          await fetchGapAnalysis(true)
+                          await fetchApprovalRequests()
+                          onRollbackSuccess?.(roleName)
+                          dispatchRemediationChanged({
+                            action: "rollback",
+                            resource_type: "IAMRole",
+                            resource_id: roleName,
+                          })
+                        })
                       }
-                      toast({
-                        title: "Rollback Successful",
-                        description: `Restored ${roleName} to pre-remediation state.`,
-                      })
-                      await fetchGapAnalysis(true)
-                      await fetchApprovalRequests()
-                      onRollbackSuccess?.(roleName)
-                      dispatchRemediationChanged({
-                        action: "rollback",
-                        resource_type: "IAMRole",
-                        resource_id: roleName,
-                      })
-                    })
-                  }
-                }}
-                onApproveRequest={handleIAMLpApproveRequest}
-                onRejectRequest={handleIAMLpRejectRequest}
-                onExecuteApprovedRequest={handleIAMLpExecuteApprovedRequest}
-              />
-              <AdvancedDrawer gap={iamLpGap} />
+                    }}
+                    onApproveRequest={handleIAMLpApproveRequest}
+                    onRejectRequest={handleIAMLpRejectRequest}
+                    onExecuteApprovedRequest={handleIAMLpExecuteApprovedRequest}
+                  />
+                  <AdvancedDrawer gap={iamLpGap} />
+                </>
+              )}
             </div>
           )}
 
