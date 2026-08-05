@@ -20,27 +20,27 @@ import type {
 // Headline colorway. Mapped to the existing severity palette so the badge
 // reads consistently with the rest of the canvas.
 const HEADLINE_STYLE: Record<HeadlineTag, { badge: string; ring: string }> = {
-  CATASTROPHIC:        { badge: "bg-red-500/15 text-red-200 border-red-500/40",       ring: "ring-red-500/30" },
-  TAKEOVER:            { badge: "bg-violet-500/15 text-violet-200 border-violet-500/40", ring: "ring-violet-500/30" },
-  "SECRET LEAK":       { badge: "bg-orange-500/15 text-orange-200 border-orange-500/40", ring: "ring-orange-500/30" },
-  "DATA BREACH":       { badge: "bg-amber-500/15 text-amber-200 border-amber-500/40",   ring: "ring-amber-500/30" },
-  "DESTRUCTIVE ACCESS": { badge: "bg-red-500/15 text-red-200 border-red-500/40",       ring: "ring-red-500/30" },
-  "EVASION ENABLED":   { badge: "bg-rose-500/15 text-rose-200 border-rose-500/40",     ring: "ring-rose-500/30" },
-  EXPOSURE:            { badge: "bg-slate-500/15 text-slate-200 border-slate-500/40",  ring: "ring-slate-500/30" },
-  "CONFIGURED RISK":   { badge: "bg-slate-700/30 text-slate-400 border-slate-600/40",  ring: "ring-slate-600/30" },
+  CATASTROPHIC:        { badge: "bg-red-50 text-red-800 border-red-300 dark:bg-red-500/15 dark:text-red-200 dark:border-red-500/40", ring: "ring-red-500/30" },
+  TAKEOVER:            { badge: "bg-violet-50 text-violet-800 border-violet-300 dark:bg-violet-500/15 dark:text-violet-200 dark:border-violet-500/40", ring: "ring-violet-500/30" },
+  "SECRET LEAK":       { badge: "bg-orange-50 text-orange-800 border-orange-300 dark:bg-orange-500/15 dark:text-orange-200 dark:border-orange-500/40", ring: "ring-orange-500/30" },
+  "DATA BREACH":       { badge: "bg-amber-50 text-amber-900 border-amber-300 dark:bg-amber-500/15 dark:text-amber-200 dark:border-amber-500/40", ring: "ring-amber-500/30" },
+  "DESTRUCTIVE ACCESS": { badge: "bg-red-50 text-red-800 border-red-300 dark:bg-red-500/15 dark:text-red-200 dark:border-red-500/40", ring: "ring-red-500/30" },
+  "EVASION ENABLED":   { badge: "bg-rose-50 text-rose-800 border-rose-300 dark:bg-rose-500/15 dark:text-rose-200 dark:border-rose-500/40", ring: "ring-rose-500/30" },
+  EXPOSURE:            { badge: "bg-slate-100 text-slate-800 border-slate-300 dark:bg-slate-500/15 dark:text-slate-200 dark:border-slate-500/40", ring: "ring-slate-500/30" },
+  "CONFIGURED RISK":   { badge: "bg-slate-100 text-slate-700 border-slate-300 dark:bg-slate-700/30 dark:text-slate-300 dark:border-slate-600/40", ring: "ring-slate-600/30" },
 }
 
 const BUCKET_STYLE: Record<ImpactBucket, string> = {
-  READ:             "bg-slate-700/30 text-slate-300 border-slate-600/40",
-  WRITE:            "bg-blue-500/15 text-blue-200 border-blue-500/40",
-  EXFIL:            "bg-amber-500/15 text-amber-200 border-amber-500/40",
-  DESTRUCTIVE:      "bg-red-500/15 text-red-200 border-red-500/40",
-  PRIV_ESC:         "bg-violet-500/15 text-violet-200 border-violet-500/40",
-  PERSISTENCE:      "bg-fuchsia-500/15 text-fuchsia-200 border-fuchsia-500/40",
-  EVASION:          "bg-rose-500/15 text-rose-200 border-rose-500/40",
-  SECRET_EXPOSURE:  "bg-orange-500/15 text-orange-200 border-orange-500/40",
-  EXECUTION:        "bg-teal-500/15 text-teal-200 border-teal-500/40",
-  UNKNOWN:          "bg-slate-700/30 text-slate-400 border-slate-700/40",
+  READ:             "bg-slate-100 text-slate-800 border-slate-300 dark:bg-slate-700/30 dark:text-slate-300 dark:border-slate-600/40",
+  WRITE:            "bg-blue-50 text-blue-800 border-blue-300 dark:bg-blue-500/15 dark:text-blue-200 dark:border-blue-500/40",
+  EXFIL:            "bg-amber-50 text-amber-900 border-amber-300 dark:bg-amber-500/15 dark:text-amber-200 dark:border-amber-500/40",
+  DESTRUCTIVE:      "bg-red-50 text-red-800 border-red-300 dark:bg-red-500/15 dark:text-red-200 dark:border-red-500/40",
+  PRIV_ESC:         "bg-violet-50 text-violet-800 border-violet-300 dark:bg-violet-500/15 dark:text-violet-200 dark:border-violet-500/40",
+  PERSISTENCE:      "bg-fuchsia-50 text-fuchsia-800 border-fuchsia-300 dark:bg-fuchsia-500/15 dark:text-fuchsia-200 dark:border-fuchsia-500/40",
+  EVASION:          "bg-rose-50 text-rose-800 border-rose-300 dark:bg-rose-500/15 dark:text-rose-200 dark:border-rose-500/40",
+  SECRET_EXPOSURE:  "bg-orange-50 text-orange-800 border-orange-300 dark:bg-orange-500/15 dark:text-orange-200 dark:border-orange-500/40",
+  EXECUTION:        "bg-teal-50 text-teal-800 border-teal-300 dark:bg-teal-500/15 dark:text-teal-200 dark:border-teal-500/40",
+  UNKNOWN:          "bg-slate-100 text-slate-700 border-slate-300 dark:bg-slate-700/30 dark:text-slate-400 dark:border-slate-700/40",
 }
 
 const CONFIDENCE_DOT: Record<ImpactConfidence, string> = {
