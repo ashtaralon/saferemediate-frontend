@@ -29,6 +29,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { ResourceConfigTab } from "@/components/inventory/resource-config-tab"
+import { ResourceDossier } from "@/components/inventory/resource-dossier"
 import { ServiceTypeBadge, getServiceMeta } from "@/lib/service-type"
 
 interface ServiceNode {
@@ -705,7 +706,7 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
             className="pl-10"
           />
         </div>
-        <Button variant="outline" onClick={fetchServices} className="gap-2 bg-transparent">
+        <Button variant="outline" onClick={() => void fetchServices()} className="gap-2 bg-transparent">
           <RefreshCw className="w-4 h-4" />
           Refresh
         </Button>
@@ -912,6 +913,18 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
 
       {/* Service Detail Panel */}
       {selectedService && (
+        <ResourceDossier
+          resourceId={selectedService.id || selectedService.name}
+          resourceName={selectedService.name}
+          resourceType={selectedService.type}
+          systemName={systemName}
+          vpcId={selectedService.vpcId}
+          region={selectedService.region}
+          onClose={() => setSelectedService(null)}
+        />
+      )}
+
+      {selectedService && ((selectedService: ServiceNode) => false && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setSelectedService(null)}>
           <div 
             className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[80vh] overflow-auto m-4"
@@ -1006,7 +1019,7 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
                 </div>
                 <div>
                   <div className="text-sm text-[var(--muted-foreground,#6b7280)]">Last Seen</div>
-                  <div className="font-medium">{selectedService.lastSeen ? formatDate(selectedService.lastSeen) : "—"}</div>
+                  <div className="font-medium">{selectedService.lastSeen ? formatDate(selectedService.lastSeen!) : "—"}</div>
                 </div>
                 {selectedService.attachedPolicies !== undefined && (
                   <div>
@@ -1312,7 +1325,7 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
             </div>
           </div>
         </div>
-      )}
+      ))(selectedService)}
     </div>
   )
 }

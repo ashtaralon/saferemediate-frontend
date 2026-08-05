@@ -273,6 +273,9 @@ export function depMapEdgesToTrafficEdges(
       external_destinations: null,
       via_vpce_id: null,
       via_vpce_service_name: null,
+      evidence_type: e.last_seen ? "observed" : "inferred",
+      evidence_source: e.last_seen ? "behavioral_graph" : "dependency_graph",
+      coverage_state: e.last_seen ? "complete" : "unknown",
     })
   }
   return out
@@ -319,6 +322,9 @@ export function attackPathEdgesToTrafficEdges(
         via_vpce_id: vpce?.id ?? null,
         via_vpce_service_name: vpce?.service_name ?? null,
         flow_highlight: "attack_path",
+        evidence_type: "inferred",
+        evidence_source: "materialized_attack_path",
+        coverage_state: "unknown",
       })
     }
   }
@@ -358,7 +364,7 @@ export function selectEstateFlowEdges(opts: {
       materializationAvailable,
     )
     if (attack.length > 0) return attack
-    return filterVisibleTrafficEdges(topologyTrafficEdges, visible)
+    return []
   }
 
   const visibleTopo = filterVisibleTrafficEdges(topologyTrafficEdges, visible)

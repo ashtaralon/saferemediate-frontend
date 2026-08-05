@@ -27,6 +27,31 @@ describe("estate-flow-edges", () => {
     expect(out).toHaveLength(1)
     expect(out[0]?.edge_class).toBe("edge_service")
     expect(out[0]?.target_id).toBe("bucket-b")
+    expect(out[0]?.evidence_type).toBe("inferred")
+    expect(out[0]?.coverage_state).toBe("unknown")
+  })
+
+  it("shows an honest empty attack overlay instead of ordinary traffic", () => {
+    const visible = new Set(["lambda-a", "bucket-b"])
+    const index = new Map([["lambda-a", "lambda-a"], ["bucket-b", "bucket-b"]])
+    const types = new Map([["lambda-a", "Lambda"], ["bucket-b", "S3"]])
+    const ordinary = [{
+      source_id: "lambda-a",
+      target_id: "bucket-b",
+      port: null,
+      protocol: "ACTUAL_S3_ACCESS",
+      last_seen: "2026-08-05T10:00:00Z",
+      edge_class: "edge_service" as const,
+    }]
+    const out = selectEstateFlowEdges({
+      mode: "attack_paths",
+      topologyTrafficEdges: ordinary,
+      attackPaths: [],
+      visible,
+      index,
+      nodeTypeById: types,
+    })
+    expect(out).toEqual([])
   })
 
   it("attack paths only uses IAP path edges, not dep-map re-filter", () => {
