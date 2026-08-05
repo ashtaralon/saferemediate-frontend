@@ -878,6 +878,25 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     ],
   )
 
+  // Clicking a resource turns the existing canvas into a dependency cone
+  // without changing its layout. Three passes capture the useful upstream and
+  // downstream neighborhood while avoiding the unreadable whole-estate fanout.
+  const focusedOverlayEdges = useMemo(() => {
+    if (!selectedNodeId) return overlayEdges
+    const focused = new Set([selectedNodeId])
+    for (let hop = 0; hop < 3; hop += 1) {
+      for (const edge of overlayEdges) {
+        if (focused.has(edge.source_id) || focused.has(edge.target_id)) {
+          focused.add(edge.source_id)
+          focused.add(edge.target_id)
+        }
+      }
+    }
+    return overlayEdges.filter(
+      edge => focused.has(edge.source_id) && focused.has(edge.target_id),
+    )
+  }, [overlayEdges, selectedNodeId])
+
   const attackPathFlowCount = useMemo(
     () =>
       attackPathEdgesToTrafficEdges(
@@ -1164,7 +1183,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
       serverlessSourceNodes={filteredServerlessSource}
       regionalDataSourceNodes={filteredRegionalSource}
       trafficEdges={scopedTrafficEdges}
-      overlayEdges={overlayEdges}
+      overlayEdges={focusedOverlayEdges}
       flowMode={flowMode}
       onFlowModeChange={setFlowMode}
       attackPathFlowCount={attackPathFlowCount}
@@ -1701,7 +1720,14 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
       </footer>
 
       {!mapEnlarged ? (
-        <DetailPanel node={selectedNode} onClose={() => setSelectedNodeId(null)} />
+        <DetailPanel
+          node={selectedNode}
+          systemName={systemName}
+          vpcId={scopedVpc}
+          accountId={selectedAccountId}
+          region={selectedRegionId}
+          onClose={() => setSelectedNodeId(null)}
+        />
       ) : null}
 
       {mapEnlarged ? (
@@ -1873,7 +1899,14 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
           {selectedNode ? (
             <div className="fixed inset-0 z-[210] pointer-events-none">
               <div className="pointer-events-auto">
-                <DetailPanel node={selectedNode} onClose={() => setSelectedNodeId(null)} />
+                <DetailPanel
+                  node={selectedNode}
+                  systemName={systemName}
+                  vpcId={scopedVpc}
+                  accountId={selectedAccountId}
+                  region={selectedRegionId}
+                  onClose={() => setSelectedNodeId(null)}
+                />
               </div>
             </div>
           ) : null}

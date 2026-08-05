@@ -250,6 +250,11 @@ export interface TrafficEdge {
   // color the line by intent.
   protocol: string | null
   last_seen: string | null
+  /** Canonical relationship provenance. Never infer safety from edge existence. */
+  evidence_type?: "observed" | "configured" | "inferred"
+  evidence_source?: string
+  coverage_state?: "complete" | "partial" | "unknown"
+  activity_count?: number | null
   // Phase B-2 additions — older BE deploys may omit these.
   edge_class?: TrafficEdgeClass
   external_destinations?: number | null
