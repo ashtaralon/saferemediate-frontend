@@ -488,10 +488,11 @@ interface IAMPermissionAnalysisModalProps {
 }
 
 export function shouldOfferIamSimulation(
+  hasVerifiedSnapshot: boolean,
   removableCount: number,
   remediatedAt?: string | null,
 ): boolean {
-  return removableCount > 0 && !remediatedAt
+  return hasVerifiedSnapshot && removableCount > 0 && !remediatedAt
 }
 
 // Service role analysis from backend (trust policy based)
@@ -4176,62 +4177,20 @@ export function IAMPermissionAnalysisModal({
             <div className="space-y-3">
               {removalSafety && <RemovalSafetyPanel bundle={removalSafety} />}
               {!removalSafety && (
-                <>
-                  <VerdictHero
-                    gap={iamLpGap}
-                    split={iamLpSplit}
-                    execution={iamLpExecution}
-                    verdictBucket={verdictBucket}
-                    blockedReason={blockedReason}
-                  />
-                  <EvidenceTable gap={iamLpGap} />
-                  <ChangeSetCard
-                    gap={iamLpGap}
-                    split={iamLpSplit}
-                    expanded={iamLpChangeSetExpanded}
-                    onToggleExpanded={() => setIamLpChangeSetExpanded((value) => !value)}
-                  />
-                  <ExecutionPlan
-                    gap={iamLpGap}
-                    split={iamLpSplit}
-                    execution={iamLpExecution}
-                    verdictBucket={verdictBucket}
-                    blockedReason={blockedReason}
-                    onSimulate={handleIAMLpSimulate}
-                    onApplySafeSet={handleIAMLpApplySafeSet}
-                    onRequestApproval={handleIAMLpRequestApproval}
-                    onRollback={async () => {
-                      if (roleName) {
-                        await fetch("/api/proxy/iam-roles/rollback", {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({ role_name: roleName }),
-                        }).then(async (response) => {
-                          const result = await response.json().catch(() => ({}))
-                          if (!response.ok) {
-                            throw new Error(result.detail || result.error || "Rollback failed")
-                          }
-                          toast({
-                            title: "Rollback Successful",
-                            description: `Restored ${roleName} to pre-remediation state.`,
-                          })
-                          await fetchGapAnalysis(true)
-                          await fetchApprovalRequests()
-                          onRollbackSuccess?.(roleName)
-                          dispatchRemediationChanged({
-                            action: "rollback",
-                            resource_type: "IAMRole",
-                            resource_id: roleName,
-                          })
-                        })
-                      }
-                    }}
-                    onApproveRequest={handleIAMLpApproveRequest}
-                    onRejectRequest={handleIAMLpRejectRequest}
-                    onExecuteApprovedRequest={handleIAMLpExecuteApprovedRequest}
-                  />
-                  <AdvancedDrawer gap={iamLpGap} />
-                </>
+                <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-950">
+                  <p className="font-semibold">Removal safety is temporarily unavailable</p>
+                  <p className="mt-1 text-sm">
+                    Cyntro will not recommend or enable a permission change until the verified
+                    permission snapshot loads.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => { void fetchSafetyContext() }}
+                    className="mt-3 rounded-md border border-amber-400 bg-white px-3 py-1.5 text-sm font-medium hover:bg-amber-100"
+                  >
+                    Retry verified snapshot
+                  </button>
+                </div>
               )}
             </div>
           )}
@@ -5081,7 +5040,7 @@ export function IAMPermissionAnalysisModal({
           >
             Close
           </button>
-          {shouldOfferIamSimulation(removableCount, gapData?.remediated_at) && <button
+          {shouldOfferIamSimulation(Boolean(removalSafety), removableCount, gapData?.remediated_at) && <button
             onClick={async () => {
               setSimulating(true)
               try {

@@ -15,9 +15,10 @@ afterEach(cleanup)
 
 describe("IAM simulation availability", () => {
   it("offers simulation only for an unremediated role with removal candidates", () => {
-    expect(shouldOfferIamSimulation(10)).toBe(true)
-    expect(shouldOfferIamSimulation(0)).toBe(false)
-    expect(shouldOfferIamSimulation(10, "2026-08-05T10:00:00Z")).toBe(false)
+    expect(shouldOfferIamSimulation(true, 10)).toBe(true)
+    expect(shouldOfferIamSimulation(true, 0)).toBe(false)
+    expect(shouldOfferIamSimulation(false, 27)).toBe(false)
+    expect(shouldOfferIamSimulation(true, 10, "2026-08-05T10:00:00Z")).toBe(false)
   })
 })
 
