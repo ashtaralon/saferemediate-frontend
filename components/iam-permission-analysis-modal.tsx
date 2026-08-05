@@ -88,7 +88,7 @@ export function RemovalSafetyPanel({ bundle }: { bundle: RemovalSafetyBundle }) 
   const styles: Record<string, { label: string; bg: string; border: string; text: string }> = {
     STRONG: { label: "Strong evidence · 90–99", bg: "#f0fdf4", border: "#bbf7d0", text: "#166534" },
     REVIEW: { label: "Review · 75–89", bg: "#fffbeb", border: "#fde68a", text: "#92400e" },
-    LOW: { label: "Low confidence · 60–74", bg: "#fff7ed", border: "#fed7aa", text: "#9a3412" },
+    LOW: { label: "Low evidence · 0–74", bg: "#fff7ed", border: "#fed7aa", text: "#9a3412" },
     CANNOT_ASSESS: { label: "Cannot assess yet", bg: "#f8fafc", border: "#cbd5e1", text: "#475569" },
   }
 
