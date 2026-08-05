@@ -487,6 +487,13 @@ interface IAMPermissionAnalysisModalProps {
   applyDisabled?: boolean
 }
 
+export function shouldOfferIamSimulation(
+  removableCount: number,
+  remediatedAt?: string | null,
+): boolean {
+  return removableCount > 0 && !remediatedAt
+}
+
 // Service role analysis from backend (trust policy based)
 interface BackendServiceRoleAnalysis {
   is_service_role: boolean
@@ -5074,7 +5081,7 @@ export function IAMPermissionAnalysisModal({
           >
             Close
           </button>
-          {!iamLpGap && !gapData?.remediated_at && <button
+          {shouldOfferIamSimulation(removableCount, gapData?.remediated_at) && <button
             onClick={async () => {
               setSimulating(true)
               try {

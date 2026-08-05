@@ -7,10 +7,19 @@ import {
   buildCanonicalPermissionView,
   RemovalSafetyPanel,
   resolveDefaultPermissionSelection,
+  shouldOfferIamSimulation,
   type RemovalSafetyBundle,
 } from "@/components/iam-permission-analysis-modal"
 
 afterEach(cleanup)
+
+describe("IAM simulation availability", () => {
+  it("offers simulation only for an unremediated role with removal candidates", () => {
+    expect(shouldOfferIamSimulation(10)).toBe(true)
+    expect(shouldOfferIamSimulation(0)).toBe(false)
+    expect(shouldOfferIamSimulation(10, "2026-08-05T10:00:00Z")).toBe(false)
+  })
+})
 
 describe("RemovalSafetyPanel", () => {
   it("states remove, used, protected, and unassessed counts without a composite confidence claim", () => {
