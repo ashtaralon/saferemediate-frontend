@@ -162,6 +162,20 @@ export function buildCanonicalPermissionView(
   }
 }
 
+export function resolveDefaultPermissionSelection(
+  removalSafety: RemovalSafetyBundle,
+  planPermissions: string[] | null,
+): string[] {
+  const candidates = removalSafety.permissions
+    .filter(item => item.disposition === "REMOVAL_CANDIDATE")
+    .map(item => item.permission)
+  const candidateKeys = new Set(candidates.map(permission => permission.toLowerCase()))
+  const planIsSafeSubset = !!planPermissions && planPermissions.every(
+    permission => candidateKeys.has(permission.toLowerCase()),
+  )
+  return planIsSafeSubset ? planPermissions : candidates
+}
+
 export function RemovalSafetyPanel({ bundle }: { bundle: RemovalSafetyBundle }) {
   const byPermission = new Map(bundle.permissions.map(item => [item.permission, item]))
   const styles: Record<string, { label: string; bg: string; border: string; text: string }> = {
@@ -862,16 +876,18 @@ export function IAMPermissionAnalysisModal({
       setSelectedPermissionsToRemove(new Set())
       return
     }
-    if (planPermissions) {
-      setSelectedPermissionsToRemove(new Set(planPermissions))
+    if (removalSafety) {
+      // Defense in depth: a stale/legacy signed plan must never select an
+      // action the displayed scorer marks USED, PROTECTED, or unassessed.
+      // When the sets disagree we select only displayed candidates; the token
+      // equality check in Apply then also prevents forwarding the stale plan.
+      setSelectedPermissionsToRemove(new Set(
+        resolveDefaultPermissionSelection(removalSafety, planPermissions),
+      ))
       return
     }
-    if (removalSafety) {
-      setSelectedPermissionsToRemove(new Set(
-        removalSafety.permissions
-          .filter(item => item.disposition === "REMOVAL_CANDIDATE")
-          .map(item => item.permission),
-      ))
+    if (planPermissions) {
+      setSelectedPermissionsToRemove(new Set(planPermissions))
       return
     }
     // Backward-compatible fallback only when simulate-fix returned no v2
