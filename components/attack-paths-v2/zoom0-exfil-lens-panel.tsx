@@ -7,6 +7,7 @@
 
 import { ArrowRight, Cloud, KeyRound, Loader2, Network, Route, Server } from "lucide-react"
 import type { ExfilPayloadWithCoverage } from "./use-zoom0-exfil"
+import { ExfiltrationSimulationSummary } from "./exfiltration-simulation-summary"
 
 function readableAccessor(name: string, id: string, type: string): string {
   const value = name || id
@@ -130,6 +131,12 @@ export function Zoom0ExfilLensPanel({
                   {selectedGateway?.route_destination_cidr ? <span className="text-muted-foreground">· route {selectedGateway.route_destination_cidr}</span> : null}
                   {selectedGateway?.route_table?.id ? <span className="text-muted-foreground">· {selectedGateway.route_table.name || selectedGateway.route_table.id}{selectedGateway.route_table.is_main ? " · main" : ""}</span> : null}
                 </div>
+              ) : null}
+              {selectedPath?.exfiltration_simulation ? (
+                <ExfiltrationSimulationSummary
+                  simulation={selectedPath.exfiltration_simulation}
+                  compact
+                />
               ) : null}
             </div>
           )}
