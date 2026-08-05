@@ -356,6 +356,8 @@ export interface TopologyRiskResponse {
   out_of_scope_workloads?: OutOfScopeWorkloads
   error?: string
   fromStaleCache?: boolean
+  from_snapshot?: boolean
+  snapshot_age_seconds?: number
   /** Wave D proxy computing envelope — not a finished topology-risk payload. */
   status?: "computing" | string
   staleReason?: string
