@@ -3,9 +3,9 @@
 /**
  * Topology v0.2 — Estate view, reusable + system-scoped.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react"
 import dynamic from "next/dynamic"
-import { ChevronDown, ChevronUp, Maximize2, Minimize2, ZoomIn, ZoomOut, Scan, SlidersHorizontal } from "lucide-react"
+import { Check, ChevronDown, ChevronUp, LoaderCircle, Maximize2, Minimize2, ZoomIn, ZoomOut, Scan, SlidersHorizontal } from "lucide-react"
 import { isTrustEnvelope } from "@/components/trust/trust-envelope-badge"
 import { clearCachedFetch, useCachedFetch } from "@/lib/use-cached-fetch"
 import { HeadlineStrip } from "@/components/topology-v0-2/headline-strip"
@@ -62,6 +62,7 @@ const REGION_STORAGE_PREFIX = "topology-region:"
 const AZ_STORAGE_PREFIX = "topology-hidden-az:"
 /** Full-width estate shell — no centered max-width cap stealing horizontal space. */
 const ESTATE_SHELL_X = "w-full px-3 lg:px-4"
+const subscribeHydration = () => () => {}
 
 // Regional / serverless services (Lambda, S3, DynamoDB, KMS, Secret) have no VPC
 // — they render on the right rails, not the subnet grid. Their SERVICES-chip
@@ -148,6 +149,14 @@ function topologyGridWouldBeEmpty(data: TopologyRiskResponse): boolean {
 }
 
 export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, defaultFlowMode = "all_access", collapseEmptyAzsByDefault = false, defaultToAllVpcs = false }: EstateMapViewProps) {
+  // useCachedFetch can synchronously recover a browser-local last-good map.
+  // Hold the server and first client render on the same loading shell so a
+  // warm-cache reload cannot hydrate server-loading HTML as a finished map.
+  const hasHydrated = useSyncExternalStore(
+    subscribeHydration,
+    () => true,
+    () => false,
+  )
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(() => {
     if (typeof window === "undefined") return null
     return window.localStorage.getItem(`${ACCOUNT_STORAGE_PREFIX}${systemName}`)
@@ -928,11 +937,24 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
   }, [data?.compute_deadline_at, computingStartedAt])
 
   const [nowTick, setNowTick] = useState(() => Date.now())
+  const waitingForFirstTopology =
+    (loading && !data) || (isComputingEnvelope && !data?.system_kpis)
+  const [waitingStartedAt, setWaitingStartedAt] = useState<number | null>(null)
   useEffect(() => {
-    if (!isComputingEnvelope || data?.system_kpis) return
+    if (!waitingForFirstTopology) {
+      setWaitingStartedAt(null)
+      return
+    }
+    setWaitingStartedAt(prev => prev ?? Date.now())
+    setNowTick(Date.now())
     const id = window.setInterval(() => setNowTick(Date.now()), 2000)
     return () => window.clearInterval(id)
-  }, [isComputingEnvelope, data?.system_kpis])
+  }, [waitingForFirstTopology])
+
+  const waitingSeconds = waitingStartedAt == null
+    ? 0
+    : Math.max(0, Math.floor((nowTick - waitingStartedAt) / 1000))
+  const loadingStage = waitingSeconds >= 12 ? 2 : waitingSeconds >= 3 ? 1 : 0
 
   const computingTimedOut =
     computingDeadlineMs != null && nowTick >= computingDeadlineMs
@@ -1030,16 +1052,54 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     )
   }
 
-  if ((loading && !data) || (isComputingEnvelope && !data?.system_kpis)) {
+  if (!hasHydrated || (loading && !data) || (isComputingEnvelope && !data?.system_kpis)) {
     return (
-      <div className={`${outerClass} p-8`} style={{ background: "#F4F6F8", color: "#1A2330" }}>
-        <div className="text-xs uppercase tracking-widest font-semibold mb-2" style={{ color: "#00C2A8" }}>
-          Topology v0.2 · Estate
-        </div>
-        <div>
-          {isComputingEnvelope
-            ? `Computing estate map for ${systemName}…`
-            : `Loading topology risk for ${systemName}…`}
+      <div className={`${outerClass} p-6 md:p-10`} style={{ background: "#F4F6F8", color: "#1A2330" }}>
+        <div className="mx-auto max-w-2xl rounded-xl border bg-white p-6 shadow-sm" style={{ borderColor: "#DDE3E8" }}>
+          <div className="flex items-start gap-3">
+            <LoaderCircle className="mt-0.5 h-5 w-5 animate-spin" style={{ color: "#00A991" }} />
+            <div>
+              <div className="text-xs uppercase tracking-widest font-semibold" style={{ color: "#00A991" }}>
+                Building estate map
+              </div>
+              <div className="mt-1 text-lg font-semibold">
+                Preparing {systemName}
+              </div>
+              <div className="mt-1 text-xs" style={{ color: "#5A6B7A" }}>
+                {isComputingEnvelope
+                  ? "A peer is computing the live graph. This view will update automatically."
+                  : "Checking for a last-good snapshot before reading the behavioral graph."}
+              </div>
+            </div>
+          </div>
+          <div className="mt-6 space-y-3" aria-live="polite">
+            {[
+              "Check last-good estate snapshot",
+              "Read behavioral resources and relationships",
+              "Score and assemble the operator view",
+            ].map((label, index) => {
+              const complete = index < loadingStage
+              const active = index === loadingStage
+              return (
+                <div key={label} className="flex items-center gap-3 text-sm">
+                  <span
+                    className="flex h-6 w-6 items-center justify-center rounded-full border"
+                    style={{
+                      borderColor: complete || active ? "#00A991" : "#CBD5E1",
+                      background: complete ? "#E6FBF7" : "#FFFFFF",
+                      color: complete || active ? "#0E8B7A" : "#94A3B8",
+                    }}
+                  >
+                    {complete ? <Check className="h-3.5 w-3.5" /> : active ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : index + 1}
+                  </span>
+                  <span style={{ color: complete || active ? "#1A2330" : "#7A8895" }}>{label}</span>
+                </div>
+              )
+            })}
+          </div>
+          <div className="mt-6 border-t pt-3 text-[11px]" style={{ borderColor: "#E7EBEF", color: "#5A6B7A" }}>
+            Cold refreshes normally complete in under 30 seconds. Cyntro never replaces a last-good map with an incomplete response.
+          </div>
         </div>
       </div>
     )
@@ -1445,6 +1505,10 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
         kpis={data.system_kpis}
         isStale={isStale && !!cachedAt}
         fromStaleCache={data.fromStaleCache}
+        fromSnapshot={data.from_snapshot}
+        snapshotAgeSeconds={data.snapshot_age_seconds}
+        scoredAt={data.scored_at}
+        refreshing={loading || isComputing}
         statsExpanded={statsExpanded}
         onToggleStats={() => setStatsExpanded(v => !v)}
       />
