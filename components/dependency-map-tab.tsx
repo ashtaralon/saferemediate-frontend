@@ -611,7 +611,7 @@ export default function DependencyMapTab({
               }`}
             >
               <Layers className="w-4 h-4" />
-              Risk inventory
+              Estate map
             </button>
             <button
               onClick={() => setActiveView('graph')}
@@ -689,7 +689,7 @@ export default function DependencyMapTab({
               </span>
             ) : activeView === 'estate' ? (
               <span>
-                Estate Map • AWS canonical frame scoped to {systemName} • Live from topology-risk
+                Estate command map • Operations, reliability, security, and ownership • Live from topology-risk
               </span>
             ) : (
               <span>Detailed dependency breakdown of a single resource</span>

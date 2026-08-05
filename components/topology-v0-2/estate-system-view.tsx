@@ -1,183 +1,251 @@
 "use client"
 
-/**
- * Topology v0.2 — Estate SYSTEM view (risk-guided, serverless/managed-first).
- *
- * The default Estate Map. Proves business-system coverage first, then directs
- * attention by reachable damage. Lane order:
- *   1. Crown jewels / sensitive managed services  (what an attacker wants)
- *   2. Workloads that can reach them               (Lambda / EC2 / ECS …)
- *   3. Identity / roles on the path                (IAM rollups, gap-ranked)
- *   4. Internet / entry exposure                   (network-exposed workloads)
- *   5. Network placement                           (VPC/subnet — supporting only)
- *   6. Findings / recommended cuts                 (flagged count → drill-in)
- *
- * Reads the SAME `/api/topology-risk/{system}` response the subnet canvas uses
- * — no new backend. Severity (score tier) and confidence are encoded on two
- * separate channels per the security-UX rule. Empty lanes read honestly.
- */
-import { useMemo } from "react"
+import { useMemo, useState } from "react"
 import {
+  Activity,
   AlertTriangle,
+  ArrowRight,
+  Boxes,
+  Braces,
+  CheckCircle2,
+  CloudCog,
   Database,
   Diamond,
-  Globe,
+  ExternalLink,
+  Eye,
+  Fingerprint,
+  Layers3,
   Map as MapIcon,
-  Network,
-  Scissors,
-  ShieldAlert,
-  Zap,
+  RadioTower,
+  Server,
+  ShieldCheck,
+  Sparkles,
+  Users,
 } from "lucide-react"
-import { createMap } from "./native-map"
 import type { CrownJewelSummary } from "@/components/identity-attack-paths/types"
-import {
-  buildJewelPathIndex,
-  jewelPathMetaForNode,
-  pathCountLabel,
-  type DecisionRoutingSummary,
-  type FindingsSeveritySummary,
-} from "@/components/topology-v0-2/estate-enrichment"
 import type {
-  IamRoleRollup,
-  ScoreTier,
-  TopologyNode,
-  TopologyRiskResponse,
-} from "@/components/topology-v0-2/types"
+  DecisionRoutingSummary,
+  FindingsSeveritySummary,
+} from "./estate-enrichment"
+import {
+  buildEstateCommandModel,
+  isTopologyNodeExposed,
+  type EstateLens,
+  type EstatePlane,
+  type EstatePriority,
+} from "./estate-operations-model"
+import type { IamRoleRollup, TopologyNode, TopologyRiskResponse } from "./types"
 
-const WORKLOAD_TYPES = new Set([
-  "Lambda", "EC2", "ECS", "ECSTask", "ECSCluster", "Fargate", "AutoScalingGroup",
-])
-// Backend's _label_to_type() normalizes ALB/NLB -> "LoadBalancer" before this
-// ever reaches the FE (api/topology_risk.py). Matching the literal "ALB"/"NLB"
-// strings here was dead code — they never appear in node.type. See BE-?? (ALB
-// type-mismatch, found auditing the Risk Inventory lane 2026-06-30).
-const MANAGED_TYPES = new Set([
-  "S3", "DynamoDB", "RDS", "KMSKey", "Secret", "SecretsManagerSecret",
-  "LoadBalancer", "SQS", "StepFunction", "APIGateway", "EventBridge",
-])
-
-const TIER: Record<ScoreTier, { fg: string; bg: string; label: string }> = {
-  WORST: { fg: "#B91C1C", bg: "#FBE9E9", label: "Worst" },
-  HIGH: { fg: "#C2410C", bg: "#FFEAD6", label: "High" },
-  ELEVATED: { fg: "#92500B", bg: "#FCF1D6", label: "Elevated" },
-  QUIET: { fg: "#5A6B7A", bg: "#EDF1F4", label: "Quiet" },
+const COLORS = {
+  ink: "#E8EEF5",
+  muted: "#8FA2B8",
+  line: "#26384E",
+  board: "#07111F",
+  panel: "#0C192A",
+  panelRaised: "#102136",
+  teal: "#2DD4BF",
+  red: "#FB7185",
+  amber: "#FBBF24",
+  blue: "#60A5FA",
+  violet: "#A78BFA",
 }
 
-const INK = "#1A2330"
-const SLATE = "#5A6B7A"
-const HAIR = "#DDE3E8"
-const TEAL = "#00C2A8"
+const LENSES: Array<{
+  id: EstateLens
+  label: string
+  description: string
+  icon: React.ComponentType<{ className?: string }>
+}> = [
+  { id: "operations", label: "Operate", description: "resources and live dependencies", icon: Activity },
+  { id: "reliability", label: "Reliability", description: "placement, resilience, and stale state", icon: ShieldCheck },
+  { id: "security", label: "Security", description: "exposure, privilege, and crown jewels", icon: Fingerprint },
+  { id: "ownership", label: "Ownership", description: "scope, shared boundaries, and consumers", icon: Users },
+]
 
-function scoreVal(n: TopologyNode): number {
-  return n.score?.value ?? -1
-}
-function byScoreDesc(a: TopologyNode, b: TopologyNode): number {
-  return scoreVal(b) - scoreVal(a)
-}
-
-function ConfidenceDots({ node }: { node: TopologyNode }) {
-  const tier = node.score?.confidence?.tier
-  const filled = tier === "FULL" ? 3 : tier === "DEGRADED" ? 2 : tier === "LOW" ? 1 : 0
-  if (!tier) return null
-  return (
-    <span title={`Confidence: ${tier.toLowerCase()}`} className="inline-flex items-center gap-[2px]">
-      {[0, 1, 2].map(i => (
-        <span
-          key={i}
-          style={{
-            width: 5,
-            height: 5,
-            borderRadius: "50%",
-            background: i < filled ? INK : "transparent",
-            border: `1px solid ${i < filled ? INK : "#C2CDD6"}`,
-          }}
-        />
-      ))}
-    </span>
-  )
+const PLANE_STYLE: Record<EstatePlane["id"], { color: string; icon: React.ComponentType<{ className?: string }> }> = {
+  edge: { color: COLORS.blue, icon: RadioTower },
+  runtime: { color: COLORS.teal, icon: Server },
+  data: { color: COLORS.violet, icon: Database },
+  control: { color: COLORS.amber, icon: CloudCog },
 }
 
-function TierBadge({ node }: { node: TopologyNode }) {
-  const t = node.score?.tier
-  if (!t) {
-    return (
-      <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: "#EDF1F4", color: SLATE }}>
-        not scored
-      </span>
-    )
+const PRIORITY_STYLE: Record<EstatePriority["tone"], { color: string; background: string }> = {
+  critical: { color: COLORS.red, background: "rgba(251, 113, 133, 0.08)" },
+  warning: { color: COLORS.amber, background: "rgba(251, 191, 36, 0.08)" },
+  info: { color: COLORS.blue, background: "rgba(96, 165, 250, 0.08)" },
+}
+
+function scoreColor(node: TopologyNode): string {
+  if (node.stale) return "#64748B"
+  if (node.score?.tier === "WORST" || node.score?.tier === "HIGH") return COLORS.red
+  if (node.score?.tier === "ELEVATED") return COLORS.amber
+  return COLORS.teal
+}
+
+function resourceMeta(
+  node: TopologyNode,
+  lens: EstateLens,
+  connections: number,
+  azCount: number,
+): string {
+  if (node.stale) return `stale · ${node.stale.reason}`
+  if (lens === "reliability") {
+    if (azCount > 1) return `${azCount} AZs · ${connections} relationships`
+    if (azCount === 1) return `1 AZ observed · ${connections} relationships`
+    return `${node.subnet_id ? "AZ unknown" : "regional / managed"} · ${connections} relationships`
   }
-  const c = TIER[t]
-  return (
-    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded" style={{ background: c.bg, color: c.fg }}>
-      {c.label}
-    </span>
-  )
+  if (lens === "security") {
+    const flags = [
+      node.is_jewel ? "crown jewel" : null,
+      isTopologyNodeExposed(node) ? "internet path" : null,
+      node.score ? `risk ${node.score.value}` : "unscored",
+    ].filter(Boolean)
+    return flags.join(" · ")
+  }
+  if (lens === "ownership") {
+    const owners = node.owner_systems?.length
+      ? node.owner_systems.join(", ")
+      : node.owner_system_name
+    if (node.is_foreign || owners) return `shared${owners ? ` · ${owners}` : ""}`
+    if ((node.foreign_consumer_system_count ?? 0) > 0) {
+      return `${node.foreign_consumer_system_count} consumer systems`
+    }
+    return node.account_id ? `account ${node.account_id}` : "system scoped"
+  }
+  return `${node.type ?? "Resource"} · ${connections} relationship${connections === 1 ? "" : "s"}`
 }
 
-function Lane({
-  icon,
-  title,
-  subtitle,
-  children,
-}: {
-  icon: React.ReactNode
-  title: string
-  subtitle: string
-  children: React.ReactNode
-}) {
-  return (
-    <section className="mb-5">
-      <div className="flex items-center gap-2 mb-2">
-        <span style={{ color: SLATE }}>{icon}</span>
-        <span className="text-sm font-semibold" style={{ color: INK }}>{title}</span>
-        <span className="text-[11px]" style={{ color: SLATE }}>{subtitle}</span>
-      </div>
-      {children}
-    </section>
-  )
-}
-
-function RiskCard({
+function ResourceRow({
   node,
+  lens,
   selected,
+  connections,
+  azCount,
   onSelect,
-  accent,
-  line2,
-  line3,
 }: {
   node: TopologyNode
+  lens: EstateLens
   selected: boolean
+  connections: number
+  azCount: number
   onSelect: (id: string) => void
-  accent: string
-  line2?: string
-  line3?: React.ReactNode
 }) {
+  const color = scoreColor(node)
   return (
     <button
       type="button"
       onClick={() => onSelect(node.id)}
-      className="text-left rounded-md p-2.5 transition-colors hover:bg-white"
+      className="group w-full text-left px-3 py-2.5 border-b transition-colors last:border-b-0 hover:bg-white/[0.045]"
       style={{
-        background: "#FFFFFF",
-        border: `0.5px solid ${HAIR}`,
-        borderLeft: `3px solid ${accent}`,
-        boxShadow: selected ? `0 0 0 2px ${TEAL}` : undefined,
+        borderColor: COLORS.line,
+        background: selected ? "rgba(45, 212, 191, 0.1)" : "transparent",
+        boxShadow: selected ? `inset 3px 0 0 ${COLORS.teal}` : undefined,
       }}
+      data-testid={`estate-command-resource-${node.id}`}
     >
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-[13px] font-semibold truncate" style={{ color: INK }} title={node.name}>
+      <div className="flex items-center gap-2 min-w-0">
+        <span className="h-2 w-2 rounded-full shrink-0" style={{ background: color, boxShadow: `0 0 10px ${color}70` }} />
+        <span className="text-[12px] font-semibold truncate flex-1" style={{ color: COLORS.ink }} title={node.name}>
           {node.name}
         </span>
-        <TierBadge node={node} />
+        {node.is_jewel ? <Diamond className="h-3.5 w-3.5 shrink-0" style={{ color: COLORS.violet }} /> : null}
+        {node.is_foreign || node.owner_systems?.length ? (
+          <Users className="h-3.5 w-3.5 shrink-0" style={{ color: COLORS.amber }} />
+        ) : null}
+        <ArrowRight className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: COLORS.teal }} />
       </div>
-      {line2 ? (
-        <div className="text-[11px] mt-1 font-mono truncate" style={{ color: SLATE }} title={line2}>
-          {line2}
+      <div className="mt-1 pl-4 text-[10px] leading-snug truncate font-mono" style={{ color: COLORS.muted }}>
+        {resourceMeta(node, lens, connections, azCount)}
+      </div>
+    </button>
+  )
+}
+
+function PlaneColumn({
+  plane,
+  lens,
+  selectedNodeId,
+  onSelectNode,
+  connectionsByNode,
+  azCountByNode,
+}: {
+  plane: EstatePlane
+  lens: EstateLens
+  selectedNodeId: string | null
+  onSelectNode: (id: string) => void
+  connectionsByNode: Map<string, number>
+  azCountByNode: Map<string, number>
+}) {
+  const style = PLANE_STYLE[plane.id]
+  const Icon = style.icon
+  const visible = plane.nodes.slice(0, 8)
+  return (
+    <section className="min-w-[230px] flex-1 rounded-xl overflow-hidden" style={{ border: `1px solid ${COLORS.line}`, background: COLORS.panel }}>
+      <div className="px-3 py-3 border-b" style={{ borderColor: COLORS.line, borderTop: `3px solid ${style.color}` }}>
+        <div className="flex items-center gap-2">
+          <span className="h-7 w-7 rounded-lg inline-flex items-center justify-center" style={{ background: `${style.color}18`, color: style.color }}>
+            <Icon className="h-4 w-4" />
+          </span>
+          <div className="min-w-0">
+            <div className="text-[11px] uppercase tracking-[0.15em] font-bold" style={{ color: COLORS.ink }}>{plane.label}</div>
+            <div className="text-[10px] mt-0.5" style={{ color: COLORS.muted }}>{plane.purpose}</div>
+          </div>
+          <span className="ml-auto text-[11px] font-mono font-semibold" style={{ color: style.color }}>{plane.nodes.length}</span>
+        </div>
+      </div>
+      <div className="min-h-[120px]">
+        {visible.length ? visible.map(node => (
+          <ResourceRow
+            key={node.id}
+            node={node}
+            lens={lens}
+            selected={selectedNodeId === node.id}
+            connections={connectionsByNode.get(node.id) ?? 0}
+            azCount={azCountByNode.get(node.id) ?? 0}
+            onSelect={onSelectNode}
+          />
+        )) : (
+          <div className="px-3 py-8 text-center text-[11px]" style={{ color: COLORS.muted }}>No resources in this plane</div>
+        )}
+      </div>
+      {plane.nodes.length > visible.length ? (
+        <div className="px-3 py-2 text-[10px] font-mono border-t" style={{ color: COLORS.muted, borderColor: COLORS.line }}>
+          + {plane.nodes.length - visible.length} more in scope
         </div>
       ) : null}
-      <div className="flex items-center justify-between gap-2 mt-1">
-        <span className="text-[11px]">{line3}</span>
-        <ConfidenceDots node={node} />
+    </section>
+  )
+}
+
+function Stat({ label, value, detail, tone = COLORS.ink }: { label: string; value: string | number; detail: string; tone?: string }) {
+  return (
+    <div className="min-w-[140px] flex-1 px-4 py-3 border-r last:border-r-0" style={{ borderColor: COLORS.line }}>
+      <div className="text-[9px] uppercase tracking-[0.17em] font-bold" style={{ color: COLORS.muted }}>{label}</div>
+      <div className="text-[22px] font-semibold leading-none mt-2" style={{ color: tone }}>{value}</div>
+      <div className="text-[10px] mt-1.5" style={{ color: COLORS.muted }}>{detail}</div>
+    </div>
+  )
+}
+
+function IdentityRow({ role, onSelect }: { role: IamRoleRollup; onSelect?: (name: string) => void }) {
+  const risky = (role.gap_percentage ?? 0) >= 50
+  return (
+    <button
+      type="button"
+      disabled={!onSelect}
+      onClick={() => onSelect?.(role.name)}
+      className="text-left rounded-lg px-3 py-2.5 min-w-[210px] flex-1 transition-colors enabled:hover:bg-white/[0.045] disabled:cursor-default"
+      style={{ border: `1px solid ${COLORS.line}`, background: COLORS.panelRaised }}
+      data-testid={`estate-command-role-${role.name}`}
+    >
+      <div className="flex items-center gap-2">
+        <Fingerprint className="h-3.5 w-3.5" style={{ color: risky ? COLORS.red : COLORS.teal }} />
+        <span className="text-[11px] font-semibold truncate" style={{ color: COLORS.ink }}>{role.name}</span>
+      </div>
+      <div className="text-[10px] mt-1 font-mono" style={{ color: COLORS.muted }}>
+        {role.gap_percentage != null
+          ? `${Math.round(role.gap_percentage)}% gap · ${role.unused_actions}/${role.allowed_actions} unused`
+          : role.correlation_state === "stale_rollup" ? "usage rollup recomputing" : "correlation pending"}
       </div>
     </button>
   )
@@ -187,6 +255,7 @@ export interface EstateSystemViewProps {
   data: TopologyRiskResponse
   selectedNodeId: string | null
   onSelectNode: (id: string) => void
+  onSelectRole?: (name: string) => void
   onShowNetwork: () => void
   onOpenTrafficMap?: () => void
   iapJewels?: CrownJewelSummary[]
@@ -198,341 +267,224 @@ export function EstateSystemView({
   data,
   selectedNodeId,
   onSelectNode,
+  onSelectRole,
   onShowNetwork,
   onOpenTrafficMap,
-  iapJewels = [],
   findingsSummary = null,
   decisionRouting = null,
 }: EstateSystemViewProps) {
-  const nodes = data.nodes ?? []
-  const roles = data.vpc_topology?.iam_roles ?? []
-  const kpis = data.system_kpis
-
-  const roleByWorkload = useMemo(() => {
-    const m = new Map<string, IamRoleRollup>()
-    for (const r of roles) for (const wid of r.workload_ids ?? []) if (!m.has(wid)) m.set(wid, r)
-    return m
-  }, [roles])
-
-  const jewels = useMemo(() => nodes.filter(n => n.is_jewel && !n.stale).sort(byScoreDesc), [nodes])
-  const managed = useMemo(
-    () => nodes.filter(n => !n.is_jewel && !n.stale && n.type != null && MANAGED_TYPES.has(n.type)).sort(byScoreDesc),
-    [nodes],
-  )
-  const workloads = useMemo(
-    () => nodes.filter(n => !n.stale && n.type != null && WORKLOAD_TYPES.has(n.type)).sort(byScoreDesc),
-    [nodes],
-  )
-  const exposed = useMemo(
-    () =>
-      workloads.filter(n =>
-        (n.score?.contributors ?? []).some(
-          c => (c.signal === "network_exposure" || c.signal === "internet_dependency") && c.value > 0,
-        ),
-      ),
-    [workloads],
-  )
-  const rankedRoles = useMemo(
-    () => [...roles].sort((a, b) => (b.gap_percentage ?? -1) - (a.gap_percentage ?? -1)),
-    [roles],
-  )
-
-  const jewelPathIndex = useMemo(() => buildJewelPathIndex(iapJewels), [iapJewels])
-
-  const computeCount = kpis ? Object.entries(kpis.workloads_by_type ?? {}).reduce((s, [, v]) => s + v, 0) : nodes.length
-  const flagged = kpis?.flagged_count ?? 0
-  const typeSummary = kpis
-    ? Object.entries(kpis.workloads_by_type ?? {})
-        .filter(([, v]) => v > 0)
-        .sort((a, b) => b[1] - a[1])
-        .map(([t, v]) => `${v} ${t}`)
-        .join(" · ")
-    : ""
-
-  const jewelLine = (n: TopologyNode) => {
-    const pathMeta = jewelPathMetaForNode(n, jewelPathIndex)
-    const pathPart = pathMeta ? pathCountLabel(pathMeta) : null
-    const acc = n.observed_source_count
-    const edges = n.observed_edge_count
-    const accessPart =
-      acc != null && acc > 0
-        ? `${acc} sources · ${edges ?? 0} accesses`
-        : "no observed access"
-    if (pathPart && pathPart !== "0 attack paths") {
-      return (
-        <span style={{ color: SLATE }}>
-          {pathPart}
-          {accessPart !== "no observed access" ? ` · ${accessPart}` : ""}
-        </span>
-      )
-    }
-    return <span style={{ color: SLATE }}>{pathPart ?? accessPart}</span>
-  }
-
-  const workloadRoleLine = (n: TopologyNode): string | undefined => {
-    const r = roleByWorkload.get(n.id)
-    if (!r) return undefined
-    if (r.gap_percentage != null) return `${r.name} · ${Math.round(r.gap_percentage)}% gap`
-    if (r.unused_actions > 0 || r.allowed_actions > 0) return `${r.name} · ${r.unused_actions}/${r.allowed_actions} unused`
-    return r.name
-  }
-
-  const jewelLine2 = (n: TopologyNode): string | undefined => {
-    const meta = jewelPathMetaForNode(n, jewelPathIndex)
-    const type = n.type ?? "?"
-    if (meta && !meta.paths_not_computed && (meta.path_count ?? 0) > 0) {
-      return `${type} · ${pathCountLabel(meta)}`
-    }
-    return type
-  }
+  const [lens, setLens] = useState<EstateLens>("operations")
+  const model = useMemo(() => buildEstateCommandModel(data), [data])
+  const posture = model.posture
+  const activeLens = LENSES.find(item => item.id === lens) ?? LENSES[0]
+  const priorities = model.priorities.filter(priority => priority.lenses.includes(lens)).slice(0, 4)
+  const readyCuts = decisionRouting?.by_decision_total
+    ? (decisionRouting.by_decision_total.AUTO_EXECUTE ?? 0) + (decisionRouting.by_decision_total.CANARY_FIRST ?? 0)
+    : null
 
   return (
     <div
-      className="rounded-2xl p-4"
-      style={{ background: "#FFFFFF", border: `0.5px solid ${HAIR}` }}
+      className="rounded-2xl overflow-hidden"
+      style={{ background: COLORS.board, border: `1px solid ${COLORS.line}`, color: COLORS.ink }}
       data-testid="topology-estate-system-view"
     >
-      <div className="mb-4 pb-3 border-b" style={{ borderColor: HAIR }}>
-        <div className="text-[10px] uppercase tracking-[0.18em] font-bold" style={{ color: TEAL }}>
-          Risk inventory — not a diagram
-        </div>
-        <div className="text-[12px] mt-1" style={{ color: SLATE }}>
-          Ranked cards for triage. For the visual topology, open a map below or use the{" "}
-          <span className="font-semibold" style={{ color: INK }}>Traffic map</span> tab.
-        </div>
-        <div className="flex flex-wrap gap-2 mt-3">
-          {onOpenTrafficMap ? (
-            <button
-              type="button"
-              onClick={onOpenTrafficMap}
-              className="inline-flex items-center gap-1.5 rounded-md border px-3 py-2 text-[11px] font-semibold uppercase tracking-wide transition-colors hover:bg-[#F0FDFA]"
-              style={{ borderColor: TEAL, color: "#0E8B7A", background: "#FFFFFF" }}
-              data-testid="topology-open-traffic-map"
-            >
-              <MapIcon className="h-3.5 w-3.5" />
-              Open traffic map
+      <header className="relative px-5 py-5 border-b overflow-hidden" style={{ borderColor: COLORS.line }}>
+        <div
+          className="absolute inset-0 pointer-events-none opacity-30"
+          style={{
+            backgroundImage: "radial-gradient(circle at 1px 1px, #36516f 1px, transparent 0)",
+            backgroundSize: "22px 22px",
+            maskImage: "linear-gradient(to right, black, transparent 75%)",
+          }}
+        />
+        <div className="relative flex flex-col xl:flex-row xl:items-end justify-between gap-4">
+          <div className="max-w-3xl">
+            <div className="inline-flex items-center gap-2 text-[10px] uppercase tracking-[0.19em] font-bold" style={{ color: COLORS.teal }}>
+              <Sparkles className="h-3.5 w-3.5" /> Estate command map
+            </div>
+            <h2 className="text-[22px] md:text-[28px] font-semibold tracking-[-0.025em] mt-2" style={{ color: "#F8FAFC" }}>
+              Understand what runs, what it depends on, and where to act.
+            </h2>
+            <p className="text-[12px] leading-relaxed mt-2 max-w-2xl" style={{ color: COLORS.muted }}>
+              One live operating model for platform engineering, SRE, cloud architecture, and security. Every count and relationship comes from the scoped topology evidence.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {onOpenTrafficMap ? (
+              <button type="button" onClick={onOpenTrafficMap} className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-[11px] font-semibold" style={{ color: COLORS.board, background: COLORS.teal }}>
+                <Activity className="h-3.5 w-3.5" /> Live traffic
+              </button>
+            ) : null}
+            <button type="button" onClick={onShowNetwork} className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-[11px] font-semibold" style={{ color: COLORS.ink, border: `1px solid ${COLORS.line}`, background: COLORS.panel }}>
+              <MapIcon className="h-3.5 w-3.5" /> Network placement
             </button>
-          ) : null}
-          <button
-            type="button"
-            onClick={onShowNetwork}
-            className="inline-flex items-center gap-1.5 rounded-md border px-3 py-2 text-[11px] font-semibold uppercase tracking-wide transition-colors hover:bg-white"
-            style={{ borderColor: "#CBD5E1", color: INK, background: "#FFFFFF" }}
-            data-testid="topology-open-vpc-map"
-          >
-            <Network className="h-3.5 w-3.5" />
-            Open VPC subnet map
-          </button>
+          </div>
         </div>
-      </div>
-      <div className="flex items-center justify-between flex-wrap gap-2 mb-4">
-        <div className="flex items-center gap-3 text-[11px]" style={{ color: SLATE }}>
-          <span><span className="font-semibold" style={{ color: INK }}>{computeCount}</span> compute &amp; data</span>
-          <span><span className="font-semibold" style={{ color: INK }}>{roles.length}</span> roles</span>
-          <span><span className="font-semibold" style={{ color: "#92500B" }}>{jewels.length}</span> crown jewels</span>
-          {flagged > 0 ? (
-            <span className="inline-flex items-center gap-1" style={{ color: "#B91C1C" }}>
-              <AlertTriangle className="h-3 w-3" /> {flagged} flagged
-            </span>
-          ) : null}
-        </div>
-        {typeSummary ? <div className="text-[11px] font-mono" style={{ color: SLATE }}>{typeSummary}</div> : null}
+      </header>
+
+      <div className="flex overflow-x-auto border-b" style={{ borderColor: COLORS.line, background: "#091625" }}>
+        <Stat label="Live estate" value={posture.activeResources} detail={`${posture.relationships} observed relationships`} />
+        <Stat label="Reliability" value={`${posture.availabilityZones} AZ`} detail={`${posture.multiAzResources} multi-AZ · ${posture.singleAzStateful} single-AZ stateful`} tone={posture.singleAzStateful ? COLORS.amber : COLORS.teal} />
+        <Stat label="Exposure" value={posture.exposedResources} detail={`${posture.highRiskResources} high-risk · ${posture.crownJewels} crown jewels`} tone={posture.exposedResources ? COLORS.red : COLORS.teal} />
+        <Stat label="Evidence" value={posture.evidenceCoveragePct == null ? "—" : `${posture.evidenceCoveragePct}%`} detail={`${posture.staleResources} stale · ${posture.degradedEvidence} degraded`} tone={posture.evidenceFresh === false ? COLORS.amber : COLORS.teal} />
+        <Stat label="Scope" value={`${posture.vpcs} VPC${posture.vpcs === 1 ? "" : "s"}`} detail={`${posture.accounts} account${posture.accounts === 1 ? "" : "s"} · ${posture.regions} region${posture.regions === 1 ? "" : "s"}`} />
       </div>
 
-      <Lane
-        icon={<Diamond className="h-4 w-4" />}
-        title="Crown jewels"
-        subtitle="sensitive data an attacker wants — ranked by risk"
-      >
-        {jewels.length === 0 ? (
-          <div className="text-[12px] italic" style={{ color: SLATE }}>No crown jewels tagged in this system.</div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-            {jewels.map(n => (
-              <RiskCard
-                key={n.id}
-                node={n}
-                selected={n.id === selectedNodeId}
-                onSelect={onSelectNode}
-                accent={TIER[n.score?.tier ?? "QUIET"].fg}
-                line2={jewelLine2(n)}
-                line3={jewelLine(n)}
-              />
-            ))}
+      <div className="px-4 md:px-5 py-4 border-b" style={{ borderColor: COLORS.line }}>
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+          <div>
+            <div className="text-[10px] uppercase tracking-[0.16em] font-bold" style={{ color: COLORS.muted }}>Operating lens</div>
+            <div className="text-[11px] mt-1" style={{ color: COLORS.ink }}>{activeLens.description}</div>
           </div>
-        )}
-      </Lane>
-
-      <Lane
-        icon={<Zap className="h-4 w-4" />}
-        title="Workloads"
-        subtitle={`${workloads.length} compute — what runs the business`}
-      >
-        {workloads.length === 0 ? (
-          <div className="text-[12px] italic" style={{ color: SLATE }}>No compute workloads in this system.</div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-            {workloads.slice(0, 12).map(n => (
-              <RiskCard
-                key={n.id}
-                node={n}
-                selected={n.id === selectedNodeId}
-                onSelect={onSelectNode}
-                accent={TIER[n.score?.tier ?? "QUIET"].fg}
-                line2={workloadRoleLine(n)}
-                line3={<span style={{ color: SLATE }}>{n.type}{n.subnet_id ? " · in subnet" : " · serverless"}</span>}
-              />
-            ))}
-          </div>
-        )}
-        {workloads.length > 12 ? (
-          <div className="text-[11px] mt-2" style={{ color: SLATE }}>+ {workloads.length - 12} more workloads</div>
-        ) : null}
-      </Lane>
-
-      <Lane
-        icon={<Database className="h-4 w-4" />}
-        title="Managed services"
-        subtitle="data plane — S3 / DynamoDB / RDS / ALB / KMS"
-      >
-        {managed.length === 0 ? (
-          <div className="text-[12px] italic" style={{ color: SLATE }}>No managed services beyond the crown jewels.</div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-            {managed.slice(0, 9).map(n => (
-              <RiskCard
-                key={n.id}
-                node={n}
-                selected={n.id === selectedNodeId}
-                onSelect={onSelectNode}
-                accent={TIER[n.score?.tier ?? "QUIET"].fg}
-                line2={n.type ?? undefined}
-                line3={jewelLine(n)}
-              />
-            ))}
-          </div>
-        )}
-      </Lane>
-
-      <Lane
-        icon={<ShieldAlert className="h-4 w-4" />}
-        title="Identity on the path"
-        subtitle={`${roles.length} roles — ranked by permission gap`}
-      >
-        {rankedRoles.length === 0 ? (
-          <div className="text-[12px] italic" style={{ color: SLATE }}>No correlated roles for this system.</div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-            {rankedRoles.slice(0, 9).map(r => {
-              const critical = (r.gap_percentage ?? 0) >= 80
+          <div className="inline-flex flex-wrap gap-1.5" role="tablist" aria-label="Estate operating lens">
+            {LENSES.map(item => {
+              const Icon = item.icon
+              const active = lens === item.id
               return (
-                <div
-                  key={r.role_arn ?? r.name}
-                  className="rounded-md p-2.5"
-                  style={{ background: "#FFFFFF", border: `0.5px solid ${HAIR}`, borderLeft: `3px solid ${critical ? "#B91C1C" : SLATE}` }}
+                <button
+                  key={item.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  onClick={() => setLens(item.id)}
+                  className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-[10px] uppercase tracking-[0.1em] font-bold transition-colors"
+                  style={{
+                    color: active ? COLORS.board : COLORS.muted,
+                    background: active ? COLORS.teal : COLORS.panel,
+                    border: `1px solid ${active ? COLORS.teal : COLORS.line}`,
+                  }}
+                  data-testid={`estate-command-lens-${item.id}`}
                 >
-                  <div className="text-[13px] font-semibold truncate" style={{ color: INK }} title={r.name}>{r.name}</div>
-                  <div className="text-[11px] mt-1" style={{ color: SLATE }}>
-                    {r.gap_percentage != null
-                      ? `${Math.round(r.gap_percentage)}% gap · ${r.unused_actions}/${r.allowed_actions} unused`
-                      : r.correlation_state === "stale_rollup"
-                        ? "recomputing · edges prove usage"
-                        : "gap unknown"}
-                    {r.scope_mode ? ` · ${r.scope_mode}` : ""}
-                  </div>
-                </div>
+                  <Icon className="h-3.5 w-3.5" /> {item.label}
+                </button>
               )
             })}
           </div>
-        )}
-      </Lane>
+        </div>
+      </div>
 
-      <Lane
-        icon={<Globe className="h-4 w-4" />}
-        title="Internet exposure"
-        subtitle="workloads with an inbound or egress entry path"
-      >
-        {exposed.length === 0 ? (
-          <div className="text-[12px] italic" style={{ color: SLATE }}>No internet-exposed workloads observed.</div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-            {exposed.slice(0, 6).map(n => (
-              <RiskCard
-                key={n.id}
-                node={n}
-                selected={n.id === selectedNodeId}
-                onSelect={onSelectNode}
-                accent="#C2410C"
-                line2={n.type ?? undefined}
-                line3={<span style={{ color: "#C2410C" }}>entry exposure</span>}
-              />
-            ))}
+      <div className="p-4 md:p-5">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div>
+            <div className="text-[10px] uppercase tracking-[0.16em] font-bold" style={{ color: COLORS.muted }}>Architecture flow</div>
+            <div className="text-[12px] mt-1" style={{ color: COLORS.ink }}>Entry → runtime → state, with regional services and control dependencies alongside.</div>
           </div>
-        )}
-      </Lane>
+          <div className="hidden md:flex items-center gap-3 text-[9px] font-mono" style={{ color: COLORS.muted }}>
+            <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full" style={{ background: COLORS.red }} /> high risk</span>
+            <span className="inline-flex items-center gap-1"><Diamond className="h-3 w-3" style={{ color: COLORS.violet }} /> crown jewel</span>
+            <span className="inline-flex items-center gap-1"><Users className="h-3 w-3" style={{ color: COLORS.amber }} /> shared</span>
+          </div>
+        </div>
 
-      <Lane
-        icon={<Scissors className="h-4 w-4" />}
-        title="Findings & recommended cuts"
-        subtitle="open SecurityFindings — severity and execution readiness"
-      >
-        {findingsSummary?.error ? (
-          <div className="text-[12px] italic" style={{ color: SLATE }}>Findings summary unavailable.</div>
-        ) : findingsSummary && typeof findingsSummary.total === "number" ? (
-          <div className="rounded-md p-3" style={{ background: "#F4F6F8", border: `0.5px solid ${HAIR}` }}>
-            <div className="flex flex-wrap gap-3 text-[11px]">
-              <span><span className="font-semibold" style={{ color: INK }}>{findingsSummary.total}</span> open</span>
-              {(findingsSummary.critical ?? 0) > 0 ? (
-                <span style={{ color: "#B91C1C" }}>{findingsSummary.critical} critical</span>
-              ) : null}
-              {(findingsSummary.high ?? 0) > 0 ? (
-                <span style={{ color: "#C2410C" }}>{findingsSummary.high} high</span>
-              ) : null}
-              {(findingsSummary.medium ?? 0) > 0 ? (
-                <span style={{ color: "#92500B" }}>{findingsSummary.medium} medium</span>
-              ) : null}
-              {(findingsSummary.low ?? 0) > 0 ? (
-                <span style={{ color: SLATE }}>{findingsSummary.low} low</span>
-              ) : null}
-            </div>
-            {decisionRouting && !decisionRouting.error ? (
-              <div className="mt-2 pt-2 border-t text-[11px]" style={{ borderColor: HAIR, color: SLATE }}>
-                {decisionRouting.scored_count != null ? (
-                  <span>
-                    Scored top {decisionRouting.scored_count}
-                    {decisionRouting.total_findings != null ? ` of ${decisionRouting.total_findings}` : ""} findings
-                  </span>
-                ) : null}
-                {decisionRouting.by_decision_total ? (
-                  <span className="ml-2">
-                    · {(decisionRouting.by_decision_total.AUTO_EXECUTE ?? 0) + (decisionRouting.by_decision_total.CANARY_FIRST ?? 0)} ready to cut
-                    · {decisionRouting.by_decision_total.MANUAL_REVIEW ?? 0} manual review
-                    · {decisionRouting.blocked_total ?? decisionRouting.by_decision_total.BLOCK ?? 0} blocked
-                  </span>
+        <div className="overflow-x-auto pb-2">
+          <div className="flex items-stretch gap-2 min-w-[980px]" data-testid="estate-command-architecture-flow">
+            {model.planes.map((plane, index) => (
+              <div key={plane.id} className="contents">
+                <PlaneColumn
+                  plane={plane}
+                  lens={lens}
+                  selectedNodeId={selectedNodeId}
+                  onSelectNode={onSelectNode}
+                  connectionsByNode={model.connectionsByNode}
+                  azCountByNode={model.azCountByNode}
+                />
+                {index < model.planes.length - 1 ? (
+                  <div className="w-5 shrink-0 flex items-center justify-center" aria-hidden="true">
+                    <ArrowRight className="h-4 w-4" style={{ color: COLORS.line }} />
+                  </div>
                 ) : null}
               </div>
-            ) : null}
+            ))}
           </div>
-        ) : (
-          <div className="text-[12px] italic" style={{ color: SLATE }}>Loading findings…</div>
-        )}
-      </Lane>
-
-      <button
-        type="button"
-        onClick={onShowNetwork}
-        className="w-full text-left rounded-xl p-3 transition-colors hover:bg-white"
-        style={{ background: "#F4F6F8", border: `0.5px dashed #C2CDD6` }}
-      >
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Network className="h-4 w-4" style={{ color: SLATE }} />
-            <span className="text-[13px] font-semibold" style={{ color: SLATE }}>Network placement</span>
-            <span className="text-[11px]" style={{ color: SLATE }}>VPC / subnet — supporting context for subnet-bound workloads</span>
-          </div>
-          <span className="text-[11px] font-semibold" style={{ color: TEAL }}>Open subnet map (fullscreen) →</span>
         </div>
-      </button>
+
+        <section className="mt-3 rounded-xl p-3" style={{ border: `1px solid ${COLORS.line}`, background: "rgba(16, 33, 54, 0.55)" }}>
+          <div className="flex items-center justify-between gap-3 mb-2.5">
+            <div className="flex items-center gap-2">
+              <Fingerprint className="h-4 w-4" style={{ color: COLORS.violet }} />
+              <div>
+                <div className="text-[10px] uppercase tracking-[0.15em] font-bold" style={{ color: COLORS.ink }}>Identity control plane</div>
+                <div className="text-[10px] mt-0.5" style={{ color: COLORS.muted }}>Roles attached to workloads in this estate scope</div>
+              </div>
+            </div>
+            <span className="text-[10px] font-mono" style={{ color: posture.riskyRoles ? COLORS.red : COLORS.teal }}>{posture.riskyRoles} material gaps</span>
+          </div>
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            {model.roles.length ? model.roles.slice(0, 6).map(role => (
+              <IdentityRow key={role.role_arn ?? role.name} role={role} onSelect={onSelectRole} />
+            )) : (
+              <div className="text-[11px] py-2" style={{ color: COLORS.muted }}>No correlated IAM roles in scope.</div>
+            )}
+          </div>
+        </section>
+
+        <div className="grid grid-cols-1 xl:grid-cols-[1.45fr_1fr] gap-3 mt-3">
+          <section className="rounded-xl overflow-hidden" style={{ border: `1px solid ${COLORS.line}`, background: COLORS.panel }}>
+            <div className="px-4 py-3 border-b flex items-center justify-between" style={{ borderColor: COLORS.line }}>
+              <div>
+                <div className="text-[10px] uppercase tracking-[0.16em] font-bold" style={{ color: COLORS.ink }}>Operator brief</div>
+                <div className="text-[10px] mt-1" style={{ color: COLORS.muted }}>Highest-value checks for the selected lens</div>
+              </div>
+              <Eye className="h-4 w-4" style={{ color: COLORS.teal }} />
+            </div>
+            <div>
+              {priorities.map(priority => {
+                const style = PRIORITY_STYLE[priority.tone]
+                return (
+                  <button
+                    type="button"
+                    key={priority.id}
+                    onClick={() => priority.nodeId ? onSelectNode(priority.nodeId) : priority.roleName ? onSelectRole?.(priority.roleName) : undefined}
+                    className="w-full text-left px-4 py-3 border-b last:border-b-0 hover:bg-white/[0.035] transition-colors"
+                    style={{ borderColor: COLORS.line, background: style.background }}
+                  >
+                    <div className="flex items-start gap-2.5">
+                      {priority.tone === "critical" ? <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" style={{ color: style.color }} /> : priority.tone === "warning" ? <Braces className="h-4 w-4 mt-0.5 shrink-0" style={{ color: style.color }} /> : <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0" style={{ color: style.color }} />}
+                      <div className="min-w-0">
+                        <div className="text-[12px] font-semibold" style={{ color: COLORS.ink }}>{priority.title}</div>
+                        <div className="text-[10px] mt-1 leading-relaxed" style={{ color: COLORS.muted }}>{priority.detail}</div>
+                      </div>
+                      {priority.nodeId || priority.roleName ? <ExternalLink className="h-3.5 w-3.5 ml-auto shrink-0" style={{ color: style.color }} /> : null}
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+          </section>
+
+          <section className="rounded-xl p-4" style={{ border: `1px solid ${COLORS.line}`, background: COLORS.panel }}>
+            <div className="flex items-center gap-2">
+              <Layers3 className="h-4 w-4" style={{ color: COLORS.blue }} />
+              <div className="text-[10px] uppercase tracking-[0.16em] font-bold" style={{ color: COLORS.ink }}>Estate readiness</div>
+            </div>
+            <div className="grid grid-cols-2 gap-2 mt-3">
+              <div className="rounded-lg p-3" style={{ background: COLORS.panelRaised }}>
+                <div className="text-[20px] font-semibold" style={{ color: findingsSummary?.critical ? COLORS.red : COLORS.teal }}>{findingsSummary?.total ?? "—"}</div>
+                <div className="text-[9px] uppercase tracking-wide mt-1" style={{ color: COLORS.muted }}>open findings</div>
+              </div>
+              <div className="rounded-lg p-3" style={{ background: COLORS.panelRaised }}>
+                <div className="text-[20px] font-semibold" style={{ color: readyCuts ? COLORS.teal : COLORS.muted }}>{readyCuts ?? "—"}</div>
+                <div className="text-[9px] uppercase tracking-wide mt-1" style={{ color: COLORS.muted }}>ready actions</div>
+              </div>
+              <div className="rounded-lg p-3" style={{ background: COLORS.panelRaised }}>
+                <div className="text-[20px] font-semibold" style={{ color: posture.sharedResources ? COLORS.amber : COLORS.teal }}>{posture.sharedResources}</div>
+                <div className="text-[9px] uppercase tracking-wide mt-1" style={{ color: COLORS.muted }}>shared resources</div>
+              </div>
+              <div className="rounded-lg p-3" style={{ background: COLORS.panelRaised }}>
+                <div className="text-[20px] font-semibold" style={{ color: posture.unknownPlacement ? COLORS.amber : COLORS.teal }}>{posture.unknownPlacement}</div>
+                <div className="text-[9px] uppercase tracking-wide mt-1" style={{ color: COLORS.muted }}>placement gaps</div>
+              </div>
+            </div>
+            <div className="mt-3 pt-3 border-t text-[10px] leading-relaxed" style={{ borderColor: COLORS.line, color: COLORS.muted }}>
+              <Boxes className="h-3.5 w-3.5 inline mr-1.5" />
+              {posture.evidenceCoveragePct == null
+                ? "Posture coverage is not available for this scope."
+                : `${posture.evidenceCoveragePct}% of resources have posture scores.`}
+              {posture.evidenceFresh === false ? " Evidence freshness is degraded; enforcement should remain gated." : " Evidence is within the configured freshness threshold."}
+            </div>
+          </section>
+        </div>
+      </div>
     </div>
   )
 }

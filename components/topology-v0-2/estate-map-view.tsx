@@ -505,8 +505,9 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
   const [fsScopeOpen, setFsScopeOpen] = useState(false)
   const [statsExpanded, setStatsExpanded] = useState(false)
   const [filtersOpen, setFiltersOpen] = useState(false)
-  // Default to the visual map; the risk-guided inventory is the secondary tab.
-  const [view, setView] = useState<"map" | "inventory">("map")
+  // Lead with the cross-discipline command view. The existing AWS placement
+  // diagram remains unchanged and one click away under Network topology.
+  const [view, setView] = useState<"map" | "inventory">("inventory")
 
   const openSubnetMap = useCallback(() => setMapEnlarged(true), [])
   const closeEnlarged = useCallback(() => setMapEnlarged(false), [])
@@ -1455,8 +1456,8 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
           <div className="flex items-center justify-between gap-3 mb-1.5">
             <div className="flex items-center gap-1.5" role="tablist" aria-label="Estate view">
               {([
-                ["map", "Map"],
-                ["inventory", "Inventory"],
+                ["inventory", "Command map"],
+                ["map", "Network topology"],
               ] as const).map(([id, label]) => {
                 const active = view === id
                 return (
@@ -1580,6 +1581,11 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
                   }}
                   onShowNetwork={openSubnetMap}
                   onOpenTrafficMap={onOpenTrafficMap}
+                  onSelectRole={name => {
+                    setHighlightedRoleName(name)
+                    setSelectedNodeId(null)
+                    setView("map")
+                  }}
                   iapJewels={iapJewels}
                   findingsSummary={findingsSummary}
                   decisionRouting={decisionRouting}
