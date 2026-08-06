@@ -17,6 +17,9 @@ beforeEach(() => {
       systems: 1,
       paths_collapsed: 1,
       scenarios_with_estimates: 1,
+      regulatory_exposures_mapped: 0,
+      regulatory_exposures_calculated: 0,
+      top_missing_inputs: [],
       definitions_complete: true,
       scenarios: [{
         scenario_id: "biq-test",
@@ -70,6 +73,7 @@ describe("BusinessImpactPanel", () => {
 
   it("allows organization definitions to be saved before systems are available", async () => {
     global.fetch = vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ data_categories: [], regimes: [], regulatory_catalog_version: "rules-test" }) })
       .mockResolvedValueOnce({ ok: true, json: async () => ({ profile: { operating_countries: [], currency: "USD" } }) })
       .mockResolvedValueOnce({ ok: true, json: async () => ({ success: true }) }) as unknown as typeof fetch
 
@@ -81,11 +85,37 @@ describe("BusinessImpactPanel", () => {
     expect(save).toBeEnabled()
     fireEvent.click(save)
 
-    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(3))
     expect(global.fetch).toHaveBeenLastCalledWith(
       "/api/proxy/business-impact/organization",
       expect.objectContaining({ method: "PUT" }),
     )
+  })
+
+  it("reads obligation and data-category options from the backend catalog", async () => {
+    global.fetch = vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => ({
+        data_categories: ["Catalog-only data"],
+        regimes: [{ id: "TEST_RULE", label: "Catalog rule", source_url: "https://example.test", scenario_types: [], required_inputs: [] }],
+        regulatory_catalog_version: "rules-test",
+        source_checked_at: "2026-08-06",
+      }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ profile: { operating_countries: [], currency: "USD" } }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ profile: {
+        system_name: "payments-prod",
+        jurisdictions: [],
+        regulations: [],
+        regulatory_applicability_confirmed: [],
+        data_categories: [],
+        record_count_source: "UNKNOWN",
+        ccpa_private_action_eligible: false,
+      } }) }) as unknown as typeof fetch
+
+    render(<BusinessImpactSettings open onClose={() => undefined} systems={[{ name: "payments-prod" }]} />)
+
+    expect(await screen.findByRole("button", { name: "Catalog rule" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Catalog-only data" })).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "GDPR" })).not.toBeInTheDocument()
   })
 
   it("does not refetch the portfolio for an equivalent systems array", async () => {

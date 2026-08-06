@@ -5,6 +5,7 @@ import { AlertTriangle, Building2, Check, Database, Loader2, Save, X } from "luc
 import {
   emptyOrganizationImpactProfile,
   emptySystemImpactProfile,
+  type BusinessImpactCatalog,
   type MoneyRange,
   type OrganizationImpactProfile,
   type SystemImpactProfile,
@@ -15,17 +16,6 @@ type SystemOption = {
   environment?: string | null
   criticality?: string | null
 }
-
-const REGULATIONS = ["GDPR", "HIPAA", "CCPA/CPRA", "PCI DSS", "SOX", "NIS2"]
-const DATA_CATEGORIES = [
-  "Customer personal data",
-  "Health information",
-  "Payment-card data",
-  "Credentials and secrets",
-  "Financial records",
-  "Intellectual property",
-  "Operational data",
-]
 
 function list(value: string): string[] {
   return value.split(",").map((item) => item.trim()).filter(Boolean)
@@ -133,6 +123,7 @@ export function BusinessImpactSettings({ open, onClose, systems, initialSystem, 
   const [selectedSystem, setSelectedSystem] = useState(defaultSystem)
   const [organization, setOrganization] = useState<OrganizationImpactProfile>(emptyOrganizationImpactProfile())
   const [profile, setProfile] = useState<SystemImpactProfile>(emptySystemImpactProfile(defaultSystem))
+  const [catalog, setCatalog] = useState<BusinessImpactCatalog | null>(null)
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
@@ -142,12 +133,15 @@ export function BusinessImpactSettings({ open, onClose, systems, initialSystem, 
     setLoading(true)
     setError(null)
     try {
+      const catalogResponse = await fetch("/api/proxy/business-impact/catalog", { cache: "no-store" })
       const orgResponse = await fetch("/api/proxy/business-impact/organization", { cache: "no-store" })
       const systemResponse = systemName
         ? await fetch(`/api/proxy/business-impact/profiles/${encodeURIComponent(systemName)}`, { cache: "no-store" })
         : null
-      if (!orgResponse.ok || (systemResponse && !systemResponse.ok)) throw new Error("Could not load business impact definitions")
+      if (!catalogResponse.ok || !orgResponse.ok || (systemResponse && !systemResponse.ok)) throw new Error("Could not load business impact definitions")
+      const catalogJson = await catalogResponse.json()
       const orgJson = await orgResponse.json()
+      setCatalog(catalogJson)
       setOrganization(orgJson.profile ?? emptyOrganizationImpactProfile())
       if (systemResponse) {
         const systemJson = await systemResponse.json()
@@ -238,6 +232,8 @@ export function BusinessImpactSettings({ open, onClose, systems, initialSystem, 
               <label className="block text-xs font-semibold text-slate-700">Reporting currency<select value={organization.currency} onChange={(event) => setOrganization({ ...organization, currency: event.target.value as OrganizationImpactProfile["currency"] })} className="mt-1.5 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-normal text-slate-900">{["USD", "EUR", "GBP", "ILS", "CAD", "AUD", "JPY", "OTHER"].map((currency) => <option key={currency}>{currency}</option>)}</select></label>
               <TextInput label={`Annual revenue · ${organization.currency}`} type="number" value={organization.annual_revenue} onChange={(value) => setOrganization({ ...organization, annual_revenue: numberOrNull(value) })} />
               <TextInput label="Worldwide annual turnover · EUR" type="number" value={organization.annual_revenue_eur} onChange={(value) => setOrganization({ ...organization, annual_revenue_eur: numberOrNull(value) })} placeholder="Used only for GDPR statutory ceilings" />
+              <TextInput label="Worldwide annual turnover · GBP" type="number" value={organization.annual_revenue_gbp} onChange={(value) => setOrganization({ ...organization, annual_revenue_gbp: numberOrNull(value) })} placeholder="Used only by selected GBP rule data" />
+              <TextInput label="Brazil annual revenue · BRL" type="number" value={organization.annual_revenue_brl} onChange={(value) => setOrganization({ ...organization, annual_revenue_brl: numberOrNull(value) })} placeholder="Used only by selected Brazilian rule data" />
               <TextInput label="Employees" type="number" value={organization.employee_count} onChange={(value) => setOrganization({ ...organization, employee_count: numberOrNull(value) })} />
             </div>
           ) : null}
@@ -255,13 +251,16 @@ export function BusinessImpactSettings({ open, onClose, systems, initialSystem, 
 
               <section>
                 <h3 className="text-sm font-semibold text-slate-900">Applicable obligations</h3>
-                <p className="mb-3 mt-1 text-xs text-slate-500">Selection identifies potentially relevant rule packs. Legal applicability still requires confirmation.</p>
-                <TogglePills options={REGULATIONS} selected={profile.regulations} onChange={(regulations) => setProfile({ ...profile, regulations })} />
+                <p className="mb-3 mt-1 text-xs text-slate-500">Options come from the active versioned rule catalog. Select potentially relevant obligations first.</p>
+                <TogglePills options={catalog?.regimes.map((item) => item.label) ?? []} selected={profile.regulations} onChange={(regulations) => setProfile({ ...profile, regulations, regulatory_applicability_confirmed: profile.regulatory_applicability_confirmed.filter((item) => regulations.includes(item)) })} />
+                {profile.regulations.length ? <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3"><div className="text-xs font-semibold text-slate-700">Applicability confirmed</div><p className="mb-2 mt-1 text-[11px] text-slate-500">Confirm only after the organization has validated that the obligation applies.</p><TogglePills options={profile.regulations} selected={profile.regulatory_applicability_confirmed} onChange={(regulatory_applicability_confirmed) => setProfile({ ...profile, regulatory_applicability_confirmed })} /></div> : null}
+                {profile.regulations.includes("NIS2") ? <label className="mt-4 block max-w-sm text-xs font-semibold text-slate-700">NIS2 entity classification<select value={profile.nis2_entity_type ?? ""} onChange={(event) => setProfile({ ...profile, nis2_entity_type: (event.target.value || null) as SystemImpactProfile["nis2_entity_type"] })} className="mt-1.5 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-normal text-slate-900"><option value="">Not defined</option><option value="ESSENTIAL">Essential entity</option><option value="IMPORTANT">Important entity</option></select></label> : null}
+                {catalog ? <div className="mt-3 text-[10px] text-slate-400">Rule data {catalog.regulatory_catalog_version} · sources checked {catalog.source_checked_at || "not reported"}</div> : null}
               </section>
 
               <section>
                 <h3 className="text-sm font-semibold text-slate-900">Data and affected population</h3>
-                <div className="mt-3"><TogglePills options={DATA_CATEGORIES} selected={profile.data_categories} onChange={(data_categories) => setProfile({ ...profile, data_categories })} /></div>
+                <div className="mt-3"><TogglePills options={catalog?.data_categories ?? []} selected={profile.data_categories} onChange={(data_categories) => setProfile({ ...profile, data_categories })} /></div>
                 <div className="mt-4 grid gap-4 md:grid-cols-4">
                   <TextInput label="Records" type="number" value={profile.record_count} onChange={(value) => setProfile({ ...profile, record_count: numberOrNull(value) })} />
                   <TextInput label="Affected people" type="number" value={profile.affected_people} onChange={(value) => setProfile({ ...profile, affected_people: numberOrNull(value) })} />
