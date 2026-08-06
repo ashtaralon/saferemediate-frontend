@@ -6,6 +6,7 @@
  */
 
 import { X } from "lucide-react"
+import type { ReactNode } from "react"
 import type { CurrentAccessDossier } from "@/lib/attack-paths/build-current-access-dossier"
 
 function statusTone(status: string): string {
@@ -30,11 +31,13 @@ export function CurrentAccessDossierPanel({
   jewelName,
   hopsPending,
   onClearPin,
+  businessImpact,
 }: {
   dossier: CurrentAccessDossier | null
   jewelName: string
   hopsPending?: boolean
   onClearPin?: () => void
+  businessImpact?: ReactNode
 }) {
   if (hopsPending) {
     return (
@@ -102,6 +105,15 @@ export function CurrentAccessDossierPanel({
           </button>
         ) : null}
       </div>
+
+      {businessImpact ? (
+        <div
+          className="border-b border-border"
+          data-testid="current-access-business-impact"
+        >
+          {businessImpact}
+        </div>
+      ) : null}
 
       <ol
         className="flex-1 min-h-0 overflow-y-auto px-3 py-3 space-y-2"
