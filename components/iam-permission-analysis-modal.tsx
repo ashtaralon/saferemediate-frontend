@@ -551,6 +551,16 @@ export function shouldOfferIamSimulation(
   return hasVerifiedSnapshot && removableCount > 0 && !remediatedAt
 }
 
+/** A managed-policy rewrite is an execution mechanism, never work by itself. */
+export function hasExecutableIamSelection(
+  selectedPermissionCount: number,
+  detachManagedPolicies: boolean,
+  managedPolicyRewriteRequired: boolean,
+): boolean {
+  return selectedPermissionCount > 0
+    || (detachManagedPolicies && !managedPolicyRewriteRequired)
+}
+
 // Service role analysis from backend (trust policy based)
 interface BackendServiceRoleAnalysis {
   is_service_role: boolean
@@ -778,16 +788,18 @@ export function IAMPermissionAnalysisModal({
   const [approvalActionPermissions, setApprovalActionPermissions] = useState<string[]>([])
   const [approvalActionError, setApprovalActionError] = useState<string | null>(null)
   const [approvalActionState, setApprovalActionState] = useState(buildApprovalActionInitialState)
-  const [createSnapshot, setCreateSnapshot] = useState(true)
-  // Containment (P0-A): both managed-policy detach controls default OFF.
-  // Detaching a managed policy is a coarse, high-consequence IAM mutation;
-  // it must be an explicit operator choice, never a silent default. Enabling
-  // it by default meant Apply stayed clickable with zero individual
-  // permissions selected (the disable predicate is
-  // `selected.size === 0 && !detachManagedPolicies`), so an unbound detach
-  // could execute without the operator ever selecting anything.
+  // IAM rollback is a product invariant, not an operator preference. The
+  // backend also enforces this before any AWS write.
+  const createSnapshot = true
+  // This flag no longer means "blindly detach a managed policy". When the
+  // signed Preview plan requires it, the backend installs a lossless inline
+  // replacement containing every kept action, then detaches the immutable
+  // managed policy. It remains OFF until that explicit plan arrives.
   const [detachManagedPolicies, setDetachManagedPolicies] = useState(false)
-  const [detachAllManagedPolicies, setDetachAllManagedPolicies] = useState(false)  // Detach ALL regardless of overlap
+  const [managedPolicyRewriteRequired, setManagedPolicyRewriteRequired] = useState(false)
+  // Broad detachment is not a valid operation in the permission picker. The
+  // operator selects exact actions; the signed plan owns the execution shape.
+  const detachAllManagedPolicies = false
   const [selectedPermissionsToRemove, setSelectedPermissionsToRemove] = useState<Set<string>>(new Set())
   // In-app override confirmation modal. Replaces the old window.confirm
   // + window.prompt flow with a clean dialog that captures the rationale
@@ -970,6 +982,8 @@ export function IAMPermissionAnalysisModal({
     setDecisionPersistence(null)
     setPlanToken(null)
     setPlanPermissions(null)
+    setManagedPolicyRewriteRequired(false)
+    setDetachManagedPolicies(false)
     try {
       const res = await fetch('/api/proxy/least-privilege/simulate-fix', {
         method: 'POST',
@@ -998,6 +1012,9 @@ export function IAMPermissionAnalysisModal({
       // Capture the signed plan (issued by simulate-fix when there is a
       // safely-removable set). plan.permissions_to_remove is the bound safe set.
       const plan = data?.plan
+      const requiresManagedPolicyRewrite = plan?.detach_managed_policies === true
+      setManagedPolicyRewriteRequired(requiresManagedPolicyRewrite)
+      setDetachManagedPolicies(requiresManagedPolicyRewrite)
       if (plan?.plan_token && Array.isArray(plan?.permissions_to_remove)) {
         setPlanToken(String(plan.plan_token))
         setPlanPermissions((plan.permissions_to_remove as unknown[]).map((p) => String(p)))
@@ -1293,38 +1310,9 @@ export function IAMPermissionAnalysisModal({
     setAnalysisTab('summary')
     setGapData(null)
     setError(null)
+    setManagedPolicyRewriteRequired(false)
+    setDetachManagedPolicies(false)
     onClose()
-  }
-
-  const handleSimulate = async () => {
-    console.log('[IAM-Modal] handleSimulate called! roleName:', roleName, 'unusedCount:', gapData?.summary?.unused_count)
-    setSimulating(true)
-
-    try {
-      // Create a pre-simulation snapshot for rollback safety
-      console.log('[IAM-Modal] Creating pre-simulation snapshot for:', roleName)
-      const snapshotResponse = await fetch(`/api/proxy/iam-roles/${encodeURIComponent(roleName)}/snapshot`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
-      })
-
-      if (snapshotResponse.ok) {
-        const snapshotResult = await snapshotResponse.json()
-        console.log('[IAM-Modal] Snapshot created:', snapshotResult.snapshot_id)
-        toast({
-          title: "📸 Snapshot Created",
-          description: `Rollback point saved: ${snapshotResult.snapshot_id}`,
-          variant: "default"
-        })
-      } else {
-        console.warn('[IAM-Modal] Failed to create snapshot, continuing with simulation')
-      }
-    } catch (error) {
-      console.warn('[IAM-Modal] Snapshot creation failed:', error)
-    }
-
-    setSimulating(false)
-    setShowSimulation(true)
   }
 
   const handleApplyFix = async (
@@ -1683,7 +1671,9 @@ export function IAMPermissionAnalysisModal({
   const handleIAMLpSimulate = async (permissions: string[]) => {
     setSelectedPermissionsToRemove(new Set(permissions))
     await new Promise((resolve) => setTimeout(resolve, 0))
-    await handleSimulate()
+    // Preview is read-only. The restore point belongs to the atomic Apply
+    // transaction immediately before the first AWS write.
+    setShowSimulation(true)
   }
 
   const handleIAMLpApplySafeSet = async (permissions: string[]) => {
@@ -2337,7 +2327,7 @@ export function IAMPermissionAnalysisModal({
       }
     }
 
-    const contextBlurb = `Cyntro paused this change because telemetry coverage is incomplete and ${safetyContext?.consumer_count ?? 'multiple'} system${(safetyContext?.consumer_count ?? 0) === 1 ? '' : 's'} depend on this role. You can override and proceed — the change runs immediately, with a rollback snapshot if you have it enabled. The override is recorded in the audit log.`
+    const contextBlurb = `Cyntro paused this change because telemetry coverage is incomplete and ${safetyContext?.consumer_count ?? 'multiple'} system${(safetyContext?.consumer_count ?? 0) === 1 ? '' : 's'} depend on this role. You can override and proceed — Cyntro creates a verified restore point before changing AWS, and records the override in the audit log.`
 
     return (
       <OverrideModalShared
@@ -2445,7 +2435,7 @@ export function IAMPermissionAnalysisModal({
                   <h3 className="text-lg font-bold text-[#b45309]">Override the safety hold?</h3>
                 </div>
                 <p className="text-sm text-[var(--foreground,#111827)] mb-4">
-                  Cyntro paused this change because telemetry coverage is incomplete and {safetyContext?.consumer_count ?? 'multiple'} system{(safetyContext?.consumer_count ?? 0) === 1 ? '' : 's'} depend on this role. You can override and proceed -- the change runs immediately, with a rollback snapshot if you have it enabled. The override is recorded in the audit log.
+                  Cyntro paused this change because telemetry coverage is incomplete and {safetyContext?.consumer_count ?? 'multiple'} system{(safetyContext?.consumer_count ?? 0) === 1 ? '' : 's'} depend on this role. You can override and proceed -- Cyntro creates a verified restore point before changing AWS, and records the override in the audit log.
                 </p>
                 <label className="block text-xs font-semibold text-[#92400e] mb-1">
                   Why are you overriding? (Slack thread, ticket #, customer confirmation -- recorded in the audit trail)
@@ -2466,7 +2456,7 @@ export function IAMPermissionAnalysisModal({
                     className="mt-0.5 w-4 h-4 text-[#f59e0b] rounded border-[var(--border,#d1d5db)] focus:ring-[#f59e0b]"
                   />
                   <span className="text-[var(--foreground,#374151)]">
-                    I understand a rollback snapshot will{createSnapshot ? ' ' : ' NOT '}be created and I am responsible for verifying the change does not break dependent systems.
+                    I understand Cyntro will create a restore point before the change and I am responsible for verifying dependent systems after Apply.
                   </span>
                 </label>
                 <div className="flex justify-end gap-2">
@@ -3053,7 +3043,11 @@ export function IAMPermissionAnalysisModal({
               { title: "Loading usage history...", subtitle: `Analyzing ${cloudtrailEvents.toLocaleString()} permission checks`, done: true },
               { title: "Identifying unused permissions...", subtitle: `Found ${unusedCount} never-used permissions`, done: true },
               { title: "Checking service dependencies...", subtitle: "Validating active services", done: true },
-              { title: "Calculating confidence score...", subtitle: `${safetyScore}% safe to remove`, done: false }
+              {
+                title: "Calculating removal evidence...",
+                subtitle: "Combining observation, attribution, dependencies, and corroboration",
+                done: false,
+              }
             ].map((step, i) => (
               <div key={i} className={`flex items-start gap-4 p-4 rounded-lg ${step.done ? '' : 'ring-2'}`}>
                 <div className="text-2xl">{step.done ? '✅' : '⏳'}</div>
@@ -3744,18 +3738,17 @@ export function IAMPermissionAnalysisModal({
                   <div className="flex items-start gap-3">
                     <AlertTriangle className="w-5 h-5 text-[#ef4444] flex-shrink-0 mt-0.5" />
                     <div>
-                      <p className="font-semibold text-[#ef4444]">{unusedCount} permissions to remove via managed policy detachment</p>
+                      <p className="font-semibold text-[#ef4444]">{unusedCount} managed-policy permissions need exact rewriting</p>
                       <p className="text-sm mt-1" style={{ color: "var(--foreground, #374151)" }}>
-                        These permissions come from AWS managed policies attached to this role. Individual permission names are not expanded in the graph.
-                        To remediate, enable <strong>"Detach managed policies"</strong> below — this will detach the managed policies and the role will only retain the {usedCount} used permission{usedCount !== 1 ? 's' : ''}.
+                        These permissions come from an immutable AWS managed policy. Cyntro will create a replacement containing every kept action, verify it, and only then detach the original policy.
                       </p>
                       <div className="mt-3 p-3 bg-white rounded-lg border" style={{ borderColor: "var(--border, #e5e7eb)" }}>
                         <p className="text-xs font-semibold" style={{ color: "var(--muted-foreground, #4b5563)" }}>Remediation approach:</p>
                         <ol className="text-xs mt-1 space-y-1 list-decimal list-inside" style={{ color: "var(--foreground, #374151)" }}>
                           <li>Create rollback snapshot (automatic)</li>
-                          <li>Detach all AWS managed policies from the role</li>
-                          <li>Create minimal inline policy with only the {usedCount} observed permission{usedCount !== 1 ? 's' : ''}</li>
-                          <li>Attack surface reduced from {totalPermissions} → {usedCount} permissions ({totalPermissions > 0 ? Math.round(((totalPermissions - usedCount) / totalPermissions) * 100) : 0}% reduction)</li>
+                          <li>Install a lossless replacement before detaching the original</li>
+                          <li>Verify selected actions are gone and every kept action remains</li>
+                          <li>Write the verified restore point to Remediated and History</li>
                         </ol>
                       </div>
                     </div>
@@ -3897,35 +3890,32 @@ export function IAMPermissionAnalysisModal({
             </button>
             <div className="flex items-center gap-4">
               {!applyDisabled && (<>
-              <label className="flex items-center gap-2 cursor-pointer" title="Create a snapshot before making changes so you can rollback if needed">
+              <label className="flex items-center gap-2" title="Cyntro always creates and verifies a restore point before changing IAM">
                 <input
                   type="checkbox"
                   checked={createSnapshot}
-                  onChange={(e) => setCreateSnapshot(e.target.checked)}
-                  disabled={applying}
+                  readOnly
+                  disabled
                   className="rounded border-[var(--border,#d1d5db)] text-[#8b5cf6] focus:ring-[#8b5cf6]"
                 />
-                <span className="text-sm " style={{ color: "var(--muted-foreground, #6b7280)" }}>Create rollback checkpoint</span>
+                <span className="text-sm" style={{ color: "var(--muted-foreground, #6b7280)" }}>Restore point required</span>
               </label>
-              <label className="flex items-center gap-2 cursor-pointer" title="Detach AWS managed policies that contain unused permissions. Required for roles with only managed policies.">
+              <label
+                className={`flex items-center gap-2 ${managedPolicyRewriteRequired ? '' : 'cursor-pointer'}`}
+                title={managedPolicyRewriteRequired
+                  ? 'The signed plan requires a lossless managed-policy rewrite to remove the selected actions.'
+                  : 'Narrow managed policies that contain selected permissions.'}
+              >
                 <input
                   type="checkbox"
                   checked={detachManagedPolicies}
                   onChange={(e) => setDetachManagedPolicies(e.target.checked)}
-                  disabled={applying || gapData?.is_remediable === false}
+                  disabled={applying || gapData?.is_remediable === false || managedPolicyRewriteRequired}
                   className="rounded border-[var(--border,#d1d5db)] text-orange-600 focus:ring-orange-500"
                 />
-                <span className="text-sm " style={{ color: "var(--muted-foreground, #6b7280)" }}>Detach managed policies</span>
-              </label>
-              <label className="flex items-center gap-2 cursor-pointer" title="Detach ALL AWS managed policies from this role, regardless of permission overlap. Use when Neo4j data doesn't match actual AWS policies.">
-                <input
-                  type="checkbox"
-                  checked={detachAllManagedPolicies}
-                  onChange={(e) => setDetachAllManagedPolicies(e.target.checked)}
-                  disabled={applying || !detachManagedPolicies || gapData?.is_remediable === false}
-                  className="rounded border-[var(--border,#d1d5db)] text-[#ef4444] focus:ring-[#ef4444]"
-                />
-                <span className={`text-sm ${detachManagedPolicies ? 'text-[#ef4444] font-medium' : 'text-[var(--muted-foreground,#9ca3af)]'}`}>Detach ALL</span>
+                <span className="text-sm" style={{ color: "var(--muted-foreground, #6b7280)" }}>
+                  {managedPolicyRewriteRequired ? 'Preserve kept actions during managed-policy rewrite' : 'Narrow overlapping managed policies'}
+                </span>
               </label>
               </>)}
               {(() => {
@@ -3942,6 +3932,11 @@ export function IAMPermissionAnalysisModal({
                 // instead of being silently dropped at submit.
                 const autoRemediableSet = getAutoRemediablePermissions()
                 const selectedTotalCount = selectedPermissionsToRemove.size
+                const hasExecutableSelection = hasExecutableIamSelection(
+                  selectedTotalCount,
+                  detachManagedPolicies,
+                  managedPolicyRewriteRequired,
+                )
                 const selectedAutoRemediableCount = Array.from(selectedPermissionsToRemove)
                   .filter(p => autoRemediableSet.has(p)).length
                 const selectedOverrideCount = selectedTotalCount - selectedAutoRemediableCount
@@ -4034,7 +4029,7 @@ export function IAMPermissionAnalysisModal({
                           console.log('[IAM-Modal] Acknowledge & Apply clicked — opening override modal. selected=' + selectedPermissionsToRemove.size + ' detach=' + detachManagedPolicies + ' applying=' + applying)
                           setOverrideModal({ open: true, rationale: '', ackRollback: createSnapshot, phase: 'form', message: '' })
                         }}
-                        disabled={applying || (selectedPermissionsToRemove.size === 0 && !detachManagedPolicies)}
+                        disabled={applying || !hasExecutableSelection}
                         className="px-5 py-2.5 bg-[#f59e0b] text-white rounded-lg font-bold hover:bg-[#d97706] shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                         title={`Acknowledge the safety hold and apply ${selectedPermissionsToRemove.size > 0 ? `${selectedPermissionsToRemove.size} permission removals` : 'the policy detach'}. The override is recorded in the audit log under your operator id. ${safetyContext?.block_reason || ''}`}
                       >
@@ -4047,7 +4042,7 @@ export function IAMPermissionAnalysisModal({
                   return (
                     <button
                       onClick={() => handleApplyFix(false)}
-                      disabled={applying || (selectedPermissionsToRemove.size === 0 && !detachManagedPolicies)}
+                      disabled={applying || !hasExecutableSelection}
                       className="px-6 py-2.5 bg-[#f97316] text-white rounded-lg font-bold hover:bg-[#ea580c] shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                       title="Low confidence - proceed with caution"
                     >
@@ -4068,7 +4063,7 @@ export function IAMPermissionAnalysisModal({
                   return (
                     <button
                       onClick={() => handleApplyFix(false)}
-                      disabled={applying || (selectedPermissionsToRemove.size === 0 && !detachManagedPolicies)}
+                      disabled={applying || !hasExecutableSelection}
                       className="px-6 py-2.5 bg-[#8b5cf6] text-white rounded-lg font-bold hover:bg-[#7c3aed] shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                     >
                       {applying ? (
@@ -4081,9 +4076,9 @@ export function IAMPermissionAnalysisModal({
                           ? `APPLY FIX (${selectedTotalCount} — ${selectedOverrideCount} via override)`
                           : `APPLY FIX (${selectedTotalCount} permissions)`
                       ) : detachManagedPolicies ? (
-                        `APPLY FIX (detach managed policies)`
+                        `APPLY FIX (narrow managed policies)`
                       ) : (
-                        'Select permissions or enable "Detach managed policies"'
+                        'Select permissions to remove'
                       )}
                     </button>
                   )
@@ -5147,7 +5142,9 @@ export function IAMPermissionAnalysisModal({
                   decision === 'auto_eligible' ? 'Auto-eligible' :
                   decision === 'blocked'       ? 'Safety hold' :
                   'Approval required'
-                const rollback = result.safety?.rollback_available ? 'available' : 'unavailable'
+                const rollbackSummary = result.safety?.rollback_available
+                  ? 'A restore point will be created and verified before Apply changes AWS.'
+                  : 'Apply remains blocked because a restore point cannot be guaranteed.'
                 const responseRemovalCount = Array.isArray(result.plan?.permissions_to_remove)
                   ? result.plan.permissions_to_remove.length
                   : selectedPermissionsToRemove.size
@@ -5158,7 +5155,7 @@ export function IAMPermissionAnalysisModal({
                 )
                 toast({
                   title: `Simulation complete · ${decisionLabel}`,
-                  description: `Plan: remove ${responsePlanCounts.removeCount}; ${responsePlanCounts.remainCount} remain unchanged, including all ${responsePlanCounts.observedUsedCount} observed in use. Rollback: ${rollback}.`,
+                  description: `Plan: remove ${responsePlanCounts.removeCount}; ${responsePlanCounts.remainCount} remain unchanged, including all ${responsePlanCounts.observedUsedCount} observed in use. ${rollbackSummary}`,
                   variant: 'default',
                 })
 

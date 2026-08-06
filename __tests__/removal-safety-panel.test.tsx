@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest"
 
 import {
   buildCanonicalPermissionView,
+  hasExecutableIamSelection,
   RemovalSafetyPanel,
   resolveDefaultPermissionSelection,
   shouldOfferIamSimulation,
@@ -19,6 +20,15 @@ describe("IAM simulation availability", () => {
     expect(shouldOfferIamSimulation(true, 0)).toBe(false)
     expect(shouldOfferIamSimulation(false, 27)).toBe(false)
     expect(shouldOfferIamSimulation(true, 10, "2026-08-05T10:00:00Z")).toBe(false)
+  })
+})
+
+describe("IAM apply selection", () => {
+  it("never treats a required managed-policy rewrite as standalone work", () => {
+    expect(hasExecutableIamSelection(13, true, true)).toBe(true)
+    expect(hasExecutableIamSelection(0, true, true)).toBe(false)
+    expect(hasExecutableIamSelection(0, true, false)).toBe(true)
+    expect(hasExecutableIamSelection(0, false, false)).toBe(false)
   })
 })
 
