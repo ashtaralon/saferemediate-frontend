@@ -11,6 +11,7 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url)
     const sg_id = searchParams.get('sg_id')
     const limit = searchParams.get('limit') || '50'
+    const forceRefresh = searchParams.get('force_refresh') === 'true'
 
     const params = new URLSearchParams()
     if (sg_id) params.append('sg_id', sg_id)
@@ -37,7 +38,7 @@ export async function GET(req: NextRequest) {
       }).catch(() => null),
 
       // Unified snapshots (IAM remediation with SNAP-* format)
-      fetch(`${BACKEND_URL}/api/snapshots?limit=${limit}`, {
+      fetch(`${BACKEND_URL}/api/snapshots?limit=${limit}${forceRefresh ? '&force_refresh=true' : ''}`, {
         headers: { "Accept": "application/json" },
         cache: "no-store",
       }).catch(() => null)

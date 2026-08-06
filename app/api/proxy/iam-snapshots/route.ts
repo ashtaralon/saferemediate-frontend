@@ -5,9 +5,11 @@ const BACKEND_URL = "https://saferemediate-backend-f.onrender.com";
 export async function GET(req: NextRequest) {
   try {
     console.log(`[IAM-SNAPSHOTS] Fetching IAM snapshots`);
+    const { searchParams } = new URL(req.url)
+    const forceRefresh = searchParams.get('force_refresh') === 'true'
     
     // Snapshots endpoint
-    const response = await fetch(`${BACKEND_URL}/api/snapshots`, {
+    const response = await fetch(`${BACKEND_URL}/api/snapshots${forceRefresh ? '?force_refresh=true' : ''}`, {
       cache: 'no-store'
     });
     
@@ -38,4 +40,3 @@ export async function GET(req: NextRequest) {
     return NextResponse.json([]);
   }
 }
-

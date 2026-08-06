@@ -70,6 +70,17 @@ interface PermissionRemovalSafety {
   score: number | null
   band: "STRONG" | "REVIEW" | "LOW" | null
   consequence_class: "ROUTINE" | "OPERATIONAL" | "CRITICAL" | "CONTINGENCY"
+  observation_days?: number | null
+  required_observation_days?: number | null
+  score_ceiling?: number | null
+  factors?: {
+    evidence_coverage: number
+    observation_adequacy: number
+    consumer_attribution: number
+    dependency_certainty: number
+    independent_corroboration: number
+    raw_score: number
+  } | null
   reason: string
   limiting_factors: string[]
 }
@@ -178,6 +189,11 @@ export function resolveDefaultPermissionSelection(
 
 export function RemovalSafetyPanel({ bundle }: { bundle: RemovalSafetyBundle }) {
   const byPermission = new Map(bundle.permissions.map(item => [item.permission, item]))
+  const candidates = bundle.permissions.filter(item => item.disposition === "REMOVAL_CANDIDATE")
+  const distinctScores = Array.from(new Set(
+    candidates.map(item => item.score).filter((score): score is number => typeof score === "number"),
+  ))
+  const sharedAssessment = distinctScores.length === 1 ? candidates[0] : null
   const styles: Record<string, { label: string; bg: string; border: string; text: string }> = {
     STRONG: { label: "Strong evidence · 90–99", bg: "#f0fdf4", border: "#bbf7d0", text: "#166534" },
     REVIEW: { label: "Review · 75–89", bg: "#fffbeb", border: "#fde68a", text: "#92400e" },
@@ -194,7 +210,7 @@ export function RemovalSafetyPanel({ bundle }: { bundle: RemovalSafetyBundle }) 
             {bundle.scored_candidate_count} to remove · {bundle.used_count} in use · {bundle.protected_count} protected
           </h3>
           <p className="mt-1 text-sm text-slate-600">
-            Each score measures how strong the evidence is that removing that permission will not break expected use.
+            This is an evidence index, not a probability. It measures how strongly the observed data supports removal without breaking expected use.
           </p>
         </div>
         {bundle.plan_score !== null && (
@@ -205,6 +221,33 @@ export function RemovalSafetyPanel({ bundle }: { bundle: RemovalSafetyBundle }) 
           </div>
         )}
       </div>
+
+      {sharedAssessment && candidates.length > 1 && (
+        <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950" data-testid="shared-removal-score-explanation">
+          <div className="font-semibold">
+            Why all {candidates.length} permissions score {sharedAssessment.score}/100
+          </div>
+          <p className="mt-1">
+            They share the same evidence inputs: {sharedAssessment.observation_days ?? "unknown"} observed days,
+            {" "}the same consumers, the same dependency checks, and the same action-level log coverage.
+          </p>
+          {sharedAssessment.required_observation_days && (
+            <p className="mt-1">
+              Full observation credit for this action class requires {sharedAssessment.required_observation_days} days.
+            </p>
+          )}
+          {sharedAssessment.factors && (
+            <p className="mt-1 font-medium" data-testid="shared-removal-score-formula">
+              Score: evidence {Math.round(sharedAssessment.factors.evidence_coverage)} + history {Math.round(sharedAssessment.factors.observation_adequacy)} + attribution {Math.round(sharedAssessment.factors.consumer_attribution)} + dependencies {Math.round(sharedAssessment.factors.dependency_certainty)} + corroboration {Math.round(sharedAssessment.factors.independent_corroboration)} = {sharedAssessment.score}.
+            </p>
+          )}
+          {sharedAssessment.limiting_factors.length > 0 && (
+            <p className="mt-1 text-amber-800">
+              Main limits: {sharedAssessment.limiting_factors.join(" ")}
+            </p>
+          )}
+        </div>
+      )}
 
       {bundle.insufficient_evidence_count > 0 && (
         <div className="mt-3 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-700">
@@ -234,6 +277,11 @@ export function RemovalSafetyPanel({ bundle }: { bundle: RemovalSafetyBundle }) 
                       <div className="min-w-0 flex-1">
                         <div className={`truncate font-mono text-xs ${candidate ? "text-red-700" : "text-slate-700"}`}>{permission}</div>
                         {item?.reason && <div className="mt-0.5 text-xs text-slate-500">{item.reason}</div>}
+                        {candidate && item?.consequence_class && (
+                          <div className="mt-0.5 text-[11px] text-slate-500">
+                            Breakage impact: {item.consequence_class.toLowerCase()}
+                          </div>
+                        )}
                       </div>
                       {item?.score !== null && item?.score !== undefined && (
                         <span className="shrink-0 rounded bg-slate-100 px-2 py-0.5 text-xs font-bold tabular-nums text-slate-700">{item.score}/100</span>
@@ -481,7 +529,15 @@ interface IAMPermissionAnalysisModalProps {
   viaInstanceProfile?: { name: string; arn: string }
   onApplyFix?: (data: any) => void
   onSuccess?: () => void
-  onRemediationSuccess?: (roleName: string) => void
+  onRemediationSuccess?: (roleName: string, receipt?: {
+    snapshotId?: string | null
+    eventId?: string | null
+    rollbackAvailable?: boolean
+    remediatedBy?: string | null
+    remediatedAt?: string | null
+    afterTotal?: number | null
+    removedCount?: number | null
+  }) => void
   onRollbackSuccess?: (roleName: string) => void
   /** When true, hide/disable all Apply mutation controls (mutation boundary not shipped). */
   applyDisabled?: boolean
@@ -790,6 +846,7 @@ export function IAMPermissionAnalysisModal({
   // prevents the headline from disagreeing with the Resource Risk row when an
   // older gap-analysis snapshot is still cached.
   const [previewProblem, setPreviewProblem] = useState<SimulateFixProblem | null>(null)
+  const [previewObservationDays, setPreviewObservationDays] = useState<number | null>(null)
   const [decisionPersistence, setDecisionPersistence] = useState<SimulateFixDecisionPersistence | null>(null)
   // Signed remediation plan from simulate-fix (exact-change binding). The
   // plan_token binds a FROZEN permission set; the backend, when it receives the
@@ -909,6 +966,7 @@ export function IAMPermissionAnalysisModal({
     setSafetyContext(null)
     setRemovalSafety(null)
     setPreviewProblem(null)
+    setPreviewObservationDays(null)
     setDecisionPersistence(null)
     setPlanToken(null)
     setPlanPermissions(null)
@@ -934,6 +992,8 @@ export function IAMPermissionAnalysisModal({
           : null,
       )
       setPreviewProblem(data?.problem ?? null)
+      const observedDays = data?.evidence?.observation_window_days ?? data?.safety?.observation_days
+      setPreviewObservationDays(typeof observedDays === 'number' ? observedDays : null)
       setDecisionPersistence(data?.decision_persistence ?? null)
       // Capture the signed plan (issued by simulate-fix when there is a
       // safely-removable set). plan.permissions_to_remove is the bound safe set.
@@ -1067,7 +1127,9 @@ export function IAMPermissionAnalysisModal({
       const mappedData: GapAnalysisData = {
         role_name: rawData.role_name || roleName,
         role_arn: rawData.role_arn,
-        observation_days: rawData.observation_days || 365,
+        // Never invent a 365-day window when gap-analysis omits this field.
+        // simulate-fix supplies the measured window and wins at render time.
+        observation_days: rawData.observation_days ?? 0,
         // Backend remediability contract — consumed by the mutation gate below.
         is_remediable: rawData.is_remediable,
         remediable_reason: rawData.remediable_reason,
@@ -1509,7 +1571,15 @@ export function IAMPermissionAnalysisModal({
         
         // Remove this resource from the list
         if (onRemediationSuccess) {
-          onRemediationSuccess(roleName)
+          onRemediationSuccess(roleName, {
+            snapshotId: snapshotId ?? null,
+            eventId: result.event_id ?? null,
+            rollbackAvailable: result.rollback_available === true,
+            remediatedBy: result.remediated_by ?? null,
+            remediatedAt: result.remediated_at ?? null,
+            afterTotal: typeof afterTotal === 'number' ? afterTotal : null,
+            removedCount: typeof permissionsRemoved === 'number' ? permissionsRemoved : null,
+          })
         }
 
         // Refresh parent data
@@ -2466,7 +2536,7 @@ export function IAMPermissionAnalysisModal({
   }
 
   // Calculate derived values
-  const observationDays = gapData?.observation_days ?? 365
+  const observationDays = previewObservationDays ?? gapData?.observation_days ?? 0
   const overallRisk = gapData?.summary?.overall_risk ?? 'UNKNOWN'
   const cloudtrailEvents = gapData?.summary?.cloudtrail_events ?? 0
 
@@ -2926,8 +2996,14 @@ export function IAMPermissionAnalysisModal({
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
         <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full p-8 text-center">
           <Loader2 className="w-12 h-12 mx-auto mb-4 animate-spin text-[#8b5cf6]" />
-          <h2 className="text-2xl font-bold mb-2 text-[var(--foreground,#111827)]">Analyzing Permissions</h2>
-          <p style={{ color: "var(--muted-foreground, #6b7280)" }}>Analyzing usage data for <span className="font-bold" style={{ color: "var(--foreground, #111827)" }}>{roleName}</span>...</p>
+          <h2 className="text-2xl font-bold mb-2 text-[var(--foreground,#111827)]">
+            {applying ? 'Applying IAM change' : 'Analyzing permissions'}
+          </h2>
+          <p style={{ color: "var(--muted-foreground, #6b7280)" }}>
+            {applying
+              ? <>Creating a restore point, applying the selected permissions, and verifying AWS for <span className="font-bold" style={{ color: "var(--foreground, #111827)" }}>{roleName}</span>…</>
+              : <>Analyzing usage data for <span className="font-bold" style={{ color: "var(--foreground, #111827)" }}>{roleName}</span>…</>}
+          </p>
         </div>
       </div>
     )
@@ -4134,7 +4210,9 @@ export function IAMPermissionAnalysisModal({
           <div className="flex items-center justify-between gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
             <div className="flex items-center gap-2 text-xs" style={{ color: "var(--foreground, #111827)" }}>
               <Calendar className="w-3.5 h-3.5" style={{ color: "#2D51DA" }} />
-              <span className="font-semibold">{observationDays}-day observation</span>
+              <span className="font-semibold">
+                {observationDays > 0 ? `${observationDays}-day observation` : 'Observation window loading'}
+              </span>
               <span className="text-slate-400">·</span>
               <span style={{ color: "var(--muted-foreground, #6b7280)" }}>{formatDate(startDate)} → {formatDate(endDate)}</span>
             </div>

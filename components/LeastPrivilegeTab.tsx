@@ -1326,7 +1326,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       if (resource.resourceType === 'IAMRole' && !snapshotId && !eventId) {
         // Strategy A: Fetch all IAM snapshots, find matching one
         try {
-          const snapRes = await fetch('/api/proxy/iam-snapshots')
+          const snapRes = await fetch('/api/proxy/iam-snapshots?force_refresh=true')
           if (snapRes.ok) {
             const snapshots = await snapRes.json()
             const arr = Array.isArray(snapshots) ? snapshots : (snapshots.snapshots || [])
@@ -1384,7 +1384,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
           // Try multiple resource ID formats
           const idsToTry = [resourceName, resourceId, resource.resourceArn].filter(Boolean)
           for (const tryId of idsToTry) {
-            const historyRes = await fetch(`/api/proxy/remediation-history/timeline?resource_id=${encodeURIComponent(tryId)}&limit=20`)
+            const historyRes = await fetch(`/api/proxy/remediation-history/timeline?resource_id=${encodeURIComponent(tryId)}&limit=20&force_refresh=true`)
             if (historyRes.ok) {
               const historyData = await historyRes.json()
               const events = historyData.events || []
@@ -3561,14 +3561,14 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         onApplyFix={(data) => {
           console.log('[IAM] Apply fix requested:', data)
         }}
-        onRemediationSuccess={(roleName) => {
+        onRemediationSuccess={(roleName, receipt) => {
           const resource = data?.resources.find(candidate =>
             candidate.resourceType === 'IAMRole' &&
             (candidate.resourceName === roleName || candidate.id === roleName)
           )
 
           if (resource) {
-            handleRemediationSuccess(resource)
+            handleRemediationSuccess(resource, receipt)
           } else {
             void fetchGaps(false, false)
           }

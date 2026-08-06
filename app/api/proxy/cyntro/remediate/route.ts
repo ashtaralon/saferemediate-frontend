@@ -105,7 +105,18 @@ export async function POST(req: NextRequest) {
     if (!res.ok) {
       const errorText = await res.text()
       console.error(`[CYNTRO-REMEDIATE] Error: ${res.status} - ${errorText}`)
-      return NextResponse.json({ error: `Remediation failed: ${res.status}`, detail: errorText }, { status: res.status })
+      let parsed: any = null
+      try { parsed = JSON.parse(errorText) } catch { /* plain-text upstream */ }
+      const detail = parsed?.detail ?? parsed?.error ?? errorText
+      const message = typeof detail === 'string'
+        ? detail
+        : (detail?.message || detail?.reason || `Remediation failed: ${res.status}`)
+      return NextResponse.json({
+        error: message,
+        detail,
+        status: res.status,
+        phase: detail?.phase || detail?.block_layer || null,
+      }, { status: res.status })
     }
 
     const remediateData = await res.json()
@@ -146,7 +157,9 @@ export async function POST(req: NextRequest) {
       message: remediateData.message || `Removed ${removedPermissions} permissions`,
       snapshot_id: remediateData.snapshot_id,
       event_id: remediateData.event_id || remediateData.execution_id || null,
-      rollback_available: !!(remediateData.snapshot_id || remediateData.event_id || remediateData.execution_id),
+      rollback_available: remediateData.rollback_available === true,
+      remediated_at: remediateData.remediated_at || remediateData.timestamp || null,
+      remediated_by: remediateData.remediated_by || null,
 
       // Direct remediation info (modified in place, no new role)
       permissions_removed: removedPermissions,
