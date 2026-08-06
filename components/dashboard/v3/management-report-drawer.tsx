@@ -650,7 +650,7 @@ export function ManagementReportDrawer({
             <div className="mt-2 max-h-36 space-y-1 overflow-y-auto rounded-md border border-slate-200 p-1.5">
               {visibleSystemOptions.length ? visibleSystemOptions.map((system) => <label key={system.name} className="flex cursor-pointer items-start gap-2 rounded px-1.5 py-1.5 hover:bg-slate-50"><input type="checkbox" checked={selectedSystems.includes(system.name)} onChange={() => setSelectedSystems((current) => current.includes(system.name) ? current.filter((item) => item !== system.name) : [...current, system.name])} className="mt-0.5 h-3.5 w-3.5 accent-violet-600" /><span className="min-w-0"><span className="block truncate text-[11px] font-medium text-slate-700">{system.displayName || system.name}</span><span className="block truncate text-[9px] text-slate-400">{[system.environment, system.criticality].filter(Boolean).join(" · ") || "Metadata unavailable"}</span></span></label>) : <div className="px-2 py-3 text-center text-[10px] leading-4 text-slate-400">No systems match the selected filters.</div>}
             </div>
-            {scopeNarrowed ? <button type="button" onClick={() => { setSelectedEnvironments([]); setSelectedCriticalities([]); setSelectedSystems([]) }} className="mt-2 text-[10px] font-semibold text-violet-600">Reset scope</button> : null}
+            {scopeNarrowed ? <button type="button" onClick={() => { setSelectedEnvironments([]); setSelectedCriticalities([]); setSelectedSystems([]); setSystemSearch("") }} className="mt-2 text-[10px] font-semibold text-violet-600">Reset scope</button> : null}
           </div>
 
           <div className="mt-7 border-t border-slate-200 pt-5">

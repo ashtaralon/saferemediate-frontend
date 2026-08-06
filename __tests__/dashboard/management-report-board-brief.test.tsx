@@ -183,6 +183,19 @@ describe("Management report", () => {
     expect(screen.queryByLabelText(/Operations sandbox/)).toBeNull()
   })
 
+  it("clears system search when report scope is reset", () => {
+    render(<ManagementReportDrawer open onClose={() => {}} report={reading()} />)
+
+    fireEvent.click(screen.getByRole("button", { name: "Production" }))
+    const search = screen.getByPlaceholderText("Find a system…")
+    fireEvent.change(search, { target: { value: "does-not-exist" } })
+    expect(screen.getByText("No systems match the selected filters.")).toBeTruthy()
+
+    fireEvent.click(screen.getByRole("button", { name: "Reset scope" }))
+    expect(search).toHaveValue("")
+    expect(screen.getByLabelText(/Developer portal/)).toBeTruthy()
+  })
+
   it("uses role-neutral content controls and selectable sections", () => {
     render(<ManagementReportDrawer open onClose={() => {}} report={reading()} />)
 
