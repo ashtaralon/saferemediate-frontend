@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { BusinessImpactPanel } from "@/components/business-impact/business-impact-panel"
+import { BusinessImpactReportSection } from "@/components/business-impact/business-impact-report-section"
 import { BusinessImpactSettings } from "@/components/business-impact/business-impact-settings"
 
 afterEach(cleanup)
@@ -85,5 +86,19 @@ describe("BusinessImpactPanel", () => {
       "/api/proxy/business-impact/organization",
       expect.objectContaining({ method: "PUT" }),
     )
+  })
+
+  it("does not refetch the portfolio for an equivalent systems array", async () => {
+    const { rerender } = render(
+      <BusinessImpactReportSection systems={[{ name: "payments-prod", environment: "Production" }]} />,
+    )
+
+    expect(await screen.findByText("Sensitive data disclosure")).toBeInTheDocument()
+    expect(global.fetch).toHaveBeenCalledTimes(1)
+
+    rerender(
+      <BusinessImpactReportSection systems={[{ name: "payments-prod", environment: "Production" }]} />,
+    )
+    expect(global.fetch).toHaveBeenCalledTimes(1)
   })
 })

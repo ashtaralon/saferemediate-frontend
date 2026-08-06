@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { AlertTriangle, ChevronDown, ChevronRight, Loader2, Settings2 } from "lucide-react"
 import { formatImpactMoney, type BusinessImpactResponse, type BusinessImpactScenario } from "@/lib/business-impact"
 import { BusinessImpactSettings } from "./business-impact-settings"
@@ -40,13 +40,17 @@ export function BusinessImpactReportSection({ systems }: { systems: SystemOption
   const [error, setError] = useState<string | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
+  const systemQuery = useMemo(
+    () => systems.map((system) => system.name).join(","),
+    [systems],
+  )
 
   const load = useCallback(async () => {
-    if (!systems.length) { setLoading(false); setData(null); return }
+    if (!systemQuery) { setLoading(false); setData(null); return }
     setLoading(true)
     setError(null)
     try {
-      const query = encodeURIComponent(systems.map((system) => system.name).join(","))
+      const query = encodeURIComponent(systemQuery)
       const response = await fetch(`/api/proxy/business-impact/portfolio?systems=${query}`, { cache: "no-store" })
       const payload = await response.json()
       if (!response.ok) throw new Error(payload.detail || payload.error || "Business impact insights unavailable")
@@ -56,7 +60,7 @@ export function BusinessImpactReportSection({ systems }: { systems: SystemOption
     } finally {
       setLoading(false)
     }
-  }, [systems])
+  }, [systemQuery])
 
   useEffect(() => { void load() }, [load, refreshKey])
 
