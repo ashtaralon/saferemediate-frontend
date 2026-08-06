@@ -36,6 +36,7 @@ import { ThreeLayerStrip } from "./three-layer-strip"
 import { ClosureOutcomePanel } from "./closure-outcome-panel"
 import { SharedRoleCallout, type SharedRoleCalloutData } from "./shared-role-callout"
 import type { SystemArchitecture } from "@/components/dependency-map/traffic-flow-map"
+import { BusinessImpactPanel } from "@/components/business-impact/business-impact-panel"
 
 interface PathAnalysisPanelProps {
   path: IdentityAttackPath
@@ -491,6 +492,15 @@ export function PathAnalysisPanel({
           </p>
         )}
       </div>
+
+      {/* Conditional business impact is a separate decision surface.  It is
+          never multiplied by the technical exposure score above. */}
+      <BusinessImpactPanel
+        systemName={systemName}
+        pathId={path.attack_path_id ?? path.id}
+        environment={null}
+        criticality={jewel?.severity ?? null}
+      />
 
       {/* 2. Three-layer strip (P/N/D simultaneous) */}
       <ThreeLayerStrip report={report} path={path} />

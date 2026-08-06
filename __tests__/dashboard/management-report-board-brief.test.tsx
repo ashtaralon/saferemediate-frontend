@@ -1,5 +1,9 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
+
+vi.mock("@/components/business-impact/business-impact-report-section", () => ({
+  BusinessImpactReportSection: () => <section>Conditional business impact</section>,
+}))
 
 import {
   ManagementReportDrawer,
@@ -128,6 +132,7 @@ describe("Management report", () => {
     expect(text).toMatch(/Authorize staged execution/i)
     expect(text).toMatch(/Print \/ save PDF/i)
     expect(text).toMatch(/Security & Resilience Report/i)
+    expect(text).toMatch(/Conditional business impact/i)
     expect(text).not.toMatch(/Board Security & Resilience Brief/i)
   })
 

@@ -16,6 +16,7 @@ import {
   TrendingDown,
   X,
 } from "lucide-react"
+import { BusinessImpactReportSection } from "@/components/business-impact/business-impact-report-section"
 
 /**
  * A management report is a decision document, not a dump of dashboard cards.
@@ -46,7 +47,7 @@ export type ReportSystem = {
   weakestPlane: string | null
 }
 
-export type ReportSectionId = "summary" | "systems" | "damage" | "progress" | "actions" | "confidence"
+export type ReportSectionId = "summary" | "systems" | "damage" | "business-impact" | "progress" | "actions" | "confidence"
 
 export type ReportCrownJewel = {
   id: string
@@ -387,6 +388,7 @@ const NAV_ITEMS: Array<[ReportSectionId, string]> = [
   ["summary", "Summary"],
   ["systems", "Critical systems"],
   ["damage", "Potential damage"],
+  ["business-impact", "Business impact"],
   ["progress", "Remediation progress"],
   ["actions", "Actions and ownership"],
   ["confidence", "Confidence & appendix"],
@@ -396,6 +398,7 @@ const DEFAULT_SECTIONS: Record<ReportSectionId, boolean> = {
   summary: true,
   systems: true,
   damage: true,
+  "business-impact": true,
   progress: true,
   actions: true,
   confidence: true,
@@ -782,8 +785,10 @@ export function ManagementReportDrawer({
                 ) : <div className="rounded-lg border border-dashed border-slate-300 p-5 text-sm text-slate-600">No crown-jewel scenarios can be published from the available data. Check attack-path coverage before interpreting the absence.</div>}
               </section> : null}
 
+              {sections["business-impact"] ? <BusinessImpactReportSection systems={(snapshot?.systems ?? []).map((system) => ({ name: system.name, environment: system.environment, criticality: system.criticality }))} /> : null}
+
               {sections.progress ? <section id="report-progress">
-                <SectionHeading eyebrow="04 · Are we getting safer?" title="Remediation progress and execution confidence" description="Observed changes over the current seven-day remediation window." />
+                <SectionHeading eyebrow="05 · Are we getting safer?" title="Remediation progress and execution confidence" description="Observed changes over the current seven-day remediation window." />
                 <div className="grid gap-5 lg:grid-cols-[1.4fr_1fr]">
                   <div><ProgressBars days={snapshot?.outcomes.byDay ?? []} /><div className="mt-2 flex justify-between text-[10px] text-slate-400"><span>{showDate(snapshot?.outcomes.periodStart)}</span><span>Permissions removed per day</span><span>{showDate(snapshot?.outcomes.periodEnd)}</span></div></div>
                   <div className="grid grid-cols-2 gap-3">
@@ -800,7 +805,7 @@ export function ManagementReportDrawer({
               </section> : null}
 
               {sections.actions ? <section id="report-actions">
-                <SectionHeading eyebrow="05 · What happens next" title="Actions, ownership, and timing" description="Recommended actions generated from the measured risk, uncertainty, and safe-action queue." />
+                <SectionHeading eyebrow="06 · What happens next" title="Actions, ownership, and timing" description="Recommended actions generated from the measured risk, uncertainty, and safe-action queue." />
                 <div className="space-y-3">
                   {asks.map((ask, index) => (
                     <div key={ask.title} className="grid gap-3 rounded-xl border border-slate-200 p-4 sm:grid-cols-[44px_1fr_170px]">
@@ -813,7 +818,7 @@ export function ManagementReportDrawer({
               </section> : null}
 
               {sections.confidence ? <section id="report-confidence">
-                <SectionHeading eyebrow="06 · Can we trust the conclusion?" title="Evidence confidence and report limitations" description="Cyntro separates confirmed zeros from unknowns and carries source failures into the brief." />
+                <SectionHeading eyebrow="07 · Can we trust the conclusion?" title="Evidence confidence and report limitations" description="Cyntro separates confirmed zeros from unknowns and carries source failures into the report." />
                 <div className="grid gap-4 sm:grid-cols-3">
                   <Metric label="Evidence confidence" value={snapshot?.evidence.confidence ?? null} detail="Minimum across enabled sources" tone="slate" />
                   <Metric label="Healthy sources" value={snapshot?.evidence.healthy ?? null} detail={`of ${showNumber(snapshot?.evidence.total)} observed`} tone="emerald" />
