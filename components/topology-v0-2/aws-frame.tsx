@@ -688,7 +688,6 @@ function nodeIcon(type: string | null): { symbol: ReactNode; bg: string; fg: str
   if (url) {
     return {
       symbol: (
-        // eslint-disable-next-line @next/next/no-img-element -- external architecture icon CDN
         <img
           src={url}
           alt=""
