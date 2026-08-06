@@ -5,7 +5,10 @@ import { useRouter, useSearchParams } from "next/navigation"
 import { FileText, RefreshCw } from "lucide-react"
 import { ExecutiveCockpit } from "./executive-cockpit"
 import { OperationsView } from "./operations-view"
-import { ManagementReportDrawer, type ReportReadiness } from "./management-report-drawer"
+import {
+  ManagementReportDrawer,
+  type ManagementReportContext,
+} from "./management-report-drawer"
 import { ViewSwitch, isDashboardView, type DashboardView } from "./view-switch"
 
 /**
@@ -49,21 +52,19 @@ export function HomeDashboardV3({ onNavigateToSection }: HomeDashboardV3Props) {
   )
   const [refreshKey, setRefreshKey] = useState(0)
   const [reportOpen, setReportOpen] = useState(false)
-  const [readiness, setReadiness] = useState<ReportReadiness>({
-    scope: "reading…",
+  const [reportContext, setReportContext] = useState<ManagementReportContext>({
+    scope: "Loading scope…",
     sources: [],
-    generation: null,
+    snapshot: null,
   })
 
   const setView = (v: DashboardView) => {
     setViewState(v)
-    // Readiness describes the EXECUTIVE reading. Leaving that view makes it
-    // stale immediately, and a report drawer showing the previous view's
-    // reading is exactly the kind of quiet inconsistency the report exists
-    // to prevent. Drop it; the cockpit repopulates on return.
+    // Report data describes the EXECUTIVE view. Leaving that view makes it
+    // stale immediately, so drop it; the cockpit repopulates on return.
     if (v !== "executive") {
       setReportOpen(false)
-      setReadiness({ scope: "reading…", sources: [], generation: null })
+      setReportContext({ scope: "Loading scope…", sources: [], snapshot: null })
     }
     const next = new URLSearchParams(Array.from(searchParams.entries()))
     if (v === "executive") next.delete("view")
@@ -77,9 +78,9 @@ export function HomeDashboardV3({ onNavigateToSection }: HomeDashboardV3Props) {
   const refresh = () => setRefreshKey((k) => k + 1)
 
   // Stable identity so the cockpit's effect doesn't re-fire every render.
-  const handleReadiness = useCallback((r: ReportReadiness) => {
-    setReadiness((prev) =>
-      JSON.stringify(prev) === JSON.stringify(r) ? prev : r,
+  const handleReportData = useCallback((report: ManagementReportContext) => {
+    setReportContext((previous) =>
+      JSON.stringify(previous) === JSON.stringify(report) ? previous : report,
     )
   }, [])
 
@@ -103,16 +104,14 @@ export function HomeDashboardV3({ onNavigateToSection }: HomeDashboardV3Props) {
             <RefreshCw className="h-3.5 w-3.5" />
             Refresh
           </button>
-          {/* Executive-only. In Operations the executive feeds are not read,
-              so the drawer would have reported "0 of 0 feeds ready" — a
-              readiness claim about a reading that never happened. */}
+          {/* Executive-only. Operations does not load the report sources. */}
           {view === "executive" && (
             <button
               onClick={() => setReportOpen(true)}
               className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
             >
               <FileText className="h-3.5 w-3.5" />
-              Management report
+              Generate board report
             </button>
           )}
         </div>
@@ -122,7 +121,7 @@ export function HomeDashboardV3({ onNavigateToSection }: HomeDashboardV3Props) {
         {view === "executive" ? (
           <ExecutiveCockpit
             onNavigateToSection={onNavigateToSection}
-            onReadiness={handleReadiness}
+            onReportData={handleReportData}
           />
         ) : (
           <OperationsView />
@@ -132,7 +131,7 @@ export function HomeDashboardV3({ onNavigateToSection }: HomeDashboardV3Props) {
       <ManagementReportDrawer
         open={reportOpen}
         onClose={() => setReportOpen(false)}
-        readiness={readiness}
+        report={reportContext}
       />
     </div>
   )

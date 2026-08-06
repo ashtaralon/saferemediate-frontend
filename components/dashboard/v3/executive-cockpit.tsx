@@ -25,7 +25,11 @@ import {
   type SnapshotServeState,
 } from "@/lib/executive-snapshot"
 import { ErrorCard, LoadingCard, StaleIndicator } from "./card-shell"
-import type { ReportReadiness, SourceReadiness } from "./management-report-drawer"
+import type {
+  ManagementReportContext,
+  ManagementReportSnapshot,
+  ReportSource,
+} from "./management-report-drawer"
 
 function integer(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null
@@ -40,6 +44,92 @@ function stateLabel(state: SnapshotServeState): "READY" | "PARTIAL" | "UNAVAILAB
   if (state === "READY") return "READY"
   if (state === "PARTIAL") return "PARTIAL"
   return "UNAVAILABLE"
+}
+
+function reportSnapshot(data: ExecutiveSnapshot): ManagementReportSnapshot {
+  const material = data.material_risk
+  const risks = material.top_risks || []
+  const candidates = data.remediation.top_candidates || []
+  const byDay = (data.outcomes.by_day || []).map((day) => ({
+    date: day.date,
+    permissionsRemoved: day.permissions_removed,
+    events: day.events_count,
+  }))
+  const systemRows = new Map<string, ManagementReportSnapshot["systems"][number]>()
+
+  for (const risk of risks) {
+    const names = risk.system_names?.length
+      ? risk.system_names
+      : risk.system_name
+        ? [risk.system_name]
+        : ["System not reported"]
+    for (const name of names) {
+      const row = systemRows.get(name) || {
+        name,
+        environment: null,
+        score: null,
+        resourceCount: null,
+        critical: 0,
+        high: 0,
+        weakestPlane: null,
+      }
+      if (risk.severity === "CRITICAL") row.critical = (row.critical || 0) + 1
+      if (risk.severity === "HIGH") row.high = (row.high || 0) + 1
+      systemRows.set(name, row)
+    }
+  }
+
+  return {
+    metrics: {
+      systems: integer(material.systems_discovered),
+      systemsPartial: material.counts_are_lower_bounds || material.serve_state !== "READY",
+      systemsRequiringAttention: integer(material.high_risk_targets),
+      reachableCrownJewels: integer(material.crown_jewels),
+      internetExposedJewels: integer(material.externally_exposed_jewels),
+      viableAttackPaths: integer(material.attack_paths),
+      proposedChanges: integer(data.remediation.ready_on_page),
+      heldChanges: integer(data.remediation.held_on_page),
+    },
+    systems: Array.from(systemRows.values()),
+    crownJewels: risks.map((risk, index) => ({
+      id: risk.id || `${risk.name || "risk"}-${index}`,
+      name: risk.name || "Unnamed target",
+      type: risk.resource_type || "Resource",
+      severity: risk.severity || null,
+      pathCount: integer(risk.path_count),
+      riskScore: integer(risk.priority_score),
+      internetExposed: typeof risk.internet_exposed === "boolean" ? risk.internet_exposed : null,
+      dataClassification: null,
+      systemName: risk.system_name || risk.system_names?.join(", ") || null,
+    })),
+    candidates: candidates.map((candidate) => ({
+      resourceType: candidate.resource_type || "Resource",
+      resourceId: candidate.resource_id || "Unnamed resource",
+      system: candidate.system || null,
+      unusedCount: integer(candidate.unused_count),
+      totalPermissions: integer(candidate.total_permissions),
+      severity: candidate.severity || null,
+      canAutoApply: typeof candidate.can_auto_apply === "boolean" ? candidate.can_auto_apply : null,
+      blockReason: candidate.block_reason || null,
+    })),
+    evidence: {
+      confidence: null,
+      accounts: null,
+      healthy: integer(data.evidence.healthy),
+      degraded: integer(data.evidence.degraded),
+      missing: integer(data.evidence.missing),
+      total: integer(data.evidence.total),
+    },
+    outcomes: {
+      windowDays: integer(data.outcomes.window_days),
+      permissionsRemoved: integer(data.outcomes.permissions_removed),
+      events: integer(data.outcomes.events_count),
+      rollbacks: integer(data.outcomes.rollbacks_count),
+      periodStart: byDay.at(0)?.date || null,
+      periodEnd: byDay.at(-1)?.date || null,
+      byDay,
+    },
+  }
 }
 
 function SnapshotStatus({ data, recovering }: { data: ExecutiveSnapshot; recovering: boolean }) {
@@ -285,10 +375,10 @@ function OutcomePanel({ outcomes }: { outcomes: ExecutiveSnapshot["outcomes"] })
 
 export function ExecutiveCockpit({
   onNavigateToSection,
-  onReadiness,
+  onReportData,
 }: {
   onNavigateToSection?: (id: string) => void
-  onReadiness?: (r: ReportReadiness) => void
+  onReportData?: (report: ManagementReportContext) => void
 }) {
   const router = useRouter()
   const snapshot = useCachedFetch<ExecutiveSnapshot>(
@@ -305,27 +395,31 @@ export function ExecutiveCockpit({
   )
 
   const data = snapshot.data
-  const sources: SourceReadiness[] = useMemo(() => data ? [
-    { label: "Material risk", state: stateLabel(data.material_risk.serve_state), detail: data.material_risk.reason || null, cachedAt: snapshot.cachedAt },
-    { label: "Proposed changes", state: stateLabel(data.remediation.serve_state), cachedAt: snapshot.cachedAt },
-    { label: "Evidence readiness", state: stateLabel(data.evidence.serve_state), detail: data.evidence.reason || null, cachedAt: snapshot.cachedAt },
-    { label: "Verified outcomes", state: stateLabel(data.outcomes.serve_state), cachedAt: snapshot.cachedAt },
-  ] : [], [data, snapshot.cachedAt])
+  const sources: ReportSource[] = useMemo(() => {
+    if (!data) return []
+    const readingAt = snapshot.cachedAt || Date.parse(data.computed_at) || null
+    return [
+      { label: "Material risk", state: stateLabel(data.material_risk.serve_state), detail: data.material_risk.reason || null, cachedAt: readingAt },
+      { label: "Proposed changes", state: stateLabel(data.remediation.serve_state), cachedAt: readingAt },
+      { label: "Evidence readiness", state: stateLabel(data.evidence.serve_state), detail: data.evidence.reason || null, cachedAt: readingAt },
+      { label: "Verified outcomes", state: stateLabel(data.outcomes.serve_state), cachedAt: readingAt },
+    ]
+  }, [data, snapshot.cachedAt])
 
   useEffect(() => {
     if (!data) return
     const discovered = integer(data.material_risk.systems_discovered)
     const scanned = integer(data.material_risk.systems_scanned)
-    onReadiness?.({
+    onReportData?.({
       scope: discovered === null
-        ? "scope unavailable"
+        ? "Not available"
         : scanned === null
           ? `analysis coverage unavailable across ${discovered} business systems`
           : `${scanned} of ${discovered} business systems analyzed`,
       sources,
-      generation: null,
+      snapshot: reportSnapshot(data),
     })
-  }, [data, onReadiness, sources])
+  }, [data, onReportData, sources])
 
   if (snapshot.loading && !data) return <LoadingCard label="Cloud risk and remediation overview" />
   if ((snapshot.error || !data) && !data) {

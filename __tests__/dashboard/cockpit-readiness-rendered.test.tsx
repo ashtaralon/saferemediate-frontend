@@ -83,7 +83,7 @@ beforeEach(() => {
 })
 afterEach(cleanup)
 
-describe("governed executive snapshot, rendered", () => {
+describe("executive snapshot, rendered", () => {
   it("renders one coherent graph-backed reading", () => {
     render(<ExecutiveCockpit />)
     expect(screen.getByText("170")).toBeInTheDocument()
@@ -106,5 +106,26 @@ describe("governed executive snapshot, rendered", () => {
     render(<ExecutiveCockpit />)
     expect(screen.getByText(/Backend recovering — showing the last verified snapshot/i)).toBeInTheDocument()
     expect(screen.getByText(/mutations stay disabled/i)).toBeInTheDocument()
+  })
+
+  it("publishes the same reading to the report generator", () => {
+    const onReportData = vi.fn()
+    render(<ExecutiveCockpit onReportData={onReportData} />)
+
+    expect(onReportData).toHaveBeenCalledWith(expect.objectContaining({
+      scope: "8 of 8 business systems analyzed",
+      sources: expect.arrayContaining([
+        expect.objectContaining({ label: "Material risk", state: "READY" }),
+        expect.objectContaining({ label: "Verified outcomes", state: "READY" }),
+      ]),
+      snapshot: expect.objectContaining({
+        metrics: expect.objectContaining({
+          systems: 8,
+          reachableCrownJewels: 18,
+          viableAttackPaths: 170,
+          proposedChanges: 2,
+        }),
+      }),
+    }))
   })
 })

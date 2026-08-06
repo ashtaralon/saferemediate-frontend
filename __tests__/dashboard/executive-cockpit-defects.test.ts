@@ -28,4 +28,10 @@ describe("executive cockpit authority", () => {
     expect(cockpit).not.toMatch(/fetch\([^)]*(POST|DELETE|PATCH)/)
     expect(cockpit).not.toMatch(/Apply now|Execute change/i)
   })
+
+  it("hands the current executive snapshot to the report without refetching", () => {
+    expect(cockpit).toContain("reportSnapshot(data)")
+    expect(cockpit).toContain("onReportData")
+    expect(cockpit).not.toContain("onReadiness")
+  })
 })
