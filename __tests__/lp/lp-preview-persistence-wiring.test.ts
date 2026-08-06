@@ -42,4 +42,14 @@ describe('Resource Risk Preview persistence wiring', () => {
     expect(analysisModalSource).toContain('not confidence in the finding')
     expect(analysisModalSource).toContain('if (safetyContext) return null')
   })
+
+  it('binds the signed managed-policy execution requirement and removes false safety claims', () => {
+    expect(analysisModalSource).toContain('setManagedPolicyRewriteRequired(requiresManagedPolicyRewrite)')
+    expect(analysisModalSource).toContain('setDetachManagedPolicies(requiresManagedPolicyRewrite)')
+    expect(analysisModalSource).toContain('Preserve kept actions during managed-policy rewrite')
+    expect(analysisModalSource).toContain('Restore point required')
+    expect(analysisModalSource).toContain('Calculating removal evidence...')
+    expect(analysisModalSource).not.toContain('`${safetyScore}% safe to remove`')
+    expect(analysisModalSource).toContain('A restore point will be created and verified before Apply changes AWS.')
+  })
 })
