@@ -166,11 +166,55 @@ describe("Estate operations panel", () => {
     fireEvent.click(screen.getByTestId("estate-operations-tab-change"))
     fireEvent.click(screen.getByTestId("estate-vpce-analyze"))
 
-    expect(await screen.findByText("Change is blocked by missing proof")).toBeInTheDocument()
+    expect(await screen.findByText("Consumer route evidence is incomplete")).toBeInTheDocument()
+    expect(screen.getByText("Effective S3 route is not proven")).toBeInTheDocument()
     expect(screen.getByText("UNKNOWN_NETWORK_PATH")).toBeInTheDocument()
     expect(screen.getByText("Existing endpoint vpce-customer-owned selected; explicit Cyntro opt-in required")).toBeInTheDocument()
     expect(screen.queryByText("Use opted-in endpoint vpce-customer-owned")).not.toBeInTheDocument()
     expect(screen.queryByTestId("estate-vpce-execute")).not.toBeInTheDocument()
+  })
+
+  it("distinguishes an empty VPC scope from missing telemetry", async () => {
+    const blockedPlan = {
+      readiness: "BLOCKED",
+      bucket_name: node.name,
+      vpc_id: "vpc-selected",
+      endpoint_mode: "CREATE_MANAGED",
+      blockers: [{ code: "NO_OBSERVED_CONSUMERS", message: "No observed bucket consumer is mapped to the selected VPC." }],
+      excluded_consumers: [{
+        resource_id: "arn:aws:lambda:eu-west-1:745783559495:function:traffic",
+        resource_name: "traffic",
+        resource_type: "Lambda",
+        reason_code: "OUTSIDE_VPC",
+        reason: "Gateway endpoints cannot route a consumer that is not attached to a VPC.",
+      }],
+      impact: {
+        observed_consumers: 0,
+        total_observed_consumers: 1,
+        migrating_consumers: 0,
+        subnets: 0,
+        route_tables: 0,
+        route_table_workloads: 0,
+        permission_changes: 0,
+        resource_replacements: 0,
+      },
+    }
+    vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      if (String(input).includes("s3-vpce/plan")) return response(blockedPlan)
+      return standardBackendResponse(input)
+    })
+    renderPanel()
+    fireEvent.click(screen.getByTestId("estate-operations-tab-change"))
+    fireEvent.click(screen.getByTestId("estate-vpce-analyze"))
+
+    expect(await screen.findByText("No VPC-attached bucket consumer found in this scope")).toBeInTheDocument()
+    expect(screen.getByText("1 bucket consumer was observed, but none is attached to vpc-selected and eligible for an S3 Gateway endpoint migration.")).toBeInTheDocument()
+    expect(screen.getByText("No endpoint change until an eligible VPC consumer is observed")).toBeInTheDocument()
+    expect(screen.getByText("Migratable consumers")).toBeInTheDocument()
+    expect(screen.getByText("No eligible VPC consumer in this scope")).toBeInTheDocument()
+    expect(screen.getByText(/Select All VPCs or a VPC containing an observed consumer/)).toBeInTheDocument()
+    expect(screen.queryByText("Change is blocked by missing proof")).not.toBeInTheDocument()
+    expect(screen.queryByTestId("estate-vpce-simulate")).not.toBeInTheDocument()
   })
 
   it("requires exact confirmation before snapshot and apply", async () => {
