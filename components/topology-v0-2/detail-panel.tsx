@@ -114,6 +114,28 @@ function Metric({ label, value }: { label: string; value: string | number }) {
   )
 }
 
+const S3_BLOCKER_GUIDANCE: Record<string, { title: string; next: string }> = {
+  NO_OBSERVED_CONSUMERS: {
+    title: "No eligible VPC consumer in this scope",
+    next: "Select All VPCs or a VPC containing an observed consumer. If none appears, generate S3 activity from a VPC-attached workload and refresh behavioral data.",
+  },
+  UNKNOWN_NETWORK_PATH: {
+    title: "Effective S3 route is not proven",
+    next: "Refresh AWS network inventory and behavioral evidence so Cyntro can bind the workload to its subnet, effective route table, and current S3 path.",
+  },
+  EXISTING_ENDPOINT_NOT_OPTED_IN: {
+    title: "Existing endpoint is not authorized for Cyntro changes",
+    next: "Add cyntro:allow-managed-route-associations=true to the selected endpoint after confirming that Cyntro may manage its route-table associations.",
+  },
+}
+
+function blockerGuidance(code: string) {
+  return S3_BLOCKER_GUIDANCE[code] ?? {
+    title: code.replaceAll("_", " ").toLowerCase(),
+    next: "Resolve this safety check, then analyze the migration again.",
+  }
+}
+
 export function DetailPanel({ node, systemName, accountId, region, vpcId, onClose }: Props) {
   const [tab, setTab] = useState<Tab>("resource")
   const [dossier, setDossier] = useState<OperationalDossier | null>(null)
@@ -316,13 +338,47 @@ export function DetailPanel({ node, systemName, accountId, region, vpcId, onClos
               : operationState === "SIMULATED" ? 2
                 : operationState === "READY_FOR_SIMULATION" ? 1
                   : plan ? 1 : 0
-  const endpointAction = !plan
-    ? ""
-    : plan.endpoint_mode !== "ADOPT_EXISTING"
-      ? "Create a Cyntro-managed S3 Gateway endpoint"
-      : plan.blockers.some((blocker) => blocker.code === "EXISTING_ENDPOINT_NOT_OPTED_IN")
-        ? `Existing endpoint ${plan.existing_endpoint_id} selected; explicit Cyntro opt-in required`
-        : `Use opted-in endpoint ${plan.existing_endpoint_id}`
+  const blockerCodes = new Set(plan?.blockers.map((blocker) => blocker.code) ?? [])
+  const noEligibleConsumer = blockerCodes.has("NO_OBSERVED_CONSUMERS")
+  const unknownNetworkPath = blockerCodes.has("UNKNOWN_NETWORK_PATH")
+  const endpointNeedsOptIn = blockerCodes.has("EXISTING_ENDPOINT_NOT_OPTED_IN")
+  const migrationScope = plan?.vpc_id ?? vpcId ?? "the selected VPC"
+  const totalObservedConsumers = plan?.impact.total_observed_consumers ?? plan?.impact.observed_consumers ?? 0
+  const migratableConsumers = plan?.impact.migrating_consumers ?? plan?.impact.observed_consumers ?? 0
+  const planStatusTitle = plan?.readiness === "READY"
+    ? "One-route-table canary is ready to simulate"
+    : noEligibleConsumer
+      ? "No VPC-attached bucket consumer found in this scope"
+      : unknownNetworkPath
+        ? "Consumer route evidence is incomplete"
+        : endpointNeedsOptIn
+          ? "Endpoint management authorization is required"
+          : "Change is blocked by a safety check"
+  const planStatusDetail = plan?.readiness === "READY"
+    ? `Cyntro proved ${migratableConsumers} migratable consumer${migratableConsumers === 1 ? "" : "s"} and an exact canary route table in ${migrationScope}.`
+    : noEligibleConsumer
+      ? totalObservedConsumers > 0
+        ? `${totalObservedConsumers} bucket consumer${totalObservedConsumers === 1 ? " was" : "s were"} observed, but none is attached to ${migrationScope} and eligible for an S3 Gateway endpoint migration.`
+        : `No bucket access by a VPC-attached workload was observed in ${migrationScope}.`
+      : unknownNetworkPath
+        ? `${plan?.impact.unknown_consumers ?? 1} observed consumer${(plan?.impact.unknown_consumers ?? 1) === 1 ? " cannot" : "s cannot"} yet be bound to a subnet, effective route table, and current S3 route.`
+        : endpointNeedsOptIn
+          ? `Endpoint ${plan?.existing_endpoint_id ?? "selected for this VPC"} is customer-owned and has not authorized Cyntro-managed route-table associations.`
+          : "At least one required safety condition is not satisfied. Review the exact blocker and next action below."
+  let endpointAction = ""
+  if (plan) {
+    if (noEligibleConsumer) {
+      endpointAction = "No endpoint change until an eligible VPC consumer is observed"
+    } else if (endpointNeedsOptIn) {
+      endpointAction = `Existing endpoint ${plan.existing_endpoint_id} selected; explicit Cyntro opt-in required`
+    } else if (unknownNetworkPath && plan.endpoint_mode !== "ADOPT_EXISTING") {
+      endpointAction = "No endpoint change until the route-table scope is proven"
+    } else if (plan.endpoint_mode !== "ADOPT_EXISTING") {
+      endpointAction = "Create a Cyntro-managed S3 Gateway endpoint"
+    } else {
+      endpointAction = `Use opted-in endpoint ${plan.existing_endpoint_id}`
+    }
+  }
 
   return (
     <aside
@@ -526,14 +582,13 @@ export function DetailPanel({ node, systemName, accountId, region, vpcId, onClos
                       <div className="flex items-start gap-2">
                         {plan.readiness === "READY" ? <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-teal-600" /> : <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-orange-600" />}
                         <div>
-                          <div className="text-sm font-bold">{plan.readiness === "READY" ? "One-route-table canary is ready to simulate" : "Change is blocked by missing proof"}</div>
-                          <p className="mt-1 text-xs text-slate-600">
-                            Anchor bucket: <strong>{plan.bucket_name}</strong>. AWS change unit: every workload and S3 destination sharing the selected route tables.
-                          </p>
+                          <div className="text-sm font-bold">{planStatusTitle}</div>
+                          <p className="mt-1 text-xs leading-5 text-slate-600">{planStatusDetail}</p>
+                          <p className="mt-1 text-[10px] text-slate-500">Scope: <strong>{migrationScope}</strong> · Bucket: <strong>{plan.bucket_name}</strong></p>
                         </div>
                       </div>
                       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                        <Metric label="Bucket consumers" value={plan.impact.migrating_consumers ?? plan.impact.observed_consumers} />
+                        <Metric label="Migratable consumers" value={migratableConsumers} />
                         <Metric label="Cohort workloads" value={plan.impact.route_table_workloads} />
                         <Metric label="Route tables" value={plan.impact.route_tables} />
                         <Metric label="S3 destinations" value={plan.impact.s3_destinations ?? 0} />
@@ -558,7 +613,23 @@ export function DetailPanel({ node, systemName, accountId, region, vpcId, onClos
                           </div>
                         </div>
                       ) : null}
-                      {plan.blockers.length ? <div className="space-y-2">{plan.blockers.map(b => <div key={b.code} className="rounded-lg border border-orange-200 bg-white p-3 text-xs"><strong className="text-orange-700">{b.code}</strong><p className="mt-1 text-slate-600">{b.message}</p></div>)}</div> : null}
+                      {plan.blockers.length ? (
+                        <div className="space-y-2">
+                          {plan.blockers.map((blocker) => {
+                            const guidance = blockerGuidance(blocker.code)
+                            return (
+                              <div key={blocker.code} className="rounded-lg border border-orange-200 bg-white p-3 text-xs">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <strong className="text-orange-800">{guidance.title}</strong>
+                                  <span className="rounded bg-orange-50 px-1.5 py-0.5 font-mono text-[9px] text-orange-700">{blocker.code}</span>
+                                </div>
+                                <p className="mt-1 leading-5 text-slate-600">{blocker.message}</p>
+                                <p className="mt-2 leading-5 text-slate-700"><strong>Next:</strong> {guidance.next}</p>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      ) : null}
 
                       {plan.readiness === "READY" && plan.plan_token ? (
                         <div className="space-y-3 border-t border-teal-200 pt-3">
