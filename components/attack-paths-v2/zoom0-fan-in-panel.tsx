@@ -28,6 +28,7 @@ import type {
   CrownJewelSummary,
   IdentityAttackPath,
 } from "@/components/identity-attack-paths/types"
+import { BusinessImpactPanel } from "@/components/business-impact/business-impact-panel"
 import type {
   ConvergencePath,
   CrownJewelConvergence,
@@ -822,6 +823,14 @@ export function Zoom0FanInPanel({
                   pinnedPath?.hops_load_state === "pending")
               }
               onClearPin={clearPin}
+              businessImpact={
+                <BusinessImpactPanel
+                  systemName={systemName}
+                  pathId={pinPathId}
+                  environment={null}
+                  criticality={jewel.severity ?? null}
+                />
+              }
             />
           </div>
         ) : null}

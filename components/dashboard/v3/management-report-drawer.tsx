@@ -12,10 +12,12 @@ import {
   Gauge,
   Printer,
   ShieldCheck,
+  SlidersHorizontal,
   Sparkles,
   TrendingDown,
   X,
 } from "lucide-react"
+import { BusinessImpactReportSection } from "@/components/business-impact/business-impact-report-section"
 
 /**
  * A management report is a decision document, not a dump of dashboard cards.
@@ -46,7 +48,7 @@ export type ReportSystem = {
   weakestPlane: string | null
 }
 
-export type ReportSectionId = "summary" | "systems" | "damage" | "progress" | "actions" | "confidence"
+export type ReportSectionId = "summary" | "systems" | "damage" | "business-impact" | "progress" | "actions" | "confidence"
 
 export type ReportCrownJewel = {
   id: string
@@ -387,6 +389,7 @@ const NAV_ITEMS: Array<[ReportSectionId, string]> = [
   ["summary", "Summary"],
   ["systems", "Critical systems"],
   ["damage", "Potential damage"],
+  ["business-impact", "Business impact"],
   ["progress", "Remediation progress"],
   ["actions", "Actions and ownership"],
   ["confidence", "Confidence & appendix"],
@@ -396,6 +399,7 @@ const DEFAULT_SECTIONS: Record<ReportSectionId, boolean> = {
   summary: true,
   systems: true,
   damage: true,
+  "business-impact": true,
   progress: true,
   actions: true,
   confidence: true,
@@ -443,14 +447,20 @@ export function ManagementReportDrawer({
   const [sections, setSections] = useState<Record<ReportSectionId, boolean>>(DEFAULT_SECTIONS)
   const [includeAppendix, setIncludeAppendix] = useState(true)
   const [copied, setCopied] = useState(false)
+  const [settingsPanelOpen, setSettingsPanelOpen] = useState(false)
 
   useEffect(() => {
     if (!open) return
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = "hidden"
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose()
     }
     window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
+    return () => {
+      document.body.style.overflow = previousOverflow
+      window.removeEventListener("keydown", onKey)
+    }
   }, [open, onClose])
 
   const coverage = deriveReportCoverage(report)
@@ -583,17 +593,20 @@ export function ManagementReportDrawer({
               <h2 className="truncate text-sm font-semibold text-slate-950">Management report</h2>
               <span className="rounded bg-violet-50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-violet-700">Custom report</span>
             </div>
-            <p className="truncate text-xs text-slate-500">Choose the scope, emphasis, and sections that fit the conversation.</p>
+            <p className="hidden truncate text-xs text-slate-500 sm:block">Choose the scope, emphasis, and sections that fit the conversation.</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button type="button" onClick={copySummary} className="inline-flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">
-            {copied ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Clipboard className="h-3.5 w-3.5" />}
-            {copied ? "Copied" : "Copy summary"}
+          <button type="button" aria-label="Report settings" aria-expanded={settingsPanelOpen} aria-controls="management-report-settings" onClick={() => setSettingsPanelOpen((value) => !value)} className="inline-flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 xl:hidden">
+            <SlidersHorizontal className="h-3.5 w-3.5" /><span className="hidden sm:inline">Report settings</span>
           </button>
-          <button type="button" onClick={() => window.print()} className="inline-flex items-center gap-2 rounded-md bg-slate-950 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800">
+          <button type="button" aria-label="Copy summary" onClick={copySummary} className="inline-flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+            {copied ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Clipboard className="h-3.5 w-3.5" />}
+            <span className="hidden sm:inline">{copied ? "Copied" : "Copy summary"}</span>
+          </button>
+          <button type="button" aria-label="Print or save PDF" onClick={() => window.print()} className="inline-flex items-center gap-2 rounded-md bg-slate-950 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800">
             <Printer className="h-3.5 w-3.5" />
-            Print / save PDF
+            <span className="hidden sm:inline">Print / save PDF</span>
           </button>
           <button type="button" onClick={onClose} className="ml-1 rounded-md p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700" aria-label="Close report">
             <X className="h-4 w-4" />
@@ -601,8 +614,9 @@ export function ManagementReportDrawer({
         </div>
       </header>
 
-      <div className="flex min-h-0 flex-1">
-        <aside className="cyntro-no-print hidden w-72 shrink-0 overflow-y-auto border-r border-slate-200 bg-white p-5 xl:block">
+      <div className="relative flex min-h-0 flex-1">
+        {settingsPanelOpen ? <button type="button" aria-label="Close report settings" onClick={() => setSettingsPanelOpen(false)} className="cyntro-no-print absolute inset-0 z-10 bg-slate-950/35 xl:hidden" /> : null}
+        <aside id="management-report-settings" data-mobile-open={settingsPanelOpen ? "true" : "false"} className={`cyntro-no-print absolute inset-y-0 left-0 z-20 w-[min(20rem,calc(100vw-2rem))] shrink-0 overflow-y-auto border-r border-slate-200 bg-white p-5 shadow-2xl xl:static xl:block xl:w-72 xl:shadow-none ${settingsPanelOpen ? "block" : "hidden"}`}>
           <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Report settings</div>
           <label className="mt-4 block text-xs font-semibold text-slate-700">
             Report title
@@ -647,7 +661,7 @@ export function ManagementReportDrawer({
             <div className="mt-2 max-h-36 space-y-1 overflow-y-auto rounded-md border border-slate-200 p-1.5">
               {visibleSystemOptions.length ? visibleSystemOptions.map((system) => <label key={system.name} className="flex cursor-pointer items-start gap-2 rounded px-1.5 py-1.5 hover:bg-slate-50"><input type="checkbox" checked={selectedSystems.includes(system.name)} onChange={() => setSelectedSystems((current) => current.includes(system.name) ? current.filter((item) => item !== system.name) : [...current, system.name])} className="mt-0.5 h-3.5 w-3.5 accent-violet-600" /><span className="min-w-0"><span className="block truncate text-[11px] font-medium text-slate-700">{system.displayName || system.name}</span><span className="block truncate text-[9px] text-slate-400">{[system.environment, system.criticality].filter(Boolean).join(" · ") || "Metadata unavailable"}</span></span></label>) : <div className="px-2 py-3 text-center text-[10px] leading-4 text-slate-400">No systems match the selected filters.</div>}
             </div>
-            {scopeNarrowed ? <button type="button" onClick={() => { setSelectedEnvironments([]); setSelectedCriticalities([]); setSelectedSystems([]) }} className="mt-2 text-[10px] font-semibold text-violet-600">Reset scope</button> : null}
+            {scopeNarrowed ? <button type="button" onClick={() => { setSelectedEnvironments([]); setSelectedCriticalities([]); setSelectedSystems([]); setSystemSearch("") }} className="mt-2 text-[10px] font-semibold text-violet-600">Reset scope</button> : null}
           </div>
 
           <div className="mt-7 border-t border-slate-200 pt-5">
@@ -679,7 +693,7 @@ export function ManagementReportDrawer({
         </aside>
 
         <main className="min-w-0 flex-1 overflow-y-auto bg-slate-100 p-4 sm:p-7">
-          <article id="cyntro-report-print-root" className="mx-auto max-w-[980px] overflow-hidden bg-white shadow-[0_18px_70px_rgba(15,23,42,0.12)] print:shadow-none">
+          <article id="cyntro-report-print-root" className="mx-auto w-full min-w-0 max-w-[980px] overflow-hidden bg-white shadow-[0_18px_70px_rgba(15,23,42,0.12)] print:shadow-none">
             <div className="border-b-[6px] border-violet-600 bg-slate-950 px-8 py-8 text-white sm:px-12 sm:py-10">
               <div className="flex items-start justify-between gap-8">
                 <div>
@@ -739,8 +753,8 @@ export function ManagementReportDrawer({
               {sections.systems ? <section id="report-systems">
                 <SectionHeading eyebrow="02 · Where risk concentrates" title="Most critical business systems" description="Unknown scores rank first; measured systems then rank by lowest blast-radius security score." />
                 {topSystems.length ? (
-                  <div className="overflow-hidden rounded-xl border border-slate-200">
-                    <table className="w-full text-left text-xs">
+                  <div className="overflow-x-auto rounded-xl border border-slate-200">
+                    <table className="w-full min-w-[44rem] text-left text-xs">
                       <thead className="bg-slate-50 text-[9px] font-bold uppercase tracking-[0.14em] text-slate-500">
                         <tr><th className="px-4 py-3">Priority / system</th><th className="px-3 py-3">Environment</th><th className="px-3 py-3">Business criticality</th><th className="px-3 py-3">Current score</th>{showTechnical ? <><th className="px-3 py-3">Weakest plane</th><th className="px-3 py-3 text-right">Critical</th><th className="px-4 py-3 text-right">High</th></> : null}</tr>
                       </thead>
@@ -782,8 +796,10 @@ export function ManagementReportDrawer({
                 ) : <div className="rounded-lg border border-dashed border-slate-300 p-5 text-sm text-slate-600">No crown-jewel scenarios can be published from the available data. Check attack-path coverage before interpreting the absence.</div>}
               </section> : null}
 
+              {sections["business-impact"] ? <BusinessImpactReportSection systems={(snapshot?.systems ?? []).map((system) => ({ name: system.name, environment: system.environment, criticality: system.criticality }))} /> : null}
+
               {sections.progress ? <section id="report-progress">
-                <SectionHeading eyebrow="04 · Are we getting safer?" title="Remediation progress and execution confidence" description="Observed changes over the current seven-day remediation window." />
+                <SectionHeading eyebrow="05 · Are we getting safer?" title="Remediation progress and execution confidence" description="Observed changes over the current seven-day remediation window." />
                 <div className="grid gap-5 lg:grid-cols-[1.4fr_1fr]">
                   <div><ProgressBars days={snapshot?.outcomes.byDay ?? []} /><div className="mt-2 flex justify-between text-[10px] text-slate-400"><span>{showDate(snapshot?.outcomes.periodStart)}</span><span>Permissions removed per day</span><span>{showDate(snapshot?.outcomes.periodEnd)}</span></div></div>
                   <div className="grid grid-cols-2 gap-3">
@@ -800,7 +816,7 @@ export function ManagementReportDrawer({
               </section> : null}
 
               {sections.actions ? <section id="report-actions">
-                <SectionHeading eyebrow="05 · What happens next" title="Actions, ownership, and timing" description="Recommended actions generated from the measured risk, uncertainty, and safe-action queue." />
+                <SectionHeading eyebrow="06 · What happens next" title="Actions, ownership, and timing" description="Recommended actions generated from the measured risk, uncertainty, and safe-action queue." />
                 <div className="space-y-3">
                   {asks.map((ask, index) => (
                     <div key={ask.title} className="grid gap-3 rounded-xl border border-slate-200 p-4 sm:grid-cols-[44px_1fr_170px]">
@@ -813,7 +829,7 @@ export function ManagementReportDrawer({
               </section> : null}
 
               {sections.confidence ? <section id="report-confidence">
-                <SectionHeading eyebrow="06 · Can we trust the conclusion?" title="Evidence confidence and report limitations" description="Cyntro separates confirmed zeros from unknowns and carries source failures into the brief." />
+                <SectionHeading eyebrow="07 · Can we trust the conclusion?" title="Evidence confidence and report limitations" description="Cyntro separates confirmed zeros from unknowns and carries source failures into the report." />
                 <div className="grid gap-4 sm:grid-cols-3">
                   <Metric label="Evidence confidence" value={snapshot?.evidence.confidence ?? null} detail="Minimum across enabled sources" tone="slate" />
                   <Metric label="Healthy sources" value={snapshot?.evidence.healthy ?? null} detail={`of ${showNumber(snapshot?.evidence.total)} observed`} tone="emerald" />
@@ -824,8 +840,8 @@ export function ManagementReportDrawer({
                 {includeAppendix ? (
                   <div className="mt-6">
                     <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.12em] text-slate-500"><BarChart3 className="h-4 w-4 text-violet-600" />Evidence appendix</div>
-                    <div className="mt-3 overflow-hidden rounded-lg border border-slate-200">
-                      <table className="w-full text-left text-[11px]"><thead className="bg-slate-50 text-[9px] font-bold uppercase tracking-wider text-slate-500"><tr><th className="px-3 py-2">Data source</th><th className="px-3 py-2">Coverage</th><th className="px-3 py-2">Updated</th><th className="px-3 py-2">Note</th></tr></thead><tbody className="divide-y divide-slate-100">{report.sources.map((source) => <tr key={source.label}><td className="px-3 py-2 font-semibold text-slate-800">{source.label}</td><td className="px-3 py-2"><span className={`inline-flex rounded border px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider ${STATE_PILL[source.state]}`}>{source.state === "READY" ? "Available" : source.state === "PARTIAL" ? "Partial" : "Unavailable"}</span></td><td className="px-3 py-2 text-slate-600">{fmt(source.cachedAt)}</td><td className="px-3 py-2 text-slate-500">{source.detail ?? "No issues reported"}</td></tr>)}</tbody></table>
+                    <div className="mt-3 overflow-x-auto rounded-lg border border-slate-200">
+                      <table className="w-full min-w-[40rem] text-left text-[11px]"><thead className="bg-slate-50 text-[9px] font-bold uppercase tracking-wider text-slate-500"><tr><th className="px-3 py-2">Data source</th><th className="px-3 py-2">Coverage</th><th className="px-3 py-2">Updated</th><th className="px-3 py-2">Note</th></tr></thead><tbody className="divide-y divide-slate-100">{report.sources.map((source) => <tr key={source.label}><td className="px-3 py-2 font-semibold text-slate-800">{source.label}</td><td className="px-3 py-2"><span className={`inline-flex rounded border px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider ${STATE_PILL[source.state]}`}>{source.state === "READY" ? "Available" : source.state === "PARTIAL" ? "Partial" : "Unavailable"}</span></td><td className="px-3 py-2 text-slate-600">{fmt(source.cachedAt)}</td><td className="px-3 py-2 text-slate-500">{source.detail ?? "No issues reported"}</td></tr>)}</tbody></table>
                     </div>
                     <div className="mt-4 grid gap-3 text-[10px] leading-4 text-slate-500 sm:grid-cols-3"><p><b className="text-slate-700">Scores.</b> Lower system BRSS indicates greater blast-radius risk. Unmeasured systems rank above scored systems.</p><p><b className="text-slate-700">Damage.</b> Scenarios describe plausible effects from asset type and reachability. They are not financial-loss estimates.</p><p><b className="text-slate-700">Progress.</b> Permissions removed and events are execution measures. They do not independently prove risk reduction.</p></div>
                   </div>

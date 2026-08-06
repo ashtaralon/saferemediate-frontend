@@ -1,5 +1,9 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
+
+vi.mock("@/components/business-impact/business-impact-report-section", () => ({
+  BusinessImpactReportSection: () => <section>Conditional business impact</section>,
+}))
 
 import {
   ManagementReportDrawer,
@@ -128,6 +132,7 @@ describe("Management report", () => {
     expect(text).toMatch(/Authorize staged execution/i)
     expect(text).toMatch(/Print \/ save PDF/i)
     expect(text).toMatch(/Security & Resilience Report/i)
+    expect(text).toMatch(/Conditional business impact/i)
     expect(text).not.toMatch(/Board Security & Resilience Brief/i)
   })
 
@@ -178,6 +183,19 @@ describe("Management report", () => {
     expect(screen.queryByLabelText(/Operations sandbox/)).toBeNull()
   })
 
+  it("clears system search when report scope is reset", () => {
+    render(<ManagementReportDrawer open onClose={() => {}} report={reading()} />)
+
+    fireEvent.click(screen.getByRole("button", { name: "Production" }))
+    const search = screen.getByPlaceholderText("Find a system…")
+    fireEvent.change(search, { target: { value: "does-not-exist" } })
+    expect(screen.getByText("No systems match the selected filters.")).toBeTruthy()
+
+    fireEvent.click(screen.getByRole("button", { name: "Reset scope" }))
+    expect(search).toHaveValue("")
+    expect(screen.getByLabelText(/Developer portal/)).toBeTruthy()
+  })
+
   it("uses role-neutral content controls and selectable sections", () => {
     render(<ManagementReportDrawer open onClose={() => {}} report={reading()} />)
 
@@ -188,5 +206,25 @@ describe("Management report", () => {
 
     fireEvent.click(screen.getByLabelText("Include Potential damage"))
     expect(document.getElementById("report-damage")).toBeNull()
+  })
+
+  it("keeps report settings reachable on responsive layouts", () => {
+    const { rerender } = render(<ManagementReportDrawer open onClose={() => {}} report={reading()} />)
+
+    const toggle = screen.getByRole("button", { name: "Report settings" })
+    const panel = document.getElementById("management-report-settings")
+    expect(document.body.style.overflow).toBe("hidden")
+    expect(toggle).toHaveAttribute("aria-expanded", "false")
+    expect(panel).toHaveAttribute("data-mobile-open", "false")
+
+    fireEvent.click(toggle)
+    expect(toggle).toHaveAttribute("aria-expanded", "true")
+    expect(panel).toHaveAttribute("data-mobile-open", "true")
+
+    fireEvent.click(screen.getByRole("button", { name: "Close report settings" }))
+    expect(toggle).toHaveAttribute("aria-expanded", "false")
+
+    rerender(<ManagementReportDrawer open={false} onClose={() => {}} report={reading()} />)
+    expect(document.body.style.overflow).toBe("")
   })
 })
