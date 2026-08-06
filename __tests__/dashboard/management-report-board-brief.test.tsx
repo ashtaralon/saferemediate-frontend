@@ -43,6 +43,17 @@ const SNAPSHOT: ManagementReportSnapshot = {
       high: 1,
       weakestPlane: "network",
     },
+    {
+      name: "Operations sandbox",
+      displayName: "Operations sandbox",
+      environment: "production",
+      criticality: "STANDARD",
+      score: 76,
+      resourceCount: 8,
+      critical: 0,
+      high: 0,
+      weakestPlane: "network",
+    },
   ],
   crownJewels: [
     {
@@ -149,6 +160,22 @@ describe("Management report", () => {
     expect(article?.textContent).not.toMatch(/Developer portal/i)
     expect(article?.textContent).toMatch(/Selected scope/i)
     expect(article?.textContent).toMatch(/lower bounds, not estate-wide totals/i)
+  })
+
+  it("cascades environment and criticality filters into the systems picker", () => {
+    render(<ManagementReportDrawer open onClose={() => {}} report={reading()} />)
+
+    expect(screen.getByLabelText(/Developer portal/)).toBeTruthy()
+    expect(screen.getByLabelText(/Operations sandbox/)).toBeTruthy()
+
+    fireEvent.click(screen.getByRole("button", { name: "Production" }))
+    expect(screen.queryByLabelText(/Developer portal/)).toBeNull()
+    expect(screen.getByLabelText(/Payments production/)).toBeTruthy()
+    expect(screen.getByLabelText(/Operations sandbox/)).toBeTruthy()
+
+    fireEvent.click(screen.getByRole("button", { name: "MISSION CRITICAL" }))
+    expect(screen.getByLabelText(/Payments production/)).toBeTruthy()
+    expect(screen.queryByLabelText(/Operations sandbox/)).toBeNull()
   })
 
   it("uses role-neutral content controls and selectable sections", () => {
