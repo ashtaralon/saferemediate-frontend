@@ -209,10 +209,11 @@ describe("Management report", () => {
   })
 
   it("keeps report settings reachable on responsive layouts", () => {
-    render(<ManagementReportDrawer open onClose={() => {}} report={reading()} />)
+    const { rerender } = render(<ManagementReportDrawer open onClose={() => {}} report={reading()} />)
 
     const toggle = screen.getByRole("button", { name: "Report settings" })
     const panel = document.getElementById("management-report-settings")
+    expect(document.body.style.overflow).toBe("hidden")
     expect(toggle).toHaveAttribute("aria-expanded", "false")
     expect(panel).toHaveAttribute("data-mobile-open", "false")
 
@@ -222,5 +223,8 @@ describe("Management report", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Close report settings" }))
     expect(toggle).toHaveAttribute("aria-expanded", "false")
+
+    rerender(<ManagementReportDrawer open={false} onClose={() => {}} report={reading()} />)
+    expect(document.body.style.overflow).toBe("")
   })
 })

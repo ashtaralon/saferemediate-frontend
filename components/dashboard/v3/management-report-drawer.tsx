@@ -451,11 +451,16 @@ export function ManagementReportDrawer({
 
   useEffect(() => {
     if (!open) return
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = "hidden"
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose()
     }
     window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
+    return () => {
+      document.body.style.overflow = previousOverflow
+      window.removeEventListener("keydown", onKey)
+    }
   }, [open, onClose])
 
   const coverage = deriveReportCoverage(report)
@@ -688,7 +693,7 @@ export function ManagementReportDrawer({
         </aside>
 
         <main className="min-w-0 flex-1 overflow-y-auto bg-slate-100 p-4 sm:p-7">
-          <article id="cyntro-report-print-root" className="mx-auto max-w-[980px] overflow-hidden bg-white shadow-[0_18px_70px_rgba(15,23,42,0.12)] print:shadow-none">
+          <article id="cyntro-report-print-root" className="mx-auto w-full min-w-0 max-w-[980px] overflow-hidden bg-white shadow-[0_18px_70px_rgba(15,23,42,0.12)] print:shadow-none">
             <div className="border-b-[6px] border-violet-600 bg-slate-950 px-8 py-8 text-white sm:px-12 sm:py-10">
               <div className="flex items-start justify-between gap-8">
                 <div>
@@ -748,8 +753,8 @@ export function ManagementReportDrawer({
               {sections.systems ? <section id="report-systems">
                 <SectionHeading eyebrow="02 · Where risk concentrates" title="Most critical business systems" description="Unknown scores rank first; measured systems then rank by lowest blast-radius security score." />
                 {topSystems.length ? (
-                  <div className="overflow-hidden rounded-xl border border-slate-200">
-                    <table className="w-full text-left text-xs">
+                  <div className="overflow-x-auto rounded-xl border border-slate-200">
+                    <table className="w-full min-w-[44rem] text-left text-xs">
                       <thead className="bg-slate-50 text-[9px] font-bold uppercase tracking-[0.14em] text-slate-500">
                         <tr><th className="px-4 py-3">Priority / system</th><th className="px-3 py-3">Environment</th><th className="px-3 py-3">Business criticality</th><th className="px-3 py-3">Current score</th>{showTechnical ? <><th className="px-3 py-3">Weakest plane</th><th className="px-3 py-3 text-right">Critical</th><th className="px-4 py-3 text-right">High</th></> : null}</tr>
                       </thead>
@@ -835,8 +840,8 @@ export function ManagementReportDrawer({
                 {includeAppendix ? (
                   <div className="mt-6">
                     <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.12em] text-slate-500"><BarChart3 className="h-4 w-4 text-violet-600" />Evidence appendix</div>
-                    <div className="mt-3 overflow-hidden rounded-lg border border-slate-200">
-                      <table className="w-full text-left text-[11px]"><thead className="bg-slate-50 text-[9px] font-bold uppercase tracking-wider text-slate-500"><tr><th className="px-3 py-2">Data source</th><th className="px-3 py-2">Coverage</th><th className="px-3 py-2">Updated</th><th className="px-3 py-2">Note</th></tr></thead><tbody className="divide-y divide-slate-100">{report.sources.map((source) => <tr key={source.label}><td className="px-3 py-2 font-semibold text-slate-800">{source.label}</td><td className="px-3 py-2"><span className={`inline-flex rounded border px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider ${STATE_PILL[source.state]}`}>{source.state === "READY" ? "Available" : source.state === "PARTIAL" ? "Partial" : "Unavailable"}</span></td><td className="px-3 py-2 text-slate-600">{fmt(source.cachedAt)}</td><td className="px-3 py-2 text-slate-500">{source.detail ?? "No issues reported"}</td></tr>)}</tbody></table>
+                    <div className="mt-3 overflow-x-auto rounded-lg border border-slate-200">
+                      <table className="w-full min-w-[40rem] text-left text-[11px]"><thead className="bg-slate-50 text-[9px] font-bold uppercase tracking-wider text-slate-500"><tr><th className="px-3 py-2">Data source</th><th className="px-3 py-2">Coverage</th><th className="px-3 py-2">Updated</th><th className="px-3 py-2">Note</th></tr></thead><tbody className="divide-y divide-slate-100">{report.sources.map((source) => <tr key={source.label}><td className="px-3 py-2 font-semibold text-slate-800">{source.label}</td><td className="px-3 py-2"><span className={`inline-flex rounded border px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider ${STATE_PILL[source.state]}`}>{source.state === "READY" ? "Available" : source.state === "PARTIAL" ? "Partial" : "Unavailable"}</span></td><td className="px-3 py-2 text-slate-600">{fmt(source.cachedAt)}</td><td className="px-3 py-2 text-slate-500">{source.detail ?? "No issues reported"}</td></tr>)}</tbody></table>
                     </div>
                     <div className="mt-4 grid gap-3 text-[10px] leading-4 text-slate-500 sm:grid-cols-3"><p><b className="text-slate-700">Scores.</b> Lower system BRSS indicates greater blast-radius risk. Unmeasured systems rank above scored systems.</p><p><b className="text-slate-700">Damage.</b> Scenarios describe plausible effects from asset type and reachability. They are not financial-loss estimates.</p><p><b className="text-slate-700">Progress.</b> Permissions removed and events are execution measures. They do not independently prove risk reduction.</p></div>
                   </div>
