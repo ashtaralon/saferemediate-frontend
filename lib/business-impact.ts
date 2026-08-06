@@ -9,6 +9,8 @@ export type OrganizationImpactProfile = {
   currency: "USD" | "EUR" | "GBP" | "ILS" | "CAD" | "AUD" | "JPY" | "OTHER"
   annual_revenue?: number | null
   annual_revenue_eur?: number | null
+  annual_revenue_gbp?: number | null
+  annual_revenue_brl?: number | null
   employee_count?: number | null
   model_version?: string
 }
@@ -21,6 +23,8 @@ export type SystemImpactProfile = {
   owner?: string | null
   jurisdictions: string[]
   regulations: string[]
+  regulatory_applicability_confirmed: string[]
+  nis2_entity_type?: "ESSENTIAL" | "IMPORTANT" | null
   data_categories: string[]
   record_count?: number | null
   record_count_source: "CUSTOMER_DECLARED" | "COLLECTED_PROXY" | "CLASS_DEFAULT" | "UNKNOWN"
@@ -57,6 +61,9 @@ export type RegulatoryExposure = {
   high?: number | null
   amount?: number | null
   formula?: string | null
+  applicability: "POTENTIAL" | "CONFIRMED" | "NEEDS_CONFIRMATION"
+  calculation_status: "CALCULATED" | "INPUT_REQUIRED" | "CONTEXT_ONLY"
+  missing_inputs: string[]
   conditions: string[]
   source_url: string
   included_in_conditional_loss: boolean
@@ -122,12 +129,31 @@ export type BusinessImpactResponse = {
   systems: number
   paths_collapsed: number
   scenarios_with_estimates: number
+  regulatory_exposures_mapped: number
+  regulatory_exposures_calculated: number
+  top_missing_inputs: string[]
   definitions_complete: boolean
   organization?: OrganizationImpactProfile
   profile?: SystemImpactProfile
   profiles?: Record<string, SystemImpactProfile>
   definition_status?: Record<string, unknown>
   error?: string
+}
+
+export type BusinessImpactCatalog = {
+  scenario_catalog_version: string
+  regulatory_catalog_version: string
+  precedent_catalog_version: string
+  source_checked_at?: string | null
+  data_categories: string[]
+  regimes: Array<{
+    id: string
+    label: string
+    source_url: string
+    scenario_types: string[]
+    required_inputs: string[]
+  }>
+  precedent_count: number
 }
 
 export function formatImpactMoney(value: number, currency: string): string {
@@ -150,6 +176,7 @@ export function emptySystemImpactProfile(systemName: string): SystemImpactProfil
     system_name: systemName,
     jurisdictions: [],
     regulations: [],
+    regulatory_applicability_confirmed: [],
     data_categories: [],
     record_count_source: "UNKNOWN",
     ccpa_private_action_eligible: false,
