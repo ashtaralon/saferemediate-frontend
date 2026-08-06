@@ -74,6 +74,22 @@ const dossier = {
   change_capabilities: [{ kind: "S3_VPCE_MIGRATION", available: true, label: "Private S3 path" }],
 }
 
+const narration = {
+  operator_summary: "This bucket has one observed consumer in the selected scope.",
+  why_it_matters: "Review that consumer before changing the bucket path.",
+  recommended_next_check: "Review the listed consumers before changing this resource.",
+  evidence_ids: ["RESOURCE_SCOPE", "DEPENDENCY_SUMMARY"],
+  source: "llm",
+  grounded: true,
+  grounding_reason: "ok",
+  evidence_hash: "evidence-hash-1",
+  model: "bedrock-test",
+}
+
+function standardBackendResponse(input: RequestInfo | URL) {
+  return response(String(input).includes("/resource/narration?") ? narration : dossier)
+}
+
 function response(body: unknown, status = 200) {
   return Promise.resolve(new Response(JSON.stringify(body), {
     status,
@@ -101,7 +117,7 @@ afterEach(() => {
 
 describe("Estate operations panel", () => {
   it("reuses the Inventory resource inspector as the default click experience", async () => {
-    vi.spyOn(globalThis, "fetch").mockImplementation(() => response(dossier))
+    vi.spyOn(globalThis, "fetch").mockImplementation(standardBackendResponse)
     renderPanel()
 
     expect(screen.getByText("Live configuration from Inventory")).toBeInTheDocument()
@@ -109,6 +125,8 @@ describe("Estate operations panel", () => {
     const overview = await screen.findByTestId("estate-resource-overview")
     expect(overview).toHaveTextContent("745783559495")
     expect(overview).toHaveTextContent("eu-west-1")
+    expect(await screen.findByText(narration.operator_summary)).toBeInTheDocument()
+    expect(screen.getByTestId("estate-narration-source")).toHaveTextContent("AI explanation · verified evidence")
     await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledWith(
       expect.stringContaining(`/api/proxy/operational-map/alon-prod/resource?`),
       expect.objectContaining({ cache: "no-store" }),
@@ -116,7 +134,7 @@ describe("Estate operations panel", () => {
   })
 
   it("explains who depends on the resource and what it depends on using evidence labels", async () => {
-    vi.spyOn(globalThis, "fetch").mockImplementation(() => response(dossier))
+    vi.spyOn(globalThis, "fetch").mockImplementation(standardBackendResponse)
     renderPanel()
     fireEvent.click(screen.getByTestId("estate-operations-tab-dependencies"))
 
@@ -134,9 +152,11 @@ describe("Estate operations panel", () => {
       blockers: [{ code: "UNKNOWN_NETWORK_PATH", message: "Route proof is incomplete." }],
       impact: { observed_consumers: 1, subnets: 0, route_tables: 0, route_table_workloads: 0, permission_changes: 0, resource_replacements: 0 },
     }
-    vi.spyOn(globalThis, "fetch").mockImplementation((input) =>
-      response(String(input).includes("s3-vpce/plan") ? blockedPlan : dossier),
-    )
+    vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      const url = String(input)
+      if (url.includes("s3-vpce/plan")) return response(blockedPlan)
+      return standardBackendResponse(input)
+    })
     renderPanel()
     fireEvent.click(screen.getByTestId("estate-operations-tab-change"))
     fireEvent.click(screen.getByTestId("estate-vpce-analyze"))
@@ -167,7 +187,7 @@ describe("Estate operations panel", () => {
       if (url.includes("s3-vpce/plan")) return response(readyPlan)
       if (url.includes("s3-vpce/simulate")) return response({ status: "COMPLETED", safe_to_apply: true })
       if (url.includes("s3-vpce/execute")) return response(execution)
-      return response(dossier)
+      return standardBackendResponse(input)
     })
 
     renderPanel()
@@ -187,5 +207,18 @@ describe("Estate operations panel", () => {
       plan_token: "signed-plan",
       confirmation,
     })
+  })
+
+  it("labels a grounded deterministic fallback honestly", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      if (String(input).includes("/resource/narration?")) {
+        return response({ ...narration, source: "deterministic_fallback", grounding_reason: "llm_timeout" })
+      }
+      return response(dossier)
+    })
+    renderPanel()
+
+    expect(await screen.findByText(narration.operator_summary)).toBeInTheDocument()
+    expect(screen.getByTestId("estate-narration-source")).toHaveTextContent("Deterministic evidence summary")
   })
 })

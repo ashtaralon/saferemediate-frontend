@@ -76,6 +76,19 @@ export interface S3VpceExecution {
   rollback_performed?: boolean
 }
 
+export interface EstateOperatorNarration {
+  operator_summary: string
+  why_it_matters: string
+  recommended_next_check: string
+  evidence_ids: string[]
+  source: "llm" | "llm_cache" | "deterministic_fallback"
+  grounded: boolean
+  grounding_reason: string
+  evidence_hash: string
+  generated_at?: string
+  model?: string | null
+}
+
 export async function operationalRequest<T>(
   systemName: string,
   path: string,

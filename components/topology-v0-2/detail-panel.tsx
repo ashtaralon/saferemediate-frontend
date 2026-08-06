@@ -13,6 +13,7 @@ import {
   RotateCcw,
   ServerCog,
   ShieldCheck,
+  Sparkles,
   Wrench,
   X,
 } from "lucide-react"
@@ -21,6 +22,7 @@ import { ServiceTypeBadge } from "@/lib/service-type"
 import type { TopologyNode } from "./types"
 import {
   operationalRequest,
+  type EstateOperatorNarration,
   type OperationalConnection,
   type OperationalDossier,
   type S3VpceExecution,
@@ -112,6 +114,9 @@ function Metric({ label, value }: { label: string; value: string | number }) {
 export function DetailPanel({ node, systemName, accountId, region, vpcId, onClose }: Props) {
   const [tab, setTab] = useState<Tab>("resource")
   const [dossier, setDossier] = useState<OperationalDossier | null>(null)
+  const [narration, setNarration] = useState<EstateOperatorNarration | null>(null)
+  const [narrationLoading, setNarrationLoading] = useState(false)
+  const [narrationError, setNarrationError] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [plan, setPlan] = useState<S3VpcePlan | null>(null)
@@ -126,6 +131,8 @@ export function DetailPanel({ node, systemName, accountId, region, vpcId, onClos
   useEffect(() => {
     setTab("resource")
     setDossier(null)
+    setNarration(null)
+    setNarrationError(false)
     setPlan(null)
     setSimulation(null)
     setExecution(null)
@@ -155,6 +162,32 @@ export function DetailPanel({ node, systemName, accountId, region, vpcId, onClos
       }
     }
     void load()
+    return () => { cancelled = true }
+  }, [node, systemName, accountId, region, vpcId])
+
+  useEffect(() => {
+    if (!node) return
+    let cancelled = false
+    const loadNarration = async () => {
+      setNarrationLoading(true)
+      setNarrationError(false)
+      const query = new URLSearchParams({ resource_id: node.id, window_days: "90" })
+      if (accountId) query.set("account_id", accountId)
+      if (region) query.set("region", region)
+      if (vpcId) query.set("vpc_id", vpcId)
+      try {
+        const body = await operationalRequest<EstateOperatorNarration>(
+          systemName,
+          `resource/narration?${query}`,
+        )
+        if (!cancelled) setNarration(body)
+      } catch {
+        if (!cancelled) setNarrationError(true)
+      } finally {
+        if (!cancelled) setNarrationLoading(false)
+      }
+    }
+    void loadNarration()
     return () => { cancelled = true }
   }, [node, systemName, accountId, region, vpcId])
 
@@ -283,6 +316,58 @@ export function DetailPanel({ node, systemName, accountId, region, vpcId, onClos
                 Same resource inspector and evidence used by All Services. The map adds dependency and change scope around it.
               </p>
             </div>
+            <section
+              className="mb-4 rounded-xl border p-4"
+              style={{ borderColor: "#C9D4DE", background: "#FFFFFF" }}
+              data-testid="estate-operator-summary"
+            >
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 text-sm font-bold" style={{ color: "#1A2330" }}>
+                  <span className="rounded-lg p-1.5" style={{ background: "#E6FBF7" }}>
+                    <Sparkles className="h-4 w-4" style={{ color: "#0E8B7A" }} />
+                  </span>
+                  Operator summary
+                </div>
+                {narration ? (
+                  <span
+                    className="rounded-full border px-2 py-1 text-[9px] font-semibold uppercase tracking-wide"
+                    style={narration.source === "deterministic_fallback"
+                      ? { borderColor: "#DDE3E8", background: "#F8FAFC", color: "#5A6B7A" }
+                      : { borderColor: "#9FE8DC", background: "#E6FBF7", color: "#0E8B7A" }}
+                    data-testid="estate-narration-source"
+                  >
+                    {narration.source === "deterministic_fallback"
+                      ? "Deterministic evidence summary"
+                      : "AI explanation · verified evidence"}
+                  </span>
+                ) : null}
+              </div>
+              {narrationLoading ? (
+                <div className="mt-3 flex items-center gap-2 text-xs" style={{ color: "#5A6B7A" }}>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Translating verified evidence…
+                </div>
+              ) : null}
+              {narration ? (
+                <div className="mt-3 space-y-3">
+                  <p className="text-sm font-semibold leading-6" style={{ color: "#1A2330" }}>{narration.operator_summary}</p>
+                  <p className="text-xs leading-5" style={{ color: "#5A6B7A" }}>{narration.why_it_matters}</p>
+                  <div className="rounded-lg border px-3 py-2 text-xs" style={{ borderColor: "#B9E8DF", background: "#F0FDFA", color: "#176B5E" }}>
+                    <strong>Next check:</strong> {narration.recommended_next_check}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5 text-[9px] uppercase tracking-wide" style={{ color: "#7A8996" }}>
+                    <span>Grounded in</span>
+                    {narration.evidence_ids.map(id => (
+                      <span key={id} className="rounded bg-slate-100 px-1.5 py-0.5 font-mono">{id.replaceAll("_", " ")}</span>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              {narrationError && !narrationLoading ? (
+                <p className="mt-3 text-xs" style={{ color: "#7A8996" }}>
+                  Narrative summary is unavailable. Verified configuration and evidence remain available below.
+                </p>
+              ) : null}
+            </section>
             {dossier ? (
               <div className="mb-4 space-y-3" data-testid="estate-resource-overview">
                 <div className="grid grid-cols-3 gap-3">
