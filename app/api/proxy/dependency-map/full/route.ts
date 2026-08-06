@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { backendError, fromCaughtError } from "@/lib/server/proxy-error";
+import { getBackendBaseUrl } from "@/lib/server/backend-url";
 
-const BACKEND_URL =
-  "https://saferemediate-backend-f.onrender.com";
+const BACKEND_URL = getBackendBaseUrl();
 
 export const maxDuration = 60;
 // Intentionally NOT `dynamic = "force-dynamic"` or `fetchCache =
@@ -61,7 +61,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "systemName query parameter is required" }, { status: 400 });
   }
   const includeUnused = url.searchParams.get("includeUnused") ?? "true";
-  const maxNodes = url.searchParams.get("maxNodes") ?? url.searchParams.get("max_nodes") ?? "500";
+  const maxNodes = url.searchParams.get("maxNodes") ?? url.searchParams.get("max_nodes") ?? "300";
   const cacheKey = `dependency-map-full-${systemName}-${includeUnused}-${maxNodes}`;
 
   // Check cache first
@@ -72,6 +72,9 @@ export async function GET(req: NextRequest) {
       headers: {
         "X-Cache": "HIT",
         "X-Cache-Age": String(Math.round((Date.now() - cached.timestamp) / 1000)),
+        "X-Data-Source": cached.data.from_snapshot
+          ? (cached.data.fromStaleCache ? "stale-snapshot" : "snapshot")
+          : "live",
         // Vercel edge CDN — serves cross-instance requests directly so
         // cold Lambdas don't re-pay the backend cost. Matches the 2-min
         // in-memory TTL with extra stale-while-revalidate for tail
@@ -90,6 +93,7 @@ export async function GET(req: NextRequest) {
     const backendUrl = BACKEND_URL + "/api/dependency-map/full?" + params.toString();
 
     console.log("[Dependency Map Full] Cache MISS - fetching from backend");
+    const startedAt = Date.now();
     const res = await fetchOnce(backendUrl);
 
     if (!res.ok) {
@@ -104,12 +108,23 @@ export async function GET(req: NextRequest) {
 
     const data = await res.json();
     cache[cacheKey] = { data, timestamp: Date.now() };
+    const upstreamDurationMs = Date.now() - startedAt;
 
-    console.log("[Dependency Map Full] Success: " + (data.nodes?.length || 0) + " nodes, " + (data.edges?.length || 0) + " edges");
+    console.log(
+      "[Dependency Map Full] Success: " +
+      (data.nodes?.length || 0) + " nodes, " +
+      (data.edges?.length || 0) + " edges, " +
+      upstreamDurationMs + "ms, source=" +
+      (data.from_snapshot ? (data.fromStaleCache ? "stale-snapshot" : "snapshot") : "live")
+    );
 
     return NextResponse.json(data, {
       headers: {
         "X-Cache": "MISS",
+        "X-Upstream-Duration-Ms": String(upstreamDurationMs),
+        "X-Data-Source": data.from_snapshot
+          ? (data.fromStaleCache ? "stale-snapshot" : "snapshot")
+          : "live",
         // 2-min Vercel edge cache + 4-min stale-while-revalidate. After
         // the first successful response, the next 2 min of requests are
         // served from the edge CDN regardless of which function

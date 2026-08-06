@@ -362,14 +362,29 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
 
   // Cap at 300 — matches Traffic map; 500 routinely timed out the proxy.
   const depMapUrl = `/api/proxy/dependency-map/full?systemName=${encodeURIComponent(systemName)}&maxNodes=300`
-  const { data: depMapData } = useCachedFetch<{
+  const {
+    data: depMapData,
+    isStale: depMapIsStale,
+    cachedAt: depMapCachedAt,
+  } = useCachedFetch<{
     edges?: Array<{ source: string; target: string; type: string; port?: string | null; protocol?: string | null; last_seen?: string | null }>
     nodes?: Array<{ id: string; name?: string; type?: string; properties?: Record<string, unknown> }>
+    from_snapshot?: boolean
+    fromStaleCache?: boolean
+    snapshot_age_seconds?: number | null
+    staleReason?: string | null
   }>(depMapUrl, {
     cacheKey: `estate-dep-map:300:${systemName}`,
     maxStaleMs: 10 * 60 * 1000,
     fetchInit: { cache: "no-store" },
   })
+  const depMapEvidenceIsStale = Boolean(depMapData?.fromStaleCache || depMapIsStale)
+  const depMapEvidenceAgeSeconds =
+    typeof depMapData?.snapshot_age_seconds === "number"
+      ? depMapData.snapshot_age_seconds
+      : depMapIsStale && depMapCachedAt
+        ? Math.max(0, Math.round((Date.now() - depMapCachedAt) / 1000))
+        : null
 
   const poisonRetryRef = useRef(false)
   useEffect(() => {
@@ -1562,6 +1577,20 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
                   </button>
                 )
               })}
+              {view === "map" && depMapEvidenceIsStale ? (
+                <span
+                  role="status"
+                  data-testid="estate-flow-evidence-stale"
+                  className="inline-flex items-center rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-wide"
+                  style={{ borderColor: "#F2C94C", background: "#FFFBEB", color: "#92400E" }}
+                  title={`Flow overlay is using stale dependency evidence${depMapData?.staleReason ? ` (${depMapData.staleReason})` : ""}.`}
+                >
+                  Flow evidence stale
+                  {typeof depMapEvidenceAgeSeconds === "number"
+                    ? ` · ${Math.max(1, Math.round(depMapEvidenceAgeSeconds / 60))}m`
+                    : ""}
+                </span>
+              ) : null}
             </div>
             {view === "map" ? (
               <>
