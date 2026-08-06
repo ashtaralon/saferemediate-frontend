@@ -32,13 +32,12 @@ export function buildAttackPathIdBlob(
 }
 
 async function sha256Hex(text: string): Promise<string> {
-  if (typeof globalThis.crypto?.subtle?.digest === "function") {
-    const data = new TextEncoder().encode(text)
-    const buf = await globalThis.crypto.subtle.digest("SHA-256", data)
-    return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("")
+  if (typeof globalThis.crypto?.subtle?.digest !== "function") {
+    throw new Error("Web Crypto API is required to derive an attack-path ID")
   }
-  const { createHash } = await import("node:crypto")
-  return createHash("sha256").update(text, "utf8").digest("hex")
+  const data = new TextEncoder().encode(text)
+  const buf = await globalThis.crypto.subtle.digest("SHA-256", data)
+  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("")
 }
 
 export async function deriveAttackPathId(

@@ -70,6 +70,8 @@ interface ResourceDossierData {
 
 interface S3VpcePlan {
   readiness: "READY" | "BLOCKED"
+  operation_id: string
+  operation_state: string
   bucket_name: string
   vpc_id: string | null
   region: string
@@ -189,6 +191,7 @@ export function ResourceDossier({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           resource_id: data?.resource.id ?? resourceId,
+          customer_id: systemName,
           vpc_id: vpcId || undefined,
           account_id: accountId || undefined,
           region: region || data?.resource.region || undefined,
@@ -210,7 +213,7 @@ export function ResourceDossier({
       const response = await fetch(`/api/proxy/operational-map/${encodeURIComponent(systemName)}/s3-vpce/simulate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plan_token: plan.plan_token }),
+        body: JSON.stringify({ operation_id: plan.operation_id, plan_token: plan.plan_token }),
       })
       setSimulation(await readJson(response))
     } catch (cause) {
@@ -361,7 +364,7 @@ export function ResourceDossier({
                 {plan.blockers.map(blocker => <div key={blocker.code} className="mt-3 rounded border border-amber-200 bg-white/70 p-3 text-xs"><strong>{blocker.code}</strong><div className="mt-1 text-slate-600">{blocker.message}</div></div>)}
                 {plan.readiness === "READY" ? <button type="button" onClick={simulate} className="mt-4 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-900 hover:border-teal-500">Simulate exact plan</button> : null}
               </section> : null}
-              {simulation ? <section className="rounded-xl border border-slate-200 bg-white p-4"><div className="font-bold text-slate-950">Simulation {simulation.safe_to_apply ? "passed" : "did not pass"}</div>{simulation.errors?.map(item => <div key={item} className="mt-2 text-xs text-rose-700">{item}</div>)}{simulation.safe_to_apply ? <><label className="mt-4 flex items-start gap-2 text-xs text-slate-700"><input type="checkbox" checked={reviewed} onChange={event => setReviewed(event.target.checked)} className="mt-0.5" />I reviewed the exact consumer and route-table scope. Apply will create a snapshot before AWS is changed.</label><button type="button" onClick={apply} disabled={!reviewed} className="mt-3 rounded-lg bg-teal-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">Apply private path</button></> : null}</section> : null}
+              {simulation ? <section className="rounded-xl border border-slate-200 bg-white p-4"><div className="font-bold text-slate-950">Simulation {simulation.safe_to_apply ? "passed" : "did not pass"}</div>{simulation.errors?.map(item => <div key={item} className="mt-2 text-xs text-rose-700">{item}</div>)}{simulation.safe_to_apply ? <p className="mt-3 text-xs leading-5 text-slate-600">Open this resource from the Estate Map to request approval, apply the one-route-table canary, verify observed traffic, expand, and retain exact rollback. Execution is intentionally not available from a reduced-scope inventory drawer.</p> : null}</section> : null}
               {execution ? <section className="rounded-xl border border-slate-200 bg-white p-4"><div className="font-bold text-slate-950">Execution: {execution.status}</div>{execution.endpoint_id ? <div className="mt-2 font-mono text-xs text-slate-600">{execution.endpoint_id}</div> : null}<div className="mt-4 flex flex-wrap gap-2">{execution.endpoint_id ? <button type="button" onClick={verify} className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white">Verify behavioral path</button> : null}{execution.snapshot_id ? <button type="button" onClick={rollback} className="inline-flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-800"><RotateCcw className="h-4 w-4" />Rollback</button> : null}</div></section> : null}
               {verification ? <pre className="overflow-auto rounded-xl border border-slate-200 bg-slate-950 p-4 text-xs text-slate-200">{JSON.stringify(verification, null, 2)}</pre> : null}
               {operationError ? <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">{operationError}</div> : null}

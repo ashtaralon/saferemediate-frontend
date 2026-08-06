@@ -25,8 +25,11 @@ import {
   type EstateOperatorNarration,
   type OperationalConnection,
   type OperationalDossier,
+  type S3PrivatePathOperation,
   type S3VpceExecution,
   type S3VpcePlan,
+  type S3VpceSimulation,
+  type S3VpceVerification,
 } from "./estate-operations"
 
 interface Props {
@@ -120,9 +123,13 @@ export function DetailPanel({ node, systemName, accountId, region, vpcId, onClos
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [plan, setPlan] = useState<S3VpcePlan | null>(null)
-  const [simulation, setSimulation] = useState<Record<string, unknown> | null>(null)
+  const [simulation, setSimulation] = useState<S3VpceSimulation | null>(null)
+  const [operation, setOperation] = useState<S3PrivatePathOperation | null>(null)
   const [execution, setExecution] = useState<S3VpceExecution | null>(null)
-  const [verification, setVerification] = useState<Record<string, unknown> | null>(null)
+  const [verification, setVerification] = useState<S3VpceVerification | null>(null)
+  const [expansion, setExpansion] = useState<Record<string, unknown> | null>(null)
+  const [requester, setRequester] = useState("")
+  const [approver, setApprover] = useState("")
   const [confirmation, setConfirmation] = useState("")
   const [rollbackConfirmation, setRollbackConfirmation] = useState("")
   const [action, setAction] = useState<string | null>(null)
@@ -135,8 +142,12 @@ export function DetailPanel({ node, systemName, accountId, region, vpcId, onClos
     setNarrationError(false)
     setPlan(null)
     setSimulation(null)
+    setOperation(null)
     setExecution(null)
     setVerification(null)
+    setExpansion(null)
+    setRequester("")
+    setApprover("")
     setConfirmation("")
     setRollbackConfirmation("")
     setActionError(null)
@@ -219,41 +230,92 @@ export function DetailPanel({ node, systemName, accountId, region, vpcId, onClos
     })
     setPlan(body)
     setSimulation(null)
+    setOperation(null)
   })
   const simulate = () => runAction("simulate", async () => {
-    if (!plan?.plan_token) return
-    setSimulation(await post("s3-vpce/simulate", { plan_token: plan.plan_token }))
-  })
-  const execute = () => runAction("execute", async () => {
-    if (!plan?.plan_token) return
-    setExecution(await post<S3VpceExecution>("s3-vpce/execute", {
+    if (!plan?.plan_token || !plan.operation_id) return
+    setSimulation(await post<S3VpceSimulation>("s3-vpce/simulate", {
+      operation_id: plan.operation_id,
       plan_token: plan.plan_token,
-      confirmation,
-      requested_by: "estate-map",
     }))
   })
+  const requestApproval = () => runAction("request-approval", async () => {
+    if (!plan?.operation_id) return
+    setOperation(await post<S3PrivatePathOperation>("s3-vpce/request-approval", {
+      operation_id: plan.operation_id,
+      requested_by: requester,
+      note: `Move the reviewed S3 route-table cohort through a Gateway endpoint.`,
+    }))
+  })
+  const approve = () => runAction("approve", async () => {
+    if (!plan?.operation_id) return
+    setOperation(await post<S3PrivatePathOperation>("s3-vpce/approve", {
+      operation_id: plan.operation_id,
+      approved_by: approver,
+      note: "Reviewed cohort, canary, verification gates, and rollback scope.",
+    }))
+  })
+  const execute = () => runAction("execute", async () => {
+    const executionPlanToken = operation?.execution_plan_token
+    if (!executionPlanToken || !plan?.operation_id) return
+    const result = await post<S3VpceExecution>("s3-vpce/execute", {
+      operation_id: plan.operation_id,
+      plan_token: executionPlanToken,
+      confirmation,
+      requested_by: requester,
+    })
+    setExecution(result)
+  })
   const verify = () => runAction("verify", async () => {
-    if (!execution?.lifecycle_token || !execution.endpoint_id) return
-    setVerification(await post("s3-vpce/verify", {
+    if (!execution?.lifecycle_token || !execution.endpoint_id || !plan?.operation_id) return
+    setVerification(await post<S3VpceVerification>("s3-vpce/verify", {
+      operation_id: plan.operation_id,
       plan_token: execution.lifecycle_token,
       endpoint_id: execution.endpoint_id,
     }))
   })
+  const expand = () => runAction("expand", async () => {
+    if (!execution?.lifecycle_token || !plan?.operation_id) return
+    const result = await post<Record<string, unknown>>("s3-vpce/expand", {
+      operation_id: plan.operation_id,
+      plan_token: execution.lifecycle_token,
+      executed_by: requester,
+    })
+    setExpansion(result)
+    setVerification(null)
+  })
   const rollback = () => runAction("rollback", async () => {
-    if (!execution?.lifecycle_token || !execution.snapshot_id) return
+    if (!execution?.lifecycle_token || !execution.snapshot_id || !plan?.operation_id) return
     const result = await post<Record<string, unknown>>("s3-vpce/rollback", {
+      operation_id: plan.operation_id,
       plan_token: execution.lifecycle_token,
       snapshot_id: execution.snapshot_id,
       confirmation: rollbackConfirmation,
-      requested_by: "estate-map",
+      requested_by: requester,
     })
-    setVerification({ ...result, state: "ROLLED_BACK" })
+    setVerification({ ...result, state: "ROLLED_BACK" } as S3VpceVerification)
   })
 
   const upstream = dossier?.dependencies.upstream ?? []
   const downstream = dossier?.dependencies.downstream ?? []
   const expectedApply = plan?.bucket_name && plan.vpc_id ? `APPLY ${plan.bucket_name} ${plan.vpc_id}` : ""
   const expectedRollback = execution?.snapshot_id ? `ROLLBACK ${execution.snapshot_id}` : ""
+  const operationState = verification?.operation_state
+    ?? (expansion?.operation_state as S3PrivatePathOperation["state"] | undefined)
+    ?? execution?.operation_state
+    ?? operation?.state
+    ?? simulation?.operation_state
+    ?? plan?.operation_state
+  const progressSteps = ["Analyze", "Simulate", "Approve", "Canary", "Expand", "Verify"]
+  const progressIndex = operationState === "COMPLETE" ? 6
+    : operationState === "EXPANDING" ? 5
+      : operationState === "CANARY_VERIFIED" ? 4
+        : operationState === "CANARY_MONITORING" ? 3
+          : operationState === "APPROVED" ? 3
+            : operationState === "APPROVAL_PENDING" ? 2
+              : operationState === "SIMULATED" ? 2
+                : operationState === "READY_FOR_SIMULATION" ? 1
+                  : plan ? 1 : 0
 
   return (
     <aside
@@ -437,35 +499,117 @@ export function DetailPanel({ node, systemName, accountId, region, vpcId, onClos
                   {action === "analyze" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />} Analyze S3 private-path migration
                 </button>
                 {plan ? (
-                  <div className="space-y-4 rounded-xl border p-4" style={{ borderColor: plan.readiness === "READY" ? "#9FE8DC" : "#FED7AA", background: plan.readiness === "READY" ? "#F0FDFA" : "#FFF7ED" }} data-testid="estate-vpce-plan">
-                    <div className="flex items-center gap-2 text-sm font-bold">
-                      {plan.readiness === "READY" ? <CheckCircle2 className="h-5 w-5 text-teal-600" /> : <AlertTriangle className="h-5 w-5 text-orange-600" />}
-                      {plan.readiness === "READY" ? "Exact change set is ready" : "Change is blocked by missing proof"}
+                  <div className="space-y-4" data-testid="estate-vpce-plan">
+                    <div className="grid grid-cols-6 gap-1 rounded-xl border bg-white p-3" style={{ borderColor: "#DDE3E8" }} aria-label="Private path lifecycle">
+                      {progressSteps.map((step, index) => (
+                        <div key={step} className="min-w-0 text-center">
+                          <div className="mx-auto mb-1 flex h-6 w-6 items-center justify-center rounded-full border text-[10px] font-bold" style={index < progressIndex
+                            ? { borderColor: "#00C2A8", background: "#0E8B7A", color: "#FFFFFF" }
+                            : index === progressIndex
+                              ? { borderColor: "#00C2A8", background: "#E6FBF7", color: "#0E8B7A" }
+                              : { borderColor: "#DDE3E8", background: "#F8FAFC", color: "#7A8996" }}>
+                            {index < progressIndex ? "✓" : index + 1}
+                          </div>
+                          <span className="block truncate text-[9px] font-semibold uppercase tracking-wide text-slate-500">{step}</span>
+                        </div>
+                      ))}
                     </div>
-                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                      <Metric label="Consumers" value={plan.impact.observed_consumers} />
-                      <Metric label="Subnets" value={plan.impact.subnets} />
-                      <Metric label="Route tables" value={plan.impact.route_tables} />
-                      <Metric label="Workloads in scope" value={plan.impact.route_table_workloads} />
-                    </div>
-                    <p className="text-xs text-slate-600">Permissions changed: <strong>{plan.impact.permission_changes}</strong> · resources replaced: <strong>{plan.impact.resource_replacements}</strong></p>
-                    {plan.blockers.length ? <div className="space-y-2">{plan.blockers.map(b => <div key={b.code} className="rounded-lg border border-orange-200 bg-white p-3 text-xs"><strong className="text-orange-700">{b.code}</strong><p className="mt-1 text-slate-600">{b.message}</p></div>)}</div> : null}
-                    {plan.readiness === "READY" && plan.plan_token ? (
-                      <div className="space-y-3 border-t border-teal-200 pt-3">
-                        <button type="button" onClick={simulate} disabled={!!action} className="rounded-lg border border-teal-300 bg-white px-3 py-2 text-xs font-semibold text-teal-700 disabled:opacity-50" data-testid="estate-vpce-simulate">Simulate exact change</button>
-                        {simulation ? <div className="rounded-lg border border-teal-200 bg-white p-3 text-xs text-teal-800" data-testid="estate-vpce-simulation">Simulation complete · {String(simulation.status ?? "review result")} · safe to apply: {String(simulation.safe_to_apply ?? false)}</div> : null}
-                        <label className="block text-xs font-semibold text-slate-700">Type <span className="font-mono">{expectedApply}</span><input value={confirmation} onChange={e => setConfirmation(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-mono text-xs" /></label>
-                        <button type="button" onClick={execute} disabled={!!action || confirmation !== expectedApply} className="rounded-lg bg-[#0D1B2A] px-4 py-2 text-xs font-semibold text-white disabled:opacity-40" data-testid="estate-vpce-execute">Snapshot and apply</button>
+
+                    <div className="space-y-4 rounded-xl border p-4" style={{ borderColor: plan.readiness === "READY" ? "#9FE8DC" : "#FED7AA", background: plan.readiness === "READY" ? "#F0FDFA" : "#FFF7ED" }}>
+                      <div className="flex items-start gap-2">
+                        {plan.readiness === "READY" ? <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-teal-600" /> : <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-orange-600" />}
+                        <div>
+                          <div className="text-sm font-bold">{plan.readiness === "READY" ? "One-route-table canary is ready to simulate" : "Change is blocked by missing proof"}</div>
+                          <p className="mt-1 text-xs text-slate-600">
+                            Anchor bucket: <strong>{plan.bucket_name}</strong>. AWS change unit: every workload and S3 destination sharing the selected route tables.
+                          </p>
+                        </div>
                       </div>
-                    ) : null}
+                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                        <Metric label="Bucket consumers" value={plan.impact.migrating_consumers ?? plan.impact.observed_consumers} />
+                        <Metric label="Cohort workloads" value={plan.impact.route_table_workloads} />
+                        <Metric label="Route tables" value={plan.impact.route_tables} />
+                        <Metric label="S3 destinations" value={plan.impact.s3_destinations ?? 0} />
+                      </div>
+                      <div className="rounded-lg border bg-white p-3 text-xs text-slate-600" style={{ borderColor: "#DDE3E8" }}>
+                        <div className="grid grid-cols-[125px_1fr] gap-x-3 gap-y-2">
+                          <strong className="text-slate-800">Endpoint action</strong><span>{plan.endpoint_mode === "ADOPT_EXISTING" ? `Use opted-in endpoint ${plan.existing_endpoint_id}` : "Create a Cyntro-managed S3 Gateway endpoint"}</span>
+                          <strong className="text-slate-800">Canary</strong><span className="font-mono">{plan.canary_route_table_id ?? "Blocked"}</span>
+                          <strong className="text-slate-800">Authorization</strong><span>No IAM or bucket-policy change in this operation</span>
+                          <strong className="text-slate-800">Rollback</strong><span>Remove only associations added by this operation</span>
+                        </div>
+                      </div>
+                      {(plan.excluded_consumers?.length ?? 0) > 0 ? (
+                        <div className="rounded-lg border border-slate-200 bg-white p-3">
+                          <div className="text-xs font-bold text-slate-800">Not changed by this operation ({plan.excluded_consumers?.length})</div>
+                          <div className="mt-2 space-y-2">
+                            {plan.excluded_consumers?.map((consumer, index) => (
+                              <div key={`${consumer.resource_id}-${index}`} className="text-xs text-slate-600">
+                                <strong>{consumer.resource_name || consumer.resource_id}</strong> · {consumer.reason}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+                      {plan.blockers.length ? <div className="space-y-2">{plan.blockers.map(b => <div key={b.code} className="rounded-lg border border-orange-200 bg-white p-3 text-xs"><strong className="text-orange-700">{b.code}</strong><p className="mt-1 text-slate-600">{b.message}</p></div>)}</div> : null}
+
+                      {plan.readiness === "READY" && plan.plan_token ? (
+                        <div className="space-y-3 border-t border-teal-200 pt-3">
+                          {operationState === "READY_FOR_SIMULATION" ? (
+                            <button type="button" onClick={simulate} disabled={!!action} className="rounded-lg border border-teal-300 bg-white px-3 py-2 text-xs font-semibold text-teal-700 disabled:opacity-50" data-testid="estate-vpce-simulate">
+                              {action === "simulate" ? "Running AWS dry-run…" : "Simulate canary in AWS"}
+                            </button>
+                          ) : null}
+                          {simulation ? (
+                            <div className={`rounded-lg border bg-white p-3 text-xs ${simulation.safe_to_apply ? "border-teal-200 text-teal-800" : "border-red-200 text-red-700"}`} data-testid="estate-vpce-simulation">
+                              <strong>{simulation.safe_to_apply ? "AWS dry-run passed" : "Simulation blocked"}</strong> · exact canary scope is immutable under plan hash {simulation.plan_hash.slice(0, 10)}…
+                            </div>
+                          ) : null}
+                          {operationState === "SIMULATED" ? (
+                            <div className="space-y-2 rounded-lg border border-slate-200 bg-white p-3">
+                              <label className="block text-xs font-semibold text-slate-700">Requester identity<input aria-label="Requester identity" value={requester} onChange={e => setRequester(e.target.value)} placeholder="name@company.com" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-xs" /></label>
+                              <button type="button" onClick={requestApproval} disabled={!!action || requester.trim().length < 3} className="rounded-lg bg-[#0D1B2A] px-3 py-2 text-xs font-semibold text-white disabled:opacity-40" data-testid="estate-vpce-request-approval">Request change approval</button>
+                            </div>
+                          ) : null}
+                          {operationState === "APPROVAL_PENDING" ? (
+                            <div className="space-y-2 rounded-lg border border-amber-200 bg-white p-3">
+                              <p className="text-xs text-slate-600">Requested by <strong>{operation?.approval?.requested_by}</strong>. A different operator must approve.</p>
+                              <label className="block text-xs font-semibold text-slate-700">Approver identity<input aria-label="Approver identity" value={approver} onChange={e => setApprover(e.target.value)} placeholder="approver@company.com" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-xs" /></label>
+                              <button type="button" onClick={approve} disabled={!!action || approver.trim().length < 3 || approver.trim().toLowerCase() === requester.trim().toLowerCase()} className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 disabled:opacity-40" data-testid="estate-vpce-approve">Approve canary and staged rollout</button>
+                            </div>
+                          ) : null}
+                          {operationState === "APPROVED" ? (
+                            <div className="space-y-2 rounded-lg border border-teal-200 bg-white p-3">
+                              <p className="text-xs text-slate-600">Approved by <strong>{operation?.approval?.approved_by}</strong>. Apply changes only the canary route table.</p>
+                              <label className="block text-xs font-semibold text-slate-700">Type <span className="font-mono">{expectedApply}</span><input aria-label="Apply confirmation" value={confirmation} onChange={e => setConfirmation(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-mono text-xs" /></label>
+                              <button type="button" onClick={execute} disabled={!!action || !simulation?.safe_to_apply || !operation?.execution_plan_token || confirmation !== expectedApply} className="rounded-lg bg-[#0D1B2A] px-4 py-2 text-xs font-semibold text-white disabled:opacity-40" data-testid="estate-vpce-execute">Snapshot and apply canary</button>
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </div>
                   </div>
                 ) : null}
                 {execution ? (
                   <div className="space-y-3 rounded-xl border border-blue-200 bg-blue-50 p-4" data-testid="estate-vpce-execution">
-                    <div className="flex items-center gap-2 text-sm font-bold text-blue-900"><ShieldCheck className="h-5 w-5" /> Applied · rollback retained</div>
+                    <div className="flex items-center gap-2 text-sm font-bold text-blue-900"><ShieldCheck className="h-5 w-5" /> Canary applied · rollback retained</div>
                     <p className="text-xs text-blue-800">Endpoint <span className="font-mono">{execution.endpoint_id ?? "—"}</span> · snapshot <span className="font-mono">{execution.snapshot_id ?? "—"}</span></p>
-                    <button type="button" onClick={verify} disabled={!!action || !execution.lifecycle_token} className="rounded-lg border border-blue-300 bg-white px-3 py-2 text-xs font-semibold text-blue-700 disabled:opacity-50">Verify behavioral cutover</button>
-                    {verification ? <div className="rounded-lg bg-white p-3 text-xs text-blue-900">State: <strong>{String(verification.state ?? "unknown")}</strong> {verification.message ? `· ${String(verification.message)}` : ""}</div> : null}
+                    {operationState === "CANARY_MONITORING" || operationState === "EXPANDING" ? (
+                      <button type="button" onClick={verify} disabled={!!action || !execution.lifecycle_token} className="rounded-lg border border-blue-300 bg-white px-3 py-2 text-xs font-semibold text-blue-700 disabled:opacity-50" data-testid="estate-vpce-verify">Verify AWS route and observed S3 traffic</button>
+                    ) : null}
+                    {verification ? (
+                      <div className="space-y-1 rounded-lg bg-white p-3 text-xs text-blue-900" data-testid="estate-vpce-verification">
+                        <div>State: <strong>{verification.state}</strong> · {verification.fresh_private_s3_flows ?? 0}/{verification.expected_s3_flows ?? 0} fresh S3 flows · route scope {verification.route_scope_verified ? "verified" : "pending"}.</div>
+                        <div>Observed action coverage: {verification.fresh_private_s3_actions ?? 0}/{verification.expected_s3_actions ?? 0} · endpoint denials: {verification.endpoint_denial_rows ?? 0}.</div>
+                        <div>{verification.message}</div>
+                        {verification.evidence_refresh?.success === false ? <div className="font-semibold text-amber-700">Evidence refresh is still pending: {verification.evidence_refresh.error ?? "collector unavailable"}</div> : null}
+                      </div>
+                    ) : null}
+                    {(operationState === "CANARY_VERIFIED" || (operationState === "EXPANDING" && verification?.state === "VERIFIED" && verification.more_routes_pending)) ? (
+                      <button type="button" onClick={expand} disabled={!!action} className="rounded-lg bg-[#0D1B2A] px-3 py-2 text-xs font-semibold text-white disabled:opacity-50" data-testid="estate-vpce-expand">Apply next route-table stage</button>
+                    ) : null}
+                    {expansion ? <div className="rounded-lg border border-blue-200 bg-white p-3 text-xs text-blue-900">One route table was added. Fresh S3 flow evidence is required before the next stage.</div> : null}
+                    {operationState === "COMPLETE" ? <div className="rounded-lg border border-teal-200 bg-teal-50 p-3 text-xs font-semibold text-teal-800">Transport migration verified. Bucket-policy enforcement remains a separate reviewed change.</div> : null}
                     <label className="block text-xs font-semibold text-blue-900">Type <span className="font-mono">{expectedRollback}</span><input value={rollbackConfirmation} onChange={e => setRollbackConfirmation(e.target.value)} className="mt-1 w-full rounded-lg border border-blue-300 bg-white px-3 py-2 font-mono text-xs" /></label>
                     <button type="button" onClick={rollback} disabled={!!action || rollbackConfirmation !== expectedRollback} className="inline-flex items-center gap-2 rounded-lg border border-red-300 bg-white px-3 py-2 text-xs font-semibold text-red-700 disabled:opacity-40"><RotateCcw className="h-3.5 w-3.5" /> Roll back from snapshot</button>
                   </div>
