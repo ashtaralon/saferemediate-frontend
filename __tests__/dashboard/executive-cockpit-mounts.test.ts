@@ -42,7 +42,7 @@ describe("Home view ownership", () => {
 
   it("the management report describes the same snapshot", () => {
     expect(exec).toContain("onReportData")
-    expect(exec).toContain("reportSnapshot(data)")
+    expect(exec).toContain("reportSnapshot(data, systemsCatalog.data)")
     expect(exec).toContain("sources")
   })
 

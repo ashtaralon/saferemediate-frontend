@@ -92,8 +92,8 @@ function reportSnapshot(data: ExecutiveSnapshot, catalog?: SystemsCatalogRespons
         owner: null,
         score: null,
         resourceCount: null,
-        critical: 0,
-        high: 0,
+        critical: null,
+        high: null,
         weakestPlane: null,
       }
       if (risk.severity === "CRITICAL") row.critical = (row.critical || 0) + 1
@@ -117,8 +117,8 @@ function reportSnapshot(data: ExecutiveSnapshot, catalog?: SystemsCatalogRespons
       owner: system.owner || null,
       score,
       resourceCount: integer(system.resourceCount),
-      critical: integer(system.critical) ?? existing?.critical ?? 0,
-      high: integer(system.high) ?? existing?.high ?? 0,
+      critical: integer(system.critical) ?? existing?.critical ?? null,
+      high: integer(system.high) ?? existing?.high ?? null,
       weakestPlane: system.weakestPlane || existing?.weakestPlane || null,
     }
     if (existingKey) systemRows.delete(existingKey)
