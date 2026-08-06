@@ -30,7 +30,7 @@ describe("executive cockpit authority", () => {
   })
 
   it("hands the current executive snapshot to the report without refetching", () => {
-    expect(cockpit).toContain("reportSnapshot(data)")
+    expect(cockpit).toContain("reportSnapshot(data, systemsCatalog.data)")
     expect(cockpit).toContain("onReportData")
     expect(cockpit).not.toContain("onReadiness")
   })

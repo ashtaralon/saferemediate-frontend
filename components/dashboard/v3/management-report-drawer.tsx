@@ -22,7 +22,7 @@ import {
  *
  * The snapshot below is deliberately assembled by ExecutiveCockpit from the
  * SAME lifted readings used by the dashboard. The report never re-fetches its
- * own copies, so a CISO cannot see one number on Home and a different number
+ * own copies, so the report cannot show one number on Home and a different number
  * in the pack opened from it.
  */
 
@@ -35,13 +35,18 @@ export type ReportSource = {
 
 export type ReportSystem = {
   name: string
+  displayName?: string | null
   environment: string | null
+  criticality: string | null
+  owner?: string | null
   score: number | null
   resourceCount: number | null
   critical: number | null
   high: number | null
   weakestPlane: string | null
 }
+
+export type ReportSectionId = "summary" | "systems" | "damage" | "progress" | "actions" | "confidence"
 
 export type ReportCrownJewel = {
   id: string
@@ -292,7 +297,7 @@ function buildManagementAsks(snapshot: ManagementReportSnapshot | null | undefin
       {
         title: "Defer risk acceptance until the estate data is available",
         reason: "The report data has not loaded, so no risk conclusion can be supported yet.",
-        owner: "CISO",
+        owner: "Security leadership",
         timing: "Before the meeting",
       },
     ]
@@ -311,7 +316,7 @@ function buildManagementAsks(snapshot: ManagementReportSnapshot | null | undefin
     asks.push({
       title: "Confirm exposed crown jewels as the first remediation priority",
       reason: `${showNumber(snapshot.metrics.internetExposedJewels)} crown jewel${snapshot.metrics.internetExposedJewels === 1 ? " is" : "s are"} reachable from an external entry point.`,
-      owner: "CISO + platform owners",
+      owner: "Security and platform owners",
       timing: "Immediate",
     })
   }
@@ -353,7 +358,7 @@ function buildManagementAsks(snapshot: ManagementReportSnapshot | null | undefin
     asks.push({
       title: "Maintain the current remediation cadence and risk appetite",
       reason: "No exceptional management decision is indicated by the current measured scope.",
-      owner: "CISO",
+      owner: "Security leadership",
       timing: "Quarterly review",
     })
   }
@@ -378,14 +383,34 @@ function executiveHeadline(snapshot: ManagementReportSnapshot | null | undefined
   return "No viable route to a crown jewel was reported in the measured scope; evidence coverage must remain high for that conclusion to hold."
 }
 
-const NAV_ITEMS = [
-  ["summary", "Executive summary"],
+const NAV_ITEMS: Array<[ReportSectionId, string]> = [
+  ["summary", "Summary"],
   ["systems", "Critical systems"],
   ["damage", "Potential damage"],
   ["progress", "Remediation progress"],
-  ["decisions", "Management decisions"],
+  ["actions", "Actions and ownership"],
   ["confidence", "Confidence & appendix"],
-] as const
+]
+
+const DEFAULT_SECTIONS: Record<ReportSectionId, boolean> = {
+  summary: true,
+  systems: true,
+  damage: true,
+  progress: true,
+  actions: true,
+  confidence: true,
+}
+
+function normalized(value: string | null | undefined): string {
+  return (value || "").trim().toLowerCase()
+}
+
+function systemReferenceMatches(reference: string | null | undefined, names: Set<string>): boolean {
+  if (names.size === 0) return true
+  const value = normalized(reference)
+  if (!value) return false
+  return Array.from(names).some((name) => value === name || value.split(",").map((part) => part.trim()).includes(name))
+}
 
 export function ManagementReportDrawer({
   open,
@@ -396,10 +421,17 @@ export function ManagementReportDrawer({
   onClose: () => void
   report: ManagementReportContext
 }) {
-  const [audience, setAudience] = useState("Executive Leadership Team")
-  const [presenter, setPresenter] = useState("Chief Information Security Officer")
+  const [reportTitle, setReportTitle] = useState("Security & Resilience Report")
+  const [audience, setAudience] = useState("")
+  const [presenter, setPresenter] = useState("")
   const [meetingDate, setMeetingDate] = useState(() => new Date().toISOString().slice(0, 10))
-  const [cisoMessage, setCisoMessage] = useState("")
+  const [keyMessage, setKeyMessage] = useState("")
+  const [contentEmphasis, setContentEmphasis] = useState<"business" | "balanced" | "technical">("balanced")
+  const [selectedEnvironments, setSelectedEnvironments] = useState<string[]>([])
+  const [selectedCriticalities, setSelectedCriticalities] = useState<string[]>([])
+  const [selectedSystems, setSelectedSystems] = useState<string[]>([])
+  const [systemSearch, setSystemSearch] = useState("")
+  const [sections, setSections] = useState<Record<ReportSectionId, boolean>>(DEFAULT_SECTIONS)
   const [includeAppendix, setIncludeAppendix] = useState(true)
   const [copied, setCopied] = useState(false)
 
@@ -414,7 +446,56 @@ export function ManagementReportDrawer({
 
   const coverage = deriveReportCoverage(report)
   const coverageComplete = coverage.level === "COMPLETE"
-  const snapshot = report.snapshot
+  const fullSnapshot = report.snapshot
+  const environmentOptions = useMemo(() => Array.from(new Set((fullSnapshot?.systems || []).map((system) => system.environment).filter((value): value is string => Boolean(value)))).sort(), [fullSnapshot])
+  const criticalityOptions = useMemo(() => Array.from(new Set((fullSnapshot?.systems || []).map((system) => system.criticality).filter((value): value is string => Boolean(value)))).sort(), [fullSnapshot])
+  const visibleSystemOptions = useMemo(() => {
+    const query = normalized(systemSearch)
+    return (fullSnapshot?.systems || [])
+      .filter((system) => !query || normalized(system.displayName || system.name).includes(query))
+      .sort((a, b) => (a.displayName || a.name).localeCompare(b.displayName || b.name))
+  }, [fullSnapshot, systemSearch])
+  const scopeNarrowed = selectedEnvironments.length > 0 || selectedCriticalities.length > 0 || selectedSystems.length > 0
+  const snapshot = useMemo<ManagementReportSnapshot | null | undefined>(() => {
+    if (!fullSnapshot) return fullSnapshot
+    const explicitlySelected = new Set(selectedSystems.map(normalized))
+    const systems = fullSnapshot.systems.filter((system) => {
+      if (selectedEnvironments.length && !selectedEnvironments.some((value) => normalized(value) === normalized(system.environment))) return false
+      if (selectedCriticalities.length && !selectedCriticalities.some((value) => normalized(value) === normalized(system.criticality))) return false
+      if (explicitlySelected.size && !explicitlySelected.has(normalized(system.name))) return false
+      return true
+    })
+    if (!scopeNarrowed) return fullSnapshot
+    const allowedNames = new Set(systems.map((system) => normalized(system.name)))
+    const crownJewels = fullSnapshot.crownJewels.filter((jewel) => systemReferenceMatches(jewel.systemName, allowedNames))
+    const candidates = fullSnapshot.candidates.filter((candidate) => systemReferenceMatches(candidate.system, allowedNames))
+    const attackPaths = crownJewels.reduce((total, jewel) => total + (jewel.pathCount || 0), 0)
+    return {
+      ...fullSnapshot,
+      metrics: {
+        ...fullSnapshot.metrics,
+        systems: systems.length,
+        systemsPartial: false,
+        systemsRequiringAttention: systems.filter((system) => (system.critical || 0) > 0 || (system.high || 0) > 0 || (system.score !== null && system.score < 75)).length,
+        reachableCrownJewels: crownJewels.length,
+        internetExposedJewels: crownJewels.filter((jewel) => jewel.internetExposed === true).length,
+        viableAttackPaths: attackPaths,
+        proposedChanges: candidates.filter((candidate) => candidate.canAutoApply === true).length,
+        heldChanges: candidates.filter((candidate) => candidate.canAutoApply === false).length,
+      },
+      systems,
+      crownJewels,
+      candidates,
+    }
+  }, [fullSnapshot, scopeNarrowed, selectedCriticalities, selectedEnvironments, selectedSystems])
+  const scopeLabel = useMemo(() => {
+    if (!scopeNarrowed) return report.scope
+    const parts: string[] = []
+    if (selectedSystems.length) parts.push(`${selectedSystems.length} selected system${selectedSystems.length === 1 ? "" : "s"}`)
+    if (selectedEnvironments.length) parts.push(selectedEnvironments.join(", "))
+    if (selectedCriticalities.length) parts.push(selectedCriticalities.join(", "))
+    return parts.join(" · ") || report.scope
+  }, [report.scope, scopeNarrowed, selectedCriticalities, selectedEnvironments, selectedSystems])
   const latestReading = useMemo(() => {
     const times = report.sources
       .map((source) => source.cachedAt)
@@ -436,14 +517,16 @@ export function ManagementReportDrawer({
   }, [snapshot])
   const topJewels = snapshot?.crownJewels.slice(0, 6) ?? []
   const safeCandidates = snapshot?.candidates.filter((candidate) => candidate.canAutoApply === true).slice(0, 5) ?? []
+  const showTechnical = contentEmphasis !== "business"
+  const showBusiness = contentEmphasis !== "technical"
 
   if (!open) return null
 
   const summaryForClipboard = [
-    `CYNTRO SECURITY & RESILIENCE REPORT — ${audience}`,
+    `CYNTRO ${reportTitle.toUpperCase()}${audience ? ` — ${audience}` : ""}`,
     headline,
-    cisoMessage ? `CISO message: ${cisoMessage}` : "",
-    `Scope: ${report.scope}`,
+    keyMessage ? `Key message: ${keyMessage}` : "",
+    `Scope: ${scopeLabel}`,
     `Reachable crown jewels: ${showNumber(snapshot?.metrics.reachableCrownJewels)}`,
     `Internet-exposed jewels: ${showNumber(snapshot?.metrics.internetExposedJewels)}`,
     `Viable attack paths: ${showNumber(snapshot?.metrics.viableAttackPaths)}`,
@@ -468,9 +551,9 @@ export function ManagementReportDrawer({
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <h2 className="truncate text-sm font-semibold text-slate-950">Management report</h2>
-              <span className="rounded bg-violet-50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-violet-700">Executive report</span>
+              <span className="rounded bg-violet-50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-violet-700">Custom report</span>
             </div>
-            <p className="truncate text-xs text-slate-500">Build an executive narrative from the current security data.</p>
+            <p className="truncate text-xs text-slate-500">Choose the scope, emphasis, and sections that fit the conversation.</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -492,12 +575,12 @@ export function ManagementReportDrawer({
         <aside className="cyntro-no-print hidden w-72 shrink-0 overflow-y-auto border-r border-slate-200 bg-white p-5 xl:block">
           <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Report settings</div>
           <label className="mt-4 block text-xs font-semibold text-slate-700">
-            Audience
-            <select value={audience} onChange={(event) => setAudience(event.target.value)} className="mt-1.5 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-normal text-slate-800 outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100">
-              <option>Board of Directors</option>
-              <option>Audit &amp; Risk Committee</option>
-              <option>Executive Leadership Team</option>
-            </select>
+            Report title
+            <input value={reportTitle} onChange={(event) => setReportTitle(event.target.value)} className="mt-1.5 w-full rounded-md border border-slate-200 px-3 py-2 text-sm font-normal text-slate-800 outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100" />
+          </label>
+          <label className="mt-4 block text-xs font-semibold text-slate-700">
+            Prepared for
+            <input value={audience} onChange={(event) => setAudience(event.target.value)} placeholder="Optional recipient or meeting" className="mt-1.5 w-full rounded-md border border-slate-200 px-3 py-2 text-sm font-normal text-slate-800 outline-none placeholder:text-slate-400 focus:border-violet-400 focus:ring-2 focus:ring-violet-100" />
           </label>
           <label className="mt-4 block text-xs font-semibold text-slate-700">
             Presented by
@@ -508,27 +591,50 @@ export function ManagementReportDrawer({
             <input type="date" value={meetingDate} onChange={(event) => setMeetingDate(event.target.value)} className="mt-1.5 w-full rounded-md border border-slate-200 px-3 py-2 text-sm font-normal text-slate-800 outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100" />
           </label>
           <label className="mt-4 block text-xs font-semibold text-slate-700">
-            CISO message
-            <textarea value={cisoMessage} onChange={(event) => setCisoMessage(event.target.value)} rows={4} placeholder="Add the one message you want leadership to remember…" className="mt-1.5 w-full resize-none rounded-md border border-slate-200 px-3 py-2 text-sm font-normal leading-5 text-slate-800 outline-none placeholder:text-slate-400 focus:border-violet-400 focus:ring-2 focus:ring-violet-100" />
-          </label>
-          <label className="mt-4 flex cursor-pointer items-start gap-2.5 rounded-md border border-slate-200 p-3">
-            <input type="checkbox" checked={includeAppendix} onChange={(event) => setIncludeAppendix(event.target.checked)} className="mt-0.5 h-4 w-4 accent-violet-600" />
-            <span>
-              <span className="block text-xs font-semibold text-slate-800">Include evidence appendix</span>
-              <span className="mt-0.5 block text-[11px] leading-4 text-slate-500">Source status, timestamps, limitations, and calculation notes.</span>
-            </span>
+            Key message
+            <textarea value={keyMessage} onChange={(event) => setKeyMessage(event.target.value)} rows={3} placeholder="Add the main takeaway…" className="mt-1.5 w-full resize-none rounded-md border border-slate-200 px-3 py-2 text-sm font-normal leading-5 text-slate-800 outline-none placeholder:text-slate-400 focus:border-violet-400 focus:ring-2 focus:ring-violet-100" />
           </label>
 
+          <div className="mt-6 border-t border-slate-200 pt-5">
+            <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Content emphasis</div>
+            <div className="mt-2 grid grid-cols-3 gap-1 rounded-lg bg-slate-100 p-1">
+              {(["business", "balanced", "technical"] as const).map((value) => <button key={value} type="button" onClick={() => setContentEmphasis(value)} className={`rounded-md px-1 py-2 text-[10px] font-semibold capitalize ${contentEmphasis === value ? "bg-white text-violet-700 shadow-sm" : "text-slate-500"}`}>{value}</button>)}
+            </div>
+          </div>
+
+          <div className="mt-6 border-t border-slate-200 pt-5">
+            <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Scope</div>
+            <div className="mt-3 text-[11px] font-semibold text-slate-600">Environment</div>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {environmentOptions.length ? environmentOptions.map((value) => <button key={value} type="button" aria-pressed={selectedEnvironments.includes(value)} onClick={() => setSelectedEnvironments((current) => current.includes(value) ? current.filter((item) => item !== value) : [...current, value])} className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold ${selectedEnvironments.includes(value) ? "border-violet-300 bg-violet-50 text-violet-700" : "border-slate-200 text-slate-600"}`}>{value}</button>) : <span className="text-[10px] text-slate-400">Metadata unavailable</span>}
+            </div>
+            <div className="mt-4 text-[11px] font-semibold text-slate-600">Business criticality</div>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {criticalityOptions.length ? criticalityOptions.map((value) => <button key={value} type="button" aria-pressed={selectedCriticalities.includes(value)} onClick={() => setSelectedCriticalities((current) => current.includes(value) ? current.filter((item) => item !== value) : [...current, value])} className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold ${selectedCriticalities.includes(value) ? "border-violet-300 bg-violet-50 text-violet-700" : "border-slate-200 text-slate-600"}`}>{value}</button>) : <span className="text-[10px] text-slate-400">Metadata unavailable</span>}
+            </div>
+            <div className="mt-4 flex items-center justify-between"><span className="text-[11px] font-semibold text-slate-600">Systems</span><button type="button" onClick={() => setSelectedSystems([])} className="text-[10px] font-semibold text-violet-600">All systems</button></div>
+            <input value={systemSearch} onChange={(event) => setSystemSearch(event.target.value)} placeholder="Find a system…" className="mt-2 w-full rounded-md border border-slate-200 px-2.5 py-2 text-xs outline-none placeholder:text-slate-400 focus:border-violet-400" />
+            <div className="mt-2 max-h-36 space-y-1 overflow-y-auto rounded-md border border-slate-200 p-1.5">
+              {visibleSystemOptions.map((system) => <label key={system.name} className="flex cursor-pointer items-start gap-2 rounded px-1.5 py-1.5 hover:bg-slate-50"><input type="checkbox" checked={selectedSystems.includes(system.name)} onChange={() => setSelectedSystems((current) => current.includes(system.name) ? current.filter((item) => item !== system.name) : [...current, system.name])} className="mt-0.5 h-3.5 w-3.5 accent-violet-600" /><span className="min-w-0"><span className="block truncate text-[11px] font-medium text-slate-700">{system.displayName || system.name}</span><span className="block truncate text-[9px] text-slate-400">{[system.environment, system.criticality].filter(Boolean).join(" · ") || "Metadata unavailable"}</span></span></label>)}
+            </div>
+            {scopeNarrowed ? <button type="button" onClick={() => { setSelectedEnvironments([]); setSelectedCriticalities([]); setSelectedSystems([]) }} className="mt-2 text-[10px] font-semibold text-violet-600">Reset scope</button> : null}
+          </div>
+
           <div className="mt-7 border-t border-slate-200 pt-5">
-            <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Report outline</div>
-            <nav className="mt-2 space-y-0.5">
-              {NAV_ITEMS.map(([id, label], index) => (
-                <a key={id} href={`#report-${id}`} className="flex items-center justify-between rounded-md px-2 py-2 text-xs text-slate-600 hover:bg-slate-50 hover:text-slate-950">
-                  <span><span className="mr-2 font-mono text-[10px] text-slate-400">0{index + 1}</span>{label}</span>
-                  <ChevronRight className="h-3 w-3 text-slate-300" />
-                </a>
+            <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Included sections</div>
+            <div className="mt-2 space-y-0.5">
+              {NAV_ITEMS.map(([id, label]) => (
+                <label key={id} className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-2 text-xs text-slate-600 hover:bg-slate-50">
+                  <input type="checkbox" aria-label={`Include ${label}`} checked={sections[id]} onChange={(event) => setSections((current) => ({ ...current, [id]: event.target.checked }))} className="h-3.5 w-3.5 accent-violet-600" />
+                  <span className="flex-1">{label}</span>
+                  {sections[id] ? <a href={`#report-${id}`} aria-label={`Go to ${label}`}><ChevronRight className="h-3 w-3 text-slate-300" /></a> : null}
+                </label>
               ))}
-            </nav>
+            </div>
+            <label className="mt-2 flex cursor-pointer items-start gap-2.5 rounded-md border border-slate-200 p-3">
+              <input type="checkbox" checked={includeAppendix} onChange={(event) => setIncludeAppendix(event.target.checked)} className="mt-0.5 h-4 w-4 accent-violet-600" />
+              <span><span className="block text-xs font-semibold text-slate-800">Evidence appendix</span><span className="mt-0.5 block text-[10px] leading-4 text-slate-500">Source status, timestamps, limitations, and calculation notes.</span></span>
+            </label>
           </div>
 
           <div className={`mt-6 rounded-lg border p-3 ${coverageComplete ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}>
@@ -550,35 +656,37 @@ export function ManagementReportDrawer({
                   <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.22em] text-violet-300">
                     <Sparkles className="h-3.5 w-3.5" /> Cyntro intelligence
                   </div>
-                  <h1 className="mt-5 max-w-2xl text-3xl font-semibold tracking-[-0.04em] sm:text-4xl">Security &amp; Resilience Report</h1>
-                  <p className="mt-3 text-sm text-slate-300">Current exposure, potential business damage, remediation trajectory, and decisions required.</p>
+                  <h1 className="mt-5 max-w-2xl text-3xl font-semibold tracking-[-0.04em] sm:text-4xl">{reportTitle || "Security & Resilience Report"}</h1>
+                  <p className="mt-3 text-sm text-slate-300">Current exposure, potential impact, remediation trajectory, and actions required.</p>
                 </div>
                 <div className="hidden rounded-lg border border-white/15 bg-white/5 px-4 py-3 text-right sm:block">
                   <div className="text-[9px] font-bold uppercase tracking-[0.18em] text-slate-400">Prepared for</div>
-                  <div className="mt-1 text-sm font-semibold">{audience}</div>
+                  <div className="mt-1 text-sm font-semibold">{audience || "Not specified"}</div>
                 </div>
               </div>
               <div className="mt-8 grid gap-5 border-t border-white/10 pt-5 text-xs sm:grid-cols-3">
                 <div><div className="text-[9px] uppercase tracking-wider text-slate-500">Presented by</div><div className="mt-1 font-medium text-slate-200">{presenter || "Not specified"}</div></div>
                 <div><div className="text-[9px] uppercase tracking-wider text-slate-500">Meeting date</div><div className="mt-1 font-medium text-slate-200">{showDate(meetingDate)}</div></div>
-                <div><div className="text-[9px] uppercase tracking-wider text-slate-500">Measured scope</div><div className="mt-1 font-medium text-slate-200">{report.scope}</div></div>
+                <div><div className="text-[9px] uppercase tracking-wider text-slate-500">Measured scope</div><div className="mt-1 font-medium text-slate-200">{scopeLabel}</div></div>
               </div>
             </div>
 
             {!coverageComplete ? (
               <div className="flex items-start gap-3 border-b border-amber-200 bg-amber-50 px-8 py-3 text-xs text-amber-900 sm:px-12">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-                <div><span className="font-bold">Coverage notice.</span> Some report sections have partial or unavailable data. Missing values are marked — and source details are listed in section 06.</div>
+                <div><span className="font-bold">Coverage notice.</span> Some report sections have partial or unavailable data. Missing values are marked — and source details are available in Confidence &amp; appendix.</div>
               </div>
             ) : null}
 
+            {scopeNarrowed ? <div className="flex items-start gap-3 border-b border-sky-200 bg-sky-50 px-8 py-3 text-xs text-sky-900 sm:px-12"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" /><div><span className="font-bold">Selected scope.</span> Risk and change counts are calculated from the detailed rows available for the selected systems. They are lower bounds, not estate-wide totals.</div></div> : null}
+
             <div className="space-y-12 px-8 py-10 sm:px-12 sm:py-12">
-              <section id="report-summary">
-                <SectionHeading eyebrow="01 · The executive answer" title="Executive summary" description={`Latest source update ${fmt(latestReading)}`} />
+              {sections.summary ? <section id="report-summary">
+                <SectionHeading eyebrow="01 · Current position" title="Summary" description={`Latest source update ${fmt(latestReading)}`} />
                 <div className="rounded-xl bg-violet-950 p-6 text-white">
-                  <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-violet-300">CISO headline</div>
+                  <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-violet-300">Key finding</div>
                   <p className="mt-3 text-xl font-medium leading-8 tracking-[-0.02em]">{headline}</p>
-                  {cisoMessage ? <p className="mt-4 border-t border-white/10 pt-4 text-sm leading-6 text-violet-100"><span className="font-semibold text-white">Management perspective:</span> {cisoMessage}</p> : null}
+                  {keyMessage ? <p className="mt-4 border-t border-white/10 pt-4 text-sm leading-6 text-violet-100"><span className="font-semibold text-white">Context:</span> {keyMessage}</p> : null}
                 </div>
                 <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
                   <Metric label="Systems needing attention" value={snapshot?.metrics.systemsRequiringAttention ?? null} detail={snapshot?.metrics.systemsPartial ? "Lower bound; discovery is partial" : `of ${showNumber(snapshot?.metrics.systems)} discovered`} tone="amber" />
@@ -596,27 +704,26 @@ export function ManagementReportDrawer({
                     <p className="mt-2 text-sm leading-6 text-slate-700">{!snapshot || snapshot.outcomes.permissionsRemoved === null || snapshot.outcomes.events === null ? "Remediation throughput is not established in the current reading." : `Cyntro recorded ${showNumber(snapshot.outcomes.permissionsRemoved)} permissions removed across ${showNumber(snapshot.outcomes.events)} actions in the last ${showNumber(snapshot.outcomes.windowDays)} days, with ${showNumber(snapshot.outcomes.rollbacks)} rollbacks.`} This measures execution throughput, not a claim of eliminated business risk.</p>
                   </div>
                 </div>
-              </section>
+              </section> : null}
 
-              <section id="report-systems">
+              {sections.systems ? <section id="report-systems">
                 <SectionHeading eyebrow="02 · Where risk concentrates" title="Most critical business systems" description="Unknown scores rank first; measured systems then rank by lowest blast-radius security score." />
                 {topSystems.length ? (
                   <div className="overflow-hidden rounded-xl border border-slate-200">
                     <table className="w-full text-left text-xs">
                       <thead className="bg-slate-50 text-[9px] font-bold uppercase tracking-[0.14em] text-slate-500">
-                        <tr><th className="px-4 py-3">Priority / system</th><th className="px-3 py-3">Environment</th><th className="px-3 py-3">Current score</th><th className="px-3 py-3">Weakest plane</th><th className="px-3 py-3 text-right">Critical</th><th className="px-4 py-3 text-right">High</th></tr>
+                        <tr><th className="px-4 py-3">Priority / system</th><th className="px-3 py-3">Environment</th><th className="px-3 py-3">Business criticality</th><th className="px-3 py-3">Current score</th>{showTechnical ? <><th className="px-3 py-3">Weakest plane</th><th className="px-3 py-3 text-right">Critical</th><th className="px-4 py-3 text-right">High</th></> : null}</tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
                         {topSystems.map((system, index) => {
                           const plane = weakestPlane(system)
                           return (
                             <tr key={`${system.name}-${index}`}>
-                              <td className="px-4 py-3"><span className="mr-3 font-mono text-[10px] text-slate-400">{String(index + 1).padStart(2, "0")}</span><span className="font-semibold text-slate-900">{system.name}</span><div className="ml-7 mt-0.5 text-[10px] text-slate-400">{showNumber(system.resourceCount)} resources</div></td>
+                              <td className="px-4 py-3"><span className="mr-3 font-mono text-[10px] text-slate-400">{String(index + 1).padStart(2, "0")}</span><span className="font-semibold text-slate-900">{system.displayName || system.name}</span>{showTechnical ? <div className="ml-7 mt-0.5 text-[10px] text-slate-400">{showNumber(system.resourceCount)} resources</div> : null}</td>
                               <td className="px-3 py-3 text-slate-600">{system.environment ?? "—"}</td>
+                              <td className="px-3 py-3 text-slate-600">{system.criticality ?? "—"}</td>
                               <td className="px-3 py-3"><span className={`inline-flex rounded border px-2 py-1 font-semibold tabular-nums ${scoreTone(system.score)}`}>{system.score === null ? "Unmeasured" : `${system.score.toFixed(0)}/100`}</span></td>
-                              <td className={`px-3 py-3 font-medium ${plane.tone}`}>{plane.label}</td>
-                              <td className="px-3 py-3 text-right font-semibold tabular-nums text-rose-700">{showNumber(system.critical)}</td>
-                              <td className="px-4 py-3 text-right font-semibold tabular-nums text-amber-700">{showNumber(system.high)}</td>
+                              {showTechnical ? <><td className={`px-3 py-3 font-medium ${plane.tone}`}>{plane.label}</td><td className="px-3 py-3 text-right font-semibold tabular-nums text-rose-700">{showNumber(system.critical)}</td><td className="px-4 py-3 text-right font-semibold tabular-nums text-amber-700">{showNumber(system.high)}</td></> : null}
                             </tr>
                           )
                         })}
@@ -624,9 +731,9 @@ export function ManagementReportDrawer({
                     </table>
                   </div>
                 ) : <div className="rounded-lg border border-dashed border-slate-300 p-5 text-sm text-slate-600">No system ranking is available in this reading. This is an evidence gap, not an all-clear.</div>}
-              </section>
+              </section> : null}
 
-              <section id="report-damage">
+              {sections.damage ? <section id="report-damage">
                 <SectionHeading eyebrow="03 · What could happen" title="Material risk and potential damage" description="Impact scenarios are based on the asset type and observed reachability; monetary loss is not estimated without business-owned impact inputs." />
                 {topJewels.length ? (
                   <div className="space-y-3">
@@ -638,14 +745,14 @@ export function ManagementReportDrawer({
                           <div className="mt-1 text-[11px] text-slate-500">{jewel.type} · {jewel.systemName ?? "system not reported"}</div>
                           <div className="mt-2 flex gap-3 text-[10px] text-slate-600"><span><b>{showNumber(jewel.pathCount)}</b> paths</span><span><b>{showNumber(jewel.riskScore)}</b> risk score</span>{jewel.dataClassification ? <span className="font-semibold text-violet-700">{jewel.dataClassification}</span> : null}</div>
                         </div>
-                        <div className="border-l border-slate-200 pl-4"><div className="text-[9px] font-bold uppercase tracking-[0.14em] text-slate-400">Plausible business effect</div><p className="mt-1.5 text-sm leading-6 text-slate-700">{damageScenario(jewel)}</p></div>
+                        <div className="border-l border-slate-200 pl-4"><div className="text-[9px] font-bold uppercase tracking-[0.14em] text-slate-400">{showBusiness ? "Plausible business effect" : "Observed risk detail"}</div><p className="mt-1.5 text-sm leading-6 text-slate-700">{showBusiness ? damageScenario(jewel) : `${showNumber(jewel.pathCount)} viable path${jewel.pathCount === 1 ? "" : "s"} reported to this ${jewel.type}; external reachability is ${jewel.internetExposed === null ? "not reported" : jewel.internetExposed ? "confirmed" : "not observed"}.`}</p></div>
                       </div>
                     ))}
                   </div>
                 ) : <div className="rounded-lg border border-dashed border-slate-300 p-5 text-sm text-slate-600">No crown-jewel scenarios can be published from the available data. Check attack-path coverage before interpreting the absence.</div>}
-              </section>
+              </section> : null}
 
-              <section id="report-progress">
+              {sections.progress ? <section id="report-progress">
                 <SectionHeading eyebrow="04 · Are we getting safer?" title="Remediation progress and execution confidence" description="Observed changes over the current seven-day remediation window." />
                 <div className="grid gap-5 lg:grid-cols-[1.4fr_1fr]">
                   <div><ProgressBars days={snapshot?.outcomes.byDay ?? []} /><div className="mt-2 flex justify-between text-[10px] text-slate-400"><span>{showDate(snapshot?.outcomes.periodStart)}</span><span>Permissions removed per day</span><span>{showDate(snapshot?.outcomes.periodEnd)}</span></div></div>
@@ -656,14 +763,14 @@ export function ManagementReportDrawer({
                     <Metric label="Evidence confidence" value={snapshot?.evidence.confidence ?? null} detail="Weakest-source aggregate" tone="slate" />
                   </div>
                 </div>
-                <div className="mt-5 rounded-xl border border-slate-200 p-4">
+                {showTechnical ? <div className="mt-5 rounded-xl border border-slate-200 p-4">
                   <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.12em] text-slate-500"><ShieldCheck className="h-4 w-4 text-emerald-600" />Next safe changes</div>
                   {safeCandidates.length ? <div className="mt-3 grid gap-2 sm:grid-cols-2">{safeCandidates.map((candidate, index) => <div key={`${candidate.resourceId}-${index}`} className="rounded-md bg-slate-50 px-3 py-2"><div className="truncate text-xs font-semibold text-slate-900">{candidate.resourceType} · {candidate.resourceId}</div><div className="mt-1 text-[10px] text-slate-500">{candidate.system ?? "System not reported"} · {showNumber(candidate.unusedCount)} of {showNumber(candidate.totalPermissions)} permissions unused</div></div>)}</div> : <p className="mt-2 text-sm text-slate-600">No change is currently published as safe to execute. Candidates may be held for evidence or approval.</p>}
-                </div>
-              </section>
+                </div> : null}
+              </section> : null}
 
-              <section id="report-decisions">
-                <SectionHeading eyebrow="05 · What management needs" title="Decisions and commitments requested" description="Recommended asks generated from the measured risk, uncertainty, and safe-action queue." />
+              {sections.actions ? <section id="report-actions">
+                <SectionHeading eyebrow="05 · What happens next" title="Actions, ownership, and timing" description="Recommended actions generated from the measured risk, uncertainty, and safe-action queue." />
                 <div className="space-y-3">
                   {asks.map((ask, index) => (
                     <div key={ask.title} className="grid gap-3 rounded-xl border border-slate-200 p-4 sm:grid-cols-[44px_1fr_170px]">
@@ -673,9 +780,9 @@ export function ManagementReportDrawer({
                     </div>
                   ))}
                 </div>
-              </section>
+              </section> : null}
 
-              <section id="report-confidence">
+              {sections.confidence ? <section id="report-confidence">
                 <SectionHeading eyebrow="06 · Can we trust the conclusion?" title="Evidence confidence and report limitations" description="Cyntro separates confirmed zeros from unknowns and carries source failures into the brief." />
                 <div className="grid gap-4 sm:grid-cols-3">
                   <Metric label="Evidence confidence" value={snapshot?.evidence.confidence ?? null} detail="Minimum across enabled sources" tone="slate" />
@@ -693,11 +800,11 @@ export function ManagementReportDrawer({
                     <div className="mt-4 grid gap-3 text-[10px] leading-4 text-slate-500 sm:grid-cols-3"><p><b className="text-slate-700">Scores.</b> Lower system BRSS indicates greater blast-radius risk. Unmeasured systems rank above scored systems.</p><p><b className="text-slate-700">Damage.</b> Scenarios describe plausible effects from asset type and reachability. They are not financial-loss estimates.</p><p><b className="text-slate-700">Progress.</b> Permissions removed and events are execution measures. They do not independently prove risk reduction.</p></div>
                   </div>
                 ) : null}
-              </section>
+              </section> : null}
             </div>
 
             <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-slate-50 px-8 py-5 text-[9px] uppercase tracking-[0.14em] text-slate-400 sm:px-12">
-              <span>Cyntro · Security &amp; Resilience Report</span>
+              <span>Cyntro · {reportTitle || "Security & Resilience Report"}</span>
               <span>Data coverage · {coverage.level === "COMPLETE" ? "Complete" : coverage.level === "PARTIAL" ? "Partial" : "Unavailable"}</span>
               <span>Generated {new Date().toLocaleString()}</span>
             </footer>
