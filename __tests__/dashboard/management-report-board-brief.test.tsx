@@ -183,6 +183,27 @@ describe("Management report", () => {
     expect(screen.queryByLabelText(/Operations sandbox/)).toBeNull()
   })
 
+  it("defaults to the only known environment and excludes unclassified systems", () => {
+    const oneEnvironment: ManagementReportSnapshot = {
+      ...SNAPSHOT,
+      systems: [
+        SNAPSHOT.systems[0],
+        {
+          ...SNAPSHOT.systems[1],
+          name: "Unclassified system",
+          displayName: "Unclassified system",
+          environment: null,
+        },
+      ],
+    }
+
+    render(<ManagementReportDrawer open onClose={() => {}} report={reading(oneEnvironment)} />)
+
+    expect(screen.getByRole("button", { name: "Production" })).toHaveAttribute("aria-pressed", "true")
+    expect(screen.getByLabelText(/Payments production/)).toBeTruthy()
+    expect(screen.queryByLabelText(/Unclassified system/)).toBeNull()
+  })
+
   it("clears system search when report scope is reset", () => {
     render(<ManagementReportDrawer open onClose={() => {}} report={reading()} />)
 
