@@ -46,7 +46,27 @@ function stateLabel(state: SnapshotServeState): "READY" | "PARTIAL" | "UNAVAILAB
   return "UNAVAILABLE"
 }
 
-function reportSnapshot(data: ExecutiveSnapshot): ManagementReportSnapshot {
+type SystemsCatalogResponse = {
+  success?: boolean
+  timestamp?: string | number | null
+  systems?: Array<{
+    name?: string
+    displayName?: string
+    SystemName?: string
+    environment?: string
+    criticality?: string
+    businessCriticality?: string
+    owner?: string
+    score?: number
+    healthScore?: number
+    resourceCount?: number
+    critical?: number
+    high?: number
+    weakestPlane?: string
+  }>
+}
+
+function reportSnapshot(data: ExecutiveSnapshot, catalog?: SystemsCatalogResponse | null): ManagementReportSnapshot {
   const material = data.material_risk
   const risks = material.top_risks || []
   const candidates = data.remediation.top_candidates || []
@@ -66,7 +86,10 @@ function reportSnapshot(data: ExecutiveSnapshot): ManagementReportSnapshot {
     for (const name of names) {
       const row = systemRows.get(name) || {
         name,
+        displayName: name,
         environment: null,
+        criticality: null,
+        owner: null,
         score: null,
         resourceCount: null,
         critical: 0,
@@ -77,6 +100,29 @@ function reportSnapshot(data: ExecutiveSnapshot): ManagementReportSnapshot {
       if (risk.severity === "HIGH") row.high = (row.high || 0) + 1
       systemRows.set(name, row)
     }
+  }
+
+
+  for (const system of catalog?.systems || []) {
+    const name = system.name || system.SystemName
+    if (!name) continue
+    const existingKey = Array.from(systemRows.keys()).find((key) => key.toLowerCase() === name.toLowerCase())
+    const existing = existingKey ? systemRows.get(existingKey) : undefined
+    const score = integer(system.score ?? system.healthScore)
+    const row = {
+      name,
+      displayName: system.displayName || system.SystemName || name,
+      environment: system.environment || null,
+      criticality: system.businessCriticality || system.criticality || null,
+      owner: system.owner || null,
+      score,
+      resourceCount: integer(system.resourceCount),
+      critical: integer(system.critical) ?? existing?.critical ?? 0,
+      high: integer(system.high) ?? existing?.high ?? 0,
+      weakestPlane: system.weakestPlane || existing?.weakestPlane || null,
+    }
+    if (existingKey) systemRows.delete(existingKey)
+    systemRows.set(name, row)
   }
 
   return {
@@ -393,6 +439,17 @@ export function ExecutiveCockpit({
       isCacheable: isCacheableExecutiveSnapshot,
     },
   )
+  const systemsCatalog = useCachedFetch<SystemsCatalogResponse>(
+    "/api/proxy/systems",
+    {
+      cacheKey: "management-report-systems-v1",
+      maxStaleMs: 60 * 60 * 1000,
+      fetchInit: { cache: "no-store" },
+      transientRetries: 1,
+      autoRetryMs: RECOVERY_POLL_MS,
+      isCacheable: (value) => Boolean(value && typeof value === "object" && Array.isArray((value as SystemsCatalogResponse).systems)),
+    },
+  )
 
   const data = snapshot.data
   const sources: ReportSource[] = useMemo(() => {
@@ -400,11 +457,17 @@ export function ExecutiveCockpit({
     const readingAt = snapshot.cachedAt || Date.parse(data.computed_at) || null
     return [
       { label: "Material risk", state: stateLabel(data.material_risk.serve_state), detail: data.material_risk.reason || null, cachedAt: readingAt },
+      {
+        label: "Report scope catalog",
+        state: systemsCatalog.data?.systems?.length ? "READY" : systemsCatalog.loading ? "PARTIAL" : "UNAVAILABLE",
+        detail: systemsCatalog.data?.systems?.length ? `${systemsCatalog.data.systems.length} systems available for scope selection` : systemsCatalog.error || "System metadata is loading",
+        cachedAt: systemsCatalog.cachedAt || (systemsCatalog.data?.timestamp ? Date.parse(String(systemsCatalog.data.timestamp)) || null : null),
+      },
       { label: "Proposed changes", state: stateLabel(data.remediation.serve_state), cachedAt: readingAt },
       { label: "Evidence readiness", state: stateLabel(data.evidence.serve_state), detail: data.evidence.reason || null, cachedAt: readingAt },
       { label: "Verified outcomes", state: stateLabel(data.outcomes.serve_state), cachedAt: readingAt },
     ]
-  }, [data, snapshot.cachedAt])
+  }, [data, snapshot.cachedAt, systemsCatalog.cachedAt, systemsCatalog.data, systemsCatalog.error, systemsCatalog.loading])
 
   useEffect(() => {
     if (!data) return
@@ -417,9 +480,9 @@ export function ExecutiveCockpit({
           ? `analysis coverage unavailable across ${discovered} business systems`
           : `${scanned} of ${discovered} business systems analyzed`,
       sources,
-      snapshot: reportSnapshot(data),
+      snapshot: reportSnapshot(data, systemsCatalog.data),
     })
-  }, [data, onReportData, sources])
+  }, [data, onReportData, sources, systemsCatalog.data])
 
   if (snapshot.loading && !data) return <LoadingCard label="Cloud risk and remediation overview" />
   if ((snapshot.error || !data) && !data) {

@@ -1,4 +1,4 @@
-import { cleanup, render } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it } from "vitest"
 
 import {
@@ -23,12 +23,25 @@ const SNAPSHOT: ManagementReportSnapshot = {
   systems: [
     {
       name: "Payments production",
+      displayName: "Payments production",
       environment: "production",
+      criticality: "MISSION CRITICAL",
       score: 38,
       resourceCount: 47,
       critical: 3,
       high: 7,
       weakestPlane: "privilege",
+    },
+    {
+      name: "Developer portal",
+      displayName: "Developer portal",
+      environment: "development",
+      criticality: "STANDARD",
+      score: 82,
+      resourceCount: 12,
+      critical: 0,
+      high: 1,
+      weakestPlane: "network",
     },
   ],
   crownJewels: [
@@ -124,5 +137,29 @@ describe("Management report", () => {
     expect(text).toMatch(/Crown-jewel exposure cannot be confirmed/i)
     expect(text).toMatch(/Complete attack-path analysis before accepting crown-jewel risk/i)
     expect(text).not.toMatch(/No viable route to a crown jewel was reported/i)
+  })
+
+  it("lets the user narrow the report by dashboard environment metadata", () => {
+    render(<ManagementReportDrawer open onClose={() => {}} report={reading()} />)
+
+    fireEvent.click(screen.getByRole("button", { name: "production" }))
+
+    const article = document.getElementById("cyntro-report-print-root")
+    expect(article?.textContent).toMatch(/Payments production/i)
+    expect(article?.textContent).not.toMatch(/Developer portal/i)
+    expect(article?.textContent).toMatch(/Selected scope/i)
+    expect(article?.textContent).toMatch(/lower bounds, not estate-wide totals/i)
+  })
+
+  it("uses role-neutral content controls and selectable sections", () => {
+    render(<ManagementReportDrawer open onClose={() => {}} report={reading()} />)
+
+    expect(screen.getByText("Content emphasis")).toBeTruthy()
+    expect(screen.getByRole("button", { name: /business/i })).toBeTruthy()
+    expect(screen.getByText("Included sections")).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/CISO|VP Platform|Board of Directors/i)
+
+    fireEvent.click(screen.getByLabelText("Include Potential damage"))
+    expect(document.getElementById("report-damage")).toBeNull()
   })
 })
