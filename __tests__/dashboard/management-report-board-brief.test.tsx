@@ -1,5 +1,9 @@
-import { cleanup, render } from "@testing-library/react"
-import { afterEach, describe, expect, it } from "vitest"
+import { cleanup, fireEvent, render, screen } from "@testing-library/react"
+import { afterEach, describe, expect, it, vi } from "vitest"
+
+vi.mock("@/components/business-impact/business-impact-report-section", () => ({
+  BusinessImpactReportSection: () => <section>Conditional business impact</section>,
+}))
 
 import {
   ManagementReportDrawer,
@@ -24,6 +28,7 @@ const SNAPSHOT: ManagementReportSnapshot = {
     {
       name: "Payments production",
       environment: "production",
+      criticality: "MISSION_CRITICAL",
       score: 38,
       resourceCount: 47,
       critical: 3,
@@ -92,12 +97,12 @@ function reading(snapshot: ManagementReportSnapshot | null = SNAPSHOT): Manageme
   }
 }
 
-describe("Management report board brief", () => {
+describe("Management report", () => {
   it("turns the executive snapshot into risk, damage, progress, and decisions", () => {
     render(<ManagementReportDrawer open onClose={() => {}} report={reading()} />)
     const text = document.body.textContent ?? ""
 
-    expect(text).toMatch(/2 crown jewels are reachable from an external entry point/i)
+    expect(text).toMatch(/1 crown jewel is reachable from an external entry point/i)
     expect(text).toMatch(/Payments production/i)
     expect(text).toMatch(/Sensitive-data disclosure/i)
     expect(text).toMatch(/61 permissions removed/i)
@@ -122,5 +127,27 @@ describe("Management report board brief", () => {
     expect(text).toMatch(/Crown-jewel exposure cannot be confirmed/i)
     expect(text).toMatch(/Complete attack-path analysis before accepting crown-jewel risk/i)
     expect(text).not.toMatch(/No viable route to a crown jewel was reported/i)
+  })
+
+  it("filters the system list by normalized environment and business criticality", () => {
+    const scoped: ManagementReportSnapshot = {
+      ...SNAPSHOT,
+      systems: [
+        SNAPSHOT.systems[0],
+        { ...SNAPSHOT.systems[0], name: "Analytics production", environment: "Production", criticality: "MEDIUM" },
+        { ...SNAPSHOT.systems[0], name: "Payments dev", environment: "dev", criticality: "MISSION_CRITICAL" },
+      ],
+    }
+    render(<ManagementReportDrawer open onClose={() => {}} report={reading(scoped)} />)
+
+    fireEvent.click(screen.getByRole("button", { name: "production" }))
+    expect(screen.getByRole("checkbox", { name: /Payments production/ })).toBeInTheDocument()
+    expect(screen.getByRole("checkbox", { name: /Analytics production/ })).toBeInTheDocument()
+    expect(screen.queryByRole("checkbox", { name: /Payments dev/ })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole("button", { name: "MISSION CRITICAL" }))
+    expect(screen.getByRole("checkbox", { name: /Payments production/ })).toBeInTheDocument()
+    expect(screen.queryByRole("checkbox", { name: /Analytics production/ })).not.toBeInTheDocument()
+    expect(screen.getByText("1 selected system")).toBeInTheDocument()
   })
 })

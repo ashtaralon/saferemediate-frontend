@@ -18,7 +18,7 @@ import { ViewSwitch, isDashboardView, type DashboardView } from "./view-switch"
  *   Operations  findings, evidence sources, LP diagnostics, activity
  *
  * The previous layout stacked every dataset vertically, which gave them all
- * equal weight and made the CISO scroll past plane diagnostics to reach a
+ * equal weight and made the reader scroll past plane diagnostics to reach a
  * decision. Below it sat a "Security operations detail" accordion — never
  * information architecture, just storage for cards that had no destination.
  *
@@ -111,7 +111,7 @@ export function HomeDashboardV3({ onNavigateToSection }: HomeDashboardV3Props) {
               className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
             >
               <FileText className="h-3.5 w-3.5" />
-              Generate board report
+              Create report
             </button>
           )}
         </div>

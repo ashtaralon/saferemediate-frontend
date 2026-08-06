@@ -58,9 +58,13 @@ type SystemsResponse = {
     displayName?: string
     SystemName?: string
     environment?: string
+    criticality?: string
+    businessCriticality?: string
     health_score?: number
     healthScore?: number
+    system_score?: number
     resourceCount?: number
+    resource_count?: number
     critical_count?: number
     criticalIssues?: number
     high_count?: number
@@ -364,12 +368,13 @@ export function ExecutiveCockpit({
       const layerEntries = Object.entries(system.layers ?? {})
         .filter(([, layer]) => Number.isFinite(layer?.score))
         .sort(([, a], [, b]) => (a.score as number) - (b.score as number))
-      const score = num(system.health_score) ?? num(system.healthScore)
+      const score = num(system.health_score) ?? num(system.healthScore) ?? num(system.system_score)
       return {
         name: system.displayName || system.name || system.SystemName || "(unnamed)",
         environment: system.environment || null,
+        criticality: system.criticality || system.businessCriticality || null,
         score,
-        resourceCount: num(system.resourceCount),
+        resourceCount: num(system.resourceCount) ?? num(system.resource_count),
         critical: num(system.critical_count) ?? num(system.criticalIssues),
         high: num(system.high_count) ?? num(system.highIssues),
         weakestPlane: layerEntries[0]?.[0] || null,
