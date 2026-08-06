@@ -23,6 +23,48 @@ describe("IAM simulation availability", () => {
 })
 
 describe("RemovalSafetyPanel", () => {
+  it("explains a shared score as common evidence inputs, not a probability", () => {
+    const permissions = ["ssm:GetDocument", "ssm:PutInventory"].map(permission => ({
+      permission,
+      disposition: "REMOVAL_CANDIDATE" as const,
+      score: 62,
+      band: "LOW" as const,
+      consequence_class: permission.includes("Put") ? "OPERATIONAL" as const : "ROUTINE" as const,
+      observation_days: 30,
+      required_observation_days: 395,
+      factors: {
+        evidence_coverage: 30,
+        observation_adequacy: 1.52,
+        consumer_attribution: 10,
+        dependency_certainty: 20,
+        independent_corroboration: 0,
+        raw_score: 61.52,
+      },
+      reason: "No usage was observed.",
+      limiting_factors: ["Usage cadence is unknown.", "Consumer attribution is incomplete."],
+    }))
+    const bundle: RemovalSafetyBundle = {
+      scorer_version: "2.0.0-shadow",
+      plan_score: 62,
+      scored_candidate_count: 2,
+      used_count: 4,
+      protected_count: 10,
+      insufficient_evidence_count: 0,
+      shadow_only: true,
+      groups: [{ band: "LOW", count: 2, permissions: permissions.map(item => item.permission) }],
+      permissions,
+    }
+
+    render(<RemovalSafetyPanel bundle={bundle} />)
+
+    expect(screen.getByText("Why all 2 permissions score 62/100")).toBeTruthy()
+    expect(screen.getByText(/30 observed days/i)).toBeTruthy()
+    expect(screen.getByText(/requires 395 days/i)).toBeTruthy()
+    expect(screen.getByText(/evidence 30 \+ history 2 \+ attribution 10 \+ dependencies 20 \+ corroboration 0 = 62/i)).toBeTruthy()
+    expect(screen.getByText(/not a probability/i)).toBeTruthy()
+    expect(screen.getByText("Breakage impact: operational")).toBeTruthy()
+  })
+
   it("states remove, used, protected, and unassessed counts without a composite confidence claim", () => {
     const bundle: RemovalSafetyBundle = {
       scorer_version: "2.0.0-shadow",

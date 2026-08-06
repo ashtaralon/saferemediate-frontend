@@ -105,7 +105,7 @@ const checkPillStyle = (status: CheckStatus): string => {
 
 interface SafetyPipelineStripProps {
   signals?: SafetySignals
-  legacyConfidenceScore?: number
+  legacyConfidenceScore?: number | null
 }
 
 // Renders the per-event safety pipeline strip. When `signals` is absent
@@ -180,7 +180,7 @@ interface RemediationEvent {
   resource_id: string
   action_type: string
   status: "completed" | "failed" | "rolled_back" | "pending"
-  confidence_score: number
+  confidence_score: number | null
   approved_by: string
   snapshot_id?: string
   execution_id?: string
@@ -210,7 +210,7 @@ interface ChartDataPoint {
   date: string
   events: number
   permissions_removed: number
-  security_score: number
+  security_score: number | null
   score_delta: number
 }
 
@@ -619,7 +619,7 @@ const EventDetailModal = ({ event, isOpen, onClose, onRollback }: EventDetailMod
                   Confidence
                 </p>
                 <p className="text-sm font-medium text-white">
-                  {Math.round(event.confidence_score * 100)}%
+                  {event.confidence_score == null ? '—' : `${Math.round(event.confidence_score * 100)}%`}
                 </p>
               </div>
               <div>
@@ -733,7 +733,7 @@ const EventDetailModal = ({ event, isOpen, onClose, onRollback }: EventDetailMod
                         <p className="font-mono text-emerald-400 text-xs break-all">{event.metadata.new_role}</p>
                       </div>
                     </div>
-                    {event.metadata.permissions_removed > 0 && (
+                    {(event.metadata.permissions_removed ?? 0) > 0 && (
                       <div className="mt-3 pt-2 border-t border-purple-700/30">
                         <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded bg-emerald-900/50 text-emerald-400 text-xs font-medium">
                           <CheckCircle className="w-3 h-3" />
@@ -1212,11 +1212,11 @@ export function RemediationTimeline({
         const [neo4jEnvResult, sgRes, iamRes] = await Promise.all([
           // 1. Neo4j Timeline API (primary source for recorded events) - use proxy to avoid CORS
           fetchWithEnvelope<any>(
-            `/api/proxy/remediation-history/timeline?start_date=${startDate.toISOString()}&end_date=${today.toISOString()}&limit=200${systemId ? `&system=${encodeURIComponent(systemId)}` : ''}`
+            `/api/proxy/remediation-history/timeline?start_date=${startDate.toISOString()}&end_date=${today.toISOString()}&limit=200&force_refresh=true${systemId ? `&system=${encodeURIComponent(systemId)}` : ''}`
           ).catch(() => null),
           // 2. Snapshots (to include any checkpoints not yet in Neo4j)
-          fetch('/api/proxy/snapshots', { cache: 'no-store' }).catch(() => null),
-          fetch('/api/proxy/iam-snapshots', { cache: 'no-store' }).catch(() => null)
+          fetch('/api/proxy/snapshots?force_refresh=true', { cache: 'no-store' }).catch(() => null),
+          fetch('/api/proxy/iam-snapshots?force_refresh=true', { cache: 'no-store' }).catch(() => null)
         ])
 
         let allEvents: RemediationEvent[] = []
@@ -1272,20 +1272,30 @@ export function RemediationTimeline({
 
         // Merge: Add snapshot events not already in Neo4j
         // Deduplicate by snapshot_id, resource_id, sg_id/sg_name
-        const neo4jSnapshotIds = new Set(allEvents.map(e => e.snapshot_id).filter(Boolean))
+        const neo4jSnapshotIds = new Set(
+          allEvents
+            .map(e => e.snapshot_id)
+            .filter((snapshotId): snapshotId is string => Boolean(snapshotId)),
+        )
         const neo4jResourceIds = new Set(allEvents.map(e => `${e.resource_type}:${e.resource_id}`))
         // Also track SG IDs and names from events for cross-matching (events use sg_id, snapshots use sg_name)
         const neo4jSgIds = new Set(allEvents.filter(e => e.resource_type === 'SecurityGroup').map(e => e.resource_id))
-        const neo4jSgNames = new Set(allEvents.filter(e => e.resource_type === 'SecurityGroup' && e.sg_name).map(e => e.sg_name))
+        const neo4jSgNames = new Set(
+          allEvents
+            .filter(e => e.resource_type === 'SecurityGroup')
+            .map(e => e.sg_name)
+            .filter((name): name is string => Boolean(name)),
+        )
         const uniqueSnapshotEvents = snapshotEvents.filter(e => {
           // Skip if snapshot_id already in Neo4j events
           if (e.snapshot_id && neo4jSnapshotIds.has(e.snapshot_id)) return false
           // Skip SG snapshots if we already have RemediationEvent entries for that SG (match by ID or name)
           if (e.resource_type === 'SecurityGroup') {
-            if (neo4jSgIds.has(e.resource_id) || neo4jSgIds.has(e.sg_id)) return false
-            if (neo4jSgNames.has(e.resource_id) || neo4jSgNames.has(e.sg_name)) return false
+            if (neo4jSgIds.has(e.resource_id) || (e.sg_id && neo4jSgIds.has(e.sg_id))) return false
+            if (neo4jSgNames.has(e.resource_id) || (e.sg_name && neo4jSgNames.has(e.sg_name))) return false
             // Also check if any snapshot_id in kept events contains this SG ID
-            if (e.sg_id && [...neo4jSnapshotIds].some(sid => sid.includes(e.sg_id))) return false
+            const sgId = e.sg_id
+            if (sgId && [...neo4jSnapshotIds].some(sid => sid.includes(sgId))) return false
           }
           return true
         })

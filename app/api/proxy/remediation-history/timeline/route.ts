@@ -49,6 +49,7 @@ export async function GET(req: NextRequest) {
   // (legacy frontend convention) and forward as system_name.
   const systemName = searchParams.get("system_name") || searchParams.get("system")
   const envelope = searchParams.get("envelope") === "true"
+  const forceRefresh = searchParams.get("force_refresh") === "true"
 
   const queryParams = new URLSearchParams()
   if (startDate) queryParams.set("start_date", startDate)
@@ -58,14 +59,18 @@ export async function GET(req: NextRequest) {
   if (systemName) queryParams.set("system_name", systemName)
   queryParams.set("limit", limit)
   if (envelope) queryParams.set("envelope", "true")
+  if (forceRefresh) queryParams.set("force_refresh", "true")
 
   const qs = queryParams.toString()
+  const canonicalParams = new URLSearchParams(queryParams)
+  canonicalParams.delete("force_refresh")
+  const canonicalQs = canonicalParams.toString()
   // Cache/stale key is the full query — limit=1&system_name=X (the strip) is a
   // distinct entry from limit=200 (the history page), so one never serves the
   // other's shape.
-  const cacheKey = `remediation-timeline:${qs}`
+  const cacheKey = `remediation-timeline:${canonicalQs}`
 
-  const cached = getCached(cacheKey)
+  const cached = forceRefresh ? null : getCached(cacheKey)
   if (cached) {
     return NextResponse.json(cached, { headers: { "X-Cache": "HIT" } })
   }
