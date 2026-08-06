@@ -405,6 +405,15 @@ function normalized(value: string | null | undefined): string {
   return (value || "").trim().toLowerCase()
 }
 
+function environmentLabel(value: string): string {
+  const key = normalized(value)
+  if (key === "prod" || key === "production") return "Production"
+  if (key === "dev" || key === "development") return "Development"
+  if (key === "stage" || key === "staging") return "Staging"
+  if (key === "test" || key === "testing") return "Testing"
+  return value.trim()
+}
+
 function systemReferenceMatches(reference: string | null | undefined, names: Set<string>): boolean {
   if (names.size === 0) return true
   const value = normalized(reference)
@@ -447,7 +456,13 @@ export function ManagementReportDrawer({
   const coverage = deriveReportCoverage(report)
   const coverageComplete = coverage.level === "COMPLETE"
   const fullSnapshot = report.snapshot
-  const environmentOptions = useMemo(() => Array.from(new Set((fullSnapshot?.systems || []).map((system) => system.environment).filter((value): value is string => Boolean(value)))).sort(), [fullSnapshot])
+  const environmentOptions = useMemo(() => {
+    const values = new Map<string, string>()
+    for (const environment of (fullSnapshot?.systems || []).map((system) => system.environment).filter((value): value is string => Boolean(value))) {
+      values.set(normalized(environment), environmentLabel(environment))
+    }
+    return Array.from(values.values()).sort()
+  }, [fullSnapshot])
   const criticalityOptions = useMemo(() => Array.from(new Set((fullSnapshot?.systems || []).map((system) => system.criticality).filter((value): value is string => Boolean(value)))).sort(), [fullSnapshot])
   const visibleSystemOptions = useMemo(() => {
     const query = normalized(systemSearch)

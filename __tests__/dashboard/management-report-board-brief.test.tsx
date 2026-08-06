@@ -142,7 +142,7 @@ describe("Management report", () => {
   it("lets the user narrow the report by dashboard environment metadata", () => {
     render(<ManagementReportDrawer open onClose={() => {}} report={reading()} />)
 
-    fireEvent.click(screen.getByRole("button", { name: "production" }))
+    fireEvent.click(screen.getByRole("button", { name: "Production" }))
 
     const article = document.getElementById("cyntro-report-print-root")
     expect(article?.textContent).toMatch(/Payments production/i)
