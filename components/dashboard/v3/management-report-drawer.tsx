@@ -12,6 +12,7 @@ import {
   Gauge,
   Printer,
   ShieldCheck,
+  SlidersHorizontal,
   Sparkles,
   TrendingDown,
   X,
@@ -446,6 +447,7 @@ export function ManagementReportDrawer({
   const [sections, setSections] = useState<Record<ReportSectionId, boolean>>(DEFAULT_SECTIONS)
   const [includeAppendix, setIncludeAppendix] = useState(true)
   const [copied, setCopied] = useState(false)
+  const [settingsPanelOpen, setSettingsPanelOpen] = useState(false)
 
   useEffect(() => {
     if (!open) return
@@ -586,17 +588,20 @@ export function ManagementReportDrawer({
               <h2 className="truncate text-sm font-semibold text-slate-950">Management report</h2>
               <span className="rounded bg-violet-50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-violet-700">Custom report</span>
             </div>
-            <p className="truncate text-xs text-slate-500">Choose the scope, emphasis, and sections that fit the conversation.</p>
+            <p className="hidden truncate text-xs text-slate-500 sm:block">Choose the scope, emphasis, and sections that fit the conversation.</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button type="button" onClick={copySummary} className="inline-flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">
-            {copied ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Clipboard className="h-3.5 w-3.5" />}
-            {copied ? "Copied" : "Copy summary"}
+          <button type="button" aria-label="Report settings" aria-expanded={settingsPanelOpen} aria-controls="management-report-settings" onClick={() => setSettingsPanelOpen((value) => !value)} className="inline-flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 xl:hidden">
+            <SlidersHorizontal className="h-3.5 w-3.5" /><span className="hidden sm:inline">Report settings</span>
           </button>
-          <button type="button" onClick={() => window.print()} className="inline-flex items-center gap-2 rounded-md bg-slate-950 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800">
+          <button type="button" aria-label="Copy summary" onClick={copySummary} className="inline-flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+            {copied ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Clipboard className="h-3.5 w-3.5" />}
+            <span className="hidden sm:inline">{copied ? "Copied" : "Copy summary"}</span>
+          </button>
+          <button type="button" aria-label="Print or save PDF" onClick={() => window.print()} className="inline-flex items-center gap-2 rounded-md bg-slate-950 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800">
             <Printer className="h-3.5 w-3.5" />
-            Print / save PDF
+            <span className="hidden sm:inline">Print / save PDF</span>
           </button>
           <button type="button" onClick={onClose} className="ml-1 rounded-md p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700" aria-label="Close report">
             <X className="h-4 w-4" />
@@ -604,8 +609,9 @@ export function ManagementReportDrawer({
         </div>
       </header>
 
-      <div className="flex min-h-0 flex-1">
-        <aside className="cyntro-no-print hidden w-72 shrink-0 overflow-y-auto border-r border-slate-200 bg-white p-5 xl:block">
+      <div className="relative flex min-h-0 flex-1">
+        {settingsPanelOpen ? <button type="button" aria-label="Close report settings" onClick={() => setSettingsPanelOpen(false)} className="cyntro-no-print absolute inset-0 z-10 bg-slate-950/35 xl:hidden" /> : null}
+        <aside id="management-report-settings" data-mobile-open={settingsPanelOpen ? "true" : "false"} className={`cyntro-no-print absolute inset-y-0 left-0 z-20 w-[min(20rem,calc(100vw-2rem))] shrink-0 overflow-y-auto border-r border-slate-200 bg-white p-5 shadow-2xl xl:static xl:block xl:w-72 xl:shadow-none ${settingsPanelOpen ? "block" : "hidden"}`}>
           <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Report settings</div>
           <label className="mt-4 block text-xs font-semibold text-slate-700">
             Report title

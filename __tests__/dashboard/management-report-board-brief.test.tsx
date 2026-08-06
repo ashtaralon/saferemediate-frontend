@@ -207,4 +207,20 @@ describe("Management report", () => {
     fireEvent.click(screen.getByLabelText("Include Potential damage"))
     expect(document.getElementById("report-damage")).toBeNull()
   })
+
+  it("keeps report settings reachable on responsive layouts", () => {
+    render(<ManagementReportDrawer open onClose={() => {}} report={reading()} />)
+
+    const toggle = screen.getByRole("button", { name: "Report settings" })
+    const panel = document.getElementById("management-report-settings")
+    expect(toggle).toHaveAttribute("aria-expanded", "false")
+    expect(panel).toHaveAttribute("data-mobile-open", "false")
+
+    fireEvent.click(toggle)
+    expect(toggle).toHaveAttribute("aria-expanded", "true")
+    expect(panel).toHaveAttribute("data-mobile-open", "true")
+
+    fireEvent.click(screen.getByRole("button", { name: "Close report settings" }))
+    expect(toggle).toHaveAttribute("aria-expanded", "false")
+  })
 })
