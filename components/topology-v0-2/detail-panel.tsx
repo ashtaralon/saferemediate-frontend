@@ -316,6 +316,13 @@ export function DetailPanel({ node, systemName, accountId, region, vpcId, onClos
               : operationState === "SIMULATED" ? 2
                 : operationState === "READY_FOR_SIMULATION" ? 1
                   : plan ? 1 : 0
+  const endpointAction = !plan
+    ? ""
+    : plan.endpoint_mode !== "ADOPT_EXISTING"
+      ? "Create a Cyntro-managed S3 Gateway endpoint"
+      : plan.blockers.some((blocker) => blocker.code === "EXISTING_ENDPOINT_NOT_OPTED_IN")
+        ? `Existing endpoint ${plan.existing_endpoint_id} selected; explicit Cyntro opt-in required`
+        : `Use opted-in endpoint ${plan.existing_endpoint_id}`
 
   return (
     <aside
@@ -533,7 +540,7 @@ export function DetailPanel({ node, systemName, accountId, region, vpcId, onClos
                       </div>
                       <div className="rounded-lg border bg-white p-3 text-xs text-slate-600" style={{ borderColor: "#DDE3E8" }}>
                         <div className="grid grid-cols-[125px_1fr] gap-x-3 gap-y-2">
-                          <strong className="text-slate-800">Endpoint action</strong><span>{plan.endpoint_mode === "ADOPT_EXISTING" ? `Use opted-in endpoint ${plan.existing_endpoint_id}` : "Create a Cyntro-managed S3 Gateway endpoint"}</span>
+                          <strong className="text-slate-800">Endpoint action</strong><span>{endpointAction}</span>
                           <strong className="text-slate-800">Canary</strong><span className="font-mono">{plan.canary_route_table_id ?? "Blocked"}</span>
                           <strong className="text-slate-800">Authorization</strong><span>No IAM or bucket-policy change in this operation</span>
                           <strong className="text-slate-800">Rollback</strong><span>Remove only associations added by this operation</span>

@@ -149,7 +149,12 @@ describe("Estate operations panel", () => {
   it("shows blockers and never exposes execution for an unproven route scope", async () => {
     const blockedPlan = {
       readiness: "BLOCKED",
-      blockers: [{ code: "UNKNOWN_NETWORK_PATH", message: "Route proof is incomplete." }],
+      endpoint_mode: "ADOPT_EXISTING",
+      existing_endpoint_id: "vpce-customer-owned",
+      blockers: [
+        { code: "UNKNOWN_NETWORK_PATH", message: "Route proof is incomplete." },
+        { code: "EXISTING_ENDPOINT_NOT_OPTED_IN", message: "The customer-owned endpoint requires opt-in." },
+      ],
       impact: { observed_consumers: 1, subnets: 0, route_tables: 0, route_table_workloads: 0, permission_changes: 0, resource_replacements: 0 },
     }
     vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
@@ -163,6 +168,8 @@ describe("Estate operations panel", () => {
 
     expect(await screen.findByText("Change is blocked by missing proof")).toBeInTheDocument()
     expect(screen.getByText("UNKNOWN_NETWORK_PATH")).toBeInTheDocument()
+    expect(screen.getByText("Existing endpoint vpce-customer-owned selected; explicit Cyntro opt-in required")).toBeInTheDocument()
+    expect(screen.queryByText("Use opted-in endpoint vpce-customer-owned")).not.toBeInTheDocument()
     expect(screen.queryByTestId("estate-vpce-execute")).not.toBeInTheDocument()
   })
 
