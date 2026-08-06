@@ -92,7 +92,7 @@ function reading(snapshot: ManagementReportSnapshot | null = SNAPSHOT): Manageme
   }
 }
 
-describe("Management report board brief", () => {
+describe("Management report", () => {
   it("turns the executive snapshot into risk, damage, progress, and decisions", () => {
     render(<ManagementReportDrawer open onClose={() => {}} report={reading()} />)
     const text = document.body.textContent ?? ""
@@ -103,6 +103,8 @@ describe("Management report board brief", () => {
     expect(text).toMatch(/61 permissions removed/i)
     expect(text).toMatch(/Authorize staged execution/i)
     expect(text).toMatch(/Print \/ save PDF/i)
+    expect(text).toMatch(/Security & Resilience Report/i)
+    expect(text).not.toMatch(/Board Security & Resilience Brief/i)
   })
 
   it("never turns unknown path metrics into an all-clear", () => {

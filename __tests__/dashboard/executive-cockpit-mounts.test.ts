@@ -45,4 +45,9 @@ describe("Home view ownership", () => {
     expect(exec).toContain("reportSnapshot(data)")
     expect(exec).toContain("sources")
   })
+
+  it("uses management-report language for the entry point", () => {
+    expect(shell).toContain("Generate management report")
+    expect(shell).not.toContain("Generate board report")
+  })
 })
