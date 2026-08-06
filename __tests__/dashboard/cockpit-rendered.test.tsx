@@ -70,7 +70,7 @@ describe("partial evidence coverage", () => {
   })
 
   it("RENDERS the failure the report used to omit", () => {
-    // The card surfaced "N account fetches failed" while readiness said
+    // The card surfaced "N account fetches failed" while report coverage said
     // READY. Whatever the card can say, the report must be able to say.
     render(<EvidenceHealthCardV3 shared={reading({ data: PARTIAL as never })} />)
     expect(document.body.textContent).toMatch(/failed/i)
@@ -179,20 +179,19 @@ describe("a 200 carrying `error` renders as unavailable, not as zero", () => {
   })
 })
 
-// ── readiness is what the report consumes ────────────────────────────────
+// ── coverage is what the report consumes ─────────────────────────────────
 
 describe("the report refuses to call a partial estate complete", () => {
   it("RENDERS a PARTIAL evidence feed as a blocker, not as 5/5 ready", () => {
-    // Defect 1 lived in the COCKPIT's readiness, not in the card — the card
+    // Defect 1 lived in the COCKPIT's coverage, not in the card — the card
     // already said "N account fetches failed" while the drawer said every
     // feed was ready. Testing the card missed it; this tests the consumer.
     render(
       <ManagementReportDrawer
         open
         onClose={() => {}}
-        readiness={{
+        report={{
           scope: "8 discovered business systems",
-          generation: null,
           sources: [
             { label: "Business systems", state: "READY", cachedAt: null },
             { label: "Attack paths", state: "READY", cachedAt: null },
@@ -209,11 +208,11 @@ describe("the report refuses to call a partial estate complete", () => {
       />,
     )
     const text = document.body.textContent ?? ""
-    expect(text).toMatch(/Board-ready:\s*No/i)
-    expect(text).toMatch(/Evidence health is PARTIAL/i)
+    expect(text).toMatch(/Data coverage:\s*Partial/i)
+    expect(text).toMatch(/Evidence health:\s*1 account fetch failed/i)
     expect(text).toMatch(/1 account fetch failed/i)
-    expect(text).toMatch(/4 of 5 feeds ready/i)
-    expect(text).not.toMatch(/5 of 5 feeds ready/i)
+    expect(text).toMatch(/4 of 5 sources available/i)
+    expect(text).not.toMatch(/5 of 5 sources available/i)
   })
 
   it("the cockpit derives evidence state rather than truthiness", () => {
@@ -261,14 +260,13 @@ describe("partial business systems", () => {
     expect(isCacheableSystems({ systems: [{ name: "a" }], errors: [] })).toBe(true)
   })
 
-  it("RENDERS as 4 of 5 feeds ready, not 5 of 5", () => {
+  it("RENDERS as 4 of 5 sources available, not 5 of 5", () => {
     render(
       <ManagementReportDrawer
         open
         onClose={() => {}}
-        readiness={{
+        report={{
           scope: "at least 2 discovered business systems (partial)",
-          generation: null,
           sources: [
             {
               label: "Business systems",
@@ -285,10 +283,10 @@ describe("partial business systems", () => {
       />,
     )
     const text = document.body.textContent ?? ""
-    expect(text).toMatch(/4 of 5 feeds ready/i)
-    expect(text).not.toMatch(/5 of 5 feeds ready/i)
-    expect(text).toMatch(/Board-ready:\s*No/i)
-    expect(text).toMatch(/Business systems is PARTIAL/i)
+    expect(text).toMatch(/4 of 5 sources available/i)
+    expect(text).not.toMatch(/5 of 5 sources available/i)
+    expect(text).toMatch(/Data coverage:\s*Partial/i)
+    expect(text).toMatch(/Business systems:\s*2 system fan-out calls failed/i)
     expect(text).toMatch(/2 system fan-out calls failed/i)
   })
 

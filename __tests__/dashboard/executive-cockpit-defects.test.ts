@@ -106,7 +106,7 @@ describe("2 · banner, KPIs and cards share one reading", () => {
 
 // ── 3. the report covers every executive feed ────────────────────────────
 
-describe("3 · report readiness covers the whole cockpit", () => {
+describe("3 · report coverage includes the whole cockpit", () => {
   const RENDERED = [
     "TopSystemsCard",
     "SafeRemediationsQueueCard",
@@ -116,8 +116,8 @@ describe("3 · report readiness covers the whole cockpit", () => {
   ]
 
   it("every rendered executive panel is a tracked source", () => {
-    // Tracking three while rendering five let the drawer claim
-    // "3 of 3 feeds ready" with a panel unavailable on screen.
+    // Tracking three while rendering five let the report omit an unavailable
+    // panel from its coverage notes.
     const labels = [
       "Business systems",
       "Attack paths",
@@ -134,14 +134,13 @@ describe("3 · report readiness covers the whole cockpit", () => {
 
 describe("4 · report ownership follows the view", () => {
   it("the button is not offered in Operations", () => {
-    // Readiness is populated only when the cockpit mounts; in Operations
-    // the drawer would have reported "0 of 0 feeds ready".
+    // Report sources are populated only when the cockpit mounts.
     expect(SHELL).toMatch(/view === "executive" && \(/)
   })
 
-  it("switching away clears readiness instead of leaving it stale", () => {
+  it("switching away clears report data instead of leaving it stale", () => {
     expect(SHELL).toMatch(/if \(v !== "executive"\)/)
-    expect(SHELL).toContain("setReadiness({ scope:")
+    expect(SHELL).toContain("setReportContext({ scope:")
   })
 })
 

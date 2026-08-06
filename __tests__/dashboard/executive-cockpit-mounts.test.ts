@@ -97,10 +97,9 @@ describe("Executive presentation contract", () => {
     expect(EXEC).not.toMatch(/\|\|\s*0\b/)
   })
 
-  it("does NOT compose a cross-source narrative yet", () => {
-    // Three feeds can each be READY from different graph generations at
-    // different times; a combined sentence can be false while every input
-    // is individually honest. Needs the governed snapshot first.
+  it("keeps the combined narrative out of the cockpit", () => {
+    // The dashboard stays scannable; the combined narrative belongs in the
+    // management report where coverage notes travel with it.
     expect(EXEC).not.toMatch(/narrative|headline sentence/i)
   })
 })
@@ -108,13 +107,16 @@ describe("Executive presentation contract", () => {
 describe("Management report entry point", () => {
   const DRAWER = code(read("management-report-drawer.tsx"))
 
-  it("never claims board-ready without a governed snapshot", () => {
-    expect(DRAWER).toContain("ready: false")
+  it("reports data coverage without blocking report generation", () => {
+    expect(DRAWER).toContain("deriveReportCoverage")
+    expect(DRAWER).toContain("Print / save PDF")
+    expect(DRAWER).not.toContain("Board-ready")
+    expect(DRAWER).not.toContain("Working draft")
   })
 
   it("describes the reading on screen rather than fetching its own", () => {
     expect(DRAWER).not.toContain("useCachedFetch")
     expect(DRAWER).not.toContain("fetch(")
-    expect(EXEC).toContain("onReadiness")
+    expect(EXEC).toContain("onReportData")
   })
 })

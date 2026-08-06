@@ -5,7 +5,7 @@
  *
  * Two prior rounds shipped defects because a source-string assertion or a
  * card-level render stood in for the decision under test. The management
- * report consumes the cockpit's readiness; this exercises that path.
+ * report consumes the cockpit's source coverage; this exercises that path.
  */
 import { cleanup, render } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -75,7 +75,7 @@ beforeEach(() => {
 })
 afterEach(cleanup)
 
-describe("cockpit readiness, rendered", () => {
+describe("cockpit source coverage, rendered", () => {
   it("a complete estate shows no partial-data banner", () => {
     render(<ExecutiveCockpit />)
     expect(document.body.textContent).not.toMatch(/Partial data/i)

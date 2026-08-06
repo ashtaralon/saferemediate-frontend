@@ -23,7 +23,11 @@ import {
   type CandidatesResponse,
 } from "./safe-remediations-queue-card"
 import { TopSystemsCard } from "./top-systems-card"
-import type { ReportReadiness, SourceReadiness } from "./management-report-drawer"
+import type {
+  ManagementReportContext,
+  ManagementReportSnapshot,
+  ReportSource,
+} from "./management-report-drawer"
 
 /**
  * Executive cockpit — a parallel bento, not a vertical stack.
@@ -44,15 +48,25 @@ import type { ReportReadiness, SourceReadiness } from "./management-report-drawe
  *   - Fixed row limits — five systems, three decisions, one path narrative.
  *   - Page-qualified counts are labelled as such, never as fleet totals.
  *
- * What it deliberately does NOT do is compose a cross-source narrative
- * sentence. Each feed is read independently and can be READY from a
- * different graph generation at a different time, so a combined claim can
- * be false while every input is individually honest. That needs the
- * governed snapshot first.
+ * Cross-source narrative belongs in the management report, where coverage
+ * and limitations travel with every combined claim.
  */
 
 type SystemsResponse = {
-  systems?: Array<{ name?: string; SystemName?: string }>
+  systems?: Array<{
+    name?: string
+    displayName?: string
+    SystemName?: string
+    environment?: string
+    health_score?: number
+    healthScore?: number
+    resourceCount?: number
+    critical_count?: number
+    criticalIssues?: number
+    high_count?: number
+    highIssues?: number
+    layers?: Record<string, { name: string; score: number; resource_count: number }> | null
+  }>
   /** Preserved by the proxy for fan-out calls that failed. Omitting it
    *  here is what let a partial estate read as complete. */
   errors?: string[]
@@ -114,7 +128,7 @@ function DataStatusBanner({
   sources,
   recovering,
 }: {
-  sources: SourceReadiness[]
+  sources: ReportSource[]
   /** Any feed is re-presenting its last verified reading because the backend
    *  is unreachable (deploy restart, cold start, 5xx). Distinct from a feed
    *  that genuinely has nothing. */
@@ -194,12 +208,12 @@ function DataStatusBanner({
 
 export function ExecutiveCockpit({
   onNavigateToSection,
-  onReadiness,
+  onReportData,
 }: {
   onNavigateToSection?: (id: string) => void
-  /** Lifts source readiness to the shell so the report drawer describes the
+  /** Lifts source coverage to the shell so the report drawer describes the
    *  SAME reading that is on screen, rather than fetching its own copies. */
-  onReadiness?: (r: ReportReadiness) => void
+  onReportData?: (report: ManagementReportContext) => void
 }) {
   const router = useRouter()
 
@@ -235,7 +249,7 @@ export function ExecutiveCockpit({
 
   // Every panel the cockpit RENDERS is read here, so the management report
   // can vouch for all of them. Tracking only three while rendering five let
-  // the drawer say "3 of 3 feeds ready" with a panel unavailable on screen.
+  // the report omit a panel that was unavailable on screen.
   const evidence = useCachedFetch<any>("/api/proxy/evidence/coverage", {
     cacheKey: "evidence-coverage",
     fetchInit: { cache: "no-store" },
@@ -267,6 +281,12 @@ export function ExecutiveCockpit({
 
   const evidenceIntegrity = deriveEvidenceIntegrity(evidence.data)
   const systemsIntegrity = deriveSystemsIntegrity(systems.data)
+  const outcomesReady = Boolean(
+    outcomes.data &&
+      Number.isFinite(outcomes.data.permissions_removed) &&
+      Number.isFinite(outcomes.data.events_count) &&
+      Number.isFinite(outcomes.data.rollbacks_count),
+  )
   const pathsDown = !paths.data || pathsIntegrity.state !== "READY"
   const remDown = remIntegrity.state !== "READY"
 
@@ -281,7 +301,7 @@ export function ExecutiveCockpit({
   const exposed = num(paths.data?.exposed_jewels)
   const totalPaths = num(paths.data?.total_paths)
 
-  const sources: SourceReadiness[] = useMemo(() => [
+  const sources: ReportSource[] = useMemo(() => [
     {
       label: "Business systems",
       state: systemsIntegrity.state,
@@ -317,7 +337,8 @@ export function ExecutiveCockpit({
     },
     {
       label: "Verified outcomes",
-      state: outcomes.data ? "READY" : "UNAVAILABLE",
+      state: outcomesReady ? "READY" : "UNAVAILABLE",
+      detail: outcomesReady ? null : "remediation history is incomplete",
       cachedAt: outcomes.cachedAt,
     },
   ], [systems.data, systems.cachedAt, systemsIntegrity.state,
@@ -325,21 +346,154 @@ export function ExecutiveCockpit({
       remediations.data, remediations.cachedAt, pathsIntegrity.state,
       pathsIntegrity.reason, remIntegrity.state, remIntegrity.reason,
       evidence.data, evidence.cachedAt, evidenceIntegrity.state,
-      evidenceIntegrity.reason, outcomes.data, outcomes.cachedAt])
+      evidenceIntegrity.reason, outcomes.data, outcomes.cachedAt, outcomesReady])
 
   const scope = !systems.data
-    ? "scope unavailable"
+    ? "Not available"
     : systemsIntegrity.countIsPartial
       ? `at least ${(systems.data.systems ?? []).length} discovered business systems (partial)`
       : `${(systems.data.systems ?? []).length} discovered business systems`
+
+  /**
+   * The board report is a projection of these exact five readings. Mapping
+   * happens here, beside the fetches, so the drawer remains a pure report
+   * renderer and can never race the dashboard with a second request.
+   */
+  const reportSnapshot: ManagementReportSnapshot = useMemo(() => {
+    const systemRows = (systems.data?.systems ?? []).map((system) => {
+      const layerEntries = Object.entries(system.layers ?? {})
+        .filter(([, layer]) => Number.isFinite(layer?.score))
+        .sort(([, a], [, b]) => (a.score as number) - (b.score as number))
+      const score = num(system.health_score) ?? num(system.healthScore)
+      return {
+        name: system.displayName || system.name || system.SystemName || "(unnamed)",
+        environment: system.environment || null,
+        score,
+        resourceCount: num(system.resourceCount),
+        critical: num(system.critical_count) ?? num(system.criticalIssues),
+        high: num(system.high_count) ?? num(system.highIssues),
+        weakestPlane: layerEntries[0]?.[0] || null,
+      }
+    })
+
+    const crownJewels = (paths.data?.crown_jewels ?? []).map((jewel) => ({
+      id: jewel.id,
+      name: jewel.name,
+      type: jewel.type,
+      severity: jewel.severity || null,
+      pathCount: num(jewel.path_count),
+      riskScore: num(jewel.highest_risk_score),
+      internetExposed:
+        typeof jewel.is_internet_exposed === "boolean" ? jewel.is_internet_exposed : null,
+      dataClassification: jewel.data_classification || null,
+      systemName: jewel.system_name || null,
+    }))
+
+    const candidates = (remediations.data?.candidates ?? []).map((candidate) => ({
+      resourceType: candidate.resource_type,
+      resourceId: candidate.resource_id,
+      system: candidate.system || null,
+      unusedCount: num(candidate.unused_count),
+      totalPermissions: num(candidate.total_permissions),
+      severity: candidate.severity || null,
+      canAutoApply:
+        typeof candidate.safety?.can_auto_apply === "boolean"
+          ? candidate.safety.can_auto_apply
+          : null,
+      blockReason: candidate.safety?.block_reason || null,
+    }))
+
+    const byDay = Array.isArray(outcomes.data?.by_day)
+      ? outcomes.data.by_day
+          .filter(
+            (day: any) =>
+              typeof day?.date === "string" &&
+              num(day.permissions_removed) !== null &&
+              num(day.events_count) !== null,
+          )
+          .map((day: any) => ({
+            date: day.date,
+            permissionsRemoved: num(day.permissions_removed) as number,
+            events: num(day.events_count) as number,
+          }))
+      : []
+
+    return {
+      metrics: {
+        systems: systemsIntegrity.state === "UNAVAILABLE" ? null : systemRows.length,
+        systemsPartial: systemsIntegrity.countIsPartial,
+        systemsRequiringAttention: jewelSystems,
+        reachableCrownJewels: jewels,
+        internetExposedJewels: exposed,
+        viableAttackPaths: totalPaths,
+        proposedChanges: remIntegrity.state === "READY" ? ready : null,
+        heldChanges: remIntegrity.state === "READY" ? held : null,
+      },
+      systems: systemRows,
+      crownJewels,
+      candidates,
+      evidence: {
+        confidence:
+          evidenceIntegrity.state === "UNAVAILABLE"
+            ? null
+            : num(evidence.data?.aggregate_confidence),
+        accounts:
+          evidenceIntegrity.state === "UNAVAILABLE"
+            ? null
+            : Array.isArray(evidence.data?.accounts)
+              ? evidence.data.accounts.length
+              : null,
+        healthy:
+          evidenceIntegrity.state === "UNAVAILABLE" ? null : num(evidence.data?.health?.healthy),
+        degraded:
+          evidenceIntegrity.state === "UNAVAILABLE" ? null : num(evidence.data?.health?.degraded),
+        missing:
+          evidenceIntegrity.state === "UNAVAILABLE" ? null : num(evidence.data?.health?.missing),
+        total:
+          evidenceIntegrity.state === "UNAVAILABLE" ? null : num(evidence.data?.health?.total),
+      },
+      outcomes: {
+        windowDays: outcomesReady ? num(outcomes.data?.window_days) : null,
+        permissionsRemoved: outcomesReady ? num(outcomes.data?.permissions_removed) : null,
+        events: outcomesReady ? num(outcomes.data?.events_count) : null,
+        rollbacks: outcomesReady ? num(outcomes.data?.rollbacks_count) : null,
+        periodStart:
+          outcomesReady && typeof outcomes.data?.period_start === "string"
+            ? outcomes.data.period_start
+            : null,
+        periodEnd:
+          outcomesReady && typeof outcomes.data?.period_end === "string"
+            ? outcomes.data.period_end
+            : null,
+        byDay: outcomesReady ? byDay : [],
+      },
+    }
+  }, [
+    systems.data,
+    systemsIntegrity.countIsPartial,
+    systemsIntegrity.state,
+    remIntegrity.state,
+    evidenceIntegrity.state,
+    outcomesReady,
+    paths.data,
+    remediations.data,
+    evidence.data,
+    outcomes.data,
+    jewelSystems,
+    jewels,
+    exposed,
+    totalPaths,
+    ready,
+    held,
+  ])
 
   // The report drawer must describe THIS reading, not fetch its own copies —
   // a drawer with independent fetches would report a different reading of the
   // estate than the one on screen. Lifted in an effect: calling the parent's
   // setter during render re-renders the parent mid-render and loops.
   useEffect(() => {
-    onReadiness?.({ scope, sources, generation: null })
-  }, [onReadiness, scope, sources])
+    onReportData?.({ scope, sources, snapshot: reportSnapshot })
+  }, [onReportData, scope, sources, reportSnapshot])
 
   const kpis: Kpi[] = [
     {

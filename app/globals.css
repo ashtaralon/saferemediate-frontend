@@ -238,3 +238,35 @@
   white-space: normal;
   overflow-wrap: anywhere;
 }
+@media print {
+  @page {
+    size: A4;
+    margin: 10mm;
+  }
+
+  body * {
+    visibility: hidden !important;
+  }
+
+  #cyntro-report-print-root,
+  #cyntro-report-print-root * {
+    visibility: visible !important;
+  }
+
+  #cyntro-report-print-root {
+    position: absolute !important;
+    inset: 0 auto auto 0 !important;
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    box-shadow: none !important;
+  }
+
+  #cyntro-report-print-root section {
+    break-inside: avoid;
+  }
+
+  .cyntro-no-print {
+    display: none !important;
+  }
+}
