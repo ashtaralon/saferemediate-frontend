@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
+import { approvalBackendHeaders } from "@/lib/server/approval-backend-auth"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
@@ -13,9 +14,12 @@ async function forward(
   const query = request.nextUrl.search
   const url = `${getBackendBaseUrl()}/api/operational-map/${encodeURIComponent(systemName)}/${suffix}${query}`
   try {
+    const headers = path[0] === "s3-vpce"
+      ? approvalBackendHeaders()
+      : { "Content-Type": "application/json" }
     const response = await fetch(url, {
       method: request.method,
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: request.method === "GET" ? undefined : await request.text(),
       cache: "no-store",
       signal: AbortSignal.timeout(55_000),

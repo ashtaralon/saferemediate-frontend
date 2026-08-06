@@ -169,11 +169,17 @@ describe("Estate operations panel", () => {
   it("requires exact confirmation before snapshot and apply", async () => {
     const readyPlan = {
       readiness: "READY",
+      operation_id: "s3-path-123",
+      operation_state: "READY_FOR_SIMULATION",
+      operation_version: 1,
       plan_token: "signed-plan",
       bucket_name: node.name,
       vpc_id: "vpc-prod",
+      canary_route_table_id: "rtb-canary",
+      endpoint_mode: "CREATE_MANAGED",
+      route_table_ids: ["rtb-canary"],
       blockers: [],
-      impact: { observed_consumers: 1, subnets: 1, route_tables: 1, route_table_workloads: 2, permission_changes: 0, resource_replacements: 0 },
+      impact: { observed_consumers: 1, migrating_consumers: 1, subnets: 1, route_tables: 1, route_table_workloads: 2, s3_destinations: 1, permission_changes: 0, resource_replacements: 0 },
     }
     const execution = {
       status: "COMPLETED",
@@ -181,11 +187,14 @@ describe("Estate operations panel", () => {
       endpoint_id: "vpce-123",
       lifecycle_token: "lifecycle-token",
       rollback_available: true,
+      operation_state: "CANARY_MONITORING",
     }
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
       const url = String(input)
       if (url.includes("s3-vpce/plan")) return response(readyPlan)
-      if (url.includes("s3-vpce/simulate")) return response({ status: "COMPLETED", safe_to_apply: true })
+      if (url.includes("s3-vpce/simulate")) return response({ status: "COMPLETED", safe_to_apply: true, plan_hash: "1234567890abcdef", operation_state: "SIMULATED", operation_version: 2 })
+      if (url.includes("s3-vpce/request-approval")) return response({ operation_id: "s3-path-123", state: "APPROVAL_PENDING", version: 3, approval: { requested_by: "requester@example.com" } })
+      if (url.includes("s3-vpce/approve")) return response({ operation_id: "s3-path-123", state: "APPROVED", version: 4, execution_plan_token: "approved-plan", approval: { requested_by: "requester@example.com", approved_by: "approver@example.com" } })
       if (url.includes("s3-vpce/execute")) return response(execution)
       return standardBackendResponse(input)
     })
@@ -193,18 +202,24 @@ describe("Estate operations panel", () => {
     renderPanel()
     fireEvent.click(screen.getByTestId("estate-operations-tab-change"))
     fireEvent.click(screen.getByTestId("estate-vpce-analyze"))
+    fireEvent.click(await screen.findByTestId("estate-vpce-simulate"))
+    fireEvent.change(await screen.findByLabelText("Requester identity"), { target: { value: "requester@example.com" } })
+    fireEvent.click(screen.getByTestId("estate-vpce-request-approval"))
+    fireEvent.change(await screen.findByLabelText("Approver identity"), { target: { value: "approver@example.com" } })
+    fireEvent.click(screen.getByTestId("estate-vpce-approve"))
     const executeButton = await screen.findByTestId("estate-vpce-execute")
     expect(executeButton).toBeDisabled()
 
     const confirmation = `APPLY ${node.name} vpc-prod`
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: confirmation } })
+    fireEvent.change(screen.getByLabelText("Apply confirmation"), { target: { value: confirmation } })
     expect(executeButton).toBeEnabled()
     fireEvent.click(executeButton)
 
-    expect(await screen.findByText("Applied · rollback retained")).toBeInTheDocument()
+    expect(await screen.findByText("Canary applied · rollback retained")).toBeInTheDocument()
     const executeCall = fetchMock.mock.calls.find(([input]) => String(input).includes("s3-vpce/execute"))
     expect(JSON.parse(String(executeCall?.[1]?.body))).toMatchObject({
-      plan_token: "signed-plan",
+      operation_id: "s3-path-123",
+      plan_token: "approved-plan",
       confirmation,
     })
   })
