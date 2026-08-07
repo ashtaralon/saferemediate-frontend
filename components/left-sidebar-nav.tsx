@@ -3,7 +3,7 @@
 import Image from "next/image"
 import Link from "next/link"
 import { useEffect, useState } from "react"
-import { Home, AlertTriangle, Server, Grid3x3, Fingerprint, Plug, Zap, Split, Bug, Shield, Route, Sparkles, Tag, Trash2, Users, Network, Map as MapIcon, Target } from "lucide-react"
+import { Home, AlertTriangle, Server, Grid3x3, Fingerprint, Plug, Zap, Split, Bug, Shield, Route, Sparkles, Tag, Trash2, Users, Network, Map as MapIcon, Target, BarChart3 } from "lucide-react"
 // ThemeToggle import held until dark-mode migration lands:
 // import { ThemeToggle } from "@/components/theme-toggle"
 
@@ -108,6 +108,7 @@ export function LeftSidebarNav({
     { id: "issues", label: "Issues", icon: AlertTriangle, count: issuesCount, href: "/?section=issues" },
     { id: "least-privilege", label: "Resource Risk", icon: Shield, href: "/?section=least-privilege" },
     { id: "attack-paths", label: "Attack Paths", icon: Route, href: "/?section=attack-paths" },
+    { id: "business-impact", label: "Business Impact", icon: BarChart3, href: "/?section=business-impact" },
     // v2 redesign — coexists with the legacy section above. Operators
     // can toggle while the redesign is being reviewed. Drop the legacy
     // entry once v2 is approved as canonical.

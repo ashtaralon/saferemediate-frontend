@@ -19,6 +19,7 @@ import { VulnerabilitiesSection } from "@/components/vulnerabilities-section"
 import { BehavioralVulnerabilitiesView } from "@/components/behavioral-vulnerabilities/behavioral-vulnerabilities-view"
 import LeastPrivilegeTab from "@/components/LeastPrivilegeTab"
 import { SavedQuestionGallery } from "@/components/copilot/saved-question-gallery"
+import { BusinessImpactWorkspace } from "@/components/business-impact/business-impact-workspace"
 // Main-page "Attack Paths" now renders the canonical AttackPathsV2 in its
 // account-wide Explorer mode. The legacy IdentityAttackPaths component was
 // retired here (2026-07) to end the two-divergent-components split — V2 has
@@ -976,6 +977,13 @@ export default function HomePage() {
         return (
           <ErrorBoundary componentName="Attack Paths">
             {selectedSystem ? <AttackPathsV2 systemName={selectedSystem} defaultMode="attack-path" onOpenRoleSplit={() => setActiveSection("per-resource")} /> : <div className="text-center py-8 text-gray-500">No system selected</div>}
+          </ErrorBoundary>
+        )
+
+      case "business-impact":
+        return (
+          <ErrorBoundary componentName="Business Impact">
+            <BusinessImpactWorkspace initialSystem={selectedSystem} />
           </ErrorBoundary>
         )
 
