@@ -200,7 +200,7 @@ class ApiService {
    */
   async healthCheck(): Promise<boolean> {
     try {
-      const response = await fetch(`${this.baseUrl}/health`, {
+      const response = await fetch(`${this.baseUrl}/healthz`, {
         method: 'GET',
         signal: AbortSignal.timeout(25000), // 25 second timeout (matches Vercel function limit)
       })
@@ -213,4 +213,3 @@ class ApiService {
 
 // Export singleton instance
 export const apiService = new ApiService()
-
