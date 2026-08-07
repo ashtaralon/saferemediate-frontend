@@ -127,6 +127,10 @@ const S3_BLOCKER_GUIDANCE: Record<string, { title: string; next: string }> = {
     title: "Existing endpoint is not authorized for Cyntro changes",
     next: "Add cyntro:allow-managed-route-associations=true to the selected endpoint after confirming that Cyntro may manage its route-table associations.",
   },
+  OPERATION_LEDGER_UNAVAILABLE: {
+    title: "Execution record is temporarily unavailable",
+    next: "No AWS change was authorized. Retry Analyze after the operation ledger recovers.",
+  },
 }
 
 function blockerGuidance(code: string) {
@@ -243,6 +247,14 @@ export function DetailPanel({ node, systemName, accountId, region, vpcId, onClos
   }
 
   const analyze = () => runAction("analyze", async () => {
+    // A new analysis invalidates every artifact from the previous lifecycle.
+    // Clear first so a failed request cannot leave a stale plan on screen.
+    setPlan(null)
+    setSimulation(null)
+    setOperation(null)
+    setExecution(null)
+    setVerification(null)
+    setExpansion(null)
     const body = await post<S3VpcePlan>("s3-vpce/plan", {
       resource_id: node.id,
       vpc_id: vpcId || undefined,
@@ -251,8 +263,6 @@ export function DetailPanel({ node, systemName, accountId, region, vpcId, onClos
       window_days: 90,
     })
     setPlan(body)
-    setSimulation(null)
-    setOperation(null)
   })
   const simulate = () => runAction("simulate", async () => {
     if (!plan?.plan_token || !plan.operation_id) return
