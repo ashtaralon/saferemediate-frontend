@@ -124,6 +124,7 @@ export function BusinessImpactSettings({ open, onClose, systems, initialSystem, 
   const [organization, setOrganization] = useState<OrganizationImpactProfile>(emptyOrganizationImpactProfile())
   const [profile, setProfile] = useState<SystemImpactProfile>(emptySystemImpactProfile(defaultSystem))
   const [catalog, setCatalog] = useState<BusinessImpactCatalog | null>(null)
+  const [applyTargets, setApplyTargets] = useState<string[]>([])
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
@@ -165,6 +166,7 @@ export function BusinessImpactSettings({ open, onClose, systems, initialSystem, 
     if (!open) return
     const next = initialSystem || selectedSystem || systems[0]?.name || ""
     setSelectedSystem(next)
+    setApplyTargets([])
     if (!next) setTab("organization")
     void load(next)
   }, [open, initialSystem]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -178,22 +180,47 @@ export function BusinessImpactSettings({ open, onClose, systems, initialSystem, 
       if (rangeValues.some((range) => range && !(range.low <= range.likely && range.likely <= range.high))) {
         throw new Error("Each range must be ordered from lower to central to severe.")
       }
-      const requests = [fetch("/api/proxy/business-impact/organization", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(organization),
-        })]
-      if (selectedSystem) requests.push(fetch(`/api/proxy/business-impact/profiles/${encodeURIComponent(selectedSystem)}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...profile, system_name: selectedSystem }),
+      let targetProfiles: SystemImpactProfile[] = []
+      if (applyTargets.length) {
+        targetProfiles = await Promise.all(applyTargets.map(async (target) => {
+          const response = await fetch(`/api/proxy/business-impact/profiles/${encodeURIComponent(target)}`, { cache: "no-store" })
+          if (!response.ok) throw new Error(`Could not load ${target} before applying shared compliance scope`)
+          const payload = await response.json()
+          return {
+            ...emptySystemImpactProfile(target),
+            ...(payload.profile ?? {}),
+            system_name: target,
+            jurisdictions: profile.jurisdictions,
+            regulations: profile.regulations,
+            regulatory_applicability_confirmed: profile.regulatory_applicability_confirmed,
+            nis2_entity_type: profile.nis2_entity_type,
+            data_categories: profile.data_categories,
+          }
         }))
+      }
+      const requests: Promise<Response>[] = [fetch("/api/proxy/business-impact/organization", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(organization),
+      })]
+      if (selectedSystem) requests.push(fetch(`/api/proxy/business-impact/profiles/${encodeURIComponent(selectedSystem)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...profile, system_name: selectedSystem }),
+      }))
+      if (targetProfiles.length) {
+        requests.push(...targetProfiles.map((targetProfile) => fetch(`/api/proxy/business-impact/profiles/${encodeURIComponent(targetProfile.system_name)}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(targetProfile),
+        })))
+      }
       const responses = await Promise.all(requests)
       if (responses.some((response) => !response.ok)) {
         const problem = await responses.find((response) => !response.ok)?.json().catch(() => null)
         throw new Error(problem?.detail || problem?.error || "Could not save definitions")
       }
-      setMessage(selectedSystem ? "Definitions saved. Insights have been recalculated." : "Organization definitions saved.")
+      setMessage(selectedSystem ? `Definitions saved${applyTargets.length ? `; shared compliance scope applied to ${applyTargets.length} additional system${applyTargets.length === 1 ? "" : "s"}` : ""}. Insights have been recalculated.` : "Organization definitions saved.")
       onSaved?.()
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Could not save definitions")
@@ -241,7 +268,7 @@ export function BusinessImpactSettings({ open, onClose, systems, initialSystem, 
           {!loading && tab === "system" ? (
             <div className="space-y-7">
               <div className="grid gap-4 md:grid-cols-3">
-                <label className="block text-xs font-semibold text-slate-700">System<select value={selectedSystem} onChange={(event) => { setSelectedSystem(event.target.value); void load(event.target.value) }} className="mt-1.5 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-normal text-slate-900">{systems.map((system) => <option key={system.name} value={system.name}>{system.name}</option>)}</select></label>
+                <label className="block text-xs font-semibold text-slate-700">System<select value={selectedSystem} onChange={(event) => { setSelectedSystem(event.target.value); setApplyTargets([]); void load(event.target.value) }} className="mt-1.5 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-normal text-slate-900">{systems.map((system) => <option key={system.name} value={system.name}>{system.name}</option>)}</select></label>
                 <TextInput label="Business service" value={profile.business_service} onChange={(value) => setProfile({ ...profile, business_service: value })} placeholder="Payments, customer identity, patient care…" />
                 <TextInput label="Owner" value={profile.owner} onChange={(value) => setProfile({ ...profile, owner: value })} />
                 <TextInput label="Environment" value={profile.environment} onChange={(value) => setProfile({ ...profile, environment: value })} />
@@ -257,6 +284,12 @@ export function BusinessImpactSettings({ open, onClose, systems, initialSystem, 
                 {profile.regulations.includes("NIS2") ? <label className="mt-4 block max-w-sm text-xs font-semibold text-slate-700">NIS2 entity classification<select value={profile.nis2_entity_type ?? ""} onChange={(event) => setProfile({ ...profile, nis2_entity_type: (event.target.value || null) as SystemImpactProfile["nis2_entity_type"] })} className="mt-1.5 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-normal text-slate-900"><option value="">Not defined</option><option value="ESSENTIAL">Essential entity</option><option value="IMPORTANT">Important entity</option></select></label> : null}
                 {catalog ? <div className="mt-3 text-[10px] text-slate-400">Rule data {catalog.regulatory_catalog_version} · sources checked {catalog.source_checked_at || "not reported"}</div> : null}
               </section>
+
+              {systems.length > 1 ? <section className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <h3 className="text-sm font-semibold text-slate-900">Apply shared compliance scope</h3>
+                <p className="mb-3 mt-1 text-xs text-slate-500">Optionally copy jurisdictions, obligations, confirmed applicability, entity class, and data categories to other systems. Financial assumptions, population, service, owner, environment, and criticality are never copied.</p>
+                <TogglePills options={systems.filter((system) => system.name !== selectedSystem).map((system) => system.name)} selected={applyTargets} onChange={setApplyTargets} />
+              </section> : null}
 
               <section>
                 <h3 className="text-sm font-semibold text-slate-900">Data and affected population</h3>
