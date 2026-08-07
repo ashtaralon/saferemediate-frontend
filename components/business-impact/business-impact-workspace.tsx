@@ -49,6 +49,20 @@ function readable(value: string): string {
   return value.replace(/_/g, " ").toLowerCase().replace(/^./, (letter) => letter.toUpperCase())
 }
 
+function identityKey(value: string): string {
+  return value.trim().toLocaleLowerCase()
+}
+
+function metadataOptions(values: Array<string | null | undefined>, formatLabel = false): Array<{ key: string; label: string }> {
+  const options = new Map<string, string>()
+  for (const value of values) {
+    if (!value?.trim()) continue
+    const key = identityKey(value)
+    if (!options.has(key)) options.set(key, formatLabel ? readable(value) : value.trim())
+  }
+  return Array.from(options, ([key, label]) => ({ key, label })).sort((a, b) => a.label.localeCompare(b.label))
+}
+
 function summaryStatus(summary?: SystemRegulatoryExposureSummary): { label: string; tone: string } {
   if (!summary) return { label: "Not reported", tone: "bg-slate-100 text-slate-600" }
   if (summary.status === "CALCULATED") return { label: "Calculated", tone: "bg-emerald-50 text-emerald-700" }
@@ -101,19 +115,19 @@ export function BusinessImpactWorkspace({ initialSystem }: { initialSystem?: str
 
   useEffect(() => { void load() }, [load])
 
-  const environments = useMemo(() => Array.from(new Set(systems.map((system) => system.environment).filter((value): value is string => Boolean(value)))).sort(), [systems])
-  const criticalities = useMemo(() => Array.from(new Set(systems.map((system) => system.criticality).filter((value): value is string => Boolean(value)))).sort(), [systems])
-  const filteredSystems = useMemo(() => systems.filter((system) => (!environment || system.environment === environment) && (!criticality || system.criticality === criticality)), [systems, environment, criticality])
-  const filteredNames = useMemo(() => new Set(filteredSystems.map((system) => system.name)), [filteredSystems])
-  const scenarios = useMemo(() => (portfolio?.scenarios ?? []).filter((scenario) => filteredNames.has(scenario.system_name)), [portfolio, filteredNames])
-  const summaries = useMemo(() => new Map((portfolio?.system_regulatory_summaries ?? []).map((summary) => [summary.system_name, summary])), [portfolio])
+  const environments = useMemo(() => metadataOptions(systems.map((system) => system.environment), true), [systems])
+  const criticalities = useMemo(() => metadataOptions(systems.map((system) => system.criticality)), [systems])
+  const filteredSystems = useMemo(() => systems.filter((system) => (!environment || (system.environment && identityKey(system.environment) === environment)) && (!criticality || (system.criticality && identityKey(system.criticality) === criticality))), [systems, environment, criticality])
+  const filteredNames = useMemo(() => new Set(filteredSystems.map((system) => identityKey(system.name))), [filteredSystems])
+  const scenarios = useMemo(() => (portfolio?.scenarios ?? []).filter((scenario) => filteredNames.has(identityKey(scenario.system_name))), [portfolio, filteredNames])
+  const summaries = useMemo(() => new Map((portfolio?.system_regulatory_summaries ?? []).map((summary) => [identityKey(summary.system_name), summary])), [portfolio])
   const pricedScenarios = scenarios.filter((scenario) => Boolean(scenario.conditional_loss)).length
   const uniquePaths = new Set(scenarios.flatMap((scenario) => scenario.path_ids)).size
-  const systemsNeedingDefinitions = filteredSystems.filter((system) => summaries.get(system.name)?.status !== "CALCULATED").length
+  const systemsNeedingDefinitions = filteredSystems.filter((system) => summaries.get(identityKey(system.name))?.status !== "CALCULATED").length
 
   useEffect(() => {
     if (loading || !systems.length) return
-    if (selectedSystem && !filteredNames.has(selectedSystem)) setSelectedSystem(filteredSystems[0]?.name || "")
+    if (selectedSystem && !filteredNames.has(identityKey(selectedSystem))) setSelectedSystem(filteredSystems[0]?.name || "")
   }, [filteredNames, filteredSystems, loading, selectedSystem, systems.length])
 
   const openSettings = (systemName?: string | null) => {
@@ -148,8 +162,8 @@ export function BusinessImpactWorkspace({ initialSystem }: { initialSystem?: str
               <p className="mt-1 text-xs text-slate-500">Filters use system metadata reported by Cyntro. Missing metadata is not inferred.</p>
             </div>
             <div className="flex flex-wrap gap-4">
-              {environments.length ? <fieldset><legend className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">Environment</legend><div className="flex flex-wrap gap-1.5"><button type="button" onClick={() => setEnvironment(null)} className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${!environment ? "border-violet-300 bg-violet-50 text-violet-800" : "border-slate-200 text-slate-600"}`}>All</button>{environments.map((value) => <button key={value} type="button" onClick={() => setEnvironment(value)} className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${environment === value ? "border-violet-300 bg-violet-50 text-violet-800" : "border-slate-200 text-slate-600"}`}>{value}</button>)}</div></fieldset> : null}
-              {criticalities.length ? <fieldset><legend className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">Business criticality</legend><div className="flex flex-wrap gap-1.5"><button type="button" onClick={() => setCriticality(null)} className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${!criticality ? "border-violet-300 bg-violet-50 text-violet-800" : "border-slate-200 text-slate-600"}`}>All</button>{criticalities.map((value) => <button key={value} type="button" onClick={() => setCriticality(value)} className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${criticality === value ? "border-violet-300 bg-violet-50 text-violet-800" : "border-slate-200 text-slate-600"}`}>{value}</button>)}</div></fieldset> : null}
+              {environments.length ? <fieldset><legend className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">Environment</legend><div className="flex flex-wrap gap-1.5"><button type="button" onClick={() => setEnvironment(null)} className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${!environment ? "border-violet-300 bg-violet-50 text-violet-800" : "border-slate-200 text-slate-600"}`}>All</button>{environments.map((option) => <button key={option.key} type="button" onClick={() => setEnvironment(option.key)} className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${environment === option.key ? "border-violet-300 bg-violet-50 text-violet-800" : "border-slate-200 text-slate-600"}`}>{option.label}</button>)}</div></fieldset> : null}
+              {criticalities.length ? <fieldset><legend className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">Business criticality</legend><div className="flex flex-wrap gap-1.5"><button type="button" onClick={() => setCriticality(null)} className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${!criticality ? "border-violet-300 bg-violet-50 text-violet-800" : "border-slate-200 text-slate-600"}`}>All</button>{criticalities.map((option) => <button key={option.key} type="button" onClick={() => setCriticality(option.key)} className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${criticality === option.key ? "border-violet-300 bg-violet-50 text-violet-800" : "border-slate-200 text-slate-600"}`}>{option.label}</button>)}</div></fieldset> : null}
             </div>
           </div>
         </section>
@@ -171,8 +185,8 @@ export function BusinessImpactWorkspace({ initialSystem }: { initialSystem?: str
               <thead className="bg-slate-50 text-[10px] font-bold uppercase tracking-wider text-slate-400"><tr><th className="px-5 py-3">System</th><th className="px-4 py-3">Environment</th><th className="px-4 py-3">Criticality</th><th className="px-4 py-3">Scenarios</th><th className="px-4 py-3">Conditional loss</th><th className="px-4 py-3">Regulatory exposure</th><th className="px-5 py-3 text-right">Action</th></tr></thead>
               <tbody className="divide-y divide-slate-100">
                 {filteredSystems.map((system) => {
-                  const summary = summaries.get(system.name)
-                  const systemScenarios = scenarios.filter((scenario) => scenario.system_name === system.name)
+                  const summary = summaries.get(identityKey(system.name))
+                  const systemScenarios = scenarios.filter((scenario) => identityKey(scenario.system_name) === identityKey(system.name))
                   const calculated = systemScenarios.filter((scenario) => Boolean(scenario.conditional_loss)).length
                   const status = summaryStatus(summary)
                   return <tr key={system.name} className={selectedSystem === system.name ? "bg-violet-50/60" : "bg-white"}>

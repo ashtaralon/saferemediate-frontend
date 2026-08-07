@@ -30,7 +30,7 @@ const portfolioPayload = {
   definitions_complete: false,
   scenarios: [
     { scenario_id: "one", system_name: "payments-prod", path_ids: ["path-1", "path-2"], conditional_loss: { currency: "USD", p10: 1, p50: 2, p90: 3, components: [], method: "customer inputs", statement: "conditional" } },
-    { scenario_id: "two", system_name: "analytics-dev", path_ids: ["path-2"], conditional_loss: null },
+    { scenario_id: "two", system_name: "ANALYTICS-DEV", path_ids: ["path-2"], conditional_loss: null },
   ],
   system_regulatory_summaries: [
     { system_name: "payments-prod", obligations_selected: ["GDPR"], applicability_confirmed: ["GDPR"], scenario_count: 1, exposures: [], calculated_count: 1, missing_inputs: [], status: "CALCULATED" },
@@ -57,6 +57,7 @@ describe("BusinessImpactWorkspace", () => {
     expect(screen.getByText("1/2")).toBeInTheDocument()
     expect(screen.getByText("Scenario detail for payments-prod")).toBeInTheDocument()
     expect(screen.getByText("Obligations required")).toBeInTheDocument()
+    expect(screen.getByText("0/1 calculated")).toBeInTheDocument()
   })
 
   it("uses reported environment filters and configures the exact system", async () => {
