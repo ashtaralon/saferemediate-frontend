@@ -62,7 +62,7 @@ export interface S3VpcePlan {
   route_table_ids?: string[]
   all_route_table_ids?: string[]
   canary_route_table_id?: string | null
-  endpoint_mode?: "CREATE_MANAGED" | "ADOPT_EXISTING"
+  endpoint_mode?: "CREATE_MANAGED" | "ADOPT_EXISTING" | "NO_CHANGE"
   existing_endpoint_id?: string | null
   excluded_consumers?: Array<{
     resource_id?: string
@@ -123,6 +123,13 @@ export interface S3PrivatePathOperation {
     approval_note?: string
   } | null
   execution?: S3VpceExecution | null
+  verification?: {
+    canary?: S3VpceVerification
+    last_stage?: S3VpceVerification
+    full?: S3VpceVerification
+    stage_verified?: boolean
+    verified_route_table_ids?: string[]
+  } | null
 }
 
 export interface S3VpceSimulation {

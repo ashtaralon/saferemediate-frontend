@@ -222,6 +222,44 @@ describe("Estate operations panel", () => {
     expect(screen.queryByTestId("estate-vpce-simulate")).not.toBeInTheDocument()
   })
 
+  it("presents an already-private S3 path as an explicit no-op", async () => {
+    const noChangePlan = {
+      readiness: "BLOCKED",
+      bucket_name: node.name,
+      vpc_id: "vpc-prod",
+      endpoint_mode: "NO_CHANGE",
+      existing_endpoint_id: "vpce-existing",
+      blockers: [{
+        code: "NO_PUBLIC_S3_PATH",
+        message: "Observed consumers already use a private endpoint; no migration is needed.",
+      }],
+      excluded_consumers: [],
+      impact: {
+        observed_consumers: 0,
+        total_observed_consumers: 2,
+        migrating_consumers: 0,
+        excluded_consumers: 2,
+        subnets: 0,
+        route_tables: 0,
+        route_table_workloads: 0,
+        permission_changes: 0,
+        resource_replacements: 0,
+      },
+    }
+    vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      if (String(input).includes("s3-vpce/plan")) return response(noChangePlan)
+      return standardBackendResponse(input)
+    })
+    renderPanel()
+    fireEvent.click(screen.getByTestId("estate-operations-tab-change"))
+    fireEvent.click(screen.getByTestId("estate-vpce-analyze"))
+
+    expect(await screen.findByText("Observed S3 traffic is already private")).toBeInTheDocument()
+    expect(screen.getByText("No change — traffic already uses vpce-existing")).toBeInTheDocument()
+    expect(screen.queryByText("Create a Cyntro-managed S3 Gateway endpoint")).not.toBeInTheDocument()
+    expect(screen.queryByTestId("estate-vpce-simulate")).not.toBeInTheDocument()
+  })
+
   it("removes stale lifecycle results when a fresh analysis fails", async () => {
     const blockedPlan = {
       readiness: "BLOCKED",
@@ -286,6 +324,23 @@ describe("Estate operations panel", () => {
       rollback_available: true,
       operation_state: "CANARY_MONITORING",
     }
+    const operationStatus = {
+      operation_id: "s3-path-123",
+      state: "CANARY_MONITORING",
+      version: 6,
+      approval: {
+        requested_by: "requester@example.com",
+        approved_by: "approver@example.com",
+      },
+      execution: {
+        status: "COMPLETED",
+        snapshot_id: "snapshot-123",
+        endpoint_id: "vpce-123",
+        rollback_available: true,
+        operation_state: "CANARY_MONITORING",
+      },
+      verification: null,
+    }
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
       const url = String(input)
       if (url.includes("s3-vpce/plan")) return response(readyPlan)
@@ -293,6 +348,8 @@ describe("Estate operations panel", () => {
       if (url.includes("s3-vpce/request-approval")) return response({ operation_id: "s3-path-123", state: "APPROVAL_PENDING", version: 3, approval: { requested_by: "requester@example.com" } })
       if (url.includes("s3-vpce/approve")) return response({ operation_id: "s3-path-123", state: "APPROVED", version: 4, execution_plan_token: "approved-plan", approval: { requested_by: "requester@example.com", approved_by: "approver@example.com" } })
       if (url.includes("s3-vpce/execute")) return response(execution)
+      if (url.includes("s3-vpce/reconcile")) return response({ operation_id: "s3-path-123", action: "AWAIT_EVIDENCE", state: "PENDING_EVIDENCE" })
+      if (url.includes("s3-vpce/operations/s3-path-123?include_history=false")) return response(operationStatus)
       return standardBackendResponse(input)
     })
 
@@ -313,6 +370,14 @@ describe("Estate operations panel", () => {
     fireEvent.click(executeButton)
 
     expect(await screen.findByText("Canary applied · rollback retained")).toBeInTheDocument()
+    expect(await screen.findByText("Automatic rollout is active")).toBeInTheDocument()
+    expect(screen.queryByTestId("estate-vpce-verify")).not.toBeInTheDocument()
+    expect(screen.queryByTestId("estate-vpce-expand")).not.toBeInTheDocument()
+    fireEvent.click(screen.getByTestId("estate-vpce-reconcile"))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/s3-vpce/reconcile"),
+      expect.objectContaining({ method: "POST" }),
+    ))
     const executeCall = fetchMock.mock.calls.find(([input]) => String(input).includes("s3-vpce/execute"))
     expect(JSON.parse(String(executeCall?.[1]?.body))).toMatchObject({
       operation_id: "s3-path-123",
