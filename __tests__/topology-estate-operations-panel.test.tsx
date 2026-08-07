@@ -207,12 +207,17 @@ describe("Estate operations panel", () => {
     fireEvent.click(screen.getByTestId("estate-operations-tab-change"))
     fireEvent.click(screen.getByTestId("estate-vpce-analyze"))
 
-    expect(await screen.findByText("No VPC-attached bucket consumer found in this scope")).toBeInTheDocument()
-    expect(screen.getByText("1 bucket consumer was observed, but none is attached to vpc-selected and eligible for an S3 Gateway endpoint migration.")).toBeInTheDocument()
-    expect(screen.getByText("No endpoint change until an eligible VPC consumer is observed")).toBeInTheDocument()
+    expect(await screen.findByText("No S3 traffic from this VPC to migrate")).toBeInTheDocument()
+    expect(screen.getByText("1 observed bucket consumer runs outside vpc-selected. Its S3 calls do not traverse this VPC's route tables or internet gateway, so an S3 Gateway endpoint here would not affect it.")).toBeInTheDocument()
+    expect(screen.getByText("Analysis complete · No migration applicable in the selected VPC")).toBeInTheDocument()
+    expect(screen.getByText("No VPCE change is needed in this VPC")).toBeInTheDocument()
+    expect(screen.getByText("Not applicable")).toBeInTheDocument()
+    expect(screen.getByText("Unchanged · no AWS operation planned")).toBeInTheDocument()
+    expect(screen.getByText("Not needed · no AWS change planned")).toBeInTheDocument()
     expect(screen.getByText("Migratable consumers")).toBeInTheDocument()
-    expect(screen.getByText("No eligible VPC consumer in this scope")).toBeInTheDocument()
-    expect(screen.getByText(/Select All VPCs or a VPC containing an observed consumer/)).toBeInTheDocument()
+    expect(screen.getByText("No migration target in this VPC")).toBeInTheDocument()
+    expect(screen.getByText(/No AWS change is needed for this VPC/)).toBeInTheDocument()
+    expect(screen.queryByLabelText("Private path lifecycle")).not.toBeInTheDocument()
     expect(screen.queryByText("Change is blocked by missing proof")).not.toBeInTheDocument()
     expect(screen.queryByTestId("estate-vpce-simulate")).not.toBeInTheDocument()
   })
@@ -251,11 +256,11 @@ describe("Estate operations panel", () => {
     const analyzeButton = screen.getByTestId("estate-vpce-analyze")
     fireEvent.click(analyzeButton)
 
-    expect(await screen.findByText("No VPC-attached bucket consumer found in this scope")).toBeInTheDocument()
+    expect(await screen.findByText("No S3 traffic from this VPC to migrate")).toBeInTheDocument()
     fireEvent.click(analyzeButton)
 
     expect(await screen.findByText("Analysis could not be recorded. No AWS change was authorized; retry Analyze.")).toBeInTheDocument()
-    expect(screen.queryByText("No VPC-attached bucket consumer found in this scope")).not.toBeInTheDocument()
+    expect(screen.queryByText("No S3 traffic from this VPC to migrate")).not.toBeInTheDocument()
   })
 
   it("requires exact confirmation before snapshot and apply", async () => {
