@@ -26,6 +26,11 @@ import {
   S3_PRIVATE_PATH_KIND,
   type RememberedOperation,
 } from "./s3-vpce-lifecycle"
+import {
+  enforcementAvailability,
+  fetchOperationalFeatures,
+  type EnforcementAvailability,
+} from "./enforcement-availability"
 import { S3VpceWizard } from "./s3-vpce-wizard"
 import { S3EnforcementWizard } from "./s3-enforcement-wizard"
 
@@ -76,11 +81,25 @@ export function ConfigurationFixesTab({ systemName }: Props) {
     resume: RememberedOperation | null
     kind: S3OperationKind
   } | null>(null)
+  // Whether enforcement EXECUTION is enabled on the backend (the chained
+  // feature flags, read via the public meta diagnostic). "preview" until an
+  // explicit true arrives — fail-closed for a mutation surface.
+  const [enforcementMode, setEnforcementMode] = useState<EnforcementAvailability>("preview")
   const mountedRef = useRef(true)
   useEffect(() => {
     mountedRef.current = true
     return () => { mountedRef.current = false }
   }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    void fetchOperationalFeatures().then((features) => {
+      if (!cancelled && mountedRef.current) {
+        setEnforcementMode(enforcementAvailability(features))
+      }
+    })
+    return () => { cancelled = true }
+  }, [systemName])
 
   // The ledger is the system of record for this list; the browser stash
   // contributes only the bearer tokens reads never return, and serves as
@@ -358,10 +377,21 @@ export function ConfigurationFixesTab({ systemName }: Props) {
                         className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold disabled:opacity-40"
                         style={enforced
                           ? { background: "#FFFFFF", color: "#0E8B7A", border: "1px solid #9FE8DC" }
-                          : { background: enforceActive ? "#1D4ED8" : "#0D1B2A", color: "#FFFFFF" }}
+                          : enforcementMode === "preview" && !enforceActive
+                            ? { background: "#FFFFFF", color: "#5A6B7A", border: "1px solid #C9D4DE" }
+                            : { background: enforceActive ? "#1D4ED8" : "#0D1B2A", color: "#FFFFFF" }}
+                        title={enforcementMode === "preview"
+                          ? "Enforcement execution is disabled on the backend — the wizard opens in preview: analyze and review only."
+                          : undefined}
                         data-testid="configuration-fix-enforce-open"
                       >
-                        {enforceActive ? "Resume enforcement" : enforced ? "Enforced · review" : "Enforce private path"}
+                        {enforceActive
+                          ? "Resume enforcement"
+                          : enforced
+                            ? "Enforced · review"
+                            : enforcementMode === "preview"
+                              ? "Preview enforcement"
+                              : "Enforce private path"}
                         <ArrowRight className="h-3.5 w-3.5" />
                       </button>
                   </div>
@@ -388,6 +418,7 @@ export function ConfigurationFixesTab({ systemName }: Props) {
           bucket={wizard.bucket}
           resume={wizard.resume}
           region={wizard.bucket.region}
+          executionEnabled={enforcementMode === "enabled"}
           onClose={closeWizard}
         />
       ) : wizard ? (

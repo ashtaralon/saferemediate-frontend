@@ -33,6 +33,7 @@ import {
   type RememberedOperation,
   type WizardStepIndex,
 } from "./s3-vpce-lifecycle"
+import { isMutationDisabledError } from "./enforcement-availability"
 
 interface WizardBucket {
   id: string
@@ -46,6 +47,12 @@ interface Props {
   resume?: RememberedOperation | null
   accountId?: string | null
   region?: string | null
+  // Whether enforcement EXECUTION is enabled on the backend (from the meta
+  // diagnostic's feature state, fail-closed). False = Preview mode: analyze
+  // and validate stay live; requesting approval / approving / applying are
+  // disabled so an operator never walks into the mutation gate's 503
+  // mid-approval.
+  executionEnabled: boolean
   onClose: () => void
 }
 
@@ -171,7 +178,7 @@ function parseArns(text: string): string[] {
   )
 }
 
-export function S3EnforcementWizard({ systemName, bucket, resume, accountId, region, onClose }: Props) {
+export function S3EnforcementWizard({ systemName, bucket, resume, accountId, region, executionEnabled, onClose }: Props) {
   const [plan, setPlan] = useState<S3EnforcementPlan | null>(null)
   const [simulation, setSimulation] = useState<S3EnforcementSimulation | null>(null)
   const [operation, setOperation] = useState<S3PrivatePathOperation | null>(null)
@@ -543,6 +550,16 @@ export function S3EnforcementWizard({ systemName, bucket, resume, accountId, reg
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto px-6 py-5" style={{ background: "#F4F6F8" }}>
+          {!executionEnabled ? (
+            <div className="mb-4 rounded-xl border p-3 text-xs" style={{ borderColor: "#C9D4DE", background: "#F8FAFC", color: "#3D4B5C" }} data-testid="enforce-wizard-preview-banner">
+              <span className="mr-2 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide" style={{ borderColor: "#94A8BA", color: "#5A6B7A", background: "#FFFFFF" }}>
+                Preview
+              </span>
+              <strong>Enforcement execution is disabled on this backend.</strong>{" "}
+              You can analyze this bucket and review the exact policy change, but requesting approval and applying are
+              switched off until the platform owner enables enforcement. Nothing here can change AWS.
+            </div>
+          ) : null}
           {resumedWithoutPlan && shownStep >= 2 ? (
             <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900" data-testid="enforce-wizard-resume-banner">
               <strong>Resumed from another session.</strong> The signed plan and its safety-check authorization were
@@ -971,9 +988,20 @@ export function S3EnforcementWizard({ systemName, bucket, resume, accountId, reg
           ) : null}
 
           {actionError ? (
-            <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700" data-testid="enforce-wizard-action-error">
-              {actionError}
-            </div>
+            isMutationDisabledError(actionError) ? (
+              // The mutation gate refused (flag off, or flipped off after this
+              // tab loaded). This is the feature being disabled, not a failure
+              // — explain it that way instead of a raw 503.
+              <div className="mt-4 rounded-xl border p-3 text-xs" style={{ borderColor: "#C9D4DE", background: "#F8FAFC", color: "#3D4B5C" }} data-testid="enforce-wizard-disabled-error">
+                <strong>Enforcement execution is disabled on this backend.</strong>{" "}
+                The change was refused before anything touched AWS. Ask the platform owner to enable enforcement, then
+                run the flow again from analysis.
+              </div>
+            ) : (
+              <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700" data-testid="enforce-wizard-action-error">
+                {actionError}
+              </div>
+            )
           ) : null}
         </div>
 
@@ -1097,7 +1125,8 @@ export function S3EnforcementWizard({ systemName, bucket, resume, accountId, reg
                 <button
                   type="button"
                   onClick={approve}
-                  disabled={!!action || approver.trim().length < 3 || approver.trim().toLowerCase() === (operation?.approval?.requested_by ?? requester).trim().toLowerCase()}
+                  disabled={!executionEnabled || !!action || approver.trim().length < 3 || approver.trim().toLowerCase() === (operation?.approval?.requested_by ?? requester).trim().toLowerCase()}
+                  title={!executionEnabled ? "Disabled in preview — enforcement execution is off on this backend." : undefined}
                   className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-semibold text-amber-800 disabled:opacity-40"
                   data-testid="enforce-wizard-approve"
                 >
@@ -1107,12 +1136,13 @@ export function S3EnforcementWizard({ systemName, bucket, resume, accountId, reg
                 <button
                   type="button"
                   onClick={requestApproval}
-                  disabled={!!action || requester.trim().length < 3}
+                  disabled={!executionEnabled || !!action || requester.trim().length < 3}
+                  title={!executionEnabled ? "Disabled in preview — enforcement execution is off on this backend." : undefined}
                   className="rounded-lg px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-40"
                   style={{ background: "#0D1B2A" }}
                   data-testid="enforce-wizard-request-approval"
                 >
-                  Request approval
+                  {executionEnabled ? "Request approval" : "Request approval (preview)"}
                 </button>
               )
             ) : null}
@@ -1133,7 +1163,8 @@ export function S3EnforcementWizard({ systemName, bucket, resume, accountId, reg
                 <button
                   type="button"
                   onClick={execute}
-                  disabled={!!action || !operation?.execution_plan_token || confirmation !== expectedApply}
+                  disabled={!executionEnabled || !!action || !operation?.execution_plan_token || confirmation !== expectedApply}
+                  title={!executionEnabled ? "Disabled in preview — enforcement execution is off on this backend." : undefined}
                   className="rounded-lg px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-40"
                   style={{ background: "#0D1B2A" }}
                   data-testid="enforce-wizard-execute"
@@ -1144,7 +1175,8 @@ export function S3EnforcementWizard({ systemName, bucket, resume, accountId, reg
                 <button
                   type="button"
                   onClick={expand}
-                  disabled={!!action || !lifecycleToken}
+                  disabled={!executionEnabled || !!action || !lifecycleToken}
+                  title={!executionEnabled ? "Disabled in preview — enforcement execution is off on this backend." : undefined}
                   className="inline-flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-40"
                   style={{ background: "#0D1B2A" }}
                   data-testid="enforce-wizard-expand"
