@@ -153,7 +153,6 @@ export function DetailPanel({ node, systemName, accountId, region, vpcId, onClos
   const [operation, setOperation] = useState<S3PrivatePathOperation | null>(null)
   const [execution, setExecution] = useState<S3VpceExecution | null>(null)
   const [verification, setVerification] = useState<S3VpceVerification | null>(null)
-  const [expansion, setExpansion] = useState<Record<string, unknown> | null>(null)
   const [requester, setRequester] = useState("")
   const [approver, setApprover] = useState("")
   const [confirmation, setConfirmation] = useState("")
@@ -171,7 +170,6 @@ export function DetailPanel({ node, systemName, accountId, region, vpcId, onClos
     setOperation(null)
     setExecution(null)
     setVerification(null)
-    setExpansion(null)
     setRequester("")
     setApprover("")
     setConfirmation("")
@@ -201,6 +199,46 @@ export function DetailPanel({ node, systemName, accountId, region, vpcId, onClos
     void load()
     return () => { cancelled = true }
   }, [node, systemName, accountId, region, vpcId])
+
+  useEffect(() => {
+    const operationId = plan?.operation_id
+    if (!operationId || !execution) return
+    let cancelled = false
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const terminalStates = new Set(["COMPLETE", "FAILED", "ROLLED_BACK", "ROLLBACK_FAILED"])
+
+    const poll = async () => {
+      try {
+        const current = await operationalRequest<S3PrivatePathOperation>(
+          systemName,
+          `s3-vpce/operations/${encodeURIComponent(operationId)}?include_history=false`,
+        )
+        if (cancelled) return
+        setOperation(current)
+        if (current.execution) {
+          setExecution(previous => ({
+            ...current.execution,
+            lifecycle_token: previous?.lifecycle_token,
+          } as S3VpceExecution))
+        }
+        const latestVerification = current.verification?.full
+          ?? current.verification?.last_stage
+          ?? current.verification?.canary
+        if (latestVerification) setVerification(latestVerification)
+        if (!terminalStates.has(current.state)) {
+          timer = setTimeout(poll, 5_000)
+        }
+      } catch {
+        if (!cancelled) timer = setTimeout(poll, 10_000)
+      }
+    }
+
+    void poll()
+    return () => {
+      cancelled = true
+      if (timer) clearTimeout(timer)
+    }
+  }, [execution?.snapshot_id, plan?.operation_id, systemName])
 
   useEffect(() => {
     if (!node) return
@@ -254,7 +292,6 @@ export function DetailPanel({ node, systemName, accountId, region, vpcId, onClos
     setOperation(null)
     setExecution(null)
     setVerification(null)
-    setExpansion(null)
     const body = await post<S3VpcePlan>("s3-vpce/plan", {
       resource_id: node.id,
       vpc_id: vpcId || undefined,
@@ -297,24 +334,27 @@ export function DetailPanel({ node, systemName, accountId, region, vpcId, onClos
       requested_by: requester,
     })
     setExecution(result)
+    setOperation(previous => previous ? {
+      ...previous,
+      state: result.operation_state ?? previous.state,
+      version: result.operation_version ?? previous.version,
+      execution: result,
+    } : previous)
   })
-  const verify = () => runAction("verify", async () => {
-    if (!execution?.lifecycle_token || !execution.endpoint_id || !plan?.operation_id) return
-    setVerification(await post<S3VpceVerification>("s3-vpce/verify", {
+  const reconcile = () => runAction("reconcile", async () => {
+    if (!plan?.operation_id) return
+    await post<Record<string, unknown>>("s3-vpce/reconcile", {
       operation_id: plan.operation_id,
-      plan_token: execution.lifecycle_token,
-      endpoint_id: execution.endpoint_id,
-    }))
-  })
-  const expand = () => runAction("expand", async () => {
-    if (!execution?.lifecycle_token || !plan?.operation_id) return
-    const result = await post<Record<string, unknown>>("s3-vpce/expand", {
-      operation_id: plan.operation_id,
-      plan_token: execution.lifecycle_token,
-      executed_by: requester,
     })
-    setExpansion(result)
-    setVerification(null)
+    const current = await operationalRequest<S3PrivatePathOperation>(
+      systemName,
+      `s3-vpce/operations/${encodeURIComponent(plan.operation_id)}?include_history=false`,
+    )
+    setOperation(current)
+    const latestVerification = current.verification?.full
+      ?? current.verification?.last_stage
+      ?? current.verification?.canary
+    if (latestVerification) setVerification(latestVerification)
   })
   const rollback = () => runAction("rollback", async () => {
     if (!execution?.lifecycle_token || !execution.snapshot_id || !plan?.operation_id) return
@@ -332,10 +372,9 @@ export function DetailPanel({ node, systemName, accountId, region, vpcId, onClos
   const downstream = dossier?.dependencies.downstream ?? []
   const expectedApply = plan?.bucket_name && plan.vpc_id ? `APPLY ${plan.bucket_name} ${plan.vpc_id}` : ""
   const expectedRollback = execution?.snapshot_id ? `ROLLBACK ${execution.snapshot_id}` : ""
-  const operationState = verification?.operation_state
-    ?? (expansion?.operation_state as S3PrivatePathOperation["state"] | undefined)
+  const operationState = operation?.state
+    ?? verification?.operation_state
     ?? execution?.operation_state
-    ?? operation?.state
     ?? simulation?.operation_state
     ?? plan?.operation_state
   const progressSteps = ["Analyze", "Simulate", "Approve", "Canary", "Expand", "Verify"]
@@ -350,6 +389,7 @@ export function DetailPanel({ node, systemName, accountId, region, vpcId, onClos
                   : plan ? 1 : 0
   const blockerCodes = new Set(plan?.blockers.map((blocker) => blocker.code) ?? [])
   const noEligibleConsumer = blockerCodes.has("NO_OBSERVED_CONSUMERS")
+  const noPublicPath = blockerCodes.has("NO_PUBLIC_S3_PATH")
   const unknownNetworkPath = blockerCodes.has("UNKNOWN_NETWORK_PATH")
   const endpointNeedsOptIn = blockerCodes.has("EXISTING_ENDPOINT_NOT_OPTED_IN")
   const migrationScope = plan?.vpc_id ?? vpcId ?? "the selected VPC"
@@ -359,6 +399,8 @@ export function DetailPanel({ node, systemName, accountId, region, vpcId, onClos
     ? "One-route-table canary is ready to simulate"
     : noEligibleConsumer
       ? "No S3 traffic from this VPC to migrate"
+      : noPublicPath
+        ? "Observed S3 traffic is already private"
       : unknownNetworkPath
         ? "Consumer route evidence is incomplete"
         : endpointNeedsOptIn
@@ -366,10 +408,12 @@ export function DetailPanel({ node, systemName, accountId, region, vpcId, onClos
           : "Change is blocked by a safety check"
   const planStatusDetail = plan?.readiness === "READY"
     ? `Cyntro proved ${migratableConsumers} migratable consumer${migratableConsumers === 1 ? "" : "s"} and an exact canary route table in ${migrationScope}.`
-    : noEligibleConsumer
+      : noEligibleConsumer
       ? totalObservedConsumers > 0
         ? `${totalObservedConsumers} observed bucket consumer${totalObservedConsumers === 1 ? " runs" : "s run"} outside ${migrationScope}. ${totalObservedConsumers === 1 ? "Its" : "Their"} S3 calls do not traverse this VPC's route tables or internet gateway, so an S3 Gateway endpoint here would not affect ${totalObservedConsumers === 1 ? "it" : "them"}.`
         : `No observed S3 consumer uses ${migrationScope}, so there is no route-table migration to perform.`
+      : noPublicPath
+        ? `${plan?.impact.excluded_consumers ?? 0} observed consumer${(plan?.impact.excluded_consumers ?? 0) === 1 ? " is" : "s are"} excluded from migration because the eligible VPC traffic already uses an S3 Gateway endpoint.`
       : unknownNetworkPath
         ? `${plan?.impact.unknown_consumers ?? 1} observed consumer${(plan?.impact.unknown_consumers ?? 1) === 1 ? " cannot" : "s cannot"} yet be bound to a subnet, effective route table, and current S3 route.`
         : endpointNeedsOptIn
@@ -379,6 +423,10 @@ export function DetailPanel({ node, systemName, accountId, region, vpcId, onClos
   if (plan) {
     if (noEligibleConsumer) {
       endpointAction = "No VPCE change is needed in this VPC"
+    } else if (noPublicPath || plan.endpoint_mode === "NO_CHANGE") {
+      endpointAction = plan.existing_endpoint_id
+        ? `No change — traffic already uses ${plan.existing_endpoint_id}`
+        : "No endpoint change — observed traffic is already private"
     } else if (endpointNeedsOptIn) {
       endpointAction = `Existing endpoint ${plan.existing_endpoint_id} selected; explicit Cyntro opt-in required`
     } else if (unknownNetworkPath && plan.endpoint_mode !== "ADOPT_EXISTING") {
@@ -690,8 +738,14 @@ export function DetailPanel({ node, systemName, accountId, region, vpcId, onClos
                   <div className="space-y-3 rounded-xl border border-blue-200 bg-blue-50 p-4" data-testid="estate-vpce-execution">
                     <div className="flex items-center gap-2 text-sm font-bold text-blue-900"><ShieldCheck className="h-5 w-5" /> Canary applied · rollback retained</div>
                     <p className="text-xs text-blue-800">Endpoint <span className="font-mono">{execution.endpoint_id ?? "—"}</span> · snapshot <span className="font-mono">{execution.snapshot_id ?? "—"}</span></p>
-                    {operationState === "CANARY_MONITORING" || operationState === "EXPANDING" ? (
-                      <button type="button" onClick={verify} disabled={!!action || !execution.lifecycle_token} className="rounded-lg border border-blue-300 bg-white px-3 py-2 text-xs font-semibold text-blue-700 disabled:opacity-50" data-testid="estate-vpce-verify">Verify AWS route and observed S3 traffic</button>
+                    {operationState === "CANARY_MONITORING" || operationState === "CANARY_VERIFIED" || operationState === "EXPANDING" ? (
+                      <div className="space-y-2 rounded-lg border border-blue-200 bg-white p-3 text-xs text-blue-900" data-testid="estate-vpce-controller-status">
+                        <div className="flex items-center gap-2 font-semibold"><RefreshCw className="h-3.5 w-3.5" /> Automatic rollout is active</div>
+                        <p className="leading-5 text-blue-800">Cyntro verifies the exact AWS route and fresh observed S3 traffic, expands one route table at a time, and automatically rolls back this snapshot if proof does not arrive before the safety timeout.</p>
+                        <button type="button" onClick={reconcile} disabled={!!action} className="rounded-lg border border-blue-300 bg-blue-50 px-3 py-2 font-semibold text-blue-800 disabled:opacity-50" data-testid="estate-vpce-reconcile">
+                          {action === "reconcile" ? "Checking evidence…" : "Run controller now"}
+                        </button>
+                      </div>
                     ) : null}
                     {verification ? (
                       <div className="space-y-1 rounded-lg bg-white p-3 text-xs text-blue-900" data-testid="estate-vpce-verification">
@@ -701,10 +755,6 @@ export function DetailPanel({ node, systemName, accountId, region, vpcId, onClos
                         {verification.evidence_refresh?.success === false ? <div className="font-semibold text-amber-700">Evidence refresh is still pending: {verification.evidence_refresh.error ?? "collector unavailable"}</div> : null}
                       </div>
                     ) : null}
-                    {(operationState === "CANARY_VERIFIED" || (operationState === "EXPANDING" && verification?.state === "VERIFIED" && verification.more_routes_pending)) ? (
-                      <button type="button" onClick={expand} disabled={!!action} className="rounded-lg bg-[#0D1B2A] px-3 py-2 text-xs font-semibold text-white disabled:opacity-50" data-testid="estate-vpce-expand">Apply next route-table stage</button>
-                    ) : null}
-                    {expansion ? <div className="rounded-lg border border-blue-200 bg-white p-3 text-xs text-blue-900">One route table was added. Fresh S3 flow evidence is required before the next stage.</div> : null}
                     {operationState === "COMPLETE" ? <div className="rounded-lg border border-teal-200 bg-teal-50 p-3 text-xs font-semibold text-teal-800">Transport migration verified. Bucket-policy enforcement remains a separate reviewed change.</div> : null}
                     <label className="block text-xs font-semibold text-blue-900">Type <span className="font-mono">{expectedRollback}</span><input value={rollbackConfirmation} onChange={e => setRollbackConfirmation(e.target.value)} className="mt-1 w-full rounded-lg border border-blue-300 bg-white px-3 py-2 font-mono text-xs" /></label>
                     <button type="button" onClick={rollback} disabled={!!action || rollbackConfirmation !== expectedRollback} className="inline-flex items-center gap-2 rounded-lg border border-red-300 bg-white px-3 py-2 text-xs font-semibold text-red-700 disabled:opacity-40"><RotateCcw className="h-3.5 w-3.5" /> Roll back from snapshot</button>
