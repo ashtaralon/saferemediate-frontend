@@ -147,10 +147,52 @@ export interface S3VpceExecution {
   snapshot_id?: string | null
   endpoint_id?: string | null
   lifecycle_token?: string | null
+  lifecycle_expires_at?: string | null
   rollback_available?: boolean
   rollback_performed?: boolean
   operation_state?: S3PrivatePathState
   operation_version?: number
+}
+
+// Token-free projection returned by GET .../s3-vpce/operations — the server
+// truth for the Fixes tab's resume list. Bearer material is never present
+// (the backend serializes summaries through an explicit allowlist).
+export interface S3VpceOperationSummary {
+  operation_id: string
+  state: S3PrivatePathState
+  version?: number
+  system_name?: string | null
+  bucket_name?: string | null
+  resource_id?: string | null
+  vpc_id?: string | null
+  region?: string | null
+  endpoint_id?: string | null
+  snapshot_id?: string | null
+  requested_by?: string | null
+  approved_by?: string | null
+  rollback_expires_at?: string | null
+  verified_route_table_ids?: string[]
+  blocker_count?: number
+  created_at?: string | null
+  updated_at?: string | null
+}
+
+export interface S3VpceOperationList {
+  system_name: string
+  count: number
+  operations: S3VpceOperationSummary[]
+}
+
+// POST .../s3-vpce/operations/{id}/rollback-token — re-mints the one-time
+// rollback token for the operation's requester/approver, inheriting the
+// original 72h expiry (never a fresh window).
+export interface S3VpceRollbackTokenReissue {
+  operation_id: string
+  snapshot_id: string
+  endpoint_id: string
+  lifecycle_token: string
+  rollback_expires_at: string
+  rollback_expires_in_seconds: number
 }
 
 export interface S3VpceVerification {

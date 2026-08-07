@@ -1,4 +1,7 @@
-import type { S3PrivatePathState } from "@/components/topology-v0-2/estate-operations"
+import type {
+  S3PrivatePathState,
+  S3VpceOperationSummary,
+} from "@/components/topology-v0-2/estate-operations"
 
 // One place that maps every backend lifecycle state to a wizard step.
 // The estate detail panel's inline index math dropped states
@@ -82,11 +85,12 @@ export function isInFlight(state: S3PrivatePathState | null | undefined): boolea
 }
 
 // ---------------------------------------------------------------------------
-// Local operation memory. The backend deliberately never returns bearer
-// tokens on reads, so an operator who closes the tab mid-rollout would lose
-// the manual-rollback path entirely. Until the backend can re-mint scoped
-// tokens, we remember each operation (and its rollback material) per
-// browser so the Fixes tab can re-attach and still offer rollback.
+// Local token stash + offline fallback. The operations LIST now comes from
+// the ledger (GET .../s3-vpce/operations — server truth, token-free), so
+// localStorage is no longer the system of record. It remains for exactly two
+// jobs: (1) holding the one-time bearer tokens reads never return, so the
+// browser that executed (or re-armed) a change keeps its rollback path, and
+// (2) a degraded resume list when the ledger is unreachable.
 // ---------------------------------------------------------------------------
 
 export interface RememberedOperation {
@@ -99,7 +103,35 @@ export interface RememberedOperation {
   snapshotId?: string | null
   endpointId?: string | null
   lifecycleToken?: string | null
+  requestedBy?: string | null
+  approvedBy?: string | null
+  rollbackExpiresAt?: string | null
   updatedAt: string
+}
+
+// Build the view row the Fixes tab and wizard consume: server summary is
+// the truth for state/scope, the browser stash contributes only what the
+// server deliberately withholds (the lifecycle token) plus fallback fields.
+export function operationFromSummary(
+  systemName: string,
+  summary: S3VpceOperationSummary,
+  stashed: RememberedOperation | undefined,
+): RememberedOperation {
+  return {
+    operationId: summary.operation_id,
+    systemName: summary.system_name ?? systemName,
+    bucketId: summary.resource_id ?? stashed?.bucketId ?? "",
+    bucketName: summary.bucket_name ?? stashed?.bucketName ?? summary.resource_id ?? "Unknown bucket",
+    vpcId: summary.vpc_id ?? stashed?.vpcId ?? null,
+    state: summary.state,
+    snapshotId: summary.snapshot_id ?? stashed?.snapshotId ?? null,
+    endpointId: summary.endpoint_id ?? stashed?.endpointId ?? null,
+    lifecycleToken: stashed?.lifecycleToken ?? null,
+    requestedBy: summary.requested_by ?? stashed?.requestedBy ?? null,
+    approvedBy: summary.approved_by ?? stashed?.approvedBy ?? null,
+    rollbackExpiresAt: summary.rollback_expires_at ?? stashed?.rollbackExpiresAt ?? null,
+    updatedAt: summary.updated_at ?? stashed?.updatedAt ?? new Date().toISOString(),
+  }
 }
 
 const storageKey = (systemName: string) => `cyntro:fixes:s3-vpce:${systemName}`

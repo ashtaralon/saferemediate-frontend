@@ -6,6 +6,7 @@ import {
   ArrowLeft,
   ArrowRight,
   CheckCircle2,
+  KeyRound,
   Loader2,
   Map as MapIcon,
   RefreshCw,
@@ -19,6 +20,7 @@ import {
   type S3PrivatePathOperation,
   type S3VpceExecution,
   type S3VpcePlan,
+  type S3VpceRollbackTokenReissue,
   type S3VpceSimulation,
   type S3VpceVerification,
 } from "@/components/topology-v0-2/estate-operations"
@@ -135,6 +137,9 @@ export function S3VpceWizard({ systemName, bucket, resume, accountId, region, on
   const [approver, setApprover] = useState("")
   const [confirmation, setConfirmation] = useState("")
   const [rollbackConfirmation, setRollbackConfirmation] = useState("")
+  // A lifecycle token re-minted in THIS session via the rollback-token
+  // endpoint (cross-browser rollback for resumed operations).
+  const [rearm, setRearm] = useState<S3VpceRollbackTokenReissue | null>(null)
   const [action, setAction] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   // null = follow the operation's real step; a number = the operator
@@ -276,6 +281,9 @@ export function S3VpceWizard({ systemName, bucket, resume, accountId, region, on
     setOperation(null)
     setExecution(null)
     setVerification(null)
+    // A token re-minted for a previous operation must never survive into a
+    // fresh analysis — the new operation gets its own material at execute.
+    setRearm(null)
     const body = await post<S3VpcePlan>("s3-vpce/plan", {
       resource_id: bucket.id,
       vpc_id: selectedVpc || undefined,
@@ -372,8 +380,8 @@ export function S3VpceWizard({ systemName, bucket, resume, accountId, region, on
     await refreshOperation()
   })
 
-  const lifecycleToken = execution?.lifecycle_token ?? resume?.lifecycleToken ?? null
-  const snapshotId = execution?.snapshot_id ?? operation?.execution?.snapshot_id ?? resume?.snapshotId ?? null
+  const lifecycleToken = execution?.lifecycle_token ?? rearm?.lifecycle_token ?? resume?.lifecycleToken ?? null
+  const snapshotId = execution?.snapshot_id ?? operation?.execution?.snapshot_id ?? rearm?.snapshot_id ?? resume?.snapshotId ?? null
 
   const rollback = () => runAction("rollback", async () => {
     if (!lifecycleToken || !snapshotId || !operationId) return
@@ -386,6 +394,36 @@ export function S3VpceWizard({ systemName, bucket, resume, accountId, region, on
     })
     setVerification({ ...result, state: "ROLLED_BACK" } as S3VpceVerification)
     await refreshOperation().catch(() => undefined)
+  })
+
+  // Cross-browser rollback: re-mint the one-time lifecycle token. The server
+  // gates this to the operation's own requester/approver, requires an applied
+  // snapshot, and re-issues under the ORIGINAL 72h expiry — never a fresh
+  // window — so re-arming is not a read-to-mutation escalation.
+  const rearmRollback = () => runAction("rearm-rollback", async () => {
+    if (!operationId) return
+    try { window.localStorage.setItem(IDENTITY_KEY, requester) } catch { /* best effort */ }
+    const result = await post<S3VpceRollbackTokenReissue>(
+      `s3-vpce/operations/${encodeURIComponent(operationId)}/rollback-token`,
+      { operation_id: operationId, requested_by: requester.trim() },
+    )
+    setRearm(result)
+    // Stash the re-armed material so a reload of this browser keeps it.
+    rememberOperation({
+      operationId,
+      systemName,
+      bucketId: bucket.id,
+      bucketName: plan?.bucket_name ?? resume?.bucketName ?? bucket.name,
+      vpcId: plan?.vpc_id ?? resume?.vpcId ?? null,
+      state: operationState,
+      snapshotId: result.snapshot_id,
+      endpointId: result.endpoint_id,
+      lifecycleToken: result.lifecycle_token,
+      requestedBy: operation?.approval?.requested_by ?? resume?.requestedBy ?? null,
+      approvedBy: operation?.approval?.approved_by ?? resume?.approvedBy ?? null,
+      rollbackExpiresAt: result.rollback_expires_at,
+      updatedAt: new Date().toISOString(),
+    })
   })
 
   const blockerCodes = new Set(plan?.blockers.map((b) => b.code) ?? [])
@@ -406,6 +444,17 @@ export function S3VpceWizard({ systemName, bucket, resume, accountId, region, on
     && operationState !== "ROLLED_BACK"
     && operationState !== "ROLLBACK_FAILED"
     && operationState !== "ROLLING_BACK"
+  const rollbackExpiresAt = rearm?.rollback_expires_at
+    ?? execution?.lifecycle_expires_at
+    ?? operation?.execution?.lifecycle_expires_at
+    ?? resume?.rollbackExpiresAt
+    ?? null
+  // Mirrors the server's refusal threshold (<60s remaining counts as closed).
+  const rollbackWindowClosed = rollbackExpiresAt
+    ? Date.parse(rollbackExpiresAt) - Date.now() < 60_000
+    : false
+  const rollbackRequestedBy = operation?.approval?.requested_by ?? resume?.requestedBy ?? null
+  const rollbackApprovedBy = operation?.approval?.approved_by ?? resume?.approvedBy ?? null
   // Resumed from another session with no recoverable bearer token:
   // READY_FOR_SIMULATION needs the analyze-time plan_token, APPROVED needs
   // the approve-time execution_plan_token — both are handed out exactly
@@ -841,8 +890,20 @@ export function S3VpceWizard({ systemName, bucket, resume, accountId, region, on
                   ) : null}
                   {rollbackAvailable ? (
                     <div className="space-y-2 border-t border-blue-200 pt-3">
+                      {rollbackExpiresAt ? (
+                        <p className="text-[11px] font-semibold text-blue-900" data-testid="vpce-wizard-rollback-window">
+                          {rollbackWindowClosed
+                            ? "The rollback window has closed — the snapshot is retained for audit."
+                            : `Rollback window open until ${new Date(rollbackExpiresAt).toLocaleString()}.`}
+                        </p>
+                      ) : null}
                       {lifecycleToken ? (
                         <>
+                          {rearm ? (
+                            <p className="text-[11px] font-semibold text-teal-700" data-testid="vpce-wizard-rearmed">
+                              Rollback re-armed for this session.
+                            </p>
+                          ) : null}
                           <label className="block text-xs font-semibold text-blue-900">
                             Manual rollback — type <span className="font-mono">{expectedRollback}</span>
                             <input
@@ -855,19 +916,51 @@ export function S3VpceWizard({ systemName, bucket, resume, accountId, region, on
                           <button
                             type="button"
                             onClick={rollback}
-                            disabled={!!action || rollbackConfirmation !== expectedRollback}
+                            disabled={!!action || rollbackConfirmation !== expectedRollback || rollbackWindowClosed}
                             className="inline-flex items-center gap-2 rounded-lg border border-red-300 bg-white px-3 py-2 text-xs font-semibold text-red-700 disabled:opacity-40"
                             data-testid="vpce-wizard-rollback"
                           >
                             <RotateCcw className="h-3.5 w-3.5" /> Roll back from snapshot
                           </button>
                         </>
-                      ) : (
+                      ) : rollbackWindowClosed ? (
                         <p className="text-[11px] leading-5 text-blue-800">
-                          Manual rollback from this browser is unavailable (the rollback authorization was issued to the
-                          session that applied the change). The automatic safety timeout still protects this rollout;
-                          for an immediate manual rollback, use the session that executed it or the operations API.
+                          Manual rollback is no longer available from any session. Restoring the retained snapshot now
+                          is a platform-owner action.
                         </p>
+                      ) : (
+                        <div className="space-y-2" data-testid="vpce-wizard-rearm">
+                          <p className="text-[11px] leading-5 text-blue-800">
+                            The rollback authorization was issued once, to the session that applied this change.
+                            Re-arm it from here — only this operation&apos;s requester
+                            {rollbackRequestedBy ? <> (<strong>{rollbackRequestedBy}</strong>)</> : null} or approver
+                            {rollbackApprovedBy ? <> (<strong>{rollbackApprovedBy}</strong>)</> : null} can, and the
+                            original rollback window is never extended. The automatic safety timeout protects this
+                            rollout either way.
+                          </p>
+                          <label className="block text-xs font-semibold text-blue-900">
+                            Your identity
+                            <input
+                              aria-label="Re-arm identity"
+                              value={requester}
+                              onChange={(e) => setRequester(e.target.value)}
+                              placeholder="name@company.com"
+                              className="mt-1 w-full rounded-lg border border-blue-300 bg-white px-3 py-2 text-xs"
+                            />
+                          </label>
+                          <button
+                            type="button"
+                            onClick={rearmRollback}
+                            disabled={!!action || requester.trim().length < 3}
+                            className="inline-flex items-center gap-2 rounded-lg border border-blue-300 bg-white px-3 py-2 text-xs font-semibold text-blue-900 disabled:opacity-40"
+                            data-testid="vpce-wizard-rearm-rollback"
+                          >
+                            {action === "rearm-rollback"
+                              ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              : <KeyRound className="h-3.5 w-3.5" />}
+                            Re-arm rollback
+                          </button>
+                        </div>
                       )}
                     </div>
                   ) : null}
