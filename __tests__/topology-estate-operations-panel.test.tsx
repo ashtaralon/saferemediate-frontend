@@ -217,6 +217,47 @@ describe("Estate operations panel", () => {
     expect(screen.queryByTestId("estate-vpce-simulate")).not.toBeInTheDocument()
   })
 
+  it("removes stale lifecycle results when a fresh analysis fails", async () => {
+    const blockedPlan = {
+      readiness: "BLOCKED",
+      bucket_name: node.name,
+      vpc_id: "vpc-prod",
+      endpoint_mode: "CREATE_MANAGED",
+      blockers: [{ code: "NO_OBSERVED_CONSUMERS", message: "No observed consumer is mapped to this VPC." }],
+      excluded_consumers: [],
+      impact: {
+        observed_consumers: 0,
+        total_observed_consumers: 0,
+        migrating_consumers: 0,
+        subnets: 0,
+        route_tables: 0,
+        route_table_workloads: 0,
+        permission_changes: 0,
+        resource_replacements: 0,
+      },
+    }
+    let planCalls = 0
+    vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      if (String(input).includes("s3-vpce/plan")) {
+        planCalls += 1
+        return planCalls === 1
+          ? response(blockedPlan)
+          : response({ detail: "Analysis could not be recorded. No AWS change was authorized; retry Analyze." }, 503)
+      }
+      return standardBackendResponse(input)
+    })
+    renderPanel()
+    fireEvent.click(screen.getByTestId("estate-operations-tab-change"))
+    const analyzeButton = screen.getByTestId("estate-vpce-analyze")
+    fireEvent.click(analyzeButton)
+
+    expect(await screen.findByText("No VPC-attached bucket consumer found in this scope")).toBeInTheDocument()
+    fireEvent.click(analyzeButton)
+
+    expect(await screen.findByText("Analysis could not be recorded. No AWS change was authorized; retry Analyze.")).toBeInTheDocument()
+    expect(screen.queryByText("No VPC-attached bucket consumer found in this scope")).not.toBeInTheDocument()
+  })
+
   it("requires exact confirmation before snapshot and apply", async () => {
     const readyPlan = {
       readiness: "READY",

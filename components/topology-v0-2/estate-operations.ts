@@ -51,9 +51,10 @@ export interface OperationalDossier {
 
 export interface S3VpcePlan {
   readiness: "READY" | "BLOCKED"
-  operation_id: string
+  operation_id: string | null
   operation_state: S3PrivatePathState
   operation_version: number
+  operation_persisted?: boolean
   plan_token?: string | null
   blockers: Array<{ code: string; message: string }>
   bucket_name?: string
