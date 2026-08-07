@@ -5,17 +5,12 @@ export async function GET() {
   "https://saferemediate-backend-f.onrender.com"
 
   try {
-    // Try /api/health first, fallback to /health
-    let response = await fetch(`${backendUrl}/api/health`, {
+    // Public callers receive liveness + build identity only. Detailed backend
+    // diagnostics live behind the server-side operator-token boundary.
+    const response = await fetch(`${backendUrl}/healthz`, {
       headers: { "Content-Type": "application/json" },
+      cache: "no-store",
     })
-
-    // If /api/health doesn't exist, try /health (current backend endpoint)
-    if (!response.ok && response.status === 404) {
-      response = await fetch(`${backendUrl}/health`, {
-        headers: { "Content-Type": "application/json" },
-      })
-    }
 
     if (!response.ok) {
       console.error("[v0] Health check failed:", response.status)
@@ -47,5 +42,4 @@ export async function GET() {
     )
   }
 }
-
 

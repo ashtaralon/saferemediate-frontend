@@ -79,7 +79,7 @@ export async function GET(
 
     // Warm-up request to wake Render if it's sleeping
     try {
-      const warmupResponse = await fetch(`${BACKEND_URL}/health`, {
+      const warmupResponse = await fetch(`${BACKEND_URL}/healthz`, {
         signal: AbortSignal.timeout(5000),
       }).catch(() => null)
       

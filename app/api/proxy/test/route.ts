@@ -5,9 +5,9 @@ export async function GET(request: NextRequest) {
   "https://saferemediate-backend-f.onrender.com"
 
   try {
-    console.log("[v0] Testing backend connection:", `${backendUrl}/health`)
+    console.log("[v0] Testing backend connection:", `${backendUrl}/healthz`)
 
-    const response = await fetch(`${backendUrl}/health`, {
+    const response = await fetch(`${backendUrl}/healthz`, {
       method: "GET",
       headers: {
         "Content-Type": "application/json",

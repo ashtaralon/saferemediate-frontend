@@ -43,7 +43,7 @@ test.describe("AC-1 Capital One E2E", () => {
     await page.goto(`/systems?systemName=${SYSTEM}&tab=dependency-map`, {
       waitUntil: "domcontentloaded",
     })
-    const health = await page.request.get(`${BACKEND}/health`)
+    const health = await page.request.get(`${BACKEND}/healthz`)
     expect(health.ok()).toBeTruthy()
   })
 })

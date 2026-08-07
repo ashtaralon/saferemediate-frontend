@@ -14,7 +14,7 @@ const FETCH_TIMEOUT_MS = 25_000
 
 async function wakeBackend(): Promise<void> {
   try {
-    await fetch(`${BACKEND_URL}/health`, {
+    await fetch(`${BACKEND_URL}/healthz`, {
       cache: "no-store",
       signal: AbortSignal.timeout(8_000),
       headers: { "User-Agent": "cyntro-system-resources-proxy/1.0" },
