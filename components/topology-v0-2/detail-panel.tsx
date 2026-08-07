@@ -119,6 +119,10 @@ const S3_BLOCKER_GUIDANCE: Record<string, { title: string; next: string }> = {
     title: "No migration target in this VPC",
     next: "No AWS change is needed for this VPC. To test or perform a Gateway endpoint migration, select a VPC with an observed S3 consumer or generate S3 traffic from a VPC-attached workload and refresh behavioral data.",
   },
+  NO_PUBLIC_S3_PATH: {
+    title: "No public S3 path to replace",
+    next: "No action required. The eligible VPC consumers already use the S3 Gateway endpoint shown above. Continue monitoring for any new public-path traffic.",
+  },
   UNKNOWN_NETWORK_PATH: {
     title: "Effective S3 route is not proven",
     next: "Refresh AWS network inventory and behavioral evidence so Cyntro can bind the workload to its subnet, effective route table, and current S3 path.",
@@ -390,6 +394,7 @@ export function DetailPanel({ node, systemName, accountId, region, vpcId, onClos
   const blockerCodes = new Set(plan?.blockers.map((blocker) => blocker.code) ?? [])
   const noEligibleConsumer = blockerCodes.has("NO_OBSERVED_CONSUMERS")
   const noPublicPath = blockerCodes.has("NO_PUBLIC_S3_PATH")
+  const noMigrationRequired = noEligibleConsumer || noPublicPath || plan?.endpoint_mode === "NO_CHANGE"
   const unknownNetworkPath = blockerCodes.has("UNKNOWN_NETWORK_PATH")
   const endpointNeedsOptIn = blockerCodes.has("EXISTING_ENDPOINT_NOT_OPTED_IN")
   const migrationScope = plan?.vpc_id ?? vpcId ?? "the selected VPC"
@@ -621,10 +626,12 @@ export function DetailPanel({ node, systemName, accountId, region, vpcId, onClos
                 </button>
                 {plan ? (
                   <div className="space-y-4" data-testid="estate-vpce-plan">
-                    {noEligibleConsumer ? (
+                    {noMigrationRequired ? (
                       <div className="flex items-center gap-2 rounded-xl border border-teal-200 bg-teal-50 p-3 text-xs font-semibold text-teal-800" data-testid="estate-vpce-not-applicable">
                         <CheckCircle2 className="h-4 w-4 shrink-0" />
-                        Analysis complete · No migration applicable in the selected VPC
+                        {noEligibleConsumer
+                          ? "Analysis complete · No migration applicable in the selected VPC"
+                          : "Analysis complete · Traffic is already on a private S3 path"}
                       </div>
                     ) : (
                       <div className="grid grid-cols-6 gap-1 rounded-xl border bg-white p-3" style={{ borderColor: "#DDE3E8" }} aria-label="Private path lifecycle">
@@ -643,9 +650,9 @@ export function DetailPanel({ node, systemName, accountId, region, vpcId, onClos
                       </div>
                     )}
 
-                    <div className="space-y-4 rounded-xl border p-4" style={{ borderColor: plan.readiness === "READY" || noEligibleConsumer ? "#9FE8DC" : "#FED7AA", background: plan.readiness === "READY" || noEligibleConsumer ? "#F0FDFA" : "#FFF7ED" }}>
+                    <div className="space-y-4 rounded-xl border p-4" style={{ borderColor: plan.readiness === "READY" || noMigrationRequired ? "#9FE8DC" : "#FED7AA", background: plan.readiness === "READY" || noMigrationRequired ? "#F0FDFA" : "#FFF7ED" }}>
                       <div className="flex items-start gap-2">
-                        {plan.readiness === "READY" || noEligibleConsumer ? <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-teal-600" /> : <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-orange-600" />}
+                        {plan.readiness === "READY" || noMigrationRequired ? <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-teal-600" /> : <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-orange-600" />}
                         <div>
                           <div className="text-sm font-bold">{planStatusTitle}</div>
                           <p className="mt-1 text-xs leading-5 text-slate-600">{planStatusDetail}</p>
@@ -661,14 +668,14 @@ export function DetailPanel({ node, systemName, accountId, region, vpcId, onClos
                       <div className="rounded-lg border bg-white p-3 text-xs text-slate-600" style={{ borderColor: "#DDE3E8" }}>
                         <div className="grid grid-cols-[125px_1fr] gap-x-3 gap-y-2">
                           <strong className="text-slate-800">Endpoint action</strong><span>{endpointAction}</span>
-                          <strong className="text-slate-800">Canary</strong><span className="font-mono">{noEligibleConsumer ? "Not applicable" : plan.canary_route_table_id ?? "Blocked"}</span>
-                          <strong className="text-slate-800">Authorization</strong><span>{noEligibleConsumer ? "Unchanged · no AWS operation planned" : "No IAM or bucket-policy change in this operation"}</span>
-                          <strong className="text-slate-800">Rollback</strong><span>{noEligibleConsumer ? "Not needed · no AWS change planned" : "Remove only associations added by this operation"}</span>
+                          <strong className="text-slate-800">Canary</strong><span className="font-mono">{noMigrationRequired ? "Not applicable" : plan.canary_route_table_id ?? "Blocked"}</span>
+                          <strong className="text-slate-800">Authorization</strong><span>{noMigrationRequired ? "Unchanged · no AWS operation planned" : "No IAM or bucket-policy change in this operation"}</span>
+                          <strong className="text-slate-800">Rollback</strong><span>{noMigrationRequired ? "Not needed · no AWS change planned" : "Remove only associations added by this operation"}</span>
                         </div>
                       </div>
                       {(plan.excluded_consumers?.length ?? 0) > 0 ? (
                         <div className="rounded-lg border border-slate-200 bg-white p-3">
-                          <div className="text-xs font-bold text-slate-800">{noEligibleConsumer ? "Outside this VPC migration" : "Not changed by this operation"} ({plan.excluded_consumers?.length})</div>
+                          <div className="text-xs font-bold text-slate-800">{noEligibleConsumer ? "Outside this VPC migration" : noMigrationRequired ? "No migration required" : "Not changed by this operation"} ({plan.excluded_consumers?.length})</div>
                           <div className="mt-2 space-y-2">
                             {plan.excluded_consumers?.map((consumer, index) => (
                               <div key={`${consumer.resource_id}-${index}`} className="text-xs text-slate-600">
@@ -682,12 +689,12 @@ export function DetailPanel({ node, systemName, accountId, region, vpcId, onClos
                         <div className="space-y-2">
                           {plan.blockers.map((blocker) => {
                             const guidance = blockerGuidance(blocker.code)
-                            const isNoMigrationTarget = blocker.code === "NO_OBSERVED_CONSUMERS"
+                            const isNoChangeBlocker = blocker.code === "NO_OBSERVED_CONSUMERS" || blocker.code === "NO_PUBLIC_S3_PATH"
                             return (
-                              <div key={blocker.code} className={`rounded-lg border bg-white p-3 text-xs ${isNoMigrationTarget ? "border-teal-200" : "border-orange-200"}`}>
+                              <div key={blocker.code} className={`rounded-lg border bg-white p-3 text-xs ${isNoChangeBlocker ? "border-teal-200" : "border-orange-200"}`}>
                                 <div className="flex flex-wrap items-center gap-2">
-                                  <strong className={isNoMigrationTarget ? "text-teal-800" : "text-orange-800"}>{guidance.title}</strong>
-                                  <span className={`rounded px-1.5 py-0.5 font-mono text-[9px] ${isNoMigrationTarget ? "bg-teal-50 text-teal-700" : "bg-orange-50 text-orange-700"}`}>{blocker.code}</span>
+                                  <strong className={isNoChangeBlocker ? "text-teal-800" : "text-orange-800"}>{guidance.title}</strong>
+                                  <span className={`rounded px-1.5 py-0.5 font-mono text-[9px] ${isNoChangeBlocker ? "bg-teal-50 text-teal-700" : "bg-orange-50 text-orange-700"}`}>{blocker.code}</span>
                                 </div>
                                 <p className="mt-1 leading-5 text-slate-600">{blocker.message}</p>
                                 <p className="mt-2 leading-5 text-slate-700"><strong>Next:</strong> {guidance.next}</p>

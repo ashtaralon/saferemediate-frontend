@@ -233,7 +233,22 @@ describe("Estate operations panel", () => {
         code: "NO_PUBLIC_S3_PATH",
         message: "Observed consumers already use a private endpoint; no migration is needed.",
       }],
-      excluded_consumers: [],
+      excluded_consumers: [
+        {
+          resource_id: "i-private",
+          resource_name: "private-app",
+          resource_type: "EC2",
+          reason_code: "ALREADY_PRIVATE",
+          reason: "Consumer already has private transport proof through vpce-existing.",
+        },
+        {
+          resource_id: "arn:aws:lambda:eu-west-1:745783559495:function:traffic",
+          resource_name: "traffic",
+          resource_type: "Lambda",
+          reason_code: "OUTSIDE_VPC",
+          reason: "Gateway endpoints cannot route a consumer that is not attached to a VPC.",
+        },
+      ],
       impact: {
         observed_consumers: 0,
         total_observed_consumers: 2,
@@ -255,8 +270,19 @@ describe("Estate operations panel", () => {
     fireEvent.click(screen.getByTestId("estate-vpce-analyze"))
 
     expect(await screen.findByText("Observed S3 traffic is already private")).toBeInTheDocument()
+    expect(screen.getByText("Analysis complete · Traffic is already on a private S3 path")).toBeInTheDocument()
     expect(screen.getByText("No change — traffic already uses vpce-existing")).toBeInTheDocument()
+    expect(screen.getByText("Not applicable")).toBeInTheDocument()
+    expect(screen.getByText("Unchanged · no AWS operation planned")).toBeInTheDocument()
+    expect(screen.getByText("Not needed · no AWS change planned")).toBeInTheDocument()
+    expect(screen.getByText("No public S3 path to replace")).toBeInTheDocument()
+    expect(screen.getByText("No migration required (2)")).toBeInTheDocument()
+    expect(screen.getByText(/No action required\. The eligible VPC consumers already use the S3 Gateway endpoint/)).toBeInTheDocument()
     expect(screen.queryByText("Create a Cyntro-managed S3 Gateway endpoint")).not.toBeInTheDocument()
+    expect(screen.queryByLabelText("Private path lifecycle")).not.toBeInTheDocument()
+    expect(screen.queryByText("Blocked")).not.toBeInTheDocument()
+    expect(screen.queryByText("Remove only associations added by this operation")).not.toBeInTheDocument()
+    expect(screen.queryByText("Resolve this safety check, then analyze the migration again.")).not.toBeInTheDocument()
     expect(screen.queryByTestId("estate-vpce-simulate")).not.toBeInTheDocument()
   })
 
