@@ -206,7 +206,16 @@ export async function operationalRequest<T>(
   )
   const body = await response.json().catch(() => null)
   if (!response.ok) {
-    throw new Error(body?.detail || body?.error || `Operational API returned ${response.status}`)
+    // FastAPI error `detail` can be a structured object (e.g. rollback
+    // failures return {error, state}); stringify so operators never see
+    // "[object Object]".
+    const detail = body?.detail ?? body?.error
+    const message = typeof detail === "string"
+      ? detail
+      : detail
+        ? JSON.stringify(detail)
+        : `Operational API returned ${response.status}`
+    throw new Error(message)
   }
   return body as T
 }

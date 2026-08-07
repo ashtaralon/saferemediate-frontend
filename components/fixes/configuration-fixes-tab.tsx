@@ -1,0 +1,298 @@
+"use client"
+
+import { useCallback, useEffect, useMemo, useState } from "react"
+import {
+  ArrowRight,
+  Database,
+  Loader2,
+  Network,
+  RefreshCw,
+  Route,
+} from "lucide-react"
+import {
+  operationalRequest,
+  type S3PrivatePathOperation,
+} from "@/components/topology-v0-2/estate-operations"
+import {
+  isInFlight,
+  isTerminal,
+  lifecycleView,
+  rememberedOperations,
+  updateRememberedOperation,
+  type RememberedOperation,
+} from "./s3-vpce-lifecycle"
+import { S3VpceWizard } from "./s3-vpce-wizard"
+
+interface SystemResource {
+  id: string
+  name: string
+  type: string
+  region?: string | null
+}
+
+interface Props {
+  systemName: string
+}
+
+function StatusChip({ entry }: { entry: RememberedOperation | undefined }) {
+  const view = lifecycleView(entry?.state ?? null)
+  const style = view.tone === "done"
+    ? { background: "#E6FBF7", color: "#0E8B7A", borderColor: "#9FE8DC" }
+    : view.tone === "error"
+      ? { background: "#FEF2F2", color: "#B91C1C", borderColor: "#FCA5A5" }
+      : view.tone === "rolled_back"
+        ? { background: "#FFF7ED", color: "#C2410C", borderColor: "#FED7AA" }
+        : view.tone === "active"
+          ? { background: "#EFF6FF", color: "#1D4ED8", borderColor: "#BFDBFE" }
+          : { background: "#F8FAFC", color: "#5A6B7A", borderColor: "#DDE3E8" }
+  return (
+    <span className="rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide" style={style}>
+      {view.label}
+    </span>
+  )
+}
+
+export function ConfigurationFixesTab({ systemName }: Props) {
+  const [resources, setResources] = useState<SystemResource[]>([])
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [remembered, setRemembered] = useState<RememberedOperation[]>([])
+  const [wizard, setWizard] = useState<{
+    bucket: SystemResource
+    resume: RememberedOperation | null
+  } | null>(null)
+
+  const reloadRemembered = useCallback(() => {
+    setRemembered(rememberedOperations(systemName))
+  }, [systemName])
+
+  useEffect(() => {
+    let cancelled = false
+    const load = async () => {
+      setLoading(true)
+      setLoadError(null)
+      try {
+        const response = await fetch(
+          `/api/proxy/system-resources/${encodeURIComponent(systemName)}`,
+          { cache: "no-store" },
+        )
+        const body = await response.json().catch(() => null)
+        if (!response.ok || !body || body.error) {
+          throw new Error(body?.error || `system-resources returned ${response.status}`)
+        }
+        if (!cancelled) {
+          const all = (body.resources || []) as Array<Record<string, unknown>>
+          setResources(
+            all
+              .filter((r) => r.type === "S3" || r.type === "S3Bucket")
+              .map((r) => ({
+                id: String(r.id ?? r.name ?? ""),
+                name: String(r.name ?? r.id ?? "Unknown bucket"),
+                type: String(r.type ?? "S3"),
+                region: (r.region as string) ?? null,
+              }))
+              .filter((r) => r.id),
+          )
+        }
+      } catch (err) {
+        if (!cancelled) setLoadError(err instanceof Error ? err.message : "Unable to load resources")
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    void load()
+    return () => { cancelled = true }
+  }, [systemName])
+
+  // Refresh remembered operations against the ledger so the chips show
+  // live truth, not the last state this browser happened to see.
+  useEffect(() => {
+    reloadRemembered()
+    let cancelled = false
+    const refresh = async () => {
+      const entries = rememberedOperations(systemName).filter((entry) => !isTerminal(entry.state))
+      await Promise.all(entries.map(async (entry) => {
+        try {
+          const current = await operationalRequest<S3PrivatePathOperation>(
+            systemName,
+            `s3-vpce/operations/${encodeURIComponent(entry.operationId)}?include_history=false`,
+          )
+          updateRememberedOperation(systemName, entry.operationId, {
+            state: current.state,
+            snapshotId: current.execution?.snapshot_id ?? undefined,
+            endpointId: current.execution?.endpoint_id ?? undefined,
+          })
+        } catch {
+          // Ledger read is best-effort here; the wizard surfaces real errors.
+        }
+      }))
+      if (!cancelled) reloadRemembered()
+    }
+    void refresh()
+    return () => { cancelled = true }
+  }, [systemName, reloadRemembered])
+
+  const latestByBucket = useMemo(() => {
+    const map = new Map<string, RememberedOperation>()
+    for (const entry of remembered) {
+      // remembered[] is newest-first, keep the first hit per bucket.
+      if (!map.has(entry.bucketId)) map.set(entry.bucketId, entry)
+    }
+    return map
+  }, [remembered])
+
+  // Only operations that are genuinely running or awaiting a human belong
+  // here. Abandoned drafts (blocked/never-simulated analyses) stay off the
+  // strip — analyze mints a fresh operation every time, so drafts are
+  // superseded, not resumable work.
+  const inFlight = useMemo(
+    () => remembered.filter((entry) => isInFlight(entry.state)),
+    [remembered],
+  )
+
+  const openWizard = (bucket: SystemResource, resume: RememberedOperation | null) => {
+    setWizard({ bucket, resume })
+  }
+
+  const closeWizard = () => {
+    setWizard(null)
+    reloadRemembered()
+  }
+
+  return (
+    <div className="space-y-5 p-1" data-testid="configuration-fixes-tab">
+      <div className="rounded-2xl border p-5" style={{ borderColor: "#DDE3E8", background: "#FFFFFF" }}>
+        <div className="flex items-center gap-2 text-base font-bold" style={{ color: "#1A2330" }}>
+          <Route className="h-5 w-5" style={{ color: "#0E8B7A" }} /> Configuration fixes
+        </div>
+        <p className="mt-1 max-w-3xl text-xs leading-5" style={{ color: "#5A6B7A" }}>
+          Guided infrastructure changes for this system. Each fix runs as a staged setup: review the change, pass the
+          safety checks, get a second pair of eyes, then watch it roll out one step at a time — verified from real
+          traffic, with a snapshot rollback ready the whole way. No scripts, no console sessions.
+        </p>
+      </div>
+
+      {inFlight.length > 0 ? (
+        <section>
+          <h3 className="mb-2 text-xs font-bold uppercase tracking-wide" style={{ color: "#5A6B7A" }}>
+            In progress ({inFlight.length})
+          </h3>
+          <div className="space-y-2">
+            {inFlight.map((entry) => (
+              <div
+                key={entry.operationId}
+                className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3"
+                style={{ borderColor: "#BFDBFE", background: "#EFF6FF" }}
+                data-testid="configuration-fixes-inflight"
+              >
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-semibold" style={{ color: "#1A2330" }}>{entry.bucketName}</span>
+                    <StatusChip entry={entry} />
+                  </div>
+                  <div className="mt-0.5 font-mono text-[10px]" style={{ color: "#5A6B7A" }}>
+                    {entry.operationId} {entry.vpcId ? `· ${entry.vpcId}` : ""}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => openWizard(
+                    { id: entry.bucketId, name: entry.bucketName, type: "S3" },
+                    entry,
+                  )}
+                  className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-white"
+                  style={{ background: "#0E8B7A" }}
+                >
+                  Resume <ArrowRight className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      <section>
+        <div className="mb-2 flex items-center justify-between">
+          <h3 className="text-xs font-bold uppercase tracking-wide" style={{ color: "#5A6B7A" }}>
+            S3 private path · route S3 traffic off the internet gateway
+          </h3>
+        </div>
+        {loading ? (
+          <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-500">
+            <Loader2 className="h-4 w-4 animate-spin" /> Loading this system&apos;s S3 buckets…
+          </div>
+        ) : loadError ? (
+          <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{loadError}</div>
+        ) : resources.length === 0 ? (
+          <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-500">
+            No S3 buckets are attributed to this system yet. Buckets appear here after discovery and behavioral sync.
+          </div>
+        ) : (
+          <div className="grid gap-3 md:grid-cols-2">
+            {resources.map((bucket) => {
+              const entry = latestByBucket.get(bucket.id)
+              const active = entry ? isInFlight(entry.state) : false
+              return (
+                <div
+                  key={bucket.id}
+                  className="flex flex-col justify-between rounded-xl border bg-white p-4"
+                  style={{ borderColor: "#DDE3E8" }}
+                  data-testid="configuration-fix-card"
+                >
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="rounded-lg p-1.5" style={{ background: "#E6FBF7" }}>
+                        <Database className="h-4 w-4" style={{ color: "#0E8B7A" }} />
+                      </span>
+                      <span className="truncate text-sm font-semibold" style={{ color: "#1A2330" }}>{bucket.name}</span>
+                      <StatusChip entry={entry} />
+                    </div>
+                    <p className="mt-2 text-xs leading-5" style={{ color: "#5A6B7A" }}>
+                      Checks who uses this bucket, then moves that traffic onto an S3 Gateway endpoint —
+                      route tables only, no application or permission changes.
+                    </p>
+                  </div>
+                  <div className="mt-3 flex items-center justify-between">
+                    <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide" style={{ color: "#7A8996" }}>
+                      <Network className="h-3 w-3" /> Network routing
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => openWizard(bucket, active ? entry ?? null : null)}
+                      className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-white"
+                      style={{ background: active ? "#1D4ED8" : "#0E8B7A" }}
+                      data-testid="configuration-fix-open"
+                    >
+                      {active ? "Resume setup" : entry?.state === "COMPLETE" ? "Review / run again" : "Start setup"}
+                      <ArrowRight className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </section>
+
+      <section className="rounded-xl border border-dashed p-4 text-xs" style={{ borderColor: "#C9D4DE", color: "#7A8996" }}>
+        <div className="flex items-center gap-2 font-semibold" style={{ color: "#5A6B7A" }}>
+          <RefreshCw className="h-3.5 w-3.5" /> More configuration fixes are on the way
+        </div>
+        <p className="mt-1 leading-5">
+          The same staged setup will cover bucket-policy private-path enforcement, unused internet routes, and endpoint
+          policy scoping — each with its own review, safety check, approval, and rollback.
+        </p>
+      </section>
+
+      {wizard ? (
+        <S3VpceWizard
+          systemName={systemName}
+          bucket={wizard.bucket}
+          resume={wizard.resume}
+          region={wizard.bucket.region}
+          onClose={closeWizard}
+        />
+      ) : null}
+    </div>
+  )
+}

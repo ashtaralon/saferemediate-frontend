@@ -96,6 +96,19 @@ const LeastPrivilegeTab = dynamic(() => import("./LeastPrivilegeTab"), {
   ),
 })
 
+const ConfigurationFixesTab = dynamic(
+  () => import("./fixes/configuration-fixes-tab").then((mod) => ({ default: mod.ConfigurationFixesTab })),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex items-center justify-center h-[600px] bg-slate-50 rounded-xl">
+        <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
+        <span className="ml-3 text-slate-600">Loading configuration fixes…</span>
+      </div>
+    ),
+  },
+)
+
 const IdentitiesSectionTab = dynamic(
   () => import("./identities-section").then((mod) => ({ default: mod.IdentitiesSection })),
   {
@@ -1768,11 +1781,23 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
       label: "Risk",
       icon: ShieldAlert,
       children: [
-        { id: "least-privilege", label: "Resource Risk" },
         { id: "vulnerabilities", label: "Vulnerabilities" },
         { id: "attack-paths", label: "Attack Paths" },
         { id: "crown-jewels", label: "Crown Jewels" },
         { id: "egress", label: "Traffic" },
+      ],
+    },
+    {
+      // The operating surface: guided, staged changes the team runs from
+      // here — Risk is where you look, Fixes is where you act. The
+      // "least-privilege" leaf id is unchanged so existing deep links
+      // (?tab=least-privilege) keep landing on the same content.
+      id: "fixes",
+      label: "Fixes",
+      icon: Wrench,
+      children: [
+        { id: "configuration", label: "Configuration" },
+        { id: "least-privilege", label: "Permissions" },
       ],
     },
     { id: "topology", label: "Topology", icon: MapIcon, leaf: "dependency-map" },
@@ -2840,6 +2865,12 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
       )}
 
       {/* Render the LeastPrivilegeTab component */}
+      {activeTab === "configuration" && (
+        <ErrorBoundary>
+          <ConfigurationFixesTab key={`${systemName}-${refreshKey}`} systemName={systemName} />
+        </ErrorBoundary>
+      )}
+
       {activeTab === "least-privilege" && (
         <div className="max-w-[1800px] mx-auto px-8 py-6">
           <LeastPrivilegeTab key={refreshKey} systemName={systemName} />

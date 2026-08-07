@@ -2,14 +2,11 @@
 
 import { useEffect, useState } from "react"
 import {
-  AlertTriangle,
   ArrowDownToLine,
-  Check,
+  ArrowRight,
   ChevronRight,
   LoaderCircle,
   Network,
-  RotateCcw,
-  ShieldCheck,
   X,
 } from "lucide-react"
 import { ResourceConfigTab } from "@/components/inventory/resource-config-tab"
@@ -68,39 +65,6 @@ interface ResourceDossierData {
   change_capabilities: Array<{ kind: string; available: boolean; label: string }>
 }
 
-interface S3VpcePlan {
-  readiness: "READY" | "BLOCKED"
-  operation_id: string
-  operation_state: string
-  bucket_name: string
-  vpc_id: string | null
-  region: string
-  consumer_ids: string[]
-  subnet_ids: string[]
-  route_table_ids: string[]
-  blockers: Array<{ code: string; message: string }>
-  impact: {
-    observed_consumers: number
-    subnets: number
-    route_tables: number
-    route_table_workloads: number
-    permission_changes: number
-    resource_replacements: number
-  }
-  plan_token: string | null
-  expires_in_seconds: number | null
-}
-
-interface ExecutionResult {
-  status: string
-  errors?: string[]
-  snapshot_id?: string | null
-  endpoint_id?: string | null
-  rollback_available?: boolean
-  lifecycle_token?: string | null
-  rollback_expires_in_seconds?: number | null
-}
-
 interface Props {
   resourceId: string
   resourceName?: string
@@ -153,13 +117,6 @@ export function ResourceDossier({
   const [data, setData] = useState<ResourceDossierData | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
-  const [plan, setPlan] = useState<S3VpcePlan | null>(null)
-  const [planLoading, setPlanLoading] = useState(false)
-  const [simulation, setSimulation] = useState<{ safe_to_apply: boolean; errors: string[] } | null>(null)
-  const [execution, setExecution] = useState<ExecutionResult | null>(null)
-  const [verification, setVerification] = useState<Record<string, unknown> | null>(null)
-  const [operationError, setOperationError] = useState<string | null>(null)
-  const [reviewed, setReviewed] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -179,101 +136,12 @@ export function ResourceDossier({
 
   const isS3 = (data?.resource.type ?? resourceType) === "S3" || (data?.resource.type ?? resourceType) === "S3Bucket"
 
-  async function createPlan() {
-    setPlanLoading(true)
-    setOperationError(null)
-    setSimulation(null)
-    setExecution(null)
-    setVerification(null)
-    try {
-      const response = await fetch(`/api/proxy/operational-map/${encodeURIComponent(systemName)}/s3-vpce/plan`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          resource_id: data?.resource.id ?? resourceId,
-          customer_id: systemName,
-          vpc_id: vpcId || undefined,
-          account_id: accountId || undefined,
-          region: region || data?.resource.region || undefined,
-          window_days: 90,
-        }),
-      })
-      setPlan(await readJson(response))
-    } catch (cause) {
-      setOperationError(cause instanceof Error ? cause.message : String(cause))
-    } finally {
-      setPlanLoading(false)
-    }
-  }
-
-  async function simulate() {
-    if (!plan?.plan_token) return
-    setOperationError(null)
-    try {
-      const response = await fetch(`/api/proxy/operational-map/${encodeURIComponent(systemName)}/s3-vpce/simulate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ operation_id: plan.operation_id, plan_token: plan.plan_token }),
-      })
-      setSimulation(await readJson(response))
-    } catch (cause) {
-      setOperationError(cause instanceof Error ? cause.message : String(cause))
-    }
-  }
-
-  async function apply() {
-    if (!plan?.plan_token || !plan.vpc_id) return
-    setOperationError(null)
-    try {
-      const response = await fetch(`/api/proxy/operational-map/${encodeURIComponent(systemName)}/s3-vpce/execute`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          plan_token: plan.plan_token,
-          confirmation: `APPLY ${plan.bucket_name} ${plan.vpc_id}`,
-          requested_by: "cyntro-ui",
-        }),
-      })
-      setExecution(await readJson(response))
-    } catch (cause) {
-      setOperationError(cause instanceof Error ? cause.message : String(cause))
-    }
-  }
-
-  async function verify() {
-    if (!execution?.lifecycle_token || !execution?.endpoint_id) return
-    setOperationError(null)
-    try {
-      const response = await fetch(`/api/proxy/operational-map/${encodeURIComponent(systemName)}/s3-vpce/verify`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plan_token: execution.lifecycle_token, endpoint_id: execution.endpoint_id }),
-      })
-      setVerification(await readJson(response))
-    } catch (cause) {
-      setOperationError(cause instanceof Error ? cause.message : String(cause))
-    }
-  }
-
-  async function rollback() {
-    if (!execution?.lifecycle_token || !execution?.snapshot_id) return
-    setOperationError(null)
-    try {
-      const response = await fetch(`/api/proxy/operational-map/${encodeURIComponent(systemName)}/s3-vpce/rollback`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          plan_token: execution.lifecycle_token,
-          snapshot_id: execution.snapshot_id,
-          confirmation: `ROLLBACK ${execution.snapshot_id}`,
-          requested_by: "cyntro-ui",
-        }),
-      })
-      setExecution(await readJson(response))
-      setVerification(null)
-    } catch (cause) {
-      setOperationError(cause instanceof Error ? cause.message : String(cause))
-    }
+  // Send the operator to the system dashboard's Fixes tab — the one place
+  // staged changes run from. The dashboard listens for this event; when the
+  // dossier is rendered outside it, the button simply closes the drawer.
+  function openFixesTab() {
+    window.dispatchEvent(new CustomEvent("cyntro:navigate-tab", { detail: { tabId: "configuration" } }))
+    onClose()
   }
 
   const tabs: Array<{ id: Tab; label: string }> = [
@@ -350,25 +218,25 @@ export function ResourceDossier({
 
         {data && tab === "change" ? (
           <div className="space-y-4">
-            {!isS3 ? <div className="rounded-xl border border-slate-200 bg-white p-5"><h3 className="font-bold text-slate-950">Change planning is read-only for this resource type.</h3><p className="mt-2 text-sm text-slate-600">The shared dossier is ready. The first signed execution workflow is S3 public-path to Gateway VPCE; certificate and token rotation require additional client-side telemetry before they can be safe.</p></div> : null}
-            {isS3 ? <>
-              <section className="rounded-xl border border-slate-200 bg-white p-4">
-                <div className="flex items-center gap-2"><Network className="h-5 w-5 text-teal-600" /><h3 className="font-bold text-slate-950">Move observed S3 traffic to a Gateway VPCE</h3></div>
-                <p className="mt-2 text-sm leading-6 text-slate-600">Cyntro uses this bucket as the behavioral anchor, then binds the exact route-table cohort and evidence baseline into a signed 15-minute plan. AWS moves all S3 traffic on those route tables, so the full affected workload count is shown.</p>
-                <button type="button" onClick={createPlan} disabled={planLoading} className="mt-4 inline-flex items-center gap-2 rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-800 disabled:opacity-50">{planLoading ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}Analyze change</button>
+            {!isS3 ? <div className="rounded-xl border border-slate-200 bg-white p-5"><h3 className="font-bold text-slate-950">Change planning is read-only for this resource type.</h3><p className="mt-2 text-sm text-slate-600">The shared dossier is ready. The first staged setup is S3 public-path to Gateway VPCE; certificate and token rotation require additional client-side telemetry before they can be safe.</p></div> : null}
+            {isS3 ? (
+              <section className="rounded-xl border border-teal-200 bg-teal-50 p-5">
+                <div className="flex items-center gap-2"><Network className="h-5 w-5 text-teal-700" /><h3 className="font-bold text-slate-950">This setup runs from Fixes → Configuration</h3></div>
+                <p className="mt-2 text-sm leading-6 text-slate-700">
+                  Moving this bucket&apos;s traffic onto an S3 Gateway endpoint is a staged change — review, safety
+                  check, four-eyes approval, canary rollout, verification, rollback. It runs from one place so every
+                  operation is tracked and resumable, instead of from per-resource drawers.
+                </p>
+                <button
+                  type="button"
+                  onClick={openFixesTab}
+                  className="mt-4 inline-flex items-center gap-2 rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-800"
+                  data-testid="dossier-open-fixes"
+                >
+                  Open Fixes → Configuration <ArrowRight className="h-4 w-4" />
+                </button>
               </section>
-              {plan ? <section className={`rounded-xl border p-4 ${plan.readiness === "READY" ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}>
-                <div className="flex items-center gap-2 font-bold text-slate-950">{plan.readiness === "READY" ? <Check className="h-5 w-5 text-emerald-600" /> : <AlertTriangle className="h-5 w-5 text-amber-600" />}{plan.readiness === "READY" ? "Exact change set is ready" : "Change is blocked by evidence gaps"}</div>
-                <div className="mt-3 grid grid-cols-4 gap-2 text-center"><div><strong className="block text-xl">{plan.impact.observed_consumers}</strong><span className="text-[10px] uppercase text-slate-500">Observed users</span></div><div><strong className="block text-xl">{plan.impact.route_table_workloads}</strong><span className="text-[10px] uppercase text-slate-500">Affected workloads</span></div><div><strong className="block text-xl">{plan.impact.subnets}</strong><span className="text-[10px] uppercase text-slate-500">Source subnets</span></div><div><strong className="block text-xl">{plan.impact.route_tables}</strong><span className="text-[10px] uppercase text-slate-500">Route tables</span></div></div>
-                <div className="mt-3 text-xs text-slate-600">Permissions changed: 0 | Resources replaced: 0 | Snapshot before apply: required</div>
-                {plan.blockers.map(blocker => <div key={blocker.code} className="mt-3 rounded border border-amber-200 bg-white/70 p-3 text-xs"><strong>{blocker.code}</strong><div className="mt-1 text-slate-600">{blocker.message}</div></div>)}
-                {plan.readiness === "READY" ? <button type="button" onClick={simulate} className="mt-4 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-900 hover:border-teal-500">Simulate exact plan</button> : null}
-              </section> : null}
-              {simulation ? <section className="rounded-xl border border-slate-200 bg-white p-4"><div className="font-bold text-slate-950">Simulation {simulation.safe_to_apply ? "passed" : "did not pass"}</div>{simulation.errors?.map(item => <div key={item} className="mt-2 text-xs text-rose-700">{item}</div>)}{simulation.safe_to_apply ? <p className="mt-3 text-xs leading-5 text-slate-600">Open this resource from the Estate Map to request approval, apply the one-route-table canary, verify observed traffic, expand, and retain exact rollback. Execution is intentionally not available from a reduced-scope inventory drawer.</p> : null}</section> : null}
-              {execution ? <section className="rounded-xl border border-slate-200 bg-white p-4"><div className="font-bold text-slate-950">Execution: {execution.status}</div>{execution.endpoint_id ? <div className="mt-2 font-mono text-xs text-slate-600">{execution.endpoint_id}</div> : null}<div className="mt-4 flex flex-wrap gap-2">{execution.endpoint_id ? <button type="button" onClick={verify} className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white">Verify behavioral path</button> : null}{execution.snapshot_id ? <button type="button" onClick={rollback} className="inline-flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-800"><RotateCcw className="h-4 w-4" />Rollback</button> : null}</div></section> : null}
-              {verification ? <pre className="overflow-auto rounded-xl border border-slate-200 bg-slate-950 p-4 text-xs text-slate-200">{JSON.stringify(verification, null, 2)}</pre> : null}
-              {operationError ? <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">{operationError}</div> : null}
-            </> : null}
+            ) : null}
           </div>
         ) : null}
       </div>
