@@ -116,8 +116,8 @@ function Metric({ label, value }: { label: string; value: string | number }) {
 
 const S3_BLOCKER_GUIDANCE: Record<string, { title: string; next: string }> = {
   NO_OBSERVED_CONSUMERS: {
-    title: "No eligible VPC consumer in this scope",
-    next: "Select All VPCs or a VPC containing an observed consumer. If none appears, generate S3 activity from a VPC-attached workload and refresh behavioral data.",
+    title: "No migration target in this VPC",
+    next: "No AWS change is needed for this VPC. To test or perform a Gateway endpoint migration, select a VPC with an observed S3 consumer or generate S3 traffic from a VPC-attached workload and refresh behavioral data.",
   },
   UNKNOWN_NETWORK_PATH: {
     title: "Effective S3 route is not proven",
@@ -358,7 +358,7 @@ export function DetailPanel({ node, systemName, accountId, region, vpcId, onClos
   const planStatusTitle = plan?.readiness === "READY"
     ? "One-route-table canary is ready to simulate"
     : noEligibleConsumer
-      ? "No VPC-attached bucket consumer found in this scope"
+      ? "No S3 traffic from this VPC to migrate"
       : unknownNetworkPath
         ? "Consumer route evidence is incomplete"
         : endpointNeedsOptIn
@@ -368,8 +368,8 @@ export function DetailPanel({ node, systemName, accountId, region, vpcId, onClos
     ? `Cyntro proved ${migratableConsumers} migratable consumer${migratableConsumers === 1 ? "" : "s"} and an exact canary route table in ${migrationScope}.`
     : noEligibleConsumer
       ? totalObservedConsumers > 0
-        ? `${totalObservedConsumers} bucket consumer${totalObservedConsumers === 1 ? " was" : "s were"} observed, but none is attached to ${migrationScope} and eligible for an S3 Gateway endpoint migration.`
-        : `No bucket access by a VPC-attached workload was observed in ${migrationScope}.`
+        ? `${totalObservedConsumers} observed bucket consumer${totalObservedConsumers === 1 ? " runs" : "s run"} outside ${migrationScope}. ${totalObservedConsumers === 1 ? "Its" : "Their"} S3 calls do not traverse this VPC's route tables or internet gateway, so an S3 Gateway endpoint here would not affect ${totalObservedConsumers === 1 ? "it" : "them"}.`
+        : `No observed S3 consumer uses ${migrationScope}, so there is no route-table migration to perform.`
       : unknownNetworkPath
         ? `${plan?.impact.unknown_consumers ?? 1} observed consumer${(plan?.impact.unknown_consumers ?? 1) === 1 ? " cannot" : "s cannot"} yet be bound to a subnet, effective route table, and current S3 route.`
         : endpointNeedsOptIn
@@ -378,7 +378,7 @@ export function DetailPanel({ node, systemName, accountId, region, vpcId, onClos
   let endpointAction = ""
   if (plan) {
     if (noEligibleConsumer) {
-      endpointAction = "No endpoint change until an eligible VPC consumer is observed"
+      endpointAction = "No VPCE change is needed in this VPC"
     } else if (endpointNeedsOptIn) {
       endpointAction = `Existing endpoint ${plan.existing_endpoint_id} selected; explicit Cyntro opt-in required`
     } else if (unknownNetworkPath && plan.endpoint_mode !== "ADOPT_EXISTING") {
@@ -573,24 +573,31 @@ export function DetailPanel({ node, systemName, accountId, region, vpcId, onClos
                 </button>
                 {plan ? (
                   <div className="space-y-4" data-testid="estate-vpce-plan">
-                    <div className="grid grid-cols-6 gap-1 rounded-xl border bg-white p-3" style={{ borderColor: "#DDE3E8" }} aria-label="Private path lifecycle">
-                      {progressSteps.map((step, index) => (
-                        <div key={step} className="min-w-0 text-center">
-                          <div className="mx-auto mb-1 flex h-6 w-6 items-center justify-center rounded-full border text-[10px] font-bold" style={index < progressIndex
-                            ? { borderColor: "#00C2A8", background: "#0E8B7A", color: "#FFFFFF" }
-                            : index === progressIndex
-                              ? { borderColor: "#00C2A8", background: "#E6FBF7", color: "#0E8B7A" }
-                              : { borderColor: "#DDE3E8", background: "#F8FAFC", color: "#7A8996" }}>
-                            {index < progressIndex ? "✓" : index + 1}
+                    {noEligibleConsumer ? (
+                      <div className="flex items-center gap-2 rounded-xl border border-teal-200 bg-teal-50 p-3 text-xs font-semibold text-teal-800" data-testid="estate-vpce-not-applicable">
+                        <CheckCircle2 className="h-4 w-4 shrink-0" />
+                        Analysis complete · No migration applicable in the selected VPC
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-6 gap-1 rounded-xl border bg-white p-3" style={{ borderColor: "#DDE3E8" }} aria-label="Private path lifecycle">
+                        {progressSteps.map((step, index) => (
+                          <div key={step} className="min-w-0 text-center">
+                            <div className="mx-auto mb-1 flex h-6 w-6 items-center justify-center rounded-full border text-[10px] font-bold" style={index < progressIndex
+                              ? { borderColor: "#00C2A8", background: "#0E8B7A", color: "#FFFFFF" }
+                              : index === progressIndex
+                                ? { borderColor: "#00C2A8", background: "#E6FBF7", color: "#0E8B7A" }
+                                : { borderColor: "#DDE3E8", background: "#F8FAFC", color: "#7A8996" }}>
+                              {index < progressIndex ? "✓" : index + 1}
+                            </div>
+                            <span className="block truncate text-[9px] font-semibold uppercase tracking-wide text-slate-500">{step}</span>
                           </div>
-                          <span className="block truncate text-[9px] font-semibold uppercase tracking-wide text-slate-500">{step}</span>
-                        </div>
-                      ))}
-                    </div>
+                        ))}
+                      </div>
+                    )}
 
-                    <div className="space-y-4 rounded-xl border p-4" style={{ borderColor: plan.readiness === "READY" ? "#9FE8DC" : "#FED7AA", background: plan.readiness === "READY" ? "#F0FDFA" : "#FFF7ED" }}>
+                    <div className="space-y-4 rounded-xl border p-4" style={{ borderColor: plan.readiness === "READY" || noEligibleConsumer ? "#9FE8DC" : "#FED7AA", background: plan.readiness === "READY" || noEligibleConsumer ? "#F0FDFA" : "#FFF7ED" }}>
                       <div className="flex items-start gap-2">
-                        {plan.readiness === "READY" ? <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-teal-600" /> : <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-orange-600" />}
+                        {plan.readiness === "READY" || noEligibleConsumer ? <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-teal-600" /> : <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-orange-600" />}
                         <div>
                           <div className="text-sm font-bold">{planStatusTitle}</div>
                           <p className="mt-1 text-xs leading-5 text-slate-600">{planStatusDetail}</p>
@@ -606,14 +613,14 @@ export function DetailPanel({ node, systemName, accountId, region, vpcId, onClos
                       <div className="rounded-lg border bg-white p-3 text-xs text-slate-600" style={{ borderColor: "#DDE3E8" }}>
                         <div className="grid grid-cols-[125px_1fr] gap-x-3 gap-y-2">
                           <strong className="text-slate-800">Endpoint action</strong><span>{endpointAction}</span>
-                          <strong className="text-slate-800">Canary</strong><span className="font-mono">{plan.canary_route_table_id ?? "Blocked"}</span>
-                          <strong className="text-slate-800">Authorization</strong><span>No IAM or bucket-policy change in this operation</span>
-                          <strong className="text-slate-800">Rollback</strong><span>Remove only associations added by this operation</span>
+                          <strong className="text-slate-800">Canary</strong><span className="font-mono">{noEligibleConsumer ? "Not applicable" : plan.canary_route_table_id ?? "Blocked"}</span>
+                          <strong className="text-slate-800">Authorization</strong><span>{noEligibleConsumer ? "Unchanged · no AWS operation planned" : "No IAM or bucket-policy change in this operation"}</span>
+                          <strong className="text-slate-800">Rollback</strong><span>{noEligibleConsumer ? "Not needed · no AWS change planned" : "Remove only associations added by this operation"}</span>
                         </div>
                       </div>
                       {(plan.excluded_consumers?.length ?? 0) > 0 ? (
                         <div className="rounded-lg border border-slate-200 bg-white p-3">
-                          <div className="text-xs font-bold text-slate-800">Not changed by this operation ({plan.excluded_consumers?.length})</div>
+                          <div className="text-xs font-bold text-slate-800">{noEligibleConsumer ? "Outside this VPC migration" : "Not changed by this operation"} ({plan.excluded_consumers?.length})</div>
                           <div className="mt-2 space-y-2">
                             {plan.excluded_consumers?.map((consumer, index) => (
                               <div key={`${consumer.resource_id}-${index}`} className="text-xs text-slate-600">
@@ -627,11 +634,12 @@ export function DetailPanel({ node, systemName, accountId, region, vpcId, onClos
                         <div className="space-y-2">
                           {plan.blockers.map((blocker) => {
                             const guidance = blockerGuidance(blocker.code)
+                            const isNoMigrationTarget = blocker.code === "NO_OBSERVED_CONSUMERS"
                             return (
-                              <div key={blocker.code} className="rounded-lg border border-orange-200 bg-white p-3 text-xs">
+                              <div key={blocker.code} className={`rounded-lg border bg-white p-3 text-xs ${isNoMigrationTarget ? "border-teal-200" : "border-orange-200"}`}>
                                 <div className="flex flex-wrap items-center gap-2">
-                                  <strong className="text-orange-800">{guidance.title}</strong>
-                                  <span className="rounded bg-orange-50 px-1.5 py-0.5 font-mono text-[9px] text-orange-700">{blocker.code}</span>
+                                  <strong className={isNoMigrationTarget ? "text-teal-800" : "text-orange-800"}>{guidance.title}</strong>
+                                  <span className={`rounded px-1.5 py-0.5 font-mono text-[9px] ${isNoMigrationTarget ? "bg-teal-50 text-teal-700" : "bg-orange-50 text-orange-700"}`}>{blocker.code}</span>
                                 </div>
                                 <p className="mt-1 leading-5 text-slate-600">{blocker.message}</p>
                                 <p className="mt-2 leading-5 text-slate-700"><strong>Next:</strong> {guidance.next}</p>
