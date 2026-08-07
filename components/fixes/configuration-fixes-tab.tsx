@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   ArrowRight,
   Database,
@@ -11,12 +11,12 @@ import {
 } from "lucide-react"
 import {
   operationalRequest,
-  type S3PrivatePathOperation,
+  type S3VpceOperationList,
 } from "@/components/topology-v0-2/estate-operations"
 import {
   isInFlight,
-  isTerminal,
   lifecycleView,
+  operationFromSummary,
   rememberedOperations,
   updateRememberedOperation,
   type RememberedOperation,
@@ -56,14 +56,58 @@ export function ConfigurationFixesTab({ systemName }: Props) {
   const [resources, setResources] = useState<SystemResource[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
-  const [remembered, setRemembered] = useState<RememberedOperation[]>([])
+  const [operations, setOperations] = useState<RememberedOperation[]>([])
+  // "server": rows come from the operations ledger (cross-browser truth).
+  // "local": ledger unreachable — degraded to this browser's stash.
+  const [listSource, setListSource] = useState<"server" | "local">("local")
   const [wizard, setWizard] = useState<{
     bucket: SystemResource
     resume: RememberedOperation | null
   } | null>(null)
+  const mountedRef = useRef(true)
+  useEffect(() => {
+    mountedRef.current = true
+    return () => { mountedRef.current = false }
+  }, [])
 
-  const reloadRemembered = useCallback(() => {
-    setRemembered(rememberedOperations(systemName))
+  // The ledger is the system of record for this list; the browser stash
+  // contributes only the bearer tokens reads never return, and serves as
+  // the fallback when the ledger cannot be reached.
+  const refreshOperations = useCallback(async () => {
+    const stash = rememberedOperations(systemName)
+    try {
+      const body = await operationalRequest<S3VpceOperationList>(
+        systemName,
+        "s3-vpce/operations?include_terminal=true&limit=100",
+      )
+      const stashById = new Map(stash.map((entry) => [entry.operationId, entry]))
+      const rows = (body.operations ?? []).map((summary) =>
+        operationFromSummary(systemName, summary, stashById.get(summary.operation_id)),
+      )
+      // Keep stashed entries in step with the ledger so a token-holding
+      // browser never disagrees with the server about where things stand.
+      for (const row of rows) {
+        if (stashById.has(row.operationId)) {
+          updateRememberedOperation(systemName, row.operationId, {
+            state: row.state,
+            snapshotId: row.snapshotId,
+            endpointId: row.endpointId,
+            requestedBy: row.requestedBy,
+            approvedBy: row.approvedBy,
+            rollbackExpiresAt: row.rollbackExpiresAt,
+          })
+        }
+      }
+      if (mountedRef.current) {
+        setOperations(rows)
+        setListSource("server")
+      }
+    } catch {
+      if (mountedRef.current) {
+        setOperations(stash)
+        setListSource("local")
+      }
+    }
   }, [systemName])
 
   useEffect(() => {
@@ -104,50 +148,27 @@ export function ConfigurationFixesTab({ systemName }: Props) {
     return () => { cancelled = true }
   }, [systemName])
 
-  // Refresh remembered operations against the ledger so the chips show
-  // live truth, not the last state this browser happened to see.
   useEffect(() => {
-    reloadRemembered()
-    let cancelled = false
-    const refresh = async () => {
-      const entries = rememberedOperations(systemName).filter((entry) => !isTerminal(entry.state))
-      await Promise.all(entries.map(async (entry) => {
-        try {
-          const current = await operationalRequest<S3PrivatePathOperation>(
-            systemName,
-            `s3-vpce/operations/${encodeURIComponent(entry.operationId)}?include_history=false`,
-          )
-          updateRememberedOperation(systemName, entry.operationId, {
-            state: current.state,
-            snapshotId: current.execution?.snapshot_id ?? undefined,
-            endpointId: current.execution?.endpoint_id ?? undefined,
-          })
-        } catch {
-          // Ledger read is best-effort here; the wizard surfaces real errors.
-        }
-      }))
-      if (!cancelled) reloadRemembered()
-    }
-    void refresh()
-    return () => { cancelled = true }
-  }, [systemName, reloadRemembered])
+    void refreshOperations()
+  }, [refreshOperations])
 
   const latestByBucket = useMemo(() => {
     const map = new Map<string, RememberedOperation>()
-    for (const entry of remembered) {
-      // remembered[] is newest-first, keep the first hit per bucket.
+    for (const entry of operations) {
+      // operations[] is newest-first (both ledger and stash), keep the
+      // first hit per bucket.
       if (!map.has(entry.bucketId)) map.set(entry.bucketId, entry)
     }
     return map
-  }, [remembered])
+  }, [operations])
 
   // Only operations that are genuinely running or awaiting a human belong
   // here. Abandoned drafts (blocked/never-simulated analyses) stay off the
   // strip — analyze mints a fresh operation every time, so drafts are
   // superseded, not resumable work.
   const inFlight = useMemo(
-    () => remembered.filter((entry) => isInFlight(entry.state)),
-    [remembered],
+    () => operations.filter((entry) => isInFlight(entry.state)),
+    [operations],
   )
 
   const openWizard = (bucket: SystemResource, resume: RememberedOperation | null) => {
@@ -156,7 +177,7 @@ export function ConfigurationFixesTab({ systemName }: Props) {
 
   const closeWizard = () => {
     setWizard(null)
-    reloadRemembered()
+    void refreshOperations()
   }
 
   return (
@@ -177,6 +198,11 @@ export function ConfigurationFixesTab({ systemName }: Props) {
           <h3 className="mb-2 text-xs font-bold uppercase tracking-wide" style={{ color: "#5A6B7A" }}>
             In progress ({inFlight.length})
           </h3>
+          {listSource === "local" ? (
+            <p className="mb-2 text-[11px]" style={{ color: "#B45309" }} data-testid="configuration-fixes-degraded">
+              Live operations list unavailable — showing changes started in this browser only.
+            </p>
+          ) : null}
           <div className="space-y-2">
             {inFlight.map((entry) => (
               <div
