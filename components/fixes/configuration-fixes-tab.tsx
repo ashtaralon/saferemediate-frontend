@@ -299,11 +299,12 @@ export function ConfigurationFixesTab({ systemName }: Props) {
             {resources.map((bucket) => {
               const entry = latestVpceByBucket.get(bucket.id)
               const active = entry ? isInFlight(entry.state) : false
-              // Enforcement is the second stage — only meaningful once the
-              // transport migration for this bucket has completed. The backend
-              // gates it regardless; the UI only surfaces the affordance when
-              // the private path is actually established.
-              const migrationComplete = entry?.state === "COMPLETE"
+              // Enforcement eligibility is decided by backend analysis (which
+              // proves the private path from behavior), NOT by whether Cyntro
+              // ran the migration. So the affordance is always available — a
+              // bucket already private through a VPCE set up outside Cyntro can
+              // start enforcement, and analyze blocks clearly if it is not yet
+              // eligible (consumers on the public path, no proof, etc.).
               const enforceEntry = latestEnforcementByBucket.get(bucket.id)
               const enforceActive = enforceEntry ? isInFlight(enforceEntry.state) : false
               const enforced = enforceEntry?.state === "COMPLETE"
@@ -342,8 +343,7 @@ export function ConfigurationFixesTab({ systemName }: Props) {
                       <ArrowRight className="h-3.5 w-3.5" />
                     </button>
                   </div>
-                  {migrationComplete || enforceEntry ? (
-                    <div className="mt-3 flex items-center justify-between border-t pt-3" style={{ borderColor: "#EDF1F4" }} data-testid="configuration-fix-enforce-row">
+                  <div className="mt-3 flex items-center justify-between border-t pt-3" style={{ borderColor: "#EDF1F4" }} data-testid="configuration-fix-enforce-row">
                       <span className="inline-flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide" style={{ color: "#7A8996" }}>
                         <Lock className="h-3 w-3" /> Enforce private path
                         {enforceEntry ? <StatusChip entry={enforceEntry} /> : null}
@@ -364,8 +364,7 @@ export function ConfigurationFixesTab({ systemName }: Props) {
                         {enforceActive ? "Resume enforcement" : enforced ? "Enforced · review" : "Enforce private path"}
                         <ArrowRight className="h-3.5 w-3.5" />
                       </button>
-                    </div>
-                  ) : null}
+                  </div>
                 </div>
               )
             })}

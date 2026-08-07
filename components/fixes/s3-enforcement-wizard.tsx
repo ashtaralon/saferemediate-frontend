@@ -89,7 +89,15 @@ const BLOCKER_GUIDANCE: Record<string, { title: string; next: string }> = {
   },
   OUT_OF_VPC_ACCESS_UNREVIEWED: {
     title: "Out-of-VPC access is not covered by an exemption",
-    next: "Access from outside any VPC would be denied by enforcement. Add a reviewed exemption pattern for each principal below, or remove their access first.",
+    next: "Access from outside any VPC would be denied by enforcement. Add a reviewed exemption pattern for each principal role below, or remove their access first.",
+  },
+  PRINCIPAL_IDENTITY_UNRESOLVED: {
+    title: "An out-of-VPC caller's IAM role could not be resolved",
+    next: "Enforcement is refused rather than risk denying an unidentified caller. Run an IAM/behavioral sync so each caller's assumed-role ARN is known, then analyze again.",
+  },
+  ENFORCEMENT_ENDPOINT_MISSING: {
+    title: "A proven endpoint no longer exists",
+    next: "An endpoint in the behavioral proof was not found live. Refresh transport telemetry so the proof matches AWS, then analyze again.",
   },
   BUCKET_POLICY_CONDITION_CONFLICT: {
     title: "The bucket policy already conditions on the network path",
@@ -653,9 +661,12 @@ export function S3EnforcementWizard({ systemName, bucket, resume, accountId, reg
                           ? plan.exempt_principal_arns.map((arn) => <div key={arn} className="font-mono text-[10px]">{arn}</div>)
                           : "None — no out-of-VPC access observed"}
                       </InfoRow>
-                      {plan.established_by_operation_id ? (
+                      {plan.established_by_operation_ids?.length ? (
                         <InfoRow label="Private path from">
-                          <span className="font-mono text-[10px]">{plan.established_by_operation_id}</span>
+                          <span className="font-mono text-[10px]">{plan.established_by_operation_ids[0]}</span>
+                          {plan.established_by_operation_ids.length > 1
+                            ? ` +${plan.established_by_operation_ids.length - 1} more`
+                            : null}
                         </InfoRow>
                       ) : null}
                       <InfoRow label="Not touched">IAM, network routes, bucket management (Get/Put/DeleteBucketPolicy) — rollback stays available</InfoRow>

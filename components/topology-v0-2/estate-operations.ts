@@ -217,14 +217,18 @@ export interface S3EnforcementPlan {
   operation_id?: string
   operation_state?: S3PrivatePathState
   bucket_name: string
+  // Display/audit only — enforcement is bucket-global, never VPC-scoped.
   vpc_id?: string | null
+  vpc_ids?: string[]
   region?: string | null
   vpce_ids: string[]
   enforcement_mode: "SINGLE_STAGE" | "PRINCIPAL_CANARY"
   exempt_principal_arns: string[]
   canary_principal_arns: string[]
+  // Suggested exemptions are the resolved aws:PrincipalArn (assumed-role) ARNs
+  // S3 actually evaluates — not the workload resource ARN.
   out_of_vpc_principals?: string[]
-  established_by_operation_id?: string | null
+  established_by_operation_ids?: string[]
   // The exact bucket-policy documents the approver reviews — full always
   // present when READY; canary present only in PRINCIPAL_CANARY mode.
   full_policy?: Record<string, unknown> | null
