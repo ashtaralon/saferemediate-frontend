@@ -94,6 +94,10 @@ describe("interactive attacker maps", () => {
       join(ROOT, "components/dependency-map/traffic-flow-map.tsx"),
       "utf8",
     )
+    const attackPaths = readFileSync(
+      join(ROOT, "components/attack-paths-v2/attack-paths-v2.tsx"),
+      "utf8",
+    )
 
     expect(lateral).toContain("<TrafficFlowMap")
     expect(lateral).toContain("architectureOverride={architecture}")
@@ -104,6 +108,15 @@ describe("interactive attacker maps", () => {
     expect(trafficMap).toContain('data-modeled-flow-motion="true"')
     expect(trafficMap).toContain("forceModeledMotion={!!architecture.modeledMoves?.length")
     expect(zoom0).toContain("overflow-y-auto overscroll-contain")
+    expect(zoom0).toContain("ref={scrollContainerRef}")
+    expect(zoom0).toContain("scrollContainerRef.current?.scrollTo")
+    expect(zoom0).toContain('? "h-auto overflow-visible"')
+    expect(zoom0).not.toContain('isExpanded ? "sticky top-0 shadow-sm"')
+    expect(attackPaths).toContain("ref={mainScrollRef}")
+    expect(attackPaths).toContain("mainScrollRef.current?.scrollTo")
+    expect(attackPaths).toContain("mainScrollRef.current?.scrollIntoView")
+    expect(attackPaths).toContain("documentScroll={embedded && isPathExpanded}")
+    expect(attackPaths).toContain('? "flex flex-col min-h-[78vh] overflow-visible"')
     expect(zoom0).toContain('data-testid="zoom0-exfil-interactive-map"')
     expect(zoom0).toContain("architectureOverride={exfilArchitecture}")
     expect(zoom0).not.toContain("zoom0-lens-map-unavailable")

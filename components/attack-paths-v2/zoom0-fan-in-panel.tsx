@@ -253,6 +253,7 @@ export function Zoom0FanInPanel({
   onRequestMode,
   onClearPath,
   isExpanded = false,
+  documentScroll = false,
 }: {
   systemName: string
   jewel: CrownJewelSummary
@@ -263,8 +264,10 @@ export function Zoom0FanInPanel({
   onRequestMode?: (mode: "lateral" | "exfil") => void
   /** Clear ?path= pin and return to fan-in selection. */
   onClearPath?: () => void
-  /** When map expand hides left columns, keep fan-in chrome pinned. */
+  /** Whether the side rails are hidden and the map owns the full width. */
   isExpanded?: boolean
+  /** Expanded dashboard mode uses the page scrollbar, not a nested canvas scrollbar. */
+  documentScroll?: boolean
 }) {
   const cjArn =
     jewel.canonical_id ?? (jewel.id.startsWith("arn:") ? jewel.id : null)
@@ -307,6 +310,7 @@ export function Zoom0FanInPanel({
   const [tileFilterIds, setTileFilterIds] = useState<string[] | null>(null)
   const [detailsPanel, setDetailsPanel] =
     useState<Zoom0DetailsPanel>("current_access")
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -326,6 +330,20 @@ export function Zoom0FanInPanel({
     if (detailsPanel === "lateral") return
     setDetailsPanel("current_access")
   }, [pinPathId, detailsPanel])
+
+  // Lateral and Exfiltration are taller than the embedded canvas, so Zoom0
+  // owns their vertical scroll. Reset that scroll whenever the operator
+  // changes lens; otherwise React preserves the old scrollTop and the next
+  // map opens halfway down its canvas. The summary bar deliberately scrolls
+  // with the content: making it sticky caused it to paint over the TFM header
+  // and graph nodes once the internal viewport moved.
+  useEffect(() => {
+    // In document-scroll mode the clicked lens controls are already visible;
+    // leave the page position alone. The outer mode switch owns any required
+    // page reset so we do not hide its sticky navigation above the viewport.
+    if (documentScroll) return
+    scrollContainerRef.current?.scrollTo({ top: 0, left: 0, behavior: "auto" })
+  }, [detailsPanel, documentScroll])
 
   const spotlightPaths = useMemo(() => {
     if (!effective.data) return []
@@ -519,8 +537,11 @@ export function Zoom0FanInPanel({
 
   return (
     <div
+      ref={scrollContainerRef}
       className={`flex flex-col min-h-0 ${
-        isExpanded
+        documentScroll
+          ? "h-auto overflow-visible"
+          : isExpanded
           ? detailsPanel === "current_access"
             ? "flex-1 h-full overflow-hidden"
             : "flex-1 h-full overflow-y-auto overscroll-contain"
@@ -528,10 +549,17 @@ export function Zoom0FanInPanel({
       }`}
       data-testid="zoom0-fan-in"
       data-expanded={isExpanded ? "true" : "false"}
+      data-scroll-owner={
+        documentScroll
+          ? "document"
+          : isExpanded && detailsPanel !== "current_access"
+            ? "zoom0"
+            : "parent"
+      }
     >
       <div
         className={`px-6 py-3 border-b border-border bg-background shrink-0 z-10 ${
-          isExpanded ? "sticky top-0 shadow-sm" : ""
+          isExpanded ? "shadow-sm" : ""
         }`}
         data-testid="zoom0-fan-in-bar"
       >
