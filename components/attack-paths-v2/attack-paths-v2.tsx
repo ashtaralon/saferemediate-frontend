@@ -22,7 +22,7 @@
 // reduction_narrative, risk_reduction, and damage_capability per path;
 // Slice 1 surfaces these directly in the right column header.
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useSearchParams, useRouter, usePathname } from "next/navigation"
 import { Loader2, AlertTriangle, RefreshCw, Maximize2, Minimize2 } from "lucide-react"
 import { useCachedFetch } from "@/lib/use-cached-fetch"
@@ -129,10 +129,6 @@ export function AttackPathsV2({
   // (see EmptyState rendering below), and the system picker upstream
   // is the entry point operators land on.
   const systemName = systemNameProp ?? searchParams?.get("system") ?? null
-  // Contained height for the dashboard-embedded tab vs full-screen for the
-  // standalone route. Used by every shell branch (empty/loading/error/main)
-  // so the 3-column layout scrolls inside the tab instead of overflowing.
-  const shellHeight = embedded ? "h-[78vh] min-h-[600px]" : "h-screen"
   const selectedJewelId = searchParams?.get("jewel") ?? null
   const selectedPathId = searchParams?.get("path") ?? null
   // Exfil tab uses its own per-path selection (orthogonal to attack-path
@@ -146,6 +142,16 @@ export function AttackPathsV2({
   // shared ModeToggle bar. URL param name kept ("expand=path") for
   // bookmark back-compat.
   const isPathExpanded = expandMode === "path"
+  // The three-column dashboard is a contained workspace. Expanded mode is a
+  // different contract: the side rails are gone and the complete interactive
+  // map must participate in the dashboard's normal page scroll. A fixed 78vh
+  // shell here creates a second, easy-to-miss scrollbar and clips the canvas
+  // when operators use the browser scrollbar.
+  const shellHeight = embedded
+    ? isPathExpanded
+      ? "min-h-[78vh]"
+      : "h-[78vh] min-h-[600px]"
+    : "h-screen"
   // 2026-05-31 (merge): single "Attack Path" mode replaces the legacy
   // "path" (Per-Path) + "attacker" (Attacker View) modes. The merged
   // panel reads from one facade endpoint and renders Per-Path's header
@@ -195,6 +201,19 @@ export function AttackPathsV2({
                 // useEffect below so deep links stop showing the old
                 // param values).
                 "attack-path"
+
+  // The right column is reused across every map mode. Browsers preserve its
+  // scrollTop when React swaps the child view, which made Lateral or Exfil
+  // appear to open halfway down after leaving another map. Treat each mode,
+  // jewel, and expand state as a fresh canvas viewport.
+  const mainScrollRef = useRef<HTMLElement>(null)
+  useEffect(() => {
+    if (embedded && isPathExpanded) {
+      mainScrollRef.current?.scrollIntoView({ block: "start", behavior: "auto" })
+      return
+    }
+    mainScrollRef.current?.scrollTo({ top: 0, left: 0, behavior: "auto" })
+  }, [embedded, viewMode, selectedJewelId, isPathExpanded])
 
   // Beta gate (2026-06-11) — the typed-DTO "Attack Map" canvas is an
   // engineering comparison surface, not an operator tab. Hidden from
@@ -1085,8 +1104,11 @@ export function AttackPathsV2({
 
       {/* Column 3 — Per-path analysis OR Exposure view, gated by mode */}
       <main
+        ref={mainScrollRef}
         className={`flex-1 bg-background ${
-          isPathExpanded && (viewMode === "attacker_map" || viewMode === "attack-path")
+          embedded && isPathExpanded
+            ? "flex flex-col min-h-[78vh] overflow-visible"
+            : isPathExpanded && (viewMode === "attacker_map" || viewMode === "attack-path")
             ? "flex flex-col min-h-0 overflow-hidden"
             : "overflow-y-auto"
         }`}
@@ -1268,6 +1290,7 @@ export function AttackPathsV2({
                     onRequestMode={handleSetMode}
                     onClearPath={() => setUrl({ path: null })}
                     isExpanded={isPathExpanded}
+                    documentScroll={embedded && isPathExpanded}
                   />
                 </div>
               ) : (
@@ -1311,6 +1334,7 @@ export function AttackPathsV2({
                 onRequestMode={handleSetMode}
                 onClearPath={() => setUrl({ path: null })}
                 isExpanded={isPathExpanded}
+                documentScroll={embedded && isPathExpanded}
               />
             ) : (
               <EmptyState

@@ -121,11 +121,24 @@ export type BusinessImpactScenario = {
   model_version: string
 }
 
+export type SystemRegulatoryExposureSummary = {
+  system_name: string
+  business_service?: string | null
+  obligations_selected: string[]
+  applicability_confirmed: string[]
+  scenario_count: number
+  exposures: RegulatoryExposure[]
+  calculated_count: number
+  missing_inputs: string[]
+  status: "CALCULATED" | "INPUT_REQUIRED" | "NO_RULES_SELECTED" | "NO_MATCHING_SCENARIOS"
+}
+
 export type BusinessImpactResponse = {
   model_version: string
   annualized_loss_available: false
   annualized_loss_reason: string
   scenarios: BusinessImpactScenario[]
+  system_regulatory_summaries: SystemRegulatoryExposureSummary[]
   systems: number
   paths_collapsed: number
   scenarios_with_estimates: number
