@@ -30,6 +30,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { ResourceConfigTab } from "@/components/inventory/resource-config-tab"
 import { ResourceDossier } from "@/components/inventory/resource-dossier"
+import { canonicalInventoryResourceId } from "@/lib/inventory-resource-identity"
 import { ServiceTypeBadge, getServiceMeta } from "@/lib/service-type"
 
 interface ServiceNode {
@@ -154,7 +155,7 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
       const rawType = r.type || "Unknown"
       const normalizedType = TYPE_NORMALIZE[rawType] || rawType
       return {
-        id: r.id || r.name || Math.random().toString(),
+        id: canonicalInventoryResourceId(r),
         name: r.name || "Unknown",
         type: normalizedType,
         systemName: r.systemName || systemName,
