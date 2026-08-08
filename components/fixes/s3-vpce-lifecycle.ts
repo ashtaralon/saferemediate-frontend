@@ -1,7 +1,19 @@
 import type {
+  S3OperationKind,
   S3PrivatePathState,
   S3VpceOperationSummary,
 } from "@/components/topology-v0-2/estate-operations"
+
+// Which staged change a ledger operation drives. Documents predating the
+// enforcement work carry no kind and are the transport migration.
+export const S3_PRIVATE_PATH_KIND: S3OperationKind = "S3_PRIVATE_PATH"
+export const S3_ENFORCEMENT_KIND: S3OperationKind = "S3_BUCKET_POLICY_ENFORCEMENT"
+
+export function operationKind(
+  entry: { kind?: S3OperationKind | null } | null | undefined,
+): S3OperationKind {
+  return entry?.kind === S3_ENFORCEMENT_KIND ? S3_ENFORCEMENT_KIND : S3_PRIVATE_PATH_KIND
+}
 
 // One place that maps every backend lifecycle state to a wizard step.
 // The estate detail panel's inline index math dropped states
@@ -95,6 +107,7 @@ export function isInFlight(state: S3PrivatePathState | null | undefined): boolea
 
 export interface RememberedOperation {
   operationId: string
+  kind?: S3OperationKind
   systemName: string
   bucketId: string
   bucketName: string
@@ -119,6 +132,7 @@ export function operationFromSummary(
 ): RememberedOperation {
   return {
     operationId: summary.operation_id,
+    kind: summary.kind ?? stashed?.kind ?? S3_PRIVATE_PATH_KIND,
     systemName: summary.system_name ?? systemName,
     bucketId: summary.resource_id ?? stashed?.bucketId ?? "",
     bucketName: summary.bucket_name ?? stashed?.bucketName ?? summary.resource_id ?? "Unknown bucket",

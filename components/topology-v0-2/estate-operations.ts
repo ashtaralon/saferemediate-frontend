@@ -154,11 +154,18 @@ export interface S3VpceExecution {
   operation_version?: number
 }
 
+// Which staged change a shared-ledger operation drives. Both kinds run on the
+// same S3PrivatePathState lifecycle; the kind selects which wizard resumes it
+// and which /{...}/ endpoint family it talks to. Legacy documents with no
+// stored kind are the original transport migration.
+export type S3OperationKind = "S3_PRIVATE_PATH" | "S3_BUCKET_POLICY_ENFORCEMENT"
+
 // Token-free projection returned by GET .../s3-vpce/operations — the server
 // truth for the Fixes tab's resume list. Bearer material is never present
 // (the backend serializes summaries through an explicit allowlist).
 export interface S3VpceOperationSummary {
   operation_id: string
+  kind?: S3OperationKind
   state: S3PrivatePathState
   version?: number
   system_name?: string | null
@@ -181,6 +188,102 @@ export interface S3VpceOperationList {
   system_name: string
   count: number
   operations: S3VpceOperationSummary[]
+}
+
+// ---------------------------------------------------------------------------
+// S3 bucket-policy private-path enforcement (the second staged change type).
+// Endpoints live under /{system}/s3-bucket-policy/*; the lifecycle states and
+// the operations-list / rollback-token endpoints are shared with the transport
+// flow above. These shapes cover only the fields the enforcement wizard reads.
+// ---------------------------------------------------------------------------
+
+export interface S3EnforcementBlocker {
+  code: string
+  message: string
+}
+
+export interface S3EnforcementImpact {
+  observed_consumers: number
+  protected_consumers: number
+  public_consumers: number
+  unknown_consumers: number
+  exempt_principals: number
+  vpc_endpoints: number
+  policy_statements_added: number
+}
+
+export interface S3EnforcementPlan {
+  readiness: "READY" | "BLOCKED"
+  operation_id?: string
+  operation_state?: S3PrivatePathState
+  bucket_name: string
+  // Display/audit only — enforcement is bucket-global, never VPC-scoped.
+  vpc_id?: string | null
+  vpc_ids?: string[]
+  region?: string | null
+  vpce_ids: string[]
+  enforcement_mode: "SINGLE_STAGE" | "PRINCIPAL_CANARY"
+  exempt_principal_arns: string[]
+  canary_principal_arns: string[]
+  // Suggested exemptions are the resolved aws:PrincipalArn (assumed-role) ARNs
+  // S3 actually evaluates — not the workload resource ARN.
+  out_of_vpc_principals?: string[]
+  established_by_operation_ids?: string[]
+  // The exact bucket-policy documents the approver reviews — full always
+  // present when READY; canary present only in PRINCIPAL_CANARY mode.
+  full_policy?: Record<string, unknown> | null
+  canary_policy?: Record<string, unknown> | null
+  existing_policy?: Record<string, unknown> | null
+  blockers: S3EnforcementBlocker[]
+  impact: S3EnforcementImpact
+  plan_token?: string | null
+  baseline_hash?: string
+  expires_in_seconds?: number | null
+}
+
+export interface S3EnforcementSimulation {
+  status: string
+  safe_to_apply: boolean
+  errors?: string[]
+  plan_hash: string
+  operation_state: S3PrivatePathState
+  operation_version: number
+  checks?: {
+    validator?: string
+    enforcement_mode?: string
+    policy_drift?: boolean
+  }
+}
+
+export interface S3EnforcementExecution {
+  status: string
+  errors?: string[]
+  snapshot_id?: string | null
+  endpoint_id?: string | null
+  lifecycle_token?: string | null
+  applied_stage?: "CANARY" | "FULL"
+  enforcement_mode?: "SINGLE_STAGE" | "PRINCIPAL_CANARY"
+  rollback_available?: boolean
+  rollback_performed?: boolean
+  rollback_succeeded?: boolean
+  operation_state?: S3PrivatePathState
+  operation_version?: number
+}
+
+export interface S3EnforcementVerification {
+  state: "VERIFIED" | "PENDING_EVIDENCE"
+  applied_stage?: "CANARY" | "FULL"
+  policy_intact?: boolean
+  expected_s3_flows?: number
+  fresh_private_s3_flows?: number
+  expected_s3_actions?: number
+  fresh_private_s3_actions?: number
+  endpoint_denial_rows?: number | null
+  denied_principals?: Array<{ principal_arn: string; denials: number }>
+  message?: string
+  operation_state?: S3PrivatePathState
+  operation_version?: number
+  more_routes_pending?: boolean
 }
 
 // POST .../s3-vpce/operations/{id}/rollback-token — re-mints the one-time

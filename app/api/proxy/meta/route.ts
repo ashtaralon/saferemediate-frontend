@@ -24,6 +24,7 @@ async function backendIdentity() {
       status?: string
       build_sha?: string
       build_branch?: string
+      features?: Record<string, boolean> | null
     } | null
     return {
       reachable: response.ok,
@@ -32,6 +33,10 @@ async function backendIdentity() {
       // commit — the absence itself identifies an older build.
       build_sha: body?.build_sha ?? null,
       build_branch: body?.build_branch ?? null,
+      // Effective mutation availability, as the backend gates compute it.
+      // The Fixes tab reads this to present enforcement as Preview-only
+      // while execution is disabled. Null on older backend builds.
+      features: body?.features ?? null,
     }
   } catch (err) {
     return {

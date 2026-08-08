@@ -5,23 +5,34 @@ import {
   ArrowRight,
   Database,
   Loader2,
+  Lock,
   Network,
   RefreshCw,
   Route,
 } from "lucide-react"
 import {
   operationalRequest,
+  type S3OperationKind,
   type S3VpceOperationList,
 } from "@/components/topology-v0-2/estate-operations"
 import {
   isInFlight,
   lifecycleView,
   operationFromSummary,
+  operationKind,
   rememberedOperations,
   updateRememberedOperation,
+  S3_ENFORCEMENT_KIND,
+  S3_PRIVATE_PATH_KIND,
   type RememberedOperation,
 } from "./s3-vpce-lifecycle"
+import {
+  enforcementAvailability,
+  fetchOperationalFeatures,
+  type EnforcementAvailability,
+} from "./enforcement-availability"
 import { S3VpceWizard } from "./s3-vpce-wizard"
+import { S3EnforcementWizard } from "./s3-enforcement-wizard"
 
 interface SystemResource {
   id: string
@@ -32,6 +43,11 @@ interface SystemResource {
 
 interface Props {
   systemName: string
+}
+
+const KIND_LABEL: Record<S3OperationKind, string> = {
+  S3_PRIVATE_PATH: "Private path",
+  S3_BUCKET_POLICY_ENFORCEMENT: "Enforce",
 }
 
 function StatusChip({ entry }: { entry: RememberedOperation | undefined }) {
@@ -63,12 +79,27 @@ export function ConfigurationFixesTab({ systemName }: Props) {
   const [wizard, setWizard] = useState<{
     bucket: SystemResource
     resume: RememberedOperation | null
+    kind: S3OperationKind
   } | null>(null)
+  // Whether enforcement EXECUTION is enabled on the backend (the chained
+  // feature flags, read via the public meta diagnostic). "preview" until an
+  // explicit true arrives — fail-closed for a mutation surface.
+  const [enforcementMode, setEnforcementMode] = useState<EnforcementAvailability>("preview")
   const mountedRef = useRef(true)
   useEffect(() => {
     mountedRef.current = true
     return () => { mountedRef.current = false }
   }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    void fetchOperationalFeatures().then((features) => {
+      if (!cancelled && mountedRef.current) {
+        setEnforcementMode(enforcementAvailability(features))
+      }
+    })
+    return () => { cancelled = true }
+  }, [systemName])
 
   // The ledger is the system of record for this list; the browser stash
   // contributes only the bearer tokens reads never return, and serves as
@@ -152,15 +183,29 @@ export function ConfigurationFixesTab({ systemName }: Props) {
     void refreshOperations()
   }, [refreshOperations])
 
-  const latestByBucket = useMemo(() => {
+  // Split the latest op per bucket by change type: the transport migration and
+  // the enforcement that comes after it are two independent lifecycles on the
+  // same bucket, each with its own card action.
+  const latestByBucketForKind = useCallback((kind: S3OperationKind) => {
     const map = new Map<string, RememberedOperation>()
     for (const entry of operations) {
       // operations[] is newest-first (both ledger and stash), keep the
-      // first hit per bucket.
-      if (!map.has(entry.bucketId)) map.set(entry.bucketId, entry)
+      // first hit per bucket for this kind.
+      if (operationKind(entry) === kind && !map.has(entry.bucketId)) {
+        map.set(entry.bucketId, entry)
+      }
     }
     return map
   }, [operations])
+
+  const latestVpceByBucket = useMemo(
+    () => latestByBucketForKind(S3_PRIVATE_PATH_KIND),
+    [latestByBucketForKind],
+  )
+  const latestEnforcementByBucket = useMemo(
+    () => latestByBucketForKind(S3_ENFORCEMENT_KIND),
+    [latestByBucketForKind],
+  )
 
   // Only operations that are genuinely running or awaiting a human belong
   // here. Abandoned drafts (blocked/never-simulated analyses) stay off the
@@ -171,8 +216,12 @@ export function ConfigurationFixesTab({ systemName }: Props) {
     [operations],
   )
 
-  const openWizard = (bucket: SystemResource, resume: RememberedOperation | null) => {
-    setWizard({ bucket, resume })
+  const openWizard = (
+    bucket: SystemResource,
+    resume: RememberedOperation | null,
+    kind: S3OperationKind,
+  ) => {
+    setWizard({ bucket, resume, kind })
   }
 
   const closeWizard = () => {
@@ -204,35 +253,46 @@ export function ConfigurationFixesTab({ systemName }: Props) {
             </p>
           ) : null}
           <div className="space-y-2">
-            {inFlight.map((entry) => (
-              <div
-                key={entry.operationId}
-                className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3"
-                style={{ borderColor: "#BFDBFE", background: "#EFF6FF" }}
-                data-testid="configuration-fixes-inflight"
-              >
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-sm font-semibold" style={{ color: "#1A2330" }}>{entry.bucketName}</span>
-                    <StatusChip entry={entry} />
-                  </div>
-                  <div className="mt-0.5 font-mono text-[10px]" style={{ color: "#5A6B7A" }}>
-                    {entry.operationId} {entry.vpcId ? `· ${entry.vpcId}` : ""}
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => openWizard(
-                    { id: entry.bucketId, name: entry.bucketName, type: "S3" },
-                    entry,
-                  )}
-                  className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-white"
-                  style={{ background: "#0E8B7A" }}
+            {inFlight.map((entry) => {
+              const kind = operationKind(entry)
+              return (
+                <div
+                  key={entry.operationId}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3"
+                  style={{ borderColor: "#BFDBFE", background: "#EFF6FF" }}
+                  data-testid="configuration-fixes-inflight"
                 >
-                  Resume <ArrowRight className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            ))}
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-sm font-semibold" style={{ color: "#1A2330" }}>{entry.bucketName}</span>
+                      <span
+                        className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
+                        style={{ borderColor: "#C9D4DE", background: "#FFFFFF", color: "#5A6B7A" }}
+                      >
+                        {kind === S3_ENFORCEMENT_KIND ? <Lock className="h-3 w-3" /> : <Network className="h-3 w-3" />}
+                        {KIND_LABEL[kind]}
+                      </span>
+                      <StatusChip entry={entry} />
+                    </div>
+                    <div className="mt-0.5 font-mono text-[10px]" style={{ color: "#5A6B7A" }}>
+                      {entry.operationId} {entry.vpcId ? `· ${entry.vpcId}` : ""}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => openWizard(
+                      { id: entry.bucketId, name: entry.bucketName, type: "S3" },
+                      entry,
+                      kind,
+                    )}
+                    className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-white"
+                    style={{ background: "#0E8B7A" }}
+                  >
+                    Resume <ArrowRight className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              )
+            })}
           </div>
         </section>
       ) : null}
@@ -256,8 +316,17 @@ export function ConfigurationFixesTab({ systemName }: Props) {
         ) : (
           <div className="grid gap-3 md:grid-cols-2">
             {resources.map((bucket) => {
-              const entry = latestByBucket.get(bucket.id)
+              const entry = latestVpceByBucket.get(bucket.id)
               const active = entry ? isInFlight(entry.state) : false
+              // Enforcement eligibility is decided by backend analysis (which
+              // proves the private path from behavior), NOT by whether Cyntro
+              // ran the migration. So the affordance is always available — a
+              // bucket already private through a VPCE set up outside Cyntro can
+              // start enforcement, and analyze blocks clearly if it is not yet
+              // eligible (consumers on the public path, no proof, etc.).
+              const enforceEntry = latestEnforcementByBucket.get(bucket.id)
+              const enforceActive = enforceEntry ? isInFlight(enforceEntry.state) : false
+              const enforced = enforceEntry?.state === "COMPLETE"
               return (
                 <div
                   key={bucket.id}
@@ -284,7 +353,7 @@ export function ConfigurationFixesTab({ systemName }: Props) {
                     </span>
                     <button
                       type="button"
-                      onClick={() => openWizard(bucket, active ? entry ?? null : null)}
+                      onClick={() => openWizard(bucket, active ? entry ?? null : null, S3_PRIVATE_PATH_KIND)}
                       className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-white"
                       style={{ background: active ? "#1D4ED8" : "#0E8B7A" }}
                       data-testid="configuration-fix-open"
@@ -292,6 +361,39 @@ export function ConfigurationFixesTab({ systemName }: Props) {
                       {active ? "Resume setup" : entry?.state === "COMPLETE" ? "Review / run again" : "Start setup"}
                       <ArrowRight className="h-3.5 w-3.5" />
                     </button>
+                  </div>
+                  <div className="mt-3 flex items-center justify-between border-t pt-3" style={{ borderColor: "#EDF1F4" }} data-testid="configuration-fix-enforce-row">
+                      <span className="inline-flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide" style={{ color: "#7A8996" }}>
+                        <Lock className="h-3 w-3" /> Enforce private path
+                        {enforceEntry ? <StatusChip entry={enforceEntry} /> : null}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => openWizard(
+                          bucket,
+                          enforceActive ? enforceEntry ?? null : null,
+                          S3_ENFORCEMENT_KIND,
+                        )}
+                        className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold disabled:opacity-40"
+                        style={enforced
+                          ? { background: "#FFFFFF", color: "#0E8B7A", border: "1px solid #9FE8DC" }
+                          : enforcementMode === "preview" && !enforceActive
+                            ? { background: "#FFFFFF", color: "#5A6B7A", border: "1px solid #C9D4DE" }
+                            : { background: enforceActive ? "#1D4ED8" : "#0D1B2A", color: "#FFFFFF" }}
+                        title={enforcementMode === "preview"
+                          ? "Enforcement execution is disabled on the backend — the wizard opens in preview: analyze and review only."
+                          : undefined}
+                        data-testid="configuration-fix-enforce-open"
+                      >
+                        {enforceActive
+                          ? "Resume enforcement"
+                          : enforced
+                            ? "Enforced · review"
+                            : enforcementMode === "preview"
+                              ? "Preview enforcement"
+                              : "Enforce private path"}
+                        <ArrowRight className="h-3.5 w-3.5" />
+                      </button>
                   </div>
                 </div>
               )
@@ -305,12 +407,21 @@ export function ConfigurationFixesTab({ systemName }: Props) {
           <RefreshCw className="h-3.5 w-3.5" /> More configuration fixes are on the way
         </div>
         <p className="mt-1 leading-5">
-          The same staged setup will cover bucket-policy private-path enforcement, unused internet routes, and endpoint
-          policy scoping — each with its own review, safety check, approval, and rollback.
+          The same staged setup will cover unused internet routes and endpoint policy scoping — each with its own review,
+          safety check, approval, and rollback.
         </p>
       </section>
 
-      {wizard ? (
+      {wizard?.kind === S3_ENFORCEMENT_KIND ? (
+        <S3EnforcementWizard
+          systemName={systemName}
+          bucket={wizard.bucket}
+          resume={wizard.resume}
+          region={wizard.bucket.region}
+          executionEnabled={enforcementMode === "enabled"}
+          onClose={closeWizard}
+        />
+      ) : wizard ? (
         <S3VpceWizard
           systemName={systemName}
           bucket={wizard.bucket}
