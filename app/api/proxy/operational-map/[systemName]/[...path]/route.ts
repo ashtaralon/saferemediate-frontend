@@ -5,6 +5,12 @@ import { approvalBackendHeaders } from "@/lib/server/approval-backend-auth"
 export const runtime = "nodejs"
 export const maxDuration = 60
 
+// Route families gated by the backend's operational-proxy secret
+// (_require_operational_proxy). s3-bucket-policy was missing here, so every
+// enforcement-wizard call reached the backend without credentials and 401ed —
+// including the read-only analyze that Preview mode promises still works.
+const OPERATIONAL_SECRET_PREFIXES = new Set(["s3-vpce", "s3-bucket-policy", "s3-posture"])
+
 async function forward(
   request: NextRequest,
   params: Promise<{ systemName: string; path: string[] }>,
@@ -14,7 +20,7 @@ async function forward(
   const query = request.nextUrl.search
   const url = `${getBackendBaseUrl()}/api/operational-map/${encodeURIComponent(systemName)}/${suffix}${query}`
   try {
-    const headers = path[0] === "s3-vpce"
+    const headers = OPERATIONAL_SECRET_PREFIXES.has(path[0])
       ? approvalBackendHeaders()
       : { "Content-Type": "application/json" }
     const response = await fetch(url, {

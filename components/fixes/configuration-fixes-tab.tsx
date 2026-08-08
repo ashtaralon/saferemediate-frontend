@@ -31,6 +31,8 @@ import {
   fetchOperationalFeatures,
   type EnforcementAvailability,
 } from "./enforcement-availability"
+import { fetchFleetPosture, type S3FleetPosture } from "./s3-posture"
+import { S3PostureSections } from "./s3-posture-sections"
 import { S3VpceWizard } from "./s3-vpce-wizard"
 import { S3EnforcementWizard } from "./s3-enforcement-wizard"
 
@@ -85,11 +87,31 @@ export function ConfigurationFixesTab({ systemName }: Props) {
   // feature flags, read via the public meta diagnostic). "preview" until an
   // explicit true arrives — fail-closed for a mutation surface.
   const [enforcementMode, setEnforcementMode] = useState<EnforcementAvailability>("preview")
+  // Fleet posture — the issue-first list. Null means the sweep endpoint is
+  // unavailable (older backend, proxy error), and the tab falls back to the
+  // plain inventory grid: posture can make the surface sharper, never less
+  // capable.
+  const [posture, setPosture] = useState<S3FleetPosture | null>(null)
+  const [postureLoading, setPostureLoading] = useState(false)
   const mountedRef = useRef(true)
   useEffect(() => {
     mountedRef.current = true
     return () => { mountedRef.current = false }
   }, [])
+
+  const loadPosture = useCallback(async (refreshStructural: boolean) => {
+    setPostureLoading(true)
+    try {
+      const result = await fetchFleetPosture(systemName, { refreshStructural })
+      if (mountedRef.current) setPosture(result)
+    } finally {
+      if (mountedRef.current) setPostureLoading(false)
+    }
+  }, [systemName])
+
+  useEffect(() => {
+    void loadPosture(true)
+  }, [loadPosture])
 
   useEffect(() => {
     let cancelled = false
@@ -303,7 +325,17 @@ export function ConfigurationFixesTab({ systemName }: Props) {
             S3 private path · route S3 traffic off the internet gateway
           </h3>
         </div>
-        {loading ? (
+        {posture && posture.summary.total_buckets > 0 ? (
+          <S3PostureSections
+            posture={posture}
+            enforcementMode={enforcementMode}
+            latestVpceByBucket={latestVpceByBucket}
+            latestEnforcementByBucket={latestEnforcementByBucket}
+            onOpen={(bucket, resume, kind) => openWizard(bucket, resume, kind)}
+            onRescan={() => { void loadPosture(true); void refreshOperations() }}
+            rescanning={postureLoading}
+          />
+        ) : loading ? (
           <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-500">
             <Loader2 className="h-4 w-4 animate-spin" /> Loading this system&apos;s S3 buckets…
           </div>
