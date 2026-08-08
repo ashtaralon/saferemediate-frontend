@@ -104,4 +104,19 @@ describe("classifyIapResponse", () => {
     expect(classifyIapResponse(null, null).failed).toBe(false)
     expect(classifyIapResponse(undefined, undefined).failed).toBe(false)
   })
+
+  it("flags Wave D computing envelope as failed (not trustworthy empty)", () => {
+    const computing = {
+      status: "computing",
+      staleReason: "peer_computing",
+      crown_jewels: [],
+      paths: [],
+      total_jewels: 0,
+    }
+    const h = classifyIapResponse(computing, computing)
+    expect(h.failed).toBe(true)
+    expect(h.graphUnavailable).toBe(true)
+    expect(h.reason).toContain("computing")
+    expect(h.reason).toContain("peer_computing")
+  })
 })

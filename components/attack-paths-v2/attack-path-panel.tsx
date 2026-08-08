@@ -314,7 +314,15 @@ export function AttackPathPanel({
   // spinner — no fabricated data, per CLAUDE.md "Real data only".
   const seedIdentityPath = useMemo<IdentityAttackPath | null>(() => {
     if (!pathFromPage) return null
-    if (pathFromPage.id !== pathId) return null
+    // URL / facade may pass mat sha256 while the list row uses path-mat-* /
+    // path-* ids — still seed when attack_path_id matches.
+    if (
+      pathFromPage.id !== pathId &&
+      pathFromPage.attack_path_id !== pathId &&
+      pathFromPage.materialized_path?.id !== pathId
+    ) {
+      return null
+    }
     return pathFromPage
   }, [pathFromPage, pathId])
 
