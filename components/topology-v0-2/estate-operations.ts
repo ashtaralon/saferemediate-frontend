@@ -145,6 +145,7 @@ export interface S3VpceExecution {
   status: string
   errors?: string[]
   snapshot_id?: string | null
+  snapshot_mirror?: SnapshotMirrorOutcome | null
   endpoint_id?: string | null
   lifecycle_token?: string | null
   lifecycle_expires_at?: string | null
@@ -255,10 +256,49 @@ export interface S3EnforcementSimulation {
   }
 }
 
+// Outcome of the write-only copy of the pre-remediation snapshot into the
+// customer's own S3 bucket (backend: unified/snapshot/snapshot_mirror.py).
+// Recorded on the operation document as execution.snapshot_mirror.
+export interface SnapshotMirrorOutcome {
+  status: "disabled" | "written" | "exists" | "failed" | string
+  uri?: string | null
+  sha256?: string | null
+  mode?: string | null
+  error?: string | null
+}
+
+// One-line operator summary of where the off-Cyntro restore copy landed.
+// Returns null when there is nothing worth showing (no outcome recorded).
+export function snapshotMirrorSummary(
+  mirror: SnapshotMirrorOutcome | null | undefined,
+): { tone: "ok" | "muted" | "warn"; text: string } | null {
+  if (!mirror || !mirror.status) return null
+  switch (mirror.status) {
+    case "written":
+    case "exists":
+      return {
+        tone: "ok",
+        text: mirror.uri
+          ? `Off-Cyntro restore copy: ${mirror.uri}`
+          : "Off-Cyntro restore copy written",
+      }
+    case "failed":
+      return {
+        tone: "warn",
+        text: `Off-Cyntro restore copy not written${mirror.error ? ` — ${mirror.error}` : ""} (primary snapshot still guards rollback)`,
+      }
+    case "disabled":
+      return { tone: "muted", text: "Customer-account mirror not configured" }
+    default:
+      return { tone: "muted", text: `Customer-account mirror: ${mirror.status}` }
+  }
+}
+
 export interface S3EnforcementExecution {
   status: string
   errors?: string[]
   snapshot_id?: string | null
+  snapshot_mirror?: SnapshotMirrorOutcome | null
   endpoint_id?: string | null
   lifecycle_token?: string | null
   applied_stage?: "CANARY" | "FULL"
