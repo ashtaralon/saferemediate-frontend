@@ -22,6 +22,7 @@ import { ServiceTypeBadge } from "@/lib/service-type"
 import type { TopologyNode } from "./types"
 import {
   operationalRequest,
+  snapshotMirrorSummary,
   type EstateOperatorNarration,
   type OperationalConnection,
   type OperationalDossier,
@@ -745,6 +746,19 @@ export function DetailPanel({ node, systemName, accountId, region, vpcId, onClos
                   <div className="space-y-3 rounded-xl border border-blue-200 bg-blue-50 p-4" data-testid="estate-vpce-execution">
                     <div className="flex items-center gap-2 text-sm font-bold text-blue-900"><ShieldCheck className="h-5 w-5" /> Canary applied · rollback retained</div>
                     <p className="text-xs text-blue-800">Endpoint <span className="font-mono">{execution.endpoint_id ?? "—"}</span> · snapshot <span className="font-mono">{execution.snapshot_id ?? "—"}</span></p>
+                    {(() => {
+                      const mirror = snapshotMirrorSummary(execution.snapshot_mirror)
+                      if (!mirror) return null
+                      const tone =
+                        mirror.tone === "ok"
+                          ? "text-teal-700"
+                          : mirror.tone === "warn"
+                            ? "text-amber-700"
+                            : "text-blue-800/70"
+                      return (
+                        <p className={`break-all text-xs ${tone}`} data-testid="estate-vpce-snapshot-mirror">{mirror.text}</p>
+                      )
+                    })()}
                     {operationState === "CANARY_MONITORING" || operationState === "CANARY_VERIFIED" || operationState === "EXPANDING" ? (
                       <div className="space-y-2 rounded-lg border border-blue-200 bg-white p-3 text-xs text-blue-900" data-testid="estate-vpce-controller-status">
                         <div className="flex items-center gap-2 font-semibold"><RefreshCw className="h-3.5 w-3.5" /> Automatic rollout is active</div>

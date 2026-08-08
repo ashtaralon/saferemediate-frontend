@@ -16,6 +16,7 @@ import {
 } from "lucide-react"
 import {
   operationalRequest,
+  snapshotMirrorSummary,
   type S3EnforcementExecution,
   type S3EnforcementPlan,
   type S3EnforcementSimulation,
@@ -849,6 +850,23 @@ export function S3EnforcementWizard({ systemName, bucket, resume, accountId, reg
                     {" "}· snapshot <span className="font-mono">{snapshotId ?? "—"}</span>
                     {" "}· stage <span className="font-mono">{execution?.applied_stage ?? "—"}</span>
                   </p>
+                  {(() => {
+                    const mirror = snapshotMirrorSummary(
+                      execution?.snapshot_mirror ?? operation?.execution?.snapshot_mirror,
+                    )
+                    if (!mirror) return null
+                    const tone =
+                      mirror.tone === "ok"
+                        ? "text-teal-700"
+                        : mirror.tone === "warn"
+                          ? "text-amber-700"
+                          : "text-blue-800/70"
+                    return (
+                      <p className={`break-all text-xs ${tone}`} data-testid="enforce-wizard-snapshot-mirror">
+                        {mirror.text}
+                      </p>
+                    )
+                  })()}
                   {rolloutActive ? (
                     <div className="space-y-2 rounded-lg border border-blue-200 bg-white p-3 text-xs text-blue-900">
                       <div className="flex items-center gap-2 font-semibold"><RefreshCw className="h-3.5 w-3.5" /> Watching enforced traffic</div>
