@@ -1,6 +1,8 @@
 import type { SecurityFinding } from "./types"
 
-const BACKEND_URL = "https://saferemediate-backend-f.onrender.com"
+// Browser code always stays on the UI origin. The catch-all server route owns
+// customer-local backend routing and service authentication.
+const BACKEND_URL = "/api/backend"
 const FETCH_TIMEOUT = 30000 // 30 second timeout (proxy routes use 28s, so client needs 30s+)
 const MAX_RETRIES = 3
 

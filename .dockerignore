@@ -1,0 +1,8 @@
+.git
+.next
+node_modules
+playwright-report
+test-results
+*.bak
+*.backup
+.env*

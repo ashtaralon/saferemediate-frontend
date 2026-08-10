@@ -31,7 +31,8 @@ export function middleware(request: NextRequest) {
   if (
     pathname === "/login" ||
     pathname === "/api/auth/login" ||
-    pathname === "/api/build-version"
+    pathname === "/api/build-version" ||
+    pathname === "/api/healthz"
   ) {
     return NextResponse.next()
   }
@@ -76,11 +77,14 @@ export function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
-  // Check for auth cookie
-  const authCookie = request.cookies.get("cyntro_auth")
-  if (authCookie?.value !== "authenticated") {
-    const loginUrl = new URL("/login", request.url)
-    return NextResponse.redirect(loginUrl)
+  // Customer-resident builds are authenticated by the private ALB's OIDC
+  // action. The task security group accepts UI traffic only from that ALB.
+  if (process.env.CYNTRO_DEPLOYMENT_MODE !== "CUSTOMER_RESIDENT") {
+    const authCookie = request.cookies.get("cyntro_auth")
+    if (authCookie?.value !== "authenticated") {
+      const loginUrl = new URL("/login", request.url)
+      return NextResponse.redirect(loginUrl)
+    }
   }
 
   // Sidebar-only deep links: redirect /<section> → /?section=<section>.
