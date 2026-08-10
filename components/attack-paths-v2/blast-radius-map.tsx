@@ -28,6 +28,7 @@ interface ZonesPayload {
 }
 
 const ZONE_ORDER = ["external", "public_exposure", "private_app", "data"]
+const ZONE_PREVIEW_LIMIT = 6
 const KIND_LABEL: Record<string, string> = {
   InternetGateway: "IGW",
   LoadBalancer: "ALB",
@@ -38,7 +39,7 @@ const KIND_LABEL: Record<string, string> = {
   IAMRole: "role",
 }
 
-function NodeCard({ n }: { n: ZoneNode }) {
+function NodeCard({ n, similarCount = 1 }: { n: ZoneNode; similarCount?: number }) {
   const exposed = !!n.exposure_state
   return (
     <div
@@ -60,6 +61,7 @@ function NodeCard({ n }: { n: ZoneNode }) {
           </span>
         ) : null}
         {typeof n.risk === "number" ? <span>risk {n.risk}</span> : null}
+        {similarCount > 1 ? <span>{similarCount} similar resources</span> : null}
       </div>
       {n.role ? (
         <div className="mt-0.5 text-[10px] text-muted-foreground truncate">role: {n.role}</div>
@@ -76,20 +78,60 @@ function ZonesSpine({ zones }: { zones: Zone[] }) {
   ] as Zone[]
   return (
     <div className="rounded-xl border border-border bg-card p-4 flex flex-col gap-4 shadow-sm">
-      {ordered.map((z) => (
-        <div key={z.key} className="flex flex-col gap-2">
-          <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-            {z.label ?? z.key}
-          </span>
-          <div className="flex flex-wrap gap-2">
-            {(z.nodes ?? []).length > 0 ? (
-              (z.nodes ?? []).map((n) => <NodeCard key={n.id} n={n} />)
-            ) : (
-              <span className="text-[11px] text-muted-foreground">—</span>
-            )}
-          </div>
-        </div>
-      ))}
+      {ordered.map((z) => {
+        const nodes = [...(z.nodes ?? [])].sort((a, b) => {
+          if (!!a.exposure_state !== !!b.exposure_state) return a.exposure_state ? -1 : 1
+          return (b.risk ?? -1) - (a.risk ?? -1)
+        })
+        const signature = (node: ZoneNode) => `${node.kind ?? ""}|${node.name ?? node.id}`
+        const signatureCounts = new Map<string, number>()
+        nodes.forEach((node) => {
+          const key = signature(node)
+          signatureCounts.set(key, (signatureCounts.get(key) ?? 0) + 1)
+        })
+        const seen = new Set<string>()
+        const representatives = nodes.filter((node) => {
+          const key = signature(node)
+          if (seen.has(key)) return false
+          seen.add(key)
+          return true
+        })
+        const visible = representatives.slice(0, ZONE_PREVIEW_LIMIT)
+        const visibleIds = new Set(visible.map((node) => node.id))
+        const hidden = nodes.filter((node) => !visibleIds.has(node.id))
+
+        return (
+          <section key={z.key} className="flex flex-col gap-2">
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                {z.label ?? z.key}
+              </span>
+              <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] tabular-nums text-muted-foreground">
+                {nodes.length}
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {visible.length > 0 ? (
+                visible.map((n) => (
+                  <NodeCard key={n.id} n={n} similarCount={signatureCounts.get(signature(n))} />
+                ))
+              ) : (
+                <span className="text-[11px] text-muted-foreground">No resources</span>
+              )}
+            </div>
+            {hidden.length > 0 ? (
+              <details className="rounded-lg border border-dashed border-border bg-muted/20 px-3 py-2">
+                <summary className="cursor-pointer text-xs font-medium text-muted-foreground hover:text-foreground">
+                  View {hidden.length} more resources
+                </summary>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {hidden.map((n) => <NodeCard key={n.id} n={n} />)}
+                </div>
+              </details>
+            ) : null}
+          </section>
+        )
+      })}
     </div>
   )
 }

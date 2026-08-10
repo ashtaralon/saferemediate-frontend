@@ -46,12 +46,54 @@ const CONF_TONE: Record<string, string> = {
   low: "text-muted-foreground border-border bg-muted/50",
 }
 
+const CUT_PREVIEW_LIMIT = 3
+
 function Capability({ n, label, tone }: { n?: number | null; label: string; tone: string }) {
   if (!n) return null
   return (
     <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${tone}`}>
       {n} {label}
     </span>
+  )
+}
+
+function CutRow({ cut: c }: { cut: RecommendedCut }) {
+  return (
+    <li className="px-5 py-3">
+      <div className="flex flex-wrap items-baseline gap-x-2">
+        <span className="text-[11px] tabular-nums text-muted-foreground">{c.rank}</span>
+        <span className="text-sm font-semibold text-foreground">
+          Restrict {c.role_name ?? c.workload_name}
+        </span>
+        {c.is_aws_managed ? (
+          <span className="text-[10px] uppercase tracking-wide text-muted-foreground border border-border rounded px-1 bg-muted/40">
+            AWS-managed
+          </span>
+        ) : null}
+      </div>
+      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px]">
+        {typeof c.closes_paths === "number" ? (
+          <span className="text-emerald-700 dark:text-emerald-400">
+            closes <span className="tabular-nums font-semibold">{c.closes_paths}</span> paths
+          </span>
+        ) : null}
+        {c.remove_actions?.length ? (
+          <span className="text-muted-foreground">
+            removes <span className="tabular-nums font-medium">{c.remove_actions.length}</span>{" "}
+            unused actions
+          </span>
+        ) : null}
+        {c.confidence ? (
+          <span
+            className={`rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wide border ${
+              CONF_TONE[c.confidence.toLowerCase()] ?? CONF_TONE.low
+            }`}
+          >
+            conf {c.confidence}
+          </span>
+        ) : null}
+      </div>
+    </li>
   )
 }
 
@@ -149,46 +191,22 @@ export function BlastRadiusPlaneCuts({ systemName }: { systemName: string }) {
             </p>
           </header>
           <ul className="divide-y divide-border">
-            {cuts.map((c) => (
-              <li key={`${c.rank}-${c.role_name ?? c.workload_name}`} className="px-5 py-3">
-                <div className="flex flex-wrap items-baseline gap-x-2">
-                  <span className="text-[11px] tabular-nums text-muted-foreground">{c.rank}</span>
-                  <span className="text-sm font-semibold text-foreground">
-                    Restrict {c.role_name ?? c.workload_name}
-                  </span>
-                  {c.is_aws_managed ? (
-                    <span className="text-[10px] uppercase tracking-wide text-muted-foreground border border-border rounded px-1 bg-muted/40">
-                      AWS-managed
-                    </span>
-                  ) : null}
-                </div>
-                <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px]">
-                  {typeof c.closes_paths === "number" ? (
-                    <span className="text-emerald-700 dark:text-emerald-400">
-                      closes{" "}
-                      <span className="tabular-nums font-semibold">{c.closes_paths}</span> paths
-                    </span>
-                  ) : null}
-                  {c.remove_actions?.length ? (
-                    <span className="text-muted-foreground">
-                      removes{" "}
-                      <span className="tabular-nums font-medium">{c.remove_actions.length}</span>{" "}
-                      unused actions
-                    </span>
-                  ) : null}
-                  {c.confidence ? (
-                    <span
-                      className={`rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wide border ${
-                        CONF_TONE[c.confidence.toLowerCase()] ?? CONF_TONE.low
-                      }`}
-                    >
-                      conf {c.confidence}
-                    </span>
-                  ) : null}
-                </div>
-              </li>
+            {cuts.slice(0, CUT_PREVIEW_LIMIT).map((c) => (
+              <CutRow key={`${c.rank}-${c.role_name ?? c.workload_name}`} cut={c} />
             ))}
           </ul>
+          {cuts.length > CUT_PREVIEW_LIMIT ? (
+            <details className="border-t border-border bg-muted/20">
+              <summary className="cursor-pointer px-5 py-3 text-xs font-medium text-muted-foreground hover:text-foreground">
+                View {cuts.length - CUT_PREVIEW_LIMIT} more recommendations
+              </summary>
+              <ul className="divide-y divide-border border-t border-border">
+                {cuts.slice(CUT_PREVIEW_LIMIT).map((c) => (
+                  <CutRow key={`${c.rank}-${c.role_name ?? c.workload_name}`} cut={c} />
+                ))}
+              </ul>
+            </details>
+          ) : null}
         </section>
       )}
     </div>

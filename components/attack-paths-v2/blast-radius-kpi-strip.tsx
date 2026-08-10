@@ -28,7 +28,9 @@ interface BRTopPath {
 interface BRCut {
   rank: number
   role_name?: string | null
+  workload_name?: string | null
   closes_paths?: number | null
+  remove_actions?: string[] | null
 }
 export interface BlastRadiusPayload {
   verdict: BRVerdict
@@ -65,6 +67,14 @@ function fmtAge(sec?: number | null): string | null {
   return `${Math.round(sec / 3600)}h`
 }
 
+function joinDamageTypes(types?: string[] | null): string {
+  const labels = [...new Set((types ?? []).map((type) => type.toLowerCase()))]
+  if (labels.length === 0) return "harmful"
+  if (labels.length === 1) return labels[0]
+  if (labels.length === 2) return `${labels[0]} and ${labels[1]}`
+  return `${labels.slice(0, -1).join(", ")}, and ${labels.at(-1)}`
+}
+
 export function BlastRadiusKpiStrip({ systemName }: { systemName: string }) {
   const url = systemName
     ? `/api/proxy/business-system/${encodeURIComponent(systemName)}/blast-radius`
@@ -99,6 +109,13 @@ export function BlastRadiusKpiStrip({ systemName }: { systemName: string }) {
   const v = data.verdict
   const topCut = data.recommended_cuts?.[0]
   const killer = data.top_paths?.[0]
+  const killerCut = killer
+    ? data.recommended_cuts?.find(
+        (cut) =>
+          cut.workload_name === killer.workload_name ||
+          cut.role_name === killer.workload_name,
+      )
+    : undefined
   const ageLabel = data.from_snapshot ? fmtAge(data.snapshot_age_seconds) : null
 
   return (
@@ -123,7 +140,7 @@ export function BlastRadiusKpiStrip({ systemName }: { systemName: string }) {
         />
         {typeof v.allowed_vs_actual === "number" ? (
           <Kpi
-            label="Allowed vs Actual"
+            label="Unused permissions"
             value={`${Math.round(v.allowed_vs_actual)}%`}
             tone="text-amber-800 dark:text-amber-400"
           />
@@ -147,17 +164,19 @@ export function BlastRadiusKpiStrip({ systemName }: { systemName: string }) {
 
       {killer && (killer.business_sentence || killer.cj_name) && (
         <div className="border-t border-border bg-muted/40 px-5 py-3">
-          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-sm">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-primary">
-              Killer path
-            </span>
-            <span className="text-foreground leading-snug">
-              {killer.business_sentence ??
-                `${killer.workload_name ?? "workload"} → ${killer.cj_name}${
-                  killer.hop_count ? ` · ${killer.hop_count} hops` : ""
-                }`}
-            </span>
-          </div>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-primary">
+            Highest-risk path
+          </p>
+          <p className="mt-1 max-w-5xl text-sm font-medium leading-snug text-foreground">
+            Compromise of {killer.workload_name ?? "this workload"} could give an attacker{" "}
+            {joinDamageTypes(killer.damage_types)} access to {killer.cj_name ?? "critical data"}.
+          </p>
+          {killerCut?.remove_actions?.length ? (
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+              Next step: review removing {killerCut.remove_actions.length} unobserved permissions from{" "}
+              {killerCut.role_name ?? killerCut.workload_name ?? killer.workload_name}.
+            </p>
+          ) : null}
           {killer.damage_types?.length ? (
             <div className="mt-2 flex flex-wrap gap-1.5">
               {killer.damage_types.map((d) => (
@@ -174,6 +193,16 @@ export function BlastRadiusKpiStrip({ systemName }: { systemName: string }) {
                 </span>
               ) : null}
             </div>
+          ) : null}
+          {killer.business_sentence ? (
+            <details className="mt-2 text-xs text-muted-foreground">
+              <summary className="w-fit cursor-pointer font-medium text-foreground/75 hover:text-foreground">
+                View technical evidence
+              </summary>
+              <p className="mt-2 max-w-6xl border-l-2 border-border pl-3 leading-relaxed">
+                {killer.business_sentence}
+              </p>
+            </details>
           ) : null}
         </div>
       )}

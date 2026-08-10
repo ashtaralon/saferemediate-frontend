@@ -16,9 +16,8 @@ export function ZoomMinus1Landing({ systemName }: { systemName: string }) {
           System blast radius
         </p>
         <p className="text-[11px] text-muted-foreground mt-0.5 max-w-2xl leading-relaxed">
-          Damage-first view of this business system. Select a crown jewel on the left
-          to open jewel fan-in (Zoom 0), then a path for investigation and the cut card
-          (Zoom 1).
+          See what an attacker could reach and which permission change reduces the most risk.
+          Select a crown jewel to investigate individual paths.
         </p>
       </div>
       <div className="flex-1 overflow-y-auto bg-muted/20">
