@@ -29,6 +29,9 @@ describe("S3 configuration-fix resume", () => {
       state: "APPROVAL_PENDING",
       version: 3,
       approval: { requested_by: "requester@example.com", approved_by: null },
+      // Legacy durable documents stored blockers beside the plan. Resume must
+      // normalize that shape rather than trusting the latest response type.
+      blockers: [],
       plan: {
         readiness: "READY",
         operation_id: "s3-bpe-1",
@@ -41,7 +44,6 @@ describe("S3 configuration-fix resume", () => {
         enforcement_mode: "SINGLE_STAGE",
         exempt_principal_arns: [],
         canary_principal_arns: [],
-        blockers: [],
         impact: {
           observed_consumers: 2,
           protected_consumers: 2,
