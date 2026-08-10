@@ -35,6 +35,11 @@ import { dispatchRemediationChanged } from "@/lib/remediation-events"
 import { ServiceTypeBadge } from "@/lib/service-type"
 import { fetchWithEnvelope } from "@/components/trust/use-trust-envelope"
 import { TrustEnvelopeBadge, Provenance } from "@/components/trust/trust-envelope-badge"
+import {
+  dedupeRemediationEvents,
+  snapshotBelongsToSystem,
+  summarizeRemediationEvents,
+} from "@/lib/remediation-timeline"
 
 // ============================================================================
 // TYPES
@@ -204,6 +209,7 @@ interface RemediationEvent {
   role_name?: string
   role_arn?: string
   bucket_name?: string
+  system_name?: string | null
 }
 
 interface ChartDataPoint {
@@ -1115,7 +1121,7 @@ export function RemediationTimeline({
           if (parsed) roleName = parsed
         }
 
-        resourceId = roleName || 'Unknown Role'
+        resourceId = roleName || 'Role identity not recorded'
 
         // Use permissions_removed count from snapshot, or calculate from before/after states
         permissionsRemoved = snapshot.permissions_removed
@@ -1159,7 +1165,7 @@ export function RemediationTimeline({
     }
 
     return {
-      event_id: snapshot.snapshot_id,
+      event_id: snapshot.snapshot_id || [resourceType, resourceId, snapshot.timestamp || snapshot.created_at || 'undated'].join(':'),
       timestamp: snapshot.timestamp || snapshot.created_at || new Date().toISOString(),
       resource_type: resourceType,
       resource_id: resourceId,
@@ -1192,6 +1198,15 @@ export function RemediationTimeline({
       role_name: snapshot.original_role || snapshot.role_name || resourceId,
       role_arn: snapshot.role_arn,
       bucket_name: isS3Bucket ? resourceId : undefined,
+      system_name:
+        snapshot.system_name ||
+        snapshot.SystemName ||
+        snapshot.systemName ||
+        snapshot.current_state?.system_name ||
+        snapshot.current_state?.SystemName ||
+        beforeState.system_name ||
+        beforeState.SystemName ||
+        null,
     }
   }
 
@@ -1221,7 +1236,6 @@ export function RemediationTimeline({
 
         let allEvents: RemediationEvent[] = []
         let neo4jChartData: ChartDataPoint[] = []
-        let neo4jSummary: TimelineSummary | null = null
 
         // Process Neo4j timeline data (primary)
         if (neo4jEnvResult) {
@@ -1233,7 +1247,6 @@ export function RemediationTimeline({
           }))
           allEvents.push(...neo4jEvents)
           neo4jChartData = neo4jData?.chart_data || []
-          neo4jSummary = neo4jData?.summary || null
         }
 
         // Process snapshots (secondary - fill in any missing)
@@ -1270,36 +1283,12 @@ export function RemediationTimeline({
           snapshotEvents.push(...iamList.map((s: any) => convertSnapshotToEvent({ ...s, type: 'IAMRole' })))
         }
 
-        // Merge: Add snapshot events not already in Neo4j
-        // Deduplicate by snapshot_id, resource_id, sg_id/sg_name
-        const neo4jSnapshotIds = new Set(
-          allEvents
-            .map(e => e.snapshot_id)
-            .filter((snapshotId): snapshotId is string => Boolean(snapshotId)),
+        // Snapshot endpoints are account-wide. Only merge snapshots whose
+        // system binding matches this timeline, then collapse duplicate feeds.
+        const scopedSnapshotEvents = snapshotEvents.filter(event =>
+          snapshotBelongsToSystem(event, systemId),
         )
-        const neo4jResourceIds = new Set(allEvents.map(e => `${e.resource_type}:${e.resource_id}`))
-        // Also track SG IDs and names from events for cross-matching (events use sg_id, snapshots use sg_name)
-        const neo4jSgIds = new Set(allEvents.filter(e => e.resource_type === 'SecurityGroup').map(e => e.resource_id))
-        const neo4jSgNames = new Set(
-          allEvents
-            .filter(e => e.resource_type === 'SecurityGroup')
-            .map(e => e.sg_name)
-            .filter((name): name is string => Boolean(name)),
-        )
-        const uniqueSnapshotEvents = snapshotEvents.filter(e => {
-          // Skip if snapshot_id already in Neo4j events
-          if (e.snapshot_id && neo4jSnapshotIds.has(e.snapshot_id)) return false
-          // Skip SG snapshots if we already have RemediationEvent entries for that SG (match by ID or name)
-          if (e.resource_type === 'SecurityGroup') {
-            if (neo4jSgIds.has(e.resource_id) || (e.sg_id && neo4jSgIds.has(e.sg_id))) return false
-            if (neo4jSgNames.has(e.resource_id) || (e.sg_name && neo4jSgNames.has(e.sg_name))) return false
-            // Also check if any snapshot_id in kept events contains this SG ID
-            const sgId = e.sg_id
-            if (sgId && [...neo4jSnapshotIds].some(sid => sid.includes(sgId))) return false
-          }
-          return true
-        })
-        allEvents.push(...uniqueSnapshotEvents)
+        allEvents = dedupeRemediationEvents([...allEvents, ...scopedSnapshotEvents])
 
         // Filter by date range
         allEvents = allEvents.filter(e => {
@@ -1346,29 +1335,12 @@ export function RemediationTimeline({
           finalChartData = Array.from(chartDataMap.values())
         }
 
-        // Calculate summary if Neo4j didn't provide it.
-        // avg_confidence: events whose confidence_score is null (snapshot
-        // rows after the honesty fix that removed the hardcoded 0.95 — see
-        // commit a8e0dba) MUST NOT pollute the average. Filter to numeric
-        // values, then compute. Empty filtered set → 0.
-        const eventsWithConfidence = allEvents.filter(
-          e => typeof e.confidence_score === 'number'
+        // Rows, chart, and counters must describe the exact same final set.
+        const finalSummary: TimelineSummary = summarizeRemediationEvents(
+          allEvents,
+          startDate.toISOString().split('T')[0],
+          today.toISOString().split('T')[0],
         )
-        const finalSummary: TimelineSummary = neo4jSummary || {
-          total_events: allEvents.length,
-          total_permissions_removed: allEvents.reduce((acc, e) => acc + (e.metadata.permissions_removed || 0), 0),
-          completed_events: allEvents.filter(e => e.status === 'completed').length,
-          rollback_events: allEvents.filter(e => e.status === 'rolled_back' || e.action_type === 'ROLLBACK').length,
-          avg_confidence: eventsWithConfidence.length > 0
-            ? Math.round(
-                eventsWithConfidence.reduce(
-                  (acc, e) => acc + (e.confidence_score as number) * 100, 0
-                ) / eventsWithConfidence.length
-              )
-            : 0,
-          period_start: startDate.toISOString().split('T')[0],
-          period_end: today.toISOString().split('T')[0],
-        }
 
         setEvents(allEvents)
         setChartData(finalChartData)

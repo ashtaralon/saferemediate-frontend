@@ -2267,7 +2267,10 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                       {/* Action — Rollback */}
                       <div className="text-center">
                         <button
-                          onClick={(e) => { e.stopPropagation(); handleResourceClick(resource) }}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setExpandedRow(isExpanded ? null : (resource.id || resource.resourceName))
+                          }}
                           className="px-3 py-1 rounded-lg text-xs font-medium hover:opacity-90 transition-all border"
                           style={{ color: "var(--text-secondary)", borderColor: "var(--border-subtle)" }}
                         >
@@ -2454,7 +2457,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                         <div className="rounded-lg p-4 border" style={{ background: "var(--bg-secondary)", borderColor: "#10b98130" }}>
                           <h4 className="text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-2" style={{ color: "#10b981" }}>
                             <CheckCircle2 className="w-3.5 h-3.5" />
-                            Remediation Complete
+                            Remediation Receipt
                           </h4>
                           <div className="flex items-center gap-3 mb-2">
                             <span className="text-3xl font-bold" style={{ color: "#10b981" }}>
@@ -2507,14 +2510,12 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                               <span>Current Permissions</span>
                               <span className="font-medium" style={{ color: "#10b981" }}>{metrics.usedCount}</span>
                             </div>
-                            {(resource.snapshotId || resource.eventId) && (
-                              <div className="flex justify-between text-xs" style={{ color: "var(--text-secondary)" }}>
-                                <span>Rollback Artifact</span>
-                                <span className="font-medium truncate max-w-[150px]" style={{ color: "var(--text-primary)" }}>
-                                  {resource.snapshotId || resource.eventId}
-                                </span>
-                              </div>
-                            )}
+                            <div className="flex justify-between text-xs gap-3" style={{ color: "var(--text-secondary)" }}>
+                              <span>Restore Point</span>
+                              <span className="font-medium truncate max-w-[190px] text-right" style={{ color: resource.snapshotId || resource.eventId ? "var(--text-primary)" : "#F59E0B" }}>
+                                {resource.snapshotId || resource.eventId || 'Not recorded — rollback unavailable'}
+                              </span>
+                            </div>
                             {resource.region && (
                               <div className="flex justify-between text-xs" style={{ color: "var(--text-secondary)" }}>
                                 <span>Region</span>
