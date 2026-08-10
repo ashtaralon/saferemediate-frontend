@@ -274,6 +274,7 @@ export function S3VpceWizard({ systemName, bucket, resume, accountId, region, on
     const observed = dossier?.dependencies.upstream.filter((c) => c.evidence_type === "observed") ?? []
     return Array.from(new Set(observed.map((c) => c.vpc_id).filter((v): v is string => Boolean(v)))).sort()
   }, [dossier])
+  const hasObservedConsumers = (dossier?.dependencies.summary.consumer_count ?? 0) > 0
 
   const analyze = () => runAction("analyze", async () => {
     setPlan(null)
@@ -559,10 +560,19 @@ export function S3VpceWizard({ systemName, bucket, resume, accountId, region, on
               <div className="rounded-xl border p-4" style={{ borderColor: "#C9D4DE", background: "#FFFFFF" }}>
                 <div className="text-sm font-bold">What this setup does</div>
                 <p className="mt-1 text-xs leading-5" style={{ color: "#5A6B7A" }}>
-                  Workloads in this system reach <strong>{bucket.name}</strong> over the internet path today.
-                  This setup adds an <strong>S3 Gateway endpoint</strong> (free, AWS-managed) and attaches it to the exact
-                  route tables those workloads use, so S3 traffic stays on the AWS network. Applications keep working
-                  unchanged — the route is the only thing that moves, one route table at a time, verified from real traffic.
+                  {dossier && !hasObservedConsumers ? (
+                    <>
+                      No workload in this system was observed using <strong>{bucket.name}</strong> during the review
+                      window. Cyntro will not propose a route change without a proven consumer and route table.
+                    </>
+                  ) : (
+                    <>
+                      Workloads in this system reach <strong>{bucket.name}</strong> over the internet path today.
+                      This setup adds an <strong>S3 Gateway endpoint</strong> (free, AWS-managed) and attaches it to the exact
+                      route tables those workloads use, so S3 traffic stays on the AWS network. Applications keep working
+                      unchanged — the route is the only thing that moves, one route table at a time, verified from real traffic.
+                    </>
+                  )}
                 </p>
               </div>
               {dossierError ? (

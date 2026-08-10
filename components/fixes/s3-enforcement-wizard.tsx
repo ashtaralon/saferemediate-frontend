@@ -257,6 +257,20 @@ export function S3EnforcementWizard({ systemName, bucket, resume, accountId, reg
         lifecycle_token: previous?.lifecycle_token ?? resume?.lifecycleToken ?? undefined,
       }))
     }
+    // The ledger keeps the reviewed plan and dry-run result after stripping
+    // bearer tokens. Rehydrate both so completed steps remain inspectable in
+    // a resumed session instead of displaying contradictory empty states.
+    const storedPlan = (current as unknown as { plan?: S3EnforcementPlan }).plan
+    if (storedPlan) {
+      setPlan((previous) => ({
+        ...storedPlan,
+        plan_token: previous?.plan_token ?? storedPlan.plan_token ?? null,
+      }))
+    }
+    const storedSimulation = (current as unknown as { simulation?: S3EnforcementSimulation }).simulation
+    if (storedSimulation) {
+      setSimulation((previous) => previous ?? storedSimulation)
+    }
     const latest = (current.verification?.full ?? current.verification?.canary) as
       | S3EnforcementVerification
       | undefined
