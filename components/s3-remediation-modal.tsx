@@ -14,6 +14,7 @@
 
 import React, { useEffect } from "react"
 import { S3RemediationCard } from "./s3-remediation-card"
+import { REMEDIATION_MODAL_BACKDROP_STYLE } from "./remediation-modal-chrome"
 
 interface Props {
   isOpen: boolean
@@ -54,7 +55,7 @@ export function S3RemediationModal({
   return (
     <div
       className="fixed inset-0 z-[9000] flex items-start justify-center p-4 overflow-y-auto"
-      style={{ backgroundColor: "rgba(0,0,0,0.6)" }}
+      style={REMEDIATION_MODAL_BACKDROP_STYLE}
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose()
       }}

@@ -6,11 +6,14 @@ import { afterEach, describe, expect, it } from "vitest"
 import {
   buildCanonicalPermissionView,
   hasExecutableIamSelection,
+  IamRemediationAvailability,
   RemovalSafetyPanel,
   resolveDefaultPermissionSelection,
   shouldOfferIamSimulation,
   type RemovalSafetyBundle,
 } from "@/components/iam-permission-analysis-modal"
+import { REMEDIATION_MODAL_BACKDROP_STYLE } from "@/components/remediation-modal-chrome"
+import { genericizeCaveat, genericizeSourceName } from "@/components/trust/trust-envelope-badge"
 
 afterEach(cleanup)
 
@@ -29,6 +32,41 @@ describe("IAM apply selection", () => {
     expect(hasExecutableIamSelection(0, true, true)).toBe(false)
     expect(hasExecutableIamSelection(0, true, false)).toBe(true)
     expect(hasExecutableIamSelection(0, false, false)).toBe(false)
+  })
+})
+
+describe("remediation presentation", () => {
+  it("uses one translucent light backdrop for IAM, SG, and S3 modal states", () => {
+    expect(REMEDIATION_MODAL_BACKDROP_STYLE).toEqual({
+      backgroundColor: "rgba(15, 23, 42, 0.28)",
+    })
+  })
+
+  it("keeps internal evidence-store names out of the customer modal", () => {
+    expect(genericizeSourceName("iam_usage")).toBe("Activity history")
+    expect(genericizeSourceName("behavioral_map")).toBe("Behavioral context")
+    expect(genericizeCaveat("neo4j_graph is stale; access_advisor freshness is unknown"))
+      .toBe("Resource relationship data is stale; Permission usage freshness is unknown")
+  })
+
+  it("explains both evidence and release blockers without pretending Apply is available", () => {
+    const bundle: RemovalSafetyBundle = {
+      scorer_version: "2.1.0-shadow",
+      plan_score: null,
+      scored_candidate_count: 0,
+      used_count: 4,
+      protected_count: 10,
+      insufficient_evidence_count: 13,
+      shadow_only: true,
+      groups: [{ band: "CANNOT_ASSESS", count: 13, permissions: [] }],
+      permissions: [],
+    }
+
+    render(<IamRemediationAvailability bundle={bundle} applyDisabled />)
+
+    expect(screen.getByText("No permission change is safe to run yet")).toBeTruthy()
+    expect(screen.getByText(/13 permissions still need current, action-level usage and dependency evidence/i)).toBeTruthy()
+    expect(screen.getByText(/Production IAM changes are not enabled in this release/i)).toBeTruthy()
   })
 })
 
