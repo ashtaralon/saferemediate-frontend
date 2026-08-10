@@ -61,6 +61,7 @@ import TopologyView from "./topology-view"
 import { TopologyAttackGraph } from "@/components/attack-map/topology-attack-graph"
 import { AtlasLateralView } from "./atlas-lateral-view"
 import { ZoomMinus1Landing } from "./zoom-minus1-landing"
+import type { BlastRadiusPayload } from "./blast-radius-kpi-strip"
 import {
   buildModeBarTabs,
   modeBarHighlight,
@@ -363,6 +364,17 @@ export function AttackPathsV2({
   } = useCachedFetch<any>(fetchUrl, {
     cacheKey: `iap-v2:5x5:${systemName}`,
   })
+
+  // The full IAP fan-out above is optional enrichment and can legitimately
+  // return an empty path array while the materialized blast-radius summary is
+  // available. Use the same authoritative totals as Zoom -1 for the shell
+  // header so operators never see "0 paths" beside a non-zero overview.
+  const blastRadiusUrl = systemName
+    ? `/api/proxy/business-system/${encodeURIComponent(systemName)}/blast-radius`
+    : null
+  const { data: blastRadiusData } = useCachedFetch<BlastRadiusPayload>(blastRadiusUrl, {
+    cacheKey: `blast-radius:${systemName}`,
+  })
   // Intentionally ignore _iapBackgroundError for the path rail UI.
 
   const retry = () => {
@@ -445,6 +457,9 @@ export function AttackPathsV2({
   // full IAP fan-out that routinely 502s on alon-prod cold compute.
   const showingStale =
     fromProxyStale || iapIsStale || jewelsIsStale
+
+  const blastRadiusPathCount = blastRadiusData?.verdict?.attack_paths
+  const reachableJewelCount = blastRadiusData?.verdict?.reachable_crown_jewels
 
 
   // Paths for the currently-selected jewel. Empty list = no jewel
@@ -993,11 +1008,14 @@ export function AttackPathsV2({
               />
               )}
               <div className="text-[11px] text-muted-foreground mt-0.5">
-                {data
-                  ? `${allPaths.length} paths · ${jewels.length} crown jewels`
+                {typeof blastRadiusPathCount === "number" &&
+                typeof reachableJewelCount === "number"
+                  ? `${blastRadiusPathCount} system paths · ${reachableJewelCount} reachable jewels`
+                  : data && allPaths.length > 0
+                    ? `${allPaths.length} loaded paths · ${jewels.length} listed jewels`
                   : jewelsLoading
                     ? "Loading crown jewels…"
-                    : `${jewels.length} crown jewels${isLoading ? " · paths loading…" : ""}`}
+                    : `${jewels.length} highest-risk jewels${isLoading ? " · totals loading…" : ""}`}
                 {showingStale ? " · showing cached" : ""}
               </div>
             </div>
@@ -1005,6 +1023,7 @@ export function AttackPathsV2({
         </div>
         <CrownJewelListPanel
           jewels={jewels}
+          totalReachable={reachableJewelCount}
           selectedJewelId={selectedJewelId}
           onSelect={handleSelectJewel}
         />

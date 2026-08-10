@@ -9,6 +9,8 @@ import type { CrownJewelSummary } from "./types"
 
 interface CrownJewelListPanelProps {
   jewels: CrownJewelSummary[]
+  /** System-wide reachable-jewel total; the rail itself is capped and ranked. */
+  totalReachable?: number | null
   selectedJewelId: string | null
   onSelect: (id: string) => void
   /** Notify parent so the aside can shrink when the list collapses. */
@@ -25,6 +27,7 @@ function jewelDisplayName(name: string): string {
 
 export function CrownJewelListPanel({
   jewels,
+  totalReachable,
   selectedJewelId,
   onSelect,
   onCollapsedChange,
@@ -67,7 +70,10 @@ export function CrownJewelListPanel({
             <span className="font-semibold tabular-nums text-amber-800 dark:text-amber-300">
               {jewels?.length ?? 0}
             </span>{" "}
-            critical assets
+            highest-risk assets
+            {typeof totalReachable === "number" && totalReachable > jewels.length
+              ? ` of ${totalReachable} reachable`
+              : ""}
           </div>
         </div>
         <button
