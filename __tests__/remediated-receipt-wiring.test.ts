@@ -14,5 +14,8 @@ describe("remediated receipt wiring", () => {
     expect(row).not.toContain("handleResourceClick(resource)")
     expect(source).toContain("Remediation Receipt")
     expect(source).toContain("Not recorded — rollback unavailable")
+    expect(source).toContain("permissions in active use")
+    expect(source).toContain("still need review")
+    expect(source).not.toContain("<span>{metrics.unusedCount} removed</span>")
   })
 })
