@@ -506,6 +506,8 @@ export function S3EnforcementWizard({ systemName, bucket, resume, accountId, reg
     || blockerCodes.has("NO_PRIVATE_PATH_PROOF")
     || blockerCodes.has("ENFORCEMENT_ALREADY_PRESENT")
   const suggestedExemptions = plan?.out_of_vpc_principals ?? []
+  const policyValidator = simulation?.checks?.validator?.trim() ?? ""
+  const supplementalLintUnavailable = policyValidator.toLowerCase().startsWith("unavailable")
   const canExpand = operationState === "CANARY_VERIFIED"
     && (plan?.enforcement_mode ?? execution?.enforcement_mode) === "PRINCIPAL_CANARY"
   const rolloutActive = ["APPROVED", "SNAPSHOT_VERIFIED", "CANARY_APPLYING", "CANARY_MONITORING", "CANARY_VERIFIED", "EXPANDING"].includes(operationState ?? "")
@@ -772,19 +774,28 @@ export function S3EnforcementWizard({ systemName, bucket, resume, accountId, reg
               <div className="rounded-xl border p-4" style={{ borderColor: "#C9D4DE", background: "#FFFFFF" }}>
                 <div className="text-sm font-bold">Validate the policy before it goes live</div>
                 <p className="mt-1 text-xs leading-5" style={{ color: "#5A6B7A" }}>
-                  The exact deny document is checked with IAM Access Analyzer for errors, and the plan is frozen under a
-                  hash. If anything about the bucket or its policy changes before apply, execution refuses and asks for a
-                  fresh analysis.
+                  Cyntro checks the exact deny document and freezes the plan under a hash. If anything about the bucket or
+                  its policy changes before apply, execution refuses and asks for a fresh analysis.
                 </p>
               </div>
               {simulation ? (
                 <div
-                  className={`rounded-xl border bg-white p-3 text-xs ${simulation.safe_to_apply ? "border-teal-200 text-teal-800" : "border-red-200 text-red-700"}`}
+                  className={`rounded-xl border bg-white p-3 text-xs ${simulation.safe_to_apply
+                    ? supplementalLintUnavailable
+                      ? "border-amber-200 text-amber-800"
+                      : "border-teal-200 text-teal-800"
+                    : "border-red-200 text-red-700"}`}
                   data-testid="enforce-wizard-simulation"
                 >
-                  <strong>{simulation.safe_to_apply ? "Policy validation passed" : "Policy validation blocked"}</strong>
+                  <strong>{simulation.safe_to_apply
+                    ? supplementalLintUnavailable
+                      ? "Core safety checks passed"
+                      : "Safety checks passed"
+                    : "Safety check blocked"}</strong>
                   {" "}· plan frozen under hash <span className="font-mono">{simulation.plan_hash.slice(0, 10)}…</span>
-                  {simulation.checks?.validator ? <> · validator: {simulation.checks.validator}</> : null}
+                  {policyValidator ? (
+                    <> · {supplementalLintUnavailable ? "Additional policy lint unavailable" : "Additional policy lint passed"}</>
+                  ) : null}
                   {simulation.errors?.length ? (
                     <ul className="mt-1 list-disc pl-4">{simulation.errors.map((e) => <li key={e}>{e}</li>)}</ul>
                   ) : null}

@@ -61,7 +61,11 @@ describe("S3 configuration-fix resume", () => {
         plan_hash: "1234567890abcdef",
         operation_state: "SIMULATED",
         operation_version: 2,
-        checks: { validator: "accessanalyzer", enforcement_mode: "SINGLE_STAGE", policy_drift: false },
+        checks: {
+          validator: "unavailable: AccessDeniedException for arn:aws:iam::123456789012:user/private",
+          enforcement_mode: "SINGLE_STAGE",
+          policy_drift: false,
+        },
       },
       execution: null,
       verification: null,
@@ -94,8 +98,11 @@ describe("S3 configuration-fix resume", () => {
     expect(screen.queryByText("Run the analysis from the Review step first.")).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByTestId("enforce-wizard-step-2"))
-    expect(await screen.findByText(/Policy validation passed/)).toBeInTheDocument()
+    expect(await screen.findByText(/Core safety checks passed/)).toBeInTheDocument()
+    expect(screen.getByText(/Additional policy lint unavailable/)).toBeInTheDocument()
     expect(screen.getByText(/1234567890/)).toBeInTheDocument()
+    expect(screen.queryByText(/AccessDeniedException/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/arn:aws:iam/)).not.toBeInTheDocument()
     expect(screen.queryByText(/No validation yet/)).not.toBeInTheDocument()
   })
 
