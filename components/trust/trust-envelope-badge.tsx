@@ -205,23 +205,23 @@ export function TrustEnvelopeBadge({ provenance, compact = false, surface = "def
       </button>
 
       {expanded && !compact && (
-        <div className="border-t border-slate-700/50 p-3 space-y-3 bg-slate-900 rounded-b-lg">
+        <div className={`border-t p-3 space-y-3 rounded-b-lg ${lightSurface ? "border-slate-200 bg-white" : "border-slate-700/50 bg-slate-900"}`}>
           {/* Freshness per source */}
           <div>
-            <div className="text-[10px] uppercase tracking-wider text-slate-400 mb-1.5">
+            <div className={`text-[10px] uppercase tracking-wider mb-1.5 ${lightSurface ? "text-slate-500" : "text-slate-400"}`}>
               Source freshness
             </div>
             <div className="space-y-1">
               {freshnessEntries.length === 0 && (
-                <div className="text-slate-500 italic">No freshness metadata</div>
+                <div className={`${lightSurface ? "text-slate-500" : "text-slate-500"} italic`}>No freshness metadata</div>
               )}
               {freshnessEntries.map(([source, entry]) => (
                 <div key={source} className="flex items-center gap-2">
-                  <span className="text-slate-300 text-[11px] min-w-[140px]">{genericizeSourceName(source)}</span>
+                  <span className={`${lightSurface ? "text-slate-700" : "text-slate-300"} text-[11px] min-w-[140px]`}>{genericizeSourceName(source)}</span>
                   <span className={`${freshnessStyles(entry.status)} text-[11px]`}>
                     {entry.status}
                   </span>
-                  <span className={`text-[11px] ${entry.last_sync ? "text-slate-400" : "text-amber-500"}`}>
+                  <span className={`text-[11px] ${entry.last_sync ? (lightSurface ? "text-slate-500" : "text-slate-400") : "text-amber-600"}`}>
                     {entry.last_sync ? formatAge(entry.age_seconds) : "never synced"}
                   </span>
                 </div>
@@ -234,7 +234,7 @@ export function TrustEnvelopeBadge({ provenance, compact = false, surface = "def
             provenance.observed_vs_configured.configured.length > 0 ||
             provenance.observed_vs_configured.inferred.length > 0) && (
             <div>
-              <div className="text-[10px] uppercase tracking-wider text-slate-400 mb-1.5">
+              <div className={`text-[10px] uppercase tracking-wider mb-1.5 ${lightSurface ? "text-slate-500" : "text-slate-400"}`}>
                 Based on
               </div>
               <div className="space-y-1 text-[11px]">
@@ -243,7 +243,7 @@ export function TrustEnvelopeBadge({ provenance, compact = false, surface = "def
                     <CheckCircle2 className="w-3 h-3 mt-0.5 text-emerald-400 flex-shrink-0" />
                     <div>
                       <span className="text-emerald-400 font-medium">Observed:</span>{" "}
-                      <span className="text-slate-300">
+                      <span className={lightSurface ? "text-slate-700" : "text-slate-300"}>
                         {genericizeSourceList(provenance.observed_vs_configured.observed).join(", ")}
                       </span>
                     </div>
@@ -254,7 +254,7 @@ export function TrustEnvelopeBadge({ provenance, compact = false, surface = "def
                     <CheckCircle2 className="w-3 h-3 mt-0.5 text-blue-400 flex-shrink-0" />
                     <div>
                       <span className="text-blue-400 font-medium">Configured:</span>{" "}
-                      <span className="text-slate-300">
+                      <span className={lightSurface ? "text-slate-700" : "text-slate-300"}>
                         {genericizeSourceList(provenance.observed_vs_configured.configured).join(", ")}
                       </span>
                     </div>
@@ -265,7 +265,7 @@ export function TrustEnvelopeBadge({ provenance, compact = false, surface = "def
                     <HelpCircle className="w-3 h-3 mt-0.5 text-amber-400 flex-shrink-0" />
                     <div>
                       <span className="text-amber-400 font-medium">Inferred:</span>{" "}
-                      <span className="text-slate-300">
+                      <span className={lightSurface ? "text-slate-700" : "text-slate-300"}>
                         {genericizeSourceList(provenance.observed_vs_configured.inferred).join(", ")}
                       </span>
                     </div>
@@ -278,12 +278,12 @@ export function TrustEnvelopeBadge({ provenance, compact = false, surface = "def
           {/* Caveats */}
           {provenance.confidence_caveats.length > 0 && (
             <div>
-              <div className="text-[10px] uppercase tracking-wider text-slate-400 mb-1.5">
+              <div className={`text-[10px] uppercase tracking-wider mb-1.5 ${lightSurface ? "text-slate-500" : "text-slate-400"}`}>
                 Caveats
               </div>
               <ul className="space-y-0.5 text-[11px]">
                 {provenance.confidence_caveats.map((caveat, i) => (
-                  <li key={i} className="flex items-start gap-1.5 text-amber-300">
+                  <li key={i} className={`flex items-start gap-1.5 ${lightSurface ? "text-amber-700" : "text-amber-300"}`}>
                     <AlertCircle className="w-3 h-3 mt-0.5 flex-shrink-0" />
                     <span>{genericizeCaveat(caveat)}</span>
                   </li>
@@ -294,22 +294,22 @@ export function TrustEnvelopeBadge({ provenance, compact = false, surface = "def
 
           {/* Observation window */}
           {provenance.observation_window_days !== null && (
-            <div className="flex items-center gap-2 text-[11px] text-slate-400">
+            <div className={`flex items-center gap-2 text-[11px] ${lightSurface ? "text-slate-500" : "text-slate-400"}`}>
               <Clock className="w-3 h-3" />
               <span>
-                Observation window: <span className="text-slate-200">{provenance.observation_window_days} days</span>
+                Observation window: <span className={lightSurface ? "text-slate-800" : "text-slate-200"}>{provenance.observation_window_days} days</span>
               </span>
             </div>
           )}
 
           {/* Scope */}
           {(provenance.scope.system || provenance.scope.resource_id) && (
-            <div className="text-[11px] text-slate-400">
+            <div className={`text-[11px] ${lightSurface ? "text-slate-500" : "text-slate-400"}`}>
               <span className="text-slate-500">Scope:</span>{" "}
               {provenance.scope.resource_type && (
-                <span className="text-slate-300">{provenance.scope.resource_type} / </span>
+                <span className={lightSurface ? "text-slate-700" : "text-slate-300"}>{provenance.scope.resource_type} / </span>
               )}
-              <span className="text-slate-200">
+              <span className={lightSurface ? "text-slate-800" : "text-slate-200"}>
                 {provenance.scope.resource_id || provenance.scope.system}
               </span>
             </div>

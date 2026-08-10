@@ -1,6 +1,6 @@
 /// <reference types="vitest/globals" />
 
-import { cleanup, render, screen } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it } from "vitest"
 
 import {
@@ -13,7 +13,12 @@ import {
   type RemovalSafetyBundle,
 } from "@/components/iam-permission-analysis-modal"
 import { REMEDIATION_MODAL_BACKDROP_STYLE } from "@/components/remediation-modal-chrome"
-import { genericizeCaveat, genericizeSourceName } from "@/components/trust/trust-envelope-badge"
+import {
+  genericizeCaveat,
+  genericizeSourceName,
+  TrustEnvelopeBadge,
+  type Provenance,
+} from "@/components/trust/trust-envelope-badge"
 
 afterEach(cleanup)
 
@@ -64,9 +69,41 @@ describe("remediation presentation", () => {
 
     render(<IamRemediationAvailability bundle={bundle} applyDisabled />)
 
-    expect(screen.getByText("No permission change is safe to run yet")).toBeTruthy()
-    expect(screen.getByText(/13 permissions still need current, action-level usage and dependency evidence/i)).toBeTruthy()
+    expect(screen.getByText("13 unused permissions found — verification is incomplete")).toBeTruthy()
+    expect(screen.getByText(/has not concluded that these permissions are needed/i)).toBeTruthy()
     expect(screen.getByText(/Production IAM changes are not enabled in this release/i)).toBeTruthy()
+  })
+
+  it("keeps expanded evidence readable on a light remediation surface", () => {
+    const provenance: Provenance = {
+      evidence_sources: ["cloudtrail_mgmt"],
+      freshness: {
+        cloudtrail_mgmt: {
+          last_sync: "2026-08-10T08:00:00Z",
+          age_seconds: 1800,
+          status: "fresh",
+        },
+      },
+      observation_window_days: 365,
+      confidence: "medium",
+      confidence_caveats: ["behavioral_map is stale"],
+      scope: { resource_type: "IAMRole", resource_id: "alon-prod-3tier-web-role" },
+      observed_vs_configured: {
+        observed: ["cloudtrail_mgmt"],
+        configured: ["IAM policy graph"],
+        inferred: ["unused permission classification"],
+      },
+      completeness: { status: "partial", missing_sources: ["dependency map"] },
+      generated_at: "2026-08-10T08:30:00Z",
+    }
+
+    const { container } = render(<TrustEnvelopeBadge provenance={provenance} surface="light" />)
+    fireEvent.click(screen.getByRole("button"))
+
+    const expanded = screen.getByText("Source freshness").parentElement?.parentElement
+    expect(expanded?.className).toContain("bg-white")
+    expect(expanded?.className).not.toContain("bg-slate-900")
+    expect(container.textContent).toContain("Activity history")
   })
 })
 
@@ -159,7 +196,7 @@ describe("RemovalSafetyPanel", () => {
 
     render(<RemovalSafetyPanel bundle={bundle} />)
 
-    expect(screen.getByText("2 to remove · 5 in use · 3 protected")).toBeTruthy()
+    expect(screen.getByText("2 verified for removal · 1 awaiting evidence · 5 in use · 3 protected")).toBeTruthy()
     expect(screen.getByText("1 cannot be assessed.")).toBeTruthy()
     expect(screen.getByText("92")).toBeTruthy()
     expect(screen.queryByText(/supporting confidence/i)).toBeNull()
