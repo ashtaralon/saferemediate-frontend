@@ -38,8 +38,8 @@ export type IamGapAnalysis = {
   dependency_context: {
     status: string
     system: { name?: string; criticality?: string } | null
-    dependencies: DependencyRef[]
-    has_critical_dependencies: boolean
+    dependencies: DependencyRef[] | null
+    has_critical_dependencies: boolean | null
   }
   service_role_analysis?: Record<string, unknown>
   timestamp: string

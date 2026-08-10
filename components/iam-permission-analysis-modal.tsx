@@ -51,6 +51,7 @@ import type {
   ExecutionState,
   IamGapAnalysis,
 } from "@/components/iam-lp/types"
+import { REMEDIATION_MODAL_BACKDROP_STYLE } from "@/components/remediation-modal-chrome"
 
 export interface PermissionAnalysis {
   permission: string
@@ -298,6 +299,48 @@ export function RemovalSafetyPanel({ bundle }: { bundle: RemovalSafetyBundle }) 
   )
 }
 
+export function IamRemediationAvailability({
+  bundle,
+  applyDisabled,
+}: {
+  bundle: RemovalSafetyBundle
+  applyDisabled: boolean
+}) {
+  const hasCandidates = bundle.scored_candidate_count > 0
+
+  if (hasCandidates && !applyDisabled) return null
+
+  return (
+    <section
+      className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-950"
+      data-testid="iam-remediation-availability"
+    >
+      <div className="flex items-start gap-3">
+        <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
+        <div>
+          <div className="font-semibold">
+            {!hasCandidates
+              ? "No permission change is safe to run yet"
+              : "This plan is preview-only"}
+          </div>
+          {!hasCandidates && (
+            <p className="mt-1 text-sm">
+              {bundle.insufficient_evidence_count > 0
+                ? `${bundle.insufficient_evidence_count} permissions still need current, action-level usage and dependency evidence before Cyntro can propose removal.`
+                : "Cyntro did not find an eligible permission to remove from this role."}
+            </p>
+          )}
+          {applyDisabled && (
+            <p className="mt-1 text-sm">
+              Production IAM changes are not enabled in this release. You can review a verified plan, but Apply stays unavailable until the signed execution boundary is deployed and qualified.
+            </p>
+          )}
+        </div>
+      </div>
+    </section>
+  )
+}
+
 interface DependencyInfo {
   arn?: string
   type?: string
@@ -306,10 +349,10 @@ interface DependencyInfo {
 }
 
 interface DependencyContext {
-  status: 'ok' | 'not_found' | 'neo4j_unavailable' | 'error'
+  status: 'ok' | 'not_computed' | 'not_found' | 'neo4j_unavailable' | 'error'
   system?: { name?: string; criticality?: string }
-  dependencies?: DependencyInfo[]
-  has_critical_dependencies?: boolean
+  dependencies?: DependencyInfo[] | null
+  has_critical_dependencies?: boolean | null
   error?: string
 }
 
@@ -731,7 +774,8 @@ function mapGapDataToIAMLp(gapData: GapAnalysisData | null): IamGapAnalysis | nu
     remediable_reason: gapData.remediable_reason || "",
     reason: gapData.reason ?? null,
     dependency_context: {
-      status: gapData.dependency_context?.status || "ok",
+      // Absence is unknown, never an implicit successful dependency scan.
+      status: gapData.dependency_context?.status || "not_computed",
       system: gapData.dependency_context?.system || null,
       dependencies: mappedDependencies,
       has_critical_dependencies: !!gapData.dependency_context?.has_critical_dependencies,
@@ -2983,7 +3027,7 @@ export function IAMPermissionAnalysisModal({
   // Loading state
   if (loading) {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={REMEDIATION_MODAL_BACKDROP_STYLE}>
         <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full p-8 text-center">
           <Loader2 className="w-12 h-12 mx-auto mb-4 animate-spin text-[#8b5cf6]" />
           <h2 className="text-2xl font-bold mb-2 text-[var(--foreground,#111827)]">
@@ -3002,7 +3046,7 @@ export function IAMPermissionAnalysisModal({
   // Error state
   if (error) {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={REMEDIATION_MODAL_BACKDROP_STYLE}>
         <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full p-8 text-center">
           <XCircle className="w-12 h-12 mx-auto mb-4 text-[#ef4444]" />
           <h2 className="text-2xl font-bold mb-2 text-[var(--foreground,#111827)]">Failed to Load Data</h2>
@@ -3030,7 +3074,7 @@ export function IAMPermissionAnalysisModal({
   // Simulation Loading
   if (simulating) {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={REMEDIATION_MODAL_BACKDROP_STYLE}>
         <div className="bg-white rounded-lg shadow-xl max-w-3xl w-full p-8">
           <h2 className="text-2xl font-bold mb-2 text-[var(--foreground,#111827)]">Simulating Permission Removal</h2>
           <p className="text-lg mb-6">
@@ -3073,8 +3117,8 @@ export function IAMPermissionAnalysisModal({
     return (
       <>
       {renderOverrideModal()}
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4 overflow-y-auto">
-        <div className="absolute inset-0 bg-black/60" onClick={handleClose} />
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto" style={REMEDIATION_MODAL_BACKDROP_STYLE}>
+        <div className="absolute inset-0" onClick={handleClose} />
         <div className="relative w-[900px] max-h-[90vh] rounded-2xl shadow-2xl overflow-hidden flex flex-col my-4" style={{ background: "var(--card, #ffffff)" }}>
           {/* Header */}
           <div className="px-6 py-4 border-b flex items-center justify-between" style={{ background: "var(--background, #f8f9fa)", borderColor: "var(--border, #e5e7eb)" }}>
@@ -4145,8 +4189,8 @@ export function IAMPermissionAnalysisModal({
     {/* Original IAM modal — kept inside its z-50 wrapper so close-on-
         backdrop-click still works. The override modal above renders on
         top via inline z-index 99999. */}
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto">
-      <div className="absolute inset-0 bg-black/50" onClick={handleClose} />
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto" style={REMEDIATION_MODAL_BACKDROP_STYLE}>
+      <div className="absolute inset-0" onClick={handleClose} />
 
       <div
         className="relative w-[720px] max-h-[88vh] rounded-lg shadow-[0_10px_40px_rgba(15,23,42,0.12)] overflow-hidden flex flex-col my-4"
@@ -4249,6 +4293,12 @@ export function IAMPermissionAnalysisModal({
           {analysisTab === 'summary' && !safetyLoading && iamLpGap && (
             <div className="space-y-3">
               {removalSafety && <RemovalSafetyPanel bundle={removalSafety} />}
+              {removalSafety && (
+                <IamRemediationAvailability
+                  bundle={removalSafety}
+                  applyDisabled={applyDisabled}
+                />
+              )}
               {!removalSafety && (
                 <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-950">
                   <p className="font-semibold">Removal safety is temporarily unavailable</p>
@@ -4853,65 +4903,37 @@ export function IAMPermissionAnalysisModal({
               )}
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
                 <div className="rounded-lg border border-[var(--border,#e5e7eb)] bg-white p-4">
-                  <div className="text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground,#6b7280)]">Automated-change evidence</div>
-                  <div className="mt-2 text-3xl font-bold text-[var(--foreground,#111827)]">{safetyScore}%</div>
-                  <div className="mt-1 text-sm text-[var(--muted-foreground,#6b7280)]">evidence for safe automation, not confidence in the finding</div>
+                  <div className="text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground,#6b7280)]">Ready to remove</div>
+                  <div className="mt-2 text-3xl font-bold text-[var(--foreground,#111827)]">{removalSafety?.scored_candidate_count ?? 0}</div>
+                  <div className="mt-1 text-sm text-[var(--muted-foreground,#6b7280)]">permissions with an executable evidence assessment</div>
                 </div>
                 <div className="rounded-lg border border-[var(--border,#e5e7eb)] bg-white p-4">
-                  <div className="text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground,#6b7280)]">Observation</div>
-                  <div className="mt-2 text-3xl font-bold text-[var(--foreground,#111827)]">{observationDays}</div>
-                  <div className="mt-1 text-sm text-[var(--muted-foreground,#6b7280)]">days of behavior in scope</div>
+                  <div className="text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground,#6b7280)]">Needs evidence</div>
+                  <div className="mt-2 text-3xl font-bold text-[var(--foreground,#111827)]">{removalSafety?.insufficient_evidence_count ?? 0}</div>
+                  <div className="mt-1 text-sm text-[var(--muted-foreground,#6b7280)]">permissions Cyntro will not change yet</div>
                 </div>
                 <div className="rounded-lg border border-[var(--border,#e5e7eb)] bg-white p-4">
-                  <div className="text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground,#6b7280)]">CloudTrail</div>
-                  <div className="mt-2 text-3xl font-bold text-[var(--foreground,#111827)]">{cloudtrailEvents.toLocaleString()}</div>
-                  <div className="mt-1 text-sm text-[var(--muted-foreground,#6b7280)]">events analyzed for this role</div>
+                  <div className="text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground,#6b7280)]">Observed in use</div>
+                  <div className="mt-2 text-3xl font-bold text-[var(--foreground,#111827)]">{removalSafety?.used_count ?? canonicalPermissionView.usedCount}</div>
+                  <div className="mt-1 text-sm text-[var(--muted-foreground,#6b7280)]">permissions that will be kept</div>
                 </div>
                 <div className="rounded-lg border border-[var(--border,#e5e7eb)] bg-white p-4">
-                  <div className="text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground,#6b7280)]">Dependencies</div>
-                  <div className="mt-2 text-3xl font-bold text-[var(--foreground,#111827)]">{dependencyContext?.dependencies?.length || 0}</div>
-                  <div className="mt-1 text-sm text-[var(--muted-foreground,#6b7280)]">
-                    {dependencyContext?.has_critical_dependencies ? 'critical edges detected' : 'linked resources in view'}
-                  </div>
+                  <div className="text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground,#6b7280)]">Protected</div>
+                  <div className="mt-2 text-3xl font-bold text-[var(--foreground,#111827)]">{removalSafety?.protected_count ?? canonicalPermissionView.protected.length}</div>
+                  <div className="mt-1 text-sm text-[var(--muted-foreground,#6b7280)]">permissions excluded from removal</div>
                 </div>
               </div>
 
-              {confidenceGroups && (
+              {removalSafety && (
                 <div className="rounded-lg border border-[var(--border,#e5e7eb)] bg-white p-5">
-                  <h3 className="text-lg font-bold text-[var(--foreground,#111827)]">Confidence Breakdown</h3>
-                  <div className="mt-4 grid grid-cols-2 md:grid-cols-3 gap-3">
-                    <div className="rounded-lg bg-[#f0fdf4] border border-[#86efac] p-3 text-sm">
-                      <div className="font-semibold text-[#166534]">{confidenceGroups.summary.safe_to_remove}</div>
-                      <div className="text-[#166534]">safe to remove</div>
-                    </div>
-                    <div className="rounded-lg bg-[#fff7ed] border border-[#fdba74] p-3 text-sm">
-                      <div className="font-semibold text-[#9a3412]">{confidenceGroups.summary.verify_first}</div>
-                      <div className="text-[#9a3412]">verify first</div>
-                    </div>
-                    <div className="rounded-lg bg-[#fff1f2] border border-[#fecaca] p-3 text-sm">
-                      <div className="font-semibold text-[#b91c1c]">{confidenceGroups.summary.investigate_first}</div>
-                      <div className="text-[#b91c1c]">investigate first</div>
-                    </div>
-                    <div className="rounded-lg bg-[#fefce8] border border-[#fde68a] p-3 text-sm">
-                      <div className="font-semibold text-[#a16207]">{confidenceGroups.summary.warn_before_removing ?? 0}</div>
-                      <div className="text-[#a16207]">warn before removing</div>
-                    </div>
-                    <div className="rounded-lg bg-[#eff6ff] border border-[#bfdbfe] p-3 text-sm">
-                      <div className="font-semibold text-[#1d4ed8]">{confidenceGroups.summary.reserved ?? 0}</div>
-                      <div className="text-[#1d4ed8]">reserved</div>
-                    </div>
-                    <div className="rounded-lg bg-[#f9fafb] border border-[#d1d5db] p-3 text-sm">
-                      <div className="font-semibold text-[#4b5563]">{confidenceGroups.summary.protected ?? 0}</div>
-                      <div className="text-[#4b5563]">protected</div>
-                    </div>
-                  </div>
-                  {confidenceGroups.account_signals && (
-                    <div className="mt-4 text-sm text-[var(--muted-foreground,#6b7280)]">
-                      Account data events:
-                      {' '}S3 {confidenceGroups.account_signals.s3_data_events ? 'enabled' : 'missing'}
-                      {' • '}Lambda {confidenceGroups.account_signals.lambda_data_events ? 'enabled' : 'missing'}
-                      {' • '}DynamoDB {confidenceGroups.account_signals.dynamodb_data_events ? 'enabled' : 'missing'}
-                    </div>
+                  <h3 className="text-lg font-bold text-[var(--foreground,#111827)]">Why remediation is unavailable</h3>
+                  <p className="mt-2 text-sm text-[var(--muted-foreground,#6b7280)]">
+                    This is removal evidence, not confidence in the finding. Cyntro requires current evidence for each action and its dependencies; missing or stale evidence stays unscored and cannot enter a change plan.
+                  </p>
+                  {applyDisabled && (
+                    <p className="mt-2 text-sm font-medium text-amber-800">
+                      Production IAM execution is also disabled in this release; Preview remains read-only.
+                    </p>
                   )}
                 </div>
               )}
@@ -4939,17 +4961,17 @@ export function IAMPermissionAnalysisModal({
                           </div>
                         ))}
                         {(dependencyContext.dependencies?.length || 0) === 0 && (
-                          <div className="text-sm text-[var(--muted-foreground,#6b7280)]">No linked resources were returned for this role.</div>
+                          <div className="text-sm text-amber-800">The dependency scan returned no measured result. Cyntro does not treat an empty response as proof that no dependencies exist.</div>
                         )}
                       </div>
                     </>
                   ) : (
                     <p className="mt-2 text-sm text-[var(--muted-foreground,#6b7280)]">
                       {dependencyContext?.status === 'neo4j_unavailable'
-                        ? 'Dependency graph is currently unavailable.'
+                        ? 'Dependency evidence is currently unavailable.'
                         : dependencyContext?.status === 'not_found'
-                          ? 'This role was not found in the dependency graph.'
-                          : dependencyContext?.error || 'Dependency context is not available yet.'}
+                          ? 'This role was not found in the current dependency view.'
+                          : 'Dependency analysis has not been computed for this role. Cyntro will not infer that zero dependencies exist.'}
                     </p>
                   )}
                 </div>

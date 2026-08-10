@@ -86,8 +86,11 @@ function freshnessStyles(s: FreshnessStatus) {
 // recordings. Translates to the same labels used in the IAM modal's
 // Evidence Used / Safety Scoring Breakdown panels so the operator
 // sees one consistent vocabulary across the product.
-function genericizeSourceName(raw: string): string {
+export function genericizeSourceName(raw: string): string {
   const norm = raw.toLowerCase()
+  if (norm === 'iam_usage' || norm.includes('iam usage')) return 'Activity history'
+  if (norm.includes('behavioral_map') || norm.includes('behavioral map')) return 'Behavioral context'
+  if (norm.includes('permissionusage') || norm.includes('permission usage')) return 'Permission usage'
   if (norm.includes('neo4j') || norm.includes('graph snapshot') || norm.includes('graph_snapshot')) return 'Identity graph'
   if (norm.includes('iam attached') || norm.includes('iam_attached') || norm.includes('attached polic')) return 'Identity policy graph'
   if (norm.includes('iam policy graph') || norm.includes('iam_policy_graph')) return 'Identity policy graph'
@@ -107,6 +110,15 @@ function genericizeSourceName(raw: string): string {
   // Pass-through for anything that's already vendor-neutral
   // (the new labels: Activity history, Permission usage, etc.)
   return raw
+}
+
+export function genericizeCaveat(raw: string): string {
+  return raw
+    .replace(/neo4j_graph is stale/gi, 'Resource relationship data is stale')
+    .replace(/access_advisor freshness is unknown/gi, 'Permission usage freshness is unknown')
+    .replace(/behavioral_map is stale/gi, 'Behavioral context is stale')
+    .replace(/iam_usage/gi, 'activity history')
+    .replace(/cloudtrail/gi, 'activity history')
 }
 
 function genericizeSourceList(raws: string[]): string[] {
@@ -273,7 +285,7 @@ export function TrustEnvelopeBadge({ provenance, compact = false, surface = "def
                 {provenance.confidence_caveats.map((caveat, i) => (
                   <li key={i} className="flex items-start gap-1.5 text-amber-300">
                     <AlertCircle className="w-3 h-3 mt-0.5 flex-shrink-0" />
-                    <span>{caveat}</span>
+                    <span>{genericizeCaveat(caveat)}</span>
                   </li>
                 ))}
               </ul>

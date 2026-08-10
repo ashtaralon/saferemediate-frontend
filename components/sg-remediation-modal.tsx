@@ -18,6 +18,7 @@
 
 import React, { useEffect } from "react"
 import { SGRemediationCard } from "./sg-remediation-card"
+import { REMEDIATION_MODAL_BACKDROP_STYLE } from "./remediation-modal-chrome"
 
 interface Props {
   isOpen: boolean
@@ -62,7 +63,7 @@ export function SGRemediationModal({
   return (
     <div
       className="fixed inset-0 z-[9000] flex items-start justify-center p-4 overflow-y-auto"
-      style={{ backgroundColor: "rgba(0,0,0,0.6)" }}
+      style={REMEDIATION_MODAL_BACKDROP_STYLE}
       onClick={(e) => {
         // Close only when clicking the dim backdrop, not inside the card.
         if (e.target === e.currentTarget) onClose()
