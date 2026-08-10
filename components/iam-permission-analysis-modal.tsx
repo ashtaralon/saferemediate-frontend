@@ -4916,12 +4916,12 @@ export function IAMPermissionAnalysisModal({
                 </div>
                 <div className="rounded-lg border border-[var(--border,#e5e7eb)] bg-white p-4">
                   <div className="text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground,#6b7280)]">Observed in use</div>
-                  <div className="mt-2 text-3xl font-bold text-[var(--foreground,#111827)]">{removalSafety?.used_count ?? canonicalPermissionView.usedCount}</div>
+                  <div className="mt-2 text-3xl font-bold text-[var(--foreground,#111827)]">{removalSafety?.used_count ?? permissionView.usedCount}</div>
                   <div className="mt-1 text-sm text-[var(--muted-foreground,#6b7280)]">permissions that will be kept</div>
                 </div>
                 <div className="rounded-lg border border-[var(--border,#e5e7eb)] bg-white p-4">
                   <div className="text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground,#6b7280)]">Protected</div>
-                  <div className="mt-2 text-3xl font-bold text-[var(--foreground,#111827)]">{removalSafety?.protected_count ?? canonicalPermissionView.protected.length}</div>
+                  <div className="mt-2 text-3xl font-bold text-[var(--foreground,#111827)]">{removalSafety?.protected_count ?? permissionView.protected.length}</div>
                   <div className="mt-1 text-sm text-[var(--muted-foreground,#6b7280)]">permissions excluded from removal</div>
                 </div>
               </div>
