@@ -13,6 +13,8 @@ import { BackToDashboard } from '@/components/back-to-dashboard'
 import { ResourceConfigTab } from '@/components/inventory/resource-config-tab'
 import { dedupeKmsListRows } from '@/lib/inventory-list'
 import { ServiceTypeBadge } from '@/lib/service-type'
+import { useAccountScope } from '@/lib/account-scope-context'
+import { resourceAccountId, withAccountScope } from '@/lib/account-scope'
 
 // Icon + color for a resource type now come from the canonical
 // `@/lib/service-type` badge — the old per-file `SERVICE_ICONS` map was
@@ -57,6 +59,7 @@ interface ServiceItem {
   category: string
   status: string
   region?: string
+  accountId?: string
   lpScore?: number
   usedCount?: number
   gapCount?: number
@@ -113,6 +116,7 @@ async function fetchDataSecurityServiceItems(systemName: string): Promise<Servic
       category: 'Security',
       status: k.key_state === 'Enabled' ? 'active' : String(k.key_state || 'unknown').toLowerCase(),
       region: k.region || undefined,
+      accountId: resourceAccountId(k) || undefined,
       details: k,
     })
   }
@@ -127,6 +131,7 @@ async function fetchDataSecurityServiceItems(systemName: string): Promise<Servic
       category: 'Security',
       status: 'active',
       region: s.region || undefined,
+      accountId: resourceAccountId(s) || undefined,
       details: s,
     })
   }
@@ -140,6 +145,7 @@ async function fetchDataSecurityServiceItems(systemName: string): Promise<Servic
       category: 'Database',
       status: String(t.status || 'unknown').toLowerCase(),
       region: t.region || undefined,
+      accountId: resourceAccountId(t) || undefined,
       details: t,
     })
   }
@@ -167,6 +173,7 @@ async function fetchSubnetServiceItems(systemName: string): Promise<ServiceItem[
         region: typeof s.availability_zone === 'string' && s.availability_zone.length > 2
           ? s.availability_zone.slice(0, -1)
           : s.availability_zone,
+        accountId: resourceAccountId(s) || undefined,
         details: s,
       }))
   } catch (e) {
@@ -176,6 +183,7 @@ async function fetchSubnetServiceItems(systemName: string): Promise<ServiceItem[
 }
 
 export default function AllServicesInventory({ systemName }: Props) {
+  const accountScope = useAccountScope()
   const [services, setServices] = useState<ServiceItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -203,11 +211,11 @@ export default function AllServicesInventory({ systemName }: Props) {
     
     try {
       // Fetch from extended resources endpoint
-      const response = await fetch(`/api/proxy/resources/all?regions=eu-west-1,us-east-1`)
+      const response = await fetch(withAccountScope(`/api/proxy/resources/all?regions=eu-west-1,us-east-1`, accountScope))
       
       if (!response.ok) {
         // Fallback to LP issues
-        const lpResponse = await fetch(`/api/proxy/least-privilege/issues?systemName=${encodeURIComponent(systemName)}`)
+        const lpResponse = await fetch(withAccountScope(`/api/proxy/least-privilege/issues?systemName=${encodeURIComponent(systemName)}`, accountScope))
         const lpData = await lpResponse.json()
         
         const mappedServices: ServiceItem[] = (lpData.resources || []).map((r: any) => ({
@@ -219,6 +227,7 @@ export default function AllServicesInventory({ systemName }: Props) {
           category: getCategoryForType(r.resourceType),
           status: 'active',
           region: r.evidence?.coverage?.regions?.[0] || 'eu-west-1',
+          accountId: resourceAccountId(r) || undefined,
           lpScore: r.lpScore,
           usedCount: r.usedCount,
           gapCount: r.gapCount,
@@ -272,6 +281,7 @@ export default function AllServicesInventory({ systemName }: Props) {
             category,
             status: r.status || r.state || r.key_state || 'active',
             region: r.region,
+            accountId: resourceAccountId(r) || undefined,
             isEncrypted: r.encrypted || r.sse_enabled || !!r.kms_key_id,
             details: r
           })
@@ -280,7 +290,7 @@ export default function AllServicesInventory({ systemName }: Props) {
       
       // Also fetch LP issues for IAM, SG, S3
       try {
-        const lpResponse = await fetch(`/api/proxy/least-privilege/issues?systemName=${encodeURIComponent(systemName)}`)
+        const lpResponse = await fetch(withAccountScope(`/api/proxy/least-privilege/issues?systemName=${encodeURIComponent(systemName)}`, accountScope))
         const lpData = await lpResponse.json()
         
         ;(lpData.resources || []).forEach((r: any) => {
@@ -291,6 +301,7 @@ export default function AllServicesInventory({ systemName }: Props) {
             category: getCategoryForType(r.resourceType),
             status: 'active',
             region: r.evidence?.coverage?.regions?.[0] || 'eu-west-1',
+            accountId: resourceAccountId(r) || undefined,
             lpScore: r.lpScore,
             usedCount: r.usedCount,
             gapCount: r.gapCount,
@@ -322,7 +333,7 @@ export default function AllServicesInventory({ systemName }: Props) {
     } finally {
       setLoading(false)
     }
-  }, [systemName])
+  }, [systemName, accountScope.customerId, accountScope.groupId, accountScope.accountId, accountScope.region])
 
   const getCategoryForType = (type: string): string => {
     const categoryMap: Record<string, string> = {
@@ -376,6 +387,14 @@ export default function AllServicesInventory({ systemName }: Props) {
     if (statusFilter !== 'all') {
       result = result.filter(s => s.status?.toLowerCase() === statusFilter)
     }
+
+    if (accountScope.accountId !== 'all') {
+      result = result.filter(s => s.accountId === accountScope.accountId)
+    }
+
+    if (accountScope.region !== 'all') {
+      result = result.filter(s => s.region === accountScope.region)
+    }
     
     result.sort((a, b) => {
       switch (sortBy) {
@@ -393,7 +412,7 @@ export default function AllServicesInventory({ systemName }: Props) {
     })
     
     return result
-  }, [services, searchQuery, categoryFilter, typeFilter, statusFilter, sortBy])
+  }, [services, searchQuery, categoryFilter, typeFilter, statusFilter, sortBy, accountScope.accountId, accountScope.region])
 
   // Get unique types
   const uniqueTypes = useMemo(() => [...new Set(services.map(s => s.type))].sort(), [services])
@@ -733,6 +752,11 @@ export default function AllServicesInventory({ systemName }: Props) {
                       {service.region}
                     </span>
                   )}
+                  {service.accountId && accountScope.accountId === 'all' && (
+                    <span className="px-2 py-0.5 bg-teal-50 text-teal-700 rounded text-xs font-mono">
+                      {service.accountId}
+                    </span>
+                  )}
                   {service.isEncrypted && (
                     <span className="px-2 py-0.5 bg-[#22c55e20] text-[#22c55e] rounded text-xs flex items-center gap-1">
                       <Lock className="w-3 h-3" /> Encrypted
@@ -751,6 +775,9 @@ export default function AllServicesInventory({ systemName }: Props) {
                 <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Service</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Type</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Category</th>
+                {accountScope.accountId === 'all' && (
+                  <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Account</th>
+                )}
                 <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Region</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Status</th>
                 <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase">LP Score</th>
@@ -777,6 +804,9 @@ export default function AllServicesInventory({ systemName }: Props) {
                         {service.category}
                       </span>
                     </td>
+                    {accountScope.accountId === 'all' && (
+                      <td className="px-4 py-3 font-mono text-xs text-slate-600">{service.accountId || 'Unknown'}</td>
+                    )}
                     <td className="px-4 py-3 text-slate-600 text-sm">{service.region || '-'}</td>
                     <td className="px-4 py-3">
                       <span className={`px-2 py-0.5 rounded-full text-xs ${
@@ -1203,6 +1233,3 @@ export default function AllServicesInventory({ systemName }: Props) {
     </div>
   )
 }
-
-
-

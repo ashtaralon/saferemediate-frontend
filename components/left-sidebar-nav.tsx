@@ -3,7 +3,7 @@
 import Image from "next/image"
 import Link from "next/link"
 import { useEffect, useState } from "react"
-import { Home, AlertTriangle, Server, Grid3x3, Fingerprint, Plug, Zap, Split, Bug, Shield, Route, Sparkles, Tag, Trash2, Users, Network, Map as MapIcon, Target, BarChart3 } from "lucide-react"
+import { Home, AlertTriangle, Server, Grid3x3, Fingerprint, Plug, Zap, Split, Bug, Shield, Route, Sparkles, Tag, Trash2, Users, Network, Map as MapIcon, Target, BarChart3, Settings } from "lucide-react"
 // ThemeToggle import held until dark-mode migration lands:
 // import { ThemeToggle } from "@/components/theme-toggle"
 
@@ -185,7 +185,7 @@ export function LeftSidebarNav({
     // overlay instead of the sidebar Link. relative z-30 forces the
     // sidebar's stacking context to win without disturbing layout.
     <div
-      className="w-64 min-h-screen border-r relative z-30"
+      className="sticky top-11 z-30 flex h-[calc(100vh-44px)] min-h-0 w-64 flex-col border-r"
       style={{
         background: "var(--bg-secondary)",
         borderColor: "var(--border-subtle)",
@@ -217,7 +217,7 @@ export function LeftSidebarNav({
       </div>
 
       {/* Menu Items */}
-      <nav className="py-4">
+      <nav className="py-4 flex-1 overflow-y-auto">
         {/* Topology v0.2 — Triage is still a static mockup (italics), Estate
             has shipped into the live React route /topology/v0.2-estate
             (non-italic, links via Next.js client navigation). */}
@@ -318,7 +318,7 @@ export function LeftSidebarNav({
           // entries were cut and the legacy URLs redirect to
           // /shared-resources via next.config.js.
           const DEDICATED_ROUTE_IDS = new Set(["pending-tags", "orphan-resources", "attack-paths-v2", "business-systems", "dependency-map", "shared-resources", "network-lp"])
-          if (!DEDICATED_ROUTE_IDS.has(item.id)) {
+          if (!DEDICATED_ROUTE_IDS.has(item.id) && onItemClick) {
             return (
               <button
                 key={item.id}
@@ -342,6 +342,19 @@ export function LeftSidebarNav({
           )
         })}
       </nav>
+      <div className="border-t p-3" style={{ borderColor: "var(--border-subtle)" }}>
+        <Link
+          href="/settings/accounts"
+          className="relative flex w-full items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium transition-all"
+          style={{
+            background: activeItem === "settings" ? "rgba(0, 194, 168, 0.12)" : "transparent",
+            color: activeItem === "settings" ? "#008f7d" : "var(--text-secondary)",
+          }}
+        >
+          <Settings className="h-5 w-5" />
+          <span>Settings</span>
+        </Link>
+      </div>
     </div>
   )
 }

@@ -4,6 +4,8 @@ import { Suspense, type ReactNode } from "react"
 import { ThemeProvider } from "next-themes"
 import { SystemProvider } from "@/lib/system-context"
 import { DeploymentVersionGuard } from "@/components/deployment-version-guard"
+import { AccountScopeProvider } from "@/lib/account-scope-context"
+import { ProductScopeShell } from "@/components/product-scope-shell"
 
 /**
  * Client-side providers wrapper.
@@ -26,7 +28,9 @@ export function Providers({ children }: { children: ReactNode }) {
       <DeploymentVersionGuard />
       <Suspense fallback={null}>
         <SystemProvider>
-          {children}
+          <AccountScopeProvider>
+            <ProductScopeShell>{children}</ProductScopeShell>
+          </AccountScopeProvider>
         </SystemProvider>
       </Suspense>
     </ThemeProvider>
