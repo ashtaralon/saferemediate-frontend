@@ -208,7 +208,7 @@ export function RemovalSafetyPanel({ bundle }: { bundle: RemovalSafetyBundle }) 
         <div>
           <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Removal safety</div>
           <h3 className="mt-1 text-lg font-bold text-slate-900">
-            {bundle.scored_candidate_count} to remove · {bundle.used_count} in use · {bundle.protected_count} protected
+            {bundle.scored_candidate_count} verified for removal · {bundle.insufficient_evidence_count} awaiting evidence · {bundle.used_count} in use · {bundle.protected_count} protected
           </h3>
           <p className="mt-1 text-sm text-slate-600">
             This is an evidence index, not a probability. It measures how strongly the observed data supports removal without breaking expected use.
@@ -320,13 +320,15 @@ export function IamRemediationAvailability({
         <div>
           <div className="font-semibold">
             {!hasCandidates
-              ? "No permission change is safe to run yet"
+              ? bundle.insufficient_evidence_count > 0
+                ? `${bundle.insufficient_evidence_count} unused permissions found — verification is incomplete`
+                : "No eligible permission change was found"
               : "This plan is preview-only"}
           </div>
           {!hasCandidates && (
             <p className="mt-1 text-sm">
               {bundle.insufficient_evidence_count > 0
-                ? `${bundle.insufficient_evidence_count} permissions still need current, action-level usage and dependency evidence before Cyntro can propose removal.`
+                ? "Cyntro has not concluded that these permissions are needed. It is waiting for current usage and dependency evidence before proposing a change."
                 : "Cyntro did not find an eligible permission to remove from this role."}
             </p>
           )}
