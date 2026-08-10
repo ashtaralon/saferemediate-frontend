@@ -45,6 +45,7 @@ import { MicroEnforcementScore } from "@/components/dashboard/micro-enforcement-
 import { HomeDashboardV2 } from "@/components/dashboard/v2/home-dashboard-v2"
 import { HomeDashboardV3 } from "@/components/dashboard/v3/home-dashboard-v3"
 import { DASHBOARD_V3_ENABLED } from "@/lib/dashboard-release"
+import { readJsonCache, writeJsonCache } from "@/lib/browser-cache"
 
 // V2 is the default home. Set NEXT_PUBLIC_DASHBOARD_V2=false in Vercel to
 // roll back to the legacy home without a code redeploy.
@@ -103,26 +104,16 @@ const CACHE_TTL = 5 * 60 * 1000 // 5 minutes - show cached data but refresh if o
 // Load cached data immediately for instant UI (stale-while-revalidate)
 function getCachedData<T>(key: string): T | null {
   if (typeof window === 'undefined') return null
-  try {
-    const cached = localStorage.getItem(key)
-    if (cached) {
-      const parsed = JSON.parse(cached)
-      console.log(`[page] Loaded ${key} from cache (instant)`)
-      return parsed
-    }
-  } catch (e) {
-    console.warn(`[page] Failed to parse cached ${key}:`, e)
-  }
-  return null
+  const cached = readJsonCache<T>(localStorage, key)
+  if (cached) console.log(`[page] Loaded ${key} from cache (instant)`)
+  return cached
 }
 
 function setCachedData(key: string, data: any): void {
   if (typeof window === 'undefined') return
-  try {
-    localStorage.setItem(key, JSON.stringify(data))
-    localStorage.setItem(CACHE_KEYS.TIMESTAMP, Date.now().toString())
-  } catch (e) {
-    console.warn(`[page] Failed to cache ${key}:`, e)
+  const result = writeJsonCache(localStorage, key, data, { timestampKey: CACHE_KEYS.TIMESTAMP })
+  if (!result.stored && result.reason !== 'oversized' && result.reason !== 'quota') {
+    console.warn(`[page] Failed to cache ${key}: ${result.reason}`)
   }
 }
 
