@@ -2463,7 +2463,9 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                             <span className="text-3xl font-bold" style={{ color: "#10b981" }}>
                               {metrics.gapPct === null ? '—' : metrics.gapPct === 0 ? '100%' : `${100 - metrics.gapPct}%`}
                             </span>
-                            <span className="text-xs font-medium" style={{ color: "#10b981" }}>Compliant</span>
+                            <span className="text-xs font-medium" style={{ color: "#10b981" }}>
+                              {metrics.gapPct === 0 ? 'Least privilege' : 'permissions in active use'}
+                            </span>
                           </div>
                           <p className="text-xs mb-3" style={{ color: "var(--text-secondary)" }}>
                             {metrics.total === 0
@@ -2473,13 +2475,13 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                                 : <>{metrics.usedCount} of {metrics.total} permissions in use. {metrics.unusedCount} may need further review.</>
                             }
                           </p>
-                          {/* Full green bar */}
+                          {/* Current observed-use share; do not imply unresolved permissions were removed. */}
                           <div className="h-3 rounded-full overflow-hidden" style={{ background: "var(--bg-primary)" }}>
-                            <div className="h-full rounded-full" style={{ width: '100%', background: '#10b981' }} />
+                            <div className="h-full rounded-full" style={{ width: metrics.gapPct === null ? '0%' : `${100 - metrics.gapPct}%`, background: '#10b981' }} />
                           </div>
                           <div className="flex justify-between mt-1.5 text-[10px]" style={{ color: "var(--text-muted)" }}>
                             <span>{metrics.usedCount} active permissions</span>
-                            <span>{metrics.unusedCount} removed</span>
+                            <span>{metrics.unusedCount} still need review</span>
                           </div>
                         </div>
 
