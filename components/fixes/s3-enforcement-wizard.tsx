@@ -260,10 +260,34 @@ export function S3EnforcementWizard({ systemName, bucket, resume, accountId, reg
     // The ledger keeps the reviewed plan and dry-run result after stripping
     // bearer tokens. Rehydrate both so completed steps remain inspectable in
     // a resumed session instead of displaying contradictory empty states.
-    const storedPlan = (current as unknown as { plan?: S3EnforcementPlan }).plan
+    const storedDocument = current as unknown as {
+      plan?: Partial<S3EnforcementPlan>
+      blockers?: S3EnforcementPlan["blockers"]
+    }
+    const storedPlan = storedDocument.plan
     if (storedPlan) {
       setPlan((previous) => ({
         ...storedPlan,
+        readiness: storedPlan.readiness
+          ?? ((storedPlan.blockers ?? storedDocument.blockers ?? []).length ? "BLOCKED" : "READY"),
+        operation_id: storedPlan.operation_id ?? current.operation_id,
+        operation_state: storedPlan.operation_state ?? current.state,
+        bucket_name: storedPlan.bucket_name ?? resume?.bucketName ?? bucket.name,
+        vpce_ids: storedPlan.vpce_ids ?? [],
+        enforcement_mode: storedPlan.enforcement_mode ?? "SINGLE_STAGE",
+        exempt_principal_arns: storedPlan.exempt_principal_arns ?? [],
+        canary_principal_arns: storedPlan.canary_principal_arns ?? [],
+        blockers: storedPlan.blockers ?? storedDocument.blockers ?? [],
+        impact: {
+          observed_consumers: 0,
+          protected_consumers: 0,
+          public_consumers: 0,
+          unknown_consumers: 0,
+          exempt_principals: 0,
+          vpc_endpoints: 0,
+          policy_statements_added: 0,
+          ...(storedPlan.impact ?? {}),
+        },
         plan_token: previous?.plan_token ?? storedPlan.plan_token ?? null,
       }))
     }
