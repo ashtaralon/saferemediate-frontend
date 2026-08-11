@@ -101,6 +101,7 @@ export interface S3VpcePlan {
 
 export interface ConfigurationFixExplanation {
   kind: S3OperationKind
+  journey?: "CREATE_MANAGED" | "ADOPT_EXISTING" | "NO_CHANGE" | "ENFORCE_PRIVATE_PATH" | string
   headline: string
   why_this_change: string
   current_state: string

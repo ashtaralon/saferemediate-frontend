@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   AlertTriangle,
   ArrowLeft,
@@ -26,6 +26,7 @@ import {
   type S3VpceRollbackTokenReissue,
 } from "@/components/topology-v0-2/estate-operations"
 import { OperationsExplanation } from "./operations-explanation"
+import { EnforcementJourneySummary } from "./configuration-fix-journey"
 import {
   WIZARD_STEPS,
   isTerminal,
@@ -158,15 +159,6 @@ function Metric({ label, value }: { label: string; value: string | number }) {
       <div className="text-xl font-bold" style={{ color: "#1A2330" }}>{value}</div>
       <div className="mt-0.5 text-[10px] font-semibold uppercase tracking-wide" style={{ color: "#5A6B7A" }}>{label}</div>
     </div>
-  )
-}
-
-function InfoRow({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <>
-      <strong className="text-slate-800">{label}</strong>
-      <span>{children}</span>
-    </>
   )
 }
 
@@ -562,11 +554,11 @@ export function S3EnforcementWizard({ systemName, bucket, resume, accountId, reg
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <div className="text-[10px] font-semibold uppercase tracking-[0.16em]" style={{ color: "#0E8B7A" }}>
-                Configuration fix · Enforce private path
+                Configuration fix · Enforce private S3 access
               </div>
               <h2 className="mt-1 truncate text-lg font-bold">{bucket.name}</h2>
               <p className="mt-0.5 text-xs" style={{ color: "#5A6B7A" }}>
-                Make the proven private path mandatory with a reviewed bucket-policy condition. Staged from a complete policy snapshot and verified from fresh traffic.
+                Review who would keep or lose access before making the proven endpoint path mandatory.
               </p>
             </div>
             <button type="button" onClick={onClose} className="rounded-lg p-2 hover:bg-slate-100" aria-label="Close enforcement">
@@ -620,9 +612,8 @@ export function S3EnforcementWizard({ systemName, bucket, resume, accountId, reg
               <span className="mr-2 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide" style={{ borderColor: "#94A8BA", color: "#5A6B7A", background: "#FFFFFF" }}>
                 Preview
               </span>
-              <strong>Enforcement execution is disabled on this backend.</strong>{" "}
-              You can analyze this bucket and review the exact policy change, but requesting approval and applying are
-              switched off until the platform owner enables enforcement. Nothing here can change AWS.
+              <strong>Preview only.</strong>{" "}
+              Analyze and review are available. Approval and AWS changes are disabled in this environment.
             </div>
           ) : null}
           {resumedWithoutPlan && shownStep >= 2 ? (
@@ -637,12 +628,11 @@ export function S3EnforcementWizard({ systemName, bucket, resume, accountId, reg
           {shownStep === 0 ? (
             <div className="space-y-4" data-testid="enforce-wizard-review">
               <div className="rounded-xl border p-4" style={{ borderColor: "#C9D4DE", background: "#FFFFFF" }}>
-                <div className="text-sm font-bold">What this setup does</div>
+                <div className="text-sm font-bold">Require the endpoint only after every caller is understood</div>
                 <p className="mt-1 text-xs leading-5" style={{ color: "#5A6B7A" }}>
-                  Every observed workload already reaches <strong>{bucket.name}</strong> privately, through the Gateway
-                  endpoint. This adds one <strong>bucket-policy deny</strong> so any request that does <em>not</em> arrive
-                  through the reviewed endpoint is refused unless it matches an approved exemption. The generated
-                  statement targets object access; bucket-management operations stay outside this enforcement change.
+                  Cyntro first separates VPC workloads using the reviewed endpoint from callers outside the VPC. Only
+                  after every affected caller is reviewed can it propose one <strong>bucket-policy rule</strong> requiring
+                  object access through that endpoint. IAM, routes, and bucket administration are not changed.
                 </p>
               </div>
               <div className="rounded-xl border p-4 text-xs" style={{ borderColor: "#DDE3E8", background: "#FFFFFF", color: "#5A6B7A" }}>
@@ -676,6 +666,22 @@ export function S3EnforcementWizard({ systemName, bucket, resume, accountId, reg
                       className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-[11px]"
                     />
                   </label>
+                  {suggestedExemptions.length ? (
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-[11px] text-amber-900" data-testid="enforce-wizard-suggested-exemptions">
+                      <div className="font-semibold">Observed outside-VPC callers to review</div>
+                      <ul className="mt-1 space-y-1 font-mono">
+                        {suggestedExemptions.map((principal) => <li key={principal}>{principal}</li>)}
+                      </ul>
+                      <button
+                        type="button"
+                        onClick={() => setExemptText(suggestedExemptions.join("\n"))}
+                        className="mt-2 rounded-lg border border-amber-300 bg-white px-2.5 py-1.5 font-sans font-semibold text-amber-900"
+                        data-testid="enforce-wizard-use-suggested-exemptions"
+                      >
+                        Use these reviewed callers as exemptions
+                      </button>
+                    </div>
+                  ) : null}
                   <label className="block text-xs font-semibold text-slate-700">
                     Canary principals — enforce for these first (optional; leave blank for single-stage)
                     <textarea
@@ -695,69 +701,8 @@ export function S3EnforcementWizard({ systemName, bucket, resume, accountId, reg
           {/* Step 1 — Plan */}
           {shownStep === 1 && plan ? (
             <div className="space-y-4" data-testid="enforce-wizard-plan">
+              <EnforcementJourneySummary plan={plan} />
               <OperationsExplanation explanation={explanation} loading={explanationLoading} />
-              {nothingToEnforce ? (
-                <div className="flex items-center gap-2 rounded-xl border border-teal-200 bg-teal-50 p-3 text-xs font-semibold text-teal-800">
-                  <CheckCircle2 className="h-4 w-4 shrink-0" />
-                  {blockerCodes.has("ENFORCEMENT_ALREADY_PRESENT")
-                    ? "This bucket already enforces the private path · nothing to change"
-                    : "Analysis complete · no proven private path to enforce here"}
-                </div>
-              ) : (
-                <div
-                  className="rounded-xl border p-4"
-                  style={plan.readiness === "READY"
-                    ? { borderColor: "#9FE8DC", background: "#F0FDFA" }
-                    : { borderColor: "#FED7AA", background: "#FFF7ED" }}
-                >
-                  <div className="flex items-start gap-2">
-                    {plan.readiness === "READY"
-                      ? <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-teal-600" />
-                      : <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-orange-600" />}
-                    <div>
-                      <div className="text-sm font-bold">
-                        {plan.readiness === "READY"
-                          ? "The enforcement is scoped and ready for its safety check"
-                          : "Enforcement is blocked until these checks pass"}
-                      </div>
-                      <p className="mt-1 text-[11px]" style={{ color: "#5A6B7A" }}>
-                        Endpoint(s): <strong>{plan.vpce_ids.join(", ") || "unresolved"}</strong> · Mode:{" "}
-                        <strong>{plan.enforcement_mode === "PRINCIPAL_CANARY" ? "Canary by principal" : "Single stage"}</strong>
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              )}
-              {!nothingToEnforce ? (
-                <>
-                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                    <Metric label="Protected consumers" value={plan.impact.protected_consumers} />
-                    <Metric label="Exempt principals" value={plan.impact.exempt_principals} />
-                    <Metric label="VPC endpoints" value={plan.impact.vpc_endpoints} />
-                    <Metric label="On public path" value={plan.impact.public_consumers} />
-                  </div>
-                  <div className="rounded-xl border bg-white p-3 text-xs text-slate-600" style={{ borderColor: "#DDE3E8" }}>
-                    <div className="grid grid-cols-[150px_1fr] gap-x-3 gap-y-2">
-                      <InfoRow label="Change">Add one bucket-policy deny for object access not on the reviewed endpoint</InfoRow>
-                      <InfoRow label="Exemptions">
-                        {plan.exempt_principal_arns.length
-                          ? plan.exempt_principal_arns.map((arn) => <div key={arn} className="font-mono text-[10px]">{arn}</div>)
-                          : "None — no out-of-VPC access observed"}
-                      </InfoRow>
-                      {plan.established_by_operation_ids?.length ? (
-                        <InfoRow label="Private path from">
-                          <span className="font-mono text-[10px]">{plan.established_by_operation_ids[0]}</span>
-                          {plan.established_by_operation_ids.length > 1
-                            ? ` +${plan.established_by_operation_ids.length - 1} more`
-                            : null}
-                        </InfoRow>
-                      ) : null}
-                      <InfoRow label="Not touched">IAM, network routes, bucket management (Get/Put/DeleteBucketPolicy) — rollback stays available</InfoRow>
-                      <InfoRow label="Rollback">Restore the exact prior bucket policy from the verified snapshot</InfoRow>
-                    </div>
-                  </div>
-                </>
-              ) : null}
               {plan.blockers.length ? (
                 <div className="space-y-2">
                   {plan.blockers.map((blocker) => {
@@ -767,19 +712,22 @@ export function S3EnforcementWizard({ systemName, bucket, resume, accountId, reg
                       <div key={blocker.code} className={`rounded-xl border bg-white p-3 text-xs ${benign ? "border-teal-200" : "border-orange-200"}`}>
                         <div className="flex flex-wrap items-center gap-2">
                           <strong className={benign ? "text-teal-800" : "text-orange-800"}>{guidance.title}</strong>
-                          <span className={`rounded px-1.5 py-0.5 font-mono text-[9px] ${benign ? "bg-teal-50 text-teal-700" : "bg-orange-50 text-orange-700"}`}>{blocker.code}</span>
                         </div>
                         <p className="mt-1 leading-5 text-slate-600">{blocker.message}</p>
                         <p className="mt-1.5 leading-5 text-slate-700"><strong>Next:</strong> {guidance.next}</p>
+                        <details className="mt-2 text-[10px] text-slate-500">
+                          <summary className="cursor-pointer font-semibold">Technical detail</summary>
+                          <span className="mt-1 inline-block rounded bg-slate-100 px-1.5 py-0.5 font-mono">{blocker.code}</span>
+                        </details>
                         {blocker.code === "OUT_OF_VPC_ACCESS_UNREVIEWED" && suggestedExemptions.length ? (
                           <button
                             type="button"
-                            onClick={() => { setExemptText(suggestedExemptions.join("\n")); setShowAdvanced(true); setPinnedStep(0) }}
+                            onClick={() => { setShowAdvanced(true); setPinnedStep(0) }}
                             className="mt-2 inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold"
                             style={{ borderColor: "#0E8B7A", color: "#0E8B7A", background: "#FFFFFF" }}
-                            data-testid="enforce-wizard-accept-exemptions"
+                            data-testid="enforce-wizard-review-exemptions"
                           >
-                            Add {suggestedExemptions.length} observed principal(s) to exemptions and re-analyze
+                            Review {suggestedExemptions.length} suggested exemption{suggestedExemptions.length === 1 ? "" : "s"}
                           </button>
                         ) : null}
                       </div>

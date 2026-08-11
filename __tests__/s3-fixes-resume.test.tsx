@@ -93,7 +93,7 @@ describe("S3 configuration-fix resume", () => {
     await screen.findByText(/Requested by/)
 
     fireEvent.click(screen.getByTestId("enforce-wizard-step-1"))
-    expect(await screen.findByText(/Endpoint\(s\):/)).toBeInTheDocument()
+    expect(await screen.findByText("Reviewed endpoints")).toBeInTheDocument()
     expect(screen.getByText("vpce-1")).toBeInTheDocument()
     expect(screen.queryByText("Run the analysis from the Review step first.")).not.toBeInTheDocument()
 
@@ -104,6 +104,70 @@ describe("S3 configuration-fix resume", () => {
     expect(screen.queryByText(/AccessDeniedException/)).not.toBeInTheDocument()
     expect(screen.queryByText(/arn:aws:iam/)).not.toBeInTheDocument()
     expect(screen.queryByText(/No validation yet/)).not.toBeInTheDocument()
+  })
+
+  it("requires an explicit second action before suggested callers become exemptions", async () => {
+    const outsideCaller = "arn:aws:iam::123456789012:role/outside-batch"
+    operationalRequest.mockResolvedValue({
+      operation_id: "s3-bpe-review",
+      state: "READY_FOR_SIMULATION",
+      version: 1,
+      blockers: [{
+        code: "OUT_OF_VPC_ACCESS_UNREVIEWED",
+        message: "One caller accesses the bucket from outside the VPC.",
+      }],
+      plan: {
+        readiness: "BLOCKED",
+        operation_id: "s3-bpe-review",
+        operation_state: "READY_FOR_SIMULATION",
+        bucket_name: "customer-data",
+        vpc_ids: ["vpc-1"],
+        region: "eu-west-1",
+        vpce_ids: ["vpce-1"],
+        enforcement_mode: "SINGLE_STAGE",
+        exempt_principal_arns: [],
+        canary_principal_arns: [],
+        out_of_vpc_principals: [outsideCaller],
+        impact: {
+          observed_consumers: 3,
+          protected_consumers: 2,
+          public_consumers: 0,
+          unknown_consumers: 0,
+          exempt_principals: 0,
+          vpc_endpoints: 1,
+          policy_statements_added: 1,
+        },
+      },
+      execution: null,
+      verification: null,
+    })
+
+    render(
+      <S3EnforcementWizard
+        systemName="alon-prod"
+        bucket={{ id: "arn:aws:s3:::customer-data", name: "customer-data", region: "eu-west-1" }}
+        resume={{
+          operationId: "s3-bpe-review",
+          kind: "S3_BUCKET_POLICY_ENFORCEMENT",
+          systemName: "alon-prod",
+          bucketId: "arn:aws:s3:::customer-data",
+          bucketName: "customer-data",
+          state: "READY_FOR_SIMULATION",
+          updatedAt: "2026-08-11T00:00:00Z",
+        }}
+        executionEnabled={false}
+        onClose={() => undefined}
+      />,
+    )
+
+    fireEvent.click(await screen.findByTestId("enforce-wizard-step-1"))
+    fireEvent.click(await screen.findByTestId("enforce-wizard-review-exemptions"))
+    const exemptions = screen.getByLabelText("Exempt principal ARNs") as HTMLTextAreaElement
+    expect(exemptions.value).toBe("")
+    expect(screen.getByText(outsideCaller)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByTestId("enforce-wizard-use-suggested-exemptions"))
+    expect(exemptions.value).toBe(outsideCaller)
   })
 
   it("does not claim internet-path use when no consumer was observed", async () => {
