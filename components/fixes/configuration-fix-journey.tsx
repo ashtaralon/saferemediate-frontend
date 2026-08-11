@@ -141,7 +141,13 @@ export function TransportJourneySummary({ plan }: { plan: S3VpcePlan }) {
 }
 
 export function EnforcementJourneySummary({ plan }: { plan: S3EnforcementPlan }) {
-  const outsideVpc = plan.out_of_vpc_principals?.length ?? 0
+  const outsideVpc = plan.impact.out_of_vpc_consumers
+    ?? plan.caller_summaries?.filter((caller) => caller.path_status === "OUTSIDE_VPC").length
+    ?? plan.out_of_vpc_principals?.length
+    ?? 0
+  const unsupportedLambda = plan.impact.unsupported_lambda_consumers
+    ?? plan.caller_summaries?.filter((caller) => caller.scope_status === "OUT_OF_SCOPE").length
+    ?? 0
   const protectedConsumers = plan.impact.protected_consumers
   const publicConsumers = plan.impact.public_consumers
   const unknownConsumers = plan.impact.unknown_consumers
@@ -165,6 +171,8 @@ export function EnforcementJourneySummary({ plan }: { plan: S3EnforcementPlan })
     tone = "complete"
   } else if (publicConsumers > 0) {
     summary = `${publicConsumers} VPC workload${publicConsumers === 1 ? " still uses" : "s still use"} a public S3 path. Enforcing now could break that traffic; complete the network migration first.`
+  } else if (unsupportedLambda > 0) {
+    summary = `${protectedConsumers} VPC workload${protectedConsumers === 1 ? " uses" : "s use"} the reviewed endpoint. ${unsupportedLambda} Lambda caller${unsupportedLambda === 1 ? " is" : "s are"} outside the VPC; Lambda network migration is not automated in this release, so enforcement remains blocked.`
   } else if (outsideVpc > 0) {
     summary = `${protectedConsumers} VPC workload${protectedConsumers === 1 ? " uses" : "s use"} the reviewed endpoint. ${outsideVpc} caller${outsideVpc === 1 ? " accesses" : "s access"} the bucket from outside the VPC and must be reviewed before enforcement.`
   } else if (unknownConsumers > 0) {
