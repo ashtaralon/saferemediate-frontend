@@ -48,6 +48,19 @@ describe("isMutationDisabledError", () => {
     ).toBe(true)
   })
 
+  it("recognizes release-tier and control-bundle mutation gates", () => {
+    expect(
+      isMutationDisabledError(
+        "release tier PREVIEW does not permit mutating AWS (mutation requires SANDBOX_MUTATION or higher)",
+      ),
+    ).toBe(true)
+    expect(
+      isMutationDisabledError(
+        "Production control bundle is required at release tier CUSTOMER_CANARY but is incomplete",
+      ),
+    ).toBe(true)
+  })
+
   it("does not swallow unrelated errors", () => {
     expect(isMutationDisabledError("Operation is SIMULATED, not approved")).toBe(false)
     expect(isMutationDisabledError("Confirmation must exactly match: ENFORCE data vpce-1")).toBe(false)
