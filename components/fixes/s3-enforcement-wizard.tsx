@@ -146,6 +146,10 @@ const BLOCKER_GUIDANCE: Record<string, { title: string; next: string }> = {
     title: "The change record store is temporarily unavailable",
     next: "No AWS change was authorized. Retry once the operation ledger recovers.",
   },
+  GRAPH_CAPACITY_EXHAUSTED: {
+    title: "The behavioral graph is full",
+    next: "No AWS change was authorized. Restore graph capacity or move this tenant to its production-sized dedicated graph, then analyze again.",
+  },
   AFFECTED_PRINCIPAL_SCOPE_INCOMPLETE: {
     title: "Cyntro is still completing the caller inventory",
     next: "Refresh IAM policies, workload-to-role bindings, and the bucket policy. Technical detail names every missing or stale source; enforcement remains blocked until the caller set is complete.",

@@ -97,6 +97,10 @@ const BLOCKER_GUIDANCE: Record<string, { title: string; next: string }> = {
     title: "The change record store is temporarily unavailable",
     next: "No AWS change was authorized. Retry once the operation ledger recovers.",
   },
+  GRAPH_CAPACITY_EXHAUSTED: {
+    title: "The behavioral graph is full",
+    next: "No AWS change was authorized. Restore graph capacity or move this tenant to its production-sized dedicated graph, then analyze again.",
+  },
 }
 
 function blockerGuidance(code: string) {

@@ -136,6 +136,10 @@ const S3_BLOCKER_GUIDANCE: Record<string, { title: string; next: string }> = {
     title: "Execution record is temporarily unavailable",
     next: "No AWS change was authorized. Retry Analyze after the operation ledger recovers.",
   },
+  GRAPH_CAPACITY_EXHAUSTED: {
+    title: "The behavioral graph is full",
+    next: "No AWS change was authorized. Restore graph capacity or move this tenant to its production-sized dedicated graph, then analyze again.",
+  },
 }
 
 function blockerGuidance(code: string) {
