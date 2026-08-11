@@ -6,6 +6,11 @@
 export interface OperationalFeatureState {
   s3_private_path_mutations?: boolean
   s3_bucket_policy_enforcement?: boolean
+  release_tier?: string
+  mutation_tier_permitted?: boolean
+  production_control_bundle_ready?: boolean
+  canonical_evidence_ready?: boolean
+  mutation_unavailable_reason?: string | null
 }
 
 export type EnforcementAvailability = "enabled" | "preview"
@@ -26,7 +31,7 @@ export function enforcementAvailability(
 // gate ("S3 bucket-policy enforcement is disabled...") and the transport gate
 // ("S3 private-path AWS mutations are disabled...").
 export function isMutationDisabledError(message: string | null | undefined): boolean {
-  return /(enforcement is disabled|mutations are disabled)/i.test(message ?? "")
+  return /(enforcement is disabled|mutations are disabled|does not permit mutating AWS|not a recognized release tier|production control bundle is required)/i.test(message ?? "")
 }
 
 // Read the effective availability from the meta diagnostic. Fail-soft null →

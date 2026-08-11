@@ -246,6 +246,9 @@ export interface S3EnforcementImpact {
   out_of_vpc_consumers?: number
   unsupported_lambda_consumers?: number
   exempted_lambda_consumers?: number
+  enforced_principals?: number
+  not_changed_observed_consumers?: number
+  not_changed_configured_subjects?: number
 }
 
 export interface S3EnforcementCallerSummary {
@@ -280,7 +283,9 @@ export interface S3EnforcementPlan {
   caller_summaries?: S3EnforcementCallerSummary[]
   unsupported_callers?: string[]
   exempted_lambda_callers?: string[]
-  enforcement_scope?: "PRIVATE_PATH_ONLY" | "HYBRID_EXACT_ROLE_EXEMPTIONS"
+  enforcement_scope?: "OBSERVED_PRIVATE_PRINCIPALS" | "BUCKET_GLOBAL" | "PRIVATE_PATH_ONLY" | "HYBRID_EXACT_ROLE_EXEMPTIONS"
+  coverage_mode?: "OBSERVED_PRIVATE_PRINCIPALS" | "BUCKET_GLOBAL"
+  enforced_principal_arns?: string[]
   enforcement_mode: "SINGLE_STAGE" | "PRINCIPAL_CANARY"
   exempt_principal_arns: string[]
   canary_principal_arns: string[]
@@ -294,6 +299,7 @@ export interface S3EnforcementPlan {
   canary_policy?: Record<string, unknown> | null
   existing_policy?: Record<string, unknown> | null
   blockers: S3EnforcementBlocker[]
+  advisories?: S3EnforcementBlocker[]
   impact: S3EnforcementImpact
   plan_token?: string | null
   baseline_hash?: string

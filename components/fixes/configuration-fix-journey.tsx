@@ -152,6 +152,9 @@ export function EnforcementJourneySummary({ plan }: { plan: S3EnforcementPlan })
     ?? plan.caller_summaries?.filter((caller) => caller.scope_status === "EXEMPTED").length
     ?? 0
   const protectedConsumers = plan.impact.protected_consumers
+  const enforcedPrincipals = plan.impact.enforced_principals ?? plan.enforced_principal_arns?.length ?? 0
+  const notChangedObserved = plan.impact.not_changed_observed_consumers ?? 0
+  const principalScoped = plan.coverage_mode === "OBSERVED_PRIVATE_PRINCIPALS"
   const publicConsumers = plan.impact.public_consumers
   const unknownConsumers = plan.impact.unknown_consumers
   const alreadyEnforced = plan.blockers.some((blocker) => blocker.code === "ENFORCEMENT_ALREADY_PRESENT")
@@ -166,6 +169,12 @@ export function EnforcementJourneySummary({ plan }: { plan: S3EnforcementPlan })
   let summary = `${protectedConsumers} VPC workload${protectedConsumers === 1 ? " uses" : "s use"} the reviewed endpoint. Cyntro can now review one bucket-policy rule that requires this path for object access.`
   let tone: "default" | "warning" | "complete" = plan.readiness === "READY" ? "default" : "warning"
   let change = "Add one bucket-policy rule requiring object requests to use the reviewed endpoint."
+
+  if (principalScoped && plan.readiness === "READY") {
+    title = "Enforce the private path for proven workloads"
+    summary = `${protectedConsumers} VPC workload${protectedConsumers === 1 ? " uses" : "s use"} the reviewed endpoint. This change covers ${enforcedPrincipals} exact IAM role${enforcedPrincipals === 1 ? "" : "s"}; ${notChangedObserved} outside-VPC caller${notChangedObserved === 1 ? " is" : "s are"} not changed.`
+    change = "Add one bucket-policy rule requiring the reviewed endpoint only for the exact observed VPC workload roles."
+  }
 
   if (alreadyEnforced) {
     status = "No policy change"
@@ -189,15 +198,15 @@ export function EnforcementJourneySummary({ plan }: { plan: S3EnforcementPlan })
     title = `Move ${publicConsumers} VPC workload${publicConsumers === 1 ? "" : "s"} to the private path`
     summary = `${publicConsumers} VPC workload${publicConsumers === 1 ? " still uses" : "s still use"} a public S3 path. Enforcing now could break that traffic; complete the network migration first.`
     change = "Next step: migrate and verify those workloads. No bucket-policy change is proposed yet."
-  } else if (unsupportedLambda > 0) {
+  } else if (unsupportedLambda > 0 && !principalScoped) {
     status = "Caller review required"
     title = `Review ${unsupportedLambda} Lambda caller${unsupportedLambda === 1 ? "" : "s"} before enforcement`
     summary = `${protectedConsumers} VPC workload${protectedConsumers === 1 ? " uses" : "s use"} the reviewed endpoint. ${unsupportedLambda} Lambda caller${unsupportedLambda === 1 ? " needs" : "s need"} an exact execution-role exemption or removal of bucket access before enforcement.`
     change = "Next step: approve each exact Lambda execution-role exemption or remove its bucket access. No bucket-policy change is proposed yet."
-  } else if (exemptedLambda > 0) {
+  } else if (exemptedLambda > 0 && !principalScoped) {
     summary = `${protectedConsumers} VPC workload${protectedConsumers === 1 ? " uses" : "s use"} the reviewed endpoint. ${exemptedLambda} Lambda caller${exemptedLambda === 1 ? " remains" : "s remain"} outside the VPC and ${exemptedLambda === 1 ? "keeps" : "keep"} access through exact reviewed execution-role exemptions.`
     change = "Add one bucket-policy rule requiring the reviewed endpoint, except for the exact approved Lambda execution roles."
-  } else if (outsideVpc > 0) {
+  } else if (outsideVpc > 0 && !principalScoped) {
     status = "Caller review required"
     title = `Review ${outsideVpc} outside-VPC caller${outsideVpc === 1 ? "" : "s"} before enforcement`
     summary = `${protectedConsumers} VPC workload${protectedConsumers === 1 ? " uses" : "s use"} the reviewed endpoint. ${outsideVpc} caller${outsideVpc === 1 ? " accesses" : "s access"} the bucket from outside the VPC and must be reviewed before enforcement.`
@@ -217,7 +226,7 @@ export function EnforcementJourneySummary({ plan }: { plan: S3EnforcementPlan })
         summary={summary}
         facts={[
           { label: "Private VPC workloads", value: protectedConsumers },
-          { label: "Outside-VPC callers", value: outsideVpc, emphasis: outsideVpc ? "warning" : "default" },
+          { label: principalScoped ? "Callers not changed" : "Outside-VPC callers", value: outsideVpc, emphasis: outsideVpc && !principalScoped ? "warning" : "default" },
           {
             label: "Reviewed endpoints",
             value: plan.vpce_ids.length === 1 ? plan.vpce_ids[0] : plan.impact.vpc_endpoints,
@@ -225,11 +234,15 @@ export function EnforcementJourneySummary({ plan }: { plan: S3EnforcementPlan })
           { label: "VPC workloads public", value: publicConsumers, emphasis: publicConsumers ? "warning" : "default" },
         ]}
         change={change}
-        untouched="IAM permissions, route tables, application configuration, and bucket administration."
+        untouched={principalScoped
+          ? "Lambda, outside-VPC and unobserved callers; IAM permissions, routes, applications, and bucket administration."
+          : "IAM permissions, route tables, application configuration, and bucket administration."}
         tone={tone}
         testId="enforcement-journey-summary"
       />
-      {plan.caller_summaries?.length ? <S3CallerInventory callers={plan.caller_summaries} /> : null}
+      {plan.caller_summaries?.length ? (
+        <S3CallerInventory callers={plan.caller_summaries} principalScoped={principalScoped} />
+      ) : null}
     </div>
   )
 }

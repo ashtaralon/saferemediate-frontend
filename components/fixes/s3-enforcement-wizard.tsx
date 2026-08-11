@@ -375,6 +375,7 @@ export function S3EnforcementWizard({ systemName, bucket, resume, accountId, reg
       account_id: accountId || undefined,
       region: region || bucket.region || undefined,
       window_days: 90,
+      enforcement_scope: "OBSERVED_PRIVATE_PRINCIPALS",
       exempt_principal_arns: parseArns(exemptText),
       canary_principal_arns: parseArns(canaryText),
     })
@@ -771,6 +772,20 @@ export function S3EnforcementWizard({ systemName, bucket, resume, accountId, reg
                       </div>
                     )
                   })}
+                </div>
+              ) : null}
+              {plan.advisories?.length ? (
+                <div className="space-y-2" data-testid="enforce-wizard-advisories">
+                  {plan.advisories.map((advisory) => (
+                    <div key={advisory.code} className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs text-blue-900">
+                      <strong>Outside this change</strong>
+                      <p className="mt-1 leading-5">{advisory.message}</p>
+                      <details className="mt-2 text-[10px] text-blue-800/70">
+                        <summary className="cursor-pointer font-semibold">Technical detail</summary>
+                        <span className="mt-1 inline-block rounded bg-white px-1.5 py-0.5 font-mono">{advisory.code}</span>
+                      </details>
+                    </div>
+                  ))}
                 </div>
               ) : null}
             </div>
