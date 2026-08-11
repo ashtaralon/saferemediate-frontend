@@ -2,6 +2,7 @@
 
 import { CheckCircle2, Route, ShieldAlert } from "lucide-react"
 import type { S3EnforcementPlan, S3VpcePlan } from "@/components/topology-v0-2/estate-operations"
+import { S3CallerInventory } from "./s3-caller-inventory"
 
 interface Fact {
   label: string
@@ -171,23 +172,26 @@ export function EnforcementJourneySummary({ plan }: { plan: S3EnforcementPlan })
   }
 
   return (
-    <JourneySummary
-      status={status}
-      title={title}
-      summary={summary}
-      facts={[
-        { label: "Private VPC workloads", value: protectedConsumers },
-        { label: "Outside-VPC callers", value: outsideVpc, emphasis: outsideVpc ? "warning" : "default" },
-        {
-          label: "Reviewed endpoints",
-          value: plan.vpce_ids.length === 1 ? plan.vpce_ids[0] : plan.impact.vpc_endpoints,
-        },
-        { label: "VPC workloads public", value: publicConsumers, emphasis: publicConsumers ? "warning" : "default" },
-      ]}
-      change={alreadyEnforced || noProof ? "No bucket-policy change is proposed." : "Add one bucket-policy rule requiring object requests to use the reviewed endpoint."}
-      untouched="IAM permissions, route tables, application configuration, and bucket administration."
-      tone={tone}
-      testId="enforcement-journey-summary"
-    />
+    <div className="space-y-3">
+      <JourneySummary
+        status={status}
+        title={title}
+        summary={summary}
+        facts={[
+          { label: "Private VPC workloads", value: protectedConsumers },
+          { label: "Outside-VPC callers", value: outsideVpc, emphasis: outsideVpc ? "warning" : "default" },
+          {
+            label: "Reviewed endpoints",
+            value: plan.vpce_ids.length === 1 ? plan.vpce_ids[0] : plan.impact.vpc_endpoints,
+          },
+          { label: "VPC workloads public", value: publicConsumers, emphasis: publicConsumers ? "warning" : "default" },
+        ]}
+        change={alreadyEnforced || noProof ? "No bucket-policy change is proposed." : "Add one bucket-policy rule requiring object requests to use the reviewed endpoint."}
+        untouched="IAM permissions, route tables, application configuration, and bucket administration."
+        tone={tone}
+        testId="enforcement-journey-summary"
+      />
+      {plan.caller_summaries?.length ? <S3CallerInventory callers={plan.caller_summaries} /> : null}
+    </div>
   )
 }
