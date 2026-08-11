@@ -91,8 +91,7 @@ describe("S3 configuration-fix resume", () => {
     )
 
     const previewBanner = screen.getByTestId("enforce-wizard-preview-banner")
-    expect(previewBanner).toHaveTextContent("Preview mode")
-    expect(previewBanner).toHaveTextContent("Analyze and review are available")
+    expect(previewBanner).toHaveTextContent("Preview mode Analyze and review are available")
     expect(previewBanner).not.toHaveTextContent("PreviewPreview")
     expect(previewBanner).not.toHaveTextContent("Preview only")
 
