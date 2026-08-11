@@ -90,6 +90,11 @@ describe("S3 configuration-fix resume", () => {
       />,
     )
 
+    const previewBanner = screen.getByTestId("enforce-wizard-preview-banner")
+    expect(previewBanner).toHaveTextContent("Preview mode Analyze and review are available")
+    expect(previewBanner).not.toHaveTextContent("PreviewPreview")
+    expect(previewBanner).not.toHaveTextContent("Preview only")
+
     await screen.findByText(/Requested by/)
 
     fireEvent.click(screen.getByTestId("enforce-wizard-step-1"))

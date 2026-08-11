@@ -106,10 +106,28 @@ describe("configuration fix journeys", () => {
 
   it("separates VPC public-path workloads from outside-VPC callers", () => {
     render(<EnforcementJourneySummary plan={enforcementPlan()} />)
+    expect(screen.getByText("Review 1 Lambda caller before enforcement")).toBeInTheDocument()
+    expect(screen.getByText("Caller review required")).toBeInTheDocument()
     expect(screen.getByText(/1 Lambda caller needs an exact execution-role exemption/)).toBeInTheDocument()
+    expect(screen.getByText(/approve each exact Lambda execution-role exemption/)).toBeInTheDocument()
+    expect(screen.getByText(/No bucket-policy change is proposed yet/)).toBeInTheDocument()
+    expect(screen.queryByText("Not ready to enforce")).not.toBeInTheDocument()
     expect(screen.getByText("Outside-VPC callers").previousSibling).toHaveTextContent("2")
     expect(screen.getByText("VPC workloads public").previousSibling).toHaveTextContent("0")
     expect(screen.getByText("vpce-reviewed")).toBeInTheDocument()
+  })
+
+  it("does not imply Lambda review is the only blocker when caller evidence is incomplete", () => {
+    const plan = enforcementPlan()
+    plan.blockers.push(
+      { code: "AFFECTED_PRINCIPAL_SCOPE_INCOMPLETE", message: "Caller inventory is incomplete." },
+      { code: "CONFIGURED_PRINCIPAL_UNOBSERVED", message: "Configured callers are unobserved." },
+    )
+    render(<EnforcementJourneySummary plan={plan} />)
+    expect(screen.getByText("Multiple safety checks required")).toBeInTheDocument()
+    expect(screen.getByText("Resolve caller scope and evidence before enforcement")).toBeInTheDocument()
+    expect(screen.getByText(/Caller inventory or private-path evidence is still incomplete/)).toBeInTheDocument()
+    expect(screen.getByText(/resolve every caller decision and evidence gap shown below/)).toBeInTheDocument()
   })
 
   it("uses singular grammar for one protected VPC workload", () => {

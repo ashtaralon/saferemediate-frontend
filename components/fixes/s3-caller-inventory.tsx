@@ -51,7 +51,13 @@ function shortPrincipal(arn: string) {
   return arn.split(":").at(-1) || arn
 }
 
-export function S3CallerInventory({ callers }: { callers: S3EnforcementCallerSummary[] }) {
+export function S3CallerInventory({
+  callers,
+  principalScoped = false,
+}: {
+  callers: S3EnforcementCallerSummary[]
+  principalScoped?: boolean
+}) {
   const [open, setOpen] = useState(false)
 
   return (
@@ -94,7 +100,11 @@ export function S3CallerInventory({ callers }: { callers: S3EnforcementCallerSum
                     const outOfScope = caller.scope_status === "OUT_OF_SCOPE"
                     const exempted = caller.scope_status === "EXEMPTED"
                     const exactRoleCovered = caller.scope_status === "SUPPORTED" && !!caller.scope_reason
-                    const detail = exempted ? "Exact role exemption reviewed" : (outOfScope ? "Not changed" : (exactRoleCovered ? "Covered by exact role" : meta.detail))
+                    const detail = exempted
+                      ? "Exact role exemption reviewed"
+                      : (outOfScope
+                          ? (principalScoped ? "Not changed" : "Decision required")
+                          : (exactRoleCovered ? "Covered by exact role" : meta.detail))
                     return (
                       <article key={`${status}:${caller.resource_id}`} className="grid gap-3 rounded-xl border border-slate-200 p-3 md:grid-cols-[auto_minmax(0,1fr)_minmax(180px,0.8fr)]">
                         <ServiceTypeBadge type={caller.resource_type} size={42} />
