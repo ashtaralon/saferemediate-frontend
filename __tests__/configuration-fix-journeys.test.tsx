@@ -140,6 +140,14 @@ describe("configuration fix journeys", () => {
     expect(screen.getByText("Exact role exemption reviewed")).toBeInTheDocument()
   })
 
+  it("uses plural grammar for multiple exactly exempted Lambda callers", () => {
+    const plan = enforcementPlan()
+    plan.impact.unsupported_lambda_consumers = 0
+    plan.impact.exempted_lambda_consumers = 2
+    render(<EnforcementJourneySummary plan={plan} />)
+    expect(screen.getByText(/2 Lambda callers remain outside the VPC and keep access/)).toBeInTheDocument()
+  })
+
   it("opens an icon-led inventory of observed callers and their paths", () => {
     render(<EnforcementJourneySummary plan={enforcementPlan()} />)
 
