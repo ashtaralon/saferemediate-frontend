@@ -177,7 +177,7 @@ export function EnforcementJourneySummary({ plan }: { plan: S3EnforcementPlan })
   } else if (unsupportedLambda > 0) {
     summary = `${protectedConsumers} VPC workload${protectedConsumers === 1 ? " uses" : "s use"} the reviewed endpoint. ${unsupportedLambda} Lambda caller${unsupportedLambda === 1 ? " needs" : "s need"} an exact execution-role exemption or removal of bucket access before enforcement.`
   } else if (exemptedLambda > 0) {
-    summary = `${protectedConsumers} VPC workload${protectedConsumers === 1 ? " uses" : "s use"} the reviewed endpoint. ${exemptedLambda} Lambda caller${exemptedLambda === 1 ? " remains" : "s remain"} outside the VPC and keeps access through an exact reviewed execution-role exemption.`
+    summary = `${protectedConsumers} VPC workload${protectedConsumers === 1 ? " uses" : "s use"} the reviewed endpoint. ${exemptedLambda} Lambda caller${exemptedLambda === 1 ? " remains" : "s remain"} outside the VPC and ${exemptedLambda === 1 ? "keeps" : "keep"} access through exact reviewed execution-role exemptions.`
   } else if (outsideVpc > 0) {
     summary = `${protectedConsumers} VPC workload${protectedConsumers === 1 ? " uses" : "s use"} the reviewed endpoint. ${outsideVpc} caller${outsideVpc === 1 ? " accesses" : "s access"} the bucket from outside the VPC and must be reviewed before enforcement.`
   } else if (unknownConsumers > 0) {
