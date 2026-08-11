@@ -52,7 +52,14 @@ function SystemsPageInner() {
     )
   }
 
-  return <SystemsView systemName={systemName} />
+  return (
+    <SystemsView
+      systemName={systemName}
+      onSystemSelect={(selectedSystem) =>
+        router.push(`/systems?systemName=${encodeURIComponent(selectedSystem)}`)
+      }
+    />
+  )
 }
 
 export default function SystemsPage() {

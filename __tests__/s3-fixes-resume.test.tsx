@@ -115,6 +115,12 @@ describe("S3 configuration-fix resume", () => {
       blockers: [{
         code: "OUT_OF_VPC_ACCESS_UNREVIEWED",
         message: "One caller accesses the bucket from outside the VPC.",
+      }, {
+        code: "CONFIGURED_PRINCIPAL_UNOBSERVED",
+        message: "One configured caller has not used the private path.",
+        details: {
+          unobserved_subjects: ["arn:aws:iam::123456789012:role/monthly-batch"],
+        },
       }],
       plan: {
         readiness: "BLOCKED",
@@ -168,6 +174,12 @@ describe("S3 configuration-fix resume", () => {
 
     fireEvent.click(screen.getByTestId("enforce-wizard-use-suggested-exemptions"))
     expect(exemptions.value).toBe(outsideCaller)
+
+    fireEvent.click(screen.getByTestId("enforce-wizard-step-1"))
+    const technicalDetails = screen.getAllByText("Technical detail")
+    fireEvent.click(technicalDetails[1])
+    expect(screen.getByText("Configured but not observed privately")).toBeInTheDocument()
+    expect(screen.getByText("arn:aws:iam::123456789012:role/monthly-batch")).toBeInTheDocument()
   })
 
   it("does not claim internet-path use when no consumer was observed", async () => {

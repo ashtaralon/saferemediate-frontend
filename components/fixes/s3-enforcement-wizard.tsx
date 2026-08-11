@@ -146,6 +146,18 @@ const BLOCKER_GUIDANCE: Record<string, { title: string; next: string }> = {
     title: "The change record store is temporarily unavailable",
     next: "No AWS change was authorized. Retry once the operation ledger recovers.",
   },
+  GRAPH_CAPACITY_EXHAUSTED: {
+    title: "The behavioral graph is full",
+    next: "No AWS change was authorized. Restore graph capacity or move this tenant to its production-sized dedicated graph, then analyze again.",
+  },
+  AFFECTED_PRINCIPAL_SCOPE_INCOMPLETE: {
+    title: "Cyntro is still completing the caller inventory",
+    next: "Refresh IAM policies, workload-to-role bindings, and the bucket policy. Technical detail names every missing or stale source; enforcement remains blocked until the caller set is complete.",
+  },
+  CONFIGURED_PRINCIPAL_UNOBSERVED: {
+    title: "Configured callers have not used the private path yet",
+    next: "Review the listed callers. Generate their normal S3 workload through the endpoint, remove bucket access they no longer need, or wait through their expected usage cycle before analyzing again.",
+  },
 }
 
 function blockerGuidance(code: string) {
@@ -721,7 +733,25 @@ export function S3EnforcementWizard({ systemName, bucket, resume, accountId, reg
                         <p className="mt-1.5 leading-5 text-slate-700"><strong>Next:</strong> {guidance.next}</p>
                         <details className="mt-2 text-[10px] text-slate-500">
                           <summary className="cursor-pointer font-semibold">Technical detail</summary>
-                          <span className="mt-1 inline-block rounded bg-slate-100 px-1.5 py-0.5 font-mono">{blocker.code}</span>
+                          <div className="mt-1 space-y-2 rounded bg-slate-50 p-2">
+                            <span className="inline-block rounded bg-slate-100 px-1.5 py-0.5 font-mono">{blocker.code}</span>
+                            {blocker.details?.reasons?.length ? (
+                              <div>
+                                <div className="font-semibold text-slate-600">Evidence gaps</div>
+                                <ul className="mt-1 space-y-0.5 font-mono">
+                                  {blocker.details.reasons.map((reason) => <li key={reason}>{reason}</li>)}
+                                </ul>
+                              </div>
+                            ) : null}
+                            {blocker.details?.unobserved_subjects?.length ? (
+                              <div>
+                                <div className="font-semibold text-slate-600">Configured but not observed privately</div>
+                                <ul className="mt-1 space-y-0.5 font-mono">
+                                  {blocker.details.unobserved_subjects.map((subject) => <li key={subject}>{subject}</li>)}
+                                </ul>
+                              </div>
+                            ) : null}
+                          </div>
                         </details>
                         {blocker.code === "OUT_OF_VPC_ACCESS_UNREVIEWED" && suggestedExemptions.length ? (
                           <button
