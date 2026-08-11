@@ -113,8 +113,8 @@ describe("S3 configuration-fix resume", () => {
       state: "READY_FOR_SIMULATION",
       version: 1,
       blockers: [{
-        code: "OUT_OF_VPC_ACCESS_UNREVIEWED",
-        message: "One caller accesses the bucket from outside the VPC.",
+        code: "LAMBDA_EXACT_ROLE_EXEMPTION_REQUIRED",
+        message: "One Lambda caller needs an exact execution-role exemption.",
       }, {
         code: "CONFIGURED_PRINCIPAL_UNOBSERVED",
         message: "One configured caller has not used the private path.",
