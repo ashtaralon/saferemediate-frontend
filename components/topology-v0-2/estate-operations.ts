@@ -239,6 +239,18 @@ export interface S3EnforcementImpact {
   policy_statements_added: number
 }
 
+export interface S3EnforcementCallerSummary {
+  resource_id: string
+  resource_name: string
+  resource_type: string
+  path_status: "PRIVATE_VPCE" | "PUBLIC_PATH" | "OUTSIDE_VPC" | "UNKNOWN_PATH"
+  vpc_id?: string | null
+  vpce_id?: string | null
+  principal_arns: string[]
+  observed_actions: string[]
+  last_observed_at?: string | null
+}
+
 export interface S3EnforcementPlan {
   readiness: "READY" | "BLOCKED"
   operation_id?: string
@@ -254,6 +266,7 @@ export interface S3EnforcementPlan {
     resource_name: string
     resource_type: string
   }>
+  caller_summaries?: S3EnforcementCallerSummary[]
   enforcement_mode: "SINGLE_STAGE" | "PRINCIPAL_CANARY"
   exempt_principal_arns: string[]
   canary_principal_arns: string[]

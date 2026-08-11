@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react"
+import { fireEvent, render, screen } from "@testing-library/react"
 import { describe, expect, it } from "vitest"
 
 import {
@@ -43,6 +43,26 @@ function enforcementPlan(): S3EnforcementPlan {
     out_of_vpc_principals: [
       "arn:aws:iam::111122223333:role/batch",
       "arn:aws:iam::111122223333:role/inventory",
+    ],
+    caller_summaries: [
+      {
+        resource_id: "i-app",
+        resource_name: "payments-api",
+        resource_type: "EC2",
+        path_status: "PRIVATE_VPCE",
+        vpc_id: "vpc-123",
+        vpce_id: "vpce-reviewed",
+        principal_arns: ["arn:aws:iam::111122223333:role/payments-api"],
+        observed_actions: ["GetObject"],
+      },
+      {
+        resource_id: "arn:aws:lambda:eu-west-1:111122223333:function:inventory",
+        resource_name: "inventory-sync",
+        resource_type: "Lambda",
+        path_status: "OUTSIDE_VPC",
+        principal_arns: ["arn:aws:iam::111122223333:role/inventory"],
+        observed_actions: ["ListBucket"],
+      },
     ],
     blockers: [{ code: "OUT_OF_VPC_ACCESS_UNREVIEWED", message: "Review outside callers." }],
     impact: {
@@ -95,5 +115,22 @@ describe("configuration fix journeys", () => {
     plan.impact.protected_consumers = 1
     render(<EnforcementJourneySummary plan={plan} />)
     expect(screen.getByText(/1 VPC workload uses the reviewed endpoint/)).toBeInTheDocument()
+  })
+
+  it("opens an icon-led inventory of observed callers and their paths", () => {
+    render(<EnforcementJourneySummary plan={enforcementPlan()} />)
+
+    expect(screen.queryByTestId("s3-caller-inventory-list")).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: /view 2 callers/i }))
+
+    expect(screen.getByTestId("s3-caller-inventory-list")).toBeInTheDocument()
+    expect(screen.getByText("payments-api")).toBeInTheDocument()
+    expect(screen.getByText("inventory-sync")).toBeInTheDocument()
+    expect(screen.getByText("EC2")).toBeInTheDocument()
+    expect(screen.getByText("Lambda")).toBeInTheDocument()
+    expect(screen.getByText("Private endpoint (1)")).toBeInTheDocument()
+    expect(screen.getByText("Outside VPC (1)")).toBeInTheDocument()
+    expect(screen.getByText("IAM principal: payments-api")).toBeInTheDocument()
+    expect(screen.getByText("IAM principal: inventory")).toBeInTheDocument()
   })
 })
