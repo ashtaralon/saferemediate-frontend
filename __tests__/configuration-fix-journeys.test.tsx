@@ -86,4 +86,14 @@ describe("configuration fix journeys", () => {
     expect(screen.getByText("VPC workloads public").previousSibling).toHaveTextContent("0")
     expect(screen.getByText("vpce-reviewed")).toBeInTheDocument()
   })
+
+  it("uses singular grammar for one protected VPC workload", () => {
+    const plan = enforcementPlan()
+    plan.readiness = "READY"
+    plan.blockers = []
+    plan.out_of_vpc_principals = []
+    plan.impact.protected_consumers = 1
+    render(<EnforcementJourneySummary plan={plan} />)
+    expect(screen.getByText(/1 VPC workload uses the reviewed endpoint/)).toBeInTheDocument()
+  })
 })

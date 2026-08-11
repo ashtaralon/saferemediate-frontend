@@ -149,7 +149,7 @@ export function EnforcementJourneySummary({ plan }: { plan: S3EnforcementPlan })
 
   let status = plan.readiness === "READY" ? "Ready for safety check" : "Decision required"
   let title = plan.readiness === "READY" ? "Require the proven private path" : "Not ready to enforce"
-  let summary = `${protectedConsumers} VPC workload${protectedConsumers === 1 ? "" : "s"} use the reviewed endpoint. Cyntro can now review one bucket-policy rule that requires this path for object access.`
+  let summary = `${protectedConsumers} VPC workload${protectedConsumers === 1 ? " uses" : "s use"} the reviewed endpoint. Cyntro can now review one bucket-policy rule that requires this path for object access.`
   let tone: "default" | "warning" | "complete" = plan.readiness === "READY" ? "default" : "warning"
 
   if (alreadyEnforced) {
