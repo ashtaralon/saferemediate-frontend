@@ -16,6 +16,7 @@ import {
 } from "lucide-react"
 import {
   operationalRequest,
+  type ConfigurationFixExplanation,
   snapshotMirrorSummary,
   type S3EnforcementExecution,
   type S3EnforcementPlan,
@@ -24,6 +25,7 @@ import {
   type S3PrivatePathOperation,
   type S3VpceRollbackTokenReissue,
 } from "@/components/topology-v0-2/estate-operations"
+import { OperationsExplanation } from "./operations-explanation"
 import {
   WIZARD_STEPS,
   isTerminal,
@@ -185,6 +187,8 @@ export function S3EnforcementWizard({ systemName, bucket, resume, accountId, reg
   const [operation, setOperation] = useState<S3PrivatePathOperation | null>(null)
   const [execution, setExecution] = useState<S3EnforcementExecution | null>(null)
   const [verification, setVerification] = useState<S3EnforcementVerification | null>(null)
+  const [explanation, setExplanation] = useState<ConfigurationFixExplanation | null>(null)
+  const [explanationLoading, setExplanationLoading] = useState(false)
   const [requester, setRequester] = useState("")
   const [approver, setApprover] = useState("")
   const [confirmation, setConfirmation] = useState("")
@@ -225,6 +229,26 @@ export function S3EnforcementWizard({ systemName, bucket, resume, accountId, reg
       }),
     [systemName],
   )
+
+  useEffect(() => {
+    if (!operationId) {
+      setExplanation(null)
+      return
+    }
+    let cancelled = false
+    setExplanationLoading(true)
+    void post<ConfigurationFixExplanation>(
+      `s3-vpce/operations/${encodeURIComponent(operationId)}/explanation`,
+      {},
+    ).then((body) => {
+      if (!cancelled) setExplanation(body)
+    }).catch(() => {
+      if (!cancelled) setExplanation(null)
+    }).finally(() => {
+      if (!cancelled) setExplanationLoading(false)
+    })
+    return () => { cancelled = true }
+  }, [operationId, post])
 
   const runAction = useCallback(async (name: string, fn: () => Promise<void>) => {
     setAction(name)
@@ -542,7 +566,7 @@ export function S3EnforcementWizard({ systemName, bucket, resume, accountId, reg
               </div>
               <h2 className="mt-1 truncate text-lg font-bold">{bucket.name}</h2>
               <p className="mt-0.5 text-xs" style={{ color: "#5A6B7A" }}>
-                Make the proven private path mandatory: a bucket-policy deny for anything not arriving through the reviewed Gateway endpoint. Staged, verified from real traffic, instant rollback.
+                Make the proven private path mandatory with a reviewed bucket-policy condition. Staged from a complete policy snapshot and verified from fresh traffic.
               </p>
             </div>
             <button type="button" onClick={onClose} className="rounded-lg p-2 hover:bg-slate-100" aria-label="Close enforcement">
@@ -617,8 +641,8 @@ export function S3EnforcementWizard({ systemName, bucket, resume, accountId, reg
                 <p className="mt-1 text-xs leading-5" style={{ color: "#5A6B7A" }}>
                   Every observed workload already reaches <strong>{bucket.name}</strong> privately, through the Gateway
                   endpoint. This adds one <strong>bucket-policy deny</strong> so any request that does <em>not</em> arrive
-                  through that endpoint is refused — closing the public path for good. Only object access is affected;
-                  the policy that manages the bucket (and this rollback) is never touched.
+                  through the reviewed endpoint is refused unless it matches an approved exemption. The generated
+                  statement targets object access; bucket-management operations stay outside this enforcement change.
                 </p>
               </div>
               <div className="rounded-xl border p-4 text-xs" style={{ borderColor: "#DDE3E8", background: "#FFFFFF", color: "#5A6B7A" }}>
@@ -626,9 +650,9 @@ export function S3EnforcementWizard({ systemName, bucket, resume, accountId, reg
                   <Lock className="h-4 w-4" style={{ color: "#0E8B7A" }} /> Before you enforce
                 </div>
                 <p className="mt-1 leading-5">
-                  Analyze re-proves that every observed consumer is already private and that nothing outside the VPC would
-                  be locked out. If anything still uses the public path, the plan blocks — enforcement never breaks a path
-                  it has not first proven is unused.
+                  Analyze re-checks the observed consumers, endpoint IDs, public-path evidence, and exemptions. If a
+                  consumer still uses a public path or the evidence cannot prove eligibility, the plan blocks before
+                  approval or policy mutation.
                 </p>
               </div>
               <button
@@ -671,6 +695,7 @@ export function S3EnforcementWizard({ systemName, bucket, resume, accountId, reg
           {/* Step 1 — Plan */}
           {shownStep === 1 && plan ? (
             <div className="space-y-4" data-testid="enforce-wizard-plan">
+              <OperationsExplanation explanation={explanation} loading={explanationLoading} />
               {nothingToEnforce ? (
                 <div className="flex items-center gap-2 rounded-xl border border-teal-200 bg-teal-50 p-3 text-xs font-semibold text-teal-800">
                   <CheckCircle2 className="h-4 w-4 shrink-0" />
@@ -728,7 +753,7 @@ export function S3EnforcementWizard({ systemName, bucket, resume, accountId, reg
                         </InfoRow>
                       ) : null}
                       <InfoRow label="Not touched">IAM, network routes, bucket management (Get/Put/DeleteBucketPolicy) — rollback stays available</InfoRow>
-                      <InfoRow label="Rollback">Restore the exact prior policy from a snapshot · seconds, one click</InfoRow>
+                      <InfoRow label="Rollback">Restore the exact prior bucket policy from the verified snapshot</InfoRow>
                     </div>
                   </div>
                 </>

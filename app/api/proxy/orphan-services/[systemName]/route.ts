@@ -290,7 +290,19 @@ function classifyOrphan(
   seasonalInfo: { isSeasonal: boolean; pattern: string | null; nextRun: string | null },
   securityRisk?: { is_internet_facing: boolean; risk_score: number; factors: SecurityFactor[]; has_encryption: boolean; sg_count: number; total_permissions: number },
   isDR: boolean = false,
-): Omit<OrphanResource, 'id' | 'name' | 'type' | 'region' | 'status' | 'lastSeen' | 'properties'> {
+): Omit<
+  OrphanResource,
+  | 'id'
+  | 'name'
+  | 'type'
+  | 'region'
+  | 'status'
+  | 'lastSeen'
+  | 'properties'
+  | 'evidenceSources'
+  | 'telemetryConfidence'
+  | 'missingEvidenceSources'
+> {
   const isInternetFacing = securityRisk?.is_internet_facing || resource.is_internet_facing || resource.properties?.is_internet_facing
   const isStopped = resource.instanceState === 'stopped' || resource.status === 'stopped'
   const type = (resource.type || '').replace(/Function$/i, '')

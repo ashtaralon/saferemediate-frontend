@@ -16,6 +16,7 @@ import {
 } from "lucide-react"
 import {
   operationalRequest,
+  type ConfigurationFixExplanation,
   type OperationalDossier,
   type S3PrivatePathOperation,
   type S3VpceExecution,
@@ -24,6 +25,7 @@ import {
   type S3VpceSimulation,
   type S3VpceVerification,
 } from "@/components/topology-v0-2/estate-operations"
+import { OperationsExplanation } from "./operations-explanation"
 import {
   WIZARD_STEPS,
   isTerminal,
@@ -132,6 +134,8 @@ export function S3VpceWizard({ systemName, bucket, resume, accountId, region, on
   const [operation, setOperation] = useState<S3PrivatePathOperation | null>(null)
   const [execution, setExecution] = useState<S3VpceExecution | null>(null)
   const [verification, setVerification] = useState<S3VpceVerification | null>(null)
+  const [explanation, setExplanation] = useState<ConfigurationFixExplanation | null>(null)
+  const [explanationLoading, setExplanationLoading] = useState(false)
   const [selectedVpc, setSelectedVpc] = useState<string>(resume?.vpcId ?? "")
   const [requester, setRequester] = useState("")
   const [approver, setApprover] = useState("")
@@ -175,6 +179,28 @@ export function S3VpceWizard({ systemName, bucket, resume, accountId, region, on
       }),
     [systemName],
   )
+
+  useEffect(() => {
+    if (!operationId) {
+      setExplanation(null)
+      return
+    }
+    let cancelled = false
+    setExplanationLoading(true)
+    void post<ConfigurationFixExplanation>(
+      `s3-vpce/operations/${encodeURIComponent(operationId)}/explanation`,
+      {},
+    ).then((body) => {
+      if (!cancelled) setExplanation(body)
+    }).catch(() => {
+      // Explanation is additive. The exact plan remains fully usable if the
+      // narrator endpoint is unavailable during a mixed-version deployment.
+      if (!cancelled) setExplanation(null)
+    }).finally(() => {
+      if (!cancelled) setExplanationLoading(false)
+    })
+    return () => { cancelled = true }
+  }, [operationId, post])
 
   const runAction = useCallback(async (name: string, fn: () => Promise<void>) => {
     setAction(name)
@@ -481,7 +507,9 @@ export function S3VpceWizard({ systemName, bucket, resume, accountId, region, on
               </div>
               <h2 className="mt-1 truncate text-lg font-bold">{bucket.name}</h2>
               <p className="mt-0.5 text-xs" style={{ color: "#5A6B7A" }}>
-                Route this bucket&apos;s traffic through an S3 Gateway endpoint instead of the internet gateway. Staged, verified from real traffic, instant rollback.
+                {noMigrationRequired
+                  ? "The reviewed traffic is already private. No AWS change is proposed; Cyntro will keep monitoring the path."
+                  : "Check the current S3 route, then migrate only proven public-path consumers. Staged from a snapshot and verified from fresh traffic."}
               </p>
             </div>
             <button type="button" onClick={onClose} className="rounded-lg p-2 hover:bg-slate-100" aria-label="Close setup">
@@ -567,10 +595,10 @@ export function S3VpceWizard({ systemName, bucket, resume, accountId, region, on
                     </>
                   ) : (
                     <>
-                      Workloads in this system reach <strong>{bucket.name}</strong> over the internet path today.
-                      This setup adds an <strong>S3 Gateway endpoint</strong> (free, AWS-managed) and attaches it to the exact
-                      route tables those workloads use, so S3 traffic stays on the AWS network. Applications keep working
-                      unchanged — the route is the only thing that moves, one route table at a time, verified from real traffic.
+                      Workloads in this system were observed using <strong>{bucket.name}</strong>. Analyze first identifies
+                      whether they still use a public S3 route or already use a Gateway endpoint. If migration is needed,
+                      Cyntro reuses an eligible endpoint or creates one, changes only the proven route tables, starts with
+                      one canary route table, and verifies fresh S3 traffic before expanding.
                     </>
                   )}
                 </p>
@@ -627,6 +655,7 @@ export function S3VpceWizard({ systemName, bucket, resume, accountId, region, on
           {/* Step 1 — Plan */}
           {shownStep === 1 && plan ? (
             <div className="space-y-4" data-testid="vpce-wizard-plan">
+              <OperationsExplanation explanation={explanation} loading={explanationLoading} />
               {noMigrationRequired ? (
                 <div className="flex items-center gap-2 rounded-xl border border-teal-200 bg-teal-50 p-3 text-xs font-semibold text-teal-800">
                   <CheckCircle2 className="h-4 w-4 shrink-0" />
@@ -678,7 +707,7 @@ export function S3VpceWizard({ systemName, bucket, resume, accountId, region, on
                         {" "}(the one serving the fewest workloads)
                       </InfoRow>
                       <InfoRow label="Not touched">IAM, bucket policies, security groups — no permission changes in this operation</InfoRow>
-                      <InfoRow label="Rollback">Remove only what this operation adds · seconds, one click</InfoRow>
+                      <InfoRow label="Rollback">Restore the snapshotted route associations; remove only endpoint resources created by this operation</InfoRow>
                     </div>
                   </div>
                 </>
