@@ -91,6 +91,8 @@ export function S3CallerInventory({ callers }: { callers: S3EnforcementCallerSum
                 <div className="space-y-2">
                   {rows.map((caller) => {
                     const service = getServiceMeta(caller.resource_type)
+                    const outOfScope = caller.scope_status === "OUT_OF_SCOPE"
+                    const detail = outOfScope ? "Not automated in this release" : meta.detail
                     return (
                       <article key={`${status}:${caller.resource_id}`} className="grid gap-3 rounded-xl border border-slate-200 p-3 md:grid-cols-[auto_minmax(0,1fr)_minmax(180px,0.8fr)]">
                         <ServiceTypeBadge type={caller.resource_type} size={42} />
@@ -107,13 +109,18 @@ export function S3CallerInventory({ callers }: { callers: S3EnforcementCallerSum
                           </div>
                         </div>
                         <div className="rounded-lg px-3 py-2 text-[11px]" style={{ background: meta.background }}>
-                          <div className="font-bold" style={{ color: meta.color }}>{meta.detail}</div>
+                          <div className="font-bold" style={{ color: meta.color }}>{detail}</div>
                           <div className="mt-1 text-slate-600">
                             {caller.vpc_id ? `VPC ${caller.vpc_id}` : "No VPC attachment observed"}
                           </div>
                           <div className="mt-0.5 text-slate-600">
                             {caller.vpce_id ? `Endpoint ${caller.vpce_id}` : meta.label}
                           </div>
+                          {outOfScope ? (
+                            <div className="mt-1 font-medium text-amber-800">
+                              {caller.scope_reason || "This caller is outside the current automation scope."}
+                            </div>
+                          ) : null}
                         </div>
                       </article>
                     )

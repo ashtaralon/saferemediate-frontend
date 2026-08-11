@@ -42,8 +42,8 @@ function enforcementPlan(): S3EnforcementPlan {
     canary_principal_arns: [],
     out_of_vpc_principals: [
       "arn:aws:iam::111122223333:role/batch",
-      "arn:aws:iam::111122223333:role/inventory",
     ],
+    unsupported_callers: ["arn:aws:lambda:eu-west-1:111122223333:function:inventory"],
     caller_summaries: [
       {
         resource_id: "i-app",
@@ -54,6 +54,7 @@ function enforcementPlan(): S3EnforcementPlan {
         vpce_id: "vpce-reviewed",
         principal_arns: ["arn:aws:iam::111122223333:role/payments-api"],
         observed_actions: ["GetObject"],
+        scope_status: "SUPPORTED",
       },
       {
         resource_id: "arn:aws:lambda:eu-west-1:111122223333:function:inventory",
@@ -62,9 +63,11 @@ function enforcementPlan(): S3EnforcementPlan {
         path_status: "OUTSIDE_VPC",
         principal_arns: ["arn:aws:iam::111122223333:role/inventory"],
         observed_actions: ["ListBucket"],
+        scope_status: "OUT_OF_SCOPE",
+        scope_reason: "Lambda private-path migration is not automated in this release.",
       },
     ],
-    blockers: [{ code: "OUT_OF_VPC_ACCESS_UNREVIEWED", message: "Review outside callers." }],
+    blockers: [{ code: "LAMBDA_PRIVATE_PATH_OUT_OF_SCOPE", message: "Lambda migration is out of scope." }],
     impact: {
       observed_consumers: 4,
       protected_consumers: 2,
@@ -73,6 +76,8 @@ function enforcementPlan(): S3EnforcementPlan {
       exempt_principals: 0,
       vpc_endpoints: 1,
       policy_statements_added: 1,
+      out_of_vpc_consumers: 2,
+      unsupported_lambda_consumers: 1,
     },
   }
 }
@@ -101,7 +106,7 @@ describe("configuration fix journeys", () => {
 
   it("separates VPC public-path workloads from outside-VPC callers", () => {
     render(<EnforcementJourneySummary plan={enforcementPlan()} />)
-    expect(screen.getByText(/2 callers access the bucket from outside the VPC/)).toBeInTheDocument()
+    expect(screen.getByText(/1 Lambda caller is outside the VPC/)).toBeInTheDocument()
     expect(screen.getByText("Outside-VPC callers").previousSibling).toHaveTextContent("2")
     expect(screen.getByText("VPC workloads public").previousSibling).toHaveTextContent("0")
     expect(screen.getByText("vpce-reviewed")).toBeInTheDocument()
@@ -132,5 +137,7 @@ describe("configuration fix journeys", () => {
     expect(screen.getByText("Outside VPC (1)")).toBeInTheDocument()
     expect(screen.getByText("IAM principal: payments-api")).toBeInTheDocument()
     expect(screen.getByText("IAM principal: inventory")).toBeInTheDocument()
+    expect(screen.getByText("Not automated in this release")).toBeInTheDocument()
+    expect(screen.getByText("Lambda private-path migration is not automated in this release.")).toBeInTheDocument()
   })
 })

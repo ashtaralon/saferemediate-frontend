@@ -237,6 +237,8 @@ export interface S3EnforcementImpact {
   exempt_principals: number
   vpc_endpoints: number
   policy_statements_added: number
+  out_of_vpc_consumers?: number
+  unsupported_lambda_consumers?: number
 }
 
 export interface S3EnforcementCallerSummary {
@@ -249,6 +251,8 @@ export interface S3EnforcementCallerSummary {
   principal_arns: string[]
   observed_actions: string[]
   last_observed_at?: string | null
+  scope_status?: "SUPPORTED" | "OUT_OF_SCOPE"
+  scope_reason?: string | null
 }
 
 export interface S3EnforcementPlan {
@@ -267,6 +271,7 @@ export interface S3EnforcementPlan {
     resource_type: string
   }>
   caller_summaries?: S3EnforcementCallerSummary[]
+  unsupported_callers?: string[]
   enforcement_mode: "SINGLE_STAGE" | "PRINCIPAL_CANARY"
   exempt_principal_arns: string[]
   canary_principal_arns: string[]

@@ -102,6 +102,10 @@ const BLOCKER_GUIDANCE: Record<string, { title: string; next: string }> = {
     title: "Out-of-VPC access is not covered by an exemption",
     next: "Access from outside any VPC would be denied by enforcement. Add a reviewed exemption pattern for each principal role below, or remove their access first.",
   },
+  LAMBDA_PRIVATE_PATH_OUT_OF_SCOPE: {
+    title: "Lambda private-path migration is not automated yet",
+    next: "No exemption or AWS change will be generated for these functions. Move each Lambda to reviewed private subnets with the S3 Gateway endpoint, remove its bucket access, or wait for Lambda migration support; then sync and analyze again.",
+  },
   PRINCIPAL_IDENTITY_UNRESOLVED: {
     title: "An out-of-VPC caller's IAM role could not be resolved",
     next: "Enforcement is refused rather than risk denying an unidentified caller. Run an IAM/behavioral sync so each caller's assumed-role ARN is known, then analyze again.",
