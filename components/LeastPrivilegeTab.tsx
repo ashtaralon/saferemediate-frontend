@@ -2681,7 +2681,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                                 {(metrics.unusedCount ?? 0) > 0
                                   ? (resource.evidence?.confidence === 'LOW' || (!resource.evidence?.confidence && metrics.usedCount === 0))
                                     ? <>{metrics.unusedCount} of {metrics.total} permissions have <strong style={{ color: "#f97316" }}>no observed usage</strong> — insufficient data to confirm</>
-                                    : iamObservationCopy(metrics.unusedCount, metrics.total, metrics.usedCount).summary
+                                    : iamObservationCopy(metrics.unusedCount ?? 0, metrics.total, metrics.usedCount ?? 0).summary
                                   : <>All {metrics.total} permissions are in active use</>
                                 }
                               </p>
@@ -2702,8 +2702,8 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                                 )}
                               </div>
                               <div className="flex justify-between mt-1.5 text-[10px]" style={{ color: "var(--text-muted)" }}>
-                                <span>{iamObservationCopy(metrics.unusedCount, metrics.total, metrics.usedCount).usedLabel}</span>
-                                <span>{iamObservationCopy(metrics.unusedCount, metrics.total, metrics.usedCount).notObservedLabel}</span>
+                                <span>{iamObservationCopy(metrics.unusedCount ?? 0, metrics.total, metrics.usedCount ?? 0).usedLabel}</span>
+                                <span>{iamObservationCopy(metrics.unusedCount ?? 0, metrics.total, metrics.usedCount ?? 0).notObservedLabel}</span>
                               </div>
                             </>
                           )}
