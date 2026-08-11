@@ -106,7 +106,12 @@ describe("configuration fix journeys", () => {
 
   it("separates VPC public-path workloads from outside-VPC callers", () => {
     render(<EnforcementJourneySummary plan={enforcementPlan()} />)
+    expect(screen.getByText("Review 1 Lambda caller before enforcement")).toBeInTheDocument()
+    expect(screen.getByText("Caller review required")).toBeInTheDocument()
     expect(screen.getByText(/1 Lambda caller needs an exact execution-role exemption/)).toBeInTheDocument()
+    expect(screen.getByText(/approve each exact Lambda execution-role exemption/)).toBeInTheDocument()
+    expect(screen.getByText(/No bucket-policy change is proposed yet/)).toBeInTheDocument()
+    expect(screen.queryByText("Not ready to enforce")).not.toBeInTheDocument()
     expect(screen.getByText("Outside-VPC callers").previousSibling).toHaveTextContent("2")
     expect(screen.getByText("VPC workloads public").previousSibling).toHaveTextContent("0")
     expect(screen.getByText("vpce-reviewed")).toBeInTheDocument()

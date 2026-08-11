@@ -630,9 +630,8 @@ export function S3EnforcementWizard({ systemName, bucket, resume, accountId, reg
           {!executionEnabled ? (
             <div className="mb-4 rounded-xl border p-3 text-xs" style={{ borderColor: "#C9D4DE", background: "#F8FAFC", color: "#3D4B5C" }} data-testid="enforce-wizard-preview-banner">
               <span className="mr-2 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide" style={{ borderColor: "#94A8BA", color: "#5A6B7A", background: "#FFFFFF" }}>
-                Preview
+                Preview mode
               </span>
-              <strong>Preview only.</strong>{" "}
               Analyze and review are available. Approval and AWS changes are disabled in this environment.
             </div>
           ) : null}
