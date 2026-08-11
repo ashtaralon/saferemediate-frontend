@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   AlertTriangle,
   ArrowLeft,
@@ -26,6 +26,7 @@ import {
   type S3VpceVerification,
 } from "@/components/topology-v0-2/estate-operations"
 import { OperationsExplanation } from "./operations-explanation"
+import { TransportJourneySummary } from "./configuration-fix-journey"
 import {
   WIZARD_STEPS,
   isTerminal,
@@ -113,15 +114,6 @@ function Metric({ label, value }: { label: string; value: string | number }) {
       <div className="text-xl font-bold" style={{ color: "#1A2330" }}>{value}</div>
       <div className="mt-0.5 text-[10px] font-semibold uppercase tracking-wide" style={{ color: "#5A6B7A" }}>{label}</div>
     </div>
-  )
-}
-
-function InfoRow({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <>
-      <strong className="text-slate-800">{label}</strong>
-      <span>{children}</span>
-    </>
   )
 }
 
@@ -458,7 +450,6 @@ export function S3VpceWizard({ systemName, bucket, resume, accountId, region, on
     || blockerCodes.has("NO_PUBLIC_S3_PATH")
     || plan?.endpoint_mode === "NO_CHANGE"
   const needsVpcChoice = blockerCodes.has("VPC_SELECTION_REQUIRED")
-  const migratableConsumers = plan?.impact.migrating_consumers ?? plan?.impact.observed_consumers ?? 0
   const applyBucketName = plan?.bucket_name ?? resume?.bucketName ?? bucket.name
   const applyVpcId = plan?.vpc_id ?? resume?.vpcId ?? null
   const expectedApply = applyBucketName && applyVpcId ? `APPLY ${applyBucketName} ${applyVpcId}` : ""
@@ -494,6 +485,20 @@ export function S3VpceWizard({ systemName, bucket, resume, accountId, region, on
   // A FAILED operation that never applied anything (dry-run failure) is a
   // closed attempt — the only way forward is a fresh analysis.
   const failedBeforeApply = operationState === "FAILED" && !snapshotId && !execution && !operation?.execution
+  const journeyLabel = plan?.endpoint_mode === "CREATE_MANAGED"
+    ? "Create private path"
+    : plan?.endpoint_mode === "ADOPT_EXISTING"
+      ? "Use existing private path"
+      : plan?.endpoint_mode === "NO_CHANGE"
+        ? "Private path confirmed"
+        : "Find the right private path"
+  const journeyDescription = plan?.endpoint_mode === "CREATE_MANAGED"
+    ? "No eligible endpoint exists. Review the exact cohort, create one endpoint, and move one route table first."
+    : plan?.endpoint_mode === "ADOPT_EXISTING"
+      ? `Reuse ${plan.existing_endpoint_id ?? "the reviewed endpoint"}; only the approved route-table associations can change.`
+      : plan?.endpoint_mode === "NO_CHANGE"
+        ? "The reviewed traffic is already private. No network change is proposed."
+        : "Analyze the observed consumers first. Cyntro will decide whether to create, reuse, or leave the S3 endpoint unchanged."
 
   return (
     <div className="fixed inset-0 z-[240] flex items-stretch justify-center bg-slate-900/40 p-0 md:items-center md:p-6" role="dialog" aria-label={`S3 private path setup for ${bucket.name}`}>
@@ -503,13 +508,11 @@ export function S3VpceWizard({ systemName, bucket, resume, accountId, region, on
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <div className="text-[10px] font-semibold uppercase tracking-[0.16em]" style={{ color: "#0E8B7A" }}>
-                Configuration fix · S3 private path
+                Configuration fix · {journeyLabel}
               </div>
               <h2 className="mt-1 truncate text-lg font-bold">{bucket.name}</h2>
               <p className="mt-0.5 text-xs" style={{ color: "#5A6B7A" }}>
-                {noMigrationRequired
-                  ? "The reviewed traffic is already private. No AWS change is proposed; Cyntro will keep monitoring the path."
-                  : "Check the current S3 route, then migrate only proven public-path consumers. Staged from a snapshot and verified from fresh traffic."}
+                {journeyDescription}
               </p>
             </div>
             <button type="button" onClick={onClose} className="rounded-lg p-2 hover:bg-slate-100" aria-label="Close setup">
@@ -655,63 +658,8 @@ export function S3VpceWizard({ systemName, bucket, resume, accountId, region, on
           {/* Step 1 — Plan */}
           {shownStep === 1 && plan ? (
             <div className="space-y-4" data-testid="vpce-wizard-plan">
+              <TransportJourneySummary plan={plan} />
               <OperationsExplanation explanation={explanation} loading={explanationLoading} />
-              {noMigrationRequired ? (
-                <div className="flex items-center gap-2 rounded-xl border border-teal-200 bg-teal-50 p-3 text-xs font-semibold text-teal-800">
-                  <CheckCircle2 className="h-4 w-4 shrink-0" />
-                  {blockerCodes.has("NO_OBSERVED_CONSUMERS")
-                    ? "Analysis complete · nothing to change in the selected VPC"
-                    : "Analysis complete · traffic is already on a private S3 path"}
-                </div>
-              ) : (
-                <div
-                  className="rounded-xl border p-4"
-                  style={plan.readiness === "READY"
-                    ? { borderColor: "#9FE8DC", background: "#F0FDFA" }
-                    : { borderColor: "#FED7AA", background: "#FFF7ED" }}
-                >
-                  <div className="flex items-start gap-2">
-                    {plan.readiness === "READY"
-                      ? <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-teal-600" />
-                      : <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-orange-600" />}
-                    <div>
-                      <div className="text-sm font-bold">
-                        {plan.readiness === "READY"
-                          ? "The change is scoped and ready for its safety check"
-                          : "The change is blocked until these checks pass"}
-                      </div>
-                      <p className="mt-1 text-[11px]" style={{ color: "#5A6B7A" }}>
-                        Scope: <strong>{plan.vpc_id ?? "VPC not selected"}</strong> · Bucket: <strong>{plan.bucket_name}</strong>
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              )}
-              {!noMigrationRequired ? (
-                <>
-                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                    <Metric label="Consumers moving" value={migratableConsumers} />
-                    <Metric label="Workloads in scope" value={plan.impact.route_table_workloads} />
-                    <Metric label="Route tables" value={plan.impact.route_tables} />
-                    <Metric label="S3 destinations" value={plan.impact.s3_destinations ?? 0} />
-                  </div>
-                  <div className="rounded-xl border bg-white p-3 text-xs text-slate-600" style={{ borderColor: "#DDE3E8" }}>
-                    <div className="grid grid-cols-[130px_1fr] gap-x-3 gap-y-2">
-                      <InfoRow label="Endpoint">
-                        {plan.endpoint_mode === "ADOPT_EXISTING"
-                          ? `Use existing endpoint ${plan.existing_endpoint_id}`
-                          : "Create a new managed S3 Gateway endpoint"}
-                      </InfoRow>
-                      <InfoRow label="First route table">
-                        <span className="font-mono">{plan.canary_route_table_id ?? "—"}</span>
-                        {" "}(the one serving the fewest workloads)
-                      </InfoRow>
-                      <InfoRow label="Not touched">IAM, bucket policies, security groups — no permission changes in this operation</InfoRow>
-                      <InfoRow label="Rollback">Restore the snapshotted route associations; remove only endpoint resources created by this operation</InfoRow>
-                    </div>
-                  </div>
-                </>
-              ) : null}
               {(plan.excluded_consumers?.length ?? 0) > 0 ? (
                 <div className="rounded-xl border border-slate-200 bg-white p-3">
                   <div className="text-xs font-bold text-slate-800">Not part of this change ({plan.excluded_consumers?.length})</div>
@@ -731,12 +679,13 @@ export function S3VpceWizard({ systemName, bucket, resume, accountId, region, on
                     const benign = blocker.code === "NO_OBSERVED_CONSUMERS" || blocker.code === "NO_PUBLIC_S3_PATH"
                     return (
                       <div key={blocker.code} className={`rounded-xl border bg-white p-3 text-xs ${benign ? "border-teal-200" : "border-orange-200"}`}>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <strong className={benign ? "text-teal-800" : "text-orange-800"}>{guidance.title}</strong>
-                          <span className={`rounded px-1.5 py-0.5 font-mono text-[9px] ${benign ? "bg-teal-50 text-teal-700" : "bg-orange-50 text-orange-700"}`}>{blocker.code}</span>
-                        </div>
+                        <strong className={benign ? "text-teal-800" : "text-orange-800"}>{guidance.title}</strong>
                         <p className="mt-1 leading-5 text-slate-600">{blocker.message}</p>
                         <p className="mt-1.5 leading-5 text-slate-700"><strong>Next:</strong> {guidance.next}</p>
+                        <details className="mt-2 text-[10px] text-slate-500">
+                          <summary className="cursor-pointer font-semibold">Technical detail</summary>
+                          <span className="mt-1 inline-block rounded bg-slate-100 px-1.5 py-0.5 font-mono">{blocker.code}</span>
+                        </details>
                       </div>
                     )
                   })}

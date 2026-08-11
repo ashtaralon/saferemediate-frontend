@@ -1,0 +1,193 @@
+"use client"
+
+import { CheckCircle2, Route, ShieldAlert } from "lucide-react"
+import type { S3EnforcementPlan, S3VpcePlan } from "@/components/topology-v0-2/estate-operations"
+
+interface Fact {
+  label: string
+  value: string | number
+  emphasis?: "default" | "warning"
+}
+
+function routeLabel(routeKinds: string[] = []) {
+  const normalized = routeKinds.map((value) => value.toUpperCase())
+  if (normalized.some((value) => value.includes("NAT"))) return "a NAT gateway"
+  if (normalized.some((value) => value.includes("IGW") || value.includes("INTERNET"))) return "an internet gateway"
+  return "the current public S3 route"
+}
+
+function JourneySummary({
+  status,
+  title,
+  summary,
+  facts,
+  change,
+  untouched,
+  tone = "default",
+  testId,
+}: {
+  status: string
+  title: string
+  summary: string
+  facts: Fact[]
+  change: string
+  untouched: string
+  tone?: "default" | "warning" | "complete"
+  testId: string
+}) {
+  const warning = tone === "warning"
+  const complete = tone === "complete"
+  const accent = warning ? "#B45309" : "#0E8B7A"
+  const background = warning ? "#FFF7ED" : complete ? "#F0FDFA" : "#FFFFFF"
+  const border = warning ? "#FED7AA" : complete ? "#9FE8DC" : "#B9DED8"
+  const Icon = warning ? ShieldAlert : complete ? CheckCircle2 : Route
+
+  return (
+    <section className="overflow-hidden rounded-2xl border" style={{ borderColor: border, background }} data-testid={testId}>
+      <div className="p-4">
+        <div className="flex items-start gap-3">
+          <span className="mt-0.5 rounded-xl p-2" style={{ background: warning ? "#FFEDD5" : "#DDF8F3", color: accent }}>
+            <Icon className="h-5 w-5" />
+          </span>
+          <div className="min-w-0">
+            <div className="text-[10px] font-bold uppercase tracking-[0.14em]" style={{ color: accent }}>{status}</div>
+            <h3 className="mt-1 text-base font-bold text-slate-900">{title}</h3>
+            <p className="mt-1 text-xs leading-5 text-slate-700">{summary}</p>
+          </div>
+        </div>
+
+        <div className="mt-4 grid grid-cols-2 gap-2 lg:grid-cols-4">
+          {facts.map((fact) => (
+            <div key={fact.label} className="rounded-xl border bg-white px-3 py-2.5" style={{ borderColor: "#DDE3E8" }}>
+              <div className="break-words text-sm font-bold" style={{ color: fact.emphasis === "warning" ? "#B45309" : "#1A2330" }}>{fact.value}</div>
+              <div className="mt-0.5 text-[9px] font-semibold uppercase tracking-wide text-slate-500">{fact.label}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="grid gap-3 border-t bg-white px-4 py-3 text-[11px] leading-5 text-slate-600 md:grid-cols-2" style={{ borderColor: "#E2E8F0" }}>
+        <div><strong className="text-slate-800">Change:</strong> {change}</div>
+        <div><strong className="text-slate-800">Not touched:</strong> {untouched}</div>
+      </div>
+    </section>
+  )
+}
+
+export function TransportJourneySummary({ plan }: { plan: S3VpcePlan }) {
+  const mode = plan.endpoint_mode ?? "CREATE_MANAGED"
+  const consumers = plan.impact.migrating_consumers ?? plan.impact.observed_consumers
+  const routeTables = plan.impact.route_tables
+  const endpoint = plan.existing_endpoint_id ?? "Not created yet"
+
+  if (mode === "NO_CHANGE") {
+    return (
+      <JourneySummary
+        status="No network change"
+        title="Private path already working"
+        summary={`The reviewed workloads already reach S3 through ${plan.existing_endpoint_id ?? "an S3 Gateway endpoint"}. Creating or associating another endpoint would add change without benefit.`}
+        facts={[
+          { label: "Workloads moving", value: 0 },
+          { label: "Endpoint in use", value: endpoint },
+          { label: "Route changes", value: 0 },
+          { label: "AWS changes", value: 0 },
+        ]}
+        change="Keep monitoring the endpoint and fresh S3 traffic."
+        untouched="Endpoint, route tables, IAM, applications, and bucket policy."
+        tone="complete"
+        testId="transport-journey-no-change"
+      />
+    )
+  }
+
+  if (mode === "ADOPT_EXISTING") {
+    return (
+      <JourneySummary
+        status={plan.readiness === "READY" ? "Existing endpoint found" : "Blocked before rollout"}
+        title="Connect workloads to the existing private path"
+        summary={`${consumers} reviewed bucket consumer${consumers === 1 ? "" : "s"} still use ${routeLabel(plan.public_route_kinds)}. Cyntro will reuse ${endpoint} and add only the reviewed route-table associations.`}
+        facts={[
+          { label: "Consumers moving", value: consumers },
+          { label: "Endpoint reused", value: endpoint },
+          { label: "Route tables", value: routeTables },
+          { label: "New endpoints", value: 0 },
+        ]}
+        change="Associate one route table first, verify live S3 traffic, then expand."
+        untouched="The customer endpoint itself, IAM, applications, and bucket policy."
+        tone={plan.readiness === "READY" ? "default" : "warning"}
+        testId="transport-journey-adopt"
+      />
+    )
+  }
+
+  return (
+    <JourneySummary
+      status={plan.readiness === "READY" ? "No eligible endpoint found" : "Blocked before creation"}
+      title="Create a private S3 path"
+      summary={`${consumers} reviewed bucket consumer${consumers === 1 ? "" : "s"} still use ${routeLabel(plan.public_route_kinds)}. Cyntro will create one S3 Gateway endpoint and move one route table first.`}
+      facts={[
+        { label: "Consumers moving", value: consumers },
+        { label: "New endpoint", value: 1 },
+        { label: "Route tables", value: routeTables },
+        { label: "First rollout", value: "Canary" },
+      ]}
+      change="Create the endpoint, move one route table, verify live S3 traffic, then expand."
+      untouched="IAM, applications, security groups, and bucket policy."
+      tone={plan.readiness === "READY" ? "default" : "warning"}
+      testId="transport-journey-create"
+    />
+  )
+}
+
+export function EnforcementJourneySummary({ plan }: { plan: S3EnforcementPlan }) {
+  const outsideVpc = plan.out_of_vpc_principals?.length ?? 0
+  const protectedConsumers = plan.impact.protected_consumers
+  const publicConsumers = plan.impact.public_consumers
+  const unknownConsumers = plan.impact.unknown_consumers
+  const alreadyEnforced = plan.blockers.some((blocker) => blocker.code === "ENFORCEMENT_ALREADY_PRESENT")
+  const noProof = plan.blockers.some((blocker) => blocker.code === "NO_OBSERVED_CONSUMERS" || blocker.code === "NO_PRIVATE_PATH_PROOF")
+
+  let status = plan.readiness === "READY" ? "Ready for safety check" : "Decision required"
+  let title = plan.readiness === "READY" ? "Require the proven private path" : "Not ready to enforce"
+  let summary = `${protectedConsumers} VPC workload${protectedConsumers === 1 ? "" : "s"} use the reviewed endpoint. Cyntro can now review one bucket-policy rule that requires this path for object access.`
+  let tone: "default" | "warning" | "complete" = plan.readiness === "READY" ? "default" : "warning"
+
+  if (alreadyEnforced) {
+    status = "No policy change"
+    title = "Private-path enforcement is already present"
+    summary = "The reviewed bucket-policy condition already requires the private endpoint. Cyntro will leave the policy unchanged."
+    tone = "complete"
+  } else if (noProof) {
+    status = "No enforceable path"
+    title = "Nothing proven to enforce yet"
+    summary = "Cyntro does not have fresh proof of a private path for this bucket. No bucket-policy change is proposed."
+    tone = "complete"
+  } else if (publicConsumers > 0) {
+    summary = `${publicConsumers} VPC workload${publicConsumers === 1 ? " still uses" : "s still use"} a public S3 path. Enforcing now could break that traffic; complete the network migration first.`
+  } else if (outsideVpc > 0) {
+    summary = `${protectedConsumers} VPC workload${protectedConsumers === 1 ? " uses" : "s use"} the reviewed endpoint. ${outsideVpc} caller${outsideVpc === 1 ? " accesses" : "s access"} the bucket from outside the VPC and must be reviewed before enforcement.`
+  } else if (unknownConsumers > 0) {
+    summary = `Cyntro cannot prove the network path for ${unknownConsumers} caller${unknownConsumers === 1 ? "" : "s"}. Refresh the evidence before deciding whether to enforce.`
+  }
+
+  return (
+    <JourneySummary
+      status={status}
+      title={title}
+      summary={summary}
+      facts={[
+        { label: "Private VPC workloads", value: protectedConsumers },
+        { label: "Outside-VPC callers", value: outsideVpc, emphasis: outsideVpc ? "warning" : "default" },
+        {
+          label: "Reviewed endpoints",
+          value: plan.vpce_ids.length === 1 ? plan.vpce_ids[0] : plan.impact.vpc_endpoints,
+        },
+        { label: "VPC workloads public", value: publicConsumers, emphasis: publicConsumers ? "warning" : "default" },
+      ]}
+      change={alreadyEnforced || noProof ? "No bucket-policy change is proposed." : "Add one bucket-policy rule requiring object requests to use the reviewed endpoint."}
+      untouched="IAM permissions, route tables, application configuration, and bucket administration."
+      tone={tone}
+      testId="enforcement-journey-summary"
+    />
+  )
+}

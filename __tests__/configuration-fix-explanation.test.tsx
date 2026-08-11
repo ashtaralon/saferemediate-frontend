@@ -6,7 +6,8 @@ import type { ConfigurationFixExplanation } from "@/components/topology-v0-2/est
 
 const explanation: ConfigurationFixExplanation = {
   kind: "S3_PRIVATE_PATH",
-  headline: "Move observed S3 traffic onto a private AWS route",
+  journey: "ADOPT_EXISTING",
+  headline: "Connect workloads to the existing private path",
   why_this_change: "3 observed consumers currently reach payments-data through a NAT gateway.",
   current_state: "A usable endpoint already exists: vpce-existing.",
   scope_summary: "The scope contains 5 workloads across 2 route tables.",
@@ -24,9 +25,12 @@ const explanation: ConfigurationFixExplanation = {
 describe("OperationsExplanation", () => {
   it("presents the operator story and exact ordered steps", () => {
     render(<OperationsExplanation explanation={explanation} />)
-    expect(screen.getByText("Why this change")).toBeInTheDocument()
+    expect(screen.getByText("Operational reason")).toBeInTheDocument()
+    expect(screen.getByText("Current situation")).toBeInTheDocument()
     expect(screen.getByText(/3 observed consumers/)).toBeInTheDocument()
     expect(screen.getAllByText(/vpce-existing/)).toHaveLength(2)
+    expect(screen.getByText("AI wording · engine facts")).toBeInTheDocument()
+    expect(screen.getByText("Execution, verification, and rollback details")).toBeInTheDocument()
     expect(screen.getByText("1")).toBeInTheDocument()
     expect(screen.getByText("3")).toBeInTheDocument()
     expect(screen.getByText(/The explanation cannot approve or modify/)).toBeInTheDocument()
@@ -34,6 +38,6 @@ describe("OperationsExplanation", () => {
 
   it("labels deterministic fallback honestly", () => {
     render(<OperationsExplanation explanation={{ ...explanation, source: "deterministic_fallback" }} />)
-    expect(screen.getByText("Engine explanation")).toBeInTheDocument()
+    expect(screen.getByText("Engine wording")).toBeInTheDocument()
   })
 })

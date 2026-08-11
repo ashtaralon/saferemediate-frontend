@@ -258,9 +258,8 @@ export function ConfigurationFixesTab({ systemName }: Props) {
           <Route className="h-5 w-5" style={{ color: "#0E8B7A" }} /> Configuration fixes
         </div>
         <p className="mt-1 max-w-3xl text-xs leading-5" style={{ color: "#5A6B7A" }}>
-          Guided infrastructure changes for this system. Each fix runs as a staged setup: review the change, pass the
-          safety checks, get a second pair of eyes, then watch it roll out one step at a time — verified from real
-          traffic, with a snapshot rollback ready the whole way. No scripts, no console sessions.
+          Evidence-guided infrastructure changes with a clear plan, safety check, approval, staged rollout,
+          verification, and snapshot rollback. No scripts or console sessions.
         </p>
       </div>
 
@@ -322,7 +321,7 @@ export function ConfigurationFixesTab({ systemName }: Props) {
       <section>
         <div className="mb-2 flex items-center justify-between">
           <h3 className="text-xs font-bold uppercase tracking-wide" style={{ color: "#5A6B7A" }}>
-            S3 private path · route S3 traffic off the internet gateway
+            S3 private path · create, reuse, or verify the right route
           </h3>
         </div>
         {posture && posture.summary.total_buckets > 0 ? (
@@ -362,7 +361,7 @@ export function ConfigurationFixesTab({ systemName }: Props) {
               return (
                 <div
                   key={bucket.id}
-                  className="flex flex-col justify-between rounded-xl border bg-white p-4"
+                  className="min-w-0 flex flex-col justify-between rounded-xl border bg-white p-4"
                   style={{ borderColor: "#DDE3E8" }}
                   data-testid="configuration-fix-card"
                 >
@@ -371,32 +370,32 @@ export function ConfigurationFixesTab({ systemName }: Props) {
                       <span className="rounded-lg p-1.5" style={{ background: "#E6FBF7" }}>
                         <Database className="h-4 w-4" style={{ color: "#0E8B7A" }} />
                       </span>
-                      <span className="truncate text-sm font-semibold" style={{ color: "#1A2330" }}>{bucket.name}</span>
+                      <span className="min-w-0 truncate text-sm font-semibold" style={{ color: "#1A2330" }}>{bucket.name}</span>
                       <StatusChip entry={entry} />
                     </div>
                     <p className="mt-2 text-xs leading-5" style={{ color: "#5A6B7A" }}>
-                      Checks who uses this bucket, then moves that traffic onto an S3 Gateway endpoint —
-                      route tables only, no application or permission changes.
+                      Cyntro checks who uses this bucket and chooses the safest path: create an S3 Gateway endpoint,
+                      reuse an eligible one, or make no network change when traffic is already private.
                     </p>
                   </div>
-                  <div className="mt-3 flex items-center justify-between">
+                  <div className="mt-3 flex flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide" style={{ color: "#7A8996" }}>
-                      <Network className="h-3 w-3" /> Network routing
+                      <Network className="h-3 w-3" /> Private S3 routing
                     </span>
                     <button
                       type="button"
                       onClick={() => openWizard(bucket, active ? entry ?? null : null, S3_PRIVATE_PATH_KIND)}
-                      className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-white"
+                      className="inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-white"
                       style={{ background: active ? "#1D4ED8" : "#0E8B7A" }}
                       data-testid="configuration-fix-open"
                     >
-                      {active ? "Resume setup" : entry?.state === "COMPLETE" ? "Review / run again" : "Start setup"}
+                      {active ? "Resume setup" : entry?.state === "COMPLETE" ? "Review / run again" : "Review S3 path"}
                       <ArrowRight className="h-3.5 w-3.5" />
                     </button>
                   </div>
-                  <div className="mt-3 flex items-center justify-between border-t pt-3" style={{ borderColor: "#EDF1F4" }} data-testid="configuration-fix-enforce-row">
+                  <div className="mt-3 flex flex-col items-stretch gap-2 border-t pt-3 sm:flex-row sm:items-center sm:justify-between" style={{ borderColor: "#EDF1F4" }} data-testid="configuration-fix-enforce-row">
                       <span className="inline-flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide" style={{ color: "#7A8996" }}>
-                        <Lock className="h-3 w-3" /> Enforce private path
+                        <Lock className="h-3 w-3" /> Optional follow-on · Require private path
                         {enforceEntry ? <StatusChip entry={enforceEntry} /> : null}
                       </span>
                       <button
@@ -406,7 +405,7 @@ export function ConfigurationFixesTab({ systemName }: Props) {
                           enforceActive ? enforceEntry ?? null : null,
                           S3_ENFORCEMENT_KIND,
                         )}
-                        className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold disabled:opacity-40"
+                        className="inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold disabled:opacity-40"
                         style={enforced
                           ? { background: "#FFFFFF", color: "#0E8B7A", border: "1px solid #9FE8DC" }
                           : enforcementMode === "preview" && !enforceActive
