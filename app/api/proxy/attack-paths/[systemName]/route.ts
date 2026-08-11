@@ -32,7 +32,11 @@ export async function GET(
   const { systemName } = await params
   const { searchParams } = new URL(request.url)
   const maxPaths = searchParams.get("max_paths") || "100"
-  const includeConfigured = searchParams.get("include_configured") !== "false"
+  // The legacy endpoint's configured-path mode rebuilds the full dependency
+  // estate. Current Attack Paths uses identity-attack-paths; this compatibility
+  // proxy therefore defaults to the fast observed-only contract and keeps the
+  // expensive mode available only as an explicit opt-in.
+  const includeConfigured = searchParams.get("include_configured") === "true"
 
   const cacheKey = `attack-paths|${systemName}|${maxPaths}|${includeConfigured}`
 

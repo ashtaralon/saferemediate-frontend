@@ -22,6 +22,7 @@ interface BRTopPath {
   id: string
   business_sentence?: string | null
   workload_name?: string | null
+  workload_kind?: string | null
   cj_name?: string | null
   cj_type?: string | null
   hop_count?: number | null
@@ -83,6 +84,14 @@ function joinDamageTypes(types?: string[] | null): string {
   if (labels.length === 1) return labels[0]
   if (labels.length === 2) return `${labels[0]} and ${labels[1]}`
   return `${labels.slice(0, -1).join(", ")}, and ${labels.at(-1)}`
+}
+
+function workloadTypeLabel(kind?: string | null): string {
+  const normalized = (kind ?? "").toLowerCase()
+  if (normalized.includes("role")) return "IAM role"
+  if (normalized.includes("lambda")) return "Lambda function"
+  if (normalized.includes("ec2") || normalized.includes("instance")) return "EC2 workload"
+  return "workload"
 }
 
 export function BlastRadiusKpiStrip({ systemName }: { systemName: string }) {
@@ -191,12 +200,14 @@ export function BlastRadiusKpiStrip({ systemName }: { systemName: string }) {
             Highest-risk path
           </p>
           <p className="mt-1 max-w-5xl text-sm font-medium leading-snug text-foreground">
-            Compromise of {killer.workload_name ?? "this workload"} could give an attacker{" "}
-            {joinDamageTypes(killer.damage_types)} access to {killer.cj_name ?? "critical data"}.
+            If an attacker gains access to the {workloadTypeLabel(killer.workload_kind)}{" "}
+            {killer.workload_name ?? "shown here"}, they could gain {joinDamageTypes(killer.damage_types)}{" "}
+            access to {killer.cj_name ?? "critical data"}.
           </p>
           {killerCut?.remove_actions?.length ? (
             <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
               Next step: review removing {killerCut.remove_actions.length} unobserved permissions from{" "}
+              {killerCut.role_name ? "IAM role " : ""}
               {killerCut.role_name ?? killerCut.workload_name ?? killer.workload_name}.
             </p>
           ) : null}
