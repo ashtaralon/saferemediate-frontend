@@ -92,7 +92,8 @@ export function S3CallerInventory({ callers }: { callers: S3EnforcementCallerSum
                   {rows.map((caller) => {
                     const service = getServiceMeta(caller.resource_type)
                     const outOfScope = caller.scope_status === "OUT_OF_SCOPE"
-                    const detail = outOfScope ? "Not automated in this release" : meta.detail
+                    const exempted = caller.scope_status === "EXEMPTED"
+                    const detail = exempted ? "Exact role exemption reviewed" : (outOfScope ? "Decision required" : meta.detail)
                     return (
                       <article key={`${status}:${caller.resource_id}`} className="grid gap-3 rounded-xl border border-slate-200 p-3 md:grid-cols-[auto_minmax(0,1fr)_minmax(180px,0.8fr)]">
                         <ServiceTypeBadge type={caller.resource_type} size={42} />
@@ -116,7 +117,7 @@ export function S3CallerInventory({ callers }: { callers: S3EnforcementCallerSum
                           <div className="mt-0.5 text-slate-600">
                             {caller.vpce_id ? `Endpoint ${caller.vpce_id}` : meta.label}
                           </div>
-                          {outOfScope ? (
+                          {outOfScope || exempted ? (
                             <div className="mt-1 font-medium text-amber-800">
                               {caller.scope_reason || "This caller is outside the current automation scope."}
                             </div>

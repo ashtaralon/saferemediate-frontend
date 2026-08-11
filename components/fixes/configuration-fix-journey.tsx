@@ -148,6 +148,9 @@ export function EnforcementJourneySummary({ plan }: { plan: S3EnforcementPlan })
   const unsupportedLambda = plan.impact.unsupported_lambda_consumers
     ?? plan.caller_summaries?.filter((caller) => caller.scope_status === "OUT_OF_SCOPE").length
     ?? 0
+  const exemptedLambda = plan.impact.exempted_lambda_consumers
+    ?? plan.caller_summaries?.filter((caller) => caller.scope_status === "EXEMPTED").length
+    ?? 0
   const protectedConsumers = plan.impact.protected_consumers
   const publicConsumers = plan.impact.public_consumers
   const unknownConsumers = plan.impact.unknown_consumers
@@ -172,7 +175,9 @@ export function EnforcementJourneySummary({ plan }: { plan: S3EnforcementPlan })
   } else if (publicConsumers > 0) {
     summary = `${publicConsumers} VPC workload${publicConsumers === 1 ? " still uses" : "s still use"} a public S3 path. Enforcing now could break that traffic; complete the network migration first.`
   } else if (unsupportedLambda > 0) {
-    summary = `${protectedConsumers} VPC workload${protectedConsumers === 1 ? " uses" : "s use"} the reviewed endpoint. ${unsupportedLambda} Lambda caller${unsupportedLambda === 1 ? " is" : "s are"} outside the VPC; Lambda network migration is not automated in this release, so enforcement remains blocked.`
+    summary = `${protectedConsumers} VPC workload${protectedConsumers === 1 ? " uses" : "s use"} the reviewed endpoint. ${unsupportedLambda} Lambda caller${unsupportedLambda === 1 ? " needs" : "s need"} an exact execution-role exemption or removal of bucket access before enforcement.`
+  } else if (exemptedLambda > 0) {
+    summary = `${protectedConsumers} VPC workload${protectedConsumers === 1 ? " uses" : "s use"} the reviewed endpoint. ${exemptedLambda} Lambda caller${exemptedLambda === 1 ? " remains" : "s remain"} outside the VPC and keeps access through an exact reviewed execution-role exemption.`
   } else if (outsideVpc > 0) {
     summary = `${protectedConsumers} VPC workload${protectedConsumers === 1 ? " uses" : "s use"} the reviewed endpoint. ${outsideVpc} caller${outsideVpc === 1 ? " accesses" : "s access"} the bucket from outside the VPC and must be reviewed before enforcement.`
   } else if (unknownConsumers > 0) {
@@ -194,7 +199,9 @@ export function EnforcementJourneySummary({ plan }: { plan: S3EnforcementPlan })
           },
           { label: "VPC workloads public", value: publicConsumers, emphasis: publicConsumers ? "warning" : "default" },
         ]}
-        change={alreadyEnforced || noProof ? "No bucket-policy change is proposed." : "Add one bucket-policy rule requiring object requests to use the reviewed endpoint."}
+        change={alreadyEnforced || noProof ? "No bucket-policy change is proposed." : exemptedLambda > 0
+          ? "Add one bucket-policy rule requiring the reviewed endpoint, except for the exact approved Lambda execution roles."
+          : "Add one bucket-policy rule requiring object requests to use the reviewed endpoint."}
         untouched="IAM permissions, route tables, application configuration, and bucket administration."
         tone={tone}
         testId="enforcement-journey-summary"

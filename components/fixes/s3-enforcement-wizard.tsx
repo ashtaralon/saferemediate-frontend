@@ -102,9 +102,13 @@ const BLOCKER_GUIDANCE: Record<string, { title: string; next: string }> = {
     title: "Out-of-VPC access is not covered by an exemption",
     next: "Access from outside any VPC would be denied by enforcement. Add a reviewed exemption pattern for each principal role below, or remove their access first.",
   },
-  LAMBDA_PRIVATE_PATH_OUT_OF_SCOPE: {
-    title: "Lambda private-path migration is not automated yet",
-    next: "No exemption or AWS change will be generated for these functions. Move each Lambda to reviewed private subnets with the S3 Gateway endpoint, remove its bucket access, or wait for Lambda migration support; then sync and analyze again.",
+  LAMBDA_EXACT_ROLE_EXEMPTION_REQUIRED: {
+    title: "Lambda callers need an exact role decision",
+    next: "For this demo, review the suggested execution-role ARNs and add them as exact exemptions, or remove their bucket access. Wildcards are not accepted for Lambda.",
+  },
+  LAMBDA_EXEMPTION_MUST_BE_EXACT: {
+    title: "A Lambda exemption is too broad",
+    next: "Replace the wildcard pattern with each exact reviewed Lambda execution-role ARN, then analyze again.",
   },
   PRINCIPAL_IDENTITY_UNRESOLVED: {
     title: "An out-of-VPC caller's IAM role could not be resolved",
@@ -672,12 +676,12 @@ export function S3EnforcementWizard({ systemName, bucket, resume, accountId, reg
               {showAdvanced ? (
                 <div className="space-y-3 rounded-xl border p-4" style={{ borderColor: "#DDE3E8", background: "#FFFFFF" }}>
                   <label className="block text-xs font-semibold text-slate-700">
-                    Exempt principals — never denied (one ArnLike pattern per line)
+                    Exempt principals — never denied (one ARN or reviewed pattern per line; Lambda must be exact)
                     <textarea
                       aria-label="Exempt principal ARNs"
                       value={exemptText}
                       onChange={(e) => setExemptText(e.target.value)}
-                      placeholder="arn:aws:iam::111122223333:role/break-glass-*"
+                      placeholder="arn:aws:iam::111122223333:role/lambda-execution-role"
                       rows={3}
                       className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-[11px]"
                     />
@@ -685,6 +689,7 @@ export function S3EnforcementWizard({ systemName, bucket, resume, accountId, reg
                   {suggestedExemptions.length ? (
                     <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-[11px] text-amber-900" data-testid="enforce-wizard-suggested-exemptions">
                       <div className="font-semibold">Observed outside-VPC callers to review</div>
+                      <div className="mt-1 font-sans">Lambda exemptions must be exact execution-role ARNs; wildcard Lambda roles are blocked.</div>
                       <ul className="mt-1 space-y-1 font-mono">
                         {suggestedExemptions.map((principal) => <li key={principal}>{principal}</li>)}
                       </ul>
