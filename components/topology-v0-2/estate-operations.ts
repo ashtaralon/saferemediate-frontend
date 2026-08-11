@@ -64,6 +64,12 @@ export interface S3VpcePlan {
   canary_route_table_id?: string | null
   endpoint_mode?: "CREATE_MANAGED" | "ADOPT_EXISTING" | "NO_CHANGE"
   existing_endpoint_id?: string | null
+  public_route_kinds?: string[]
+  consumer_summaries?: Array<{
+    resource_id: string
+    resource_name: string
+    resource_type: string
+  }>
   excluded_consumers?: Array<{
     resource_id?: string
     resource_name?: string
@@ -91,6 +97,25 @@ export interface S3VpcePlan {
     permission_changes: number
     resource_replacements: number
   }
+}
+
+export interface ConfigurationFixExplanation {
+  kind: S3OperationKind
+  headline: string
+  why_this_change: string
+  current_state: string
+  scope_summary: string
+  steps: string[]
+  verification: string
+  rollback: string
+  blocker_codes: string[]
+  readiness: "READY" | "BLOCKED" | string
+  source: "llm" | "llm_cache" | "deterministic_fallback"
+  grounded: boolean
+  grounding_reason: string
+  evidence_hash: string
+  generated_at?: string
+  model?: string | null
 }
 
 export type S3PrivatePathState =
@@ -223,6 +248,11 @@ export interface S3EnforcementPlan {
   vpc_ids?: string[]
   region?: string | null
   vpce_ids: string[]
+  consumer_summaries?: Array<{
+    resource_id: string
+    resource_name: string
+    resource_type: string
+  }>
   enforcement_mode: "SINGLE_STAGE" | "PRINCIPAL_CANARY"
   exempt_principal_arns: string[]
   canary_principal_arns: string[]
