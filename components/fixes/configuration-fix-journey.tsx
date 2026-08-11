@@ -156,6 +156,10 @@ export function EnforcementJourneySummary({ plan }: { plan: S3EnforcementPlan })
   const unknownConsumers = plan.impact.unknown_consumers
   const alreadyEnforced = plan.blockers.some((blocker) => blocker.code === "ENFORCEMENT_ALREADY_PRESENT")
   const noProof = plan.blockers.some((blocker) => blocker.code === "NO_OBSERVED_CONSUMERS" || blocker.code === "NO_PRIVATE_PATH_PROOF")
+  const callerEvidenceBlocked = plan.blockers.some((blocker) =>
+    blocker.code === "AFFECTED_PRINCIPAL_SCOPE_INCOMPLETE"
+    || blocker.code === "CONFIGURED_PRINCIPAL_UNOBSERVED"
+  )
 
   let status = plan.readiness === "READY" ? "Ready for safety check" : "Decision required"
   let title = plan.readiness === "READY" ? "Require the proven private path" : "Resolve safety blockers before enforcement"
@@ -175,6 +179,11 @@ export function EnforcementJourneySummary({ plan }: { plan: S3EnforcementPlan })
     summary = "Cyntro does not have fresh proof of a private path for this bucket. No bucket-policy change is proposed."
     change = "No bucket-policy change is proposed."
     tone = "complete"
+  } else if (callerEvidenceBlocked) {
+    status = "Multiple safety checks required"
+    title = "Resolve caller scope and evidence before enforcement"
+    summary = `${protectedConsumers} VPC workload${protectedConsumers === 1 ? " uses" : "s use"} the reviewed endpoint.${unsupportedLambda > 0 ? ` ${unsupportedLambda} Lambda caller${unsupportedLambda === 1 ? " also needs" : "s also need"} an exact execution-role decision.` : ""} Caller inventory or private-path evidence is still incomplete; review every blocker below before enforcement.`
+    change = "Next step: resolve every caller decision and evidence gap shown below. No bucket-policy change is proposed yet."
   } else if (publicConsumers > 0) {
     status = "Migration required"
     title = `Move ${publicConsumers} VPC workload${publicConsumers === 1 ? "" : "s"} to the private path`

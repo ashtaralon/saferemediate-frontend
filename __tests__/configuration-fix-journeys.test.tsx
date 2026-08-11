@@ -117,6 +117,19 @@ describe("configuration fix journeys", () => {
     expect(screen.getByText("vpce-reviewed")).toBeInTheDocument()
   })
 
+  it("does not imply Lambda review is the only blocker when caller evidence is incomplete", () => {
+    const plan = enforcementPlan()
+    plan.blockers.push(
+      { code: "AFFECTED_PRINCIPAL_SCOPE_INCOMPLETE", message: "Caller inventory is incomplete." },
+      { code: "CONFIGURED_PRINCIPAL_UNOBSERVED", message: "Configured callers are unobserved." },
+    )
+    render(<EnforcementJourneySummary plan={plan} />)
+    expect(screen.getByText("Multiple safety checks required")).toBeInTheDocument()
+    expect(screen.getByText("Resolve caller scope and evidence before enforcement")).toBeInTheDocument()
+    expect(screen.getByText(/Caller inventory or private-path evidence is still incomplete/)).toBeInTheDocument()
+    expect(screen.getByText(/resolve every caller decision and evidence gap shown below/)).toBeInTheDocument()
+  })
+
   it("uses singular grammar for one protected VPC workload", () => {
     const plan = enforcementPlan()
     plan.readiness = "READY"
