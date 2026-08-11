@@ -148,6 +148,31 @@ describe("configuration fix journeys", () => {
     expect(screen.getByText(/2 Lambda callers remain outside the VPC and keep access/)).toBeInTheDocument()
   })
 
+  it("explains incremental enforcement without treating outside callers as blockers", () => {
+    const plan = enforcementPlan()
+    plan.readiness = "READY"
+    plan.blockers = []
+    plan.coverage_mode = "OBSERVED_PRIVATE_PRINCIPALS"
+    plan.enforced_principal_arns = [
+      "arn:aws:iam::111122223333:role/payments-api",
+      "arn:aws:iam::111122223333:role/payments-worker",
+    ]
+    plan.impact.enforced_principals = 2
+    plan.impact.not_changed_observed_consumers = 2
+    plan.impact.unsupported_lambda_consumers = 0
+    plan.caller_summaries![0].scope_reason = "This exact IAM role is covered by the private-path rule."
+    plan.caller_summaries![1].scope_reason = "This outside-VPC caller is not changed by principal-scoped enforcement."
+    render(<EnforcementJourneySummary plan={plan} />)
+
+    expect(screen.getByText("Enforce the private path for proven workloads")).toBeInTheDocument()
+    expect(screen.getByText(/covers 2 exact IAM roles; 2 outside-VPC callers are not changed/)).toBeInTheDocument()
+    expect(screen.getByText("Callers not changed").previousSibling).toHaveTextContent("2")
+    expect(screen.getByText(/requiring the reviewed endpoint only for the exact observed VPC workload roles/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: /View 2 callers/i }))
+    expect(screen.getByText("Covered by exact role")).toBeInTheDocument()
+    expect(screen.getByText("Not changed")).toBeInTheDocument()
+  })
+
   it("opens an icon-led inventory of observed callers and their paths", () => {
     render(<EnforcementJourneySummary plan={enforcementPlan()} />)
 

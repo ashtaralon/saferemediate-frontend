@@ -152,6 +152,9 @@ export function EnforcementJourneySummary({ plan }: { plan: S3EnforcementPlan })
     ?? plan.caller_summaries?.filter((caller) => caller.scope_status === "EXEMPTED").length
     ?? 0
   const protectedConsumers = plan.impact.protected_consumers
+  const enforcedPrincipals = plan.impact.enforced_principals ?? plan.enforced_principal_arns?.length ?? 0
+  const notChangedObserved = plan.impact.not_changed_observed_consumers ?? 0
+  const principalScoped = plan.coverage_mode === "OBSERVED_PRIVATE_PRINCIPALS"
   const publicConsumers = plan.impact.public_consumers
   const unknownConsumers = plan.impact.unknown_consumers
   const alreadyEnforced = plan.blockers.some((blocker) => blocker.code === "ENFORCEMENT_ALREADY_PRESENT")
@@ -161,6 +164,11 @@ export function EnforcementJourneySummary({ plan }: { plan: S3EnforcementPlan })
   let title = plan.readiness === "READY" ? "Require the proven private path" : "Not ready to enforce"
   let summary = `${protectedConsumers} VPC workload${protectedConsumers === 1 ? " uses" : "s use"} the reviewed endpoint. Cyntro can now review one bucket-policy rule that requires this path for object access.`
   let tone: "default" | "warning" | "complete" = plan.readiness === "READY" ? "default" : "warning"
+
+  if (principalScoped && plan.readiness === "READY") {
+    title = "Enforce the private path for proven workloads"
+    summary = `${protectedConsumers} VPC workload${protectedConsumers === 1 ? " uses" : "s use"} the reviewed endpoint. This change covers ${enforcedPrincipals} exact IAM role${enforcedPrincipals === 1 ? "" : "s"}; ${notChangedObserved} outside-VPC caller${notChangedObserved === 1 ? " is" : "s are"} not changed.`
+  }
 
   if (alreadyEnforced) {
     status = "No policy change"
@@ -174,11 +182,11 @@ export function EnforcementJourneySummary({ plan }: { plan: S3EnforcementPlan })
     tone = "complete"
   } else if (publicConsumers > 0) {
     summary = `${publicConsumers} VPC workload${publicConsumers === 1 ? " still uses" : "s still use"} a public S3 path. Enforcing now could break that traffic; complete the network migration first.`
-  } else if (unsupportedLambda > 0) {
+  } else if (unsupportedLambda > 0 && !principalScoped) {
     summary = `${protectedConsumers} VPC workload${protectedConsumers === 1 ? " uses" : "s use"} the reviewed endpoint. ${unsupportedLambda} Lambda caller${unsupportedLambda === 1 ? " needs" : "s need"} an exact execution-role exemption or removal of bucket access before enforcement.`
-  } else if (exemptedLambda > 0) {
+  } else if (exemptedLambda > 0 && !principalScoped) {
     summary = `${protectedConsumers} VPC workload${protectedConsumers === 1 ? " uses" : "s use"} the reviewed endpoint. ${exemptedLambda} Lambda caller${exemptedLambda === 1 ? " remains" : "s remain"} outside the VPC and ${exemptedLambda === 1 ? "keeps" : "keep"} access through exact reviewed execution-role exemptions.`
-  } else if (outsideVpc > 0) {
+  } else if (outsideVpc > 0 && !principalScoped) {
     summary = `${protectedConsumers} VPC workload${protectedConsumers === 1 ? " uses" : "s use"} the reviewed endpoint. ${outsideVpc} caller${outsideVpc === 1 ? " accesses" : "s access"} the bucket from outside the VPC and must be reviewed before enforcement.`
   } else if (unknownConsumers > 0) {
     summary = `Cyntro cannot prove the network path for ${unknownConsumers} caller${unknownConsumers === 1 ? "" : "s"}. Refresh the evidence before deciding whether to enforce.`
@@ -192,7 +200,7 @@ export function EnforcementJourneySummary({ plan }: { plan: S3EnforcementPlan })
         summary={summary}
         facts={[
           { label: "Private VPC workloads", value: protectedConsumers },
-          { label: "Outside-VPC callers", value: outsideVpc, emphasis: outsideVpc ? "warning" : "default" },
+          { label: principalScoped ? "Callers not changed" : "Outside-VPC callers", value: outsideVpc, emphasis: outsideVpc && !principalScoped ? "warning" : "default" },
           {
             label: "Reviewed endpoints",
             value: plan.vpce_ids.length === 1 ? plan.vpce_ids[0] : plan.impact.vpc_endpoints,
@@ -201,8 +209,12 @@ export function EnforcementJourneySummary({ plan }: { plan: S3EnforcementPlan })
         ]}
         change={alreadyEnforced || noProof ? "No bucket-policy change is proposed." : exemptedLambda > 0
           ? "Add one bucket-policy rule requiring the reviewed endpoint, except for the exact approved Lambda execution roles."
+          : principalScoped
+            ? "Add one bucket-policy rule requiring the reviewed endpoint only for the exact observed VPC workload roles."
           : "Add one bucket-policy rule requiring object requests to use the reviewed endpoint."}
-        untouched="IAM permissions, route tables, application configuration, and bucket administration."
+        untouched={principalScoped
+          ? "Lambda, outside-VPC and unobserved callers; IAM permissions, routes, applications, and bucket administration."
+          : "IAM permissions, route tables, application configuration, and bucket administration."}
         tone={tone}
         testId="enforcement-journey-summary"
       />
