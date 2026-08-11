@@ -758,7 +758,7 @@ export function S3EnforcementWizard({ systemName, bucket, resume, accountId, reg
                             ) : null}
                           </div>
                         </details>
-                        {blocker.code === "OUT_OF_VPC_ACCESS_UNREVIEWED" && suggestedExemptions.length ? (
+                        {["OUT_OF_VPC_ACCESS_UNREVIEWED", "LAMBDA_EXACT_ROLE_EXEMPTION_REQUIRED", "LAMBDA_EXEMPTION_MUST_BE_EXACT"].includes(blocker.code) && suggestedExemptions.length ? (
                           <button
                             type="button"
                             onClick={() => { setShowAdvanced(true); setPinnedStep(0) }}
