@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
+import { getCached, getStaleCached, setCached, TTL_SLOW } from "@/lib/server/proxy-cache"
 
 export const maxDuration = 60
 export const dynamic = "force-dynamic"
@@ -30,10 +31,17 @@ export async function GET(req: NextRequest) {
     params.set("envelope", "true")
   }
 
+  const cacheKey = `crown-jewel-plan|${params.toString()}`
+  const cached = getCached(cacheKey)
+  if (cached) {
+    return NextResponse.json(cached, { headers: { "X-Cache": "HIT" } })
+  }
+
   try {
     const response = await fetch(`${backendBase}/api/crown-jewels/protection-plan?${params.toString()}`, {
       cache: "no-store",
       headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(55_000),
     })
 
     const text = await response.text()
@@ -46,6 +54,13 @@ export async function GET(req: NextRequest) {
     }
 
     if (!response.ok) {
+      const stale = getStaleCached(cacheKey)
+      if (stale) {
+        return NextResponse.json(
+          { ...(stale as object), fromStaleCache: true, staleReason: `backend_${response.status}` },
+          { headers: { "X-Cache": "STALE" } },
+        )
+      }
       return NextResponse.json(
         {
           systemName,
@@ -57,8 +72,16 @@ export async function GET(req: NextRequest) {
       )
     }
 
-    return NextResponse.json(data)
+    setCached(cacheKey, data, TTL_SLOW)
+    return NextResponse.json(data, { headers: { "X-Cache": "MISS" } })
   } catch (error: any) {
+    const stale = getStaleCached(cacheKey)
+    if (stale) {
+      return NextResponse.json(
+        { ...(stale as object), fromStaleCache: true, staleReason: "upstream_unavailable" },
+        { headers: { "X-Cache": "STALE" } },
+      )
+    }
     return NextResponse.json(
       {
         systemName,
@@ -66,7 +89,7 @@ export async function GET(req: NextRequest) {
         selected: null,
         error: error?.message || "Failed to load crown jewel protection plan",
       },
-      { status: 200 }
+      { status: 502 }
     )
   }
 }
