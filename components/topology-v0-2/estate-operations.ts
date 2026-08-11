@@ -227,6 +227,12 @@ export interface S3VpceOperationList {
 export interface S3EnforcementBlocker {
   code: string
   message: string
+  details?: {
+    reasons?: string[]
+    configured_principals?: string[]
+    configured_subjects?: string[]
+    unobserved_subjects?: string[]
+  }
 }
 
 export interface S3EnforcementImpact {
