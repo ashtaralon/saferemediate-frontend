@@ -956,13 +956,13 @@ export default function HomePage() {
         return <IdentitiesSection />
 
       case "per-resource":
-        return <PerResourceAnalysis systemName={selectedSystem} />
+        return <PerResourceAnalysis systemName={selectedSystem ?? undefined} />
 
       case "copilot":
-        return <SavedQuestionGallery systemName={selectedSystem} />
+        return <SavedQuestionGallery systemName={selectedSystem ?? undefined} />
 
       case "least-privilege":
-        return <LeastPrivilegeTab systemName={selectedSystem} />
+        return <LeastPrivilegeTab systemName={selectedSystem ?? undefined} />
 
       case "attack-paths":
         return (

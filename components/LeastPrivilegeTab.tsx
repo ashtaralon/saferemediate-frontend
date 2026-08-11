@@ -36,6 +36,8 @@ import {
   resourceRiskDecisionLabel,
   type ResourceRiskDecision,
 } from '@/lib/resource-risk-decision'
+import { useAccountScope } from '@/lib/account-scope-context'
+import { resourceAccountId, withAccountScope } from '@/lib/account-scope'
 
 // ---------- Safe helpers ----------
 const safeArray = <T,>(v: unknown): T[] => Array.isArray(v) ? v : []
@@ -51,6 +53,8 @@ interface GapResource {
   resourceType: 'IAMRole' | 'SecurityGroup' | 'S3Bucket' | 'NetworkACL' | 'RDSInstance' | 'LambdaFunction' | 'EC2Instance' | string
   resourceName: string
   resourceArn: string
+  accountId?: string
+  account_id?: string
   systemName?: string
   // Remediable status for IAM Roles
   isRemediable?: boolean
@@ -282,6 +286,7 @@ interface LeastPrivilegeResponse {
 }
 
 export default function LeastPrivilegeTab({ systemName }: { systemName?: string }) {
+  const accountScope = useAccountScope()
   const [data, setData] = useState<LeastPrivilegeResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -746,7 +751,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       controller.abort()
       unsubscribe()
     }
-  }, [systemName])
+  }, [systemName, accountScope.customerId, accountScope.groupId, accountScope.accountId, accountScope.region])
   
   // NOTE: Pre-fetch removed to prevent timeout errors
   // Gap analysis is now fetched ON-DEMAND when user opens a modal
@@ -773,7 +778,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       // empty response over a fresh error response.
       const refreshParam = forceRefresh ? '&force_refresh=true' : ''
       const systemParam = systemName ? `systemName=${systemName}&` : ''
-      const baseUrl = `/api/proxy/least-privilege/issues?${systemParam}observationDays=365`
+      const baseUrl = withAccountScope(`/api/proxy/least-privilege/issues?${systemParam}observationDays=365`, accountScope)
       const url = `${baseUrl}${refreshParam}`
       // One retry only. A 503 is a fast boot failure, so retry after 1s. A 504
       // means our 55s proxy budget elapsed while the backend request may still
@@ -1843,6 +1848,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
   )
 
   const filteredResources = tabResources
+    .filter(r => accountScope.accountId === 'all' || resourceAccountId(r as unknown as Record<string, unknown>) === accountScope.accountId)
     .filter(r => {
       if (resourceTypeFilter === 'all') return true
       return r.resourceType === resourceTypeFilter
@@ -2160,10 +2166,11 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         {/* Table Header */}
         {activeTab === 'remediated' ? (
           <div
-            className="grid grid-cols-[2fr_120px_140px_120px_100px_90px] gap-2 px-4 py-3 text-xs font-semibold uppercase tracking-wider border-b"
+            className="grid grid-cols-[2fr_120px_120px_140px_120px_100px_90px] gap-2 px-4 py-3 text-xs font-semibold uppercase tracking-wider border-b"
             style={{ color: "var(--text-secondary)", borderColor: "var(--border-subtle)", background: "var(--bg-primary)" }}
           >
             <span>Resource</span>
+            <span>Account</span>
             <span>Type</span>
             <span className="text-center">Status</span>
             <span className="text-center">Remediated</span>
@@ -2172,10 +2179,11 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
           </div>
         ) : (
           <div
-            className="grid grid-cols-[2fr_110px_110px_80px_80px_130px_90px_80px] gap-2 px-4 py-3 text-xs font-semibold uppercase tracking-wider border-b"
+            className="grid grid-cols-[2fr_120px_110px_110px_80px_80px_130px_90px_80px] gap-2 px-4 py-3 text-xs font-semibold uppercase tracking-wider border-b"
             style={{ color: "var(--text-secondary)", borderColor: "var(--border-subtle)", background: "var(--bg-primary)" }}
           >
             <span>Resource</span>
+            <span>Account</span>
             <span>Type</span>
             <span
               className="text-center inline-flex items-center justify-center gap-1 cursor-help"
@@ -2217,7 +2225,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                   {activeTab === 'remediated' ? (
                     /* ===== REMEDIATED ROW — different layout ===== */
                     <div
-                      className="grid grid-cols-[2fr_120px_140px_120px_100px_90px] gap-2 px-4 py-3 items-center cursor-pointer hover:bg-white/5 transition-colors"
+                      className="grid grid-cols-[2fr_120px_120px_140px_120px_100px_90px] gap-2 px-4 py-3 items-center cursor-pointer hover:bg-white/5 transition-colors"
                       onClick={() => setExpandedRow(isExpanded ? null : (resource.id || resource.resourceName))}
                     >
                       {/* Resource */}
@@ -2239,6 +2247,10 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                           </div>
                         </div>
                       </div>
+
+                      <span className="truncate font-mono text-[11px]" style={{ color: "var(--text-secondary)" }}>
+                        {resourceAccountId(resource as unknown as Record<string, unknown>) || 'Unknown'}
+                      </span>
 
                       {/* Type */}
                       <span className="px-2 py-0.5 rounded text-xs font-medium text-center" style={{ background: `${typeColor}15`, color: typeColor }}>
@@ -2282,7 +2294,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                   ) : (
                     /* ===== ACTIVE ROW — original layout ===== */
                     <div
-                      className="grid grid-cols-[2fr_110px_110px_80px_80px_130px_90px_80px] gap-2 px-4 py-3 items-center cursor-pointer hover:bg-white/5 transition-colors"
+                      className="grid grid-cols-[2fr_120px_110px_110px_80px_80px_130px_90px_80px] gap-2 px-4 py-3 items-center cursor-pointer hover:bg-white/5 transition-colors"
                       onClick={() => setExpandedRow(isExpanded ? null : (resource.id || resource.resourceName))}
                     >
                       {/* Resource */}
@@ -2304,6 +2316,10 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                           </div>
                         </div>
                       </div>
+
+                      <span className="truncate font-mono text-[11px]" style={{ color: "var(--text-secondary)" }}>
+                        {resourceAccountId(resource as unknown as Record<string, unknown>) || 'Unknown'}
+                      </span>
 
                       {/* Type */}
                       <span className="px-2 py-0.5 rounded text-xs font-medium text-center" style={{ background: `${typeColor}15`, color: typeColor }}>

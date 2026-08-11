@@ -37,9 +37,15 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode
 }>) {
+  const customerResident = process.env.CYNTRO_DEPLOYMENT_MODE === "CUSTOMER_RESIDENT"
   return (
     <html lang="en" suppressHydrationWarning className={`${geistSans.variable} ${geistMono.variable}`}>
       <body className="font-sans antialiased">
+        {customerResident ? (
+          <div className="border-b border-amber-300 bg-amber-50 px-4 py-2 text-center text-xs font-semibold tracking-wide text-amber-950">
+            Customer-resident pilot · Read-only evidence and analysis · Mutation authority is not installed
+          </div>
+        ) : null}
         <Providers>
           {children}
         </Providers>

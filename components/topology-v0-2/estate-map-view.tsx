@@ -55,6 +55,7 @@ import {
   narrowSystemEstateToVpc,
 } from "@/components/topology-v0-2/estate-system-scope"
 import { normalizeVpcTopology } from "@/components/topology-v0-2/normalize-topology"
+import { useAccountScope } from "@/lib/account-scope-context"
 
 const VPC_STORAGE_PREFIX = "topology-vpc:"
 const ACCOUNT_STORAGE_PREFIX = "topology-account:"
@@ -149,6 +150,7 @@ function topologyGridWouldBeEmpty(data: TopologyRiskResponse): boolean {
 }
 
 export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, defaultFlowMode = "all_access", collapseEmptyAzsByDefault = false, defaultToAllVpcs = false }: EstateMapViewProps) {
+  const productScope = useAccountScope()
   // useCachedFetch can synchronously recover a browser-local last-good map.
   // Hold the server and first client render on the same loading shell so a
   // warm-cache reload cannot hydrate server-loading HTML as a finished map.
@@ -172,6 +174,17 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     if (typeof window === "undefined") return "all"
     return window.localStorage.getItem(`${VPC_STORAGE_PREFIX}${systemName}`) ?? "all"
   })
+
+  // The estate map remains one-account-at-a-time, but now follows the same
+  // product scope as Inventory and Fixes. The map's existing selector stays in
+  // place and updates the global scope rather than becoming a second truth.
+  useEffect(() => {
+    if (productScope.accountId !== "all" && productScope.accountId !== selectedAccountId) {
+      setSelectedAccountId(productScope.accountId)
+      setSelectedRegionId(productScope.region === "all" ? null : productScope.region)
+      setSelectedVpcId("all")
+    }
+  }, [productScope.accountId, productScope.region, selectedAccountId])
 
   const scopedVpc = selectedVpcId === "all" ? null : selectedVpcId
   const azScopeKey = `${selectedAccountId ?? "all"}:${selectedRegionId ?? "all"}:${scopedVpc ?? "all"}`
@@ -1245,6 +1258,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
               setHighlightedRoleName(null)
               setSelectedRegionId(null)
               setSelectedAccountId(e.target.value || null)
+              productScope.setAccountId(e.target.value || "all")
             }}
             className={
               compact
@@ -1288,6 +1302,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
               setSelectedNodeId(null)
               setHighlightedRoleName(null)
               setSelectedRegionId(e.target.value || null)
+              productScope.setRegion(e.target.value || "all")
             }}
             className={
               compact

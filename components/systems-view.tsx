@@ -20,6 +20,8 @@ import { useToast } from "@/hooks/use-toast"
 import { NewSystemsModal } from "./new-systems-modal"
 import { PageHeader } from "@/components/ui/page-header"
 import { BackToDashboard } from "@/components/back-to-dashboard"
+import { useAccountScope } from "@/lib/account-scope-context"
+import { withAccountScope } from "@/lib/account-scope"
 
 interface System {
   name: string
@@ -81,6 +83,7 @@ interface SystemsViewProps {
 }
 
 export function SystemsView({ systems: propSystems = [], onSystemSelect, systemName }: SystemsViewProps) {
+  const accountScope = useAccountScope()
   const [localSystems, setLocalSystems] = useState<System[]>(propSystems)
   const [selectedSystem, setSelectedSystem] = useState<string | null>(null)
   const [isScanning, setIsScanning] = useState(false)
@@ -165,7 +168,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
 
     try {
       // Fetch systems from /api/proxy/systems (correct endpoint!)
-      const systemsRes = await fetch("/api/proxy/systems", {
+      const systemsRes = await fetch(withAccountScope("/api/proxy/systems", accountScope), {
         signal: AbortSignal.timeout(30000),
         cache: 'no-store',
       })
@@ -353,7 +356,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
       const controller = new AbortController()
       const timeoutId = setTimeout(() => controller.abort(), 25000)
       
-      const response = await fetch("/api/proxy/systems", {
+      const response = await fetch(withAccountScope("/api/proxy/systems", accountScope), {
         signal: controller.signal,
       })
       

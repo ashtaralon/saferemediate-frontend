@@ -1,0 +1,26 @@
+FROM node:22.18.0-alpine AS build
+WORKDIR /app
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV CYNTRO_DEPLOYMENT_MODE=CUSTOMER_RESIDENT
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY . .
+RUN node scripts/prepare-customer-image.mjs
+RUN npm run build -- --webpack
+RUN ! grep -R --binary-files=without-match -n "saferemediate-backend-f.onrender.com" .next/server
+
+FROM node:22.18.0-alpine AS runtime
+WORKDIR /app
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV CYNTRO_DEPLOYMENT_MODE=CUSTOMER_RESIDENT
+ENV HOSTNAME=0.0.0.0
+ENV PORT=3000
+RUN addgroup -S cyntro && adduser -S -G cyntro cyntro
+COPY --from=build --chown=cyntro:cyntro /app/package.json /app/package-lock.json ./
+COPY --from=build --chown=cyntro:cyntro /app/node_modules ./node_modules
+COPY --from=build --chown=cyntro:cyntro /app/.next ./.next
+COPY --from=build --chown=cyntro:cyntro /app/public ./public
+USER cyntro
+EXPOSE 3000
+CMD ["npm", "start"]
