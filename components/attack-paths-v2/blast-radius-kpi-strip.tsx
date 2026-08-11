@@ -14,6 +14,9 @@ interface BRVerdict {
   source_workloads: number
   severity?: string | null
   allowed_vs_actual?: number | null
+  data_freshness?: {
+    attack_paths_generated_at?: string | null
+  } | null
 }
 interface BRTopPath {
   id: string
@@ -67,6 +70,13 @@ function fmtAge(sec?: number | null): string | null {
   return `${Math.round(sec / 3600)}h`
 }
 
+function timestampAgeSeconds(value?: string | null): number | null {
+  if (!value) return null
+  const timestamp = Date.parse(value)
+  if (!Number.isFinite(timestamp)) return null
+  return Math.max(0, (Date.now() - timestamp) / 1000)
+}
+
 function joinDamageTypes(types?: string[] | null): string {
   const labels = [...new Set((types ?? []).map((type) => type.toLowerCase()))]
   if (labels.length === 0) return "harmful"
@@ -116,7 +126,10 @@ export function BlastRadiusKpiStrip({ systemName }: { systemName: string }) {
           cut.role_name === killer.workload_name,
       )
     : undefined
-  const ageLabel = data.from_snapshot ? fmtAge(data.snapshot_age_seconds) : null
+  const pathAgeSeconds = timestampAgeSeconds(v.data_freshness?.attack_paths_generated_at)
+  const pathAgeLabel = fmtAge(pathAgeSeconds)
+  const topologyAgeLabel = data.from_snapshot ? fmtAge(data.snapshot_age_seconds) : null
+  const historicalProjection = pathAgeSeconds != null && pathAgeSeconds > 24 * 60 * 60
 
   return (
     <div className="rounded-xl border border-border bg-card overflow-hidden shadow-sm">
@@ -153,14 +166,24 @@ export function BlastRadiusKpiStrip({ systemName }: { systemName: string }) {
             tone="text-emerald-700 dark:text-emerald-400"
           />
         ) : null}
-        {(isStale || ageLabel) && (
+        {(isStale || pathAgeLabel || topologyAgeLabel) && (
           <div className="ml-auto self-center">
             <span className="text-[10px] uppercase tracking-wide text-amber-700 dark:text-amber-400">
-              {ageLabel ? `snapshot · ${ageLabel} old` : "stale"}
+              {pathAgeLabel
+                ? `attack graph · ${pathAgeLabel} old`
+                : topologyAgeLabel
+                  ? `topology snapshot · ${topologyAgeLabel} old`
+                  : "stale"}
             </span>
           </div>
         )}
       </div>
+
+      {historicalProjection ? (
+        <div className="border-t border-amber-300 bg-amber-50 px-5 py-2 text-xs text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+          Historical attack-path projection — these counts can differ from the Overview&apos;s newer verified snapshot until the graph projection is refreshed and activated.
+        </div>
+      ) : null}
 
       {killer && (killer.business_sentence || killer.cj_name) && (
         <div className="border-t border-border bg-muted/40 px-5 py-3">

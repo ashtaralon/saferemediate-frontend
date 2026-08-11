@@ -126,6 +126,7 @@ export function ExecutiveSummary({
   const totalProblems = sensitiveDataAtRisk + openDoorsUnused + wastedSpend
   const lockedDown = summary.isolated || 0
   const totalWorkloads = summary.total_workloads || 0
+  const coverageAvailable = totalWorkloads > 0
 
   // Pick the recommended next step. Priority: safest closure (LATENT, no
   // observed traffic) > AWS redirect (free, no behavior change) > narrow
@@ -168,7 +169,7 @@ export function ExecutiveSummary({
     }
   }
 
-  const allClean = totalProblems === 0 && activeInternet === 0
+  const allClean = coverageAvailable && totalProblems === 0 && activeInternet === 0
 
   return (
     <section className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
@@ -179,12 +180,28 @@ export function ExecutiveSummary({
           What's going on right now
         </div>
         <span className="ml-auto text-[10px] text-slate-500">
-          {totalWorkloads} server{totalWorkloads === 1 ? "" : "s"} in this system · last 30 days
+          {coverageAvailable
+            ? `${totalWorkloads} server${totalWorkloads === 1 ? "" : "s"} analyzed · last 30 days`
+            : "Workload coverage unavailable · last 30 days"}
         </span>
       </div>
 
       {/* Body */}
       <div className="p-5 space-y-4">
+        {!coverageAvailable && (
+          <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 flex items-start gap-3">
+            <AlertTriangle className="w-6 h-6 text-amber-600 shrink-0" />
+            <div>
+              <div className="text-[14px] font-bold text-amber-900">
+                Workload traffic coverage is unavailable.
+              </div>
+              <div className="text-[12px] text-amber-800 mt-0.5">
+                No workloads were resolved for this traffic view, so Cyntro cannot conclude that the system is locked down.
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* All-clean state */}
         {allClean && (
           <div className="rounded-lg border border-emerald-300 bg-emerald-50 p-4 flex items-center gap-3">

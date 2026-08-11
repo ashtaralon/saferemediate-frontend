@@ -168,7 +168,10 @@ export default function HomePage() {
 
   const fetchGapAnalysis = useCallback(() => {
     // Fetch from issues-summary which has aggregated permission data from all roles
-    fetchWithTimeout(`/api/proxy/issues-summary?systemName=${encodeURIComponent(selectedSystem || '')}`, {}, 30000)
+    // Match the proxy's 55s cold-build budget.  The old 30s client timeout
+    // aborted a request the server was still legitimately computing and left
+    // a noisy console warning even when the dashboard otherwise recovered.
+    fetchWithTimeout(`/api/proxy/issues-summary?systemName=${encodeURIComponent(selectedSystem || '')}`, {}, 58000)
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         return res.json()
