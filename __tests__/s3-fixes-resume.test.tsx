@@ -166,7 +166,9 @@ describe("S3 configuration-fix resume", () => {
       />,
     )
 
-    fireEvent.click(await screen.findByTestId("enforce-wizard-step-1"))
+    const planStep = await screen.findByTestId("enforce-wizard-step-1")
+    await waitFor(() => expect(planStep).not.toBeDisabled())
+    fireEvent.click(planStep)
     fireEvent.click(await screen.findByTestId("enforce-wizard-review-exemptions"))
     const exemptions = screen.getByLabelText("Exempt principal ARNs") as HTMLTextAreaElement
     expect(exemptions.value).toBe("")

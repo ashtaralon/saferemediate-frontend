@@ -217,7 +217,7 @@ export function S3PostureSections({
       {groups.readyToEnforce.length > 0 ? (
         <section>
           <h3 className="mb-2 inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide" style={{ color: "#1D4ED8" }}>
-            <SearchCheck className="h-3.5 w-3.5" /> Ready to enforce ({groups.readyToEnforce.length})
+            <SearchCheck className="h-3.5 w-3.5" /> Review enforcement readiness ({groups.readyToEnforce.length})
           </h3>
           <div className="space-y-2">
             {groups.readyToEnforce.map((bucket) => (

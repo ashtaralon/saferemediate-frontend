@@ -152,7 +152,7 @@ export function postureDetail(bucket: S3PostureBucket): string {
     case "EVIDENCE_GAP":
       return `${counts.unknown} consumer${counts.unknown === 1 ? "" : "s"} without complete transport proof`
     case "PRIVATE_UNENFORCED":
-      return `All ${counts.in_vpc} in-VPC consumer${counts.in_vpc === 1 ? "" : "s"} private — bucket policy not yet enforced`
+      return `All ${counts.in_vpc} in-VPC consumer${counts.in_vpc === 1 ? "" : "s"} private — review every caller before enforcement`
     case "PRIVATE_ENFORCED":
       return "Private path enforced by bucket policy"
     case "NO_VPC_CONSUMERS":

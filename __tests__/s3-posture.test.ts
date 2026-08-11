@@ -102,6 +102,13 @@ describe("postureDetail", () => {
       consumers: { observed: 0, in_vpc: 0, out_of_vpc: 0, private: 0, public: 0, unknown: 0 },
     }))).toBe("No observed consumers in the window")
   })
+
+  it("does not claim private transport alone is enforcement readiness", () => {
+    expect(postureDetail(bucket({
+      posture: "PRIVATE_UNENFORCED",
+      consumers: { observed: 4, in_vpc: 2, out_of_vpc: 2, private: 2, public: 0, unknown: 0 },
+    }))).toBe("All 2 in-VPC consumers private — review every caller before enforcement")
+  })
 })
 
 describe("bucketToResource", () => {
