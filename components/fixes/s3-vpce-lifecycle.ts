@@ -58,6 +58,9 @@ const LIFECYCLE_VIEW: Record<S3PrivatePathState, LifecycleView> = {
   ROLLING_BACK: { step: 4, tone: "error", label: "Rolling back" },
   ROLLED_BACK: { step: 4, tone: "rolled_back", label: "Rolled back" },
   ROLLBACK_FAILED: { step: 4, tone: "error", label: "Rollback failed" },
+  SUPERSEDED: { step: 1, tone: "idle", label: "Cancelled" },
+  EXPIRED: { step: 1, tone: "idle", label: "Expired" },
+  DRIFT_ABORTED: { step: 1, tone: "idle", label: "Stopped after drift" },
 }
 
 export function lifecycleView(state: S3PrivatePathState | null | undefined): LifecycleView {
@@ -70,6 +73,9 @@ export const TERMINAL_STATES: ReadonlySet<S3PrivatePathState> = new Set([
   "FAILED",
   "ROLLED_BACK",
   "ROLLBACK_FAILED",
+  "SUPERSEDED",
+  "EXPIRED",
+  "DRIFT_ABORTED",
 ])
 
 export function isTerminal(state: S3PrivatePathState | null | undefined): boolean {
@@ -82,6 +88,9 @@ export function isTerminal(state: S3PrivatePathState | null | undefined): boolea
 // flight — analyze mints a new operation each time, so drafts are
 // abandoned freely and would otherwise pile up here forever.
 export const IN_FLIGHT_STATES: ReadonlySet<S3PrivatePathState> = new Set([
+  "READY_FOR_SIMULATION",
+  "SIMULATION_PENDING",
+  "SIMULATED",
   "APPROVAL_PENDING",
   "APPROVED",
   "SNAPSHOT_VERIFIED",
@@ -92,6 +101,19 @@ export const IN_FLIGHT_STATES: ReadonlySet<S3PrivatePathState> = new Set([
   "TRANSPORT_VERIFIED",
   "ROLLING_BACK",
 ])
+
+export const CANCELLABLE_STATES: ReadonlySet<S3PrivatePathState> = new Set([
+  "BLOCKED_EVIDENCE",
+  "READY_FOR_SIMULATION",
+  "SIMULATION_PENDING",
+  "SIMULATED",
+  "APPROVAL_PENDING",
+  "APPROVED",
+])
+
+export function isCancellable(state: S3PrivatePathState | null | undefined): boolean {
+  return Boolean(state && CANCELLABLE_STATES.has(state))
+}
 
 export function isInFlight(state: S3PrivatePathState | null | undefined): boolean {
   return Boolean(state && IN_FLIGHT_STATES.has(state))
@@ -120,6 +142,8 @@ export interface RememberedOperation {
   requestedBy?: string | null
   approvedBy?: string | null
   rollbackExpiresAt?: string | null
+  scopeClaimHolder?: string | null
+  scopeClaimActive?: boolean
   updatedAt: string
 }
 
@@ -145,6 +169,8 @@ export function operationFromSummary(
     requestedBy: summary.requested_by ?? stashed?.requestedBy ?? null,
     approvedBy: summary.approved_by ?? stashed?.approvedBy ?? null,
     rollbackExpiresAt: summary.rollback_expires_at ?? stashed?.rollbackExpiresAt ?? null,
+    scopeClaimHolder: summary.scope_claim_holder ?? stashed?.scopeClaimHolder ?? null,
+    scopeClaimActive: summary.scope_claim_active ?? stashed?.scopeClaimActive ?? false,
     updatedAt: summary.updated_at ?? stashed?.updatedAt ?? new Date().toISOString(),
   }
 }
