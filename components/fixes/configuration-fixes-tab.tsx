@@ -9,6 +9,7 @@ import {
   Network,
   RefreshCw,
   Route,
+  XCircle,
 } from "lucide-react"
 import {
   operationalRequest,
@@ -17,6 +18,7 @@ import {
 } from "@/components/topology-v0-2/estate-operations"
 import {
   isInFlight,
+  isCancellable,
   lifecycleView,
   operationFromSummary,
   operationKind,
@@ -75,6 +77,9 @@ export function ConfigurationFixesTab({ systemName }: Props) {
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [operations, setOperations] = useState<RememberedOperation[]>([])
+  const [cancelTarget, setCancelTarget] = useState<string | null>(null)
+  const [cancelBusy, setCancelBusy] = useState<string | null>(null)
+  const [cancelError, setCancelError] = useState<string | null>(null)
   // "server": rows come from the operations ledger (cross-browser truth).
   // "local": ledger unreachable — degraded to this browser's stash.
   const [listSource, setListSource] = useState<"server" | "local">("local")
@@ -148,6 +153,8 @@ export function ConfigurationFixesTab({ systemName }: Props) {
             requestedBy: row.requestedBy,
             approvedBy: row.approvedBy,
             rollbackExpiresAt: row.rollbackExpiresAt,
+            scopeClaimHolder: row.scopeClaimHolder,
+            scopeClaimActive: row.scopeClaimActive,
           })
         }
       }
@@ -251,6 +258,33 @@ export function ConfigurationFixesTab({ systemName }: Props) {
     void refreshOperations()
   }
 
+  const cancelOperation = async (entry: RememberedOperation) => {
+    setCancelBusy(entry.operationId)
+    setCancelError(null)
+    try {
+      await operationalRequest(
+        systemName,
+        `s3-vpce/operations/${encodeURIComponent(entry.operationId)}/cancel`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            requested_by: entry.requestedBy || "fixes-ui-operator",
+            confirmation: `CANCEL ${entry.operationId}`,
+            reason: "Cancelled from the Configuration fixes queue",
+          }),
+        },
+      )
+      setCancelTarget(null)
+      await refreshOperations()
+      await loadPosture(true)
+    } catch (error) {
+      setCancelError(error instanceof Error ? error.message : "Unable to cancel this operation")
+    } finally {
+      setCancelBusy(null)
+    }
+  }
+
   return (
     <div className="space-y-5 p-1" data-testid="configuration-fixes-tab">
       <div className="rounded-2xl border p-5" style={{ borderColor: "#DDE3E8", background: "#FFFFFF" }}>
@@ -279,11 +313,12 @@ export function ConfigurationFixesTab({ systemName }: Props) {
               return (
                 <div
                   key={entry.operationId}
-                  className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3"
+                  className="rounded-xl border p-3"
                   style={{ borderColor: "#BFDBFE", background: "#EFF6FF" }}
                   data-testid="configuration-fixes-inflight"
                 >
-                  <div className="min-w-0">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="text-sm font-semibold" style={{ color: "#1A2330" }}>{entry.bucketName}</span>
                       <span
@@ -294,23 +329,67 @@ export function ConfigurationFixesTab({ systemName }: Props) {
                         {KIND_LABEL[kind]}
                       </span>
                       <StatusChip entry={entry} />
+                      {entry.scopeClaimActive ? (
+                        <span className="rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800">
+                          Holds bucket lock
+                        </span>
+                      ) : null}
                     </div>
                     <div className="mt-0.5 font-mono text-[10px]" style={{ color: "#5A6B7A" }}>
                       {entry.operationId} {entry.vpcId ? `· ${entry.vpcId}` : ""}
                     </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {isCancellable(entry.state) ? (
+                        <button
+                          type="button"
+                          onClick={() => { setCancelTarget(entry.operationId); setCancelError(null) }}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-700"
+                        >
+                          <XCircle className="h-3.5 w-3.5" /> Cancel
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() => openWizard(
+                          { id: entry.bucketId, name: entry.bucketName, type: "S3" },
+                          entry,
+                          kind,
+                        )}
+                        className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-white"
+                        style={{ background: "#0E8B7A" }}
+                      >
+                        Resume <ArrowRight className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => openWizard(
-                      { id: entry.bucketId, name: entry.bucketName, type: "S3" },
-                      entry,
-                      kind,
-                    )}
-                    className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-white"
-                    style={{ background: "#0E8B7A" }}
-                  >
-                    Resume <ArrowRight className="h-3.5 w-3.5" />
-                  </button>
+                  {cancelTarget === entry.operationId ? (
+                    <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3" data-testid="configuration-fixes-cancel-confirmation">
+                      <p className="text-xs font-semibold text-red-900">Cancel this unfinished operation?</p>
+                      <p className="mt-1 text-[11px] leading-4 text-red-800">
+                        No AWS change has been made. Cancellation releases the exclusive bucket/VPC lock so a fresh analysis can start.
+                      </p>
+                      {cancelError ? <p className="mt-2 text-[11px] font-semibold text-red-700">{cancelError}</p> : null}
+                      <div className="mt-3 flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => void cancelOperation(entry)}
+                          disabled={cancelBusy === entry.operationId}
+                          className="rounded-md bg-red-700 px-3 py-1.5 text-[11px] font-semibold text-white disabled:opacity-60"
+                        >
+                          {cancelBusy === entry.operationId ? "Cancelling…" : "Confirm cancel"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { setCancelTarget(null); setCancelError(null) }}
+                          disabled={cancelBusy === entry.operationId}
+                          className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-700"
+                        >
+                          Keep operation
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               )
             })}

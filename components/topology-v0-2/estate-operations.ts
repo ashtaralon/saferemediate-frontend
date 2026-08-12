@@ -137,6 +137,9 @@ export type S3PrivatePathState =
   | "ROLLING_BACK"
   | "ROLLED_BACK"
   | "ROLLBACK_FAILED"
+  | "SUPERSEDED"
+  | "EXPIRED"
+  | "DRIFT_ABORTED"
 
 export interface S3PrivatePathOperation {
   operation_id: string
@@ -208,6 +211,8 @@ export interface S3VpceOperationSummary {
   rollback_expires_at?: string | null
   verified_route_table_ids?: string[]
   blocker_count?: number
+  scope_claim_holder?: string | null
+  scope_claim_active?: boolean
   created_at?: string | null
   updated_at?: string | null
 }
