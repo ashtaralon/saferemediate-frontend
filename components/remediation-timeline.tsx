@@ -180,6 +180,18 @@ const SafetyPipelineStrip: React.FC<SafetyPipelineStripProps> = ({
   )
 }
 
+function formatCheckpointFact(value: unknown): string {
+  if (value == null || value === "") return "Not recorded"
+  if (typeof value === "boolean") return value ? "Yes" : "No"
+  if (Array.isArray(value)) return value.length > 0 ? value.map(formatCheckpointFact).join(", ") : "None"
+  if (typeof value === "object") {
+    return Object.entries(value as Record<string, unknown>)
+      .map(([key, nestedValue]) => `${key.replace(/_/g, " ")}: ${formatCheckpointFact(nestedValue)}`)
+      .join(" · ")
+  }
+  return String(value)
+}
+
 
 interface RemediationEvent {
   event_id: string
@@ -611,11 +623,11 @@ const EventDetailModal = ({ event, isOpen, onClose, onRollback }: EventDetailMod
           {event.metadata?.event_kind === "checkpoint" && event.metadata.checkpoint_detail && (
             <div className="rounded-lg p-4 border border-slate-700 bg-slate-900/40">
               <p className="text-xs uppercase tracking-wide text-slate-400 mb-3">Recorded facts</p>
-              <div className="space-y-2">
+              <div className="space-y-3">
                 {Object.entries(event.metadata.checkpoint_detail).map(([section, values]) => (
-                  <div key={section} className="text-xs">
-                    <span className="font-semibold text-slate-200 capitalize">{section.replace(/_/g, " ")}</span>
-                    <span className="text-slate-400 ml-2">{JSON.stringify(values)}</span>
+                  <div key={section} className="rounded-md border border-slate-700/70 bg-slate-950/40 px-3 py-2 text-xs">
+                    <span className="block font-semibold text-slate-200 capitalize">{section.replace(/_/g, " ")}</span>
+                    <span className="mt-1 block break-words text-slate-400">{formatCheckpointFact(values)}</span>
                   </div>
                 ))}
               </div>
@@ -623,7 +635,7 @@ const EventDetailModal = ({ event, isOpen, onClose, onRollback }: EventDetailMod
           )}
 
           {/* Details Grid */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-3">
               <div>
                 <p className="text-xs uppercase tracking-wide text-[var(--muted-foreground,#9ca3af)]">
@@ -639,7 +651,7 @@ const EventDetailModal = ({ event, isOpen, onClose, onRollback }: EventDetailMod
                 </p>
                 <div className="flex items-center gap-2">
                   <ServiceTypeBadge type={event.resource_type} variant="inline" showLabel={false} onDark />
-                  <p className="text-sm font-medium font-mono text-white">
+                  <p className="break-all text-sm font-medium font-mono text-white">
                     {event.resource_id}
                   </p>
                 </div>
@@ -1643,8 +1655,8 @@ export function RemediationTimeline({
     >
       {/* Header */}
       <div className="p-4 border-b" style={{ borderColor: "var(--border-subtle)" }}>
-        <div className="flex items-center justify-between">
-          <div>
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0">
             <h2 className="text-lg font-semibold flex items-center gap-2" style={{ color: "var(--text-primary)" }}>
               <Clock className="w-5 h-5" style={{ color: "var(--action-primary)" }} />
               Change History
@@ -1659,51 +1671,54 @@ export function RemediationTimeline({
             )}
           </div>
 
-          <div className="flex items-center gap-2">
-            {/* Period Selector */}
-            {(["7d", "30d", "90d", "1y"] as const).map((period) => (
+          <div className="flex w-full flex-col gap-2 lg:w-auto lg:items-end">
+            <div className="grid w-full grid-cols-4 gap-2 sm:w-auto">
+              {(["7d", "30d", "90d", "1y"] as const).map((period) => (
+                <button
+                  key={period}
+                  onClick={() => setSelectedPeriod(period)}
+                  className="whitespace-nowrap rounded-lg px-2 py-1.5 text-xs font-medium transition-colors sm:px-3"
+                  style={{
+                    background: selectedPeriod === period ? "var(--action-primary)" : "transparent",
+                    color: selectedPeriod === period ? "white" : "var(--text-secondary)",
+                    border: selectedPeriod === period ? "none" : "1px solid var(--border)",
+                  }}
+                >
+                  {period === "7d" && "7 Days"}
+                  {period === "30d" && "30 Days"}
+                  {period === "90d" && "90 Days"}
+                  {period === "1y" && "1 Year"}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
               <button
-                key={period}
-                onClick={() => setSelectedPeriod(period)}
-                className="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
-                style={{
-                  background: selectedPeriod === period ? "var(--action-primary)" : "transparent",
-                  color: selectedPeriod === period ? "white" : "var(--text-secondary)",
-                  border: selectedPeriod === period ? "none" : "1px solid var(--border)",
-                }}
+                onClick={refreshTimeline}
+                disabled={loading}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors hover:bg-white/5"
+                style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
+                title="Refresh timeline"
               >
-                {period === "7d" && "7 Days"}
-                {period === "30d" && "30 Days"}
-                {period === "90d" && "90 Days"}
-                {period === "1y" && "1 Year"}
+                <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+                Refresh
               </button>
-            ))}
 
-            <button
-              onClick={refreshTimeline}
-              disabled={loading}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors hover:bg-white/5"
-              style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
-              title="Refresh timeline"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-              Refresh
-            </button>
-
-            <button
-              onClick={handleExport}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors hover:bg-white/5"
-              style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
-            >
-              <Download className="w-3.5 h-3.5" />
-              Export
-            </button>
+              <button
+                onClick={handleExport}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors hover:bg-white/5"
+                style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
+              >
+                <Download className="w-3.5 h-3.5" />
+                Export
+              </button>
+            </div>
           </div>
         </div>
 
         {/* Summary Stats */}
         {summary && (
-          <div className="grid grid-cols-4 gap-4 mt-4">
+          <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4">
             <div className="rounded-lg p-3" style={{ background: "var(--bg-primary)" }}>
               <p className="text-xs" style={{ color: "var(--text-secondary)" }}>Total Events</p>
               <p className="text-xl font-bold" style={{ color: "var(--text-primary)" }}>
@@ -1888,8 +1903,8 @@ export function RemediationTimeline({
 
       {/* Events List */}
       <div className="border-t" style={{ borderColor: "var(--border-subtle)" }}>
-        <div className="p-4">
-          <div className="flex items-center justify-between mb-3">
+        <div className="p-3 sm:p-4">
+          <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <h3 className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
               Change records ({filteredEvents.length}{eventFilter === "actionable" && operationEventCount !== filteredEvents.length ? ` of ${operationEventCount}` : ''})
             </h3>
@@ -1935,7 +1950,7 @@ export function RemediationTimeline({
                 return (
                 <div key={event.event_id} className="space-y-1">
                 <div
-                  className="flex items-center justify-between p-3 rounded-lg border transition-all cursor-pointer hover:border-opacity-70"
+                  className="flex cursor-pointer flex-col gap-3 rounded-lg border p-3 transition-all hover:border-opacity-70 sm:flex-row sm:items-center sm:justify-between"
                   style={{
                     background: "var(--bg-primary)",
                     borderColor: hoveredEventId === event.event_id
@@ -1949,7 +1964,7 @@ export function RemediationTimeline({
                     setShowModal(true)
                   }}
                 >
-                  <div className="flex items-center gap-3">
+                  <div className="flex min-w-0 items-start gap-3 sm:items-center">
                     <div className="flex items-center gap-2">
                       <div
                         className="w-2 h-2 rounded-full"
@@ -1957,9 +1972,9 @@ export function RemediationTimeline({
                       />
                       <ServiceTypeBadge type={event.resource_type} variant="inline" showLabel={false} />
                     </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <p className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="break-words text-sm font-medium" style={{ color: "var(--text-primary)" }}>
                           {event.summary}
                         </p>
                         <span className={`text-xs px-2 py-0.5 rounded-md font-bold whitespace-nowrap ${
@@ -2001,7 +2016,7 @@ export function RemediationTimeline({
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2 sm:justify-end">
                     {checkpoints.length > 0 && (
                       <button
                         onClick={(e) => {
