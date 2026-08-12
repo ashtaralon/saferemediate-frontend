@@ -23,6 +23,68 @@ afterEach(() => {
 })
 
 describe("S3 configuration-fix resume", () => {
+  it("renders an asynchronous policy validation without requiring a result hash", async () => {
+    operationalRequest.mockResolvedValue({
+      operation_id: "s3-bpe-pending",
+      state: "SIMULATION_PENDING",
+      version: 2,
+      plan: {
+        readiness: "READY",
+        operation_id: "s3-bpe-pending",
+        operation_state: "SIMULATION_PENDING",
+        bucket_name: "customer-data",
+        vpc_id: "vpc-1",
+        vpce_ids: ["vpce-1"],
+        enforcement_mode: "SINGLE_STAGE",
+        exempt_principal_arns: [],
+        canary_principal_arns: [],
+        blockers: [],
+        impact: {
+          observed_consumers: 1,
+          protected_consumers: 1,
+          public_consumers: 0,
+          unknown_consumers: 0,
+          exempt_principals: 0,
+          vpc_endpoints: 1,
+          policy_statements_added: 1,
+        },
+      },
+      simulation: {
+        status: "PENDING",
+        safe_to_apply: false,
+        errors: [],
+        operation_state: "SIMULATION_PENDING",
+        operation_version: 2,
+      },
+      execution: null,
+      verification: null,
+    })
+
+    render(
+      <S3EnforcementWizard
+        systemName="alon-prod"
+        bucket={{ id: "arn:aws:s3:::customer-data", name: "customer-data", region: "eu-west-1" }}
+        resume={{
+          operationId: "s3-bpe-pending",
+          kind: "S3_BUCKET_POLICY_ENFORCEMENT",
+          systemName: "alon-prod",
+          bucketId: "arn:aws:s3:::customer-data",
+          bucketName: "customer-data",
+          vpcId: "vpc-1",
+          state: "SIMULATION_PENDING",
+          updatedAt: "2026-08-12T20:22:15Z",
+        }}
+        executionEnabled={false}
+        onClose={() => undefined}
+      />,
+    )
+
+    expect(await screen.findByTestId("enforce-wizard-simulation-pending")).toHaveTextContent(
+      "Policy validation is running",
+    )
+    expect(screen.queryByText(/Something went wrong/)).not.toBeInTheDocument()
+  })
+
   it("rehydrates the stored enforcement plan and safety result", async () => {
     operationalRequest.mockResolvedValue({
       operation_id: "s3-bpe-1",

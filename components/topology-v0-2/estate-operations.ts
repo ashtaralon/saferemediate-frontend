@@ -168,7 +168,8 @@ export interface S3VpceSimulation {
   errors?: string[]
   operation_state: S3PrivatePathState
   operation_version: number
-  plan_hash: string
+  // Async simulations do not have a frozen hash until the worker completes.
+  plan_hash?: string | null
 }
 
 export interface S3VpceExecution {
@@ -316,7 +317,8 @@ export interface S3EnforcementSimulation {
   status: "PENDING" | "COMPLETED" | "FAILED" | string
   safe_to_apply: boolean
   errors?: string[]
-  plan_hash: string
+  // PENDING is a real persisted state and intentionally has no result hash yet.
+  plan_hash?: string | null
   operation_state: S3PrivatePathState
   operation_version: number
   checks?: {
