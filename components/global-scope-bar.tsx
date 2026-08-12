@@ -20,7 +20,7 @@ function ScopeSelect({
   disabled?: boolean
 }) {
   return (
-    <label className="flex min-w-0 items-center gap-2 border-r border-slate-200 px-4 last:border-r-0">
+    <label className="flex shrink-0 items-center gap-2 border-r border-slate-200 px-4 last:border-r-0">
       <Icon className="h-3.5 w-3.5 shrink-0 text-slate-400" />
       <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">{label}</span>
       <select
@@ -52,43 +52,45 @@ export function GlobalScopeBar() {
   ).sort()
 
   return (
-    <div className="sticky top-0 z-[60] flex h-11 items-center border-b border-slate-200 bg-white/95 shadow-sm backdrop-blur">
-      <div className="flex h-full items-center px-4 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
-        Scope
-      </div>
-      <ScopeSelect
-        label="Organization"
-        icon={Building2}
-        value={scope.customerId || ""}
-        onChange={scope.setCustomerId}
-        disabled={!scope.customerId}
-      >
-        <option value={scope.customerId || ""}>{scope.customerId || "Not configured"}</option>
-      </ScopeSelect>
-      <ScopeSelect label="Group" icon={Layers3} value={scope.groupId} onChange={scope.setGroupId}>
-        <option value="all">All account groups</option>
-        {(scope.options?.groups || []).map((group) => (
-          <option key={group.group_id} value={group.group_id}>{group.name}</option>
-        ))}
-      </ScopeSelect>
-      <ScopeSelect label="Account" icon={Cloud} value={scope.accountId} onChange={scope.setAccountId}>
-        <option value="all">All accounts</option>
-        {accountOptions.map((account) => (
-          <option key={account.account_id} value={account.account_id}>
-            {account.display_name} · {account.account_id}
-          </option>
-        ))}
-      </ScopeSelect>
-      <ScopeSelect label="Region" icon={Globe2} value={scope.region} onChange={scope.setRegion}>
-        <option value="all">All regions</option>
-        {regionOptions.map((value) => <option key={value} value={value}>{value}</option>)}
-      </ScopeSelect>
-      <div className="ml-auto flex items-center gap-2 px-4 text-xs text-slate-500">
-        {scope.loading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-        {scope.error ? <span className="text-amber-700">Scope metadata unavailable</span> : null}
-        {!scope.loading && !scope.error ? (
-          <span>{accountOptions.length} accounts in view</span>
-        ) : null}
+    <div className="sticky top-0 z-[60] h-11 overflow-x-auto border-b border-slate-200 bg-white/95 shadow-sm backdrop-blur">
+      <div className="flex h-full min-w-max items-center">
+        <div className="flex h-full shrink-0 items-center px-4 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
+          Scope
+        </div>
+        <ScopeSelect
+          label="Organization"
+          icon={Building2}
+          value={scope.customerId || ""}
+          onChange={scope.setCustomerId}
+          disabled={!scope.customerId}
+        >
+          <option value={scope.customerId || ""}>{scope.customerId || "Not configured"}</option>
+        </ScopeSelect>
+        <ScopeSelect label="Group" icon={Layers3} value={scope.groupId} onChange={scope.setGroupId}>
+          <option value="all">All account groups</option>
+          {(scope.options?.groups || []).map((group) => (
+            <option key={group.group_id} value={group.group_id}>{group.name}</option>
+          ))}
+        </ScopeSelect>
+        <ScopeSelect label="Account" icon={Cloud} value={scope.accountId} onChange={scope.setAccountId}>
+          <option value="all">All accounts</option>
+          {accountOptions.map((account) => (
+            <option key={account.account_id} value={account.account_id}>
+              {account.display_name} · {account.account_id}
+            </option>
+          ))}
+        </ScopeSelect>
+        <ScopeSelect label="Region" icon={Globe2} value={scope.region} onChange={scope.setRegion}>
+          <option value="all">All regions</option>
+          {regionOptions.map((value) => <option key={value} value={value}>{value}</option>)}
+        </ScopeSelect>
+        <div className="ml-auto flex shrink-0 items-center gap-2 px-4 text-xs text-slate-500">
+          {scope.loading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+          {scope.error ? <span className="text-amber-700">Scope metadata unavailable</span> : null}
+          {!scope.loading && !scope.error ? (
+            <span>{accountOptions.length} accounts in view</span>
+          ) : null}
+        </div>
       </div>
     </div>
   )
