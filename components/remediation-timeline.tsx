@@ -1679,9 +1679,11 @@ export function RemediationTimeline({
                   onClick={() => setSelectedPeriod(period)}
                   className="whitespace-nowrap rounded-lg px-2 py-1.5 text-xs font-medium transition-colors sm:px-3"
                   style={{
-                    background: selectedPeriod === period ? "var(--action-primary)" : "transparent",
+                    background: selectedPeriod === period ? "var(--action-primary, #0f766e)" : "transparent",
                     color: selectedPeriod === period ? "white" : "var(--text-secondary)",
-                    border: selectedPeriod === period ? "none" : "1px solid var(--border)",
+                    border: selectedPeriod === period
+                      ? "1px solid var(--action-primary, #0f766e)"
+                      : "1px solid var(--border)",
                   }}
                 >
                   {period === "7d" && "7 Days"}
@@ -1913,7 +1915,7 @@ export function RemediationTimeline({
                 onClick={() => setEventFilter("actionable")}
                 className="px-2.5 py-1 rounded-md text-xs font-medium transition-colors"
                 style={{
-                  background: eventFilter === "actionable" ? "var(--action-primary)" : "transparent",
+                  background: eventFilter === "actionable" ? "var(--action-primary, #0f766e)" : "transparent",
                   color: eventFilter === "actionable" ? "white" : "var(--text-secondary)",
                 }}
               >
@@ -1923,7 +1925,7 @@ export function RemediationTimeline({
                 onClick={() => setEventFilter("all")}
                 className="px-2.5 py-1 rounded-md text-xs font-medium transition-colors"
                 style={{
-                  background: eventFilter === "all" ? "var(--action-primary)" : "transparent",
+                  background: eventFilter === "all" ? "var(--action-primary, #0f766e)" : "transparent",
                   color: eventFilter === "all" ? "white" : "var(--text-secondary)",
                 }}
               >
