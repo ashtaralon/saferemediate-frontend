@@ -122,6 +122,7 @@ export interface ConfigurationFixExplanation {
 export type S3PrivatePathState =
   | "BLOCKED_EVIDENCE"
   | "READY_FOR_SIMULATION"
+  | "SIMULATION_PENDING"
   | "SIMULATED"
   | "APPROVAL_PENDING"
   | "APPROVED"
@@ -307,7 +308,7 @@ export interface S3EnforcementPlan {
 }
 
 export interface S3EnforcementSimulation {
-  status: string
+  status: "PENDING" | "COMPLETED" | "FAILED" | string
   safe_to_apply: boolean
   errors?: string[]
   plan_hash: string

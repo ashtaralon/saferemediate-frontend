@@ -352,6 +352,7 @@ export function S3EnforcementWizard({ systemName, bucket, resume, accountId, reg
   useEffect(() => {
     if (!operationId || !operationState || isTerminal(operationState)) return
     const polling = new Set([
+      "SIMULATION_PENDING",
       "SNAPSHOT_VERIFIED", "CANARY_APPLYING", "CANARY_MONITORING",
       "CANARY_VERIFIED", "EXPANDING", "TRANSPORT_VERIFIED", "ROLLING_BACK",
     ])
@@ -403,8 +404,38 @@ export function S3EnforcementWizard({ systemName, bucket, resume, accountId, reg
       operation_id: plan.operation_id,
       plan_token: plan.plan_token,
     })
-    setSimulation(result)
-    updateRememberedOperation(systemName, plan.operation_id, { state: result.operation_state })
+    let completed = result
+    if (result.operation_state === "SIMULATION_PENDING") {
+      setSimulation(result)
+      updateRememberedOperation(systemName, plan.operation_id, { state: result.operation_state })
+      const deadline = Date.now() + 15 * 60_000
+      while (Date.now() < deadline) {
+        await new Promise((resolve) => window.setTimeout(resolve, 5_000))
+        const current = await operationalRequest<S3PrivatePathOperation & {
+          simulation?: S3EnforcementSimulation
+        }>(
+          systemName,
+          `s3-vpce/operations/${encodeURIComponent(plan.operation_id)}?include_history=false`,
+        )
+        setOperation(current)
+        if (current.state !== "SIMULATION_PENDING") {
+          if (!current.simulation) {
+            throw new Error("The safety check completed without a stored result. Analyze again.")
+          }
+          completed = {
+            ...current.simulation,
+            operation_state: current.state,
+            operation_version: current.version,
+          }
+          break
+        }
+      }
+      if (completed.operation_state === "SIMULATION_PENDING") {
+        throw new Error("The safety evidence scan did not finish within 15 minutes. No AWS change was authorized.")
+      }
+    }
+    setSimulation(completed)
+    updateRememberedOperation(systemName, plan.operation_id, { state: completed.operation_state })
   })
 
   const requestApproval = () => runAction("request-approval", async () => {
