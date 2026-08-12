@@ -43,6 +43,7 @@ interface LifecycleView {
 const LIFECYCLE_VIEW: Record<S3PrivatePathState, LifecycleView> = {
   BLOCKED_EVIDENCE: { step: 1, tone: "idle", label: "Blocked by checks" },
   READY_FOR_SIMULATION: { step: 2, tone: "active", label: "Ready for safety check" },
+  SIMULATION_PENDING: { step: 2, tone: "active", label: "Building safety evidence" },
   SIMULATED: { step: 3, tone: "active", label: "Awaiting approval request" },
   APPROVAL_PENDING: { step: 3, tone: "active", label: "Awaiting approval" },
   APPROVED: { step: 4, tone: "active", label: "Approved · ready to apply" },
