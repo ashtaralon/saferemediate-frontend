@@ -30,7 +30,7 @@ describe('Change Case approval report', () => {
   it('downloads the frozen Markdown bytes with the case filename', () => {
     const createDescriptor = Object.getOwnPropertyDescriptor(URL, 'createObjectURL')
     const revokeDescriptor = Object.getOwnPropertyDescriptor(URL, 'revokeObjectURL')
-    const createObjectURL = vi.fn(() => 'blob:change-case')
+    const createObjectURL = vi.fn((_blob: Blob) => 'blob:change-case')
     const revokeObjectURL = vi.fn()
     const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined)
     Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: createObjectURL })
