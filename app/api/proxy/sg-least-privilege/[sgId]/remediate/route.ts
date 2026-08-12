@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-
-const BACKEND_URL = "https://saferemediate-backend-f.onrender.com"
+import { getBackendBaseUrl } from '@/lib/server/backend-url'
 
 export async function POST(
   request: NextRequest,
@@ -15,7 +14,7 @@ export async function POST(
     console.log(`[SG-LP] Rules to remediate:`, body.rules?.length || 0)
 
     const response = await fetch(
-      `${BACKEND_URL}/api/sg-least-privilege/${sgId}/remediate`,
+      `${getBackendBaseUrl()}/api/sg-least-privilege/${sgId}/remediate`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
