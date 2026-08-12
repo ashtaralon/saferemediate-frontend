@@ -13,6 +13,24 @@ import { BackToDashboard } from '@/components/back-to-dashboard'
 import { ResourceConfigTab } from '@/components/inventory/resource-config-tab'
 import { dedupeKmsListRows } from '@/lib/inventory-list'
 import { ServiceTypeBadge } from '@/lib/service-type'
+import {
+  UNKNOWN,
+  type EncryptionState,
+  type FetchResult,
+  type InventoryStatus,
+  type RegionValue,
+  failedGroupMessage,
+  formatEncryptionLabel,
+  formatLastSyncLabel,
+  formatRegionLabel,
+  formatStatusLabel,
+  isActiveLikeStatus,
+  mapEncryption,
+  mapLastSyncEvidence,
+  mapRegion,
+  mapStatus,
+  regionsQueryParam,
+} from '@/lib/inventory-honesty'
 import { useAccountScope } from '@/lib/account-scope-context'
 import { resourceAccountId, withAccountScope } from '@/lib/account-scope'
 
@@ -57,129 +75,222 @@ interface ServiceItem {
   name: string
   type: string
   category: string
-  status: string
-  region?: string
+  status: InventoryStatus
+  region: RegionValue
   accountId?: string
   lpScore?: number
   usedCount?: number
   gapCount?: number
   connections?: number
-  isEncrypted?: boolean
+  encryption: EncryptionState
   systemName?: string
   environment?: string
   criticality?: string
   details?: Record<string, any>
+  /** Account-wide rows (KMS/secrets) — not system-filtered. */
+  accountWide?: boolean
 }
 
 interface Props {
   systemName: string
 }
 
+type GroupedItems = {
+  items: ServiceItem[]
+  errors: string[]
+  evidenceTimestamps: Array<string | number | null | undefined>
+  accountWideListed: boolean
+}
+
 // Graph-backed listing rows (registry aliases in api/resource_inventory.py).
-// Non-fatal: the inventory renders without a type when its fetch errors.
-async function fetchGraphListRows(alias: string, systemName?: string): Promise<any[]> {
+// Failures are typed — never silent empty success.
+async function fetchGraphListRows(
+  alias: string,
+  systemName?: string,
+): Promise<FetchResult<any>> {
   try {
     const system = systemName ? `&system=${encodeURIComponent(systemName)}` : ''
     const res = await fetch(
-      `/api/proxy/resource-inventory/list?resource_type=${alias}${system}&limit=100`
+      `/api/proxy/resource-inventory/list?resource_type=${alias}${system}&limit=100`,
     )
-    if (!res.ok) return []
+    if (!res.ok) {
+      return {
+        ok: false,
+        error: failedGroupMessage(alias, `HTTP ${res.status}`),
+      }
+    }
     const data = await res.json()
-    return Array.isArray(data.items) ? data.items : []
+    return {
+      ok: true,
+      items: Array.isArray(data.items) ? data.items : [],
+    }
   } catch (e) {
-    console.warn(`${alias} list fetch failed:`, e)
-    return []
+    const msg = e instanceof Error ? e.message : String(e)
+    return { ok: false, error: failedGroupMessage(alias, msg) }
   }
 }
 
-// KMS keys, secrets, and DynamoDB tables — the unified inspector has config
-// tabs for all three (backend #310 / FE #273), listed here so they're
-// clickable. KMS and secrets are fetched UNSCOPED: most of those nodes carry
-// no system tags yet (auto-tagger gap), so a system filter would blank them;
-// the data plane is single-account, which keeps the unscoped list honest.
-// DynamoDB nodes are system-tagged and stay scoped.
-async function fetchDataSecurityServiceItems(systemName: string): Promise<ServiceItem[]> {
-  const [kmsRows, secretRows, ddbRows] = await Promise.all([
+// KMS keys, secrets, and DynamoDB tables. KMS and secrets are fetched
+// account-wide (auto-tagger gap); that scope is surfaced to the operator.
+// DynamoDB stays system-scoped.
+async function fetchDataSecurityServiceItems(
+  systemName: string,
+): Promise<GroupedItems> {
+  const [kmsResult, secretResult, ddbResult] = await Promise.all([
     fetchGraphListRows('kms'),
     fetchGraphListRows('secret'),
     fetchGraphListRows('dynamodb', systemName),
   ])
 
   const items: ServiceItem[] = []
+  const errors: string[] = []
+  const evidenceTimestamps: Array<string | number | null | undefined> = []
 
-  for (const k of dedupeKmsListRows(kmsRows)) {
-    if (!k.id) continue
-    items.push({
-      id: String(k.id),
-      name: String(k.name || k.key_id || k.id),
-      type: 'KMSKey',
-      category: 'Security',
-      status: k.key_state === 'Enabled' ? 'active' : String(k.key_state || 'unknown').toLowerCase(),
-      region: k.region || undefined,
-      accountId: resourceAccountId(k) || undefined,
-      details: k,
-    })
+  if (!kmsResult.ok) errors.push(kmsResult.error)
+  else {
+    for (const k of dedupeKmsListRows(kmsResult.items)) {
+      if (!k.id) continue
+      evidenceTimestamps.push(k.collected_at, k.synced_at, k.last_synced_at)
+      items.push({
+        id: String(k.id),
+        name: String(k.name || k.key_id || k.id),
+        type: 'KMSKey',
+        category: 'Security',
+        status: mapStatus(
+          k.key_state === 'Enabled' ? 'active' : k.key_state,
+          k.status,
+          k.state,
+        ),
+        region: mapRegion(k.region),
+        accountId: resourceAccountId(k) || undefined,
+        encryption: mapEncryption({
+          type: 'KMSKey',
+          encryption_read_ok: true,
+          encrypted: true,
+        }),
+        details: k,
+        accountWide: true,
+      })
+    }
   }
 
-  for (const s of secretRows) {
-    const id = s?.id || s?.arn
-    if (!id) continue
-    items.push({
-      id: String(id),
-      name: String(s.name || id),
-      type: 'Secret',
-      category: 'Security',
-      status: 'active',
-      region: s.region || undefined,
-      accountId: resourceAccountId(s) || undefined,
-      details: s,
-    })
+  if (!secretResult.ok) errors.push(secretResult.error)
+  else {
+    for (const s of secretResult.items) {
+      const id = s?.id || s?.arn
+      if (!id) continue
+      evidenceTimestamps.push(s.collected_at, s.synced_at, s.last_synced_at)
+      items.push({
+        id: String(id),
+        name: String(s.name || id),
+        type: 'Secret',
+        category: 'Security',
+        status: mapStatus(s.status, s.state),
+        region: mapRegion(s.region),
+        accountId: resourceAccountId(s) || undefined,
+        encryption: mapEncryption({ type: 'Secret' }),
+        details: s,
+        accountWide: true,
+      })
+    }
   }
 
-  for (const t of ddbRows) {
-    if (!t?.id) continue
-    items.push({
-      id: String(t.id),
-      name: String(t.name || t.id),
-      type: 'DynamoDB',
-      category: 'Database',
-      status: String(t.status || 'unknown').toLowerCase(),
-      region: t.region || undefined,
-      accountId: resourceAccountId(t) || undefined,
-      details: t,
-    })
+  if (!ddbResult.ok) errors.push(ddbResult.error)
+  else {
+    for (const t of ddbResult.items) {
+      if (!t?.id) continue
+      evidenceTimestamps.push(t.collected_at, t.synced_at, t.last_synced_at)
+      items.push({
+        id: String(t.id),
+        name: String(t.name || t.id),
+        type: 'DynamoDB',
+        category: 'Database',
+        status: mapStatus(t.status, t.state),
+        region: mapRegion(t.region),
+        accountId: resourceAccountId(t) || undefined,
+        encryption: mapEncryption({
+          type: 'DynamoDB',
+          encrypted: t.encrypted,
+          sse_enabled: t.sse_enabled,
+          kms_key_id: t.kms_key_id,
+          encryption_read_ok:
+            t.encrypted === true ||
+            t.encrypted === false ||
+            t.sse_enabled === true ||
+            t.sse_enabled === false,
+        }),
+        details: t,
+      })
+    }
   }
 
-  return items
+  return {
+    items,
+    errors,
+    evidenceTimestamps,
+    accountWideListed: true,
+  }
 }
 
-// Subnets — graph-backed listing (registry alias `subnet`), scoped to the
-// system. Non-fatal: the inventory renders without subnets on error.
-async function fetchSubnetServiceItems(systemName: string): Promise<ServiceItem[]> {
+async function fetchSubnetServiceItems(systemName: string): Promise<GroupedItems> {
   try {
     const res = await fetch(
-      `/api/proxy/resource-inventory/list?resource_type=subnet&system=${encodeURIComponent(systemName)}&limit=100`
+      `/api/proxy/resource-inventory/list?resource_type=subnet&system=${encodeURIComponent(systemName)}&limit=100`,
     )
-    if (!res.ok) return []
+    if (!res.ok) {
+      return {
+        items: [],
+        errors: [failedGroupMessage('subnet', `HTTP ${res.status}`)],
+        evidenceTimestamps: [],
+        accountWideListed: false,
+      }
+    }
     const data = await res.json()
-    return (data.items || [])
+    const evidenceTimestamps: Array<string | number | null | undefined> = []
+    const items: ServiceItem[] = (data.items || [])
       .filter((s: any) => s?.id)
-      .map((s: any) => ({
-        id: s.id,
-        name: s.name || s.id,
-        type: 'Subnet',
-        category: 'Networking',
-        status: 'active',
-        region: typeof s.availability_zone === 'string' && s.availability_zone.length > 2
-          ? s.availability_zone.slice(0, -1)
-          : s.availability_zone,
-        accountId: resourceAccountId(s) || undefined,
-        details: s,
-      }))
+      .map((s: any) => {
+        evidenceTimestamps.push(s.collected_at, s.synced_at, s.last_synced_at)
+        const regionFromAz =
+          typeof s.availability_zone === 'string' && s.availability_zone.length > 2
+            ? s.availability_zone.slice(0, -1)
+            : s.availability_zone
+        return {
+          id: s.id,
+          name: s.name || s.id,
+          type: 'Subnet',
+          category: 'Networking',
+          status: mapStatus(s.status, s.state),
+          region: mapRegion(s.region, regionFromAz),
+          accountId: resourceAccountId(s) || undefined,
+          encryption: mapEncryption({ type: 'Subnet' }),
+          details: s,
+        }
+      })
+    return {
+      items,
+      errors: [],
+      evidenceTimestamps,
+      accountWideListed: false,
+    }
   } catch (e) {
-    console.warn('Subnet list fetch failed:', e)
-    return []
+    const msg = e instanceof Error ? e.message : String(e)
+    return {
+      items: [],
+      errors: [failedGroupMessage('subnet', msg)],
+      evidenceTimestamps: [],
+      accountWideListed: false,
+    }
   }
+}
+
+function tenantRegionsForQuery(scope: {
+  region: string
+  options: { accounts: Array<{ regions: string[] }> } | null
+}): string[] {
+  if (scope.region && scope.region !== 'all') return [scope.region]
+  const fromAccounts = (scope.options?.accounts || []).flatMap((a) => a.regions || [])
+  return [...new Set(fromAccounts.filter(Boolean))]
 }
 
 export default function AllServicesInventory({ systemName }: Props) {
@@ -187,7 +298,9 @@ export default function AllServicesInventory({ systemName }: Props) {
   const [services, setServices] = useState<ServiceItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [lastSync, setLastSync] = useState<string | null>(null)
+  const [groupErrors, setGroupErrors] = useState<string[]>([])
+  const [accountWideNotice, setAccountWideNotice] = useState(false)
+  const [lastSync, setLastSync] = useState<string | typeof UNKNOWN | null>(null)
   
   const [searchQuery, setSearchQuery] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('all')
@@ -204,157 +317,133 @@ export default function AllServicesInventory({ systemName }: Props) {
   const [showUsedPerms, setShowUsedPerms] = useState(true)
   const [showUnusedPerms, setShowUnusedPerms] = useState(true)
 
-  // Fetch all services
+  // Fetch inventory groups. Failed groups surface as degraded state;
+  // LP findings are never used as a substitute inventory.
   const fetchServices = useCallback(async () => {
     setLoading(true)
     setError(null)
-    
+    setGroupErrors([])
+    setAccountWideNotice(false)
+
+    const errors: string[] = []
+    const evidenceTimestamps: Array<string | number | null | undefined> = []
+    const allServices: ServiceItem[] = []
+
     try {
-      // Fetch from extended resources endpoint
-      const response = await fetch(withAccountScope(`/api/proxy/resources/all?regions=eu-west-1,us-east-1`, accountScope))
-      
+      const regions = tenantRegionsForQuery(accountScope)
+      const regionQs = regionsQueryParam(regions)
+      const resourcesUrl = withAccountScope(
+        `/api/proxy/resources/all${regionQs}`,
+        accountScope,
+      )
+      const response = await fetch(resourcesUrl)
+
       if (!response.ok) {
-        // Fallback to LP issues
-        const lpResponse = await fetch(withAccountScope(`/api/proxy/least-privilege/issues?systemName=${encodeURIComponent(systemName)}`, accountScope))
-        const lpData = await lpResponse.json()
-        
-        const mappedServices: ServiceItem[] = (lpData.resources || []).map((r: any) => ({
-          // Prefer the canonical resource id (sg-…, subnet-…) — the config
-          // inspector resolves by id/ARN, not by friendly name.
-          id: r.resourceArn || r.resourceId || r.resourceName,
-          name: r.resourceName,
-          type: r.resourceType,
-          category: getCategoryForType(r.resourceType),
-          status: 'active',
-          region: r.evidence?.coverage?.regions?.[0] || 'eu-west-1',
-          accountId: resourceAccountId(r) || undefined,
-          lpScore: r.lpScore,
-          usedCount: r.usedCount,
-          gapCount: r.gapCount,
-          connections: r.usedCount || 0,
-          systemName: r.systemName,
-          details: r
-        }))
-        
-        const [subnetItems, dataSecurityItems] = await Promise.all([
-          fetchSubnetServiceItems(systemName),
-          fetchDataSecurityServiceItems(systemName),
-        ])
-        setServices([...mappedServices, ...subnetItems, ...dataSecurityItems])
-        setLastSync(new Date().toISOString())
-        setLoading(false)
-        return
-      }
-      
-      const data = await response.json()
-      
-      // Map all resources to services
-      const allServices: ServiceItem[] = []
-      
-      // Process each resource type
-      const resourceTypes = [
-        { key: 'kms_keys', type: 'KMSKey', category: 'Security' },
-        { key: 'secrets', type: 'Secret', category: 'Security' },
-        { key: 'ecs_clusters', type: 'ECSCluster', category: 'Compute' },
-        { key: 'ecs_services', type: 'ECSService', category: 'Compute' },
-        { key: 'task_definitions', type: 'TaskDefinition', category: 'Compute' },
-        { key: 'log_groups', type: 'LogGroup', category: 'Management' },
-        { key: 'internet_gateways', type: 'InternetGateway', category: 'Networking' },
-        { key: 'nat_gateways', type: 'NATGateway', category: 'Networking' },
-        { key: 'vpc_endpoints', type: 'VPCEndpoint', category: 'Networking' },
-        { key: 'hosted_zones', type: 'HostedZone', category: 'Edge' },
-        { key: 'domains', type: 'Domain', category: 'Edge' },
-        { key: 'cloudfront_distributions', type: 'CloudFront', category: 'Edge' },
-        { key: 'acm_certificates', type: 'ACMCertificate', category: 'Security' },
-        { key: 'lambda_functions', type: 'Lambda', category: 'Compute' },
-        { key: 'rds_instances', type: 'RDS', category: 'Database' },
-        { key: 'dynamodb_tables', type: 'DynamoDB', category: 'Database' },
-      ]
-      
-      resourceTypes.forEach(({ key, type, category }) => {
-        const resources = data.resources?.[key] || []
-        resources.forEach((r: any) => {
-          allServices.push({
-            id: r.arn || r.id || r.name,
-            name: r.name,
-            type,
-            category,
-            status: r.status || r.state || r.key_state || 'active',
-            region: r.region,
-            accountId: resourceAccountId(r) || undefined,
-            isEncrypted: r.encrypted || r.sse_enabled || !!r.kms_key_id,
-            details: r
+        errors.push(
+          failedGroupMessage('resources/all', `HTTP ${response.status}`),
+        )
+      } else {
+        const data = await response.json()
+        evidenceTimestamps.push(
+          data.computed_at,
+          data.synced_at,
+          data.last_sync,
+          data.syncStatus?.lastSync,
+        )
+
+        const resourceTypes = [
+          { key: 'kms_keys', type: 'KMSKey', category: 'Security' },
+          { key: 'secrets', type: 'Secret', category: 'Security' },
+          { key: 'ecs_clusters', type: 'ECSCluster', category: 'Compute' },
+          { key: 'ecs_services', type: 'ECSService', category: 'Compute' },
+          { key: 'task_definitions', type: 'TaskDefinition', category: 'Compute' },
+          { key: 'log_groups', type: 'LogGroup', category: 'Management' },
+          { key: 'internet_gateways', type: 'InternetGateway', category: 'Networking' },
+          { key: 'nat_gateways', type: 'NATGateway', category: 'Networking' },
+          { key: 'vpc_endpoints', type: 'VPCEndpoint', category: 'Networking' },
+          { key: 'hosted_zones', type: 'HostedZone', category: 'Edge' },
+          { key: 'domains', type: 'Domain', category: 'Edge' },
+          { key: 'cloudfront_distributions', type: 'CloudFront', category: 'Edge' },
+          { key: 'acm_certificates', type: 'ACMCertificate', category: 'Security' },
+          { key: 'lambda_functions', type: 'Lambda', category: 'Compute' },
+          { key: 'rds_instances', type: 'RDS', category: 'Database' },
+          { key: 'dynamodb_tables', type: 'DynamoDB', category: 'Database' },
+        ]
+
+        resourceTypes.forEach(({ key, type, category }) => {
+          const resources = data.resources?.[key] || []
+          resources.forEach((r: any) => {
+            evidenceTimestamps.push(r.collected_at, r.synced_at, r.last_synced_at)
+            allServices.push({
+              id: r.arn || r.id || r.name,
+              name: r.name,
+              type,
+              category,
+              status: mapStatus(r.status, r.state, r.key_state),
+              region: mapRegion(r.region),
+              accountId: resourceAccountId(r) || undefined,
+              encryption: mapEncryption({
+                type,
+                encrypted: r.encrypted,
+                sse_enabled: r.sse_enabled,
+                kms_key_id: r.kms_key_id,
+                encryption_read_ok:
+                  r.encrypted === true ||
+                  r.encrypted === false ||
+                  r.sse_enabled === true ||
+                  r.sse_enabled === false,
+              }),
+              details: r,
+            })
           })
         })
-      })
-      
-      // Also fetch LP issues for IAM, SG, S3
-      try {
-        const lpResponse = await fetch(withAccountScope(`/api/proxy/least-privilege/issues?systemName=${encodeURIComponent(systemName)}`, accountScope))
-        const lpData = await lpResponse.json()
-        
-        ;(lpData.resources || []).forEach((r: any) => {
-          allServices.push({
-            id: r.resourceArn || r.resourceId || r.resourceName,
-            name: r.resourceName,
-            type: r.resourceType,
-            category: getCategoryForType(r.resourceType),
-            status: 'active',
-            region: r.evidence?.coverage?.regions?.[0] || 'eu-west-1',
-            accountId: resourceAccountId(r) || undefined,
-            lpScore: r.lpScore,
-            usedCount: r.usedCount,
-            gapCount: r.gapCount,
-            connections: r.usedCount || 0,
-            systemName: r.systemName,
-            details: r
-          })
-        })
-      } catch (e) {
-        console.warn('LP issues fetch failed:', e)
       }
 
-      allServices.push(...(await fetchSubnetServiceItems(systemName)))
+      const [subnetGroup, dataSecurityGroup] = await Promise.all([
+        fetchSubnetServiceItems(systemName),
+        fetchDataSecurityServiceItems(systemName),
+      ])
+      errors.push(...subnetGroup.errors, ...dataSecurityGroup.errors)
+      evidenceTimestamps.push(
+        ...subnetGroup.evidenceTimestamps,
+        ...dataSecurityGroup.evidenceTimestamps,
+      )
+      if (dataSecurityGroup.accountWideListed) setAccountWideNotice(true)
 
-      // Graph-backed KMS/Secret/DynamoDB rows. resources/all may have
-      // already mapped some of these types — keep whichever id arrived
-      // first rather than rendering duplicates.
       const seenIds = new Set(allServices.map((s) => s.id))
-      for (const item of await fetchDataSecurityServiceItems(systemName)) {
-        if (!seenIds.has(item.id)) allServices.push(item)
+      for (const item of [...subnetGroup.items, ...dataSecurityGroup.items]) {
+        if (!seenIds.has(item.id)) {
+          seenIds.add(item.id)
+          allServices.push(item)
+        }
       }
 
       setServices(allServices)
-      setLastSync(new Date().toISOString())
-      
+      setGroupErrors(errors)
+      setLastSync(mapLastSyncEvidence(...evidenceTimestamps))
+      if (errors.length > 0 && allServices.length === 0) {
+        setError('Inventory reads failed for every group. See degraded groups below.')
+      }
     } catch (err: any) {
       console.error('Error fetching services:', err)
       setError(err.message)
+      setServices([])
+      setLastSync(UNKNOWN)
     } finally {
       setLoading(false)
     }
-  }, [systemName, accountScope.customerId, accountScope.groupId, accountScope.accountId, accountScope.region])
+  }, [
+    systemName,
+    accountScope.customerId,
+    accountScope.groupId,
+    accountScope.accountId,
+    accountScope.region,
+    accountScope.options,
+  ])
 
-  const getCategoryForType = (type: string): string => {
-    const categoryMap: Record<string, string> = {
-      IAMRole: 'Security',
-      SecurityGroup: 'Networking',
-      S3Bucket: 'Storage',
-      Lambda: 'Compute',
-      LambdaFunction: 'Compute',
-      RDS: 'Database',
-      RDSInstance: 'Database',
-      DynamoDB: 'Database',
-      EC2: 'Compute',
-      Subnet: 'Networking',
-    }
-    return categoryMap[type] || 'Other'
-  }
-
-  // Manual sync
+  // Manual sync — refresh inventory; do not stamp browser clock as last sync.
   const { syncing, startSync } = useSyncFromAWS({
     onComplete: () => {
-      setLastSync(new Date().toISOString())
       void fetchServices()
     },
   })
@@ -569,7 +658,7 @@ export default function AllServicesInventory({ systemName }: Props) {
             </h2>
             <p className="text-slate-500">
               {filteredServices.length} of {services.length} services •
-              Last sync: {lastSync ? new Date(lastSync).toLocaleTimeString() : 'Never'}
+              Last sync: {formatLastSyncLabel(lastSync)}
             </p>
           </div>
         </div>
@@ -608,6 +697,36 @@ export default function AllServicesInventory({ systemName }: Props) {
           </div>
         </div>
       </div>
+
+      {error && (
+        <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
+
+      {groupErrors.length > 0 && (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <div className="mb-1 flex items-center gap-2 font-medium">
+            <AlertTriangle className="h-4 w-4" />
+            Degraded inventory groups
+          </div>
+          <ul className="list-disc space-y-1 pl-5">
+            {groupErrors.map((msg) => (
+              <li key={msg}>{msg}</li>
+            ))}
+          </ul>
+          <p className="mt-2 text-amber-800/80">
+            An empty list for a group means none exist. A message above means that group&apos;s fetch failed.
+          </p>
+        </div>
+      )}
+
+      {accountWideNotice && (
+        <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+          KMS keys and Secrets are listed account-wide (not filtered by system). DynamoDB and subnets remain system-scoped.
+        </div>
+      )}
 
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-3">
@@ -718,11 +837,11 @@ export default function AllServicesInventory({ systemName }: Props) {
                     </div>
                   </div>
                   <span className={`px-2 py-0.5 rounded-full text-xs ${
-                    service.status === 'active' || service.status === 'running' || service.status === 'available' || service.status === 'Enabled'
+                    isActiveLikeStatus(service.status)
                       ? 'bg-[#22c55e20] text-[#22c55e]'
                       : 'bg-slate-100 text-slate-600'
                   }`}>
-                    {service.status || 'active'}
+                    {formatStatusLabel(service.status)}
                   </span>
                 </div>
                 
@@ -747,19 +866,22 @@ export default function AllServicesInventory({ systemName }: Props) {
                   <span className={`px-2 py-0.5 rounded text-xs ${style.bg} ${style.text}`}>
                     {service.category}
                   </span>
-                  {service.region && (
-                    <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-xs">
-                      {service.region}
-                    </span>
-                  )}
+                  <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-xs">
+                    {formatRegionLabel(service.region)}
+                  </span>
                   {service.accountId && accountScope.accountId === 'all' && (
                     <span className="px-2 py-0.5 bg-teal-50 text-teal-700 rounded text-xs font-mono">
                       {service.accountId}
                     </span>
                   )}
-                  {service.isEncrypted && (
+                  {service.encryption === 'ENCRYPTED' && (
                     <span className="px-2 py-0.5 bg-[#22c55e20] text-[#22c55e] rounded text-xs flex items-center gap-1">
                       <Lock className="w-3 h-3" /> Encrypted
+                    </span>
+                  )}
+                  {service.encryption === UNKNOWN && (
+                    <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-xs">
+                      Encryption {UNKNOWN}
                     </span>
                   )}
                 </div>
@@ -807,14 +929,14 @@ export default function AllServicesInventory({ systemName }: Props) {
                     {accountScope.accountId === 'all' && (
                       <td className="px-4 py-3 font-mono text-xs text-slate-600">{service.accountId || 'Unknown'}</td>
                     )}
-                    <td className="px-4 py-3 text-slate-600 text-sm">{service.region || '-'}</td>
+                    <td className="px-4 py-3 text-slate-600 text-sm">{formatRegionLabel(service.region)}</td>
                     <td className="px-4 py-3">
                       <span className={`px-2 py-0.5 rounded-full text-xs ${
-                        service.status === 'active' || service.status === 'running' || service.status === 'available'
+                        isActiveLikeStatus(service.status)
                           ? 'bg-[#22c55e20] text-[#22c55e]'
                           : 'bg-slate-100 text-slate-600'
                       }`}>
-                        {service.status || 'active'}
+                        {formatStatusLabel(service.status)}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-right font-medium text-slate-900">
@@ -914,11 +1036,13 @@ export default function AllServicesInventory({ systemName }: Props) {
                         </div>
                         <div className="flex justify-between">
                           <dt className="text-slate-500">Region</dt>
-                          <dd className="text-slate-900">{selectedService.region || '-'}</dd>
+                          <dd className="text-slate-900">{formatRegionLabel(selectedService.region)}</dd>
                         </div>
                         <div className="flex justify-between">
                           <dt className="text-slate-500">Status</dt>
-                          <dd className="text-[#22c55e]">{selectedService.status || 'active'}</dd>
+                          <dd className={isActiveLikeStatus(selectedService.status) ? 'text-[#22c55e]' : 'text-slate-600'}>
+                            {formatStatusLabel(selectedService.status)}
+                          </dd>
                         </div>
                       </dl>
                     </div>
@@ -952,7 +1076,7 @@ export default function AllServicesInventory({ systemName }: Props) {
                         )}
                         <div className="flex justify-between">
                           <dt className="text-slate-500">Encrypted</dt>
-                          <dd>{selectedService.isEncrypted ? '✅ Yes' : '❌ No'}</dd>
+                          <dd>{formatEncryptionLabel(selectedService.encryption)}</dd>
                         </div>
                       </dl>
                     </div>
