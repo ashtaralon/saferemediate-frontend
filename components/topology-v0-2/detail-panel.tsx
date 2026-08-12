@@ -716,9 +716,14 @@ export function DetailPanel({ node, systemName, accountId, region, vpcId, onClos
                               {action === "simulate" ? "Running AWS dry-run…" : "Simulate canary in AWS"}
                             </button>
                           ) : null}
-                          {simulation ? (
+                          {simulation?.status === "PENDING" || operationState === "SIMULATION_PENDING" ? (
+                            <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800" data-testid="estate-vpce-simulation-pending">
+                              <strong>AWS dry-run is running</strong> · Cyntro is validating the exact route-table and endpoint change. Nothing has been applied.
+                            </div>
+                          ) : simulation ? (
                             <div className={`rounded-lg border bg-white p-3 text-xs ${simulation.safe_to_apply ? "border-teal-200 text-teal-800" : "border-red-200 text-red-700"}`} data-testid="estate-vpce-simulation">
-                              <strong>{simulation.safe_to_apply ? "AWS dry-run passed" : "Simulation blocked"}</strong> · exact canary scope is immutable under plan hash {simulation.plan_hash.slice(0, 10)}…
+                              <strong>{simulation.safe_to_apply ? "AWS dry-run passed" : "Simulation blocked"}</strong>
+                              {simulation.plan_hash ? ` · exact canary scope is immutable under plan hash ${simulation.plan_hash.slice(0, 10)}…` : " · result hash unavailable; analyze again before approval"}
                             </div>
                           ) : null}
                           {operationState === "SIMULATED" ? (

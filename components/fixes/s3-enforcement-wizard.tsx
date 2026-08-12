@@ -835,7 +835,15 @@ export function S3EnforcementWizard({ systemName, bucket, resume, accountId, reg
                   its policy changes before apply, execution refuses and asks for a fresh analysis.
                 </p>
               </div>
-              {simulation ? (
+              {simulation?.status === "PENDING" || operationState === "SIMULATION_PENDING" ? (
+                <div
+                  className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800"
+                  data-testid="enforce-wizard-simulation-pending"
+                >
+                  <strong>Policy validation is running</strong>
+                  <span> · Cyntro is building fresh evidence and validating the exact policy. No AWS change is authorized while this runs.</span>
+                </div>
+              ) : simulation ? (
                 <div
                   className={`rounded-xl border bg-white p-3 text-xs ${simulation.safe_to_apply
                     ? supplementalLintUnavailable
@@ -849,7 +857,11 @@ export function S3EnforcementWizard({ systemName, bucket, resume, accountId, reg
                       ? "Core safety checks passed"
                       : "Safety checks passed"
                     : "Safety check blocked"}</strong>
-                  {" "}· plan frozen under hash <span className="font-mono">{simulation.plan_hash.slice(0, 10)}…</span>
+                  {simulation.plan_hash ? (
+                    <> · plan frozen under hash <span className="font-mono">{simulation.plan_hash.slice(0, 10)}…</span></>
+                  ) : (
+                    <> · result hash unavailable; analyze again before approval</>
+                  )}
                   {policyValidator ? (
                     <> · {supplementalLintUnavailable ? "Additional policy lint unavailable" : "Additional policy lint passed"}</>
                   ) : null}

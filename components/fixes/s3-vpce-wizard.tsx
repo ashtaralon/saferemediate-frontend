@@ -731,13 +731,25 @@ export function S3VpceWizard({ systemName, bucket, resume, accountId, region, on
                   if anything in the environment changes between now and apply, execution refuses and asks for a fresh analysis.
                 </p>
               </div>
-              {simulation ? (
+              {simulation?.status === "PENDING" || operationState === "SIMULATION_PENDING" ? (
+                <div
+                  className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800"
+                  data-testid="vpce-wizard-simulation-pending"
+                >
+                  <strong>AWS dry-run is running</strong>
+                  <span> · Cyntro is validating the exact route-table and endpoint change. Nothing has been applied.</span>
+                </div>
+              ) : simulation ? (
                 <div
                   className={`rounded-xl border bg-white p-3 text-xs ${simulation.safe_to_apply ? "border-teal-200 text-teal-800" : "border-red-200 text-red-700"}`}
                   data-testid="vpce-wizard-simulation"
                 >
                   <strong>{simulation.safe_to_apply ? "AWS dry-run passed" : "Dry-run blocked"}</strong>
-                  {" "}· plan frozen under hash <span className="font-mono">{simulation.plan_hash.slice(0, 10)}…</span>
+                  {simulation.plan_hash ? (
+                    <> · plan frozen under hash <span className="font-mono">{simulation.plan_hash.slice(0, 10)}…</span></>
+                  ) : (
+                    <> · result hash unavailable; analyze again before approval</>
+                  )}
                   {simulation.errors?.length ? (
                     <ul className="mt-1 list-disc pl-4">{simulation.errors.map((e) => <li key={e}>{e}</li>)}</ul>
                   ) : null}
