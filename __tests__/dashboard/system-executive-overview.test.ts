@@ -7,6 +7,7 @@ import {
 } from "@/lib/system-executive-snapshot"
 import {
   proposedChangeCount,
+  resourceRiskNavigationTarget,
   shouldShowGlobalStateBanner,
 } from "@/components/system-detail/system-executive-overview"
 
@@ -63,6 +64,12 @@ describe("system executive overview", () => {
     expect(overview).toContain("Recommended changes")
     expect(overview).toContain("Evidence readiness")
     expect(overview).not.toContain("Neo4j graph snapshot")
+  })
+
+  it("routes resource-risk metrics and findings to Resource Risk, not CVE Management", () => {
+    expect(resourceRiskNavigationTarget()).toBe("least-privilege")
+    expect(overview.match(/onNavigate\(resourceRiskNavigationTarget\(\)\)/g)).toHaveLength(2)
+    expect(overview).not.toMatch(/ResourceRisks[^\n]+onNavigate\("vulnerabilities"\)/)
   })
 
   it("keeps a remediation-only hold local instead of alarming the whole system", () => {

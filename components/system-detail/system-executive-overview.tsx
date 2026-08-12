@@ -69,6 +69,10 @@ export function proposedChangeCount(
   return ready !== null && held !== null ? ready + held : null
 }
 
+export function resourceRiskNavigationTarget(): "least-privilege" {
+  return "least-privilege"
+}
+
 function StateBanner({ data, recovering }: { data: SystemExecutiveSnapshot; recovering: boolean }) {
   if (!shouldShowGlobalStateBanner(data, recovering)) return null
   return (
@@ -270,7 +274,7 @@ export function SystemExecutiveOverview({
         <div className="grid divide-y divide-slate-100 sm:grid-cols-2 sm:divide-x sm:divide-y-0 lg:grid-cols-4">
           <Metric icon={GitBranch} value={finite(material.attack_paths)} label="Attack paths" detail="Verified routes in this system" tone="bg-rose-100 text-rose-700" onClick={() => onNavigate("attack-paths")} />
           <Metric icon={Crown} value={finite(material.crown_jewels)} label="Crown jewels reached" detail={`${finite(material.externally_exposed_jewels) ?? "—"} externally exposed`} tone="bg-amber-100 text-amber-700" onClick={() => onNavigate("crown-jewels")} />
-          <Metric icon={AlertTriangle} value={finite(risks.total)} label="Resource risks" detail="Classified weaknesses requiring review" tone="bg-violet-100 text-violet-700" onClick={() => onNavigate("vulnerabilities")} />
+          <Metric icon={AlertTriangle} value={finite(risks.total)} label="Resource risks" detail="Classified weaknesses requiring review" tone="bg-violet-100 text-violet-700" onClick={() => onNavigate(resourceRiskNavigationTarget())} />
           <Metric icon={ShieldCheck} value={changes} label="Proposed changes" detail={`${readyChanges ?? "—"} ready · ${heldChanges ?? "—"} held for safety review`} tone="bg-emerald-100 text-emerald-700" onClick={() => onNavigate("least-privilege")} />
         </div>
       </section>
@@ -278,7 +282,7 @@ export function SystemExecutiveOverview({
       <TopPaths paths={paths} onOpen={() => onNavigate("attack-paths")} />
 
       <div className="grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
-        <ResourceRisks findings={risks.top_findings || []} onOpen={() => onNavigate("vulnerabilities")} />
+        <ResourceRisks findings={risks.top_findings || []} onOpen={() => onNavigate(resourceRiskNavigationTarget())} />
         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_12px_38px_rgba(15,23,42,0.05)]">
           <div className="flex items-start justify-between gap-4">
             <div><div className="text-[11px] font-semibold uppercase tracking-[0.17em] text-slate-400">Recommended changes</div><p className="mt-1 text-sm text-slate-600">Prioritized actions; execution remains gated</p></div>
