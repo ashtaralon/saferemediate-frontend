@@ -47,23 +47,23 @@ export interface ChangeCaseArtifact {
   }
   proposed_change: {
     kind: string
-    before: Array<{ rule_id?: string; action: string; protocol: string; port: string; source: string }>
-    after: Array<{ protocol: string; port: string; source: string }>
+    before: Array<{ rule_id?: string; action: string; protocol: string; port: string; source: string; purpose?: string }>
+    after: Array<{ protocol: string; port: string; source: string; purpose?: string }>
     untouched: string[]
     claim: string
     cves_fixed: 0
     findings_attributable_to_removed_paths: 'UNKNOWN'
   }
   evidence: {
-    accepted_flow_log_records: number
-    accepted_records_are_application_use: false
+    observed_traffic_records: number
+    observed_events_are_verified_application_use: false
     rule_unique_source_count: number | null
     rule_unique_source_count_kind: string
     rule_unique_source_count_display: string
     requested_days: number
     effective_days?: number | null
     complete: boolean
-    gaps: Array<{ code: string; message: string; how_to_close: string }>
+    gaps: Array<{ code: string; message: string; how_to_close?: string }>
     traffic_fanout_annotation?: { detected?: boolean; observed_port_count?: number; decision_input?: false }
     surviving_rule_flow_coverage?: { status?: string; redundant?: boolean; reason?: string }
   }
@@ -91,11 +91,13 @@ export interface ChangeCaseArtifact {
     decision_request: string
     source?: string
   }
-  approval_report: { format: 'text/markdown'; filename: string; content: string }
+  approval_report: { format: 'application/pdf'; encoding: 'base64'; filename: string; content: string }
 }
 
 function downloadReport(changeCase: ChangeCaseArtifact) {
-  const blob = new Blob([changeCase.approval_report.content], { type: 'text/markdown;charset=utf-8' })
+  const binary = window.atob(changeCase.approval_report.content)
+  const bytes = Uint8Array.from(binary, character => character.charCodeAt(0))
+  const blob = new Blob([bytes], { type: 'application/pdf' })
   const url = URL.createObjectURL(blob)
   const anchor = document.createElement('a')
   anchor.href = url
@@ -106,10 +108,11 @@ function downloadReport(changeCase: ChangeCaseArtifact) {
   URL.revokeObjectURL(url)
 }
 
-function RuleLine({ rule }: { rule: { protocol: string; port: string; source: string } }) {
+function RuleLine({ rule }: { rule: { protocol: string; port: string; source: string; purpose?: string } }) {
   return (
     <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700">
       <span className="font-semibold text-slate-900">{rule.protocol} {rule.port}</span> from {rule.source}
+      <div className="mt-1 text-[11px] text-slate-500">{rule.purpose || 'Application-defined service'}</div>
     </div>
   )
 }
@@ -190,7 +193,7 @@ export function ChangeCaseReview({
               3. What could break, and how strong is the evidence?
             </div>
             <div className="mt-3 grid gap-2 sm:grid-cols-3">
-              <div className="rounded-xl bg-white p-3"><div className="text-lg font-bold">{changeCase.evidence.accepted_flow_log_records.toLocaleString()}</div><div className="text-[10px] text-slate-600">Accepted Flow Log records</div></div>
+              <div className="rounded-xl bg-white p-3"><div className="text-lg font-bold">{changeCase.evidence.observed_traffic_records.toLocaleString()}</div><div className="text-[10px] text-slate-600">Observed admitted-traffic events</div></div>
               <div className="rounded-xl bg-white p-3"><div className="text-sm font-bold">{changeCase.evidence.rule_unique_source_count_display}</div><div className="text-[10px] text-slate-600">Distinct rule sources</div></div>
               <div className="rounded-xl bg-white p-3"><div className="text-lg font-bold">{changeCase.evidence.effective_days ?? 'Unknown'} / {changeCase.evidence.requested_days}</div><div className="text-[10px] text-slate-600">Evidence days</div></div>
             </div>
@@ -202,7 +205,7 @@ export function ChangeCaseReview({
             )}
             {changeCase.evidence.gaps.map((gap) => (
               <div key={gap.code} className="mt-2 rounded-lg border border-amber-300 bg-white p-2 text-xs text-amber-950">
-                <strong>{gap.message}</strong><div className="mt-1">How to close: {gap.how_to_close}</div>
+                <strong>{gap.message}</strong>
               </div>
             ))}
             {shared.length > 0 && (
@@ -236,7 +239,7 @@ export function ChangeCaseReview({
             <p className="mt-2 text-sm">{changeCase.narrative.decision_request}</p>
             <div className="mt-4 grid gap-2 sm:grid-cols-2">
               <button onClick={() => downloadReport(changeCase)} className="flex items-center justify-center gap-2 rounded-xl border border-white/30 px-4 py-3 text-sm font-semibold hover:bg-white/10">
-                <Download className="h-4 w-4" /> Generate approval report
+                <Download className="h-4 w-4" /> Download approval PDF
               </button>
               <button onClick={onProceed} disabled={executing || !canProceed} className="rounded-xl bg-violet-500 px-4 py-3 text-sm font-bold hover:bg-violet-400 disabled:opacity-50">
                 {executing
