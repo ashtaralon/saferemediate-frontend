@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest"
 import {
   dedupeRemediationEvents,
+  isActionableRestore,
+  remediationTimelineUrl,
   snapshotBelongsToSystem,
   summarizeRemediationEvents,
   type TimelineEventRecord,
@@ -71,5 +73,34 @@ describe("remediation timeline consistency", () => {
       period_start: "2026-08-01",
       period_end: "2026-08-10",
     })
+  })
+
+  it("preserves multiple lifecycle checkpoints for one operation", () => {
+    const first = event({
+      event_id: "transition-1",
+      snapshot_id: "snap-1",
+      metadata: { event_kind: "checkpoint", parent_operation_id: "op-1" },
+    })
+    const second = event({
+      event_id: "transition-2",
+      snapshot_id: "snap-1",
+      metadata: { event_kind: "checkpoint", parent_operation_id: "op-1" },
+    })
+    expect(dedupeRemediationEvents([first, second])).toHaveLength(2)
+  })
+
+  it("uses the backend system_name contract", () => {
+    const url = remediationTimelineUrl("2026-08-01", "2026-08-12", "alon-prod")
+    expect(url).toContain("system_name=alon-prod")
+    expect(url).not.toContain("system=alon-prod")
+  })
+
+  it("allows a verified restore during monitoring, not only after completion", () => {
+    expect(isActionableRestore(event({ status: "pending", rollback_available: true }))).toBe(true)
+    expect(isActionableRestore(event({
+      action_type: "LIFECYCLE_CHECKPOINT",
+      rollback_available: false,
+      metadata: { event_kind: "checkpoint" },
+    }))).toBe(false)
   })
 })

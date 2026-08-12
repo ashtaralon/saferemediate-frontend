@@ -11,8 +11,23 @@ export interface TimelineEventRecord {
   system_name?: string | null
   metadata?: {
     permissions_removed?: number | null
+    event_kind?: "operation" | "checkpoint"
+    parent_operation_id?: string
+    restore?: {
+      available: boolean
+      operation_id: string
+      operation_kind: string
+      system_name?: string | null
+      snapshot_id?: string | null
+      expires_at?: string | null
+      confirmation?: string | null
+      rearm_path?: string | null
+      rollback_path?: string | null
+      reason?: string | null
+    }
     [key: string]: unknown
   }
+  rollback_available?: boolean
 }
 
 export interface TimelineSummaryRecord {
@@ -35,6 +50,9 @@ const normalized = (value: unknown): string =>
  * only collapses records that describe the same resource, action, and instant.
  */
 export function remediationEventIdentity(event: TimelineEventRecord): string {
+  if (event.metadata?.event_kind === "checkpoint" && event.event_id) {
+    return `checkpoint:${normalized(event.event_id)}`
+  }
   if (event.snapshot_id) return `snapshot:${normalized(event.snapshot_id)}`
   if (event.event_id) return `event:${normalized(event.event_id)}`
   return [
@@ -44,6 +62,27 @@ export function remediationEventIdentity(event: TimelineEventRecord): string {
     normalized(event.action_type),
     normalized(event.timestamp),
   ].join(":")
+}
+
+export function remediationTimelineUrl(
+  startDate: string,
+  endDate: string,
+  systemName?: string,
+): string {
+  const params = new URLSearchParams({
+    start_date: startDate,
+    end_date: endDate,
+    limit: "200",
+    force_refresh: "true",
+  })
+  if (systemName) params.set("system_name", systemName)
+  return `/api/proxy/remediation-history/timeline?${params.toString()}`
+}
+
+export function isActionableRestore(event: TimelineEventRecord): boolean {
+  if (event.action_type === "ROLLBACK") return false
+  if (event.metadata?.event_kind === "checkpoint") return false
+  return event.rollback_available === true
 }
 
 /** Graph receipts are authoritative when both sources describe one change. */

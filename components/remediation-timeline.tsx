@@ -35,8 +35,11 @@ import { dispatchRemediationChanged } from "@/lib/remediation-events"
 import { ServiceTypeBadge } from "@/lib/service-type"
 import { fetchWithEnvelope } from "@/components/trust/use-trust-envelope"
 import { TrustEnvelopeBadge, Provenance } from "@/components/trust/trust-envelope-badge"
+import { operationalRequest } from "@/components/topology-v0-2/estate-operations"
 import {
   dedupeRemediationEvents,
+  isActionableRestore,
+  remediationTimelineUrl,
   snapshotBelongsToSystem,
   summarizeRemediationEvents,
 } from "@/lib/remediation-timeline"
@@ -195,6 +198,22 @@ interface RemediationEvent {
     reason?: string
     rules_count?: { inbound: number; outbound: number }
     removed_permissions?: string[]
+    event_kind?: "operation" | "checkpoint"
+    parent_operation_id?: string
+    operation_state?: string
+    checkpoint_detail?: Record<string, any>
+    restore?: {
+      available: boolean
+      operation_id: string
+      operation_kind: string
+      system_name?: string | null
+      snapshot_id?: string | null
+      expires_at?: string | null
+      confirmation?: string | null
+      rearm_path?: string | null
+      rollback_path?: string | null
+      reason?: string | null
+    }
     safety_signals?: SafetySignals
     [key: string]: any
   }
@@ -539,7 +558,7 @@ const EventDetailModal = ({ event, isOpen, onClose, onRollback }: EventDetailMod
             </div>
             <div>
               <h2 className="font-semibold text-white">
-                Remediation Event
+                {event.metadata?.event_kind === "checkpoint" ? "Lifecycle checkpoint" : "Change record"}
               </h2>
               <p className="text-xs text-[var(--muted-foreground,#9ca3af)]">
                 {event.event_id}
@@ -568,6 +587,40 @@ const EventDetailModal = ({ event, isOpen, onClose, onRollback }: EventDetailMod
               {event.summary}
             </p>
           </div>
+
+          {event.metadata?.restore && (
+            <div className="rounded-lg p-4 border border-teal-700/50 bg-teal-950/20">
+              <div className="flex items-start gap-3">
+                <RotateCcw className="w-4 h-4 mt-0.5 text-teal-300" />
+                <div>
+                  <p className="text-sm font-semibold text-teal-200">
+                    {event.metadata.restore.available ? "Verified recovery point available" : "Recovery point unavailable"}
+                  </p>
+                  <p className="text-xs text-teal-100/70 mt-1">
+                    Snapshot {event.metadata.restore.snapshot_id || "not recorded"}
+                    {event.metadata.restore.expires_at ? ` · available until ${formatDateTime(event.metadata.restore.expires_at)}` : ""}
+                  </p>
+                  {!event.metadata.restore.available && event.metadata.restore.reason && (
+                    <p className="text-xs text-amber-300 mt-2">{event.metadata.restore.reason}</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {event.metadata?.event_kind === "checkpoint" && event.metadata.checkpoint_detail && (
+            <div className="rounded-lg p-4 border border-slate-700 bg-slate-900/40">
+              <p className="text-xs uppercase tracking-wide text-slate-400 mb-3">Recorded facts</p>
+              <div className="space-y-2">
+                {Object.entries(event.metadata.checkpoint_detail).map(([section, values]) => (
+                  <div key={section} className="text-xs">
+                    <span className="font-semibold text-slate-200 capitalize">{section.replace(/_/g, " ")}</span>
+                    <span className="text-slate-400 ml-2">{JSON.stringify(values)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Details Grid */}
           <div className="grid grid-cols-2 gap-4">
@@ -752,7 +805,11 @@ const EventDetailModal = ({ event, isOpen, onClose, onRollback }: EventDetailMod
                 {/* Standard metadata display */}
                 <div className="space-y-1">
                   {Object.entries(event.metadata)
-                    .filter(([k]) => !['rules_count', 'removed_permissions', 'original_role', 'new_role', 'rules_removed', 'rules_failed'].includes(k))
+                    .filter(([k]) => ![
+                      'rules_count', 'removed_permissions', 'original_role', 'new_role',
+                      'rules_removed', 'rules_failed', 'restore', 'checkpoint_detail',
+                      'canonical_operation', 'event_kind', 'parent_operation_id',
+                    ].includes(k))
                     .map(([key, value]) => (
                     <div key={key} className="flex justify-between text-sm">
                       <span className="text-[var(--muted-foreground,#9ca3af)]">
@@ -769,13 +826,13 @@ const EventDetailModal = ({ event, isOpen, onClose, onRollback }: EventDetailMod
           )}
 
           {/* Diff Toggle */}
-          <button
+          {(Object.keys(event.before_state || {}).length > 0 || Object.keys(event.after_state || {}).length > 0) && <button
             onClick={() => setShowDiff(!showDiff)}
             className="flex items-center gap-2 text-sm font-medium transition-colors hover:opacity-80 text-purple-400"
           >
             {showDiff ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
             {showDiff ? "Hide" : "Show"} State Changes
-          </button>
+          </button>}
 
           {/* Diff View */}
           {showDiff && (
@@ -808,7 +865,7 @@ const EventDetailModal = ({ event, isOpen, onClose, onRollback }: EventDetailMod
           )}
 
           {/* Selective Restore Section */}
-          {event.rollback_available && event.status === "completed" && hasSelectableItems && (
+          {event.rollback_available && event.metadata?.event_kind !== "checkpoint" && hasSelectableItems && (
             <div className="rounded-lg border" style={{ background: "#252538", borderColor: "#3d3d5c" }}>
               <button
                 onClick={() => {
@@ -912,7 +969,7 @@ const EventDetailModal = ({ event, isOpen, onClose, onRollback }: EventDetailMod
             >
               Close
             </button>
-            {event.rollback_available && event.status === "completed" && (
+            {event.rollback_available && event.metadata?.event_kind !== "checkpoint" && (
               hasSelectableItems && showSelectiveRestore ? (
                 <button
                   onClick={() => onRollback(event.event_id, Array.from(selectedItems))}
@@ -966,17 +1023,33 @@ export function RemediationTimeline({
   // null means no day is focused (events list shows all).
   const [selectedChartDate, setSelectedChartDate] = useState<string | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
+  const [expandedOperations, setExpandedOperations] = useState<Set<string>>(new Set())
+  const [restoringEventId, setRestoringEventId] = useState<string | null>(null)
 
   // Filter events based on selected filter
   const filteredEvents = useMemo(() => {
-    if (eventFilter === "all") return events
-    // Actionable: only completed remediations with rollback available (not rollback events, not already rolled back)
-    return events.filter(e =>
-      e.action_type !== "ROLLBACK" &&
-      e.status === "completed" &&
-      e.rollback_available
-    )
+    const operations = events.filter(e => e.metadata?.event_kind !== "checkpoint")
+    if (eventFilter === "all") return operations
+    return operations.filter(isActionableRestore)
   }, [events, eventFilter])
+
+  const checkpointsByOperation = useMemo(() => {
+    const grouped = new Map<string, RemediationEvent[]>()
+    for (const event of events) {
+      if (event.metadata?.event_kind !== "checkpoint") continue
+      const parent = event.metadata.parent_operation_id
+      if (!parent) continue
+      grouped.set(parent, [...(grouped.get(parent) || []), event])
+    }
+    for (const rows of grouped.values()) {
+      rows.sort((left, right) => new Date(left.timestamp).getTime() - new Date(right.timestamp).getTime())
+    }
+    return grouped
+  }, [events])
+  const operationEventCount = useMemo(
+    () => events.filter(event => event.metadata?.event_kind !== "checkpoint").length,
+    [events],
+  )
 
   // Manual refresh function
   const refreshTimeline = () => {
@@ -1227,7 +1300,7 @@ export function RemediationTimeline({
         const [neo4jEnvResult, sgRes, iamRes] = await Promise.all([
           // 1. Neo4j Timeline API (primary source for recorded events) - use proxy to avoid CORS
           fetchWithEnvelope<any>(
-            `/api/proxy/remediation-history/timeline?start_date=${startDate.toISOString()}&end_date=${today.toISOString()}&limit=200&force_refresh=true${systemId ? `&system=${encodeURIComponent(systemId)}` : ''}`
+            remediationTimelineUrl(startDate.toISOString(), today.toISOString(), systemId)
           ).catch(() => null),
           // 2. Snapshots (to include any checkpoints not yet in Neo4j)
           fetch('/api/proxy/snapshots?force_refresh=true', { cache: 'no-store' }).catch(() => null),
@@ -1299,10 +1372,13 @@ export function RemediationTimeline({
         // Sort by timestamp (newest first)
         allEvents.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
 
-        // ALWAYS generate chart data from ALL events (not just Neo4j)
+        const operationEvents = allEvents.filter(event => event.metadata?.event_kind !== "checkpoint")
+
+        // Lifecycle checkpoints belong inside their parent operation and must
+        // not inflate charts or remediation KPIs.
         // This ensures snapshot events are visualized in the chart
         let finalChartData: ChartDataPoint[] = []
-        if (allEvents.length > 0) {
+        if (operationEvents.length > 0) {
           const chartDataMap = new Map<string, ChartDataPoint>()
 
           for (let i = periodDays[selectedPeriod]; i >= 0; i--) {
@@ -1322,7 +1398,7 @@ export function RemediationTimeline({
             })
           }
 
-          allEvents.forEach(event => {
+          operationEvents.forEach(event => {
             const dateKey = event.timestamp.split('T')[0]
             const existing = chartDataMap.get(dateKey)
             if (existing) {
@@ -1337,7 +1413,7 @@ export function RemediationTimeline({
 
         // Rows, chart, and counters must describe the exact same final set.
         const finalSummary: TimelineSummary = summarizeRemediationEvents(
-          allEvents,
+          operationEvents,
           startDate.toISOString().split('T')[0],
           today.toISOString().split('T')[0],
         )
@@ -1387,6 +1463,58 @@ export function RemediationTimeline({
     }
 
     try {
+      const restore = event.metadata?.restore
+      if (restore?.available) {
+        if (
+          !restore.operation_id || !restore.system_name || !restore.snapshot_id ||
+          !restore.confirmation || !restore.rearm_path || !restore.rollback_path
+        ) {
+          throw new Error("The verified restore contract is incomplete. Refresh History before retrying.")
+        }
+        setRestoringEventId(eventId)
+        const requestedBy = window.localStorage.getItem("cyntro_operator_label") || "history-ui"
+        const rearmed = await operationalRequest<{ lifecycle_token: string }>(
+          restore.system_name,
+          restore.rearm_path,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              operation_id: restore.operation_id,
+              requested_by: requestedBy,
+            }),
+          },
+        )
+        await operationalRequest(
+          restore.system_name,
+          restore.rollback_path,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              operation_id: restore.operation_id,
+              plan_token: rearmed.lifecycle_token,
+              snapshot_id: restore.snapshot_id,
+              confirmation: restore.confirmation,
+              requested_by: requestedBy,
+            }),
+          },
+        )
+        alert(`Prior AWS state restored and verified for ${resourceName}.`)
+        dispatchRemediationChanged({
+          action: "rollback",
+          resource_type: resourceType,
+          resource_id: resourceName,
+          partial: false,
+          source_id: eventId,
+        })
+        setShowModal(false)
+        setSelectedEvent(null)
+        onRollback?.(eventId)
+        refreshTimeline()
+        return
+      }
+
       let endpoint: string
       let bodyContent: any = undefined
       const snapshotId = event.snapshot_id || eventId
@@ -1478,6 +1606,8 @@ export function RemediationTimeline({
       refreshTimeline()
     } catch (err: any) {
       alert(`❌ Rollback failed: ${err.message}`)
+    } finally {
+      setRestoringEventId(null)
     }
   }
 
@@ -1517,10 +1647,10 @@ export function RemediationTimeline({
           <div>
             <h2 className="text-lg font-semibold flex items-center gap-2" style={{ color: "var(--text-primary)" }}>
               <Clock className="w-5 h-5" style={{ color: "var(--action-primary)" }} />
-              Remediation Timeline
+              Change History
             </h2>
             <p className="text-sm mt-1" style={{ color: "var(--text-secondary)" }}>
-              Complete audit trail with one-click rollback
+              Verified changes, lifecycle checkpoints, and recovery points
             </p>
             {provenance && (
               <div className="mt-3">
@@ -1761,7 +1891,7 @@ export function RemediationTimeline({
         <div className="p-4">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
-              Remediation Events ({filteredEvents.length}{eventFilter === "actionable" && events.length !== filteredEvents.length ? ` of ${events.length}` : ''})
+              Change records ({filteredEvents.length}{eventFilter === "actionable" && operationEventCount !== filteredEvents.length ? ` of ${operationEventCount}` : ''})
             </h3>
             <div className="flex items-center gap-1 bg-slate-800/50 rounded-lg p-0.5">
               <button
@@ -1799,9 +1929,12 @@ export function RemediationTimeline({
             </div>
           ) : (
             <div className="space-y-2 max-h-[400px] overflow-y-auto">
-              {filteredEvents.map((event) => (
+              {filteredEvents.map((event) => {
+                const checkpoints = checkpointsByOperation.get(event.event_id) || []
+                const expanded = expandedOperations.has(event.event_id)
+                return (
+                <div key={event.event_id} className="space-y-1">
                 <div
-                  key={event.event_id}
                   className="flex items-center justify-between p-3 rounded-lg border transition-all cursor-pointer hover:border-opacity-70"
                   style={{
                     background: "var(--bg-primary)",
@@ -1869,23 +2002,67 @@ export function RemediationTimeline({
                   </div>
 
                   <div className="flex items-center gap-2">
-                    {event.rollback_available && event.status === "completed" && (
+                    {checkpoints.length > 0 && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setExpandedOperations(current => {
+                            const next = new Set(current)
+                            if (next.has(event.event_id)) next.delete(event.event_id)
+                            else next.add(event.event_id)
+                            return next
+                          })
+                        }}
+                        className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium border"
+                        style={{ color: "var(--text-secondary)", borderColor: "var(--border-subtle)" }}
+                      >
+                        {expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                        {checkpoints.length} checkpoints
+                      </button>
+                    )}
+                    {isActionableRestore(event) && (
                       <button
                         onClick={(e) => {
                           e.stopPropagation()
                           handleRollback(event.event_id)
                         }}
-                        className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors hover:bg-[#f9731610]0/20"
+                        disabled={restoringEventId === event.event_id}
+                        className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors disabled:opacity-50"
                         style={{ color: "#F59E0B" }}
                       >
                         <RotateCcw className="w-3 h-3" />
-                        Rollback
+                        Restore prior state
                       </button>
                     )}
                     <Eye className="w-4 h-4" style={{ color: "var(--text-secondary)" }} />
                   </div>
                 </div>
-              ))}
+                {expanded && checkpoints.length > 0 && (
+                  <div className="ml-6 border-l pl-4 py-2 space-y-2" style={{ borderColor: "var(--border-subtle)" }}>
+                    {checkpoints.map(checkpoint => (
+                      <button
+                        key={checkpoint.event_id}
+                        onClick={() => {
+                          setSelectedEvent(checkpoint)
+                          setShowModal(true)
+                        }}
+                        className="w-full flex items-start gap-3 text-left rounded-lg px-3 py-2 hover:bg-white/5"
+                      >
+                        <span className="mt-1.5 h-2 w-2 rounded-full bg-teal-400 shrink-0" />
+                        <span className="min-w-0">
+                          <span className="block text-xs font-semibold" style={{ color: "var(--text-primary)" }}>
+                            {checkpoint.summary}
+                          </span>
+                          <span className="block text-[11px] mt-0.5" style={{ color: "var(--text-secondary)" }}>
+                            {formatDateTime(checkpoint.timestamp)} · {checkpoint.metadata.operation_state}
+                          </span>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                </div>
+              )})}
             </div>
           )}
         </div>
