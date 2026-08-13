@@ -52,7 +52,7 @@ export interface ChangeCaseArtifact {
     untouched: string[]
     claim: string
     cves_fixed: 0
-    findings_attributable_to_removed_paths: 'UNKNOWN'
+    findings_attributable_to_removed_paths: 'UNKNOWN' | string[]
   }
   evidence: {
     observed_traffic_records: number
@@ -162,7 +162,10 @@ export function ChangeCaseReview({
             <p className="mt-2 text-sm font-semibold text-slate-950">{changeCase.narrative.executive_summary}</p>
             <p className="mt-1 text-xs leading-5 text-slate-700">{changeCase.narrative.operator_summary}</p>
             <div className="mt-3 rounded-lg border border-violet-200 bg-white p-3 text-xs text-slate-700">
-              <strong>Verified claim:</strong> {changeCase.proposed_change.claim}. Scanner findings prioritize this workload; findings attributable to the changed paths remain {changeCase.proposed_change.findings_attributable_to_removed_paths}.
+              <strong>Verified claim:</strong> {changeCase.proposed_change.claim}.{' '}
+              {Array.isArray(changeCase.proposed_change.findings_attributable_to_removed_paths)
+                ? `Verified path attribution: ${changeCase.proposed_change.findings_attributable_to_removed_paths.join(', ')}. The findings remain open until the software is patched.`
+                : 'Scanner findings prioritize this workload; findings attributable to the changed paths remain UNKNOWN.'}
             </div>
           </section>
 
