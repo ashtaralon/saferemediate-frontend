@@ -62,9 +62,11 @@ interface Dependency {
   relationship: string
   principal_canonical_resource_uid?: string | null
   principal_arn?: string | null
+  principal_display_name?: string | null
   principal_type?: string | null
   target_canonical_resource_uid?: string | null
   target_arn?: string | null
+  target_display_name?: string | null
   target_type?: string | null
   resource_canonical_resource_uid: string
   first_seen?: string | null
@@ -152,12 +154,51 @@ function StateBadge({ value }: { value: string }) {
   return <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${style}`}>{value.replaceAll("_", " ")}</span>
 }
 
-function displayIdentity(dependency: Dependency) {
+function canonicalDependencyIdentity(dependency: Dependency) {
   return dependency.principal_arn
     ?? dependency.principal_canonical_resource_uid
     ?? dependency.target_arn
     ?? dependency.target_canonical_resource_uid
     ?? "Canonical identity unavailable"
+}
+
+function typedAwsIdentity(identity: string, resourceType?: string | null) {
+  if (identity === "*") return "Any AWS principal"
+  if (!identity.startsWith("arn:")) {
+    const tail = identity.split(/[/:]/).filter(Boolean).at(-1) ?? identity
+    return resourceType ? `${resourceType} · ${tail}` : tail
+  }
+
+  const parts = identity.split(":")
+  const service = parts[2] ?? "AWS"
+  const resource = parts.slice(5).join(":")
+  const path = resource.split("/").filter(Boolean)
+  const tail = path.at(-1) ?? resource
+
+  if (service === "ec2" && path[0] === "instance") return `EC2 instance · ${tail}`
+  if (service === "sts" && path[0] === "assumed-role") {
+    const role = path[1] ?? "unknown role"
+    const session = path.slice(2).join("/")
+    return `STS session · ${role}${session ? ` / ${session}` : ""}`
+  }
+  if (service === "iam" && path[0] === "role") return `IAM role · ${path.slice(1).join("/")}`
+  if (service === "iam" && path[0] === "user") return `IAM user · ${path.slice(1).join("/")}`
+  if (service === "iam" && resource === "root") return "AWS account root"
+  if (service === "lambda" && resource.startsWith("function:")) {
+    return `Lambda function · ${resource.slice("function:".length)}`
+  }
+  if (service === "s3") return `S3 bucket · ${resource}`
+  if (service === "kms") return `KMS key · ${tail}`
+
+  const serviceLabel = service === "events" ? "EventBridge" : service.toUpperCase()
+  return `${resourceType || serviceLabel} · ${tail}`
+}
+
+function displayIdentity(dependency: Dependency) {
+  const canonical = canonicalDependencyIdentity(dependency)
+  const resolved = dependency.principal_display_name ?? dependency.target_display_name
+  if (resolved && resolved !== canonical && !resolved.startsWith("arn:")) return resolved
+  return typedAwsIdentity(canonical, dependency.principal_type ?? dependency.target_type)
 }
 
 function EvidenceRefList({ refs }: { refs: EvidenceBinding[] }) {
@@ -296,8 +337,8 @@ export function ResourceDossier({
                 <div className="mb-2 flex items-center gap-2"><StateBadge value={basis} /><span className="text-xs text-slate-500">{grouped[basis].length} assertion{grouped[basis].length === 1 ? "" : "s"}</span></div>
                 <div className="space-y-3">
                   {grouped[basis].map((dependency, index) => (
-                    <article key={`${basis}-${displayIdentity(dependency)}-${index}`} className="rounded-xl border border-slate-200 bg-white p-4">
-                      <div className="flex items-start gap-3"><Database className="mt-0.5 h-4 w-4 shrink-0 text-teal-700" /><div className="min-w-0 flex-1"><div className="break-all font-mono text-xs font-semibold text-slate-900">{displayIdentity(dependency)}</div><div className="mt-1 text-xs text-slate-500">{dependency.direction} · {dependency.relationship} · {dependency.freshness}</div></div></div>
+                    <article key={`${basis}-${canonicalDependencyIdentity(dependency)}-${index}`} className="rounded-xl border border-slate-200 bg-white p-4">
+                      <div className="flex items-start gap-3"><Database className="mt-0.5 h-4 w-4 shrink-0 text-teal-700" /><div className="min-w-0 flex-1"><div className="text-sm font-semibold text-slate-900">{displayIdentity(dependency)}</div>{displayIdentity(dependency) !== canonicalDependencyIdentity(dependency) ? <div className="mt-1 break-all font-mono text-[10px] text-slate-500">{canonicalDependencyIdentity(dependency)}</div> : null}<div className="mt-1 text-xs text-slate-500">{dependency.direction} · {dependency.relationship} · {dependency.freshness}</div></div></div>
                       {dependency.actions?.length ? <div className="mt-3 text-xs text-slate-600">Actions: {dependency.actions.join(", ")}</div> : null}
                       {dependency.observation_days ? <div className="mt-1 text-xs text-slate-600">Observed over {dependency.observation_days} days · last seen {dependency.last_seen ? new Date(dependency.last_seen).toLocaleString() : "unknown"}</div> : null}
                       {dependency.via_vpce ? <div className="mt-1 text-xs text-slate-600">Via VPC endpoint: <span className="font-mono">{dependency.via_vpce}</span></div> : null}
