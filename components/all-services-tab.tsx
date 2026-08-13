@@ -41,6 +41,7 @@ export interface ServiceNode {
   // null = not reported by the backend — render "—", never a guessed value
   environment: string | null
   region: string | null
+  accountId: string | null
   status: string
   lastSeen: string | null
   properties: Record<string, any>
@@ -190,9 +191,14 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
         systemName: r.systemName || systemName,
         environment: r.environment || null,
         region: r.region || null,
+        accountId: r.account_id || null,
         status: reportedInventoryStatus(r),
         lastSeen: r.last_seen || r.lastSeen || null,
-        properties: {},
+        properties: {
+          account_id: r.account_id || null,
+          customer_id: r.customer_id || null,
+          aws_partition: r.aws_partition || null,
+        },
         attachedPolicies: normalizedType === "IAMRole" ? r.connections || 0 : 0,
         permissionCount: r.connections || 0,
         tags: {},
@@ -943,6 +949,7 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
           resourceType={selectedService.type}
           systemName={systemName}
           vpcId={selectedService.vpcId}
+          accountId={selectedService.accountId}
           region={selectedService.region}
           onClose={() => setSelectedService(null)}
         />

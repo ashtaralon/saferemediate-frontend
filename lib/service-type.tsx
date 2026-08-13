@@ -83,6 +83,7 @@ export type CanonicalServiceType =
   | "Redshift"
   | "VPC"
   | "Subnet"
+  | "RouteTable"
   | "InternetGateway"
   | "NATGateway"
   | "NetworkInterface"
@@ -199,6 +200,7 @@ export const SERVICE_TYPE_CONFIG: Record<CanonicalServiceType, ServiceMeta> = {
   // Network (slate family, following SecurityGroup/NACL; internet edges get cyan).
   VPC: { key: "VPC", label: "VPC", short: "VPC", category: "network", Icon: Network, accent: "#475569", bgLight: "#EEF2F6", bdLight: "#CBD5E1", bgDark: "#1E293B", iconDark: "#94A3B8" },
   Subnet: { key: "Subnet", label: "Subnet", short: "Subnet", category: "network", Icon: Grid3x3, accent: "#475569", bgLight: "#EEF2F6", bdLight: "#CBD5E1", bgDark: "#1E293B", iconDark: "#94A3B8" },
+  RouteTable: { key: "RouteTable", label: "Route table", short: "RT", category: "network", Icon: Waypoints, accent: "#475569", bgLight: "#EEF2F6", bdLight: "#CBD5E1", bgDark: "#1E293B", iconDark: "#94A3B8" },
   InternetGateway: { key: "InternetGateway", label: "Internet gateway", short: "IGW", category: "network", Icon: Globe, accent: "#0891B2", bgLight: "#E4F5FA", bdLight: "#B4E2EF", bgDark: "#0E3038", iconDark: "#5FD0E5" },
   NATGateway: { key: "NATGateway", label: "NAT gateway", short: "NAT", category: "network", Icon: Router, accent: "#475569", bgLight: "#EEF2F6", bdLight: "#CBD5E1", bgDark: "#1E293B", iconDark: "#94A3B8" },
   NetworkInterface: { key: "NetworkInterface", label: "Network interface", short: "ENI", category: "network", Icon: EthernetPort, accent: "#475569", bgLight: "#EEF2F6", bdLight: "#CBD5E1", bgDark: "#1E293B", iconDark: "#94A3B8" },
@@ -240,6 +242,7 @@ const ALIAS: Record<string, CanonicalServiceType> = {
   redshift: "Redshift", redshiftcluster: "Redshift",
   vpc: "VPC", ec2vpc: "VPC",
   subnet: "Subnet", ec2subnet: "Subnet",
+  routetable: "RouteTable", ec2routetable: "RouteTable", rtb: "RouteTable",
   internetgateway: "InternetGateway", igw: "InternetGateway", ec2internetgateway: "InternetGateway",
   natgateway: "NATGateway", nat: "NATGateway", natgw: "NATGateway", ec2natgateway: "NATGateway",
   networkinterface: "NetworkInterface", eni: "NetworkInterface", ec2networkinterface: "NetworkInterface",
@@ -276,6 +279,7 @@ const SUBSTR: [string, CanonicalServiceType][] = [
   ["elasticache", "ElastiCache"],
   ["redshift", "Redshift"],
   ["internetgateway", "InternetGateway"],
+  ["routetable", "RouteTable"],
   ["natgateway", "NATGateway"],
   ["apigateway", "APIGateway"],
   ["networkinterface", "NetworkInterface"],
