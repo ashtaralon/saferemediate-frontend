@@ -120,7 +120,12 @@ interface ResourceDossierData {
   source_vector_hash: string
   source_generations: Record<string, string>
   change_readiness: "READY" | "READY_WITH_CONDITIONS" | "NOT_READY" | "HELD"
-  assembly?: { cache: "HIT" | "MISS"; latency_ms: number }
+  assembly?: {
+    cache: "HIT" | "MISS" | "BYPASS"
+    cache_eligible: boolean
+    latency_ms: number
+    missing_source_heads: string[]
+  }
 }
 
 interface Props {
@@ -196,15 +201,9 @@ export function ResourceDossier({
     setData(null)
     setError(null)
     if (!isS3) return () => { cancelled = true }
-    if (!scope.customerId) {
-      setError("Tenant scope is unavailable; the dossier cannot be assembled safely.")
-      return () => { cancelled = true }
-    }
-
     setLoading(true)
     const query = new URLSearchParams({
       resource_id: resourceId,
-      tenant: scope.customerId,
       window_days: "90",
     })
     const resolvedAccount = accountId && accountId !== "all" ? accountId : scope.accountId
@@ -217,7 +216,7 @@ export function ResourceDossier({
       .catch(cause => { if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause)) })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [accountId, isS3, region, resourceId, scope.accountId, scope.customerId, scope.region, systemName])
+  }, [accountId, isS3, region, resourceId, scope.accountId, scope.region, systemName])
 
   const dependencies = data?.dependencies.payload?.ledger ?? []
   const counts = data?.dependencies.payload?.counts_by_basis
@@ -319,6 +318,7 @@ export function ResourceDossier({
               <div className="flex items-center justify-between"><span className="font-semibold text-slate-900">Evidence serve state</span><StateBadge value={data.evidence.serve_state} /></div>
               <div className="mt-3 flex items-center justify-between"><span className="font-semibold text-slate-900">Immutable bindings missing</span><span>{data.evidence.payload?.missing_immutable_evidence_bindings ?? 0}</span></div>
               <div className="mt-3 flex items-center justify-between"><span className="font-semibold text-slate-900">Assembly cache</span><span>{data.assembly?.cache ?? "UNREPORTED"}{data.assembly ? ` · ${data.assembly.latency_ms} ms` : ""}</span></div>
+              {data.assembly?.missing_source_heads.length ? <div className="mt-3 text-amber-800">Cache reuse held: missing activated {data.assembly.missing_source_heads.join(", ")} head{data.assembly.missing_source_heads.length === 1 ? "" : "s"}.</div> : null}
             </section>
             {data.evidence.payload?.diagnostics.length ? <section className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-900">{data.evidence.payload.diagnostics.map(item => <div key={item}>{item}</div>)}</section> : null}
             <section className="space-y-2">
