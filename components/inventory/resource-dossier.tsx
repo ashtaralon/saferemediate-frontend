@@ -7,7 +7,9 @@ import {
   ChevronDown,
   ChevronRight,
   CircleHelp,
+  Clock3,
   Database,
+  Gauge,
   LoaderCircle,
   ShieldCheck,
   X,
@@ -88,6 +90,17 @@ interface DossierSection<T> {
   notes: string | null
 }
 
+interface ProfileFact {
+  key: string
+  label: string
+  assertion: Assertion
+}
+
+interface ProfileFactsPayload {
+  profile_id: string
+  facts: ProfileFact[]
+}
+
 interface ResourceDossierData {
   identity: {
     tenant: string
@@ -100,9 +113,11 @@ interface ResourceDossierData {
     summary: string | null
     not_established_reason: string | null
     assertion: Assertion<string>
+    profile_id?: string
+    profile_label?: string
   }>
-  lifecycle: DossierSection<never>
-  fitness: DossierSection<never>
+  lifecycle: DossierSection<ProfileFactsPayload>
+  fitness: DossierSection<ProfileFactsPayload>
   dependencies: DossierSection<{
     ledger: Dependency[]
     counts_by_basis: Record<BasisClass, number>
@@ -151,7 +166,23 @@ function StateBadge({ value }: { value: string }) {
       : value === "INTEGRITY_HELD" || value === "HELD" || value === "BLOCKED"
         ? "border-rose-200 bg-rose-50 text-rose-800"
         : "border-slate-200 bg-slate-50 text-slate-600"
-  return <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${style}`}>{value.replaceAll("_", " ")}</span>
+  const labels: Record<string, string> = {
+    ACTIVE: "Verified profile",
+    PARTIAL: "Evidence available",
+    NOT_READY: "Identity available",
+    INTEGRITY_HELD: "Evidence review",
+    NOT_APPLICABLE: "Not applicable",
+    FULL: "Complete coverage",
+    NONE: "No coverage proof",
+    UNKNOWN: "Coverage unverified",
+    OBSERVED: "Observed",
+    CONFIGURED: "Configured",
+    STRUCTURAL: "Structural",
+    INFERRED: "Inferred",
+    BLOCKED: "Evidence blocked",
+    HELD: "Evidence held",
+  }
+  return <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${style}`}>{labels[value] ?? value.replaceAll("_", " ")}</span>
 }
 
 function canonicalDependencyIdentity(dependency: Dependency) {
@@ -201,8 +232,12 @@ function displayIdentity(dependency: Dependency) {
   return typedAwsIdentity(canonical, dependency.principal_type ?? dependency.target_type)
 }
 
-function EvidenceRefList({ refs }: { refs: EvidenceBinding[] }) {
-  if (!refs.length) return <span className="text-amber-700">Immutable evidence binding unavailable</span>
+function EvidenceRefList({ refs, sourceRefs = [] }: { refs: EvidenceBinding[]; sourceRefs?: SourceGenerationRef[] }) {
+  if (!refs.length) return sourceRefs.length ? (
+    <div className="space-y-1 text-slate-600">
+      {sourceRefs.map(ref => <div key={`${ref.plane}:${ref.generation}`}><span className="font-semibold capitalize">{ref.plane}</span> generation <span className="font-mono">{ref.generation}</span> · object-level evidence link unavailable</div>)}
+    </div>
+  ) : <span className="text-slate-600">Object-level evidence link unavailable</span>
   return (
     <ul className="space-y-1">
       {refs.map(ref => (
@@ -212,6 +247,29 @@ function EvidenceRefList({ refs }: { refs: EvidenceBinding[] }) {
       ))}
     </ul>
   )
+}
+
+function formatFactValue(key: string, value: unknown) {
+  if (value === null || value === undefined || value === "") return "Unavailable"
+  if (key === "internet_exposed" && typeof value === "boolean") return value ? "Publicly reachable" : "No public exposure in collected configuration"
+  if (typeof value === "boolean") return value ? "Enabled" : "Disabled"
+  if (Array.isArray(value)) {
+    const visible = value.slice(0, 6).map(String)
+    return `${visible.join(", ")}${value.length > visible.length ? ` +${value.length - visible.length} more` : ""}`
+  }
+  if (typeof value === "object") return "Collected configuration available"
+  if ((key.includes("time") || key.includes("created") || key.includes("seen") || key.includes("used")) && typeof value === "string") {
+    const date = new Date(value)
+    if (!Number.isNaN(date.getTime())) return date.toLocaleString()
+  }
+  return String(value)
+}
+
+function diagnosticText(value: string) {
+  if (value.includes("mode=identity_only") || value.includes("substantive_projection=NOT_READY")) {
+    return "Canonical identity is verified; service-specific configuration and activity evidence are not available in this profile."
+  }
+  return value.replaceAll("NOT_READY", "not available")
 }
 
 async function readJson(response: Response) {
@@ -270,6 +328,9 @@ export function ResourceDossier({
 
   const dependencies = data?.dependencies.payload?.ledger ?? []
   const counts = data?.dependencies.payload?.counts_by_basis
+  const lifecycleFacts = data?.lifecycle.payload?.facts ?? []
+  const fitnessFacts = data?.fitness.payload?.facts ?? []
+  const hasConfigurationProfile = Boolean(data?.purpose.payload?.profile_id)
   const grouped = useMemo(() => ({
     OBSERVED: dependencies.filter(item => item.basis_class === "OBSERVED"),
     CONFIGURED: dependencies.filter(item => item.basis_class === "CONFIGURED"),
@@ -316,21 +377,46 @@ export function ResourceDossier({
         {data && tab === "purpose" ? (
           <div className="space-y-4">
             <section className="rounded-xl border border-slate-200 bg-white p-5">
-              <div className="flex items-center justify-between gap-3"><div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Established purpose</div><StateBadge value={data.purpose.serve_state} /></div>
+              <div className="flex items-center justify-between gap-3"><div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">{hasConfigurationProfile ? "Operational profile" : data.serve_state === "NOT_READY" ? "Identity profile" : "Established purpose"}</div><StateBadge value={data.purpose.serve_state} /></div>
               {data.purpose.payload?.summary ? (
                 <h3 className="mt-3 text-lg font-bold leading-7 text-slate-950">{data.purpose.payload.summary}</h3>
               ) : (
-                <div className="mt-3 flex gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /><span>Purpose not established. {data.purpose.payload?.not_established_reason}</span></div>
+                <div className="mt-3 flex gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700"><CircleHelp className="mt-0.5 h-4 w-4 shrink-0 text-slate-500" /><span>{data.serve_state === "NOT_READY" ? "Canonical identity is verified. Service-specific configuration and activity evidence are not available in this profile." : <>Purpose not established. {data.purpose.payload?.not_established_reason}</>}</span></div>
               )}
+              {data.purpose.notes ? <p className="mt-3 text-xs leading-5 text-slate-500">{data.purpose.notes}</p> : null}
               <div className="mt-4 grid grid-cols-2 gap-3 text-xs text-slate-600">
                 <div><div className="font-semibold text-slate-900">Authority</div>{data.purpose.payload?.assertion.authority_basis}</div>
                 <div><div className="font-semibold text-slate-900">Evidence window</div>{data.purpose.payload?.assertion.window?.days ? `${data.purpose.payload.assertion.window.days} days` : "Not applicable"}</div>
               </div>
             </section>
+            {hasConfigurationProfile ? (
+              <>
+                <section className="rounded-xl border border-slate-200 bg-white p-4">
+                  <div className="flex items-center gap-2 font-semibold text-slate-950"><Clock3 className="h-4 w-4 text-teal-700" />Lifecycle</div>
+                  {lifecycleFacts.length ? <div className="mt-3 grid gap-3 sm:grid-cols-2">{lifecycleFacts.map(fact => (
+                    <div key={fact.key} className="rounded-lg border border-slate-100 bg-slate-50 p-3">
+                      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{fact.label}</div>
+                      <div className="mt-1 break-words text-sm font-semibold text-slate-950">{formatFactValue(fact.key, fact.assertion.value)}</div>
+                      <div className="mt-2"><StateBadge value={fact.assertion.state} /></div>
+                    </div>
+                  ))}</div> : <p className="mt-3 text-xs text-slate-600">{data.lifecycle.notes ?? "No lifecycle fields were present in the collected configuration."}</p>}
+                </section>
+                <section className="rounded-xl border border-slate-200 bg-white p-4">
+                  <div className="flex items-center gap-2 font-semibold text-slate-950"><Gauge className="h-4 w-4 text-teal-700" />Configuration and posture</div>
+                  {fitnessFacts.length ? <div className="mt-3 grid gap-3 sm:grid-cols-2">{fitnessFacts.map(fact => (
+                    <div key={fact.key} className="rounded-lg border border-slate-100 bg-slate-50 p-3">
+                      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{fact.label}</div>
+                      <div className="mt-1 break-words text-sm font-semibold text-slate-950">{formatFactValue(fact.key, fact.assertion.value)}</div>
+                      <div className="mt-2"><StateBadge value={fact.assertion.state} /></div>
+                    </div>
+                  ))}</div> : <p className="mt-3 text-xs text-slate-600">{data.fitness.notes ?? "No posture fields were present in the collected configuration."}</p>}
+                </section>
+              </>
+            ) : null}
             <section className="rounded-xl border border-slate-200 bg-white p-4">
-              <div className="flex items-center gap-2 font-semibold text-slate-950"><ShieldCheck className="h-4 w-4 text-teal-700" />Decision-relative coverage</div>
-              <div className="mt-3 flex items-center gap-2"><StateBadge value={data.purpose.coverage?.state ?? "UNKNOWN"} /><span className="text-xs text-slate-500">This controls which absence claims may be rendered.</span></div>
-              {data.purpose.coverage?.missing_sources.length ? <p className="mt-3 text-xs text-amber-800">Missing: {data.purpose.coverage.missing_sources.join(", ")}</p> : null}
+              <div className="flex items-center gap-2 font-semibold text-slate-950"><ShieldCheck className="h-4 w-4 text-teal-700" />Evidence coverage</div>
+              <div className="mt-3 flex items-center gap-2"><StateBadge value={data.purpose.coverage?.state ?? "UNKNOWN"} /><span className="text-xs text-slate-500">Coverage determines which conclusions are safe to make.</span></div>
+              {data.purpose.coverage?.missing_sources.length ? <p className="mt-3 text-xs text-amber-800">Additional evidence needed: {data.purpose.coverage.missing_sources.join(", ")}</p> : null}
             </section>
             <section className="grid grid-cols-3 gap-3">
               {(["OBSERVED", "CONFIGURED", "STRUCTURAL"] as BasisClass[]).map(basis => <div key={basis} className="rounded-lg border border-slate-200 bg-white p-3"><div className="text-2xl font-bold text-slate-950">{counts?.[basis] ?? 0}</div><div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{basis}</div></div>)}
@@ -353,7 +439,7 @@ export function ResourceDossier({
                       {dependency.actions?.length ? <div className="mt-3 text-xs text-slate-600">Actions: {dependency.actions.join(", ")}</div> : null}
                       {dependency.observation_days ? <div className="mt-1 text-xs text-slate-600">Observed over {dependency.observation_days} days · last seen {dependency.last_seen ? new Date(dependency.last_seen).toLocaleString() : "unknown"}</div> : null}
                       {dependency.via_vpce ? <div className="mt-1 text-xs text-slate-600">Via VPC endpoint: <span className="font-mono">{dependency.via_vpce}</span></div> : null}
-                      <div className="mt-3 border-t border-slate-100 pt-3 text-xs"><EvidenceRefList refs={dependency.evidence_refs ?? []} /></div>
+                      <div className="mt-3 border-t border-slate-100 pt-3 text-xs"><EvidenceRefList refs={dependency.evidence_refs ?? []} sourceRefs={dependency.source_generation_refs ?? []} /></div>
                     </article>
                   ))}
                 </div>
@@ -365,12 +451,12 @@ export function ResourceDossier({
         {data && tab === "evidence" ? (
           <div className="space-y-4">
             <section className="rounded-xl border border-slate-200 bg-white p-4 text-xs text-slate-600">
-              <div className="flex items-center justify-between"><span className="font-semibold text-slate-900">Evidence serve state</span><StateBadge value={data.evidence.serve_state} /></div>
-              <div className="mt-3 flex items-center justify-between"><span className="font-semibold text-slate-900">Immutable bindings missing</span><span>{data.evidence.payload?.missing_immutable_evidence_bindings ?? 0}</span></div>
+              <div className="flex items-center justify-between"><span className="font-semibold text-slate-900">Evidence status</span><StateBadge value={data.evidence.serve_state} /></div>
+              <div className="mt-3 flex items-center justify-between"><span className="font-semibold text-slate-900">Object-level evidence links unavailable</span><span>{data.evidence.payload?.missing_immutable_evidence_bindings ?? 0}</span></div>
               <div className="mt-3 flex items-center justify-between"><span className="font-semibold text-slate-900">Assembly cache</span><span>{data.assembly?.cache ?? "UNREPORTED"}{data.assembly ? ` · ${data.assembly.latency_ms} ms` : ""}</span></div>
               {data.assembly?.missing_source_heads.length ? <div className="mt-3 text-amber-800">Cache reuse held: missing activated {data.assembly.missing_source_heads.join(", ")} head{data.assembly.missing_source_heads.length === 1 ? "" : "s"}.</div> : null}
             </section>
-            {data.evidence.payload?.diagnostics.length ? <section className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-900">{data.evidence.payload.diagnostics.map(item => <div key={item}>{item}</div>)}</section> : null}
+            {data.evidence.payload?.diagnostics.length ? <section className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-900">{data.evidence.payload.diagnostics.map(item => <div key={item}>{diagnosticText(item)}</div>)}</section> : null}
             <section className="space-y-2">
               {data.evidence.payload?.assertions.map((assertion, index) => (
                 <article key={`${assertion.basis}-${index}`} className="overflow-hidden rounded-xl border border-slate-200 bg-white">
@@ -380,7 +466,7 @@ export function ResourceDossier({
                     <StateBadge value={assertion.state} />
                     {expandedAssertion === index ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                   </button>
-                  {expandedAssertion === index ? <div className="space-y-3 border-t border-slate-100 bg-slate-50 p-4 text-xs"><div><strong>Authority:</strong> {assertion.authority_basis}</div><EvidenceRefList refs={assertion.evidence_refs} /><pre className="max-h-64 overflow-auto rounded bg-slate-950 p-3 text-[10px] text-slate-200">{JSON.stringify(assertion.value, null, 2)}</pre></div> : null}
+                  {expandedAssertion === index ? <div className="space-y-3 border-t border-slate-100 bg-slate-50 p-4 text-xs"><div><strong>Authority:</strong> {assertion.authority_basis}</div><EvidenceRefList refs={assertion.evidence_refs} sourceRefs={assertion.source_generation_refs} />{assertion.value !== null ? <div className="rounded border border-slate-200 bg-white p-3 text-slate-700"><strong>Verified value:</strong> {formatFactValue("assertion", assertion.value)}</div> : null}</div> : null}
                 </article>
               ))}
             </section>
