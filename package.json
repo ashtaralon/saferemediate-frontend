@@ -16,6 +16,7 @@
     "typecheck": "tsc --noEmit",
     "typecheck:report-release": "node scripts/typecheck-report-release.mjs",
     "lint:ir-purity": "scripts/check_ir_purity.sh",
+    "lint:cve-evidence": "node scripts/check-no-port-inferred-cves.mjs",
     "verify-next": "node -e \"const pkg=require('./package.json'); console.log('Next.js version:', pkg.dependencies.next); if(pkg.dependencies.next !== '16.3.0') { console.error('ERROR: Next.js must be pinned to patched 16.3.0'); process.exit(1); } else { console.log('Next.js version is patched'); }\""
   },
   "dependencies": {

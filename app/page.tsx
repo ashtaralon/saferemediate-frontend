@@ -16,7 +16,7 @@ import { IdentitiesSection } from "@/components/identities-section"
 import { AutomationSection } from "@/components/automation-section"
 import { PerResourceAnalysis } from "@/components/per-resource-analysis"
 import { VulnerabilitiesSection } from "@/components/vulnerabilities-section"
-import { BehavioralVulnerabilitiesView } from "@/components/behavioral-vulnerabilities/behavioral-vulnerabilities-view"
+import { CVEManagementView } from "@/components/cve-management-view"
 import LeastPrivilegeTab from "@/components/LeastPrivilegeTab"
 import { SavedQuestionGallery } from "@/components/copilot/saved-question-gallery"
 import { BusinessImpactWorkspace } from "@/components/business-impact/business-impact-workspace"
@@ -993,7 +993,7 @@ export default function HomePage() {
         )
 
       case "vulnerabilities":
-        return <BehavioralVulnerabilitiesView systemName={selectedSystem} />
+        return <CVEManagementView systemName={selectedSystem ?? undefined} />
 
       case "automation":
         return <AutomationSection />
