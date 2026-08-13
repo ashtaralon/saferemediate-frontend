@@ -23,6 +23,71 @@ afterEach(() => {
 })
 
 describe("S3 configuration-fix resume", () => {
+  it("hands a pending validation to the durable lifecycle poller", async () => {
+    operationalRequest.mockImplementation(async (_system: string, path: string) => {
+      if (path === "s3-bucket-policy/plan") {
+        return {
+          readiness: "READY",
+          operation_id: "s3-bpe-live",
+          operation_state: "READY_FOR_SIMULATION",
+          plan_token: "signed-plan",
+          bucket_name: "customer-data",
+          vpc_id: "vpc-1",
+          vpce_ids: ["vpce-1"],
+          enforcement_mode: "SINGLE_STAGE",
+          exempt_principal_arns: [],
+          canary_principal_arns: [],
+          blockers: [],
+          impact: {
+            observed_consumers: 1,
+            protected_consumers: 1,
+            public_consumers: 0,
+            unknown_consumers: 0,
+            exempt_principals: 0,
+            vpc_endpoints: 1,
+            policy_statements_added: 1,
+          },
+        }
+      }
+      if (path === "s3-bucket-policy/simulate") {
+        return {
+          status: "PENDING",
+          safe_to_apply: false,
+          errors: [],
+          operation_state: "SIMULATION_PENDING",
+          operation_version: 2,
+        }
+      }
+      if (path.endsWith("/explanation")) {
+        throw new Error("Narration is optional")
+      }
+      throw new Error(`Unexpected request: ${path}`)
+    })
+
+    render(
+      <S3EnforcementWizard
+        systemName="alon-prod"
+        bucket={{ id: "arn:aws:s3:::customer-data", name: "customer-data", region: "eu-west-1" }}
+        executionEnabled={false}
+        onClose={() => undefined}
+      />,
+    )
+
+    fireEvent.click(screen.getByTestId("enforce-wizard-analyze"))
+    fireEvent.click(await screen.findByTestId("enforce-wizard-next-safety"))
+    fireEvent.click(screen.getByTestId("enforce-wizard-simulate"))
+
+    expect(await screen.findByTestId("enforce-wizard-simulation-pending")).toHaveTextContent(
+      "Policy validation is running",
+    )
+    await waitFor(() => expect(screen.getByTestId("enforce-wizard-simulate")).not.toHaveTextContent("Operational API returned"))
+    expect(
+      operationalRequest.mock.calls.filter(([, path]) =>
+        String(path).includes("include_history=false"),
+      ),
+    ).toHaveLength(0)
+  })
+
   it("renders an asynchronous policy validation without requiring a result hash", async () => {
     operationalRequest.mockResolvedValue({
       operation_id: "s3-bpe-pending",

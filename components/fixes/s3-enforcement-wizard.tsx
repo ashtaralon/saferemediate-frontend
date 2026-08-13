@@ -329,7 +329,10 @@ export function S3EnforcementWizard({ systemName, bucket, resume, accountId, reg
     }
     const storedSimulation = (current as unknown as { simulation?: S3EnforcementSimulation }).simulation
     if (storedSimulation) {
-      setSimulation((previous) => previous ?? storedSimulation)
+      // The durable worker replaces PENDING with the completed safety result.
+      // Keeping the first response forever leaves the UI stuck on validation
+      // even after the operation ledger has advanced to SIMULATED or FAILED.
+      setSimulation(storedSimulation)
     }
     const latest = (current.verification?.full ?? current.verification?.canary) as
       | S3EnforcementVerification
@@ -404,38 +407,13 @@ export function S3EnforcementWizard({ systemName, bucket, resume, accountId, reg
       operation_id: plan.operation_id,
       plan_token: plan.plan_token,
     })
-    let completed = result
-    if (result.operation_state === "SIMULATION_PENDING") {
-      setSimulation(result)
-      updateRememberedOperation(systemName, plan.operation_id, { state: result.operation_state })
-      const deadline = Date.now() + 15 * 60_000
-      while (Date.now() < deadline) {
-        await new Promise((resolve) => window.setTimeout(resolve, 5_000))
-        const current = await operationalRequest<S3PrivatePathOperation & {
-          simulation?: S3EnforcementSimulation
-        }>(
-          systemName,
-          `s3-vpce/operations/${encodeURIComponent(plan.operation_id)}?include_history=false`,
-        )
-        setOperation(current)
-        if (current.state !== "SIMULATION_PENDING") {
-          if (!current.simulation) {
-            throw new Error("The safety check completed without a stored result. Analyze again.")
-          }
-          completed = {
-            ...current.simulation,
-            operation_state: current.state,
-            operation_version: current.version,
-          }
-          break
-        }
-      }
-      if (completed.operation_state === "SIMULATION_PENDING") {
-        throw new Error("The safety evidence scan did not finish within 15 minutes. No AWS change was authorized.")
-      }
-    }
-    setSimulation(completed)
-    updateRememberedOperation(systemName, plan.operation_id, { state: completed.operation_state })
+    setSimulation(result)
+    updateRememberedOperation(systemName, plan.operation_id, { state: result.operation_state })
+    // Long-running evidence scans belong to the durable operation ledger. The
+    // existing lifecycle poller refreshes that record every five seconds and
+    // tolerates transient proxy errors. Keeping this action open created a
+    // second 15-minute polling chain where one 502 stranded the wizard even
+    // though the backend was still working safely.
   })
 
   const requestApproval = () => runAction("request-approval", async () => {
