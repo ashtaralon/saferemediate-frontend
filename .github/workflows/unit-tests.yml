@@ -25,6 +25,7 @@ jobs:
       # resolution; regenerating it is a separate cleanup.
       - run: pnpm install --no-frozen-lockfile
       - run: npx vitest run __tests__
+      - run: npm run lint:cve-evidence
 
       # Type-error ratchet. next.config.js sets ignoreBuildErrors, so the
       # Vercel build ships regardless of type errors and nothing else stops

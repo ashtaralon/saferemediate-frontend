@@ -1307,83 +1307,36 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
     setRemediatingPermission(null)
   }
 
-  // Port to service mapping for CVE summary
-  const PORT_TO_SERVICE: Record<number, string> = {
-    22: 'SSH', 80: 'HTTP', 443: 'HTTPS', 3306: 'MySQL', 5432: 'PostgreSQL',
-    6379: 'Redis', 27017: 'MongoDB', 8080: 'Tomcat', 8443: 'HTTPS-Alt',
-    9200: 'Elasticsearch', 3389: 'RDP', 21: 'FTP', 25: 'SMTP', 53: 'DNS'
-  }
-
   const fetchCVESummary = async () => {
     try {
-      // Get system's security groups
-      const sysRes = await fetch(`/api/proxy/system-resources/${systemName}`)
-      if (!sysRes.ok) {
+      // Read one source-stamped vulnerability projection. Security-group
+      // ports are network configuration facts and must never be converted
+      // into software findings or service names here.
+      const response = await fetch(`/api/proxy/vulnerability-map/${encodeURIComponent(systemName)}?include_traffic=false`)
+      if (!response.ok) {
         setCveSummary(prev => ({ ...prev, loading: false }))
         return
       }
-
-      const sysData = await sysRes.json()
-      const sgIds = (sysData.resources || [])
-        .filter((r: any) => r.type === 'SecurityGroup')
-        .map((r: any) => {
-          // First check if id starts with sg-
-          if (r.id?.startsWith('sg-')) return r.id
-          // Otherwise extract from ARN (arn:aws:ec2:region:account:security-group/sg-xxx)
-          if (r.arn?.includes('security-group/sg-')) {
-            const match = r.arn.match(/security-group\/(sg-[a-z0-9]+)/)
-            return match ? match[1] : null
-          }
-          return null
-        })
-        .filter(Boolean)
-
-      if (sgIds.length === 0) {
-        setCveSummary(prev => ({ ...prev, loading: false }))
-        return
-      }
-
-      // Cap fan-out — sequential N SG calls were saturating Render on Overview.
-      const sgSample = sgIds.slice(0, 5)
-
-      // Collect CVE counts and services
-      let critical = 0, high = 0, medium = 0, low = 0
-      const servicesSet = new Set<string>()
-
-      for (const sgId of sgSample) {
-        try {
-          const vulnRes = await fetch(`/api/proxy/vulnerability/sg/${sgId}/exposure`)
-          if (!vulnRes.ok) continue
-          const vulnData = await vulnRes.json()
-
-          for (const rule of vulnData.rules_exposure || []) {
-            const exposure = rule.vulnerability_exposure || {}
-
-            // Count CVEs by severity
-            critical += (exposure.critical_cves || []).length
-            high += (exposure.high_cves || []).length
-            medium += (exposure.medium_cves || []).length
-
-            // Track services at risk
-            const port = rule.port
-            if (port && PORT_TO_SERVICE[port]) {
-              servicesSet.add(PORT_TO_SERVICE[port])
-            } else if (port) {
-              servicesSet.add(`Port ${port}`)
-            }
-          }
-        } catch (e) {
-          console.error(`[CVESummary] Error fetching ${sgId}:`, e)
+      const data = await response.json()
+      const nodes = Array.isArray(data.nodes) ? data.nodes : []
+      const high = nodes.reduce((sum: number, node: any) => sum + Number(node?.vulnerabilities?.high || 0), 0)
+      const medium = nodes.reduce((sum: number, node: any) => sum + Number(node?.vulnerabilities?.medium || 0), 0)
+      const low = nodes.reduce((sum: number, node: any) => sum + Number(node?.vulnerabilities?.low || 0), 0)
+      const software = new Set<string>()
+      nodes.forEach((node: any) => {
+        if (node?.vulnerabilities?.coverage !== 'SCANNED') return
+        for (const name of node?.vulnerabilities?.software_affected || []) {
+          if (name) software.add(String(name))
         }
-      }
+      })
 
       setCveSummary({
-        critical,
+        critical: Number(data.critical_cves || 0),
         high,
         medium,
         low,
-        totalCves: critical + high + medium + low,
-        servicesAtRisk: Array.from(servicesSet).slice(0, 6),
+        totalCves: Number(data.total_cves || 0),
+        servicesAtRisk: Array.from(software).slice(0, 6),
         loading: false
       })
     } catch (error) {

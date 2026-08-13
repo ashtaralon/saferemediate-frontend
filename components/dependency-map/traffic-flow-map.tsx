@@ -11096,33 +11096,6 @@ export default function TrafficFlowMap({
 
   useEffect(() => { loadAttackPaths(); }, [loadAttackPaths]);
 
-  // Inject CVE attack scenario into Neo4j
-  const [injectingCVE, setInjectingCVE] = useState(false);
-  const injectAttackScenario = useCallback(async () => {
-    setInjectingCVE(true);
-    try {
-      const res = await fetch('/api/proxy/inject-cve/preset', { method: 'POST' });
-      if (res.ok) {
-        const data = await res.json();
-        console.log('[TrafficFlowMap] Injected CVE data:', data);
-        // Reload attack paths after injection
-        if (showAttackPaths) {
-          await loadAttackPaths();
-        }
-        alert(`✅ Injected attack scenario: ${data.updated_nodes} nodes updated with CVE data`);
-      } else {
-        const error = await res.text();
-        console.error('[TrafficFlowMap] CVE injection failed:', error);
-        alert('❌ Failed to inject CVE data. Make sure the backend is deployed with the inject-cve API.');
-      }
-    } catch (err) {
-      console.error('[TrafficFlowMap] CVE injection error:', err);
-      alert('❌ Failed to inject CVE data. Check console for details.');
-    } finally {
-      setInjectingCVE(false);
-    }
-  }, [showAttackPaths, loadAttackPaths]);
-
   const toggleFullscreen = useCallback(() => {
     if (!containerRef.current) return;
     if (!document.fullscreenElement) {
@@ -11440,36 +11413,6 @@ export default function TrafficFlowMap({
             )}
           </button>
 
-          {/* Inject CVE Scenario — DEV-ONLY.
-              This button writes SYNTHETIC CVE nodes into Neo4j. It's a
-              developer test tool for exercising vulnerability-based
-              paths and must NEVER ship to production. Per
-              feedback_no_mock_numbers_in_ui + the 2026-05-21
-              credibility audit — operators / customers / design
-              partners can never see a "Inject Test Data" button on a
-              security platform; that's instant credibility loss.
-              Gated by NODE_ENV; Next.js inlines this at build time so
-              the button code is dead-stripped from prod bundles. */}
-          {process.env.NODE_ENV !== 'production' && (
-            <button
-              onClick={injectAttackScenario}
-              disabled={injectingCVE}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-2 ${
-                injectingCVE
-                  ? 'bg-violet-500/50 text-purple-700 dark:text-purple-200 cursor-wait'
-                  : 'bg-violet-500 hover:bg-violet-500 text-white'
-              }`}
-              title="DEV ONLY — inject synthetic CVE data for testing vulnerability-based paths"
-            >
-              {injectingCVE ? (
-                <RefreshCw className="w-3 h-3 animate-spin" />
-              ) : (
-                <Target className="w-3 h-3" />
-              )}
-              [DEV] Inject CVE Test Data
-            </button>
-          )}
-
           {/* Auto-refresh toggle */}
           <button
             onClick={() => setAutoRefresh(!autoRefresh)}
@@ -11781,21 +11724,9 @@ export default function TrafficFlowMap({
                   <div className="text-center">
                     <div className="text-foreground text-xs font-medium mb-1">No CVE Attack Paths Found</div>
                     <div className="text-muted-foreground text-[10px] leading-relaxed">
-                      No current CVE-driven routes to crown jewels were detected.
-                      {process.env.NODE_ENV !== 'production' && ' You can still inject CVE test data to simulate vulnerability-based paths.'}
+                      No current scanner-backed routes to crown jewels were detected.
                     </div>
                   </div>
-                  {/* DEV-only — see comment on the primary inject button.
-                      This is the empty-state fallback inject; same gating. */}
-                  {process.env.NODE_ENV !== 'production' && (
-                    <button
-                      onClick={() => { setShowAttackPaths(false); injectAttackScenario(); }}
-                      className="mt-1 px-3 py-1.5 bg-violet-500/10 hover:bg-violet-500/20 border border-violet-500/30 rounded-lg text-violet-600 dark:text-violet-400 text-[10px] font-medium flex items-center gap-1.5 transition-colors"
-                    >
-                      <Target className="w-3 h-3" />
-                      [DEV] Inject CVE Test Data
-                    </button>
-                  )}
                   <button
                     onClick={() => loadAttackPaths()}
                     className="px-3 py-1.5 bg-muted/50 hover:bg-accent border border-border rounded-lg text-muted-foreground text-[10px] font-medium flex items-center gap-1.5 transition-colors"
