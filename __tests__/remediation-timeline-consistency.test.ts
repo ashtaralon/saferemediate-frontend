@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
+  DEFAULT_REMEDIATION_EVENT_FILTER,
   dedupeRemediationEvents,
   isActionableRestore,
   remediationTimelineUrl,
@@ -7,6 +8,10 @@ import {
   summarizeRemediationEvents,
   type TimelineEventRecord,
 } from "@/lib/remediation-timeline"
+
+it("opens the audit timeline on the complete change record", () => {
+  expect(DEFAULT_REMEDIATION_EVENT_FILTER).toBe("all")
+})
 
 const event = (overrides: Partial<TimelineEventRecord> = {}): TimelineEventRecord => ({
   event_id: "evt-1",
