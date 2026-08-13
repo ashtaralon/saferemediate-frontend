@@ -258,9 +258,14 @@ function EvidenceRefList({ refs, sourceRefs = [] }: { refs: EvidenceBinding[]; s
   )
 }
 
-function formatFactValue(key: string, value: unknown) {
+export function formatFactValue(key: string, value: unknown) {
   if (value === null || value === undefined || value === "") return "Unavailable"
   if (key === "internet_exposed" && typeof value === "boolean") return value ? "Publicly reachable" : "No public exposure in collected configuration"
+  if (key === "fifo_queue" && typeof value === "boolean") return value ? "FIFO" : "Standard"
+  if (key === "memory_mb" && typeof value === "number") return `${value.toLocaleString()} MB`
+  if (key === "timeout_seconds" && typeof value === "number") return `${value.toLocaleString()} seconds`
+  if (key === "allocated_storage" && typeof value === "number") return `${value.toLocaleString()} GiB`
+  if (["maximum_message_size", "size_bytes", "stored_bytes"].includes(key) && typeof value === "number") return `${value.toLocaleString()} bytes`
   if (typeof value === "boolean") return value ? "Enabled" : "Disabled"
   if (Array.isArray(value)) {
     const visible = value.slice(0, 6).map(String)
