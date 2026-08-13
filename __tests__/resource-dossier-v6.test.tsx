@@ -106,6 +106,75 @@ const dossier = {
   assembly: { cache: "MISS", latency_ms: 4.2 },
 }
 
+const identityOnlyDossier = {
+  ...dossier,
+  identity: {
+    tenant: "customer-a",
+    account: "123456789012",
+    aws_partition: "aws",
+    canonical_resource_uid: "aws:ec2:eu-west-1:123456789012:instance/i-123",
+    region: "eu-west-1",
+  },
+  purpose: {
+    ...dossier.purpose,
+    serve_state: "NOT_READY",
+    payload: {
+      summary: null,
+      not_established_reason: "Canonical EC2 instance identity is available, but this profile does not yet have a certified purpose or dependency projection.",
+      assertion: {
+        ...dossier.purpose.payload.assertion,
+        authority_basis: "aws.ec2.instance.v1 requires a certified type-specific evidence projection",
+        window: null,
+        coverage: {
+          state: "UNKNOWN",
+          required_sources: [],
+          present_sources: [],
+          missing_sources: [],
+          sufficient_for: ["identify the canonical AWS resource"],
+          insufficient_for: ["establish resource purpose", "identify dependencies", "prove absence of dependencies"],
+        },
+      },
+    },
+    coverage: {
+      state: "UNKNOWN",
+      required_sources: [],
+      present_sources: [],
+      missing_sources: [],
+      sufficient_for: ["identify the canonical AWS resource"],
+      insufficient_for: ["establish resource purpose", "identify dependencies", "prove absence of dependencies"],
+    },
+  },
+  dependencies: {
+    serve_state: "NOT_READY",
+    payload: {
+      ledger: [],
+      counts_by_basis: { OBSERVED: 0, CONFIGURED: 0, STRUCTURAL: 0 },
+    },
+    coverage: dossier.purpose.coverage,
+    notes: "No certified dependency assertions are available. An empty ledger is not proof that dependencies do not exist.",
+  },
+  evidence: {
+    serve_state: "NOT_READY",
+    payload: {
+      assertions: [],
+      coverage: dossier.purpose.coverage,
+      diagnostics: ["profile=aws.ec2.instance.v1 substantive_projection=NOT_READY"],
+      missing_immutable_evidence_bindings: 0,
+    },
+    coverage: dossier.purpose.coverage,
+    notes: null,
+  },
+  serve_state: "NOT_READY",
+  dossier_generation: "dg1:ec2-test",
+  dossier_builder_version: "dossier-builder-0.3.0",
+  assembly: {
+    cache: "MISS",
+    cache_eligible: true,
+    latency_ms: 2.1,
+    missing_source_heads: [],
+  },
+}
+
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
@@ -143,10 +212,8 @@ describe("Resource Dossier v6", () => {
   })
 
   it("asks the canonical server for every resource type and renders its fail-closed response", async () => {
-    const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
-      detail: "Resource Dossier v6 has no registered profile for resource type EC2",
-    }), {
-      status: 409,
+    const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify(identityOnlyDossier), {
+      status: 200,
       headers: { "Content-Type": "application/json" },
     }))
     render(
@@ -159,9 +226,15 @@ describe("Resource Dossier v6", () => {
       />,
     )
 
-    expect(await screen.findByText("Resource dossier unavailable")).toBeInTheDocument()
-    expect(screen.getByText(/no registered profile for resource type EC2/)).toBeInTheDocument()
-    expect(screen.getByText(/No legacy, inferred, or client-generated dossier/)).toBeInTheDocument()
+    expect(await screen.findByText(/Purpose not established/)).toBeInTheDocument()
+    expect(screen.getByText(/does not yet have a certified purpose or dependency projection/)).toBeInTheDocument()
+    expect(screen.getAllByText("NOT READY")).toHaveLength(2)
+    expect(screen.getByText("aws:ec2:eu-west-1:123456789012:instance/i-123")).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole("button", { name: "Dependencies" }))
+    expect(await screen.findByText(/No dependency assertions are available/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "Technical evidence" }))
+    expect(await screen.findByText("profile=aws.ec2.instance.v1 substantive_projection=NOT_READY")).toBeInTheDocument()
     await waitFor(() => expect(fetch).toHaveBeenCalledWith(
       expect.stringContaining("/resource-dossier?"),
       expect.objectContaining({ cache: "no-store" }),
