@@ -142,8 +142,13 @@ describe("Resource Dossier v6", () => {
     expect(screen.getByText(/intentionally not summed/)).toBeInTheDocument()
   })
 
-  it("shows an explicit first-slice state for unsupported resources without fetching", () => {
-    const fetch = vi.spyOn(globalThis, "fetch")
+  it("asks the canonical server for every resource type and renders its fail-closed response", async () => {
+    const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      detail: "Resource Dossier v6 has no registered profile for resource type EC2",
+    }), {
+      status: 409,
+      headers: { "Content-Type": "application/json" },
+    }))
     render(
       <ResourceDossier
         resourceId="i-123"
@@ -154,7 +159,15 @@ describe("Resource Dossier v6", () => {
       />,
     )
 
-    expect(screen.getByText("Dossier not yet available for this resource type")).toBeInTheDocument()
-    expect(fetch).not.toHaveBeenCalled()
+    expect(await screen.findByText("Resource dossier unavailable")).toBeInTheDocument()
+    expect(screen.getByText(/no registered profile for resource type EC2/)).toBeInTheDocument()
+    expect(screen.getByText(/No legacy, inferred, or client-generated dossier/)).toBeInTheDocument()
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/resource-dossier?"),
+      expect.objectContaining({ cache: "no-store" }),
+    ))
+    const requestUrl = String(vi.mocked(globalThis.fetch).mock.calls[0][0])
+    expect(requestUrl).toContain("resource_id=i-123")
+    expect(requestUrl).not.toContain("resource_type=")
   })
 })
