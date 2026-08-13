@@ -6,7 +6,7 @@ export const revalidate = 0
 
 const BACKEND_URL = "https://saferemediate-backend-f.onrender.com"
 
-const ALLOWED_PARAMS = ["min_consumers", "include_inactive"] as const
+const ALLOWED_PARAMS = ["min_consumers", "include_inactive", "system_name"] as const
 
 export async function GET(req: NextRequest) {
   const inUrl = new URL(req.url)

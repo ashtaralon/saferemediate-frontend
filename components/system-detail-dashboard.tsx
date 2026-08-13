@@ -123,7 +123,7 @@ const IdentitiesSectionTab = dynamic(
 )
 
 const SharedResourceTab = dynamic(
-  () => import("./per-resource-analysis").then((mod) => ({ default: mod.PerResourceAnalysis })),
+  () => import("./shared-resources/shared-resources-list-view").then((mod) => ({ default: mod.SharedResourcesListView })),
   {
     ssr: false,
     loading: () => (
@@ -2878,7 +2878,7 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
 
       {activeTab === "resource" && (
         <div className="max-w-[1800px] mx-auto px-8 py-6">
-          <SharedResourceTab key={`${systemName}-${refreshKey}`} systemName={systemName} />
+          <SharedResourceTab key={`${systemName}-${refreshKey}`} systemName={systemName} embedded />
         </div>
       )}
 

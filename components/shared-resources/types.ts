@@ -33,6 +33,65 @@ export interface NarrowingMetrics {
   sort_score: number
 }
 
+export interface IsolationBlocker {
+  code: string
+  phase_blocked: string
+  message: string
+  severity: "hard" | "soft" | string
+}
+
+export interface SharedAccessIsolation {
+  resource_kind: "iam_role" | "security_group"
+  strategy: "dedicated_role_per_workload_group" | "dedicated_sg_per_workload_group"
+  customer_value: string
+  protection: {
+    level: "customer_managed" | "platform_managed" | "aws_service_linked" | "aws_default" | string
+    automation_allowed: boolean
+    reason: string | null
+  }
+  evidence: {
+    configured_count: number
+    observed_count: number
+    unconfirmed_count: number
+    investigation_count: number
+    coverage_state: "authoritative" | "observed" | "collecting" | string
+    absence_claim_allowed: boolean
+  }
+  capabilities: {
+    preview: boolean
+    create_scoped_controls: boolean
+    staged_migration: boolean
+    staged_scope: string
+    snapshot: boolean
+    history_checkpoints: boolean
+    verification: boolean
+    restore: boolean
+    permission_narrowing?: boolean
+    rule_narrowing?: boolean
+  }
+  enablement?: {
+    inventory: boolean
+    plan_preview: boolean
+    create_scoped_controls: boolean
+    staged_migration: boolean
+    resource_opt_in: string
+    resource_opt_in_state: string
+  }
+  readiness: {
+    plan: boolean
+    create: boolean
+    migrate: boolean
+    blocked_reasons: IsolationBlocker[]
+  }
+}
+
+export interface ConsumerPreview {
+  name: string
+  id: string
+  kind: string
+  system_name?: string | null
+}
+
 /** IAM shared role list row — narrowing fields at TOP LEVEL. */
 export interface SharedRoleRow extends NarrowingMetrics {
   type: "iam-role"
@@ -46,6 +105,7 @@ export interface SharedRoleRow extends NarrowingMetrics {
   legacy_narrowable_pct?: number
   has_active_plan: boolean
   active_plan_id: string | null
+  isolation?: SharedAccessIsolation
 }
 
 /** SG shared SG list row — narrowing fields nested under .narrowing. */
@@ -55,6 +115,7 @@ export interface SharedSGRowRaw {
   vpc_id: string
   owner_id: string
   consumer_count: number
+  consumer_preview?: ConsumerPreview[]
   consumer_breakdown: Record<string, number>
   rule_summary: {
     inbound: number
@@ -84,6 +145,9 @@ export interface SharedSGRowRaw {
       severity: string
     }>
   }
+  has_active_plan?: boolean
+  active_plan_id?: string | null
+  isolation?: SharedAccessIsolation
   narrowing: NarrowingMetrics & { traffic_ports_observed?: number }
 }
 
@@ -95,11 +159,16 @@ export type SharedSGRow = NarrowingMetrics & {
   sg_name: string
   vpc_id: string
   consumer_count: number
+  consumer_preview: ConsumerPreview[]
   consumer_breakdown: Record<string, number>
+  systems: string[]
   rule_summary: SharedSGRowRaw["rule_summary"]
   traffic_ports_observed: number
   has_blocked_reasons: boolean
   blocked_reasons: SharedSGRowRaw["verdict"]["blocked_reasons"]
+  has_active_plan: boolean
+  active_plan_id: string | null
+  isolation?: SharedAccessIsolation
 }
 
 /** Discriminated union for unified rendering. */
@@ -181,32 +250,32 @@ export const HEADLINE_STATE_PRESENTATION: Record<
   { label: string; chipClass: string; tooltip: string }
 > = {
   no_lp_data: {
-    label: "No data",
-    chipClass: "bg-slate-700/40 border-slate-600 text-slate-400",
+    label: "Building baseline",
+    chipClass: "bg-slate-100 border-slate-200 text-slate-600",
     tooltip:
       "No least-privilege analysis data available yet for this resource — substrate hasn't observed enough behavior to compute keep/narrow recommendations.",
   },
   no_rule_data: {
-    label: "No data",
-    chipClass: "bg-slate-700/40 border-slate-600 text-slate-400",
+    label: "Inventory only",
+    chipClass: "bg-slate-100 border-slate-200 text-slate-600",
     tooltip:
       "No SG rule analysis data available yet — substrate hasn't synced rules + traffic for this group.",
   },
   already_tight: {
     label: "Already tight",
-    chipClass: "bg-emerald-500/15 border-emerald-500/40 text-emerald-300",
+    chipClass: "bg-emerald-50 border-emerald-200 text-emerald-700",
     tooltip:
       "Every allowed action/rule has observed activity — no narrowing opportunity. The resource is already as tight as the observed evidence supports.",
   },
   awaiting_observation: {
-    label: "Evidence pending",
-    chipClass: "bg-amber-500/15 border-amber-500/40 text-amber-300",
+    label: "Learning usage",
+    chipClass: "bg-amber-50 border-amber-200 text-amber-700",
     tooltip:
       "Substrate flagged this as potentially narrowable, but no positive activity is observed yet. Wait for more behavioral data before acting (or investigate manually).",
   },
   narrowing_available: {
-    label: "Narrowable",
-    chipClass: "bg-teal-500/15 border-teal-500/40 text-teal-300",
+    label: "Isolation opportunity",
+    chipClass: "bg-teal-50 border-teal-200 text-teal-700",
     tooltip:
       "Observed activity supports narrowing — high-confidence opportunity. Open detail for the keep / narrow-away / investigate breakdown.",
   },

@@ -1,6 +1,6 @@
 "use client"
 
-// 3-column KEEP / NARROW AWAY / INVESTIGATE primitive per
+// 3-column OBSERVED / UNCONFIRMED / INVESTIGATE primitive per
 // docs/shared-resources-real-data-wiring.md §2 (backend repo).
 //
 // Discipline:
@@ -21,6 +21,7 @@ import type { NarrowingDiff, NarrowingDiffEntry, SharedResourceRow } from "./typ
 
 interface Props {
   row: SharedResourceRow
+  onLoaded?: (diff: NarrowingDiff) => void
 }
 
 // IAM conflict-type label per §2.1 table.
@@ -36,14 +37,15 @@ const SG_CONFLICT_LABELS: Record<string, string> = {
   cidr_overlap_partial_use: "Rule wider than usage",
 }
 
-// NARROW_AWAY reason label (IAM + SG share this taxonomy partially).
+// Backend retains the narrow_away field for compatibility. The UI calls
+// it unconfirmed because absence of observation is never removal authority.
 const NARROW_AWAY_REASON_LABELS: Record<string, string> = {
-  no_evidence_no_dependency: "No evidence, no dependency",
-  no_observed_traffic: "No observed traffic",
-  no_consumer_dependency: "No consumer dependency",
+  no_evidence_no_dependency: "No supporting use or dependency observed yet",
+  no_observed_traffic: "No matching traffic observed in the current window",
+  no_consumer_dependency: "No consumer dependency identified in current evidence",
 }
 
-export function NarrowingDiffPanel({ row }: Props) {
+export function NarrowingDiffPanel({ row, onLoaded }: Props) {
   const [diff, setDiff] = useState<NarrowingDiff | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -64,7 +66,10 @@ export function NarrowingDiffPanel({ row }: Props) {
           throw new Error(`${res.status}: ${(await res.text()).slice(0, 200)}`)
         }
         const data = (await res.json()) as NarrowingDiff
-        if (!cancelled) setDiff(data)
+        if (!cancelled) {
+          setDiff(data)
+          onLoaded?.(data)
+        }
       } catch (err) {
         if (!cancelled) {
           const msg = err instanceof Error ? err.message : String(err)
@@ -77,11 +82,11 @@ export function NarrowingDiffPanel({ row }: Props) {
     return () => {
       cancelled = true
     }
-  }, [row])
+  }, [onLoaded, row])
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-8 text-slate-500 text-sm">
+      <div className="flex items-center justify-center py-8 text-sm text-slate-500">
         <Loader2 className="w-4 h-4 animate-spin mr-2" />
         Loading narrowing analysis…
       </div>
@@ -90,11 +95,11 @@ export function NarrowingDiffPanel({ row }: Props) {
 
   if (error) {
     return (
-      <div className="flex items-start gap-2 p-3 rounded border border-rose-500/40 bg-rose-500/10 text-xs text-rose-200">
+      <div className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800">
         <AlertCircle className="w-4 h-4 flex-shrink-0" />
         <div>
           <div className="font-semibold">Couldn't load narrowing detail</div>
-          <div className="text-rose-300/80 mt-0.5 break-all">{error}</div>
+          <div className="mt-0.5 break-all text-rose-700">{error}</div>
         </div>
       </div>
     )
@@ -116,17 +121,17 @@ export function NarrowingDiffPanel({ row }: Props) {
       data-narrowing-narrow-count={diff.narrow_count}
       data-narrowing-investigation-count={diff.investigation_count}
     >
-      <div className="flex items-center justify-between text-xs text-slate-400">
+      <div className="flex items-center justify-between text-xs text-slate-500">
         <div>
-          <span className="font-semibold text-slate-200">
-            {diff.allowed_count} allowed
+          <span className="font-semibold text-slate-800">
+            {diff.allowed_count} configured
           </span>{" "}
-          → keep {diff.keep_count} · narrow {diff.narrow_count} · investigate{" "}
+          → observed {diff.keep_count} · unconfirmed {diff.narrow_count} · investigate{" "}
           {diff.investigation_count}
-          <span className="text-slate-500"> · {diff.narrowable_pct}% narrowable</span>
+          <span className="text-slate-400"> · {diff.narrowable_pct}% requires a decision</span>
         </div>
         <div
-          className="font-mono text-[10px] text-slate-500"
+          className="font-mono text-[10px] text-slate-400"
           title={`Evidence quality aggregate C_source = ${diff.evidence_quality.aggregate_c_source} (weakest writer: ${diff.evidence_quality.weakest_source}). Higher = stronger observational evidence backing the narrowing recommendation.`}
         >
           Evidence: {evidenceTier} ({diff.evidence_quality.aggregate_c_source})
@@ -135,8 +140,8 @@ export function NarrowingDiffPanel({ row }: Props) {
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <DiffColumn
-          title="Keep"
-          subtitle="Observed activity supports keeping these"
+          title="Observed"
+          subtitle="Positive evidence supports retaining these"
           tone="emerald"
           items={diff.keep}
           renderItem={(entry) =>
@@ -144,8 +149,8 @@ export function NarrowingDiffPanel({ row }: Props) {
           }
         />
         <DiffColumn
-          title="Narrow away"
-          subtitle="No observed activity — safe to remove"
+          title="Unconfirmed"
+          subtitle="Not observed; retained until LP safety gates prove a decision"
           tone="amber"
           items={diff.narrow_away}
           renderItem={(entry) =>
@@ -154,7 +159,7 @@ export function NarrowingDiffPanel({ row }: Props) {
         />
         <DiffColumn
           title="Investigate"
-          subtitle="Observed activity that doesn't match the policy/rules"
+          subtitle="Observed activity that needs policy or rule review"
           tone="rose"
           items={diff.investigate}
           renderItem={(entry) =>
@@ -177,24 +182,24 @@ interface DiffColumnProps {
 function DiffColumn({ title, subtitle, tone, items, renderItem }: DiffColumnProps) {
   const headerColor =
     tone === "emerald"
-      ? "text-emerald-300 border-emerald-500/40"
+      ? "border-emerald-200 text-emerald-700"
       : tone === "amber"
-        ? "text-amber-300 border-amber-500/40"
-        : "text-rose-300 border-rose-500/40"
+        ? "border-amber-200 text-amber-700"
+        : "border-rose-200 text-rose-700"
   return (
     <div
-      className="flex flex-col gap-2 rounded-lg border border-slate-700 bg-slate-900/40 p-3"
+      className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-white p-3"
       data-narrowing-column={tone}
     >
       <div className={`flex items-baseline justify-between border-b pb-2 ${headerColor}`}>
         <span className="text-xs font-bold uppercase tracking-wider">
           {title}
         </span>
-        <span className="text-[10px] text-slate-500 font-mono">{items.length}</span>
+        <span className="font-mono text-[10px] text-slate-400">{items.length}</span>
       </div>
-      <div className="text-[10px] text-slate-500 -mt-1">{subtitle}</div>
+      <div className="-mt-1 text-[10px] leading-4 text-slate-500">{subtitle}</div>
       {items.length === 0 ? (
-        <div className="text-xs text-slate-600 italic py-2">
+        <div className="py-2 text-xs italic text-slate-400">
           No items in this bucket.
         </div>
       ) : (
@@ -203,7 +208,7 @@ function DiffColumn({ title, subtitle, tone, items, renderItem }: DiffColumnProp
             <li
               key={i}
               data-narrowing-entry
-              className="text-xs text-slate-300 px-2 py-1.5 rounded bg-slate-800/60 border border-slate-700/60"
+              className="rounded border border-slate-100 bg-slate-50 px-2 py-1.5 text-xs text-slate-700"
             >
               {renderItem(entry)}
             </li>
@@ -223,7 +228,7 @@ function renderItem(
   if (resourceType === "iam-role") {
     return (
       <div>
-        <div className="font-mono text-[11px] text-slate-200">
+        <div className="font-mono text-[11px] text-slate-800">
           {entry.action ?? "(unknown action)"}
         </div>
         {column !== "narrow_away" && entry.call_count !== undefined && (
@@ -235,12 +240,12 @@ function renderItem(
           </div>
         )}
         {entry.conflict_type && (
-          <div className="text-[10px] text-rose-300 mt-0.5">
+          <div className="mt-0.5 text-[10px] text-rose-700">
             {conflictLabels[entry.conflict_type] ?? entry.conflict_type}
           </div>
         )}
         {column === "narrow_away" && entry.reason && (
-          <div className="text-[10px] text-amber-300 mt-0.5">
+          <div className="mt-0.5 text-[10px] text-amber-700">
             {NARROW_AWAY_REASON_LABELS[entry.reason] ?? entry.reason}
           </div>
         )}
@@ -257,7 +262,7 @@ function renderItem(
   const direction = entry.direction ? `${entry.direction} ` : ""
   return (
     <div>
-      <div className="font-mono text-[11px] text-slate-200">
+      <div className="font-mono text-[11px] text-slate-800">
         {direction}
         {entry.protocol ?? "(any)"}/{portRange}
         {entry.cidr ? ` ← ${entry.cidr}` : ""}
@@ -275,12 +280,12 @@ function renderItem(
         </div>
       )}
       {entry.conflict_type && (
-        <div className="text-[10px] text-rose-300 mt-0.5">
+        <div className="mt-0.5 text-[10px] text-rose-700">
           {conflictLabels[entry.conflict_type] ?? entry.conflict_type}
         </div>
       )}
       {column === "narrow_away" && entry.reason && (
-        <div className="text-[10px] text-amber-300 mt-0.5">
+        <div className="mt-0.5 text-[10px] text-amber-700">
           {NARROW_AWAY_REASON_LABELS[entry.reason] ?? entry.reason}
         </div>
       )}
