@@ -158,7 +158,7 @@ interface Props {
 
 type Tab = "purpose" | "dependencies" | "evidence"
 
-function StateBadge({ value }: { value: string }) {
+function StateBadge({ value, axis = "state" }: { value: string; axis?: "state" | "coverage" }) {
   const style = value === "ACTIVE" || value === "FULL" || value === "OBSERVED"
     ? "border-emerald-200 bg-emerald-50 text-emerald-700"
     : value === "PARTIAL" || value === "CONFIGURED" || value === "STRUCTURAL"
@@ -166,15 +166,17 @@ function StateBadge({ value }: { value: string }) {
       : value === "INTEGRITY_HELD" || value === "HELD" || value === "BLOCKED"
         ? "border-rose-200 bg-rose-50 text-rose-800"
         : "border-slate-200 bg-slate-50 text-slate-600"
-  const labels: Record<string, string> = {
+  const labels: Record<string, string> = axis === "coverage" ? {
+    FULL: "Complete coverage",
+    PARTIAL: "Partial coverage",
+    NONE: "No coverage proof",
+    UNKNOWN: "Coverage unverified",
+  } : {
     ACTIVE: "Verified profile",
     PARTIAL: "Evidence available",
     NOT_READY: "Identity available",
     INTEGRITY_HELD: "Evidence review",
     NOT_APPLICABLE: "Not applicable",
-    FULL: "Complete coverage",
-    NONE: "No coverage proof",
-    UNKNOWN: "Coverage unverified",
     OBSERVED: "Observed",
     CONFIGURED: "Configured",
     STRUCTURAL: "Structural",
@@ -258,7 +260,7 @@ function formatFactValue(key: string, value: unknown) {
     return `${visible.join(", ")}${value.length > visible.length ? ` +${value.length - visible.length} more` : ""}`
   }
   if (typeof value === "object") return "Collected configuration available"
-  if ((key.includes("time") || key.includes("created") || key.includes("seen") || key.includes("used")) && typeof value === "string") {
+  if ((key.includes("time") || key.includes("created") || key.includes("seen") || key.includes("used") || key.includes("collected")) && typeof value === "string") {
     const date = new Date(value)
     if (!Number.isNaN(date.getTime())) return date.toLocaleString()
   }
@@ -352,7 +354,7 @@ export function ResourceDossier({
             <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-teal-300">Resource dossier · v6</div>
             <h2 className="mt-1 truncate text-lg font-bold">{resourceName ?? resourceId}</h2>
             <div className="mt-1 truncate font-mono text-[10px] text-slate-400">{data?.identity.canonical_resource_uid ?? resourceId}</div>
-            {data ? <div className="mt-2 flex flex-wrap gap-2"><StateBadge value={data.serve_state} /><StateBadge value={data.purpose.coverage?.state ?? "UNKNOWN"} /></div> : null}
+            {data ? <div className="mt-2 flex flex-wrap gap-2"><StateBadge value={data.serve_state} /><StateBadge value={data.purpose.coverage?.state ?? "UNKNOWN"} axis="coverage" /></div> : null}
           </div>
           <button type="button" onClick={onClose} className="rounded p-2 text-slate-300 hover:bg-white/10 hover:text-white" aria-label="Close dossier"><X className="h-5 w-5" /></button>
         </div>
@@ -415,7 +417,7 @@ export function ResourceDossier({
             ) : null}
             <section className="rounded-xl border border-slate-200 bg-white p-4">
               <div className="flex items-center gap-2 font-semibold text-slate-950"><ShieldCheck className="h-4 w-4 text-teal-700" />Evidence coverage</div>
-              <div className="mt-3 flex items-center gap-2"><StateBadge value={data.purpose.coverage?.state ?? "UNKNOWN"} /><span className="text-xs text-slate-500">Coverage determines which conclusions are safe to make.</span></div>
+              <div className="mt-3 flex items-center gap-2"><StateBadge value={data.purpose.coverage?.state ?? "UNKNOWN"} axis="coverage" /><span className="text-xs text-slate-500">Coverage determines which conclusions are safe to make.</span></div>
               {data.purpose.coverage?.missing_sources.length ? <p className="mt-3 text-xs text-amber-800">Additional evidence needed: {data.purpose.coverage.missing_sources.join(", ")}</p> : null}
             </section>
             <section className="grid grid-cols-3 gap-3">

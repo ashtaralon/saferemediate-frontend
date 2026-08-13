@@ -195,6 +195,10 @@ const configurationProfileDossier = {
       },
     },
     notes: "Operational purpose only; business intent is never inferred from configuration.",
+    coverage: {
+      ...identityOnlyDossier.purpose.coverage,
+      state: "PARTIAL",
+    },
   },
   lifecycle: {
     serve_state: "PARTIAL",
@@ -208,6 +212,18 @@ const configurationProfileDossier = {
           state: "CONFIGURED",
           value: "running",
           basis: "Instance state from the activated configuration projection",
+          authority_basis: "activated configuration source generation",
+          window: null,
+          source_generation_refs: [{ plane: "configuration", generation: "c1", head_hash: "head-c1", evidence_binding: null }],
+        },
+      }, {
+        key: "last_collected",
+        label: "Last collected",
+        assertion: {
+          ...dossier.purpose.payload.assertion,
+          state: "CONFIGURED",
+          value: "2026-08-13T19:24:18.205543+00:00",
+          basis: "Last collected from the activated configuration projection",
           authority_basis: "activated configuration source generation",
           window: null,
           source_generation_refs: [{ plane: "configuration", generation: "c1", head_hash: "head-c1", evidence_binding: null }],
@@ -380,9 +396,12 @@ describe("Resource Dossier v6", () => {
     expect(screen.getByText(/EC2 instance · running · t3.micro/)).toBeInTheDocument()
     expect(screen.getByText("Lifecycle")).toBeInTheDocument()
     expect(screen.getByText("Instance state")).toBeInTheDocument()
+    expect(screen.getByText("Last collected")).toBeInTheDocument()
+    expect(screen.queryByText("2026-08-13T19:24:18.205543+00:00")).not.toBeInTheDocument()
     expect(screen.getByText("Configuration and posture")).toBeInTheDocument()
     expect(screen.getByText("Instance type")).toBeInTheDocument()
     expect(screen.queryByText("NOT READY")).not.toBeInTheDocument()
+    expect(screen.getAllByText("Partial coverage").length).toBeGreaterThan(0)
 
     fireEvent.click(screen.getByRole("button", { name: "Dependencies" }))
     expect(await screen.findByText("orders-worker")).toBeInTheDocument()
