@@ -192,7 +192,7 @@ function canonicalDependencyIdentity(dependency: Dependency) {
     ?? dependency.principal_canonical_resource_uid
     ?? dependency.target_arn
     ?? dependency.target_canonical_resource_uid
-    ?? "Canonical identity unavailable"
+    ?? null
 }
 
 function typedAwsIdentity(identity: string, resourceType?: string | null) {
@@ -227,11 +227,18 @@ function typedAwsIdentity(identity: string, resourceType?: string | null) {
   return `${resourceType || serviceLabel} · ${tail}`
 }
 
+function isNetworkAddress(value: string) {
+  return /^(?:\d{1,3}\.){3}\d{1,3}$/.test(value) || value.includes(":")
+}
+
 function displayIdentity(dependency: Dependency) {
   const canonical = canonicalDependencyIdentity(dependency)
   const resolved = dependency.principal_display_name ?? dependency.target_display_name
-  if (resolved && resolved !== canonical && !resolved.startsWith("arn:")) return resolved
-  return typedAwsIdentity(canonical, dependency.principal_type ?? dependency.target_type)
+  if (resolved && resolved !== canonical && !resolved.startsWith("arn:")) {
+    return !canonical && isNetworkAddress(resolved) ? `Network endpoint · ${resolved}` : resolved
+  }
+  if (canonical) return typedAwsIdentity(canonical, dependency.principal_type ?? dependency.target_type)
+  return "Relationship endpoint"
 }
 
 function EvidenceRefList({ refs, sourceRefs = [] }: { refs: EvidenceBinding[]; sourceRefs?: SourceGenerationRef[] }) {
@@ -437,7 +444,7 @@ export function ResourceDossier({
                 <div className="space-y-3">
                   {grouped[basis].map((dependency, index) => (
                     <article key={`${basis}-${canonicalDependencyIdentity(dependency)}-${index}`} className="rounded-xl border border-slate-200 bg-white p-4">
-                      <div className="flex items-start gap-3"><Database className="mt-0.5 h-4 w-4 shrink-0 text-teal-700" /><div className="min-w-0 flex-1"><div className="text-sm font-semibold text-slate-900">{displayIdentity(dependency)}</div>{displayIdentity(dependency) !== canonicalDependencyIdentity(dependency) ? <div className="mt-1 break-all font-mono text-[10px] text-slate-500">{canonicalDependencyIdentity(dependency)}</div> : null}<div className="mt-1 text-xs text-slate-500">{dependency.direction} · {dependency.relationship} · {dependency.freshness}</div></div></div>
+                      <div className="flex items-start gap-3"><Database className="mt-0.5 h-4 w-4 shrink-0 text-teal-700" /><div className="min-w-0 flex-1"><div className="text-sm font-semibold text-slate-900">{displayIdentity(dependency)}</div>{canonicalDependencyIdentity(dependency) && displayIdentity(dependency) !== canonicalDependencyIdentity(dependency) ? <div className="mt-1 break-all font-mono text-[10px] text-slate-500">{canonicalDependencyIdentity(dependency)}</div> : null}<div className="mt-1 text-xs text-slate-500">{dependency.direction} · {dependency.relationship} · {dependency.freshness}</div></div></div>
                       {dependency.actions?.length ? <div className="mt-3 text-xs text-slate-600">Actions: {dependency.actions.join(", ")}</div> : null}
                       {dependency.observation_days ? <div className="mt-1 text-xs text-slate-600">Observed over {dependency.observation_days} days · last seen {dependency.last_seen ? new Date(dependency.last_seen).toLocaleString() : "unknown"}</div> : null}
                       {dependency.via_vpce ? <div className="mt-1 text-xs text-slate-600">Via VPC endpoint: <span className="font-mono">{dependency.via_vpce}</span></div> : null}
