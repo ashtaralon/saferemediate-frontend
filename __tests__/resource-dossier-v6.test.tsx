@@ -269,8 +269,19 @@ const configurationProfileDossier = {
         actions: [],
         evidence_refs: [],
         source_generation_refs: [{ plane: "authorization", generation: "a1", head_hash: "head-a1", evidence_binding: null }],
+      }, {
+        direction: "DOWNSTREAM",
+        basis_class: "OBSERVED",
+        freshness: "CURRENT",
+        target_display_name: "3.253.40.255",
+        target_type: "IPAddress",
+        resource_canonical_resource_uid: "aws:ec2:eu-west-1:123456789012:instance/i-123",
+        relationship: "ACTUAL_TRAFFIC",
+        actions: [],
+        evidence_refs: [],
+        source_generation_refs: [{ plane: "behavioral", generation: "b1", head_hash: "head-b1", evidence_binding: null }],
       }],
-      counts_by_basis: { OBSERVED: 0, CONFIGURED: 1, STRUCTURAL: 0 },
+      counts_by_basis: { OBSERVED: 1, CONFIGURED: 1, STRUCTURAL: 0 },
     },
     coverage: identityOnlyDossier.purpose.coverage,
     notes: "Observed and configured relationships are separate proof sets. No identified relationship is not proof that none exist.",
@@ -405,6 +416,8 @@ describe("Resource Dossier v6", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Dependencies" }))
     expect(await screen.findByText("orders-worker")).toBeInTheDocument()
+    expect(screen.getByText("Network endpoint · 3.253.40.255")).toBeInTheDocument()
+    expect(screen.queryByText("Canonical identity unavailable")).not.toBeInTheDocument()
     expect(screen.getByText("authorization")).toBeInTheDocument()
     expect(screen.getByText("a1")).toBeInTheDocument()
   })
