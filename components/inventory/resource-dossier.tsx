@@ -194,13 +194,11 @@ export function ResourceDossier({
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [expandedAssertion, setExpandedAssertion] = useState<number | null>(null)
-  const isS3 = resourceType === "S3" || resourceType === "S3Bucket"
 
   useEffect(() => {
     let cancelled = false
     setData(null)
     setError(null)
-    if (!isS3) return () => { cancelled = true }
     setLoading(true)
     const query = new URLSearchParams({
       resource_id: resourceId,
@@ -216,7 +214,7 @@ export function ResourceDossier({
       .catch(cause => { if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause)) })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [accountId, isS3, region, resourceId, scope.accountId, scope.region, systemName])
+  }, [accountId, region, resourceId, scope.accountId, scope.region, systemName])
 
   const dependencies = data?.dependencies.payload?.ledger ?? []
   const counts = data?.dependencies.payload?.counts_by_basis
@@ -249,19 +247,19 @@ export function ResourceDossier({
 
       <nav className="grid grid-cols-3 border-b border-slate-200 bg-slate-50 px-3 pt-2">
         {tabs.map(item => (
-          <button key={item.id} type="button" onClick={() => setTab(item.id)} className={`border-b-2 px-2 py-2 text-xs font-semibold ${tab === item.id ? "border-teal-500 bg-white text-slate-950" : "border-transparent text-slate-500 hover:text-slate-800"}`}>{item.label}</button>
+          <button key={item.id} type="button" disabled={!data} onClick={() => setTab(item.id)} className={`border-b-2 px-2 py-2 text-xs font-semibold disabled:cursor-not-allowed disabled:text-slate-300 ${tab === item.id && data ? "border-teal-500 bg-white text-slate-950" : "border-transparent text-slate-500 hover:text-slate-800"}`}>{item.label}</button>
         ))}
       </nav>
 
       <div className="flex-1 overflow-y-auto bg-[#F4F6F8] p-5">
-        {!isS3 ? (
-          <div className="rounded-xl border border-slate-200 bg-white p-5">
-            <div className="flex items-center gap-2 font-semibold text-slate-950"><CircleHelp className="h-5 w-5 text-slate-500" />Dossier not yet available for this resource type</div>
-            <p className="mt-2 text-sm leading-6 text-slate-600">The frozen v6 rollout currently serves the S3 vertical slice. No legacy or inferred dossier is shown in its place.</p>
+        {loading ? <div className="flex items-center gap-2 text-sm text-slate-600"><LoaderCircle className="h-4 w-4 animate-spin" />Assembling generation-pinned evidence…</div> : null}
+        {error ? (
+          <div role="alert" className="rounded-xl border border-amber-200 bg-white p-5">
+            <div className="flex items-center gap-2 font-semibold text-slate-950"><CircleHelp className="h-5 w-5 text-amber-600" />Resource dossier unavailable</div>
+            <p className="mt-2 text-sm leading-6 text-slate-700">{error}</p>
+            <p className="mt-3 text-xs leading-5 text-slate-500">No legacy, inferred, or client-generated dossier is shown when the canonical server profile is unavailable.</p>
           </div>
         ) : null}
-        {loading ? <div className="flex items-center gap-2 text-sm text-slate-600"><LoaderCircle className="h-4 w-4 animate-spin" />Assembling generation-pinned evidence…</div> : null}
-        {error ? <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">{error}</div> : null}
 
         {data && tab === "purpose" ? (
           <div className="space-y-4">
@@ -274,7 +272,7 @@ export function ResourceDossier({
               )}
               <div className="mt-4 grid grid-cols-2 gap-3 text-xs text-slate-600">
                 <div><div className="font-semibold text-slate-900">Authority</div>{data.purpose.payload?.assertion.authority_basis}</div>
-                <div><div className="font-semibold text-slate-900">Evidence window</div>{data.purpose.payload?.assertion.window?.days ?? "Not applicable"} days</div>
+                <div><div className="font-semibold text-slate-900">Evidence window</div>{data.purpose.payload?.assertion.window?.days ? `${data.purpose.payload.assertion.window.days} days` : "Not applicable"}</div>
               </div>
             </section>
             <section className="rounded-xl border border-slate-200 bg-white p-4">
