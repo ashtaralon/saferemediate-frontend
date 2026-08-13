@@ -207,6 +207,7 @@ describe("Resource Dossier v6", () => {
     expect(requestUrl).toContain("account_id=123456789012")
 
     fireEvent.click(screen.getByRole("button", { name: "Dependencies" }))
+    expect(await screen.findByText("IAM role · orders-reader")).toBeInTheDocument()
     expect(await screen.findByText("arn:aws:iam::123456789012:role/orders-reader")).toBeInTheDocument()
     expect(screen.getByText(/intentionally not summed/)).toBeInTheDocument()
   })
