@@ -32,6 +32,7 @@ import {
   Zap,
   UserCog,
   User,
+  Layers,
   ScrollText,
   Shield,
   ShieldHalf,
@@ -68,6 +69,7 @@ export type CanonicalServiceType =
   | "IAMRole"
   | "IAMUser"
   | "IAMPolicy"
+  | "InstanceProfile"
   | "SecurityGroup"
   | "NACL"
   | "VPCEndpoint"
@@ -180,6 +182,7 @@ export const SERVICE_TYPE_CONFIG: Record<CanonicalServiceType, ServiceMeta> = {
   IAMRole: { key: "IAMRole", label: "IAM role", short: "Role", category: "identity", Icon: UserCog, accent: "#6D28D9", bgLight: "#F1EDFE", bdLight: "#D9CCF7", bgDark: "#241340", iconDark: "#B79AF0" },
   IAMUser: { key: "IAMUser", label: "IAM user", short: "User", category: "identity", Icon: User, accent: "#6D28D9", bgLight: "#F1EDFE", bdLight: "#D9CCF7", bgDark: "#241340", iconDark: "#B79AF0" },
   IAMPolicy: { key: "IAMPolicy", label: "IAM policy", short: "Policy", category: "identity", Icon: ScrollText, accent: "#6D28D9", bgLight: "#F1EDFE", bdLight: "#D9CCF7", bgDark: "#241340", iconDark: "#B79AF0" },
+  InstanceProfile: { key: "InstanceProfile", label: "Instance profile", short: "Profile", category: "identity", Icon: Layers, accent: "#B45309", bgLight: "#FEF3E0", bdLight: "#F5DDB0", bgDark: "#3A2A0F", iconDark: "#E8B45E" },
   SecurityGroup: { key: "SecurityGroup", label: "Security group", short: "SG", category: "network", Icon: Shield, accent: "#475569", bgLight: "#EEF2F6", bdLight: "#CBD5E1", bgDark: "#1E293B", iconDark: "#94A3B8" },
   NACL: { key: "NACL", label: "Network ACL", short: "NACL", category: "network", Icon: ShieldHalf, accent: "#475569", bgLight: "#EEF2F6", bdLight: "#CBD5E1", bgDark: "#1E293B", iconDark: "#94A3B8" },
   VPCEndpoint: { key: "VPCEndpoint", label: "VPC endpoint", short: "VPCE", category: "network", Icon: Waypoints, accent: "#0891B2", bgLight: "#E4F5FA", bdLight: "#B4E2EF", bgDark: "#0E3038", iconDark: "#5FD0E5" },
@@ -223,6 +226,7 @@ const ALIAS: Record<string, CanonicalServiceType> = {
   iamrole: "IAMRole", role: "IAMRole", iam: "IAMRole", awsiamrole: "IAMRole",
   iamuser: "IAMUser",
   iampolicy: "IAMPolicy",
+  instanceprofile: "InstanceProfile", iaminstanceprofile: "InstanceProfile", awsiaminstanceprofile: "InstanceProfile",
   securitygroup: "SecurityGroup", awsec2securitygroup: "SecurityGroup",
   nacl: "NACL", networkacl: "NACL", awsec2networkacl: "NACL",
   vpcendpoint: "VPCEndpoint", vpce: "VPCEndpoint",
@@ -260,6 +264,7 @@ const SUBSTR: [string, CanonicalServiceType][] = [
   ["lambda", "Lambda"],
   ["vpce", "VPCEndpoint"], ["vpcendpoint", "VPCEndpoint"],
   ["loadbalancer", "LoadBalancer"], ["elb", "LoadBalancer"],
+  ["instanceprofile", "InstanceProfile"],
   ["ec2", "EC2"], ["instance", "EC2"],
   ["iampolicy", "IAMPolicy"], ["policy", "IAMPolicy"],
   ["iamuser", "IAMUser"],
