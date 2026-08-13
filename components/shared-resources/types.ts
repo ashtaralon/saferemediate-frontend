@@ -216,6 +216,7 @@ export interface NarrowingDiffEntry {
   cidr?: string
   matched_traffic_count?: number
   last_observed_at?: string | null
+  match_reason?: string
   observed_source?: string
   traffic_count?: number
   port?: number

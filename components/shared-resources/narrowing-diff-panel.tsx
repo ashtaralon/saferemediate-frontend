@@ -43,6 +43,42 @@ const NARROW_AWAY_REASON_LABELS: Record<string, string> = {
   no_evidence_no_dependency: "No supporting use or dependency observed yet",
   no_observed_traffic: "No matching traffic observed in the current window",
   no_consumer_dependency: "No consumer dependency identified in current evidence",
+  behavioral_authority_unavailable: "Traffic evidence is not authoritative yet; this rule stays in place",
+  outbound_analysis_pending: "Outbound traffic analysis is still in progress; this rule stays in place",
+}
+
+// The SG backend's `keep` bucket is intentionally fail-closed: it contains
+// positively observed rules *and* rules retained because traffic authority is
+// unavailable or outbound analysis is pending. Only the former may be called
+// observed in customer-facing evidence. Repartition the latter into the
+// unconfirmed display bucket without changing the backend safety decision.
+function normalizeEvidenceBuckets(row: SharedResourceRow, diff: NarrowingDiff): NarrowingDiff {
+  if (row.type !== "security-group") return diff
+
+  const observed = diff.keep.filter(
+    (entry) =>
+      (entry.matched_traffic_count ?? 0) > 0 ||
+      Boolean(entry.last_observed_at),
+  )
+  const retainedWithoutObservation = diff.keep
+    .filter((entry) => !observed.includes(entry))
+    .map((entry) => ({
+      ...entry,
+      reason: entry.match_reason ?? entry.reason ?? "no_observed_traffic",
+    }))
+  const unconfirmed = [...diff.narrow_away, ...retainedWithoutObservation]
+
+  return {
+    ...diff,
+    keep: observed,
+    keep_count: observed.length,
+    narrow_away: unconfirmed,
+    narrow_count: unconfirmed.length,
+    narrowable_pct:
+      diff.allowed_count > 0
+        ? Math.round((unconfirmed.length / diff.allowed_count) * 100)
+        : 0,
+  }
 }
 
 export function NarrowingDiffPanel({ row, onLoaded }: Props) {
@@ -65,7 +101,10 @@ export function NarrowingDiffPanel({ row, onLoaded }: Props) {
         if (!res.ok) {
           throw new Error(`${res.status}: ${(await res.text()).slice(0, 200)}`)
         }
-        const data = (await res.json()) as NarrowingDiff
+        const data = normalizeEvidenceBuckets(
+          row,
+          (await res.json()) as NarrowingDiff,
+        )
         if (!cancelled) {
           setDiff(data)
           onLoaded?.(data)
