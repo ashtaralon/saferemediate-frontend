@@ -237,6 +237,17 @@ export function ResourceDossier({
   const [expandedAssertion, setExpandedAssertion] = useState<number | null>(null)
 
   useEffect(() => {
+    // The dossier is a viewport-fixed modal panel. Lock the page underneath it
+    // so wide inventory tables cannot expose a horizontal body scrollbar at
+    // narrow breakpoints while the panel itself remains correctly scrollable.
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = "hidden"
+    return () => {
+      document.body.style.overflow = previousOverflow
+    }
+  }, [])
+
+  useEffect(() => {
     let cancelled = false
     setData(null)
     setError(null)
