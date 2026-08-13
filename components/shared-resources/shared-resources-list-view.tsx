@@ -132,12 +132,31 @@ function normalizeSG(raw: SharedSGRowRaw): SharedSGRow {
     is_platform_owned: false,
     sort_score: 0,
   }
+  const allowedCount = n.allowed_count ?? 0
+  const trafficPortsObserved = n.traffic_ports_observed ?? 0
+  // SG `keep_count` includes fail-closed rules whose traffic evidence is not
+  // authoritative yet (especially outbound rules). The collapsed overview
+  // must not present those safety-retained rules as positively observed.
+  const observedCount =
+    trafficPortsObserved > 0
+      ? Math.min(
+          trafficPortsObserved,
+          Math.max(0, (n.keep_count ?? 0) - (raw.rule_summary?.outbound ?? 0)),
+        )
+      : 0
+  const unconfirmedCount = Math.max(
+    n.narrow_count ?? 0,
+    allowedCount - observedCount,
+  )
   const metrics: NarrowingMetrics = {
-    allowed_count: n.allowed_count ?? 0,
-    keep_count: n.keep_count ?? 0,
-    narrow_count: n.narrow_count ?? 0,
+    allowed_count: allowedCount,
+    keep_count: observedCount,
+    narrow_count: unconfirmedCount,
     investigation_count: n.investigation_count ?? 0,
-    narrowable_pct: n.narrowable_pct ?? 0,
+    narrowable_pct:
+      allowedCount > 0
+        ? Math.round((unconfirmedCount / allowedCount) * 100)
+        : 0,
     headline_state: n.headline_state ?? "no_rule_data",
     is_platform_owned: Boolean(n.is_platform_owned),
     sort_score: n.sort_score ?? 0,
@@ -161,7 +180,7 @@ function normalizeSG(raw: SharedSGRowRaw): SharedSGRow {
       high_risk: 0,
       has_public_ingress: false,
     },
-    traffic_ports_observed: n.traffic_ports_observed ?? 0,
+    traffic_ports_observed: trafficPortsObserved,
     has_blocked_reasons: hardBlocks.length > 0,
     blocked_reasons: raw.verdict?.blocked_reasons ?? [],
     has_active_plan: Boolean(raw.has_active_plan),

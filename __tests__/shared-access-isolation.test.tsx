@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { SharedResourcesListView } from "@/components/shared-resources/shared-resources-list-view"
@@ -155,6 +155,42 @@ const narrowingDiff = {
   substrate_metadata: {},
 }
 
+const sgNarrowingDiff = {
+  resource_type: "security-group",
+  resource_id: "sg-123",
+  allowed_count: 2,
+  keep_count: 2,
+  narrow_count: 0,
+  investigation_count: 0,
+  narrowable_pct: 0,
+  keep: [
+    {
+      direction: "inbound",
+      protocol: "tcp",
+      from_port: 443,
+      to_port: 443,
+      cidr: "10.0.0.0/8",
+      matched_traffic_count: 0,
+      last_observed_at: null,
+      match_reason: "behavioral_authority_unavailable",
+    },
+    {
+      direction: "outbound",
+      protocol: "all",
+      from_port: -1,
+      to_port: -1,
+      cidr: "0.0.0.0/0",
+      matched_traffic_count: 0,
+      last_observed_at: null,
+      match_reason: "outbound_analysis_pending",
+    },
+  ],
+  narrow_away: [],
+  investigate: [],
+  evidence_quality: { aggregate_c_source: 30, weakest_source: "unknown", writer: "behavioral" },
+  substrate_metadata: {},
+}
+
 function json(body: unknown, status = 200) {
   return Promise.resolve(new Response(JSON.stringify(body), {
     status,
@@ -168,6 +204,9 @@ beforeEach(() => {
     const url = String(input)
     if (url.includes("/api/proxy/iam/shared-roles?") && !init?.method) return json(iamResponse)
     if (url.includes("/api/proxy/sg/shared-sgs?") && !init?.method) return json(sgResponse)
+    if (url.includes("/sg/shared-sgs/") && url.includes("/narrowing-diff")) {
+      return json(sgNarrowingDiff)
+    }
     if (url.includes("/narrowing-diff")) return json(narrowingDiff)
     if (url.includes("/split-plan") && init?.method === "POST") {
       return json({ plan_id: "iam-plan-123", state: "PROPOSED" })
@@ -213,5 +252,26 @@ describe("Shared Access Isolation", () => {
     await waitFor(() => {
       expect(push).toHaveBeenCalledWith("/iam/shared-roles/by-plan/iam-plan-123")
     })
+  })
+
+  it("never labels fail-closed SG rules as observed when zero flows support them", async () => {
+    render(<SharedResourcesListView systemName="alon-prod" embedded />)
+    const sgName = await screen.findByText("orders-shared-sg")
+    const article = sgName.closest("article") as HTMLElement
+    fireEvent.click(sgName.closest("button") as HTMLButtonElement)
+
+    expect(
+      await within(article).findByText(
+        "Traffic evidence is not authoritative yet; this rule stays in place",
+      ),
+    ).toBeInTheDocument()
+    expect(
+      within(article).getByText(
+        "Outbound traffic analysis is still in progress; this rule stays in place",
+      ),
+    ).toBeInTheDocument()
+    expect(within(article).getAllByText("0 observed").length).toBeGreaterThan(0)
+    expect(within(article).getAllByText("2 unconfirmed").length).toBeGreaterThan(0)
+    expect(article.textContent).not.toMatch(/matched 0 flows/i)
   })
 })
