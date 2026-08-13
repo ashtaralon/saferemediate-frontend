@@ -112,7 +112,7 @@ afterEach(() => {
 })
 
 describe("Resource Dossier v6", () => {
-  it("passes tenant scope and does not turn missing evidence into an absence claim", async () => {
+  it("keeps tenant scope server-authoritative and does not turn missing evidence into an absence claim", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify(dossier), {
       status: 200,
       headers: { "Content-Type": "application/json" },
@@ -134,7 +134,7 @@ describe("Resource Dossier v6", () => {
       expect.objectContaining({ cache: "no-store" }),
     ))
     const requestUrl = String(vi.mocked(globalThis.fetch).mock.calls[0][0])
-    expect(requestUrl).toContain("tenant=customer-a")
+    expect(requestUrl).not.toContain("tenant=")
     expect(requestUrl).toContain("account_id=123456789012")
 
     fireEvent.click(screen.getByRole("button", { name: "Dependencies" }))
