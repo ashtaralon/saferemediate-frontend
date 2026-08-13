@@ -181,6 +181,25 @@ afterEach(() => {
 })
 
 describe("Resource Dossier v6", () => {
+  it("locks background page scrolling while the fixed dossier is open", () => {
+    const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(() => new Promise(() => {}))
+    const previousOverflow = document.body.style.overflow
+    const view = render(
+      <ResourceDossier
+        resourceId="arn:aws:s3:::orders-data"
+        resourceName="orders-data"
+        resourceType="S3Bucket"
+        systemName="orders"
+        onClose={() => {}}
+      />,
+    )
+
+    expect(document.body.style.overflow).toBe("hidden")
+    view.unmount()
+    expect(document.body.style.overflow).toBe(previousOverflow)
+    expect(fetch).toHaveBeenCalledOnce()
+  })
+
   it("keeps tenant scope server-authoritative and does not turn missing evidence into an absence claim", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify(dossier), {
       status: 200,
