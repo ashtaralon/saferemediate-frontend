@@ -37,6 +37,7 @@ import { fetchWithEnvelope } from "@/components/trust/use-trust-envelope"
 import { TrustEnvelopeBadge, Provenance } from "@/components/trust/trust-envelope-badge"
 import { operationalRequest } from "@/components/topology-v0-2/estate-operations"
 import {
+  DEFAULT_REMEDIATION_EVENT_FILTER,
   dedupeRemediationEvents,
   isActionableRestore,
   remediationTimelineUrl,
@@ -1030,7 +1031,12 @@ export function RemediationTimeline({
   const [selectedEvent, setSelectedEvent] = useState<RemediationEvent | null>(null)
   const [showModal, setShowModal] = useState(false)
   const [hoveredEventId, setHoveredEventId] = useState<string | null>(null)
-  const [eventFilter, setEventFilter] = useState<"actionable" | "all">("actionable")
+  // History is an audit surface first. Open on the complete record so a
+  // successful rollback never makes the page look empty; operators can narrow
+  // to changes whose restore window is still open when they need to act.
+  const [eventFilter, setEventFilter] = useState<"actionable" | "all">(
+    DEFAULT_REMEDIATION_EVENT_FILTER,
+  )
   // Click on a chart point → focus recap panel for that day's events.
   // null means no day is focused (events list shows all).
   const [selectedChartDate, setSelectedChartDate] = useState<string | null>(null)
@@ -1919,7 +1925,7 @@ export function RemediationTimeline({
                   color: eventFilter === "actionable" ? "white" : "var(--text-secondary)",
                 }}
               >
-                Actionable
+                Restorable now
               </button>
               <button
                 onClick={() => setEventFilter("all")}
@@ -1938,10 +1944,14 @@ export function RemediationTimeline({
             <div className="text-center py-8">
               <Calendar className="w-12 h-12 mx-auto mb-3" style={{ color: "var(--text-secondary)" }} />
               <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
-                No remediation events in this period
+                {eventFilter === "actionable"
+                  ? "No changes can be restored right now"
+                  : "No remediation events in this period"}
               </p>
               <p className="text-xs mt-2" style={{ color: "var(--text-secondary)" }}>
-                Events are recorded when you remediate Security Groups, IAM Roles, or S3 Buckets
+                {eventFilter === "actionable"
+                  ? "Switch to All Events to review completed and rolled-back changes."
+                  : "Events are recorded when you remediate Security Groups, IAM Roles, or S3 Buckets"}
               </p>
             </div>
           ) : (

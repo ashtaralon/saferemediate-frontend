@@ -40,6 +40,12 @@ export interface TimelineSummaryRecord {
   period_end?: string
 }
 
+export type RemediationEventFilter = "actionable" | "all"
+
+// History is the durable audit record. Consumers may offer a restore-only
+// view, but must not make that narrower view the initial state.
+export const DEFAULT_REMEDIATION_EVENT_FILTER: RemediationEventFilter = "all"
+
 const normalized = (value: unknown): string =>
   typeof value === "string" ? value.trim().toLocaleLowerCase() : ""
 
