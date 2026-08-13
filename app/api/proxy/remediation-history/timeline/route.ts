@@ -37,6 +37,7 @@ const DEGRADED_TIMELINE = { ...EMPTY_TIMELINE, degraded: true }
 // Cap the upstream fetch below the browser's 25s AbortSignal so a cold/hung
 // Render worker fails over to stale here instead of timing out in the component.
 const UPSTREAM_TIMEOUT_MS = 20_000
+const EMPTY_RETRY_TIMEOUT_MS = 5_000
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
@@ -107,8 +108,40 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(DEGRADED_TIMELINE, { headers: { "X-Cache": "ERROR-EMPTY" } })
     }
 
-    const data = await response.json()
-    const freshCount = Array.isArray(data?.events) ? data.events.length : 0
+    let data = await response.json()
+    let freshCount = Array.isArray(data?.events) ? data.events.length : 0
+
+    // A freshly started backend worker can return an empty success before its
+    // operation-store read is warm. We observed that exact race in production:
+    // History opened at 0 records, then the same force-refresh returned 123.
+    // Retry one bounded read before showing an empty audit trail. A genuinely
+    // quiet timeline remains empty when both authoritative reads agree.
+    if (freshCount === 0) {
+      await new Promise(resolve => setTimeout(resolve, 250))
+      const retryController = new AbortController()
+      const retryTimer = setTimeout(() => retryController.abort(), EMPTY_RETRY_TIMEOUT_MS)
+      try {
+        const retryResponse = await fetch(url, {
+          method: "GET",
+          headers: { "Content-Type": "application/json" },
+          cache: "no-store",
+          signal: retryController.signal,
+        })
+        if (retryResponse.ok) {
+          const retryData = await retryResponse.json()
+          const retryCount = Array.isArray(retryData?.events) ? retryData.events.length : 0
+          if (retryCount > 0) {
+            data = retryData
+            freshCount = retryCount
+          }
+        }
+      } catch {
+        // The existing stale/empty fallback below remains authoritative.
+      } finally {
+        clearTimeout(retryTimer)
+      }
+    }
+
     if (freshCount > 0) {
       setCached(cacheKey, data, TTL_STD)
       return NextResponse.json(data, { headers: { "X-Cache": "MISS" } })
