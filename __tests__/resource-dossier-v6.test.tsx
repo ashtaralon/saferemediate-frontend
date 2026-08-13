@@ -4,7 +4,7 @@ import React from "react"
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { ResourceDossier } from "@/components/inventory/resource-dossier"
+import { formatFactValue, ResourceDossier } from "@/components/inventory/resource-dossier"
 
 vi.mock("@/lib/account-scope-context", () => ({
   useAccountScope: () => ({
@@ -304,6 +304,15 @@ afterEach(() => {
 })
 
 describe("Resource Dossier v6", () => {
+  it("formats service-specific configuration values with customer-facing units", () => {
+    expect(formatFactValue("fifo_queue", false)).toBe("Standard")
+    expect(formatFactValue("fifo_queue", true)).toBe("FIFO")
+    expect(formatFactValue("memory_mb", 256)).toBe("256 MB")
+    expect(formatFactValue("timeout_seconds", 60)).toBe("60 seconds")
+    expect(formatFactValue("allocated_storage", 100)).toBe("100 GiB")
+    expect(formatFactValue("maximum_message_size", 262144)).toBe("262,144 bytes")
+  })
+
   it("locks background page scrolling while the fixed dossier is open", () => {
     const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(() => new Promise(() => {}))
     const previousOverflow = document.body.style.overflow
