@@ -33,7 +33,7 @@ import { ResourceDossier } from "@/components/inventory/resource-dossier"
 import { canonicalInventoryResourceId } from "@/lib/inventory-resource-identity"
 import { ServiceTypeBadge, getServiceMeta } from "@/lib/service-type"
 
-interface ServiceNode {
+export interface ServiceNode {
   id: string
   name: string
   type: string
@@ -53,6 +53,35 @@ interface ServiceNode {
   tags?: Record<string, string>
   isTagged?: boolean
   vpcId?: string
+}
+
+const LEGACY_SERVICE_DETAIL_ENABLED = false
+
+/** Missing operational state is UNKNOWN; inventory provenance is not status. */
+export function reportedInventoryStatus(resource: Record<string, unknown>): string {
+  for (const value of [
+    resource.status,
+    resource.state,
+    resource.key_state,
+    resource.instance_state,
+  ]) {
+    if (typeof value === "string" && value.trim()) return value.trim()
+  }
+  return "UNKNOWN"
+}
+
+export function inventoryStatusClassName(status: string): string {
+  const normalized = String(status || "UNKNOWN").toLowerCase()
+  if (normalized === "running" || normalized === "active" || normalized === "available") {
+    return "bg-[#10b98120] text-[#10b981]"
+  }
+  if (normalized === "stopped" || normalized === "inactive") {
+    return "bg-gray-100 text-[var(--foreground,#374151)]"
+  }
+  if (normalized === "pending" || normalized === "starting") {
+    return "bg-[#eab30820] text-[#eab308]"
+  }
+  return "bg-gray-100 text-[var(--muted-foreground,#6b7280)]"
 }
 
 interface AllServicesTabProps {
@@ -161,12 +190,11 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
         systemName: r.systemName || systemName,
         environment: r.environment || null,
         region: r.region || null,
-        status: r.is_seed ? "Seed" : "Discovered",
+        status: reportedInventoryStatus(r),
         lastSeen: r.last_seen || r.lastSeen || null,
         properties: {},
         attachedPolicies: normalizedType === "IAMRole" ? r.connections || 0 : 0,
         permissionCount: r.connections || 0,
-        instanceState: "active",
         tags: {},
         isTagged: true,
         vpcId: undefined,
@@ -355,14 +383,6 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
     }
   }
 
-  const getStatusColor = (status: string) => {
-    const s = status.toLowerCase()
-    if (s === "running" || s === "active" || s === "available") return "bg-[#10b98120] text-[#10b981]"
-    if (s === "stopped" || s === "inactive") return "bg-gray-100 text-[var(--foreground,#374151)]"
-    if (s === "pending" || s === "starting") return "bg-[#eab30820] text-[#eab308]"
-    return "bg-[#3b82f620] text-[#3b82f6]"
-  }
-
   // Helper function to extract permissions from policy document
   const extractPermissionsFromPolicy = (doc: any): string[] => {
     if (!doc || typeof doc !== 'object') return []
@@ -406,10 +426,6 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
         const parts = roleArn.split('/')
         return parts[parts.length - 1]
       }
-      // Try to infer from name
-      if (service.name) {
-        return `${service.name}-Role`
-      }
     }
     
     // For EC2 instances
@@ -437,6 +453,7 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
       setActiveTab('overview')
       return
     }
+    if (!LEGACY_SERVICE_DETAIL_ENABLED) return
 
     // Fetch service policies for all service types
     const fetchServicePolicies = async () => {
@@ -446,7 +463,12 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
       try {
         // Use service ID or name as identifier
         const serviceId = selectedService.id || selectedService.name
-        const region = selectedService.region || 'eu-west-1'
+        const region = selectedService.region
+        if (!region) {
+          setServicePolicies(null)
+          setPoliciesError('Region unavailable; policy read was not attempted')
+          return
+        }
         
         console.log('[AllServices] Fetching policies for service:', serviceId, 'type:', selectedService.type)
         
@@ -479,6 +501,7 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
       setIamError(null)
       return
     }
+    if (!LEGACY_SERVICE_DETAIL_ENABLED) return
 
     const roleName = getIAMRoleName(selectedService)
     if (!roleName) {
@@ -859,7 +882,7 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
                             </TableCell>
                             <TableCell>
                               <span
-                                className={`text-xs px-2 py-1 rounded ${getStatusColor(service.instanceState || service.status)}`}
+                                className={`text-xs px-2 py-1 rounded ${inventoryStatusClassName(service.instanceState || service.status)}`}
                               >
                                 {service.instanceState || service.status}
                               </span>
@@ -1014,7 +1037,7 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
                 </div>
                 <div>
                   <div className="text-sm text-[var(--muted-foreground,#6b7280)]">Status</div>
-                  <div className={`inline-block px-2 py-1 rounded text-xs ${getStatusColor(selectedService.instanceState || selectedService.status)}`}>
+                  <div className={`inline-block px-2 py-1 rounded text-xs ${inventoryStatusClassName(selectedService.instanceState || selectedService.status)}`}>
                     {selectedService.instanceState || selectedService.status}
                   </div>
                 </div>
