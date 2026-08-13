@@ -175,6 +175,102 @@ const identityOnlyDossier = {
   },
 }
 
+const configurationProfileDossier = {
+  ...identityOnlyDossier,
+  purpose: {
+    ...identityOnlyDossier.purpose,
+    serve_state: "PARTIAL",
+    payload: {
+      ...identityOnlyDossier.purpose.payload,
+      summary: "EC2 instance · running · t3.micro · 1 configured relationship",
+      not_established_reason: null,
+      profile_id: "aws.ec2.instance.v1",
+      profile_label: "EC2 instance",
+      assertion: {
+        ...identityOnlyDossier.purpose.payload.assertion,
+        state: "CONFIGURED",
+        value: "EC2 instance · running · t3.micro · 1 configured relationship",
+        authority_basis: "activated configuration and relationship source generations",
+        source_generation_refs: [{ plane: "configuration", generation: "c1", head_hash: "head-c1", evidence_binding: null }],
+      },
+    },
+    notes: "Operational purpose only; business intent is never inferred from configuration.",
+  },
+  lifecycle: {
+    serve_state: "PARTIAL",
+    payload: {
+      profile_id: "aws.ec2.instance.v1",
+      facts: [{
+        key: "state",
+        label: "Instance state",
+        assertion: {
+          ...dossier.purpose.payload.assertion,
+          state: "CONFIGURED",
+          value: "running",
+          basis: "Instance state from the activated configuration projection",
+          authority_basis: "activated configuration source generation",
+          window: null,
+          source_generation_refs: [{ plane: "configuration", generation: "c1", head_hash: "head-c1", evidence_binding: null }],
+        },
+      }],
+    },
+    coverage: identityOnlyDossier.purpose.coverage,
+    notes: null,
+  },
+  fitness: {
+    serve_state: "PARTIAL",
+    payload: {
+      profile_id: "aws.ec2.instance.v1",
+      facts: [{
+        key: "instance_type",
+        label: "Instance type",
+        assertion: {
+          ...dossier.purpose.payload.assertion,
+          state: "CONFIGURED",
+          value: "t3.micro",
+          basis: "Instance type from the activated configuration projection",
+          authority_basis: "activated configuration source generation",
+          window: null,
+          source_generation_refs: [{ plane: "configuration", generation: "c1", head_hash: "head-c1", evidence_binding: null }],
+        },
+      }],
+    },
+    coverage: identityOnlyDossier.purpose.coverage,
+    notes: null,
+  },
+  dependencies: {
+    serve_state: "PARTIAL",
+    payload: {
+      ledger: [{
+        direction: "DOWNSTREAM",
+        basis_class: "CONFIGURED",
+        freshness: "UNKNOWN",
+        target_arn: "arn:aws:iam::123456789012:role/orders-worker",
+        target_display_name: "orders-worker",
+        target_type: "IAMRole",
+        resource_canonical_resource_uid: "aws:ec2:eu-west-1:123456789012:instance/i-123",
+        relationship: "USES_ROLE_VIA_INSTANCE_PROFILE",
+        actions: [],
+        evidence_refs: [],
+        source_generation_refs: [{ plane: "authorization", generation: "a1", head_hash: "head-a1", evidence_binding: null }],
+      }],
+      counts_by_basis: { OBSERVED: 0, CONFIGURED: 1, STRUCTURAL: 0 },
+    },
+    coverage: identityOnlyDossier.purpose.coverage,
+    notes: "Observed and configured relationships are separate proof sets. No identified relationship is not proof that none exist.",
+  },
+  evidence: {
+    ...identityOnlyDossier.evidence,
+    serve_state: "PARTIAL",
+    payload: {
+      ...identityOnlyDossier.evidence.payload,
+      diagnostics: ["4 assertions are generation-pinned but do not yet have object-level immutable bindings."],
+      missing_immutable_evidence_bindings: 4,
+    },
+  },
+  serve_state: "PARTIAL",
+}
+
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
@@ -231,7 +327,7 @@ describe("Resource Dossier v6", () => {
     expect(screen.getByText(/intentionally not summed/)).toBeInTheDocument()
   })
 
-  it("asks the canonical server for every resource type and renders its fail-closed response", async () => {
+  it("renders identity-only payloads without exposing internal NOT_READY states", async () => {
     const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify(identityOnlyDossier), {
       status: 200,
       headers: { "Content-Type": "application/json" },
@@ -246,15 +342,16 @@ describe("Resource Dossier v6", () => {
       />,
     )
 
-    expect(await screen.findByText(/Purpose not established/)).toBeInTheDocument()
-    expect(screen.getByText(/does not yet have a certified purpose or dependency projection/)).toBeInTheDocument()
-    expect(screen.getAllByText("NOT READY")).toHaveLength(2)
+    expect(await screen.findByText("Identity profile")).toBeInTheDocument()
+    expect(screen.getByText(/Canonical identity is verified/)).toBeInTheDocument()
+    expect(screen.queryByText("NOT READY")).not.toBeInTheDocument()
     expect(screen.getByText("aws:ec2:eu-west-1:123456789012:instance/i-123")).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole("button", { name: "Dependencies" }))
     expect(await screen.findByText(/No dependency assertions are available/)).toBeInTheDocument()
     fireEvent.click(screen.getByRole("button", { name: "Technical evidence" }))
-    expect(await screen.findByText("profile=aws.ec2.instance.v1 substantive_projection=NOT_READY")).toBeInTheDocument()
+    expect(await screen.findByText(/service-specific configuration and activity evidence are not available/i)).toBeInTheDocument()
+    expect(screen.queryByText(/NOT_READY/)).not.toBeInTheDocument()
     await waitFor(() => expect(fetch).toHaveBeenCalledWith(
       expect.stringContaining("/resource-dossier?"),
       expect.objectContaining({ cache: "no-store" }),
@@ -262,5 +359,34 @@ describe("Resource Dossier v6", () => {
     const requestUrl = String(vi.mocked(globalThis.fetch).mock.calls[0][0])
     expect(requestUrl).toContain("resource_id=i-123")
     expect(requestUrl).not.toContain("resource_type=")
+  })
+
+  it("renders the shared EC2 configuration profile and generation-pinned relationships", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify(configurationProfileDossier), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    }))
+    render(
+      <ResourceDossier
+        resourceId="i-123"
+        resourceName="worker"
+        resourceType="EC2"
+        systemName="orders"
+        onClose={() => {}}
+      />,
+    )
+
+    expect(await screen.findByText("Operational profile")).toBeInTheDocument()
+    expect(screen.getByText(/EC2 instance · running · t3.micro/)).toBeInTheDocument()
+    expect(screen.getByText("Lifecycle")).toBeInTheDocument()
+    expect(screen.getByText("Instance state")).toBeInTheDocument()
+    expect(screen.getByText("Configuration and posture")).toBeInTheDocument()
+    expect(screen.getByText("Instance type")).toBeInTheDocument()
+    expect(screen.queryByText("NOT READY")).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole("button", { name: "Dependencies" }))
+    expect(await screen.findByText("orders-worker")).toBeInTheDocument()
+    expect(screen.getByText("authorization")).toBeInTheDocument()
+    expect(screen.getByText("a1")).toBeInTheDocument()
   })
 })
