@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getCached, getStaleCached, setCached, TTL_STD } from "@/lib/server/proxy-cache"
+import { remediationTimelineEventCount } from "@/lib/remediation-timeline"
 
 export const dynamic = "force-dynamic"
 export const fetchCache = "force-no-store"
@@ -109,7 +110,7 @@ export async function GET(req: NextRequest) {
     }
 
     let data = await response.json()
-    let freshCount = Array.isArray(data?.events) ? data.events.length : 0
+    let freshCount = remediationTimelineEventCount(data)
 
     // A freshly started backend worker can return an empty success before its
     // operation-store read is warm. We observed that exact race in production:
@@ -129,7 +130,7 @@ export async function GET(req: NextRequest) {
         })
         if (retryResponse.ok) {
           const retryData = await retryResponse.json()
-          const retryCount = Array.isArray(retryData?.events) ? retryData.events.length : 0
+          const retryCount = remediationTimelineEventCount(retryData)
           if (retryCount > 0) {
             data = retryData
             freshCount = retryCount
@@ -151,8 +152,8 @@ export async function GET(req: NextRequest) {
     // live: limit=1 flips empty→1-event as the worker warms). Prefer a last-good
     // response that HAD events over blanking the surface; otherwise cache+serve
     // the honest empty so a truly-quiet query still reads idle.
-    const staleWithEvents = getStaleCached<{ events?: unknown[] }>(cacheKey)
-    if (staleWithEvents && Array.isArray(staleWithEvents.events) && staleWithEvents.events.length > 0) {
+    const staleWithEvents = getStaleCached<unknown>(cacheKey)
+    if (remediationTimelineEventCount(staleWithEvents) > 0) {
       return NextResponse.json(staleWithEvents, { headers: { "X-Cache": "STALE-OVER-EMPTY" } })
     }
     setCached(cacheKey, data, TTL_STD)

@@ -46,6 +46,18 @@ export type RemediationEventFilter = "actionable" | "all"
 // view, but must not make that narrower view the initial state.
 export const DEFAULT_REMEDIATION_EVENT_FILTER: RemediationEventFilter = "all"
 
+/** Count events in either the raw timeline payload or its trust envelope. */
+export function remediationTimelineEventCount(payload: unknown): number {
+  if (!payload || typeof payload !== "object") return 0
+  const candidate = payload as {
+    events?: unknown
+    result?: { events?: unknown } | null
+  }
+  if (Array.isArray(candidate.events)) return candidate.events.length
+  if (Array.isArray(candidate.result?.events)) return candidate.result.events.length
+  return 0
+}
+
 const normalized = (value: unknown): string =>
   typeof value === "string" ? value.trim().toLocaleLowerCase() : ""
 
