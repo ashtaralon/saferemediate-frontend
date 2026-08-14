@@ -8,7 +8,7 @@
 import type { IdentityAttackPath } from "@/components/identity-attack-paths/types"
 import type { EdgeVpce, TopologyNode, TrafficEdge, TrafficEdgeClass } from "./types"
 
-export type EstateFlowMode = "all_access" | "attack_paths"
+export type EstateFlowMode = "architecture" | "all_access" | "attack_paths"
 
 export interface DepMapEdgeLike {
   source?: string | null
@@ -273,9 +273,11 @@ export function depMapEdgesToTrafficEdges(
       external_destinations: null,
       via_vpce_id: null,
       via_vpce_service_name: null,
-      evidence_type: e.last_seen ? "observed" : "inferred",
-      evidence_source: e.last_seen ? "behavioral_graph" : "dependency_graph",
-      coverage_state: e.last_seen ? "complete" : "unknown",
+      evidence_type: "inferred",
+      evidence_source: "legacy_dependency_graph",
+      coverage_state: "unknown",
+      authority_state: e.last_seen ? "legacy_unverified" : "inferred",
+      path_basis: "inferred_correlation",
     })
   }
   return out
@@ -325,6 +327,8 @@ export function attackPathEdgesToTrafficEdges(
         evidence_type: "inferred",
         evidence_source: "materialized_attack_path",
         coverage_state: "unknown",
+        authority_state: "inferred",
+        path_basis: "inferred_correlation",
       })
     }
   }
@@ -353,6 +357,8 @@ export function selectEstateFlowEdges(opts: {
     nodeTypeById,
     vpces = [],
   } = opts
+
+  if (mode === "architecture") return []
 
   if (mode === "attack_paths") {
     const attack = attackPathEdgesToTrafficEdges(

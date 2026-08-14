@@ -22,10 +22,7 @@ import {
 } from "@/components/topology-v0-2/filter-rail"
 import { DetailPanel } from "@/components/topology-v0-2/detail-panel"
 import { OutOfScopeOverflowLine } from "@/components/topology-v0-2/estate-out-of-scope"
-import {
-  buildHeadlineNarrative,
-  buildRankedEntries,
-} from "@/components/topology-v0-2/headline-narrative"
+import { buildHeadlineNarrative } from "@/components/topology-v0-2/headline-narrative"
 import { RankedRail } from "@/components/topology-v0-2/ranked-rail"
 import type {
   DecisionRoutingSummary,
@@ -56,6 +53,10 @@ import {
 } from "@/components/topology-v0-2/estate-system-scope"
 import { normalizeVpcTopology } from "@/components/topology-v0-2/normalize-topology"
 import { useAccountScope } from "@/lib/account-scope-context"
+import {
+  buildInspectorServiceEdges,
+  buildVpceInspectorNodes,
+} from "@/components/topology-v0-2/service-paths"
 
 const VPC_STORAGE_PREFIX = "topology-vpc:"
 const ACCOUNT_STORAGE_PREFIX = "topology-account:"
@@ -65,12 +66,10 @@ const AZ_STORAGE_PREFIX = "topology-hidden-az:"
 const ESTATE_SHELL_X = "w-full px-3 lg:px-4"
 const subscribeHydration = () => () => {}
 
-// Regional / serverless services (Lambda, S3, DynamoDB, KMS, Secret) have no VPC
-// — they render on the right rails, not the subnet grid. Their SERVICES-chip
-// counts are therefore ALWAYS account/system-wide; the VPC-grid services
-// (EC2/RDS/LoadBalancer) are counted for the current scope (per-VPC when a VPC
-// is picked). Splitting the two keeps the chips 1:1 with the map and the
-// per-VPC header — mixing them read as the map lying about a VPC's workloads.
+// Regional services render on the right rail. Lambda inventory is also
+// account/system-wide, while placement still distinguishes VPC-attached
+// networking from AWS-managed runtimes with no VPC attachment. VPC-grid
+// services (EC2/RDS/LoadBalancer) are counted for the current scope.
 // Type sets from estate-placement — only Neo4j-backed types render.
 const RAIL_SERVICE_TYPES = new Set<string>([
   ...SERVERLESS_TYPES,
@@ -109,9 +108,8 @@ export interface EstateMapViewProps {
   embedded?: boolean
   /** Switch Topology tab to Traffic map (TFM graph). */
   onOpenTrafficMap?: () => void
-  /** Initial flow overlay. The Business System Blast Radius view opens in
-   *  "attack_paths" so the estate map lands showing reachability, not all
-   *  access. Users can still toggle back to all-access. */
+  /** Initial map lens. The system topology defaults to architecture; focused
+   *  security surfaces can open directly on attack paths. */
   defaultFlowMode?: EstateFlowMode
   /** Collapse AZ columns that hold no workloads by default (the Business
    *  System view — keeps the map from wasting canvas on empty AZs). Applied
@@ -149,7 +147,7 @@ function topologyGridWouldBeEmpty(data: TopologyRiskResponse): boolean {
   return true
 }
 
-export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, defaultFlowMode = "all_access", collapseEmptyAzsByDefault = false, defaultToAllVpcs = false }: EstateMapViewProps) {
+export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, defaultFlowMode = "architecture", collapseEmptyAzsByDefault = false, defaultToAllVpcs = false }: EstateMapViewProps) {
   const productScope = useAccountScope()
   // useCachedFetch can synchronously recover a browser-local last-good map.
   // Hold the server and first client render on the same loading shell so a
@@ -820,6 +818,46 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     return base.filter(n => n.is_foreign !== true)
   }, [regionalDataSourceNodes, effectiveFilters, showSharedNeighbors])
 
+  const detailNodes = useMemo(() => {
+    const byId = new Map<string, TopologyNode>()
+    for (const node of filteredNodes) byId.set(node.id, node)
+    for (const node of filteredServerlessSource) byId.set(node.id, node)
+    for (const node of filteredRegionalSource) byId.set(node.id, node)
+    return [...byId.values()]
+  }, [filteredNodes, filteredServerlessSource, filteredRegionalSource])
+
+  const inspectorNodes = useMemo(() => {
+    const byId = new Map(detailNodes.map(node => [node.id, node]))
+    const topology = scopedVpcTopology ?? data?.vpc_topology
+    if (!topology) return [...byId.values()]
+
+    for (const node of buildVpceInspectorNodes(topology.edges.vpces ?? [], {
+      account_id: topology.account_id ?? data?.account_id ?? null,
+      region: topology.region ?? data?.region ?? null,
+      vpc_id: topology.vpc_id ?? data?.vpc_id ?? null,
+    })) {
+      byId.set(node.id, node)
+    }
+
+    const igw = topology.edges.igws?.[0]
+    if (igw) {
+      byId.set("__igw__", {
+        id: "__igw__",
+        name: igw.name || "Internet gateway",
+        type: "InternetGateway",
+        subnet_id: null,
+        vpc_id: igw.vpc_id ?? topology.vpc_id ?? null,
+        account_id: topology.account_id ?? data?.account_id ?? null,
+        region: topology.region ?? data?.region ?? null,
+        score: null,
+        stale: null,
+        is_jewel: false,
+      })
+    }
+
+    return [...byId.values()]
+  }, [detailNodes, scopedVpcTopology, data])
+
   useEffect(() => {
     if (process.env.NODE_ENV !== "development") return
     console.log("[estate-map counts]", {
@@ -883,9 +921,31 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     filteredNodes,
   ])
 
-  const overlayEdges = useMemo(
+  const operationalEdges = useMemo(
     () =>
       selectEstateFlowEdges({
+        mode: "all_access",
+        topologyTrafficEdges: scopedTrafficEdges,
+        depMapEdges: depMapData?.edges ?? null,
+        visible: flowOverlayContext.visible,
+        index: flowOverlayContext.index,
+        nodeTypeById: flowOverlayContext.nodeTypeById,
+        vpces: flowOverlayContext.vpces,
+      }),
+    [
+      scopedTrafficEdges,
+      depMapData?.edges,
+      flowOverlayContext,
+    ],
+  )
+  const inspectorEdges = useMemo(
+    () => buildInspectorServiceEdges(operationalEdges, flowOverlayContext.vpces),
+    [operationalEdges, flowOverlayContext.vpces],
+  )
+
+  const overlayEdges = useMemo(() => {
+    if (flowMode === "all_access") return operationalEdges
+    return selectEstateFlowEdges({
         mode: flowMode,
         topologyTrafficEdges: scopedTrafficEdges,
         depMapEdges: depMapData?.edges ?? null,
@@ -895,9 +955,11 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
         index: flowOverlayContext.index,
         nodeTypeById: flowOverlayContext.nodeTypeById,
         vpces: flowOverlayContext.vpces,
-      }),
+      })
+    },
     [
       flowMode,
+      operationalEdges,
       scopedTrafficEdges,
       depMapData?.edges,
       attackPaths,
@@ -941,11 +1003,12 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
   const selectedNode = useMemo(() => {
     if (!selectedNodeId) return null
     return (
+      inspectorNodes.find(n => n.id === selectedNodeId) ??
       scopedEstate?.nodes.find(n => n.id === selectedNodeId) ??
       data?.nodes.find(n => n.id === selectedNodeId) ??
       null
     )
-  }, [selectedNodeId, scopedEstate?.nodes, data?.nodes])
+  }, [selectedNodeId, inspectorNodes, scopedEstate?.nodes, data?.nodes])
 
   const narrative = useMemo(
     () => (data?.system_kpis ? buildHeadlineNarrative(data) : null),
@@ -1015,15 +1078,6 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     }, 4000)
     return () => window.clearInterval(id)
   }, [isComputing, computingTimedOut, retry])
-
-  const rankedEntries = useMemo(
-    () =>
-      buildRankedEntries(
-        scopedEstate?.nodes ?? data?.nodes ?? [],
-        scopedVpcTopology?.iam_roles ?? data?.vpc_topology?.iam_roles ?? [],
-      ),
-    [scopedEstate?.nodes, data?.nodes, scopedVpcTopology?.iam_roles, data?.vpc_topology?.iam_roles],
-  )
 
   const findingsUrl = `/api/proxy/findings/severity-summary?systemName=${encodeURIComponent(systemName)}&status=open`
   const { data: findingsSummary } = useCachedFetch<FindingsSeveritySummary>(findingsUrl, {
@@ -1196,11 +1250,20 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     )
   }
 
-  const selectedRailId = highlightedRoleName
-    ? `iam:${highlightedRoleName}`
-    : selectedNodeId
+  const selectedRailId = selectedNodeId
 
   const mapVpcTopology = scopedVpcTopology ?? data.vpc_topology
+  const selectMapNode = (id: string) => {
+    const nextId = id === selectedNodeId ? null : id
+    setSelectedNodeId(nextId)
+    setHighlightedRoleName(null)
+    if (
+      nextId &&
+      (id === "__igw__" || mapVpcTopology?.edges.vpces.some(vpce => vpce.id === id))
+    ) {
+      setFlowMode("all_access")
+    }
+  }
 
   const renderMap = (presentationMode: boolean, scale = 1, densityCollapsedArg = false) => (mapVpcTopology ? (
     <AwsFrame
@@ -1211,16 +1274,14 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
       serverlessSourceNodes={filteredServerlessSource}
       regionalDataSourceNodes={filteredRegionalSource}
       trafficEdges={scopedTrafficEdges}
+      trafficAuthority={data.traffic_authority}
       overlayEdges={focusedOverlayEdges}
       flowMode={flowMode}
       onFlowModeChange={setFlowMode}
       attackPathFlowCount={attackPathFlowCount}
       selectedNodeId={selectedNodeId}
       highlightedRoleName={highlightedRoleName}
-      onSelect={id => {
-        setSelectedNodeId(id === selectedNodeId ? null : id)
-        setHighlightedRoleName(null)
-      }}
+      onSelect={selectMapNode}
       presentationMode={presentationMode}
       scale={scale}
       densityCollapsed={densityCollapsedArg}
@@ -1465,7 +1526,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
               <span
                 className="text-[10px] uppercase tracking-[0.14em] font-semibold shrink-0 border-l pl-2 ml-1"
                 style={{ color: "#5A6B7A", borderColor: "#E2E8F0" }}
-                title="Regional / serverless services (Lambda, S3, DynamoDB, KMS, Secrets) have no VPC — count is always account/system-wide"
+                title="Regional services are system-wide. Lambda inventory is system-wide too, while placement distinguishes VPC-attached functions from non-VPC-attached runtimes."
               >
                 System-wide
               </span>
@@ -1723,19 +1784,17 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
         </main>
 
         <aside
-          className="hidden xl:flex flex-col min-h-0 w-[212px] shrink-0 sticky top-4 self-start"
+          className="hidden xl:flex flex-col min-h-0 w-[244px] shrink-0 sticky top-4 self-start"
           style={{ maxHeight: embedded ? "min(84vh, 1100px)" : "calc(100vh - 110px)" }}
         >
           <RankedRail
-            entries={rankedEntries}
+            nodes={detailNodes}
+            edges={operationalEdges}
+            subnets={mapVpcTopology?.subnets}
             selectedId={selectedRailId}
             onSelectWorkload={id => {
               setSelectedNodeId(id)
               setHighlightedRoleName(null)
-            }}
-            onSelectRole={name => {
-              setHighlightedRoleName(name)
-              setSelectedNodeId(null)
             }}
             filtersSlot={filterDrawer}
           />
@@ -1744,15 +1803,13 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
 
       <div className={`xl:hidden pb-4 ${ESTATE_SHELL_X}`}>
         <RankedRail
-          entries={rankedEntries}
+          nodes={detailNodes}
+          edges={operationalEdges}
+          subnets={mapVpcTopology?.subnets}
           selectedId={selectedRailId}
           onSelectWorkload={id => {
             setSelectedNodeId(id)
             setHighlightedRoleName(null)
-          }}
-          onSelectRole={name => {
-            setHighlightedRoleName(name)
-            setSelectedNodeId(null)
           }}
           filtersSlot={filterDrawer}
         />
@@ -1770,6 +1827,10 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
           vpcId={scopedVpc}
           accountId={selectedAccountId}
           region={selectedRegionId}
+          inspectorNodes={inspectorNodes}
+          inspectorEdges={inspectorEdges}
+          vpces={flowOverlayContext.vpces}
+          trafficAuthority={data.traffic_authority}
           onClose={() => setSelectedNodeId(null)}
         />
       ) : null}
@@ -1783,14 +1844,14 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
           aria-modal="true"
           aria-label="Topology map full screen"
         >
-          {/* P0-C — slim one-row chrome: identity · scope toggle · zoom controls · exit */}
+          {/* Slim one-row chrome: identity · scope toggle · zoom controls · exit */}
           <div
             className="flex items-center gap-3 shrink-0 border-b px-4 h-11"
             style={{ borderColor: "#DDE3E8", background: "#FFFFFF" }}
           >
             <div className="flex items-baseline gap-2 min-w-0">
               <span className="text-[10px] uppercase tracking-[0.14em] font-semibold shrink-0" style={{ color: "#5A6B7A" }}>
-                Estate map
+                Cloud topology
               </span>
               <span className="text-[13px] font-semibold truncate" style={{ color: "#1A2330" }}>
                 {data.system}
@@ -1924,21 +1985,6 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
                 {renderMap(true, zoom, densityCollapsed)}
               </div>
             </div>
-            {viewDensity === "glance" ? (
-              <div
-                className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full px-3 py-1 text-[10px] font-medium shadow-lg"
-                style={{ background: "rgba(26,35,48,0.82)", color: "#FFFFFF" }}
-              >
-                Glance — stacked icons · click any icon for details · Inventory shows every node
-              </div>
-            ) : (
-              <div
-                className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full px-3 py-1 text-[10px] font-medium shadow-lg"
-                style={{ background: "rgba(26,35,48,0.82)", color: "#FFFFFF" }}
-              >
-                Inventory — one icon per real node · click for details
-              </div>
-            )}
           </div>
           {selectedNode ? (
             <div className="fixed inset-0 z-[210] pointer-events-none">
@@ -1949,6 +1995,10 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
                   vpcId={scopedVpc}
                   accountId={selectedAccountId}
                   region={selectedRegionId}
+                  inspectorNodes={inspectorNodes}
+                  inspectorEdges={inspectorEdges}
+                  vpces={flowOverlayContext.vpces}
+                  trafficAuthority={data.traffic_authority}
                   onClose={() => setSelectedNodeId(null)}
                 />
               </div>

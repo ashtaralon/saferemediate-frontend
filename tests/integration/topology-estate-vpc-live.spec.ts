@@ -166,7 +166,7 @@ test.describe("estate map VPC scope e2e", () => {
 
   test("dependency-map estate tab loads without hard error", async ({ page }) => {
     await page.goto(TOPOLOGY_URL, { waitUntil: "domcontentloaded" })
-    await expect(page.getByRole("button", { name: "Risk inventory" })).toBeVisible({
+    await expect(page.getByRole("button", { name: "Cloud map" })).toBeVisible({
       timeout: 60_000,
     })
     await expect(page.getByText(/Topology risk unavailable/i)).not.toBeVisible({

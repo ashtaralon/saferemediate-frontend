@@ -228,6 +228,18 @@ export interface IamRoleRollup {
 }
 
 export type TrafficEdgeClass = "internal" | "edge_service" | "vpce" | "egress" | "database"
+export type TrafficAuthorityState =
+  | "authoritative"
+  | "rebuilding"
+  | "legacy_unverified"
+  | "configured"
+  | "inferred"
+export type TrafficPathBasis =
+  | "observed_segment"
+  | "configured_route"
+  | "correlated_trace"
+  | "inferred_correlation"
+  | "synthetic_expansion"
 
 /** Destination kind rollup on egress / public-path S3 edges (Phase 1 full-path). */
 export interface EgressBreakdownBucket {
@@ -253,8 +265,16 @@ export interface TrafficEdge {
   /** Canonical relationship provenance. Never infer safety from edge existence. */
   evidence_type?: "observed" | "configured" | "inferred"
   evidence_source?: string
-  coverage_state?: "complete" | "partial" | "unknown"
+  coverage_state?: "complete" | "partial" | "unknown" | "OBSERVED" | "STALE_ONLY" | "NO_OBSERVATION" | string
+  authority_state?: TrafficAuthorityState
+  path_basis?: TrafficPathBasis
+  projection_generation?: number | null
+  evidence_id?: string | null
+  evidence_ids?: string[]
+  normalization_basis?: string | null
   activity_count?: number | null
+  observation_count?: number | null
+  total_bytes?: number | null
   // Phase B-2 additions — older BE deploys may omit these.
   edge_class?: TrafficEdgeClass
   external_destinations?: number | null
@@ -355,6 +375,16 @@ export interface TopologyRiskResponse {
   vpc_topology?: VpcTopology | null
   // Phase B addition — present on responses from BE >= phase-b deploy.
   traffic_edges?: TrafficEdge[]
+  traffic_authority?: {
+    state: "authoritative" | "rebuilding" | "legacy_unverified" | string
+    mode: "legacy" | "shadow" | "incremental" | "unavailable" | "unknown" | string
+    active_generation: number | null
+    window_days: number
+    authoritative_endpoint_count: number
+    endpoint_count: number
+    projected_edge_count?: number
+    limitation?: string | null
+  }
   /** External systems consuming this system's shared data (observed/declared). */
   foreign_shared_access?: ForeignSharedAccessEdge[]
   /** This system's workloads outside the scoped VPC — drives the overflow line. */

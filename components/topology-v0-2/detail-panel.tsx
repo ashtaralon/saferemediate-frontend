@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import {
   AlertTriangle,
   ArrowDownLeft,
@@ -8,6 +8,8 @@ import {
   CheckCircle2,
   GitBranch,
   Loader2,
+  Maximize2,
+  Minimize2,
   Network,
   RefreshCw,
   RotateCcw,
@@ -19,7 +21,17 @@ import {
 } from "lucide-react"
 import { ResourceConfigTab } from "@/components/inventory/resource-config-tab"
 import { ServiceTypeBadge } from "@/lib/service-type"
-import type { TopologyNode } from "./types"
+import type {
+  EdgeVpce,
+  TopologyNode,
+  TopologyRiskResponse,
+  TrafficEdge,
+} from "./types"
+import {
+  buildFocusedServicePaths,
+  type FocusedServicePath,
+} from "./service-paths"
+import { FLOW_COLOR_BY_CLASS } from "./flow-visuals"
 import {
   operationalRequest,
   snapshotMirrorSummary,
@@ -39,6 +51,10 @@ interface Props {
   accountId?: string | null
   region?: string | null
   vpcId?: string | null
+  inspectorNodes?: TopologyNode[]
+  inspectorEdges?: TrafficEdge[]
+  vpces?: EdgeVpce[]
+  trafficAuthority?: TopologyRiskResponse["traffic_authority"]
   onClose: () => void
 }
 
@@ -149,8 +165,164 @@ function blockerGuidance(code: string) {
   }
 }
 
-export function DetailPanel({ node, systemName, accountId, region, vpcId, onClose }: Props) {
+function pathTruthLabel(path: FocusedServicePath): string {
+  if (path.edges.every(edge =>
+    edge.evidence_type === "observed" &&
+    edge.authority_state === "authoritative" &&
+    (edge.path_basis === "observed_segment" || edge.path_basis === "correlated_trace")
+  )) {
+    return path.edges.every(edge => edge.path_basis === "correlated_trace")
+      ? "Correlated trace"
+      : "Observed segment"
+  }
+  if (path.edges.every(edge => edge.path_basis === "configured_route")) return "Configured route"
+  if (path.edges.some(edge => edge.authority_state === "legacy_unverified")) return "Legacy unverified"
+  if (path.edges.some(edge => edge.path_basis === "synthetic_expansion")) return "Mixed evidence path"
+  return "Inferred correlation"
+}
+
+function ServicePathMap({
+  selectedNodeId,
+  nodes,
+  edges,
+  trafficAuthority,
+}: {
+  selectedNodeId: string
+  nodes: TopologyNode[]
+  edges: TrafficEdge[]
+  trafficAuthority?: TopologyRiskResponse["traffic_authority"]
+}) {
+  const nodeById = useMemo(() => new Map(nodes.map(item => [item.id, item])), [nodes])
+  const paths = useMemo(
+    () => buildFocusedServicePaths(selectedNodeId, nodes, edges),
+    [selectedNodeId, nodes, edges],
+  )
+
+  return (
+    <section
+      className="border-y py-4"
+      style={{ borderColor: "#DDE3E8" }}
+      data-testid="topology-service-path-map"
+    >
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h3 className="text-sm font-bold" style={{ color: "#1A2330" }}>Service inspector</h3>
+          <p className="mt-0.5 text-[11px]" style={{ color: "#5A6B7A" }}>
+            Neo4j graph · incident dependency segments and deterministic service routing
+          </p>
+        </div>
+        <span
+          className="rounded-full border px-2 py-1 text-[9px] font-semibold uppercase"
+          style={trafficAuthority?.state === "authoritative"
+            ? { borderColor: "#9FE8DC", background: "#E6FBF7", color: "#0E8B7A" }
+            : { borderColor: "#FCD34D", background: "#FFFBEB", color: "#92400E" }}
+        >
+          {trafficAuthority?.state === "authoritative"
+            ? `Generation ${trafficAuthority.active_generation}`
+            : trafficAuthority?.state === "legacy_unverified"
+              ? "Unverified traffic context"
+              : "Traffic evidence rebuilding"}
+        </span>
+      </div>
+
+      {paths.length === 0 ? (
+        <div className="border-l-2 px-3 py-2 text-xs" style={{ borderColor: "#CBD5E1", color: "#5A6B7A" }}>
+          No path segment is proven for this service in the selected scope.
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {paths.map(path => (
+            <div key={path.id} className="overflow-x-auto border-b pb-3 last:border-b-0" style={{ borderColor: "#E7EBEF" }}>
+              <div className="mb-2 text-[9px] font-semibold uppercase tracking-wide" style={{ color: "#5A6B7A" }}>
+                {pathTruthLabel(path)}
+              </div>
+              <div className="flex min-w-max items-center">
+                {path.nodeIds.map((nodeId, index) => {
+                  const pathNode = nodeById.get(nodeId)
+                  const edge = path.edges[index]
+                  const edgeClass = edge?.edge_class ?? "internal"
+                  const stroke = FLOW_COLOR_BY_CLASS[edgeClass]
+                  const authoritative =
+                    edge?.evidence_type === "observed" &&
+                    edge?.authority_state === "authoritative" &&
+                    (edge?.path_basis === "observed_segment" || edge?.path_basis === "correlated_trace")
+                  const dashed =
+                    edge?.authority_state === "legacy_unverified" ||
+                    edge?.authority_state === "inferred" ||
+                    edge?.path_basis === "inferred_correlation" ||
+                    edge?.path_basis === "synthetic_expansion"
+                  return (
+                    <div key={`${path.id}:${nodeId}`} className="flex items-center">
+                      <div
+                        className="w-44 border px-3 py-2"
+                        style={{
+                          borderColor: nodeId === selectedNodeId ? "#00A991" : "#CBD5E1",
+                          background: nodeId === selectedNodeId ? "#F0FDFA" : "#FFFFFF",
+                        }}
+                      >
+                        <div className="truncate text-xs font-semibold" title={pathNode?.name ?? nodeId}>
+                          {pathNode?.name ?? nodeId}
+                        </div>
+                        <div className="mt-1 truncate text-[9px] uppercase" style={{ color: "#64748B" }}>
+                          {pathNode?.type ?? "Graph endpoint"}
+                        </div>
+                      </div>
+                      {edge ? (
+                        <div className="w-28 px-2 text-center">
+                          <svg viewBox="0 0 96 24" className="h-6 w-full overflow-visible" aria-label={edge.protocol ?? "Dependency"}>
+                            <line
+                              x1="4"
+                              y1="12"
+                              x2="84"
+                              y2="12"
+                              stroke={stroke}
+                              strokeWidth="2"
+                              strokeDasharray={dashed ? "7 5" : undefined}
+                            />
+                            <path d="M82 7 L94 12 L82 17 Z" fill={stroke} />
+                            {authoritative ? (
+                              <circle
+                                r="4"
+                                cy="12"
+                                fill="#FFFFFF"
+                                stroke={stroke}
+                                strokeWidth="2"
+                                data-testid="topology-inspector-flow-packet"
+                              >
+                                <animate attributeName="cx" from="8" to="82" dur="5.5s" repeatCount="indefinite" />
+                              </circle>
+                            ) : null}
+                          </svg>
+                          <div className="truncate text-[9px] font-semibold" style={{ color: stroke }} title={edge.protocol ?? "Dependency"}>
+                            {edge.protocol ?? "Dependency"}
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}
+
+export function DetailPanel({
+  node,
+  systemName,
+  accountId,
+  region,
+  vpcId,
+  inspectorNodes = [],
+  inspectorEdges = [],
+  trafficAuthority,
+  onClose,
+}: Props) {
   const [tab, setTab] = useState<Tab>("resource")
+  const [expanded, setExpanded] = useState(false)
   const [dossier, setDossier] = useState<OperationalDossier | null>(null)
   const [narration, setNarration] = useState<EstateOperatorNarration | null>(null)
   const [narrationLoading, setNarrationLoading] = useState(false)
@@ -171,6 +343,7 @@ export function DetailPanel({ node, systemName, accountId, region, vpcId, onClos
 
   useEffect(() => {
     setTab("resource")
+    setExpanded(false)
     setDossier(null)
     setNarration(null)
     setNarrationError(false)
@@ -450,11 +623,16 @@ export function DetailPanel({ node, systemName, accountId, region, vpcId, onClos
 
   return (
     <aside
-      className="fixed inset-y-0 right-0 z-[220] flex w-full flex-col border-l shadow-2xl md:w-[720px]"
+      className={
+        expanded
+          ? "fixed inset-3 z-[220] flex flex-col border shadow-2xl"
+          : "fixed inset-y-0 right-0 z-[220] flex w-full flex-col border-l shadow-2xl md:w-[720px]"
+      }
       style={{ background: "#F4F6F8", borderColor: "#DDE3E8", color: "#1A2330" }}
       role="dialog"
       aria-label={`Operations for ${node.name}`}
-      data-testid="estate-operations-panel"
+      data-testid="topology-service-detail-panel"
+      data-expanded={expanded ? "true" : "false"}
     >
       <header className="border-b px-5 py-4" style={{ borderColor: "#DDE3E8", background: "#FFFFFF" }}>
         <div className="flex items-start gap-3">
@@ -463,6 +641,13 @@ export function DetailPanel({ node, systemName, accountId, region, vpcId, onClos
             <div className="text-[10px] font-semibold uppercase tracking-[0.16em]" style={{ color: "#0E8B7A" }}>
               Estate operations · {node.type ?? "Resource"}
             </div>
+            <div className="mt-0.5 text-[10px] font-medium" style={{ color: "#5A6B7A" }}>
+              {node.type?.toLowerCase().includes("lambda") && !node.vpc_id
+                ? "AWS-managed runtime · not VPC-attached"
+                : node.type?.toLowerCase().includes("endpoint")
+                  ? "Network boundary · Interface endpoint"
+                  : "Cloud service · scoped operational context"}
+            </div>
             <h2 className="mt-1 truncate text-lg font-bold">{node.name}</h2>
             <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] font-mono" style={{ color: "#5A6B7A" }}>
               <span>{node.id}</span>
@@ -470,7 +655,19 @@ export function DetailPanel({ node, systemName, accountId, region, vpcId, onClos
               {node.subnet_id ? <span>{node.subnet_id}</span> : null}
             </div>
           </div>
-          <button type="button" onClick={onClose} className="rounded-lg p-2 hover:bg-slate-100" aria-label="Close operations panel">
+          <button
+            type="button"
+            onClick={() => setExpanded(value => !value)}
+            className="rounded-lg p-2 hover:bg-slate-100"
+            aria-label={expanded ? "Restore service details" : "Enlarge service details"}
+            title={expanded ? "Restore window" : "Enlarge window"}
+            data-testid="topology-service-detail-resize"
+          >
+            {expanded
+              ? <Minimize2 className="h-5 w-5" style={{ color: "#5A6B7A" }} />
+              : <Maximize2 className="h-5 w-5" style={{ color: "#5A6B7A" }} />}
+          </button>
+          <button type="button" onClick={onClose} className="rounded-lg p-2 hover:bg-slate-100" aria-label="Close service details">
             <X className="h-5 w-5" style={{ color: "#5A6B7A" }} />
           </button>
         </div>
@@ -499,6 +696,12 @@ export function DetailPanel({ node, systemName, accountId, region, vpcId, onClos
       </header>
 
       <div className="flex-1 overflow-y-auto p-5">
+        <ServicePathMap
+          selectedNodeId={node.id}
+          nodes={inspectorNodes}
+          edges={inspectorEdges}
+          trafficAuthority={trafficAuthority}
+        />
         {tab === "resource" ? (
           <div data-testid="estate-operations-resource">
             <div className="mb-4 rounded-xl border p-4" style={{ borderColor: "#B9E8DF", background: "#F0FDFA" }}>

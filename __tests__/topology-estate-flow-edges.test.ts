@@ -14,6 +14,22 @@ function node(id: string, type: string | null = "Lambda"): TopologyNode {
 }
 
 describe("estate-flow-edges", () => {
+  it("architecture mode keeps the cloud structure clear of dependency overlays", () => {
+    const visible = new Set(["web-a", "app-b"])
+    const index = new Map([["web-a", "web-a"], ["app-b", "app-b"]])
+    const types = new Map([["web-a", "EC2"], ["app-b", "EC2"]])
+    const out = selectEstateFlowEdges({
+      mode: "architecture",
+      depMapEdges: [
+        { source: "web-a", target: "app-b", type: "ACTUAL_TRAFFIC", port: 443 },
+      ],
+      visible,
+      index,
+      nodeTypeById: types,
+    })
+    expect(out).toEqual([])
+  })
+
   it("maps dependency-map access edges to drawable traffic edges", () => {
     const visible = new Set(["lambda-a", "bucket-b"])
     const index = new Map([["lambda-a", "lambda-a"], ["bucket-b", "bucket-b"]])
