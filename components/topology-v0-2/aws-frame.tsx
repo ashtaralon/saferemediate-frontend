@@ -1936,6 +1936,7 @@ function ServerlessComputeTier({
   onSelect,
   compact = false,
   viewDensity = "glance",
+  namedFlowNodeIds,
 }: {
   nodes: TopologyNode[]
   selectedNodeId: string | null
@@ -1944,11 +1945,18 @@ function ServerlessComputeTier({
   compact?: boolean
   densityCollapsed?: boolean
   viewDensity?: ViewDensity
+  /** Observed dependency participants stay named in Glance instead of hiding in Lambda ×N. */
+  namedFlowNodeIds?: Set<string>
 }) {
   if (nodes.length === 0) return null
   const glance = viewDensity === "glance"
-  const useStacks = glance && shouldGlanceStackRail(nodes)
-  const groups = useStacks ? groupNodesByType(nodes) : null
+  const namedNodes = glance && namedFlowNodeIds
+    ? nodes.filter(node => namedFlowNodeIds.has(node.id))
+    : []
+  const namedIds = new Set(namedNodes.map(node => node.id))
+  const remainingNodes = nodes.filter(node => !namedIds.has(node.id))
+  const useStacks = glance && shouldGlanceStackRail(remainingNodes)
+  const groups = useStacks ? groupNodesByType(remainingNodes) : null
   return (
     <div
       className={compact ? "rounded-md p-2" : "rounded-md p-2.5"}
@@ -1965,10 +1973,19 @@ function ServerlessComputeTier({
       <div
         className={
           compact
-            ? "flex flex-wrap gap-1 max-w-full max-h-[160px] overflow-y-auto justify-center"
+            ? "flex flex-wrap gap-1 max-w-full max-h-[190px] overflow-y-auto justify-center"
             : "flex flex-wrap gap-1.5 max-w-full justify-center"
         }
       >
+        {namedNodes.map(node => (
+          <ServiceNodeIcon
+            key={`flow-${node.id}`}
+            node={node}
+            selected={node.id === selectedNodeId}
+            onSelect={onSelect}
+            dense
+          />
+        ))}
         {groups
           ? groups.map(g => (
               <StackTile
@@ -1981,7 +1998,7 @@ function ServerlessComputeTier({
                 }}
               />
             ))
-          : nodes.map(n => (
+          : remainingNodes.map(n => (
               <ServiceNodeIcon
                 key={n.id}
                 node={n}
@@ -2000,6 +2017,7 @@ function RegionalDataServicesTier({
   onSelect,
   compact = false,
   viewDensity = "glance",
+  namedFlowNodeIds,
 }: {
   nodes: TopologyNode[]
   selectedNodeId: string | null
@@ -2007,6 +2025,7 @@ function RegionalDataServicesTier({
   compact?: boolean
   densityCollapsed?: boolean
   viewDensity?: ViewDensity
+  namedFlowNodeIds?: Set<string>
 }) {
   if (nodes.length === 0) return null
   const glance = viewDensity === "glance"
@@ -2016,8 +2035,13 @@ function RegionalDataServicesTier({
   const sentinelIds = new Set(AWS_PUBLIC_SENTINELS.map(s => s.id))
   const neo4jDestAnchors = nodes.filter(n => sentinelIds.has(n.id))
   const inventory = nodes.filter(n => !sentinelIds.has(n.id))
-  const useStacks = glance && shouldGlanceStackRail(inventory)
-  const groups = useStacks ? groupNodesByType(inventory) : null
+  const namedNodes = glance && namedFlowNodeIds
+    ? inventory.filter(node => namedFlowNodeIds.has(node.id))
+    : []
+  const namedIds = new Set(namedNodes.map(node => node.id))
+  const remainingInventory = inventory.filter(node => !namedIds.has(node.id))
+  const useStacks = glance && shouldGlanceStackRail(remainingInventory)
+  const groups = useStacks ? groupNodesByType(remainingInventory) : null
   return (
     <div
       className={compact ? "rounded-md p-2 mt-2" : "rounded-md p-2.5 mt-2"}
@@ -2047,6 +2071,15 @@ function RegionalDataServicesTier({
         </div>
       ) : null}
       <div className="flex flex-wrap gap-1.5 max-w-full justify-center">
+        {namedNodes.map(node => (
+          <ServiceNodeIcon
+            key={`flow-${node.id}`}
+            node={node}
+            selected={node.id === selectedNodeId}
+            onSelect={onSelect}
+            dense
+          />
+        ))}
         {groups
           ? groups.map(g => (
               <StackTile
@@ -2059,7 +2092,7 @@ function RegionalDataServicesTier({
                 }}
               />
             ))
-          : inventory.map(n => (
+          : remainingInventory.map(n => (
               <ServiceNodeIcon
                 key={n.id}
                 node={n}
@@ -2174,6 +2207,20 @@ interface FlowPath {
   /** DB exposure honesty — red stroke + badge when true. */
   isExposed?: boolean
   highlight?: "attack_path" | null
+  /** Dependency lens: animate only the path incident to the selected service. */
+  focused?: boolean
+}
+
+export function isFocusedOperationalFlow(
+  edge: Pick<TrafficEdge, "source_id" | "target_id">,
+  selectedNodeId: string | null,
+  flowMode: EstateFlowMode,
+): boolean {
+  return (
+    flowMode === "all_access" &&
+    selectedNodeId != null &&
+    (edge.source_id === selectedNodeId || edge.target_id === selectedNodeId)
+  )
 }
 
 // ── Orthogonal flow routing ─────────────────────────────────────────────
@@ -2341,7 +2388,13 @@ function FlowModeToggle({
 }
 
 function FlowOverlay({
-  edges, containerRef, scale = 1, densityCollapsed = false, viewDensity = "glance",
+  edges,
+  containerRef,
+  scale = 1,
+  densityCollapsed = false,
+  viewDensity = "glance",
+  selectedNodeId = null,
+  flowMode = "architecture",
 }: {
   edges: TrafficEdge[]
   containerRef: React.RefObject<HTMLDivElement | null>
@@ -2355,6 +2408,8 @@ function FlowOverlay({
   densityCollapsed?: boolean
   /** Glance collapses IGW/VPCE corridor badges; Inventory keeps more detail. */
   viewDensity?: ViewDensity
+  selectedNodeId?: string | null
+  flowMode?: EstateFlowMode
 }) {
   const [paths, setPaths] = useState<FlowPath[]>([])
   const [size, setSize] = useState({ w: 0, h: 0 })
@@ -2458,6 +2513,7 @@ function FlowOverlay({
         count: number
         highlight: "attack_path" | null
         viaKind: "vpce" | "igw" | null
+        focused: boolean
       }
       const elKeys = new Map<HTMLElement, number>()
       const keyOf = (el: HTMLElement) => {
@@ -2480,6 +2536,7 @@ function FlowOverlay({
           if (existing) {
             existing.count += 1
             if (e.flow_highlight === "attack_path") existing.highlight = "attack_path"
+            if (isFocusedOperationalFlow(e, selectedNodeId, flowMode)) existing.focused = true
             continue
           }
         }
@@ -2517,6 +2574,7 @@ function FlowOverlay({
           count: 1,
           highlight: e.flow_highlight ?? null,
           viaKind,
+          focused: isFocusedOperationalFlow(e, selectedNodeId, flowMode),
         }
         if (grouped) bundles.set(bk, job)
         jobs.push(job)
@@ -2666,6 +2724,7 @@ function FlowOverlay({
           badgeTitle: badgeLabel,
           isExposed: Boolean(e.is_exposed),
           highlight: j.highlight,
+          focused: j.focused,
           _edge: e,
           _routedViaIgw: routedViaIgw,
           _routedViaVpce: routedViaVpce,
@@ -2729,6 +2788,13 @@ function FlowOverlay({
           seenObstacle.add(k)
           chipObstacles.push(r)
         }
+      }
+      for (const obstacle of container.querySelectorAll<HTMLElement>("[data-flow-obstacle]")) {
+        const r = toNat(visibleRect(obstacle, obstacle.getBoundingClientRect()))
+        const k = `${Math.round(r.l)}:${Math.round(r.t)}`
+        if (seenObstacle.has(k)) continue
+        seenObstacle.add(k)
+        chipObstacles.push(r)
       }
       const placed: { x: number; y: number; hw: number }[] = []
       const clearAt = (x: number, y: number, hw: number): boolean => {
@@ -2810,7 +2876,7 @@ function FlowOverlay({
     // the CURRENT zoom; densityCollapsed because the chip↔stack-tile swap
     // replaces the DOM elements edges anchor to.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [edges, scale, densityCollapsed, viewDensity])
+  }, [edges, scale, densityCollapsed, viewDensity, selectedNodeId, flowMode])
 
   const colorByCls: Record<TrafficEdgeClass, string> = {
     internal: "#0E8B7A",      // teal — intra-canvas chip↔chip
@@ -2864,6 +2930,9 @@ function FlowOverlay({
             ? "#DC2626"
             : colorByCls[p.cls]
         const markerCls = p.isExposed ? "database" : p.cls
+        const dependencyFocusActive = flowMode === "all_access" && selectedNodeId != null
+        const focusedDependency = dependencyFocusActive && p.focused
+        const dimmed = dependencyFocusActive && !p.focused
         return (
         <g key={i}>
           {/* Soft halo behind the line so it's visible over the busy chip grid */}
@@ -2872,15 +2941,27 @@ function FlowOverlay({
             fill="none"
             stroke={stroke}
             strokeWidth="4"
-            strokeOpacity="0.12"
+            strokeOpacity={dimmed ? "0.04" : focusedDependency ? "0.2" : "0.12"}
             strokeLinecap="round"
           />
           <path
             d={p.d}
             fill="none"
             stroke={stroke}
-            strokeWidth={p.highlight === "attack_path" || p.isExposed ? 2 : 1.35}
-            strokeOpacity={p.highlight === "attack_path" || p.isExposed ? "0.9" : "0.62"}
+            strokeWidth={
+              p.highlight === "attack_path" || p.isExposed
+                ? 2
+                : focusedDependency
+                  ? 2.4
+                  : 1.35
+            }
+            strokeOpacity={
+              dimmed
+                ? "0.18"
+                : p.highlight === "attack_path" || p.isExposed || focusedDependency
+                  ? "0.94"
+                  : "0.62"
+            }
             strokeDasharray={p.highlight === "attack_path" || p.isExposed ? "6 4" : undefined}
             strokeLinecap="round"
             markerEnd={`url(#flow-arrow-${markerCls})`}
@@ -2895,6 +2976,16 @@ function FlowOverlay({
               />
             ) : null}
           </path>
+          {focusedDependency ? (
+            <>
+              <circle r="3.2" fill={stroke}>
+                <animateMotion path={p.d} dur="1.8s" repeatCount="indefinite" />
+              </circle>
+              <circle r="2.4" fill={stroke} opacity="0.7">
+                <animateMotion path={p.d} dur="1.8s" begin="0.9s" repeatCount="indefinite" />
+              </circle>
+            </>
+          ) : null}
           <g transform={`translate(${p.badgeX}, ${p.badgeY})`}>
             {p.badgeLabel ? (
               <>
@@ -3943,7 +4034,11 @@ function VpcCanvasFrame({
   )
 
   const azHeaderRow = (
-    <div className="flex gap-0">
+    <div
+      className="relative z-[30] flex gap-0"
+      data-flow-obstacle="az-header-row"
+      style={{ isolation: "isolate" }}
+    >
       <div
         className="rounded-l-md shrink-0"
         style={{ width: presentationMode ? TIER_SIDEBAR_WIDTH.compact : TIER_SIDEBAR_WIDTH.normal }}
@@ -3951,7 +4046,7 @@ function VpcCanvasFrame({
       />
       <div
         className={presentationMode ? "rounded-r-md px-2 pt-1 pb-0.5 flex-1" : "rounded-r-md px-2.5 pt-1.5 pb-1 flex-1"}
-        style={{ background: "#EEF2F6" }}
+        style={{ background: "#EEF2F6", boxShadow: "0 1px 0 rgba(148,163,184,0.22)" }}
       >
         <div
           className="grid gap-1.5"
@@ -4186,9 +4281,14 @@ function VpcCanvasFrame({
                   data-testid={`topology-az-column-${az}`}
                 >
                   <div
-                    className="text-[10px] font-mono font-bold uppercase tracking-[0.1em] text-center pb-1"
-                    style={{ color: "#3B48CC", borderBottom: "1px solid rgba(59,72,204,0.2)" }}
+                    className="relative z-[30] text-[10px] font-mono font-bold uppercase tracking-[0.1em] text-center px-1 py-1 rounded-sm"
+                    style={{
+                      color: "#3B48CC",
+                      borderBottom: "1px solid rgba(59,72,204,0.2)",
+                      background: "rgba(248,250,252,0.96)",
+                    }}
                     title={az}
+                    data-flow-obstacle="az-column-label"
                   >
                     Availability Zone · {az}
                   </div>
@@ -4341,6 +4441,19 @@ export function AwsFrame({
     () => extractServerlessOutsideVpc(serverlessSourceNodes ?? nodes, topo.subnets),
     [serverlessSourceNodes, nodes, topo.subnets],
   )
+  const namedFlowNodeIds = useMemo(() => {
+    const ids = new Set<string>()
+    if (flowMode === "all_access") {
+      // Keep observed runtime participants named in Glance. Modeled-only
+      // dependency fan-out may still bundle, preserving the architecture view.
+      for (const edge of trafficEdgesList) {
+        ids.add(edge.source_id)
+        ids.add(edge.target_id)
+      }
+    }
+    if (selectedNodeId) ids.add(selectedNodeId)
+    return ids
+  }, [flowMode, trafficEdgesList, selectedNodeId])
   const visibleEdges = useMemo(() => {
     const visible = new Set(nodes.map(n => n.id))
     for (const n of regionalTierNodes) visible.add(n.id)
@@ -4842,6 +4955,7 @@ export function AwsFrame({
                     compact={presentationMode}
                     densityCollapsed={densityCollapsed}
                     viewDensity={viewDensity}
+                    namedFlowNodeIds={namedFlowNodeIds}
                   />
                   <RegionalDataServicesTier
                     nodes={regionalTierNodes}
@@ -4850,6 +4964,7 @@ export function AwsFrame({
                     compact={presentationMode}
                     densityCollapsed={densityCollapsed}
                     viewDensity={viewDensity}
+                    namedFlowNodeIds={namedFlowNodeIds}
                   />
                 </div>
               </>
@@ -4924,6 +5039,8 @@ export function AwsFrame({
         scale={scale}
         densityCollapsed={densityCollapsed}
         viewDensity={viewDensity}
+        selectedNodeId={selectedNodeId}
+        flowMode={flowMode}
       />
     </div>
   )
