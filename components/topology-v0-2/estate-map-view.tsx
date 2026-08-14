@@ -22,10 +22,7 @@ import {
 } from "@/components/topology-v0-2/filter-rail"
 import { DetailPanel } from "@/components/topology-v0-2/detail-panel"
 import { OutOfScopeOverflowLine } from "@/components/topology-v0-2/estate-out-of-scope"
-import {
-  buildHeadlineNarrative,
-  buildRankedEntries,
-} from "@/components/topology-v0-2/headline-narrative"
+import { buildHeadlineNarrative } from "@/components/topology-v0-2/headline-narrative"
 import { RankedRail } from "@/components/topology-v0-2/ranked-rail"
 import type {
   DecisionRoutingSummary,
@@ -781,6 +778,14 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     return base.filter(n => n.is_foreign !== true)
   }, [regionalDataSourceNodes, effectiveFilters, showSharedNeighbors])
 
+  const detailNodes = useMemo(() => {
+    const byId = new Map<string, TopologyNode>()
+    for (const node of filteredNodes) byId.set(node.id, node)
+    for (const node of filteredServerlessSource) byId.set(node.id, node)
+    for (const node of filteredRegionalSource) byId.set(node.id, node)
+    return [...byId.values()]
+  }, [filteredNodes, filteredServerlessSource, filteredRegionalSource])
+
   useEffect(() => {
     if (process.env.NODE_ENV !== "development") return
     console.log("[estate-map counts]", {
@@ -844,9 +849,27 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     filteredNodes,
   ])
 
-  const overlayEdges = useMemo(
+  const operationalEdges = useMemo(
     () =>
       selectEstateFlowEdges({
+        mode: "all_access",
+        topologyTrafficEdges: scopedTrafficEdges,
+        depMapEdges: depMapData?.edges ?? null,
+        visible: flowOverlayContext.visible,
+        index: flowOverlayContext.index,
+        nodeTypeById: flowOverlayContext.nodeTypeById,
+        vpces: flowOverlayContext.vpces,
+      }),
+    [
+      scopedTrafficEdges,
+      depMapData?.edges,
+      flowOverlayContext,
+    ],
+  )
+
+  const overlayEdges = useMemo(() => {
+    if (flowMode === "all_access") return operationalEdges
+    return selectEstateFlowEdges({
         mode: flowMode,
         topologyTrafficEdges: scopedTrafficEdges,
         depMapEdges: depMapData?.edges ?? null,
@@ -856,9 +879,11 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
         index: flowOverlayContext.index,
         nodeTypeById: flowOverlayContext.nodeTypeById,
         vpces: flowOverlayContext.vpces,
-      }),
+      })
+    },
     [
       flowMode,
+      operationalEdges,
       scopedTrafficEdges,
       depMapData?.edges,
       attackPaths,
@@ -883,11 +908,12 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
   const selectedNode = useMemo(() => {
     if (!selectedNodeId) return null
     return (
+      detailNodes.find(n => n.id === selectedNodeId) ??
       scopedEstate?.nodes.find(n => n.id === selectedNodeId) ??
       data?.nodes.find(n => n.id === selectedNodeId) ??
       null
     )
-  }, [selectedNodeId, scopedEstate?.nodes, data?.nodes])
+  }, [selectedNodeId, detailNodes, scopedEstate?.nodes, data?.nodes])
 
   const narrative = useMemo(
     () => (data?.system_kpis ? buildHeadlineNarrative(data) : null),
@@ -944,15 +970,6 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     }, 4000)
     return () => window.clearInterval(id)
   }, [isComputing, computingTimedOut, retry])
-
-  const rankedEntries = useMemo(
-    () =>
-      buildRankedEntries(
-        scopedEstate?.nodes ?? data?.nodes ?? [],
-        scopedVpcTopology?.iam_roles ?? data?.vpc_topology?.iam_roles ?? [],
-      ),
-    [scopedEstate?.nodes, data?.nodes, scopedVpcTopology?.iam_roles, data?.vpc_topology?.iam_roles],
-  )
 
   const findingsUrl = `/api/proxy/findings/severity-summary?systemName=${encodeURIComponent(systemName)}&status=open`
   const { data: findingsSummary } = useCachedFetch<FindingsSeveritySummary>(findingsUrl, {
@@ -1087,9 +1104,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     )
   }
 
-  const selectedRailId = highlightedRoleName
-    ? `iam:${highlightedRoleName}`
-    : selectedNodeId
+  const selectedRailId = selectedNodeId
 
   const mapVpcTopology = scopedVpcTopology ?? data.vpc_topology
 
@@ -1589,19 +1604,17 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
         </main>
 
         <aside
-          className="hidden xl:flex flex-col min-h-0 w-[212px] shrink-0 sticky top-4 self-start"
+          className="hidden xl:flex flex-col min-h-0 w-[244px] shrink-0 sticky top-4 self-start"
           style={{ maxHeight: embedded ? "min(84vh, 1100px)" : "calc(100vh - 110px)" }}
         >
           <RankedRail
-            entries={rankedEntries}
+            nodes={detailNodes}
+            edges={operationalEdges}
+            subnets={mapVpcTopology?.subnets}
             selectedId={selectedRailId}
             onSelectWorkload={id => {
               setSelectedNodeId(id)
               setHighlightedRoleName(null)
-            }}
-            onSelectRole={name => {
-              setHighlightedRoleName(name)
-              setSelectedNodeId(null)
             }}
             filtersSlot={filterDrawer}
           />
@@ -1610,15 +1623,13 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
 
       <div className={`xl:hidden pb-4 ${ESTATE_SHELL_X}`}>
         <RankedRail
-          entries={rankedEntries}
+          nodes={detailNodes}
+          edges={operationalEdges}
+          subnets={mapVpcTopology?.subnets}
           selectedId={selectedRailId}
           onSelectWorkload={id => {
             setSelectedNodeId(id)
             setHighlightedRoleName(null)
-          }}
-          onSelectRole={name => {
-            setHighlightedRoleName(name)
-            setSelectedNodeId(null)
           }}
           filtersSlot={filterDrawer}
         />
@@ -1630,7 +1641,15 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
       </footer>
 
       {!mapEnlarged ? (
-        <DetailPanel node={selectedNode} onClose={() => setSelectedNodeId(null)} />
+        <DetailPanel
+          node={selectedNode}
+          nodes={detailNodes}
+          edges={operationalEdges}
+          subnets={mapVpcTopology?.subnets}
+          iamRoles={mapVpcTopology?.iam_roles}
+          securityGroups={mapVpcTopology?.security_groups}
+          onClose={() => setSelectedNodeId(null)}
+        />
       ) : null}
 
       {mapEnlarged ? (
@@ -1787,7 +1806,15 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
           {selectedNode ? (
             <div className="fixed inset-0 z-[210] pointer-events-none">
               <div className="pointer-events-auto">
-                <DetailPanel node={selectedNode} onClose={() => setSelectedNodeId(null)} />
+                <DetailPanel
+                  node={selectedNode}
+                  nodes={detailNodes}
+                  edges={operationalEdges}
+                  subnets={mapVpcTopology?.subnets}
+                  iamRoles={mapVpcTopology?.iam_roles}
+                  securityGroups={mapVpcTopology?.security_groups}
+                  onClose={() => setSelectedNodeId(null)}
+                />
               </div>
             </div>
           ) : null}

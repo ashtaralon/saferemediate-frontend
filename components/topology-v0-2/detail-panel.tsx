@@ -1,229 +1,378 @@
 "use client"
 
-/**
- * Topology v0.2 — workload detail panel.
- *
- * Slide-in panel surfacing the full contributor breakdown, evidence per
- * signal, freshness chips, warning callouts, confidence reasons, and raw
- * evidence fields (where the contract provides them).
- *
- * Every value is real — render `—` placeholder when the field is absent
- * rather than fabricate. Remediation CTAs (Trace, Suggest VPCE, Re-sync,
- * Quarantine) are deferred — they belong to flows the topology-risk endpoint
- * doesn't own.
- */
-
 import {
-  type Contributor,
-  type NodeScore,
-  SIGNAL_LABEL,
-  type TopologyNode,
+  Activity,
+  ArrowDownLeft,
+  ArrowUpRight,
+  Clock3,
+  Database,
+  GitBranch,
+  KeyRound,
+  MapPin,
+  Network,
+  Server,
+  ShieldCheck,
+  X,
+} from "lucide-react"
+import { ServiceTypeBadge } from "@/lib/service-type"
+import type {
+  IamRoleRollup,
+  SecurityGroupMeta,
+  SubnetMeta,
+  TopologyNode,
+  TrafficEdge,
 } from "./types"
 
 interface Props {
   node: TopologyNode | null
+  nodes?: TopologyNode[]
+  edges?: TrafficEdge[]
+  subnets?: SubnetMeta[]
+  iamRoles?: IamRoleRollup[]
+  securityGroups?: SecurityGroupMeta[]
   onClose: () => void
 }
 
-function ConfidenceBadge({ tier }: { tier: NodeScore["confidence"]["tier"] }) {
-  const colors: Record<NodeScore["confidence"]["tier"], string> = {
-    FULL: "bg-emerald-900/40 text-emerald-200 border-emerald-700/50",
-    DEGRADED: "bg-amber-900/40 text-amber-200 border-amber-700/50",
-    LOW: "bg-rose-900/40 text-rose-200 border-rose-700/50",
-  }
-  return (
-    <span className={`inline-block px-2 py-0.5 text-[10px] font-semibold rounded border ${colors[tier]}`}>
-      {tier}
-    </span>
-  )
+function targetName(id: string, nodeById: Map<string, TopologyNode>): string {
+  if (id === "__igw__") return "Internet gateway"
+  if (id === "__aws_s3__") return "AWS S3 endpoints"
+  if (id === "__aws_api__") return "AWS API endpoints"
+  return nodeById.get(id)?.name ?? id
 }
 
-function ContributorRow({ c }: { c: Contributor }) {
-  const valuePct = Math.round(c.value * 100)
-  const weightPct = Math.round(c.weight * 100)
-  const weightedPct = Math.round(c.value * c.weight * 100)
+function targetType(id: string, nodeById: Map<string, TopologyNode>): string {
+  if (id === "__igw__") return "Internet"
+  if (id === "__aws_s3__") return "S3"
+  if (id === "__aws_api__") return "AWS API"
+  return nodeById.get(id)?.type ?? "Resource"
+}
+
+function edgeLabel(edge: TrafficEdge): string {
+  const protocol = edge.protocol ?? edge.edge_class ?? "dependency"
+  return edge.port ? `${edge.port}/${protocol}` : protocol
+}
+
+function formatTimestamp(value: string | null | undefined): string {
+  if (!value) return "No timestamp"
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString([], {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  })
+}
+
+function latestTimestamp(edges: TrafficEdge[]): string | null {
+  let latest: string | null = null
+  let latestTime = Number.NEGATIVE_INFINITY
+  for (const edge of edges) {
+    if (!edge.last_seen) continue
+    const time = Date.parse(edge.last_seen)
+    if (!Number.isNaN(time) && time > latestTime) {
+      latest = edge.last_seen
+      latestTime = time
+    }
+  }
+  return latest
+}
+
+function InfoRow({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
   return (
-    <div className="rounded border border-slate-700/60 p-3 bg-slate-900/50">
-      <div className="flex items-center justify-between gap-3 mb-2">
-        <div className="text-xs font-semibold text-slate-100">
-          {SIGNAL_LABEL[c.signal]}
-        </div>
-        <div className="text-[10px] text-slate-500 font-mono">
-          weight {weightPct}% × value {valuePct}% = {weightedPct} pts
-        </div>
-      </div>
-
-      <div className="h-1.5 rounded-full bg-slate-800 overflow-hidden mb-2">
-        <div
-          className={`h-full ${valuePct > 60 ? "bg-rose-400" : valuePct > 30 ? "bg-amber-400" : "bg-teal-400"}`}
-          style={{ width: `${valuePct}%` }}
-        />
-      </div>
-
-      <div className="flex items-center gap-2 text-[10px] mb-2">
-        <span
-          className={`px-1.5 py-0.5 rounded font-mono ${
-            c.freshness.is_fresh
-              ? "bg-emerald-900/30 text-emerald-300"
-              : "bg-amber-900/30 text-amber-300"
-          }`}
-        >
-          {c.freshness.source}{" "}
-          {c.freshness.is_fresh
-            ? "fresh"
-            : c.freshness.age_days !== null && c.freshness.age_days !== undefined
-            ? `${c.freshness.age_days}d stale`
-            : "stale"}
-        </span>
-        {c.freshness.threshold_days !== undefined && (
-          <span className="text-slate-500">threshold {c.freshness.threshold_days}d</span>
-        )}
-      </div>
-
-      {c.evidence && Object.keys(c.evidence).length > 0 && (
-        <details className="text-[10px] mb-2">
-          <summary className="text-slate-400 cursor-pointer hover:text-slate-200">
-            Evidence
-          </summary>
-          <pre className="mt-1 p-2 bg-slate-950/60 rounded text-slate-300 overflow-x-auto whitespace-pre-wrap break-words font-mono">
-            {JSON.stringify(c.evidence, null, 2)}
-          </pre>
-        </details>
-      )}
-
-      {c.warnings && c.warnings.length > 0 && (
-        <div className="space-y-1.5">
-          {c.warnings.map(w => (
-            <div key={w.code} className="text-[10px] bg-amber-900/15 border border-amber-700/40 rounded p-1.5">
-              <div className="text-amber-200 font-semibold">{w.code}</div>
-              <div className="text-amber-100/80 mt-0.5">{w.message}</div>
-              <div className="text-slate-400 mt-0.5 italic">{w.auto_resolves_when}</div>
-            </div>
-          ))}
-        </div>
-      )}
+    <div className="flex items-start justify-between gap-4 border-b py-2 last:border-b-0" style={{ borderColor: "#EEF2F6" }}>
+      <dt className="text-[11px]" style={{ color: "#64748B" }}>{label}</dt>
+      <dd
+        className={`max-w-[260px] text-right text-[11px] ${mono ? "font-mono break-all" : "font-medium"}`}
+        style={{ color: "#1A2330" }}
+      >
+        {value}
+      </dd>
     </div>
   )
 }
 
-export function DetailPanel({ node, onClose }: Props) {
+function Metric({
+  label,
+  value,
+  icon,
+  accent,
+}: {
+  label: string
+  value: string | number
+  icon: React.ReactNode
+  accent: string
+}) {
+  return (
+    <div className="rounded-md border p-3" style={{ borderColor: "#DDE3E8", background: "#F8FAFC" }}>
+      <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide font-semibold" style={{ color: "#64748B" }}>
+        <span style={{ color: accent }}>{icon}</span>
+        {label}
+      </div>
+      <div className="mt-1 text-xl font-semibold tabular-nums" style={{ color: "#1A2330" }}>{value}</div>
+    </div>
+  )
+}
+
+export function DetailPanel({
+  node,
+  nodes = [],
+  edges = [],
+  subnets = [],
+  iamRoles = [],
+  securityGroups = [],
+  onClose,
+}: Props) {
   if (!node) return null
 
-  const isStale = !!node.stale
-  const score = node.score
+  const nodeById = new Map(nodes.map(item => [item.id, item]))
+  const subnetById = new Map(subnets.map(subnet => [subnet.id, subnet]))
+  const sgById = new Map(securityGroups.map(group => [group.id, group]))
+  const outgoing = edges.filter(edge => edge.source_id === node.id)
+  const incoming = edges.filter(edge => edge.target_id === node.id)
+  const attachedRoles = iamRoles.filter(role => (role.workload_ids ?? []).includes(node.id))
+  const attachedGroups = (node.security_group_ids ?? []).map(id => sgById.get(id) ?? { id, name: id })
+  const subnetIds = [...new Set([...(node.subnet_ids ?? []), node.subnet_id].filter((id): id is string => Boolean(id)))]
+  const nodeSubnets = subnetIds.map(id => subnetById.get(id)).filter((subnet): subnet is SubnetMeta => Boolean(subnet))
+  const zones = [...new Set(nodeSubnets.map(subnet => subnet.az).filter((az): az is string => Boolean(az)))]
+  const tiers = [...new Set(nodeSubnets.map(subnet => subnet.tier))]
+  const allNodeEdges = [...incoming, ...outgoing]
+  const lastSeen = latestTimestamp(allNodeEdges)
+  const uniqueDependencies = new Set([
+    ...incoming.map(edge => edge.source_id),
+    ...outgoing.map(edge => edge.target_id),
+  ]).size
 
   return (
     <aside
-      className="fixed top-0 right-0 h-full w-full md:w-[480px] bg-slate-950/95 backdrop-blur border-l border-slate-700 shadow-2xl overflow-y-auto z-40"
+      className="fixed top-0 right-0 z-[230] h-full w-full overflow-y-auto border-l bg-white shadow-2xl md:w-[480px]"
       role="dialog"
-      aria-label={`Detail for workload ${node.name}`}
+      aria-label={`Service details for ${node.name}`}
+      data-testid="topology-service-detail-panel"
     >
-      <div className="sticky top-0 bg-slate-950/95 backdrop-blur border-b border-slate-700 p-4 flex items-start justify-between gap-4">
-        <div className="min-w-0">
-          <div className="text-[10px] uppercase tracking-[0.18em] text-teal-400 font-semibold">
-            Spotlight · {node.type ?? "Workload"}
+      <div
+        className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b bg-white/95 p-4 backdrop-blur"
+        style={{ borderColor: "#DDE3E8" }}
+      >
+        <div className="flex min-w-0 items-start gap-3">
+          <ServiceTypeBadge type={node.type ?? "Resource"} variant="tile" size={42} />
+          <div className="min-w-0">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.16em]" style={{ color: "#0E8B7A" }}>
+              Service inspector
+            </div>
+            <div className="mt-1 truncate text-base font-semibold" style={{ color: "#1A2330" }}>
+              {node.name}
+            </div>
+            <div className="mt-0.5 truncate text-[11px]" style={{ color: "#64748B" }}>
+              {node.type ?? "Resource"} · {node.stale ? "stale graph data" : "current graph data"}
+            </div>
           </div>
-          <div className="text-base font-semibold text-slate-100 mt-1 flex items-center gap-2 truncate">
-            {node.is_jewel && <span className="text-amber-300" title="Crown jewel">♛</span>}
-            {node.name}
-          </div>
-          <div className="text-[11px] text-slate-500 font-mono mt-0.5 truncate">{node.id}</div>
-          {node.subnet_id && (
-            <div className="text-[11px] text-slate-500 font-mono mt-0.5">subnet {node.subnet_id}</div>
-          )}
         </div>
         <button
           type="button"
           onClick={onClose}
-          className="text-slate-400 hover:text-slate-100 text-xl leading-none px-2"
-          aria-label="Close detail panel"
+          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md hover:bg-[#F1F5F9]"
+          style={{ color: "#64748B" }}
+          aria-label="Close service details"
         >
-          ×
+          <X size={18} />
         </button>
       </div>
 
-      <div className="p-4 space-y-5">
-        {isStale && (
-          <div className="rounded border border-slate-600/60 bg-slate-900/60 p-3">
-            <div className="text-xs font-semibold text-slate-300">Stale — excluded from rank</div>
-            <div className="text-[11px] text-slate-400 mt-1">
-              Reason: <span className="font-mono">{node.stale!.reason}</span>
-            </div>
-            {node.stale!.since && (
-              <div className="text-[11px] text-slate-500 mt-1">since {node.stale!.since}</div>
-            )}
+      <div className="space-y-5 p-4">
+        <section className="grid grid-cols-2 gap-2">
+          <Metric label="Inbound" value={incoming.length} icon={<ArrowDownLeft size={14} />} accent="#2563EB" />
+          <Metric label="Outbound" value={outgoing.length} icon={<ArrowUpRight size={14} />} accent="#0E8B7A" />
+          <Metric label="Neighbors" value={uniqueDependencies} icon={<GitBranch size={14} />} accent="#7C3AED" />
+          <Metric
+            label="Data state"
+            value={node.stale ? "Stale" : "Current"}
+            icon={<Activity size={14} />}
+            accent={node.stale ? "#D97706" : "#059669"}
+          />
+        </section>
+
+        <section>
+          <div className="mb-2 flex items-center gap-2">
+            <MapPin size={15} style={{ color: "#0E8B7A" }} />
+            <h3 className="text-[11px] font-bold uppercase tracking-[0.14em]" style={{ color: "#1A2330" }}>
+              Placement
+            </h3>
           </div>
-        )}
+          <dl className="rounded-md border px-3" style={{ borderColor: "#DDE3E8" }}>
+            <InfoRow label="Account" value={node.account_id ?? "Not reported"} mono />
+            <InfoRow label="Region" value={node.region ?? "Global / not reported"} mono />
+            <InfoRow label="VPC" value={node.vpc_id ?? "Regional service · outside VPC"} mono />
+            <InfoRow label="Availability zone" value={zones.length > 0 ? zones.join(", ") : "Not subnet-bound"} mono />
+            <InfoRow label="Subnet" value={subnetIds.length > 0 ? subnetIds.join(", ") : "Not subnet-bound"} mono />
+            <InfoRow label="Tier" value={tiers.length > 0 ? tiers.join(", ") : "Regional / managed service"} />
+          </dl>
+        </section>
 
-        {score && (
-          <>
-            <section>
-              <h3 className="text-[11px] uppercase tracking-[0.14em] text-slate-400 font-semibold mb-2">
-                Score
+        <section>
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <GitBranch size={15} style={{ color: "#7C3AED" }} />
+              <h3 className="text-[11px] font-bold uppercase tracking-[0.14em]" style={{ color: "#1A2330" }}>
+                Runtime dependencies
               </h3>
-              <div className="flex items-baseline gap-3">
-                <div className="text-4xl font-bold text-slate-50">{score.value}</div>
-                <div className="text-sm text-slate-400">/ 100</div>
-                <div className="ml-auto text-xs uppercase tracking-wide text-slate-300">{score.tier}</div>
-              </div>
-              <div className="text-[11px] text-slate-500 mt-1">
-                Rank #{score.rank ?? "—"} on this system
-              </div>
-            </section>
-
-            <section>
-              <h3 className="text-[11px] uppercase tracking-[0.14em] text-slate-400 font-semibold mb-2">
-                Confidence{" "}
-                <ConfidenceBadge tier={score.confidence.tier} />
-              </h3>
-              <div className="text-xs text-slate-300 mb-2">
-                {Math.round(score.confidence.value * 100)}% (MIN-of-contributors)
-              </div>
-              {score.confidence.reasons.length > 0 && (
-                <div className="space-y-1.5">
-                  {score.confidence.reasons.map(r => (
-                    <div
-                      key={r.signal}
-                      className={`text-[11px] rounded border p-2 ${
-                        r.is_fresh
-                          ? "border-emerald-700/40 bg-emerald-900/10"
-                          : "border-amber-700/40 bg-amber-900/10"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="font-semibold text-slate-200">
-                          {SIGNAL_LABEL[r.signal as keyof typeof SIGNAL_LABEL] ?? r.signal}
-                        </span>
-                        <span className={r.is_fresh ? "text-emerald-300" : "text-amber-300"}>
-                          {r.is_fresh ? "fresh" : `${r.age_days ?? "?"}d stale (threshold ${r.threshold_days}d)`}
-                        </span>
-                      </div>
-                      {!r.is_fresh && (
-                        <div className="text-slate-400 mt-1 italic">{r.auto_resolves_when}</div>
-                      )}
+            </div>
+            <span className="inline-flex items-center gap-1 text-[10px]" style={{ color: "#64748B" }}>
+              <Clock3 size={11} />
+              {formatTimestamp(lastSeen)}
+            </span>
+          </div>
+          {allNodeEdges.length === 0 ? (
+            <div className="rounded-md border p-3 text-[11px]" style={{ borderColor: "#DDE3E8", color: "#64748B" }}>
+              No dependency edges are available for this service in the current graph snapshot.
+            </div>
+          ) : (
+            <div className="overflow-hidden rounded-md border" style={{ borderColor: "#DDE3E8" }}>
+              {outgoing.slice(0, 8).map((edge, index) => (
+                <div
+                  key={`out-${edge.target_id}-${index}`}
+                  className="flex items-start gap-2 border-b p-3 last:border-b-0"
+                  style={{ borderColor: "#EEF2F6" }}
+                >
+                  <ArrowUpRight className="mt-0.5 shrink-0" size={14} style={{ color: "#0E8B7A" }} />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-[12px] font-semibold" style={{ color: "#1A2330" }}>
+                      {targetName(edge.target_id, nodeById)}
                     </div>
-                  ))}
+                    <div className="mt-0.5 text-[10px]" style={{ color: "#64748B" }}>
+                      {targetType(edge.target_id, nodeById)} · {edgeLabel(edge)}
+                    </div>
+                  </div>
+                  <span className="shrink-0 text-[9px]" style={{ color: "#94A3B8" }}>
+                    {formatTimestamp(edge.last_seen)}
+                  </span>
                 </div>
-              )}
-            </section>
+              ))}
+              {incoming.slice(0, 8).map((edge, index) => (
+                <div
+                  key={`in-${edge.source_id}-${index}`}
+                  className="flex items-start gap-2 border-b p-3 last:border-b-0"
+                  style={{ borderColor: "#EEF2F6" }}
+                >
+                  <ArrowDownLeft className="mt-0.5 shrink-0" size={14} style={{ color: "#2563EB" }} />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-[12px] font-semibold" style={{ color: "#1A2330" }}>
+                      {targetName(edge.source_id, nodeById)}
+                    </div>
+                    <div className="mt-0.5 text-[10px]" style={{ color: "#64748B" }}>
+                      {targetType(edge.source_id, nodeById)} · {edgeLabel(edge)}
+                    </div>
+                  </div>
+                  <span className="shrink-0 text-[9px]" style={{ color: "#94A3B8" }}>
+                    {formatTimestamp(edge.last_seen)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
 
-            <section>
-              <h3 className="text-[11px] uppercase tracking-[0.14em] text-slate-400 font-semibold mb-2">
-                Contributors · ordered by contract §3.2
-              </h3>
-              <div className="space-y-2">
-                {score.contributors.map(c => (
-                  <ContributorRow key={c.signal} c={c} />
-                ))}
+        <section>
+          <div className="mb-2 flex items-center gap-2">
+            <Server size={15} style={{ color: "#0E8B7A" }} />
+            <h3 className="text-[11px] font-bold uppercase tracking-[0.14em]" style={{ color: "#1A2330" }}>
+              Runtime attachments
+            </h3>
+          </div>
+          <div className="grid grid-cols-1 gap-2">
+            <div className="rounded-md border p-3" style={{ borderColor: "#DDE3E8" }}>
+              <div className="flex items-center gap-2 text-[11px] font-semibold" style={{ color: "#1A2330" }}>
+                <KeyRound size={14} style={{ color: "#7C3AED" }} />
+                IAM roles · {attachedRoles.length}
               </div>
-            </section>
-          </>
-        )}
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {attachedRoles.length > 0 ? attachedRoles.map(role => (
+                  <span
+                    key={role.name}
+                    className="rounded px-2 py-1 text-[10px] font-mono"
+                    style={{ background: "#F3E8FF", color: "#6B21A8" }}
+                  >
+                    {role.name}
+                  </span>
+                )) : (
+                  <span className="text-[10px]" style={{ color: "#94A3B8" }}>No attached role reported</span>
+                )}
+              </div>
+            </div>
+            <div className="rounded-md border p-3" style={{ borderColor: "#DDE3E8" }}>
+              <div className="flex items-center gap-2 text-[11px] font-semibold" style={{ color: "#1A2330" }}>
+                <Network size={14} style={{ color: "#2563EB" }} />
+                Security groups · {attachedGroups.length}
+              </div>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {attachedGroups.length > 0 ? attachedGroups.map(group => (
+                  <span
+                    key={group.id}
+                    className="rounded px-2 py-1 text-[10px] font-mono"
+                    style={{ background: "#DBEAFE", color: "#1E40AF" }}
+                    title={group.id}
+                  >
+                    {group.name}
+                  </span>
+                )) : (
+                  <span className="text-[10px]" style={{ color: "#94A3B8" }}>Not security-group bound</span>
+                )}
+              </div>
+            </div>
+          </div>
+        </section>
 
-        <div className="pt-3 text-[10px] text-slate-500 border-t border-slate-700/40">
-          All values from <span className="font-mono">/api/topology-risk</span> per contract
-          docs/topology-v0.2-risk-contract.md. No fabricated data.
-        </div>
+        {(node.observed_edge_count != null || node.observed_source_count != null) ? (
+          <section>
+            <div className="mb-2 flex items-center gap-2">
+              <Database size={15} style={{ color: "#7C3AED" }} />
+              <h3 className="text-[11px] font-bold uppercase tracking-[0.14em]" style={{ color: "#1A2330" }}>
+                Observed use
+              </h3>
+            </div>
+            <div className="rounded-md border p-3 text-[11px]" style={{ borderColor: "#DDE3E8", color: "#475569" }}>
+              {node.observed_source_count ?? 0} distinct sources across {node.observed_edge_count ?? 0} observed access edges.
+            </div>
+          </section>
+        ) : null}
+
+        {node.score ? (
+          <section>
+            <div className="mb-2 flex items-center gap-2">
+              <ShieldCheck size={15} style={{ color: "#64748B" }} />
+              <h3 className="text-[11px] font-bold uppercase tracking-[0.14em]" style={{ color: "#1A2330" }}>
+                Integrated posture signal
+              </h3>
+            </div>
+            <div className="rounded-md border p-3" style={{ borderColor: "#DDE3E8", background: "#F8FAFC" }}>
+              <div className="flex items-baseline justify-between gap-3">
+                <div>
+                  <span className="text-2xl font-semibold" style={{ color: "#1A2330" }}>{node.score.value}</span>
+                  <span className="ml-1 text-[11px]" style={{ color: "#64748B" }}>/ 100</span>
+                </div>
+                <span className="rounded px-2 py-1 text-[10px] font-semibold uppercase" style={{ background: "#E2E8F0", color: "#475569" }}>
+                  {node.score.tier}
+                </span>
+              </div>
+              <div className="mt-1 text-[10px]" style={{ color: "#64748B" }}>
+                Confidence {Math.round(node.score.confidence.value * 100)}% · rank {node.score.rank ?? "not ranked"}
+              </div>
+            </div>
+          </section>
+        ) : null}
+
+        <section>
+          <div className="mb-2 flex items-center gap-2">
+            <Activity size={15} style={{ color: "#64748B" }} />
+            <h3 className="text-[11px] font-bold uppercase tracking-[0.14em]" style={{ color: "#1A2330" }}>
+              Resource identity
+            </h3>
+          </div>
+          <div className="rounded-md border p-3 font-mono text-[10px] break-all" style={{ borderColor: "#DDE3E8", color: "#475569" }}>
+            {node.id}
+          </div>
+        </section>
       </div>
     </aside>
   )
