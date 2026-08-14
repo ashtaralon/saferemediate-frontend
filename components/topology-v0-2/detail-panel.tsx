@@ -1,5 +1,6 @@
 "use client"
 
+import { useState } from "react"
 import {
   Activity,
   ArrowDownLeft,
@@ -9,6 +10,8 @@ import {
   GitBranch,
   KeyRound,
   MapPin,
+  Maximize2,
+  Minimize2,
   Network,
   Server,
   ShieldCheck,
@@ -16,7 +19,11 @@ import {
 } from "lucide-react"
 import { ServiceTypeBadge } from "@/lib/service-type"
 import { flowStroke } from "./flow-visuals"
-import { buildFocusedServicePaths } from "./service-paths"
+import {
+  buildFocusedServicePaths,
+  buildInspectorServiceEdges,
+  buildVpceInspectorNodes,
+} from "./service-paths"
 import type {
   EdgeVpce,
   IamRoleRollup,
@@ -68,6 +75,8 @@ function pathEdgeLabel(edge: TrafficEdge): string {
       return "VPCE"
     case "PUBLIC_EGRESS":
       return "Public egress"
+    case "AWS_SERVICE":
+      return "AWS service"
     default: {
       const label = edgeLabel(edge)
       return label.length > 14 ? `${label.slice(0, 12)}…` : label
@@ -104,11 +113,6 @@ function latestTimestamp(edges: TrafficEdge[]): string | null {
 
 function isLambdaNode(node: TopologyNode): boolean {
   return String(node.type ?? "").toLowerCase().includes("lambda")
-}
-
-function vpceName(vpce: EdgeVpce): string {
-  const service = vpce.service_name?.split(".").pop()
-  return service ? `${service.toUpperCase()} VPC endpoint` : `VPC endpoint · ${vpce.id}`
 }
 
 function InfoRow({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
@@ -151,17 +155,22 @@ function FocusedServicePathMap({
   node,
   nodes,
   edges,
+  expanded = false,
 }: {
   node: TopologyNode
   nodes: TopologyNode[]
   edges: TrafficEdge[]
+  expanded?: boolean
 }) {
   const nodeById = new Map(nodes.map(item => [item.id, item]))
   const paths = buildFocusedServicePaths(node.id, nodes, edges)
     .filter(path => path.edges.length > 0)
 
   return (
-    <section data-testid="topology-service-path-map">
+    <section
+      className={expanded ? "col-span-2" : undefined}
+      data-testid="topology-service-path-map"
+    >
       <div className="mb-2 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <GitBranch size={15} style={{ color: "#7C3AED" }} />
@@ -254,8 +263,8 @@ function FocusedServicePathMap({
                             <path d="M -3 -3 L 4 0 L -3 3 Z" fill={color} />
                             <animateMotion
                               path="M 10 25 L 59 25"
-                              dur="1.2s"
-                              begin={`-${(pathIndex + index) * 0.2}s`}
+                              dur="2.2s"
+                              begin={`-${(pathIndex + index) * 0.35}s`}
                               repeatCount="indefinite"
                             />
                           </g>
@@ -286,13 +295,15 @@ export function DetailPanel({
   securityGroups = [],
   onClose,
 }: Props) {
+  const [expanded, setExpanded] = useState(false)
   if (!node) return null
 
   const nodeById = new Map(nodes.map(item => [item.id, item]))
   const subnetById = new Map(subnets.map(subnet => [subnet.id, subnet]))
   const sgById = new Map(securityGroups.map(group => [group.id, group]))
-  const outgoing = edges.filter(edge => edge.source_id === node.id)
-  const incoming = edges.filter(edge => edge.target_id === node.id)
+  const inspectorEdges = buildInspectorServiceEdges(edges, vpces)
+  const outgoing = inspectorEdges.filter(edge => edge.source_id === node.id)
+  const incoming = inspectorEdges.filter(edge => edge.target_id === node.id)
   const attachedRoles = iamRoles.filter(role => (role.workload_ids ?? []).includes(node.id))
   const attachedGroups = (node.security_group_ids ?? []).map(id => sgById.get(id) ?? { id, name: id })
   const subnetIds = [...new Set([...(node.subnet_ids ?? []), node.subnet_id].filter((id): id is string => Boolean(id)))]
@@ -306,6 +317,7 @@ export function DetailPanel({
     ...outgoing.map(edge => edge.target_id),
   ]).size
   const lambda = isLambdaNode(node)
+  const selectedVpce = vpces.find(vpce => vpce.id === node.id)
   const lambdaVpcAttached = lambda && Boolean(
     node.vpc_id ||
     subnetIds.length > 0 ||
@@ -315,51 +327,59 @@ export function DetailPanel({
     ? lambdaVpcAttached
       ? "VPC-attached networking"
       : "AWS-managed runtime · not VPC-attached"
-    : null
-  const vpcValue = lambda
+    : selectedVpce
+      ? `${selectedVpce.endpoint_type ?? "VPC"} endpoint networking`
+      : null
+  const vpcValue = selectedVpce
+    ? node.vpc_id ?? "VPC id not reported"
+    : lambda
     ? lambdaVpcAttached
       ? `${node.vpc_id ?? "VPC id not reported"} · VPC-attached`
       : "AWS-managed runtime · not VPC-attached"
     : node.vpc_id ?? "Regional AWS service · not VPC-bound"
-  const availabilityZoneValue = lambda && !lambdaVpcAttached
+  const availabilityZoneValue = selectedVpce
+    ? "Endpoint subnet / AZ metadata not reported"
+    : lambda && !lambdaVpcAttached
     ? "Regional runtime · no customer AZ placement"
     : zones.length > 0
       ? zones.join(", ")
       : "Not subnet-bound"
-  const subnetValue = lambda && !lambdaVpcAttached
+  const subnetValue = selectedVpce
+    ? "Endpoint subnet attachment not reported"
+    : lambda && !lambdaVpcAttached
     ? "No VPC subnet attachment"
     : subnetIds.length > 0
       ? subnetIds.join(", ")
       : "Not subnet-bound"
-  const tierValue = lambda
+  const tierValue = selectedVpce
+    ? `Network boundary · ${selectedVpce.endpoint_type ?? "VPC"} endpoint`
+    : lambda
     ? "Serverless · AWS-managed runtime"
     : tiers.length > 0
       ? tiers.join(", ")
       : "Regional / managed service"
   const pathNodes = [
     ...nodes,
-    ...vpces
-      .filter(vpce => !nodes.some(item => item.id === vpce.id))
-      .map<TopologyNode>(vpce => ({
-        id: vpce.id,
-        name: vpceName(vpce),
-        type: "VpcEndpoint",
-        subnet_id: null,
-        vpc_id: vpce.vpc_id ?? node.vpc_id ?? null,
-        account_id: node.account_id ?? null,
-        region: node.region ?? null,
-        score: null,
-        stale: null,
-        is_jewel: false,
-      })),
+    ...buildVpceInspectorNodes(vpces, {
+      account_id: node.account_id ?? null,
+      region: node.region ?? null,
+      vpc_id: node.vpc_id ?? null,
+    }).filter(extra => !nodes.some(item => item.id === extra.id)),
   ]
 
   return (
     <aside
-      className="fixed top-0 right-0 z-[230] h-full w-full overflow-y-auto border-l bg-white shadow-2xl md:w-[480px]"
+      className={
+        expanded
+          ? "fixed inset-3 z-[230] overflow-y-auto rounded-lg border bg-white shadow-2xl"
+          : "fixed bottom-3 left-3 right-3 top-3 z-[230] overflow-y-auto rounded-lg border bg-white shadow-2xl md:left-auto md:w-[560px]"
+      }
+      style={{ borderColor: "#CBD5E1" }}
       role="dialog"
+      aria-modal="false"
       aria-label={`Service details for ${node.name}`}
       data-testid="topology-service-detail-panel"
+      data-expanded={expanded ? "true" : "false"}
     >
       <div
         className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b bg-white/95 p-4 backdrop-blur"
@@ -380,19 +400,32 @@ export function DetailPanel({
             </div>
           </div>
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md hover:bg-[#F1F5F9]"
-          style={{ color: "#64748B" }}
-          aria-label="Close service details"
-        >
-          <X size={18} />
-        </button>
+        <div className="flex shrink-0 items-center gap-1">
+          <button
+            type="button"
+            onClick={() => setExpanded(value => !value)}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-[#F1F5F9]"
+            style={{ color: "#64748B" }}
+            aria-label={expanded ? "Restore service inspector" : "Maximize service inspector"}
+            title={expanded ? "Restore window" : "Maximize window"}
+            data-testid="topology-service-detail-resize"
+          >
+            {expanded ? <Minimize2 size={17} /> : <Maximize2 size={17} />}
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-[#F1F5F9]"
+            style={{ color: "#64748B" }}
+            aria-label="Close service details"
+          >
+            <X size={18} />
+          </button>
+        </div>
       </div>
 
-      <div className="space-y-5 p-4">
-        <section className="grid grid-cols-2 gap-2">
+      <div className={expanded ? "grid grid-cols-2 items-start gap-5 p-5" : "space-y-5 p-4"}>
+        <section className={`grid gap-2 ${expanded ? "col-span-2 grid-cols-4" : "grid-cols-2"}`}>
           <Metric label="Inbound" value={incoming.length} icon={<ArrowDownLeft size={14} />} accent="#2563EB" />
           <Metric label="Outbound" value={outgoing.length} icon={<ArrowUpRight size={14} />} accent="#0E8B7A" />
           <Metric label="Neighbors" value={uniqueDependencies} icon={<GitBranch size={14} />} accent="#7C3AED" />
@@ -426,7 +459,12 @@ export function DetailPanel({
           ) : null}
         </section>
 
-        <FocusedServicePathMap node={node} nodes={pathNodes} edges={edges} />
+        <FocusedServicePathMap
+          node={node}
+          nodes={pathNodes}
+          edges={inspectorEdges}
+          expanded={expanded}
+        />
 
         <section>
           <div className="mb-2 flex items-center justify-between gap-3">

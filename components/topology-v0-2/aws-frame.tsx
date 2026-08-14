@@ -2233,14 +2233,25 @@ interface FlowPath {
 }
 
 export function isFocusedOperationalFlow(
-  edge: Pick<TrafficEdge, "source_id" | "target_id">,
+  edge: Pick<
+    TrafficEdge,
+    "source_id" | "target_id" | "via_vpce_id" | "via_igw" | "egress_path"
+  >,
   selectedNodeId: string | null,
   flowMode: EstateFlowMode,
 ): boolean {
   return (
     flowMode === "all_access" &&
     selectedNodeId != null &&
-    (edge.source_id === selectedNodeId || edge.target_id === selectedNodeId)
+    (
+      edge.source_id === selectedNodeId ||
+      edge.target_id === selectedNodeId ||
+      edge.via_vpce_id === selectedNodeId ||
+      (
+        selectedNodeId === "__igw__" &&
+        (edge.via_igw === true || edge.egress_path === "public")
+      )
+    )
   )
 }
 
@@ -2446,7 +2457,7 @@ function FlowLegend({ compact = false }: { compact?: boolean }) {
             style={{
               background: "#0E8B7A",
               clipPath: "polygon(0 0, 100% 50%, 0 100%)",
-              animation: "topology-flow-legend 1.4s linear infinite",
+              animation: "topology-flow-legend 2.2s linear infinite",
             }}
           />
         </span>
@@ -3039,7 +3050,7 @@ function FlowOverlay({
                 attributeName="stroke-dashoffset"
                 from="18"
                 to="0"
-                dur="2s"
+                dur="2.8s"
                 repeatCount="indefinite"
               />
             ) : null}
@@ -3060,7 +3071,7 @@ function FlowOverlay({
                   attributeName="stroke-dashoffset"
                   from={focusedDependency ? "14" : "16"}
                   to="0"
-                  dur={focusedDependency ? "0.75s" : "1.15s"}
+                  dur={focusedDependency ? "1.4s" : "1.9s"}
                   repeatCount="indefinite"
                 />
               </path>
@@ -3081,8 +3092,8 @@ function FlowOverlay({
                 />
                 <animateMotion
                   path={p.d}
-                  dur={focusedDependency ? "1.35s" : "2.35s"}
-                  begin={`-${(i % 6) * 0.28}s`}
+                  dur={focusedDependency ? "2.2s" : "3.4s"}
+                  begin={`-${(i % 6) * 0.4}s`}
                   repeatCount="indefinite"
                   rotate="auto"
                 />
@@ -3093,8 +3104,8 @@ function FlowOverlay({
                   <path d="M -3 -3 L 4 0 L -3 3 Z" fill={stroke} />
                   <animateMotion
                     path={p.d}
-                    dur="1.35s"
-                    begin="-0.675s"
+                    dur="2.2s"
+                    begin="-1.1s"
                     repeatCount="indefinite"
                     rotate="auto"
                   />
@@ -4953,10 +4964,16 @@ export function AwsFrame({
                 style={{ width: "136px" }}
                 data-testid="topology-network-rail"
               >
-                {railIgws.map((igw, idx) => (
-                  <div
+                {railIgws.map((igw, idx) => {
+                  const selectionId = idx === 0 ? "__igw__" : igw.id
+                  const selected = selectedNodeId === selectionId
+                  return (
+                  <button
+                    type="button"
                     key={igw.id}
-                    data-flow-id={idx === 0 ? "__igw__" : igw.id}
+                    onClick={() => onSelect(selectionId)}
+                    aria-pressed={selected}
+                    data-flow-id={selectionId}
                     data-igw-id={igw.id}
                     data-testid="topology-igw-rail-chip"
                     title={[
@@ -4966,11 +4983,12 @@ export function AwsFrame({
                     ]
                       .filter(Boolean)
                       .join(" · ")}
-                    className="rounded-md shadow-sm overflow-hidden flex items-stretch"
+                    className="rounded-md shadow-sm overflow-hidden flex items-stretch text-left transition hover:brightness-95"
                     style={{
                       background: "linear-gradient(180deg, #EFF6FF 0%, #FFFFFF 100%)",
                       border: "2px solid #3B82F6",
                       color: "#1E40AF",
+                      boxShadow: selected ? "0 0 0 3px rgba(14,139,122,0.2)" : undefined,
                     }}
                   >
                     <div
@@ -4987,10 +5005,12 @@ export function AwsFrame({
                         {igw.name}
                       </div>
                     </div>
-                  </div>
-                ))}
+                  </button>
+                  )
+                })}
                 {topo.edges.vpces.map(v => {
                   const meta = resolveVpceMeta(v.service_name, v.endpoint_type)
+                  const selected = selectedNodeId === v.id
                   const tooltip = [
                     meta.label,
                     `${meta.type} endpoint · ${v.id}`,
@@ -4998,15 +5018,20 @@ export function AwsFrame({
                     meta.purpose,
                   ].filter(Boolean).join("\n")
                   return (
-                    <div
+                    <button
+                      type="button"
                       key={v.id}
+                      onClick={() => onSelect(v.id)}
+                      aria-pressed={selected}
                       data-flow-id={v.id}
+                      data-testid="topology-vpce-rail-chip"
                       title={tooltip}
-                      className="rounded-md shadow-sm overflow-hidden flex items-stretch"
+                      className="rounded-md shadow-sm overflow-hidden flex items-stretch text-left transition hover:brightness-95"
                       style={{
                         background: "#DBEAFE",
-                        border: "1.5px solid #3B82F6",
+                        border: selected ? "2px solid #0E8B7A" : "1.5px solid #3B82F6",
                         color: "#1E40AF",
+                        boxShadow: selected ? "0 0 0 3px rgba(14,139,122,0.16)" : undefined,
                       }}
                     >
                       <div
@@ -5035,7 +5060,7 @@ export function AwsFrame({
                           {meta.purpose}
                         </div>
                       </div>
-                    </div>
+                    </button>
                   )
                 })}
               </div>

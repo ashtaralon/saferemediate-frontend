@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest"
 import {
   buildFocusedServicePaths,
+  buildInspectorServiceEdges,
+  buildVpceInspectorNodes,
   expandRoutedServiceEdges,
+  vpceServiceNodeId,
 } from "@/components/topology-v0-2/service-paths"
 import type { TopologyNode, TrafficEdge } from "@/components/topology-v0-2/types"
 
@@ -82,6 +85,43 @@ describe("focused service paths", () => {
     expect(paths[0]?.nodeIds).toEqual(["app", "vpce-s3", "bucket"])
   })
 
+  it("pivots an interface VPCE into all sources, the endpoint, and its AWS service", () => {
+    const vpce = {
+      id: "vpce-ssm",
+      service_name: "com.amazonaws.eu-west-1.ssmmessages",
+      endpoint_type: "Interface",
+      vpc_id: "vpc-1",
+    }
+    const nodes = [
+      node("app-a"),
+      node("app-b"),
+      ...buildVpceInspectorNodes([vpce], {
+        account_id: "123",
+        region: "eu-west-1",
+        vpc_id: "vpc-1",
+      }),
+    ]
+    const inspectorEdges = buildInspectorServiceEdges(
+      [
+        edge("app-a", vpce.id, { edge_class: "vpce" }),
+        edge("app-b", vpce.id, { edge_class: "vpce" }),
+      ],
+      [vpce],
+    )
+
+    expect(inspectorEdges.some(item =>
+      item.source_id === vpce.id &&
+      item.target_id === vpceServiceNodeId(vpce.id) &&
+      item.protocol === "AWS_SERVICE"
+    )).toBe(true)
+
+    const paths = buildFocusedServicePaths(vpce.id, nodes, inspectorEdges)
+    expect(paths.map(path => path.nodeIds)).toEqual([
+      ["app-a", vpce.id, vpceServiceNodeId(vpce.id)],
+      ["app-b", vpce.id, vpceServiceNodeId(vpce.id)],
+    ])
+  })
+
   it("does not loop forever when the dependency graph contains a cycle", () => {
     const paths = buildFocusedServicePaths(
       "app",
@@ -93,4 +133,3 @@ describe("focused service paths", () => {
     expect(paths.every(path => new Set(path.nodeIds).size === path.nodeIds.length)).toBe(true)
   })
 })
-

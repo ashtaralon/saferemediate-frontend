@@ -92,6 +92,7 @@ test("fullscreen platform map shows named Lambda, protected AZ labels, direction
 
   const movingPacket = fullscreen.getByTestId("topology-flow-packet").first()
   await expect(movingPacket).toBeAttached()
+  await expect(movingPacket.locator("animateMotion, animatemotion")).toHaveAttribute("dur", "3.4s")
   const firstPosition = await movingPacket.evaluate(packet => {
     const rect = packet.getBoundingClientRect()
     return { x: rect.x, y: rect.y }
@@ -132,9 +133,51 @@ test("fullscreen platform map shows named Lambda, protected AZ labels, direction
   await expect(pathMap.getByTestId("topology-inspector-flow-packet").first()).toBeAttached()
   await expect(detail.getByText("alon-demo-data-bucket-745783559495").last()).toBeVisible()
   await expect(detail.getByText("S3 · ACTUAL_S3_ACCESS")).toBeVisible()
+  await expect(detail).toHaveAttribute("data-expanded", "false")
+
+  const resize = detail.getByTestId("topology-service-detail-resize")
+  await resize.click()
+  await expect(detail).toHaveAttribute("data-expanded", "true")
+  const expandedBox = await detail.boundingBox()
+  expect(expandedBox).not.toBeNull()
+  expect(expandedBox!.width).toBeGreaterThan(1900)
+  await resize.click()
+  await expect(detail).toHaveAttribute("data-expanded", "false")
 
   await page.screenshot({
     path: "test-results/topology-platform-map-fullscreen.png",
+    fullPage: false,
+  })
+
+  await detail.getByRole("button", { name: "Close service details" }).click()
+  await expect(detail).toHaveCount(0)
+
+  const ssmMessagesVpce = fullscreen
+    .getByTestId("topology-vpce-rail-chip")
+    .filter({ hasText: "SSM Messages" })
+    .first()
+  await expect(ssmMessagesVpce).toBeVisible()
+  await ssmMessagesVpce.click()
+
+  const vpceDetail = page.getByTestId("topology-service-detail-panel")
+  await expect(vpceDetail).toBeVisible()
+  await expect(vpceDetail.getByText("SSM Messages VPC endpoint").first()).toBeVisible()
+  await expect(vpceDetail.getByText("Network boundary · Interface endpoint")).toBeVisible()
+  const vpcePathMap = vpceDetail.getByTestId("topology-service-path-map")
+  await expect(vpcePathMap).toContainText("SafeRemediate-Test-Frontend-1")
+  await expect(vpcePathMap).toContainText("AWS SSM Messages")
+  await expect(vpcePathMap.locator("svg text")).toContainText(["Traffic", "AWS service"])
+
+  const focusedPacket = fullscreen
+    .locator('[data-testid="topology-flow-packet"][data-flow-focused="true"]')
+    .first()
+  await expect(focusedPacket).toBeAttached()
+  await expect(focusedPacket.locator("animateMotion, animatemotion")).toHaveAttribute("dur", "2.2s")
+
+  await vpceDetail.getByTestId("topology-service-detail-resize").click()
+  await expect(vpceDetail).toHaveAttribute("data-expanded", "true")
+  await page.screenshot({
+    path: "test-results/topology-platform-map-vpce-expanded.png",
     fullPage: false,
   })
 })

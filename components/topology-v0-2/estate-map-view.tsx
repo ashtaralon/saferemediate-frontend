@@ -52,6 +52,7 @@ import {
   narrowSystemEstateToVpc,
 } from "@/components/topology-v0-2/estate-system-scope"
 import { normalizeVpcTopology } from "@/components/topology-v0-2/normalize-topology"
+import { buildVpceInspectorNodes } from "@/components/topology-v0-2/service-paths"
 
 const VPC_STORAGE_PREFIX = "topology-vpc:"
 const ACCOUNT_STORAGE_PREFIX = "topology-account:"
@@ -784,6 +785,38 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     return [...byId.values()]
   }, [filteredNodes, filteredServerlessSource, filteredRegionalSource])
 
+  const inspectorNodes = useMemo(() => {
+    const byId = new Map(detailNodes.map(node => [node.id, node]))
+    const topology = scopedVpcTopology ?? data?.vpc_topology
+    if (!topology) return [...byId.values()]
+
+    for (const node of buildVpceInspectorNodes(topology.edges.vpces ?? [], {
+      account_id: topology.account_id ?? data?.account_id ?? null,
+      region: topology.region ?? data?.region ?? null,
+      vpc_id: topology.vpc_id ?? data?.vpc_id ?? null,
+    })) {
+      byId.set(node.id, node)
+    }
+
+    const igw = topology.edges.igws?.[0]
+    if (igw) {
+      byId.set("__igw__", {
+        id: "__igw__",
+        name: igw.name || "Internet gateway",
+        type: "InternetGateway",
+        subnet_id: null,
+        vpc_id: igw.vpc_id ?? topology.vpc_id ?? null,
+        account_id: topology.account_id ?? data?.account_id ?? null,
+        region: topology.region ?? data?.region ?? null,
+        score: null,
+        stale: null,
+        is_jewel: false,
+      })
+    }
+
+    return [...byId.values()]
+  }, [detailNodes, scopedVpcTopology, data])
+
   useEffect(() => {
     if (process.env.NODE_ENV !== "development") return
     console.log("[estate-map counts]", {
@@ -906,12 +939,12 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
   const selectedNode = useMemo(() => {
     if (!selectedNodeId) return null
     return (
-      detailNodes.find(n => n.id === selectedNodeId) ??
+      inspectorNodes.find(n => n.id === selectedNodeId) ??
       scopedEstate?.nodes.find(n => n.id === selectedNodeId) ??
       data?.nodes.find(n => n.id === selectedNodeId) ??
       null
     )
-  }, [selectedNodeId, detailNodes, scopedEstate?.nodes, data?.nodes])
+  }, [selectedNodeId, inspectorNodes, scopedEstate?.nodes, data?.nodes])
 
   const narrative = useMemo(
     () => (data?.system_kpis ? buildHeadlineNarrative(data) : null),
@@ -1105,6 +1138,17 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
   const selectedRailId = selectedNodeId
 
   const mapVpcTopology = scopedVpcTopology ?? data.vpc_topology
+  const selectMapNode = (id: string) => {
+    const nextId = id === selectedNodeId ? null : id
+    setSelectedNodeId(nextId)
+    setHighlightedRoleName(null)
+    if (
+      nextId &&
+      (id === "__igw__" || mapVpcTopology?.edges.vpces.some(vpce => vpce.id === id))
+    ) {
+      setFlowMode("all_access")
+    }
+  }
 
   const renderMap = (presentationMode: boolean, scale = 1, densityCollapsedArg = false) => (mapVpcTopology ? (
     <AwsFrame
@@ -1121,10 +1165,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
       attackPathFlowCount={attackPathFlowCount}
       selectedNodeId={selectedNodeId}
       highlightedRoleName={highlightedRoleName}
-      onSelect={id => {
-        setSelectedNodeId(id === selectedNodeId ? null : id)
-        setHighlightedRoleName(null)
-      }}
+      onSelect={selectMapNode}
       presentationMode={presentationMode}
       scale={scale}
       densityCollapsed={densityCollapsedArg}
@@ -1640,8 +1681,8 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
 
       {!mapEnlarged ? (
         <DetailPanel
-          node={selectedNode}
-          nodes={detailNodes}
+      node={selectedNode}
+          nodes={inspectorNodes}
           edges={operationalEdges}
           subnets={mapVpcTopology?.subnets}
           vpces={mapVpcTopology?.edges.vpces}
@@ -1807,7 +1848,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
               <div className="pointer-events-auto">
                 <DetailPanel
                   node={selectedNode}
-                  nodes={detailNodes}
+                  nodes={inspectorNodes}
                   edges={operationalEdges}
                   subnets={mapVpcTopology?.subnets}
                   vpces={mapVpcTopology?.edges.vpces}
