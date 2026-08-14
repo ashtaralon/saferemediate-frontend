@@ -37,7 +37,7 @@ function edge(
 }
 
 describe("focused service paths", () => {
-  it("builds upstream through selected service to downstream dependencies", () => {
+  it("keeps uncorrelated upstream and downstream segments separate", () => {
     const nodes = [
       node("load-balancer", "LoadBalancer"),
       node("app"),
@@ -52,11 +52,9 @@ describe("focused service paths", () => {
       ],
     )
 
-    expect(paths).toHaveLength(1)
-    expect(paths[0]?.nodeIds).toEqual(["load-balancer", "app", "bucket"])
-    expect(paths[0]?.edges.map(item => item.protocol)).toEqual([
-      "ACTUAL_TRAFFIC",
-      "ACTUAL_S3_ACCESS",
+    expect(paths.map(path => path.nodeIds)).toEqual([
+      ["load-balancer", "app"],
+      ["app", "bucket"],
     ])
   })
 
@@ -112,7 +110,9 @@ describe("focused service paths", () => {
     expect(inspectorEdges.some(item =>
       item.source_id === vpce.id &&
       item.target_id === vpceServiceNodeId(vpce.id) &&
-      item.protocol === "AWS_SERVICE"
+      item.protocol === "AWS_SERVICE" &&
+      item.last_seen === null &&
+      item.path_basis === "synthetic_expansion"
     )).toBe(true)
 
     const paths = buildFocusedServicePaths(vpce.id, nodes, inspectorEdges)

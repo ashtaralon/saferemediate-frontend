@@ -166,6 +166,16 @@ export function expandRoutedServiceEdges(edges: TrafficEdge[]): TrafficEdge[] {
       target_id: intermediateId,
       edge_class: edge.via_vpce_id ? "vpce" : "egress",
       protocol: edge.via_vpce_id ? "VPC_ENDPOINT" : "PUBLIC_EGRESS",
+      last_seen: null,
+      evidence_type: "configured",
+      evidence_source: edge.via_vpce_id ? "aws_route_configuration" : "aws_egress_configuration",
+      coverage_state: "complete",
+      authority_state: "configured",
+      path_basis: "configured_route",
+      projection_generation: null,
+      evidence_id: null,
+      evidence_ids: [],
+      normalization_basis: null,
       via_vpce_id: null,
       via_vpce_service_name: null,
       via_igw: null,
@@ -174,6 +184,16 @@ export function expandRoutedServiceEdges(edges: TrafficEdge[]): TrafficEdge[] {
     expanded.push({
       ...edge,
       source_id: intermediateId,
+      last_seen: null,
+      evidence_type: "inferred",
+      evidence_source: "route_service_expansion",
+      coverage_state: "unknown",
+      authority_state: "inferred",
+      path_basis: "synthetic_expansion",
+      projection_generation: null,
+      evidence_id: null,
+      evidence_ids: [],
+      normalization_basis: null,
       via_vpce_id: null,
       via_vpce_service_name: null,
       via_igw: null,
@@ -205,9 +225,18 @@ export function buildInspectorServiceEdges(
       target_id: vpceServiceNodeId(vpceId),
       port: sourceEdge.port,
       protocol: "AWS_SERVICE",
-      last_seen: sourceEdge.last_seen,
+      last_seen: null,
       edge_class: "edge_service",
       external_destinations: null,
+      evidence_type: "inferred",
+      evidence_source: "vpce_service_catalog",
+      coverage_state: "unknown",
+      authority_state: "inferred",
+      path_basis: "synthetic_expansion",
+      projection_generation: null,
+      evidence_id: null,
+      evidence_ids: [],
+      normalization_basis: null,
       via_vpce_id: null,
       via_vpce_service_name: null,
     })
@@ -263,17 +292,33 @@ export function buildFocusedServicePaths(
     return paths.length >= maxPaths
   }
 
+  const deterministicDownstream = downstream.filter(
+    chain =>
+      chain.edges.length > 0 &&
+      chain.edges.every(edge =>
+        edge.path_basis === "configured_route" ||
+        edge.path_basis === "synthetic_expansion"
+      ),
+  )
+  const selectedType = nodes.find(node => node.id === selectedNodeId)?.type?.toLowerCase() ?? ""
+  const canContinueThroughSelected =
+    selectedType.includes("endpoint") &&
+    deterministicDownstream.length === 1
+
   for (const before of upstream) {
-    for (const after of downstream) {
+    if (before.edges.length === 0) continue
+    if (canContinueThroughSelected) {
+      const after = deterministicDownstream[0]
       const nodeIds = [...before.nodeIds, ...after.nodeIds.slice(1)]
       const pathEdges = [...before.edges, ...after.edges]
-      if (new Set(nodeIds).size !== nodeIds.length) {
-        if (before.edges.length > 0 && addPath(before.nodeIds, before.edges)) return paths
-        if (after.edges.length > 0 && addPath(after.nodeIds, after.edges)) return paths
-        continue
-      }
-      if (addPath(nodeIds, pathEdges)) return paths
+      if (new Set(nodeIds).size === nodeIds.length && addPath(nodeIds, pathEdges)) return paths
+    } else if (addPath(before.nodeIds, before.edges)) {
+      return paths
     }
+  }
+
+  for (const after of canContinueThroughSelected ? [] : downstream) {
+    if (after.edges.length > 0 && addPath(after.nodeIds, after.edges)) return paths
   }
 
   return paths

@@ -40,6 +40,7 @@ import {
   type SubnetMeta,
   type SubnetTier,
   type TopologyNode,
+  type TopologyRiskResponse,
   type TrafficEdge,
   type TrafficEdgeClass,
   type VpcTopology,
@@ -100,6 +101,7 @@ interface Props {
   onFlowModeChange?: (mode: EstateFlowMode) => void
   attackPathFlowCount?: number
   trafficEdges?: TrafficEdge[]
+  trafficAuthority?: TopologyRiskResponse["traffic_authority"]
   selectedNodeId: string | null
   highlightedRoleName?: string | null
   onSelect: (id: string) => void
@@ -2230,6 +2232,9 @@ interface FlowPath {
   highlight?: "attack_path" | null
   /** Dependency lens: animate only the path incident to the selected service. */
   focused?: boolean
+  authorityState?: TrafficEdge["authority_state"]
+  evidenceType?: TrafficEdge["evidence_type"]
+  pathBasis?: TrafficEdge["path_basis"]
 }
 
 export function isFocusedOperationalFlow(
@@ -2461,13 +2466,25 @@ function FlowLegend({ compact = false }: { compact?: boolean }) {
             }}
           />
         </span>
-        Moving arrow = direction
+        Moving = authoritative observed
         <style>{`
           @keyframes topology-flow-legend {
             from { transform: translateX(0); }
             to { transform: translateX(20px); }
           }
         `}</style>
+      </span>
+      <span className="inline-flex items-center gap-1.5 text-[9px] font-medium" style={{ color: "#475569" }}>
+        <svg width="28" height="8" viewBox="0 0 28 8" aria-hidden>
+          <path d="M1 4 H27" stroke="#64748B" strokeWidth="2" />
+        </svg>
+        Solid = configured
+      </span>
+      <span className="inline-flex items-center gap-1.5 text-[9px] font-medium" style={{ color: "#475569" }}>
+        <svg width="28" height="8" viewBox="0 0 28 8" aria-hidden>
+          <path d="M1 4 H27" stroke="#64748B" strokeWidth="2" strokeDasharray="4 3" />
+        </svg>
+        Dashed = inferred / unverified
       </span>
     </div>
   )
@@ -2811,6 +2828,9 @@ function FlowOverlay({
           isExposed: Boolean(e.is_exposed),
           highlight: j.highlight,
           focused: j.focused,
+          authorityState: e.authority_state,
+          evidenceType: e.evidence_type,
+          pathBasis: e.path_basis,
           _edge: e,
           _routedViaIgw: routedViaIgw,
           _routedViaVpce: routedViaVpce,
@@ -3011,7 +3031,19 @@ function FlowOverlay({
         const dependencyFocusActive = flowMode === "all_access" && selectedNodeId != null
         const focusedDependency = dependencyFocusActive && p.focused
         const dimmed = dependencyFocusActive && !p.focused
-        const animateFlow = flowMode !== "architecture" && !dimmed
+        const authoritativeObserved =
+          p.evidenceType === "observed" &&
+          p.authorityState === "authoritative" &&
+          (p.pathBasis === "observed_segment" || p.pathBasis === "correlated_trace")
+        const inferredOrUnverified =
+          p.authorityState === "legacy_unverified" ||
+          p.authorityState === "inferred" ||
+          p.pathBasis === "inferred_correlation" ||
+          p.pathBasis === "synthetic_expansion"
+        const animateFlow =
+          flowMode !== "architecture" &&
+          !dimmed &&
+          authoritativeObserved
         return (
         <g key={i}>
           {/* Soft halo behind the line so it's visible over the busy chip grid */}
@@ -3041,7 +3073,13 @@ function FlowOverlay({
                   ? "0.94"
                   : "0.62"
             }
-            strokeDasharray={p.highlight === "attack_path" || p.isExposed ? "6 4" : undefined}
+            strokeDasharray={
+              p.highlight === "attack_path" || p.isExposed
+                ? "6 4"
+                : inferredOrUnverified
+                  ? "7 5"
+                  : undefined
+            }
             strokeLinecap="round"
             markerEnd={`url(#flow-arrow-${markerCls})`}
           >
@@ -3071,7 +3109,7 @@ function FlowOverlay({
                   attributeName="stroke-dashoffset"
                   from={focusedDependency ? "14" : "16"}
                   to="0"
-                  dur={focusedDependency ? "1.4s" : "1.9s"}
+                  dur={focusedDependency ? "3.8s" : "5.2s"}
                   repeatCount="indefinite"
                 />
               </path>
@@ -3092,7 +3130,7 @@ function FlowOverlay({
                 />
                 <animateMotion
                   path={p.d}
-                  dur={focusedDependency ? "2.2s" : "3.4s"}
+                  dur={focusedDependency ? "4.8s" : "6.4s"}
                   begin={`-${(i % 6) * 0.4}s`}
                   repeatCount="indefinite"
                   rotate="auto"
@@ -3104,8 +3142,8 @@ function FlowOverlay({
                   <path d="M -3 -3 L 4 0 L -3 3 Z" fill={stroke} />
                   <animateMotion
                     path={p.d}
-                    dur="2.2s"
-                    begin="-1.1s"
+                    dur="4.8s"
+                    begin="-2.4s"
                     repeatCount="indefinite"
                     rotate="auto"
                   />
@@ -4526,6 +4564,7 @@ export function AwsFrame({
   onFlowModeChange,
   attackPathFlowCount = 0,
   trafficEdges,
+  trafficAuthority,
   selectedNodeId,
   highlightedRoleName = null,
   onSelect,
@@ -4703,6 +4742,22 @@ export function AwsFrame({
         </div>
       ) : null}
       {flowMode !== "architecture" ? <FlowLegend compact={presentationMode} /> : null}
+      {flowMode === "all_access" && trafficAuthority?.state !== "authoritative" ? (
+        <div
+          className="flex items-center justify-between gap-3 border-b px-2 py-1.5 text-[10px]"
+          style={{ borderColor: "#FCD34D", background: "#FFFBEB", color: "#92400E" }}
+          data-testid="topology-traffic-authority-state"
+        >
+          <span className="font-semibold">
+            {trafficAuthority?.state === "legacy_unverified"
+              ? "Traffic evidence not yet authoritative"
+              : "Rebuilding traffic evidence"}
+          </span>
+          <span className="truncate">
+            {trafficAuthority?.limitation ?? "Only generation-backed observed segments animate."}
+          </span>
+        </div>
+      ) : null}
       {/* Users → Internet — clustered toward center (not pinned to corners).
           IGW chip lives on the VPCE rail. */}
       <div

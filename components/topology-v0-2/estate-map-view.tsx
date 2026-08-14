@@ -53,7 +53,10 @@ import {
 } from "@/components/topology-v0-2/estate-system-scope"
 import { normalizeVpcTopology } from "@/components/topology-v0-2/normalize-topology"
 import { useAccountScope } from "@/lib/account-scope-context"
-import { buildVpceInspectorNodes } from "@/components/topology-v0-2/service-paths"
+import {
+  buildInspectorServiceEdges,
+  buildVpceInspectorNodes,
+} from "@/components/topology-v0-2/service-paths"
 
 const VPC_STORAGE_PREFIX = "topology-vpc:"
 const ACCOUNT_STORAGE_PREFIX = "topology-account:"
@@ -935,6 +938,10 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
       flowOverlayContext,
     ],
   )
+  const inspectorEdges = useMemo(
+    () => buildInspectorServiceEdges(operationalEdges, flowOverlayContext.vpces),
+    [operationalEdges, flowOverlayContext.vpces],
+  )
 
   const overlayEdges = useMemo(() => {
     if (flowMode === "all_access") return operationalEdges
@@ -1267,6 +1274,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
       serverlessSourceNodes={filteredServerlessSource}
       regionalDataSourceNodes={filteredRegionalSource}
       trafficEdges={scopedTrafficEdges}
+      trafficAuthority={data.traffic_authority}
       overlayEdges={focusedOverlayEdges}
       flowMode={flowMode}
       onFlowModeChange={setFlowMode}
@@ -1819,6 +1827,10 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
           vpcId={scopedVpc}
           accountId={selectedAccountId}
           region={selectedRegionId}
+          inspectorNodes={inspectorNodes}
+          inspectorEdges={inspectorEdges}
+          vpces={flowOverlayContext.vpces}
+          trafficAuthority={data.traffic_authority}
           onClose={() => setSelectedNodeId(null)}
         />
       ) : null}
@@ -1983,6 +1995,10 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
                   vpcId={scopedVpc}
                   accountId={selectedAccountId}
                   region={selectedRegionId}
+                  inspectorNodes={inspectorNodes}
+                  inspectorEdges={inspectorEdges}
+                  vpces={flowOverlayContext.vpces}
+                  trafficAuthority={data.traffic_authority}
                   onClose={() => setSelectedNodeId(null)}
                 />
               </div>
