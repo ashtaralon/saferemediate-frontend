@@ -8,7 +8,7 @@
 import type { IdentityAttackPath } from "@/components/identity-attack-paths/types"
 import type { EdgeVpce, TopologyNode, TrafficEdge, TrafficEdgeClass } from "./types"
 
-export type EstateFlowMode = "all_access" | "attack_paths"
+export type EstateFlowMode = "architecture" | "all_access" | "attack_paths"
 
 export interface DepMapEdgeLike {
   source?: string | null
@@ -353,6 +353,8 @@ export function selectEstateFlowEdges(opts: {
     nodeTypeById,
     vpces = [],
   } = opts
+
+  if (mode === "architecture") return []
 
   if (mode === "attack_paths") {
     const attack = attackPathEdgesToTrafficEdges(

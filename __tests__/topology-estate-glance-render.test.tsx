@@ -89,6 +89,8 @@ describe("AwsFrame Glance density (generic)", () => {
         nodes={nodes}
         serverlessSourceNodes={nodes}
         regionalDataSourceNodes={nodes}
+        flowMode="architecture"
+        onFlowModeChange={() => {}}
         selectedNodeId={null}
         onSelect={() => {}}
         viewDensity="glance"
@@ -117,6 +119,11 @@ describe("AwsFrame Glance density (generic)", () => {
     expect(screen.getByTestId("topology-users-internet-strip")).toBeTruthy()
     expect(screen.getByText("Users")).toBeTruthy()
     expect(screen.getByText("Internet")).toBeTruthy()
+    expect(screen.getByText("Platform map")).toBeTruthy()
+    expect(screen.getByRole("button", { name: "Architecture" })).toHaveAttribute("aria-pressed", "true")
+    expect(screen.getByRole("button", { name: "Dependencies" })).toBeTruthy()
+    expect(screen.getByRole("button", { name: "Attack paths" })).toBeTruthy()
+    expect(screen.getAllByTestId("topology-resource-signal").length).toBeGreaterThan(0)
     // Jewel RDS named
     expect(screen.getByText("app-db")).toBeTruthy()
     // Regional / serverless grouped (real counts)

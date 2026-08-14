@@ -2,14 +2,14 @@
  * Shared navigation helpers for live Topology / dependency-map e2e.
  *
  * Tab rename (2026-06): "Graph View" → "Traffic map"; default shell is
- * "Risk inventory" (estate map). Tests that need TFM / CJ picker must open
+ * "Cloud map" (estate map). Tests that need TFM / CJ picker must open
  * Traffic map explicitly.
  */
 import { expect, type Page } from "@playwright/test"
 
 /** Dependency-map shell loaded on the Topology tab. */
 export async function waitForTopologyTabShell(page: Page) {
-  await expect(page.getByRole("button", { name: "Risk inventory" })).toBeVisible({
+  await expect(page.getByRole("button", { name: "Cloud map" })).toBeVisible({
     timeout: 60_000,
   })
 }
