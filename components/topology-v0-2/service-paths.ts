@@ -1,4 +1,4 @@
-import type { TopologyNode, TrafficEdge } from "./types"
+import type { EdgeVpce, TopologyNode, TrafficEdge } from "./types"
 
 export interface FocusedServicePath {
   id: string
@@ -9,6 +9,74 @@ export interface FocusedServicePath {
 interface Chain {
   nodeIds: string[]
   edges: TrafficEdge[]
+}
+
+export function vpceServiceNodeId(vpceId: string): string {
+  return `${vpceId}::aws-service`
+}
+
+export function vpceServiceLabel(vpce: Pick<EdgeVpce, "id" | "service_name">): string {
+  const service = vpce.service_name?.split(".").pop()?.toLowerCase()
+  switch (service) {
+    case "ec2messages":
+      return "EC2 Messages"
+    case "ssmmessages":
+      return "SSM Messages"
+    case "ssm":
+      return "Systems Manager"
+    case "s3":
+      return "Amazon S3"
+    case "dynamodb":
+      return "DynamoDB"
+    default:
+      return service ? service.toUpperCase() : `AWS service · ${vpce.id}`
+  }
+}
+
+function vpceServiceNodeType(vpce: Pick<EdgeVpce, "service_name">): string {
+  const service = vpce.service_name?.split(".").pop()?.toLowerCase()
+  if (service === "s3") return "S3"
+  if (service === "dynamodb") return "DynamoDB"
+  return "AWSService"
+}
+
+export function buildVpceInspectorNodes(
+  vpces: EdgeVpce[],
+  context: Pick<TopologyNode, "account_id" | "region" | "vpc_id"> = {
+    account_id: null,
+    region: null,
+    vpc_id: null,
+  },
+): TopologyNode[] {
+  const nodes: TopologyNode[] = []
+  for (const vpce of vpces) {
+    const label = vpceServiceLabel(vpce)
+    nodes.push({
+      id: vpce.id,
+      name: `${label} VPC endpoint`,
+      type: "VpcEndpoint",
+      subnet_id: null,
+      vpc_id: vpce.vpc_id ?? context.vpc_id ?? null,
+      account_id: context.account_id ?? null,
+      region: context.region ?? null,
+      score: null,
+      stale: null,
+      is_jewel: false,
+    })
+    nodes.push({
+      id: vpceServiceNodeId(vpce.id),
+      name: label.startsWith("Amazon ") ? label : `AWS ${label}`,
+      type: vpceServiceNodeType(vpce),
+      subnet_id: null,
+      vpc_id: null,
+      account_id: context.account_id ?? null,
+      region: context.region ?? null,
+      score: null,
+      stale: null,
+      is_jewel: false,
+    })
+  }
+  return nodes
 }
 
 function edgeRecency(edge: TrafficEdge): number {
@@ -34,7 +102,7 @@ function inboundChains(
 ): Chain[] {
   const incoming = sortEdges(incomingByTarget.get(currentId) ?? [])
     .filter(edge => !visited.has(edge.source_id))
-    .slice(0, 4)
+    .slice(0, 8)
   if (depth === 0 || incoming.length === 0) {
     return [{ nodeIds: [currentId], edges: [] }]
   }
@@ -61,7 +129,7 @@ function outboundChains(
 ): Chain[] {
   const outgoing = sortEdges(outgoingBySource.get(currentId) ?? [])
     .filter(edge => !visited.has(edge.target_id))
-    .slice(0, 4)
+    .slice(0, 8)
   if (depth === 0 || outgoing.length === 0) {
     return [{ nodeIds: [currentId], edges: [] }]
   }
@@ -115,11 +183,44 @@ export function expandRoutedServiceEdges(edges: TrafficEdge[]): TrafficEdge[] {
   return expanded
 }
 
+export function buildInspectorServiceEdges(
+  edges: TrafficEdge[],
+  vpces: EdgeVpce[],
+): TrafficEdge[] {
+  const expanded = expandRoutedServiceEdges(edges)
+  const vpceById = new Map(vpces.map(vpce => [vpce.id, vpce]))
+  const latestDirectEdgeByVpce = new Map<string, TrafficEdge>()
+
+  for (const edge of edges) {
+    if (!vpceById.has(edge.target_id) || edge.via_vpce_id) continue
+    const existing = latestDirectEdgeByVpce.get(edge.target_id)
+    if (!existing || edgeRecency(edge) > edgeRecency(existing)) {
+      latestDirectEdgeByVpce.set(edge.target_id, edge)
+    }
+  }
+
+  for (const [vpceId, sourceEdge] of latestDirectEdgeByVpce) {
+    expanded.push({
+      source_id: vpceId,
+      target_id: vpceServiceNodeId(vpceId),
+      port: sourceEdge.port,
+      protocol: "AWS_SERVICE",
+      last_seen: sourceEdge.last_seen,
+      edge_class: "edge_service",
+      external_destinations: null,
+      via_vpce_id: null,
+      via_vpce_service_name: null,
+    })
+  }
+
+  return expanded
+}
+
 export function buildFocusedServicePaths(
   selectedNodeId: string,
   nodes: TopologyNode[],
   edges: TrafficEdge[],
-  maxPaths = 8,
+  maxPaths = 16,
 ): FocusedServicePath[] {
   const selectedExists =
     nodes.some(node => node.id === selectedNodeId) ||
