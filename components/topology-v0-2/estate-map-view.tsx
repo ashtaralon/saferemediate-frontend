@@ -60,12 +60,10 @@ const AZ_STORAGE_PREFIX = "topology-hidden-az:"
 /** Full-width estate shell — no centered max-width cap stealing horizontal space. */
 const ESTATE_SHELL_X = "w-full px-3 lg:px-4"
 
-// Regional / serverless services (Lambda, S3, DynamoDB, KMS, Secret) have no VPC
-// — they render on the right rails, not the subnet grid. Their SERVICES-chip
-// counts are therefore ALWAYS account/system-wide; the VPC-grid services
-// (EC2/RDS/LoadBalancer) are counted for the current scope (per-VPC when a VPC
-// is picked). Splitting the two keeps the chips 1:1 with the map and the
-// per-VPC header — mixing them read as the map lying about a VPC's workloads.
+// Regional services render on the right rail. Lambda inventory is also
+// account/system-wide, while placement still distinguishes VPC-attached
+// networking from AWS-managed runtimes with no VPC attachment. VPC-grid
+// services (EC2/RDS/LoadBalancer) are counted for the current scope.
 // Type sets from estate-placement — only Neo4j-backed types render.
 const RAIL_SERVICE_TYPES = new Set<string>([
   ...SERVERLESS_TYPES,
@@ -1369,7 +1367,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
               <span
                 className="text-[10px] uppercase tracking-[0.14em] font-semibold shrink-0 border-l pl-2 ml-1"
                 style={{ color: "#5A6B7A", borderColor: "#E2E8F0" }}
-                title="Regional / serverless services (Lambda, S3, DynamoDB, KMS, Secrets) have no VPC — count is always account/system-wide"
+                title="Regional services are system-wide. Lambda inventory is system-wide too, while placement distinguishes VPC-attached functions from non-VPC-attached runtimes."
               >
                 System-wide
               </span>
@@ -1646,6 +1644,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
           nodes={detailNodes}
           edges={operationalEdges}
           subnets={mapVpcTopology?.subnets}
+          vpces={mapVpcTopology?.edges.vpces}
           iamRoles={mapVpcTopology?.iam_roles}
           securityGroups={mapVpcTopology?.security_groups}
           onClose={() => setSelectedNodeId(null)}
@@ -1811,6 +1810,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
                   nodes={detailNodes}
                   edges={operationalEdges}
                   subnets={mapVpcTopology?.subnets}
+                  vpces={mapVpcTopology?.edges.vpces}
                   iamRoles={mapVpcTopology?.iam_roles}
                   securityGroups={mapVpcTopology?.security_groups}
                   onClose={() => setSelectedNodeId(null)}

@@ -15,7 +15,10 @@ import {
   X,
 } from "lucide-react"
 import { ServiceTypeBadge } from "@/lib/service-type"
+import { flowStroke } from "./flow-visuals"
+import { buildFocusedServicePaths } from "./service-paths"
 import type {
+  EdgeVpce,
   IamRoleRollup,
   SecurityGroupMeta,
   SubnetMeta,
@@ -28,6 +31,7 @@ interface Props {
   nodes?: TopologyNode[]
   edges?: TrafficEdge[]
   subnets?: SubnetMeta[]
+  vpces?: EdgeVpce[]
   iamRoles?: IamRoleRollup[]
   securityGroups?: SecurityGroupMeta[]
   onClose: () => void
@@ -50,6 +54,25 @@ function targetType(id: string, nodeById: Map<string, TopologyNode>): string {
 function edgeLabel(edge: TrafficEdge): string {
   const protocol = edge.protocol ?? edge.edge_class ?? "dependency"
   return edge.port ? `${edge.port}/${protocol}` : protocol
+}
+
+function pathEdgeLabel(edge: TrafficEdge): string {
+  switch (edge.protocol) {
+    case "ACTUAL_S3_ACCESS":
+      return "S3 access"
+    case "ACTUAL_API_CALL":
+      return "API call"
+    case "ACTUAL_TRAFFIC":
+      return edge.port ? `${edge.port}/TCP` : "Traffic"
+    case "VPC_ENDPOINT":
+      return "VPCE"
+    case "PUBLIC_EGRESS":
+      return "Public egress"
+    default: {
+      const label = edgeLabel(edge)
+      return label.length > 14 ? `${label.slice(0, 12)}…` : label
+    }
+  }
 }
 
 function formatTimestamp(value: string | null | undefined): string {
@@ -77,6 +100,15 @@ function latestTimestamp(edges: TrafficEdge[]): string | null {
     }
   }
   return latest
+}
+
+function isLambdaNode(node: TopologyNode): boolean {
+  return String(node.type ?? "").toLowerCase().includes("lambda")
+}
+
+function vpceName(vpce: EdgeVpce): string {
+  const service = vpce.service_name?.split(".").pop()
+  return service ? `${service.toUpperCase()} VPC endpoint` : `VPC endpoint · ${vpce.id}`
 }
 
 function InfoRow({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
@@ -115,11 +147,141 @@ function Metric({
   )
 }
 
+function FocusedServicePathMap({
+  node,
+  nodes,
+  edges,
+}: {
+  node: TopologyNode
+  nodes: TopologyNode[]
+  edges: TrafficEdge[]
+}) {
+  const nodeById = new Map(nodes.map(item => [item.id, item]))
+  const paths = buildFocusedServicePaths(node.id, nodes, edges)
+    .filter(path => path.edges.length > 0)
+
+  return (
+    <section data-testid="topology-service-path-map">
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <GitBranch size={15} style={{ color: "#7C3AED" }} />
+          <h3 className="text-[11px] font-bold uppercase tracking-[0.14em]" style={{ color: "#1A2330" }}>
+            End-to-end service path
+          </h3>
+        </div>
+        <span
+          className="inline-flex items-center gap-1.5 text-[9px] font-semibold uppercase tracking-wide"
+          style={{ color: "#6D28D9" }}
+          data-testid="topology-service-path-provenance"
+        >
+          <Database size={11} />
+          Neo4j graph
+        </span>
+      </div>
+
+      {paths.length === 0 ? (
+        <div className="rounded-md border p-3 text-[11px]" style={{ borderColor: "#DDE3E8", color: "#64748B" }}>
+          No connected runtime path is available for this service in the current Neo4j snapshot.
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {paths.map((path, pathIndex) => (
+            <div
+              key={path.id}
+              className="overflow-x-auto rounded-md border px-2 py-3"
+              style={{ borderColor: "#DDE3E8", background: "#F8FAFC" }}
+              data-testid="topology-service-path-row"
+            >
+              <div className="flex min-w-max items-center">
+                {path.nodeIds.map((nodeId, index) => {
+                  const pathNode = nodeById.get(nodeId)
+                  const type = targetType(nodeId, nodeById)
+                  const name = targetName(nodeId, nodeById)
+                  const selected = nodeId === node.id
+                  const edge = path.edges[index]
+                  const color = edge ? flowStroke(edge) : "#CBD5E1"
+                  const label = edge ? edgeLabel(edge) : "dependency"
+                  const compactLabel = edge ? pathEdgeLabel(edge) : "dependency"
+
+                  return (
+                    <div key={`${path.id}-${nodeId}-${index}`} className="flex items-center">
+                      <div
+                        className="flex h-[82px] w-[142px] shrink-0 items-center gap-2 rounded-md border bg-white px-2"
+                        style={{
+                          borderColor: selected ? "#0E8B7A" : "#DDE3E8",
+                          boxShadow: selected ? "0 0 0 2px rgba(14,139,122,0.12)" : undefined,
+                        }}
+                        title={`${name} · ${type}`}
+                        data-selected-service={selected ? "true" : undefined}
+                      >
+                        <ServiceTypeBadge type={pathNode?.type ?? type} variant="tile" size={34} />
+                        <div className="min-w-0">
+                          <div
+                            className="line-clamp-2 break-words text-[9px] font-semibold leading-tight"
+                            style={{ color: "#1A2330", overflowWrap: "anywhere" }}
+                          >
+                            {name}
+                          </div>
+                          <div className="mt-0.5 truncate text-[9px]" style={{ color: "#64748B" }}>
+                            {selected ? "Selected · " : ""}{type}
+                          </div>
+                        </div>
+                      </div>
+
+                      {edge ? (
+                        <svg
+                          width="78"
+                          height="46"
+                          viewBox="0 0 78 46"
+                          className="shrink-0"
+                          aria-label={`${name} to ${targetName(path.nodeIds[index + 1], nodeById)} via ${label}`}
+                        >
+                          <title>{label}</title>
+                          <text
+                            x="39"
+                            y="10"
+                            textAnchor="middle"
+                            fontSize="8"
+                            fontWeight="600"
+                            fill={color}
+                          >
+                            {compactLabel}
+                          </text>
+                          <path d="M5 25 H69" stroke={color} strokeWidth="2" strokeLinecap="round" />
+                          <path d="M64 20 L74 25 L64 30 Z" fill={color} />
+                          <g data-testid="topology-inspector-flow-packet">
+                            <circle r="5" fill="white" stroke={color} strokeWidth="1" />
+                            <path d="M -3 -3 L 4 0 L -3 3 Z" fill={color} />
+                            <animateMotion
+                              path="M 10 25 L 59 25"
+                              dur="1.2s"
+                              begin={`-${(pathIndex + index) * 0.2}s`}
+                              repeatCount="indefinite"
+                            />
+                          </g>
+                        </svg>
+                      ) : null}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
+          <div className="text-[9px] leading-relaxed" style={{ color: "#64748B" }}>
+            Observed edges carry timestamps; modeled edges remain visible without inventing activity.
+          </div>
+        </div>
+      )}
+    </section>
+  )
+}
+
 export function DetailPanel({
   node,
   nodes = [],
   edges = [],
   subnets = [],
+  vpces = [],
   iamRoles = [],
   securityGroups = [],
   onClose,
@@ -143,6 +305,54 @@ export function DetailPanel({
     ...incoming.map(edge => edge.source_id),
     ...outgoing.map(edge => edge.target_id),
   ]).size
+  const lambda = isLambdaNode(node)
+  const lambdaVpcAttached = lambda && Boolean(
+    node.vpc_id ||
+    subnetIds.length > 0 ||
+    attachedGroups.length > 0,
+  )
+  const placementState = lambda
+    ? lambdaVpcAttached
+      ? "VPC-attached networking"
+      : "AWS-managed runtime · not VPC-attached"
+    : null
+  const vpcValue = lambda
+    ? lambdaVpcAttached
+      ? `${node.vpc_id ?? "VPC id not reported"} · VPC-attached`
+      : "AWS-managed runtime · not VPC-attached"
+    : node.vpc_id ?? "Regional AWS service · not VPC-bound"
+  const availabilityZoneValue = lambda && !lambdaVpcAttached
+    ? "Regional runtime · no customer AZ placement"
+    : zones.length > 0
+      ? zones.join(", ")
+      : "Not subnet-bound"
+  const subnetValue = lambda && !lambdaVpcAttached
+    ? "No VPC subnet attachment"
+    : subnetIds.length > 0
+      ? subnetIds.join(", ")
+      : "Not subnet-bound"
+  const tierValue = lambda
+    ? "Serverless · AWS-managed runtime"
+    : tiers.length > 0
+      ? tiers.join(", ")
+      : "Regional / managed service"
+  const pathNodes = [
+    ...nodes,
+    ...vpces
+      .filter(vpce => !nodes.some(item => item.id === vpce.id))
+      .map<TopologyNode>(vpce => ({
+        id: vpce.id,
+        name: vpceName(vpce),
+        type: "VpcEndpoint",
+        subnet_id: null,
+        vpc_id: vpce.vpc_id ?? node.vpc_id ?? null,
+        account_id: node.account_id ?? null,
+        region: node.region ?? null,
+        score: null,
+        stale: null,
+        is_jewel: false,
+      })),
+  ]
 
   return (
     <aside
@@ -165,7 +375,8 @@ export function DetailPanel({
               {node.name}
             </div>
             <div className="mt-0.5 truncate text-[11px]" style={{ color: "#64748B" }}>
-              {node.type ?? "Resource"} · {node.stale ? "stale graph data" : "current graph data"}
+              {node.type ?? "Resource"} · {placementState ? `${placementState} · ` : ""}
+              {node.stale ? "stale graph data" : "current graph data"}
             </div>
           </div>
         </div>
@@ -203,12 +414,19 @@ export function DetailPanel({
           <dl className="rounded-md border px-3" style={{ borderColor: "#DDE3E8" }}>
             <InfoRow label="Account" value={node.account_id ?? "Not reported"} mono />
             <InfoRow label="Region" value={node.region ?? "Global / not reported"} mono />
-            <InfoRow label="VPC" value={node.vpc_id ?? "Regional service · outside VPC"} mono />
-            <InfoRow label="Availability zone" value={zones.length > 0 ? zones.join(", ") : "Not subnet-bound"} mono />
-            <InfoRow label="Subnet" value={subnetIds.length > 0 ? subnetIds.join(", ") : "Not subnet-bound"} mono />
-            <InfoRow label="Tier" value={tiers.length > 0 ? tiers.join(", ") : "Regional / managed service"} />
+            <InfoRow label="VPC" value={vpcValue} mono />
+            <InfoRow label="Availability zone" value={availabilityZoneValue} mono />
+            <InfoRow label="Subnet" value={subnetValue} mono />
+            <InfoRow label="Tier" value={tierValue} />
           </dl>
+          {lambda ? (
+            <div className="mt-2 rounded-md border px-3 py-2 text-[10px] leading-relaxed" style={{ borderColor: "#FED7AA", background: "#FFF7ED", color: "#9A3412" }}>
+              Lambda runs on AWS-managed infrastructure. When VPC configured, Lambda-managed network interfaces attach to the selected subnets; the function runtime itself is not an EC2 instance inside the VPC.
+            </div>
+          ) : null}
         </section>
+
+        <FocusedServicePathMap node={node} nodes={pathNodes} edges={edges} />
 
         <section>
           <div className="mb-2 flex items-center justify-between gap-3">

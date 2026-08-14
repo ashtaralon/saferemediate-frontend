@@ -53,7 +53,7 @@ async function routeSnapshot(page: Page) {
   })
 }
 
-test("fullscreen platform map shows named Lambda, protected AZ labels, moving selected flow, and operations detail", async ({
+test("fullscreen platform map shows named Lambda, protected AZ labels, directional flow, legend, and e2e service path", async ({
   context,
   page,
 }) => {
@@ -69,6 +69,13 @@ test("fullscreen platform map shows named Lambda, protected AZ labels, moving se
   const dependencies = page.getByRole("button", { name: "Dependencies" }).first()
   await dependencies.click()
   await expect(dependencies).toHaveAttribute("aria-pressed", "true")
+  const legend = page.getByTestId("topology-flow-legend").first()
+  await expect(legend).toBeVisible()
+  await expect(legend).toContainText("Service call")
+  await expect(legend).toContainText("AWS data service")
+  await expect(legend).toContainText("VPC endpoint")
+  await expect(legend).toContainText("Internet egress")
+  await expect(legend).toContainText("Database")
 
   await page.getByTestId("topology-estate-map-enlarge").click()
   const fullscreen = page.getByTestId("topology-estate-map-fullscreen")
@@ -82,6 +89,21 @@ test("fullscreen platform map shows named Lambda, protected AZ labels, moving se
   expect(lambdaBox!.y).toBeGreaterThanOrEqual(0)
   expect(lambdaBox!.x + lambdaBox!.width).toBeLessThanOrEqual(2048)
   expect(lambdaBox!.y + lambdaBox!.height).toBeLessThanOrEqual(1100)
+
+  const movingPacket = fullscreen.getByTestId("topology-flow-packet").first()
+  await expect(movingPacket).toBeAttached()
+  const firstPosition = await movingPacket.evaluate(packet => {
+    const rect = packet.getBoundingClientRect()
+    return { x: rect.x, y: rect.y }
+  })
+  await page.waitForTimeout(550)
+  const secondPosition = await movingPacket.evaluate(packet => {
+    const rect = packet.getBoundingClientRect()
+    return { x: rect.x, y: rect.y }
+  })
+  expect(
+    Math.abs(firstPosition.x - secondPosition.x) + Math.abs(firstPosition.y - secondPosition.y),
+  ).toBeGreaterThan(2)
 
   const azLabels = fullscreen.locator('[data-flow-obstacle="az-header-row"] [title^="eu-west-1"]')
   const azCount = await azLabels.count()
@@ -100,25 +122,16 @@ test("fullscreen platform map shows named Lambda, protected AZ labels, moving se
   const detail = page.getByTestId("topology-service-detail-panel")
   await expect(detail).toBeVisible()
   await expect(detail.getByText("Service inspector")).toBeVisible()
-  await expect(detail.getByText("Regional service · outside VPC")).toBeVisible()
-  await expect(detail.getByText("alon-demo-data-bucket-745783559495")).toBeVisible()
-  await expect(detail.getByText("ACTUAL_S3_ACCESS")).toBeVisible()
-
-  const motion = fullscreen.locator("animateMotion, animatemotion").first()
-  await expect(motion).toBeAttached()
-  const movingCircle = motion.locator("xpath=..")
-  const firstPosition = await movingCircle.evaluate(circle => {
-    const rect = circle.getBoundingClientRect()
-    return { x: rect.x, y: rect.y }
-  })
-  await page.waitForTimeout(550)
-  const secondPosition = await movingCircle.evaluate(circle => {
-    const rect = circle.getBoundingClientRect()
-    return { x: rect.x, y: rect.y }
-  })
-  expect(
-    Math.abs(firstPosition.x - secondPosition.x) + Math.abs(firstPosition.y - secondPosition.y),
-  ).toBeGreaterThan(2)
+  await expect(detail.getByText("AWS-managed runtime · not VPC-attached").first()).toBeVisible()
+  const pathMap = detail.getByTestId("topology-service-path-map")
+  await expect(pathMap).toBeVisible()
+  await expect(pathMap).toContainText("Neo4j graph")
+  await expect(pathMap).toContainText("alon-prod-continuous-traffic")
+  await expect(pathMap).toContainText("alon-demo-data-bucket-745783559495")
+  await expect(pathMap.locator("svg text").first()).toHaveText("S3 access")
+  await expect(pathMap.getByTestId("topology-inspector-flow-packet").first()).toBeAttached()
+  await expect(detail.getByText("alon-demo-data-bucket-745783559495").last()).toBeVisible()
+  await expect(detail.getByText("S3 · ACTUAL_S3_ACCESS")).toBeVisible()
 
   await page.screenshot({
     path: "test-results/topology-platform-map-fullscreen.png",

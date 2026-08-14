@@ -55,6 +55,11 @@ import {
   selectBundledCorridorBadges,
 } from "./estate-edge-labels"
 import {
+  FLOW_ALERT_COLOR,
+  FLOW_COLOR_BY_CLASS,
+  FLOW_LEGEND_ITEMS,
+} from "./flow-visuals"
+import {
   ALB_HEADER_TYPES,
   RDS_TYPES,
   REGIONAL_EDGE_SERVICE_TYPES,
@@ -79,8 +84,8 @@ interface Props {
   nodes: TopologyNode[]
   /**
    * Full system node list for the serverless tier — MUST NOT be VPC-scoped or
-   * FilterRail-filtered. Serverless Lambdas have no vpc_id and must always
-   * appear in the SERVERLESS · OUTSIDE VPC tier regardless of map scope.
+   * FilterRail-filtered. Non-VPC-attached Lambdas and placement-unresolved
+   * functions remain on the AWS-managed runtime rail regardless of map scope.
    */
   serverlessSourceNodes?: TopologyNode[]
   /**
@@ -386,7 +391,8 @@ export function visibleTopologyAzs(allAzs: string[], hiddenAzs: Iterable<string>
   return visible.length > 0 ? visible : allAzs
 }
 
-/** Lambdas with no resolvable subnet/AZ — VPC scope and FilterRail must not hide these. */
+/** Lambdas outside the subnet grid. Most are not VPC-attached; payloads with
+ * incomplete subnet metadata remain visible as attachment-unresolved. */
 export function extractServerlessOutsideVpc(
   source: TopologyNode[],
   subnets: SubnetMeta[],
@@ -1957,6 +1963,15 @@ function ServerlessComputeTier({
   const remainingNodes = nodes.filter(node => !namedIds.has(node.id))
   const useStacks = glance && shouldGlanceStackRail(remainingNodes)
   const groups = useStacks ? groupNodesByType(remainingNodes) : null
+  const attachmentUnresolved = nodes.filter(node =>
+    Boolean(
+      node.vpc_id ||
+      node.subnet_id ||
+      node.subnet_ids?.length ||
+      node.security_group_ids?.length,
+    ),
+  ).length
+  const notVpcAttached = nodes.length - attachmentUnresolved
   return (
     <div
       className={compact ? "rounded-md p-2" : "rounded-md p-2.5"}
@@ -1967,8 +1982,14 @@ function ServerlessComputeTier({
         borderLeft: "3px solid #4338CA",
       }}
     >
-      <div className={compact ? "text-[10px] uppercase tracking-[0.12em] font-semibold mb-1" : "text-[10px] uppercase tracking-[0.12em] font-semibold mb-1.5"} style={{ color: "#312E81" }}>
-        Serverless · outside VPC ({nodes.length})
+      <div className={compact ? "mb-1" : "mb-1.5"}>
+        <div className="text-[10px] uppercase tracking-[0.12em] font-semibold" style={{ color: "#312E81" }}>
+          Lambda runtime · outside subnet grid ({nodes.length})
+        </div>
+        <div className="mt-0.5 text-[9px]" style={{ color: "#6366F1" }}>
+          {notVpcAttached} not VPC-attached
+          {attachmentUnresolved > 0 ? ` · ${attachmentUnresolved} attachment unresolved` : ""}
+        </div>
       </div>
       <div
         className={
@@ -2383,6 +2404,60 @@ function FlowModeToggle({
         <ShieldAlert className="h-3 w-3" />
         Attack paths{attackPathCount > 0 ? ` (${attackPathCount})` : ""}
       </button>
+    </div>
+  )
+}
+
+function FlowLegend({ compact = false }: { compact?: boolean }) {
+  return (
+    <div
+      className={`flex flex-wrap items-center gap-x-3 gap-y-1 border-y ${
+        compact ? "px-1 py-1" : "px-2 py-1.5"
+      }`}
+      style={{ borderColor: "#E2E8F0", background: "rgba(255,255,255,0.86)" }}
+      data-testid="topology-flow-legend"
+      aria-label="Dependency line colors"
+    >
+      <span
+        className="text-[9px] font-bold uppercase tracking-[0.12em]"
+        style={{ color: "#475569" }}
+      >
+        Flow colors
+      </span>
+      {FLOW_LEGEND_ITEMS.map(item => (
+        <span key={item.key} className="inline-flex items-center gap-1.5 whitespace-nowrap">
+          <svg width="28" height="8" viewBox="0 0 28 8" aria-hidden>
+            <path d="M1 4 H23" stroke={item.color} strokeWidth="2" strokeLinecap="round" />
+            <path d="M21 1 L27 4 L21 7 Z" fill={item.color} />
+          </svg>
+          <span className="text-[9px] font-medium" style={{ color: "#475569" }}>
+            {item.label}
+          </span>
+        </span>
+      ))}
+      <span className="ml-auto inline-flex items-center gap-1.5 text-[9px] font-medium" style={{ color: "#0E8B7A" }}>
+        <span className="relative block h-2 w-7 overflow-hidden">
+          <span
+            className="absolute left-0 top-[3px] h-0.5 w-full"
+            style={{ background: "#99F6E4" }}
+          />
+          <span
+            className="absolute top-0 h-2 w-2"
+            style={{
+              background: "#0E8B7A",
+              clipPath: "polygon(0 0, 100% 50%, 0 100%)",
+              animation: "topology-flow-legend 1.4s linear infinite",
+            }}
+          />
+        </span>
+        Moving arrow = direction
+        <style>{`
+          @keyframes topology-flow-legend {
+            from { transform: translateX(0); }
+            to { transform: translateX(20px); }
+          }
+        `}</style>
+      </span>
     </div>
   )
 }
@@ -2878,14 +2953,6 @@ function FlowOverlay({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [edges, scale, densityCollapsed, viewDensity, selectedNodeId, flowMode])
 
-  const colorByCls: Record<TrafficEdgeClass, string> = {
-    internal: "#0E8B7A",      // teal — intra-canvas chip↔chip
-    edge_service: "#7E57C2",  // purple — to right-rail S3/KMS/DDB
-    vpce: "#3B82F6",          // blue — to VPC endpoint chips
-    egress: "#FF9900",        // AWS orange — to IGW perimeter
-    database: "#2E73B8",      // RDS blue — workload→database tier
-  }
-
   // Always render the SVG (even empty) so the React tree mounts on the
   // first paint and the layout effect can populate paths/size on the
   // next tick. Returning null here on first render caused the deployed
@@ -2920,19 +2987,20 @@ function FlowOverlay({
             markerHeight="4"
             orient="auto-start-reverse"
           >
-            <path d="M 0 0 L 10 5 L 0 10 z" fill={colorByCls[c]} />
+            <path d="M 0 0 L 10 5 L 0 10 z" fill={FLOW_COLOR_BY_CLASS[c]} />
           </marker>
         ))}
       </defs>
       {paths.map((p, i) => {
         const stroke =
           p.highlight === "attack_path" || p.isExposed
-            ? "#DC2626"
-            : colorByCls[p.cls]
+            ? FLOW_ALERT_COLOR
+            : FLOW_COLOR_BY_CLASS[p.cls]
         const markerCls = p.isExposed ? "database" : p.cls
         const dependencyFocusActive = flowMode === "all_access" && selectedNodeId != null
         const focusedDependency = dependencyFocusActive && p.focused
         const dimmed = dependencyFocusActive && !p.focused
+        const animateFlow = flowMode !== "architecture" && !dimmed
         return (
         <g key={i}>
           {/* Soft halo behind the line so it's visible over the busy chip grid */}
@@ -2976,14 +3044,62 @@ function FlowOverlay({
               />
             ) : null}
           </path>
-          {focusedDependency ? (
+          {animateFlow ? (
             <>
-              <circle r="3.2" fill={stroke}>
-                <animateMotion path={p.d} dur="1.8s" repeatCount="indefinite" />
-              </circle>
-              <circle r="2.4" fill={stroke} opacity="0.7">
-                <animateMotion path={p.d} dur="1.8s" begin="0.9s" repeatCount="indefinite" />
-              </circle>
+              <path
+                d={p.d}
+                fill="none"
+                stroke={stroke}
+                strokeWidth={focusedDependency ? 2.8 : 1.8}
+                strokeOpacity={focusedDependency ? "0.72" : "0.48"}
+                strokeDasharray={focusedDependency ? "3 11" : "2 14"}
+                strokeLinecap="round"
+                data-testid="topology-flow-running-track"
+              >
+                <animate
+                  attributeName="stroke-dashoffset"
+                  from={focusedDependency ? "14" : "16"}
+                  to="0"
+                  dur={focusedDependency ? "0.75s" : "1.15s"}
+                  repeatCount="indefinite"
+                />
+              </path>
+              <g
+                data-testid="topology-flow-packet"
+                data-flow-focused={focusedDependency ? "true" : "false"}
+              >
+                <circle
+                  r={focusedDependency ? 7 : 5.5}
+                  fill="white"
+                  fillOpacity="0.96"
+                  stroke={stroke}
+                  strokeWidth="1"
+                />
+                <path
+                  d={focusedDependency ? "M -4 -4 L 5 0 L -4 4 Z" : "M -3 -3 L 4 0 L -3 3 Z"}
+                  fill={stroke}
+                />
+                <animateMotion
+                  path={p.d}
+                  dur={focusedDependency ? "1.35s" : "2.35s"}
+                  begin={`-${(i % 6) * 0.28}s`}
+                  repeatCount="indefinite"
+                  rotate="auto"
+                />
+              </g>
+              {focusedDependency ? (
+                <g opacity="0.78">
+                  <circle r="5.5" fill="white" stroke={stroke} strokeWidth="1" />
+                  <path d="M -3 -3 L 4 0 L -3 3 Z" fill={stroke} />
+                  <animateMotion
+                    path={p.d}
+                    dur="1.35s"
+                    begin="-0.675s"
+                    repeatCount="indefinite"
+                    rotate="auto"
+                  />
+                </g>
+              ) : null}
             </>
           ) : null}
           <g transform={`translate(${p.badgeX}, ${p.badgeY})`}>
@@ -4575,6 +4691,7 @@ export function AwsFrame({
           </div>
         </div>
       ) : null}
+      {flowMode !== "architecture" ? <FlowLegend compact={presentationMode} /> : null}
       {/* Users → Internet — clustered toward center (not pinned to corners).
           IGW chip lives on the VPCE rail. */}
       <div

@@ -19,8 +19,8 @@ export type MapSlot =
   | "web" // public / edge compute in VPC
   | "app" // private compute in VPC
   | "data" // datastores in VPC
-  | "serverless" // compute with no subnet (Lambda outside VPC)
-  | "regional" // S3 / DDB / KMS / SQS / … outside VPC box
+  | "serverless" // compute outside the subnet grid (often non-VPC Lambda)
+  | "regional" // S3 / DDB / KMS / SQS / … not VPC-bound
   | "boundary" // IGW / NAT / VPCE (from vpc_topology.edges, not nodes[])
   | "hidden" // identity / config artifacts — Inventory / panels only
 
@@ -84,7 +84,7 @@ export const PLACEMENT_RULES: readonly PlacementRule[] = [
     stack: true,
     chipRole: "volume",
   },
-  // ── Regional rail (outside VPC) ───────────────────────────────
+  // ── Regional rail (not VPC-bound) ─────────────────────────────
   {
     types: [
       "S3",
