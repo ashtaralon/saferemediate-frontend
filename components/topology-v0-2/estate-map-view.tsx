@@ -107,9 +107,8 @@ export interface EstateMapViewProps {
   embedded?: boolean
   /** Switch Topology tab to Traffic map (TFM graph). */
   onOpenTrafficMap?: () => void
-  /** Initial flow overlay. The Business System Blast Radius view opens in
-   *  "attack_paths" so the estate map lands showing reachability, not all
-   *  access. Users can still toggle back to all-access. */
+  /** Initial map lens. The system topology defaults to architecture; focused
+   *  security surfaces can open directly on attack paths. */
   defaultFlowMode?: EstateFlowMode
   /** Collapse AZ columns that hold no workloads by default (the Business
    *  System view — keeps the map from wasting canvas on empty AZs). Applied
@@ -147,7 +146,7 @@ function topologyGridWouldBeEmpty(data: TopologyRiskResponse): boolean {
   return true
 }
 
-export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, defaultFlowMode = "all_access", collapseEmptyAzsByDefault = false, defaultToAllVpcs = false }: EstateMapViewProps) {
+export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, defaultFlowMode = "architecture", collapseEmptyAzsByDefault = false, defaultToAllVpcs = false }: EstateMapViewProps) {
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(() => {
     if (typeof window === "undefined") return null
     return window.localStorage.getItem(`${ACCOUNT_STORAGE_PREFIX}${systemName}`)
@@ -1643,14 +1642,14 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
           aria-modal="true"
           aria-label="Topology map full screen"
         >
-          {/* P0-C — slim one-row chrome: identity · scope toggle · zoom controls · exit */}
+          {/* Slim one-row chrome: identity · scope toggle · zoom controls · exit */}
           <div
             className="flex items-center gap-3 shrink-0 border-b px-4 h-11"
             style={{ borderColor: "#DDE3E8", background: "#FFFFFF" }}
           >
             <div className="flex items-baseline gap-2 min-w-0">
               <span className="text-[10px] uppercase tracking-[0.14em] font-semibold shrink-0" style={{ color: "#5A6B7A" }}>
-                Estate map
+                Cloud topology
               </span>
               <span className="text-[13px] font-semibold truncate" style={{ color: "#1A2330" }}>
                 {data.system}
@@ -1784,21 +1783,6 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
                 {renderMap(true, zoom, densityCollapsed)}
               </div>
             </div>
-            {viewDensity === "glance" ? (
-              <div
-                className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full px-3 py-1 text-[10px] font-medium shadow-lg"
-                style={{ background: "rgba(26,35,48,0.82)", color: "#FFFFFF" }}
-              >
-                Glance — stacked icons · click any icon for details · Inventory shows every node
-              </div>
-            ) : (
-              <div
-                className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full px-3 py-1 text-[10px] font-medium shadow-lg"
-                style={{ background: "rgba(26,35,48,0.82)", color: "#FFFFFF" }}
-              >
-                Inventory — one icon per real node · click for details
-              </div>
-            )}
           </div>
           {selectedNode ? (
             <div className="fixed inset-0 z-[210] pointer-events-none">

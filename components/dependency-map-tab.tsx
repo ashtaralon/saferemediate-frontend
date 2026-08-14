@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useCallback, useEffect, useMemo } from 'react'
-import { Map as MapIcon, Search, RefreshCw, Network, Layers, Cloud, GitBranch, Activity, CheckCircle, XCircle } from 'lucide-react'
+import { Map as MapIcon, Search, RefreshCw, Network, Cloud, GitBranch, Activity, CheckCircle, XCircle } from 'lucide-react'
 import dynamic from 'next/dynamic'
 import GraphView from './dependency-map/graph-view'
 import ResourceView from './dependency-map/resource-view'
@@ -610,8 +610,8 @@ export default function DependencyMapTab({
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              <Layers className="w-4 h-4" />
-              Risk inventory
+              <Cloud className="w-4 h-4" />
+              Cloud map
             </button>
             <button
               onClick={() => setActiveView('graph')}

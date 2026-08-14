@@ -31,6 +31,7 @@
  */
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { Boxes, GitBranch, Globe2, ShieldAlert, Users } from "lucide-react"
 import {
   type IamRoleRollup,
   type ScoreTier,
@@ -591,16 +592,16 @@ const PAL = {
   amber: "#F5A623",
   slate: "#5A6B7A",
   ink: "#1A2330",
-  bg: "#F4F6F8",
+  bg: "#F6F8FA",
   cardBg: "#FFFFFF",
   awsFrame: "#232F3E",
   awsOrange: "#FF9900",
   awsBlue: "#2E73B8",
-  tierWeb: "#E8F5E9",
-  tierApp: "#E3F2FD",
-  tierDb: "#EDE7F6",
-  subnetPublic: "#C8E6C9",
-  subnetPrivate: "#BBDEFB",
+  tierWeb: "#F4F8F5",
+  tierApp: "#F3F7FB",
+  tierDb: "#F7F5FA",
+  subnetPublic: "#EAF5EC",
+  subnetPrivate: "#EAF3FA",
 } as const
 
 const TIER_LABEL: Record<SubnetTier, string> = {
@@ -626,28 +627,28 @@ const TIER_SIDEBAR_LABEL: Record<Exclude<SubnetTier, "unknown">, string> = {
 
 // Tier row backgrounds — the lightest tint, used behind the AZ × tier grid.
 const TIER_BG: Record<SubnetTier, string> = {
-  web: PAL.tierWeb,    // mint #E8F5E9
-  app: PAL.tierApp,    // sky  #E3F2FD
-  data: PAL.tierDb,    // lavender #EDE7F6
-  unknown: "#ECEFF1",
+  web: PAL.tierWeb,
+  app: PAL.tierApp,
+  data: PAL.tierDb,
+  unknown: "#F5F7F9",
 }
 
 // Subnet cell backgrounds — a slightly deeper version of the row tint so the
 // subnet card visually nests inside the tier row without breaking the color
 // scheme. Matches the mockup's behavior where subnets share the row hue.
 const SUBNET_BG: Record<SubnetTier, string> = {
-  web: "#DCEFDC",   // a touch deeper than #E8F5E9
-  app: "#D2E5F8",   // a touch deeper than #E3F2FD
-  data: "#E0D6F0",  // a touch deeper than #EDE7F6
-  unknown: "#E0E5E9",
+  web: "#EAF5EC",
+  app: "#EAF3FA",
+  data: "#F1EDF7",
+  unknown: "#EEF2F5",
 }
 
 // Subnet borders — yet deeper, gives the card a visible edge in the row.
 const SUBNET_BORDER: Record<SubnetTier, string> = {
-  web: "#A5D6A7",
-  app: "#90CAF9",
-  data: "#B39DDB",
-  unknown: "#B0BEC5",
+  web: "#B7D8BD",
+  app: "#B7D3E8",
+  data: "#D1C4E2",
+  unknown: "#C7D0D8",
 }
 
 // Subnet labels — deeper still (used for the bold "Public subnet (web tier)"
@@ -688,7 +689,6 @@ function nodeIcon(type: string | null): { symbol: ReactNode; bg: string; fg: str
   if (url) {
     return {
       symbol: (
-        // eslint-disable-next-line @next/next/no-img-element -- external architecture icon CDN
         <img
           src={url}
           alt=""
@@ -1061,6 +1061,8 @@ function ServiceIconShell({
   extraAttrs,
   dense = false,
   multiAz = false,
+  signalColor,
+  signalLabel,
 }: {
   type: string | null | undefined
   selected: boolean
@@ -1077,8 +1079,11 @@ function ServiceIconShell({
   dense?: boolean
   /** Multi-AZ instance — badge it so a DB spanning zones reads as ONE resource. */
   multiAz?: boolean
+  /** Integrated posture signal. It stays a small cue, not the map's primary grammar. */
+  signalColor?: string
+  signalLabel?: string
 }) {
-  const ic = nodeIcon(type)
+  const ic = nodeIcon(type ?? null)
   const showDepth = Boolean(depth && countBadge && countBadge > 1)
   const glyph = dense ? 28 : 36
   const stackBox = dense ? (showDepth ? 36 : 30) : showDepth ? 48 : 40
@@ -1092,13 +1097,25 @@ function ServiceIconShell({
       {...extraAttrs}
       className={
         dense
-          ? "relative flex flex-col items-center gap-0 min-w-[52px] max-w-[96px] px-0.5 pt-0.5 pb-0.5 rounded-md hover:bg-white/60 transition-colors shrink-0"
-          : "relative flex flex-col items-center gap-0.5 min-w-[68px] max-w-[120px] px-1.5 pt-1.5 pb-1 rounded-md hover:bg-white/60 transition-colors shrink-0"
+          ? "relative flex flex-col items-center gap-0.5 min-w-[68px] max-w-[112px] px-1.5 py-1 rounded-md transition-all shrink-0"
+          : "relative flex flex-col items-center gap-0.5 min-w-[76px] max-w-[128px] px-2 py-1.5 rounded-md transition-all shrink-0"
       }
       style={{
-        boxShadow: selected ? `0 0 0 2px ${PAL.teal}` : undefined,
+        background: "#FFFFFF",
+        border: `1px solid ${selected ? PAL.teal : "#D7DEE5"}`,
+        boxShadow: selected
+          ? `0 0 0 2px rgba(0,194,168,0.2), 0 4px 12px rgba(15,23,42,0.08)`
+          : "0 1px 2px rgba(15,23,42,0.05)",
       }}
     >
+      {signalColor ? (
+        <span
+          className="absolute top-1 left-1 h-1.5 w-1.5 rounded-full"
+          style={{ background: signalColor, boxShadow: "0 0 0 2px #FFFFFF" }}
+          title={signalLabel}
+          data-testid="topology-resource-signal"
+        />
+      ) : null}
       <span
         className="relative inline-flex items-center justify-center"
         style={{ width: dense ? 40 : 48, height: stackBox }}
@@ -1198,6 +1215,8 @@ function ServiceStackChip({
   // Only a lone service (depth 1) can honestly claim Multi-AZ from its
   // representative; a stack of N mixed instances must not inherit one member's span.
   const multiAz = !depth && isMultiAzWorkload(stack.representative)
+  const signalNode = selectWorstInGroup(stack.nodes) ?? stack.representative
+  const signal = severityRing(signalNode)
   const title = depth
     ? `${stack.nodes.length} × ${stack.label} (real nodes) — click to inspect`
     : `${stack.representative.name} · ${stack.label}${multiAz ? " · Multi-AZ" : ""}`
@@ -1215,6 +1234,14 @@ function ServiceStackChip({
       flowId={stack.representative.id}
       dense={dense}
       multiAz={multiAz}
+      signalColor={signal.ring}
+      signalLabel={
+        signalNode.stale
+          ? "Stale resource data"
+          : signalNode.score
+            ? `${signalNode.score.tier.toLowerCase()} posture score`
+            : "Posture not scored"
+      }
       extraAttrs={{
         "data-stack-type": stack.type,
         "data-stack-count": stack.nodes.length,
@@ -1242,6 +1269,7 @@ function ServiceNodeIcon({
   // OWN systems, not another tenant.
   const ownerChip = isForeignOwner ? sharedOwnerName(node) : null
   const multiAz = isMultiAzWorkload(node)
+  const signal = severityRing(node)
   return (
     <ServiceIconShell
       type={node.type}
@@ -1258,6 +1286,14 @@ function ServiceNodeIcon({
       flowId={node.id}
       dense={dense}
       multiAz={multiAz}
+      signalColor={signal.ring}
+      signalLabel={
+        node.stale
+          ? "Stale resource data"
+          : node.score
+            ? `${node.score.tier.toLowerCase()} posture score`
+            : "Posture not scored"
+      }
       extraAttrs={{
         "data-node-id": node.id,
         "data-is-foreign": isForeignOwner ? "true" : undefined,
@@ -1412,7 +1448,7 @@ function SubnetCell({
     )
   return (
     <div
-      className="rounded-md px-1.5 py-1 h-full min-h-0 flex flex-col overflow-hidden"
+      className="rounded-md px-2 py-1.5 h-full min-h-0 flex flex-col overflow-hidden"
       style={{
         background: empty
           ? "transparent"
@@ -1426,7 +1462,7 @@ function SubnetCell({
             : `1.5px solid ${SUBNET_BORDER[tier]}`,
         minHeight: cellMinHeight,
         height: "100%",
-        opacity: empty ? 0.55 : isForeignCell ? 0.78 : 1,
+        opacity: empty ? 0.72 : isForeignCell ? 0.82 : 1,
       }}
       data-testid={hasWorkloads ? "topology-subnet-cell-workloads" : "topology-subnet-cell"}
       data-is-foreign={isForeignCell ? "true" : undefined}
@@ -1471,13 +1507,13 @@ function SubnetCell({
             {renderWorkloads()}
           </div>
         ) : (
-          <div className="text-[10px] italic flex-1 flex items-center" style={{ color: PAL.slate }}>
-            no {tier} subnet in {az}
+          <div className="text-[10px] italic flex-1 flex items-center justify-center text-center" style={{ color: PAL.slate }}>
+            No {tier} subnet
           </div>
         )
       ) : workloadsHere.length === 0 ? (
-        <div className="text-[10px] italic flex-1 flex items-center" style={{ color: PAL.slate }}>
-          no workloads here
+        <div className="text-[10px] italic flex-1 flex items-center justify-center text-center" style={{ color: PAL.slate }}>
+          No workloads
         </div>
       ) : (
         renderWorkloads()
@@ -2257,29 +2293,48 @@ function FlowModeToggle({
     >
       <button
         type="button"
+        aria-pressed={mode === "architecture"}
+        onClick={() => onChange("architecture")}
+        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-[10px] font-semibold transition-colors"
+        style={{
+          background: mode === "architecture" ? "#FFFFFF" : "transparent",
+          color: mode === "architecture" ? "#0D1B2A" : "#5A6B7A",
+          boxShadow: mode === "architecture" ? "0 1px 2px rgba(0,0,0,0.06)" : undefined,
+        }}
+        title="Cloud structure without dependency overlays"
+      >
+        <Boxes className="h-3 w-3" />
+        Architecture
+      </button>
+      <button
+        type="button"
         aria-pressed={mode === "all_access"}
         onClick={() => onChange("all_access")}
-        className="px-2.5 py-1 rounded text-[10px] font-semibold uppercase tracking-wide transition-colors"
+        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-[10px] font-semibold transition-colors"
         style={{
           background: mode === "all_access" ? "#FFFFFF" : "transparent",
           color: mode === "all_access" ? "#1A2330" : "#5A6B7A",
           boxShadow: mode === "all_access" ? "0 1px 2px rgba(0,0,0,0.06)" : undefined,
         }}
+        title="Observed and modeled service dependencies"
       >
-        All access
+        <GitBranch className="h-3 w-3" />
+        Dependencies
       </button>
       <button
         type="button"
         aria-pressed={mode === "attack_paths"}
         onClick={() => onChange("attack_paths")}
-        className="px-2.5 py-1 rounded text-[10px] font-semibold uppercase tracking-wide transition-colors"
+        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-[10px] font-semibold transition-colors"
         style={{
           background: mode === "attack_paths" ? "#FFFFFF" : "transparent",
           color: mode === "attack_paths" ? "#B91C1C" : "#5A6B7A",
           boxShadow: mode === "attack_paths" ? "0 1px 2px rgba(0,0,0,0.06)" : undefined,
         }}
+        title="Materialized attack paths through the platform"
       >
-        Attack paths only{attackPathCount > 0 ? ` (${attackPathCount})` : ""}
+        <ShieldAlert className="h-3 w-3" />
+        Attack paths{attackPathCount > 0 ? ` (${attackPathCount})` : ""}
       </button>
     </div>
   )
@@ -2824,19 +2879,21 @@ function FlowOverlay({
             d={p.d}
             fill="none"
             stroke={stroke}
-            strokeWidth={p.isExposed ? 2 : 1.5}
-            strokeOpacity="0.85"
-            strokeDasharray={p.highlight === "attack_path" || p.isExposed ? "6 4" : "5 4"}
+            strokeWidth={p.highlight === "attack_path" || p.isExposed ? 2 : 1.35}
+            strokeOpacity={p.highlight === "attack_path" || p.isExposed ? "0.9" : "0.62"}
+            strokeDasharray={p.highlight === "attack_path" || p.isExposed ? "6 4" : undefined}
             strokeLinecap="round"
             markerEnd={`url(#flow-arrow-${markerCls})`}
           >
-            <animate
-              attributeName="stroke-dashoffset"
-              from="18"
-              to="0"
-              dur="2s"
-              repeatCount="indefinite"
-            />
+            {p.highlight === "attack_path" ? (
+              <animate
+                attributeName="stroke-dashoffset"
+                from="18"
+                to="0"
+                dur="2s"
+                repeatCount="indefinite"
+              />
+            ) : null}
           </path>
           <g transform={`translate(${p.badgeX}, ${p.badgeY})`}>
             {p.badgeLabel ? (
@@ -4349,6 +4406,16 @@ export function AwsFrame({
   const attackPathEdgeCount = attackPathFlowCount
 
   const tierMin = presentationMode ? PRESENTATION_TIER_MIN_PX : COMPARE_TIER_MIN_PX
+  const platformSummary = useMemo(() => {
+    const resourceIds = new Set(nodes.map(n => n.id))
+    const azs = new Set(frames.flatMap(frame => frame.grid.azs))
+    return {
+      vpcs: frames.length,
+      azs: azs.size,
+      subnets: topo.subnets.length,
+      resources: resourceIds.size,
+    }
+  }, [frames, nodes, topo.subnets.length])
 
   return (
     <div
@@ -4364,25 +4431,35 @@ export function AwsFrame({
         <div
           className={
             presentationMode
-              ? "flex items-center justify-end gap-2 pb-0"
-              : "flex items-center justify-end gap-2 pb-1"
+              ? "flex items-center justify-between gap-3 pb-0"
+              : "flex items-center justify-between gap-3 pb-1"
           }
         >
-          <span
-            className={
-              presentationMode
-                ? "text-[9px] uppercase tracking-wider font-semibold"
-                : "text-[10px] uppercase tracking-wider font-semibold"
-            }
-            style={{ color: PAL.slate }}
-          >
-            Flow overlay
-          </span>
-          <FlowModeToggle
-            mode={flowMode}
-            onChange={onFlowModeChange}
-            attackPathCount={attackPathEdgeCount}
-          />
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-[10px] font-semibold" style={{ color: PAL.ink }}>
+              Platform map
+            </span>
+            <span className="text-[9px] font-mono truncate" style={{ color: PAL.slate }}>
+              {platformSummary.vpcs} VPC · {platformSummary.azs} AZ · {platformSummary.subnets} subnets · {platformSummary.resources} resources
+            </span>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <span
+              className={
+                presentationMode
+                  ? "text-[9px] uppercase tracking-wider font-semibold"
+                  : "text-[10px] uppercase tracking-wider font-semibold"
+              }
+              style={{ color: PAL.slate }}
+            >
+              Map lens
+            </span>
+            <FlowModeToggle
+              mode={flowMode}
+              onChange={onFlowModeChange}
+              attackPathCount={attackPathEdgeCount}
+            />
+          </div>
         </div>
       ) : null}
       {/* Users → Internet — clustered toward center (not pinned to corners).
@@ -4401,13 +4478,13 @@ export function AwsFrame({
             style={{
               width: presentationMode ? 40 : 48,
               height: presentationMode ? 40 : 48,
-              background: "#EEF2FF",
-              border: "1.5px solid #6366F1",
-              fontSize: presentationMode ? 20 : 24,
+              background: "#FFFFFF",
+              border: "1.5px solid #A5B4FC",
+              color: "#4338CA",
             }}
             aria-hidden
           >
-            👥
+            <Users size={presentationMode ? 20 : 24} strokeWidth={1.8} />
           </span>
           <div className="flex flex-col leading-tight">
             <span
@@ -4436,13 +4513,13 @@ export function AwsFrame({
             style={{
               width: presentationMode ? 40 : 48,
               height: presentationMode ? 40 : 48,
-              background: "#EFF6FF",
-              border: "1.5px solid #3B82F6",
-              fontSize: presentationMode ? 20 : 24,
+              background: "#FFFFFF",
+              border: "1.5px solid #93C5FD",
+              color: "#2563EB",
             }}
             aria-hidden
           >
-            ☁
+            <Globe2 size={presentationMode ? 20 : 24} strokeWidth={1.8} />
           </span>
           <div className="flex flex-col leading-tight">
             <span
@@ -4518,12 +4595,12 @@ export function AwsFrame({
               width: "100%",
               gridTemplateColumns: [
                 "minmax(0, 1fr)",
-                showNetworkRail ? "118px" : null,
+                showNetworkRail ? "136px" : null,
                 serverlessTierNodes.length > 0 || regionalTierNodes.length > 0
-                  ? "72px"
+                  ? "48px"
                   : null,
                 serverlessTierNodes.length > 0 || regionalTierNodes.length > 0
-                  ? "188px"
+                  ? "224px"
                   : null,
               ]
                 .filter(Boolean)
@@ -4643,7 +4720,7 @@ export function AwsFrame({
                 className={`flex flex-col gap-1.5 self-stretch justify-start pt-1 z-10 ${
                   presentationMode ? "" : "ml-4 shrink-0"
                 }`}
-                style={{ width: "118px" }}
+                style={{ width: "136px" }}
                 data-testid="topology-network-rail"
               >
                 {railIgws.map((igw, idx) => (
@@ -4739,7 +4816,7 @@ export function AwsFrame({
                 <div
                   className={`self-stretch min-h-[80px] ${presentationMode ? "" : "shrink-0 mx-3"}`}
                   style={{
-                    width: "72px",
+                    width: "48px",
                     borderLeft: "1px dashed #CBD5E1",
                     borderRight: "1px dashed #CBD5E1",
                     background: "linear-gradient(90deg, transparent, rgba(238,242,246,0.6), transparent)",
@@ -4748,7 +4825,7 @@ export function AwsFrame({
                   aria-hidden
                 />
                 <div
-                  className={`flex flex-col gap-2 w-[188px] max-w-[188px] min-h-0 ${
+                  className={`flex flex-col gap-2 w-[224px] max-w-[224px] min-h-0 ${
                     presentationMode ? "" : "shrink-0 ml-1"
                   }`}
                   // In fullscreen the zoom viewport owns scrolling + fits the map;
