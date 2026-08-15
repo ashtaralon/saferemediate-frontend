@@ -4742,7 +4742,22 @@ export function AwsFrame({
         </div>
       ) : null}
       {flowMode !== "architecture" ? <FlowLegend compact={presentationMode} /> : null}
-      {flowMode === "all_access" && trafficAuthority?.state !== "authoritative" ? (
+      {flowMode === "all_access" && trafficAuthority?.state === "authoritative_positive_only" ? (
+        <div
+          className="flex items-center justify-between gap-3 border-b px-2 py-1.5 text-[10px]"
+          style={{ borderColor: "#99F6E4", background: "#F0FDFA", color: "#115E59" }}
+          data-testid="topology-traffic-authority-state"
+        >
+          <span className="shrink-0 font-semibold">Confirmed TCP paths</span>
+          <span className="truncate">
+            {trafficAuthority.limitation ??
+              "Moving arrows are confirmed request paths; a missing line is not proof of no traffic."}
+          </span>
+        </div>
+      ) : null}
+      {flowMode === "all_access" &&
+      trafficAuthority?.state !== "authoritative" &&
+      trafficAuthority?.state !== "authoritative_positive_only" ? (
         <div
           className="flex items-center justify-between gap-3 border-b px-2 py-1.5 text-[10px]"
           style={{ borderColor: "#FCD34D", background: "#FFFBEB", color: "#92400E" }}
