@@ -213,12 +213,15 @@ function ServicePathMap({
         </div>
         <span
           className="rounded-full border px-2 py-1 text-[9px] font-semibold uppercase"
-          style={trafficAuthority?.state === "authoritative"
+          style={trafficAuthority?.state === "authoritative" ||
+            trafficAuthority?.state === "authoritative_positive_only"
             ? { borderColor: "#9FE8DC", background: "#E6FBF7", color: "#0E8B7A" }
             : { borderColor: "#FCD34D", background: "#FFFBEB", color: "#92400E" }}
         >
           {trafficAuthority?.state === "authoritative"
             ? `Generation ${trafficAuthority.active_generation}`
+            : trafficAuthority?.state === "authoritative_positive_only"
+              ? `Generation ${trafficAuthority.active_generation} · confirmed TCP`
             : trafficAuthority?.state === "legacy_unverified"
               ? "Unverified traffic context"
               : "Traffic evidence rebuilding"}

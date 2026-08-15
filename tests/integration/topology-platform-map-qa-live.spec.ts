@@ -14,14 +14,17 @@ const RAW_SNAPSHOT = JSON.parse(
 const SNAPSHOT = {
   ...RAW_SNAPSHOT,
   traffic_authority: {
-    state: "authoritative",
+    state: "authoritative_positive_only",
     mode: "incremental",
     active_generation: 7,
     window_days: 90,
     authoritative_endpoint_count: RAW_SNAPSHOT.nodes.length,
     endpoint_count: RAW_SNAPSHOT.nodes.length,
     projected_edge_count: RAW_SNAPSHOT.traffic_edges.length,
-    limitation: null,
+    authority_scope: "positive_confirmed_tcp",
+    absence_authority: "unknown",
+    normalization_version: "tcp_syn_connection_v1",
+    limitation: "Confirmed TCP segments are authoritative; a missing segment is not evidence of no traffic.",
   },
   traffic_edges: RAW_SNAPSHOT.traffic_edges.map((edge: { protocol?: string | null }, index: number) => {
     const configured = ["ROUTES_TO", "QUERIES_DB"].includes(edge.protocol ?? "")
@@ -33,6 +36,8 @@ const SNAPSHOT = {
       path_basis: configured ? "configured_route" : "observed_segment",
       projection_generation: configured ? null : 7,
       evidence_id: configured ? null : `mock-edge-${index}`,
+      normalization_basis: configured ? null : "tcp_syn_connection_v1",
+      normalization_provenance: configured ? [] : ["NATIVE_REQUEST_TCP_FLAGS"],
     }
   }),
 }
@@ -105,6 +110,9 @@ test("fullscreen platform map shows named Lambda, protected AZ labels, direction
   await expect(legend).toContainText("VPC endpoint")
   await expect(legend).toContainText("Internet egress")
   await expect(legend).toContainText("Database")
+  const authorityState = page.getByTestId("topology-traffic-authority-state").first()
+  await expect(authorityState).toContainText("Confirmed TCP paths")
+  await expect(authorityState).toContainText("missing segment is not evidence of no traffic")
 
   await page.getByTestId("topology-estate-map-enlarge").click()
   const fullscreen = page.getByTestId("topology-estate-map-fullscreen")
@@ -156,6 +164,7 @@ test("fullscreen platform map shows named Lambda, protected AZ labels, direction
   const pathMap = detail.getByTestId("topology-service-path-map")
   await expect(pathMap).toBeVisible()
   await expect(pathMap).toContainText("Neo4j graph")
+  await expect(pathMap).toContainText("Generation 7 · confirmed TCP")
   await expect(pathMap).toContainText("alon-prod-continuous-traffic")
   await expect(pathMap).toContainText("alon-demo-data-bucket-745783559495")
   await expect(pathMap.getByText("ACTUAL_S3_ACCESS").first()).toBeVisible()

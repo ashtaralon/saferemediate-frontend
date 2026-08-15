@@ -230,6 +230,7 @@ export interface IamRoleRollup {
 export type TrafficEdgeClass = "internal" | "edge_service" | "vpce" | "egress" | "database"
 export type TrafficAuthorityState =
   | "authoritative"
+  | "authoritative_positive_only"
   | "rebuilding"
   | "legacy_unverified"
   | "configured"
@@ -272,6 +273,7 @@ export interface TrafficEdge {
   evidence_id?: string | null
   evidence_ids?: string[]
   normalization_basis?: string | null
+  normalization_provenance?: string[]
   activity_count?: number | null
   observation_count?: number | null
   total_bytes?: number | null
@@ -376,13 +378,16 @@ export interface TopologyRiskResponse {
   // Phase B addition — present on responses from BE >= phase-b deploy.
   traffic_edges?: TrafficEdge[]
   traffic_authority?: {
-    state: "authoritative" | "rebuilding" | "legacy_unverified" | string
+    state: "authoritative" | "authoritative_positive_only" | "rebuilding" | "legacy_unverified" | string
     mode: "legacy" | "shadow" | "incremental" | "unavailable" | "unknown" | string
     active_generation: number | null
     window_days: number
     authoritative_endpoint_count: number
     endpoint_count: number
     projected_edge_count?: number
+    authority_scope?: "positive_confirmed_tcp" | "none" | string
+    absence_authority?: "unknown" | "authoritative" | string
+    normalization_version?: string | null
     limitation?: string | null
   }
   /** External systems consuming this system's shared data (observed/declared). */
