@@ -5,21 +5,16 @@ import { getCached, setCached, TTL_SLOW } from "@/lib/server/proxy-cache"
 const BACKEND_URL = getBackendBaseUrl()
 const CACHE_KEY = "identity-attack-paths-all"
 
-// Match the per-system route's 60s budget. The backend /all aggregator
-// does an in-process fan-out across every distinct SystemName and the
-// per-system handler is CPU-bound on the graph traversal / normalization
-// segments, so /all can run >30s on accounts with multiple systems even
-// when each individual system fits in the proxy budget. Surfacing 502
-// after 25s was leaving the operator with a broken page instead of a
-// slow one — 60s lets the slow path complete, while still capping at
-// the vercel.json global.
-export const maxDuration = 60
+// Snapshot read. Live /all fan-out is 49-265s and this proxy used to wait
+// 55s, 502, and leave the overview on a day-old cache ("as of 1d ago,
+// refreshing"). The durable IAP snapshots are the dashboard source.
+export const maxDuration = 15
 
 /**
  * GET /api/proxy/identity-attack-paths/all
  *
  * Org-wide attack-paths aggregator. PASSTHROUGH to backend
- * /api/identity-attack-paths/all.
+ * /api/identity-attack-paths/all?snapshot_only=true.
  *
  * BEFORE 2026-05-01: this proxy did the fan-out itself — fetched
  * /api/systems then per-system /api/identity-attack-paths/{name} in
@@ -29,13 +24,8 @@ export const maxDuration = 60
  * stuck rendering 0 jewels even though every system actually had
  * crown jewels.
  *
- * AFTER: backend does the fan-out internally (single HTTP call from
- * Vercel; backend's 5min process-local cache absorbs repeats; the
- * Cypher work happens once per cache window instead of N times per
- * page load).
- *
- * Proxy keeps its own 5-min cache as belt-and-suspenders so warm
- * Lambdas don't even have to talk to Render most of the time.
+ * AFTER 2026-08-16: dashboard reads `?snapshot_only=true`. Live fan-out
+ * stays on the prewarm path. Proxy cache is belt-and-suspenders.
  */
 export async function GET(_req: NextRequest) {
   const cached = getCached(CACHE_KEY)
@@ -43,17 +33,16 @@ export async function GET(_req: NextRequest) {
     return NextResponse.json(cached, { headers: { "X-Cache": "HIT" } })
   }
   try {
-    const r = await fetch(`${BACKEND_URL}/api/identity-attack-paths/all`, {
-      headers: { "Content-Type": "application/json" },
-      cache: "no-store",
-      // 55s — well under the 60s function budget but generous enough
-      // to accommodate the backend /all aggregator's per-system
-      // fan-out on accounts with multiple SystemNames. If the backend
-      // takes longer than this, the function still returns a 502
-      // with the structured empty-state body rather than letting
-      // Vercel kill the function mid-flight.
-      signal: AbortSignal.timeout(55000),
-    })
+    const r = await fetch(
+      `${BACKEND_URL}/api/identity-attack-paths/all?snapshot_only=true`,
+      {
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        // Snapshot inventory is a DynamoDB read. If this exceeds 8s the
+        // workers are wedged on a live fan-out — fail fast, keep last cache.
+        signal: AbortSignal.timeout(8000),
+      },
+    )
     if (!r.ok) {
       return NextResponse.json(
         {
