@@ -1,3 +1,4 @@
+import { requireBackendUrl } from "@/lib/backend-url";
 // app/api/proxy/least-privilege/simulate/route.ts
 import { NextResponse } from "next/server"
 
@@ -6,7 +7,7 @@ export const fetchCache = "force-no-store"
 export const revalidate = 0
 
 const RAW_BACKEND_URL =
-  "https://saferemediate-backend-f.onrender.com"
+  requireBackendUrl()
 
 function getBackendBase() {
   return RAW_BACKEND_URL.replace(/\/+$/, "").replace(/\/backend$/, "")

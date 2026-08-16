@@ -1,3 +1,4 @@
+import { requireBackendUrl } from "@/lib/backend-url";
 import { NextRequest, NextResponse } from "next/server"
 import { getCached, setCached, TTL_SLOW } from "@/lib/server/proxy-cache"
 
@@ -10,7 +11,7 @@ export const maxDuration = 60
 
 const BACKEND_URL =
   process.env.BACKEND_URL_OVERRIDE ||
-  "https://saferemediate-backend-f.onrender.com"
+  requireBackendUrl()
 
 export async function GET(
   req: NextRequest,

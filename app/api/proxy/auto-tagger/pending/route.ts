@@ -1,6 +1,7 @@
+import { requireBackendUrl } from "@/lib/backend-url";
 import { NextRequest, NextResponse } from 'next/server';
 
-const BACKEND_URL = "https://saferemediate-backend-f.onrender.com";
+const BACKEND_URL = requireBackendUrl();
 
 // Vercel kills functions at the platform default (10s on Hobby) without
 // this. Backend can cold-start at 30s+ on Render's free tier. Without

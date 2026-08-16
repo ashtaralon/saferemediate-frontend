@@ -1,3 +1,4 @@
+import { requireBackendUrl } from "@/lib/backend-url";
 import { NextRequest, NextResponse } from "next/server"
 
 // Abort fires at 295s, 5s under this, so the catch
@@ -7,7 +8,7 @@ import { NextRequest, NextResponse } from "next/server"
 export const maxDuration = 300
 
 const BACKEND_URL =
-  "https://saferemediate-backend-f.onrender.com"
+  requireBackendUrl()
 
 export async function POST(request: NextRequest) {
   const backendUrl = `${BACKEND_URL}/api/enforcement/execute`

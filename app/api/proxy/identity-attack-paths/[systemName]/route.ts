@@ -1,3 +1,4 @@
+import { requireBackendUrl } from "@/lib/backend-url";
 import { NextRequest, NextResponse } from "next/server"
 import {
   buildIapIdentityAttackPathsQuery,
@@ -20,7 +21,7 @@ export const maxDuration = 60
 // on the Render URL.
 const BACKEND_URL =
   process.env.BACKEND_URL_OVERRIDE ||
-  "https://saferemediate-backend-f.onrender.com"
+  requireBackendUrl()
 
 export async function GET(
   req: NextRequest,

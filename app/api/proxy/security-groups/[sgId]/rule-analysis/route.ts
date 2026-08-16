@@ -1,3 +1,4 @@
+import { requireBackendUrl } from "@/lib/backend-url";
 import { NextRequest, NextResponse } from "next/server"
 import {
   backendError,
@@ -7,7 +8,7 @@ import {
 // Proxy → real backend /api/security-groups/{sgId}/gap-analysis endpoint
 // that returns per-rule recommendation + confidence + traffic.
 
-const BACKEND_URL = "https://saferemediate-backend-f.onrender.com"
+const BACKEND_URL = requireBackendUrl()
 
 export const maxDuration = 60
 export const dynamic = "force-dynamic"

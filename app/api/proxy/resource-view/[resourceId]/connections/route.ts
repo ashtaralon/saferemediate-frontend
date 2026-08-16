@@ -1,8 +1,9 @@
+import { requireBackendUrl } from "@/lib/backend-url";
 import { NextRequest, NextResponse } from "next/server"
 import { backendError, fromCaughtError } from "@/lib/server/proxy-error"
 
 const BACKEND_URL =
-  "https://saferemediate-backend-f.onrender.com"
+  requireBackendUrl()
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"

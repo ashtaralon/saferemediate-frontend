@@ -1,3 +1,4 @@
+import { requireBackendUrl } from "@/lib/backend-url";
 import { NextRequest, NextResponse } from "next/server"
 import { getCached, setCached, TTL_FAST } from "@/lib/server/proxy-cache"
 
@@ -19,7 +20,7 @@ export const maxDuration = 20
 
 const BACKEND_URL =
   process.env.BACKEND_URL_OVERRIDE ||
-  "https://saferemediate-backend-f.onrender.com"
+  requireBackendUrl()
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)

@@ -1,3 +1,4 @@
+import { requireBackendUrl } from "@/lib/backend-url";
 import { NextRequest, NextResponse } from "next/server"
 
 // POST proxy for the ATLAS chain-search backend endpoint.
@@ -9,7 +10,7 @@ export const maxDuration = 60
 
 const BACKEND_URL =
   process.env.BACKEND_URL_OVERRIDE ||
-  "https://saferemediate-backend-f.onrender.com"
+  requireBackendUrl()
 
 export async function POST(
   req: NextRequest,

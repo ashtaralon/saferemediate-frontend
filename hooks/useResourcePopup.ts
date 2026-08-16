@@ -1,3 +1,4 @@
+import { requireBackendUrl } from "@/lib/backend-url";
 /**
  * useResourcePopup Hook
  *
@@ -11,7 +12,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import type { ResourcePopupResponse } from '@/types/template-types';
 
 // Backend API URL - configure based on environment
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://saferemediate-backend-f.onrender.com';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || requireBackendUrl();
 
 export interface UseResourcePopupOptions {
   resourceId: string | null;

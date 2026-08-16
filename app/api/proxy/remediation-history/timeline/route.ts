@@ -1,10 +1,11 @@
+import { requireBackendUrl } from "@/lib/backend-url";
 import { NextRequest, NextResponse } from "next/server"
 import { getCached, getStaleCached, setCached, TTL_STD } from "@/lib/server/proxy-cache"
 
 export const dynamic = "force-dynamic"
 export const fetchCache = "force-no-store"
 
-const BACKEND_URL = "https://saferemediate-backend-f.onrender.com"
+const BACKEND_URL = requireBackendUrl()
 
 // This proxy feeds two surfaces: the "LIVE NOW" strip (limit=1) and the full
 // remediation-history page (limit=200). Under the home-page thundering herd

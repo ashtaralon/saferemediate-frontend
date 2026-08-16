@@ -1,3 +1,4 @@
+import { requireBackendUrl } from "@/lib/backend-url";
 import { NextRequest, NextResponse } from "next/server"
 import { fromCaughtError } from "@/lib/server/proxy-error"
 
@@ -12,7 +13,7 @@ export const revalidate = 0
 export const maxDuration = 125
 
 const BACKEND_URL =
-  "https://saferemediate-backend-f.onrender.com"
+  requireBackendUrl()
 
 export async function GET(req: NextRequest) {
   try {

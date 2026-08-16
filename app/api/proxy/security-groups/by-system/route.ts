@@ -1,3 +1,4 @@
+import { requireBackendUrl } from "@/lib/backend-url";
 import { NextRequest, NextResponse } from "next/server"
 
 // Route: /api/proxy/security-groups/by-system
@@ -8,7 +9,7 @@ export const revalidate = 0
 export const maxDuration = 30
 
 const BACKEND_URL =
-  "https://saferemediate-backend-f.onrender.com"
+  requireBackendUrl()
 
 export async function GET(req: NextRequest) {
   console.log("[by-system] Route handler invoked")

@@ -1,9 +1,10 @@
+import { requireBackendUrl } from "@/lib/backend-url";
 /**
  * API Service for SafeRemediate Backend
  * Handles all API calls to the backend
  */
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://saferemediate-backend-f.onrender.com'
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || requireBackendUrl()
 
 export interface Finding {
   id: string

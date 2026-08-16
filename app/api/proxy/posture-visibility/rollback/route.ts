@@ -1,3 +1,4 @@
+import { requireBackendUrl } from "@/lib/backend-url";
 import { NextRequest, NextResponse } from "next/server"
 
 // Posture unified-rollback proxy — POST body is forwarded verbatim to
@@ -21,7 +22,7 @@ export const maxDuration = 60
 const BACKEND_URL =
   process.env.BACKEND_URL_OVERRIDE ||
   process.env.BACKEND_URL ||
-  "https://saferemediate-backend-f.onrender.com"
+  requireBackendUrl()
 
 export async function POST(req: NextRequest) {
   const body = await req.json()

@@ -1,8 +1,9 @@
+import { requireBackendUrl } from "@/lib/backend-url";
 import { NextRequest, NextResponse } from "next/server"
 import { getSnapshotById, updateSnapshot, createRestoreOperation, updateRestoreOperation } from "@/lib/snapshot-store"
 
 const BACKEND_URL =
-  "https://saferemediate-backend-f.onrender.com"
+  requireBackendUrl()
 
 const FETCH_TIMEOUT = 10000 // 10 second timeout
 

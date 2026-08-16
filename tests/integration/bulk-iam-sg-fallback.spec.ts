@@ -1,3 +1,4 @@
+import { requireBackendUrl } from "@/lib/backend-url";
 /**
  * LIVE integration: bulk IAM gap + SG inspector proxies / backend.
  * Fallback path uses fetch intercept (network layer only — rule #72).
@@ -7,7 +8,7 @@ import { describe, expect, it } from "vitest"
 const BACKEND_URL =
   process.env.BACKEND_URL ||
   process.env.NEXT_PUBLIC_BACKEND_URL ||
-  "https://saferemediate-backend-f.onrender.com"
+  requireBackendUrl()
 
 const PROXY_BASE = process.env.FRONTEND_URL || ""
 

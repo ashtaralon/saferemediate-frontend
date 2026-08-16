@@ -1,6 +1,7 @@
+import { requireBackendUrl } from "@/lib/backend-url";
 export const dynamic = "force-dynamic"
 
-const backendUrl = "https://saferemediate-backend-f.onrender.com"
+const backendUrl = requireBackendUrl()
 
 export async function POST(request: Request) {
 

@@ -1,10 +1,11 @@
+import { requireBackendUrl } from "@/lib/backend-url";
 import { NextRequest, NextResponse } from "next/server"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
 
 const BACKEND_URL =
-  "https://saferemediate-backend-f.onrender.com"
+  requireBackendUrl()
 
 export async function GET(req: NextRequest) {
   const url = new URL(req.url)

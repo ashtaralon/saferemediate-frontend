@@ -1,3 +1,4 @@
+import { requireBackendUrl } from "@/lib/backend-url";
 // Shared Roles PR-A (2026-05-31) — proxy for the replay-verify POST.
 //
 // POST /api/proxy/iam/shared-roles/simulate/{sim_id}/replay
@@ -18,7 +19,7 @@ export const dynamic = "force-dynamic"
 export const fetchCache = "force-no-store"
 export const revalidate = 0
 
-const BACKEND_URL = "https://saferemediate-backend-f.onrender.com"
+const BACKEND_URL = requireBackendUrl()
 
 export async function POST(
   req: NextRequest,

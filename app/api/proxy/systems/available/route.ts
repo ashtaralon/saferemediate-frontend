@@ -1,3 +1,4 @@
+import { requireBackendUrl } from "@/lib/backend-url";
 import { NextResponse } from "next/server"
 
 // Force the route to be dynamically rendered on every request and
@@ -20,7 +21,7 @@ export const revalidate = 0
 export const maxDuration = 120
 
 export async function GET() {
-  const backendUrl = "https://saferemediate-backend-f.onrender.com"
+  const backendUrl = requireBackendUrl()
 
   if (!backendUrl) {
     return NextResponse.json(

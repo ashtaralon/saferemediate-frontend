@@ -1,3 +1,4 @@
+import { requireBackendUrl } from "@/lib/backend-url";
 import { NextResponse } from "next/server";
 import { backendError, fromCaughtError } from "@/lib/server/proxy-error";
 
@@ -5,7 +6,7 @@ import { backendError, fromCaughtError } from "@/lib/server/proxy-error";
 export const maxDuration = 60;
 
 const BACKEND_URL =
-  "https://saferemediate-backend-f.onrender.com";
+  requireBackendUrl();
 
 // In-memory cache for findings (3-minute TTL)
 const cache = new Map<string, { data: any; timestamp: number }>();

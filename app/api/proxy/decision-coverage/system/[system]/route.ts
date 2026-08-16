@@ -1,3 +1,4 @@
+import { requireBackendUrl } from "@/lib/backend-url";
 import { NextRequest, NextResponse } from "next/server"
 
 // System-level rollup of the readiness layers already shown per-resource by
@@ -12,7 +13,7 @@ import { NextRequest, NextResponse } from "next/server"
 const BACKEND_URL =
   process.env.BACKEND_URL_OVERRIDE ||
   process.env.NEXT_PUBLIC_BACKEND_URL ||
-  "https://saferemediate-backend-f.onrender.com"
+  requireBackendUrl()
 
 export async function GET(
   _request: NextRequest,

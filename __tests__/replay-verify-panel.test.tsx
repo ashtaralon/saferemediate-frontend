@@ -1,3 +1,4 @@
+import { requireBackendUrl } from "@/lib/backend-url";
 /// <reference types="vitest/globals" />
 /**
  * ReplayVerifyPanel state machine + drift self-heal tests.
@@ -410,7 +411,7 @@ describe("ReplayVerifyPanel — drift self-heal", () => {
 describe("ReplayVerifyPanel — prod-shape sanity", () => {
   it("renders cleanly against the live alon-prod fixture (sim-fcfcc161d02e)", async () => {
     // Fixture captured 2026-05-31 from
-    //   GET https://saferemediate-backend-f.onrender.com/api/iam/shared-roles/simulate/sim-fcfcc161d02e
+    //   GET ${requireBackendUrl()}/api/iam/shared-roles/simulate/sim-fcfcc161d02e
     // post-PR-A.1 deploy (commit 23b0e8e). All 4 replay-state fields
     // populated: replay_count=5, last_verdict=BYTE_EQUIVALENT,
     // last_replayed_at set, last_replay_id set.

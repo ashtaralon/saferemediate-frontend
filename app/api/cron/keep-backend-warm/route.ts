@@ -1,3 +1,4 @@
+import { requireBackendUrl } from "@/lib/backend-url";
 import { NextResponse } from "next/server"
 
 export const runtime = "nodejs"
@@ -37,7 +38,7 @@ export const maxDuration = 60
  */
 const BACKEND_URL =
   process.env.BACKEND_URL_OVERRIDE ||
-  "https://saferemediate-backend-f.onrender.com"
+  requireBackendUrl()
 
 // Must match Attack Paths v2 proxy defaults (lib/server/iap-proxy-query.ts)
 // so the sweep warms the exact cache/snapshot key the tab reads.

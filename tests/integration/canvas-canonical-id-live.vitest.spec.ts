@@ -1,3 +1,4 @@
+import { requireBackendUrl } from "@/lib/backend-url";
 /**
  * LIVE integration: IAP crown jewels emit canonical_id; frontend builds
  * graph-view node_ids with canonical_id ?? id (no mocks — rule #72).
@@ -8,7 +9,7 @@ import { backendNodeId } from "@/lib/iap-node-id"
 const BACKEND_URL =
   process.env.BACKEND_URL ||
   process.env.NEXT_PUBLIC_BACKEND_URL ||
-  "https://saferemediate-backend-f.onrender.com"
+  requireBackendUrl()
 
 const SYSTEM = "alon-prod"
 

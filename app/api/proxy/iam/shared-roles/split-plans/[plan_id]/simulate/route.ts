@@ -1,3 +1,4 @@
+import { requireBackendUrl } from "@/lib/backend-url";
 // Layer D Phase 3 (2026-05-27) — proxy for the simulate kickoff.
 //
 // POST /api/proxy/iam/shared-roles/split-plans/{plan_id}/simulate
@@ -14,7 +15,7 @@ export const dynamic = "force-dynamic"
 export const fetchCache = "force-no-store"
 export const revalidate = 0
 
-const BACKEND_URL = "https://saferemediate-backend-f.onrender.com"
+const BACKEND_URL = requireBackendUrl()
 
 export async function POST(
   req: NextRequest,

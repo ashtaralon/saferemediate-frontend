@@ -1,4 +1,5 @@
-const RENDER_PROD = "https://saferemediate-backend-f.onrender.com"
+import { requireBackendUrl } from "@/lib/backend-url";
+const RENDER_PROD = requireBackendUrl()
 
 let _logged = false
 let _validated = false

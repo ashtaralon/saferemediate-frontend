@@ -1,3 +1,4 @@
+import { requireBackendUrl } from "@/lib/backend-url";
 /**
  * AC-1 Capital One — live E2E pin.
  *
@@ -9,7 +10,7 @@ import { seedAuthCookie } from "./live-auth"
 
 const SYSTEM = process.env.AC1_SYSTEM || "alon-prod"
 const BACKEND =
-  process.env.BACKEND_URL || "https://saferemediate-backend-f.onrender.com"
+  process.env.BACKEND_URL || requireBackendUrl()
 
 test.describe("AC-1 Capital One E2E", () => {
   test.beforeEach(async ({ context }) => {

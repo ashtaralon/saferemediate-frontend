@@ -1,6 +1,7 @@
+import { requireBackendUrl } from "@/lib/backend-url";
 import { NextRequest, NextResponse } from "next/server"
 
-const BACKEND_URL = "https://saferemediate-backend-f.onrender.com"
+const BACKEND_URL = requireBackendUrl()
 const FETCH_TIMEOUT = 30000
 
 async function fetchWithTimeout(url: string, options: RequestInit = {}): Promise<Response> {

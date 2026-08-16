@@ -1,6 +1,7 @@
+import { requireBackendUrl } from "@/lib/backend-url";
 import { NextRequest, NextResponse } from "next/server"
 
-const BACKEND_URL = "https://saferemediate-backend-f.onrender.com"
+const BACKEND_URL = requireBackendUrl()
 
 // Thin pass-through to the Phase 3 backend endpoint.
 // Forwards stale_days / include_active / include_excluded / object_sample_cap.
