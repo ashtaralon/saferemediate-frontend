@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server"
+import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
 export const dynamic = "force-dynamic"
 
-const BACKEND_URL = "https://saferemediate-backend-f.onrender.com"
+const BACKEND_URL = getBackendBaseUrl()
 
 export async function POST(
   req: NextRequest,

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
 // GET proxy for /api/attack-chain/chains-for-cj/detail?chain_id=...
 //
@@ -19,7 +20,7 @@ export const maxDuration = 60
 
 const BACKEND_URL =
   process.env.BACKEND_URL_OVERRIDE ||
-  "https://saferemediate-backend-f.onrender.com"
+  getBackendBaseUrl()
 
 export async function GET(req: NextRequest) {
   const url = new URL(req.url)

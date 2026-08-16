@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getCached, setCached, TTL_SLOW } from "@/lib/server/proxy-cache"
+import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
 // Vercel proxy for /api/egress/posture/{system} — the Trust Boundary
 // Map data endpoint. Wraps the backend's egress posture endpoint with
@@ -19,7 +20,7 @@ export const maxDuration = 60
 
 const BACKEND_URL =
   process.env.BACKEND_URL_OVERRIDE ||
-  "https://saferemediate-backend-f.onrender.com"
+  getBackendBaseUrl()
 
 export async function GET(
   req: NextRequest,

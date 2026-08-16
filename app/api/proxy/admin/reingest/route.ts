@@ -1,4 +1,5 @@
 /**
+import { getBackendBaseUrl } from "@/lib/server/backend-url"
  * Re-ingest proxy — unified with the "Sync from AWS" pipeline.
  *
  * Historical note (now obsolete):
@@ -26,7 +27,7 @@ const DAYS = 7
 
 export async function POST(request: Request) {
   const backendUrl =
-    "https://saferemediate-backend-f.onrender.com"
+    getBackendBaseUrl()
 
   const startTime = Date.now()
 

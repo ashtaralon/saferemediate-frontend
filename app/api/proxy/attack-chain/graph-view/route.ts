@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
 // POST proxy for the attack-chain graph-view backend endpoint.
 // Forwards the request body verbatim. No edge cache on this route —
@@ -10,7 +11,7 @@ export const maxDuration = 60
 
 const BACKEND_URL =
   process.env.BACKEND_URL_OVERRIDE ||
-  "https://saferemediate-backend-f.onrender.com"
+  getBackendBaseUrl()
 
 export async function POST(req: NextRequest) {
   let body: any

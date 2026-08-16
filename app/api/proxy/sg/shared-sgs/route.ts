@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server"
+import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
 export const dynamic = "force-dynamic"
 export const fetchCache = "force-no-store"
 export const revalidate = 0
 
-const BACKEND_URL = "https://saferemediate-backend-f.onrender.com"
+const BACKEND_URL = getBackendBaseUrl()
 
 const ALLOWED_PARAMS = ["min_consumers", "include_inactive", "system_name"] as const
 

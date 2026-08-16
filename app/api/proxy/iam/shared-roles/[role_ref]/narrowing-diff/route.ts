@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
 // Per docs/shared-resources-real-data-wiring.md §2.1 (backend repo,
 // PR-2 shipped commit 5c764e8). Pass-through proxy for the IAM
@@ -9,7 +10,7 @@ export const dynamic = "force-dynamic"
 export const fetchCache = "force-no-store"
 export const revalidate = 0
 
-const BACKEND_URL = "https://saferemediate-backend-f.onrender.com"
+const BACKEND_URL = getBackendBaseUrl()
 
 export async function GET(
   req: NextRequest,

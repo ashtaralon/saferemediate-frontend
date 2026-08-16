@@ -7,6 +7,7 @@ import {
 import { getCached, getStaleCached, setCached, TTL_SLOW } from "@/lib/server/proxy-cache"
 import { isPoisonousProxyPayload } from "@/lib/server/proxy-cache-hygiene"
 import { SNAPSHOT_PROXY_TIMEOUT_MS } from "@/lib/server/snapshot-proxy"
+import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
 export const runtime = "nodejs"
 // Intentionally NOT `dynamic = "force-dynamic"` — that flag opts the
@@ -20,7 +21,7 @@ export const maxDuration = 60
 // on the Render URL.
 const BACKEND_URL =
   process.env.BACKEND_URL_OVERRIDE ||
-  "https://saferemediate-backend-f.onrender.com"
+  getBackendBaseUrl()
 
 export async function GET(
   req: NextRequest,

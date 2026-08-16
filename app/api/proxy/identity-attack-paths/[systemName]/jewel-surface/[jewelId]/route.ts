@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getCached, setCached, TTL_SLOW } from "@/lib/server/proxy-cache"
 import { normalizeJewelArn } from "@/lib/server/normalize-jewel-id"
+import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
 // Jewel-surface aggregation — per-crown-jewel computed surface
 // (max_verbs, entry_summary, cross_path_remediation). Originally
@@ -19,7 +20,7 @@ export const maxDuration = 60
 
 const BACKEND_URL =
   process.env.BACKEND_URL_OVERRIDE ||
-  "https://saferemediate-backend-f.onrender.com"
+  getBackendBaseUrl()
 
 export async function GET(
   req: NextRequest,

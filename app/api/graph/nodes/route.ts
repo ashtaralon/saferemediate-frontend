@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
 export const runtime = 'nodejs'
 export const dynamic = "force-dynamic"
@@ -7,7 +8,7 @@ export const revalidate = 0
 export const maxDuration = 30
 
 const BACKEND_URL =
-  "https://saferemediate-backend-f.onrender.com"
+  getBackendBaseUrl()
 
 export async function GET(req: NextRequest) {
   try {

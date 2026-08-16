@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
 // SG-9h: proxy route for POST /api/sg/shared-sgs/{sg_id}/enable-staged.
 // Operator opts an SG into STAGED execute (replaces the legacy
@@ -8,7 +9,7 @@ export const dynamic = "force-dynamic"
 export const fetchCache = "force-no-store"
 export const revalidate = 0
 
-const BACKEND_URL = "https://saferemediate-backend-f.onrender.com"
+const BACKEND_URL = getBackendBaseUrl()
 
 export async function POST(
   req: NextRequest,

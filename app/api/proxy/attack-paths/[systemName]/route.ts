@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getCached, setCached, TTL_SLOW } from "@/lib/server/proxy-cache"
+import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
 // Vercel proxy for the legacy attack-paths endpoint. Was running with
 // `cache: "no-store"` and zero Vercel-side cache — every visit paid the
@@ -23,7 +24,7 @@ export const maxDuration = 60
 
 const BACKEND_URL =
   process.env.BACKEND_URL_OVERRIDE ||
-  "https://saferemediate-backend-f.onrender.com"
+  getBackendBaseUrl()
 
 export async function GET(
   request: NextRequest,

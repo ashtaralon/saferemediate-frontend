@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
 // Posture recommendations proxy — read-only emission of remediation
 // proposals derived from the workload's stored posture evidence.
@@ -8,7 +9,7 @@ export const dynamic = "force-dynamic"
 export const maxDuration = 60
 
 const BACKEND_URL =
-  process.env.BACKEND_URL || "https://saferemediate-backend-f.onrender.com"
+  process.env.BACKEND_URL || getBackendBaseUrl()
 
 export async function GET(
   _req: NextRequest,

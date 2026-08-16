@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
 // Posture proposal execution proxy — POST body is forwarded verbatim to
 // the backend's thin wrapper over UnifiedPipeline.execute(). The pipeline
@@ -17,7 +18,7 @@ export const maxDuration = 60
 const BACKEND_URL =
   process.env.BACKEND_URL_OVERRIDE ||
   process.env.BACKEND_URL ||
-  "https://saferemediate-backend-f.onrender.com"
+  getBackendBaseUrl()
 
 export async function POST(req: NextRequest) {
   const body = await req.json()

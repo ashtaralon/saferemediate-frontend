@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
 // Posture Visibility per-workload drill-down proxy.
 
@@ -7,7 +8,7 @@ export const dynamic = "force-dynamic"
 export const maxDuration = 60
 
 const BACKEND_URL =
-  process.env.BACKEND_URL || "https://saferemediate-backend-f.onrender.com"
+  process.env.BACKEND_URL || getBackendBaseUrl()
 
 export async function GET(
   _req: NextRequest,

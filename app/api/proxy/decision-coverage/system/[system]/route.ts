@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
 // System-level rollup of the readiness layers already shown per-resource by
 // components/inventory/readiness-badges.tsx. Sibling of the /resource/ proxy
@@ -12,7 +13,7 @@ import { NextRequest, NextResponse } from "next/server"
 const BACKEND_URL =
   process.env.BACKEND_URL_OVERRIDE ||
   process.env.NEXT_PUBLIC_BACKEND_URL ||
-  "https://saferemediate-backend-f.onrender.com"
+  getBackendBaseUrl()
 
 export async function GET(
   _request: NextRequest,

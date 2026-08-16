@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
 // Proxy for the per-kind destinations drill-down. Operator clicks
 // External / AWS / Internal / Unknown on a workload card → the frontend
@@ -10,7 +11,7 @@ export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 export const maxDuration = 60
 
-const BACKEND_URL = "https://saferemediate-backend-f.onrender.com"
+const BACKEND_URL = getBackendBaseUrl()
 
 export async function GET(
   req: NextRequest,

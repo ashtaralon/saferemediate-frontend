@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server"
+import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 export const maxDuration = 60
 
 const BACKEND_URL =
-  "https://saferemediate-backend-f.onrender.com"
+  getBackendBaseUrl()
 
 export async function POST(req: NextRequest) {
   const controller = new AbortController()

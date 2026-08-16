@@ -13,12 +13,13 @@
 // can pass a descriptive `triggered_by` label (operator identity in
 // v1 is self-attested; not used as a security trust boundary).
 import { NextRequest, NextResponse } from "next/server"
+import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
 export const dynamic = "force-dynamic"
 export const fetchCache = "force-no-store"
 export const revalidate = 0
 
-const BACKEND_URL = "https://saferemediate-backend-f.onrender.com"
+const BACKEND_URL = getBackendBaseUrl()
 
 export async function POST(
   req: NextRequest,

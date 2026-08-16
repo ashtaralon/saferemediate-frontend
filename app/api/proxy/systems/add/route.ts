@@ -1,7 +1,8 @@
 import { type NextRequest, NextResponse } from "next/server"
+import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
 export async function POST(request: NextRequest) {
-  const backendUrl = "https://saferemediate-backend-f.onrender.com"
+  const backendUrl = getBackendBaseUrl()
 
   if (!backendUrl) {
     return NextResponse.json(

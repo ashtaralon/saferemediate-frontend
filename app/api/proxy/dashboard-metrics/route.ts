@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
 // Use Edge Runtime - runs globally, closer to backend
 // Use Node.js runtime for longer timeout
@@ -8,7 +9,7 @@ export const maxDuration = 30 // Maximum execution time in seconds (Vercel Pro t
 
 export async function GET() {
   // Use NEXT_PUBLIC_ prefix for Edge Runtime compatibility
-  const backendUrl = "https://saferemediate-backend-f.onrender.com"
+  const backendUrl = getBackendBaseUrl()
 
   try {
     // 25s, 5s under the 30s maxDuration below. Was 28s, which left only 2s

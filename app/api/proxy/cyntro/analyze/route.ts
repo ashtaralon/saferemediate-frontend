@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server"
+import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
 export const dynamic = "force-dynamic"
 export const fetchCache = "force-no-store"
 export const maxDuration = 300
 
-const BACKEND_URL = "https://saferemediate-backend-f.onrender.com"
+const BACKEND_URL = getBackendBaseUrl()
 
 export async function GET(req: NextRequest) {
   const role_name = req.nextUrl.searchParams.get("role_name")

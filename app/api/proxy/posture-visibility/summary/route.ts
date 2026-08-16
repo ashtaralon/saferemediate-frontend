@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
 // Posture Visibility summary proxy — counts by verdict / exposure state.
 // Mirrors the egress-visibility proxy pattern (nodejs runtime, 55s timeout
@@ -10,7 +11,7 @@ export const dynamic = "force-dynamic"
 export const maxDuration = 60
 
 const BACKEND_URL =
-  process.env.BACKEND_URL || "https://saferemediate-backend-f.onrender.com"
+  process.env.BACKEND_URL || getBackendBaseUrl()
 
 export async function GET(_req: NextRequest) {
   try {

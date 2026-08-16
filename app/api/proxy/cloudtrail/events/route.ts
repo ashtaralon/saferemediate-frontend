@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server"
+import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 60 // Increased for Vercel Pro/Enterprise
 
 const BACKEND_URL = 
-  "https://saferemediate-backend-f.onrender.com"
+  getBackendBaseUrl()
 
 // In-memory cache with 5-minute TTL
 const cache = new Map<string, { data: any; timestamp: number }>()
