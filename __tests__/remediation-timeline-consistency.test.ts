@@ -3,6 +3,7 @@ import {
   DEFAULT_REMEDIATION_EVENT_FILTER,
   dedupeRemediationEvents,
   isActionableRestore,
+  remediationTimelineEventCount,
   remediationTimelineUrl,
   snapshotBelongsToSystem,
   summarizeRemediationEvents,
@@ -29,6 +30,12 @@ const event = (overrides: Partial<TimelineEventRecord> = {}): TimelineEventRecor
 })
 
 describe("remediation timeline consistency", () => {
+  it("counts raw and trust-enveloped timeline events", () => {
+    expect(remediationTimelineEventCount({ events: [{ event_id: "raw" }] })).toBe(1)
+    expect(remediationTimelineEventCount({ result: { events: [{ event_id: "wrapped" }] } })).toBe(1)
+    expect(remediationTimelineEventCount({ result: { events: [] } })).toBe(0)
+  })
+
   it("collapses duplicate snapshot feeds and prefers the graph receipt", () => {
     const snapshotA = event({ event_id: "feed-a", source: "snapshot", summary: undefined } as any)
     const snapshotB = event({ event_id: "feed-b", source: "snapshot" })
