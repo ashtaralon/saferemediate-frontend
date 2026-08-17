@@ -93,7 +93,7 @@ jobs:
           errored() {
             local file="$1" http="$2"
             [ "$http" = "200" ] || return 0
-            grep -qiE 'Type mismatch|MalformedQueryException|not supported in this release|Traceback|bmap not initialized|Internal Server Error|"detail":"[^"]*(failed|error)|NOT_READY|"serve_state":"NOT_READY"' "$file" && return 0
+            grep -qiE 'Type mismatch|MalformedQueryException|not supported in this release|Traceback|bmap not initialized|Internal Server Error|"detail": ?"[^"]*(failed|error)|"serve_state": ?"NOT_READY"|"not_ready_reason": ?"[A-Za-z_]' "$file" && return 0
             return 1
           }
           # thin = well-formed but empty. Informational only — usually just
@@ -127,7 +127,7 @@ jobs:
             if [ "$aerr" = 0 ] && [ "$nerr" = 1 ]; then
               # Aura serves, Neptune hard-fails → the real, actionable gap.
               verdict="C1 GAP"; gaps=$((gaps+1))
-              detail="$(head -c 160 "$nf" | tr '\n' ' ' | tr -d '|')"
+              detail="$(head -c 1200 "$nf" | tr '\n' ' ' | tr -d '|')"
               echo "GAP   ${name}  aura=${ah} neptune=${nh}  :: ${detail}"
             elif [ "$aerr" = 1 ]; then
               verdict="n/a (aura)"; other=$((other+1))
@@ -141,6 +141,18 @@ jobs:
             fi
             echo "| ${name} | ${averd} | ${nverd} | ${verdict} |" >> summary.md
           }
+
+          # What SHA is actually deployed on each backend — settles
+          # "is my fix live yet?" without guessing at Render deploy timing.
+          # /api/attack-chain/health echoes RENDER_GIT_COMMIT as commit_sha.
+          sha_of() {
+            curl -sS --max-time 90 "${1}/api/attack-chain/health" 2>/dev/null \
+              | grep -oE '"commit_sha"[^,}]*' | head -1
+          }
+          NEP_SHA="$(sha_of "$NEP_BASE")"; AURA_SHA="$(sha_of "$AURA_BASE")"
+          echo "deployed — neptune: ${NEP_SHA:-?} · aura: ${AURA_SHA:-?}"
+          echo "_deployed — neptune ${NEP_SHA:-?} · aura ${AURA_SHA:-?}_" >> summary.md
+          echo "" >> summary.md
 
           A="$AURA_SYS"; N="$NEP_SYS"
           check "health"              "/health"                                   "/health"
