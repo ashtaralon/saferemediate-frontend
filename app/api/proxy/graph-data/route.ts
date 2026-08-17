@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server"
 import { backendError, fromCaughtError } from "@/lib/server/proxy-error"
+import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
 export const runtime = 'nodejs'
 export const dynamic = "force-dynamic"
 export const maxDuration = 30
 
-const BACKEND_URL = "https://saferemediate-backend-f.onrender.com"
+const BACKEND_URL = getBackendBaseUrl()
 
 // In-memory cache with 15-minute TTL for SWR (Stale-While-Revalidate)
 const cache = new Map<string, { data: any; timestamp: number }>()
@@ -126,7 +127,7 @@ export async function GET() {
 
 // Background cache update function for SWR
 async function updateCacheInBackground(cacheKey: string) {
-  const BACKEND_URL = "https://saferemediate-backend-f.onrender.com"
+  const BACKEND_URL = getBackendBaseUrl()
   
   try {
     const controller = new AbortController()

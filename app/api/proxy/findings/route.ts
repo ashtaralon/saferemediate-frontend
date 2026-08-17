@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import { backendError, fromCaughtError } from "@/lib/server/proxy-error";
+import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
 // Allow longer execution time on Vercel (60 seconds for Pro tier)
 export const maxDuration = 60;
 
 const BACKEND_URL =
-  "https://saferemediate-backend-f.onrender.com";
+  getBackendBaseUrl();
 
 // In-memory cache for findings (3-minute TTL)
 const cache = new Map<string, { data: any; timestamp: number }>();

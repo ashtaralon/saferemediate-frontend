@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
+import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
-const BACKEND_URL = "https://saferemediate-backend-f.onrender.com"
+const BACKEND_URL = getBackendBaseUrl()
 
 // Pass-through for DELETE /api/s3-buckets/{bucket_name} — hardened
 // endpoint from Phase 3. Forwards force= and delete_objects= query

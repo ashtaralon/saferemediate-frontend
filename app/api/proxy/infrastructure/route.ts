@@ -1,8 +1,9 @@
+import { getBackendBaseUrl } from "@/lib/server/backend-url"
 export const dynamic = "force-dynamic"
 
 export async function GET() {
   const backendUrl =
-  "https://saferemediate-backend-f.onrender.com"
+  getBackendBaseUrl()
 
   try {
     const response = await fetch(`${backendUrl}/api/graph/nodes`, {

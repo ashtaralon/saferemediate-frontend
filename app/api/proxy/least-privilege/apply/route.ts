@@ -1,12 +1,13 @@
 // app/api/proxy/least-privilege/apply/route.ts
 import { NextResponse } from "next/server"
+import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
 export const dynamic = "force-dynamic"
 export const fetchCache = "force-no-store"
 export const revalidate = 0
 
 const RAW_BACKEND_URL =
-  "https://saferemediate-backend-f.onrender.com"
+  getBackendBaseUrl()
 
 function getBackendBase() {
   return RAW_BACKEND_URL.replace(/\/+$/, "").replace(/\/backend$/, "")

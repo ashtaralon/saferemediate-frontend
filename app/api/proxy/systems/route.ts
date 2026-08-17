@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server"
 import { backendError, fromCaughtError } from "@/lib/server/proxy-error"
+import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 120 // 2 minutes for Render cold starts + Neo4j query
 
 const BACKEND_URL =
-  "https://saferemediate-backend-f.onrender.com"
+  getBackendBaseUrl()
 
 // In-memory cache with 5-minute TTL
 const cache = new Map<string, { data: any; timestamp: number }>()

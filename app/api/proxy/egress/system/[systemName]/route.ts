@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getCached, setCached, TTL_SLOW } from "@/lib/server/proxy-cache"
+import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
 // Proxy for the system-wide egress visibility endpoint. Mirrors the
 // identity-attack-paths proxy pattern (nodejs runtime, no static
@@ -24,7 +25,7 @@ export const maxDuration = 60
 // shell or .env.local to test backend changes before deploying.
 const BACKEND_URL =
   process.env.BACKEND_URL_OVERRIDE ||
-  "https://saferemediate-backend-f.onrender.com"
+  getBackendBaseUrl()
 
 export async function GET(
   req: NextRequest,

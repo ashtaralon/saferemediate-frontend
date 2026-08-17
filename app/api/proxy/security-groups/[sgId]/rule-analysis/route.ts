@@ -3,11 +3,12 @@ import {
   backendError,
   fromCaughtError,
 } from "@/lib/server/proxy-error"
+import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
 // Proxy → real backend /api/security-groups/{sgId}/gap-analysis endpoint
 // that returns per-rule recommendation + confidence + traffic.
 
-const BACKEND_URL = "https://saferemediate-backend-f.onrender.com"
+const BACKEND_URL = getBackendBaseUrl()
 
 export const maxDuration = 60
 export const dynamic = "force-dynamic"

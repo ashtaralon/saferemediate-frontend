@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server"
+import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
 export async function GET() {
   const backendUrl =
-  "https://saferemediate-backend-f.onrender.com"
+  getBackendBaseUrl()
 
   try {
     // Public callers receive liveness + build identity only. Detailed backend

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
+import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
-const BACKEND_URL = "https://saferemediate-backend-f.onrender.com"
+const BACKEND_URL = getBackendBaseUrl()
 
 // Pass-through for DELETE /api/iam-policies/by-arn — hardened endpoint
 // from Phase 4. The policy ARN is passed as a query parameter because

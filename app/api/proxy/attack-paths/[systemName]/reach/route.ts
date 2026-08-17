@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
 // Sprint 5 — proxy for GET /api/attack-paths/{system_name}/reach
 //
@@ -7,7 +8,7 @@ import { NextResponse } from "next/server"
 // evidence_refs), plus crown-jewel anchors and the SignalSource
 // registry. Consumed by the Reach attack-path tab.
 
-const BACKEND_URL = "https://saferemediate-backend-f.onrender.com"
+const BACKEND_URL = getBackendBaseUrl()
 
 // Per UDE-vercel-abort-cascade memory: keep per-route maxDuration
 // short enough that this proxy fails fast on backend hangs, rather

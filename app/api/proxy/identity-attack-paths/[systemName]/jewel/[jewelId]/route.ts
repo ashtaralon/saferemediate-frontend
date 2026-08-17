@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server"
 import { normalizeJewelArn } from "@/lib/server/normalize-jewel-id"
+import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
-const BACKEND_URL = "https://saferemediate-backend-f.onrender.com"
+const BACKEND_URL = getBackendBaseUrl()
 
 export const maxDuration = 60
 

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
 // Abort fires at 90s, 5s under this, so the catch
 // block still runs and can degrade honestly instead of the platform
@@ -7,7 +8,7 @@ import { NextRequest, NextResponse } from "next/server"
 export const maxDuration = 95
 
 const BACKEND_URL =
-  "https://saferemediate-backend-f.onrender.com"
+  getBackendBaseUrl()
 
 export async function GET(
   request: NextRequest,

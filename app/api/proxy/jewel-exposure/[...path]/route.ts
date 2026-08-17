@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getCached, setCached, TTL_SLOW } from "@/lib/server/proxy-cache"
+import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
 // Proxy for the Crown Jewel Exposure backend endpoint (Slice 5a). The
 // backend route is /api/jewel-exposure/{system_name}/{jewel_id:path};
@@ -11,7 +12,7 @@ export const maxDuration = 60
 
 const BACKEND_URL =
   process.env.BACKEND_URL_OVERRIDE ||
-  "https://saferemediate-backend-f.onrender.com"
+  getBackendBaseUrl()
 
 export async function GET(
   req: NextRequest,

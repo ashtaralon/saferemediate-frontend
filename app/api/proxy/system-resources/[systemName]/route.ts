@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
@@ -6,7 +7,7 @@ export const maxDuration = 60
 const BACKEND_URL =
   process.env.BACKEND_URL_OVERRIDE ||
   process.env.NEXT_PUBLIC_BACKEND_URL ||
-  "https://saferemediate-backend-f.onrender.com"
+  getBackendBaseUrl()
 
 const RETRYABLE_STATUSES = new Set([500, 502, 503, 504])
 const MAX_ATTEMPTS = 3

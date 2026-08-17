@@ -1,8 +1,9 @@
 import { type NextRequest, NextResponse } from "next/server"
+import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
 export async function GET(request: NextRequest) {
   const backendUrl =
-  "https://saferemediate-backend-f.onrender.com"
+  getBackendBaseUrl()
 
   try {
     console.log("[v0] Testing backend connection:", `${backendUrl}/healthz`)

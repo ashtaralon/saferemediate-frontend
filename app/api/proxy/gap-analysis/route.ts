@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { backendError, fromCaughtError } from "@/lib/server/proxy-error"
+import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
 // Use Node.js runtime for longer timeout (60s on Pro, 10s on Hobby)
 // Edge Runtime has 30s limit which is too short for slow backend queries
@@ -8,7 +9,7 @@ export const dynamic = "force-dynamic"
 export const maxDuration = 60 // Maximum execution time in seconds (Vercel Pro tier)
 
 const BACKEND_URL =
-  "https://saferemediate-backend-f.onrender.com"
+  getBackendBaseUrl()
 
 // In-memory cache for gap analysis (5-minute TTL)
 const cache = new Map<string, { data: any; timestamp: number }>()

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
 // Route: /api/proxy/security-groups/by-system
 // Returns all security groups for a system from Neo4j
@@ -8,7 +9,7 @@ export const revalidate = 0
 export const maxDuration = 30
 
 const BACKEND_URL =
-  "https://saferemediate-backend-f.onrender.com"
+  getBackendBaseUrl()
 
 export async function GET(req: NextRequest) {
   console.log("[by-system] Route handler invoked")

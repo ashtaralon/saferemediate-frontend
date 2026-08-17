@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { fromCaughtError } from "@/lib/server/proxy-error"
+import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
 export const dynamic = "force-dynamic"
 export const fetchCache = "force-no-store"
@@ -12,7 +13,7 @@ export const revalidate = 0
 export const maxDuration = 125
 
 const BACKEND_URL =
-  "https://saferemediate-backend-f.onrender.com"
+  getBackendBaseUrl()
 
 export async function GET(req: NextRequest) {
   try {

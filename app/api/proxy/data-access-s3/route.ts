@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { backendError, fromCaughtError } from "@/lib/server/proxy-error"
+import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
 // Route: /api/proxy/data-access-s3
 // Per-object S3 access for the Traffic Flow Map object expander.
@@ -9,7 +10,7 @@ export const fetchCache = "force-no-store"
 export const revalidate = 0
 export const maxDuration = 60
 
-const BACKEND_URL = "https://saferemediate-backend-f.onrender.com"
+const BACKEND_URL = getBackendBaseUrl()
 
 const cache = new Map<string, { data: any; timestamp: number }>()
 const CACHE_TTL = 2 * 60 * 1000 // 2 minutes
