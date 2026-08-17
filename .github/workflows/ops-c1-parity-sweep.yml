@@ -127,7 +127,7 @@ jobs:
             if [ "$aerr" = 0 ] && [ "$nerr" = 1 ]; then
               # Aura serves, Neptune hard-fails → the real, actionable gap.
               verdict="C1 GAP"; gaps=$((gaps+1))
-              detail="$(head -c 160 "$nf" | tr '\n' ' ' | tr -d '|')"
+              detail="$(head -c 1200 "$nf" | tr '\n' ' ' | tr -d '|')"
               echo "GAP   ${name}  aura=${ah} neptune=${nh}  :: ${detail}"
             elif [ "$aerr" = 1 ]; then
               verdict="n/a (aura)"; other=$((other+1))
