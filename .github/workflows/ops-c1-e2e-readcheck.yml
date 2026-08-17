@@ -1,0 +1,147 @@
+# Read-only e2e check of the C1 (Neptune testbed) backend after a deploy.
+#
+# Lives in the frontend repo because (a) the driving sandbox has no
+# onrender.com egress, so CI is the execution surface, and (b) this repo's
+# checks run on GitHub-hosted runners — independent of the backend's
+# self-hosted Mac runner. The target is a backend URL input; nothing here
+# touches this repo's code.
+#
+# Results are ALSO posted as a comment on a PR of this repo (pr_number
+# input) so the outcome is readable through the issues API when the
+# Actions log API is unavailable.
+#
+# Every request is a GET against public read endpoints; no auth, no
+# mutation, no approval path.
+name: ops-c1-e2e-readcheck
+
+on:
+  workflow_dispatch:
+    inputs:
+      api_base:
+        description: "Backend base URL to check"
+        required: true
+        default: "https://cyntro-c1.onrender.com"
+      system_name:
+        description: "Tenant system expected in the graph"
+        required: true
+        default: "testbed-webshop"
+      gap_role:
+        description: "IAM role name for the gap-analysis check"
+        required: true
+        default: "cyntro-tb-prod-app-role"
+      pr_number:
+        description: "PR in THIS repo to comment results on (empty = no comment)"
+        required: false
+        default: "668"
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  readcheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      API: ${{ inputs.api_base }}
+      SYS: ${{ inputs.system_name }}
+      GAP_ROLE: ${{ inputs.gap_role }}
+    steps:
+      - name: Run read checks
+        run: |
+          set -uo pipefail
+          fails=0
+          passes=0
+          : > summary.md
+          echo "## C1 e2e readcheck — ${API}" >> summary.md
+          echo "" >> summary.md
+          echo "| check | result | detail |" >> summary.md
+          echo "|---|---|---|" >> summary.md
+
+          fetch() {
+            BODY_FILE="$(mktemp)"
+            HTTP_CODE="$(curl -sS --max-time 90 -o "$BODY_FILE" -w "%{http_code}" "${API}${1}" || echo "000")"
+          }
+
+          check() {
+            # check <name> <path> <expect_code> [required_substring] [forbidden_substring]
+            local name="$1" path="$2" want="$3" need="${4:-}" ban="${5:-}"
+            fetch "$path"
+            local verdict="PASS" why="HTTP ${HTTP_CODE}"
+            if [ "$HTTP_CODE" != "$want" ]; then
+              verdict="FAIL"; why="HTTP ${HTTP_CODE} (wanted ${want})"
+            elif [ -n "$need" ] && ! grep -q "$need" "$BODY_FILE"; then
+              verdict="FAIL"; why="missing: ${need}"
+            elif [ -n "$ban" ] && grep -q "$ban" "$BODY_FILE"; then
+              verdict="FAIL"; why="forbidden present: ${ban}"
+            fi
+            if [ "$verdict" = "PASS" ]; then
+              passes=$((passes+1))
+              echo "PASS  ${name}  [${why}]"
+            else
+              fails=$((fails+1))
+              echo "FAIL  ${name}  ${why}"
+              echo "      body head: $(head -c 300 "$BODY_FILE" | tr '\n' ' ')"
+            fi
+            echo "| ${name} | ${verdict} | ${why} |" >> summary.md
+            echo "::group::${name} body"
+            head -c 2000 "$BODY_FILE"; echo
+            echo "::endgroup::"
+          }
+
+          echo "== target: ${API} =="
+
+          # health: up, and NOT reporting a fake AWS failure on graph-serve
+          check "health" "/health" 200 "" "unhealthy: "
+          # systems: only the testbed tenant, never the Aura estate
+          check "systems" "/api/systems" 200 "$SYS" "alon-prod"
+          # /all: bmap-free discovery (home dashboard rollup)
+          check "iap-all" "/api/identity-attack-paths/all" 200 "" "bmap not initialized"
+          # per-system IAP: worked pre-fix — regression guard
+          check "iap-system" "/api/identity-attack-paths/${SYS}" 200 "crown_jewels" ""
+          # jewels: must not impersonate the Aura tenant
+          check "iap-jewels" "/api/identity-attack-paths/${SYS}/jewels" 200 "crown_jewels" "alon-prod"
+          # shared roles: CALL{}-free gather (was 500)
+          check "shared-roles" "/api/iam/shared-roles" 200 "" "CALL"
+          # decision coverage: any()-free (was 500)
+          check "decision-coverage" "/api/decision-coverage/system/${SYS}" 200 "" ""
+          # blast radius: regex-free + degrades instead of re-raising (was 500)
+          check "blast-radius" "/api/business-system/${SYS}/blast-radius" 200 "" ""
+          # IAM gap: JSON-string lists decoded (was 500 Type mismatch)
+          check "iam-gap" "/api/iam-roles/${GAP_ROLE}/gap-analysis" 200 "" "Type mismatch"
+          # orphan GETs: graph-first on Neptune (were live-AWS 500s)
+          check "orphan-sg" "/api/security-groups/orphan-detection" 200 "" ""
+          check "orphan-s3" "/api/s3-buckets/orphan-detection" 200 "" ""
+          # SG analysis: live-AWS handler must refuse with the named 503
+          check "sg-analysis-guard" "/api/security-groups/sg-000000000000/analysis" 503 "live_aws_disabled_on_neptune_serve" ""
+          # dependency map: the observed-first estate read
+          check "dep-map" "/api/dependency-map/full" 200 "" ""
+          # identities overview: policy fill visible
+          check "identities" "/api/identities/overview" 200 "" ""
+
+          echo "" >> summary.md
+          echo "**${passes} passed, ${fails} failed**" >> summary.md
+          echo
+          echo "== ${passes} passed, ${fails} failed =="
+          # Summary must post even on failures — do not exit non-zero here;
+          # the verdict step below fails the job AFTER the comment lands.
+          echo "FAILS=${fails}" >> "$GITHUB_ENV"
+
+      - name: Comment results on PR
+        if: inputs.pr_number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" \
+            -f body="$(cat summary.md)
+
+          ---
+          _Generated by [Claude Code](https://claude.ai/code)_"
+
+      - name: Verdict
+        run: |
+          set -euo pipefail
+          [ "${FAILS}" = "0" ] || { echo "::error::${FAILS} checks failed"; exit 1; }
