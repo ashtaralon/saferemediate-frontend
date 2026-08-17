@@ -79,17 +79,35 @@ jobs:
             BYTES="$(wc -c < "$FILE" | tr -d ' ')"
           }
 
-          # Is this response a real, healthy payload? 200, sized, and free
-          # of the known error/empty shapes that a broken serve returns 200 with.
-          healthy() {
-            local file="$1" http="$2" bytes="$3"
-            [ "$http" = "200" ] || return 1
-            [ "${bytes:-0}" -ge 25 ] || return 1
-            grep -qiE 'Type mismatch|unhealthy: |Traceback|bmap not initialized|Internal Server Error|"detail":|not supported in this release|NOT_READY|"error"' "$file" && return 1
+          # A GAP is a HARD FAILURE on Neptune where Aura is fine — a crash,
+          # a dialect error, or a serve-state failure. NOT a data-richness
+          # difference: the two tenants differ (rich alon-prod vs minimal
+          # testbed-webshop), so "Aura has rows, Neptune is empty" is
+          # EXPECTED and must not be called a gap — that would push us to
+          # fabricate data to make a small tenant look like a big one.
+          #
+          # errored = the endpoint failed to serve: non-200, or a body
+          # carrying a hard backend-error signature (dialect crash, stack
+          # trace, unfilled serve state). Note: no bare "error" — payloads
+          # legitimately contain fields like "error_paths":[] / "error":null.
+          errored() {
+            local file="$1" http="$2"
+            [ "$http" = "200" ] || return 0
+            grep -qiE 'Type mismatch|MalformedQueryException|not supported in this release|Traceback|bmap not initialized|Internal Server Error|"detail":"[^"]*(failed|error)|NOT_READY|"serve_state":"NOT_READY"' "$file" && return 0
+            return 1
+          }
+          # thin = well-formed but empty. Informational only — usually just
+          # the smaller tenant having fewer resources, never a gap by itself.
+          thin() {
+            local file="$1" bytes="$2"
+            [ "${bytes:-0}" -lt 25 ] && return 0
             local trimmed
             trimmed="$(tr -d ' \n\r\t' < "$file")"
-            case "$trimmed" in ""|"[]"|"{}"|"null") return 1;; esac
-            return 0
+            case "$trimmed" in ""|"[]"|"{}"|"null") return 0;; esac
+            # A payload that is all-empty collections (crown_jewels:[],paths:[])
+            # is thin too, but we can't parse JSON portably here; leave that
+            # nuance to the eye. Bytes + trivial-shape covers the clear cases.
+            return 1
           }
 
           check() {
@@ -97,23 +115,29 @@ jobs:
             local name="$1" apath="$2" npath="$3"
             fetch "$AURA_BASE" "$apath"; local ah="$HTTP" af="$FILE" ab="$BYTES"
             fetch "$NEP_BASE" "$npath"; local nh="$HTTP" nf="$FILE" nb="$BYTES"
-            local aok=1 nok=1
-            healthy "$af" "$ah" "$ab" || aok=0
-            healthy "$nf" "$nh" "$nb" || nok=0
-            local averd="${ah}" nverd="${nh}"
-            [ "$aok" = 1 ] && averd="${ah}✓" || averd="${ah}✗"
-            [ "$nok" = 1 ] && nverd="${nh}✓" || nverd="${nh}✗"
+            local aerr=0 nerr=0 athin=0 nthin=0
+            errored "$af" "$ah" && aerr=1
+            errored "$nf" "$nh" && nerr=1
+            thin "$af" "$ab" && athin=1
+            thin "$nf" "$nb" && nthin=1
+            local averd nverd
+            if [ "$aerr" = 1 ]; then averd="${ah}✗"; elif [ "$athin" = 1 ]; then averd="${ah}∅"; else averd="${ah}✓"; fi
+            if [ "$nerr" = 1 ]; then nverd="${nh}✗"; elif [ "$nthin" = 1 ]; then nverd="${nh}∅"; else nverd="${nh}✓"; fi
             local verdict detail
-            if [ "$aok" = 1 ] && [ "$nok" = 0 ]; then
+            if [ "$aerr" = 0 ] && [ "$nerr" = 1 ]; then
+              # Aura serves, Neptune hard-fails → the real, actionable gap.
               verdict="C1 GAP"; gaps=$((gaps+1))
               detail="$(head -c 160 "$nf" | tr '\n' ' ' | tr -d '|')"
               echo "GAP   ${name}  aura=${ah} neptune=${nh}  :: ${detail}"
-            elif [ "$aok" = 1 ] && [ "$nok" = 1 ]; then
-              verdict="parity"; parity=$((parity+1))
-              detail="both serve (${ab}b / ${nb}b)"
+            elif [ "$aerr" = 1 ]; then
+              verdict="n/a (aura)"; other=$((other+1))
+            elif [ "$athin" = 0 ] && [ "$nthin" = 1 ]; then
+              # Aura populated, Neptune well-formed but empty → tenant-data
+              # difference, not a gap. Flagged for the eye, never failed.
+              verdict="thin"; other=$((other+1))
+              echo "THIN  ${name}  neptune empty vs aura ${ab}b — tenant-data difference (not a gap)"
             else
-              verdict="n/a"; other=$((other+1))
-              detail="aura ${ah}(${ab}b) — endpoint absent on Aura or both down"
+              verdict="parity"; parity=$((parity+1))
             fi
             echo "| ${name} | ${averd} | ${nverd} | ${verdict} |" >> summary.md
           }
@@ -137,7 +161,7 @@ jobs:
           check "business-systems"    "/api/business-systems"                     "/api/business-systems"
 
           echo "" >> summary.md
-          echo "**${parity} parity · ${gaps} C1 gap · ${other} n/a** — a C1 GAP is an endpoint that serves real data on Aura but errors/empties on Neptune." >> summary.md
+          echo "**${parity} parity · ${gaps} C1 gap · ${other} thin/na** — ✓ serves · ∅ empty · ✗ errored. A **C1 GAP** = Aura serves but Neptune hard-fails (dialect crash / serve-state failure). \`thin\` = Neptune well-formed but empty vs a populated Aura — a tenant-data difference, not a gap." >> summary.md
           echo
           echo "== ${parity} parity, ${gaps} C1 gap, ${other} n/a =="
           echo "GAPS=${gaps}" >> "$GITHUB_ENV"
