@@ -1,0 +1,200 @@
+# Browser QA walk of every C1 tab — Playwright on a GitHub-hosted runner.
+#
+# The driving sandbox can reach neither the Vercel app nor the Render
+# backend, so CI is the browser. Auth: middleware.ts admits any request
+# carrying the constant cookie cyntro_auth=authenticated (the login route
+# only gates SETTING that cookie), so the walker needs no secret.
+#
+# Per page it records: document HTTP status, console errors, page errors,
+# tenant-leak marker ("alon-prod" anywhere in the rendered text), obvious
+# error banners, and a blank-page heuristic — plus a full-page screenshot
+# uploaded as a run artifact. Read-only: no clicks on mutating controls.
+name: ops-c1-ui-qa-walk
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: "Frontend base URL to walk"
+        required: true
+        default: "https://cyntro-c1.vercel.app"
+      pr_number:
+        description: "PR in THIS repo to comment results on (empty = no comment)"
+        required: false
+        default: "668"
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  walk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      BASE_URL: ${{ inputs.base_url }}
+    steps:
+      - name: Install Playwright
+        run: |
+          set -euo pipefail
+          npm init -y >/dev/null 2>&1
+          npm install --no-save playwright >/dev/null 2>&1
+          npx playwright install --with-deps chromium >/dev/null 2>&1
+          echo "playwright ready"
+
+      - name: Walk every tab
+        run: |
+          set -euo pipefail
+          mkdir -p shots
+          cat > walk.js <<'EOF'
+          const { chromium } = require("playwright");
+          const fs = require("fs");
+
+          const BASE = process.env.BASE_URL.replace(/\/$/, "");
+          const HOST = new URL(BASE).hostname;
+
+          // The tab matrix = exactly what components/left-sidebar-nav.tsx
+          // renders today, in sidebar order. Skipped on purpose:
+          // identities (commented out of the sidebar pending backend fix)
+          // and /design/topology-v0.2.html (static mockup whose fixture
+          // data would false-trip the tenant-leak check).
+          const PAGES = [
+            ["home",              "/"],
+            ["copilot",           "/?section=copilot"],
+            ["issues",            "/?section=issues"],
+            ["least-privilege",   "/?section=least-privilege"],
+            ["attack-paths",      "/?section=attack-paths"],
+            ["business-impact",   "/?section=business-impact"],
+            ["attack-paths-v2",   "/attack-paths-v2"],
+            ["business-systems",  "/business-systems"],
+            ["vulnerabilities",   "/?section=vulnerabilities"],
+            ["systems",           "/?section=systems"],
+            ["compliance",        "/?section=compliance"],
+            ["per-resource",      "/?section=per-resource"],
+            ["shared-resources",  "/shared-resources"],
+            ["dependency-map",    "/dependency-map"],
+            ["network-lp",        "/network-lp"],
+            ["pending-tags",      "/pending-tags"],
+            ["orphan-resources",  "/orphan-resources"],
+            ["automation",        "/?section=automation"],
+            ["integrations",      "/?section=integrations"],
+            ["topology-estate",   "/topology/v0.2-estate"],
+            ["settings-accounts", "/settings/accounts"],
+          ];
+
+          // No bare "500" here: counts like "500 resources" would
+          // false-positive. Next's own 500 page says "Internal Server
+          // Error", which is covered.
+          const ERROR_MARKERS = [
+            "Internal Server Error",
+            "Application error",
+            "Something went wrong",
+            "Unhandled Runtime Error",
+          ];
+
+          (async () => {
+            const browser = await chromium.launch();
+            const ctx = await browser.newContext({
+              viewport: { width: 1440, height: 900 },
+            });
+            await ctx.addCookies([{
+              name: "cyntro_auth", value: "authenticated",
+              domain: HOST, path: "/",
+              httpOnly: true, secure: true, sameSite: "Lax",
+            }]);
+
+            const rows = [];
+            for (const [name, path] of PAGES) {
+              const page = await ctx.newPage();
+              const consoleErrors = [];
+              page.on("console", m => {
+                if (m.type() === "error") consoleErrors.push(m.text().slice(0, 160));
+              });
+              page.on("pageerror", e => consoleErrors.push(String(e).slice(0, 160)));
+
+              let status = 0, verdict = "PASS", notes = [];
+              try {
+                const resp = await page.goto(BASE + path, {
+                  waitUntil: "domcontentloaded", timeout: 60000,
+                });
+                status = resp ? resp.status() : 0;
+                // let data fetches land
+                await page.waitForTimeout(9000);
+                const text = (await page.evaluate(
+                  () => document.body ? document.body.innerText : ""
+                )) || "";
+
+                if (status >= 400) { verdict = "FAIL"; notes.push(`HTTP ${status}`); }
+                if (page.url().includes("/login")) {
+                  verdict = "FAIL"; notes.push("bounced to /login");
+                }
+                if (/alon-prod/i.test(text)) {
+                  verdict = "FAIL"; notes.push("TENANT LEAK: alon-prod rendered");
+                }
+                for (const marker of ERROR_MARKERS) {
+                  if (text.includes(marker)) {
+                    verdict = "WARN"; notes.push(`marker: ${marker}`); break;
+                  }
+                }
+                if (text.trim().length < 40) {
+                  verdict = verdict === "PASS" ? "WARN" : verdict;
+                  notes.push(`near-blank (${text.trim().length} chars)`);
+                }
+                const realErrors = consoleErrors.filter(e =>
+                  !/favicon|net::ERR_ABORTED|third-party cookie/i.test(e));
+                if (realErrors.length) {
+                  if (verdict === "PASS") verdict = "WARN";
+                  notes.push(`${realErrors.length} console error(s): ${realErrors[0]}`);
+                }
+              } catch (e) {
+                verdict = "FAIL"; notes.push(String(e).slice(0, 140));
+              }
+              try {
+                await page.screenshot({ path: `shots/${name}.png`, fullPage: true });
+              } catch (e) { notes.push("screenshot failed"); }
+              rows.push({ name, path, status, verdict, notes: notes.join("; ") || "-" });
+              console.log(`${rows.at(-1).verdict.padEnd(4)} ${name.padEnd(18)} HTTP ${status}  ${rows.at(-1).notes}`);
+              await page.close();
+            }
+            await browser.close();
+
+            const fails = rows.filter(r => r.verdict === "FAIL").length;
+            const warns = rows.filter(r => r.verdict === "WARN").length;
+            let md = `## C1 UI QA walk — ${BASE}\n\n| tab | result | http | notes |\n|---|---|---|---|\n`;
+            for (const r of rows) {
+              md += `| ${r.name} | ${r.verdict} | ${r.status} | ${r.notes.replace(/\|/g, "\\|")} |\n`;
+            }
+            md += `\n**${rows.length - fails - warns} pass, ${warns} warn, ${fails} fail** — screenshots in the run's artifacts.\n`;
+            fs.writeFileSync("summary.md", md);
+            fs.writeFileSync("fails.txt", String(fails));
+          })();
+          EOF
+          node walk.js
+
+      - name: Upload screenshots
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: c1-ui-qa-screenshots
+          path: shots/
+          retention-days: 14
+
+      - name: Comment results on PR
+        if: inputs.pr_number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" \
+            -f body="$(cat summary.md)
+
+          ---
+          _Generated by [Claude Code](https://claude.ai/code)_"
+
+      - name: Verdict
+        run: |
+          set -euo pipefail
+          fails="$(cat fails.txt)"
+          [ "$fails" = "0" ] || { echo "::error::${fails} tabs failed"; exit 1; }
