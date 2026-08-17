@@ -1,0 +1,169 @@
+# Aura ↔ Neptune capability parity sweep.
+#
+# Probes the SAME read-endpoint matrix on two backends — cyntro.io's Aura
+# (Neo4j) backend and the C1 Neptune backend — and flags every endpoint
+# that works on Aura but 500s / errors / comes back empty on Neptune.
+# Those are the remaining C1 dialect/serve gaps to close. Data differs
+# between the tenants (alon-prod vs testbed-webshop) so this compares
+# CAPABILITY (does the endpoint serve real data), not values.
+#
+# Every request is a GET against public read endpoints; no auth, no
+# mutation. Read-only against production Aura — safe.
+name: ops-c1-parity-sweep
+
+on:
+  workflow_dispatch:
+    inputs:
+      aura_base:
+        description: "Aura (cyntro.io) backend base URL"
+        required: true
+        default: "https://saferemediate-backend-f.onrender.com"
+      aura_system:
+        description: "System name that exists in the Aura tenant"
+        required: true
+        default: "alon-prod"
+      neptune_base:
+        description: "C1 Neptune backend base URL"
+        required: true
+        default: "https://cyntro-c1.onrender.com"
+      neptune_system:
+        description: "System name that exists in the Neptune tenant"
+        required: true
+        default: "testbed-webshop"
+      pr_number:
+        description: "PR in THIS repo to comment results on (empty = no comment)"
+        required: false
+        default: "668"
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      AURA_BASE: ${{ inputs.aura_base }}
+      AURA_SYS: ${{ inputs.aura_system }}
+      NEP_BASE: ${{ inputs.neptune_base }}
+      NEP_SYS: ${{ inputs.neptune_system }}
+    steps:
+      - name: Probe both backends
+        run: |
+          set -uo pipefail
+          gaps=0; parity=0; other=0
+          : > summary.md
+          echo "## C1 parity sweep — Aura vs Neptune" >> summary.md
+          echo "" >> summary.md
+          echo "Aura: \`${AURA_BASE}\` (sys \`${AURA_SYS}\`) · Neptune: \`${NEP_BASE}\` (sys \`${NEP_SYS}\`)" >> summary.md
+          echo "" >> summary.md
+          echo "| endpoint | aura | neptune | verdict |" >> summary.md
+          echo "|---|---|---|---|" >> summary.md
+
+          # Wake both cold Render workers first (ignore result).
+          curl -sS --max-time 90 -o /dev/null "${AURA_BASE}/health" || true
+          curl -sS --max-time 90 -o /dev/null "${NEP_BASE}/health" || true
+
+          # Fetch one URL: sets HTTP + FILE. Retries once on a 5xx/000 to
+          # ride out a cold-worker hang (the real symptom, not the signal).
+          fetch() {
+            local base="$1" path="$2"
+            FILE="$(mktemp)"
+            HTTP="$(curl -sS --max-time 90 -o "$FILE" -w '%{http_code}' "${base}${path}" || echo 000)"
+            case "$HTTP" in
+              000|5*)
+                sleep 2
+                HTTP="$(curl -sS --max-time 90 -o "$FILE" -w '%{http_code}' "${base}${path}" || echo 000)" ;;
+            esac
+            BYTES="$(wc -c < "$FILE" | tr -d ' ')"
+          }
+
+          # Is this response a real, healthy payload? 200, sized, and free
+          # of the known error/empty shapes that a broken serve returns 200 with.
+          healthy() {
+            local file="$1" http="$2" bytes="$3"
+            [ "$http" = "200" ] || return 1
+            [ "${bytes:-0}" -ge 25 ] || return 1
+            grep -qiE 'Type mismatch|unhealthy: |Traceback|bmap not initialized|Internal Server Error|"detail":|not supported in this release|NOT_READY|"error"' "$file" && return 1
+            local trimmed
+            trimmed="$(tr -d ' \n\r\t' < "$file")"
+            case "$trimmed" in ""|"[]"|"{}"|"null") return 1;; esac
+            return 0
+          }
+
+          check() {
+            # check <name> <aura_path> <neptune_path>
+            local name="$1" apath="$2" npath="$3"
+            fetch "$AURA_BASE" "$apath"; local ah="$HTTP" af="$FILE" ab="$BYTES"
+            fetch "$NEP_BASE" "$npath"; local nh="$HTTP" nf="$FILE" nb="$BYTES"
+            local aok=1 nok=1
+            healthy "$af" "$ah" "$ab" || aok=0
+            healthy "$nf" "$nh" "$nb" || nok=0
+            local averd="${ah}" nverd="${nh}"
+            [ "$aok" = 1 ] && averd="${ah}✓" || averd="${ah}✗"
+            [ "$nok" = 1 ] && nverd="${nh}✓" || nverd="${nh}✗"
+            local verdict detail
+            if [ "$aok" = 1 ] && [ "$nok" = 0 ]; then
+              verdict="C1 GAP"; gaps=$((gaps+1))
+              detail="$(head -c 160 "$nf" | tr '\n' ' ' | tr -d '|')"
+              echo "GAP   ${name}  aura=${ah} neptune=${nh}  :: ${detail}"
+            elif [ "$aok" = 1 ] && [ "$nok" = 1 ]; then
+              verdict="parity"; parity=$((parity+1))
+              detail="both serve (${ab}b / ${nb}b)"
+            else
+              verdict="n/a"; other=$((other+1))
+              detail="aura ${ah}(${ab}b) — endpoint absent on Aura or both down"
+            fi
+            echo "| ${name} | ${averd} | ${nverd} | ${verdict} |" >> summary.md
+          }
+
+          A="$AURA_SYS"; N="$NEP_SYS"
+          check "health"              "/health"                                   "/health"
+          check "systems"             "/api/systems"                              "/api/systems"
+          check "iap-all"             "/api/identity-attack-paths/all"            "/api/identity-attack-paths/all"
+          check "iap-system"          "/api/identity-attack-paths/${A}"           "/api/identity-attack-paths/${N}"
+          check "iap-jewels"          "/api/identity-attack-paths/${A}/jewels"    "/api/identity-attack-paths/${N}/jewels"
+          check "shared-roles"        "/api/iam/shared-roles"                     "/api/iam/shared-roles"
+          check "decision-coverage"   "/api/decision-coverage/system/${A}"        "/api/decision-coverage/system/${N}"
+          check "blast-radius"        "/api/business-system/${A}/blast-radius"    "/api/business-system/${N}/blast-radius"
+          check "topology-risk"       "/api/topology-risk/${A}"                   "/api/topology-risk/${N}"
+          check "orphan-sg"           "/api/security-groups/orphan-detection"     "/api/security-groups/orphan-detection"
+          check "orphan-s3"           "/api/s3-buckets/orphan-detection"          "/api/s3-buckets/orphan-detection"
+          check "orphan-iam-role"     "/api/iam-roles/orphan-detection"           "/api/iam-roles/orphan-detection"
+          check "orphan-iam-policy"   "/api/iam-policies/orphan-detection"        "/api/iam-policies/orphan-detection"
+          check "dep-map"             "/api/dependency-map/full"                  "/api/dependency-map/full"
+          check "identities"          "/api/identities/overview"                  "/api/identities/overview"
+          check "business-systems"    "/api/business-systems"                     "/api/business-systems"
+
+          echo "" >> summary.md
+          echo "**${parity} parity · ${gaps} C1 gap · ${other} n/a** — a C1 GAP is an endpoint that serves real data on Aura but errors/empties on Neptune." >> summary.md
+          echo
+          echo "== ${parity} parity, ${gaps} C1 gap, ${other} n/a =="
+          echo "GAPS=${gaps}" >> "$GITHUB_ENV"
+
+      - name: Comment results on PR
+        if: inputs.pr_number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          body="$(cat summary.md)
+
+          ---
+          _Generated by [Claude Code](https://claude.ai/code)_"
+          for i in 1 2 3 4; do
+            if gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" -f body="$body"; then
+              exit 0
+            fi
+            echo "comment attempt ${i} failed; retrying in $((i*5))s"
+            sleep $((i*5))
+          done
+          echo "::warning::results comment could not be posted after 4 attempts"
+
+      - name: Verdict
+        run: |
+          set -euo pipefail
+          [ "${GAPS}" = "0" ] || { echo "::warning::${GAPS} C1 capability gaps vs Aura"; }
