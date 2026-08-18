@@ -579,7 +579,7 @@ export function Zoom0FanInPanel({
                 if (cardinality) {
                   return (
                     <>
-                      Neo4j paths to{" "}
+                      Graph paths to{" "}
                       <span className="font-mono text-foreground">{jewel.name}</span>
                       {" "}
                       — {zoom0CardinalityLine(cardinality, fanInDrawability)}.
@@ -608,7 +608,7 @@ export function Zoom0FanInPanel({
                     : ""
                 return (
                   <>
-                    Neo4j paths to{" "}
+                    Graph paths to{" "}
                     <span className="font-mono text-foreground">{jewel.name}</span>
                     {" "}({drawn} drawn
                     {inSystem != null ? ` · ${inSystem} in-system` : ""}

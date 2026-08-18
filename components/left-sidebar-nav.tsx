@@ -14,12 +14,11 @@ interface LeftSidebarNavProps {
   pendingTagsCount?: number
 }
 
-/** Live narrowing-available count across both shared-resource endpoints.
- *  Per docs/shared-resources-real-data-wiring.md §4 (backend repo):
- *  N = SUM(headline_state === "narrowing_available") across
- *  /api/iam/shared-roles + /api/sg/shared-sgs. Renders 4 today on
- *  alon-prod (3 IAM + 1 SG, empirically verified 2026-06-01). Honest
- *  small number per the spec's substrate-honesty contract. */
+/** Live shared-control count across both shared-resource endpoints.
+ *  The badge is the entry point to an inventory page, so it must match the
+ *  page's "All shared" total (IAM roles + Security Groups). Counting only
+ *  ``narrowing_available`` controls made a healthy tenant with 2 roles and
+ *  3 shared SGs look as if the SG collector had returned nothing. */
 /** Resolve the active system without pinning an environment: the URL's
  *  ?system= param when present, else the first system from /api/systems.
  *  Null = unknown (callers skip their fetch and render without a count). */
@@ -37,7 +36,7 @@ async function resolveActiveSystem(): Promise<string | null> {
   }
 }
 
-function useSharedResourcesActionableCount(): number | null {
+function useSharedResourcesCount(): number | null {
   const [count, setCount] = useState<number | null>(null)
   useEffect(() => {
     let cancelled = false
@@ -53,17 +52,11 @@ function useSharedResourcesActionableCount(): number | null {
         if (cancelled) return
         const iamJson = iamRes.ok ? await iamRes.json() : {}
         const sgJson = sgRes.ok ? await sgRes.json() : {}
-        const iamRows: Array<{ headline_state?: string }> =
+        const iamRows: Array<Record<string, unknown>> =
           iamJson.shared_roles ?? iamJson.roles ?? []
-        const sgRows: Array<{ narrowing?: { headline_state?: string } }> =
+        const sgRows: Array<Record<string, unknown>> =
           sgJson.shared_sgs ?? sgJson.sgs ?? []
-        const iamNarrowable = iamRows.filter(
-          (r) => r.headline_state === "narrowing_available",
-        ).length
-        const sgNarrowable = sgRows.filter(
-          (r) => r.narrowing?.headline_state === "narrowing_available",
-        ).length
-        if (!cancelled) setCount(iamNarrowable + sgNarrowable)
+        if (!cancelled) setCount(iamRows.length + sgRows.length)
       } catch {
         // Honest fallback per pattern_no_phantom_capabilities_in_ui —
         // don't fabricate a count if the endpoints fail; leave null,
@@ -84,7 +77,7 @@ export function LeftSidebarNav({
   issuesCount = 0,
   pendingTagsCount = 0,
 }: LeftSidebarNavProps) {
-  const sharedResourcesCount = useSharedResourcesActionableCount()
+  const sharedResourcesCount = useSharedResourcesCount()
   // Every item now renders as a real Next.js <Link>. URL is the source of
   // truth for which section is active — that fixes:
   //   - Cmd/Ctrl-click → "Open in new tab" works (was broken: items were buttons)
