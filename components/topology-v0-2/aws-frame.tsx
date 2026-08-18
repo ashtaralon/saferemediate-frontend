@@ -59,6 +59,7 @@ import {
   FLOW_ALERT_COLOR,
   FLOW_COLOR_BY_CLASS,
   FLOW_LEGEND_ITEMS,
+  shouldAnimateTrafficFlow,
 } from "./flow-visuals"
 import {
   ALB_HEADER_TYPES,
@@ -2219,8 +2220,11 @@ function EncodingLegend() {
 interface FlowPath {
   d: string
   cls: TrafficEdgeClass
+  sourceId: string
+  targetId: string
   protocol: string | null
   port: number | null
+  lastSeen: string | null
   externalDestinations: number | null
   badgeX: number
   badgeY: number
@@ -2466,7 +2470,7 @@ function FlowLegend({ compact = false }: { compact?: boolean }) {
             }}
           />
         </span>
-        Moving = authoritative observed
+        Moving = observed traffic direction
         <style>{`
           @keyframes topology-flow-legend {
             from { transform: translateX(0); }
@@ -2818,8 +2822,11 @@ function FlowOverlay({
         next.push({
           d,
           cls,
+          sourceId: e.source_id,
+          targetId: e.target_id,
           protocol: e.protocol,
           port: e.port,
+          lastSeen: e.last_seen,
           externalDestinations: e.external_destinations ?? null,
           badgeX: badge.x,
           badgeY: badge.y - 6,
@@ -3031,10 +3038,6 @@ function FlowOverlay({
         const dependencyFocusActive = flowMode === "all_access" && selectedNodeId != null
         const focusedDependency = dependencyFocusActive && p.focused
         const dimmed = dependencyFocusActive && !p.focused
-        const authoritativeObserved =
-          p.evidenceType === "observed" &&
-          p.authorityState === "authoritative" &&
-          (p.pathBasis === "observed_segment" || p.pathBasis === "correlated_trace")
         const inferredOrUnverified =
           p.authorityState === "legacy_unverified" ||
           p.authorityState === "inferred" ||
@@ -3043,7 +3046,14 @@ function FlowOverlay({
         const animateFlow =
           flowMode !== "architecture" &&
           !dimmed &&
-          authoritativeObserved
+          shouldAnimateTrafficFlow({
+            authority_state: p.authorityState,
+            edge_class: p.cls,
+            evidence_type: p.evidenceType,
+            last_seen: p.lastSeen,
+            path_basis: p.pathBasis,
+            protocol: p.protocol,
+          })
         return (
         <g key={i}>
           {/* Soft halo behind the line so it's visible over the busy chip grid */}
@@ -3116,6 +3126,9 @@ function FlowOverlay({
               <g
                 data-testid="topology-flow-packet"
                 data-flow-focused={focusedDependency ? "true" : "false"}
+                data-flow-source={p.sourceId}
+                data-flow-target={p.targetId}
+                data-flow-direction={`${p.sourceId}->${p.targetId}`}
               >
                 <circle
                   r={focusedDependency ? 7 : 5.5}
@@ -4742,19 +4755,19 @@ export function AwsFrame({
         </div>
       ) : null}
       {flowMode !== "architecture" ? <FlowLegend compact={presentationMode} /> : null}
-      {flowMode === "all_access" && trafficAuthority?.state !== "authoritative" ? (
+      {flowMode === "all_access" && trafficAuthority && trafficAuthority.state !== "authoritative" ? (
         <div
           className="flex items-center justify-between gap-3 border-b px-2 py-1.5 text-[10px]"
           style={{ borderColor: "#FCD34D", background: "#FFFBEB", color: "#92400E" }}
           data-testid="topology-traffic-authority-state"
         >
           <span className="font-semibold">
-            {trafficAuthority?.state === "legacy_unverified"
+            {trafficAuthority.state === "legacy_unverified"
               ? "Traffic evidence not yet authoritative"
               : "Rebuilding traffic evidence"}
           </span>
           <span className="truncate">
-            {trafficAuthority?.limitation ?? "Only generation-backed observed segments animate."}
+            {trafficAuthority.limitation ?? "Observed traffic moves; configured and inferred relationships stay static."}
           </span>
         </div>
       ) : null}
