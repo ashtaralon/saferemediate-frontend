@@ -54,6 +54,19 @@ export interface PreviewNeed {
   action: string
 }
 
+export function safetyHoldReasons(
+  safety: Pick<SimulateFixSafety, "unsafe_reasons"> | null | undefined,
+): string[] {
+  const seen = new Set<string>()
+  return (safety?.unsafe_reasons ?? [])
+    .map((reason) => reason.trim())
+    .filter((reason) => {
+      if (!reason || seen.has(reason)) return false
+      seen.add(reason)
+      return true
+    })
+}
+
 const PLANE_COPY: Record<string, Omit<PreviewNeed, "id">> = {
   cloudtrail: {
     label: "CloudTrail activity history",
