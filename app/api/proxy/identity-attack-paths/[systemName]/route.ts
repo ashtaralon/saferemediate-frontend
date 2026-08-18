@@ -75,7 +75,10 @@ export async function GET(
   // invalidates every Vercel edge-cached payload + every in-memory
   // per-instance cache atomically on deploy.
   // 2026-07-13:poison — never cache Wave D computing envelopes (empty maps).
-  const SCHEMA_VERSION = "2026-07-13:poison-bypass"
+  // 2026-08-18: backend now rolls action-granular ACCESSES_RESOURCE edges
+  // into one behavioral interaction and includes service-transport evidence.
+  // Never serve a cached single-action count after that contract ships.
+  const SCHEMA_VERSION = "2026-08-18:behavioral-access-rollup-v2"
   const cacheKey = [
     "identity-attack-paths",
     SCHEMA_VERSION,
