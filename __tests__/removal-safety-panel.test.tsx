@@ -9,6 +9,7 @@ import {
   IamRemediationAvailability,
   RemovalSafetyPanel,
   resolveDefaultPermissionSelection,
+  selectionMatchesSignedIamPlan,
   shouldOfferIamSimulation,
   type RemovalSafetyBundle,
 } from "@/components/iam-permission-analysis-modal"
@@ -37,6 +38,20 @@ describe("IAM apply selection", () => {
     expect(hasExecutableIamSelection(0, true, true)).toBe(false)
     expect(hasExecutableIamSelection(0, true, false)).toBe(true)
     expect(hasExecutableIamSelection(0, false, false)).toBe(false)
+  })
+
+  it("requires the exact permission set bound by a signed plan", () => {
+    expect(selectionMatchesSignedIamPlan(
+      ["s3:GetObject", "kms:Decrypt"],
+      ["kms:Decrypt", "s3:GetObject"],
+      "signed-plan",
+    )).toBe(true)
+    expect(selectionMatchesSignedIamPlan(
+      ["s3:GetObject"],
+      ["s3:GetObject", "kms:Decrypt"],
+      "signed-plan",
+    )).toBe(false)
+    expect(selectionMatchesSignedIamPlan(["s3:GetObject"], ["s3:GetObject"], null)).toBe(false)
   })
 })
 
