@@ -4,6 +4,7 @@ import {
   automationReadiness,
   previewEvidenceNeeds,
   previewPermissionCounts,
+  safetyHoldReasons,
   simulationPlanCounts,
 } from '@/lib/resource-risk-preview-summary'
 import type { SimulateFixSafety } from '@/lib/types'
@@ -105,5 +106,19 @@ describe('Resource Risk Preview plain-language summary', () => {
       'This environment is preview-only',
     ])
     expect(needs[0].action).toContain('split the role')
+  })
+
+  it('preserves every distinct backend safety hold for the operator', () => {
+    expect(safetyHoldReasons({
+      unsafe_reasons: [
+        'Incomplete evidence — not all telemetry planes active',
+        'Role is managed by terraform; remediate the infrastructure-as-code source to avoid configuration drift.',
+        'Incomplete evidence — not all telemetry planes active',
+        '  ',
+      ],
+    })).toEqual([
+      'Incomplete evidence — not all telemetry planes active',
+      'Role is managed by terraform; remediate the infrastructure-as-code source to avoid configuration drift.',
+    ])
   })
 })

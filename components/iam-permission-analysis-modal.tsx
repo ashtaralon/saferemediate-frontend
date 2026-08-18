@@ -33,6 +33,7 @@ import {
   automationReadiness,
   previewEvidenceNeeds,
   previewPermissionCounts,
+  safetyHoldReasons,
   simulationPlanCounts,
 } from "@/lib/resource-risk-preview-summary"
 import { AdvancedDrawer } from "@/components/iam-lp/AdvancedDrawer"
@@ -2659,6 +2660,7 @@ export function IAMPermissionAnalysisModal({
 
     const readiness = automationReadiness(safetyContext.decision_canonical)
     const needs = previewEvidenceNeeds(safetyContext)
+    const holdReasons = safetyHoldReasons(safetyContext)
     const readinessStyle = {
       ready: { border: '#bbf7d0', bg: '#f0fdf4', color: '#166534', Icon: CheckCircle },
       review: { border: '#fde68a', bg: '#fffbeb', color: '#92400e', Icon: AlertTriangle },
@@ -2683,6 +2685,17 @@ export function IAMPermissionAnalysisModal({
               </span>
             </div>
             <h3 className="mt-1 text-lg font-bold" style={{ color: readinessStyle.color }}>{readiness.headline}</h3>
+
+            {holdReasons.length > 0 && (
+              <ul className="mt-2 space-y-1 text-sm" style={{ color: readinessStyle.color }} data-testid="change-status-reasons">
+                {holdReasons.map((reason) => (
+                  <li key={reason} className="flex items-start gap-2">
+                    <span aria-hidden="true">•</span>
+                    <span>{reason}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
 
             {needs.length === 0 ? (
               <p className="mt-1 text-sm" style={{ color: readinessStyle.color }}>{readiness.detail}</p>
@@ -4328,31 +4341,22 @@ export function IAMPermissionAnalysisModal({
           )}
 
           {analysisTab === 'summary' && !safetyLoading && iamLpGap && (
-            <div className="space-y-3">
-              {removalSafety && <RemovalSafetyPanel bundle={removalSafety} />}
-              {removalSafety && (
-                <IamRemediationAvailability
-                  bundle={removalSafety}
-                  applyDisabled={applyDisabled}
-                />
-              )}
-              {!removalSafety && (
-                <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-950">
-                  <p className="font-semibold">Removal safety is temporarily unavailable</p>
-                  <p className="mt-1 text-sm">
-                    Cyntro will not recommend or enable a permission change until the verified
-                    permission snapshot loads.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => { void fetchSafetyContext() }}
-                    className="mt-3 rounded-md border border-amber-400 bg-white px-3 py-1.5 text-sm font-medium hover:bg-amber-100"
-                  >
-                    Retry verified snapshot
-                  </button>
-                </div>
-              )}
-            </div>
+            safetyContext ? renderSimpleDecisionSummary() : (
+              <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-950">
+                <p className="font-semibold">Removal safety is temporarily unavailable</p>
+                <p className="mt-1 text-sm">
+                  Cyntro will not recommend or enable a permission change until the verified
+                  permission snapshot loads.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => { void fetchSafetyContext() }}
+                  className="mt-3 rounded-md border border-amber-400 bg-white px-3 py-1.5 text-sm font-medium hover:bg-amber-100"
+                >
+                  Retry verified snapshot
+                </button>
+              </div>
+            )
           )}
 
           {/* ── Pipeline Decision banner (Summary tab) ────────────────────
