@@ -771,6 +771,39 @@ function mapNodeType(type: string): NodeType {
   return 'network';
 }
 
+export function summarizeObservedVpcTraffic(edges: any[]): {
+  bytes: number;
+  connections: number;
+} {
+  return (edges ?? [])
+    .filter((edge) =>
+      String(edge?.edge_type || edge?.type || '').toUpperCase() === 'ACTUAL_TRAFFIC' &&
+      edge?.is_observed !== false,
+    )
+    .reduce(
+      (totals, edge) => ({
+        bytes:
+          totals.bytes +
+          Number(edge?.traffic_bytes ?? edge?.bytes_transferred ?? edge?.bytes ?? 0),
+        connections:
+          totals.connections +
+          Number(edge?.hit_count ?? edge?.connections ?? 1),
+      }),
+      { bytes: 0, connections: 0 },
+    );
+}
+
+function isObservedEgressTarget(type: string): boolean {
+  const value = String(type || '').toLowerCase();
+  return (
+    value.includes('natgateway') ||
+    value.includes('internetgateway') ||
+    value.includes('egressonly') ||
+    value.includes('transitgateway') ||
+    value.includes('networkendpoint')
+  );
+}
+
 // Pretty-print an AWS service endpoint name. Gateway endpoints carry the
 // canonical "com.amazonaws.<region>.<service>" form; Interface endpoints
 // the same. We want the "S3" / "DynamoDB" suffix as a compact chip label
@@ -9188,6 +9221,7 @@ export default function TrafficFlowMap({
     };
 
     const nodeMap = new Map(nodes.map(n => [n.id, n]));
+    const observedVpcTotals = summarizeObservedVpcTraffic(edges);
     const nodeByInstanceId = new Map<string, any>();
     const nodeByResourceName = new Map<string, any>();
 
@@ -9644,7 +9678,10 @@ export default function TrafficFlowMap({
       const sourceIsResource = ['rdsinstance', 'rds', 's3bucket', 's3', 'dynamodb'].includes(srcType);
       const targetIsResource = ['rdsinstance', 'rds', 's3bucket', 's3', 'dynamodb'].includes(tgtType);
 
-      if (targetIsCompute && sourceIsResource) {
+      // VPC Flow Logs often arrive from a NAT/endpoint ENI perspective, so
+      // return traffic can be stored gateway→EC2.  Normalize any observed
+      // edge with a compute endpoint to compute→peer for the canvas.
+      if (targetIsCompute && !sourceIsCompute) {
         [sourceNode, targetNode] = [targetNode, sourceNode];
       }
 
@@ -9652,9 +9689,13 @@ export default function TrafficFlowMap({
       const finalSrcType = (sourceNode.type || '').toLowerCase();
       const finalSourceIsCompute = finalSrcType === 'ec2' || finalSrcType === 'ec2instance' || finalSrcType === 'lambdafunction' || finalSrcType === 'lambda';
       const finalTargetType = mapNodeType(targetNode.type || 'unknown');
+      const finalTargetIsEgress = isObservedEgressTarget(targetNode.type || '');
 
       if (!finalSourceIsCompute) return;
-      if (!['database', 'storage', 'dynamodb', 'sqs', 'sns'].includes(finalTargetType)) return;
+      if (
+        !['database', 'storage', 'dynamodb', 'sqs', 'sns'].includes(finalTargetType) &&
+        !finalTargetIsEgress
+      ) return;
 
       const canonicalSrc = extractInstanceId(sourceNode.id);
       const flowKey = `${canonicalSrc}->${targetNode.id}`;
@@ -9663,7 +9704,9 @@ export default function TrafficFlowMap({
       resourcesWithTraffic.add(targetNode.id);
 
       if (!flowMap.has(flowKey)) {
-        const egress = pickEgressForCompute(canonicalSrc, finalTargetType);
+        const egress: { vpceId?: string; egressGatewayId?: string } = finalTargetIsEgress
+          ? { egressGatewayId: targetNode.id }
+          : pickEgressForCompute(canonicalSrc, finalTargetType);
         flowMap.set(flowKey, {
           sourceId: canonicalSrc,
           targetId: targetNode.id,
@@ -9687,8 +9730,8 @@ export default function TrafficFlowMap({
         usedPorts.add(String(edge.port));
       }
       flow.protocol = edge.protocol || 'TCP';
-      flow.bytes += edge.traffic_bytes || 0;
-      flow.connections += 1;
+      flow.bytes += Number(edge.traffic_bytes ?? edge.bytes_transferred ?? edge.bytes ?? 0);
+      flow.connections += Number(edge.hit_count ?? edge.connections ?? 1);
     });
 
     flowMap.forEach(flow => {
@@ -10110,8 +10153,12 @@ export default function TrafficFlowMap({
     }
 
     const flows = Array.from(flowMap.values());
-    const totalBytes = flows.reduce((sum, f) => sum + f.bytes, 0);
-    const totalConnections = flows.reduce((sum, f) => sum + f.connections, 0);
+    // Totals describe all observed VPC Flow Log evidence in the scoped
+    // response, including external endpoints that do not get their own card.
+    // Previously they were derived only from drawable compute→data-store
+    // flows, so a graph with 104 real ACTUAL_TRAFFIC edges rendered 0 B / 0.
+    const totalBytes = observedVpcTotals.bytes;
+    const totalConnections = observedVpcTotals.connections;
     const totalGaps = securityGroups.reduce((sum, sg) => sum + sg.gapCount, 0) +
                       nacls.reduce((sum, n) => sum + n.gapCount, 0) +
                       iamRoles.reduce((sum, r) => sum + r.gapCount, 0);
