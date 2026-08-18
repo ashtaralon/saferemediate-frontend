@@ -5,6 +5,7 @@ import {
   IAP_PROXY_DEFAULT_MAX_JEWELS,
   IAP_PROXY_DEFAULT_MAX_PATHS_PER_JEWEL,
 } from "@/lib/server/iap-proxy-query"
+import { IAP_BEHAVIORAL_CONTRACT_QUERY } from "@/lib/iap-contract"
 
 describe("buildIapIdentityAttackPathsQuery", () => {
   const j = IAP_PROXY_DEFAULT_MAX_JEWELS
@@ -20,9 +21,11 @@ describe("buildIapIdentityAttackPathsQuery", () => {
     const page = buildIapIdentityAttackPathsQuery({ envelope: true, enriched: true })
     const facade = buildIapIdentityAttackPathsQuery({ enriched: true })
     expect(page).toBe(
-      `?max_jewels=${j}&max_paths_per_jewel=${p}&envelope=true&enriched=true`,
+      `?max_jewels=${j}&max_paths_per_jewel=${p}&${IAP_BEHAVIORAL_CONTRACT_QUERY}&envelope=true&enriched=true`,
     )
-    expect(facade).toBe(`?max_jewels=${j}&max_paths_per_jewel=${p}&enriched=true`)
+    expect(facade).toBe(
+      `?max_jewels=${j}&max_paths_per_jewel=${p}&${IAP_BEHAVIORAL_CONTRACT_QUERY}&enriched=true`,
+    )
     // Same jewel count on both surfaces => same snapshot key (no cache miss).
     expect(facade).toContain(`max_jewels=${j}`)
     expect(page).toContain(`max_jewels=${j}`)

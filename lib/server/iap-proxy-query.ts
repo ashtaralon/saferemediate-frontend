@@ -1,3 +1,5 @@
+import { IAP_BEHAVIORAL_CONTRACT_QUERY } from "@/lib/iap-contract"
+
 /**
  * Shared IAP proxy query limits — must match across Next.js proxy routes so
  * backend Redis cache keys align (system:max_jewels:max_paths_per_jewel:…).
@@ -33,6 +35,7 @@ export function buildIapIdentityAttackPathsQuery(
   const parts = [
     `max_jewels=${maxJewels}`,
     `max_paths_per_jewel=${maxPathsPerJewel}`,
+    IAP_BEHAVIORAL_CONTRACT_QUERY,
   ]
   if (opts.envelope) parts.push("envelope=true")
   if (opts.enriched) parts.push("enriched=true")

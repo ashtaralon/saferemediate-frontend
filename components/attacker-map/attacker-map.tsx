@@ -3,6 +3,7 @@
 import React, { useMemo, useState, useCallback } from "react"
 import { Loader2, AlertTriangle, RefreshCw, Shield, ChevronLeft, ChevronRight, Target, Route, Workflow } from "lucide-react"
 import { useCachedFetch } from "@/lib/use-cached-fetch"
+import { IAP_BEHAVIORAL_CONTRACT_QUERY } from "@/lib/iap-contract"
 import { AttackerFlowCanvas } from "./attacker-flow-canvas"
 import { ThreePlaneRiskCard, ThreePlaneQuarantineCard, SshFlagCallout } from "./three-plane-cards"
 import { AllPathsGraph } from "./all-paths-graph"
@@ -173,10 +174,10 @@ export function AttackerMap({ systemName }: AttackerMapProps) {
 
   // Stale-while-revalidate fetch — see use-cached-fetch.ts for rationale.
   const fetchUrl = systemName
-    ? `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}?envelope=true`
+    ? `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}?envelope=true&${IAP_BEHAVIORAL_CONTRACT_QUERY}`
     : null
   const { data: rawData, loading, error, retry } = useCachedFetch<any>(fetchUrl, {
-    cacheKey: `attacker-map:${systemName}`,
+    cacheKey: `attacker-map:${IAP_BEHAVIORAL_CONTRACT_QUERY}:${systemName}`,
   })
 
   // Unwrap optional TrustEnvelope wrapper — same shape as the existing

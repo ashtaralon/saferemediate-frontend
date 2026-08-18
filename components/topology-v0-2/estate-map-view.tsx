@@ -8,6 +8,7 @@ import dynamic from "next/dynamic"
 import { Check, ChevronDown, ChevronUp, LoaderCircle, Maximize2, Minimize2, ZoomIn, ZoomOut, Scan, SlidersHorizontal } from "lucide-react"
 import { isTrustEnvelope } from "@/components/trust/trust-envelope-badge"
 import { clearCachedFetch, useCachedFetch } from "@/lib/use-cached-fetch"
+import { IAP_BEHAVIORAL_CONTRACT_QUERY } from "@/lib/iap-contract"
 import { HeadlineStrip } from "@/components/topology-v0-2/headline-strip"
 import { AwsFrame, dedupeLambdaServiceTwins, listTopologyAzs } from "@/components/topology-v0-2/aws-frame"
 import { CanvasPane } from "@/components/topology-v0-2/canvas-pane"
@@ -884,10 +885,10 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
   // the 30–55s cold IAP compute. Cap 5×5 to stay under the proxy abort.
   const iapUrl =
     flowMode === "attack_paths"
-      ? `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}?envelope=true&max_jewels=12&max_paths_per_jewel=8`
+      ? `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}?envelope=true&max_jewels=12&max_paths_per_jewel=8&${IAP_BEHAVIORAL_CONTRACT_QUERY}`
       : null
   const { data: rawIap } = useCachedFetch<unknown>(iapUrl, {
-    cacheKey: `estate-iap:5x5:${systemName}`,
+    cacheKey: `estate-iap:${IAP_BEHAVIORAL_CONTRACT_QUERY}:${systemName}`,
     maxStaleMs: 10 * 60 * 1000,
     fetchInit: { cache: "no-store" },
   })

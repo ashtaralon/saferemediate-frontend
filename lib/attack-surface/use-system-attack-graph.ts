@@ -4,6 +4,7 @@ import { useCallback, useMemo, useState } from "react"
 import type { CrownJewelSummary, IdentityAttackPath } from "@/components/identity-attack-paths/types"
 import type { TopologyResponse } from "@/components/attack-paths-v2/containment-model"
 import { useCachedFetch } from "@/lib/use-cached-fetch"
+import { IAP_BEHAVIORAL_CONTRACT_QUERY } from "@/lib/iap-contract"
 import { filterActivePaths } from "@/lib/active-filters"
 import { isTrustEnvelope } from "@/components/trust/trust-envelope-badge"
 import type { IdentityAttackPathsResponse } from "@/components/identity-attack-paths/types"
@@ -39,7 +40,7 @@ export function useSystemAttackGraph(
   const hasPreloaded = Boolean(options.jewels && options.paths)
   const iapUrl =
     !hasPreloaded && systemName
-      ? `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}?envelope=true`
+      ? `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}?envelope=true&${IAP_BEHAVIORAL_CONTRACT_QUERY}`
       : null
   const topoUrl = systemName
     ? `/api/proxy/topology-aws/${encodeURIComponent(systemName)}`
@@ -51,7 +52,7 @@ export function useSystemAttackGraph(
     error: iapError,
     retry: retryIap,
   } = useCachedFetch<any>(iapUrl, {
-    cacheKey: `system-graph-iap:${systemName ?? "none"}:${nonce}`,
+    cacheKey: `system-graph-iap:${IAP_BEHAVIORAL_CONTRACT_QUERY}:${systemName ?? "none"}:${nonce}`,
   })
 
   const {

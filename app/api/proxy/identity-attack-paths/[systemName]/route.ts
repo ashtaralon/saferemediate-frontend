@@ -8,6 +8,7 @@ import {
 import { getCached, getStaleCached, setCached, TTL_SLOW } from "@/lib/server/proxy-cache"
 import { isPoisonousProxyPayload } from "@/lib/server/proxy-cache-hygiene"
 import { SNAPSHOT_PROXY_TIMEOUT_MS } from "@/lib/server/snapshot-proxy"
+import { IAP_BEHAVIORAL_CONTRACT } from "@/lib/iap-contract"
 
 export const runtime = "nodejs"
 // Intentionally NOT `dynamic = "force-dynamic"` — that flag opts the
@@ -54,6 +55,8 @@ export async function GET(
   // — the path graph shape is unchanged. Default off so callers that
   // don't render the extra fields see the lighter payload.
   const enriched = searchParams.get("enriched") === "true"
+  const contract =
+    searchParams.get("contract") || IAP_BEHAVIORAL_CONTRACT
 
   // Server-side cache (5 min TTL — match the /all aggregator pattern).
   // Backend call costs 30–50s on alon-prod-scale systems; without a
@@ -78,7 +81,7 @@ export async function GET(
   // 2026-08-18: backend now rolls action-granular ACCESSES_RESOURCE edges
   // into one behavioral interaction and includes service-transport evidence.
   // Never serve a cached single-action count after that contract ships.
-  const SCHEMA_VERSION = "2026-08-18:behavioral-access-rollup-v2"
+  const SCHEMA_VERSION = `2026-08-18:${IAP_BEHAVIORAL_CONTRACT}`
   const cacheKey = [
     "identity-attack-paths",
     SCHEMA_VERSION,
@@ -89,6 +92,7 @@ export async function GET(
     includeStale,
     includeDeleted,
     enriched,
+    contract,
   ].join(":")
 
   // Per-instance in-memory cache (warm-instance path — instant on repeat).

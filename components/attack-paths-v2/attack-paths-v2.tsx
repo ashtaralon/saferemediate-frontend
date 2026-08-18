@@ -26,6 +26,7 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { useSearchParams, useRouter, usePathname } from "next/navigation"
 import { Loader2, AlertTriangle, RefreshCw, Maximize2, Minimize2 } from "lucide-react"
 import { useCachedFetch } from "@/lib/use-cached-fetch"
+import { IAP_BEHAVIORAL_CONTRACT_QUERY } from "@/lib/iap-contract"
 import { FreshnessBanner } from "@/components/freshness-banner"
 import { filterActivePaths, narrowActivePaths } from "@/lib/active-filters"
 import type { ActivePathList } from "@/lib/active-filters"
@@ -353,7 +354,7 @@ export function AttackPathsV2({
   // (materialized AttackPath rows). Keep a background 5×5 fetch for when it
   // succeeds (richer severity / damage), but do not block or hard-error on it.
   const fetchUrl = systemName
-    ? `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}?envelope=true&max_jewels=12&max_paths_per_jewel=8`
+    ? `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}?envelope=true&max_jewels=12&max_paths_per_jewel=8&${IAP_BEHAVIORAL_CONTRACT_QUERY}`
     : null
   const {
     data: rawData,
@@ -362,7 +363,7 @@ export function AttackPathsV2({
     isStale: iapIsStale,
     retry: retryFullIap,
   } = useCachedFetch<any>(fetchUrl, {
-    cacheKey: `iap-v2:5x5:${systemName}`,
+    cacheKey: `iap-v2:${IAP_BEHAVIORAL_CONTRACT_QUERY}:${systemName}`,
   })
 
   // The full IAP fan-out above is optional enrichment and can legitimately

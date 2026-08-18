@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { filterActivePaths } from "@/lib/active-filters"
+import { IAP_BEHAVIORAL_CONTRACT_QUERY } from "@/lib/iap-contract"
 
 // ── Fetch types (aligned to existing proxy responses) ────────────────────
 
@@ -283,7 +284,7 @@ export function useHomeData(systemName: string): UseHomeDataResult {
   const fetchAttackPaths = useCallback(() => {
     const sys = systemRef.current
     runFetch<IdentityAttackPathsData>(
-      `/api/proxy/identity-attack-paths/${encodeURIComponent(sys)}`,
+      `/api/proxy/identity-attack-paths/${encodeURIComponent(sys)}?${IAP_BEHAVIORAL_CONTRACT_QUERY}`,
       setAttackPaths,
       // Client-side stale-node gate. Filter happens here so every
       // downstream consumer of `attackPaths.data` sees a clean array
