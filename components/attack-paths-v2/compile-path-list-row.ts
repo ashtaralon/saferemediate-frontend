@@ -352,6 +352,8 @@ export function compilePathListRow(
     identity_label: compileIdentityLabel(path),
     start_label: start?.name ?? start?.id ?? null,
     target_label: target?.name ?? null,
+    start_type: start?.type ?? null,
+    target_type: target?.type ?? jewel?.type ?? null,
     crown_jewel_id: path.crown_jewel_id,
     severity_label: severityLabel === "UNKNOWN" ? null : severityLabel,
     severity_score: severityScore,

@@ -112,6 +112,8 @@ export interface DrilldownChild {
   distinct_tables?: number | null;
   last_observed?: string | null;
   last_seen?: string | null;
+  operations?: string[] | null;
+  evidence_state?: 'observed' | 'permitted' | 'inferred' | 'unavailable' | null;
 }
 
 export interface ResourcePathsFilter {
@@ -122,7 +124,7 @@ export interface ResourcePathsFilter {
   accessorIds: string[];
   sourceIps: string[];
   filter: { database?: string | null; table?: string | null } | null;
-  leafType: 'S3Prefix' | 'RDSTable' | 'RDSDatabase' | null;
+  leafType: 'S3Prefix' | 'S3Object' | 'RDSTable' | 'DatabaseTable' | 'RDSDatabase' | null;
   // Display label for the banner / map header chip.
   displayName: string;
 }
@@ -217,10 +219,10 @@ function isDrillable(item: { id: string; type?: string }, groupKey: string): boo
   return false;
 }
 
-// Is a fetched child itself drillable? RDSDatabase has tables under it; all
-// other child types are leaves.
+// Prefix and database rows both expand one more level. This preserves the
+// full service map while exposing exact objects/tables only on demand.
 function isChildDrillable(child: DrilldownChild): boolean {
-  return child.type === 'RDSDatabase';
+  return child.type === 'RDSDatabase' || child.type === 'S3Prefix';
 }
 
 // Icon + colour per child type. Distinct from the group icon so the operator
@@ -229,9 +231,12 @@ function childIcon(child: DrilldownChild): { Icon: React.ElementType; color: str
   switch (child.type) {
     case 'S3Prefix':
       return { Icon: HardDrive, color: 'text-emerald-500' };
+    case 'S3Object':
+      return { Icon: FileText, color: 'text-emerald-400' };
     case 'RDSDatabase':
       return { Icon: Database, color: 'text-purple-500' };
     case 'RDSTable':
+    case 'DatabaseTable':
       return { Icon: Table2, color: 'text-cyan-500' };
     case 'DynamoDBTable':
       return { Icon: Table2, color: 'text-cyan-500' };
@@ -615,6 +620,11 @@ export function StackSidebar({
                 {child.metric_label}
               </div>
             )}
+            {child.evidence_state && (
+              <div className="mt-0.5 text-[9px] uppercase tracking-wider text-cyan-400/80">
+                {child.evidence_state} evidence
+              </div>
+            )}
           </div>
           {onFilterPaths && (
             <button
@@ -632,7 +642,7 @@ export function StackSidebar({
           )}
         </div>
 
-        {/* Nested children for drillable children (RDSDatabase → tables) */}
+        {/* Nested children: S3Prefix → objects, RDSDatabase → tables. */}
         {drillable && isExpanded && (
           <>
             {isLoading && (
