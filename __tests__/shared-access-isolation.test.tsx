@@ -114,7 +114,9 @@ const sgResponse = {
         high_risk: 0,
         has_public_ingress: false,
       },
-      topology: { systems: ["alon-prod"], vpcs: ["vpc-1"] },
+      // Collectors can report one system once per attachment. Duplicate tags
+      // must not be presented as a cross-system blast radius.
+      topology: { systems: ["alon-prod", "alon-prod"], vpcs: ["vpc-1"] },
       freshness: { ingress_hash: "i", egress_hash: "e", last_synced: "2026-08-14" },
       verdict: {
         discovery_candidate: true,
@@ -234,6 +236,7 @@ describe("Shared Access Isolation", () => {
     expect(calls).toContain("/api/proxy/sg/shared-sgs?system_name=alon-prod")
     expect(document.body.textContent).not.toMatch(/safe to remove/i)
     expect(document.body.textContent).not.toMatch(/not ready/i)
+    expect(document.body.textContent).not.toMatch(/spans multiple systems/i)
   })
 
   it("shows evidence, before/after isolation, checkpoints and restore before opening a plan", async () => {

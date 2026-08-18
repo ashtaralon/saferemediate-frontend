@@ -52,6 +52,8 @@ export interface NormalizedGapResource {
   resourceType: 'IAMRole' | 'SecurityGroup' | 'S3Bucket' | 'NetworkACL' | 'RDSInstance' | string
   resourceName: string
   resourceArn: string
+  accountId?: string
+  account_id?: string
   systemName?: string
   isRemediable?: boolean
   remediableReason?: string
@@ -403,6 +405,12 @@ export function normalizeGapResource(raw: any): NormalizedGapResource {
       : typeof r.resource_arn === 'string'
         ? (r.resource_arn as string)
         : '',
+    accountId:
+      typeof r.accountId === 'string'
+        ? r.accountId
+        : typeof r.account_id === 'string'
+          ? (r.account_id as string)
+          : undefined,
     systemName: typeof r.systemName === 'string' ? r.systemName : undefined,
     category: normalizeCategory(r.category),
     decisionCanonical: normalizeDecision(r.decision_canonical ?? r.decisionCanonical),

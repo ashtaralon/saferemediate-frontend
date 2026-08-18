@@ -164,6 +164,13 @@ function normalizeSG(raw: SharedSGRowRaw): SharedSGRow {
   const hardBlocks = (raw.verdict?.blocked_reasons ?? []).filter(
     (blocker) => blocker.severity === "hard",
   )
+  const systems = Array.from(
+    new Set(
+      (raw.topology?.systems ?? [])
+        .map((system) => system.trim())
+        .filter(Boolean),
+    ),
+  )
   return {
     type: "security-group",
     sg_id: raw.sg_id,
@@ -172,7 +179,7 @@ function normalizeSG(raw: SharedSGRowRaw): SharedSGRow {
     consumer_count: raw.consumer_count ?? 0,
     consumer_preview: raw.consumer_preview ?? [],
     consumer_breakdown: raw.consumer_breakdown ?? {},
-    systems: raw.topology?.systems ?? [],
+    systems,
     rule_summary: raw.rule_summary ?? {
       inbound: 0,
       outbound: 0,

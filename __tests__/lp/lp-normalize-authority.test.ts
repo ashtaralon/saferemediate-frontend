@@ -161,6 +161,14 @@ describe('normalizeLPResponse — integrity fields preserved', () => {
 })
 
 describe('normalizeGapResource — evidence honesty', () => {
+  it('preserves the tenant account id instead of relying on a fabricated ARN', () => {
+    const snake = normalizeGapResource(baseRole({ account_id: '416651950952' }))
+    const camel = normalizeGapResource(baseRole({ accountId: '123456789012' }))
+
+    expect(snake.accountId).toBe('416651950952')
+    expect(camel.accountId).toBe('123456789012')
+  })
+
   it('missing evidence → null/empty, not Identity Graph / us-east-1 / 90 / complete=true', () => {
     const r = normalizeGapResource(baseRole({ evidence: undefined, observationDays: undefined }))
 
