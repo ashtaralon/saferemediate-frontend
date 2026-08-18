@@ -1,0 +1,140 @@
+# Is C1 (testbed-webshop) still generating traffic like a real prod system,
+# or is it a frozen one-time seed? Probes the live Neptune backend's
+# freshness/activity signals from CI (the driving sandbox has no egress to
+# onrender.com) and computes how old the NEWEST observed edge is. Read-only.
+name: ops-c1-freshness
+
+on:
+  workflow_dispatch:
+    inputs:
+      api_base:
+        description: "C1 backend base URL"
+        required: true
+        default: "https://cyntro-c1.onrender.com"
+      system_name:
+        description: "Tenant system"
+        required: true
+        default: "testbed-webshop"
+
+permissions:
+  contents: read
+
+jobs:
+  freshness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      API: ${{ inputs.api_base }}
+      SYS: ${{ inputs.system_name }}
+    steps:
+      - name: Probe freshness signals
+        run: |
+          set -uo pipefail
+          NOW="$(date -u +%s)"; NOW_ISO="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "== now (UTC): ${NOW_ISO}  epoch=${NOW} =="
+          echo "== deployed commit_sha =="
+          curl -sS --max-time 90 "${API}/api/attack-chain/health" 2>/dev/null | grep -oE '"commit_sha"[^,}]*' | head -1 || true
+          echo
+
+          get() { curl -sS --max-time 90 "${API}${1}" 2>/dev/null; }
+
+          echo "########## /api/freshness ##########"
+          get "/api/freshness" | tee /tmp/fresh.json | head -c 1500; echo; echo
+          echo "########## /api/traffic/status ##########"
+          get "/api/traffic/status" | head -c 1200; echo; echo
+          echo "########## /api/telemetry/flowlogs?hours_back=72 ##########"
+          get "/api/telemetry/flowlogs?hours_back=72" | head -c 1200; echo; echo
+          echo "########## /api/scan/status ##########"
+          get "/api/scan/status" | head -c 800; echo; echo
+
+          echo "########## newest observed edge in the dependency map ##########"
+          get "/api/dependency-map/full?systemName=${SYS}" > /tmp/dep.json
+          echo "dep-map bytes: $(wc -c < /tmp/dep.json)"
+          NOW="$NOW" python3 - <<'PY'
+          import json, os, re
+          from datetime import datetime, timezone
+          now = int(os.environ["NOW"])
+          try:
+              d = json.load(open("/tmp/dep.json"))
+          except Exception as e:
+              print("could not parse dep-map:", e); raise SystemExit(0)
+
+          epochs = []           # numeric last_seen_epoch
+          isos = []             # ISO last_seen strings -> epoch
+          observed = 0
+          def walk(o):
+              global observed
+              if isinstance(o, dict):
+                  for k, v in o.items():
+                      lk = k.lower()
+                      if lk in ("last_seen_epoch", "lastseenepoch") and isinstance(v, (int, float)) and v > 1_000_000_000:
+                          epochs.append(int(v))
+                      if lk in ("last_seen", "lastseen") and isinstance(v, str):
+                          s = v.strip().replace("Z", "+00:00")
+                          try:
+                              isos.append(int(datetime.fromisoformat(s).timestamp()))
+                          except Exception:
+                              pass
+                      if lk in ("is_observed",) and v is True:
+                          observed += 1
+                      if lk in ("hit_count",) and isinstance(v, (int, float)) and v > 0:
+                          observed += 1
+                      walk(v)
+              elif isinstance(o, list):
+                  for x in o:
+                      walk(x)
+          walk(d)
+          all_ep = epochs + isos
+          def ago(sec):
+              h = (now - sec) / 3600.0
+              if h < 48: return f"{h:.1f} hours ago"
+              return f"{h/24:.1f} days ago"
+          print(f"observed-edge markers (is_observed / hit_count>0): {observed}")
+          print(f"last_seen_epoch values: {len(epochs)}   ISO last_seen values: {len(isos)}")
+          if all_ep:
+              mx = max(all_ep); mn = min(all_ep)
+              print(f"NEWEST observed timestamp: {datetime.fromtimestamp(mx, tz=timezone.utc).isoformat()}  ->  {ago(mx)}")
+              print(f"oldest observed timestamp: {datetime.fromtimestamp(mn, tz=timezone.utc).isoformat()}  ->  {ago(mn)}")
+              # verdict heuristic
+              hrs = (now - mx) / 3600.0
+              if hrs <= 6:
+                  print("VERDICT: FRESH — newest observed traffic within 6h (live generation likely)")
+              elif hrs <= 48:
+                  print("VERDICT: RECENT — within 48h (periodic generation or slow collector)")
+              else:
+                  print(f"VERDICT: STALE — newest observed traffic is {hrs/24:.1f} days old (frozen seed / generator stopped)")
+          else:
+              print("VERDICT: NO observed timestamps found in dep-map payload — cannot date the traffic from this endpoint")
+          PY
+          echo
+          echo "== interpret /api/freshness timestamps vs now =="
+          NOW="$NOW" python3 - <<'PY'
+          import json, os
+          from datetime import datetime, timezone
+          now = int(os.environ["NOW"])
+          try:
+              d = json.load(open("/tmp/fresh.json"))
+          except Exception:
+              print("(/api/freshness not JSON or empty)"); raise SystemExit(0)
+          found = []
+          def walk(o, path=""):
+              if isinstance(o, dict):
+                  for k, v in o.items():
+                      if isinstance(v, str) and ("time" in k.lower() or "at" in k.lower() or "seen" in k.lower() or "sync" in k.lower()):
+                          s = v.strip().replace("Z", "+00:00")
+                          try:
+                              ep = int(datetime.fromisoformat(s).timestamp())
+                              found.append((f"{path}.{k}", v, (now-ep)/3600.0))
+                          except Exception:
+                              pass
+                      walk(v, f"{path}.{k}")
+              elif isinstance(o, list):
+                  for i, x in enumerate(o[:20]):
+                      walk(x, f"{path}[{i}]")
+          walk(d)
+          if not found:
+              print("(no datetime-like fields parsed from /api/freshness)")
+          for p, v, h in sorted(found, key=lambda t: t[2])[:15]:
+              tag = "hours" if h < 48 else "DAYS"
+              print(f"  {p} = {v}  ->  {h:.1f}h ago" + ("" if h < 48 else "  <-- stale"))
+          PY
