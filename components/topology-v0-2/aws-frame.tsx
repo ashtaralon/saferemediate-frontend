@@ -2235,6 +2235,36 @@ interface FlowPath {
   authorityState?: TrafficEdge["authority_state"]
   evidenceType?: TrafficEdge["evidence_type"]
   pathBasis?: TrafficEdge["path_basis"]
+  lastSeen?: TrafficEdge["last_seen"]
+}
+
+export type TrafficMotionKind = "authoritative" | "historical" | "none"
+
+/**
+ * Motion is an evidence cue, not decoration.
+ *
+ * Confirmed generation-backed observations get a filled, faster packet.
+ * Timestamped legacy observations get a slower outlined packet that shows
+ * source -> target direction without claiming the traffic is live/current.
+ * Configured and untimestamped inferred paths stay static.
+ */
+export function trafficMotionKind(
+  edge: Pick<
+    TrafficEdge,
+    "authority_state" | "evidence_type" | "path_basis" | "last_seen"
+  >,
+): TrafficMotionKind {
+  if (
+    edge.evidence_type === "observed" &&
+    edge.authority_state === "authoritative" &&
+    (edge.path_basis === "observed_segment" || edge.path_basis === "correlated_trace")
+  ) {
+    return "authoritative"
+  }
+  if (edge.authority_state === "legacy_unverified" && Boolean(edge.last_seen)) {
+    return "historical"
+  }
+  return "none"
 }
 
 export function isFocusedOperationalFlow(
@@ -2473,6 +2503,14 @@ function FlowLegend({ compact = false }: { compact?: boolean }) {
             to { transform: translateX(20px); }
           }
         `}</style>
+      </span>
+      <span className="inline-flex items-center gap-1.5 text-[9px] font-medium" style={{ color: "#64748B" }}>
+        <svg width="28" height="10" viewBox="0 0 28 10" aria-hidden>
+          <path d="M1 5 H27" stroke="#94A3B8" strokeWidth="1.5" strokeDasharray="4 3" />
+          <circle cx="15" cy="5" r="4" fill="white" stroke="#64748B" strokeWidth="1" strokeDasharray="2 1" />
+          <path d="M13 3 L17 5 L13 7" fill="none" stroke="#64748B" strokeWidth="1.2" />
+        </svg>
+        Outlined motion = historical direction
       </span>
       <span className="inline-flex items-center gap-1.5 text-[9px] font-medium" style={{ color: "#475569" }}>
         <svg width="28" height="8" viewBox="0 0 28 8" aria-hidden>
@@ -2831,6 +2869,7 @@ function FlowOverlay({
           authorityState: e.authority_state,
           evidenceType: e.evidence_type,
           pathBasis: e.path_basis,
+          lastSeen: e.last_seen,
           _edge: e,
           _routedViaIgw: routedViaIgw,
           _routedViaVpce: routedViaVpce,
@@ -3031,10 +3070,12 @@ function FlowOverlay({
         const dependencyFocusActive = flowMode === "all_access" && selectedNodeId != null
         const focusedDependency = dependencyFocusActive && p.focused
         const dimmed = dependencyFocusActive && !p.focused
-        const authoritativeObserved =
-          p.evidenceType === "observed" &&
-          p.authorityState === "authoritative" &&
-          (p.pathBasis === "observed_segment" || p.pathBasis === "correlated_trace")
+        const motionKind = trafficMotionKind({
+          evidence_type: p.evidenceType,
+          authority_state: p.authorityState,
+          path_basis: p.pathBasis,
+          last_seen: p.lastSeen ?? null,
+        })
         const inferredOrUnverified =
           p.authorityState === "legacy_unverified" ||
           p.authorityState === "inferred" ||
@@ -3043,7 +3084,11 @@ function FlowOverlay({
         const animateFlow =
           flowMode !== "architecture" &&
           !dimmed &&
-          authoritativeObserved
+          motionKind === "authoritative"
+        const animateHistoricalDirection =
+          flowMode !== "architecture" &&
+          !dimmed &&
+          motionKind === "historical"
         return (
         <g key={i}>
           {/* Soft halo behind the line so it's visible over the busy chip grid */}
@@ -3150,6 +3195,37 @@ function FlowOverlay({
                 </g>
               ) : null}
             </>
+          ) : null}
+          {animateHistoricalDirection ? (
+            <g
+              data-testid="topology-flow-historical-packet"
+              data-flow-direction="source-to-target"
+              opacity="0.78"
+            >
+              <circle
+                r="5"
+                fill="white"
+                fillOpacity="0.88"
+                stroke={stroke}
+                strokeWidth="1"
+                strokeDasharray="2 1.5"
+              />
+              <path
+                d="M -3.25 -3 L 3.75 0 L -3.25 3"
+                fill="none"
+                stroke={stroke}
+                strokeWidth="1.4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              <animateMotion
+                path={p.d}
+                dur="8.8s"
+                begin={`-${(i % 7) * 0.55}s`}
+                repeatCount="indefinite"
+                rotate="auto"
+              />
+            </g>
           ) : null}
           <g transform={`translate(${p.badgeX}, ${p.badgeY})`}>
             {p.badgeLabel ? (
@@ -4769,7 +4845,9 @@ export function AwsFrame({
               : "Rebuilding traffic evidence"}
           </span>
           <span className="truncate">
-            {trafficAuthority?.limitation ?? "Only generation-backed observed segments animate."}
+            {trafficAuthority?.state === "legacy_unverified"
+              ? "Outlined packets show historical source-to-target direction; they do not claim live traffic."
+              : (trafficAuthority?.limitation ?? "Only generation-backed observed segments animate.")}
           </span>
         </div>
       ) : null}
