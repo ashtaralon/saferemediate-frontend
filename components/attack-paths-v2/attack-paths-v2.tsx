@@ -1197,7 +1197,7 @@ export function AttackPathsV2({
               !selectedPath ? (
                 <EmptyState
                   title="Select a path for V2 canvas"
-                  subtitle="V2 renders the same path via the typed AttackCanvas DTO from POST /api/attack-chain/canvas — every node and edge backed by an explicit Neo4j relationship, no frontend inference."
+                  subtitle="V2 renders the same path via the typed AttackCanvas DTO from POST /api/attack-chain/canvas — every node and edge backed by an explicit Neptune relationship, no frontend inference."
                   large
                 />
               ) : (
@@ -1315,7 +1315,7 @@ export function AttackPathsV2({
               ) : (
                 <EmptyState
                   title="Select a crown jewel"
-                  subtitle="Attack Map draws Neo4j paths to the jewel on live VPC topology. Pick a crown jewel on the left."
+                  subtitle="Attack Map draws Neptune paths to the jewel on live VPC topology. Pick a crown jewel on the left."
                   large
                 />
               )

@@ -39,6 +39,16 @@ export interface CurrentAccessDossier {
   path_id: string
   source_id: string | null
   jewel_id: string | null
+  from: {
+    id: string | null
+    name: string
+    type: string | null
+  }
+  to: {
+    id: string | null
+    name: string
+    type: string | null
+  }
   headline: string
   evidence: string
   checkpoints: DossierCheckpoint[]
@@ -452,10 +462,43 @@ export function buildCurrentAccessDossier(
   if (!path?.path_id) return null
   const hops = Array.isArray(path.hops) ? path.hops : []
   const evidence = evidenceLabel(path.evidence ?? path.confidence)
+  const fromHop = hopByType(
+    hops,
+    (nt) =>
+      nt.includes("ec2") ||
+      nt.includes("instance") ||
+      nt.includes("lambda") ||
+      nt.includes("ecs") ||
+      nt.includes("fargate"),
+  ) ?? hops[0] ?? null
+  const toHop = hops.find((hop) => hop.is_crown_jewel === true)
+    ?? hopByType(
+      hops,
+      (nt, hop) =>
+        nt.includes("s3") ||
+        nt.includes("rds") ||
+        nt.includes("dynamodb") ||
+        nt.includes("secretsmanager") ||
+        (hop.edge_type_from_prev ?? "").includes("ACCESSES"),
+    )
+    ?? hops[hops.length - 1]
+    ?? null
+  const sourceId = path.workload_arn ?? path.source ?? fromHop?.node_id ?? null
+  const jewelId = path.cj_target_id ?? toHop?.node_id ?? null
   return {
     path_id: path.path_id,
-    source_id: path.workload_arn ?? path.source ?? null,
-    jewel_id: path.cj_target_id ?? null,
+    source_id: sourceId,
+    jewel_id: jewelId,
+    from: {
+      id: sourceId,
+      name: fromHop ? shortName(fromHop) : (path.source ?? "Source unavailable"),
+      type: fromHop?.node_type ?? path.source_kind ?? null,
+    },
+    to: {
+      id: jewelId,
+      name: toHop ? shortName(toHop) : (path.cj_target_id ?? "Crown jewel"),
+      type: toHop?.node_type ?? null,
+    },
     headline:
       path.impact_headline?.trim() ||
       path.business_sentence?.trim() ||
