@@ -606,6 +606,19 @@ export function hasExecutableIamSelection(
     || (detachManagedPolicies && !managedPolicyRewriteRequired)
 }
 
+/** Apply is permitted only for the exact permission set bound by Preview. */
+export function selectionMatchesSignedIamPlan(
+  selectedPermissions: Iterable<string>,
+  planPermissions: string[] | null,
+  planToken: string | null,
+): boolean {
+  if (!planToken || !planPermissions) return false
+  const selected = Array.from(new Set(selectedPermissions)).sort()
+  const planned = Array.from(new Set(planPermissions)).sort()
+  return selected.length === planned.length
+    && planned.every((permission, index) => permission === selected[index])
+}
+
 // Service role analysis from backend (trust policy based)
 interface BackendServiceRoleAnalysis {
   is_service_role: boolean
@@ -1414,6 +1427,22 @@ export function IAMPermissionAnalysisModal({
     const allSelected = explicitPermissions
       ? Array.from(new Set(explicitPermissions))
       : Array.from(selectedPermissionsToRemove)
+    const selectionMatchesPlan = selectionMatchesSignedIamPlan(
+      allSelected,
+      planPermissions,
+      planToken,
+    )
+    const executionMechanismMatchesPlan =
+      detachManagedPolicies === managedPolicyRewriteRequired
+      && !detachAllManagedPolicies
+    if (!selectionMatchesPlan || !executionMechanismMatchesPlan) {
+      toast({
+        title: 'Verified plan required',
+        description: 'The selected permissions no longer match the signed preview. Run Preview again before applying this IAM change.',
+        variant: 'destructive',
+      })
+      return
+    }
     const nonAutoSelected = allSelected.filter(p => !autoRemediable.has(p))
     let effectiveForce = force
     if (nonAutoSelected.length > 0 && !force) {
@@ -1475,22 +1504,6 @@ export function IAMPermissionAnalysisModal({
     try {
       const permissionsToRemove = allSelected
 
-      // Exact-change binding: forward the signed plan_token ONLY when the
-      // operator's selection still equals the plan's bound safe set. When the
-      // token is present the backend executes plan.permissions_to_remove AS-IS,
-      // so sending it while the selection differs would execute the wrong set —
-      // instead we send the raw list unbound (current behavior). Once the
-      // backend CYNTRO_REQUIRE_PLAN_TOKEN flag is enabled, a customized-but-
-      // unbound selection is correctly rejected until simulate-fix can issue a
-      // plan for an arbitrary selection (deferred backend work).
-      const selectionSorted = [...permissionsToRemove].sort()
-      const planSorted = planPermissions ? [...planPermissions].sort() : null
-      const selectionMatchesPlan =
-        !!planToken &&
-        !!planSorted &&
-        planSorted.length === selectionSorted.length &&
-        planSorted.every((p, i) => p === selectionSorted[i])
-
       console.log('[IAM-Modal] Starting DIRECT MODIFY remediation for:', roleName)
       console.log('[IAM-Modal] Permissions to remove:', permissionsToRemove.length)
       console.log('[IAM-Modal] Create snapshot:', createSnapshot)
@@ -1512,7 +1525,7 @@ export function IAMPermissionAnalysisModal({
           detach_all_managed_policies: detachAllManagedPolicies,
           permissions_to_remove: permissionsToRemove,
           force: effectiveForce,
-          ...(selectionMatchesPlan ? { plan_token: planToken } : {}),
+          plan_token: planToken,
           ...(overrideLineage ? { override_lineage: overrideLineage } : {}),
         })
       })
@@ -1732,6 +1745,14 @@ export function IAMPermissionAnalysisModal({
         title: "Approval unavailable",
         description:
           (safetyContext?.unsafe_reasons?.[0] || "This role is blocked by the mutation boundary. Resolve the evidence issue and re-simulate first."),
+        variant: "destructive",
+      })
+      return
+    }
+    if (!selectionMatchesSignedIamPlan(permissions, planPermissions, planToken)) {
+      toast({
+        title: "Verified plan required",
+        description: "Approval must cover the exact permission set in the signed preview. Re-run Preview before requesting approval.",
         variant: "destructive",
       })
       return
@@ -2765,6 +2786,15 @@ export function IAMPermissionAnalysisModal({
       if (approvalActionMode === "request") {
         if (!approvalActionPermissions.length) {
           throw new Error("No permissions selected for approval")
+        }
+        if (!selectionMatchesSignedIamPlan(
+          approvalActionPermissions,
+          planPermissions,
+          planToken,
+        )) {
+          throw new Error(
+            "Approval no longer matches the signed preview. Re-run Preview before requesting approval.",
+          )
         }
 
         const response = await fetch("/api/proxy/iam-roles/approval-requests", {
@@ -3982,7 +4012,12 @@ export function IAMPermissionAnalysisModal({
                   selectedTotalCount,
                   detachManagedPolicies,
                   managedPolicyRewriteRequired,
-                )
+                ) && selectionMatchesSignedIamPlan(
+                  selectedPermissionsToRemove,
+                  planPermissions,
+                  planToken,
+                ) && detachManagedPolicies === managedPolicyRewriteRequired
+                  && !detachAllManagedPolicies
                 const selectedAutoRemediableCount = Array.from(selectedPermissionsToRemove)
                   .filter(p => autoRemediableSet.has(p)).length
                 const selectedOverrideCount = selectedTotalCount - selectedAutoRemediableCount
@@ -5118,9 +5153,13 @@ export function IAMPermissionAnalysisModal({
                     Remove {unusedCount} unused permissions to achieve least privilege compliance.
                     This will reduce the attack surface by {unusedPercent}% while maintaining all current functionality.
                   </p>
-                  <div className="flex items-center gap-2 mt-3 text-[#22c55e]">
-                    <Shield className="w-5 h-5" />
-                    <span className="font-medium">High confidence remediation - No service disruption expected</span>
+                  <div className={`flex items-center gap-2 mt-3 ${planToken ? 'text-[#22c55e]' : 'text-[#b45309]'}`}>
+                    {planToken ? <Shield className="w-5 h-5" /> : <AlertTriangle className="w-5 h-5" />}
+                    <span className="font-medium">
+                      {planToken
+                        ? 'Verified change plan available; all safety gates run again at Apply.'
+                        : 'Verified change plan unavailable — this IAM role cannot be changed.'}
+                    </span>
                   </div>
                 </div>
               )
