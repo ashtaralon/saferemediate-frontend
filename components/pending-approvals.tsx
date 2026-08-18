@@ -19,6 +19,7 @@ import {
 } from "lucide-react"
 
 interface PendingTag {
+  [key: string]: unknown
   resource_name: string
   resource_id: string
   resource_arn: string
@@ -53,6 +54,12 @@ const REASON_CONFIG: Record<string, { label: string; icon: any; color: string; d
     color: "text-blue-400 bg-blue-500/10 border-blue-500/20",
     description: "Traffic or indirect relationship",
   },
+  ambiguous_relationship: {
+    label: "Ambiguous Edge",
+    icon: GitBranch,
+    color: "text-blue-400 bg-blue-500/10 border-blue-500/20",
+    description: "Generic relationship without typed ownership semantics",
+  },
   high_hop: {
     label: "Deep Chain",
     icon: Zap,
@@ -75,11 +82,35 @@ function getReasonExplanation(p: PendingTag): string {
     case "shared_infrastructure":
       return "This is a VPC or subnet shared across systems — tagging it would apply to every consumer."
     case "low_confidence_relationship":
-      return `"${p.relationship}" is a behavioral edge — we observed traffic, but observation alone isn't proof of ownership.`
+      return `"${p.relationship}" does not prove exclusive ownership, so the system assignment needs review.`
+    case "ambiguous_relationship":
+      return `"${p.relationship}" has no typed ownership contract, so Cyntro will not infer an owner automatically.`
     case "high_hop":
       return `${p.hop} hops from the nearest tagged resource — the association is indirect and may cross a system boundary.`
     default:
       return "Flagged by the auto-tagger for human review."
+  }
+}
+
+function normalizeStringList(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return Array.from(new Set(value.map(String).map((v) => v.trim()).filter(Boolean)))
+  }
+  if (typeof value !== "string" || !value.trim()) return []
+  try {
+    const decoded = JSON.parse(value)
+    return Array.isArray(decoded)
+      ? Array.from(new Set(decoded.map(String).map((v) => v.trim()).filter(Boolean)))
+      : [value.trim()]
+  } catch {
+    return [value.trim()]
+  }
+}
+
+function normalizePendingTag(raw: PendingTag): PendingTag {
+  return {
+    ...raw,
+    competing_systems: normalizeStringList(raw.competing_systems),
   }
 }
 
@@ -110,7 +141,7 @@ export function PendingApprovals({ systemName }: { systemName?: string }) {
         setPending([])
         return
       }
-      let items: PendingTag[] = data.pending || []
+      let items: PendingTag[] = (data.pending || []).map(normalizePendingTag)
       if (systemName) {
         items = items.filter((p) => p.system_name === systemName)
       }

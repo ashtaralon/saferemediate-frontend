@@ -382,6 +382,42 @@ function dataOperationCheckpoint(
     if (access.first_seen) {
       details.push({ label: "First seen", value: access.first_seen })
     }
+    if ((access.vpc_endpoint_ids?.length ?? 0) > 0) {
+      details.push({
+        label: "VPC endpoint transport",
+        value: access.vpc_endpoint_ids!.join(", "),
+      })
+    }
+    if (typeof access.vpc_endpoint_call_count === "number") {
+      details.push({
+        label: "VPC endpoint calls",
+        value: String(access.vpc_endpoint_call_count),
+      })
+    }
+    if (typeof access.public_source_call_count === "number") {
+      details.push({
+        label: "Public-source calls",
+        value: String(access.public_source_call_count),
+      })
+    }
+    if (typeof access.private_source_call_count === "number") {
+      details.push({
+        label: "Private-source calls",
+        value: String(access.private_source_call_count),
+      })
+    }
+    if (typeof access.aws_service_source_call_count === "number") {
+      details.push({
+        label: "AWS-service source calls",
+        value: String(access.aws_service_source_call_count),
+      })
+    }
+    if (typeof access.distinct_source_count === "number") {
+      details.push({
+        label: "Distinct API sources",
+        value: String(access.distinct_source_count),
+      })
+    }
   } else {
     details.push({ label: "Access hop", value: "unavailable on path DTO" })
   }

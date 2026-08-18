@@ -27,10 +27,9 @@ export default function PendingTagsPage() {
           <div>
             <h1 className="text-2xl font-bold text-white">Pending Tag Approvals</h1>
             <p className="text-slate-400 text-sm mt-1">
-              Resources flagged by the auto-tagger that require human review before being attributed to a system.
-              Edges like <code className="text-slate-300 bg-slate-800/80 px-1.5 rounded">ACTUAL_TRAFFIC</code> and{" "}
-              <code className="text-slate-300 bg-slate-800/80 px-1.5 rounded">ACCESSES_RESOURCE</code> produce behavioral
-              candidates that never auto-tag — they wait here for explicit approval.
+              Resources flagged by the auto-tagger that require human review before an ownership claim is made.
+              Typed service interactions are recorded automatically as consumer membership without overwriting a shared
+              resource&apos;s owner; only ambiguous or conflicting ownership remains in this queue.
             </p>
           </div>
         </header>

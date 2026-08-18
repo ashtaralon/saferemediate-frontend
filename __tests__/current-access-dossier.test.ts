@@ -99,6 +99,12 @@ describe("buildCurrentAccessDossier", () => {
             edge_evidence: "observed",
             hit_count: 12,
             last_seen: "2026-07-01T00:00:00Z",
+            vpc_endpoint_ids: ["vpce-1"],
+            vpc_endpoint_call_count: 9,
+            public_source_call_count: 3,
+            private_source_call_count: 0,
+            aws_service_source_call_count: 0,
+            distinct_source_count: 2,
           },
         ],
       }),
@@ -122,6 +128,16 @@ describe("buildCurrentAccessDossier", () => {
       true,
     )
     expect(dossier!.checkpoints[3].details.some((d) => d.label === "Last seen")).toBe(true)
+    expect(
+      dossier!.checkpoints[3].details.some(
+        (d) => d.label === "VPC endpoint transport" && d.value === "vpce-1",
+      ),
+    ).toBe(true)
+    expect(
+      dossier!.checkpoints[3].details.some(
+        (d) => d.label === "Public-source calls" && d.value === "3",
+      ),
+    ).toBe(true)
     expect(dossier!.checkpoints[4].status).toContain("delete")
     expect(dossier!.checkpoints[5].summary).toMatch(/remove 2/i)
   })

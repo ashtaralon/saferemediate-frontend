@@ -28,6 +28,15 @@ export interface ConvergenceHop {
   hit_count?: number | null
   first_seen?: string | null
   last_seen?: string | null
+  /** CloudTrail transport evidence for service API/resource access. These do
+   * not assert that a workload is VPC-attached; they report the observed API
+   * transport honestly, including mixed public and VPC-endpoint calls. */
+  vpc_endpoint_ids?: string[]
+  vpc_endpoint_call_count?: number | null
+  public_source_call_count?: number | null
+  private_source_call_count?: number | null
+  aws_service_source_call_count?: number | null
+  distinct_source_count?: number | null
   /** Optional Neo4j scalars some detail payloads still nest here. */
   key_properties?: Record<string, unknown> | null
   /** SG/NACL/IAM rule count when rules_coverage is COLLECTED. */
