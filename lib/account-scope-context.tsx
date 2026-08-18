@@ -10,6 +10,7 @@ import {
 } from "react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import type { AccountScopeOptions, ProductScope } from "@/lib/account-scope"
+import { scopeOptionsFromSystems } from "@/lib/account-scope"
 
 interface AccountScopeContextValue extends ProductScope {
   options: AccountScopeOptions | null
@@ -64,11 +65,21 @@ export function AccountScopeProvider({ children }: { children: ReactNode }) {
       setLoading(true)
       setError(null)
       try {
+        const loadSystemFallback = async () => {
+          const systemsResponse = await fetch("/api/proxy/systems", { cache: "no-store" })
+          if (!systemsResponse.ok) return null
+          return scopeOptionsFromSystems(await systemsResponse.json())
+        }
         let selected = customerFromUrl || customerId
+        let fallback: AccountScopeOptions | null = null
         if (!selected) {
           const rosterResponse = await fetch("/api/proxy/admin/customers", { cache: "no-store" })
           const roster = rosterResponse.ok ? await rosterResponse.json() : []
           selected = Array.isArray(roster) && roster.length ? roster[0].customer_id : null
+          if (!selected) {
+            fallback = await loadSystemFallback()
+            selected = fallback?.customer_id || null
+          }
         }
         if (!selected) {
           setOptions({ customer_id: "", accounts: [], groups: [] })
@@ -79,9 +90,10 @@ export function AccountScopeProvider({ children }: { children: ReactNode }) {
           `/api/proxy/admin/accounts/scope/options/all?customer_id=${encodeURIComponent(selected)}`,
           { cache: "no-store" },
         )
-        if (!response.ok) throw new Error(`Account scope is unavailable (${response.status})`)
-        const body = await response.json()
-        if (!cancelled) setOptions(body)
+        const body = response.ok ? await response.json() : null
+        const resolved = body?.accounts?.length ? body : (fallback || await loadSystemFallback())
+        if (!resolved) throw new Error(`Account scope is unavailable (${response.status})`)
+        if (!cancelled) setOptions(resolved)
       } catch (reason) {
         if (!cancelled) setError(reason instanceof Error ? reason.message : String(reason))
       } finally {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { resourceAccountId, scopeMatchesResource, withAccountScope } from "@/lib/account-scope"
+import { resourceAccountId, scopeMatchesResource, scopeOptionsFromSystems, withAccountScope } from "@/lib/account-scope"
 
 describe("account scope", () => {
   it("resolves account identity from explicit fields before an ARN", () => {
@@ -31,5 +31,25 @@ describe("account scope", () => {
       accountId: "all",
       region: "all",
     })).toBe("/api/proxy/systems?customer_id=acme")
+  })
+
+  it("derives honest single-tenant scope from graph-backed systems", () => {
+    expect(scopeOptionsFromSystems({ systems: [{
+      name: "testbed-webshop",
+      displayName: "Testbed Webshop",
+      account_id: "416651950952",
+      region: "eu-west-1",
+      status: "healthy",
+    }] })).toEqual({
+      customer_id: "testbed-webshop",
+      accounts: [{
+        account_id: "416651950952",
+        display_name: "Testbed Webshop",
+        regions: ["eu-west-1"],
+        group_ids: [],
+        status: "healthy",
+      }],
+      groups: [],
+    })
   })
 })

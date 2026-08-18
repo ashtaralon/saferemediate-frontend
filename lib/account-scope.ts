@@ -27,6 +27,37 @@ export interface ProductScope {
   region: string
 }
 
+export function scopeOptionsFromSystems(payload: unknown): AccountScopeOptions | null {
+  const systems = Array.isArray((payload as { systems?: unknown[] } | null)?.systems)
+    ? (payload as { systems: Array<Record<string, unknown>> }).systems
+    : []
+  if (!systems.length) return null
+
+  const customerId = systems.find((row) => typeof row.name === "string")?.name
+  if (typeof customerId !== "string" || !customerId) return null
+
+  const accounts = new Map<string, AccountScopeOption>()
+  for (const row of systems) {
+    const accountId = row.account_id
+    if (typeof accountId !== "string" || !/^\d{12}$/.test(accountId)) continue
+    const region = typeof row.region === "string" && row.region ? row.region : null
+    const existing = accounts.get(accountId)
+    if (existing) {
+      if (region && !existing.regions.includes(region)) existing.regions.push(region)
+      continue
+    }
+    accounts.set(accountId, {
+      account_id: accountId,
+      display_name: typeof row.displayName === "string" ? row.displayName : customerId,
+      regions: region ? [region] : [],
+      group_ids: [],
+      status: typeof row.status === "string" ? row.status : "active",
+    })
+  }
+  if (!accounts.size) return null
+  return { customer_id: customerId, accounts: [...accounts.values()], groups: [] }
+}
+
 export function resourceAccountId(resource: Record<string, unknown>): string | null {
   const direct = resource.account_id ?? resource.accountId ?? resource.aws_account_id
   if (typeof direct === "string" && /^\d{12}$/.test(direct)) return direct
