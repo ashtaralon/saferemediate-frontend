@@ -1,10 +1,10 @@
 /**
- * Per-path verdict chip — literal passthrough, never derived.
+ * Route-picker verdict boundary — security meaning stays in the investigation.
  *
- * Why it exists: the composite verdict strip only renders for a SINGLE drawn
- * path. Once the missing EC2 paths returned (generation 8), the fan-in draws
- * four, so the default view showed no verdict at all. A verdict per row is the
- * honest shape — each path has its own, and none is a claim about the others.
+ * The path compiler still carries SERVE's literal verdict for consumers that
+ * need it, but the route picker intentionally answers only FROM → TO. Verdict,
+ * damage and evidence belong to the selected-path investigation beside the
+ * Attack Map, not in a pre-selection badge wall.
  */
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
@@ -19,19 +19,20 @@ const readCode = (p: string) =>
 const ROW = "components/attack-paths-v2/path-list-grouped.tsx"
 const BUILDER = "components/attack-paths-v2/compile-path-list-row.ts"
 
-describe("the chip renders SERVE's verdict or nothing", () => {
-  it("is gated on path_state being present", () => {
-    // Absent verdict must render NO chip — not "UNKNOWN", not a placeholder.
-    // Inventing a state here would re-create the local authority #480 deleted.
+describe("the route picker stays a clean FROM → TO selector", () => {
+  it("renders endpoint labels and canonical service tiles", () => {
     const src = readCode(ROW)
-    expect(src).toMatch(/\{row\.path_state \? \(/)
-    expect(src).toMatch(/\) : null\}/)
+    expect(src).toContain('side="from"')
+    expect(src).toContain('side="to"')
+    expect(src).toContain("ServiceTypeBadge")
   })
 
-  it("surfaces both axes to the DOM so a wrong state is debuggable", () => {
+  it("does not reintroduce verdict or activity badges before selection", () => {
     const src = readCode(ROW)
-    expect(src).toContain("data-path-state-chip={row.path_state}")
-    expect(src).toContain("data-activity-state-chip=")
+    expect(src).not.toContain("data-path-state-chip")
+    expect(src).not.toContain("data-activity-state-chip")
+    expect(src).not.toContain("row.path_state")
+    expect(src).not.toContain("row.activity_state")
   })
 
   it("never derives path_state from activity or anything else", () => {
