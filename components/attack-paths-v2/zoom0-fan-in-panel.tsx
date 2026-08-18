@@ -460,7 +460,7 @@ export function Zoom0FanInPanel({
       : detailsPanel === "exfiltration"
         ? "Exfiltration — accessor, workload, effective route and exit capability from this jewel"
         : pinPathId
-          ? "Current Access dossier — pinned path investigation (credential → network → authz → data → damage → cut)"
+          ? "Current Access — selected route evidence, damage and risk reduction"
           : "Current Access — observed service and identity use of this jewel"
 
   const openRankedPath = () => {
@@ -514,7 +514,15 @@ export function Zoom0FanInPanel({
             type="button"
             role="tab"
             aria-selected={on}
-            onClick={() => setDetailsPanel(id)}
+            onClick={() => {
+              setDetailsPanel(id)
+              // Exfiltration has its own evidence-rich map. Open that map
+              // directly instead of replacing the killer feature with a
+              // summary card inside Current Access.
+              if (id === "exfiltration" && onRequestMode) {
+                onRequestMode("exfil")
+              }
+            }}
             className={`flex items-center gap-1.5 whitespace-nowrap rounded px-2.5 py-1.5 font-mono text-xs transition-all ${
               surface === "panel" && !isExpanded ? "flex-1 justify-center" : ""
             } ${
@@ -579,7 +587,7 @@ export function Zoom0FanInPanel({
                 if (cardinality) {
                   return (
                     <>
-                      Graph paths to{" "}
+                      Observed paths to{" "}
                       <span className="font-mono text-foreground">{jewel.name}</span>
                       {" "}
                       — {zoom0CardinalityLine(cardinality, fanInDrawability)}.
@@ -608,7 +616,7 @@ export function Zoom0FanInPanel({
                     : ""
                 return (
                   <>
-                    Graph paths to{" "}
+                    Observed paths to{" "}
                     <span className="font-mono text-foreground">{jewel.name}</span>
                     {" "}({drawn} drawn
                     {inSystem != null ? ` · ${inSystem} in-system` : ""}
@@ -838,32 +846,10 @@ export function Zoom0FanInPanel({
           </div>
         ) : null}
 
-        {/* Dossier lives in sticky chrome so overflow-hidden map ancestors cannot clip it. */}
-        {pinPathId && detailsPanel === "current_access" ? (
-          <div className="mt-3 max-h-[min(420px,50vh)] overflow-y-auto rounded-lg border border-border">
-            <CurrentAccessDossierPanel
-              dossier={dossier}
-              jewelName={jewel.name}
-              hopsPending={
-                Boolean(pinPathId) &&
-                (!detailsReady ||
-                  detailsLoading ||
-                  pinnedPath?.hops_load_state === "pending")
-              }
-              onClearPin={clearPin}
-              businessImpact={
-                <BusinessImpactPanel
-                  systemName={systemName}
-                  pathId={pinPathId}
-                  environment={null}
-                  criticality={jewel.severity ?? null}
-                />
-              }
-            />
-          </div>
-        ) : null}
       </div>
 
+      <div className="flex flex-1 min-h-0 min-w-0">
+        <div className="flex flex-1 min-h-0 min-w-0">
       {detailsPanel === "current_access" && loading && !convergenceData?.paths?.length ? (
         <div className="flex flex-1 min-h-[400px] items-center justify-center gap-2 text-[12px] text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" />
@@ -1093,6 +1079,35 @@ export function Zoom0FanInPanel({
         </div>
         )
       })()}
+      </div>
+
+      {/* Keep the Attack Map on screen while a selected path is explained. */}
+      {pinPathId && detailsPanel === "current_access" ? (
+        <div className="w-[min(430px,42%)] min-w-[360px] shrink-0 overflow-y-auto border-l border-border bg-background">
+          <CurrentAccessDossierPanel
+            dossier={dossier}
+            jewelName={jewel.name}
+            jewelType={jewel.type}
+            systemName={systemName}
+            hopsPending={
+              Boolean(pinPathId) &&
+              (!detailsReady ||
+                detailsLoading ||
+                pinnedPath?.hops_load_state === "pending")
+            }
+            onClearPin={clearPin}
+            businessImpact={
+              <BusinessImpactPanel
+                systemName={systemName}
+                pathId={pinPathId}
+                environment={null}
+                criticality={jewel.severity ?? null}
+              />
+            }
+          />
+        </div>
+      ) : null}
+      </div>
     </div>
   )
 }
