@@ -111,6 +111,36 @@ describe("resolveJewelRailPaths", () => {
     expect(out.paths[0]?.attack_path_id).toBe("serve-1")
   })
 
+  it("keeps SERVE membership but reuses matching rich IAP nodes and edges", () => {
+    const rich = {
+      ...iapPath,
+      id: "shared-1",
+      attack_path_id: "shared-1",
+      nodes: [{ id: "role/a", name: "a", type: "IAMRole" }],
+      edges: [{ source: "role/a", target: jewel.id, type: "ACCESSES_RESOURCE" }],
+    }
+    const out = resolveJewelRailPaths({
+      serve: serveEnvelope([
+        {
+          path_id: "shared-1",
+          identity: "role/a",
+          hop_count: 1,
+          evidence: "configured",
+          severity_label: "HIGH",
+          severity_score: 70,
+          hops: [],
+        } as any,
+      ]),
+      serveError: null,
+      jewel,
+      iapPaths: [rich],
+    })
+    expect(out.source).toBe("serve")
+    expect(out.paths).toHaveLength(1)
+    expect(out.paths[0]?.nodes).toHaveLength(1)
+    expect(out.paths[0]?.edges[0]?.type).toBe("ACCESSES_RESOURCE")
+  })
+
   it("IAP fallback only when SERVE unreachable", () => {
     const out = resolveJewelRailPaths({
       serve: null,

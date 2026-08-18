@@ -51,8 +51,21 @@ export function resolveJewelRailPaths(args: {
     if (!jewel) {
       return { paths: [], source: "serve" }
     }
+    const projected = convergencePathsToIdentityAttackPaths(jewel, serve.paths ?? [])
+    // C1 can serve the per-jewel authority from the durable live-IAP
+    // snapshot when Phase-3 materialization is absent. Preserve the summary's
+    // authoritative membership/order, but reuse the matching full-IAP row so
+    // the canvas keeps its real nodes and edges instead of an empty hop stub.
+    const richById = new Map<string, IdentityAttackPath>()
+    for (const path of iapPaths) {
+      for (const id of [path.id, path.attack_path_id]) {
+        if (id) richById.set(String(id), path)
+      }
+    }
     return {
-      paths: convergencePathsToIdentityAttackPaths(jewel, serve.paths ?? []),
+      paths: projected.map(
+        (path) => richById.get(String(path.id || path.attack_path_id || "")) ?? path,
+      ),
       source: "serve",
     }
   }
