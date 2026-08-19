@@ -21,6 +21,7 @@ import { pickWorstSystemName } from "@/lib/pick-worst-system"
 function EstateView() {
   const params = useSearchParams()
   const fromUrl = params.get("systemName")
+  const customerId = params.get("customer_id")
   const [systemName, setSystemName] = useState<string | null>(fromUrl)
   const [resolving, setResolving] = useState(!fromUrl)
 
@@ -61,7 +62,7 @@ function EstateView() {
       </div>
     )
   }
-  return <EstateMapView systemName={systemName} />
+  return <EstateMapView systemName={systemName} customerId={customerId} />
 }
 
 export default function TopologyV02EstatePage() {

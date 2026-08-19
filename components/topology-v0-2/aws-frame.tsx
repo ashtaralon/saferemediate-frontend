@@ -44,6 +44,7 @@ import {
   type TrafficEdge,
   type TrafficEdgeClass,
   type VpcTopology,
+  hasAuthoritativePositiveTraffic,
 } from "./types"
 import { normalizeVpcTopology } from "./normalize-topology"
 import { createMap } from "./native-map"
@@ -4770,7 +4771,7 @@ export function AwsFrame({
         </div>
       ) : null}
       {flowMode !== "architecture" ? <FlowLegend compact={presentationMode} /> : null}
-      {flowMode === "all_access" && trafficAuthority?.state !== "authoritative" ? (
+      {flowMode === "all_access" && !hasAuthoritativePositiveTraffic(trafficAuthority?.state) ? (
         <div
           className="flex items-center justify-between gap-3 border-b px-2 py-1.5 text-[10px]"
           style={{ borderColor: "#FCD34D", background: "#FFFBEB", color: "#92400E" }}

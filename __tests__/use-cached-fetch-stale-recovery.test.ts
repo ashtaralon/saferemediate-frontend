@@ -165,6 +165,35 @@ describe("transport failure preserves the last verified reading", () => {
     })
     expect(fetchMock.mock.calls.length).toBe(afterRecovery)
   })
+
+  it("retries an HTTP 200 stale proxy snapshot until a live response arrives", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const stale = { ...GOOD, fromStaleCache: true, staleReason: "timeout" }
+    const fresh = { systems: [{ id: "s1" }, { id: "s2" }, { id: "s3" }], total: 3 }
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(() => respond(200, stale))
+      .mockImplementation(() => respond(200, fresh))
+    vi.stubGlobal("fetch", fetchMock)
+
+    const { result } = renderHook(() =>
+      useCachedFetch<typeof stale | typeof fresh>(URL, {
+        cacheKey: KEY,
+        autoRetryMs: 1000,
+      }),
+    )
+
+    await waitFor(() => expect(result.current.staleReason).toBe(STALE_BACKEND_RECOVERING))
+    expect(result.current.isStale).toBe(true)
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1300)
+    })
+
+    await waitFor(() => expect(result.current.isStale).toBe(false))
+    expect(result.current.data).toEqual(fresh)
+    expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(2)
+  })
 })
 
 describe("semantic failure still discards — fail-closed is not weakened", () => {
