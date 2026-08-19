@@ -999,7 +999,7 @@ export default function HomePage() {
         return <AutomationSection />
 
       case "integrations":
-        return <IntegrationsSection />
+        return <IntegrationsSection systemName={selectedSystem} />
 
       default:
         return (

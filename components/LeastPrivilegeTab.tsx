@@ -38,6 +38,7 @@ import {
 } from '@/lib/resource-risk-decision'
 import { useAccountScope } from '@/lib/account-scope-context'
 import { resourceAccountId, withAccountScope } from '@/lib/account-scope'
+import { TerraformExecutionChip } from '@/components/terraform-execution-chip'
 
 // ---------- Safe helpers ----------
 const safeArray = <T,>(v: unknown): T[] => Array.isArray(v) ? v : []
@@ -332,10 +333,39 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
   const [expandedRow, setExpandedRow] = useState<string | null>(null)
   const [deletedResources, setDeletedResources] = useState<Set<string>>(new Set()) // Track manually deleted resources
   const [rollingBack, setRollingBack] = useState<string | null>(null) // Track which resource is being rolled back
+  const [tfAdapters, setTfAdapters] = useState<Record<string, string>>({})
   const { toast } = useToast()
   const pendingResourceRiskOpen = useRef<ResourceRiskOpenDetail | null>(null)
   const lpDataRef = useRef(data)
   lpDataRef.current = data
+
+  useEffect(() => {
+    let cancelled = false
+    if (!systemName) {
+      setTfAdapters({})
+      return
+    }
+    void fetch(
+      `/api/proxy/change-executions/ownership/terraform?tenant_id=${encodeURIComponent(systemName)}`,
+      { cache: 'no-store' },
+    )
+      .then((res) => res.json().catch(() => ({})))
+      .then((payload) => {
+        if (cancelled) return
+        const next: Record<string, string> = {}
+        for (const row of Array.isArray(payload?.bindings) ? payload.bindings : []) {
+          const ref = row?.cloud_ref || row?.role_arn
+          if (ref && row?.execution_adapter) next[ref] = row.execution_adapter
+        }
+        setTfAdapters(next)
+      })
+      .catch(() => {
+        if (!cancelled) setTfAdapters({})
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [systemName])
 
   const openResourceFromDeepLink = (detail: ResourceRiskOpenDetail, list: GapResource[]) => {
     const match = list.find(
@@ -2218,6 +2248,14 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
               const metrics = getUsageMetricsForResource(resource)
               const isExpanded = expandedRow === (resource.id || resource.resourceName)
               const rowKey = resource.id || resource.resourceArn || resource.resourceName
+              const tfRoleArn = resource.resourceArn?.startsWith('arn:')
+                ? resource.resourceArn
+                : resource.id?.startsWith('arn:')
+                  ? resource.id
+                  : ''
+              const tfChip = resource.resourceType === 'IAMRole'
+                ? <TerraformExecutionChip adapter={tfAdapters[tfRoleArn]} />
+                : null
 
               return (
                 <div key={rowKey}>
@@ -2238,7 +2276,10 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                           <CheckCircle2 className="w-4 h-4" style={{ color: "#10b981" }} />
                         </div>
                         <div className="min-w-0">
-                          <div className="font-medium text-sm truncate" style={{ color: "var(--text-primary)" }}>{resource.resourceName}</div>
+                          <div className="flex items-center gap-2 min-w-0">
+                            <div className="font-medium text-sm truncate" style={{ color: "var(--text-primary)" }}>{resource.resourceName}</div>
+                            {tfChip}
+                          </div>
                           <div className="text-xs truncate" style={{ color: "var(--text-secondary)" }} title={resource.description}>
                             {resource.description || resource.title || 'Risk details available'}
                           </div>
@@ -2307,7 +2348,10 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                           <TypeIcon className="w-4 h-4" style={{ color: typeColor }} />
                         </div>
                         <div className="min-w-0">
-                          <div className="font-medium text-sm truncate" style={{ color: "var(--text-primary)" }}>{resource.resourceName}</div>
+                          <div className="flex items-center gap-2 min-w-0">
+                            <div className="font-medium text-sm truncate" style={{ color: "var(--text-primary)" }}>{resource.resourceName}</div>
+                            {tfChip}
+                          </div>
                           <div className="text-xs truncate" style={{ color: "var(--text-secondary)" }} title={resource.description}>
                             {resource.description || resource.title || 'Risk details available'}
                           </div>
