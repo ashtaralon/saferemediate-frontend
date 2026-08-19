@@ -45,6 +45,7 @@ import {
   buildTopologyNodeIdIndex,
   buildVisibleCanvasIds,
   attackPathEdgesToTrafficEdges,
+  mergeTrafficEdges,
   selectEstateFlowEdges,
   type EstateFlowMode,
 } from "@/components/topology-v0-2/estate-flow-edges"
@@ -263,11 +264,22 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
   const scopedEstate = useMemo(() => {
     const source = fullSystemPayload ?? data
     if (!source?.nodes) return null
+    // The unscoped payload exists to provide the Compare scaffold, but it can
+    // legitimately be an older last-good snapshot while the selected-VPC
+    // payload has already refreshed.  Never let an empty/stale unscoped
+    // traffic array erase newer ACTUAL_TRAFFIC evidence from the primary
+    // response.  Merge both views, preferring the selected/current payload on
+    // duplicate edge keys; the system/VPC honesty filter below still removes
+    // every edge whose endpoints are outside the rendered estate.
+    const trafficEdges = mergeTrafficEdges(
+      data?.traffic_edges ?? [],
+      fullSystemPayload?.traffic_edges ?? [],
+    )
     const scoped = applySystemEstateScope({
       systemName,
       nodes: dedupeLambdaServiceTwins(source.nodes),
       vpcTopology: normalizeVpcTopology(source.vpc_topology),
-      trafficEdges: source.traffic_edges ?? [],
+      trafficEdges,
       availableVpcs: source.available_vpcs ?? data?.available_vpcs ?? [],
     })
     if (!scopedVpc) return scoped
