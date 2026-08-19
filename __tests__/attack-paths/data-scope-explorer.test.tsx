@@ -12,6 +12,26 @@ afterEach(() => {
 })
 
 describe("DataScopeExplorer", () => {
+  it("shows a DynamoDB crown jewel as the exact table without a fake child lookup", () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+
+    render(
+      <DataScopeExplorer
+        resourceId="arn:aws:dynamodb:eu-west-1:123:table/orders"
+        resourceName="orders"
+        resourceType="DynamoDBTable"
+        systemName="testbed-webshop"
+        observed
+      />,
+    )
+
+    expect(screen.getByText("Exact table")).toBeInTheDocument()
+    expect(screen.getByText("orders")).toBeInTheDocument()
+    expect(screen.getByText(/already the exact data target/i)).toBeInTheDocument()
+    expect(screen.getByText("observed")).toBeInTheDocument()
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
   it("shows exact S3 object evidence immediately and keeps the prefix collapsible", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(new Response(JSON.stringify({

@@ -144,9 +144,9 @@ export function CrownJewelListPanel({
                     {notComputed && (
                       <span
                         className="text-[10px] text-muted-foreground"
-                        title="No materialized attack paths exist for this jewel yet — run the attack-path materializer to compute them."
+                        title="Observed path analysis is not ready for this asset. This is missing evidence or computation — not proof of low risk."
                       >
-                        not computed
+                        evidence not ready
                       </span>
                     )}
                     {!notComputed && (() => {
