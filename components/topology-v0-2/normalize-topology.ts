@@ -24,6 +24,7 @@ export function normalizeVpcTopology(vt: VpcTopology | null | undefined): VpcTop
       subnets: [],
       route_tables: [],
       effective_routes: [],
+      edge_ingress_paths: [],
       edges: EMPTY_EDGES,
       unknown_subnet_count: 0,
       security_groups: [],
@@ -40,6 +41,7 @@ export function normalizeVpcTopology(vt: VpcTopology | null | undefined): VpcTop
     })),
     route_tables: vt.route_tables ?? [],
     effective_routes: vt.effective_routes ?? [],
+    edge_ingress_paths: Array.isArray(vt.edge_ingress_paths) ? vt.edge_ingress_paths : [],
     edges: {
       igws: edges.igws ?? [],
       nat_gws: edges.nat_gws ?? [],

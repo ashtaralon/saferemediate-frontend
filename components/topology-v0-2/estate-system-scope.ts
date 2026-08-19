@@ -185,6 +185,9 @@ export function applySystemEstateScope(input: SystemScopeInput): SystemScopeResu
       effective_routes: (vt.effective_routes ?? []).filter(route =>
         subnetIds.has(route.subnet_id),
       ),
+      edge_ingress_paths: (vt.edge_ingress_paths ?? []).filter(path =>
+        nodeIds.has(path.origin.id),
+      ),
       edges: { igws, nat_gws, vpces },
       iam_roles,
     },
@@ -223,6 +226,9 @@ export function narrowSystemEstateToVpc(
         (scoped.vpcTopology.subnets ?? []).some(
           subnet => subnet.id === route.subnet_id && subnet.vpc_id === vpcId,
         ),
+      ),
+      edge_ingress_paths: (scoped.vpcTopology.edge_ingress_paths ?? []).filter(path =>
+        scoped.nodes.some(node => node.id === path.origin.id && (!node.vpc_id || node.vpc_id === vpcId)),
       ),
       edges: {
         igws: (scoped.vpcTopology.edges?.igws ?? []).filter(
