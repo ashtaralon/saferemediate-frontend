@@ -41,6 +41,7 @@ import {
   simulationPlanCounts,
 } from "@/lib/resource-risk-preview-summary"
 import { AdvancedDrawer } from "@/components/iam-lp/AdvancedDrawer"
+import { TerraformExecutionChip } from "@/components/terraform-execution-chip"
 import {
   ApprovalActionModal,
   buildApprovalActionInitialState,
@@ -839,6 +840,7 @@ export function IAMPermissionAnalysisModal({
   const [gapData, setGapData] = useState<GapAnalysisData | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [tfAdapter, setTfAdapter] = useState<string>("unregistered")
   const [showSimulation, setShowSimulation] = useState(false)
   const [analysisTab, setAnalysisTab] = useState<'summary' | 'permissions' | 'context'>('summary')
   const [simulating, setSimulating] = useState(false)
@@ -956,6 +958,38 @@ export function IAMPermissionAnalysisModal({
     })()
     return () => { cancelled = true }
   }, [isOpen, roleName, findingId])
+
+  useEffect(() => {
+    if (!isOpen || !systemName) {
+      setTfAdapter("unregistered")
+      return
+    }
+    let cancelled = false
+    const params = new URLSearchParams({ tenant_id: systemName })
+    if (gapData?.role_arn) params.set("cloud_ref", gapData.role_arn)
+    void fetch(`/api/proxy/change-executions/ownership/terraform?${params.toString()}`, {
+      cache: "no-store",
+    })
+      .then((res) => res.json().catch(() => ({})))
+      .then((payload) => {
+        if (cancelled) return
+        if (payload?.execution_adapter) {
+          setTfAdapter(payload.execution_adapter)
+          return
+        }
+        const match = (Array.isArray(payload?.bindings) ? payload.bindings : []).find(
+          (row: { cloud_ref?: string; role_arn?: string }) =>
+            (row.cloud_ref || row.role_arn) === gapData?.role_arn,
+        )
+        setTfAdapter(match?.execution_adapter || "unregistered")
+      })
+      .catch(() => {
+        if (!cancelled) setTfAdapter("unregistered")
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [isOpen, systemName, gapData?.role_arn])
 
   const fetchApprovalRequests = async () => {
     if (!roleName) return
@@ -4299,8 +4333,11 @@ export function IAMPermissionAnalysisModal({
             <div className="text-[10px] font-semibold uppercase tracking-[0.14em]" style={{ color: "#2D51DA" }}>
               {viaInstanceProfile ? 'Wrapped role · Permission Usage' : 'Permission Usage'}
             </div>
-            <div className="mt-0.5 text-sm font-semibold truncate" style={{ color: "var(--foreground, #111827)" }}>
-              {roleName} <span className="font-normal" style={{ color: "var(--muted-foreground, #6b7280)" }}>· {identityType || 'IAMRole'}{systemName ? ` · ${systemName}` : ''}</span>
+            <div className="mt-0.5 text-sm font-semibold truncate flex items-center gap-2" style={{ color: "var(--foreground, #111827)" }}>
+              <span className="truncate">
+                {roleName} <span className="font-normal" style={{ color: "var(--muted-foreground, #6b7280)" }}>· {identityType || 'IAMRole'}{systemName ? ` · ${systemName}` : ''}</span>
+              </span>
+              <TerraformExecutionChip adapter={tfAdapter} />
             </div>
             {viaInstanceProfile && (
               <div className="mt-1 text-[11px]" style={{ color: "var(--muted-foreground, #6b7280)" }}>
