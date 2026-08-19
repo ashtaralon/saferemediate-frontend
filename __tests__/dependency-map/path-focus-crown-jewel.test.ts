@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest"
 import {
+  ensurePathTargetResource,
   isPathFocusOffTargetCrownJewelHidden,
   resolvePathFocusTargetJewelId,
 } from "@/components/dependency-map/traffic-flow-map"
@@ -66,6 +67,33 @@ describe("isPathFocusOffTargetCrownJewelHidden", () => {
         targetJewelId: target,
       }),
     ).toBe(false)
+  })
+})
+
+describe("ensurePathTargetResource", () => {
+  it("adds the selected RDS target when a rich override omits its terminal", () => {
+    const target = "arn:aws:rds:eu-west-1:1:cluster:orders"
+    const architecture = ensurePathTargetResource(
+      { resources: [], computeServices: [{ id: "i-1" }] } as any,
+      {
+        nodeIds: ["i-1", target],
+        crownJewelIds: [target],
+        jewelName: "orders",
+        pathNodes: [
+          { id: "i-1", name: "app", type: "EC2Instance" },
+          { id: target, name: "orders", type: "RDSCluster", tier: "crown_jewel" },
+        ],
+      },
+    )
+
+    expect(architecture.resources).toEqual([
+      expect.objectContaining({
+        id: target,
+        name: "orders",
+        type: "database",
+        isCrownJewel: true,
+      }),
+    ])
   })
 })
 
