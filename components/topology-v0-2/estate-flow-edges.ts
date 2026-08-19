@@ -213,18 +213,36 @@ function edgeKey(source: string, target: string, port: number | null, protocol: 
   return `${source}::${target}::${port ?? ""}::${protocol ?? ""}`
 }
 
-function filterVisibleTrafficEdges(
+const PERIMETER_ENDPOINT_IDS = new Set([
+  "__igw__",
+  "__aws_s3__",
+  "__aws_api__",
+])
+
+/**
+ * Keep graph edges incident to the visible estate in either direction.
+ * Perimeter/VPCE endpoints may be a source or target, but an edge must also
+ * touch a rendered resource so foreign or perimeter-only traffic cannot leak
+ * into the selected map scope.
+ */
+export function filterVisibleTrafficEdges(
   edges: TrafficEdge[],
   visible: Set<string>,
+  vpceIds: Set<string> = new Set(),
 ): TrafficEdge[] {
-  return edges.filter(
-    e =>
-      visible.has(e.source_id) &&
-      (visible.has(e.target_id) ||
-        e.target_id === "__igw__" ||
-        e.target_id === "__aws_s3__" ||
-        e.target_id === "__aws_api__"),
-  )
+  const isPerimeter = (id: string) =>
+    PERIMETER_ENDPOINT_IDS.has(id) || vpceIds.has(id)
+
+  return edges.filter(e => {
+    const sourceIsPerimeter = isPerimeter(e.source_id)
+    const targetIsPerimeter = isPerimeter(e.target_id)
+    const sourceIsResource = visible.has(e.source_id) && !sourceIsPerimeter
+    const targetIsResource = visible.has(e.target_id) && !targetIsPerimeter
+    return (
+      (sourceIsResource && (targetIsResource || targetIsPerimeter)) ||
+      (targetIsResource && sourceIsPerimeter)
+    )
+  })
 }
 
 export function mergeTrafficEdges(

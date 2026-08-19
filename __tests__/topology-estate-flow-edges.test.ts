@@ -4,6 +4,7 @@ import {
   attackPathEdgesToTrafficEdges,
   depMapEdgesToTrafficEdges,
   filterMergedVpcOverlayEdges,
+  filterVisibleTrafficEdges,
   mergeTrafficEdges,
   selectEstateFlowEdges,
 } from "@/components/topology-v0-2/estate-flow-edges"
@@ -14,6 +15,32 @@ function node(id: string, type: string | null = "Lambda"): TopologyNode {
 }
 
 describe("estate-flow-edges", () => {
+  it("keeps perimeter traffic in both observed directions", () => {
+    const visible = new Set(["i-web"])
+    const base = {
+      port: null,
+      protocol: "TCP",
+      last_seen: "2026-08-19T07:38:02Z",
+      edge_class: "egress" as const,
+      evidence_type: "observed" as const,
+      authority_state: "authoritative" as const,
+      path_basis: "observed_segment" as const,
+    }
+    const result = filterVisibleTrafficEdges(
+      [
+        { ...base, source_id: "i-web", target_id: "__igw__" },
+        { ...base, source_id: "__igw__", target_id: "i-web" },
+        { ...base, source_id: "__igw__", target_id: "i-foreign" },
+      ],
+      visible,
+    )
+
+    expect(result.map(edge => [edge.source_id, edge.target_id])).toEqual([
+      ["i-web", "__igw__"],
+      ["__igw__", "i-web"],
+    ])
+  })
+
   it("architecture mode keeps the cloud structure clear of dependency overlays", () => {
     const visible = new Set(["web-a", "app-b"])
     const index = new Map([["web-a", "web-a"], ["app-b", "app-b"]])
