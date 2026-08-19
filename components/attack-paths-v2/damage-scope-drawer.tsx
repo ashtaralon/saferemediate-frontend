@@ -149,7 +149,15 @@ export function DamageScopeDrawer({
 
   useEffect(() => {
     const syncPortal = () => {
-      setPortalContainer(portalContainerRef?.current ?? null)
+      // A portal attached to document.body is invisible while the browser is
+      // in native fullscreen: only descendants of document.fullscreenElement
+      // are painted. Prefer the active fullscreen root so a Crown Jewel click
+      // can always show its observed-data drawer in the expanded Attack Map.
+      setPortalContainer(
+        document.fullscreenElement instanceof HTMLElement
+          ? document.fullscreenElement
+          : (portalContainerRef?.current ?? null),
+      )
     }
     syncPortal()
     document.addEventListener("fullscreenchange", syncPortal)
@@ -157,7 +165,13 @@ export function DamageScopeDrawer({
   }, [portalContainerRef])
 
   useEffect(() => {
-    if (open) setPortalContainer(portalContainerRef?.current ?? null)
+    if (open) {
+      setPortalContainer(
+        document.fullscreenElement instanceof HTMLElement
+          ? document.fullscreenElement
+          : (portalContainerRef?.current ?? null),
+      )
+    }
   }, [open, portalContainerRef])
 
   const fetchScope = useCallback(async (t: DamageScopeTarget) => {
