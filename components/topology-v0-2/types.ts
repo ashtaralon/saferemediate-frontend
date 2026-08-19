@@ -76,6 +76,17 @@ export interface NodeScore {
   contributors: Contributor[]
 }
 
+export type OperationalHealthStatus = "healthy" | "degraded" | "unhealthy" | "unknown"
+
+export interface OperationalHealthMeta {
+  status: OperationalHealthStatus
+  summary: string
+  raw_status: string | null
+  source: string | null
+  authority_state: "observed" | "unavailable"
+  observed_at: string | null
+}
+
 export interface TopologyNode {
   id: string
   name: string
@@ -102,6 +113,7 @@ export interface TopologyNode {
   security_group_ids?: string[]
   /** Listener routing and provider target-health for load-balancer nodes. */
   load_balancer?: LoadBalancerOperationalMeta
+  operational_health?: OperationalHealthMeta
   // Operator-trust addition — for edge-service nodes (S3/DDB/KMS/Secret) only:
   // observed access counts from ANY principal (visible chips, hidden Lambdas,
   // IAMRoles, STSSessions). Lets the FE badge "in use vs idle" without
@@ -458,6 +470,7 @@ export interface VpcTopology {
   nacls?: NaclMeta[]
   network_interfaces?: NetworkInterfaceMeta[]
   load_balancers?: LoadBalancerOperationalMeta[]
+  operational_health_summary?: Record<OperationalHealthStatus | "total", number>
   iam_roles?: IamRoleRollup[]
 }
 

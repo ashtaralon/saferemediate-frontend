@@ -205,6 +205,42 @@ describe("AwsFrame Glance density (generic)", () => {
     expect(status.closest("button")?.getAttribute("title")).toContain("1 unhealthy")
   })
 
+  it("toggles a provider-independent operational health overlay", () => {
+    const healthy = nd({
+      id: "ec2-healthy", name: "web-healthy",
+      operational_health: {
+        status: "healthy", summary: "Provider reports ready/available",
+        raw_status: "running", source: "instance_state",
+        authority_state: "observed", observed_at: "2026-08-19T12:00:00Z",
+      },
+    })
+    const degraded = nd({
+      id: "ec2-degraded", name: "web-degraded",
+      operational_health: {
+        status: "degraded", summary: "Provider reports a transitional state",
+        raw_status: "pending", source: "instance_state",
+        authority_state: "observed", observed_at: "2026-08-19T12:00:00Z",
+      },
+    })
+    render(
+      <AwsFrame
+        vpcTopology={topology}
+        nodes={[healthy, degraded]}
+        flowMode="architecture"
+        onFlowModeChange={() => {}}
+        selectedNodeId={null}
+        onSelect={() => {}}
+        viewDensity="inventory"
+      />,
+    )
+    expect(screen.queryByTestId("topology-operational-health-legend")).toBeNull()
+    fireEvent.click(screen.getByRole("button", { name: "Health" }))
+    expect(screen.getByTestId("topology-operational-health-legend").textContent).toContain("healthy · 1")
+    expect(screen.getByTestId("topology-operational-health-legend").textContent).toContain("degraded · 1")
+    const dots = screen.getAllByTestId("topology-operational-health-dot")
+    expect(dots.map(dot => dot.getAttribute("data-health-status")).sort()).toEqual(["degraded", "healthy"])
+  })
+
   it("single-VPC Glance uses AWS AZ-column grammar", () => {
     const nodes: TopologyNode[] = [
       nd({ id: "ec2-1", name: "web-1" }),
