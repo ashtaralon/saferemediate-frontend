@@ -11286,9 +11286,7 @@ export default function TrafficFlowMap({
       <div className="flex-1 flex flex-col overflow-hidden">
       {/* Header with refresh controls */}
       <div
-        className={`flex items-center gap-2 px-4 py-3 bg-card border-b border-border flex-shrink-0 relative z-50 min-w-0 ${
-          isFullscreen ? "flex-wrap" : ""
-        }`}
+        className="flex flex-wrap items-center gap-2 px-4 py-3 bg-card border-b border-border flex-shrink-0 relative z-50 min-w-0"
       >
         <div className="flex items-center gap-4 shrink-0 min-w-0 max-w-[42%] overflow-hidden">
           {/* Stack Components rail toggle. Collapsed by default (Phase 1b-c)
@@ -11404,7 +11402,7 @@ export default function TrafficFlowMap({
           </div>
         ) : null}
 
-        <div className="flex items-center gap-2 min-w-0 flex-1 overflow-x-auto">
+        <div className="flex flex-wrap items-center gap-2 min-w-0 flex-1 overflow-visible">
           {/* Connections toggle — 2026-06-25. Defaults OFF: the canvas
               shows zero global flow polylines, only the ones that
               touch the hovered chip + active attack paths. Toggling

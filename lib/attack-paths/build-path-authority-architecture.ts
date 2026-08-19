@@ -232,6 +232,9 @@ const KNOWN_RELS = new Set<string>([
 
 /** DTO aliases → canvas relationship (never invent; only normalize spelling). */
 const REL_ALIASES: Record<string, CanvasRelationshipType> = {
+  // Canonical STS collector spelling. Canvas uses the normalized verb so the
+  // edge reads "session assumes role" instead of dropping the relationship.
+  ASSUMED_ROLE: "ASSUMES_ROLE_ACTUAL",
   // Materializer stamps bucket/role → VPCE as EXFILTRATES_VIA; canvas
   // already treats ROUTES_VIA as configured routing association.
   EXFILTRATES_VIA: "ROUTES_VIA",
@@ -1321,26 +1324,51 @@ export function buildPathAuthorityArchitecture(params: {
     }
   }
 
+  // A path map is a relationship map, not an inventory strip. Context nodes
+  // can be present in the canonical DTO without participating in this route
+  // (for example a KMS key listed beside an S3 bucket with no ENCRYPTED_BY
+  // edge). Rendering those as floating cards implies a relationship that the
+  // data does not prove. Keep only endpoints of explicit projected edges.
+  const connectedNodeIds = new Set<string>()
+  for (const edge of edges) {
+    connectedNodeIds.add(edge.source_aws_id)
+    connectedNodeIds.add(edge.target_aws_id)
+  }
+  const connected = <T extends { id: string }>(rows: T[]): T[] =>
+    rows.filter((row) => connectedNodeIds.has(row.id))
+  const connectedPrincipals = connected(principals)
+  const connectedCompute = connected(computeServices)
+  const connectedResources = connected(resources)
+  const connectedSubnets = connected(subnets)
+  const connectedSecurityGroups = connected(securityGroups)
+  const connectedNacls = connected(nacls)
+  const connectedRoles = connected(iamRoles)
+  const connectedProfiles = connected(instanceProfiles)
+  const connectedVpces = connected(vpcEndpoints)
+  const connectedGateways = connected(egressGateways)
+
   return {
     networkPosture,
     workloadNetwork,
-    computeServices,
-    principals,
+    computeServices: connectedCompute,
+    principals: connectedPrincipals,
     entryPoints: [],
-    entryLaneLabel: principals.length > 0 ? "Identity sessions" : undefined,
-    resources,
-    subnets,
-    securityGroups: securityGroups as PathAuthorityArchitecture["securityGroups"],
-    nacls: nacls as PathAuthorityArchitecture["nacls"],
-    iamRoles: iamRoles as PathAuthorityArchitecture["iamRoles"],
-    instanceProfiles: instanceProfiles as PathAuthorityArchitecture["instanceProfiles"],
+    entryLaneLabel: connectedPrincipals.length > 0 ? "Identity sessions" : undefined,
+    resources: connectedResources,
+    subnets: connectedSubnets,
+    securityGroups: connectedSecurityGroups as PathAuthorityArchitecture["securityGroups"],
+    nacls: connectedNacls as PathAuthorityArchitecture["nacls"],
+    iamRoles: connectedRoles as PathAuthorityArchitecture["iamRoles"],
+    instanceProfiles: connectedProfiles as PathAuthorityArchitecture["instanceProfiles"],
     iamPolicies: [],
-    vpcEndpoints,
-    egressGateways,
+    vpcEndpoints: connectedVpces,
+    egressGateways: connectedGateways,
     flows: [],
     edges,
     onPathEdgeIds: new Set(edges.map((e) => e.id)),
-    onPathNodeIds,
+    onPathNodeIds: new Set(
+      [...onPathNodeIds].filter((nodeId) => connectedNodeIds.has(nodeId)),
+    ),
     gatewayPathOwnership: buildGatewayPathOwnership(
       paths,
       spotlightPathId,
