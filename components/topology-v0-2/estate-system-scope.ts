@@ -20,6 +20,7 @@ import type {
   TrafficEdge,
   VpcTopology,
 } from "./types"
+import { filterVisibleTrafficEdges } from "./estate-flow-edges"
 
 export type SystemScopeInput = {
   systemName: string
@@ -122,26 +123,7 @@ export function filterTrafficEdgesForVisible(
   visibleIds: Set<string>,
   vpceIds: Set<string>,
 ): TrafficEdge[] {
-  const perimeterIds = new Set(["__igw__", "__aws_s3__", "__aws_api__"])
-  return edges.filter(e => {
-    const src = e.source_id
-    const tgt = e.target_id
-    if (!src || !tgt) return false
-    const sourceIsWorkload = visibleIds.has(src)
-    const targetIsWorkload = visibleIds.has(tgt)
-    // Perimeter and endpoint sentinels are legitimate origins too. Requiring
-    // every source to be a topology node silently deleted IGW → EC2 inbound
-    // observations even though Neptune projected both directions.
-    const sourceIsPerimeter = perimeterIds.has(src) || vpceIds.has(src)
-    const targetIsPerimeter = perimeterIds.has(tgt) || vpceIds.has(tgt)
-    // Keep only edges incident to a visible estate resource; this admits
-    // workload↔perimeter in either direction without leaking unrelated
-    // perimeter-only or foreign-scope segments into the map.
-    return (
-      (sourceIsWorkload && (targetIsWorkload || targetIsPerimeter)) ||
-      (targetIsWorkload && sourceIsPerimeter)
-    )
-  })
+  return filterVisibleTrafficEdges(edges, visibleIds, vpceIds)
 }
 
 /**

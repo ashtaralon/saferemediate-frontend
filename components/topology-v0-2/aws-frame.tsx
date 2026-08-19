@@ -49,7 +49,10 @@ import {
 import { normalizeVpcTopology } from "./normalize-topology"
 import { createMap } from "./native-map"
 import type { EstateFlowMode } from "./estate-flow-edges"
-import { filterMergedVpcOverlayEdges } from "./estate-flow-edges"
+import {
+  filterMergedVpcOverlayEdges,
+  filterVisibleTrafficEdges,
+} from "./estate-flow-edges"
 import { subnetOwnershipTooltipLine } from "./estate-ownership"
 import {
   databasePublicIpExposureLabel,
@@ -4629,14 +4632,7 @@ export function AwsFrame({
       ...regionalTierNodes.map(n => n.id),
       ...serverlessTierNodes.map(n => n.id),
     ])
-    let edges = overlayEdgeList.filter(e => {
-      if (!visible.has(e.source_id)) return false
-      if (e.target_id === "__igw__") return true
-      if (e.target_id === AWS_S3_PUBLIC_SENTINEL_ID) return true
-      if (e.target_id === AWS_API_PUBLIC_SENTINEL_ID) return true
-      if (vpceIds.has(e.target_id)) return true
-      return visible.has(e.target_id)
-    })
+    let edges = filterVisibleTrafficEdges(overlayEdgeList, visible, vpceIds)
     // All VPCs · Compare: one SVG over two columns — cross-VPC chip↔chip
     // edges turn the gutter into spaghetti. Keep intra-VPC + rail/IGW/VPCE.
     if (mergedVpcView) {
@@ -4659,14 +4655,7 @@ export function AwsFrame({
       ...regionalTierNodes.map(n => n.id),
       ...serverlessTierNodes.map(n => n.id),
     ])
-    let edges = trafficEdgesList.filter(e => {
-      if (!visible.has(e.source_id)) return false
-      if (e.target_id === "__igw__") return true
-      if (e.target_id === AWS_S3_PUBLIC_SENTINEL_ID) return true
-      if (e.target_id === AWS_API_PUBLIC_SENTINEL_ID) return true
-      if (vpceIds.has(e.target_id)) return true
-      return visible.has(e.target_id)
-    })
+    let edges = filterVisibleTrafficEdges(trafficEdgesList, visible, vpceIds)
     if (mergedVpcView) {
       edges = filterMergedVpcOverlayEdges(edges, nodes, { railIds, vpceIds })
     }
