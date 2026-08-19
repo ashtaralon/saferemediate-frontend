@@ -156,6 +156,45 @@ describe("buildCurrentAccessDossier", () => {
       true,
     )
   })
+
+  it("uses the IAM role as From when an STS wrapper precedes it", () => {
+    const dossier = buildCurrentAccessDossier(
+      path({
+        path_id: "session-role",
+        hops: [
+          {
+            node_id: "session",
+            node_type: "STSSession",
+            name: "→ AWSServiceRoleForConfig",
+            plane: "identity",
+            security_groups: [],
+            is_crown_jewel: false,
+          },
+          {
+            node_id: "role",
+            node_type: "IAMRole",
+            name: "AWSServiceRoleForConfig",
+            plane: "identity",
+            security_groups: [],
+            is_crown_jewel: false,
+          },
+          {
+            node_id: "bucket",
+            node_type: "S3Bucket",
+            name: "bucket",
+            plane: "data",
+            security_groups: [],
+            is_crown_jewel: true,
+          },
+        ],
+      }),
+    )
+
+    expect(dossier?.from).toMatchObject({
+      name: "AWSServiceRoleForConfig",
+      type: "IAMRole",
+    })
+  })
 })
 
 describe("findPinnedConvergencePath", () => {

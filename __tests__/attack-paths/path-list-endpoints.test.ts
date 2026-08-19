@@ -52,4 +52,18 @@ describe("Attack Paths route endpoints", () => {
     expect(row.start_type).toBe("IAMRole")
     expect(row.source_label).toBe("OrganizationAccountAccessRole")
   })
+
+  it("prefers the backing IAM role over its STS transport wrapper", () => {
+    const row = compilePathListRow(
+      pathWithNodes([
+        { id: "session", name: "→ AWSServiceRoleForConfig", type: "STSSession" },
+        { id: "role", name: "AWSServiceRoleForConfig", type: "IAMRole" },
+        { id: jewel.id, name: jewel.name, type: jewel.type },
+      ]),
+      jewel,
+    )
+
+    expect(row.start_label).toBe("AWSServiceRoleForConfig")
+    expect(row.start_type).toBe("IAMRole")
+  })
 })

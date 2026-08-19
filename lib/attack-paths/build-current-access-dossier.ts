@@ -80,7 +80,7 @@ function evidenceLabel(evidence: string | null | undefined): string {
 
 function shortName(hop: ConvergenceHop | null): string {
   if (!hop) return "unavailable"
-  const n = (hop.name ?? "").trim()
+  const n = (hop.name ?? "").replace(/^\s*(?:→|->)\s*/, "").trim()
   if (n) return n
   const id = (hop.node_id ?? "").trim()
   if (!id) return "unavailable"
@@ -506,6 +506,9 @@ export function buildCurrentAccessDossier(
       nt.includes("lambda") ||
       nt.includes("ecs") ||
       nt.includes("fargate"),
+  ) ?? hopByType(
+    hops,
+    (nt) => nt.includes("iamrole"),
   ) ?? hops[0] ?? null
   const toHop = hops.find((hop) => hop.is_crown_jewel === true)
     ?? hopByType(
