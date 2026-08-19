@@ -110,6 +110,8 @@ describe("interactive attacker maps", () => {
     expect(lateral).toContain("item.reachable_damage?.priority_score")
     expect(lateral).toContain("damage.choke_point?.intent")
     expect(lateralLens).toContain("prior access not evaluated")
+    expect(lateralLens).toContain("{candidates.map((candidate)")
+    expect(lateralLens).not.toContain("No evaluated service reached this jewel")
     expect(trafficMap).toContain('data-modeled-flow-motion="true"')
     expect(trafficMap).toContain("forceModeledMotion={!!architecture.modeledMoves?.length")
     expect(zoom0).toContain("overflow-y-auto overscroll-contain")
