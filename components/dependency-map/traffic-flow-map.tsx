@@ -7784,6 +7784,48 @@ export function resolvePathFocusTargetJewelId(pathFilter: {
 }
 
 /**
+ * A graph-view override can be rich enough to paint compute/identity lanes
+ * while omitting the terminal data node. Preserve that backend-authoritative
+ * selected target from the path DTO so Resources never becomes an empty,
+ * unclickable lane.
+ */
+export function ensurePathTargetResource(
+  architecture: SystemArchitecture,
+  pathFilter: TrafficFlowMapPathFilter | null | undefined,
+): SystemArchitecture {
+  if (!pathFilter) return architecture
+  const targetId = resolvePathFocusTargetJewelId(pathFilter)
+  if (!targetId || architecture.resources.some((resource) => resource.id === targetId)) {
+    return architecture
+  }
+  const node = pathFilter.pathNodes?.find((candidate) => candidate.id === targetId)
+  if (!node) return architecture
+  const rawType = (node.type || "").toLowerCase()
+  const type = rawType.includes("dynamo")
+    ? "dynamodb"
+    : rawType.includes("rds") || rawType.includes("aurora") || rawType.includes("database")
+      ? "database"
+      : rawType.includes("kms")
+        ? "kms"
+        : rawType.includes("secret")
+          ? "secret"
+          : "storage"
+  return {
+    ...architecture,
+    resources: [
+      ...architecture.resources,
+      {
+        id: targetId,
+        name: node.name || pathFilter.jewelName || targetId,
+        shortName: node.name || pathFilter.jewelName || targetId,
+        type,
+        isCrownJewel: true,
+      },
+    ],
+  }
+}
+
+/**
  * Path-focus Resources lane: only the selected target crown jewel is visible
  * until blast radius is toggled on. Off-target CJs (KMS peers, lateral jewels)
  * stay hidden even if they landed in the on-path set via infra fan-out.
@@ -8719,6 +8761,10 @@ export default function TrafficFlowMap({
       // through and seed from pathFilter (same as missing dep-map).
       const overrideUsable = architectureHasRenderableContent(architectureOverride)
       if (overrideUsable) {
+        const overrideWithTarget = ensurePathTargetResource(
+          architectureOverride,
+          pathFilter,
+        )
         // 2026-06-11 bug fix: callers like the merged Attack Path tab
         // (path-analysis-panel.tsx) pass BOTH architectureOverride AND
         // pathFilter. The override used to short-circuit applyPathFilter
@@ -8730,26 +8776,26 @@ export default function TrafficFlowMap({
         // to a shallow copy — never mutate the caller's prop object.
         if (
           pathFilter &&
-          !(architectureOverride.pathStepByNodeId && architectureOverride.pathStepByNodeId.size > 0)
+          !(overrideWithTarget.pathStepByNodeId && overrideWithTarget.pathStepByNodeId.size > 0)
         ) {
           const dom = derivePathDominance(
             pathFilter,
-            buildComputeByInstanceId(architectureOverride.computeServices),
+            buildComputeByInstanceId(overrideWithTarget.computeServices),
           );
           if (dom.pathStepByNodeId.size > 0) {
             return markCjs({
-              ...architectureOverride,
+              ...overrideWithTarget,
               pathStepByNodeId: dom.pathStepByNodeId,
               pathEdgePairKeys: dom.pathEdgePairKeys,
               // Union with any caller-supplied on-path set (canvasV2
               // lateral dimming) — both claim "this node is on the chain".
-              onPathNodeIds: architectureOverride.onPathNodeIds
-                ? new Set([...architectureOverride.onPathNodeIds, ...dom.onPathNodeIds])
+              onPathNodeIds: overrideWithTarget.onPathNodeIds
+                ? new Set([...overrideWithTarget.onPathNodeIds, ...dom.onPathNodeIds])
                 : dom.onPathNodeIds,
             });
           }
         }
-        return markCjs(architectureOverride);
+        return markCjs(overrideWithTarget);
       }
     }
     // No dep-map (or empty override) but we have an attack-path spine —
