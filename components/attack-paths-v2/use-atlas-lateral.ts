@@ -15,7 +15,8 @@ export interface AtlasFootholdCandidate {
   role_name: string | null
   foothold_likelihood: FootholdLikelihood
   foothold_reasons: string[]
-  observed_access_to_jewel: boolean
+  observed_access_to_jewel: boolean | null
+  observed_access_state?: "OBSERVED" | "NOT_OBSERVED" | "NOT_EVALUATED"
   access_last_seen: string | null
   security_group_ids: string[]
   atlas_rank?: number

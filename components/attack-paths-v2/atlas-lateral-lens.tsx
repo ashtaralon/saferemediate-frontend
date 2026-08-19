@@ -158,10 +158,12 @@ export function AtlasLateralLensPanel({
                 {evaluationLabel(selectedFoothold)}
               </span>
               <span className="text-muted-foreground">·</span>
-              <span className={selectedFoothold.observed_access_to_jewel ? "text-sky-700 dark:text-sky-300" : "text-amber-800 dark:text-amber-300"}>
-                {selectedFoothold.observed_access_to_jewel
+              <span className={selectedFoothold.observed_access_to_jewel === true ? "text-sky-700 dark:text-sky-300" : selectedFoothold.observed_access_to_jewel === false ? "text-amber-800 dark:text-amber-300" : "text-muted-foreground"}>
+                {selectedFoothold.observed_access_to_jewel === true
                   ? "access to this jewel observed"
-                  : "no access to this jewel observed"}
+                  : selectedFoothold.observed_access_to_jewel === false
+                    ? "no access to this jewel observed"
+                    : "prior access not evaluated"}
               </span>
             </div>
           ) : null}
