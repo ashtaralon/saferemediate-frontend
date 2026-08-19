@@ -396,6 +396,10 @@ export interface PathListRow {
   start_label: string | null
   target_label: string | null
 
+  /** Canonical resource types for the FROM / TO service tiles. */
+  start_type: string | null
+  target_type: string | null
+
   /** Crown jewel canonical id this path terminates at. Mirrors
    *  `IdentityAttackPath.crown_jewel_id`. */
   crown_jewel_id: string

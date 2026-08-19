@@ -9119,12 +9119,13 @@ export default function TrafficFlowMap({
   const [resourcePathsFilter, setResourcePathsFilter] = useState<{
     resourceId: string;
     resolvedTargetId: string;
-    parentJewelId: string;
+    parentJewelId: string | null;
     resolvedTargetType: string | null;
     accessorIds: string[];
     sourceIps: string[];
-    filter: { database?: string; table?: string } | null;
+    filter: { database?: string | null; table?: string | null } | null;
     leafType: string | null;
+    displayName?: string;
   } | null>(null);
   const [timelineActive, setTimelineActive] = useState(false);
   const [timeWindow, setTimeWindow] = useState<'7d' | '30d' | '90d'>('30d');
@@ -11333,9 +11334,10 @@ export default function TrafficFlowMap({
               <Target className="w-3.5 h-3.5 text-blue-700 dark:text-blue-300" />
               <span className="text-[11px] font-semibold uppercase tracking-wider text-blue-700 dark:text-blue-200">
                 {resourcePathsFilter.leafType === 'S3Prefix' && 'Prefix → '}
-                {resourcePathsFilter.leafType === 'RDSTable' && 'Table → '}
+                {resourcePathsFilter.leafType === 'S3Object' && 'Object → '}
+                {(resourcePathsFilter.leafType === 'RDSTable' || resourcePathsFilter.leafType === 'DatabaseTable') && 'Table → '}
                 {!resourcePathsFilter.leafType && 'Resource → '}
-                {resourcePathsFilter.resourceId.split('/').pop()?.split('::').pop() ?? resourcePathsFilter.resourceId}
+                {resourcePathsFilter.displayName ?? resourcePathsFilter.resourceId.split('/').pop()?.split('::').pop() ?? resourcePathsFilter.resourceId}
               </span>
               <button
                 onClick={() => setResourcePathsFilter(null)}
@@ -11558,6 +11560,32 @@ export default function TrafficFlowMap({
       </div>
 
       <div ref={mapContainerRef} className="flex-1 overflow-y-auto p-4 relative">
+        {resourcePathsFilter && (
+          <div
+            data-resource-id={resourcePathsFilter.resourceId}
+            className="sticky top-0 z-40 ml-auto mb-3 w-fit max-w-[360px] rounded-xl border border-cyan-400/35 bg-slate-950/95 px-3 py-2.5 shadow-[0_12px_40px_rgba(8,145,178,0.18)] backdrop-blur"
+            aria-label="Focused data scope on attack map"
+          >
+            <div className="flex items-center gap-2">
+              <Target className="h-4 w-4 shrink-0 text-cyan-300" />
+              <div className="min-w-0">
+                <div className="text-[9px] font-semibold uppercase tracking-[0.18em] text-cyan-300/80">
+                  Observed data scope
+                </div>
+                <div className="truncate text-xs font-semibold text-slate-100">
+                  {resourcePathsFilter.displayName ?? resourcePathsFilter.resourceId}
+                </div>
+              </div>
+              <span className="ml-2 rounded-full border border-cyan-400/25 bg-cyan-400/10 px-2 py-0.5 text-[9px] uppercase tracking-wider text-cyan-200">
+                {resourcePathsFilter.leafType === 'S3Object'
+                  ? 'S3 object'
+                  : resourcePathsFilter.leafType === 'DatabaseTable' || resourcePathsFilter.leafType === 'RDSTable'
+                    ? 'DB table'
+                    : resourcePathsFilter.leafType ?? 'resource'}
+              </span>
+            </div>
+          </div>
+        )}
         {architecture && (
           architecture.computeServices.length > 0 ||
           architecture.resources.length > 0 ||

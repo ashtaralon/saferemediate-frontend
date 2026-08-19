@@ -75,6 +75,12 @@ function assumeEdgeOf(path: IdentityAttackPath) {
   return (path.edges ?? []).find((e) => /ASSUME|STS/i.test(e.type))
 }
 
+const IDENTITY_NODE_TYPE = /(?:IAMRole|IAMPolicy|InstanceProfile|STS|AWSPrincipal|CloudTrailPrincipal|Principal|Root)/i
+
+function cleanEndpointName(value: string): string {
+  return value.replace(/^\s*(?:→|->)\s*/, "").trim()
+}
+
 // =============================================================================
 // Source / identity / target resolution — the BE-10 rules from
 // path-damage-summary.ts, hoisted into the compiler so renderers stop
@@ -85,15 +91,24 @@ function assumeEdgeOf(path: IdentityAttackPath) {
  *  entry is the role doing the assuming (assume-edge source) — NOT
  *  whichever role sits at nodes[0]. Otherwise pick the first non-principal
  *  node (the operator-meaningful workload). */
+function compileSourceNode(path: IdentityAttackPath): PathNodeDetail | null {
+  const workload = (path.nodes ?? []).find(
+    (node) =>
+      node.id !== path.crown_jewel_id &&
+      !isPrincipalNodeType(node.type) &&
+      !IDENTITY_NODE_TYPE.test(node.type ?? ""),
+  )
+  if (workload) return workload
+  return nodeById(path, assumeEdgeOf(path)?.source) ?? path.nodes?.[0] ?? null
+}
+
 function compileSourceLabel(path: IdentityAttackPath): string {
-  const entry = nodeById(path, assumeEdgeOf(path)?.source)
-  if (entry) return friendlyResourceName(entry.name, entry.type)
-  const workload = (path.nodes ?? []).find((n) => !isPrincipalNodeType(n.type))
-  const raw = workload?.name ?? path.nodes?.[0]?.name ?? "—"
+  const source = compileSourceNode(path)
+  const raw = source?.name ?? source?.id ?? "—"
   // friendlyResourceName strips the legacy "(orphan role: X)" marker
   // (pre-2026-06-25 materialized paths still in the graph until the
   // next phase3 run). New paths arrive as bare role names already.
-  return friendlyResourceName(raw, workload?.type ?? path.nodes?.[0]?.type)
+  return cleanEndpointName(friendlyResourceName(raw, source?.type))
 }
 
 /** BE-10: the role whose edge actually targets the crown jewel (not the
@@ -120,8 +135,7 @@ function compileIdentityLabel(path: IdentityAttackPath): string {
  *  isPrincipalNodeType so STS sessions / AWSPrincipal entries are
  *  skipped). Falls back to nodes[0]. Used for the "start → target" line. */
 function compileStartNode(path: IdentityAttackPath): PathNodeDetail | null {
-  const start = (path.nodes ?? []).find((n) => !isPrincipalNodeType(n.type))
-  return start ?? path.nodes?.[0] ?? null
+  return compileSourceNode(path)
 }
 
 /** Crown-jewel resolution (Bug #209): the path's nodes[] may end at the
@@ -350,8 +364,12 @@ export function compilePathListRow(
     id: path.id,
     source_label: compileSourceLabel(path),
     identity_label: compileIdentityLabel(path),
-    start_label: start?.name ?? start?.id ?? null,
+    start_label: start
+      ? cleanEndpointName(friendlyResourceName(start.name ?? start.id, start.type))
+      : null,
     target_label: target?.name ?? null,
+    start_type: start?.type ?? null,
+    target_type: target?.type ?? jewel?.type ?? null,
     crown_jewel_id: path.crown_jewel_id,
     severity_label: severityLabel === "UNKNOWN" ? null : severityLabel,
     severity_score: severityScore,
