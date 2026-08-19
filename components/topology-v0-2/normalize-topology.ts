@@ -29,7 +29,8 @@ export function normalizeVpcTopology(vt: VpcTopology | null | undefined): VpcTop
       unknown_subnet_count: 0,
       security_groups: [],
       nacls: [],
-      network_interfaces: [],
+    network_interfaces: [],
+    load_balancers: [],
       iam_roles: [],
     }
   }

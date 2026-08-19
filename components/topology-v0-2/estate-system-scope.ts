@@ -195,6 +195,7 @@ export function applySystemEstateScope(input: SystemScopeInput): SystemScopeResu
       network_interfaces: (vt.network_interfaces ?? []).filter(eni =>
         subnetIds.has(eni.subnet_id),
       ),
+      load_balancers: (vt.load_balancers ?? []).filter(lb => nodeIds.has(lb.id)),
       iam_roles,
     },
   }
@@ -243,6 +244,9 @@ export function narrowSystemEstateToVpc(
       ),
       network_interfaces: (scoped.vpcTopology.network_interfaces ?? []).filter(eni =>
         (scoped.vpcTopology.subnets ?? []).some(subnet => subnet.id === eni.subnet_id && subnet.vpc_id === vpcId),
+      ),
+      load_balancers: (scoped.vpcTopology.load_balancers ?? []).filter(lb =>
+        scoped.nodes.some(node => node.id === lb.id && (!node.vpc_id || node.vpc_id === vpcId)),
       ),
       edges: {
         igws: (scoped.vpcTopology.edges?.igws ?? []).filter(
