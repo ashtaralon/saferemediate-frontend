@@ -67,6 +67,10 @@ import { useZoom0Exfil } from "./use-zoom0-exfil"
 import { buildSelectedExfilArchitecture } from "./exfil-view-v3"
 import { CurrentAccessDossierPanel } from "./current-access-dossier-panel"
 import {
+  DamageScopeDrawer,
+  type DamageScopeTarget,
+} from "./damage-scope-drawer"
+import {
   AtlasLateralChainCanvas,
   AtlasLateralLensPanel,
 } from "./atlas-lateral-lens"
@@ -310,6 +314,9 @@ export function Zoom0FanInPanel({
   const [tileFilterIds, setTileFilterIds] = useState<string[] | null>(null)
   const [detailsPanel, setDetailsPanel] =
     useState<Zoom0DetailsPanel>("current_access")
+  const [damageScopeTarget, setDamageScopeTarget] =
+    useState<DamageScopeTarget | null>(null)
+  const [damageScopeOpen, setDamageScopeOpen] = useState(false)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const router = useRouter()
   const pathname = usePathname()
@@ -1068,6 +1075,20 @@ export function Zoom0FanInPanel({
                     observedMode={mapIsObservedOnly}
                     canvasV2
                     jewelEmphasis
+                    onDamageScopeDataNode={(node) => {
+                      if (!pinPathId || detailsPanel !== "current_access") return
+                      setDamageScopeTarget({
+                        systemName,
+                        pathId: pinPathId,
+                        nodeId: node.id,
+                        nodeName: node.name,
+                        nodeType: node.type,
+                        sourceId: dossier?.from.id ?? pinnedPath?.workload_arn ?? null,
+                        sourceName: dossier?.from.name ?? pinnedPath?.source ?? null,
+                        sourceType: dossier?.from.type ?? pinnedPath?.source_kind ?? null,
+                      })
+                      setDamageScopeOpen(true)
+                    }}
                     fullscreenHeaderSlot={renderDetailsTabs("fullscreen")}
                   />
                 </div>
@@ -1105,6 +1126,11 @@ export function Zoom0FanInPanel({
           />
         </div>
       ) : null}
+      <DamageScopeDrawer
+        target={damageScopeTarget}
+        open={damageScopeOpen}
+        onOpenChange={setDamageScopeOpen}
+      />
       </div>
     </div>
   )

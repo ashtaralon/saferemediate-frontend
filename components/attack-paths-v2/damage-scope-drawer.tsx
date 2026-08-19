@@ -9,8 +9,9 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet"
 import { Button } from "@/components/ui/button"
-import { Loader2 } from "lucide-react"
+import { ArrowRight, Database, FileText, Loader2 } from "lucide-react"
 import { IAMPermissionAnalysisModal } from "@/components/iam-permission-analysis-modal"
+import { ServiceTypeBadge } from "@/lib/service-type"
 
 export type DamageScopeTarget = {
   nodeId: string
@@ -18,6 +19,20 @@ export type DamageScopeTarget = {
   nodeType?: string
   systemName: string
   pathId: string
+  sourceId?: string | null
+  sourceName?: string | null
+  sourceType?: string | null
+}
+
+export type ObservedDataChild = {
+  id: string
+  name: string
+  parent_name?: string | null
+  type: "S3Object" | "DatabaseTable" | string
+  operations?: string[]
+  event_count?: number
+  last_seen?: string | null
+  evidence_state: "observed"
 }
 
 export type DamageScopePayload = {
@@ -42,6 +57,8 @@ export type DamageScopePayload = {
     delete_prefixes?: string[]
     [key: string]: unknown
   }
+  /** Exact object/table evidence bound to an accessor on this selected path. */
+  observed_children?: ObservedDataChild[]
   damage_reduction_percent: number
   narrative: {
     today: string
@@ -127,6 +144,7 @@ export function DamageScopeDrawer({
   const [error, setError] = useState<string | null>(null)
   const [data, setData] = useState<DamageScopePayload | null>(null)
   const [approvalOpen, setApprovalOpen] = useState(false)
+  const [selectedChild, setSelectedChild] = useState<ObservedDataChild | null>(null)
   const [portalContainer, setPortalContainer] = useState<HTMLElement | null>(null)
 
   useEffect(() => {
@@ -171,11 +189,15 @@ export function DamageScopeDrawer({
       setData(null)
       setError(null)
       setApprovalOpen(false)
+      setSelectedChild(null)
     }
   }, [open, target, fetchScope])
 
   const pct = data?.damage_reduction_percent ?? 0
   const sev = severityFromPercent(pct)
+  const observedChildren = data?.observed_children ?? []
+  const flowTargetName = selectedChild?.name ?? target?.nodeName ?? target?.nodeId ?? "Data resource"
+  const flowTargetType = selectedChild?.type ?? data?.node_type ?? target?.nodeType ?? "Resource"
 
   const observedBullets: string[] = []
   if (data?.scope_observed) {
@@ -196,10 +218,10 @@ export function DamageScopeDrawer({
           data-testid="damage-scope-drawer"
         >
           <SheetHeader>
-            <SheetTitle className="text-foreground">Damage scope</SheetTitle>
+            <SheetTitle className="text-foreground">Observed data flow</SheetTitle>
             <SheetDescription className="text-muted-foreground">
-              {target?.nodeName || target?.nodeId || "Data resource"} · path{" "}
-              {target?.pathId}
+              Current Access · path {target?.pathId}. Only evidence attributable
+              to this selected route is shown.
             </SheetDescription>
           </SheetHeader>
 
@@ -216,6 +238,81 @@ export function DamageScopeDrawer({
 
           {data && !loading && (
             <div className="px-4 pb-6 space-y-4">
+              <section className="rounded-xl border border-cyan-500/25 bg-cyan-500/[0.04] p-3" data-testid="observed-data-flow-route">
+                <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-cyan-700 dark:text-cyan-300">
+                  Compute → exact observed data
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-border bg-background p-2">
+                    <ServiceTypeBadge type={target?.sourceType || "Compute"} variant="tile" size={34} />
+                    <div className="min-w-0">
+                      <div className="text-[9px] uppercase text-muted-foreground">From</div>
+                      <div className="truncate text-[11px] font-semibold text-foreground" title={target?.sourceName || target?.sourceId || "Compute resource"}>
+                        {target?.sourceName || target?.sourceId || "Compute resource"}
+                      </div>
+                    </div>
+                  </div>
+                  <ArrowRight className="h-4 w-4 shrink-0 text-cyan-500" />
+                  <div className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-border bg-background p-2">
+                    <ServiceTypeBadge type={flowTargetType} variant="tile" size={34} />
+                    <div className="min-w-0">
+                      <div className="text-[9px] uppercase text-muted-foreground">To</div>
+                      <div className="truncate text-[11px] font-semibold text-foreground" title={flowTargetName}>{flowTargetName}</div>
+                      {selectedChild?.parent_name ? <div className="truncate text-[9px] text-muted-foreground">{selectedChild.parent_name}</div> : null}
+                    </div>
+                  </div>
+                </div>
+                {selectedChild ? (
+                  <div className="mt-2 flex flex-wrap gap-1.5 text-[9px] text-muted-foreground">
+                    <span className="rounded border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-emerald-700 dark:text-emerald-300">Observed</span>
+                    {selectedChild.operations?.map((operation) => <span key={operation} className="rounded border border-border bg-background px-1.5 py-0.5">{operation}</span>)}
+                    {typeof selectedChild.event_count === "number" ? <span className="px-1 py-0.5">{selectedChild.event_count} events</span> : null}
+                  </div>
+                ) : (
+                  <p className="mt-2 text-[10px] text-muted-foreground">Select an observed object or table below to see the exact route.</p>
+                )}
+              </section>
+
+              <section className="rounded-lg border border-border bg-card p-3" data-testid="observed-data-children">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                      {data.node_type === "S3Bucket" ? "Observed objects" : "Observed tables"}
+                    </div>
+                    <p className="mt-0.5 text-[10px] text-muted-foreground">Click a row to bind the flow to that exact data target.</p>
+                  </div>
+                  <span className="rounded-full border border-border px-2 py-0.5 text-[9px] text-muted-foreground">{observedChildren.length}</span>
+                </div>
+                {observedChildren.length ? (
+                  <div className="mt-2 max-h-56 space-y-1 overflow-y-auto">
+                    {observedChildren.map((child) => {
+                      const active = selectedChild?.id === child.id
+                      const Icon = child.type === "S3Object" ? FileText : Database
+                      return (
+                        <button
+                          key={child.id}
+                          type="button"
+                          onClick={() => setSelectedChild(child)}
+                          className={`flex w-full items-center gap-2 rounded-lg border px-2.5 py-2 text-left transition-colors ${active ? "border-cyan-500/50 bg-cyan-500/10" : "border-border bg-background hover:bg-muted/40"}`}
+                          aria-pressed={active}
+                        >
+                          <Icon className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-[10px] font-medium text-foreground">{child.name}</span>
+                            <span className="block truncate text-[9px] text-muted-foreground">{child.parent_name || child.type}</span>
+                          </span>
+                          <span className="text-[9px] text-muted-foreground">{child.event_count ?? 0} events</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                ) : (
+                  <p className="mt-2 rounded-lg border border-dashed border-amber-500/30 bg-amber-500/[0.04] p-2.5 text-[10px] leading-relaxed text-amber-800 dark:text-amber-300">
+                    The selected path has observed resource-level access, but Neptune has no exact object/table event bound to this compute or its path identity. Cyntro will not borrow another service&apos;s activity.
+                  </p>
+                )}
+              </section>
+
               <div
                 className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold ${severityClass(sev)}`}
                 data-testid="damage-reduction-badge"
