@@ -121,6 +121,7 @@ describe("Estate operations panel", () => {
     renderPanel()
 
     expect(screen.getByText("Live configuration from Inventory")).toBeInTheDocument()
+    expect(screen.queryByText("Service inspector")).not.toBeInTheDocument()
     expect(screen.getByTestId("inventory-config")).toHaveTextContent(node.id)
     const overview = await screen.findByTestId("estate-resource-overview")
     expect(overview).toHaveTextContent("745783559495")
@@ -138,12 +139,30 @@ describe("Estate operations panel", () => {
     renderPanel()
     fireEvent.click(screen.getByTestId("estate-operations-tab-dependencies"))
 
+    expect(screen.getByText("Runtime and configured dependencies")).toBeInTheDocument()
+    expect(screen.getByText("Service inspector")).toBeInTheDocument()
     expect(await screen.findByText("payments-api")).toBeInTheDocument()
     expect(screen.getByText("data-key")).toBeInTheDocument()
     expect(screen.getByText("42 events")).toBeInTheDocument()
     expect(screen.getByText("public")).toBeInTheDocument()
     expect(screen.getByText("observed")).toBeInTheDocument()
     expect(screen.getByText("configured")).toBeInTheDocument()
+  })
+
+  it("shows a distinct evidence-backed blast radius in Change impact", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(standardBackendResponse)
+    renderPanel()
+    fireEvent.click(screen.getByTestId("estate-operations-tab-change"))
+
+    const summary = await screen.findByTestId("estate-change-impact-summary")
+    expect(summary).toHaveTextContent("Affected services")
+    expect(summary).toHaveTextContent("Impact boundary")
+    expect(summary).toHaveTextContent("payments-api")
+    expect(summary).toHaveTextContent("Dependent service")
+    expect(summary).toHaveTextContent("data-key")
+    expect(summary).toHaveTextContent("Required dependency")
+    expect(screen.queryByText("Service inspector")).not.toBeInTheDocument()
+    expect(screen.queryByTestId("inventory-config")).not.toBeInTheDocument()
   })
 
   it("shows blockers and never exposes execution for an unproven route scope", async () => {
