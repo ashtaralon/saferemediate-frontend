@@ -30,6 +30,10 @@ import type {
 } from "@/lib/types"
 import { type RoutingDecision, toRoutingDecision } from "@/lib/decision-routing"
 import {
+  iamDataReadinessCopy,
+  iamExecutionReadiness,
+} from "@/lib/iam-execution-readiness"
+import {
   automationReadiness,
   previewEvidenceNeeds,
   previewPermissionCounts,
@@ -1383,6 +1387,15 @@ export function IAMPermissionAnalysisModal({
   ): Promise<string | undefined> => {
     if (!gapData) return undefined
 
+    const executionReadiness = iamExecutionReadiness(safetyContext)
+    if (!executionReadiness.directAwsApplyAllowed) {
+      toast({
+        title: executionReadiness.headline,
+        description: executionReadiness.detail,
+      })
+      return undefined
+    }
+
     if (applyDisabled) {
       toast({
         title: 'Preview-only environment',
@@ -2661,6 +2674,8 @@ export function IAMPermissionAnalysisModal({
     const readiness = automationReadiness(safetyContext.decision_canonical)
     const needs = previewEvidenceNeeds(safetyContext)
     const holdReasons = safetyHoldReasons(safetyContext)
+    const executionReadiness = iamExecutionReadiness(safetyContext)
+    const dataReadiness = iamDataReadinessCopy(safetyContext)
     const readinessStyle = {
       ready: { border: '#bbf7d0', bg: '#f0fdf4', color: '#166534', Icon: CheckCircle },
       review: { border: '#fde68a', bg: '#fffbeb', color: '#92400e', Icon: AlertTriangle },
@@ -2685,6 +2700,19 @@ export function IAMPermissionAnalysisModal({
               </span>
             </div>
             <h3 className="mt-1 text-lg font-bold" style={{ color: readinessStyle.color }}>{readiness.headline}</h3>
+
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              <div className="rounded-lg border border-slate-200 bg-white/80 p-3">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Execution adapter</div>
+                <div className="mt-1 text-sm font-semibold text-slate-900">{executionReadiness.adapterLabel}</div>
+                <div className="mt-1 text-xs text-slate-600">{executionReadiness.detail}</div>
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-white/80 p-3">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Evidence readiness</div>
+                <div className="mt-1 text-sm font-semibold text-slate-900">{dataReadiness.label}</div>
+                <div className="mt-1 text-xs text-slate-600">{dataReadiness.detail}</div>
+              </div>
+            </div>
 
             {holdReasons.length > 0 && (
               <ul className="mt-2 space-y-1 text-sm" style={{ color: readinessStyle.color }} data-testid="change-status-reasons">
@@ -4009,6 +4037,7 @@ export function IAMPermissionAnalysisModal({
               </>)}
               {(() => {
                 const blocked = shouldBlockRemediation()
+                const executionReadiness = iamExecutionReadiness(safetyContext)
                 // Backend remediability gate (api/iam_gap_analysis.py). false ONLY
                 // when there is no attached policy data OR usage was never measured
                 // (data_confidence UNKNOWN / reason 'usage_not_computed'). Undefined
@@ -4035,7 +4064,24 @@ export function IAMPermissionAnalysisModal({
                   .filter(p => autoRemediableSet.has(p)).length
                 const selectedOverrideCount = selectedTotalCount - selectedAutoRemediableCount
 
-                if (applyDisabled) {
+                if (!executionReadiness.directAwsApplyAllowed) {
+                  return (
+                    <div className="flex items-center gap-3" data-testid="iam-terraform-execution-required">
+                      <div className="max-w-md text-right">
+                        <div className="text-sm font-semibold text-slate-700">{executionReadiness.headline}</div>
+                        <div className="text-xs text-slate-500">{executionReadiness.detail}</div>
+                      </div>
+                      <button
+                        disabled
+                        className="px-6 py-2.5 bg-slate-700 text-white rounded-lg font-bold cursor-not-allowed flex items-center gap-2"
+                        title="Direct AWS apply is disabled for Terraform-owned resources"
+                      >
+                        <Lock className="w-4 h-4" />
+                        {executionReadiness.adapterLabel}
+                      </button>
+                    </div>
+                  )
+                } else if (applyDisabled) {
                   return (
                     <div className="flex items-center gap-3">
                       <div className="max-w-sm text-right">
