@@ -99,6 +99,69 @@ function severityClass(level: string) {
   return "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30"
 }
 
+const ACTION_PREFIXES_BY_TARGET: Record<string, string[]> = {
+  S3Bucket: ["s3:", "kms:"],
+  S3Prefix: ["s3:", "kms:"],
+  S3Object: ["s3:", "kms:"],
+  DynamoDB: ["dynamodb:", "kms:"],
+  DynamoDBTable: ["dynamodb:", "kms:"],
+  RDS: ["rds:", "rds-data:", "secretsmanager:", "kms:"],
+  DatabaseTable: ["rds:", "rds-data:", "secretsmanager:", "kms:"],
+  KMS: ["kms:"],
+  Secret: ["secretsmanager:", "kms:"],
+}
+
+/** Keep the permissions that can directly enable access to the selected data target. */
+export function targetRelevantActions(nodeType: string, actions: string[]): string[] {
+  const prefixes = ACTION_PREFIXES_BY_TARGET[nodeType]
+  if (!prefixes) return actions
+  return actions.filter((action) => {
+    const normalized = action.toLowerCase()
+    return prefixes.some((prefix) => normalized.startsWith(prefix))
+  })
+}
+
+function displayTargetName(name: string): string {
+  if (name.startsWith("/")) return name
+  return name.endsWith("/") ? `/${name}` : name
+}
+
+export function selectedObservedSummary(
+  selected: ObservedDataChild | null,
+): { headline: string; bullets: string[] } {
+  if (!selected) {
+    return {
+      headline: "Select a data target to inspect its observed operation.",
+      bullets: [],
+    }
+  }
+  const operations = selected.operations?.length ? selected.operations : ["Access"]
+  const name = displayTargetName(selected.name)
+  const bullets = operations.map((operation) => `Operation: ${operation}`)
+  if (typeof selected.event_count === "number") {
+    bullets.push(`Observed events: ${selected.event_count.toLocaleString()}`)
+  }
+  if (selected.last_seen) bullets.push(`Last observed: ${selected.last_seen}`)
+  return {
+    headline: `${operations.join(" + ")} on ${name}`,
+    bullets,
+  }
+}
+
+export function leastPrivilegeHeadline(
+  nodeType: string,
+  headline: string,
+  keptActions: string[],
+): string {
+  const kept = targetRelevantActions(nodeType, keptActions).map((action) => action.toLowerCase())
+  const retainsS3Wildcard = kept.includes("s3:*")
+  const claimsDeleteRemoved = /delete removed/i.test(headline)
+  if (retainsS3Wildcard && claimsDeleteRemoved) {
+    return "Recommendation needs review: s3:* still permits delete actions."
+  }
+  return headline
+}
+
 function ScopeCard({
   title,
   headline,
@@ -178,6 +241,7 @@ export function DamageScopeDrawer({
     setLoading(true)
     setError(null)
     setData(null)
+    setSelectedChild(null)
     try {
       const url = `/api/proxy/attack-paths/${encodeURIComponent(t.systemName)}/path/${encodeURIComponent(t.pathId)}/node/${encodeURIComponent(t.nodeId)}/damage-scope`
       const res = await fetch(url, { cache: "no-store" })
@@ -236,14 +300,14 @@ export function DamageScopeDrawer({
   const flowTargetName = selectedChild?.name ?? target?.nodeName ?? target?.nodeId ?? "Data resource"
   const flowTargetType = selectedChild?.type ?? data?.node_type ?? target?.nodeType ?? "Resource"
 
-  const observedBullets: string[] = []
-  if (data?.scope_observed) {
-    const o = data.scope_observed
-    for (const p of (o.read_prefixes as string[]) || []) observedBullets.push(`Read: /${p}/`)
-    for (const p of (o.write_prefixes as string[]) || []) observedBullets.push(`Write: /${p}/`)
-    for (const p of (o.delete_prefixes as string[]) || []) observedBullets.push(`Delete: /${p}/`)
-    if (typeof o.hit_count === "number") observedBullets.push(`Hits: ${o.hit_count}`)
-  }
+  const selectedSummary = selectedObservedSummary(selectedChild)
+  const targetNodeType = selectedChild?.type ?? data?.node_type ?? target?.nodeType ?? "Resource"
+  const currentTargetActions = targetRelevantActions(targetNodeType, data?.scope_today.actions ?? [])
+  const keptTargetActions = targetRelevantActions(targetNodeType, data?.scope_post_lp.kept_actions ?? [])
+  const removedTargetActions = targetRelevantActions(targetNodeType, data?.scope_post_lp.removed_actions ?? [])
+  const pathHitCount = data?.scope_observed && typeof data.scope_observed.hit_count === "number"
+    ? data.scope_observed.hit_count
+    : null
 
   useEffect(() => {
     if (!data || selectedChild || observedTargets.length === 0) return
@@ -365,26 +429,36 @@ export function DamageScopeDrawer({
                 className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold ${severityClass(sev)}`}
                 data-testid="damage-reduction-badge"
               >
-                {pct}% damage reduction · {sev}
+                Path-wide risk reduction · {pct}% · {sev}
               </div>
-              <p className="text-sm text-foreground">{data.narrative.summary}</p>
 
               <ScopeCard
-                title="Today (configured)"
+                title="Selected observed target"
+                headline={selectedSummary.headline}
+                bullets={selectedSummary.bullets}
+              />
+              {pathHitCount !== null && (
+                <p className="text-[10px] text-muted-foreground">
+                  Path total: {pathHitCount.toLocaleString()} events across all observed data targets. This is not a count for the selected row.
+                </p>
+              )}
+
+              <div className="border-t border-border pt-3">
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Path-wide permission exposure</div>
+                <p className="mt-1 text-sm text-foreground">{data.narrative.summary}</p>
+              </div>
+
+              <ScopeCard
+                title="Current target-relevant permissions"
                 headline={data.scope_today.headline}
-                bullets={data.scope_today.actions}
+                bullets={currentTargetActions.length ? currentTargetActions : ["No target-specific configured actions returned"]}
               />
               <ScopeCard
-                title="Observed on this path"
-                headline={String(data.scope_observed.headline || "")}
-                bullets={observedBullets}
-              />
-              <ScopeCard
-                title="Post-LP (predicted)"
-                headline={data.scope_post_lp.headline}
+                title="After least privilege (path-wide recommendation)"
+                headline={leastPrivilegeHeadline(targetNodeType, data.scope_post_lp.headline, keptTargetActions)}
                 bullets={[
-                  ...data.scope_post_lp.kept_actions.slice(0, 4).map((a) => `Keep: ${a}`),
-                  ...data.scope_post_lp.removed_actions.slice(0, 4).map((a) => `Remove: ${a}`),
+                  ...keptTargetActions.slice(0, 4).map((a) => `Keep: ${a}`),
+                  ...removedTargetActions.slice(0, 4).map((a) => `Remove: ${a}`),
                 ]}
               />
               {data.scope_post_lp.informational_note && (
