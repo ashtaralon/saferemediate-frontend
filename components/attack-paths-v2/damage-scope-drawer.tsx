@@ -274,7 +274,7 @@ export function DamageScopeDrawer({
   const pct = data?.damage_reduction_percent ?? 0
   const sev = severityFromPercent(pct)
   const observedChildren = data?.observed_children ?? []
-  const observedPrefixes = (() => {
+  const observedPrefixes: ObservedDataChild[] = (() => {
     if (!data?.scope_observed || data.node_type !== "S3Bucket") return []
     const operations = new Map<string, Set<string>>()
     for (const [operation, key] of [

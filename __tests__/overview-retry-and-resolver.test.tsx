@@ -196,16 +196,15 @@ describe("SystemBlastRadiusHero — empty reasons are three distinct claims", ()
 // ---------------------------------------------------------------------------
 
 describe("getBackendBaseUrl", () => {
-  const RENDER_PROD = requireBackendUrl()
+  const CONFIGURED_BACKEND = requireBackendUrl()
 
-  it("falls back to the same Render URL the route used to hardcode", async () => {
+  it("uses the explicitly configured backend when no override is set", async () => {
     vi.resetModules()
     const prev = process.env.BACKEND_URL_OVERRIDE
     delete process.env.BACKEND_URL_OVERRIDE
 
     const { getBackendBaseUrl } = await import("@/lib/server/backend-url")
-    // Prod behaviour is unchanged by the switch away from the literal.
-    expect(getBackendBaseUrl()).toBe(RENDER_PROD)
+    expect(getBackendBaseUrl()).toBe(CONFIGURED_BACKEND)
 
     if (prev !== undefined) process.env.BACKEND_URL_OVERRIDE = prev
   })

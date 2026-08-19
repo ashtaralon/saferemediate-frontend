@@ -1,5 +1,5 @@
 import type { APIRequestContext, BrowserContext } from "@playwright/test"
-import type { Playwright } from "playwright"
+import type { Playwright } from "@playwright/test"
 
 /** Base URL for live integration specs (local dev or cyntro.io). */
 export function liveBaseUrl(): string {
@@ -69,4 +69,3 @@ export async function liveGetWithRetry(
   }
   return last
 }
-
