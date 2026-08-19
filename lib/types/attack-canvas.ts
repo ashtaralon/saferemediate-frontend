@@ -127,6 +127,7 @@ export type CanvasRelationshipType =
   | "ACTUAL_TRAFFIC"
   | "ACTUAL_API_CALL"
   | "ACTUAL_S3_ACCESS"
+  | "DATA_ACCESS"
   | "READS_FROM"
   | "WRITES_TO"
   | "RUNTIME_CALLS"
@@ -187,6 +188,7 @@ export function planeFor(relationship: CanvasRelationshipType): EdgePlane {
     case "ACCESSES_RESOURCE":
     case "ACTUAL_API_CALL":
     case "ACTUAL_S3_ACCESS":
+    case "DATA_ACCESS":
     case "READS_FROM":
     case "WRITES_TO":
     case "RUNTIME_CALLS":
@@ -220,6 +222,7 @@ export function planeForString(relationship: string): EdgePlane {
     r === "ACCESSES_RESOURCE" ||
     r === "ACTUAL_API_CALL" ||
     r === "ACTUAL_S3_ACCESS" ||
+    r === "DATA_ACCESS" ||
     r === "READS_FROM" ||
     r === "WRITES_TO" ||
     r === "RUNTIME_CALLS"
