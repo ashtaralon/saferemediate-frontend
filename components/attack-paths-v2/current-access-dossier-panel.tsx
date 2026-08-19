@@ -188,7 +188,7 @@ function ScopeIcon({ type }: { type: string }) {
   return <Database className="h-3.5 w-3.5 text-violet-500" />
 }
 
-function DataScopeExplorer({
+export function DataScopeExplorer({
   resourceId,
   resourceType,
   systemName,
@@ -225,8 +225,28 @@ function DataScopeExplorer({
     if (!resourceId || (!isS3 && !isRds)) return
     setLoading(true)
     fetchScope(resourceId)
-      .then((rows) => {
-        if (!cancelled) setChildren(rows)
+      .then(async (rows) => {
+        if (cancelled) return
+        setChildren(rows)
+
+        // Put exact object/table evidence in view without making operators
+        // discover a second click target. Other scopes stay available on demand.
+        const firstExpandable = rows.find((row) => isNestedScope(row.type))
+        if (!firstExpandable) return
+        setExpanded({ [firstExpandable.id]: true })
+        setLoadingChild(firstExpandable.id)
+        try {
+          const nestedRows = await fetchScope(firstExpandable.id)
+          if (!cancelled) {
+            setNested({ [firstExpandable.id]: nestedRows })
+          }
+        } catch (reason) {
+          if (!cancelled) {
+            setError(reason instanceof Error ? reason.message : "Scope evidence unavailable")
+          }
+        } finally {
+          if (!cancelled) setLoadingChild(null)
+        }
       })
       .catch((reason) => {
         if (!cancelled) setError(reason instanceof Error ? reason.message : "Scope evidence unavailable")
@@ -288,6 +308,8 @@ function DataScopeExplorer({
                 <button
                   type="button"
                   onClick={() => canExpand && toggle(child)}
+                  aria-expanded={canExpand ? Boolean(open) : undefined}
+                  data-testid={`scope-row-${child.id}`}
                   className={`flex w-full items-center gap-2 px-2.5 py-2 text-left ${canExpand ? "hover:bg-muted/40" : "cursor-default"}`}
                 >
                   {canExpand ? (
