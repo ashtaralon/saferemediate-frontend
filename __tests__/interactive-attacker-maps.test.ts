@@ -90,6 +90,10 @@ describe("interactive attacker maps", () => {
       join(ROOT, "components/attack-paths-v2/atlas-lateral-flow-map.tsx"),
       "utf8",
     )
+    const lateralLens = readFileSync(
+      join(ROOT, "components/attack-paths-v2/atlas-lateral-lens.tsx"),
+      "utf8",
+    )
     const trafficMap = readFileSync(
       join(ROOT, "components/dependency-map/traffic-flow-map.tsx"),
       "utf8",
@@ -105,6 +109,7 @@ describe("interactive attacker maps", () => {
     expect(lateral).toContain('data-testid="atlas-reachable-damage"')
     expect(lateral).toContain("item.reachable_damage?.priority_score")
     expect(lateral).toContain("damage.choke_point?.intent")
+    expect(lateralLens).toContain("prior access not evaluated")
     expect(trafficMap).toContain('data-modeled-flow-motion="true"')
     expect(trafficMap).toContain("forceModeledMotion={!!architecture.modeledMoves?.length")
     expect(zoom0).toContain("overflow-y-auto overscroll-contain")
