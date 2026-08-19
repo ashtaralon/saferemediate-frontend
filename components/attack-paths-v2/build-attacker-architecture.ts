@@ -37,7 +37,10 @@ import type {
   TrafficFlow,
   EgressGatewayNode,
 } from "@/components/dependency-map/traffic-flow-map"
-import type { IdentityAttackPath } from "@/components/identity-attack-paths/types"
+import type {
+  CrownJewelSummary,
+  IdentityAttackPath,
+} from "@/components/identity-attack-paths/types"
 import type { CanvasEdge, CanvasRelationshipType } from "@/lib/types/attack-canvas"
 import { isOpaqueIamId } from "./friendly-names"
 
@@ -237,6 +240,8 @@ function bucketForGraphType(
     t === "s3bucket" ||
     t === "dynamodbtable" ||
     t === "rdsinstance" ||
+    t === "rdscluster" ||
+    t === "aurora" ||
     t === "rds" ||
     t === "kmskey" ||
     t === "secret"
@@ -291,6 +296,7 @@ function bucketForGraphType(
 export function buildAttackerArchitecture(
   graph: GraphViewResponse | null | undefined,
   path: IdentityAttackPath,
+  jewel?: CrownJewelSummary | null,
 ): SystemArchitecture {
   // Null/partial canvas must not throw — Attack Map falls back to pathFilter
   // seeding in TFM when this returns empty lanes.
@@ -352,9 +358,11 @@ export function buildAttackerArchitecture(
   const vpcsById = new Map<string, { vpcId: string; vpcName: string; cidrBlock?: string }>()
 
   // Crown jewel ids from the path so we can tag resource cards.
-  const crownJewelIds = new Set(
-    (path.nodes ?? []).filter((n) => n.tier === "crown_jewel").map((n) => n.id),
-  )
+  const crownJewelIds = new Set([
+    ...(path.nodes ?? []).filter((n) => n.tier === "crown_jewel").map((n) => n.id),
+    ...(path.crown_jewel_id ? [path.crown_jewel_id] : []),
+    ...(jewel?.id ? [jewel.id] : []),
+  ])
 
   // Path target AWS service tokens — used downstream for the AWS
   // most-specific-route filter on the EGRESS GATEWAYS lane.
@@ -1103,6 +1111,23 @@ export function buildAttackerArchitecture(
       )
     }
     // 'ignore' — bucket didn't match a node type we render in any lane.
+  }
+
+  // The facade canvas is allowed to omit the terminal from graph.nodes (its
+  // topology slice is path infrastructure), but the selected jewel is still
+  // authoritative response data. Always anchor that real target in Resources
+  // so the operator can click it for object/table drill-down. This is not a
+  // synthetic service: id, name and type come from the selected jewel DTO.
+  if (jewel?.id) {
+    addAsResource(jewel.id, jewel.type, jewel.name)
+  } else {
+    const target = (path.nodes ?? []).find(
+      (node) =>
+        node.tier === "crown_jewel" ||
+        node.id === path.crown_jewel_id ||
+        node.canonical_id === path.crown_jewel_id,
+    )
+    if (target) addAsResource(target.id, target.type, target.name)
   }
 
   // Slice 9.5 — distinguish PATH INFRASTRUCTURE from LATERAL PIVOTS.

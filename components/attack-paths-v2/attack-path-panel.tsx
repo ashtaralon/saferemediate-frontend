@@ -245,8 +245,9 @@ export function AttackPathPanel({
     return buildAttackerArchitecture(
       payload.canvas as unknown as GraphViewResponse,
       identityPath,
+      jewelSummary,
     )
-  }, [payload, identityPath])
+  }, [payload, identityPath, jewelSummary])
 
   // Shared-role callout data — the on-path over-permissive role's CANONICAL
   // consumer count, read from the graph-view role node's key_properties
