@@ -176,9 +176,10 @@ function PlaneColumn({
   connectionsByNode: Map<string, number>
   azCountByNode: Map<string, number>
 }) {
+  const [showAll, setShowAll] = useState(false)
   const style = PLANE_STYLE[plane.id]
   const Icon = style.icon
-  const visible = plane.nodes.slice(0, 8)
+  const visible = showAll ? plane.nodes : plane.nodes.slice(0, 8)
   return (
     <section className="min-w-[230px] flex-1 rounded-xl overflow-hidden" style={{ border: `1px solid ${COLORS.line}`, background: COLORS.panel }}>
       <div className="px-3 py-3 border-b" style={{ borderColor: COLORS.line, borderTop: `3px solid ${style.color}` }}>
@@ -209,9 +210,25 @@ function PlaneColumn({
         )}
       </div>
       {plane.nodes.length > visible.length ? (
-        <div className="px-3 py-2 text-[10px] font-mono border-t" style={{ color: COLORS.muted, borderColor: COLORS.line }}>
-          + {plane.nodes.length - visible.length} more in scope
-        </div>
+        <button
+          type="button"
+          onClick={() => setShowAll(true)}
+          className="w-full px-3 py-2 text-left text-[10px] font-mono border-t transition-colors hover:bg-white/[0.045]"
+          style={{ color: COLORS.teal, borderColor: COLORS.line }}
+          data-testid={`estate-command-show-all-${plane.id}`}
+        >
+          Show {plane.nodes.length - visible.length} more in scope
+        </button>
+      ) : showAll && plane.nodes.length > 8 ? (
+        <button
+          type="button"
+          onClick={() => setShowAll(false)}
+          className="w-full px-3 py-2 text-left text-[10px] font-mono border-t transition-colors hover:bg-white/[0.045]"
+          style={{ color: COLORS.muted, borderColor: COLORS.line }}
+          data-testid={`estate-command-show-less-${plane.id}`}
+        >
+          Show fewer
+        </button>
       ) : null}
     </section>
   )

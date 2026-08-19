@@ -132,6 +132,40 @@ function Metric({ label, value }: { label: string; value: string | number }) {
   )
 }
 
+function ImpactResourceRow({ connection }: { connection: OperationalConnection }) {
+  const isConsumer = connection.direction === "upstream"
+  return (
+    <div
+      className="rounded-xl border p-3"
+      style={{ borderColor: "#DDE3E8", background: "#FFFFFF" }}
+      data-testid="estate-change-impact-resource"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="text-[9px] font-semibold uppercase tracking-wide" style={{ color: isConsumer ? "#0E8B7A" : "#2563EB" }}>
+            {isConsumer ? "Dependent service" : "Required dependency"}
+          </div>
+          <div className="mt-1 truncate text-sm font-semibold" style={{ color: "#1A2330" }}>
+            {connection.resource_name}
+          </div>
+          <div className="mt-1 text-[11px]" style={{ color: "#5A6B7A" }}>
+            {connection.resource_type}
+            {connection.protocol ? ` · ${connection.protocol}` : ""}
+            {connection.port ? ` · port ${connection.port}` : ""}
+          </div>
+        </div>
+        <EvidenceBadge type={connection.evidence_type} />
+      </div>
+      <div className="mt-2 text-[10px] leading-4" style={{ color: "#5A6B7A" }}>
+        {isConsumer
+          ? "A resource change can interrupt or alter this consumer."
+          : "A resource change can alter this service's downstream behavior."}
+        {connection.last_seen ? ` Last evidence ${relativeTime(connection.last_seen)}.` : ""}
+      </div>
+    </div>
+  )
+}
+
 const S3_BLOCKER_GUIDANCE: Record<string, { title: string; next: string }> = {
   NO_OBSERVED_CONSUMERS: {
     title: "No migration target in this VPC",
@@ -553,6 +587,12 @@ export function DetailPanel({
 
   const upstream = dossier?.dependencies.upstream ?? []
   const downstream = dossier?.dependencies.downstream ?? []
+  const impactConnections = [...new Map(
+    [...upstream, ...downstream].map(connection => [
+      `${connection.direction}:${connection.resource_id}`,
+      connection,
+    ]),
+  ).values()]
   const expectedApply = plan?.bucket_name && plan.vpc_id ? `APPLY ${plan.bucket_name} ${plan.vpc_id}` : ""
   const expectedRollback = execution?.snapshot_id ? `ROLLBACK ${execution.snapshot_id}` : ""
   const operationState = operation?.state
@@ -697,12 +737,6 @@ export function DetailPanel({
       </header>
 
       <div className="flex-1 overflow-y-auto p-5">
-        <ServicePathMap
-          selectedNodeId={node.id}
-          nodes={inspectorNodes}
-          edges={inspectorEdges}
-          trafficAuthority={trafficAuthority}
-        />
         {tab === "resource" ? (
           <div data-testid="estate-operations-resource">
             <div className="mb-4 rounded-xl border p-4" style={{ borderColor: "#B9E8DF", background: "#F0FDFA" }}>
@@ -768,9 +802,9 @@ export function DetailPanel({
             {dossier ? (
               <div className="mb-4 space-y-3" data-testid="estate-resource-overview">
                 <div className="grid grid-cols-3 gap-3">
-                  <Metric label="Consumers" value={dossier.dependencies.summary.consumer_count} />
-                  <Metric label="Observed links" value={dossier.dependencies.summary.observed} />
-                  <Metric label="Coverage" value={dossier.evidence.coverage_state} />
+                  <Metric label="Risk" value={node.score?.tier ?? "Unscored"} />
+                  <Metric label="Placement" value={node.subnet_id ? "Subnet" : node.vpc_id ? "VPC" : "Regional"} />
+                  <Metric label="Evidence" value={dossier.evidence.coverage_state} />
                 </div>
                 <div className="rounded-xl border p-4 text-xs" style={{ borderColor: "#DDE3E8", background: "#FFFFFF", color: "#5A6B7A" }}>
                   <div className="grid grid-cols-[110px_1fr] gap-x-3 gap-y-2">
@@ -792,6 +826,20 @@ export function DetailPanel({
 
         {tab === "dependencies" ? (
           <div className="space-y-5" data-testid="estate-operations-dependencies">
+            <div className="rounded-xl border p-4" style={{ borderColor: "#BFDBFE", background: "#EFF6FF" }}>
+              <div className="flex items-center gap-2 text-sm font-bold" style={{ color: "#1D4ED8" }}>
+                <GitBranch className="h-4 w-4" /> Runtime and configured dependencies
+              </div>
+              <p className="mt-1 text-xs" style={{ color: "#5A6B7A" }}>
+                Follow proven traffic direction and configured service routing around this resource.
+              </p>
+            </div>
+            <ServicePathMap
+              selectedNodeId={node.id}
+              nodes={inspectorNodes}
+              edges={inspectorEdges}
+              trafficAuthority={trafficAuthority}
+            />
             {loading ? <div className="flex items-center gap-2 text-sm text-slate-500"><Loader2 className="h-4 w-4 animate-spin" /> Correlating behavioral dependencies…</div> : null}
             {error ? <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div> : null}
             {dossier ? (
@@ -820,13 +868,48 @@ export function DetailPanel({
         {tab === "change" ? (
           <div className="space-y-4" data-testid="estate-operations-change">
             <div className="rounded-xl border p-4" style={{ borderColor: "#DDE3E8", background: "#FFFFFF" }}>
-              <div className="flex items-center gap-2 text-sm font-bold"><Network className="h-4 w-4 text-teal-600" /> Behavioral change impact</div>
-              <p className="mt-1 text-xs text-slate-500">Start from proven consumers, bind the exact AWS scope, simulate, snapshot, apply, verify, and retain rollback.</p>
+              <div className="flex items-center gap-2 text-sm font-bold"><Network className="h-4 w-4 text-teal-600" /> Change blast radius</div>
+              <p className="mt-1 text-xs text-slate-500">Review affected services and the exact AWS boundary before any simulation or execution.</p>
             </div>
+            {dossier ? (
+              <section className="space-y-3" data-testid="estate-change-impact-summary">
+                <div className="grid grid-cols-3 gap-3">
+                  <Metric label="Affected services" value={impactConnections.length} />
+                  <Metric label="Consumers" value={upstream.length} />
+                  <Metric label="Dependencies" value={downstream.length} />
+                </div>
+                <div className="rounded-xl border bg-white p-4 text-xs" style={{ borderColor: "#DDE3E8", color: "#5A6B7A" }}>
+                  <div className="font-bold" style={{ color: "#1A2330" }}>Impact boundary</div>
+                  <div className="mt-2 grid grid-cols-[110px_1fr] gap-x-3 gap-y-2">
+                    <span className="font-semibold">AWS scope</span>
+                    <span className="font-mono">{String(dossier.resource.vpc_id ?? vpcId ?? "Regional / outside VPC")}</span>
+                    <span className="font-semibold">Subnet</span>
+                    <span className="font-mono">{node.subnet_id ?? "Not subnet-bound"}</span>
+                    <span className="font-semibold">Evidence</span>
+                    <span>{dossier.evidence.coverage_state} · latest {relativeTime(dossier.evidence.latest_observation)}</span>
+                  </div>
+                </div>
+                {impactConnections.length ? (
+                  <div className="space-y-2">
+                    <h3 className="text-xs font-bold uppercase tracking-wide" style={{ color: "#1A2330" }}>Resources in the proven blast radius</h3>
+                    {impactConnections.map(connection => (
+                      <ImpactResourceRow
+                        key={`${connection.direction}:${connection.resource_id}`}
+                        connection={connection}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-500">
+                    No affected service is proven in the current evidence window. Absence of evidence is not proof of no impact.
+                  </div>
+                )}
+              </section>
+            ) : null}
             {!isS3 ? (
               <div className="rounded-xl border border-slate-200 bg-white p-4">
-                <p className="text-sm font-semibold">No automated change package for {node.type ?? "this resource"} yet.</p>
-                <p className="mt-1 text-xs text-slate-500">Configuration and behavioral dependencies are still available. Cyntro will not invent an execution plan it cannot safely bind.</p>
+                <p className="text-sm font-semibold">Impact analysis only for {node.type ?? "this resource"}</p>
+                <p className="mt-1 text-xs text-slate-500">The proven blast radius is available above, but no automated change package is authorized for this resource type. Cyntro will not invent an execution plan it cannot safely bind.</p>
               </div>
             ) : (
               <>

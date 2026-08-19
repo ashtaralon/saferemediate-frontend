@@ -216,4 +216,27 @@ describe("EstateSystemView", () => {
     fireEvent.click(screen.getByTestId("estate-command-lens-security"))
     expect(screen.getByText("internet path · risk 88")).toBeInTheDocument()
   })
+
+  it("lets operators reveal resources that were collapsed by the command-map density cap", () => {
+    const overflowNodes = Array.from({ length: 9 }, (_, index) => node({
+      id: `runtime-${index}`,
+      name: `runtime-${index}`,
+      type: "EC2",
+      subnet_id: "subnet-a",
+    }))
+    render(
+      <EstateSystemView
+        data={{ ...fixture, nodes: [...fixture.nodes, ...overflowNodes] }}
+        selectedNodeId={null}
+        onSelectNode={() => {}}
+        onShowNetwork={() => {}}
+      />,
+    )
+
+    expect(screen.queryByTestId("estate-command-resource-runtime-8")).not.toBeInTheDocument()
+    fireEvent.click(screen.getByTestId("estate-command-show-all-runtime"))
+    expect(screen.getByTestId("estate-command-resource-runtime-8")).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId("estate-command-show-less-runtime"))
+    expect(screen.queryByTestId("estate-command-resource-runtime-8")).not.toBeInTheDocument()
+  })
 })
