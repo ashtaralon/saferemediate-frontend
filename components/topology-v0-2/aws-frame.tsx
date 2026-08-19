@@ -34,6 +34,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode }
 import { Boxes, GitBranch, Globe2, ShieldAlert, Users } from "lucide-react"
 import {
   type IamRoleRollup,
+  type EdgeIngressHop,
   type ScoreTier,
   type SecurityGroupMeta,
   SIGNAL_LABEL,
@@ -150,6 +151,28 @@ interface Props {
   viewDensity?: ViewDensity
   /** Business system name — used in All VPCs · Compare architecture strip. */
   systemLabel?: string
+}
+
+function EdgeIngressChip({ hop }: { hop: EdgeIngressHop }) {
+  return (
+    <span
+      className="inline-flex min-w-0 max-w-[180px] items-center gap-1.5 rounded-md border bg-white px-2 py-1"
+      style={{ borderColor: "#CBD5E1", color: "#0F172A" }}
+      title={`${hop.type} · ${hop.name}`}
+    >
+      {hop.type === "WAFWebACL" ? <ShieldAlert size={13} aria-hidden /> : <Boxes size={13} aria-hidden />}
+      <span className="min-w-0 truncate text-[10px] font-semibold">{hop.name}</span>
+      <span className="shrink-0 text-[8px] uppercase" style={{ color: "#64748B" }}>{hop.type.replace("Distribution", "")}</span>
+    </span>
+  )
+}
+
+function ConfiguredIngressArrow() {
+  return (
+    <span className="inline-flex items-center gap-0 text-[12px] font-bold" style={{ color: "#2563EB" }} aria-label="configured direction">
+      <span className="h-px w-5 bg-blue-600" aria-hidden />→
+    </span>
+  )
 }
 
 /** @deprecated use REGIONAL_EDGE_SERVICE_TYPES from estate-placement */
@@ -4714,6 +4737,7 @@ export function AwsFrame({
   // on the VPCE rail (right of VPC), same column as VPC endpoints.
   const primaryIgw = topo.edges.igws[0]
   const hasVpces = topo.edges.vpces.length > 0
+  const edgeIngressPaths = topo.edge_ingress_paths ?? []
   const showNetworkRail = hasIgw || hasVpces
   // Prefer IGWs from the primary/scoped frame; fall back to topo list.
   const railIgws =
@@ -4877,6 +4901,44 @@ export function AwsFrame({
           </div>
         </div>
       </div>
+
+      {edgeIngressPaths.length > 0 ? (
+        <section
+          className="rounded-md border px-2 py-1.5"
+          style={{ borderColor: "#BFDBFE", background: "#EFF6FF" }}
+          data-testid="topology-configured-ingress"
+          aria-label="Configured public ingress paths"
+        >
+          <div className="mb-1 flex items-center justify-between gap-2">
+            <span className="text-[9px] font-bold uppercase tracking-[0.12em]" style={{ color: "#1E40AF" }}>
+              Configured ingress
+            </span>
+            <span className="text-[9px]" style={{ color: PAL.slate }}>
+              AWS control plane · {edgeIngressPaths.length} {edgeIngressPaths.length === 1 ? "path" : "paths"}
+            </span>
+          </div>
+          <div className="flex gap-2 overflow-x-auto pb-0.5">
+            {edgeIngressPaths.slice(0, 6).map(path => {
+              const hops = [path.dns, path.edge, path.waf, path.origin].filter((hop): hop is EdgeIngressHop => Boolean(hop))
+              return (
+                <div key={path.id} className="flex shrink-0 items-center gap-1" data-testid="configured-ingress-path">
+                  {hops.map((hop, index) => (
+                    <span key={`${path.id}:${hop.id}`} className="inline-flex items-center gap-1">
+                      {index > 0 ? <ConfiguredIngressArrow /> : null}
+                      <EdgeIngressChip hop={hop} />
+                    </span>
+                  ))}
+                </div>
+              )
+            })}
+            {edgeIngressPaths.length > 6 ? (
+              <span className="self-center text-[10px] font-semibold" style={{ color: PAL.slate }}>
+                +{edgeIngressPaths.length - 6} more
+              </span>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
 
       {/* AWS Cloud frame */}
       <div

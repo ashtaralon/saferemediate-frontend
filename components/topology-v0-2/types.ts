@@ -357,6 +357,8 @@ export interface VpcTopology {
   /** Compact configured facts; absent on older cached/backend payloads. */
   route_tables?: RouteTableMeta[]
   effective_routes?: EffectiveRouteMeta[]
+  /** Configured public request paths discovered from provider control planes. */
+  edge_ingress_paths?: EdgeIngressPath[]
   edges: {
     igws: EdgeIgw[]
     nat_gws: EdgeNatGw[]
@@ -366,6 +368,25 @@ export interface VpcTopology {
   // Phase B additions — present in responses from BE >= phase-b deploy.
   security_groups?: SecurityGroupMeta[]
   iam_roles?: IamRoleRollup[]
+}
+
+export interface EdgeIngressHop {
+  id: string
+  name: string
+  type: string
+  zone_id?: string | null
+  zone_name?: string | null
+}
+
+export interface EdgeIngressPath {
+  id: string
+  dns?: EdgeIngressHop | null
+  edge: EdgeIngressHop
+  waf?: EdgeIngressHop | null
+  origin: EdgeIngressHop
+  authority_state: "configured" | string
+  evidence_source?: string | null
+  last_seen?: string | null
 }
 
 export interface AvailableVpc {

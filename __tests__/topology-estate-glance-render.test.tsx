@@ -120,6 +120,7 @@ describe("AwsFrame Glance density (generic)", () => {
     expect(screen.getByTestId("topology-users-internet-strip")).toBeTruthy()
     expect(screen.getByText("Users")).toBeTruthy()
     expect(screen.getByText("Internet")).toBeTruthy()
+    expect(screen.queryByTestId("topology-configured-ingress")).toBeNull()
     expect(screen.getByText("Platform map")).toBeTruthy()
     expect(screen.getByRole("button", { name: "Architecture" })).toHaveAttribute("aria-pressed", "true")
     expect(screen.getByRole("button", { name: "Dependencies" })).toBeTruthy()
@@ -130,6 +131,35 @@ describe("AwsFrame Glance density (generic)", () => {
     // Regional / serverless grouped (real counts)
     expect(screen.getByTestId("topology-serverless-tier")).toBeTruthy()
     expect(screen.getByTestId("topology-regional-data-tier")).toBeTruthy()
+  })
+
+  it("renders configured DNS to edge to WAF to origin direction", () => {
+    const ingressTopology: VpcTopology = {
+      ...topology,
+      edge_ingress_paths: [{
+        id: "dns|edge|waf|ec2-1",
+        dns: { id: "record-1", name: "www.example.com", type: "A" },
+        edge: { id: "D111", name: "public-edge", type: "CloudFrontDistribution" },
+        waf: { id: "waf-1", name: "edge-waf", type: "WAFWebACL" },
+        origin: { id: "ec2-1", name: "web-1", type: "EC2" },
+        authority_state: "configured",
+        evidence_source: "aws_api",
+      }],
+    }
+    render(
+      <AwsFrame
+        vpcTopology={ingressTopology}
+        nodes={[nd({ id: "ec2-1", name: "web-1" })]}
+        selectedNodeId={null}
+        onSelect={() => {}}
+      />,
+    )
+    expect(screen.getByTestId("topology-configured-ingress")).toBeTruthy()
+    expect(screen.getByText("Configured ingress")).toBeTruthy()
+    expect(screen.getByText("www.example.com")).toBeTruthy()
+    expect(screen.getByText("public-edge")).toBeTruthy()
+    expect(screen.getByText("edge-waf")).toBeTruthy()
+    expect(screen.getAllByLabelText("configured direction")).toHaveLength(3)
   })
 
   it("single-VPC Glance uses AWS AZ-column grammar", () => {
