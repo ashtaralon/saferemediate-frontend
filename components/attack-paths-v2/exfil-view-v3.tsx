@@ -591,7 +591,9 @@ export function ExfilViewV3({
   const innerSubtitle = selectedPath?.evidence_item
     ? `${selectedPath.evidence_item.label} · ${selectedPath.evidence_item.provenance} evidence · destination ${selectedPath.evidence_item.destination.label}`
     : selectedPath
-      ? `${selectedPath.channel_label} via ${friendlyAccessorName(selectedPath.accessor_name)} · ${selectedPath.workload_count} workload${selectedPath.workload_count === 1 ? "" : "s"} · ${selectedPath.gateway_count} gateway${selectedPath.gateway_count === 1 ? "" : "s"} · ${selectedPath.jewel_hits.toLocaleString()} read${selectedPath.jewel_hits === 1 ? "" : "s"}`
+      ? data.destinations.length === 0
+        ? `Observed access activity via ${friendlyAccessorName(selectedPath.accessor_name)} · ${selectedPath.jewel_hits.toLocaleString()} read${selectedPath.jewel_hits === 1 ? "" : "s"} · no external destination resolved`
+        : `${selectedPath.channel_label} via ${friendlyAccessorName(selectedPath.accessor_name)} · ${selectedPath.workload_count} workload${selectedPath.workload_count === 1 ? "" : "s"} · ${selectedPath.gateway_count} gateway${selectedPath.gateway_count === 1 ? "" : "s"} · ${selectedPath.jewel_hits.toLocaleString()} read${selectedPath.jewel_hits === 1 ? "" : "s"}`
     : data.observed_exfil.available
       ? "Data exit paths — capable (amber) vs observed (red)"
       : "Capable data-exit paths — observed-exfil layer pending"
@@ -617,6 +619,7 @@ export function ExfilViewV3({
         <TrafficFlowMap
           systemName={systemName}
           architectureOverride={architecture}
+          suppressEmptyNetworkBanner
           observedMode={true}
           titleOverride=""
           innerTitleOverride={
@@ -735,6 +738,9 @@ function DamageRemediationPanel({
   const channel = selectedPath.channel_label
   const workloadKind =
     selectedPath.workload_sample?.[0]?.type || "workload"
+  const hasObservedDestination = payload.destinations.some(
+    (destination) => destination.observed_route_count > 0,
+  )
 
   // ──── DAMAGE — plain English ────
   const damageSentences: string[] = []
@@ -745,9 +751,9 @@ function DamageRemediationPanel({
   )
   if (observed && selectedPath.jewel_hits > 0) {
     damageSentences.push(
-      `Cyntro has observed ${selectedPath.jewel_hits.toLocaleString()} reads on this path${
-        selectedPath.workload_network?.evidence ? "" : ""
-      } — this isn't theoretical, the data is actively moving.`,
+      hasObservedDestination
+        ? `Cyntro has observed ${selectedPath.jewel_hits.toLocaleString()} reads on this path and an observed destination route. Data movement is evidenced, not merely possible.`
+        : `Cyntro has observed ${selectedPath.jewel_hits.toLocaleString()} reads on this path. This proves access to the crown jewel; no external destination is resolved, so it does not prove exfiltration.`,
     )
   }
   if (allowed > 0) {
@@ -757,7 +763,7 @@ function DamageRemediationPanel({
   }
   if (isNonVpc) {
     damageSentences.push(
-      `The workload is not VPC-attached, so VPC Flow Logs / SG egress / NACLs do not gate this path. IAM is the only line of defense.`,
+      `The workload is not VPC-attached, so VPC Flow Logs, SG egress and NACLs do not apply to this API-access path. Authorization can still be constrained through IAM, resource policy, KMS policy and their conditions.`,
     )
   } else if (routedInternetExit) {
     const routeTable = routedInternetExit.route_table
@@ -795,7 +801,7 @@ function DamageRemediationPanel({
     sub:
       payload.destinations.length > 0
         ? "Data leaving via these exit points (see Destinations below)"
-        : "No exit points resolved — collector pending",
+        : "Access observed; no external exit point resolved",
     tone: payload.destinations.length >= 2 ? "red" : payload.destinations.length === 1 ? "amber" : "slate",
   })
 
@@ -900,7 +906,8 @@ function DamageRemediationPanel({
         </div>
         {destinationRows.length === 0 ? (
           <div className="text-xs text-muted-foreground italic px-3 py-2 rounded border border-border bg-card">
-            No destinations resolved for this jewel.
+            No external destination is resolved for this jewel. Observed reads
+            prove access to the data, not that the data left AWS.
           </div>
         ) : (
           <div className="rounded border border-border bg-card divide-y divide-border">
@@ -1141,7 +1148,8 @@ function RemediationSGCol({ rem }: { rem: RemediationSG }) {
           <div className="text-[11px] text-muted-foreground mt-1">
             Workload is not VPC-attached — reaches AWS services via the public
             API endpoint (Service Plane). SG / NACL / subnet controls don't
-            gate this exfil. IAM is the only gate.
+            apply to this route; IAM, resource policy, KMS policy and their
+            conditions remain the authorization controls.
           </div>
         </div>
       ) : !rem.sgs_collected ? (
@@ -2267,7 +2275,7 @@ function buildExfilArchitecture(
       gateKindLabel = "AWS Control Plane"
       gateName = "Public AWS API endpoint"
       gateStrength = "weak_unobservable"
-      gateHint = "IAM is the only gate — no VPC, no SG"
+      gateHint = "Direct AWS API access · network route not represented"
       destId = `exfil-dest:aws-partition:${selectedPath.path_id}`
       destLabel = "AWS partition"
       destType = "internet"
@@ -2280,7 +2288,7 @@ function buildExfilArchitecture(
       gateKindLabel = "AWS Service Plane"
       gateName = `Public ${payload.jewel.type} endpoint`
       gateStrength = "weak_unobservable"
-      gateHint = "No VPC · IAM is the only gate"
+      gateHint = "AWS service API access · network route not represented"
       destId = `exfil-dest:aws-partition:${selectedPath.path_id}`
       destLabel = "AWS partition"
       destType = "internet"
@@ -2308,15 +2316,16 @@ function buildExfilArchitecture(
       : "no further controls"
     const richLabel = `${destLabel} — ${headlineSuffix}`
 
-    resources.push({
-      id: destId,
-      name: richLabel,
-      shortName: destIsTracked
-        ? shortName(destLabel, 18) +
-          (observedRouteCount > 0 ? `  ${observedRouteCount}/${routeCount}` : `  ${routeCount}↗`)
-        : shortName(destLabel, 22),
-      type: destType,
-    } as ServiceNode)
+    if (destIsTracked) {
+      resources.push({
+        id: destId,
+        name: richLabel,
+        shortName:
+          shortName(destLabel, 18) +
+          (observedRouteCount > 0 ? `  ${observedRouteCount}/${routeCount}` : `  ${routeCount}↗`),
+        type: destType,
+      } as ServiceNode)
+    }
 
     // Draw destination edges ONLY for tracked destinations (real AWS
     // gateway → Internet). Conceptual placeholders (AWS partition, no

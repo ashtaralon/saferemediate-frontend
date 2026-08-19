@@ -5066,6 +5066,7 @@ export function UnifiedArchitectureDiagram({
   fullEstateContext = false,
   pathAuthorityOnly = false,
   showObservedTrafficMetrics = false,
+  suppressEmptyNetworkBanner = false,
 }: {
   architecture: SystemArchitecture;
   animate: boolean;
@@ -5153,6 +5154,8 @@ export function UnifiedArchitectureDiagram({
   pathAuthorityOnly?: boolean;
   /** Show Traffic / Connections / Live Traffic only with path evidence. */
   showObservedTrafficMetrics?: boolean;
+  /** EXFIL direct-API view: keep an unresolved network lane compact. */
+  suppressEmptyNetworkBanner?: boolean;
 }) {
   const [hoveredId, setHoveredIdLocal] = useState<string | null>(null);
   const setHoveredId = useCallback((id: string | null) => setHoveredIdLocal(id), []);
@@ -6167,7 +6170,7 @@ export function UnifiedArchitectureDiagram({
             // resource route the operator opened. The dossier can still report
             // network evidence; the map itself stays focused on represented,
             // connected path members.
-            if (pathAuthorityOnly) return false
+            if (pathAuthorityOnly || suppressEmptyNetworkBanner) return false
             // Concrete route/subnet/SG evidence wins over an older or
             // incomplete workload-attachment verdict. Showing a "no network
             // checkpoints" banner beside a routed IGW is self-contradictory
@@ -8497,6 +8500,7 @@ export default function TrafficFlowMap({
   systemCrownJewelIds,
   fullEstateContext = false,
   pathAuthorityOnly = false,
+  suppressEmptyNetworkBanner = false,
 }: {
   systemName: string;
   pathFilter?: TrafficFlowMapPathFilter;
@@ -8636,6 +8640,8 @@ export default function TrafficFlowMap({
    * (same-VPC IGW, traffic totals, partition banner).
    */
   pathAuthorityOnly?: boolean;
+  /** Hide the large empty-network explanation when the caller supplies a compact status. */
+  suppressEmptyNetworkBanner?: boolean;
 }) {
   // rawArchitecture holds the unfiltered architecture from the most
   // recent fetch. We derive the displayed `architecture` from it (with
@@ -11615,6 +11621,7 @@ export default function TrafficFlowMap({
             fullEstateContext={fullEstateContext}
             pathAuthorityOnly={pathAuthorityOnly}
             showObservedTrafficMetrics={showObservedTrafficMetrics}
+            suppressEmptyNetworkBanner={suppressEmptyNetworkBanner}
             // pathMode is true whenever the caller has filtered the
             // architecture down to a single attack path (Attack Paths v2)
             // OR has registered a per-node action callback (legacy
