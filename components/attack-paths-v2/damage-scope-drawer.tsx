@@ -9,7 +9,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet"
 import { Button } from "@/components/ui/button"
-import { ArrowRight, Database, FileText, Loader2 } from "lucide-react"
+import { ArrowRight, Database, FileText, Folder, Loader2 } from "lucide-react"
 import { IAMPermissionAnalysisModal } from "@/components/iam-permission-analysis-modal"
 import { ServiceTypeBadge } from "@/lib/service-type"
 
@@ -28,7 +28,7 @@ export type ObservedDataChild = {
   id: string
   name: string
   parent_name?: string | null
-  type: "S3Object" | "DatabaseTable" | string
+  type: "S3Prefix" | "S3Object" | "DatabaseTable" | string
   operations?: string[]
   event_count?: number
   last_seen?: string | null
@@ -196,6 +196,29 @@ export function DamageScopeDrawer({
   const pct = data?.damage_reduction_percent ?? 0
   const sev = severityFromPercent(pct)
   const observedChildren = data?.observed_children ?? []
+  const observedPrefixes = (() => {
+    if (!data?.scope_observed || data.node_type !== "S3Bucket") return []
+    const operations = new Map<string, Set<string>>()
+    for (const [operation, key] of [
+      ["Read", "read_prefixes"],
+      ["Write", "write_prefixes"],
+      ["Delete", "delete_prefixes"],
+    ] as const) {
+      for (const prefix of data.scope_observed[key] ?? []) {
+        if (!operations.has(prefix)) operations.set(prefix, new Set())
+        operations.get(prefix)?.add(operation)
+      }
+    }
+    return Array.from(operations.entries()).map(([prefix, values]) => ({
+      id: `observed-prefix:${prefix}`,
+      name: prefix.endsWith("/") ? prefix : `${prefix}/`,
+      parent_name: target?.nodeName ?? target?.nodeId ?? null,
+      type: "S3Prefix",
+      operations: Array.from(values),
+      evidence_state: "observed" as const,
+    }))
+  })()
+  const observedTargets = [...observedChildren, ...observedPrefixes]
   const flowTargetName = selectedChild?.name ?? target?.nodeName ?? target?.nodeId ?? "Data resource"
   const flowTargetType = selectedChild?.type ?? data?.node_type ?? target?.nodeType ?? "Resource"
 
@@ -207,6 +230,11 @@ export function DamageScopeDrawer({
     for (const p of (o.delete_prefixes as string[]) || []) observedBullets.push(`Delete: /${p}/`)
     if (typeof o.hit_count === "number") observedBullets.push(`Hits: ${o.hit_count}`)
   }
+
+  useEffect(() => {
+    if (!data || selectedChild || observedTargets.length === 0) return
+    setSelectedChild(observedTargets[0])
+  }, [data, observedTargets, selectedChild])
 
   return (
     <>
@@ -277,17 +305,21 @@ export function DamageScopeDrawer({
                 <div className="flex items-center justify-between gap-2">
                   <div>
                     <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                      {data.node_type === "S3Bucket" ? "Observed objects" : "Observed tables"}
+                      {data.node_type === "S3Bucket" ? "Observed prefixes and objects" : "Observed tables"}
                     </div>
                     <p className="mt-0.5 text-[10px] text-muted-foreground">Click a row to bind the flow to that exact data target.</p>
                   </div>
-                  <span className="rounded-full border border-border px-2 py-0.5 text-[9px] text-muted-foreground">{observedChildren.length}</span>
+                  <span className="rounded-full border border-border px-2 py-0.5 text-[9px] text-muted-foreground">{observedTargets.length}</span>
                 </div>
-                {observedChildren.length ? (
+                {observedTargets.length ? (
                   <div className="mt-2 max-h-56 space-y-1 overflow-y-auto">
-                    {observedChildren.map((child) => {
+                    {observedTargets.map((child) => {
                       const active = selectedChild?.id === child.id
-                      const Icon = child.type === "S3Object" ? FileText : Database
+                      const Icon = child.type === "S3Object"
+                        ? FileText
+                        : child.type === "S3Prefix"
+                          ? Folder
+                          : Database
                       return (
                         <button
                           key={child.id}
@@ -301,14 +333,16 @@ export function DamageScopeDrawer({
                             <span className="block truncate text-[10px] font-medium text-foreground">{child.name}</span>
                             <span className="block truncate text-[9px] text-muted-foreground">{child.parent_name || child.type}</span>
                           </span>
-                          <span className="text-[9px] text-muted-foreground">{child.event_count ?? 0} events</span>
+                          <span className="text-[9px] text-muted-foreground">
+                            {typeof child.event_count === "number" ? `${child.event_count} events` : child.operations?.join(", ")}
+                          </span>
                         </button>
                       )
                     })}
                   </div>
                 ) : (
                   <p className="mt-2 rounded-lg border border-dashed border-amber-500/30 bg-amber-500/[0.04] p-2.5 text-[10px] leading-relaxed text-amber-800 dark:text-amber-300">
-                    The selected path has observed resource-level access, but Neptune has no exact object/table event bound to this compute or its path identity. Cyntro will not borrow another service&apos;s activity.
+                    The selected path has observed resource-level access, but Neptune has no exact prefix/object/table event bound to this compute or its path identity. Cyntro will not borrow another service&apos;s activity.
                   </p>
                 )}
               </section>
