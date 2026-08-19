@@ -218,6 +218,58 @@ describe("AwsFrame Glance density (generic)", () => {
     expect(routeChip.getAttribute("title")).toContain("rtb-main → igw-main")
   })
 
+  it("shows effective NACL, security-group, and ENI controls per subnet", () => {
+    const controlsTopology: VpcTopology = {
+      ...topology,
+      security_groups: [{
+        id: "sg-public",
+        name: "web-public",
+        description: "public web ingress",
+        has_public_ingress: true,
+        high_risk_rule_count: 1,
+        eni_count: 2,
+      }],
+      subnets: topology.subnets.map(subnet => subnet.id === "sn-web" ? {
+        ...subnet,
+        nacl: {
+          id: "acl-web",
+          name: "web-acl",
+          vpc_id: VPC,
+          is_default: false,
+          total_rules: 8,
+          inbound_deny_count: 1,
+          outbound_deny_count: 1,
+          has_public_inbound_allow: true,
+          high_risk_rule_count: 0,
+          associated_subnet_ids: ["sn-web"],
+          authority_state: "configured",
+          evidence_source: "aws_ec2_describe_network_acls",
+          last_seen: "2026-08-19T12:00:00Z",
+        },
+        network_interface_count: 2,
+        public_network_interface_count: 1,
+        network_interface_ids: ["eni-1", "eni-2"],
+        security_group_ids: ["sg-public"],
+      } : subnet),
+    }
+
+    render(
+      <AwsFrame
+        vpcTopology={controlsTopology}
+        nodes={[nd({ id: "ec2-1", name: "web-1", security_group_ids: ["sg-public"] })]}
+        selectedNodeId={null}
+        onSelect={() => {}}
+        viewDensity="glance"
+      />,
+    )
+
+    const controls = screen.getByTestId("topology-subnet-network-controls")
+    expect(controls.textContent).toContain("NACL · web-acl")
+    expect(controls.textContent).toContain("SG · 1 · 1 public")
+    expect(controls.textContent).toContain("ENI · 2 · 1 public")
+    expect(screen.getByText("NACL · web-acl").getAttribute("title")).toContain("8 ordered rules · 2 deny")
+  })
+
   it("keeps observed traffic evidence visible when Architecture hides overlays", () => {
     const nodes: TopologyNode[] = [
       nd({ id: "ec2-source", name: "web-source" }),
