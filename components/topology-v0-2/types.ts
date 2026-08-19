@@ -160,6 +160,35 @@ export interface ForeignSharedAccessEdge {
 
 export type SubnetTier = "web" | "app" | "data" | "unknown"
 
+export interface EffectiveRouteMeta {
+  route_key: string | null
+  subnet_id: string
+  route_table_id: string | null
+  destination_type: string | null
+  destination: string | null
+  target_type: string | null
+  target_id: string
+  target_name: string | null
+  route_state: string | null
+  route_origin: string | null
+  authority_state: "configured"
+  evidence_source: string | null
+  last_seen: string | null
+}
+
+export interface RouteTableMeta {
+  id: string
+  name: string
+  vpc_id: string | null
+  is_main: boolean
+  route_count: number
+  route_set_hash: string | null
+  associated_subnet_ids: string[]
+  authority_state: "configured"
+  evidence_source: string | null
+  last_seen: string | null
+}
+
 export interface SubnetMeta {
   id: string
   name: string
@@ -167,6 +196,8 @@ export interface SubnetMeta {
   cidr: string | null
   tier: SubnetTier
   tier_source: "property" | "name" | "default_vpc_cidr" | "unknown"
+  route_table_id?: string | null
+  effective_routes?: EffectiveRouteMeta[]
   vpc_id?: string | null
   // Provenance (BE >= per-vpc-frames deploy) — older BE deploys omit these.
   // `owner_system_name`: the subnet's own SystemName tag.
@@ -323,6 +354,9 @@ export interface VpcTopology {
   vpc_id: string | null
   azs: string[]
   subnets: SubnetMeta[]
+  /** Compact configured facts; absent on older cached/backend payloads. */
+  route_tables?: RouteTableMeta[]
+  effective_routes?: EffectiveRouteMeta[]
   edges: {
     igws: EdgeIgw[]
     nat_gws: EdgeNatGw[]

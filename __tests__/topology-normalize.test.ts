@@ -54,6 +54,25 @@ describe("normalizeVpcTopology", () => {
     expect(normalized.edges.igws).toEqual([])
     expect(normalized.edges.nat_gws).toEqual([])
     expect(normalized.edges.vpces).toEqual([])
+    expect(normalized.route_tables).toEqual([])
+    expect(normalized.effective_routes).toEqual([])
+  })
+
+  test("normalizes missing per-subnet effective routes", () => {
+    const topo = {
+      region: "eu-west-1",
+      account_id: "123",
+      vpc_id: "vpc-1",
+      azs: ["eu-west-1a"],
+      subnets: [{
+        id: "subnet-1", name: "web", az: "eu-west-1a", cidr: "10.0.0.0/24",
+        tier: "web", tier_source: "property", route_table_id: "rtb-1",
+      }],
+      edges: { igws: [], nat_gws: [], vpces: [] },
+      unknown_subnet_count: 0,
+    } satisfies VpcTopology
+
+    expect(normalizeVpcTopology(topo).subnets[0]?.effective_routes).toEqual([])
   })
 
   test("keeps igw rows intact, including vpc_id provenance", () => {

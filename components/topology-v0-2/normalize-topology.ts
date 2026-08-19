@@ -22,6 +22,8 @@ export function normalizeVpcTopology(vt: VpcTopology | null | undefined): VpcTop
       vpc_id: null,
       azs: [],
       subnets: [],
+      route_tables: [],
+      effective_routes: [],
       edges: EMPTY_EDGES,
       unknown_subnet_count: 0,
       security_groups: [],
@@ -32,7 +34,12 @@ export function normalizeVpcTopology(vt: VpcTopology | null | undefined): VpcTop
   return {
     ...vt,
     azs: vt.azs ?? [],
-    subnets: vt.subnets ?? [],
+    subnets: (vt.subnets ?? []).map(subnet => ({
+      ...subnet,
+      effective_routes: Array.isArray(subnet.effective_routes) ? subnet.effective_routes : [],
+    })),
+    route_tables: vt.route_tables ?? [],
+    effective_routes: vt.effective_routes ?? [],
     edges: {
       igws: edges.igws ?? [],
       nat_gws: edges.nat_gws ?? [],

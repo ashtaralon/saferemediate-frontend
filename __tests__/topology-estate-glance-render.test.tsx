@@ -150,6 +150,44 @@ describe("AwsFrame Glance density (generic)", () => {
     expect(screen.getByTestId("topology-az-column-eu-west-1a")).toBeTruthy()
   })
 
+  it("shows configured route direction and effective next hop in subnet chrome", () => {
+    const routedTopology: VpcTopology = {
+      ...topology,
+      subnets: topology.subnets.map(subnet => subnet.id === "sn-web" ? {
+        ...subnet,
+        route_table_id: "rtb-main",
+        effective_routes: [{
+          route_key: "sn-web|ipv4|0.0.0.0/0|igw-1",
+          subnet_id: "sn-web",
+          route_table_id: "rtb-main",
+          destination_type: "ipv4_cidr",
+          destination: "0.0.0.0/0",
+          target_type: "igw",
+          target_id: "igw-1",
+          target_name: "igw-main",
+          route_state: "active",
+          route_origin: "CreateRoute",
+          authority_state: "configured",
+          evidence_source: "aws_ec2_describe_route_tables",
+          last_seen: "2026-08-19T12:00:00Z",
+        }],
+      } : subnet),
+    }
+    render(
+      <AwsFrame
+        vpcTopology={routedTopology}
+        nodes={[nd({ id: "ec2-1", name: "web-1" })]}
+        selectedNodeId={null}
+        onSelect={() => {}}
+        viewDensity="glance"
+      />,
+    )
+
+    const routeChip = screen.getByTestId("topology-effective-route-chip")
+    expect(routeChip.textContent).toContain("RT → igw-main")
+    expect(routeChip.getAttribute("title")).toContain("rtb-main → igw-main")
+  })
+
   it("keeps observed traffic evidence visible when Architecture hides overlays", () => {
     const nodes: TopologyNode[] = [
       nd({ id: "ec2-source", name: "web-source" }),

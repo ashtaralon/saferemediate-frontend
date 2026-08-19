@@ -136,6 +136,7 @@ export function applySystemEstateScope(input: SystemScopeInput): SystemScopeResu
   const usedVpcs = usedVpcIdsForSystem(nodes, vt.subnets ?? [])
 
   const subnets = filterSubnetsForSystemUse(vt.subnets ?? [], nodes, usedVpcs)
+  const subnetIds = new Set(subnets.map(s => s.id))
   const availableVpcs = filterAvailableVpcsForSystemUse(
     input.availableVpcs,
     usedVpcs,
@@ -178,6 +179,12 @@ export function applySystemEstateScope(input: SystemScopeInput): SystemScopeResu
       ...vt,
       azs: azs.length > 0 ? azs : vt.azs ?? [],
       subnets,
+      route_tables: (vt.route_tables ?? []).filter(rt =>
+        rt.associated_subnet_ids.some(id => subnetIds.has(id)),
+      ),
+      effective_routes: (vt.effective_routes ?? []).filter(route =>
+        subnetIds.has(route.subnet_id),
+      ),
       edges: { igws, nat_gws, vpces },
       iam_roles,
     },
@@ -209,6 +216,14 @@ export function narrowSystemEstateToVpc(
       ...scoped.vpcTopology,
       vpc_id: vpcId,
       subnets: (scoped.vpcTopology.subnets ?? []).filter(s => s.vpc_id === vpcId),
+      route_tables: (scoped.vpcTopology.route_tables ?? []).filter(
+        rt => !rt.vpc_id || rt.vpc_id === vpcId,
+      ),
+      effective_routes: (scoped.vpcTopology.effective_routes ?? []).filter(route =>
+        (scoped.vpcTopology.subnets ?? []).some(
+          subnet => subnet.id === route.subnet_id && subnet.vpc_id === vpcId,
+        ),
+      ),
       edges: {
         igws: (scoped.vpcTopology.edges?.igws ?? []).filter(
           i => !i.vpc_id || i.vpc_id === vpcId,
