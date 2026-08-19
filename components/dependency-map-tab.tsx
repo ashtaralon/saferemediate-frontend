@@ -3,6 +3,7 @@
 import React, { useState, useCallback, useEffect, useMemo } from 'react'
 import { Map as MapIcon, Search, RefreshCw, Network, Cloud, GitBranch, Activity, CheckCircle, XCircle } from 'lucide-react'
 import dynamic from 'next/dynamic'
+import { useSearchParams } from 'next/navigation'
 import GraphView from './dependency-map/graph-view'
 import ResourceView from './dependency-map/resource-view'
 import { CJSpotlightStrip } from './dependency-map/cj-spotlight-strip'
@@ -179,6 +180,7 @@ export default function DependencyMapTab({
   onGraphEngineChange,
   onHighlightPathClear
 }: Props) {
+  const customerId = useSearchParams().get('customer_id')
   const [activeView, setActiveView] = useState<ViewType>('estate')
   const [graphEngine, setGraphEngine] = useState<'logical' | 'architectural' | 'observed' | 'comprehensive' | 'neo4j'>(defaultGraphEngine || 'neo4j')
 
@@ -811,7 +813,9 @@ export default function DependencyMapTab({
           <ErrorBoundary componentName="Estate map">
             <EstateMapView
               systemName={systemName}
+              customerId={customerId}
               embedded
+              defaultFlowMode="all_access"
               onOpenTrafficMap={() => setActiveView("graph")}
             />
           </ErrorBoundary>

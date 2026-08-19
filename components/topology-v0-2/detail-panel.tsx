@@ -21,11 +21,12 @@ import {
 } from "lucide-react"
 import { ResourceConfigTab } from "@/components/inventory/resource-config-tab"
 import { ServiceTypeBadge } from "@/lib/service-type"
-import type {
-  EdgeVpce,
-  TopologyNode,
-  TopologyRiskResponse,
-  TrafficEdge,
+import {
+  hasAuthoritativePositiveTraffic,
+  type EdgeVpce,
+  type TopologyNode,
+  type TopologyRiskResponse,
+  type TrafficEdge,
 } from "./types"
 import {
   buildFocusedServicePaths,
@@ -213,12 +214,12 @@ function ServicePathMap({
         </div>
         <span
           className="rounded-full border px-2 py-1 text-[9px] font-semibold uppercase"
-          style={trafficAuthority?.state === "authoritative"
+          style={hasAuthoritativePositiveTraffic(trafficAuthority?.state)
             ? { borderColor: "#9FE8DC", background: "#E6FBF7", color: "#0E8B7A" }
             : { borderColor: "#FCD34D", background: "#FFFBEB", color: "#92400E" }}
         >
-          {trafficAuthority?.state === "authoritative"
-            ? `Generation ${trafficAuthority.active_generation}`
+          {hasAuthoritativePositiveTraffic(trafficAuthority?.state)
+            ? `Generation ${trafficAuthority?.active_generation ?? "unknown"}`
             : trafficAuthority?.state === "legacy_unverified"
               ? "Unverified traffic context"
               : "Traffic evidence rebuilding"}

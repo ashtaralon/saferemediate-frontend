@@ -230,6 +230,7 @@ export interface IamRoleRollup {
 export type TrafficEdgeClass = "internal" | "edge_service" | "vpce" | "egress" | "database"
 export type TrafficAuthorityState =
   | "authoritative"
+  | "authoritative_positive_only"
   | "rebuilding"
   | "legacy_unverified"
   | "configured"
@@ -307,6 +308,15 @@ export interface TrafficEdge {
   flow_highlight?: "attack_path" | null
 }
 
+/**
+ * Both states carry authority for observed-positive segments. The scoped
+ * `authoritative_positive_only` contract deliberately leaves absence unknown,
+ * but its confirmed edges are still authoritative and must animate.
+ */
+export function hasAuthoritativePositiveTraffic(state?: string | null): boolean {
+  return state === "authoritative" || state === "authoritative_positive_only"
+}
+
 export interface VpcTopology {
   region: string | null
   account_id: string | null
@@ -376,7 +386,12 @@ export interface TopologyRiskResponse {
   // Phase B addition — present on responses from BE >= phase-b deploy.
   traffic_edges?: TrafficEdge[]
   traffic_authority?: {
-    state: "authoritative" | "rebuilding" | "legacy_unverified" | string
+    state:
+      | "authoritative"
+      | "authoritative_positive_only"
+      | "rebuilding"
+      | "legacy_unverified"
+      | string
     mode: "legacy" | "shadow" | "incremental" | "unavailable" | "unknown" | string
     active_generation: number | null
     window_days: number

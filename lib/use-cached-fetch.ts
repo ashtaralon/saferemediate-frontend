@@ -600,6 +600,14 @@ export function useCachedFetch<T = unknown>(
       if (proxyStale) {
         setIsStale(true)
         setCachedAt(cachedAt ?? Date.now())
+        setStaleReason(STALE_BACKEND_RECOVERING)
+        // A proxy can honestly return HTTP 200 while serving its last-good
+        // snapshot after an upstream timeout. Treat that as the same
+        // recoverable transport state as a 502/504: keep the map visible, but
+        // continue polling until a live response replaces it. Previously this
+        // path cleared the retry timer below, so an Estate Map could remain on
+        // a pre-traffic snapshot forever even after Neptune recovered.
+        scheduleAutoRetry()
       } else {
         setIsStale(false)
         setCachedAt(null)
@@ -613,9 +621,9 @@ export function useCachedFetch<T = unknown>(
           // stale jewels.
           clearCachedFetch(cacheKey)
         }
+        // A live response arrived: the backend is back. Stop polling.
+        clearAutoRetry()
       }
-      // A live response arrived: the backend is back. Stop polling.
-      clearAutoRetry()
       setError(null)
       setLoading(false)
     } catch (err) {

@@ -7,7 +7,11 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import dynamic from "next/dynamic"
 import { Check, ChevronDown, ChevronUp, LoaderCircle, Maximize2, Minimize2, ZoomIn, ZoomOut, Scan, SlidersHorizontal } from "lucide-react"
 import { isTrustEnvelope } from "@/components/trust/trust-envelope-badge"
-import { clearCachedFetch, useCachedFetch } from "@/lib/use-cached-fetch"
+import {
+  clearCachedFetch,
+  RECOVERY_POLL_MS,
+  useCachedFetch,
+} from "@/lib/use-cached-fetch"
 import { IAP_BEHAVIORAL_CONTRACT_QUERY } from "@/lib/iap-contract"
 import { HeadlineStrip } from "@/components/topology-v0-2/headline-strip"
 import { AwsFrame, dedupeLambdaServiceTwins, listTopologyAzs } from "@/components/topology-v0-2/aws-frame"
@@ -107,6 +111,7 @@ const EstateSystemView = dynamic(
 
 export interface EstateMapViewProps {
   systemName: string
+  customerId?: string | null
   embedded?: boolean
   /** Switch Topology tab to Traffic map (TFM graph). */
   onOpenTrafficMap?: () => void
@@ -149,7 +154,7 @@ function topologyGridWouldBeEmpty(data: TopologyRiskResponse): boolean {
   return true
 }
 
-export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, defaultFlowMode = "architecture", collapseEmptyAzsByDefault = false, defaultToAllVpcs = false }: EstateMapViewProps) {
+export function EstateMapView({ systemName, customerId = null, embedded = false, onOpenTrafficMap, defaultFlowMode = "architecture", collapseEmptyAzsByDefault = false, defaultToAllVpcs = false }: EstateMapViewProps) {
   const productScope = useAccountScope()
   // useCachedFetch can synchronously recover a browser-local last-good map.
   // Hold the server and first client render on the same loading shell so a
@@ -191,11 +196,12 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
   const [hiddenAzs, setHiddenAzs] = useState<string[]>([])
   const scopeParams = useMemo(
     () => ({
+      customerId,
       accountId: selectedAccountId,
       region: selectedRegionId,
       vpcId: scopedVpc,
     }),
-    [selectedAccountId, selectedRegionId, scopedVpc],
+    [customerId, selectedAccountId, selectedRegionId, scopedVpc],
   )
   const cacheKey = buildTopologyRiskCacheKey(systemName, scopeParams)
   const url = buildTopologyRiskProxyUrl(systemName, scopeParams)
@@ -205,6 +211,10 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     fetchInit: { cache: "no-store" },
     // Render cold-start 504s self-heal once the wake+snapshot retry lands.
     transientRetries: 2,
+    // The proxy may return HTTP 200 + fromStaleCache after a timeout. Keep
+    // retrying that honest stale reading until the authoritative Neptune
+    // generation arrives; otherwise the map can remain static indefinitely.
+    autoRetryMs: RECOVERY_POLL_MS,
   })
 
   // Full account/region topology for All-VPCs · Compare scaffold. When the
@@ -231,6 +241,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     // Primary is VPC-scoped; fetch account/region once for Compare rails.
     let cancelled = false
     const mergedUrl = buildTopologyRiskProxyUrl(systemName, {
+      customerId,
       accountId: selectedAccountId,
       region: selectedRegionId,
     })
@@ -245,6 +256,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     }
   }, [
     systemName,
+    customerId,
     selectedAccountId,
     selectedRegionId,
     needsMergedTopology,

@@ -1,6 +1,7 @@
 /** Build topology-risk proxy URLs and client cache keys — must match BE scope. */
 
 export interface TopologyScopeParams {
+  customerId?: string | null
   accountId?: string | null
   region?: string | null
   vpcId?: string | null
@@ -11,6 +12,7 @@ export function buildTopologyRiskProxyUrl(
   scope: TopologyScopeParams = {},
 ): string {
   const params = new URLSearchParams()
+  if (scope.customerId) params.set("customer_id", scope.customerId)
   if (scope.accountId) params.set("account_id", scope.accountId)
   if (scope.region) params.set("region", scope.region)
   if (scope.vpcId) params.set("vpc_id", scope.vpcId)
@@ -19,12 +21,13 @@ export function buildTopologyRiskProxyUrl(
   return qs ? `${base}?${qs}` : base
 }
 
-/** Client-side useCachedFetch key — v10 busts poisoned empty computing caches. */
+/** Client-side useCachedFetch key — v12 partitions tenant authority snapshots. */
 export function buildTopologyRiskCacheKey(
   systemName: string,
   scope: TopologyScopeParams = {},
 ): string {
-  return `topology-risk:${systemName}:v10:${scope.accountId ?? ""}:${scope.region ?? ""}:${scope.vpcId ?? "all"}`
+  const tenantPrefix = scope.customerId ? `${scope.customerId}:` : ""
+  return `topology-risk:${tenantPrefix}${systemName}:v12:${scope.accountId ?? ""}:${scope.region ?? ""}:${scope.vpcId ?? "all"}`
 }
 
 /** Proxy server cache key — mirrors BE {system}::{account}::{region}::{vpc}.
@@ -38,9 +41,10 @@ export function buildTopologyRiskServerCacheKey(
   const account = scope.accountId ?? ""
   const region = scope.region ?? ""
   const vpc = scope.vpcId ?? ""
+  const tenantPrefix = scope.customerId ? `${scope.customerId}:` : ""
   const base =
     !account && !region && !vpc
-      ? `topology-risk:${systemName}`
-      : `topology-risk:${systemName}:${account}:${region}:${vpc}`
+      ? `topology-risk:${tenantPrefix}${systemName}`
+      : `topology-risk:${tenantPrefix}${systemName}:${account}:${region}:${vpc}`
   return `${base}:${TOPOLOGY_RISK_SERVER_CACHE_SCHEMA}`
 }
