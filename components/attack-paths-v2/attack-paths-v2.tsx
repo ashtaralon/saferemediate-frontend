@@ -963,7 +963,7 @@ export function AttackPathsV2({
 
   // ─── Main 3-column layout ──────────────────────────────────────
   return (
-    <div className={`flex ${shellHeight} bg-background text-foreground ${embedded ? "overflow-visible rounded-xl border border-border" : "overflow-hidden"}`}>
+    <div className={`flex w-full min-w-0 ${shellHeight} bg-background text-foreground ${embedded ? "overflow-visible rounded-xl border border-border" : "overflow-hidden"}`}>
       {/* Column 1 — Crown jewels (hidden when path is maximized) */}
       <aside
         className={`${isPathExpanded ? "hidden" : "w-[320px]"} shrink-0 border-r border-border bg-background overflow-y-auto`}
@@ -1121,7 +1121,7 @@ export function AttackPathsV2({
       {/* Column 3 — Per-path analysis OR Exposure view, gated by mode */}
       <main
         ref={mainScrollRef}
-        className={`flex-1 bg-background ${
+        className={`min-w-0 flex-1 bg-background ${
           embedded
             ? "flex flex-col min-h-[78vh] overflow-visible"
             : isPathExpanded && (viewMode === "attacker_map" || viewMode === "attack-path")
