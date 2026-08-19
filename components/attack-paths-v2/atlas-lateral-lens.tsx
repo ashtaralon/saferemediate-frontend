@@ -61,6 +61,10 @@ export function AtlasLateralLensPanel({
   onRetry: () => void
 }) {
   const { reachable, noPath } = partitionAtlasFootholds(candidates)
+  const displayedNoPath =
+    response?.chains.length && selectedFootholdId
+      ? noPath.filter((candidate) => candidate.workload_id !== selectedFootholdId)
+      : noPath
   return (
     <div
       className="rounded-lg border border-amber-200/70 bg-amber-50/40 px-3 py-2.5 dark:border-amber-500/30 dark:bg-amber-500/10"
@@ -96,28 +100,22 @@ export function AtlasLateralLensPanel({
       ) : (
         <>
           <div className="mt-2 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
-            {reachable.length > 0 ? (
             <label className="min-w-0">
-              <span className="sr-only">Reachable attacker foothold</span>
+              <span className="sr-only">Initial compromised service</span>
               <select
                 value={selectedFootholdId ?? ""}
                 onChange={(event) => onSelectFoothold(event.target.value)}
                 className="w-full rounded-md border border-amber-300/70 bg-background px-2.5 py-1.5 text-[11px] text-foreground outline-none focus:ring-2 focus:ring-amber-500/30 dark:border-amber-500/40"
                 data-testid="atlas-foothold-picker"
-                aria-label="Reachable attacker foothold"
+                aria-label="Initial compromised service"
               >
-                {reachable.map((candidate) => (
+                {candidates.map((candidate) => (
                   <option key={candidate.workload_id} value={candidate.workload_id}>
                     {candidate.atlas_rank ? `#${candidate.atlas_rank} · ` : ""}{candidate.workload_name} · {candidate.workload_type} · {shortId(candidate.workload_id)} · {evaluationLabel(candidate)}
                   </option>
                 ))}
               </select>
             </label>
-            ) : (
-              <p className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">
-                No evaluated service reached this jewel within the modeled scope.
-              </p>
-            )}
             <span className="text-[10px] text-muted-foreground">
               {evaluation
                 ? `${evaluation.reachable_count} reachable · ${evaluation.evaluated_count}/${evaluation.eligible_count} evaluated${evaluation.coverage_state === "PARTIAL" ? " · partial" : ""}`
@@ -125,14 +123,21 @@ export function AtlasLateralLensPanel({
             </span>
           </div>
 
-          {noPath.length > 0 ? (
+          {reachable.length === 0 && !response?.chains.length ? (
+            <p className="mt-2 text-[10px] text-muted-foreground">
+              Batch ranking found no route. Select any service above to run a
+              focused replay before concluding it is a dead end.
+            </p>
+          ) : null}
+
+          {displayedNoPath.length > 0 ? (
             <details className="mt-2 rounded-md border border-border/60 bg-background/60 text-[10px]" data-testid="atlas-no-path-candidates">
               <summary className="cursor-pointer select-none px-2.5 py-1.5 font-medium text-muted-foreground hover:text-foreground">
-                Evaluated — no modeled path found ({noPath.length})
+                Evaluated — no modeled path found ({displayedNoPath.length})
               </summary>
               <div className="max-h-48 overflow-y-auto border-t border-border/60 p-2">
                 <ul className="space-y-1.5">
-                  {noPath.map((candidate) => (
+                  {displayedNoPath.map((candidate) => (
                     <li key={candidate.workload_id} className="flex items-start justify-between gap-3 rounded px-1.5 py-1 hover:bg-muted/50">
                       <span className="min-w-0 truncate text-foreground" title={`${candidate.workload_name} · ${candidate.workload_id}`}>
                         {candidate.workload_name} · {candidate.workload_type} · {shortId(candidate.workload_id)}
