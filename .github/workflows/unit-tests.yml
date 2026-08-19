@@ -25,6 +25,11 @@ jobs:
       # resolution; regenerating it is a separate cleanup.
       - run: pnpm install --no-frozen-lockfile
       - run: npx vitest run __tests__
+        env:
+          # Server-route modules resolve the backend URL at import time.
+          # Tests mock fetch; this loopback value only satisfies fail-closed
+          # configuration and cannot address a shared environment.
+          BACKEND_URL: http://127.0.0.1:8788
       - run: npm run lint:cve-evidence
 
       # Type-error ratchet. next.config.js sets ignoreBuildErrors, so the
