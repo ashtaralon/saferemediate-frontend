@@ -107,6 +107,7 @@ const EstateSystemView = dynamic(
 
 export interface EstateMapViewProps {
   systemName: string
+  customerId?: string | null
   embedded?: boolean
   /** Switch Topology tab to Traffic map (TFM graph). */
   onOpenTrafficMap?: () => void
@@ -149,7 +150,7 @@ function topologyGridWouldBeEmpty(data: TopologyRiskResponse): boolean {
   return true
 }
 
-export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, defaultFlowMode = "architecture", collapseEmptyAzsByDefault = false, defaultToAllVpcs = false }: EstateMapViewProps) {
+export function EstateMapView({ systemName, customerId = null, embedded = false, onOpenTrafficMap, defaultFlowMode = "architecture", collapseEmptyAzsByDefault = false, defaultToAllVpcs = false }: EstateMapViewProps) {
   const productScope = useAccountScope()
   // useCachedFetch can synchronously recover a browser-local last-good map.
   // Hold the server and first client render on the same loading shell so a
@@ -191,11 +192,12 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
   const [hiddenAzs, setHiddenAzs] = useState<string[]>([])
   const scopeParams = useMemo(
     () => ({
+      customerId,
       accountId: selectedAccountId,
       region: selectedRegionId,
       vpcId: scopedVpc,
     }),
-    [selectedAccountId, selectedRegionId, scopedVpc],
+    [customerId, selectedAccountId, selectedRegionId, scopedVpc],
   )
   const cacheKey = buildTopologyRiskCacheKey(systemName, scopeParams)
   const url = buildTopologyRiskProxyUrl(systemName, scopeParams)
@@ -231,6 +233,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     // Primary is VPC-scoped; fetch account/region once for Compare rails.
     let cancelled = false
     const mergedUrl = buildTopologyRiskProxyUrl(systemName, {
+      customerId,
       accountId: selectedAccountId,
       region: selectedRegionId,
     })
@@ -245,6 +248,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     }
   }, [
     systemName,
+    customerId,
     selectedAccountId,
     selectedRegionId,
     needsMergedTopology,
