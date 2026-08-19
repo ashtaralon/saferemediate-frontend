@@ -1438,6 +1438,19 @@ function SubnetCell({
         ? `${subnetsHere.length} subnets`
         : null
   const ownerHint = subnetOwnershipTooltipLine(subnetsHere)
+  const configuredRoutes = subnetsHere.flatMap(s => s.effective_routes ?? [])
+  const routeTableIds = [...new Set(
+    subnetsHere.map(s => s.route_table_id).filter((id): id is string => !!id),
+  )]
+  const nextHops = [...new Set(
+    configuredRoutes
+      .filter(route => route.route_state !== "blackhole")
+      .map(route => route.target_name || route.target_id)
+      .filter(Boolean),
+  )]
+  const routeHint = routeTableIds.length > 0
+    ? `Configured route ${routeTableIds.join(", ")} → ${nextHops.join(", ") || "no active next hop"}`
+    : null
   const isForeignCell =
     subnetsHere.length > 0 && subnetsHere.every(s => s.is_foreign === true)
   const chromeTitle = [TIER_CELL_SHORT[tier], subnetTitle].filter(Boolean).join(" · ")
@@ -1478,7 +1491,7 @@ function SubnetCell({
       }}
       data-testid={hasWorkloads ? "topology-subnet-cell-workloads" : "topology-subnet-cell"}
       data-is-foreign={isForeignCell ? "true" : undefined}
-      title={[TIER_LABEL[tier], subnetTitle, cidrHint, ownerHint].filter(Boolean).join(" · ")}
+      title={[TIER_LABEL[tier], subnetTitle, cidrHint, routeHint, ownerHint].filter(Boolean).join(" · ")}
     >
       {/* One-line chrome — full "Private subnet (data tier)" lives on the
           tier sidebar; keep cell chrome thin so icons are visible. */}
@@ -1490,6 +1503,16 @@ function SubnetCell({
         >
           {chromeTitle || TIER_CELL_SHORT[tier]}
         </div>
+        {routeTableIds.length > 0 ? (
+          <span
+            className="shrink-0 rounded px-1 py-0.5 text-[8px] font-semibold font-mono"
+            style={{ background: "#EFF6FF", color: "#1D4ED8", border: "1px solid #93C5FD" }}
+            title={routeHint ?? undefined}
+            data-testid="topology-effective-route-chip"
+          >
+            RT → {nextHops.length > 0 ? nextHops.slice(0, 2).join(" / ") : "none"}
+          </span>
+        ) : null}
         {cidrHint ? (
           <div
             className="text-[9px] font-mono font-semibold shrink-0 tabular-nums"
