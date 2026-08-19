@@ -8752,7 +8752,9 @@ export default function TrafficFlowMap({
     // Path-authority wins over dep-map / override — estate must not
     // enter the path layer.
     if (pathAuthorityArchitecture) {
-      return markCjs(pathAuthorityArchitecture)
+      return markCjs(
+        ensurePathTargetResource(pathAuthorityArchitecture, pathFilter),
+      )
     }
     if (architectureOverride) {
       // 2026-07-12: empty graph-view canvas used to short-circuit here with
