@@ -445,11 +445,13 @@ export function DamageScopeDrawer({
 
               <div className="border-t border-border pt-3">
                 <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Path-wide permission exposure</div>
-                <p className="mt-1 text-sm text-foreground">{data.narrative.summary}</p>
+                <p className="mt-1 text-sm text-foreground">
+                  These IAM permissions belong to the path identity. They stay the same when you select another observed prefix or object.
+                </p>
               </div>
 
               <ScopeCard
-                title="Current target-relevant permissions"
+                title="Path-wide permissions relevant to this data service"
                 headline={data.scope_today.headline}
                 bullets={currentTargetActions.length ? currentTargetActions : ["No target-specific configured actions returned"]}
               />
