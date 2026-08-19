@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
 import {
-  getCached,
   getStaleCached,
   setCached,
   TTL_FAST,
@@ -34,17 +33,11 @@ export async function GET(
 ) {
   const { systemName } = await params
   const cacheKey = `iap-jewels:${systemName}`
-  const cached = getCached(cacheKey)
-  // Never serve a cached empty list as a HIT — empty was often a cold
-  // SERVE / freeze artifact and poisons the Attack Paths rail for TTL_SLOW.
-  if (cached && hasUsableJewels(cached)) {
-    return NextResponse.json(cached, {
-      headers: {
-        "X-Cache": "HIT",
-        "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600",
-      },
-    })
-  }
+  // This endpoint is the authoritative, lightweight rail summary. Always
+  // revalidate it: risk/path counts can change after a collector run and an
+  // in-process/CDN HIT made the operator's Refresh action keep rendering the
+  // old 0/LOW state for five minutes. The retained cache is now recovery-only
+  // and is served solely when the backend is unavailable.
 
   try {
     const url = `${BACKEND_URL}/api/identity-attack-paths/${encodeURIComponent(systemName)}/jewels?max_jewels=12`
@@ -87,9 +80,7 @@ export async function GET(
     return NextResponse.json(data, {
       headers: {
         "X-Cache": "MISS",
-        "Cache-Control": hasUsableJewels(data)
-          ? "public, s-maxage=300, stale-while-revalidate=600"
-          : "public, s-maxage=30, stale-while-revalidate=30",
+        "Cache-Control": "no-store",
       },
     })
   } catch (err: unknown) {
