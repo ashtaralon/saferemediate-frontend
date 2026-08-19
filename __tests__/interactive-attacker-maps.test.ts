@@ -111,6 +111,7 @@ describe("interactive attacker maps", () => {
     expect(zoom0).toContain("ref={scrollContainerRef}")
     expect(zoom0).toContain("scrollContainerRef.current?.scrollTo")
     expect(zoom0).toContain('? "h-auto overflow-visible"')
+    expect(zoom0).toContain('isExpanded ? "min-h-0" : "min-h-[680px]"')
     expect(zoom0).not.toContain('isExpanded ? "sticky top-0 shadow-sm"')
     expect(attackPaths).toContain("ref={mainScrollRef}")
     expect(attackPaths).toContain("mainScrollRef.current?.scrollTo")

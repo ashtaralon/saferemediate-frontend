@@ -1008,7 +1008,7 @@ export function Zoom0FanInPanel({
               ) : (
                 <div
                   className={`h-full overflow-hidden ${
-                    isExpanded ? "min-h-0" : "min-h-[480px]"
+                    isExpanded ? "min-h-0" : "min-h-[680px]"
                   }`}
                   data-testid="zoom0-current-access-tfm"
                 >
