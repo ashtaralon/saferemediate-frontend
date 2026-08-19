@@ -1115,6 +1115,62 @@ describe("8. empty network lane provenance (deriveNetworkPosture)", () => {
     })
   })
 
+  it("renders STS sessions as identity sessions, never fake EC2 compute", () => {
+    const roleArn = "arn:aws:iam::1:role/orders-writer"
+    const arch = buildPathAuthorityArchitecture({
+      paths: [
+        path({
+          source: " → orders-writer",
+          source_kind: "STSSession",
+          workload_arn: "sts-orders-session",
+          identity: "sts-orders-session",
+          identity_name: " → orders-writer",
+          hops: [
+            {
+              node_id: "sts-orders-session",
+              node_type: "STSSession",
+              name: " → orders-writer",
+              plane: "identity",
+              security_groups: [],
+              is_crown_jewel: false,
+            },
+            {
+              node_id: roleArn,
+              node_type: "IAMRole",
+              name: "orders-writer",
+              plane: "identity",
+              security_groups: [],
+              is_crown_jewel: false,
+              edge_type_from_prev: "ASSUMED_ROLE",
+            },
+            {
+              node_id: "arn:aws:s3:::saferemediate-raw",
+              node_type: "S3Bucket",
+              name: "saferemediate-raw",
+              plane: "data",
+              security_groups: [],
+              is_crown_jewel: true,
+              edge_type_from_prev: "ACCESSES_RESOURCE",
+            },
+          ],
+        }),
+      ],
+      spotlightPathId: "p1",
+    })
+
+    expect(arch.computeServices).toEqual([])
+    expect(arch.principals).toEqual([
+      expect.objectContaining({
+        id: "sts-orders-session",
+        name: "orders-writer",
+        type: "principal",
+        awsServiceType: "STSSession",
+      }),
+    ])
+    expect(arch.iamRoles.map((role) => role.id)).toEqual([roleArn])
+    expect(arch.entryLaneLabel).toBe("Identity sessions")
+  })
+
   it("forwards server workload_network onto architecture.workloadNetwork", () => {
     // Collector SSOT + route_verdict must reach the banner gate — empty hops
     // alone must never promote. Fail closed if any spotlight path lacks it.

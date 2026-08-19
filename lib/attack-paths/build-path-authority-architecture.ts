@@ -76,8 +76,15 @@ export interface PathAuthorityArchitecture {
     type: "compute" | "lambda"
     instanceId?: string
   }>
-  principals: []
+  principals: Array<{
+    id: string
+    name: string
+    shortName: string
+    type: "principal"
+    awsServiceType: "STSSession"
+  }>
   entryPoints: []
+  entryLaneLabel?: string
   resources: Array<{
     id: string
     name: string
@@ -818,6 +825,7 @@ export function buildPathAuthorityArchitecture(params: {
   const networkPosture = deriveNetworkPosture(lane)
 
   const computeServices: PathAuthorityArchitecture["computeServices"] = []
+  const principals: PathAuthorityArchitecture["principals"] = []
   const resources: PathAuthorityArchitecture["resources"] = []
   const subnets: PathAuthorityArchitecture["subnets"] = []
   const securityGroups: PathAuthorityCheckpoint[] = []
@@ -829,6 +837,7 @@ export function buildPathAuthorityArchitecture(params: {
 
   const seen = {
     compute: new Set<string>(),
+    principal: new Set<string>(),
     resource: new Set<string>(),
     subnet: new Set<string>(),
     sg: new Set<string>(),
@@ -863,6 +872,17 @@ export function buildPathAuthorityArchitecture(params: {
           shortName: truncate(name),
           type: nt.includes("lambda") ? "lambda" : "compute",
           instanceId: extractInstanceId(id) || id.substring(0, 12),
+        })
+      }
+    } else if (nt.includes("stssession")) {
+      if (!seen.principal.has(id)) {
+        seen.principal.add(id)
+        principals.push({
+          id,
+          name: name.replace(/^\s*→\s*/, ""),
+          shortName: truncate(name.replace(/^\s*→\s*/, "")),
+          type: "principal",
+          awsServiceType: "STSSession",
         })
       }
     } else if (nt.includes("securitygroup") || nt === "sg") {
@@ -1031,13 +1051,29 @@ export function buildPathAuthorityArchitecture(params: {
       return sgNameToId.get(raw.toLowerCase()) ?? null
     }
 
-    if (p.identity?.trim() && !seen.role.has(p.identity)) {
-      seen.role.add(p.identity)
+    const sourceKind = normType(p.source_kind)
+    const identity = p.identity?.trim() ?? ""
+    if (identity && sourceKind.includes("stssession") && !seen.principal.has(identity)) {
+      const identityName = (p.identity_name ?? identity).replace(/^\s*→\s*/, "")
+      seen.principal.add(identity)
+      principals.push({
+        id: identity,
+        name: identityName,
+        shortName: truncate(identityName),
+        type: "principal",
+        awsServiceType: "STSSession",
+      })
+    } else if (
+      identity &&
+      (sourceKind.includes("iamrole") || identity.includes(":iam::")) &&
+      !seen.role.has(identity)
+    ) {
+      seen.role.add(identity)
       iamRoles.push(
         emptyCheckpoint(
           "iam_role",
-          p.identity,
-          p.identity_name ?? p.identity,
+          identity,
+          p.identity_name ?? identity,
           workloadId || undefined,
         ),
       )
@@ -1045,6 +1081,7 @@ export function buildPathAuthorityArchitecture(params: {
 
     if (
       workloadId &&
+      isComputeHop(p.source_kind ?? "", p.workload_arn ?? workloadId) &&
       !seen.compute.has(workloadId) &&
       !seen.compute.has(p.workload_arn || "")
     ) {
@@ -1288,8 +1325,9 @@ export function buildPathAuthorityArchitecture(params: {
     networkPosture,
     workloadNetwork,
     computeServices,
-    principals: [],
+    principals,
     entryPoints: [],
+    entryLaneLabel: principals.length > 0 ? "Identity sessions" : undefined,
     resources,
     subnets,
     securityGroups: securityGroups as PathAuthorityArchitecture["securityGroups"],
