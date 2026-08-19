@@ -30,8 +30,8 @@
  * honest copy.
  */
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react"
-import { Boxes, GitBranch, Globe2, ShieldAlert, Users } from "lucide-react"
+import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { Boxes, GitBranch, Globe2, HeartPulse, ShieldAlert, Users } from "lucide-react"
 import {
   type IamRoleRollup,
   type EdgeIngressHop,
@@ -83,6 +83,14 @@ import {
   type ViewDensity,
 } from "./estate-glance"
 import { awsIconUrl, awsServiceLabel } from "./aws-architecture-icons"
+
+const OperationalHealthOverlayContext = createContext(false)
+const OPERATIONAL_HEALTH_COLOR = {
+  healthy: "#10B981",
+  degraded: "#F59E0B",
+  unhealthy: "#DC2626",
+  unknown: "#94A3B8",
+} as const
 
 interface Props {
   vpcTopology: VpcTopology
@@ -845,6 +853,7 @@ export function WorkloadChip({
   /** Visual hierarchy — gateway landmarks vs named anchors vs compact. */
   size?: ChipSize
 }) {
+  const showOperationalHealth = useContext(OperationalHealthOverlayContext)
   const stale = !!node.stale
   const { ring, halo } = severityRing(node)
   const ic = nodeIcon(node.type)
@@ -992,6 +1001,15 @@ export function WorkloadChip({
         opacity: stale ? 0.62 : isForeignOwner ? 0.72 : 1,
       }}
     >
+      {showOperationalHealth && node.operational_health ? (
+        <span
+          className="absolute right-1 top-1 h-2.5 w-2.5 rounded-full border-2 border-white"
+          style={{ background: OPERATIONAL_HEALTH_COLOR[node.operational_health.status] }}
+          title={`Operational health: ${node.operational_health.status} · ${node.operational_health.summary}`}
+          data-testid="topology-operational-health-dot"
+          data-health-status={node.operational_health.status}
+        />
+      ) : null}
       <span
         className="flex items-center justify-center rounded-md shrink-0"
         style={{
@@ -1128,6 +1146,8 @@ function ServiceIconShell({
   multiAz = false,
   signalColor,
   signalLabel,
+  healthStatus,
+  healthLabel,
 }: {
   type: string | null | undefined
   selected: boolean
@@ -1147,7 +1167,10 @@ function ServiceIconShell({
   /** Integrated posture signal. It stays a small cue, not the map's primary grammar. */
   signalColor?: string
   signalLabel?: string
+  healthStatus?: keyof typeof OPERATIONAL_HEALTH_COLOR
+  healthLabel?: string
 }) {
+  const showOperationalHealth = useContext(OperationalHealthOverlayContext)
   const ic = nodeIcon(type ?? null)
   const showDepth = Boolean(depth && countBadge && countBadge > 1)
   const glyph = dense ? 28 : 36
@@ -1179,6 +1202,15 @@ function ServiceIconShell({
           style={{ background: signalColor, boxShadow: "0 0 0 2px #FFFFFF" }}
           title={signalLabel}
           data-testid="topology-resource-signal"
+        />
+      ) : null}
+      {showOperationalHealth && healthStatus ? (
+        <span
+          className="absolute right-1 top-1 h-2.5 w-2.5 rounded-full border-2 border-white"
+          style={{ background: OPERATIONAL_HEALTH_COLOR[healthStatus] }}
+          title={healthLabel}
+          data-testid="topology-operational-health-dot"
+          data-health-status={healthStatus}
         />
       ) : null}
       <span
@@ -1282,6 +1314,10 @@ function ServiceStackChip({
   const multiAz = !depth && isMultiAzWorkload(stack.representative)
   const signalNode = selectWorstInGroup(stack.nodes) ?? stack.representative
   const signal = severityRing(signalNode)
+  const healthNode = [...stack.nodes].sort((a, b) => {
+    const rank = { unhealthy: 4, degraded: 3, unknown: 2, healthy: 1 }
+    return (rank[b.operational_health?.status ?? "unknown"] - rank[a.operational_health?.status ?? "unknown"])
+  })[0]
   const title = depth
     ? `${stack.nodes.length} × ${stack.label} (real nodes) — click to inspect`
     : `${stack.representative.name} · ${stack.label}${multiAz ? " · Multi-AZ" : ""}`
@@ -1307,6 +1343,10 @@ function ServiceStackChip({
             ? `${signalNode.score.tier.toLowerCase()} posture score`
             : "Posture not scored"
       }
+      healthStatus={healthNode?.operational_health?.status}
+      healthLabel={healthNode?.operational_health
+        ? `Operational health: ${healthNode.operational_health.status} · ${healthNode.operational_health.summary}`
+        : undefined}
       extraAttrs={{
         "data-stack-type": stack.type,
         "data-stack-count": stack.nodes.length,
@@ -1359,6 +1399,10 @@ function ServiceNodeIcon({
             ? `${node.score.tier.toLowerCase()} posture score`
             : "Posture not scored"
       }
+      healthStatus={node.operational_health?.status}
+      healthLabel={node.operational_health
+        ? `Operational health: ${node.operational_health.status} · ${node.operational_health.summary}`
+        : undefined}
       extraAttrs={{
         "data-node-id": node.id,
         "data-is-foreign": isForeignOwner ? "true" : undefined,
@@ -2638,6 +2682,28 @@ function FlowLegend({ compact = false }: { compact?: boolean }) {
         </svg>
         Dashed = inferred / unverified
       </span>
+    </div>
+  )
+}
+
+function OperationalHealthLegend({ nodes }: { nodes: TopologyNode[] }) {
+  const unique = [...new Map(nodes.map(node => [node.id, node])).values()]
+  const counts = { healthy: 0, degraded: 0, unhealthy: 0, unknown: 0 }
+  for (const node of unique) counts[node.operational_health?.status ?? "unknown"] += 1
+  return (
+    <div
+      className="flex items-center gap-3 border-y px-2 py-1 text-[9px]"
+      style={{ borderColor: "#E2E8F0", background: "#F8FAFC", color: "#475569" }}
+      data-testid="topology-operational-health-legend"
+    >
+      <span className="font-bold uppercase tracking-[0.12em]">Operational health</span>
+      {(Object.keys(counts) as Array<keyof typeof counts>).map(status => (
+        <span key={status} className="inline-flex items-center gap-1">
+          <span className="h-2 w-2 rounded-full" style={{ background: OPERATIONAL_HEALTH_COLOR[status] }} />
+          {status} · {counts[status]}
+        </span>
+      ))}
+      <span className="ml-auto">Provider states normalized · unknown is not healthy</span>
     </div>
   )
 }
@@ -4727,6 +4793,7 @@ export function AwsFrame({
   systemLabel,
 }: Props) {
   const topo = useMemo(() => normalizeVpcTopology(vpcTopology), [vpcTopology])
+  const [showOperationalHealth, setShowOperationalHealth] = useState(false)
   // SG lookup for the SubnetCell groupings.
   const sgIndex = useMemo(() => {
     const m = new Map<string, SecurityGroupMeta>()
@@ -4864,6 +4931,7 @@ export function AwsFrame({
   }, [frames, nodes, topo.subnets.length])
 
   return (
+    <OperationalHealthOverlayContext.Provider value={showOperationalHealth}>
     <div
       ref={flowContainerRef}
       className={
@@ -4905,10 +4973,25 @@ export function AwsFrame({
               onChange={onFlowModeChange}
               attackPathCount={attackPathEdgeCount}
             />
+            <button
+              type="button"
+              aria-pressed={showOperationalHealth}
+              onClick={() => setShowOperationalHealth(value => !value)}
+              className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-semibold"
+              style={{
+                background: showOperationalHealth ? "#ECFDF5" : "#FFFFFF",
+                color: showOperationalHealth ? "#047857" : "#5A6B7A",
+                border: `1px solid ${showOperationalHealth ? "#6EE7B7" : "#CBD5E1"}`,
+              }}
+              title="Overlay provider-independent operational health"
+            >
+              <HeartPulse className="h-3 w-3" /> Health
+            </button>
           </div>
         </div>
       ) : null}
       {flowMode !== "architecture" ? <FlowLegend compact={presentationMode} /> : null}
+      {showOperationalHealth ? <OperationalHealthLegend nodes={nodes} /> : null}
       {flowMode === "all_access" && !hasAuthoritativePositiveTraffic(trafficAuthority?.state) ? (
         <div
           className="flex items-center justify-between gap-3 border-b px-2 py-1.5 text-[10px]"
@@ -5449,5 +5532,6 @@ export function AwsFrame({
         flowMode={flowMode}
       />
     </div>
+    </OperationalHealthOverlayContext.Provider>
   )
 }
