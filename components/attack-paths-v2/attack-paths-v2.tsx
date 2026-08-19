@@ -149,11 +149,7 @@ export function AttackPathsV2({
   // map must participate in the dashboard's normal page scroll. A fixed 78vh
   // shell here creates a second, easy-to-miss scrollbar and clips the canvas
   // when operators use the browser scrollbar.
-  const shellHeight = embedded
-    ? isPathExpanded
-      ? "min-h-[78vh]"
-      : "h-[78vh] min-h-[600px]"
-    : "h-screen"
+  const shellHeight = embedded ? "min-h-[78vh]" : "h-screen"
   // 2026-05-31 (merge): single "Attack Path" mode replaces the legacy
   // "path" (Per-Path) + "attacker" (Attacker View) modes. The merged
   // panel reads from one facade endpoint and renders Per-Path's header
@@ -967,7 +963,7 @@ export function AttackPathsV2({
 
   // ─── Main 3-column layout ──────────────────────────────────────
   return (
-    <div className={`flex ${shellHeight} bg-background text-foreground overflow-hidden${embedded ? " rounded-xl border border-border" : ""}`}>
+    <div className={`flex ${shellHeight} bg-background text-foreground ${embedded ? "overflow-visible rounded-xl border border-border" : "overflow-hidden"}`}>
       {/* Column 1 — Crown jewels (hidden when path is maximized) */}
       <aside
         className={`${isPathExpanded ? "hidden" : "w-[320px]"} shrink-0 border-r border-border bg-background overflow-y-auto`}
@@ -1126,7 +1122,7 @@ export function AttackPathsV2({
       <main
         ref={mainScrollRef}
         className={`flex-1 bg-background ${
-          embedded && isPathExpanded
+          embedded
             ? "flex flex-col min-h-[78vh] overflow-visible"
             : isPathExpanded && (viewMode === "attacker_map" || viewMode === "attack-path")
             ? "flex flex-col min-h-0 overflow-hidden"
@@ -1310,7 +1306,7 @@ export function AttackPathsV2({
                     onRequestMode={handleSetMode}
                     onClearPath={() => setUrl({ path: null })}
                     isExpanded={isPathExpanded}
-                    documentScroll={embedded && isPathExpanded}
+                    documentScroll={embedded}
                   />
                 </div>
               ) : (
@@ -1354,7 +1350,7 @@ export function AttackPathsV2({
                 onRequestMode={handleSetMode}
                 onClearPath={() => setUrl({ path: null })}
                 isExpanded={isPathExpanded}
-                documentScroll={embedded && isPathExpanded}
+                documentScroll={embedded}
               />
             ) : (
               <EmptyState
@@ -1404,7 +1400,7 @@ function ModeToggle({
   const tabs = buildModeBarTabs(showBeta)
   const highlight = modeBarHighlight(mode)
   return (
-    <div className="px-6 py-3 border-b border-border bg-background/95 backdrop-blur sticky top-0 z-20 flex items-center gap-3 min-w-0 shrink-0">
+    <div className="px-6 py-3 border-b border-border bg-background/95 backdrop-blur sticky top-0 z-20 flex flex-wrap items-center gap-3 min-w-0 shrink-0">
       {/* Freshness pill — graph age from CollectorRun.finished_at.
           Lives in the shared tab bar so every view tab inherits an
           honest "Graph synced X min ago" signal. Replaces the
@@ -1415,14 +1411,14 @@ function ModeToggle({
           direction: jewel = SOURCE, external destinations = SINKS.
           Topology shows the customer's architecture, not the
           attacker's path. */}
-      <div className="min-w-0 flex-1 overflow-x-auto">
-        <div className="flex rounded-md border border-border overflow-hidden w-max max-w-full">
+      <div className="order-last min-w-0 w-full">
+        <div className="flex flex-wrap rounded-md border border-border overflow-hidden">
         {tabs.map((tab) => (
           <button
             key={tab.key}
             onClick={() => onChange(tab.key)}
             title={tab.title}
-            className={`px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider transition-colors border-r border-border last:border-r-0 ${
+            className={`grow px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider whitespace-nowrap transition-colors border-r border-b border-border last:border-r-0 ${
               highlight === tab.key
                 ? "bg-primary/10 text-primary"
                 : "bg-card text-muted-foreground hover:text-foreground"
@@ -1437,7 +1433,7 @@ function ModeToggle({
          path count is suppressed in topology mode because the canvas
          displays its own count from /by-crown-jewel (different endpoint,
          different number). Showing both invites confusion. */}
-      <div className="text-[10px] text-muted-foreground min-w-0 truncate hidden md:block max-w-[220px] shrink">
+      <div className="ml-auto text-[10px] text-muted-foreground min-w-0 truncate hidden lg:block max-w-[280px] shrink">
         {jewelName
           ? mode === "topology"
             ? jewelName

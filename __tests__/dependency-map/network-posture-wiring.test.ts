@@ -77,7 +77,9 @@ describe("network-posture wiring", () => {
 
   it("does not let an empty-network notice obscure an authoritative path", () => {
     const code = readCode(TFM)
-    expect(code).toMatch(/if \(pathAuthorityOnly\) return false/)
+    expect(code).toMatch(
+      /if \(pathAuthorityOnly \|\| suppressEmptyNetworkBanner\) return false/,
+    )
   })
 
   it("the banner never claims IAM is the only gate", () => {

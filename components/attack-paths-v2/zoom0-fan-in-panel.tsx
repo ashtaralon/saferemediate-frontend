@@ -972,7 +972,9 @@ export function Zoom0FanInPanel({
 
           <div className="flex flex-1 min-h-0 flex-col">
             <div
-              className="flex-1 min-h-0 relative px-2 pb-2"
+              className={`flex-1 relative px-2 pb-2 ${
+                isExpanded ? "min-h-0" : "min-h-[680px]"
+              }`}
               data-testid="zoom0-attack-map-slot"
             >
               {hideMapUntilTile ? (
@@ -1007,9 +1009,7 @@ export function Zoom0FanInPanel({
                 </div>
               ) : (
                 <div
-                  className={`h-full overflow-hidden ${
-                    isExpanded ? "min-h-0" : "min-h-[680px]"
-                  }`}
+                  className="h-full min-h-0 overflow-hidden"
                   data-testid="zoom0-current-access-tfm"
                 >
                   <TrafficFlowMap
