@@ -550,9 +550,7 @@ export function Zoom0FanInPanel({
         documentScroll
           ? "h-auto overflow-visible"
           : isExpanded
-          ? detailsPanel === "current_access"
-            ? "flex-1 h-full overflow-hidden"
-            : "flex-1 h-full overflow-y-auto overscroll-contain"
+          ? "flex-1 h-full overflow-y-auto overscroll-contain"
           : "h-full"
       }`}
       data-testid="zoom0-fan-in"
@@ -848,7 +846,7 @@ export function Zoom0FanInPanel({
 
       </div>
 
-      <div className="flex flex-1 min-h-0 min-w-0">
+      <div className="flex flex-1 min-h-0 min-w-0 flex-col">
         <div className="flex flex-1 min-h-0 min-w-0">
       {detailsPanel === "current_access" && loading && !convergenceData?.paths?.length ? (
         <div className="flex flex-1 min-h-[400px] items-center justify-center gap-2 text-[12px] text-muted-foreground">
@@ -1083,7 +1081,7 @@ export function Zoom0FanInPanel({
 
       {/* Keep the Attack Map on screen while a selected path is explained. */}
       {pinPathId && detailsPanel === "current_access" ? (
-        <div className="w-[min(430px,42%)] min-w-[360px] shrink-0 overflow-y-auto border-l border-border bg-background">
+        <div className="w-full shrink-0 border-t border-border bg-background" data-testid="zoom0-current-access-below-map">
           <CurrentAccessDossierPanel
             dossier={dossier}
             jewelName={jewel.name}

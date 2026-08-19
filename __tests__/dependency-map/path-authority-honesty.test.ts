@@ -1169,6 +1169,54 @@ describe("8. empty network lane provenance (deriveNetworkPosture)", () => {
     ])
     expect(arch.iamRoles.map((role) => role.id)).toEqual([roleArn])
     expect(arch.entryLaneLabel).toBe("Identity sessions")
+    expect(arch.edges).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          source_aws_id: "sts-orders-session",
+          target_aws_id: roleArn,
+          relationship: "ASSUMES_ROLE_ACTUAL",
+        }),
+      ]),
+    )
+  })
+
+  it("omits isolated context nodes and keeps the explicit compute-to-jewel chain", () => {
+    const ec2 = "i-039d362b9862180c9"
+    const profile = "arn:aws:iam::1:instance-profile/app"
+    const role = "arn:aws:iam::1:role/app"
+    const bucket = "arn:aws:s3:::data"
+    const kms = "arn:aws:kms:eu-west-1:1:key/kms-isolated"
+    const arch = buildPathAuthorityArchitecture({
+      paths: [
+        path({
+          source: ec2,
+          source_kind: "EC2Instance",
+          workload_arn: ec2,
+          identity: role,
+          identity_name: "app",
+          cj_target_id: bucket,
+          hops: [
+            { node_id: ec2, node_type: "EC2Instance", name: ec2, plane: "network", security_groups: [], is_crown_jewel: false },
+            { node_id: profile, node_type: "InstanceProfile", name: "app-profile", plane: "identity", security_groups: [], is_crown_jewel: false, edge_type_from_prev: "HAS_INSTANCE_PROFILE" },
+            { node_id: role, node_type: "IAMRole", name: "app", plane: "identity", security_groups: [], is_crown_jewel: false, edge_type_from_prev: "USES_ROLE" },
+            { node_id: bucket, node_type: "S3Bucket", name: "data", plane: "data", security_groups: [], is_crown_jewel: true, edge_type_from_prev: "ACCESSES_RESOURCE", edge_evidence: "observed", hit_count: 9 },
+            { node_id: kms, node_type: "KMSKey", name: "kms-isolated", plane: "data", security_groups: [], is_crown_jewel: false },
+          ],
+        }),
+      ],
+      spotlightPathId: "p1",
+    })
+
+    expect(arch.computeServices.map((node) => node.id)).toEqual([ec2])
+    expect(arch.iamRoles.map((node) => node.id)).toEqual([role])
+    expect(arch.resources.map((node) => node.id)).toEqual([bucket])
+    expect(arch.resources.map((node) => node.id)).not.toContain(kms)
+    expect(arch.edges).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ source_aws_id: ec2, target_aws_id: role, relationship: "USES_ROLE" }),
+        expect.objectContaining({ source_aws_id: role, target_aws_id: bucket, relationship: "ACCESSES_RESOURCE", observed: true, hit_count: 9 }),
+      ]),
+    )
   })
 
   it("forwards server workload_network onto architecture.workloadNetwork", () => {
