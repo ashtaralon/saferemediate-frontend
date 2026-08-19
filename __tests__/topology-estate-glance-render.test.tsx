@@ -162,6 +162,49 @@ describe("AwsFrame Glance density (generic)", () => {
     expect(screen.getAllByLabelText("configured direction")).toHaveLength(3)
   })
 
+  it("shows load-balancer listener routing and observed target health", () => {
+    const alb = nd({
+      id: "alb-1",
+      name: "public-alb",
+      type: "LoadBalancer",
+      subnet_id: null,
+      load_balancer: {
+        id: "alb-1",
+        name: "public-alb",
+        dns_name: "public-alb.elb.amazonaws.com",
+        scheme: "internet-facing",
+        state: "active",
+        listeners: [{
+          id: "listener-443", protocol: "HTTPS", port: 443,
+          target_group_ids: ["tg-1"], authority_state: "configured",
+          evidence_source: "aws_elbv2_describe_listeners", last_seen: "2026-08-19T12:00:00Z",
+        }],
+        target_groups: [{
+          id: "tg-1", name: "web-tg", protocol: "HTTP", port: 80,
+          target_type: "instance", target_count: 2, healthy_target_count: 1,
+          unhealthy_target_count: 1, initial_target_count: 0,
+          draining_target_count: 0, unavailable_target_count: 0,
+          authority_state: "observed", evidence_source: "aws_elbv2_describe_target_health",
+          last_seen: "2026-08-19T12:00:00Z",
+        }],
+        authority_state: "configured",
+        evidence_source: "aws_elbv2_describe_load_balancers",
+        last_seen: "2026-08-19T12:00:00Z",
+      },
+    })
+    render(
+      <AwsFrame
+        vpcTopology={{ ...topology, load_balancers: [alb.load_balancer!] }}
+        nodes={[alb]}
+        selectedNodeId={null}
+        onSelect={() => {}}
+      />,
+    )
+    const status = screen.getByTestId("topology-lb-operational-status")
+    expect(status.textContent).toBe("HTTPS:443 · 1/2 healthy")
+    expect(status.closest("button")?.getAttribute("title")).toContain("1 unhealthy")
+  })
+
   it("single-VPC Glance uses AWS AZ-column grammar", () => {
     const nodes: TopologyNode[] = [
       nd({ id: "ec2-1", name: "web-1" }),

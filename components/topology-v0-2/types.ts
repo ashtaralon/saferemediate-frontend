@@ -100,6 +100,8 @@ export interface TopologyNode {
   is_jewel: boolean
   // Phase B addition — present on responses from BE >= phase-b deploy.
   security_group_ids?: string[]
+  /** Listener routing and provider target-health for load-balancer nodes. */
+  load_balancer?: LoadBalancerOperationalMeta
   // Operator-trust addition — for edge-service nodes (S3/DDB/KMS/Secret) only:
   // observed access counts from ANY principal (visible chips, hidden Lambdas,
   // IAMRoles, STSSessions). Lets the FE badge "in use vs idle" without
@@ -283,6 +285,46 @@ export interface NetworkInterfaceMeta {
   last_seen: string | null
 }
 
+export interface LoadBalancerListenerMeta {
+  id: string
+  protocol: string | null
+  port: number | null
+  target_group_ids: string[]
+  authority_state: "configured"
+  evidence_source: string | null
+  last_seen: string | null
+}
+
+export interface LoadBalancerTargetGroupMeta {
+  id: string
+  name: string
+  protocol: string | null
+  port: number | null
+  target_type: string | null
+  target_count: number
+  healthy_target_count: number
+  unhealthy_target_count: number
+  initial_target_count: number
+  draining_target_count: number
+  unavailable_target_count: number
+  authority_state: "observed"
+  evidence_source: string | null
+  last_seen: string | null
+}
+
+export interface LoadBalancerOperationalMeta {
+  id: string
+  name: string
+  dns_name: string | null
+  scheme: string | null
+  state: string | null
+  listeners: LoadBalancerListenerMeta[]
+  target_groups: LoadBalancerTargetGroupMeta[]
+  authority_state: "configured"
+  evidence_source: string | null
+  last_seen: string | null
+}
+
 export type IamCorrelationState =
   | "correlated"
   | "not_correlated"
@@ -415,6 +457,7 @@ export interface VpcTopology {
   security_groups?: SecurityGroupMeta[]
   nacls?: NaclMeta[]
   network_interfaces?: NetworkInterfaceMeta[]
+  load_balancers?: LoadBalancerOperationalMeta[]
   iam_roles?: IamRoleRollup[]
 }
 

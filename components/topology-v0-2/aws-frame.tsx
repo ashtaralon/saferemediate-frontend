@@ -869,6 +869,25 @@ export function WorkloadChip({
       ? "no observed access"
       : `${usageSources} src · ${usageEdges} acc`)
     : null
+  const lbOperations = node.type === "LoadBalancer" ? node.load_balancer : undefined
+  const lbTargets = lbOperations?.target_groups.reduce(
+    (acc, tg) => ({
+      total: acc.total + tg.target_count,
+      healthy: acc.healthy + tg.healthy_target_count,
+      unhealthy: acc.unhealthy + tg.unhealthy_target_count,
+      transitioning: acc.transitioning + tg.initial_target_count + tg.draining_target_count + tg.unavailable_target_count,
+    }),
+    { total: 0, healthy: 0, unhealthy: 0, transitioning: 0 },
+  )
+  const listenerLabel = lbOperations?.listeners
+    .map(listener => `${listener.protocol ?? "?"}:${listener.port ?? "?"}`)
+    .join(" / ")
+  const lbLine = lbOperations
+    ? `${listenerLabel || "no listener"} · ${lbTargets?.healthy ?? 0}/${lbTargets?.total ?? 0} healthy`
+    : null
+  const lbTitle = lbOperations
+    ? `\n\nConfigured listeners: ${listenerLabel || "none"}\nTarget health: ${lbTargets?.healthy ?? 0} healthy · ${lbTargets?.unhealthy ?? 0} unhealthy · ${lbTargets?.transitioning ?? 0} transitioning/unavailable\nState: ${lbOperations.state ?? "unknown"} · ${lbOperations.scheme ?? "unknown scheme"}`
+    : ""
   // Cross-system consumers of THIS shared resource (tag-scoped systems).
   const foreignSysCount = isSharedDataResource
     ? (node.foreign_consumer_system_count ?? 0)
@@ -953,7 +972,7 @@ export function WorkloadChip({
     <button
       type="button"
       onClick={onClick}
-      title={`${node.name}${ownerChip ? `\nShared · also belongs to ${ownerChip}` : ""}${usageTitle}`}
+      title={`${node.name}${ownerChip ? `\nShared · also belongs to ${ownerChip}` : ""}${lbTitle}${usageTitle}`}
       data-flow-id={node.id}
       data-chip-size={resolvedSize}
       data-is-foreign={isForeignOwner ? "true" : undefined}
@@ -1031,7 +1050,18 @@ export function WorkloadChip({
             opacity: usageLine === "no observed access" ? 0.75 : 1,
           }}
         >
-          {iamSummary ? (
+          {lbLine ? (
+            <span
+              style={{
+                color: (lbTargets?.unhealthy ?? 0) > 0 || (lbTargets?.transitioning ?? 0) > 0
+                  ? "#B91C1C"
+                  : "#047857",
+              }}
+              data-testid="topology-lb-operational-status"
+            >
+              {lbLine}
+            </span>
+          ) : iamSummary ? (
             <span style={{ color: iamSummary?.includes("0/0") || iamSummary?.includes("clean") ? "#059669" : PAL.carmine }}>
               IAM · {iamSummary}
             </span>
