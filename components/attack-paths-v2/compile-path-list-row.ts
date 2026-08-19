@@ -76,6 +76,7 @@ function assumeEdgeOf(path: IdentityAttackPath) {
 }
 
 const IDENTITY_NODE_TYPE = /(?:IAMRole|IAMPolicy|InstanceProfile|STS|AWSPrincipal|CloudTrailPrincipal|Principal|Root)/i
+const WORKLOAD_NODE_TYPE = /(?:EC2|Lambda|ECS|EKS|Fargate|Pod|Container|BatchJob|GlueJob|AppRunner|SageMakerEndpoint|Application|Workload|Compute)/i
 
 function cleanEndpointName(value: string): string {
   return value.replace(/^\s*(?:→|->)\s*/, "").trim()
@@ -87,11 +88,17 @@ function cleanEndpointName(value: string): string {
 // re-running them per row.
 // =============================================================================
 
-/** BE-10 (sibling to BE-9): when the path opens with an assume hop, the
- *  entry is the role doing the assuming (assume-edge source) — NOT
- *  whichever role sits at nodes[0]. Otherwise pick the first non-principal
- *  node (the operator-meaningful workload). */
+/** A route starts at the execution workload, never at a network ingress or
+ *  identity wrapper. The rich IAP row can retain NAT/LB nodes before the
+ *  backend-authoritative EC2/Lambda origin, so compute must win before the
+ *  generic non-principal fallback. IAM/STS remain visible inside the path. */
 function compileSourceNode(path: IdentityAttackPath): PathNodeDetail | null {
+  const compute = (path.nodes ?? []).find(
+    (node) =>
+      node.id !== path.crown_jewel_id &&
+      (node.lane === "compute" || WORKLOAD_NODE_TYPE.test(node.type ?? "")),
+  )
+  if (compute) return compute
   const workload = (path.nodes ?? []).find(
     (node) =>
       node.id !== path.crown_jewel_id &&

@@ -24,6 +24,25 @@ function pathWithNodes(
 }
 
 describe("Attack Paths route endpoints", () => {
+  it("starts at EC2 when network ingress nodes precede the workload", () => {
+    const row = compilePathListRow(
+      pathWithNodes([
+        { id: "nat", name: "nat-123", type: "NATGateway" },
+        { id: "alb", name: "public-alb", type: "LoadBalancer" },
+        { id: "i-web", name: "checkout-web", type: "EC2Instance" },
+        { id: "sg", name: "checkout-sg", type: "SecurityGroup" },
+        { id: "session", name: "checkout session", type: "STSSession" },
+        { id: "role", name: "checkout-role", type: "IAMRole" },
+        { id: jewel.id, name: jewel.name, type: jewel.type },
+      ]),
+      jewel,
+    )
+
+    expect(row.start_label).toBe("checkout-web")
+    expect(row.start_type).toBe("EC2Instance")
+    expect(row.source_label).toBe("checkout-web")
+  })
+
   it("shows the workload as From when an identity wrapper precedes it", () => {
     const row = compilePathListRow(
       pathWithNodes([
