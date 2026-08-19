@@ -478,6 +478,17 @@ export interface SimulateFixSafety {
   shared?: boolean | null            // null = couldn't measure
   shared_confidence?: "high" | "medium" | "unknown" | null
   completeness?: "complete" | "partial" | "unknown" | null
+  // Data readiness is independent from elapsed observation time. The UI must
+  // never tell an operator to merely wait when a required collector is absent.
+  data_layer_complete?: boolean | null
+  time_requirement_only?: boolean
+  data_layer_gaps?: string[]
+  execution_adapter?: "aws_api" | "terraform_pr_only" | "customer_pipeline" | "cyntro_managed_terraform" | string
+  execution_status?: "preview_only" | "artifact_required" | string
+  iac_managed?: boolean
+  iac_manager?: string | null
+  iac_binding_status?: string | null
+  iac_binding_id?: string | null
   missing_evidence_sources?: string[]
   telemetry_planes_active?: string[]
   telemetry_planes_required?: string[]
