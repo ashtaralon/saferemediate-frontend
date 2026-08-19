@@ -190,16 +190,21 @@ function ScopeIcon({ type }: { type: string }) {
 
 export function DataScopeExplorer({
   resourceId,
+  resourceName,
   resourceType,
   systemName,
+  observed,
 }: {
   resourceId: string | null
+  resourceName?: string | null
   resourceType: string | null
   systemName?: string
+  observed?: boolean
 }) {
   const normalType = (resourceType || "").toLowerCase().replace(/[^a-z0-9]/g, "")
   const isS3 = normalType.includes("s3")
   const isRds = normalType.includes("rds") || normalType.includes("database")
+  const isDdb = normalType.includes("dynamo") || normalType === "ddb"
   const [children, setChildren] = useState<DrilldownChild[] | null>(null)
   const [nested, setNested] = useState<Record<string, DrilldownChild[]>>({})
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
@@ -261,7 +266,7 @@ export function DataScopeExplorer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resourceId, systemName, isS3, isRds])
 
-  if (!isS3 && !isRds) return null
+  if (!isS3 && !isRds && !isDdb) return null
 
   const toggle = async (child: DrilldownChild) => {
     const opening = !expanded[child.id]
@@ -282,11 +287,22 @@ export function DataScopeExplorer({
     <div className="mt-3 border-t border-border/70 pt-2.5" data-testid="data-scope-explorer">
       <div className="flex items-center justify-between gap-2">
         <span className="text-[10px] font-semibold text-foreground">
-          {isS3 ? "Affected prefixes and objects" : "Affected databases and tables"}
+          {isS3 ? "Exact prefixes and objects" : isDdb ? "Exact table" : "Exact databases and tables"}
         </span>
         <span className="text-[9px] uppercase tracking-wide text-muted-foreground">Neptune evidence</span>
       </div>
-      {loading ? (
+      {isDdb ? (
+        <div className="mt-2 flex items-center gap-2 rounded-lg border border-border bg-background px-2.5 py-2.5">
+          <Database className="h-3.5 w-3.5 text-violet-500" />
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-[10px] font-medium text-foreground" title={resourceName || resourceId || undefined}>
+              {resourceName || resourceId}
+            </div>
+            <div className="text-[9px] text-muted-foreground">DynamoDB table · this crown jewel is already the exact data target</div>
+          </div>
+          <EvidenceChip status={observed ? "observed" : "path target"} />
+        </div>
+      ) : loading ? (
         <div className="mt-2 flex items-center gap-1.5 text-[10px] text-muted-foreground">
           <Loader2 className="h-3 w-3 animate-spin" /> Loading exact scope…
         </div>
@@ -471,7 +487,13 @@ export function CurrentAccessDossierPanel({
           rows={damageRows}
           tone="risk"
         >
-          <DataScopeExplorer resourceId={dossier.to.id || dossier.jewel_id} resourceType={dossier.to.type || jewelType || null} systemName={systemName} />
+          <DataScopeExplorer
+            resourceId={dossier.to.id || dossier.jewel_id}
+            resourceName={dossier.to.name || jewelName}
+            resourceType={dossier.to.type || jewelType || null}
+            systemName={systemName}
+            observed={observedNow}
+          />
         </DecisionSection>
 
         <DecisionSection
