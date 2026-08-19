@@ -6160,6 +6160,14 @@ export function UnifiedArchitectureDiagram({
               architecture.securityGroups.length > 0 ||
               architecture.nacls.length > 0 ||
               architecture.egressGateways.length > 0
+            // A path-authority canvas is deliberately limited to the exact
+            // relationship chain returned by SERVE. When that chain has no
+            // network hop, a full-width empty-network card becomes the largest
+            // object on the map and visually breaks the workload → identity →
+            // resource route the operator opened. The dossier can still report
+            // network evidence; the map itself stays focused on represented,
+            // connected path members.
+            if (pathAuthorityOnly) return false
             // Concrete route/subnet/SG evidence wins over an older or
             // incomplete workload-attachment verdict. Showing a "no network
             // checkpoints" banner beside a routed IGW is self-contradictory

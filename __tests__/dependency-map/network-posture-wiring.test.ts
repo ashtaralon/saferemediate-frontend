@@ -75,6 +75,11 @@ describe("network-posture wiring", () => {
     expect(src).toMatch(/state\.isFinding\s*\?\s*"border-amber/)
   })
 
+  it("does not let an empty-network notice obscure an authoritative path", () => {
+    const code = readCode(TFM)
+    expect(code).toMatch(/if \(pathAuthorityOnly\) return false/)
+  })
+
   it("the banner never claims IAM is the only gate", () => {
     // Wrong even where network genuinely does not apply: resource policy, KMS
     // key policy and IAM conditions gate the same reach. Naming only IAM
