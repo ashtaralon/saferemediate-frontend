@@ -99,6 +99,12 @@ function compileSourceNode(path: IdentityAttackPath): PathNodeDetail | null {
       !IDENTITY_NODE_TYPE.test(node.type ?? ""),
   )
   if (workload) return workload
+  const role = (path.nodes ?? []).find(
+    (node) =>
+      node.id !== path.crown_jewel_id &&
+      /IAMRole/i.test(node.type ?? ""),
+  )
+  if (role) return role
   return nodeById(path, assumeEdgeOf(path)?.source) ?? path.nodes?.[0] ?? null
 }
 
