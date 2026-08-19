@@ -84,6 +84,18 @@ export function resolveJewelPickerList(args: {
 }
 
 /**
+ * Attack Paths is a route investigation surface, not a crown-jewel inventory.
+ * Assets with zero materialized paths stay available in Crown Jewels/Inventory
+ * but do not belong in this selector: listing them implies missing evidence and
+ * creates dead-end clicks. This is evidence-based and never name-hardcoded.
+ */
+export function reachableJewelPickerList(
+  jewels: CrownJewelSummary[],
+): CrownJewelSummary[] {
+  return jewels.filter((jewel) => Number(jewel.path_count ?? 0) > 0)
+}
+
+/**
  * True when GET /jewels returned successfully — including empty.
  * Empty SERVE is projection truth, not "not computed yet."
  */

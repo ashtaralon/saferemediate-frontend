@@ -42,6 +42,7 @@ import type { ExfilPayload } from "./exfil-view-v3"
 import { useRetryFetch } from "@/lib/use-retry-fetch"
 import { classifyIapResponse } from "@/lib/attack-paths/iap-response-health"
 import {
+  reachableJewelPickerList,
   isJewelsPayloadCacheable,
   isServeJewelsAuthoritative,
   resolveJewelPickerList,
@@ -422,11 +423,11 @@ export function AttackPathsV2({
   // overwrite SERVE path_count with IAP phantoms.
   const jewels: CrownJewelSummary[] = useMemo(
     () =>
-      resolveJewelPickerList({
+      reachableJewelPickerList(resolveJewelPickerList({
         serveJewels: jewelsRaw != null ? liteJewels : null,
         serveJewelsError: jewelsError,
         iapJewels: data?.crown_jewels ?? null,
-      }),
+      })),
     [jewelsRaw, liteJewels, jewelsError, data?.crown_jewels],
   )
 

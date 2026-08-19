@@ -218,6 +218,7 @@ const KNOWN_RELS = new Set<string>([
   "ACTUAL_TRAFFIC",
   "ACTUAL_API_CALL",
   "ACTUAL_S3_ACCESS",
+  "DATA_ACCESS",
   "READS_FROM",
   "WRITES_TO",
   "RUNTIME_CALLS",
@@ -523,6 +524,7 @@ function isObservedCapable(relationship: CanvasRelationshipType): boolean {
     relationship === "ACTUAL_TRAFFIC" ||
     relationship === "ACTUAL_API_CALL" ||
     relationship === "ACTUAL_S3_ACCESS" ||
+    relationship === "DATA_ACCESS" ||
     relationship === "ACCESSES_RESOURCE" ||
     relationship === "READS_FROM" ||
     relationship === "WRITES_TO" ||

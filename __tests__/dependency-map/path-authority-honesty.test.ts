@@ -331,6 +331,68 @@ describe("path-authority honesty invariants", () => {
     expect(arch.flows).toEqual([])
   })
 
+  it("keeps a DATA_ACCESS-connected RDS crown jewel on the authoritative map", () => {
+    const rdsArn = "arn:aws:rds:eu-west-1:416651950952:cluster:cyntro-tb-prod-aurora"
+    const roleArn = "arn:aws:iam::416651950952:role/cyntro-tb-prod-app-role"
+    const arch = buildPathAuthorityArchitecture({
+      paths: [
+        path({
+          path_id: "path-rds",
+          source: "i-0129135b4e4723d6d",
+          source_kind: "EC2Instance",
+          workload_arn: "i-0129135b4e4723d6d",
+          identity: roleArn,
+          identity_name: "cyntro-tb-prod-app-role",
+          hops: [
+            {
+              node_id: "i-0129135b4e4723d6d",
+              node_type: "EC2Instance",
+              plane: "compute",
+              security_groups: [],
+              is_crown_jewel: false,
+            },
+            {
+              node_id: roleArn,
+              node_type: "IAMRole",
+              plane: "identity",
+              security_groups: [],
+              is_crown_jewel: false,
+              edge_type_from_prev: "USES_ROLE",
+              edge_evidence: "configured",
+            },
+            {
+              node_id: rdsArn,
+              node_type: "RDSCluster",
+              name: "cyntro-tb-prod-aurora",
+              plane: "data",
+              security_groups: [],
+              is_crown_jewel: true,
+              edge_type_from_prev: "DATA_ACCESS",
+              edge_evidence: "observed",
+              hit_count: 1108,
+            },
+          ],
+        }),
+      ],
+      spotlightPathId: "path-rds",
+      jewel: { id: rdsArn, name: "cyntro-tb-prod-aurora", type: "RDSCluster" },
+    })
+
+    expect(arch.resources).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: rdsArn, isCrownJewel: true })]),
+    )
+    expect(arch.edges).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          source_aws_id: roleArn,
+          target_aws_id: rdsArn,
+          relationship: "DATA_ACCESS",
+          observed: true,
+        }),
+      ]),
+    )
+  })
+
   it("7. NOT_COLLECTED rule totals stay null — not zero/safe", () => {
     const arch = buildPathAuthorityArchitecture({
       paths: [path({})],
