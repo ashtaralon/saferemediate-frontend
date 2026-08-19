@@ -166,6 +166,51 @@ function ImpactResourceRow({ connection }: { connection: OperationalConnection }
   )
 }
 
+function inspectorConnectionsForNode(
+  selectedNode: TopologyNode,
+  nodes: TopologyNode[],
+  edges: TrafficEdge[],
+): OperationalConnection[] {
+  const nodeById = new Map(nodes.map(item => [item.id, item]))
+  nodeById.set(selectedNode.id, selectedNode)
+  const connections: OperationalConnection[] = []
+
+  for (const edge of edges) {
+    const direction = edge.target_id === selectedNode.id
+      ? "upstream"
+      : edge.source_id === selectedNode.id
+        ? "downstream"
+        : null
+    if (!direction) continue
+    const peerId = direction === "upstream" ? edge.source_id : edge.target_id
+    const peer = nodeById.get(peerId)
+    const evidenceType: OperationalConnection["evidence_type"] =
+      edge.evidence_type === "observed" || edge.evidence_type === "configured" || edge.evidence_type === "inferred"
+        ? edge.evidence_type
+        : edge.authority_state === "configured"
+          ? "configured"
+          : "inferred"
+    connections.push({
+      direction,
+      resource_id: peerId,
+      resource_name: peer?.name ?? (peerId === "__igw__" ? "Internet gateway" : peerId),
+      resource_type: peer?.type ?? (peerId === "__igw__" ? "InternetGateway" : "Graph endpoint"),
+      vpc_id: peer?.vpc_id ?? null,
+      protocol: edge.protocol,
+      port: edge.port == null ? null : String(edge.port),
+      last_seen: edge.last_seen,
+      evidence_type: evidenceType,
+      evidence_source: edge.evidence_source ?? "topology_graph",
+      coverage_state: edge.coverage_state ?? "unknown",
+      activity_count: edge.activity_count ?? edge.observation_count ?? null,
+      egress_path: edge.egress_path ?? null,
+      via_vpce_id: edge.via_vpce_id ?? null,
+      via_igw: edge.via_igw ?? undefined,
+    })
+  }
+  return connections
+}
+
 const S3_BLOCKER_GUIDANCE: Record<string, { title: string; next: string }> = {
   NO_OBSERVED_CONSUMERS: {
     title: "No migration target in this VPC",
@@ -585,14 +630,27 @@ export function DetailPanel({
     setVerification({ ...result, state: "ROLLED_BACK" } as S3VpceVerification)
   })
 
-  const upstream = dossier?.dependencies.upstream ?? []
-  const downstream = dossier?.dependencies.downstream ?? []
+  const inspectorConnections = inspectorConnectionsForNode(node, inspectorNodes, inspectorEdges)
+  const mergedConnections = [...new Map(
+    [
+      ...(dossier?.dependencies.upstream ?? []),
+      ...(dossier?.dependencies.downstream ?? []),
+      ...inspectorConnections,
+    ].map(connection => [`${connection.direction}:${connection.resource_id}`, connection]),
+  ).values()]
+  const upstream = mergedConnections.filter(connection => connection.direction === "upstream")
+  const downstream = mergedConnections.filter(connection => connection.direction === "downstream")
   const impactConnections = [...new Map(
     [...upstream, ...downstream].map(connection => [
       `${connection.direction}:${connection.resource_id}`,
       connection,
     ]),
   ).values()]
+  const latestInspectorObservation = inspectorEdges
+    .map(edge => edge.last_seen)
+    .filter((value): value is string => Boolean(value))
+    .sort()
+    .at(-1) ?? null
   const expectedApply = plan?.bucket_name && plan.vpc_id ? `APPLY ${plan.bucket_name} ${plan.vpc_id}` : ""
   const expectedRollback = execution?.snapshot_id ? `ROLLBACK ${execution.snapshot_id}` : ""
   const operationState = operation?.state
@@ -871,8 +929,7 @@ export function DetailPanel({
               <div className="flex items-center gap-2 text-sm font-bold"><Network className="h-4 w-4 text-teal-600" /> Change blast radius</div>
               <p className="mt-1 text-xs text-slate-500">Review affected services and the exact AWS boundary before any simulation or execution.</p>
             </div>
-            {dossier ? (
-              <section className="space-y-3" data-testid="estate-change-impact-summary">
+            <section className="space-y-3" data-testid="estate-change-impact-summary">
                 <div className="grid grid-cols-3 gap-3">
                   <Metric label="Affected services" value={impactConnections.length} />
                   <Metric label="Consumers" value={upstream.length} />
@@ -882,11 +939,17 @@ export function DetailPanel({
                   <div className="font-bold" style={{ color: "#1A2330" }}>Impact boundary</div>
                   <div className="mt-2 grid grid-cols-[110px_1fr] gap-x-3 gap-y-2">
                     <span className="font-semibold">AWS scope</span>
-                    <span className="font-mono">{String(dossier.resource.vpc_id ?? vpcId ?? "Regional / outside VPC")}</span>
+                    <span className="font-mono">{String(dossier?.resource.vpc_id ?? node.vpc_id ?? vpcId ?? "Regional / outside VPC")}</span>
                     <span className="font-semibold">Subnet</span>
                     <span className="font-mono">{node.subnet_id ?? "Not subnet-bound"}</span>
                     <span className="font-semibold">Evidence</span>
-                    <span>{dossier.evidence.coverage_state} · latest {relativeTime(dossier.evidence.latest_observation)}</span>
+                    <span>
+                      {dossier?.evidence.coverage_state
+                        ?? (hasAuthoritativePositiveTraffic(trafficAuthority?.state) ? "authoritative topology" : "topology graph")}
+                      {dossier?.evidence.latest_observation || latestInspectorObservation
+                        ? ` · latest ${relativeTime(dossier?.evidence.latest_observation ?? latestInspectorObservation)}`
+                        : " · no observation timestamp"}
+                    </span>
                   </div>
                 </div>
                 {impactConnections.length ? (
@@ -905,7 +968,6 @@ export function DetailPanel({
                   </div>
                 )}
               </section>
-            ) : null}
             {!isS3 ? (
               <div className="rounded-xl border border-slate-200 bg-white p-4">
                 <p className="text-sm font-semibold">Impact analysis only for {node.type ?? "this resource"}</p>

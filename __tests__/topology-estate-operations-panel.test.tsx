@@ -110,6 +110,36 @@ function renderPanel() {
   )
 }
 
+function renderPanelWithGraphFallback() {
+  return render(
+    <DetailPanel
+      node={{ ...node, vpc_id: "vpc-prod", subnet_id: "subnet-data" }}
+      systemName="alon-prod"
+      accountId="745783559495"
+      region="eu-west-1"
+      vpcId="vpc-prod"
+      inspectorNodes={[
+        { ...node, vpc_id: "vpc-prod", subnet_id: "subnet-data" },
+        { id: "i-fallback", name: "fallback-consumer", type: "EC2", subnet_id: "subnet-app", vpc_id: "vpc-prod", score: null, stale: null, is_jewel: false },
+      ]}
+      inspectorEdges={[{
+        source_id: "i-fallback",
+        target_id: node.id,
+        port: 443,
+        protocol: "HTTPS",
+        last_seen: "2026-08-19T12:00:00Z",
+        evidence_type: "observed",
+        evidence_source: "vpc_flow_logs",
+        coverage_state: "complete",
+        authority_state: "authoritative",
+        path_basis: "observed_segment",
+      }]}
+      trafficAuthority={{ state: "authoritative_positive_only", active_generation: 2 } as never}
+      onClose={() => {}}
+    />,
+  )
+}
+
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
@@ -163,6 +193,19 @@ describe("Estate operations panel", () => {
     expect(summary).toHaveTextContent("Required dependency")
     expect(screen.queryByText("Service inspector")).not.toBeInTheDocument()
     expect(screen.queryByTestId("inventory-config")).not.toBeInTheDocument()
+  })
+
+  it("keeps Change impact useful when the operational dossier is unavailable", async () => {
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("Dossier unavailable"))
+    renderPanelWithGraphFallback()
+    fireEvent.click(screen.getByTestId("estate-operations-tab-change"))
+
+    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(2))
+    const summary = screen.getByTestId("estate-change-impact-summary")
+    expect(summary).toHaveTextContent("fallback-consumer")
+    expect(summary).toHaveTextContent("Dependent service")
+    expect(summary).toHaveTextContent("authoritative topology")
+    expect(summary).toHaveTextContent("vpc-prod")
   })
 
   it("shows blockers and never exposes execution for an unproven route scope", async () => {
