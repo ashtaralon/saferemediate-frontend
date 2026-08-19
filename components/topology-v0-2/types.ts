@@ -198,6 +198,12 @@ export interface SubnetMeta {
   tier_source: "property" | "name" | "default_vpc_cidr" | "unknown"
   route_table_id?: string | null
   effective_routes?: EffectiveRouteMeta[]
+  /** Effective subnet-level stateless control (AWS allows one association). */
+  nacl?: NaclMeta | null
+  network_interface_count?: number
+  public_network_interface_count?: number
+  network_interface_ids?: string[]
+  security_group_ids?: string[]
   vpc_id?: string | null
   // Provenance (BE >= per-vpc-frames deploy) — older BE deploys omit these.
   // `owner_system_name`: the subnet's own SystemName tag.
@@ -235,6 +241,46 @@ export interface SecurityGroupMeta {
   name: string
   description: string | null
   has_public_ingress: boolean
+  vpc_id?: string | null
+  total_rules?: number
+  inbound_rule_count?: number
+  outbound_rule_count?: number
+  high_risk_rule_count?: number
+  eni_count?: number
+  workload_ids?: string[]
+}
+
+export interface NaclMeta {
+  id: string
+  name: string
+  vpc_id: string | null
+  is_default: boolean
+  total_rules: number
+  inbound_deny_count: number
+  outbound_deny_count: number
+  has_public_inbound_allow: boolean
+  high_risk_rule_count: number
+  associated_subnet_ids: string[]
+  authority_state: "configured"
+  evidence_source: string | null
+  last_seen: string | null
+}
+
+export interface NetworkInterfaceMeta {
+  id: string
+  subnet_id: string
+  vpc_id: string | null
+  description: string | null
+  interface_type: string | null
+  status: string | null
+  attached_resource_id: string | null
+  primary_private_ip: string | null
+  has_public_ip: boolean
+  security_group_ids: string[]
+  requester_managed: boolean
+  authority_state: "configured"
+  evidence_source: string | null
+  last_seen: string | null
 }
 
 export type IamCorrelationState =
@@ -367,6 +413,8 @@ export interface VpcTopology {
   unknown_subnet_count: number
   // Phase B additions — present in responses from BE >= phase-b deploy.
   security_groups?: SecurityGroupMeta[]
+  nacls?: NaclMeta[]
+  network_interfaces?: NetworkInterfaceMeta[]
   iam_roles?: IamRoleRollup[]
 }
 

@@ -28,6 +28,8 @@ export function normalizeVpcTopology(vt: VpcTopology | null | undefined): VpcTop
       edges: EMPTY_EDGES,
       unknown_subnet_count: 0,
       security_groups: [],
+      nacls: [],
+      network_interfaces: [],
       iam_roles: [],
     }
   }
@@ -48,6 +50,8 @@ export function normalizeVpcTopology(vt: VpcTopology | null | undefined): VpcTop
       vpces: edges.vpces ?? [],
     },
     security_groups: vt.security_groups ?? [],
+    nacls: vt.nacls ?? [],
+    network_interfaces: vt.network_interfaces ?? [],
     iam_roles: (vt.iam_roles ?? []).map(normalizeIamRole),
   }
 }

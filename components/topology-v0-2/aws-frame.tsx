@@ -1423,7 +1423,6 @@ function SubnetCell({
   densityCollapsed?: boolean
   viewDensity?: ViewDensity
 }) {
-  void sgIndex
   void densityCollapsed
   const empty = subnetsHere.length === 0
   const labelFg = SUBNET_LABEL_FG[tier]
@@ -1474,6 +1473,30 @@ function SubnetCell({
   const routeHint = routeTableIds.length > 0
     ? `Configured route ${routeTableIds.join(", ")} → ${nextHops.join(", ") || "no active next hop"}`
     : null
+  const cellNacls = [...new Map(
+    subnetsHere
+      .map(subnet => subnet.nacl)
+      .filter((nacl): nacl is NonNullable<SubnetMeta["nacl"]> => Boolean(nacl))
+      .map(nacl => [nacl.id, nacl]),
+  ).values()]
+  const cellSecurityGroupIds = [...new Set([
+    ...subnetsHere.flatMap(subnet => subnet.security_group_ids ?? []),
+    ...workloadsHere.flatMap(workload => workload.security_group_ids ?? []),
+  ])]
+  const cellSecurityGroups = cellSecurityGroupIds
+    .map(id => sgIndex.get(id))
+    .filter((sg): sg is SecurityGroupMeta => Boolean(sg))
+  const eniCount = subnetsHere.reduce(
+    (sum, subnet) => sum + (subnet.network_interface_count ?? 0),
+    0,
+  )
+  const publicEniCount = subnetsHere.reduce(
+    (sum, subnet) => sum + (subnet.public_network_interface_count ?? 0),
+    0,
+  )
+  const exposedSgCount = cellSecurityGroups.filter(sg => sg.has_public_ingress).length
+  const highRiskSgCount = cellSecurityGroups.filter(sg => (sg.high_risk_rule_count ?? 0) > 0).length
+  const hasNetworkControls = cellNacls.length > 0 || cellSecurityGroupIds.length > 0 || eniCount > 0
   const isForeignCell =
     subnetsHere.length > 0 && subnetsHere.every(s => s.is_foreign === true)
   const chromeTitle = [TIER_CELL_SHORT[tier], subnetTitle].filter(Boolean).join(" · ")
@@ -1576,6 +1599,55 @@ function SubnetCell({
       ) : (
         renderWorkloads()
       )}
+      {hasNetworkControls ? (
+        <div
+          className="mt-1 flex shrink-0 items-center gap-1 overflow-hidden border-t border-dashed pt-1 text-[8px] font-semibold"
+          style={{ borderColor: "#94A3B8", color: "#334155" }}
+          data-testid="topology-subnet-network-controls"
+          aria-label="Effective subnet network controls"
+        >
+          {cellNacls.map(nacl => (
+            <span
+              key={nacl.id}
+              className="shrink-0 rounded px-1 py-0.5 font-mono"
+              style={{
+                background: nacl.high_risk_rule_count > 0 ? "#FEF2F2" : "#F8FAFC",
+                border: `1px solid ${nacl.high_risk_rule_count > 0 ? "#FCA5A5" : "#CBD5E1"}`,
+                color: nacl.high_risk_rule_count > 0 ? "#B91C1C" : "#334155",
+              }}
+              title={`${nacl.name} · ${nacl.total_rules} ordered rules · ${nacl.inbound_deny_count + nacl.outbound_deny_count} deny${nacl.is_default ? " · default" : ""}`}
+            >
+              NACL · {nacl.name}
+            </span>
+          ))}
+          {cellSecurityGroupIds.length > 0 ? (
+            <span
+              className="shrink-0 rounded px-1 py-0.5"
+              style={{
+                background: exposedSgCount > 0 ? "#FFF7ED" : "#ECFDF5",
+                border: `1px solid ${exposedSgCount > 0 ? "#FDBA74" : "#6EE7B7"}`,
+                color: highRiskSgCount > 0 ? "#B91C1C" : exposedSgCount > 0 ? "#9A3412" : "#047857",
+              }}
+              title={`${cellSecurityGroups.map(sg => sg.name).join(", ") || cellSecurityGroupIds.join(", ")} · ${exposedSgCount} public · ${highRiskSgCount} high-risk`}
+            >
+              SG · {cellSecurityGroupIds.length}{exposedSgCount > 0 ? ` · ${exposedSgCount} public` : ""}
+            </span>
+          ) : null}
+          {eniCount > 0 ? (
+            <span
+              className="shrink-0 rounded px-1 py-0.5"
+              style={{
+                background: publicEniCount > 0 ? "#FFF7ED" : "#EFF6FF",
+                border: `1px solid ${publicEniCount > 0 ? "#FDBA74" : "#93C5FD"}`,
+                color: publicEniCount > 0 ? "#9A3412" : "#1D4ED8",
+              }}
+              title={`${eniCount} network interfaces${publicEniCount > 0 ? ` · ${publicEniCount} with public IP` : ""}`}
+            >
+              ENI · {eniCount}{publicEniCount > 0 ? ` · ${publicEniCount} public` : ""}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   )
 }

@@ -189,6 +189,12 @@ export function applySystemEstateScope(input: SystemScopeInput): SystemScopeResu
         nodeIds.has(path.origin.id),
       ),
       edges: { igws, nat_gws, vpces },
+      nacls: (vt.nacls ?? []).filter(nacl =>
+        nacl.associated_subnet_ids.some(id => subnetIds.has(id)),
+      ),
+      network_interfaces: (vt.network_interfaces ?? []).filter(eni =>
+        subnetIds.has(eni.subnet_id),
+      ),
       iam_roles,
     },
   }
@@ -229,6 +235,14 @@ export function narrowSystemEstateToVpc(
       ),
       edge_ingress_paths: (scoped.vpcTopology.edge_ingress_paths ?? []).filter(path =>
         scoped.nodes.some(node => node.id === path.origin.id && (!node.vpc_id || node.vpc_id === vpcId)),
+      ),
+      nacls: (scoped.vpcTopology.nacls ?? []).filter(nacl =>
+        nacl.associated_subnet_ids.some(id =>
+          (scoped.vpcTopology.subnets ?? []).some(subnet => subnet.id === id && subnet.vpc_id === vpcId),
+        ),
+      ),
+      network_interfaces: (scoped.vpcTopology.network_interfaces ?? []).filter(eni =>
+        (scoped.vpcTopology.subnets ?? []).some(subnet => subnet.id === eni.subnet_id && subnet.vpc_id === vpcId),
       ),
       edges: {
         igws: (scoped.vpcTopology.edges?.igws ?? []).filter(
