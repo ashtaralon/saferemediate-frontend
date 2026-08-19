@@ -3294,7 +3294,7 @@ function AnimatedTrafficLine({
     const r = edgeData.relationship.toUpperCase();
     if (r === 'USES_ROLE' || r === 'ASSUMES_ROLE' || r === 'ASSUMES_ROLE_ACTUAL' ||
         r === 'HAS_INSTANCE_PROFILE' || r === 'HAS_POLICY') return 'identity';
-    if (r === 'ACCESSES_RESOURCE' || r === 'ACTUAL_API_CALL' || r === 'ACTUAL_S3_ACCESS' ||
+    if (r === 'ACCESSES_RESOURCE' || r === 'ACTUAL_API_CALL' || r === 'ACTUAL_S3_ACCESS' || r === 'DATA_ACCESS' ||
         r === 'READS_FROM' || r === 'WRITES_TO' || r === 'RUNTIME_CALLS') return 'data';
     return 'network';
   })();
@@ -3637,6 +3637,7 @@ function AnimatedTrafficLine({
       HAS_POLICY: "has policy",
       ACCESSES_RESOURCE: "accesses",
       ACTUAL_S3_ACCESS: "reads",
+      DATA_ACCESS: "accesses data in",
       ACTUAL_API_CALL: "calls API",
       ACTUAL_TRAFFIC: "sends traffic to",
       READS_FROM: "reads",

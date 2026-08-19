@@ -3,6 +3,7 @@ import type { CrownJewelSummary } from "@/components/identity-attack-paths/types
 import type { CrownJewelConvergence } from "@/lib/attack-paths/convergence-types"
 import {
   isServeJewelsAuthoritative,
+  reachableJewelPickerList,
   resolveJewelPickerList,
   resolveJewelRailPaths,
   shouldShowAttackPathsNotComputed,
@@ -185,6 +186,18 @@ describe("resolveJewelPickerList", () => {
         iapJewels,
       }),
     ).toEqual(iapJewels)
+  })
+
+  it("keeps only assets with real paths on the Attack Paths selector", () => {
+    const reachable = { ...jewel, id: "reachable", path_count: 2 }
+    const internalStore = { ...jewel, id: "internal", path_count: 0 }
+    const clusterMember = { ...jewel, id: "member", path_count: 0 }
+
+    expect(
+      reachableJewelPickerList([internalStore, reachable, clusterMember]).map(
+        (entry) => entry.id,
+      ),
+    ).toEqual(["reachable"])
   })
 })
 
