@@ -1739,7 +1739,7 @@ function TrafficFlowBand({
     >
       <div className="flex items-baseline justify-between mb-2">
         <div className="text-[10px] uppercase tracking-[0.14em] font-bold" style={{ color: PAL.ink }}>
-          Observed traffic — animated arrows above
+          Observed traffic evidence
         </div>
         <div className="text-[10px]" style={{ color: PAL.slate }}>
           {edges.length} flow{edges.length === 1 ? "" : "s"} ·{" "}
@@ -4650,6 +4650,34 @@ export function AwsFrame({
     vpceIds,
     mergedVpcView,
   ])
+  const visibleTrafficEdges = useMemo(() => {
+    const visible = new Set(nodes.map(n => n.id))
+    for (const n of regionalTierNodes) visible.add(n.id)
+    for (const n of serverlessTierNodes) visible.add(n.id)
+    const railIds = new Set<string>([
+      ...regionalTierNodes.map(n => n.id),
+      ...serverlessTierNodes.map(n => n.id),
+    ])
+    let edges = trafficEdgesList.filter(e => {
+      if (!visible.has(e.source_id)) return false
+      if (e.target_id === "__igw__") return true
+      if (e.target_id === AWS_S3_PUBLIC_SENTINEL_ID) return true
+      if (e.target_id === AWS_API_PUBLIC_SENTINEL_ID) return true
+      if (vpceIds.has(e.target_id)) return true
+      return visible.has(e.target_id)
+    })
+    if (mergedVpcView) {
+      edges = filterMergedVpcOverlayEdges(edges, nodes, { railIds, vpceIds })
+    }
+    return edges
+  }, [
+    trafficEdgesList,
+    nodes,
+    regionalTierNodes,
+    serverlessTierNodes,
+    vpceIds,
+    mergedVpcView,
+  ])
   // One frame PER VPC. Merged mode renders every VPC that owns a subnet in the
   // payload (primary first); scoped mode renders just the selected VPC. Each
   // frame receives ONLY its own VPC's workloads so a second VPC's compute is
@@ -5177,7 +5205,7 @@ export function AwsFrame({
         <DiagnosticsAccordion
           serverlessCount={serverlessTierNodes.length}
           staleCount={staleNodes.length}
-          trafficCount={visibleEdges.length}
+          trafficCount={visibleTrafficEdges.length}
         >
           {serverlessTierNodes.length > 0 ? (
             <div
@@ -5221,7 +5249,11 @@ export function AwsFrame({
             </div>
           ) : null}
 
-          <TrafficFlowBand edges={visibleEdges} nodes={nodes} />
+          {/* The evidence band is factual inventory, independent of which
+              overlay the operator selected. Architecture mode intentionally
+              suppresses arrows, but must never turn real traffic into a
+              dishonest "0 flows" state. */}
+          <TrafficFlowBand edges={visibleTrafficEdges} nodes={nodes} />
           <EncodingLegend />
         </DiagnosticsAccordion>
       )}

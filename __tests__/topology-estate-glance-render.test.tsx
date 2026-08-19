@@ -4,10 +4,11 @@
  */
 import React from "react"
 import { afterEach, beforeAll, describe, expect, it } from "vitest"
-import { cleanup, render, screen } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen } from "@testing-library/react"
 
 import { AwsFrame } from "@/components/topology-v0-2/aws-frame"
 import type { SubnetMeta, TopologyNode, VpcTopology } from "@/components/topology-v0-2/types"
+import type { TrafficEdge } from "@/lib/api-client"
 
 beforeAll(() => {
   if (!("ResizeObserver" in globalThis)) {
@@ -147,6 +148,39 @@ describe("AwsFrame Glance density (generic)", () => {
     )
     expect(screen.getByTestId("topology-aws-az-columns")).toBeTruthy()
     expect(screen.getByTestId("topology-az-column-eu-west-1a")).toBeTruthy()
+  })
+
+  it("keeps observed traffic evidence visible when Architecture hides overlays", () => {
+    const nodes: TopologyNode[] = [
+      nd({ id: "ec2-source", name: "web-source" }),
+      nd({ id: "ec2-target", name: "app-target" }),
+    ]
+    const trafficEdges: TrafficEdge[] = [{
+      source_id: "ec2-source",
+      target_id: "ec2-target",
+      port: 443,
+      protocol: "tcp",
+      last_seen: "2026-08-19T01:00:00Z",
+      edge_class: "internal",
+    }]
+
+    render(
+      <AwsFrame
+        vpcTopology={topology}
+        nodes={nodes}
+        trafficEdges={trafficEdges}
+        overlayEdges={[]}
+        flowMode="architecture"
+        selectedNodeId={null}
+        onSelect={() => {}}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: /Diagnostics.*1 flows/i }))
+    const trafficHeading = screen.getByText("Observed traffic evidence")
+    expect(trafficHeading.parentElement?.textContent).toContain("1 flow · 1 internal")
+    expect(screen.getByText("web-source")).toBeTruthy()
+    expect(screen.getByText("app-target")).toBeTruthy()
   })
 
   it("inventory mode shows one small icon per real node (no ×N collapse)", () => {
