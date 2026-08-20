@@ -1,5 +1,5 @@
 import { requireBackendUrl } from "@/lib/backend-url";
-import { NextResponse } from "next/server"
+import { NextRequest, NextResponse } from "next/server"
 import { backendError, fromCaughtError } from "@/lib/server/proxy-error"
 
 export const dynamic = "force-dynamic"
@@ -16,8 +16,9 @@ const CACHE_TTL = 5 * 60 * 1000 // 5 minutes
 const MAX_RETRIES = 2
 const RETRY_DELAY_MS = 2000
 
-export async function GET() {
-  const cacheKey = 'systems:all'
+export async function GET(request: NextRequest) {
+  const customerId = request.nextUrl.searchParams.get("customer_id")?.trim() || ""
+  const cacheKey = `systems:${customerId || "deployment"}`
   const now = Date.now()
   
   // Check cache
@@ -39,7 +40,9 @@ export async function GET() {
   // Helper function to fetch with retry
   async function fetchWithRetry(attempt = 1): Promise<Response> {
     try {
-      const response = await fetch(`${BACKEND_URL}/api/systems`, {
+      const upstream = new URL(`${BACKEND_URL}/api/systems`)
+      if (customerId) upstream.searchParams.set("customer_id", customerId)
+      const response = await fetch(upstream, {
         headers: {
           "Content-Type": "application/json",
         },
@@ -121,6 +124,7 @@ export async function GET() {
       systems: disambiguated,
       total: data.total || disambiguated.length,
       timestamp: data.timestamp,
+      scope: data.scope || null,
     }
 
     // Store in cache

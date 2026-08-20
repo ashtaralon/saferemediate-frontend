@@ -41,12 +41,19 @@ export function resolveCanonicalCustomer(
 }
 
 export function scopeOptionsFromSystems(payload: unknown): AccountScopeOptions | null {
-  const systems = Array.isArray((payload as { systems?: unknown[] } | null)?.systems)
-    ? (payload as { systems: Array<Record<string, unknown>> }).systems
+  const source = payload as {
+    systems?: unknown[]
+    scope?: { customer_id?: unknown; account_ids?: unknown[] }
+  } | null
+  const systems = Array.isArray(source?.systems)
+    ? (source as { systems: Array<Record<string, unknown>> }).systems
     : []
   if (!systems.length) return null
 
-  const customerId = systems.find((row) => typeof row.name === "string")?.name
+  const authoritativeCustomer = source?.scope?.customer_id
+  const customerId = typeof authoritativeCustomer === "string" && authoritativeCustomer.trim()
+    ? authoritativeCustomer.trim()
+    : systems.find((row) => typeof row.name === "string")?.name
   if (typeof customerId !== "string" || !customerId) return null
 
   const accounts = new Map<string, AccountScopeOption>()

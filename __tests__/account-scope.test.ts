@@ -34,17 +34,19 @@ describe("account scope", () => {
   })
 
   it("derives honest single-tenant scope from graph-backed systems", () => {
-    expect(scopeOptionsFromSystems({ systems: [{
-      name: "testbed-webshop",
-      displayName: "Testbed Webshop",
-      account_id: "416651950952",
+    expect(scopeOptionsFromSystems({
+      scope: { customer_id: "alon-prod", account_ids: ["745783559495"], authoritative: true },
+      systems: [{
+      name: "alon-prod",
+      displayName: "Alon Production",
+      account_id: "745783559495",
       region: "eu-west-1",
       status: "healthy",
     }] })).toEqual({
-      customer_id: "testbed-webshop",
+      customer_id: "alon-prod",
       accounts: [{
-        account_id: "416651950952",
-        display_name: "Testbed Webshop",
+        account_id: "745783559495",
+        display_name: "Alon Production",
         regions: ["eu-west-1"],
         group_ids: [],
         status: "healthy",
