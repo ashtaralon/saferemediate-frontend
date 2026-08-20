@@ -1,75 +1,65 @@
 import { type NextRequest, NextResponse } from "next/server"
+
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
+import { approvalWorkflowConfigured } from "@/lib/server/approval-backend-auth"
 
-const BACKEND_URL = getBackendBaseUrl()
-
-// No mock data - only return real data from backend
+export const dynamic = "force-dynamic"
+export const fetchCache = "force-no-store"
+export const revalidate = 0
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { finding_id, resource_id, resource_type } = body
-
-    if (!finding_id) {
-      return NextResponse.json(
-        { success: false, error: "finding_id is required" },
-        { status: 400 }
-      )
+    const findingId = body?.finding_id
+    if (!findingId) {
+      return NextResponse.json({ success: false, error: "finding_id is required" }, { status: 400 })
     }
 
-    let data: any
-
-    try {
-      // Try to call the backend
-      const response = await fetch(`${BACKEND_URL}/api/simulate`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ finding_id, resource_id, resource_type }),
-      })
-
-      if (response.ok) {
-        data = await response.json()
-      } else {
-        // Backend error - return error response (no mock data)
-        console.error(`Backend returned ${response.status}`)
-        return NextResponse.json(
-          { success: false, error: `Backend returned ${response.status}` },
-          { status: response.status, headers: { "X-Proxy": "simulate-error" } }
-        )
-      }
-    } catch (backendError) {
-      // Backend unreachable - return error (no mock data)
-      console.error("Backend unreachable:", backendError)
-      return NextResponse.json(
-        { success: false, error: "Backend unreachable" },
-        { status: 503, headers: { "X-Proxy": "simulate-error" } }
-      )
-    }
-
-    // Only return real data from backend - no mock data
-    // Backend returns simulation_id on success, not a success field
-    if (!data || (!data.success && !data.simulation_id)) {
-      return NextResponse.json(
-        { success: false, error: "Backend returned invalid data" },
-        { status: 500, headers: { "X-Proxy": "simulate-error" } }
-      )
-    }
-
-    // Add X-Proxy header to prove this route was used
-    return NextResponse.json({ success: true, ...data }, {
-      headers: {
-        "X-Proxy": "simulate",
-        "X-Proxy-Timestamp": new Date().toISOString(),
-      }
+    // The finding ID is the only browser-supplied authority. Resource identity,
+    // evidence, and the exact candidate plan are reloaded by the backend.
+    const response = await fetch(`${getBackendBaseUrl()}/api/configuration-fixes/simulate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ finding_id: findingId }),
+      cache: "no-store",
     })
+    const text = await response.text()
+    let data: any = {}
+    try {
+      data = text ? JSON.parse(text) : {}
+    } catch {
+      data = { detail: text }
+    }
 
-  } catch (error) {
-    console.error("Simulation error:", error)
+    if (!response.ok) {
+      return NextResponse.json(
+        { success: false, error: data?.detail || data?.error || `Backend returned ${response.status}` },
+        { status: response.status, headers: { "X-Proxy": "simulate-error" } },
+      )
+    }
+    if (!data?.success || !data?.decision || !data?.change_case) {
+      return NextResponse.json(
+        { success: false, error: "Backend returned an incomplete Change Case" },
+        { status: 502, headers: { "X-Proxy": "simulate-error" } },
+      )
+    }
+
+    const frontendApprovalReady = approvalWorkflowConfigured()
+    if (data.change_case?.approval?.required && !frontendApprovalReady) {
+      data.change_case.approval.available = false
+      data.change_case.approval.reason =
+        "The authenticated approval gateway is not configured. Review is available; AWS mutation remains disabled."
+    }
+
     return NextResponse.json(
-      { success: false, error: "Simulation failed" },
-      { status: 500, headers: { "X-Proxy": "simulate-error" } }
+      { ...data, frontend_approval_ready: frontendApprovalReady },
+      { headers: { "X-Proxy": "configuration-fix-simulate", "Cache-Control": "no-store" } },
+    )
+  } catch (error) {
+    console.error("Configuration simulation failed:", error)
+    return NextResponse.json(
+      { success: false, error: "Configuration analysis service is unreachable" },
+      { status: 503, headers: { "X-Proxy": "simulate-error" } },
     )
   }
 }

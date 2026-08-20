@@ -1,54 +1,53 @@
 import { type NextRequest, NextResponse } from "next/server"
+
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
+import { approvalBackendHeaders, approvalOperatorIdentity } from "@/lib/server/approval-backend-auth"
 
 export const dynamic = "force-dynamic"
 export const fetchCache = "force-no-store"
 export const revalidate = 0
 
-const BACKEND_URL = getBackendBaseUrl()
-
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { finding_id } = body
-    
-    console.log(`[SIMULATE-APPROVAL] Requesting approval for finding: ${finding_id}`)
-
-    // Call backend approval endpoint (if it exists, otherwise return success)
-    // TODO: Implement backend approval endpoint
-    const response = await fetch(`${BACKEND_URL}/api/simulate/approval`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ finding_id }),
-    }).catch(() => {
-      // If endpoint doesn't exist, return success (approval request created)
-      return new Response(JSON.stringify({ 
-        success: true, 
-        finding_id,
-        status: 'pending_approval',
-        message: 'Approval request created'
-      }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' }
-      })
-    })
-
-    if (!response.ok) {
-      const errorText = await response.text()
-      return NextResponse.json(
-        { success: false, error: `Approval request failed: ${response.status}`, message: errorText },
-        { status: response.status }
-      )
+    const findingId = body?.finding_id
+    if (!findingId) {
+      return NextResponse.json({ success: false, error: "finding_id is required" }, { status: 400 })
     }
 
-    const data = await response.json()
-    console.log(`[SIMULATE-APPROVAL] ✅ Success:`, data)
-    return NextResponse.json({ success: true, ...data })
+    // Operator identity and approval credentials are server-owned. Browser
+    // fields cannot choose the actor or authorize a plan.
+    const response = await fetch(`${getBackendBaseUrl()}/api/configuration-fixes/approval-requests`, {
+      method: "POST",
+      headers: approvalBackendHeaders(),
+      body: JSON.stringify({
+        finding_id: findingId,
+        requested_by: approvalOperatorIdentity(),
+        note: "Requested from the configuration Change Case review.",
+      }),
+      cache: "no-store",
+    })
+    const text = await response.text()
+    let data: any = {}
+    try {
+      data = text ? JSON.parse(text) : {}
+    } catch {
+      data = { detail: text }
+    }
+    if (!response.ok) {
+      return NextResponse.json(
+        { success: false, error: data?.detail || data?.error || `Approval request failed (${response.status})` },
+        { status: response.status },
+      )
+    }
+    return NextResponse.json(data, { headers: { "Cache-Control": "no-store" } })
   } catch (error) {
-    console.error("[SIMULATE-APPROVAL] Error:", error)
+    const message = error instanceof Error ? error.message : "Approval request failed"
+    const unavailable = /not configured/i.test(message)
+    console.error("Configuration approval request failed:", error)
     return NextResponse.json(
-      { success: false, error: "Approval request failed", message: error instanceof Error ? error.message : "Unknown error" },
-      { status: 500 }
+      { success: false, error: message },
+      { status: unavailable ? 503 : 500 },
     )
   }
 }

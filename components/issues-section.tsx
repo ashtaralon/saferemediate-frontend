@@ -33,6 +33,10 @@ interface Finding {
   confidence?: number
   observation_days?: number
   traffic_source?: string
+  remediationMode?: string
+  canSimulate?: boolean
+  protectionReason?: string
+  group_name?: string
 }
 
 interface IssuesSectionProps {
@@ -116,6 +120,7 @@ export function IssuesSection({ systemName }: IssuesSectionProps) {
 
   // Handle simulate fix click
   const handleSimulateFix = (finding: Finding) => {
+    if (isVisibilityOnly(finding) || !supportsChangeCase(finding)) return
     setSelectedFinding(finding)
     setShowModal(true)
   }
@@ -184,31 +189,64 @@ export function IssuesSection({ systemName }: IssuesSectionProps) {
   }
 
   // Get type icon
-  const getTypeIcon = (type: string) => {
-    switch (type) {
+  const getTypeIcon = (type: string, resourceType?: string) => {
+    const normalized = type.toLowerCase()
+    const normalizedResource = String(resourceType || "").replace(/\s+/g, "").toLowerCase()
+    switch (normalized) {
       case "iam_unused_permissions":
+      case "unused_permissions":
+      case "iam":
         return "🔐"
       case "sg_unused_rules":
+      case "public_exposure":
         return "🛡️"
       case "s3_public_no_external_access":
+      case "public_bucket":
         return "🪣"
       default:
-        return "⚠️"
+        return normalizedResource === "iamrole" ? "🔐" : normalizedResource === "securitygroup" ? "🛡️" : "⚠️"
     }
   }
 
   // Get type label
-  const getTypeLabel = (type: string) => {
-    switch (type) {
+  const getTypeLabel = (type: string, resourceType?: string) => {
+    const normalized = type.toLowerCase()
+    const normalizedResource = String(resourceType || "").replace(/\s+/g, "").toLowerCase()
+    switch (normalized) {
       case "iam_unused_permissions":
+      case "unused_permissions":
+      case "iam":
         return "IAM Role"
       case "sg_unused_rules":
+      case "public_exposure":
         return "Security Group"
       case "s3_public_no_external_access":
+      case "public_bucket":
         return "S3 Bucket"
       default:
-        return "Unknown"
+        if (normalizedResource === "iamrole") return "IAM Role"
+        if (normalizedResource === "securitygroup") return "Security Group"
+        if (normalizedResource === "s3bucket") return "S3 Bucket"
+        return resourceType || "Unknown resource"
     }
+  }
+
+  const supportsChangeCase = (finding: Finding) => {
+    const resourceType = String(finding.resourceType || "").replace(/\s+/g, "").toLowerCase()
+    const type = String(finding.type || "").toUpperCase()
+    return resourceType === "iamrole" || resourceType === "securitygroup" ||
+      type === "IAM" || type === "UNUSED_PERMISSIONS" || type === "PUBLIC_EXPOSURE"
+  }
+
+  const isVisibilityOnly = (finding: Finding) => {
+    const resource = String(finding.role_name || finding.resourceId || finding.resource || "")
+    const resourceType = String(finding.resourceType || "").replace(/\s+/g, "").toLowerCase()
+    return finding.remediationMode === "VISIBILITY_ONLY" || finding.canSimulate === false ||
+      resource.startsWith("AWSServiceRole") || resource.startsWith("SafeRemediate-") ||
+      (resourceType === "securitygroup" && (
+        String(finding.group_name || "").toLowerCase() === "default" ||
+        /\bon default\b/i.test(finding.title || "")
+      ))
   }
 
   // Get time ago helper
@@ -352,9 +390,14 @@ export function IssuesSection({ systemName }: IssuesSectionProps) {
                     {finding.severity?.toUpperCase()}
                   </Badge>
                   <Badge variant="outline">
-                    {getTypeIcon(finding.type || "")} {getTypeLabel(finding.type || "")}
+                    {getTypeIcon(finding.type || "", finding.resourceType)} {getTypeLabel(finding.type || "", finding.resourceType)}
                   </Badge>
                   <Badge variant="secondary">{finding.category}</Badge>
+                  {isVisibilityOnly(finding) && (
+                    <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-800">
+                      Protected · visibility only
+                    </Badge>
+                  )}
                 </div>
 
                 {/* Title */}
@@ -373,10 +416,10 @@ export function IssuesSection({ systemName }: IssuesSectionProps) {
                       <span className="font-medium">Traffic Source:</span> {finding.traffic_source}
                     </div>
                   )}
-                  {finding.confidence && (
+                  {finding.confidence != null && (
                     <div>
-                      <span className="font-medium">Confidence:</span> {finding.confidence}% based on{" "}
-                      {finding.observation_days} days of data
+                      <span className="font-medium">Confidence:</span> {finding.confidence}%
+                      {finding.observation_days != null ? ` based on ${finding.observation_days} days of data` : ""}
                     </div>
                   )}
                   {finding.discoveredAt && (
@@ -402,9 +445,17 @@ export function IssuesSection({ systemName }: IssuesSectionProps) {
                   variant="default"
                   size="sm"
                   onClick={() => handleSimulateFix(finding)}
+                  disabled={isVisibilityOnly(finding) || !supportsChangeCase(finding)}
+                  title={
+                    isVisibilityOnly(finding)
+                      ? finding.protectionReason || "Protected resource; evidence remains visible but mutation is disabled."
+                      : !supportsChangeCase(finding)
+                        ? "Use the resource-specific workflow for this finding type."
+                        : undefined
+                  }
                   className="whitespace-nowrap"
                 >
-                  Simulate Fix
+                  {isVisibilityOnly(finding) ? "Visibility only" : supportsChangeCase(finding) ? "Review change" : "Evidence only"}
                 </Button>
                 {/* Inspect button for Security Group findings */}
                 {(finding.type === "sg_unused_rules" || finding.sg_id) && (

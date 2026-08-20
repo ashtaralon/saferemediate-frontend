@@ -173,7 +173,9 @@ export function normalizeSecurityFinding(raw: Record<string, any>): NormalizedFi
     resourceType: raw.resourceType || "Unknown",
     resourceId: raw.resourceArn || raw.resourceId,
     category: raw.resourceType === "IAMRole" ? "IAM" : raw.resourceType || "Unknown",
-    discoveredAt: raw.evidence?.lastUpdated || raw.discoveredAt || new Date().toISOString(),
+    // Missing discovery time is unknown. Never make a finding look freshly
+    // detected by manufacturing the browser's current timestamp.
+    discoveredAt: raw.evidence?.lastUpdated || raw.discoveredAt || "",
     status: "open",
     remediation: raw.remediation,
     role_name: raw.resourceType === "IAMRole" ? resourceName : undefined,
