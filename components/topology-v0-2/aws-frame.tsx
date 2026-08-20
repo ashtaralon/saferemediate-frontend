@@ -56,6 +56,10 @@ import {
   selectBundledCorridorBadges,
 } from "./estate-edge-labels"
 import {
+  formatDupBadgeLabel,
+  resolveFlowBadgePlacements,
+} from "./flow-badge-placement"
+import {
   FLOW_ALERT_COLOR,
   FLOW_COLOR_BY_CLASS,
   FLOW_LEGEND_ITEMS,
@@ -1478,7 +1482,10 @@ function SubnetCell({
     >
       {/* One-line chrome — full "Private subnet (data tier)" lives on the
           tier sidebar; keep cell chrome thin so icons are visible. */}
-      <div className="flex items-center justify-between gap-1 shrink-0 min-h-0 leading-none mb-0.5">
+      <div
+        className="flex items-center justify-between gap-1 shrink-0 min-h-0 leading-none mb-0.5"
+        data-flow-obstacle="subnet-cell-chrome"
+      >
         <div
           className="text-[9px] uppercase tracking-[0.08em] font-bold truncate min-w-0"
           style={{ color: labelFg }}
@@ -1984,7 +1991,7 @@ function ServerlessComputeTier({
         borderLeft: "3px solid #4338CA",
       }}
     >
-      <div className={compact ? "mb-1" : "mb-1.5"}>
+      <div className={compact ? "mb-1" : "mb-1.5"} data-flow-obstacle="serverless-rail-header">
         <div className="text-[10px] uppercase tracking-[0.12em] font-semibold" style={{ color: "#312E81" }}>
           Lambda runtime · outside subnet grid ({nodes.length})
         </div>
@@ -2075,7 +2082,11 @@ function RegionalDataServicesTier({
         borderLeft: "3px solid #5E35B1",
       }}
     >
-      <div className="text-[10px] uppercase tracking-[0.12em] font-semibold mb-1.5" style={{ color: "#311B92" }}>
+      <div
+        className="text-[10px] uppercase tracking-[0.12em] font-semibold mb-1.5"
+        style={{ color: "#311B92" }}
+        data-flow-obstacle="regional-rail-header"
+      >
         Regional · S3 / DDB / KMS ({nodes.length})
       </div>
       {neo4jDestAnchors.length > 0 ? (
@@ -2853,6 +2864,25 @@ function FlowOverlay({
           badgeLabel = e.port ? `${e.port}/${e.protocol ?? "TCP"}` : (e.protocol ?? "TCP")
         }
         if (j.count > 1 && !e.is_exposed) badgeLabel = `${j.count} flows`
+        // Alternate on-path anchors for the collision solver: the midpoints
+        // of the OTHER long segments, longest first. When the default anchor
+        // sits inside a dense card column (regional KMS rail) the badge can
+        // slide to another stretch of its own line instead of a card.
+        const badgeCands: Pt[] = []
+        {
+          const segs: Array<{ mid: Pt; len: number }> = []
+          for (let i = 1; i < pts.length; i++) {
+            const len = Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y)
+            if (len >= 48) {
+              segs.push({
+                mid: { x: (pts[i].x + pts[i - 1].x) / 2, y: (pts[i].y + pts[i - 1].y) / 2 },
+                len,
+              })
+            }
+          }
+          segs.sort((a, b) => b.len - a.len)
+          for (const s of segs.slice(0, 5)) badgeCands.push(s.mid)
+        }
         next.push({
           d,
           cls,
@@ -2873,10 +2903,12 @@ function FlowOverlay({
           _edge: e,
           _routedViaIgw: routedViaIgw,
           _routedViaVpce: routedViaVpce,
+          _cands: badgeCands,
         } as FlowPath & {
           _edge: TrafficEdge
           _routedViaIgw: boolean
           _routedViaVpce: boolean
+          _cands: Pt[]
         })
       }
 
@@ -2886,6 +2918,7 @@ function FlowOverlay({
         _edge?: TrafficEdge
         _routedViaIgw?: boolean
         _routedViaVpce?: boolean
+        _cands?: Pt[]
       }
       const pathExt = next as PathExt[]
       const bundleMode = viewDensity === "inventory" ? "inventory" : "glance"
@@ -2919,11 +2952,14 @@ function FlowOverlay({
       }
 
       // Pass 4 — de-overlap badges against BOTH other badges AND chip boxes.
-      // Each label is treated as a BOX (half-width ≈ 3.2px/char) and nudged to
-      // the NEAREST clear y — searching up and down from its anchor — so a tag
-      // never paints over a chip or its name, and egress labels lift clear of
-      // their source chip. Point-only checks under-detected wide labels (prod:
-      // VPCE tags on EC2 names, egress tags on the subnet header).
+      // Delegated to resolveFlowBadgePlacements (pure, executable-tested):
+      // same-label sibling chips anchored together collapse into one "×N"
+      // chip, and placement searches the vertical ladder, the badge's OWN
+      // path segments, then a short horizontal slide — with a least-overlap
+      // fallback. The old inline pass nudged Y only, so inside a dense card
+      // column (the regional KMS rail) it found no clear y within ±160px and
+      // left the chip painted straight over a card (the ENCRYPTED_BY /
+      // TRIGGERS pile on the Dependencies lens).
       const chipObstacles: NatRect[] = []
       const seenObstacle = new Set<string>()
       for (const j of jobs) {
@@ -2941,36 +2977,36 @@ function FlowOverlay({
         seenObstacle.add(k)
         chipObstacles.push(r)
       }
-      const placed: { x: number; y: number; hw: number }[] = []
-      const clearAt = (x: number, y: number, hw: number): boolean => {
-        for (const o of chipObstacles) {
-          if (x + hw > o.l - 4 && x - hw < o.r + 4 && y + 7 > o.t - 4 && y - 7 < o.b + 4) {
-            return false
-          }
-        }
-        for (const q of placed) {
-          if (Math.abs(q.x - x) < hw + q.hw + 6 && Math.abs(q.y - y) < 13) return false
-        }
-        return true
-      }
-      for (const p of next) {
+      const placements = resolveFlowBadgePlacements(
+        pathExt.map(p => ({
+          label: p.badgeLabel,
+          x: p.badgeX,
+          y: p.badgeY,
+          candidates: p._cands,
+          pinned: Boolean(p.isExposed),
+        })),
+        chipObstacles,
+        { w: containerRect.width / scale, h: containerRect.height / scale },
+      )
+      for (let i = 0; i < pathExt.length; i++) {
+        const p = pathExt[i]
+        const pl = placements[i]
+        delete p._cands
         if (!p.badgeLabel) continue
-        const hw = Math.max(14, (p.badgeLabel.length * 6.4) / 2)
-        let y = p.badgeY
-        if (!clearAt(p.badgeX, y, hw)) {
-          let found = false
-          for (let dist = 14; dist <= 160 && !found; dist += 14) {
-            for (const cand of [p.badgeY - dist, p.badgeY + dist]) {
-              if (clearAt(p.badgeX, cand, hw)) {
-                y = cand
-                found = true
-                break
-              }
-            }
-          }
+        if (pl.suppressed) {
+          // A sibling chip with the identical label absorbed this one — the
+          // line still draws; only the redundant text goes.
+          p.badgeLabel = ""
+          p.badgeTitle = undefined
+          continue
         }
-        p.badgeY = y
-        placed.push({ x: p.badgeX, y, hw })
+        p.badgeX = pl.x
+        p.badgeY = pl.y
+        if (pl.dupCount > 1) {
+          const baseTitle = p.badgeTitle || p.badgeLabel
+          p.badgeLabel = formatDupBadgeLabel(p.badgeLabel, pl.dupCount)
+          p.badgeTitle = `${baseTitle}\n×${pl.dupCount} same-labeled flows converge here`
+        }
       }
       setPaths(next)
     }
