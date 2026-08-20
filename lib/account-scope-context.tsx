@@ -10,7 +10,7 @@ import {
 } from "react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import type { AccountScopeOptions, ProductScope } from "@/lib/account-scope"
-import { scopeOptionsFromSystems } from "@/lib/account-scope"
+import { resolveCanonicalCustomer, scopeOptionsFromSystems } from "@/lib/account-scope"
 
 interface AccountScopeContextValue extends ProductScope {
   options: AccountScopeOptions | null
@@ -70,15 +70,28 @@ export function AccountScopeProvider({ children }: { children: ReactNode }) {
           if (!systemsResponse.ok) return null
           return scopeOptionsFromSystems(await systemsResponse.json())
         }
-        let selected = customerFromUrl || customerId
+        const requested = customerFromUrl || customerId
+        let selected = requested
         let fallback: AccountScopeOptions | null = null
-        if (!selected) {
-          const rosterResponse = await fetch("/api/proxy/admin/customers", { cache: "no-store" })
-          const roster = rosterResponse.ok ? await rosterResponse.json() : []
-          selected = Array.isArray(roster) && roster.length ? roster[0].customer_id : null
-          if (!selected) {
-            fallback = await loadSystemFallback()
-            selected = fallback?.customer_id || null
+        const rosterResponse = await fetch("/api/proxy/admin/customers", { cache: "no-store" })
+        const roster = rosterResponse.ok ? await rosterResponse.json() : []
+        const rosterIds = Array.isArray(roster)
+          ? roster.map((row) => typeof row?.customer_id === "string" ? row.customer_id : "").filter(Boolean)
+          : []
+        if (!rosterIds.length) fallback = await loadSystemFallback()
+        selected = resolveCanonicalCustomer(requested, rosterIds, fallback?.customer_id)
+        if (selected && selected !== requested) {
+          const next = new URLSearchParams(searchParams.toString())
+          next.set("customer_id", selected)
+          if (next.has("system")) next.set("system", selected)
+          next.delete("account_group")
+          next.delete("account_id")
+          next.delete("region")
+          if (!cancelled) {
+            setGroupState("all")
+            setAccountState("all")
+            setRegionState("all")
+            startTransition(() => router.replace(`${pathname}?${next}`, { scroll: false }))
           }
         }
         if (!selected) {

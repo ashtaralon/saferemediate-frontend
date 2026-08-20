@@ -48,6 +48,19 @@ interface GateReadinessResponse {
   gates: GateRow[]
 }
 
+const friendlyGateName = (value: string) =>
+  value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase())
+
+const customerGateMessage = (gate: GateRow) => {
+  const raw = gate.message || ""
+  if (/SHARED_ROLES_|Render|environment|wrong_state|[A-Z_]{4,}/.test(raw)) {
+    return gate.status === "failed"
+      ? "This safety requirement must be completed before authorization. No AWS change is allowed yet."
+      : "This check was evaluated by the operation safety policy."
+  }
+  return raw
+}
+
 export function GateReadinessPanel({
   planId,
   planState,
@@ -157,18 +170,18 @@ function Heading({
       ) : null}
       <div className="flex-1 min-w-0">
         <div className="text-[10px] font-medium uppercase tracking-wider text-zinc-700 dark:text-zinc-400">
-          Pre-flight gates {data ? `(${data.mode})` : ""}
+          Safety checks
         </div>
         <div className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
           {data == null
             ? "Reading…"
             : isReady
-            ? `Ready to execute (${passedCount}/${totalEvaluated} passing, view_parity at execute-time)`
-            : `Blocked — ${failedCount} gate${failedCount === 1 ? "" : "s"} failing`}
+            ? `Ready for authorization (${passedCount}/${totalEvaluated} checks passed)`
+            : `Plan needs attention — ${failedCount} safety check${failedCount === 1 ? "" : "s"} incomplete`}
         </div>
         {data && !isReady && data.first_blocker ? (
           <div className="text-xs text-amber-700 dark:text-amber-300 mt-0.5">
-            First blocker: <span className="font-mono">{data.first_blocker}</span>
+            Next required check: <span>{friendlyGateName(data.first_blocker)}</span>
           </div>
         ) : null}
       </div>
@@ -195,14 +208,9 @@ function GateRowComponent({ gate }: { gate: GateRow }) {
       <Icon className={`h-4 w-4 shrink-0 mt-0.5 ${iconTone}`} />
       <div className="flex-1 min-w-0">
         <div className="flex items-baseline gap-2 flex-wrap">
-          <span className={`font-mono font-semibold ${nameTone}`}>{gate.name}</span>
-          {gate.code ? (
-            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-red-100 dark:bg-red-900/40 text-red-800 dark:text-red-200">
-              {gate.code}
-            </span>
-          ) : null}
+          <span className={`font-semibold ${nameTone}`}>{friendlyGateName(gate.name)}</span>
         </div>
-        {gate.message ? (
+        {customerGateMessage(gate) ? (
           <div
             className={`text-xs mt-0.5 ${
               gate.status === "failed"
@@ -210,7 +218,7 @@ function GateRowComponent({ gate }: { gate: GateRow }) {
                 : "text-zinc-700 dark:text-zinc-400"
             }`}
           >
-            {gate.message}
+            {customerGateMessage(gate)}
           </div>
         ) : null}
       </div>

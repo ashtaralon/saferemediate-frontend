@@ -58,7 +58,7 @@ export interface ServiceNode {
 
 const LEGACY_SERVICE_DETAIL_ENABLED = false
 
-/** Missing operational state is UNKNOWN; inventory provenance is not status. */
+/** Configuration resources do not have a runtime state; say that explicitly. */
 export function reportedInventoryStatus(resource: Record<string, unknown>): string {
   for (const value of [
     resource.status,
@@ -67,6 +67,10 @@ export function reportedInventoryStatus(resource: Record<string, unknown>): stri
     resource.instance_state,
   ]) {
     if (typeof value === "string" && value.trim()) return value.trim()
+  }
+  const type = String(resource.type || resource.resource_type || "").toLocaleLowerCase()
+  if (["securitygroup", "iamrole", "iampolicy", "networkacl", "routetable"].includes(type)) {
+    return "Inventory only"
   }
   return "UNKNOWN"
 }
@@ -150,6 +154,7 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
   const [searchQuery, setSearchQuery] = useState("")
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set<string>())
   const [gapData, setGapData] = useState<any>(null)
+  const [gapLoading, setGapLoading] = useState(true)
   const [selectedService, setSelectedService] = useState<ServiceNode | null>(null)
   const [iamData, setIamData] = useState<any>(null)
   const [iamLoading, setIamLoading] = useState(false)
@@ -275,6 +280,7 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
   }
 
   const fetchGapData = async () => {
+    setGapLoading(true)
     try {
       // Calculate gap data from LP issues
       const response = await fetch(`/api/proxy/least-privilege/issues?systemName=${encodeURIComponent(systemName)}`)
@@ -302,13 +308,16 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
         console.log(`[GapData] allowed=${allowed}, used=${used}, unused=${unused}`)
         
         setGapData({
-          allowed_actions: allowed,
-          used_actions: used,
-          unused_actions: unused
+          allowed_actions: data.summary?.total_allowed_permissions ?? data.summary?.allowed_actions ?? allowed,
+          used_actions: data.summary?.total_used_permissions ?? data.summary?.used_actions ?? used,
+          unused_actions: data.summary?.totalExcessPermissions ?? data.summary?.total_excess_permissions ?? data.summary?.unused_actions ?? unused,
         })
       }
     } catch (error) {
       console.error("Failed to fetch gap data:", error)
+      setGapData(null)
+    } finally {
+      setGapLoading(false)
     }
   }
 
@@ -694,9 +703,11 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
               <Activity className="w-4 h-4" />
               Permission Gap
             </div>
-            <div className="text-3xl font-bold text-yellow-600">{gapData?.unused_actions ?? 0}</div>
+            <div className="text-3xl font-bold text-yellow-600">{gapLoading ? '—' : gapData?.unused_actions ?? '—'}</div>
             <div className="text-xs text-[var(--muted-foreground,#9ca3af)] mt-1">
-              {gapData?.allowed_actions ?? 0} allowed, {gapData?.used_actions ?? 0} used
+              {gapLoading ? 'Calculating from the complete inventory…' : gapData
+                ? `${gapData.allowed_actions} allowed, ${gapData.used_actions} used`
+                : 'Permission evidence unavailable'}
             </div>
           </CardContent>
         </Card>

@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server"
 
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
 import { approvalBackendHeaders, approvalOperatorIdentity } from "@/lib/server/approval-backend-auth"
+import { customerSafeError } from "@/lib/customer-error"
 
 export const dynamic = "force-dynamic"
 export const fetchCache = "force-no-store"
@@ -36,14 +37,18 @@ export async function POST(request: NextRequest) {
     }
     if (!response.ok) {
       return NextResponse.json(
-        { success: false, error: data?.detail || data?.error || `Approval request failed (${response.status})` },
+        { success: false, error: customerSafeError(
+          data?.detail || data?.error,
+          "The approval request could not be created. No AWS change occurred.",
+        ) },
         { status: response.status },
       )
     }
     return NextResponse.json(data, { headers: { "Cache-Control": "no-store" } })
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Approval request failed"
-    const unavailable = /not configured/i.test(message)
+    const rawMessage = error instanceof Error ? error.message : "Approval request failed"
+    const message = customerSafeError(rawMessage, "The approval request could not be created. No AWS change occurred.")
+    const unavailable = /not configured/i.test(rawMessage)
     console.error("Configuration approval request failed:", error)
     return NextResponse.json(
       { success: false, error: message },

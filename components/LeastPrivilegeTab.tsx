@@ -39,6 +39,7 @@ import {
 import { useAccountScope } from '@/lib/account-scope-context'
 import { resourceAccountId, withAccountScope } from '@/lib/account-scope'
 import { TerraformExecutionChip } from '@/components/terraform-execution-chip'
+import { SimulateFixModal } from '@/components/SimulateFixModal'
 
 // ---------- Safe helpers ----------
 const safeArray = <T,>(v: unknown): T[] => Array.isArray(v) ? v : []
@@ -236,6 +237,22 @@ const decisionActionLabel = (decision: ResourceRiskDecision) => {
   return 'View decision'
 }
 
+export const supportsConfigurationChangeCase = (resource: Pick<GapResource, 'resourceType' | 'findingId'>) =>
+  (resource.resourceType === 'IAMRole' || resource.resourceType === 'SecurityGroup') &&
+  Boolean(resource.findingId)
+
+export const isVisibilityOnlyResource = (
+  resource: Pick<GapResource, 'resourceType' | 'resourceName' | 'isServiceLinkedRole'>,
+) => {
+  if (resource.resourceType === 'SecurityGroup') {
+    return resource.resourceName.trim().toLocaleLowerCase() === 'default'
+  }
+  return resource.resourceType === 'IAMRole' && (
+    resource.isServiceLinkedRole === true ||
+    resource.resourceName.startsWith('AWSServiceRoleFor')
+  )
+}
+
 interface LeastPrivilegeSummary {
   totalResources: number
   /** null = backend did not report the count (unknown), distinct from 0 (clean). */
@@ -288,6 +305,11 @@ interface LeastPrivilegeResponse {
 
 export default function LeastPrivilegeTab({ systemName }: { systemName?: string }) {
   const accountScope = useAccountScope()
+  const displayAccountId = (resource: GapResource) =>
+    resourceAccountId(resource as unknown as Record<string, unknown>) ||
+    (accountScope.options?.accounts.length === 1
+      ? accountScope.options.accounts[0].account_id
+      : null)
   const [data, setData] = useState<LeastPrivilegeResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -323,6 +345,8 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
   const [sgModalOpen, setSgModalOpen] = useState(false)
   const [selectedSGId, setSelectedSGId] = useState<string | null>(null)
   const [selectedSGName, setSelectedSGName] = useState<string | null>(null)
+  const [changeCaseResource, setChangeCaseResource] = useState<GapResource | null>(null)
+  const [changeCaseOpen, setChangeCaseOpen] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
   const [resourceTypeFilter, setResourceTypeFilter] = useState<string>('all')
   const [decisionFilter, setDecisionFilter] = useState<ResourceRiskDecision | 'all'>('all')
@@ -374,6 +398,16 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         (r.resourceName === detail.resourceName || r.id === detail.resourceName),
     )
     if (!match) return false
+    if (isVisibilityOnlyResource(match)) {
+      setSelectedResource(match)
+      setDrawerOpen(true)
+      return true
+    }
+    if (supportsConfigurationChangeCase(match)) {
+      setChangeCaseResource(match)
+      setChangeCaseOpen(true)
+      return true
+    }
     // Same gate as handleResourceClick — a deep link must not be a second door
     // into the remediation modals when the analysis is held. Two entry points
     // to the same destructive surface means the gate has to be on both.
@@ -1821,6 +1855,20 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
   }
   // Handle resource click (open appropriate modal)
   const handleResourceClick = (resource: GapResource) => {
+    if (isVisibilityOnlyResource(resource)) {
+      setSelectedResource(resource)
+      setDrawerOpen(true)
+      return
+    }
+    // Building a Change Case is read-only. Analyzer integrity may veto a
+    // mutation, but it must not hide the evidence, exact scope, snapshot and
+    // approval plan from the operator. The backend reloads the canonical
+    // finding and independently fails closed before proposing anything.
+    if (supportsConfigurationChangeCase(resource)) {
+      setChangeCaseResource(resource)
+      setChangeCaseOpen(true)
+      return
+    }
     // The three typed modals below are the remediation surfaces — they carry
     // Apply. When the analyzer sweep did not complete, route to the read-only
     // drawer instead: a permission the failed analyzer would have shown as
@@ -2290,7 +2338,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                       </div>
 
                       <span className="truncate font-mono text-[11px]" style={{ color: "var(--text-secondary)" }}>
-                        {resourceAccountId(resource as unknown as Record<string, unknown>) || 'Unknown'}
+                        {displayAccountId(resource) || 'Not attributed'}
                       </span>
 
                       {/* Type */}
@@ -2362,7 +2410,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                       </div>
 
                       <span className="truncate font-mono text-[11px]" style={{ color: "var(--text-secondary)" }}>
-                        {resourceAccountId(resource as unknown as Record<string, unknown>) || 'Unknown'}
+                        {displayAccountId(resource) || 'Not attributed'}
                       </span>
 
                       {/* Type */}
@@ -2500,10 +2548,18 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                       <div className="text-center">
                         <button
                           onClick={(e) => { e.stopPropagation(); handleResourceClick(resource) }}
-                          className="px-3 py-1 rounded-lg text-xs font-medium text-white hover:opacity-90 transition-all"
-                          style={{ background: "#8b5cf6" }}
+                          disabled={isVisibilityOnlyResource(resource)}
+                          className="px-3 py-1 rounded-lg text-xs font-medium text-white hover:opacity-90 transition-all disabled:cursor-not-allowed disabled:opacity-70"
+                          style={{ background: isVisibilityOnlyResource(resource) ? "#64748b" : "#8b5cf6" }}
+                          title={isVisibilityOnlyResource(resource)
+                            ? 'Protected AWS resource. Evidence is visible; automated changes are not offered.'
+                            : undefined}
                         >
-                          {decisionActionLabel(resourceRiskDecision(resource))}
+                          {isVisibilityOnlyResource(resource)
+                            ? 'Visibility only'
+                            : supportsConfigurationChangeCase(resource)
+                              ? 'Review change'
+                              : decisionActionLabel(resourceRiskDecision(resource))}
                         </button>
                       </div>
                     </div>
@@ -3639,6 +3695,25 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
           }
         }}
         onRollbackSuccess={handleRollbackSuccess}
+      />
+
+      <SimulateFixModal
+        isOpen={changeCaseOpen}
+        onClose={() => {
+          setChangeCaseOpen(false)
+          setChangeCaseResource(null)
+        }}
+        finding={changeCaseResource ? {
+          id: changeCaseResource.findingId,
+          finding_id: changeCaseResource.findingId,
+          title: changeCaseResource.title || changeCaseResource.description,
+          description: changeCaseResource.description,
+          severity: changeCaseResource.severity || undefined,
+          resource: changeCaseResource.resourceName,
+          resourceId: changeCaseResource.id || changeCaseResource.resourceName,
+          resourceType: changeCaseResource.resourceType,
+        } : null}
+        onRefreshFindings={() => void fetchGaps(true, true)}
       />
 
       {/* S3 Policy Analysis Modal */}

@@ -16,6 +16,7 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { customerSafeError } from '@/lib/customer-error'
 
 interface Finding {
   id?: string
@@ -136,12 +137,18 @@ export function SimulateFixModal({ isOpen, open, onClose, finding, role, onRefre
       })
       const data = await response.json().catch(() => ({}))
       if (!response.ok || !data?.success) {
-        throw new Error(data?.error || data?.detail || `Analysis failed (${response.status})`)
+        throw new Error(customerSafeError(
+          data?.error || data?.detail,
+          'Configuration analysis could not be completed. Refresh the inventory and try again. No change was made.',
+        ))
       }
       setResult(data)
       setStep('REVIEW')
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Configuration analysis failed.')
+      setError(customerSafeError(
+        caught,
+        'Configuration analysis could not be completed. Refresh the inventory and try again. No change was made.',
+      ))
       setStep('ERROR')
     } finally {
       setLoading(false)
@@ -160,13 +167,16 @@ export function SimulateFixModal({ isOpen, open, onClose, finding, role, onRefre
       })
       const data = await response.json().catch(() => ({}))
       if (!response.ok || !data?.success) {
-        throw new Error(data?.error || data?.detail || `Approval request failed (${response.status})`)
+        throw new Error(customerSafeError(
+          data?.error || data?.detail,
+          'The approval request could not be created. No AWS change occurred.',
+        ))
       }
       setResult((current: any) => ({ ...current, approval_request: data.approval_request }))
       setStep('REQUESTED')
       onRefreshFindings?.()
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Approval request failed.')
+      setError(customerSafeError(caught, 'The approval request could not be created. No AWS change occurred.'))
       setStep('ERROR')
     } finally {
       setLoading(false)
