@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server"
+import { NextRequest, NextResponse } from "next/server"
 import { backendError, fromCaughtError } from "@/lib/server/proxy-error"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
@@ -16,8 +16,14 @@ const CACHE_TTL = 5 * 60 * 1000 // 5 minutes
 const MAX_RETRIES = 2
 const RETRY_DELAY_MS = 2000
 
-export async function GET() {
-  const cacheKey = 'systems:all'
+export async function GET(req: NextRequest) {
+  const scope = new URLSearchParams()
+  for (const key of ["customer_id", "account_group", "account_id", "region"]) {
+    const value = req.nextUrl.searchParams.get(key)
+    if (value) scope.set(key, value)
+  }
+  const scopeQuery = scope.toString()
+  const cacheKey = `systems:${scopeQuery || "unscoped"}`
   const now = Date.now()
   
   // Check cache
@@ -39,7 +45,8 @@ export async function GET() {
   // Helper function to fetch with retry
   async function fetchWithRetry(attempt = 1): Promise<Response> {
     try {
-      const response = await fetch(`${BACKEND_URL}/api/systems`, {
+      const backendUrl = `${BACKEND_URL}/api/systems${scopeQuery ? `?${scopeQuery}` : ""}`
+      const response = await fetch(backendUrl, {
         headers: {
           "Content-Type": "application/json",
         },

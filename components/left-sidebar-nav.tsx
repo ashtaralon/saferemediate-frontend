@@ -3,7 +3,7 @@
 import Image from "next/image"
 import Link from "next/link"
 import { useEffect, useState } from "react"
-import { Home, AlertTriangle, Server, Grid3x3, Fingerprint, Plug, Zap, Split, Bug, Shield, Route, Sparkles, Tag, Trash2, Users, Network, Map as MapIcon, Target, BarChart3, Settings } from "lucide-react"
+import { Home, AlertTriangle, Server, Grid3x3, Fingerprint, Plug, Zap, Split, Bug, Shield, Route, Sparkles, Tag, Trash2, Users, Network, Map as MapIcon, Target, BarChart3, Settings, ClipboardList } from "lucide-react"
 // ThemeToggle import held until dark-mode migration lands:
 // import { ThemeToggle } from "@/components/theme-toggle"
 
@@ -104,6 +104,7 @@ export function LeftSidebarNav({
     href: string
   }> = [
     { id: "home", label: "Home", icon: Home, href: "/" },
+    { id: "change-queue", label: "Change Queue", icon: ClipboardList, href: "/change-queue" },
     { id: "copilot", label: "Ask Copilot", icon: Sparkles, href: "/?section=copilot" },
     { id: "issues", label: "Issues", icon: AlertTriangle, count: issuesCount, href: "/?section=issues" },
     { id: "least-privilege", label: "Resource Risk", icon: Shield, href: "/?section=least-privilege" },
@@ -317,7 +318,7 @@ export function LeftSidebarNav({
           // shared-roles + shared-sgs removed 2026-06-02 — their sidebar
           // entries were cut and the legacy URLs redirect to
           // /shared-resources via next.config.js.
-          const DEDICATED_ROUTE_IDS = new Set(["pending-tags", "orphan-resources", "attack-paths-v2", "business-systems", "dependency-map", "shared-resources", "network-lp"])
+          const DEDICATED_ROUTE_IDS = new Set(["change-queue", "pending-tags", "orphan-resources", "attack-paths-v2", "business-systems", "dependency-map", "shared-resources", "network-lp"])
           if (!DEDICATED_ROUTE_IDS.has(item.id) && onItemClick) {
             return (
               <button
