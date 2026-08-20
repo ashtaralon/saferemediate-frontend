@@ -72,14 +72,19 @@ export function AccountScopeProvider({ children }: { children: ReactNode }) {
         }
         const requested = customerFromUrl || customerId
         let selected = requested
-        let fallback: AccountScopeOptions | null = null
+        // The deployment-scoped Systems response is server-owned authority.
+        // Load it even when a stale roster row exists: a registered customer
+        // from another account must never override the deployment boundary.
+        let fallback: AccountScopeOptions | null = await loadSystemFallback()
         const rosterResponse = await fetch("/api/proxy/admin/customers", { cache: "no-store" })
         const roster = rosterResponse.ok ? await rosterResponse.json() : []
         const rosterIds = Array.isArray(roster)
           ? roster.map((row) => typeof row?.customer_id === "string" ? row.customer_id : "").filter(Boolean)
           : []
-        if (!rosterIds.length) fallback = await loadSystemFallback()
-        selected = resolveCanonicalCustomer(requested, rosterIds, fallback?.customer_id)
+        const deploymentCustomer = fallback?.customer_id || null
+        selected = deploymentCustomer
+          ? resolveCanonicalCustomer(requested, [deploymentCustomer], deploymentCustomer)
+          : resolveCanonicalCustomer(requested, rosterIds, null)
         if (selected && selected !== requested) {
           const next = new URLSearchParams(searchParams.toString())
           next.set("customer_id", selected)
