@@ -95,6 +95,9 @@ export function SimulateFixModal({ isOpen, open, onClose, finding, role, onRefre
   const evidence = changeCase.evidence || {}
   const approval = changeCase.approval || {}
   const decision = result?.decision || {}
+  const detectedTitle = finding?.title || role?.name || 'Configuration review'
+  const currentTitle = step === 'REVIEW' && explanation.issue ? explanation.issue : detectedTitle
+  const canonicalTitleChanged = step === 'REVIEW' && Boolean(explanation.issue) && explanation.issue !== detectedTitle
 
   const evidenceCaveats = useMemo(() => [
     ...list(evidence.caveats),
@@ -181,9 +184,11 @@ export function SimulateFixModal({ isOpen, open, onClose, finding, role, onRefre
               <Badge className="bg-teal-400/15 text-teal-200 hover:bg-teal-400/15">Configuration Change Case</Badge>
               {result?.mode && <Badge variant="outline" className="border-white/25 text-slate-200">{result.mode.replaceAll('_', ' ')}</Badge>}
             </div>
-            <DialogTitle className="text-xl text-white">{finding?.title || role?.name || 'Configuration review'}</DialogTitle>
+            <DialogTitle className="text-xl text-white">{currentTitle}</DialogTitle>
             <DialogDescription className="text-slate-300">
-              Evidence, exact scope, risk, approval, checkpoint, and recovery in one review.
+              {canonicalTitleChanged
+                ? `Current canonical evidence; detected finding: ${detectedTitle}`
+                : 'Evidence, exact scope, risk, approval, checkpoint, and recovery in one review.'}
             </DialogDescription>
           </DialogHeader>
         </div>
