@@ -24,7 +24,7 @@
  *   error      → red X + Try again / Close buttons
  */
 
-import React from "react"
+import React, { useMemo, useState } from "react"
 import {
   composeOverriddenBy,
   resolveOperatorIdentity,
@@ -83,6 +83,8 @@ export interface OverrideModalSharedProps {
   contextBlurb?: string
   /** Placeholder for the rationale textarea — resource-specific copy. */
   rationalePlaceholder?: string
+  /** Extra "are you sure" checkboxes that must be ticked before Apply Anyway. */
+  requiredConfirmations?: Array<{ id: string; label: string }>
 }
 
 /**
@@ -112,8 +114,15 @@ export function OverrideModalShared({
   onSubmit,
   contextBlurb,
   rationalePlaceholder,
+  requiredConfirmations = [],
 }: OverrideModalSharedProps) {
+  const confirmationIds = useMemo(
+    () => requiredConfirmations.map((item) => item.id),
+    [requiredConfirmations],
+  )
+  const [confirmed, setConfirmed] = useState<Record<string, boolean>>({})
   if (state.phase === "closed") return null
+  const allConfirmed = confirmationIds.every((id) => confirmed[id])
 
   const close = () =>
     setState({ ...INITIAL_SHARED_OVERRIDE_STATE, phase: "closed" })
@@ -230,6 +239,19 @@ export function OverrideModalShared({
               rows={3}
               className="w-full border border-[var(--border,#d1d5db)] rounded-md p-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#f59e0b] mb-3"
             />
+            {requiredConfirmations.map((item) => (
+              <label key={item.id} className="flex items-start gap-2 mb-3 text-xs cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={Boolean(confirmed[item.id])}
+                  onChange={(e) =>
+                    setConfirmed((prev) => ({ ...prev, [item.id]: e.target.checked }))
+                  }
+                  className="mt-0.5 w-4 h-4 text-[#f59e0b] rounded border-[var(--border,#d1d5db)] focus:ring-[#f59e0b]"
+                />
+                <span className="text-[var(--foreground,#374151)]">{item.label}</span>
+              </label>
+            ))}
             <label className="flex items-start gap-2 mb-4 text-xs cursor-pointer">
               <input
                 type="checkbox"
@@ -257,7 +279,8 @@ export function OverrideModalShared({
                 disabled={
                   !state.rationale.trim() ||
                   !state.ackRollback ||
-                  !state.operatorName.trim()
+                  !state.operatorName.trim() ||
+                  !allConfirmed
                 }
                 className="px-5 py-2 bg-[#f59e0b] text-white rounded-lg font-bold hover:bg-[#d97706] shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
                 title={
@@ -267,7 +290,9 @@ export function OverrideModalShared({
                       ? "Rationale required for the audit log"
                       : !state.ackRollback
                         ? "Acknowledge the rollback responsibility to proceed"
-                        : "Apply the change with override"
+                        : !allConfirmed
+                          ? "Confirm every listed hold before applying"
+                          : "Apply the change with override"
                 }
               >
                 Apply Anyway
