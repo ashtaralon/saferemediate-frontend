@@ -1,5 +1,7 @@
 "use client"
 
+import { useEffect, useState } from 'react'
+
 import {
   AlertTriangle,
   CheckCircle2,
@@ -8,8 +10,49 @@ import {
   FileText,
   RotateCcw,
   ShieldCheck,
+  Play,
+  UserCheck,
   X,
 } from 'lucide-react'
+
+interface ChangeCaseEvent {
+  event_id: string
+  kind: string
+  actor: string
+  at: string
+  detail?: Record<string, unknown>
+}
+
+interface ChangeCaseRun {
+  run_id: string
+  status: string
+  started_at: string
+  completed_at?: string | null
+  executed_by: string
+  snapshot_id?: string | null
+  timeline_event_id?: string | null
+  rollback?: { status: string; at?: string; rolled_back_by?: string } | null
+  events: ChangeCaseEvent[]
+}
+
+interface ChangeCaseWorkflow {
+  status: string
+  version: number
+  requested_by: string
+  created_at: string
+  updated_at: string
+  approvals: Array<{
+    approval_id: string
+    approved_by: string
+    approver_role: string
+    rationale: string
+    risk_accepted: boolean
+    rollback_acknowledged: boolean
+    at: string
+  }>
+  events: ChangeCaseEvent[]
+  latest_run?: ChangeCaseRun | null
+}
 
 export interface ChangeCaseArtifact {
   schema_version: string
@@ -33,7 +76,7 @@ export interface ChangeCaseArtifact {
   authoritative_plan: {
     scheme: string
     plan_hash: string
-    plan_token: string
+    plan_token?: string
     expires_at_epoch: number
     case_id_is_mutation_authority: false
   }
@@ -92,16 +135,17 @@ export interface ChangeCaseArtifact {
     source?: string
   }
   approval_report: { format: 'application/pdf'; encoding: 'base64'; filename: string; content: string }
+  workflow?: ChangeCaseWorkflow
 }
 
-function downloadReport(changeCase: ChangeCaseArtifact) {
-  const binary = window.atob(changeCase.approval_report.content)
+function downloadBase64Report(report: { content: string; filename: string }) {
+  const binary = window.atob(report.content)
   const bytes = Uint8Array.from(binary, character => character.charCodeAt(0))
   const blob = new Blob([bytes], { type: 'application/pdf' })
   const url = URL.createObjectURL(blob)
   const anchor = document.createElement('a')
   anchor.href = url
-  anchor.download = changeCase.approval_report.filename
+  anchor.download = report.filename
   document.body.appendChild(anchor)
   anchor.click()
   anchor.remove()
@@ -122,17 +166,111 @@ export function ChangeCaseReview({
   executing,
   onClose,
   onProceed,
+  onCaseUpdate,
 }: {
   changeCase: ChangeCaseArtifact
   executing: boolean
   onClose: () => void
-  onProceed: () => void
+  onProceed?: () => void
+  onCaseUpdate?: (changeCase: ChangeCaseArtifact) => void
 }) {
-  const hasGaps = changeCase.evidence.gaps.length > 0
-  const shared = changeCase.blast_radius.shared_substrate || []
-  const expiry = new Date(changeCase.authoritative_plan.expires_at_epoch * 1000)
-  const canProceed = changeCase.decision.state !== 'EXECUTION_UNSAFE'
-    && (!hasGaps || changeCase.decision.override_eligible)
+  const [current, setCurrent] = useState(changeCase)
+  const [busy, setBusy] = useState<'approve' | 'execute' | 'rollback' | 'report' | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [approvedBy, setApprovedBy] = useState('')
+  const [approverRole, setApproverRole] = useState('Service owner')
+  const [rationale, setRationale] = useState('')
+  const [riskAccepted, setRiskAccepted] = useState(false)
+  const [rollbackAcknowledged, setRollbackAcknowledged] = useState(false)
+  const [executedBy, setExecutedBy] = useState('')
+  const [rollbackRationale, setRollbackRationale] = useState('')
+
+  useEffect(() => setCurrent(changeCase), [changeCase])
+
+  const hasGaps = current.evidence.gaps.length > 0
+  const isConfigAssertion = current.execution_request.mutation_class === 'config_assertion'
+  const shared = current.blast_radius.shared_substrate || []
+  const workflow = current.workflow
+  const canProceed = current.decision.state !== 'EXECUTION_UNSAFE'
+    && (!hasGaps || current.decision.override_eligible)
+
+  const transition = async (action: string, body: Record<string, unknown>) => {
+    setError(null)
+    const response = await fetch(`/api/proxy/change-cases/${encodeURIComponent(current.case_id)}/${action}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      cache: 'no-store',
+    })
+    const payload = await response.json().catch(() => ({}))
+    if (!response.ok) {
+      const detail = payload.detail || payload.error || `${action} failed`
+      throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail))
+    }
+    setCurrent(payload)
+    onCaseUpdate?.(payload)
+    return payload as ChangeCaseArtifact
+  }
+
+  const approve = async () => {
+    setBusy('approve')
+    try {
+      await transition('approve', {
+        approved_by: approvedBy,
+        approver_role: approverRole,
+        rationale,
+        risk_accepted: riskAccepted,
+        rollback_acknowledged: rollbackAcknowledged,
+        identity_source: 'self_attested',
+      })
+      setExecutedBy(approvedBy)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Approval failed')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const execute = async () => {
+    setBusy('execute')
+    try {
+      await transition('execute', { executed_by: executedBy, identity_source: 'self_attested' })
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Execution failed')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const rollback = async () => {
+    setBusy('rollback')
+    try {
+      await transition('rollback', {
+        rolled_back_by: executedBy,
+        rationale: rollbackRationale,
+        identity_source: 'self_attested',
+      })
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Rollback failed')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const downloadFinalReport = async () => {
+    setBusy('report')
+    setError(null)
+    try {
+      const response = await fetch(`/api/proxy/change-cases/${encodeURIComponent(current.case_id)}/report`, { cache: 'no-store' })
+      const report = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(report.detail || report.error || 'Final report failed')
+      downloadBase64Report(report)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Final report failed')
+    } finally {
+      setBusy(null)
+    }
+  }
 
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/70 p-3 backdrop-blur-sm" data-testid="change-case-review">
@@ -144,11 +282,11 @@ export function ChangeCaseReview({
             </div>
             <h2 className="mt-1 text-xl font-bold text-slate-950">Review the complete production change</h2>
             <p className="mt-1 text-xs text-slate-600">
-              {changeCase.case_id} · exact plan {changeCase.authoritative_plan.plan_hash.slice(0, 12)} · expires {expiry.toLocaleString()}
+              {current.case_id} · exact frozen plan {current.authoritative_plan.plan_hash.slice(0, 12)} · captured {new Date(current.generated_at).toLocaleString()}
             </p>
             <div className="mt-2 flex flex-wrap gap-2 text-[10px] font-bold uppercase tracking-wide">
-              <span className="rounded-full bg-slate-100 px-2 py-1 text-slate-700">{changeCase.decision.state.replace(/_/g, ' ')}</span>
-              <span className="rounded-full bg-violet-100 px-2 py-1 text-violet-800">{changeCase.decision.readiness.replace(/_/g, ' ')}</span>
+              <span className="rounded-full bg-slate-100 px-2 py-1 text-slate-700">Decision gate · {current.decision.state.replace(/_/g, ' ')}</span>
+              <span className="rounded-full bg-violet-100 px-2 py-1 text-violet-800">Lifecycle · {workflow?.status?.replace(/_/g, ' ') || current.decision.readiness.replace(/_/g, ' ')}</span>
             </div>
           </div>
           <button onClick={onClose} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100" aria-label="Close Change Case">
@@ -159,13 +297,13 @@ export function ChangeCaseReview({
         <div className="flex-1 space-y-4 overflow-y-auto p-5">
           <section className="rounded-2xl border border-violet-200 bg-violet-50 p-4">
             <div className="text-xs font-bold uppercase tracking-wide text-violet-700">1. Why are we changing this?</div>
-            <p className="mt-2 text-sm font-semibold text-slate-950">{changeCase.narrative.executive_summary}</p>
-            <p className="mt-1 text-xs leading-5 text-slate-700">{changeCase.narrative.operator_summary}</p>
+            <p className="mt-2 text-sm font-semibold text-slate-950">{current.narrative.executive_summary}</p>
+            <p className="mt-1 text-xs leading-5 text-slate-700">{current.narrative.operator_summary}</p>
             <div className="mt-3 rounded-lg border border-violet-200 bg-white p-3 text-xs text-slate-700">
-              <strong>Verified claim:</strong> {changeCase.proposed_change.claim}.{' '}
-              {Array.isArray(changeCase.proposed_change.findings_attributable_to_removed_paths)
-                ? `Verified path attribution: ${changeCase.proposed_change.findings_attributable_to_removed_paths.join(', ')}. The findings remain open until the software is patched.`
-                : 'Scanner findings prioritize this workload; findings attributable to the changed paths remain UNKNOWN.'}
+              <strong>Verified claim:</strong> {current.proposed_change.claim}.{' '}
+              {Array.isArray(current.proposed_change.findings_attributable_to_removed_paths)
+                ? `Verified path attribution: ${current.proposed_change.findings_attributable_to_removed_paths.join(', ')}. The findings remain open until the software is patched.`
+                : 'Finding-to-path attribution remains UNKNOWN; this network change is not presented as a software patch.'}
             </div>
           </section>
 
@@ -175,19 +313,19 @@ export function ChangeCaseReview({
               <div>
                 <div className="mb-2 text-xs font-semibold text-slate-800">Current reviewed rule</div>
                 <div className="space-y-2">
-                  {changeCase.proposed_change.before.map((rule, index) => <RuleLine key={`${rule.rule_id}-${index}`} rule={rule} />)}
+                  {current.proposed_change.before.map((rule, index) => <RuleLine key={`${rule.rule_id}-${index}`} rule={rule} />)}
                 </div>
               </div>
               <div>
                 <div className="mb-2 text-xs font-semibold text-emerald-800">Proposed state</div>
                 <div className="space-y-2">
-                  {changeCase.proposed_change.after.length > 0
-                    ? changeCase.proposed_change.after.map((rule, index) => <RuleLine key={`${rule.protocol}-${rule.port}-${index}`} rule={rule} />)
+                  {current.proposed_change.after.length > 0
+                    ? current.proposed_change.after.map((rule, index) => <RuleLine key={`${rule.protocol}-${rule.port}-${index}`} rule={rule} />)
                     : <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">Remove only the reviewed rule. All unlisted rules stay unchanged.</div>}
                 </div>
               </div>
             </div>
-            <div className="mt-3 text-xs text-slate-600"><strong>Not touched:</strong> {changeCase.proposed_change.untouched.join(', ')}.</div>
+            <div className="mt-3 text-xs text-slate-600"><strong>Not touched:</strong> {current.proposed_change.untouched.join(', ')}.</div>
           </section>
 
           <section className={`rounded-2xl border p-4 ${hasGaps ? 'border-amber-300 bg-amber-50' : 'border-emerald-200 bg-emerald-50'}`}>
@@ -196,17 +334,17 @@ export function ChangeCaseReview({
               3. What could break, and how strong is the evidence?
             </div>
             <div className="mt-3 grid gap-2 sm:grid-cols-3">
-              <div className="rounded-xl bg-white p-3"><div className="text-lg font-bold">{changeCase.evidence.observed_traffic_records.toLocaleString()}</div><div className="text-[10px] text-slate-600">Observed admitted-traffic events</div></div>
-              <div className="rounded-xl bg-white p-3"><div className="text-sm font-bold">{changeCase.evidence.rule_unique_source_count_display}</div><div className="text-[10px] text-slate-600">Distinct rule sources</div></div>
-              <div className="rounded-xl bg-white p-3"><div className="text-lg font-bold">{changeCase.evidence.effective_days ?? 'Unknown'} / {changeCase.evidence.requested_days}</div><div className="text-[10px] text-slate-600">Evidence days</div></div>
+              <div className="rounded-xl bg-white p-3"><div className="text-lg font-bold">{current.evidence.observed_traffic_records.toLocaleString()}</div><div className="text-[10px] text-slate-600">Observed admitted-traffic events</div></div>
+              <div className="rounded-xl bg-white p-3"><div className="text-sm font-bold">{current.evidence.rule_unique_source_count_display}</div><div className="text-[10px] text-slate-600">Distinct rule sources</div></div>
+              <div className="rounded-xl bg-white p-3"><div className="text-lg font-bold">{isConfigAssertion ? 'Not required' : `${current.evidence.effective_days ?? 'Unknown'} / ${current.evidence.requested_days}`}</div><div className="text-[10px] text-slate-600">{isConfigAssertion ? 'Behavioral gate' : 'Evidence days'}</div></div>
             </div>
-            <p className="mt-3 text-xs text-slate-700">{changeCase.narrative.risk_summary}</p>
-            {changeCase.evidence.traffic_fanout_annotation?.detected && (
+            <p className="mt-3 text-xs text-slate-700">{current.narrative.risk_summary}</p>
+            {current.evidence.traffic_fanout_annotation?.detected && (
               <div className="mt-2 rounded-lg border border-slate-200 bg-white p-2 text-xs text-slate-700">
-                Context only: broad destination-port fan-out was observed across {changeCase.evidence.traffic_fanout_annotation.observed_port_count ?? 'multiple'} ports. This annotation does not select or authorize the change.
+                Context only: broad destination-port fan-out was observed across {current.evidence.traffic_fanout_annotation.observed_port_count ?? 'multiple'} ports. This annotation does not select or authorize the change.
               </div>
             )}
-            {changeCase.evidence.gaps.map((gap) => (
+            {current.evidence.gaps.map((gap) => (
               <div key={gap.code} className="mt-2 rounded-lg border border-amber-300 bg-white p-2 text-xs text-amber-950">
                 <strong>{gap.message}</strong>
               </div>
@@ -214,37 +352,45 @@ export function ChangeCaseReview({
             {shared.length > 0 && (
               <div className="mt-2 text-xs text-slate-700">
                 <strong>Known shared SG consumers:</strong> {shared.map((item) => item.resource_name || item.resource_id).join(', ')}.
-                {!changeCase.blast_radius.shared_substrate_complete && ' Completeness is not attested; the execution pipeline rechecks live attachments.'}
+                {!current.blast_radius.shared_substrate_complete && ' Completeness is not attested; the execution pipeline rechecks live attachments.'}
               </div>
             )}
-            <div className="mt-2 text-xs text-slate-700"><strong>Transitive blast radius:</strong> {Array.isArray(changeCase.blast_radius.transitive) ? changeCase.blast_radius.transitive.join(', ') : changeCase.blast_radius.transitive}.</div>
+            <div className="mt-2 text-xs text-slate-700"><strong>Transitive blast radius:</strong> {Array.isArray(current.blast_radius.transitive) ? current.blast_radius.transitive.join(', ') : current.blast_radius.transitive}.</div>
           </section>
 
           <section className="rounded-2xl border border-slate-200 bg-white p-4">
             <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-slate-600"><ShieldCheck className="h-4 w-4" /> 4. How will Cyntro control and reverse it?</div>
             <ol className="mt-3 space-y-2">
-              {changeCase.rollout.steps.map((step, index) => (
+              {current.rollout.steps.map((step, index) => (
                 <li key={step} className="flex gap-3 text-xs text-slate-700"><span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-900 text-[10px] font-bold text-white">{index + 1}</span>{step}</li>
               ))}
             </ol>
             <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
-              <strong>Pre-change simulation:</strong> {changeCase.simulation.rules_to_change} exact rule(s); {changeCase.simulation.potential_impact_count} potential-impact record(s).
-              {changeCase.simulation.warnings.map((warning) => (
+              <strong>Pre-change simulation:</strong> {current.simulation.rules_to_change} exact rule(s); {current.simulation.potential_impact_count} potential-impact record(s).
+              {current.simulation.warnings.map((warning) => (
                 <div key={warning} className="mt-1 text-amber-800">⚠ {warning}</div>
               ))}
             </div>
-            <div className="mt-3 flex gap-2 rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs text-blue-950"><RotateCcw className="h-4 w-4 shrink-0" />{changeCase.rollback.summary}</div>
-            <div className="mt-2 text-xs text-slate-600">IaC follow-up: {changeCase.iac_reconciliation.instruction}</div>
+            <div className="mt-3 flex gap-2 rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs text-blue-950"><RotateCcw className="h-4 w-4 shrink-0" />{current.rollback.summary}</div>
+            <div className="mt-2 text-xs text-slate-600">IaC follow-up: {current.iac_reconciliation.instruction}</div>
           </section>
 
           <section className="rounded-2xl border border-slate-900 bg-slate-900 p-4 text-white">
             <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-violet-200"><FileText className="h-4 w-4" /> 5. What decision is required?</div>
-            <p className="mt-2 text-sm">{changeCase.narrative.decision_request}</p>
+            <p className="mt-2 text-sm">{current.narrative.decision_request}</p>
             <div className="mt-4 grid gap-2 sm:grid-cols-2">
-              <button onClick={() => downloadReport(changeCase)} className="flex items-center justify-center gap-2 rounded-xl border border-white/30 px-4 py-3 text-sm font-semibold hover:bg-white/10">
+              <button onClick={() => downloadBase64Report(current.approval_report)} className="flex items-center justify-center gap-2 rounded-xl border border-white/30 px-4 py-3 text-sm font-semibold hover:bg-white/10">
                 <Download className="h-4 w-4" /> Download approval PDF
               </button>
-              <button onClick={onProceed} disabled={executing || !canProceed} className="rounded-xl bg-violet-500 px-4 py-3 text-sm font-bold hover:bg-violet-400 disabled:opacity-50">
+              {workflow && (
+                <button onClick={downloadFinalReport} disabled={busy === 'report'} className="flex items-center justify-center gap-2 rounded-xl border border-white/30 px-4 py-3 text-sm font-semibold hover:bg-white/10 disabled:opacity-50">
+                  <Download className="h-4 w-4" /> {busy === 'report' ? 'Building final report…' : 'Download current report'}
+                </button>
+              )}
+            </div>
+
+            {!workflow && (
+              <button onClick={onProceed} disabled={executing || !canProceed} className="mt-3 w-full rounded-xl bg-violet-500 px-4 py-3 text-sm font-bold hover:bg-violet-400 disabled:opacity-50">
                 {executing
                   ? 'Executing existing safety workflow…'
                   : !canProceed
@@ -253,8 +399,91 @@ export function ChangeCaseReview({
                       ? 'Proceed with risk acceptance'
                       : 'Proceed to execution'}
               </button>
-            </div>
+            )}
+
+            {workflow?.status === 'AWAITING_APPROVAL' && (
+              <div className="mt-4 space-y-3 rounded-xl bg-white/10 p-4">
+                <div className="flex items-center gap-2 text-sm font-semibold"><UserCheck className="h-4 w-4" /> Independent approval</div>
+                <p className="text-xs text-amber-200">Pilot identity is self-attested until customer SSO is connected; the report labels it accordingly.</p>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="text-xs">Approver
+                    <input aria-label="Approver" value={approvedBy} onChange={(event) => setApprovedBy(event.target.value)} className="mt-1 w-full rounded-lg border border-white/30 bg-white px-3 py-2 text-slate-950" placeholder="name@company.com" />
+                  </label>
+                  <label className="text-xs">Approver role
+                    <input aria-label="Approver role" value={approverRole} onChange={(event) => setApproverRole(event.target.value)} className="mt-1 w-full rounded-lg border border-white/30 bg-white px-3 py-2 text-slate-950" />
+                  </label>
+                </div>
+                <label className="block text-xs">Approval rationale
+                  <textarea aria-label="Approval rationale" value={rationale} onChange={(event) => setRationale(event.target.value)} className="mt-1 min-h-20 w-full rounded-lg border border-white/30 bg-white px-3 py-2 text-slate-950" placeholder="Ticket, owner confirmation, and why this exact change is approved" />
+                </label>
+                {hasGaps && (
+                  <label className="flex items-start gap-2 text-xs">
+                    <input type="checkbox" checked={riskAccepted} onChange={(event) => setRiskAccepted(event.target.checked)} />
+                    I accept the explicitly listed evidence gaps; this does not change their truth.
+                  </label>
+                )}
+                <label className="flex items-start gap-2 text-xs">
+                  <input type="checkbox" checked={rollbackAcknowledged} onChange={(event) => setRollbackAcknowledged(event.target.checked)} />
+                  I reviewed the checkpoint and rollback plan.
+                </label>
+                <button onClick={approve} disabled={busy !== null || approvedBy.trim().length < 2 || rationale.trim().length < 8 || !rollbackAcknowledged || (hasGaps && !riskAccepted)} className="w-full rounded-xl bg-violet-500 px-4 py-3 text-sm font-bold hover:bg-violet-400 disabled:opacity-50">
+                  {busy === 'approve' ? 'Recording approval…' : 'Approve exact signed plan'}
+                </button>
+              </div>
+            )}
+
+            {workflow?.status === 'APPROVED' && (
+              <div className="mt-4 space-y-3 rounded-xl bg-white/10 p-4">
+                <div className="flex items-center gap-2 text-sm font-semibold"><Play className="h-4 w-4" /> Supervised execution</div>
+                <label className="block text-xs">Executing operator
+                  <input aria-label="Executing operator" value={executedBy} onChange={(event) => setExecutedBy(event.target.value)} className="mt-1 w-full rounded-lg border border-white/30 bg-white px-3 py-2 text-slate-950" placeholder="name@company.com" />
+                </label>
+                <button onClick={execute} disabled={busy !== null || executedBy.trim().length < 2} className="w-full rounded-xl bg-violet-500 px-4 py-3 text-sm font-bold hover:bg-violet-400 disabled:opacity-50">
+                  {busy === 'execute' ? 'Running preflight, checkpoint and mutation…' : 'Execute approved Change Case'}
+                </button>
+              </div>
+            )}
+
+            {workflow?.status === 'SUCCEEDED' && (
+              <div className="mt-4 space-y-3 rounded-xl bg-emerald-500/15 p-4">
+                <div className="text-sm font-semibold">Execution succeeded · checkpoint {workflow.latest_run?.snapshot_id || 'not reported'}</div>
+                <label className="block text-xs">Rollback operator
+                  <input aria-label="Rollback operator" value={executedBy} onChange={(event) => setExecutedBy(event.target.value)} className="mt-1 w-full rounded-lg border border-white/30 bg-white px-3 py-2 text-slate-950" placeholder="name@company.com" />
+                </label>
+                <label className="block text-xs">Rollback rationale
+                  <textarea aria-label="Rollback rationale" value={rollbackRationale} onChange={(event) => setRollbackRationale(event.target.value)} className="mt-1 min-h-16 w-full rounded-lg border border-white/30 bg-white px-3 py-2 text-slate-950" placeholder="Why restoration is required" />
+                </label>
+                <button onClick={rollback} disabled={busy !== null || executedBy.trim().length < 2 || rollbackRationale.trim().length < 8 || !workflow.latest_run?.snapshot_id} className="w-full rounded-xl border border-red-300 px-4 py-3 text-sm font-bold text-red-100 hover:bg-red-500/20 disabled:opacity-50">
+                  {busy === 'rollback' ? 'Restoring checkpoint…' : 'Rollback from verified checkpoint'}
+                </button>
+              </div>
+            )}
+
+            {workflow && !['AWAITING_APPROVAL', 'APPROVED', 'SUCCEEDED'].includes(workflow.status) && (
+              <div className="mt-4 rounded-xl bg-white/10 p-4 text-sm">
+                Workflow status: <strong>{workflow.status.replace(/_/g, ' ')}</strong>
+              </div>
+            )}
+
+            {error && <div role="alert" className="mt-3 rounded-lg border border-red-300 bg-red-500/20 p-3 text-sm text-red-50">{error}</div>}
           </section>
+
+          {workflow && (
+            <section className="rounded-2xl border border-slate-200 bg-white p-4">
+              <div className="text-xs font-bold uppercase tracking-wide text-slate-600">6. Tamper-evident execution timeline</div>
+              <div className="mt-3 space-y-3">
+                {workflow.events.map((event) => (
+                  <div key={event.event_id} className="flex gap-3 text-xs">
+                    <div className="mt-1 h-2 w-2 shrink-0 rounded-full bg-violet-500" />
+                    <div>
+                      <div className="font-semibold text-slate-900">{event.kind.replace(/_/g, ' ')}</div>
+                      <div className="text-slate-600">{new Date(event.at).toLocaleString()} · {event.actor}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
         </div>
       </div>
     </div>
