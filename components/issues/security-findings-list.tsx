@@ -49,6 +49,7 @@ export function SecurityFindingsList({ findings, onRefreshFindings }: SecurityFi
     console.log("[LIST] Closing modal")
     setShowModal(false)
     setSelectedFinding(null)
+    setSimulatingId(null)
   }
 
   const handleExecute = async (findingId: string, options?: { createRollback?: boolean }) => {

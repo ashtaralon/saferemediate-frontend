@@ -106,16 +106,36 @@ export function FindingCard({ finding, onSimulate, isSimulating }: FindingCardPr
   // border regardless of how severe the finding was. tsc had been reporting all
   // nine comparisons as no-overlap; they sat in the 253-error backlog.
   const severity = String(finding.severity ?? "MEDIUM").toLowerCase()
+  const resourceName = String((finding as any).role_name || finding.resourceId || finding.resource || "")
+  const normalizedResourceType = String(finding.resourceType || "").replace(/\s+/g, "").toLowerCase()
+  const visibilityOnly =
+    (finding as any).remediationMode === "VISIBILITY_ONLY" ||
+    (finding as any).canSimulate === false ||
+    resourceName.startsWith("AWSServiceRole") ||
+    resourceName.startsWith("SafeRemediate-") ||
+    (normalizedResourceType === "securitygroup" && String((finding as any).group_name || "").toLowerCase() === "default")
+  const supportsChangeCase =
+    normalizedResourceType === "iamrole" ||
+    normalizedResourceType === "securitygroup" ||
+    findingType === "UNUSED_PERMISSIONS" ||
+    findingType === "PUBLIC_EXPOSURE"
   
   const handleSimulate = () => {
+    if (visibilityOnly || !supportsChangeCase) return
     if (onSimulate) {
       onSimulate(finding)
+      return
     }
     setShowSimulateModal(true)
   }
 
   // Render IAM Role finding
-  if (findingType === "iam_unused_permissions" || findingType === "unused_permission") {
+  if (
+    findingType === "iam_unused_permissions" ||
+    findingType === "unused_permission" ||
+    findingType === "UNUSED_PERMISSIONS" ||
+    findingType === "iam"
+  ) {
     const iamData = finding as any
     // Try multiple field names for backward compatibility
     const unusedActions: string[] = iamData.unusedActions ?? iamData.details?.unusedActions ?? []
@@ -125,11 +145,12 @@ export function FindingCard({ finding, onSimulate, isSimulating }: FindingCardPr
     // measurement of zero. A count we do not have stays null and renders as
     // "unknown" below — on this surface "0 unused permissions" reads as "this
     // resource is clean", which is a claim a missing field cannot make.
-    const allowedCount: number | null = iamData.allowedCount ?? iamData.details?.allowedCount ?? null
-    const usedCount: number | null = iamData.usedCount ?? iamData.details?.usedCount ?? null
-    const unusedCount: number | null = iamData.unusedCount ?? iamData.details?.unusedCount ?? null
+    const titleUnusedCount = String(finding.title || "").match(/(?:unused permissions:\s*)?(\d+)\s+permissions/i)?.[1]
+    const allowedCount: number | null = iamData.allowedCount ?? iamData.allowed_actions_count ?? iamData.details?.allowedCount ?? null
+    const usedCount: number | null = iamData.usedCount ?? iamData.used_actions_count ?? iamData.details?.usedCount ?? null
+    const unusedCount: number | null = iamData.unusedCount ?? iamData.unused_actions_count ?? iamData.details?.unusedCount ?? (titleUnusedCount ? Number(titleUnusedCount) : null)
     const confidence: number | null = iamData.confidence ?? null
-    const isRemediable: boolean = iamData.isRemediable !== false
+    const isRemediable: boolean = iamData.isRemediable !== false && !visibilityOnly
     const roleName = iamData.role_name || finding.resourceId
 
     return (
@@ -185,6 +206,11 @@ export function FindingCard({ finding, onSimulate, isSimulating }: FindingCardPr
                         {confidence}% confidence
                       </Badge>
                     )}
+                    {visibilityOnly && (
+                      <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-800">
+                        Protected · visibility only
+                      </Badge>
+                    )}
                     {(() => {
                       const phase = getLPPhase(iamData.observation_days)
                       return phase ? (
@@ -238,11 +264,11 @@ export function FindingCard({ finding, onSimulate, isSimulating }: FindingCardPr
                 <h4 className="font-semibold text-blue-900 mb-3">📊 Gap Analysis</h4>
                 <div className="grid grid-cols-3 gap-4">
                   <div className="text-center">
-                    <div className="text-2xl font-bold text-[#3b82f6]">{allowedCount}</div>
+                    <div className="text-2xl font-bold text-[#3b82f6]">{allowedCount ?? "—"}</div>
                     <div className="text-xs text-[var(--muted-foreground,#4b5563)] mt-1">Allowed Actions</div>
                   </div>
                   <div className="text-center">
-                    <div className="text-2xl font-bold text-[#22c55e]">{usedCount}</div>
+                    <div className="text-2xl font-bold text-[#22c55e]">{usedCount ?? "—"}</div>
                     <div className="text-xs text-[var(--muted-foreground,#4b5563)] mt-1">Actually Used</div>
                   </div>
                   <div className="text-center">
@@ -288,9 +314,14 @@ export function FindingCard({ finding, onSimulate, isSimulating }: FindingCardPr
               {/* Remediation */}
               <div className="bg-[#22c55e10] rounded-lg p-4 border border-[#22c55e40]">
                 <h4 className="font-semibold text-green-900 mb-2">💡 Remediation</h4>
-                <p className="text-sm text-[var(--foreground,#374151)] mb-3">{finding.remediation || "Remove unused permissions to follow least privilege principle"}</p>
+                <p className="text-sm text-[var(--foreground,#374151)] mb-3">
+                  {visibilityOnly
+                    ? (finding as any).protectionReason || "This AWS-managed resource is shown for visibility and is not a customer mutation target."
+                    : finding.remediation || "Review the exact permission diff, evidence, blast radius, checkpoint, and recovery plan."}
+                </p>
                 <Button
                   onClick={handleSimulate}
+                  aria-label="Simulate: build configuration Change Case"
                   // Withheld when the normalizer found no backend finding id or
                   // no measured evidence — simulating against nothing is worse
                   // than offering no button.
@@ -307,7 +338,7 @@ export function FindingCard({ finding, onSimulate, isSimulating }: FindingCardPr
                   ) : (
                     <>
                       <Zap className="w-4 h-4 mr-2" />
-                      Simulate Fix
+                      {visibilityOnly ? "Visibility only" : "Build Change Case"}
                     </>
                   )}
                 </Button>
@@ -319,7 +350,7 @@ export function FindingCard({ finding, onSimulate, isSimulating }: FindingCardPr
             <CardContent className="pt-0">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 text-sm text-[var(--muted-foreground,#4b5563)]">
-                  <span>{unusedCount} unused permissions • {iamData.confidence || 0}% confidence</span>
+                  <span>{unusedCount ?? "Unknown"} unused permissions{confidence !== null ? ` • ${confidence}% confidence` : ""}</span>
                   {(() => {
                     const phase = getLPPhase(iamData.observation_days)
                     return phase ? (
@@ -333,17 +364,23 @@ export function FindingCard({ finding, onSimulate, isSimulating }: FindingCardPr
                   variant="outline"
                   size="sm"
                   onClick={handleSimulate}
-                  disabled={isSimulating}
+                  aria-label="Simulate: review configuration change"
+                  disabled={isSimulating || !isRemediable}
+                  title={
+                    isRemediable
+                      ? undefined
+                      : `Change review unavailable: ${iamData.protectionReason ?? iamData.notRemediableReason ?? "visibility only"}`
+                  }
                 >
                   <Zap className="w-4 h-4 mr-2" />
-                  Simulate
+                  {visibilityOnly ? "Visibility only" : "Review change"}
                 </Button>
               </div>
             </CardContent>
           )}
         </Card>
 
-        {showSimulateModal && (
+        {showSimulateModal && !onSimulate && (
           <SimulateFixModal
             isOpen={showSimulateModal}
             onClose={() => setShowSimulateModal(false)}
@@ -490,7 +527,8 @@ export function FindingCard({ finding, onSimulate, isSimulating }: FindingCardPr
                 </div>
                 <Button
                   onClick={handleSimulate}
-                  disabled={isSimulating}
+                  disabled
+                  title="IAM user changes use a separate identity lifecycle workflow. This finding remains available for evidence review."
                   className="w-full bg-green-600 hover:bg-green-700"
                 >
                   {isSimulating ? (
@@ -498,7 +536,7 @@ export function FindingCard({ finding, onSimulate, isSimulating }: FindingCardPr
                   ) : (
                     <>
                       <Zap className="w-4 h-4 mr-2" />
-                      Simulate Fix
+                      Evidence view only
                     </>
                   )}
                 </Button>
@@ -516,17 +554,18 @@ export function FindingCard({ finding, onSimulate, isSimulating }: FindingCardPr
                   variant="outline"
                   size="sm"
                   onClick={handleSimulate}
-                  disabled={isSimulating}
+                  disabled
+                  title="IAM user changes use a separate identity lifecycle workflow."
                 >
                   <Zap className="w-4 h-4 mr-2" />
-                  Simulate
+                  Evidence view only
                 </Button>
               </div>
             </CardContent>
           )}
         </Card>
 
-        {showSimulateModal && (
+        {showSimulateModal && !onSimulate && (
           <SimulateFixModal
             isOpen={showSimulateModal}
             onClose={() => setShowSimulateModal(false)}
@@ -637,7 +676,8 @@ export function FindingCard({ finding, onSimulate, isSimulating }: FindingCardPr
                 </div>
                 <Button
                   onClick={handleSimulate}
-                  disabled={isSimulating}
+                  disabled
+                  title="Network ACL changes require their dedicated resource workflow. This finding remains available for evidence review."
                   className="w-full bg-green-600 hover:bg-green-700"
                 >
                   {isSimulating ? (
@@ -645,7 +685,7 @@ export function FindingCard({ finding, onSimulate, isSimulating }: FindingCardPr
                   ) : (
                     <>
                       <Zap className="w-4 h-4 mr-2" />
-                      Simulate Fix
+                      Evidence view only
                     </>
                   )}
                 </Button>
@@ -663,17 +703,18 @@ export function FindingCard({ finding, onSimulate, isSimulating }: FindingCardPr
                   variant="outline"
                   size="sm"
                   onClick={handleSimulate}
-                  disabled={isSimulating}
+                  disabled
+                  title="Network ACL changes require their dedicated resource workflow."
                 >
                   <Zap className="w-4 h-4 mr-2" />
-                  Simulate
+                  Evidence view only
                 </Button>
               </div>
             </CardContent>
           )}
         </Card>
 
-        {showSimulateModal && (
+        {showSimulateModal && !onSimulate && (
           <SimulateFixModal
             isOpen={showSimulateModal}
             onClose={() => setShowSimulateModal(false)}
@@ -710,6 +751,11 @@ export function FindingCard({ finding, onSimulate, isSimulating }: FindingCardPr
                     {severity.toUpperCase()}
                   </Badge>
                   <Badge variant="outline">{finding.category || finding.resourceType}</Badge>
+                  {visibilityOnly && (
+                    <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-800">
+                      Protected · visibility only
+                    </Badge>
+                  )}
                 </div>
                 <CardTitle className="text-lg mb-1">{finding.title}</CardTitle>
                 <p className="text-sm text-[var(--muted-foreground,#4b5563)] line-clamp-2">{finding.description}</p>
@@ -748,13 +794,18 @@ export function FindingCard({ finding, onSimulate, isSimulating }: FindingCardPr
               </div>
             </div>
 
-            {finding.remediation && (
+            {(finding.remediation || supportsChangeCase || visibilityOnly) && (
               <div className="bg-[#22c55e10] rounded-lg p-4 border border-[#22c55e40]">
-                <h4 className="font-semibold text-green-900 mb-2">💡 Remediation</h4>
-                <p className="text-sm text-[var(--foreground,#374151)] mb-3">{finding.remediation}</p>
+                <h4 className="font-semibold text-green-900 mb-2">💡 Change review</h4>
+                <p className="text-sm text-[var(--foreground,#374151)] mb-3">
+                  {visibilityOnly
+                    ? (finding as any).protectionReason || "This protected resource is shown for visibility and is not mutated from a finding."
+                    : finding.remediation || "Review the exact rule diff, evidence, blast radius, checkpoint, and recovery plan."}
+                </p>
                 <Button
                   onClick={handleSimulate}
-                  disabled={isSimulating}
+                  disabled={isSimulating || visibilityOnly || !supportsChangeCase}
+                  title={visibilityOnly ? (finding as any).protectionReason || "Visibility only" : !supportsChangeCase ? "Use the resource-specific workflow for this finding type." : undefined}
                   className="w-full bg-green-600 hover:bg-green-700"
                 >
                   {isSimulating ? (
@@ -762,7 +813,7 @@ export function FindingCard({ finding, onSimulate, isSimulating }: FindingCardPr
                   ) : (
                     <>
                       <Zap className="w-4 h-4 mr-2" />
-                      Simulate Fix
+                      {visibilityOnly ? "Visibility only" : supportsChangeCase ? "Build Change Case" : "Evidence view only"}
                     </>
                   )}
                 </Button>
@@ -771,7 +822,7 @@ export function FindingCard({ finding, onSimulate, isSimulating }: FindingCardPr
           </CardContent>
         )}
 
-        {!isExpanded && finding.remediation && (
+        {!isExpanded && (finding.remediation || supportsChangeCase || visibilityOnly) && (
           <CardContent className="pt-0">
             <div className="flex items-center justify-between">
               <div className="text-sm text-[var(--muted-foreground,#4b5563)]">
@@ -783,22 +834,26 @@ export function FindingCard({ finding, onSimulate, isSimulating }: FindingCardPr
                 onClick={handleSimulate}
                 // Same gate as the IAM card: a finding the normalizer could not
                 // type, or one with no backend id, has nothing to simulate against.
-                disabled={isSimulating || (finding as any).isRemediable === false}
+                disabled={isSimulating || visibilityOnly || !supportsChangeCase || (finding as any).isRemediable === false}
                 title={
-                  (finding as any).isRemediable === false
+                  visibilityOnly
+                    ? (finding as any).protectionReason || "Visibility only"
+                    : !supportsChangeCase
+                      ? "Use the resource-specific workflow for this finding type."
+                      : (finding as any).isRemediable === false
                     ? `Remediation unavailable: ${(finding as any).notRemediableReason ?? "insufficient evidence"}`
                     : undefined
                 }
               >
                 <Zap className="w-4 h-4 mr-2" />
-                Simulate
+                {visibilityOnly ? "Visibility only" : supportsChangeCase ? "Review change" : "Evidence only"}
               </Button>
             </div>
           </CardContent>
         )}
       </Card>
 
-      {showSimulateModal && (
+      {showSimulateModal && !onSimulate && (
         <SimulateFixModal
           isOpen={showSimulateModal}
           onClose={() => setShowSimulateModal(false)}

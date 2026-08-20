@@ -1,535 +1,350 @@
-'use client';
+'use client'
 
-import React, { useState, useEffect, useMemo } from 'react';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
-import { AlertCircle, CheckCircle, Loader2 } from 'lucide-react';
-import { toRoutingDecision } from '@/lib/decision-routing';
+import React, { useEffect, useMemo, useState } from 'react'
+import {
+  AlertCircle,
+  CheckCircle2,
+  ClipboardCheck,
+  FileClock,
+  Loader2,
+  LockKeyhole,
+  RotateCcw,
+  ShieldCheck,
+  Users,
+} from 'lucide-react'
+
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 
 interface Finding {
-  id?: string;
-  finding_id?: string;
-  title?: string;
-  description?: string;
-  severity?: string;
-  resource?: string;
-  resourceId?: string;
-  resourceType?: string;
-  type?: string;
-  role_name?: string;
+  id?: string
+  finding_id?: string
+  title?: string
+  description?: string
+  severity?: string
+  resource?: string
+  resourceId?: string
+  resourceType?: string
+  type?: string
+  role_name?: string
 }
 
 interface SimulateFixModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  finding?: Finding;
-  role?: {
-    id?: string;
-    name?: string;
-    arn?: string;
-    policies?: Array<{
-      id?: string;
-      name?: string;
-      document?: any;
-    }>;
-  };
+  isOpen?: boolean
+  open?: boolean
+  onClose: () => void
+  finding?: Finding | null
+  role?: { id?: string; name?: string; arn?: string; policies?: any[] }
+  onExecute?: (...args: any[]) => any
+  onRefreshFindings?: () => void
+  backendUrl?: string
 }
 
-type Step = "INTRO" | "SIMULATED" | "ERROR";
+type Step = 'INTRO' | 'REVIEW' | 'REQUESTED' | 'ERROR'
 
-export function SimulateFixModal({ isOpen, onClose, finding, role }: SimulateFixModalProps) {
-  const [step, setStep] = useState<Step>("INTRO");
-  const [simulation, setSimulation] = useState<any>(null);
-  const [decision, setDecision] = useState<any>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+const list = (value: any): any[] => Array.isArray(value) ? value : []
 
-  // Map the legacy 6-state decision.action coming from /api/proxy/simulate
-  // onto the v4.4 §11E canonical 4-state via the shared mapper. Returns
-  // null when decision is absent (the live API doesn't populate this
-  // field today; the display block below is gated on `decision &&`).
-  const routedDecision = useMemo(
-    () => toRoutingDecision(decision?.action),
-    [decision]
-  );
+function displayValue(value: any): string {
+  if (value === null || value === undefined || value === '') return 'Unknown'
+  if (typeof value === 'string' || typeof value === 'number') return String(value)
+  const parts = [
+    value.action,
+    value.protocol,
+    value.port,
+    value.source,
+    value.permission,
+    value.name,
+    value.id,
+  ].filter(Boolean)
+  return parts.length ? parts.join(' · ') : JSON.stringify(value)
+}
 
-  // Handle simulate - called when user clicks "Run Simulation" button
-  const handleSimulate = async () => {
-    if (!finding && !role) {
-      setError('Finding or role is required');
-      setStep('ERROR');
-      return;
-    }
+function Section({
+  icon,
+  title,
+  children,
+}: {
+  icon: React.ReactNode
+  title: string
+  children: React.ReactNode
+}) {
+  return (
+    <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-900">
+        <span className="text-teal-700">{icon}</span>
+        {title}
+      </div>
+      {children}
+    </section>
+  )
+}
 
-    try {
-      setLoading(true);
-      setError(null);
+export function SimulateFixModal({ isOpen, open, onClose, finding, role, onRefreshFindings }: SimulateFixModalProps) {
+  const modalOpen = isOpen ?? open ?? false
+  const [step, setStep] = useState<Step>('INTRO')
+  const [result, setResult] = useState<any>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-      // If we have a finding, call simulate endpoint
-      if (finding) {
-        const findingId = finding.finding_id || finding.id;
-        if (!findingId) {
-          throw new Error('Finding ID is required');
-        }
+  const findingId = finding?.finding_id || finding?.id
+  const changeCase = result?.change_case || {}
+  const resource = changeCase.resource || changeCase.scope || {}
+  const explanation = changeCase.explanation || changeCase.narrative || {}
+  const proposed = changeCase.proposed_change || {}
+  const evidence = changeCase.evidence || {}
+  const approval = changeCase.approval || {}
+  const decision = result?.decision || {}
 
-        // Use proxy route - no direct backend calls
-        const res = await fetch('/api/proxy/simulate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ finding_id: findingId }),
-        });
+  const evidenceCaveats = useMemo(() => [
+    ...list(evidence.caveats),
+    ...list(evidence.gaps).map((gap) => gap?.message || displayValue(gap)),
+  ].filter(Boolean), [evidence])
 
-        const data = await res.json();
-
-        if (!res.ok) {
-          throw new Error(data?.error || data?.detail || `Simulation failed: ${res.status}`);
-        }
-
-        // Extract simulation and decision from response
-        setSimulation(data.simulation ?? null);
-        setDecision(data.decision ?? null);
-        setStep('SIMULATED');
-      } else if (role) {
-        // Legacy role-based remediation (keep for backward compatibility)
-        const response = await fetch('/api/proxy/remediate', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            roleId: role?.id || '',
-            roleName: role?.name || '',
-            roleArn: role?.arn || '',
-            policies: role?.policies || [],
-          }),
-        });
-
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({ message: `API error: ${response.status}` }));
-          throw new Error(errorData?.message || errorData?.detail || `API error: ${response.status}`);
-        }
-
-        const data = await response.json();
-        setStep('SIMULATED');
-      }
-    } catch (e: any) {
-      setError(e.message || 'An unexpected error occurred');
-      setStep('ERROR');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleApplyFix = async () => {
-    console.log('🔥 APPLY BUTTON CLICKED');
-    
-    if (!finding && !role) {
-      console.error('No finding or role available');
-      setError('Finding or role is required');
-      setStep('ERROR');
-      return;
-    }
-
-    const findingId = finding?.finding_id || finding?.id;
-    console.log('🔥 APPLY DEBUG:', {
-      step,
-      findingId,
-      hasId: !!findingId,
-      decision: decision?.action,
-      finding: finding ? { id: finding.id, finding_id: finding.finding_id } : null
-    });
-
-    if (!findingId) {
-      console.error('Finding ID is missing');
-      setError('Finding ID is required');
-      setStep('ERROR');
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-
-    try {
-      // Use proxy route for remediation execution
-      const response = await fetch('/api/proxy/simulate/execute', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          finding_id: findingId,
-          create_rollback: true,
-        }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ detail: `API error: ${response.status}` }));
-        throw new Error(errorData?.detail || errorData?.message || `API error: ${response.status}`);
-      }
-
-      const data = await response.json();
-      console.log('✅ Remediation response:', data);
-      
-      // Check if blocked by policy
-      if (data.blocked === true) {
-        console.log('🚫 Remediation blocked by policy:', data.details);
-        setError(data.details || data.reason || 'Remediation blocked by protection policy');
-        setStep('ERROR');
-        return;
-      }
-      
-      // Check if successful
-      if (data.success === true) {
-        console.log('✅ Remediation executed successfully');
-        // Show success and close after a moment
-        setStep('SIMULATED');
-        setTimeout(() => {
-          handleClose();
-        }, 2000);
-      } else {
-        // Not blocked but not successful either
-        setError(data.error || data.message || 'Remediation failed');
-        setStep('ERROR');
-      }
-    } catch (e: any) {
-      console.error('❌ Remediation failed:', e);
-      setError(e.message || 'An unexpected error occurred');
-      setStep('ERROR');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleRemediateClick = async () => {
-    // Legacy role-based remediation (for backward compatibility)
-    if (role) {
-      if (!role?.name) {
-        setError('Role name is required');
-        setStep('ERROR');
-        return;
-      }
-
-      setLoading(true);
-      setError(null);
-
-      try {
-        const response = await fetch('/api/proxy/remediate', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            roleId: role?.id || '',
-            roleName: role?.name || '',
-            roleArn: role?.arn || '',
-            policies: role?.policies || [],
-          }),
-        });
-
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({ message: `API error: ${response.status}` }));
-          throw new Error(errorData?.message || errorData?.detail || `API error: ${response.status}`);
-        }
-
-        const data = await response.json();
-        setStep('SIMULATED');
-      } catch (e: any) {
-        setError(e.message || 'An unexpected error occurred');
-        setStep('ERROR');
-      } finally {
-        setLoading(false);
-      }
-    }
-  };
-
-  const handleClose = () => {
-    setStep('INTRO');
-    setError(null);
-    setSimulation(null);
-    setDecision(null);
-    onClose();
-  };
-
-  // Reset to INTRO when modal opens
   useEffect(() => {
-    if (isOpen) {
-      setStep('INTRO');
-      setError(null);
-      setSimulation(null);
-      setDecision(null);
+    if (modalOpen) {
+      setStep('INTRO')
+      setResult(null)
+      setError(null)
+      setLoading(false)
     }
-  }, [isOpen]);
+  }, [modalOpen, findingId])
 
-  // Early return if modal is not open
-  if (!isOpen) {
-    return null;
+  const close = () => {
+    setStep('INTRO')
+    setResult(null)
+    setError(null)
+    onClose()
   }
 
-  // Early return if both finding and role are missing
-  if (!finding && !role) {
-    return null;
+  const runAnalysis = async () => {
+    if (!findingId) {
+      setError('A canonical finding ID is required.')
+      setStep('ERROR')
+      return
+    }
+    setLoading(true)
+    setError(null)
+    try {
+      const response = await fetch('/api/proxy/simulate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ finding_id: findingId }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok || !data?.success) {
+        throw new Error(data?.error || data?.detail || `Analysis failed (${response.status})`)
+      }
+      setResult(data)
+      setStep('REVIEW')
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Configuration analysis failed.')
+      setStep('ERROR')
+    } finally {
+      setLoading(false)
+    }
   }
+
+  const requestApproval = async () => {
+    if (!findingId) return
+    setLoading(true)
+    setError(null)
+    try {
+      const response = await fetch('/api/proxy/simulate/approval', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ finding_id: findingId }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok || !data?.success) {
+        throw new Error(data?.error || data?.detail || `Approval request failed (${response.status})`)
+      }
+      setResult((current: any) => ({ ...current, approval_request: data.approval_request }))
+      setStep('REQUESTED')
+      onRefreshFindings?.()
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Approval request failed.')
+      setStep('ERROR')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  if (!modalOpen || (!finding && !role)) return null
 
   return (
-    <Dialog open={isOpen} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-[500px]">
-        <DialogHeader>
-          <DialogTitle>{finding ? 'Simulate Remediation' : 'Remediate Role'}</DialogTitle>
-          <DialogDescription>
-            {finding ? 'Analyzing impact and determining remediation action' : 'Review the role details before executing remediation'}
-          </DialogDescription>
-        </DialogHeader>
+    <Dialog open={modalOpen} onOpenChange={(open) => !open && close()}>
+      <DialogContent className="max-h-[92vh] overflow-y-auto border-0 bg-slate-50 p-0 sm:max-w-[760px]">
+        <div className="border-b border-slate-200 bg-slate-950 px-6 py-5 text-white">
+          <DialogHeader>
+            <div className="mb-2 flex items-center gap-2">
+              <Badge className="bg-teal-400/15 text-teal-200 hover:bg-teal-400/15">Configuration Change Case</Badge>
+              {result?.mode && <Badge variant="outline" className="border-white/25 text-slate-200">{result.mode.replaceAll('_', ' ')}</Badge>}
+            </div>
+            <DialogTitle className="text-xl text-white">{finding?.title || role?.name || 'Configuration review'}</DialogTitle>
+            <DialogDescription className="text-slate-300">
+              Evidence, exact scope, risk, approval, checkpoint, and recovery in one review.
+            </DialogDescription>
+          </DialogHeader>
+        </div>
 
-        <div className="space-y-6 py-4">
-          {/* INTRO Screen - Before simulation */}
-          {step === "INTRO" && finding && (
-            <div className="space-y-4">
-              <h3 className="text-lg font-semibold">Simulation Preview</h3>
+        <div className="space-y-4 p-6">
+          {step === 'INTRO' && (
+            <div className="space-y-5">
+              <div className="rounded-xl border border-slate-200 bg-white p-5">
+                <div className="mb-4 flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-xs font-medium uppercase tracking-wide text-slate-500">Resource</div>
+                    <div className="mt-1 break-all font-mono text-sm text-slate-900">
+                      {finding?.resource || finding?.resourceId || role?.arn || role?.name || 'Unknown'}
+                    </div>
+                  </div>
+                  {finding?.severity && <Badge variant="outline">{finding.severity}</Badge>}
+                </div>
+                <p className="text-sm leading-6 text-slate-600">
+                  This is a read-only analysis. It reloads the finding and live resource state, then asks the resource-specific safety engine for an exact plan. No AWS configuration changes in this step.
+                </p>
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={close}>Cancel</Button>
+                <Button onClick={runAnalysis} disabled={loading} className="bg-teal-700 hover:bg-teal-800">
+                  {loading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Analyzing…</> : 'Build Change Case'}
+                </Button>
+              </div>
+            </div>
+          )}
 
-              <p className="text-sm text-slate-600">
-                You are about to simulate remediation for:
-              </p>
+          {step === 'REVIEW' && (
+            <>
+              <div className={`rounded-xl border p-4 ${decision.action === 'BLOCK' ? 'border-amber-300 bg-amber-50' : 'border-teal-300 bg-teal-50'}`}>
+                <div className="flex items-start gap-3">
+                  {decision.action === 'BLOCK'
+                    ? <LockKeyhole className="mt-0.5 h-5 w-5 text-amber-700" />
+                    : <ShieldCheck className="mt-0.5 h-5 w-5 text-teal-700" />}
+                  <div>
+                    <div className="font-semibold text-slate-900">
+                      {decision.action === 'BLOCK'
+                        ? result?.mode === 'VISIBILITY_ONLY'
+                          ? 'Visibility only — no change is authorized'
+                          : 'Analysis complete — no safe change is authorized'
+                        : 'Exact plan built — separate approval required'}
+                    </div>
+                    <div className="mt-1 text-sm text-slate-700">{list(decision.reasons)[0] || explanation.customer_action}</div>
+                  </div>
+                </div>
+              </div>
 
-              <div className="rounded border p-3 text-sm space-y-2">
-                <div><strong>Resource:</strong> {finding.resource || finding.resourceId || 'N/A'}</div>
-                <div><strong>Issue:</strong> {finding.title || 'N/A'}</div>
-                <div><strong>Severity:</strong> {finding.severity || 'N/A'}</div>
-                {finding.description && (
-                  <div className="mt-2 pt-2 border-t">
-                    <strong>Description:</strong> {finding.description}
+              <Section icon={<ClipboardCheck className="h-4 w-4" />} title="What this means">
+                <div className="space-y-2 text-sm leading-6 text-slate-700">
+                  <p><span className="font-medium text-slate-900">Issue:</span> {explanation.issue || finding?.description || 'No issue explanation was returned.'}</p>
+                  <p><span className="font-medium text-slate-900">Risk:</span> {explanation.meaning || 'Risk explanation was not computed.'}</p>
+                  <p><span className="font-medium text-slate-900">Next:</span> {explanation.customer_action || 'Review the evidence and decision.'}</p>
+                </div>
+              </Section>
+
+              <Section icon={<ShieldCheck className="h-4 w-4" />} title="Exact proposed change">
+                <div className="mb-3 text-sm text-slate-700">{proposed.summary || proposed.claim || result?.simulation?.summary}</div>
+                {list(proposed.permissions_to_remove).length > 0 && (
+                  <div className="mb-4 max-h-40 overflow-y-auto rounded-lg bg-slate-950 p-3 font-mono text-xs text-teal-100">
+                    {list(proposed.permissions_to_remove).map((permission, index) => <div key={`${permission}-${index}`}>− {permission}</div>)}
                   </div>
                 )}
-              </div>
-
-              <div className="flex justify-end gap-2">
-                <Button variant="outline" onClick={handleClose}>
-                  Cancel
-                </Button>
-                <Button
-                  onClick={handleSimulate}
-                  className="bg-blue-600 hover:bg-blue-700"
-                  disabled={loading}
-                >
-                  {loading ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Running...
-                    </>
-                  ) : (
-                    'Run Simulation'
-                  )}
-                </Button>
-              </div>
-            </div>
-          )}
-
-          {/* INTRO Screen - For role-based (legacy) */}
-          {step === "INTRO" && !finding && role && (
-            <div className="space-y-4">
-              <div className="space-y-4 bg-slate-50 p-4 rounded-lg">
-                <h3 className="font-semibold text-sm text-slate-900">Role Details</h3>
-                
-                <div className="space-y-3">
-                  <div>
-                    <label className="text-xs font-medium text-slate-600">Role Name</label>
-                    <p className="text-sm text-slate-900 mt-1 break-all">{role?.name || 'N/A'}</p>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-lg border border-red-100 bg-red-50 p-3">
+                    <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-red-700">Before</div>
+                    {list(proposed.before).length ? list(proposed.before).map((item, index) => <div key={index} className="mb-1 break-all text-xs text-slate-700">{displayValue(item)}</div>) : <div className="text-xs text-slate-500">No exact before-state change is proposed.</div>}
                   </div>
-                  
-                  <div>
-                    <label className="text-xs font-medium text-slate-600">Role ARN</label>
-                    <p className="text-sm text-slate-900 mt-1 break-all font-mono text-xs">{role?.arn || 'N/A'}</p>
+                  <div className="rounded-lg border border-teal-100 bg-teal-50 p-3">
+                    <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-teal-700">After</div>
+                    {list(proposed.after).length ? list(proposed.after).map((item, index) => <div key={index} className="mb-1 break-all text-xs text-slate-700">{displayValue(item)}</div>) : <div className="text-xs text-slate-500">No mutation.</div>}
                   </div>
                 </div>
-              </div>
+              </Section>
 
-              <div className="flex justify-end gap-2">
-                <Button variant="outline" onClick={handleClose}>
-                  Cancel
-                </Button>
-                <Button 
-                  onClick={handleRemediateClick}
-                  className="bg-blue-600 hover:bg-blue-700"
-                >
-                  Execute Remediation
-                </Button>
-              </div>
-            </div>
-          )}
-
-          {/* Loading State */}
-          {loading && (
-            <div className="flex flex-col items-center justify-center gap-4 py-8">
-              <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-              <p className="text-sm text-slate-600">
-                Running simulation and decision engine...
-              </p>
-            </div>
-          )}
-
-          {/* SIMULATED Screen - Results */}
-          {step === "SIMULATED" && decision && (
-            <div className="space-y-4">
-              <h3 className="text-lg font-semibold">Simulation Results</h3>
-
-              {/* Three distinct concepts, displayed separately so
-                  operators stop reading "95% confidence + BLOCKED"
-                  as a contradiction:
-                    1. Execution decision — what the engine routed it to
-                       (AUTO_EXECUTE / CANARY_FIRST / REQUIRE_APPROVAL /
-                       MANUAL_REVIEW / BLOCK / EXCLUDE)
-                    2. Remediation confidence — how well we understand
-                       the finding (the multiplicative formula output)
-                    3. Telemetry coverage — what real data backs the
-                       confidence; missing telemetry can lower the
-                       routing without lowering confidence
-                  Per memory feedback_decision_enum_convergence.md,
-                  unified.DecisionOutcome is the canonical decision
-                  enum. */}
-              <div className="rounded-lg border border-slate-200 divide-y divide-slate-200 overflow-hidden">
-                <div className="flex items-center justify-between px-3 py-2.5 bg-slate-50">
-                  <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                    Execution decision
-                  </span>
-                  <span
-                    className={`text-xs font-mono font-semibold px-2 py-0.5 rounded ${
-                      routedDecision === "INSUFFICIENT_DATA"
-                        ? "bg-rose-100 text-rose-700"
-                        : routedDecision === "AUTO"
-                          ? "bg-emerald-100 text-emerald-700"
-                          : routedDecision === "STAGED_AUTO"
-                            ? "bg-sky-100 text-sky-700"
-                            : routedDecision === "SUGGEST"
-                              ? "bg-amber-100 text-amber-700"
-                              : "bg-slate-200 text-slate-700"
-                    }`}
-                  >
-                    {routedDecision ?? decision.action ?? "—"}
-                  </span>
+              <Section icon={<FileClock className="h-4 w-4" />} title="Evidence and confidence">
+                <div className="mb-3 flex flex-wrap gap-2">
+                  <Badge variant="outline">Coverage: {evidence.complete === true ? 'Complete' : evidence.complete === false ? 'Partial' : 'Unknown'}</Badge>
+                  {evidence.confidence && <Badge variant="outline">Confidence: {String(evidence.confidence)}</Badge>}
+                  {evidence.observation_window_days != null && <Badge variant="outline">{evidence.observation_window_days} observed days</Badge>}
                 </div>
-                <div className="flex items-center justify-between px-3 py-2.5">
-                  <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                    Remediation confidence
-                  </span>
-                  <span className="text-sm font-semibold tabular-nums text-slate-900">
-                    {typeof decision.confidence === "number"
-                      ? `${(decision.confidence * 100).toFixed(1)}%`
-                      : "—"}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between px-3 py-2.5">
-                  <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                    Telemetry coverage
-                  </span>
-                  <span className="text-sm font-semibold tabular-nums text-slate-900">
-                    {typeof decision.safety === "number"
-                      ? `${(decision.safety * 100).toFixed(1)}%`
-                      : "—"}
-                  </span>
-                </div>
-              </div>
-              {/* Plain-English line for the case the audit explicitly
-                  flagged: high confidence + BLOCK looks contradictory
-                  unless the disjunction is named. */}
-              {routedDecision === "INSUFFICIENT_DATA" &&
-                typeof decision.confidence === "number" &&
-                decision.confidence >= 0.7 ? (
-                <p className="text-xs text-slate-600 italic px-1">
-                  Engine understands the finding (high confidence) but
-                  blocks execution — usually because telemetry coverage
-                  is below the gate threshold or a hard safety
-                  invariant fired. See reasons below.
-                </p>
-              ) : null}
-
-              {Array.isArray(decision.reasons) && decision.reasons.length > 0 && (
-                <div className="rounded-lg border p-3">
-                  <div className="text-sm font-medium mb-2">Decision Reasons</div>
-                  <ul className="list-disc ml-5 text-sm text-slate-700 space-y-1">
-                    {decision.reasons.map((r: string, i: number) => (
-                      <li key={i}>{r}</li>
-                    ))}
+                {list(evidence.sources).length > 0 && <p className="text-xs text-slate-600">Sources: {list(evidence.sources).join(', ')}</p>}
+                {evidenceCaveats.length > 0 && (
+                  <ul className="mt-3 space-y-1 text-xs text-amber-800">
+                    {evidenceCaveats.map((caveat, index) => <li key={index}>• {displayValue(caveat)}</li>)}
                   </ul>
-                </div>
-              )}
+                )}
+              </Section>
 
-              {decision.breakdown && (
-                <div className="rounded-lg border p-3">
-                  <div className="text-sm font-medium mb-2">Score Breakdown</div>
-                  <pre className="text-xs overflow-auto bg-slate-50 p-2 rounded">
-                    {JSON.stringify(decision.breakdown, null, 2)}
-                  </pre>
+              <Section icon={<Users className="h-4 w-4" />} title="Blast radius and shared use">
+                <div className="text-sm text-slate-700">
+                  <div>Target: <span className="font-mono text-xs">{resource.name || resource.resource_name || resource.id || finding?.resourceId}</span></div>
+                  <div className="mt-1">Known consumers: {list(changeCase.blast_radius?.consumers || changeCase.blast_radius?.shared_substrate).length}</div>
+                  {changeCase.blast_radius?.consumers_complete === false || changeCase.blast_radius?.shared_substrate_complete === false
+                    ? <div className="mt-1 text-amber-700">The consumer list is context, not an attested complete inventory.</div>
+                    : null}
                 </div>
-              )}
+              </Section>
 
-              {/* Simulation Details - Only if exists */}
-              {simulation?.before_state && (
-                <div className="bg-blue-50 p-4 rounded-lg">
-                  <h4 className="font-semibold text-sm mb-2">Simulation Details</h4>
-                  <div className="text-sm space-y-1">
-                    <p><span className="font-medium">Before:</span> {simulation.before_state}</p>
-                    {simulation.after_state && (
-                      <p><span className="font-medium">After:</span> {simulation.after_state}</p>
-                    )}
-                    {simulation.warnings && Array.isArray(simulation.warnings) && simulation.warnings.length > 0 && (
-                      <div className="mt-2">
-                        <p className="font-medium text-xs">Warnings:</p>
-                        <ul className="list-disc list-inside text-xs">
-                          {simulation.warnings.map((w: string, idx: number) => (
-                            <li key={idx}>{w}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Section icon={<ShieldCheck className="h-4 w-4" />} title="Rollout and stop conditions">
+                  <ol className="space-y-1 text-xs text-slate-700">
+                    {list(changeCase.rollout?.steps).map((item, index) => <li key={index}>{index + 1}. {displayValue(item)}</li>)}
+                  </ol>
+                  {list(changeCase.rollout?.stop_conditions).length > 0 && <div className="mt-3 text-xs font-medium text-red-700">Stops on: {list(changeCase.rollout.stop_conditions).join(' · ')}</div>}
+                </Section>
+                <Section icon={<RotateCcw className="h-4 w-4" />} title="Snapshot, history, and restore">
+                  <div className="space-y-2 text-xs text-slate-700">
+                    <p>Rollback: <strong>{changeCase.rollback?.available ? 'Available' : 'Not available'}</strong></p>
+                    <p>{changeCase.rollback?.summary || changeCase.rollback?.reason}</p>
+                    <p>Checkpoint: {changeCase.history?.checkpoint_timing || changeCase.history?.reason || 'Created at the canonical mutation boundary.'}</p>
                   </div>
-                </div>
-              )}
+                </Section>
+              </div>
 
-              <div className="flex justify-end gap-2">
-                <Button variant="outline" onClick={handleClose}>
-                  Close
-                </Button>
-                {routedDecision !== "INSUFFICIENT_DATA" && (
-                  <Button 
-                    className="bg-green-600 hover:bg-green-700"
-                    onClick={handleApplyFix}
-                    disabled={loading}
-                  >
-                    {loading ? (
-                      <>
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                        Applying...
-                      </>
-                    ) : (
-                      'Approve & Apply'
-                    )}
+              <Section icon={<LockKeyhole className="h-4 w-4" />} title="Authorization">
+                <div className="text-sm text-slate-700">
+                  <div>Status: <strong>{approval.status || (approval.required ? 'Approval required' : 'No approval workflow')}</strong></div>
+                  {approval.workflow && <div className="mt-1">Workflow: {approval.workflow.replaceAll('_', ' ')}</div>}
+                  {approval.reason && <div className="mt-2 text-amber-700">{approval.reason}</div>}
+                </div>
+              </Section>
+
+              <div className="flex justify-end gap-2 pb-1">
+                <Button variant="outline" onClick={close}>Close</Button>
+                {decision.action !== 'BLOCK' && approval.required && approval.available && (
+                  <Button onClick={requestApproval} disabled={loading} className="bg-teal-700 hover:bg-teal-800">
+                    {loading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Requesting…</> : 'Request approval'}
                   </Button>
                 )}
               </div>
+            </>
+          )}
+
+          {step === 'REQUESTED' && (
+            <div className="py-8 text-center">
+              <CheckCircle2 className="mx-auto h-10 w-10 text-teal-700" />
+              <h3 className="mt-4 text-lg font-semibold text-slate-900">Approval request created</h3>
+              <p className="mx-auto mt-2 max-w-md text-sm text-slate-600">
+                A different authorized operator must approve the exact signed plan. No AWS change has occurred.
+              </p>
+              {result?.approval_request?.request_id && <div className="mx-auto mt-4 w-fit rounded bg-slate-100 px-3 py-2 font-mono text-xs">{result.approval_request.request_id}</div>}
+              <Button className="mt-6" variant="outline" onClick={close}>Done</Button>
             </div>
           )}
 
-          {/* ERROR Screen */}
-          {step === "ERROR" && (
-            <div className="flex flex-col items-center justify-center gap-4 py-8">
-              <AlertCircle className="h-8 w-8 text-red-600" />
-              <div className="text-center">
-                <p className="text-sm font-medium text-slate-900">Simulation failed</p>
-                <p className="text-xs text-red-600 mt-2 break-words">
-                  {error || 'An unexpected error occurred'}
-                </p>
-              </div>
-              <div className="flex gap-2">
-                <Button variant="outline" onClick={handleClose}>
-                  Close
-                </Button>
-                <Button onClick={() => setStep('INTRO')} variant="outline">
-                  Try Again
-                </Button>
+          {step === 'ERROR' && (
+            <div className="py-8 text-center">
+              <AlertCircle className="mx-auto h-9 w-9 text-red-600" />
+              <h3 className="mt-3 font-semibold text-slate-900">Change Case could not be completed</h3>
+              <p className="mx-auto mt-2 max-w-lg break-words text-sm text-red-700">{error}</p>
+              <div className="mt-6 flex justify-center gap-2">
+                <Button variant="outline" onClick={close}>Close</Button>
+                <Button variant="outline" onClick={() => setStep('INTRO')}>Try again</Button>
               </div>
             </div>
           )}
         </div>
       </DialogContent>
     </Dialog>
-  );
+  )
 }

@@ -372,27 +372,25 @@ export async function fetchSecurityFindings(systemName?: string): Promise<Securi
       return []
     }
 
-    const mappedFindings = findings.map((f: any) => {
+    const mappedFindings = findings.flatMap((f: any) => {
       // Use finding_id from backend as the primary ID (this is the real ID)
       const findingId = f.finding_id || f.id || f.findingId
       if (!findingId) {
-        console.warn("[api-client] Finding missing ID:", f)
+        console.warn("[api-client] Dropping finding without a canonical backend ID:", f)
+        return []
       }
       
-      return {
-        // CRITICAL: Use finding_id from backend, not generated ID.
-        // Previously fell back to `finding-${Math.random()}`, which produced
-        // a NEW id on every render → React key thrashing AND made findings
-        // un-trackable across reloads. Empty string preserves stable identity
-        // (React will warn about duplicate empty keys, which is the correct
-        // signal: backend is missing IDs and that's a bug worth surfacing).
-        id: findingId || "",
+      return [{
+        ...f,
+        // A missing identity is dropped above. A fake/empty ID must never be
+        // sent to a finding-bound simulation or used as a React identity.
+        id: findingId,
         finding_id: findingId, // Preserve original finding_id for API calls
         title: f.title || f.name || "Security Finding",
         severity: (f.severity || "MEDIUM").toUpperCase() as "CRITICAL" | "HIGH" | "MEDIUM" | "LOW",
         description: f.description || "",
         resource: f.resource || f.resourceId || f.role_name || "",
-        resourceType: f.resourceType || "Resource",
+        resourceType: f.resourceType || "Unknown",
         status: f.status || "open",
         category: f.category || f.type || "Security",
         // Don't fabricate "discovered just now" when the backend gave us
@@ -402,17 +400,17 @@ export async function fetchSecurityFindings(systemName?: string): Promise<Securi
         // Preserve all backend fields needed for simulation
         role_name: f.role_name,
         resourceId: f.resourceId || f.role_name,
-        unused_actions: f.unused_actions || [],
-        unused_actions_count: f.unused_actions_count || 0,
-        allowed_actions: f.allowed_actions || [],
-        allowed_actions_count: f.allowed_actions_count || 0,
-        used_actions: f.observed_actions || f.used_actions || [],
-        used_actions_count: f.used_actions_count || f.observed_actions?.length || 0,
+        unused_actions: Array.isArray(f.unused_actions) ? f.unused_actions : undefined,
+        unused_actions_count: f.unused_actions_count ?? undefined,
+        allowed_actions: Array.isArray(f.allowed_actions) ? f.allowed_actions : undefined,
+        allowed_actions_count: f.allowed_actions_count ?? undefined,
+        used_actions: Array.isArray(f.observed_actions)
+          ? f.observed_actions
+          : Array.isArray(f.used_actions) ? f.used_actions : undefined,
+        used_actions_count: f.used_actions_count ?? (Array.isArray(f.observed_actions) ? f.observed_actions.length : undefined),
         confidence: f.confidence ?? undefined,
-        observation_days: f.observation_days || 30,
-        // Preserve all other fields
-        ...f
-      }
+        observation_days: f.observation_days ?? undefined,
+      }]
     })
 
     // Final check - if mapping produced empty array, return empty
