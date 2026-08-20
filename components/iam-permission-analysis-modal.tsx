@@ -32,6 +32,7 @@ import { type RoutingDecision, toRoutingDecision } from "@/lib/decision-routing"
 import {
   iamDataReadinessCopy,
   iamExecutionReadiness,
+  lpProceedAnywayHolds,
 } from "@/lib/iam-execution-readiness"
 import {
   automationReadiness,
@@ -1422,7 +1423,20 @@ export function IAMPermissionAnalysisModal({
     if (!gapData) return undefined
 
     const executionReadiness = iamExecutionReadiness(safetyContext)
-    if (!executionReadiness.directAwsApplyAllowed) {
+    const tfOverrideConfirmed = Boolean(force && prebuiltLineage && executionReadiness.directApplyOverridable)
+    if (!executionReadiness.directAwsApplyAllowed && !tfOverrideConfirmed) {
+      if (executionReadiness.directApplyOverridable && !prebuiltLineage) {
+        const holds = lpProceedAnywayHolds(safetyContext)
+        setOverrideModal({
+          open: true,
+          rationale: '',
+          ackRollback: createSnapshot,
+          phase: 'form',
+          message: '',
+          blockReasons: holds.reasons,
+        })
+        return undefined
+      }
       toast({
         title: executionReadiness.headline,
         description: executionReadiness.detail,
@@ -2396,6 +2410,8 @@ export function IAMPermissionAnalysisModal({
       const acks = g.decision_contract?.operator_context?.override_requirements?.required_acknowledgements || []
       for (const a of acks) ackSet.add(a)
     }
+    const proceedHolds = lpProceedAnywayHolds(safetyContext)
+    for (const tag of proceedHolds.acknowledgedTags) ackSet.add(tag)
 
     // Adapter: SharedOverrideState ←→ legacy overrideModal shape.
     // 55 existing references in this file read/write the legacy shape;
@@ -2442,7 +2458,9 @@ export function IAMPermissionAnalysisModal({
       }
     }
 
-    const contextBlurb = `Cyntro paused this change because telemetry coverage is incomplete and ${safetyContext?.consumer_count ?? 'multiple'} system${(safetyContext?.consumer_count ?? 0) === 1 ? '' : 's'} depend on this role. You can override and proceed — Cyntro creates a verified restore point before changing AWS, and records the override in the audit log.`
+    const contextBlurb = proceedHolds.reasons.length
+      ? "Cyntro paused this change. You can proceed anyway after confirming each hold — a restore point is written first and the override is recorded in the audit log."
+      : `Cyntro paused this change because telemetry coverage is incomplete and ${safetyContext?.consumer_count ?? 'multiple'} system${(safetyContext?.consumer_count ?? 0) === 1 ? '' : 's'} depend on this role. You can override and proceed — Cyntro creates a verified restore point before changing AWS, and records the override in the audit log.`
 
     return (
       <OverrideModalShared
@@ -2452,6 +2470,7 @@ export function IAMPermissionAnalysisModal({
         onSubmit={onSharedSubmit}
         contextBlurb={contextBlurb}
         rationalePlaceholder="e.g. Confirmed with @platform-team in #incidents that the 6 consumers don't use these permissions; ticket SECOPS-1842"
+        requiredConfirmations={proceedHolds.confirmations}
       />
     )
   }
@@ -4098,7 +4117,7 @@ export function IAMPermissionAnalysisModal({
                   .filter(p => autoRemediableSet.has(p)).length
                 const selectedOverrideCount = selectedTotalCount - selectedAutoRemediableCount
 
-                if (!executionReadiness.directAwsApplyAllowed) {
+                if (!executionReadiness.directAwsApplyAllowed && !executionReadiness.directApplyOverridable) {
                   return (
                     <div className="flex items-center gap-3" data-testid="iam-terraform-execution-required">
                       <div className="max-w-md text-right">
@@ -4112,6 +4131,36 @@ export function IAMPermissionAnalysisModal({
                       >
                         <Lock className="w-4 h-4" />
                         {executionReadiness.adapterLabel}
+                      </button>
+                    </div>
+                  )
+                } else if (!executionReadiness.directAwsApplyAllowed && executionReadiness.directApplyOverridable) {
+                  const holds = lpProceedAnywayHolds(safetyContext)
+                  return (
+                    <div className="flex items-center gap-3" data-testid="iam-proceed-anyway">
+                      <div className="max-w-md text-right">
+                        <div className="text-sm font-semibold text-amber-800">Proceed anyway</div>
+                        <div className="text-xs text-slate-500">
+                          {holds.reasons[0] || executionReadiness.detail}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => {
+                          setOverrideModal({
+                            open: true,
+                            rationale: '',
+                            ackRollback: createSnapshot,
+                            phase: 'form',
+                            message: '',
+                            blockReasons: holds.reasons,
+                          })
+                        }}
+                        disabled={applying || !hasExecutableSelection}
+                        className="px-5 py-2.5 bg-[#f59e0b] text-white rounded-lg font-bold hover:bg-[#d97706] shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                        title="Confirm the holds and apply through the AWS mutation path"
+                      >
+                        <AlertTriangle className="w-4 h-4" />
+                        Proceed anyway
                       </button>
                     </div>
                   )
@@ -4201,7 +4250,15 @@ export function IAMPermissionAnalysisModal({
                         // re-render in the same task tick.
                         onClick={() => {
                           console.log('[IAM-Modal] Acknowledge & Apply clicked — opening override modal. selected=' + selectedPermissionsToRemove.size + ' detach=' + detachManagedPolicies + ' applying=' + applying)
-                          setOverrideModal({ open: true, rationale: '', ackRollback: createSnapshot, phase: 'form', message: '' })
+                          const holds = lpProceedAnywayHolds(safetyContext)
+                          setOverrideModal({
+                            open: true,
+                            rationale: '',
+                            ackRollback: createSnapshot,
+                            phase: 'form',
+                            message: '',
+                            blockReasons: holds.reasons,
+                          })
                         }}
                         disabled={applying || !hasExecutableSelection}
                         className="px-5 py-2.5 bg-[#f59e0b] text-white rounded-lg font-bold hover:bg-[#d97706] shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
