@@ -22,4 +22,9 @@ describe("system All Services honesty", () => {
       }),
     ).toBe("stopped")
   })
+
+  it("explains configuration resources that have no runtime state", () => {
+    expect(reportedInventoryStatus({ type: "SecurityGroup" })).toBe("Inventory only")
+    expect(reportedInventoryStatus({ type: "IAMRole" })).toBe("Inventory only")
+  })
 })

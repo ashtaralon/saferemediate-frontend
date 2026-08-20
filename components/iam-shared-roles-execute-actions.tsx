@@ -329,10 +329,9 @@ function ExecuteConfirm({
               the new roles yet.
             </span>
             <span className="block">
-              Requires{" "}
-              <code className="font-mono">SHARED_ROLES_CREATE_ONLY=true</code>{" "}
-              on the Render env. The gate-readiness panel above shows whether
-              this will succeed.
+              Execution is available only after every safety and authorization
+              check shown above passes. No attachment or permission migration
+              happens in this step.
             </span>
             <span className="block">
               Re-runnable: idempotent — already-created roles are skipped.

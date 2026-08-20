@@ -27,6 +27,19 @@ export interface ProductScope {
   region: string
 }
 
+export function resolveCanonicalCustomer(
+  requested: string | null | undefined,
+  registeredCustomerIds: string[],
+  fallbackCustomerId?: string | null,
+): string | null {
+  const registered = registeredCustomerIds.map((value) => value.trim()).filter(Boolean)
+  const candidate = requested?.trim()
+  if (candidate && registered.includes(candidate)) return candidate
+  if (registered.length) return registered[0]
+  const fallback = fallbackCustomerId?.trim()
+  return fallback || null
+}
+
 export function scopeOptionsFromSystems(payload: unknown): AccountScopeOptions | null {
   const systems = Array.isArray((payload as { systems?: unknown[] } | null)?.systems)
     ? (payload as { systems: Array<Record<string, unknown>> }).systems

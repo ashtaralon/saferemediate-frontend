@@ -257,7 +257,7 @@ interface TimelineSummary {
   total_permissions_removed: number
   completed_events: number
   rollback_events: number
-  avg_confidence: number
+  avg_confidence: number | null
   period_start?: string
   period_end?: string
 }
@@ -1748,7 +1748,7 @@ export function RemediationTimeline({
             <div className="rounded-lg p-3" style={{ background: "var(--bg-primary)" }}>
               <p className="text-xs" style={{ color: "var(--text-secondary)" }}>Avg Confidence</p>
               <p className="text-xl font-bold" style={{ color: "var(--action-primary)" }}>
-                {summary.avg_confidence}%
+                {summary.avg_confidence == null ? 'Not measured' : `${summary.avg_confidence}%`}
               </p>
             </div>
           </div>

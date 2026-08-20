@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server"
 
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
 import { approvalWorkflowConfigured } from "@/lib/server/approval-backend-auth"
+import { customerSafeError } from "@/lib/customer-error"
 
 export const dynamic = "force-dynamic"
 export const fetchCache = "force-no-store"
@@ -33,7 +34,10 @@ export async function POST(request: NextRequest) {
 
     if (!response.ok) {
       return NextResponse.json(
-        { success: false, error: data?.detail || data?.error || `Backend returned ${response.status}` },
+        { success: false, error: customerSafeError(
+          data?.detail || data?.error,
+          "Configuration analysis could not be completed. Refresh the inventory and try again. No change was made.",
+        ) },
         { status: response.status, headers: { "X-Proxy": "simulate-error" } },
       )
     }

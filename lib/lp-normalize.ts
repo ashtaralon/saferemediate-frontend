@@ -12,6 +12,7 @@
  */
 
 import { normalizeLPSeverity } from '@/lib/lp-severity'
+import { customerSafeError, IAM_INVENTORY_REFRESH_REQUIRED } from '@/lib/customer-error'
 import type { LPIntegrityFields } from '@/lib/lp-integrity'
 import type { DecisionOutcomeCanonical } from '@/lib/types'
 
@@ -435,8 +436,11 @@ export function normalizeGapResource(raw: any): NormalizedGapResource {
         : typeof r.usage_measured === 'boolean'
           ? (r.usage_measured as boolean)
           : undefined,
-    usageNotComputedReason:
-      (r.usageNotComputedReason ?? r.usage_not_computed_reason ?? null) as string | null,
+    usageNotComputedReason: (() => {
+      const raw = r.usageNotComputedReason ?? r.usage_not_computed_reason
+      if (typeof raw !== 'string' || !raw.trim()) return null
+      return customerSafeError(raw, IAM_INVENTORY_REFRESH_REQUIRED)
+    })(),
     lpScore,
     allowedCount: asFiniteNumber(r.allowedCount) ?? asFiniteNumber(r.allowed_count),
     usedCount: asFiniteNumber(r.usedCount) ?? asFiniteNumber(r.used_count),
@@ -473,7 +477,9 @@ export function normalizeGapResource(raw: any): NormalizedGapResource {
     confidence: asFiniteNumber(r.confidence),
     observationDays: resourceObsDays,
     title,
-    description: typeof r.description === 'string' ? r.description : '',
+    description: typeof r.description === 'string'
+      ? customerSafeError(r.description, IAM_INVENTORY_REFRESH_REQUIRED)
+      : '',
     remediation: typeof r.remediation === 'string' ? r.remediation : '',
     region:
       typeof r.region === 'string'

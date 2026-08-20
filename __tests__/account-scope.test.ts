@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { resourceAccountId, scopeMatchesResource, scopeOptionsFromSystems, withAccountScope } from "@/lib/account-scope"
+import { resourceAccountId, resolveCanonicalCustomer, scopeMatchesResource, scopeOptionsFromSystems, withAccountScope } from "@/lib/account-scope"
 
 describe("account scope", () => {
   it("resolves account identity from explicit fields before an ARN", () => {
@@ -51,5 +51,14 @@ describe("account scope", () => {
       }],
       groups: [],
     })
+  })
+
+  it("canonicalizes an unregistered URL tenant before loading account scope", () => {
+    expect(resolveCanonicalCustomer(
+      "testbed-webshop",
+      ["alon-prod"],
+      "alon-prod",
+    )).toBe("alon-prod")
+    expect(resolveCanonicalCustomer("alon-prod", ["alon-prod"], "other")).toBe("alon-prod")
   })
 })

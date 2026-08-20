@@ -35,7 +35,7 @@ export interface TimelineSummaryRecord {
   total_permissions_removed: number
   completed_events: number
   rollback_events: number
-  avg_confidence: number
+  avg_confidence: number | null
   period_start?: string
   period_end?: string
 }
@@ -141,7 +141,7 @@ export function summarizeRemediationEvents(
     ).length,
     avg_confidence: confidences.length
       ? Math.round((confidences.reduce((total, score) => total + score, 0) / confidences.length) * 100)
-      : 0,
+      : null,
     period_start: periodStart,
     period_end: periodEnd,
   }
