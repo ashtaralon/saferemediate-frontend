@@ -238,6 +238,15 @@ export function IssuesSection({ systemName }: IssuesSectionProps) {
       type === "IAM" || type === "UNUSED_PERMISSIONS" || type === "PUBLIC_EXPOSURE"
   }
 
+  const findingDisplayTitle = (finding: Finding) => {
+    const title = finding.title || "Untitled finding"
+    const impossibleZero = title.match(/^(Unused IAM permissions:\s*)0 permissions\s*\((\d+)% unused\)$/i)
+    if (impossibleZero && Number(impossibleZero[2]) > 0) {
+      return `${impossibleZero[1]}count unavailable (${impossibleZero[2]}% unused)`
+    }
+    return title
+  }
+
   const isVisibilityOnly = (finding: Finding) => {
     const resource = String(finding.role_name || finding.resourceId || finding.resource || "")
     const resourceType = String(finding.resourceType || "").replace(/\s+/g, "").toLowerCase()
@@ -401,7 +410,7 @@ export function IssuesSection({ systemName }: IssuesSectionProps) {
                 </div>
 
                 {/* Title */}
-                <h4 className="font-semibold text-base mb-1">{finding.title}</h4>
+                <h4 className="font-semibold text-base mb-1">{findingDisplayTitle(finding)}</h4>
 
                 {/* Description */}
                 <p className="text-sm text-muted-foreground mb-2">{finding.description}</p>
