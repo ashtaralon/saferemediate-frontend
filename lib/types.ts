@@ -522,6 +522,7 @@ export interface SimulateFixResponse {
   projected_effect: SimulateFixProjectedEffect
   safety: SimulateFixSafety
   decision_persistence: SimulateFixDecisionPersistence
+  plan_issuance_error?: string | null
 }
 
 // ============================================================================

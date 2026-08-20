@@ -1091,6 +1091,7 @@ export function IAMPermissionAnalysisModal({
           resource_type: 'IAMRole',
           resource_id: roleName,
           system_name: systemName,
+          tenant_id: systemName,
           finding_id: findingId,
         }),
       })
@@ -5330,7 +5331,8 @@ export function IAMPermissionAnalysisModal({
                   body: JSON.stringify({
                     resource_type: 'IAMRole',
                     resource_id: roleName,
-                    system_name: systemName
+                    system_name: systemName,
+                    tenant_id: systemName,
                   })
                 })
 

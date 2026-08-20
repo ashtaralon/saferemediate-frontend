@@ -3211,6 +3211,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                     resource_type: 'IAMRole',
                     resource_id: selectedResource.resourceName || selectedResource.resourceArn?.split('/').pop() || selectedResource.id,
                     system_name: effectiveSystemName,
+                    tenant_id: effectiveSystemName,
                     finding_id: selectedResource.findingId,
                   })
                 })
