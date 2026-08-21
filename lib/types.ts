@@ -493,6 +493,20 @@ export interface SimulateFixSafety {
   decision_bundle_hash?: string | null
   decision_envelope_hashes?: string[]
   decision_reason_codes?: string[]
+  shared_resource?: {
+    resource_type: string
+    resource_id: string
+    consumer_count: number
+    consumers: Array<{
+      type: string
+      id: string
+      name?: string | null
+    }>
+    approval_required: boolean
+    workflow: string
+    ui_path: string
+    discovery_api?: string | null
+  } | null
 }
 
 export interface SimulateFixDecisionPersistence {
