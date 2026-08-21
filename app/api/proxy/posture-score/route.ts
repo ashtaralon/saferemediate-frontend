@@ -21,9 +21,15 @@ const BACKEND_URL = getBackendBaseUrl()
  * If /api/systems errors or returns no systems with scores, surface an
  * honest 502 / "no scoreable systems" — never fabricate.
  */
-export async function GET(_req: NextRequest) {
+export async function GET(req: NextRequest) {
+  const scope = new URLSearchParams()
+  for (const key of ["customer_id", "account_group", "account_id", "region"]) {
+    const value = req.nextUrl.searchParams.get(key)
+    if (value) scope.set(key, value)
+  }
+  const query = scope.toString()
   try {
-    const res = await fetch(`${BACKEND_URL}/api/systems`, {
+    const res = await fetch(`${BACKEND_URL}/api/systems${query ? `?${query}` : ""}`, {
       headers: { "Content-Type": "application/json" },
       cache: "no-store",
     })

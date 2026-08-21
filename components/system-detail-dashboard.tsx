@@ -72,6 +72,7 @@ import { fetchWithTransientRetry } from "@/lib/transient-retry"
 import { normalizeSecurityFinding, asCount } from "@/lib/security-finding-normalize"
 import { RequestEpoch } from "@/lib/request-epoch"
 import { SystemExecutiveOverview } from "@/components/system-detail/system-executive-overview"
+import { useScopedSystemCatalog } from "@/lib/scoped-system-catalog"
 
 // Lazy load heavy components with dynamic imports for better performance
 const CloudGraphTab = dynamic(
@@ -679,6 +680,7 @@ const ENVIRONMENT_OPTIONS = [
 // =============================================================================
 
 export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection, initialTab, initialAttackPathMode }: SystemDetailDashboardProps) {
+  const systemsCatalog = useScopedSystemCatalog()
   // Attacker Map lives as an internal chip next to Attack Path (not a Risk sub-tab).
   const resolvedInitialTab = initialTab === "attacker-map" ? "attack-paths" : (initialTab ?? "overview")
   const showLegacyOverview: boolean = false
@@ -1360,12 +1362,13 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
   }
 
   const fetchSystemMeta = async () => {
+    if (!systemsCatalog.url) return
     try {
       // Use cached /api/proxy/systems (5m server cache + edge SWR), NOT
       // /systems/available (no-store, 90s cold path). The available route
       // was timing out under Render pressure and left the header stuck on
       // "AWS region pending" even when systems data was warm elsewhere.
-      const res = await fetch("/api/proxy/systems")
+      const res = await fetch(systemsCatalog.url)
       if (res.ok) {
         const data = await res.json()
         const match = (data.systems || []).find(
@@ -1447,7 +1450,7 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
 
   useEffect(() => {
     fetchSystemMeta()
-  }, [systemName])
+  }, [systemName, systemsCatalog.url])
 
   // The executive Overview reads one bounded, server-composed snapshot.
   // Legacy fetchAllData remains for old helpers while they are retired, but

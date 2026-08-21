@@ -2,6 +2,15 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { BusinessImpactWorkspace } from "@/components/business-impact/business-impact-workspace"
 
+vi.mock("@/lib/scoped-system-catalog", () => ({
+  useScopedSystemCatalog: () => ({
+    url: "/api/proxy/systems",
+    scopeKey: "testbed-webshop|all|all|all",
+    ready: true,
+    available: true,
+  }),
+}))
+
 vi.mock("@/components/business-impact/business-impact-panel", () => ({
   BusinessImpactPanel: ({ systemName }: { systemName: string }) => <div>Scenario detail for {systemName}</div>,
 }))

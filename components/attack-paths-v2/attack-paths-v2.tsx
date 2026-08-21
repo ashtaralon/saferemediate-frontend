@@ -79,6 +79,11 @@ import { buildConvergenceFetchUrl } from "@/lib/attack-paths/convergence-fetch-u
 import type { CrownJewelConvergence } from "@/lib/attack-paths/convergence-types"
 import { matchConvergencePathId } from "@/lib/attack-paths/iap-to-convergence"
 import { useCrownJewelConvergence } from "@/lib/attack-paths/use-crown-jewel-convergence"
+import {
+  catalogSystemName,
+  scopedStorageKey,
+  useScopedSystemCatalog,
+} from "@/lib/scoped-system-catalog"
 
 function isTrustEnvelope(x: any): x is { provenance: any; result: any } {
   return x && typeof x === "object" && "result" in x && "provenance" in x
@@ -118,6 +123,8 @@ export function AttackPathsV2({
   const searchParams = useSearchParams()
   const router = useRouter()
   const pathname = usePathname()
+  const systemsCatalog = useScopedSystemCatalog()
+  const lastSystemStorageKey = scopedStorageKey("cyntro:lastSystem", systemsCatalog.scopeKey)
 
   // URL-driven state — four keys: system (which AWS account/system),
   // jewel (which crown jewel selected), path (which path selected),
@@ -130,7 +137,7 @@ export function AttackPathsV2({
   // honestly degrades to an empty state when no system is selected
   // (see EmptyState rendering below), and the system picker upstream
   // is the entry point operators land on.
-  const systemName = systemNameProp ?? searchParams?.get("system") ?? null
+  const requestedSystemName = systemNameProp ?? searchParams?.get("system") ?? null
   const selectedJewelId = searchParams?.get("jewel") ?? null
   const selectedPathId = searchParams?.get("path") ?? null
   // Exfil tab uses its own per-path selection (orthogonal to attack-path
@@ -225,7 +232,7 @@ export function AttackPathsV2({
 
   // 2026-05-30 v3 — auto-resolve which system to load when no ?system=
   // param is in the URL. Precedence:
-  //   1. localStorage["cyntro:lastSystem"] — the system the operator
+  //   1. scope-keyed localStorage — the system the operator
   //      was on last time. Single biggest UX win — "click Attack Paths
   //      v2 from the sidebar, land on the system you were just on".
   //   2. First system in the systems API response.
@@ -238,17 +245,21 @@ export function AttackPathsV2({
   // system_name — all three have shipped over time).
   const [availableSystems, setAvailableSystems] = useState<string[]>([])
   const [autoRedirectDone, setAutoRedirectDone] = useState(false)
+  // A URL, prop, or remembered value is not read authority. Until it appears
+  // in the scoped catalog, every downstream data hook receives null and
+  // therefore cannot issue a per-system request.
+  const systemName = catalogSystemName(requestedSystemName, availableSystems)
 
   // Write the current system to localStorage so the next visit
   // resumes here.
   useEffect(() => {
-    if (!systemName) return
+    if (!catalogSystemName(systemName, availableSystems)) return
     try {
-      localStorage.setItem("cyntro:lastSystem", systemName)
+      localStorage.setItem(lastSystemStorageKey, systemName!)
     } catch {
       /* private mode / quota */
     }
-  }, [systemName])
+  }, [availableSystems, lastSystemStorageKey, systemName])
 
   // Legacy mode-param redirect (2026-05-31 merge). Old deep links
   // (?mode=path or ?mode=attacker) silently rewrite to the unified
@@ -266,10 +277,17 @@ export function AttackPathsV2({
     // Always fetch the systems list — the switcher in the header
     // needs it even when systemName IS set, so the operator can
     // swap to a different system without leaving the page.
+    if (!systemsCatalog.ready) return
+    if (!systemsCatalog.url) {
+      setAvailableSystems([])
+      setAutoRedirectDone(true)
+      return
+    }
+    const catalogUrl = systemsCatalog.url
     let aborted = false
     ;(async () => {
       try {
-        const r = await fetch("/api/proxy/systems")
+        const r = await fetch(catalogUrl)
         if (!r.ok) {
           if (!aborted) setAutoRedirectDone(true)
           return
@@ -287,7 +305,8 @@ export function AttackPathsV2({
           .sort()
         setAvailableSystems(names)
         // Auto-redirect only fires when no system is in the URL.
-        if (systemName) {
+        const requested = catalogSystemName(systemName, names)
+        if (requested) {
           setAutoRedirectDone(true)
           return
         }
@@ -298,8 +317,8 @@ export function AttackPathsV2({
         // time they refresh.
         let target: string | undefined
         try {
-          const last = localStorage.getItem("cyntro:lastSystem")
-          if (last && names.includes(last)) target = last
+          const last = localStorage.getItem(lastSystemStorageKey)
+          target = catalogSystemName(last, names) || undefined
         } catch {
           /* private mode */
         }
@@ -319,7 +338,7 @@ export function AttackPathsV2({
     return () => {
       aborted = true
     }
-  }, [systemName, searchParams, router, pathname])
+  }, [lastSystemStorageKey, pathname, router, searchParams, systemName, systemsCatalog.ready, systemsCatalog.url])
 
   // Progressive load (P0 perf):
   //   1. /jewels — fast materialized crown-jewel list → left rail + shell

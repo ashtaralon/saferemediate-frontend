@@ -17,9 +17,15 @@ const BACKEND_URL = getBackendBaseUrl()
  *     synthesize.
  *   - On 5xx from backend, propagate as 502 with the upstream status.
  */
-export async function GET(_req: NextRequest) {
+export async function GET(req: NextRequest) {
+  const scope = new URLSearchParams()
+  for (const key of ["customer_id", "account_group", "account_id", "region"]) {
+    const value = req.nextUrl.searchParams.get(key)
+    if (value) scope.set(key, value)
+  }
+  const query = scope.toString()
   try {
-    const res = await fetch(`${BACKEND_URL}/api/accounts`, {
+    const res = await fetch(`${BACKEND_URL}/api/accounts${query ? `?${query}` : ""}`, {
       headers: { "Content-Type": "application/json" },
       cache: "no-store",
     })

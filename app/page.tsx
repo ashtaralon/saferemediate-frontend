@@ -46,6 +46,7 @@ import { HomeDashboardV2 } from "@/components/dashboard/v2/home-dashboard-v2"
 import { HomeDashboardV3 } from "@/components/dashboard/v3/home-dashboard-v3"
 import { DASHBOARD_V3_ENABLED } from "@/lib/dashboard-release"
 import { readJsonCache, writeJsonCache } from "@/lib/browser-cache"
+import { catalogSystemName, useScopedSystemCatalog } from "@/lib/scoped-system-catalog"
 
 // V2 is the default home. Set NEXT_PUBLIC_DASHBOARD_V2=false in Vercel to
 // roll back to the legacy home without a code redeploy.
@@ -120,6 +121,7 @@ function setCachedData(key: string, data: any): void {
 export default function HomePage() {
   const router = useRouter()
   const searchParams = useSearchParams()
+  const systemsCatalog = useScopedSystemCatalog()
   const systemFromUrl = searchParams.get('system')
   // Refresh now always lands on Home (matches the 2026-04-30 rollback
   // intent). Reading ?section= on mount was masking the fact that
@@ -141,7 +143,10 @@ export default function HomePage() {
   // in a useEffect below — data-driven, not "alon-prod"-driven. That keeps
   // sidebar sections (Attack Paths, Vulnerabilities, etc.) populated for
   // fresh visits while the home page still renders the org-wide aggregate.
-  const [selectedSystem, setSelectedSystem] = useState<string | null>(systemFromUrl)
+  // Never trust a URL system before it is confirmed by the scoped catalog.
+  // This prevents a foreign/stale deep link from issuing per-system reads
+  // during the first render.
+  const [selectedSystem, setSelectedSystem] = useState<string | null>(null)
   const [data, setData] = useState<InfrastructureData | null>(null)
   const [securityFindings, setSecurityFindings] = useState<SecurityFinding[]>([])
   const [loading, setLoading] = useState(true)
@@ -256,14 +261,17 @@ export default function HomePage() {
   // matches the Top Accounts list ordering on the home page. Data-driven,
   // not "alon-prod" hardcoded.
   //
-  // If /api/systems is empty or fails, leave selectedSystem null and the
+  // If the scoped catalog is empty or fails, leave selectedSystem null and the
   // sidebar sections will show their honest empty-state copy.
   useEffect(() => {
-    if (activeSection === 'home') return // home renders aggregate; do not pick
-    if (systemFromUrl) return // URL wins
-    if (selectedSystem) return // already picked
+    if (activeSection === 'home' && !systemFromUrl) return // aggregate home needs no system
+    if (!systemsCatalog.ready) return
+    if (!systemsCatalog.url) {
+      setSelectedSystem(null)
+      return
+    }
     let aborted = false
-    fetch('/api/proxy/systems', { cache: 'no-store' })
+    fetch(systemsCatalog.url, { cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (aborted || !data) return
@@ -278,15 +286,17 @@ export default function HomePage() {
             const rb = typeof b.resourceCount === 'number' ? b.resourceCount : 0
             return rb - ra // tiebreak: largest resource count
           })
-        if (candidates.length > 0) setSelectedSystem(candidates[0].name)
+        const names = candidates.map((candidate) => candidate.name as string)
+        const requested = catalogSystemName(systemFromUrl || selectedSystem, names)
+        setSelectedSystem(requested || candidates[0]?.name || null)
       })
       .catch(() => {
-        // Silent — keep null and sidebar empty-states surface the gap.
+        if (!aborted) setSelectedSystem(null)
       })
     return () => {
       aborted = true
     }
-  }, [activeSection, systemFromUrl, selectedSystem])
+  }, [activeSection, systemFromUrl, selectedSystem, systemsCatalog.ready, systemsCatalog.url])
 
   const loadData = useCallback(async (isBackgroundRefresh = false) => {
     // Only show loading spinner on initial load when no cached data exists

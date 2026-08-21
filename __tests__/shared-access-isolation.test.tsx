@@ -3,6 +3,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { SharedResourcesListView } from "@/components/shared-resources/shared-resources-list-view"
 
+vi.mock("@/lib/scoped-system-catalog", () => ({
+  catalogSystemName: (requested: string | null, available: string[]) =>
+    available.find((name) => name.toLowerCase() === String(requested || "").toLowerCase()) || null,
+  useScopedSystemCatalog: () => ({
+    url: "/api/proxy/systems",
+    scopeKey: "testbed-webshop|all|all|all",
+    ready: true,
+    available: true,
+  }),
+}))
+
 const push = vi.fn()
 
 vi.mock("next/navigation", () => ({

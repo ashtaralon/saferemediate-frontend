@@ -4,6 +4,7 @@ import Image from "next/image"
 import Link from "next/link"
 import { useEffect, useState } from "react"
 import { Home, AlertTriangle, Server, Grid3x3, Fingerprint, Plug, Zap, Split, Bug, Shield, Route, Sparkles, Tag, Trash2, Users, Network, Map as MapIcon, Target, BarChart3, Settings, ClipboardList } from "lucide-react"
+import { catalogSystemName, useScopedSystemCatalog } from "@/lib/scoped-system-catalog"
 // ThemeToggle import held until dark-mode migration lands:
 // import { ThemeToggle } from "@/components/theme-toggle"
 
@@ -23,27 +24,34 @@ interface LeftSidebarNavProps {
 /** Resolve the active system without pinning an environment: the URL's
  *  ?system= param when present, else the first system from /api/systems.
  *  Null = unknown (callers skip their fetch and render without a count). */
-async function resolveActiveSystem(): Promise<string | null> {
+async function resolveActiveSystem(systemsUrl: string): Promise<string | null> {
   try {
     const fromUrl = new URLSearchParams(window.location.search).get("system")
-    if (fromUrl) return fromUrl
-    const res = await fetch("/api/proxy/systems", { cache: "no-store" })
+    const res = await fetch(systemsUrl, { cache: "no-store" })
     if (!res.ok) return null
     const json = await res.json()
-    const name = (json.systems ?? [])[0]?.name
-    return typeof name === "string" && name.length > 0 ? name : null
+    const names = (json.systems ?? [])
+      .map((system: any) => String(system?.name || system?.SystemName || ""))
+      .filter(Boolean)
+    return catalogSystemName(fromUrl, names) || names[0] || null
   } catch {
     return null
   }
 }
 
 function useSharedResourcesActionableCount(): number | null {
+  const systemsCatalog = useScopedSystemCatalog()
   const [count, setCount] = useState<number | null>(null)
   useEffect(() => {
+    if (!systemsCatalog.ready) return
+    if (!systemsCatalog.url) {
+      setCount(null)
+      return
+    }
     let cancelled = false
     ;(async () => {
       try {
-        const system = await resolveActiveSystem()
+        const system = await resolveActiveSystem(systemsCatalog.url!)
         if (cancelled || !system) return
         const qs = `system_name=${encodeURIComponent(system)}`
         const [iamRes, sgRes] = await Promise.all([
@@ -74,7 +82,7 @@ function useSharedResourcesActionableCount(): number | null {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [systemsCatalog.ready, systemsCatalog.url])
   return count
 }
 

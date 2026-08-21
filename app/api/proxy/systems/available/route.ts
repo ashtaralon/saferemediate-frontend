@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server"
+import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
 // Force the route to be dynamically rendered on every request and
@@ -20,8 +20,14 @@ export const revalidate = 0
 // can complete on first hit.
 export const maxDuration = 120
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const backendUrl = getBackendBaseUrl()
+  const scope = new URLSearchParams()
+  for (const key of ["customer_id", "account_group", "account_id", "region"]) {
+    const value = req.nextUrl.searchParams.get(key)
+    if (value) scope.set(key, value)
+  }
+  const query = scope.toString()
 
   if (!backendUrl) {
     return NextResponse.json(
@@ -40,9 +46,10 @@ export async function GET() {
     // which made `fetchSystemMeta` fail and forced every System Context
     // card into the literal-string fallback ("Standard / Production /
     // eu-west-1"). Route to the real endpoint.
-    console.log("[API Proxy] Fetching available systems from:", `${backendUrl}/api/systems`)
+    const systemsUrl = `${backendUrl}/api/systems${query ? `?${query}` : ""}`
+    console.log("[API Proxy] Fetching available systems from:", systemsUrl)
 
-    const response = await fetch(`${backendUrl}/api/systems`, {
+    const response = await fetch(systemsUrl, {
       cache: "no-store",
       // 90s leaves margin under the 120s maxDuration; covers the
       // 13s cold-start observed on Render free tier with a buffer
