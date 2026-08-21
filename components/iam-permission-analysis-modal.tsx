@@ -29,6 +29,7 @@ import type {
   DecisionOutcomeCanonical,
 } from "@/lib/types"
 import { type RoutingDecision, toRoutingDecision } from "@/lib/decision-routing"
+import { resolveIamRemediationAuthority } from "@/lib/iam-remediation-authority"
 import {
   automationReadiness,
   previewEvidenceNeeds,
@@ -1051,7 +1052,14 @@ export function IAMPermissionAnalysisModal({
   // either order and previously made the selected count jump from 0 to 2.
   useEffect(() => {
     if (!gapData || safetyLoading) return
-    if (gapData.is_remediable === false) {
+    const authority = resolveIamRemediationAuthority({
+      legacyIsRemediable: gapData.is_remediable,
+      legacyReason: gapData.remediable_reason,
+      canonicalDecision: safetyContext?.decision_canonical,
+      planToken,
+      planPermissions,
+    })
+    if (authority.evidenceUnavailable) {
       setSelectedPermissionsToRemove(new Set())
       return
     }
@@ -1073,7 +1081,7 @@ export function IAMPermissionAnalysisModal({
     // bundle. The UI labels this legacy state separately and Apply remains
     // governed by the normal remediability gate.
     setSelectedPermissionsToRemove(new Set(gapData.unused_permissions))
-  }, [planPermissions, removalSafety, gapData, safetyLoading])
+  }, [planPermissions, planToken, removalSafety, safetyContext?.decision_canonical, gapData, safetyLoading])
 
   const fetchSafetyContext = async (): Promise<SimulateFixSafety | null> => {
     setSafetyLoading(true)
@@ -1440,10 +1448,17 @@ export function IAMPermissionAnalysisModal({
     // (Apply, Apply Anyway, Acknowledge & Apply, detach) regardless of which
     // caller reached this handler, so no code path can narrow on evidence we
     // don't have. Pairs with the UI gate in the button block and backend PR #519.
-    if (gapData.is_remediable === false) {
+    const remediationAuthority = resolveIamRemediationAuthority({
+      legacyIsRemediable: gapData.is_remediable,
+      legacyReason: gapData.remediable_reason,
+      canonicalDecision: safetyContext?.decision_canonical,
+      planToken,
+      planPermissions,
+    })
+    if (remediationAuthority.evidenceUnavailable) {
       toast({
         title: "More data needed",
-        description: gapData.remediable_reason
+        description: remediationAuthority.effectiveReason
           || "Usage not computed — sync CloudTrail / behavioral usage before remediation.",
         variant: "destructive",
       })
@@ -2637,6 +2652,13 @@ export function IAMPermissionAnalysisModal({
 
   // Calculate derived values
   const observationDays = previewObservationDays ?? gapData?.observation_days ?? 0
+  const remediationAuthority = resolveIamRemediationAuthority({
+    legacyIsRemediable: gapData?.is_remediable,
+    legacyReason: gapData?.remediable_reason,
+    canonicalDecision: safetyContext?.decision_canonical,
+    planToken,
+    planPermissions,
+  })
   const overallRisk = gapData?.summary?.overall_risk ?? 'UNKNOWN'
   const cloudtrailEvents = gapData?.summary?.cloudtrail_events ?? 0
 
@@ -2786,7 +2808,17 @@ export function IAMPermissionAnalysisModal({
     )
   }
 
-  const iamLpGap = useMemo(() => mapGapDataToIAMLp(gapData), [gapData])
+  const iamLpGap = useMemo(() => {
+    const mapped = mapGapDataToIAMLp(gapData)
+    return mapped
+      ? {
+          ...mapped,
+          observation_days: observationDays,
+          is_remediable: remediationAuthority.effectiveIsRemediable,
+          remediable_reason: remediationAuthority.effectiveReason,
+        }
+      : null
+  }, [gapData, observationDays, remediationAuthority.effectiveIsRemediable, remediationAuthority.effectiveReason])
   const iamLpSplit = useMemo(
     () => buildDecisionSplit(iamLpGap?.confidence_groups),
     [iamLpGap],
@@ -3094,7 +3126,7 @@ export function IAMPermissionAnalysisModal({
 
   const blockedReason =
     safetyContext?.unsafe_reasons?.[0]
-      || gapData?.remediable_reason
+      || (remediationAuthority.evidenceUnavailable ? remediationAuthority.effectiveReason : null)
       || null
 
   if (!isOpen) return null
@@ -4029,7 +4061,7 @@ export function IAMPermissionAnalysisModal({
                   type="checkbox"
                   checked={detachManagedPolicies}
                   onChange={(e) => setDetachManagedPolicies(e.target.checked)}
-                  disabled={applying || gapData?.is_remediable === false || managedPolicyRewriteRequired}
+                  disabled={applying || remediationAuthority.evidenceUnavailable || managedPolicyRewriteRequired}
                   className="rounded border-[var(--border,#d1d5db)] text-orange-600 focus:ring-orange-500"
                 />
                 <span className="text-sm" style={{ color: "var(--muted-foreground, #6b7280)" }}>
@@ -4043,7 +4075,7 @@ export function IAMPermissionAnalysisModal({
                 // when there is no attached policy data OR usage was never measured
                 // (data_confidence UNKNOWN / reason 'usage_not_computed'). Undefined
                 // on older backends → not gated.
-                const evidenceUnknown = gapData?.is_remediable === false
+                const evidenceUnknown = remediationAuthority.evidenceUnavailable
                 const lowConfidence = safetyScore < 50
                 const pipelineBlocked = verdictBucket === 'blocked'
                 // Honest counts: report what the user actually selected. Non-auto
@@ -4103,13 +4135,13 @@ export function IAMPermissionAnalysisModal({
                   return (
                     <div className="flex items-center gap-3">
                       <span className="text-sm text-[#b45309] max-w-md text-right">
-                        {gapData?.remediable_reason
+                        {remediationAuthority.effectiveReason
                           || 'Usage not computed — sync evidence before remediation.'}
                       </span>
                       <button
                         disabled
                         className="px-6 py-2.5 bg-gray-400 text-white rounded-lg font-bold cursor-not-allowed flex items-center gap-2"
-                        title={gapData?.remediable_reason
+                        title={remediationAuthority.effectiveReason
                           || 'Usage not computed — sync CloudTrail / behavioral usage before remediation.'}
                       >
                         <XCircle className="w-4 h-4" />
