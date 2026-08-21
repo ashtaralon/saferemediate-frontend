@@ -111,7 +111,7 @@ export function IdentityAttackPathsQueue({
       {ranked.length === 0 ? (
         <DashboardEmptyState
           title="No attack paths detected"
-          hint="Neo4j has no ACTUAL_TRAFFIC edges from identities to crown jewels for this system."
+          hint="Neptune has no ACTUAL_TRAFFIC edges from identities to crown jewels for this system."
         />
       ) : (
         <div className="flex flex-col gap-2">

@@ -143,7 +143,7 @@ export function ChangeQueueView({ systemName }: { systemName?: string }) {
           </Link>)}
         </div>
 
-        <div className="mt-8"><div className="text-xs font-bold uppercase tracking-[.14em] text-emerald-700">Approved execution workflows</div><h2 className="mt-1 text-xl font-bold">Change Cases</h2></div>
+        <div className="mt-8"><div className="text-xs font-bold uppercase tracking-[.14em] text-emerald-700">Supervised execution workflows</div><h2 className="mt-1 text-xl font-bold">Change Cases</h2></div>
         {!loading && !error && cases.length === 0 && (
           <div className="mt-8 rounded-2xl border border-dashed border-slate-300 bg-white p-12 text-center">
             <ShieldCheck className="mx-auto h-8 w-8 text-slate-400" />
@@ -159,6 +159,7 @@ export function ChangeQueueView({ systemName }: { systemName?: string }) {
                 <div className="text-xs font-bold uppercase tracking-wide text-violet-700">{item.change_kind.replace(/_/g, ' ')}</div>
                 <div className="mt-1 text-lg font-semibold">{item.resource_name}</div>
                 <div className="mt-1 font-mono text-xs text-slate-500">{item.sg_id || item.resource_type} · {item.case_id}</div>
+                {item.resource_type === 'IAMRole' && <div className="mt-2 text-xs text-slate-600">Exact used-vs-allowed permission reduction · policy pre/post verification</div>}
               </div>
               <div className="text-sm text-slate-700">
                 <div>{item.system_name} · {item.resource_type}</div>

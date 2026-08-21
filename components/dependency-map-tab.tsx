@@ -73,8 +73,8 @@ const ComprehensiveFlowViz = dynamic(
 // Topology · Graph View sub-tab. The component file still exists for
 // other consumers (none currently) — clean removal can come later.
 
-// Lazy load Neo4jAWSMap (Neo4j-powered dynamic visualization with animated flows) with SSR disabled
-const Neo4jAWSMap = dynamic(
+// Lazy load the Neptune-backed dynamic visualization with SSR disabled.
+const NeptuneAWSMap = dynamic(
   () => import('./dependency-map/aws-infrastructure-map'),
   {
     ssr: false,
@@ -82,7 +82,7 @@ const Neo4jAWSMap = dynamic(
       <div className="flex items-center justify-center h-[650px] bg-slate-900 rounded-xl">
         <div className="text-center">
           <div className="w-10 h-10 border-3 border-orange-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-          <p className="text-white text-sm font-medium">Loading Neo4j Map...</p>
+          <p className="text-white text-sm font-medium">Loading Neptune Map...</p>
           <p className="text-slate-400 text-xs mt-1">Connecting to database</p>
         </div>
       </div>
@@ -103,9 +103,10 @@ const FlowStripView = dynamic(
   }
 )
 
-// Lazy load Neo4jDataView (Data table view for Neo4j data) with SSR disabled
-const Neo4jDataView = dynamic(
-  () => import('./dependency-map/neo4j-data-view'),
+// Lazy load the graph data table. The historical filename remains temporarily
+// for import compatibility; the data source is customer Neptune.
+const NeptuneDataView = dynamic(
+  () => import('./dependency-map/neptune-data-view'),
   {
     ssr: false,
     loading: () => (
@@ -751,7 +752,7 @@ export default function DependencyMapTab({
               <div className="text-center">
                 <div className="w-10 h-10 border-3 border-cyan-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
                 <p className="text-white text-sm font-medium">Loading Traffic Flow Map...</p>
-                <p className="text-slate-400 text-xs mt-1">Connecting to Neo4j</p>
+                <p className="text-slate-400 text-xs mt-1">Connecting to Neptune</p>
               </div>
             </div>
           }>
