@@ -84,8 +84,8 @@ describe("remediation presentation", () => {
 
     render(<IamRemediationAvailability bundle={bundle} applyDisabled />)
 
-    expect(screen.getByText("13 unused permissions found — verification is incomplete")).toBeTruthy()
-    expect(screen.getByText(/has not concluded that these permissions are needed/i)).toBeTruthy()
+    expect(screen.getByText("Nothing can be removed yet — 13 permissions await evidence")).toBeTruthy()
+    expect(screen.getByText(/observed no use for 13 permissions/i)).toBeTruthy()
     expect(screen.getByText(/Production IAM changes are not enabled in this release/i)).toBeTruthy()
   })
 
@@ -123,6 +123,22 @@ describe("remediation presentation", () => {
 })
 
 describe("RemovalSafetyPanel", () => {
+  it("fails closed when action-level removal safety is unavailable", () => {
+    const view = buildCanonicalPermissionView([
+      {
+        permission: "s3:ListBucket",
+        status: "UNUSED",
+        risk_level: "MEDIUM",
+        recommendation: "",
+        usage_count: 0,
+      },
+    ], null)
+
+    expect(view.removable).toEqual([])
+    expect(view.review.map(item => item.permission)).toEqual(["s3:ListBucket"])
+    expect(view.review[0].removal_reason).toMatch(/evidence is unavailable/i)
+  })
+
   it("explains a shared score as common evidence inputs, not a probability", () => {
     const permissions = ["ssm:GetDocument", "ssm:PutInventory"].map(permission => ({
       permission,

@@ -124,15 +124,24 @@ export function buildCanonicalPermissionView(
 ): CanonicalPermissionView {
   if (!removalSafety) {
     const used = legacyPermissions.filter(item => item.status === "USED")
-    const removable = legacyPermissions.filter(item => item.status === "UNUSED")
+    // Raw non-use is inventory evidence, never removal authorization. If the
+    // canonical scorer is unavailable, fail closed and expose every
+    // not-observed action as awaiting evidence instead of inventing candidates.
+    const review = legacyPermissions
+      .filter(item => item.status === "UNUSED")
+      .map(item => ({
+        ...item,
+        recommendation: item.recommendation || "Action-level removal evidence is unavailable.",
+        removal_reason: item.removal_reason || "Action-level removal evidence is unavailable.",
+      }))
     return {
       used,
-      removable,
-      review: [],
+      removable: [],
+      review,
       protected: [],
       totalCount: legacyPermissions.length,
       usedCount: used.length,
-      unusedCount: removable.length,
+      unusedCount: review.length,
     }
   }
 
@@ -322,14 +331,14 @@ export function IamRemediationAvailability({
           <div className="font-semibold">
             {!hasCandidates
               ? bundle.insufficient_evidence_count > 0
-                ? `${bundle.insufficient_evidence_count} unused permissions found — verification is incomplete`
+                ? `Nothing can be removed yet — ${bundle.insufficient_evidence_count} permissions await evidence`
                 : "No eligible permission change was found"
               : "This plan is preview-only"}
           </div>
           {!hasCandidates && (
             <p className="mt-1 text-sm">
               {bundle.insufficient_evidence_count > 0
-                ? "Cyntro has not concluded that these permissions are needed. It is waiting for current usage and dependency evidence before proposing a change."
+                ? `Cyntro observed no use for ${bundle.insufficient_evidence_count} permissions, but has not verified them as safe to remove. Open Permissions to see every action and its blocker.`
                 : "Cyntro did not find an eligible permission to remove from this role."}
             </p>
           )}
@@ -4747,7 +4756,7 @@ export function IAMPermissionAnalysisModal({
                   <div className="flex-1 min-w-0">
                     <div className="flex items-baseline justify-between gap-3">
                       <p className="text-xs" style={{ color: "var(--foreground, #111827)" }}>
-                        <span className="font-semibold tabular-nums">{unusedCount}</span> of <span className="font-semibold tabular-nums">{totalPermissions}</span> never used · <span className="font-semibold tabular-nums" style={{ color: '#16a34a' }}>{usedCount}</span> needed
+                        <span className="font-semibold tabular-nums">{unusedCount}</span> of <span className="font-semibold tabular-nums">{totalPermissions}</span> not observed · <span className="font-semibold tabular-nums" style={{ color: '#16a34a' }}>{usedCount}</span> observed in use
                       </p>
                     </div>
                     <div className="flex items-center gap-0.5 mt-1.5 h-1.5 rounded-full overflow-hidden" style={{ background: '#e5e7eb' }}>
@@ -4766,7 +4775,7 @@ export function IAMPermissionAnalysisModal({
                       </span>
                       <span className="flex items-center gap-1" style={{ color: accent }}>
                         <span className="inline-block w-1.5 h-1.5 rounded-full" style={{ background: accent }} />
-                        <span className="tabular-nums">{unusedCount}</span> to remove ({unusedPercent}%)
+                        <span className="tabular-nums">{unusedCount}</span> not observed ({unusedPercent}%)
                       </span>
                       <span className="ml-auto text-slate-400 tabular-nums">{totalPermissions} total</span>
                     </div>
@@ -4788,22 +4797,33 @@ export function IAMPermissionAnalysisModal({
           {/* Permission Usage Breakdown - Only show if not remediated */}
           {analysisTab === 'permissions' && !safetyLoading && totalPermissions > 0 && (
           <div className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div className="rounded-lg border border-[var(--border,#e5e7eb)] bg-white p-4">
                 <div className="text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground,#6b7280)]">Selected</div>
                 <div className="mt-2 text-3xl font-bold text-[var(--foreground,#111827)]">{selectedPermissionsToRemove.size}</div>
                 <div className="mt-1 text-sm text-[var(--muted-foreground,#6b7280)]">permissions queued for removal</div>
               </div>
               <div className="rounded-lg border border-[#fecaca] bg-[#fff1f2] p-4">
-                <div className="text-xs uppercase tracking-[0.18em] text-[#b91c1c]">Removable</div>
+                <div className="text-xs uppercase tracking-[0.18em] text-[#b91c1c]">Verified candidates</div>
                 <div className="mt-2 text-3xl font-bold text-[#ef4444]">{Math.max(0, removableCount)}</div>
-                <div className="mt-1 text-sm text-[#b91c1c]">permissions with direct removal path</div>
+                <div className="mt-1 text-sm text-[#b91c1c]">eligible to enter a change plan</div>
               </div>
               <div className="rounded-lg border border-[#fde68a] bg-[#fffbeb] p-4">
-                <div className="text-xs uppercase tracking-[0.18em] text-[#b45309]">Needs Review</div>
-                <div className="mt-2 text-3xl font-bold text-[#d97706]">{warnPerms.length + protectedPerms.length}</div>
-                <div className="mt-1 text-sm text-[#92400e]">warned or protected permissions</div>
+                <div className="text-xs uppercase tracking-[0.18em] text-[#b45309]">Awaiting evidence</div>
+                <div className="mt-2 text-3xl font-bold text-[#d97706]">{warnPerms.length}</div>
+                <div className="mt-1 text-sm text-[#92400e]">not safe to change yet</div>
               </div>
+              <div className="rounded-lg border border-[#d1d5db] bg-[#f9fafb] p-4">
+                <div className="text-xs uppercase tracking-[0.18em] text-[#4b5563]">Protected / keep</div>
+                <div className="mt-2 text-3xl font-bold text-[#4b5563]">{protectedPerms.length}</div>
+                <div className="mt-1 text-sm text-[#6b7280]">excluded from removal</div>
+              </div>
+            </div>
+            <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800" data-testid="permission-removal-answer">
+              <strong>What can be removed now:</strong>{" "}
+              {removableCount > 0
+                ? `${removableCount} evidence-verified permission${removableCount === 1 ? "" : "s"}, listed below.`
+                : "nothing. Every not-observed permission is either awaiting evidence or protected."}
             </div>
             <h3 className="text-lg font-bold text-[var(--foreground,#111827)]">Permission Usage Breakdown</h3>
 
@@ -4840,7 +4860,7 @@ export function IAMPermissionAnalysisModal({
               </div>
             </div>
 
-            {/* Never Used Permissions — split into removable vs warn vs protected */}
+            {/* Canonical action disposition — candidates vs evidence holds vs protected */}
             {(
                 <>
                   {/* Removable permissions */}
@@ -4848,10 +4868,10 @@ export function IAMPermissionAnalysisModal({
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <AlertTriangle className="w-5 h-5 text-[#ef4444]" />
-                        <span className="font-semibold text-[#ef4444]">Never Used Permissions ({removableCount})</span>
+                        <span className="font-semibold text-[#ef4444]">Verified Removal Candidates ({removableCount})</span>
                       </div>
                       <span className="px-3 py-1 bg-[#ef444420] text-[#ef4444] border border-[#ef444440] rounded-lg text-sm font-medium">
-                        Remove these
+                        {removableCount > 0 ? "Eligible for plan" : "None verified"}
                       </span>
                     </div>
                     {removablePerms.length > 0 ? (
@@ -4900,7 +4920,11 @@ export function IAMPermissionAnalysisModal({
                           These permissions come from managed policies attached to this role. To remediate, detach the managed policies and replace with a minimal inline policy containing only the {usedCount} used permission{usedCount !== 1 ? 's' : ''}.
                         </p>
                       </div>
-                    ) : null}
+                    ) : (
+                      <div className="mt-3 rounded-lg border border-[#fecaca] bg-white/70 p-3 text-sm text-[#991b1b]">
+                        No permission has passed the action-level evidence and dependency checks. The names and exact blockers are shown below.
+                      </div>
+                    )}
                   </div>
 
                   {/* Caution permissions (logging, SLR, ECS) — selectable but warned */}
@@ -4909,20 +4933,23 @@ export function IAMPermissionAnalysisModal({
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <AlertTriangle className="w-5 h-5 text-[#eab308]" />
-                          <span className="font-semibold text-[#eab308]">Caution — Review Before Removing ({warnPerms.length})</span>
+                          <span className="font-semibold text-[#a16207]">Awaiting Evidence ({warnPerms.length})</span>
                         </div>
                         <span className="px-3 py-1 bg-[#eab30815] text-[#eab308] border border-[#fde68a] rounded-lg text-sm font-medium">
-                          May break services
+                          Do not change yet
                         </span>
                       </div>
                       <p className="text-xs mt-2 text-[#a16207]">
-                        These permissions are partially logged or called by AWS services internally. They may appear unused but could be actively required. Review each before removing.
+                        No use was observed, but Cyntro cannot yet prove these actions are safe to remove. Each action shows its current evidence blocker.
                       </p>
                       <div className="mt-3 grid grid-cols-2 gap-2 max-h-32 overflow-y-auto">
                         {warnPerms.map((perm, i) => (
-                          <div key={i} className="flex items-center gap-2 text-sm">
+                          <div key={i} className="flex items-start gap-2 text-sm">
                             <AlertTriangle className="w-3 h-3 flex-shrink-0 text-[#eab308]" />
-                            <span className="font-mono text-[var(--foreground,#374151)] truncate">{perm.permission}</span>
+                            <div className="min-w-0">
+                              <div className="font-mono text-[var(--foreground,#374151)] break-all">{perm.permission}</div>
+                              <div className="mt-0.5 text-xs text-[#92400e]">{perm.removal_reason || perm.recommendation}</div>
+                            </div>
                           </div>
                         ))}
                       </div>
@@ -4942,13 +4969,16 @@ export function IAMPermissionAnalysisModal({
                         </span>
                       </div>
                       <p className="text-xs mt-2 text-[#6b7280]">
-                        Includes SSM Agent internals, iam:PassRole, KMS encryption, and STS assume-role permissions. These are invisible or excluded from CloudTrail and critical to AWS infrastructure.
+                        These actions are explicitly excluded from removal because they are dependencies, control-plane primitives, or protected infrastructure behavior.
                       </p>
                       <div className="mt-3 grid grid-cols-2 gap-2 max-h-32 overflow-y-auto">
                         {protectedPerms.map((perm, i) => (
-                          <div key={i} className="flex items-center gap-2 text-sm opacity-60">
+                          <div key={i} className="flex items-start gap-2 text-sm">
                             <Lock className="w-3 h-3 flex-shrink-0 text-[#6b7280]" />
-                            <span className="font-mono text-[#6b7280] truncate">{perm.permission}</span>
+                            <div className="min-w-0">
+                              <div className="font-mono text-[#4b5563] break-all">{perm.permission}</div>
+                              <div className="mt-0.5 text-xs text-[#6b7280]">{perm.removal_reason || perm.recommendation}</div>
+                            </div>
                           </div>
                         ))}
                       </div>

@@ -29,7 +29,7 @@ import { SGRemediationModal as SGLeastPrivilegeModal } from '@/components/sg-rem
 import { lpSeverityColor, lpSeverityLabel } from '@/lib/lp-severity'
 import { BackToDashboard } from '@/components/back-to-dashboard'
 import { TrustDormancyLens } from '@/components/trust-dormancy-lens'
-import { iamObservationCopy } from '@/lib/iam-observation-copy'
+import { iamInventoryRowCopy, iamObservationCopy } from '@/lib/iam-observation-copy'
 import {
   belongsInOpenRiskQueue,
   resourceRiskDecision,
@@ -2246,6 +2246,9 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
               const sevColor = getSeverityColor(resource)
               const sevLabel = getSeverityLabel(resource)
               const metrics = getUsageMetricsForResource(resource)
+              const inventoryDescription = resource.resourceType === 'IAMRole' && activeTab !== 'remediated' && metrics.measured !== false
+                ? iamInventoryRowCopy(metrics.unusedCount ?? 0, metrics.total ?? 0).summary
+                : (resource.description || resource.title || 'Risk details available')
               const isExpanded = expandedRow === (resource.id || resource.resourceName)
               const rowKey = resource.id || resource.resourceArn || resource.resourceName
               const tfRoleArn = resource.resourceArn?.startsWith('arn:')
@@ -2280,8 +2283,8 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                             <div className="font-medium text-sm truncate" style={{ color: "var(--text-primary)" }}>{resource.resourceName}</div>
                             {tfChip}
                           </div>
-                          <div className="text-xs truncate" style={{ color: "var(--text-secondary)" }} title={resource.description}>
-                            {resource.description || resource.title || 'Risk details available'}
+                          <div className="text-xs truncate" style={{ color: "var(--text-secondary)" }} title={inventoryDescription}>
+                            {inventoryDescription}
                           </div>
                           <div className="text-[10px] truncate" style={{ color: "var(--text-muted)" }}>
                             {resource.systemName || systemName}
@@ -2352,8 +2355,8 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                             <div className="font-medium text-sm truncate" style={{ color: "var(--text-primary)" }}>{resource.resourceName}</div>
                             {tfChip}
                           </div>
-                          <div className="text-xs truncate" style={{ color: "var(--text-secondary)" }} title={resource.description}>
-                            {resource.description || resource.title || 'Risk details available'}
+                          <div className="text-xs truncate" style={{ color: "var(--text-secondary)" }} title={inventoryDescription}>
+                            {inventoryDescription}
                           </div>
                           <div className="text-[10px] truncate" style={{ color: "var(--text-muted)" }}>
                             {resource.systemName || systemName}
@@ -2725,7 +2728,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                                 {(metrics.unusedCount ?? 0) > 0
                                   ? (resource.evidence?.confidence === 'LOW' || (!resource.evidence?.confidence && metrics.usedCount === 0))
                                     ? <>{metrics.unusedCount} of {metrics.total} permissions have <strong style={{ color: "#f97316" }}>no observed usage</strong> — insufficient data to confirm</>
-                                    : iamObservationCopy(metrics.unusedCount ?? 0, metrics.total, metrics.usedCount ?? 0).summary
+                                    : iamObservationCopy(metrics.unusedCount ?? 0, metrics.total ?? 0, metrics.usedCount ?? 0).summary
                                   : <>All {metrics.total} permissions are in active use</>
                                 }
                               </p>
@@ -2746,8 +2749,8 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                                 )}
                               </div>
                               <div className="flex justify-between mt-1.5 text-[10px]" style={{ color: "var(--text-muted)" }}>
-                                <span>{iamObservationCopy(metrics.unusedCount ?? 0, metrics.total, metrics.usedCount ?? 0).usedLabel}</span>
-                                <span>{iamObservationCopy(metrics.unusedCount ?? 0, metrics.total, metrics.usedCount ?? 0).notObservedLabel}</span>
+                                <span>{iamObservationCopy(metrics.unusedCount ?? 0, metrics.total ?? 0, metrics.usedCount ?? 0).usedLabel}</span>
+                                <span>{iamObservationCopy(metrics.unusedCount ?? 0, metrics.total ?? 0, metrics.usedCount ?? 0).notObservedLabel}</span>
                               </div>
                             </>
                           )}
