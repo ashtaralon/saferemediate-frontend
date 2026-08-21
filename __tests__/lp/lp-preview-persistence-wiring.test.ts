@@ -67,4 +67,21 @@ describe('Resource Risk Preview persistence wiring', () => {
       analysisModalSource.lastIndexOf('setShowSimulation(true)'),
     )
   })
+
+  it('routes REQUIRE_APPROVAL through the stored approval workflow instead of override apply', () => {
+    const approvalStart = analysisModalSource.indexOf("else if (verdictBucket === 'human_approval')")
+    const approvalEnd = analysisModalSource.indexOf('else if (lowConfidence)', approvalStart)
+    const approvalBranch = analysisModalSource.slice(approvalStart, approvalEnd)
+
+    expect(approvalStart).toBeGreaterThan(0)
+    expect(approvalEnd).toBeGreaterThan(approvalStart)
+    expect(approvalBranch).toContain('handleIAMLpRequestApproval(selectedPermissions)')
+    expect(approvalBranch).toContain('handleIAMLpExecuteApprovedRequest(approval.request_id)')
+    expect(approvalBranch).toContain('Request approval (${selectedTotalCount})')
+    expect(approvalBranch).toContain('Approval pending')
+    expect(approvalBranch).not.toContain('handleApplyFix(')
+    expect(approvalBranch).not.toContain('setOverrideModal(')
+    expect(analysisModalSource).toContain('data-testid="shared-role-impact"')
+    expect(analysisModalSource).toContain('{renderApprovalActionModal()}')
+  })
 })

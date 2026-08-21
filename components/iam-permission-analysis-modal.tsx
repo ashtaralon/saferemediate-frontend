@@ -2862,15 +2862,23 @@ export function IAMPermissionAnalysisModal({
     [iamLpGap],
   )
   const latestApprovalRequest = useMemo<ApprovalRequestSummary | null>(() => {
-    if (!approvalRequests.length) return null
+    const matchingRequests = approvalRequests.filter((request) =>
+      selectionMatchesSignedIamPlan(
+        request.permissions_to_remove,
+        planPermissions,
+        planToken,
+      ),
+    )
+    if (!matchingRequests.length) return null
     return (
-      approvalRequests.find((request) => request.status === "PENDING_APPROVAL") ||
-      approvalRequests.find((request) => request.status === "APPROVED") ||
-      approvalRequests.find((request) => request.status === "EXECUTED") ||
-      approvalRequests[0] ||
+      matchingRequests.find((request) => request.status === "PENDING_APPROVAL") ||
+      matchingRequests.find((request) => request.status === "APPROVED") ||
+      matchingRequests.find((request) => request.status === "EXECUTING") ||
+      matchingRequests.find((request) => request.status === "EXECUTED") ||
+      matchingRequests[0] ||
       null
     )
-  }, [approvalRequests])
+  }, [approvalRequests, planPermissions, planToken])
   const iamLpExecution = useMemo<ExecutionState>(
     () => ({
       approval: latestApprovalRequest,
@@ -3022,6 +3030,21 @@ export function IAMPermissionAnalysisModal({
       setApprovalActionBusy(false)
     }
   }
+
+  const renderApprovalActionModal = () => (
+    <ApprovalActionModal
+      isOpen={approvalActionMode !== null}
+      mode={approvalActionMode || "request"}
+      actorName={approvalActionState.actorName}
+      actorEmail={approvalActionState.actorEmail}
+      note={approvalActionState.note}
+      busy={approvalActionBusy}
+      error={approvalActionError}
+      onChange={setApprovalActionState}
+      onClose={closeApprovalAction}
+      onSubmit={handleSubmitApprovalAction}
+    />
+  )
   
   // Calculate dates
   const endDate = new Date()
@@ -3263,6 +3286,7 @@ export function IAMPermissionAnalysisModal({
     return (
       <>
       {renderOverrideModal()}
+      {renderApprovalActionModal()}
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto" style={REMEDIATION_MODAL_BACKDROP_STYLE}>
         <div className="absolute inset-0" onClick={handleClose} />
         <div className="relative w-[900px] max-h-[90vh] rounded-2xl shadow-2xl overflow-hidden flex flex-col my-4" style={{ background: "var(--card, #ffffff)" }}>
@@ -3544,6 +3568,45 @@ export function IAMPermissionAnalysisModal({
                       })}
                     </div>
                   </section>
+
+                  {safetyContext?.shared_resource && safetyContext.shared_resource.consumer_count > 1 && (
+                    <section
+                      className="rounded-xl border border-amber-200 bg-amber-50 p-4"
+                      data-testid="shared-role-impact"
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-amber-700">
+                            Shared role impact
+                          </div>
+                          <h3 className="mt-1 font-semibold text-amber-950">
+                            Approval is required for {safetyContext.shared_resource.consumer_count} attached consumers
+                          </h3>
+                          <p className="mt-1 text-sm text-amber-900">
+                            The exact permission set will be frozen for review. AWS cannot be changed from this screen until that request is approved.
+                          </p>
+                        </div>
+                        <a
+                          href={`${safetyContext.shared_resource.ui_path || '/iam/shared-roles'}?system_name=${encodeURIComponent(systemName)}&role_ref=${encodeURIComponent(safetyContext.shared_resource.resource_id || roleName)}`}
+                          className="rounded-full border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-900 hover:bg-amber-100"
+                        >
+                          Open Shared Resources
+                        </a>
+                      </div>
+                      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                        {safetyContext.shared_resource.consumers.map((consumer) => (
+                          <div key={`${consumer.type}:${consumer.id}`} className="rounded-lg border border-amber-200 bg-white px-3 py-2">
+                            <div className="text-[10px] font-semibold uppercase tracking-wide text-amber-700">
+                              {consumer.type.replace(/_/g, ' ')}
+                            </div>
+                            <div className="mt-0.5 truncate font-mono text-xs text-slate-800" title={consumer.id}>
+                              {consumer.name || consumer.id}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+                  )}
                 </div>
               )
 
@@ -4251,6 +4314,73 @@ export function IAMPermissionAnalysisModal({
                       </button>
                     </div>
                   )
+                } else if (verdictBucket === 'human_approval') {
+                  const approval = latestApprovalRequest
+                  const sharedPath = safetyContext?.shared_resource?.ui_path || '/iam/shared-roles'
+                  const sharedHref = `${sharedPath}?system_name=${encodeURIComponent(systemName)}&role_ref=${encodeURIComponent(safetyContext?.shared_resource?.resource_id || roleName)}`
+                  const selectedPermissions = Array.from(selectedPermissionsToRemove)
+
+                  if (approval?.status === 'APPROVED') {
+                    return (
+                      <div className="flex items-center gap-3">
+                        <a href={sharedHref} className="text-sm font-semibold text-amber-800 hover:underline">
+                          Review shared impact
+                        </a>
+                        <button
+                          type="button"
+                          onClick={() => void handleIAMLpExecuteApprovedRequest(approval.request_id)}
+                          disabled={applying || approvalActionBusy}
+                          data-testid="iam-execute-approved"
+                          className="rounded-lg bg-[#2D51DA] px-5 py-2.5 font-bold text-white shadow-lg hover:bg-[#2446c0] disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          Execute approved change
+                        </button>
+                      </div>
+                    )
+                  }
+
+                  if (approval?.status === 'PENDING_APPROVAL' || approval?.status === 'EXECUTING') {
+                    return (
+                      <div className="flex items-center gap-3">
+                        <a href={sharedHref} className="text-sm font-semibold text-amber-800 hover:underline">
+                          Review shared impact
+                        </a>
+                        <button
+                          type="button"
+                          disabled
+                          data-testid="iam-approval-pending"
+                          className="cursor-not-allowed rounded-lg bg-amber-200 px-5 py-2.5 font-bold text-amber-900 opacity-80"
+                        >
+                          {approval.status === 'EXECUTING' ? 'Approved change executing' : 'Approval pending'}
+                        </button>
+                      </div>
+                    )
+                  }
+
+                  if (approval?.status === 'EXECUTED') {
+                    return (
+                      <button type="button" disabled className="cursor-not-allowed rounded-lg bg-emerald-100 px-5 py-2.5 font-bold text-emerald-800">
+                        Approved change executed
+                      </button>
+                    )
+                  }
+
+                  return (
+                    <div className="flex items-center gap-3">
+                      <a href={sharedHref} className="text-sm font-semibold text-amber-800 hover:underline">
+                        Review shared impact
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() => void handleIAMLpRequestApproval(selectedPermissions)}
+                        disabled={applying || approvalLoading || !hasExecutableSelection}
+                        data-testid="iam-request-approval"
+                        className="rounded-lg bg-amber-500 px-5 py-2.5 font-bold text-white shadow-lg hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {approvalLoading ? 'Checking approvals…' : `Request approval (${selectedTotalCount})`}
+                      </button>
+                    </div>
+                  )
                 } else if (lowConfidence) {
                   return (
                     <button
@@ -4342,18 +4472,7 @@ export function IAMPermissionAnalysisModal({
       </div>
     )}
 
-    <ApprovalActionModal
-      isOpen={approvalActionMode !== null}
-      mode={approvalActionMode || "request"}
-      actorName={approvalActionState.actorName}
-      actorEmail={approvalActionState.actorEmail}
-      note={approvalActionState.note}
-      busy={approvalActionBusy}
-      error={approvalActionError}
-      onChange={setApprovalActionState}
-      onClose={closeApprovalAction}
-      onSubmit={handleSubmitApprovalAction}
-    />
+    {renderApprovalActionModal()}
 
     {/* Original IAM modal — kept inside its z-50 wrapper so close-on-
         backdrop-click still works. The override modal above renders on

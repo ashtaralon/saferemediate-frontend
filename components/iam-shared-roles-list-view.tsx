@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import {
   AlertTriangle,
   ArrowLeft,
@@ -62,7 +62,12 @@ const DEFAULT_FILTERS: Filters = {
 
 export default function IAMSharedRolesListView() {
   const router = useRouter()
-  const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS)
+  const searchParams = useSearchParams()
+  const focusedRoleRef = searchParams.get("role_ref")?.trim() || null
+  const [filters, setFilters] = useState<Filters>(() => ({
+    ...DEFAULT_FILTERS,
+    systemName: searchParams.get("system_name")?.trim() || "",
+  }))
   const [data, setData] = useState<SharedRolesResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -135,7 +140,7 @@ export default function IAMSharedRolesListView() {
       {loading && <LoadingState />}
       {error && <ErrorState message={error} onRetry={reload} />}
       {!loading && !error && data && (
-        <ResultsList data={data} filters={filters} />
+        <ResultsList data={data} filters={filters} focusedRoleRef={focusedRoleRef} />
       )}
     </div>
   )
@@ -269,9 +274,11 @@ function ErrorState({ message, onRetry }: { message: string; onRetry: () => void
 function ResultsList({
   data,
   filters,
+  focusedRoleRef,
 }: {
   data: SharedRolesResponse
   filters: Filters
+  focusedRoleRef: string | null
 }) {
   if (data.shared_roles.length === 0) {
     return (
@@ -318,13 +325,17 @@ function ResultsList({
         </div>
       </div>
       {data.shared_roles.map((role) => (
-        <SharedRoleCard key={role.role_arn} role={role} />
+        <SharedRoleCard
+          key={role.role_arn}
+          role={role}
+          focused={focusedRoleRef === role.role_arn || focusedRoleRef === role.role_name}
+        />
       ))}
     </div>
   )
 }
 
-function SharedRoleCard({ role }: { role: SharedRole }) {
+function SharedRoleCard({ role, focused = false }: { role: SharedRole; focused?: boolean }) {
   const router = useRouter()
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -350,7 +361,10 @@ function SharedRoleCard({ role }: { role: SharedRole }) {
   }, [role, router])
 
   return (
-    <Card className={`border-l-4 ${borderColor} hover:shadow-md transition-shadow`}>
+    <Card
+      className={`border-l-4 ${borderColor} hover:shadow-md transition-shadow ${focused ? "ring-2 ring-amber-400 ring-offset-2" : ""}`}
+      data-testid={focused ? "focused-shared-role" : undefined}
+    >
       <CardContent className="py-4 space-y-3">
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div className="min-w-0 flex-1">
