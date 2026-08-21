@@ -107,6 +107,14 @@ export function lpIntegrityCopy(integrity: LPIntegrity): {
           "Showing the last complete analysis. Remediation stays blocked until a fresh sweep succeeds.",
       }
     }
+    if (integrity.analysisComplete) {
+      return {
+        title: "Remediation is not ready",
+        body:
+          integrity.reason ??
+          "Analysis complete; remediation is not ready because the active generation is unknown.",
+      }
+    }
     return {
       title: "Analysis did not run",
       body:
