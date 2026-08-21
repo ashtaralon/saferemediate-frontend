@@ -29,6 +29,7 @@ export default function AnalyzeChangePage() {
   const [resourceId, setResourceId] = useState('')
   const [action, setAction] = useState('')
   const [systemName, setSystemName] = useState('')
+  const [lockedSystemName, setLockedSystemName] = useState(false)
   const [reason, setReason] = useState('')
   const [parameters, setParameters] = useState('{}')
   const [requestedBy, setRequestedBy] = useState('customer-operator')
@@ -36,6 +37,11 @@ export default function AnalyzeChangePage() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
+    const requestedSystem = new URLSearchParams(window.location.search).get('system_name')?.trim() || ''
+    if (requestedSystem) {
+      setSystemName(requestedSystem)
+      setLockedSystemName(true)
+    }
     fetch('/api/proxy/change-assurance/capabilities', { cache: 'no-store' })
       .then(async response => {
         const payload = await response.json().catch(() => ({}))
@@ -49,7 +55,10 @@ export default function AnalyzeChangePage() {
     () => capabilities.find(item => item.capability_id === selected),
     [capabilities, selected],
   )
-  const scopeQuery = scope.customerId ? `?customer_id=${encodeURIComponent(scope.customerId)}` : ''
+  const scopeParams = new URLSearchParams()
+  if (scope.customerId) scopeParams.set('customer_id', scope.customerId)
+  if (systemName) scopeParams.set('system_name', systemName)
+  const scopeQuery = scopeParams.size ? `?${scopeParams}` : ''
 
   const chooseCapability = (id: string) => {
     setSelected(id)
@@ -134,7 +143,7 @@ export default function AnalyzeChangePage() {
                   </select>
                 ) : <input required value={action} onChange={event => setAction(event.target.value)} placeholder="wafv2:UpdateWebACL" className="mt-2 w-full rounded-xl border border-slate-300 px-3 py-3 font-mono text-xs font-normal" />}
               </label>
-              <label className="text-sm font-semibold">Business system <span className="font-normal text-slate-400">optional</span><input value={systemName} onChange={event => setSystemName(event.target.value)} placeholder="payment-production" className="mt-2 w-full rounded-xl border border-slate-300 px-3 py-3 font-normal" /></label>
+              <label className="text-sm font-semibold">Business system <span className="font-normal text-slate-400">{lockedSystemName ? 'scoped from the system page' : 'optional'}</span><input value={systemName} readOnly={lockedSystemName} onChange={event => setSystemName(event.target.value)} placeholder="payment-production" className={`mt-2 w-full rounded-xl border border-slate-300 px-3 py-3 font-normal ${lockedSystemName ? 'bg-slate-100 text-slate-700' : ''}`} /></label>
             </div>
 
             <label className="mt-4 block text-sm font-semibold">Why is this change needed?<textarea required minLength={8} value={reason} onChange={event => setReason(event.target.value)} placeholder="Security, compliance, upgrade, cost reduction, incident prevention…" className="mt-2 min-h-24 w-full rounded-xl border border-slate-300 px-3 py-3 font-normal" /></label>

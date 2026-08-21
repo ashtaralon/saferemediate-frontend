@@ -36,6 +36,7 @@ import {
   Unplug,
   Target,
   MoreHorizontal,
+  ClipboardList,
 } from "lucide-react"
 import {
   DropdownMenu,
@@ -146,6 +147,19 @@ const AutomationSectionTab = dynamic(
       </div>
     ),
   }
+)
+
+const ChangeQueueTab = dynamic(
+  () => import("@/app/change-queue/page").then((mod) => ({ default: mod.ChangeQueueView })),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex items-center justify-center h-[600px] bg-slate-50 rounded-xl">
+        <RefreshCw className="w-8 h-8 text-violet-500 animate-spin" />
+        <span className="ml-3 text-slate-600">Loading system changes...</span>
+      </div>
+    ),
+  },
 )
 
 const CrownJewelProtection = dynamic(() => import("./crown-jewel-protection"), {
@@ -1754,6 +1768,7 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
       ],
     },
     { id: "topology", label: "Topology", icon: MapIcon, leaf: "dependency-map" },
+    { id: "change-queue", label: "Change Queue", icon: ClipboardList, leaf: "change-queue" },
     {
       id: "history",
       label: "History",
@@ -2924,6 +2939,12 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
             systemCriticality={systemMeta.criticality}
           />
         </div>
+      )}
+
+      {activeTab === "change-queue" && (
+        <ErrorBoundary componentName="System Change Queue">
+          <ChangeQueueTab key={`${systemName}-${refreshKey}`} systemName={systemName} />
+        </ErrorBoundary>
       )}
 
       {activeTab === "history" && (
