@@ -11,3 +11,13 @@ export function iamObservationCopy(unusedCount: number, total: number, usedCount
     notObservedLabel: `${unusedCount} not observed`,
   }
 }
+
+/**
+ * Compact inventory-row copy. The row has not run Preview, so it must state
+ * only what was observed and direct the operator to the action-level decision.
+ */
+export function iamInventoryRowCopy(notObservedCount: number, total: number) {
+  return {
+    summary: `${notObservedCount} not observed of ${total} allowed — Preview classifies each permission`,
+  }
+}
