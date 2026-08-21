@@ -1,12 +1,14 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Shield, Loader2, AlertTriangle, RefreshCw } from "lucide-react"
+import { Shield, Loader2, AlertTriangle, RefreshCw, Play, Zap } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Badge } from "@/components/ui/badge"
 import { SimulateModal } from "./simulate-modal"
-import { fetchSecurityFindings, triggerScan, getScanStatus, type SecurityFinding } from "@/lib/api-client"
+import { fetchSecurityFindings, triggerScan, getScanStatus } from "@/lib/api-client"
+import type { SecurityFinding } from "@/lib/types"
 
 export function SecurityDashboard() {
   const [findings, setFindings] = useState<SecurityFinding[]>([])

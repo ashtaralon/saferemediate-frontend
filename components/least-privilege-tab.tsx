@@ -280,7 +280,7 @@ export const LeastPrivilegeTab: React.FC<LeastPrivilegeTabProps> = ({
     await Promise.all([fetchSecurityGroups(), fetchIAMRoles()]);
   };
 
-  const { syncing, syncMessage, startSync } = useSyncFromAWS({
+  const { syncing, syncMessage, setSyncMessage, startSync } = useSyncFromAWS({
     onComplete: () => {
       void handleRefresh();
     },

@@ -78,7 +78,7 @@ export function SyncFromAWSButton({ onSyncComplete, className = "" }: SyncFromAW
 
           {syncMessage.type === "success" && results && (
             <div className="mt-2 space-y-1 text-xs">
-              {results.resource_collectors && (
+              {Boolean(results.resource_collectors) && (
                 <div>
                   Resources:{" "}
                   {Object.entries(results.resource_collectors as Record<string, any>)
@@ -158,7 +158,7 @@ export function SyncFromAWSButton({ onSyncComplete, className = "" }: SyncFromAW
                   return `${traffic} traffic, ${perms} permissions, ${s3} S3, ${findings} findings`
                 })()}
               </div>
-              {results.visibility_signals && (
+              {Boolean(results.visibility_signals) && (
                 <div>
                   Visibility Signals:{" "}
                   {(results.visibility_signals as any).trust_policies?.roles_updated || 0} trust

@@ -83,7 +83,7 @@ export function checkpointIdsFromHops(hops: ConvergenceHop[]): {
 /** Minimal checkpoint shape compatible with TFM SecurityCheckpoint. */
 export interface SpotlightCheckpoint {
   id: string
-  type: "security_group" | "iam_role" | "nacl"
+  type: "security_group" | "iam_role" | "nacl" | "instance_profile" | "iam_policy"
   name: string
   shortName: string
   usedCount: number
@@ -101,7 +101,7 @@ export interface SpotlightServiceNode {
   id: string
   name: string
   shortName: string
-  type: "compute" | "lambda"
+  type: string
   instanceId?: string
 }
 
@@ -266,9 +266,15 @@ export function enrichArchitectureForSpotlight<T extends SpotlightArchitectureBu
   arch: T,
   paths: ConvergencePath[],
   spotlightPathId: string | null,
-): T {
+): T & { instanceProfiles: SpotlightCheckpoint[]; nacls: SpotlightCheckpoint[] } {
   const lanePaths = selectSpotlightPaths(paths, spotlightPathId)
-  if (!lanePaths.length) return arch
+  if (!lanePaths.length) {
+    return {
+      ...arch,
+      instanceProfiles: [...(arch.instanceProfiles ?? [])],
+      nacls: [...(arch.nacls ?? [])],
+    }
+  }
 
   const computeServices = [...arch.computeServices]
   const securityGroups = [...arch.securityGroups]
@@ -332,7 +338,7 @@ export function patchSpotlightFlowCheckpoints<T extends { flows: SpotlightFlowCh
   arch: T,
   paths: ConvergencePath[],
   spotlightPathId: string | null,
-): T {
+): Omit<T, "flows"> & { flows: Array<T["flows"][number] & SpotlightFlowCheckpoint> } {
   const lanePaths = selectSpotlightPaths(paths, spotlightPathId)
   if (!lanePaths.some((p) => (p.hops?.length ?? 0) > 0)) return arch
 

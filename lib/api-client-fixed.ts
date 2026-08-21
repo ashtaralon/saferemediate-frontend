@@ -1,5 +1,42 @@
 import type { SecurityFinding } from "./types"
-import { infrastructureData } from "./data"
+
+const infrastructureData: InfrastructureData = {
+  resources: [],
+  stats: {
+    avgHealthScore: 0,
+    healthScoreTrend: 0,
+    needAttention: 0,
+    totalIssues: 0,
+    criticalIssues: 0,
+    averageScore: 0,
+    averageScoreTrend: 0,
+    lastScanTime: new Date(0).toISOString(),
+  },
+  infrastructure: {
+    containerClusters: 0,
+    kubernetesWorkloads: 0,
+    standaloneVMs: 0,
+    vmScalingGroups: 0,
+    relationalDatabases: 0,
+    blockStorage: 0,
+    fileStorage: 0,
+    objectStorage: 0,
+  },
+  securityIssues: {
+    critical: 0,
+    high: 0,
+    medium: 0,
+    low: 0,
+    totalIssues: 0,
+    todayChange: 0,
+    cveCount: 0,
+    threatsCount: 0,
+    zeroDayCount: 0,
+    secretsCount: 0,
+    complianceCount: 0,
+  },
+  complianceSystems: [],
+}
 
 // Backend URL - Direct to Render, no proxy
 const API_BASE = "https://saferemediate-backend-f.onrender.com"
@@ -345,7 +382,8 @@ export async function fetchGraphEdges(): Promise<any[]> {
     )
     console.log("[v0] Successfully loaded graph relationships from backend (cached)")
     if (Array.isArray(data)) return data
-    return data.relationships || data.edges || []
+    if ("relationships" in data) return data.relationships || []
+    return data.edges || []
   } catch (error) {
     console.warn("[v0] Graph relationships endpoint not available:", error)
     return []
@@ -385,8 +423,6 @@ export async function fetchGapAnalysis(roleName: string = "SafeRemediate-Lambda-
     throw error
   }
 }
-
-
 
 
 

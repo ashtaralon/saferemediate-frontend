@@ -150,7 +150,7 @@ const AutomationSectionTab = dynamic(
 )
 
 const ChangeQueueTab = dynamic(
-  () => import("@/app/change-queue/page").then((mod) => ({ default: mod.ChangeQueueView })),
+  () => import("@/components/change-queue-view").then((mod) => ({ default: mod.ChangeQueueView })),
   {
     ssr: false,
     loading: () => (

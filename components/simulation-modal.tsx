@@ -193,9 +193,9 @@ export default function SimulationModal({
                 <div
                   className="rounded-lg p-4 border-2"
                   style={{
-                    background: statusColors.bg,
-                    borderColor: statusColors.border,
-                    color: statusColors.text
+                    background: statusColors?.bg,
+                    borderColor: statusColors?.border,
+                    color: statusColors?.text
                   }}
                 >
                   <div className="flex items-center gap-2 mb-2">

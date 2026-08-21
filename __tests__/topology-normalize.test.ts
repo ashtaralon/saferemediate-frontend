@@ -32,8 +32,8 @@ describe("normalizeIamRole", () => {
     } satisfies IamRoleRollup
 
     const normalized = normalizeIamRole(role)
-    expect(normalized.attachment_modes.includes("direct")).toBe(false)
-    expect(normalized.workload_ids.includes("i-abc")).toBe(true)
+    expect((normalized.attachment_modes ?? []).includes("direct")).toBe(false)
+    expect((normalized.workload_ids ?? []).includes("i-abc")).toBe(true)
   })
 })
 

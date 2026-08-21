@@ -19,7 +19,6 @@ function summaryPath(
   overrides: Partial<ConvergencePath> & { path_id: string },
 ): ConvergencePath {
   return {
-    path_id: overrides.path_id,
     damage: [],
     score: 1,
     confidence: "configured",

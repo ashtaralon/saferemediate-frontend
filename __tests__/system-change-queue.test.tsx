@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { ChangeQueueView } from "@/app/change-queue/page"
+import { ChangeQueueView } from "@/components/change-queue-view"
 
 describe("system Change Queue", () => {
   afterEach(() => vi.unstubAllGlobals())

@@ -110,6 +110,7 @@ export type ServiceIcon = ComponentType<{
   size?: number | string;
   color?: string;
   className?: string;
+  style?: React.CSSProperties;
   "aria-hidden"?: boolean;
 }>;
 

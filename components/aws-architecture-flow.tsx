@@ -5,7 +5,7 @@
  */
 
 import React, { useEffect, useRef, useState, useCallback } from 'react'
-import cytoscape, { Core } from 'cytoscape'
+import cytoscape, { type Core, type ElementDefinition } from 'cytoscape'
 import coseBilkent from 'cytoscape-cose-bilkent'
 import { 
   Shield, Database, Key, Globe, Server, Cloud, 
@@ -86,7 +86,7 @@ export default function AWSArchitectureFlow({ systemName }: Props) {
     if (!containerRef.current || !data || loading) return
     if (cyRef.current) cyRef.current.destroy()
 
-    const elements: cytoscape.ElementDefinition[] = []
+    const elements: ElementDefinition[] = [];
     
     // Add nodes
     (data.nodes || []).forEach((node: any) => {

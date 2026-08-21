@@ -131,15 +131,30 @@ export function labelForCategory(category: string): InitialAccessLabel {
  *  — we never fabricate a default category. */
 export function rankedInitialAccessForPath(
   path: ConvergencePath,
-): Array<{ category: string; label: InitialAccessLabel }> {
+): Array<{
+  category: string
+  label: InitialAccessLabel
+  pivot_node_id?: string | null
+  pivot_name?: string | null
+}> {
   const edges = path.initial_access ?? []
   if (edges.length === 0) return []
   const seen = new Set<string>()
-  const out: Array<{ category: string; label: InitialAccessLabel }> = []
+  const out: Array<{
+    category: string
+    label: InitialAccessLabel
+    pivot_node_id?: string | null
+    pivot_name?: string | null
+  }> = []
   for (const e of edges) {
     if (!e.category || seen.has(e.category)) continue
     seen.add(e.category)
-    out.push({ category: e.category, label: labelForCategory(e.category) })
+    out.push({
+      category: e.category,
+      label: labelForCategory(e.category),
+      pivot_node_id: e.pivot_node_id,
+      pivot_name: e.pivot_name,
+    })
   }
   // Worst-first. Stable secondary sort by category name so renders are
   // deterministic when two edges share a severity (e.g. two HIGHs).

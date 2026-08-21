@@ -159,7 +159,7 @@ describe("Visual Hierarchy Contract — spineSequence determinism", () => {
       report_version: "1",
       compiler_version: "0",
       path_id: "p",
-      current_state: { status: "OPEN_TODAY", source_label: "a", target_label: "b", summary: "" },
+      current_state: { status: "OPEN_TODAY" as const, source_label: "a", target_label: "b", summary: "" },
       claims: [
         { id: "c1", text: "", grade: "OBSERVED" as const, source_refs: [{ kind: "neo4j_node" as const, id: "n-user" }], can_drive_damage: true, can_drive_remediation: true },
         { id: "c2", text: "", grade: "OBSERVED" as const, source_refs: [{ kind: "neo4j_node" as const, id: "n-ec2" }], can_drive_damage: true, can_drive_remediation: true },
@@ -187,7 +187,7 @@ describe("Visual Hierarchy Contract — spineSequence determinism", () => {
       report_version: "1",
       compiler_version: "0",
       path_id: "p",
-      current_state: { status: "OPEN_TODAY", source_label: "a", target_label: "b", summary: "" },
+      current_state: { status: "OPEN_TODAY" as const, source_label: "a", target_label: "b", summary: "" },
       claims: [{ id: "c1", text: "", grade: "OBSERVED" as const, source_refs: [{ kind: "neo4j_node" as const, id: "n1" }], can_drive_damage: true, can_drive_remediation: true }],
       gates: {},
       attacker_steps: [{ phase: "LAND_ON_FOOTHOLD" as const, title: "", body: "", claim_ids: ["c1"] }],

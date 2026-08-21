@@ -167,7 +167,7 @@ export function CJSpotlightStrip({
           the full hop path (entry → workload → identity → CJ) directly
           in the strip without leaving Spotlight. Reads selectedPath.hops
           straight from the backend response — no derivation, no mock. */}
-      {selectedPath.hops.length > 0 && <HopChain hops={selectedPath.hops} />}
+      {(selectedPath.hops?.length ?? 0) > 0 && <HopChain hops={selectedPath.hops ?? []} />}
 
       {/* v1.3 choke points — surface the leverage candidates: nodes that
           appear on ≥ 2 paths to the CJ. Closing a high-count chokepoint
@@ -499,7 +499,7 @@ function PathRow({
   isSelected: boolean
   onClick: () => void
 }) {
-  const origin = path.source ?? path.hops[0]?.name ?? path.hops[0]?.node_id ?? "?"
+  const origin = path.source ?? path.hops?.[0]?.name ?? path.hops?.[0]?.node_id ?? "?"
   const severity = (path.severity ?? "").toUpperCase()
   const sevAccent = severityAccent(severity)
   const observed = path.confidence === "observed"
@@ -593,7 +593,7 @@ function InitialAccessChips({
 }
 
 function SelectedPathSummary({ path, cjName }: { path: ConvergencePath; cjName: string }) {
-  const originName = path.source ?? path.hops[0]?.name ?? path.hops[0]?.node_id ?? "unknown origin"
+  const originName = path.source ?? path.hops?.[0]?.name ?? path.hops?.[0]?.node_id ?? "unknown origin"
   const severity = (path.severity ?? "").toUpperCase()
   const sevAccent = severityAccent(severity)
   const observed = path.confidence === "observed"
@@ -737,7 +737,7 @@ function ChokePoints({
   const nameById = useMemo(() => {
     const m = new Map<string, string>()
     for (const p of paths) {
-      for (const h of p.hops) {
+      for (const h of p.hops ?? []) {
         if (h.node_id && h.name && !m.has(h.node_id)) {
           m.set(h.node_id, h.name)
         }
@@ -833,7 +833,7 @@ function planeAccent(plane: string | undefined): string {
 
 
 function summarizePath(p: ConvergencePath): string {
-  const origin = p.source ?? p.hops[0]?.name ?? p.hops[0]?.node_id ?? "?"
+  const origin = p.source ?? p.hops?.[0]?.name ?? p.hops?.[0]?.node_id ?? "?"
   const ident = p.identity_name ?? p.identity ?? null
   const sev = (p.severity ?? "").toUpperCase()
   const hops = p.hop_count

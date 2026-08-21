@@ -101,7 +101,7 @@ export interface SGRule {
 
 export interface SecurityCheckpoint {
   id: string;
-  type: 'security_group' | 'iam_role' | 'nacl';
+  type: 'security_group' | 'iam_role' | 'nacl' | 'instance_profile' | 'iam_policy';
   name: string;
   shortName: string;
   usedCount: number;
@@ -11643,7 +11643,10 @@ export default function TrafficFlowMap({
                 });
                 return;
               }
-              setSelectedService({ service, type });
+              setSelectedService({
+                service,
+                type: type === 'instance_profile' ? 'iam_role' : type,
+              });
               setSelectedNodeForHops(service.id);
             }}
             attackPaths={showAttackPaths ? attackPaths : []}

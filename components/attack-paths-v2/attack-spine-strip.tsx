@@ -31,7 +31,7 @@ interface SpineCard {
   title: string
   sub?: string
   badge?: string
-  icon: React.ComponentType<{ className?: string }>
+  icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>
   /** Origin-confidence visual — only on the left (origin) card. */
   originConfidence?: SpineOriginConfidence
 }

@@ -189,12 +189,15 @@ export interface EdgeNatGw {
   id: string
   name: string
   subnet_id: string | null
+  vpc_id?: string | null
 }
 
 export interface EdgeVpce {
   id: string
-  service_name: string | null
-  endpoint_type: string | null
+  /** Compatibility display label used by older topology responses. */
+  name?: string
+  service_name?: string | null
+  endpoint_type?: string | null
   /** Owning VPC — required for scoped Estate Map frames (Alon, 2026-07-10). */
   vpc_id?: string | null
 }
@@ -214,14 +217,16 @@ export type IamCorrelationState =
 
 export interface IamRoleRollup {
   name: string
-  role_arn: string | null
+  /** Compatibility alias; role_arn is canonical. */
+  arn?: string | null
+  role_arn?: string | null
   allowed_actions: number
   used_actions: number
-  unused_actions: number
+  unused_actions?: number
   /** null when correlation_state !== 'correlated' — never a fabricated 100% */
   gap_percentage: number | null
   correlation_state?: IamCorrelationState
-  last_remediated_at: string | null
+  last_remediated_at?: string | null
   workload_ids?: string[]
   attachment_modes?: ("instance_profile" | "direct" | string)[]
   scope_mode?: "vpc" | "system"
@@ -257,12 +262,14 @@ export interface TrafficEdge {
   // ACTUAL_TRAFFIC → NetworkEndpoint (aws_service) when no named bucket/API
   // chip is in the topology payload — projected from Neo4j, not FE-invented.
   target_id: string
-  port: number | null
+  /** Compatibility alias used by older edge projections. */
+  kind?: string
+  port?: number | null
   // For edge_service edges, protocol carries the Cypher relationship type
   // (e.g. "WRITES_TO" / "READS_FROM" / "ACTUAL_S3_ACCESS") so the FE can
   // color the line by intent.
-  protocol: string | null
-  last_seen: string | null
+  protocol?: string | null
+  last_seen?: string | null
   /** Canonical relationship provenance. Never infer safety from edge existence. */
   evidence_type?: "observed" | "configured" | "inferred"
   evidence_source?: string

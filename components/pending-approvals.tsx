@@ -445,7 +445,7 @@ export function PendingApprovals({ systemName }: { systemName?: string }) {
         onOpenChange={(open) => {
           if (!open) setEvidencePending(null)
         }}
-        pendingTag={evidencePending}
+        pendingTag={evidencePending ? { ...evidencePending } : null}
       />
     </div>
   )

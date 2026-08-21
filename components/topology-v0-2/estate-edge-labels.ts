@@ -21,9 +21,9 @@ export function databasePublicIpExposureLabel(
 export type CorridorKind = "egress" | "s3_via_igw" | "aws_api_via_igw" | "vpce"
 
 export function corridorKindForEdge(
-  e: Pick<
-    TrafficEdge,
-    | "target_id"
+  e: Pick<TrafficEdge, "target_id"> &
+    Partial<Pick<
+      TrafficEdge,
     | "edge_class"
     | "via_igw"
     | "egress_path"
@@ -31,7 +31,7 @@ export function corridorKindForEdge(
     | "is_exposed"
     | "egress_breakdown"
     | "protocol"
-  >,
+    >>,
   opts: { routedViaIgw?: boolean; routedViaVpce?: boolean } = {},
 ): CorridorKind | null {
   // Loud risk lede — never corridor-bundle with egress noise.

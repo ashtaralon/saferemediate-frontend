@@ -493,12 +493,12 @@ export default function HomePage() {
   //                                              instead of showing a misleading
   //                                              local-array length.
   const securityIssuesData = hasUnifiedSummary ? {
+    ...backendStats, // Keep non-severity fields from backend
     critical: issuesSummary.by_severity?.critical || 0,
     high: issuesSummary.by_severity?.high || 0,
     medium: issuesSummary.by_severity?.medium || 0,
     low: issuesSummary.by_severity?.low || 0,
     totalIssues: issuesSummary.total,
-    ...backendStats, // Keep other fields from backend
   } : (hasBackendStats ? backendStats : {
     ...backendStats,
     critical: computedFindingsStats.critical,
@@ -510,7 +510,18 @@ export default function HomePage() {
     // sees an absence rather than a wrong number.
   })
 
-  const complianceSystems = data?.complianceSystems || []
+  const complianceSystems = (data?.complianceSystems || []).map((system: any) => ({
+    name: system.name,
+    environment: system.environment,
+    standard: system.standard,
+    score: system.score ?? system.healthScore ?? 0,
+    criticalGaps: system.criticalGaps ?? 0,
+    totalControls: system.totalControls ?? system.controlsCount ?? 0,
+    passedControls:
+      system.passedControls ??
+      Math.max(0, (system.totalControls ?? system.controlsCount ?? 0) - (system.criticalGaps ?? 0)),
+    owner: system.owner,
+  }))
   const totalTrackedResources =
     data?.resources?.length ||
     Object.values(infrastructureStats).reduce((sum, count) => sum + Number(count || 0), 0)
@@ -927,17 +938,7 @@ export default function HomePage() {
         // contradiction was visible at every page load.
         return (
           <div className="space-y-6">
-            <IssuesSection
-              systemsAtRisk={[]}
-              stats={{
-                critical: securityIssuesData.critical,
-                high: securityIssuesData.high,
-                medium: securityIssuesData.medium,
-                low: securityIssuesData.low,
-              }}
-              totalCritical={securityIssuesData.critical}
-              missionCriticalCount={0}
-            />
+            <IssuesSection />
           </div>
         )
 

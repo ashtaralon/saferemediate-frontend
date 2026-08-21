@@ -7,7 +7,6 @@ import type { ConvergencePath } from "@/lib/attack-paths/convergence-types"
 
 function path(partial: Partial<ConvergencePath> & { path_id: string }): ConvergencePath {
   return {
-    path_id: partial.path_id,
     hops: partial.hops ?? [],
     confidence: partial.confidence ?? "observed",
     evidence: partial.evidence ?? partial.confidence ?? "observed",

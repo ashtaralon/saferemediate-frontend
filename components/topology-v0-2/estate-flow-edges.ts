@@ -203,7 +203,7 @@ function vpceForRegionalTarget(
   for (const v of vpces) {
     const svc = v.service_name ?? ""
     if (svc.endsWith(want) && v.endpoint_type?.toLowerCase() === "gateway") {
-      return { id: v.id, service_name: v.service_name }
+      return { id: v.id, service_name: v.service_name ?? null }
     }
   }
   return null
@@ -234,7 +234,7 @@ export function mergeTrafficEdges(
   const seen = new Set<string>()
   const out: TrafficEdge[] = []
   for (const e of [...primary, ...secondary]) {
-    const key = edgeKey(e.source_id, e.target_id, e.port, e.protocol)
+    const key = edgeKey(e.source_id, e.target_id, e.port ?? null, e.protocol ?? null)
     if (seen.has(key)) continue
     seen.add(key)
     out.push(e)
