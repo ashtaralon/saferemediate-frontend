@@ -10,11 +10,15 @@ export async function forwardChangeCase(
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), method === 'POST' ? 120_000 : 30_000)
   try {
+    const headers: Record<string, string> = {}
+    if (method === 'POST') headers['Content-Type'] = 'application/json'
+    const authorization = request.headers.get('authorization')
+    if (authorization) headers.Authorization = authorization
     const init: RequestInit = {
       method,
       cache: 'no-store',
       signal: controller.signal,
-      headers: method === 'POST' ? { 'Content-Type': 'application/json' } : undefined,
+      headers: Object.keys(headers).length ? headers : undefined,
     }
     if (method === 'POST') init.body = JSON.stringify(await request.json())
     const response = await fetch(`${getBackendBaseUrl()}${backendPath}`, init)

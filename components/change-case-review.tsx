@@ -31,7 +31,33 @@ interface ChangeCaseRun {
   executed_by: string
   snapshot_id?: string | null
   timeline_event_id?: string | null
-  rollback?: { status: string; at?: string; rolled_back_by?: string } | null
+  checkpoint?: {
+    checkpoint_id?: string
+    dependency_hash?: string
+    dependency_snapshot?: {
+      live_eni_ids?: string[]
+      neptune_eni_ids?: string[] | null
+      graph_parity?: boolean
+      all_consumers_supported?: boolean
+      target_health_complete?: boolean
+    }
+    source_sg?: { sg_id?: string }
+    clone?: { sg_id?: string | null; group_name?: string }
+    eni_assignments?: Array<{ eni_id: string; instance_id?: string; instance_name?: string }>
+  } | null
+  result?: {
+    success?: boolean
+    status?: string
+    execution_mode?: string
+    clone_sg_id?: string | null
+    canary_eni_id?: string
+    expanded_eni_ids?: string[]
+    rollback_performed?: boolean
+    rollback_succeeded?: boolean
+    error?: { code?: string; message?: string }
+    summary?: { rules_removed?: number; consumers_canaried?: number; consumers_expanded?: number }
+  } | null
+  rollback?: { status: string; automatic?: boolean; at?: string; rolled_back_by?: string } | null
   events: ChangeCaseEvent[]
 }
 
@@ -257,11 +283,11 @@ export function ChangeCaseReview({
     }
   }
 
-  const downloadFinalReport = async () => {
+  const downloadFinalReport = async (audience: 'executive' | 'change_management' | 'engineering') => {
     setBusy('report')
     setError(null)
     try {
-      const response = await fetch(`/api/proxy/change-cases/${encodeURIComponent(current.case_id)}/report`, { cache: 'no-store' })
+      const response = await fetch(`/api/proxy/change-cases/${encodeURIComponent(current.case_id)}/report?audience=${audience}`, { cache: 'no-store' })
       const report = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(report.detail || report.error || 'Final report failed')
       downloadBase64Report(report)
@@ -271,6 +297,11 @@ export function ChangeCaseReview({
       setBusy(null)
     }
   }
+
+  const latestRun = workflow?.latest_run
+  const checkpoint = latestRun?.checkpoint
+  const executionResult = latestRun?.result
+  const dependency = checkpoint?.dependency_snapshot
 
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/70 p-3 backdrop-blur-sm" data-testid="change-case-review">
@@ -375,16 +406,52 @@ export function ChangeCaseReview({
             <div className="mt-2 text-xs text-slate-600">IaC follow-up: {current.iac_reconciliation.instruction}</div>
           </section>
 
+          {latestRun && (
+            <section className="rounded-2xl border border-blue-200 bg-blue-50 p-4" data-testid="supervised-execution-evidence">
+              <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-blue-800"><ShieldCheck className="h-4 w-4" /> Live supervised execution evidence</div>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="rounded-xl bg-white p-3"><div className="text-[10px] uppercase text-slate-500">Run stage</div><div className="mt-1 text-sm font-bold">{latestRun.status.replace(/_/g, ' ')}</div></div>
+                <div className="rounded-xl bg-white p-3"><div className="text-[10px] uppercase text-slate-500">Dependency parity</div><div className="mt-1 text-sm font-bold">{dependency?.graph_parity === true ? 'Neptune = live AWS' : dependency?.graph_parity === false ? 'Mismatch — blocked' : 'Pending'}</div></div>
+                <div className="rounded-xl bg-white p-3"><div className="text-[10px] uppercase text-slate-500">Consumers covered</div><div className="mt-1 text-sm font-bold">{dependency?.live_eni_ids?.length ?? 'Pending'}</div></div>
+                <div className="rounded-xl bg-white p-3"><div className="text-[10px] uppercase text-slate-500">Health signals</div><div className="mt-1 text-sm font-bold">{dependency?.target_health_complete === true ? 'Complete' : dependency ? 'Incomplete — blocked' : 'Pending'}</div></div>
+              </div>
+              {checkpoint && (
+                <div className="mt-3 rounded-xl border border-blue-200 bg-white p-3 text-xs text-slate-700">
+                  <div><strong>Durable checkpoint:</strong> {checkpoint.checkpoint_id}</div>
+                  <div className="mt-1"><strong>Exact SG handoff:</strong> {checkpoint.source_sg?.sg_id || current.scope.sg_id} → {checkpoint.clone?.sg_id || checkpoint.clone?.group_name || 'clone pending'}</div>
+                  <div className="mt-1"><strong>Frozen dependency hash:</strong> <span className="font-mono">{checkpoint.dependency_hash || 'pending'}</span></div>
+                </div>
+              )}
+              {executionResult && (
+                <div className={`mt-3 rounded-xl border p-3 text-xs ${executionResult.rollback_performed ? 'border-amber-300 bg-amber-50 text-amber-950' : 'border-emerald-200 bg-emerald-50 text-emerald-950'}`}>
+                  <div><strong>Canary:</strong> {executionResult.canary_eni_id || 'not reached'} · <strong>expanded:</strong> {executionResult.expanded_eni_ids?.length ?? 0} consumer(s)</div>
+                  <div className="mt-1"><strong>Automatic rollback:</strong> {executionResult.rollback_performed ? (executionResult.rollback_succeeded ? 'performed and verified' : 'failed — manual intervention required') : 'not required'}</div>
+                  {executionResult.error?.message && <div className="mt-1"><strong>Stop reason:</strong> {executionResult.error.message}</div>}
+                </div>
+              )}
+            </section>
+          )}
+
           <section className="rounded-2xl border border-slate-900 bg-slate-900 p-4 text-white">
             <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-violet-200"><FileText className="h-4 w-4" /> 5. What decision is required?</div>
             <p className="mt-2 text-sm">{current.narrative.decision_request}</p>
-            <div className="mt-4 grid gap-2 sm:grid-cols-2">
+            <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
               <button onClick={() => downloadBase64Report(current.approval_report)} className="flex items-center justify-center gap-2 rounded-xl border border-white/30 px-4 py-3 text-sm font-semibold hover:bg-white/10">
                 <Download className="h-4 w-4" /> Download approval PDF
               </button>
               {workflow && (
-                <button onClick={downloadFinalReport} disabled={busy === 'report'} className="flex items-center justify-center gap-2 rounded-xl border border-white/30 px-4 py-3 text-sm font-semibold hover:bg-white/10 disabled:opacity-50">
-                  <Download className="h-4 w-4" /> {busy === 'report' ? 'Building final report…' : 'Download current report'}
+                <button onClick={() => void downloadFinalReport('executive')} disabled={busy === 'report'} className="flex items-center justify-center gap-2 rounded-xl border border-white/30 px-4 py-3 text-sm font-semibold hover:bg-white/10 disabled:opacity-50">
+                  <Download className="h-4 w-4" /> Executive outcome
+                </button>
+              )}
+              {workflow && (
+                <button onClick={() => void downloadFinalReport('change_management')} disabled={busy === 'report'} className="flex items-center justify-center gap-2 rounded-xl border border-white/30 px-4 py-3 text-sm font-semibold hover:bg-white/10 disabled:opacity-50">
+                  <Download className="h-4 w-4" /> Change record
+                </button>
+              )}
+              {workflow && (
+                <button onClick={() => void downloadFinalReport('engineering')} disabled={busy === 'report'} className="flex items-center justify-center gap-2 rounded-xl border border-white/30 px-4 py-3 text-sm font-semibold hover:bg-white/10 disabled:opacity-50">
+                  <Download className="h-4 w-4" /> Engineering evidence
                 </button>
               )}
             </div>
