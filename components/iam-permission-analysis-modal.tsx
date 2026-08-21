@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect, useMemo, useRef } from "react"
 import { createPortal } from "react-dom"
 import {
   X, Calendar, CheckCircle, AlertTriangle, Shield, ShieldCheck, Sparkles, Check,
@@ -947,6 +947,10 @@ export function IAMPermissionAnalysisModal({
   // default, users see a brief red flash before the loading state
   // kicks in. Bug surfaced 2026-05-07 ("its appear and than gone").
   const [safetyLoading, setSafetyLoading] = useState(true)
+  // Only the newest simulation request may update decision-bearing state.
+  // This prevents the background request fired on open from arriving after a
+  // user-triggered simulation and restoring an older decision/plan.
+  const simulateFixRequestVersion = useRef(0)
 
   // Fetch gap analysis + pipeline safety context when modal opens. The
   // confidence call is CHAINED off the safety context so we can pass it
@@ -1085,6 +1089,7 @@ export function IAMPermissionAnalysisModal({
   }, [planPermissions, planToken, removalSafety, safetyContext?.decision_canonical, safetyContext?.unsafe_reasons, gapData, safetyLoading])
 
   const fetchSafetyContext = async (): Promise<SimulateFixSafety | null> => {
+    const requestVersion = ++simulateFixRequestVersion.current
     setSafetyLoading(true)
     setSafetyContext(null)
     setRemovalSafety(null)
@@ -1111,6 +1116,28 @@ export function IAMPermissionAnalysisModal({
         return null
       }
       const data = await res.json()
+      if (requestVersion !== simulateFixRequestVersion.current) return null
+      return applySimulateFixSnapshot(data)
+    } catch (e) {
+      console.warn('[IAM-Modal] simulate-fix fetch failed:', e)
+      return null
+    } finally {
+      setSafetyLoading(false)
+    }
+  }
+
+  /**
+   * Replace every decision-bearing field from one simulate-fix response.
+   *
+   * The Preview button used to open the Simulation Results drawer from the
+   * response it had just received while leaving safety, plan and observation
+   * state behind from the modal's earlier background request. That allowed a
+   * fresh REQUIRE_APPROVAL plan to be rendered with a stale "6/90 days" block
+   * (or, more dangerously, a stale executable plan with a fresh BLOCK). Keep
+   * this as the only response-to-state boundary so a simulation is one
+   * internally consistent snapshot.
+   */
+  const applySimulateFixSnapshot = (data: any): SimulateFixSafety | null => {
       setRemovalSafety(
         data?.removal_safety?.shadow_only && Array.isArray(data.removal_safety.permissions)
           ? data.removal_safety as RemovalSafetyBundle
@@ -1129,19 +1156,19 @@ export function IAMPermissionAnalysisModal({
       if (plan?.plan_token && Array.isArray(plan?.permissions_to_remove)) {
         setPlanToken(String(plan.plan_token))
         setPlanPermissions((plan.permissions_to_remove as unknown[]).map((p) => String(p)))
+      } else {
+        // A newer blocked/no-plan response must revoke any older executable
+        // token already held by the modal.
+        setPlanToken(null)
+        setPlanPermissions(null)
       }
       const safety = data?.safety as SimulateFixSafety | undefined
       if (safety) {
         setSafetyContext(safety)
         return safety
       }
+      setSafetyContext(null)
       return null
-    } catch (e) {
-      console.warn('[IAM-Modal] simulate-fix fetch failed:', e)
-      return null
-    } finally {
-      setSafetyLoading(false)
-    }
   }
 
   const fetchConfidenceScore = async (pipelineSafety: SimulateFixSafety | null) => {
@@ -5307,6 +5334,7 @@ export function IAMPermissionAnalysisModal({
           </button>
           {shouldOfferIamSimulation(Boolean(removalSafety), removableCount, gapData?.remediated_at) && <button
             onClick={async () => {
+              const requestVersion = ++simulateFixRequestVersion.current
               setSimulating(true)
               try {
                 const response = await fetch('/api/proxy/least-privilege/simulate-fix', {
@@ -5315,7 +5343,8 @@ export function IAMPermissionAnalysisModal({
                   body: JSON.stringify({
                     resource_type: 'IAMRole',
                     resource_id: roleName,
-                    system_name: systemName
+                    system_name: systemName,
+                    finding_id: findingId,
                   })
                 })
 
@@ -5324,6 +5353,12 @@ export function IAMPermissionAnalysisModal({
                 if (!response.ok) {
                   throw new Error(result.error || result.detail || `Simulation failed: ${response.status}`)
                 }
+
+                if (requestVersion !== simulateFixRequestVersion.current) return
+
+                // The drawer must render the exact response that produced this
+                // toast. Do not mix it with the background Preview snapshot.
+                applySimulateFixSnapshot(result)
 
                 const decision = result.safety?.decision
                 // Match the modal's verdict labels exactly so the toast
