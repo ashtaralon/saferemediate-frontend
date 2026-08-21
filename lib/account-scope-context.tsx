@@ -9,10 +9,17 @@ import {
   type ReactNode,
 } from "react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
-import type { AccountScopeOptions, ProductScope } from "@/lib/account-scope"
+import {
+  normalizeCustomerRoster,
+  resolveCustomerId,
+  type AccountScopeOptions,
+  type CustomerScopeOption,
+  type ProductScope,
+} from "@/lib/account-scope"
 
 interface AccountScopeContextValue extends ProductScope {
   options: AccountScopeOptions | null
+  customers: CustomerScopeOption[]
   loading: boolean
   error: string | null
   setCustomerId: (value: string) => void
@@ -45,7 +52,8 @@ export function AccountScopeProvider({ children }: { children: ReactNode }) {
   const [accountId, setAccountState] = useState(() => searchParams.get("account_id") || storedScope().accountId || "all")
   const [region, setRegionState] = useState(() => searchParams.get("region") || storedScope().region || "all")
   const [options, setOptions] = useState<AccountScopeOptions | null>(null)
-  const [loading, setLoading] = useState(false)
+  const [customers, setCustomers] = useState<CustomerScopeOption[]>([])
+  const [loading, setLoading] = useState(pathname !== "/login")
   const [error, setError] = useState<string | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
 
@@ -64,17 +72,35 @@ export function AccountScopeProvider({ children }: { children: ReactNode }) {
       setLoading(true)
       setError(null)
       try {
-        let selected = customerFromUrl || customerId
+        const rosterResponse = await fetch("/api/proxy/admin/customers", { cache: "no-store" })
+        if (!rosterResponse.ok) throw new Error(`Organization roster is unavailable (${rosterResponse.status})`)
+        const roster = normalizeCustomerRoster(await rosterResponse.json())
+        if (!cancelled) setCustomers(roster)
+
+        const requested = customerFromUrl || customerId
+        const selected = resolveCustomerId(requested, roster)
         if (!selected) {
-          const rosterResponse = await fetch("/api/proxy/admin/customers", { cache: "no-store" })
-          const roster = rosterResponse.ok ? await rosterResponse.json() : []
-          selected = Array.isArray(roster) && roster.length ? roster[0].customer_id : null
-        }
-        if (!selected) {
-          setOptions({ customer_id: "", accounts: [], groups: [] })
+          if (!cancelled) {
+            setCustomerState(null)
+            setOptions({ customer_id: "", accounts: [], groups: [] })
+          }
           return
         }
-        if (!cancelled) setCustomerState(selected)
+
+        if (!cancelled && selected !== requested) {
+          setCustomerState(selected)
+          setGroupState("all")
+          setAccountState("all")
+          setRegionState("all")
+          const next = new URLSearchParams(searchParams.toString())
+          next.set("customer_id", selected)
+          next.delete("account_group")
+          next.delete("account_id")
+          next.delete("region")
+          startTransition(() => router.replace(`${pathname}?${next}`, { scroll: false }))
+        } else if (!cancelled) {
+          setCustomerState(selected)
+        }
         const response = await fetch(
           `/api/proxy/admin/accounts/scope/options/all?customer_id=${encodeURIComponent(selected)}`,
           { cache: "no-store" },
@@ -139,6 +165,7 @@ export function AccountScopeProvider({ children }: { children: ReactNode }) {
         accountId,
         region,
         options,
+        customers,
         loading,
         error,
         setCustomerId,
