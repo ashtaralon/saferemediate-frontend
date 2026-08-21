@@ -3,8 +3,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import ReactFlow, {
-  Node,
-  Edge,
   Controls,
   Background,
   MiniMap,
@@ -12,6 +10,9 @@ import ReactFlow, {
   useEdgesState,
   MarkerType,
   Panel,
+  type Edge,
+  type Node,
+  type NodeProps,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 
@@ -19,8 +20,50 @@ import 'reactflow/dist/style.css';
 // CUSTOM NODE COMPONENT - Rich, Professional Design
 // ============================================================================
 
-const CustomResourceNode = ({ data }) => {
-  const getNodeStyle = (type, category) => {
+type ResourceCategory = 'Compute' | 'Database' | 'Storage' | 'Network' | 'Security' | 'Monitoring' | 'Other';
+type ViewMode = 'topology' | 'dataflow' | 'critical' | 'security';
+
+interface RawResourceNode {
+  id?: string;
+  arn?: string;
+  name?: string;
+  type?: string;
+  dependencies?: unknown[];
+  trafficPercentage?: number;
+  criticalPath?: boolean;
+  [key: string]: unknown;
+}
+
+interface RawResourceEdge {
+  source: string;
+  target: string;
+  type?: string;
+  isActual?: boolean;
+  trafficVolume?: number;
+  critical?: boolean;
+  secure?: boolean;
+}
+
+interface ResourceNodeData extends RawResourceNode {
+  name: string;
+  type: string;
+  category: ResourceCategory;
+  stats: { dependencies: number; trafficPercentage: number };
+  criticalPath: boolean;
+}
+
+const CATEGORY_COLORS: Record<ResourceCategory, { bg: string; border: string; icon: string }> = {
+  Compute: { bg: '#FFF4E6', border: '#FF9800', icon: '💻' },
+  Database: { bg: '#E3F2FD', border: '#2196F3', icon: '🗄️' },
+  Storage: { bg: '#F3E5F5', border: '#9C27B0', icon: '📦' },
+  Network: { bg: '#E8F5E9', border: '#4CAF50', icon: '🌐' },
+  Security: { bg: '#FFEBEE', border: '#F44336', icon: '🔒' },
+  Monitoring: { bg: '#FFF3E0', border: '#FF9800', icon: '📊' },
+  Other: { bg: '#F5F5F5', border: '#9E9E9E', icon: '📋' },
+};
+
+const CustomResourceNode = ({ data }: { data: ResourceNodeData }) => {
+  const getNodeStyle = (category: ResourceCategory) => {
     const baseStyle = {
       padding: '16px 20px',
       borderRadius: '12px',
@@ -30,31 +73,21 @@ const CustomResourceNode = ({ data }) => {
       background: 'white',
     };
 
-    const categoryColors = {
-      Compute: { bg: '#FFF4E6', border: '#FF9800', icon: '💻' },
-      Database: { bg: '#E3F2FD', border: '#2196F3', icon: '🗄️' },
-      Storage: { bg: '#F3E5F5', border: '#9C27B0', icon: '📦' },
-      Network: { bg: '#E8F5E9', border: '#4CAF50', icon: '🌐' },
-      Security: { bg: '#FFEBEE', border: '#F44336', icon: '🔒' },
-      Monitoring: { bg: '#FFF3E0', border: '#FF9800', icon: '📊' },
-    };
-
-    const colors = categoryColors[category] || { bg: '#F5F5F5', border: '#9E9E9E', icon: '📋' };
+    const colors = CATEGORY_COLORS[category];
 
     return {
       ...baseStyle,
       background: colors.bg,
       borderColor: colors.border,
-      icon: colors.icon,
     };
   };
 
-  const style = getNodeStyle(data.type, data.category);
+  const style = getNodeStyle(data.category);
 
   return (
     <div style={style}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
-        <span style={{ fontSize: '24px' }}>{style.icon}</span>
+        <span style={{ fontSize: '24px' }}>{CATEGORY_COLORS[data.category].icon}</span>
         <div style={{ flex: 1 }}>
           <div style={{ fontWeight: 'bold', fontSize: '14px', color: '#333' }}>
             {data.name}
@@ -111,11 +144,11 @@ const CustomResourceNode = ({ data }) => {
 // MAIN COMPONENT
 // ============================================================================
 
-export default function DependencyMapPro({ systemName }) {
-  const [viewMode, setViewMode] = useState('topology');
-  const [selectedResource, setSelectedResource] = useState(null);
-  const [nodes, setNodes, onNodesChange] = useNodesState([]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+export default function DependencyMapPro({ systemName }: { systemName: string }) {
+  const [viewMode, setViewMode] = useState<ViewMode>('topology');
+  const [selectedResource, setSelectedResource] = useState<ResourceNodeData | null>(null);
+  const [nodes, setNodes, onNodesChange] = useNodesState<ResourceNodeData>([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -128,8 +161,8 @@ export default function DependencyMapPro({ systemName }) {
           fetch(`/api/graph/edges?system=${systemName}`)
         ]);
 
-        const nodesData = await nodesRes.json();
-        const edgesData = await edgesRes.json();
+        const nodesData = await nodesRes.json() as { nodes?: RawResourceNode[] };
+        const edgesData = await edgesRes.json() as { edges?: RawResourceEdge[] };
 
         const transformedNodes = transformNodesToReactFlow(nodesData.nodes || []);
         const transformedEdges = transformEdgesToReactFlow(edgesData.edges || [], viewMode);
@@ -146,26 +179,26 @@ export default function DependencyMapPro({ systemName }) {
     fetchDependencyData();
   }, [systemName, viewMode]);
 
-  const transformNodesToReactFlow = (rawNodes) => {
+  const transformNodesToReactFlow = (rawNodes: RawResourceNode[]): Node<ResourceNodeData>[] => {
     return rawNodes.map((node, index) => ({
-      id: node.id || node.arn,
+      id: node.id || node.arn || `resource-${index}`,
       type: 'custom',
       position: calculatePosition(index, rawNodes.length),
       data: {
-        name: node.name,
-        type: node.type,
-        category: getCategory(node.type),
+        ...node,
+        name: node.name ?? node.id ?? node.arn ?? 'Unknown resource',
+        type: node.type ?? 'Unknown',
+        category: getCategory(node.type ?? ''),
         stats: {
           dependencies: node.dependencies?.length || 0,
           trafficPercentage: node.trafficPercentage || 0,
         },
         criticalPath: node.criticalPath || false,
-        ...node
       },
     }));
   };
 
-  const transformEdgesToReactFlow = (rawEdges, mode) => {
+  const transformEdgesToReactFlow = (rawEdges: RawResourceEdge[], mode: ViewMode): Edge[] => {
     return rawEdges.map((edge) => {
       const edgeStyle = getEdgeStyle(edge, mode);
       
@@ -186,17 +219,17 @@ export default function DependencyMapPro({ systemName }) {
     });
   };
 
-  const calculatePosition = (index, total) => {
+  const calculatePosition = (index: number, total: number) => {
     const radius = 300;
-    const angle = (index / total) * 2 * Math.PI;
+    const angle = (index / Math.max(total, 1)) * 2 * Math.PI;
     return {
       x: 400 + radius * Math.cos(angle),
       y: 300 + radius * Math.sin(angle),
     };
   };
 
-  const getCategory = (type) => {
-    const categoryMap = {
+  const getCategory = (type: string): ResourceCategory => {
+    const categoryMap: Record<string, Exclude<ResourceCategory, 'Other'>> = {
       'Lambda': 'Compute',
       'EC2': 'Compute',
       'RDS': 'Database',
@@ -214,7 +247,7 @@ export default function DependencyMapPro({ systemName }) {
     return 'Other';
   };
 
-  const getEdgeStyle = (edge, mode) => {
+  const getEdgeStyle = (edge: RawResourceEdge, mode: ViewMode) => {
     const styles = {
       topology: {
         style: { stroke: edge.isActual ? '#4CAF50' : '#BDBDBD', strokeWidth: 2 },
@@ -257,7 +290,7 @@ export default function DependencyMapPro({ systemName }) {
           {['topology', 'dataflow', 'critical', 'security'].map(mode => (
             <button
               key={mode}
-              onClick={() => setViewMode(mode)}
+            onClick={() => setViewMode(mode as ViewMode)}
               style={{
                 padding: '8px 16px',
                 border: viewMode === mode ? '2px solid #2196F3' : '1px solid #ddd',
@@ -304,8 +337,8 @@ export default function DependencyMapPro({ systemName }) {
         <Background color="#f5f5f5" gap={16} />
         <Controls />
         <MiniMap nodeColor={(node) => {
-          const colors = { Compute: '#FF9800', Database: '#2196F3', Storage: '#9C27B0', Network: '#4CAF50', Security: '#F44336' };
-          return colors[node.data.category] || '#9E9E9E';
+          const colors: Partial<Record<ResourceCategory, string>> = { Compute: '#FF9800', Database: '#2196F3', Storage: '#9C27B0', Network: '#4CAF50', Security: '#F44336' };
+          return colors[(node.data as ResourceNodeData).category] || '#9E9E9E';
         }} />
       </ReactFlow>
 
@@ -326,4 +359,3 @@ export default function DependencyMapPro({ systemName }) {
     </div>
   );
 }
-

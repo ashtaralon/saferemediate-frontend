@@ -11,8 +11,11 @@ const WORKLOAD_TYPES = new Set([
   "ECSService",
 ])
 
+type AttackPathIdNode = Pick<PathNodeDetail, "id" | "type"> &
+  Partial<Pick<PathNodeDetail, "name" | "arn" | "canonical_id">>
+
 export function buildAttackPathIdBlob(
-  nodes: PathNodeDetail[],
+  nodes: AttackPathIdNode[],
   jewelId: string,
 ): string | null {
   let workloadArn = ""
@@ -41,7 +44,7 @@ async function sha256Hex(text: string): Promise<string> {
 }
 
 export async function deriveAttackPathId(
-  nodes: PathNodeDetail[],
+  nodes: AttackPathIdNode[],
   jewelId: string,
 ): Promise<string | null> {
   const blob = buildAttackPathIdBlob(nodes, jewelId)

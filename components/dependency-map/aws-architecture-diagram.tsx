@@ -121,7 +121,7 @@ export default function AWSArchitectureDiagram({ systemName, onNodeClick: extern
   const [speed, setSpeed] = useState(1);
   const [stats, setStats] = useState({ nodes: 0, edges: 0 });
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const animRef = useRef<number>();
+  const animRef = useRef<number | undefined>(undefined);
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Fullscreen toggle

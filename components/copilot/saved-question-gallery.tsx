@@ -198,7 +198,7 @@ export function SavedQuestionGallery({ systemName }: SavedQuestionGalleryProps) 
             data-copilot-freeform-input
           />
           <button
-            onClick={handleFreeformAsk}
+            onClick={() => void handleFreeformAsk()}
             disabled={!freeformQuestion.trim() || routing || answer.loading}
             className="inline-flex items-center gap-2 px-4 py-2 bg-[#2D51DA] hover:bg-[#1e3fb5] text-white rounded-lg text-sm font-medium disabled:opacity-50"
             data-copilot-freeform-submit

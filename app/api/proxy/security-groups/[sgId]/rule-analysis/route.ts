@@ -14,20 +14,16 @@ export const maxDuration = 60
 export const dynamic = "force-dynamic"
 
 const CACHE_TTL_MS = 2 * 60 * 1000
-const cache: Record<string, { data: unknown; timestamp: number }> = {}
+const cache: Record<string, { data: Record<string, unknown>; timestamp: number }> = {}
 
 export async function GET(
   req: NextRequest,
-  context: { params: Promise<{ sgId: string }> | { sgId: string } },
+  context: { params: Promise<{ sgId: string }> },
 ) {
   let sgId = ""
   try {
-    if (context.params instanceof Promise) {
-      const resolved = await context.params
-      sgId = resolved.sgId
-    } else {
-      sgId = (context.params as { sgId: string }).sgId
-    }
+    const resolved = await context.params
+    sgId = resolved.sgId
 
     if (!sgId) {
       return NextResponse.json(
@@ -65,7 +61,7 @@ export async function GET(
       })
     }
 
-    const data = await res.json()
+    const data = (await res.json()) as Record<string, unknown>
     cache[sgId] = { data, timestamp: Date.now() }
     return NextResponse.json(data, {
       headers: { "X-Cache": "MISS", "Cache-Control": "no-store" },

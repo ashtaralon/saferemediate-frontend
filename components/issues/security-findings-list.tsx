@@ -97,15 +97,7 @@ export function SecurityFindingsList({ findings, onRefreshFindings }: SecurityFi
       <SimulateFixModal
         isOpen={showModal}
         onClose={handleClose}
-        finding={selectedFinding}
-        onExecute={handleExecute}
-        onRefreshFindings={() => {
-          // Mark finding as remediated and refresh
-          if (selectedFinding) {
-            markAsRemediated(selectedFinding.id)
-          }
-          handleRefreshFindings()
-        }}
+        finding={selectedFinding ?? undefined}
       />
 
       {/* FINDINGS LIST - Using FindingCard component */}

@@ -16,7 +16,9 @@ export interface ArchitectureNode {
   availabilityZone?: string
   isPublic?: boolean
   vpc_id?: string
+  vpcId?: string
   subnet_id?: string
+  subnetId?: string
   subnet_is_public?: boolean
   subnet_type?: string
   privateIp?: string
@@ -32,6 +34,7 @@ export interface ArchitectureEdge {
   source: string
   target: string
   type: 'ACTUAL_TRAFFIC' | 'ALLOWED' | 'HAS_ROLE' | 'ASSUMES_ROLE' | 'HAS_POLICY' | 'INVOKES' | string
+  edge_type?: string
   port?: string
   protocol?: string
   traffic_bytes?: number
@@ -243,4 +246,3 @@ export function useSGGapAnalysis(sgId: string | null, days: number = 30): UseSGG
 
   return { data, isLoading, error, refetch: fetchData }
 }
-

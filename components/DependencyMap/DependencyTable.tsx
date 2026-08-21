@@ -3,10 +3,40 @@
 
 import React, { useState, useEffect } from 'react';
 
-export default function DependencyTable({ systemName }) {
-  const [dependencies, setDependencies] = useState([]);
+interface GraphNode {
+  id: string;
+  name?: string;
+  type?: string;
+  arn?: string;
+}
+
+interface GraphEdge {
+  source: string;
+  target: string;
+  type?: string;
+  isActual?: boolean;
+}
+
+interface DependencyRef {
+  id: string;
+  name: string;
+  type?: string;
+  isActual?: boolean;
+}
+
+interface DependencyRow {
+  id: string;
+  name: string;
+  type: string;
+  dependsOn: DependencyRef[];
+  usedBy: DependencyRef[];
+  arn?: string;
+}
+
+export default function DependencyTable({ systemName }: { systemName: string }) {
+  const [dependencies, setDependencies] = useState<DependencyRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [expandedRows, setExpandedRows] = useState(new Set());
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     fetchDependencies();
@@ -20,8 +50,8 @@ export default function DependencyTable({ systemName }) {
         fetch(`/api/graph/edges?system=${systemName}`)
       ]);
 
-      const nodes = await nodesRes.json();
-      const edges = await edgesRes.json();
+      const nodes = await nodesRes.json() as { nodes?: GraphNode[] };
+      const edges = await edgesRes.json() as { edges?: GraphEdge[] };
 
       const deps = buildDependencyList(nodes.nodes || [], edges.edges || []);
       setDependencies(deps);
@@ -32,15 +62,15 @@ export default function DependencyTable({ systemName }) {
     }
   };
 
-  const buildDependencyList = (nodes, edges) => {
+  const buildDependencyList = (nodes: GraphNode[], edges: GraphEdge[]): DependencyRow[] => {
     return nodes.map(node => {
       const outgoing = edges.filter(e => e.source === node.id);
       const incoming = edges.filter(e => e.target === node.id);
 
       return {
         id: node.id,
-        name: node.name,
-        type: node.type,
+        name: node.name ?? node.id,
+        type: node.type ?? 'Unknown',
         dependsOn: outgoing.map(e => ({
           id: e.target,
           name: getNodeName(e.target, nodes),
@@ -58,12 +88,12 @@ export default function DependencyTable({ systemName }) {
     });
   };
 
-  const getNodeName = (id, nodes) => {
+  const getNodeName = (id: string, nodes: GraphNode[]) => {
     const node = nodes.find(n => n.id === id);
-    return node ? node.name : id;
+    return node?.name ?? id;
   };
 
-  const toggleRow = (id) => {
+  const toggleRow = (id: string) => {
     const newExpanded = new Set(expandedRows);
     if (newExpanded.has(id)) {
       newExpanded.delete(id);
@@ -177,4 +207,3 @@ export default function DependencyTable({ systemName }) {
     </div>
   );
 }
-

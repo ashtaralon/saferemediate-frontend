@@ -253,7 +253,7 @@ describe("applySystemEstateScope", () => {
     )
     expect(result.vpcTopology.edges.igws.map(i => i.id)).toEqual(["igw-own"])
     expect(result.vpcTopology.edges.vpces.map(v => v.id)).toEqual(["vpce-1"])
-    expect(result.vpcTopology.iam_roles.map(r => r.name)).toEqual(["role-a"])
+    expect((result.vpcTopology.iam_roles ?? []).map(r => r.name)).toEqual(["role-a"])
     expect(result.availableVpcs.map(v => v.vpc_id).sort()).toEqual(
       [OWN, SHARED].sort(),
     )

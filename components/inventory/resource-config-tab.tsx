@@ -827,7 +827,7 @@ function InsightSections({ data }: { data: InspectorPayload }) {
           ) : (
             <KeyValueGrid obj={sec as Record<string, any>} />
           )}
-          {sec.source && (
+          {Boolean(sec.source) && (
             <p className="text-[11px] text-slate-400 mt-1">Source: {String(sec.source)}</p>
           )}
         </div>

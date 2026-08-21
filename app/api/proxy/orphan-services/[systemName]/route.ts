@@ -442,7 +442,13 @@ export async function GET(
     // 2. Fetch REAL activity evidence, security risk factors, AND AWS existence validation
     let evidence: Record<string, { total_relationships: number; cloudtrail_events: number; total_hits: number; access_advisor_services: number; last_activity: string | null; first_seen?: string | null; activity_dates?: string[]; is_attached?: boolean; attached_entities?: number; attached_to?: string[] }> = {}
     let securityRisks: Record<string, { is_internet_facing: boolean; risk_score: number; factors: SecurityFactor[]; has_encryption: boolean; sg_count: number; total_permissions: number }> = {}
-    let awsValidation: Record<string, { exists: boolean; checked: boolean; type?: string; attachment_count?: number }> = {}
+    let awsValidation: Record<string, {
+      exists: boolean
+      checked: boolean
+      type?: string
+      attachment_count?: number
+      verdict?: string
+    }> = {}
 
     // Fetch evidence, security risks, and AWS validation sequentially to avoid Next.js fetch issues
     try {
@@ -780,11 +786,11 @@ export async function GET(
         status: isStopped ? 'stopped' : (idleDays >= ORPHAN_THRESHOLD_DAYS ? 'idle' : 'isolated'),
         lastSeen: hasValidDate ? lastSeen!.toISOString() : '',
         properties: r.properties || {},
-        lastUsedBy: classification.lastUsedBy || lastUsedByMap[r.name] || null,
         evidenceSources,
         telemetryConfidence,
         missingEvidenceSources,
         ...classification,
+        lastUsedBy: classification.lastUsedBy || lastUsedByMap[r.name] || null,
       }
 
       if (seasonalInfo.isSeasonal) {

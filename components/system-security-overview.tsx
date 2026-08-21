@@ -1581,7 +1581,10 @@ export function SystemSecurityOverview({ systemName, onViewOnMap }: SystemSecuri
                         <button 
                           onClick={() => {
                             // Switch to SG-wide view
-                            const sg = sgData.find(s => s.sg_id === connectionDetail.scope?.kind === 'CONNECTION' ? connectionDetail.scope.targetSgId : connectionDetail.sg_id)
+                            const targetSgId = connectionDetail.scope?.kind === 'CONNECTION'
+                              ? connectionDetail.scope.targetSgId
+                              : connectionDetail.sg_id
+                            const sg = sgData.find(s => s.sg_id === targetSgId)
                             if (sg) {
                               setSelectedSG(sg)
                               setSelectedConnection(null)

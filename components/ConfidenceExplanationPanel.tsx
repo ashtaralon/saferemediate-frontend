@@ -100,7 +100,7 @@ function splitExplanation(text: string): { headline: string; details: string } {
 
 export function ConfidenceExplanationPanel({ score }: Props) {
   const routingStyle = ROUTING_STYLE[score.routing] ?? ROUTING_STYLE.manual_review
-  const signals = score.signals_available ?? ({} as ConfidenceScore['signals_available'])
+  const signals = (score.signals_available ?? {}) as Record<string, boolean>
   const gates = score.gates_failed ?? []
   const visibilityReasons = score.visibility_reasons ?? []
   const visibilityInt = typeof score.visibility_integrity === 'number' ? score.visibility_integrity : 0

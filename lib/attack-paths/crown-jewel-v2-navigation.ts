@@ -22,7 +22,7 @@ export function toCrownJewelSummary(
   }
   return {
     id: cj.id,
-    canonical_id: cj.arn ?? (cj.id.startsWith("arn:") ? cj.id : null),
+    canonical_id: ("arn" in cj ? cj.arn : null) ?? (cj.id.startsWith("arn:") ? cj.id : null),
     name: cj.name,
     type: cj.type,
     severity: "LOW",

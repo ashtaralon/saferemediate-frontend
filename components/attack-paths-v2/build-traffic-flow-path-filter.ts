@@ -121,7 +121,7 @@ export function buildTrafficFlowPathFilter(
       protocol: e.protocol,
       bytes: e.traffic_bytes,
       hits: e.hit_count,
-      is_observed: e.is_observed,
+      is_observed: e.is_observed ?? undefined,
     })
   }
 

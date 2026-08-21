@@ -1,4 +1,8 @@
 export interface SeverityBreakdown {
+  /** Legacy API alias retained while all report producers migrate. */
+  score?: number
+  tier?: string
+  factors?: unknown[]
   overall_score: number
   severity: string
   impact: number
@@ -358,11 +362,13 @@ export interface NodeFinding {
 
 export interface PathNodeDetail {
   id: string
+  /** Raw ARN emitted by older path endpoints. canonical_id remains preferred. */
+  arn?: string | null
   /** ARN preferred for canvas / graph-view backend lookups (PR #63). */
   canonical_id?: string | null
   name: string
   type: string
-  tier: "entry" | "identity" | "network_control" | "crown_jewel"
+  tier: "entry" | "compute" | "identity" | "network_control" | "crown_jewel"
   lane?: "entry" | "compute" | "security_group" | "nacl" | "subnet" | "vpc" | "iam" | "pivot" | "crown_jewel"
   /**
    * Absent / null = unknown. Never treat missing as `false` (that invents
@@ -637,6 +643,7 @@ export interface InitialAccess {
    *  (workload, IDP, console session, external account). Null when
    *  category is UNKNOWN or category is identity-level (e.g. leaked key). */
   pivot_node_id?: string | null
+  pivot_name?: string | null
   /** Plain-English attacker narrative — one sentence. */
   attacker_narrative?: string | null
   /** observed = CloudTrail-evidenced; config = graph-state-derived;

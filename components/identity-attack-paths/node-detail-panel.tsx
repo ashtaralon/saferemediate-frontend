@@ -1283,7 +1283,7 @@ export function NodeDetailPanel({
               <p className="text-sm font-bold text-white">{node.lp_score}%</p>
             </div>
           )}
-          {node.gap_count > 0 && (
+          {(node.gap_count ?? 0) > 0 && (
             <div className="p-2 rounded bg-slate-800/40">
               <p className="text-[10px] text-slate-400">Permission Gaps</p>
               <p className="text-sm font-bold text-amber-400">{node.gap_count}</p>

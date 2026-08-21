@@ -87,7 +87,7 @@ const SecurityGroupNode = ({ data }: NodeProps) => {
     <div className="relative">
       <Handle type="target" position={Position.Top} className="!bg-slate-400" />
       <Handle type="source" position={Position.Bottom} className="!bg-slate-400" />
-      <div className={`bg-gradient-to-br ${riskColors[data.riskLevel]} text-white px-5 py-4 rounded-xl shadow-xl border-2 min-w-[180px]`}>
+          <div className={`bg-gradient-to-br ${riskColors[data.riskLevel as keyof typeof riskColors] ?? riskColors.low} text-white px-5 py-4 rounded-xl shadow-xl border-2 min-w-[180px]`}>
         <div className="flex items-center gap-2">
           <Shield className="w-5 h-5" />
           <span className="font-bold">{data.label}</span>
