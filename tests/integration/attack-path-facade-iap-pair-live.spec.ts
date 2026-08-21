@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test"
+import { test, expect, type PlaywrightWorkerArgs } from "@playwright/test"
 import { authedApi, liveGetWithRetry } from "./live-auth"
 import {
   ALON_PROD,
@@ -10,7 +10,7 @@ import {
  * Uses the same IAP query limits as the facade (12×8) so the probe row
  * is guaranteed to be in the truncated set the facade sees.
  */
-export async function probeFacadeIapPair(playwright: import("@playwright/test").Playwright) {
+export async function probeFacadeIapPair(playwright: PlaywrightWorkerArgs["playwright"]) {
   const api = await authedApi(playwright)
   try {
     const iapRes = await liveGetWithRetry(

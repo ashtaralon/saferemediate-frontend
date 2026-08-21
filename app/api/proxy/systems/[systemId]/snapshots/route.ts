@@ -51,9 +51,13 @@ export async function GET(
     )
 
     if (res.ok) {
-      const data = await res.json()
-      // Backend returns array directly, or wrapped in snapshots key
-      const snapshotsArray = Array.isArray(data) ? data : (data.snapshots || [])
+    const data = (await res.json()) as unknown
+    // Backend returns array directly, or wrapped in snapshots key
+      const snapshotsArray = Array.isArray(data)
+        ? data
+        : data && typeof data === "object" && "snapshots" in data && Array.isArray(data.snapshots)
+          ? data.snapshots
+          : []
       console.log(`[proxy] ✅ Loaded ${snapshotsArray.length} snapshots from backend for system ${systemId}`)
       return NextResponse.json(snapshotsArray)
     } else {
@@ -67,7 +71,7 @@ export async function GET(
   try {
     const snapshots = getSnapshots(systemId)
     console.log(`[proxy] Using ${snapshots.length} snapshots from local storage (fallback)`)
-    return NextResponse.json(Array.isArray(snapshots) ? snapshots : (snapshots.snapshots || []))
+    return NextResponse.json(snapshots)
   } catch (error: any) {
     console.error("[proxy] Error getting snapshots from local storage:", error)
     return NextResponse.json([])

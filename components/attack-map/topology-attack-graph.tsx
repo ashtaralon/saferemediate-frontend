@@ -439,10 +439,11 @@ function pickPrimaryInitialAccess(
  *  that were still showing the role as start despite the back-step
  *  model being live in the narrative strip. */
 function getEffectiveHops(path: ConvergencePath): ConvergenceHop[] {
+  const hops = path.hops ?? []
   const ia = pickPrimaryInitialAccess(path.initial_access)
-  if (!ia?.pivot_node_id) return path.hops
-  const first = path.hops[0]
-  if (first?.node_id === ia.pivot_node_id) return path.hops
+  if (!ia?.pivot_node_id) return hops
+  const first = hops[0]
+  if (first?.node_id === ia.pivot_node_id) return hops
   const pivotHop: ConvergenceHop = {
     node_id: ia.pivot_node_id,
     node_type: "entry_workload",
@@ -455,11 +456,12 @@ function getEffectiveHops(path: ConvergencePath): ConvergenceHop[] {
     is_crown_jewel: false,
     edge_type_from_prev: null,
   }
-  return [pivotHop, ...path.hops]
+  return [pivotHop, ...hops]
 }
 
 function buildNarrative(path: ConvergencePath): NarrativeStep[] {
-  const baseSteps: NarrativeStep[] = path.hops.map((h, i) => ({
+  const hops = path.hops ?? []
+  const baseSteps: NarrativeStep[] = hops.map((h, i) => ({
     ordinal: i + 1,
     iconKind: hopIconKind(h),
     verb: i === 0 ? "START" : semanticVerb(h.edge_type_from_prev),
@@ -472,7 +474,7 @@ function buildNarrative(path: ConvergencePath): NarrativeStep[] {
   if (!ia || !ia.pivot_node_id || !ia.category || ia.category === "UNKNOWN") {
     return baseSteps
   }
-  const firstHop = path.hops[0]
+  const firstHop = hops[0]
   if (firstHop && ia.pivot_node_id === firstHop.node_id) {
     // Forward-entry path — pivot IS the first hop. Just relabel the
     // START verb with the category so the operator still sees the
@@ -578,7 +580,7 @@ function deriveContainment(
   paths: ConvergencePath[],
   topology: AwsTopology | null,
 ): DerivedContainment {
-  const hops = paths.flatMap((p) => p.hops)
+  const hops = paths.flatMap((p) => p.hops ?? [])
   const hopAzs = new Set<string>(hops.map((h) => h.az || "").filter(isRealAz))
   // Subnet IDs that show up as Subnet-type hops (real ids in our path data).
   const hopSubnetIds = new Set<string>(
@@ -760,13 +762,13 @@ function TopologyCanvas({
     )
     for (const p of data.paths) {
       // Find this path's Subnet hop (whose id is in the topology snapshot).
-      const subnetHop = p.hops.find(
+      const subnetHop = (p.hops ?? []).find(
         (h) =>
           (h.node_type || "").toLowerCase() === "subnet" &&
           knownSubnetIds.has(h.node_id),
       )
       const pathScopeSubnet = subnetHop?.node_id ?? null
-      for (const h of p.hops) {
+      for (const h of p.hops ?? []) {
         const existing = hopToSubnet.get(h.node_id)
         if (existing) continue // first assignment wins (stable across paths)
         const planeIsNetwork = (h.plane || "").toLowerCase() === "network"
@@ -801,7 +803,7 @@ function TopologyCanvas({
     // Unique hop list — same id can appear across multiple paths.
     const seen = new Set<string>()
     const uniqHops: ConvergenceHop[] = []
-    for (const h of data.paths.flatMap((p) => p.hops)) {
+    for (const h of data.paths.flatMap((p) => p.hops ?? [])) {
       if (seen.has(h.node_id)) continue
       seen.add(h.node_id)
       uniqHops.push(h)
@@ -927,14 +929,14 @@ function TopologyCanvas({
     // Identity / network-unknown hops in a path also belong to the VPC
     // that path's subnet hop resolved to. Walk paths to assign them.
     for (const p of data.paths) {
-      const pathSubnet = p.hops.find(
+      const pathSubnet = (p.hops ?? []).find(
         (h) =>
           (h.node_type || "").toLowerCase() === "subnet" &&
           knownSubnetIds.has(h.node_id),
       )?.node_id
       const pathVpc = pathSubnet ? subnetToVpc.get(pathSubnet) : null
       if (!pathVpc) continue
-      for (const h of p.hops) {
+      for (const h of p.hops ?? []) {
         if (!hopToVpc.has(h.node_id)) hopToVpc.set(h.node_id, pathVpc)
       }
     }
@@ -1068,7 +1070,7 @@ function TopologyCanvas({
     const workloadTypes = new Set(["ec2instance", "lambdafunction", "rdsinstance"])
     for (const p of data.paths) {
       let lastWorkload: string | null = null
-      for (const h of p.hops) {
+      for (const h of p.hops ?? []) {
         const t = (h.node_type || "").toLowerCase()
         if (workloadTypes.has(t)) {
           lastWorkload = h.node_id
@@ -1164,7 +1166,7 @@ function TopologyCanvas({
   // Set of every node_id that appears in any path hop — used to decide if a
   // topology entity should render bright (in a path) or muted (just exists).
   const pathHopIds = useMemo(
-    () => new Set(data.paths.flatMap((p) => p.hops.map((h) => h.node_id))),
+    () => new Set(data.paths.flatMap((p) => (p.hops ?? []).map((h) => h.node_id))),
     [data.paths],
   )
 
@@ -1466,7 +1468,7 @@ function TopologyCanvas({
         // looking at a role chip with no attacker entry.
         const visibleIds = selPath
           ? new Set([
-              ...selPath.hops.map((h) => h.node_id),
+              ...(selPath.hops ?? []).map((h) => h.node_id),
               ...((selPath.initial_access || [])
                 .map((ia) => ia.pivot_node_id)
                 .filter((id): id is string => !!id)),
@@ -1495,7 +1497,7 @@ function TopologyCanvas({
         }
         return Object.entries(positions).map(([nodeId, p]) => {
         if (visibleIds && !visibleIds.has(nodeId)) return null
-        const hop = data.paths.flatMap((pa) => pa.hops).find((h) => h.node_id === nodeId)
+        const hop = data.paths.flatMap((pa) => pa.hops ?? []).find((h) => h.node_id === nodeId)
           ?? pivotHopByNodeId.get(nodeId)
         if (!hop) return null
         const isJewel = hop.is_crown_jewel

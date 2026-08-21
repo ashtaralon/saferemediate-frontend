@@ -16,6 +16,8 @@ const jewel: CrownJewelSummary = {
   type: "S3Bucket",
   severity: "HIGH",
   path_count: 0,
+  highest_risk_score: 0,
+  data_classification: null,
   priority_score: 1,
   is_internet_exposed: false,
 }
@@ -56,7 +58,7 @@ function serveEnvelope(
     cj_type: "S3Bucket",
     paths_total: paths.length,
     observed_paths: 0,
-    choke_points: [],
+    choke_points: {},
     paths,
     risk_summary: null,
     serve_state: "ACTIVE",

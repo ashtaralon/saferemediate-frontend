@@ -41,8 +41,8 @@ describe('deriveLPIntegrity — mutationBlocked is veto only', () => {
     // mutations_allowed (and must not grow one).
     expect(i.mutationBlocked).toBe(false)
     expect('mutations_allowed' in payload).toBe(false)
-    expect((i as Record<string, unknown>).mutations_allowed).toBeUndefined()
-    expect((i as Record<string, unknown>).mutationsAllowed).toBeUndefined()
+    expect((i as unknown as Record<string, unknown>).mutations_allowed).toBeUndefined()
+    expect((i as unknown as Record<string, unknown>).mutationsAllowed).toBeUndefined()
   })
 
   it('INTEGRITY_HELD / NOT_READY / missing contract keep the veto', () => {

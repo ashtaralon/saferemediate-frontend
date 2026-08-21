@@ -8,17 +8,10 @@ export const dynamic = "force-dynamic"
 
 export async function GET(
   req: NextRequest, 
-  context: { params: Promise<{ sgId: string }> | { sgId: string } }
+  context: { params: Promise<{ sgId: string }> }
 ) {
   try {
-    // Handle both Next.js 14 (sync) and Next.js 15 (async) params
-    let sgId: string
-    if (context.params instanceof Promise) {
-      const resolvedParams = await context.params
-      sgId = resolvedParams.sgId
-    } else {
-      sgId = (context.params as { sgId: string }).sgId
-    }
+    const { sgId } = await context.params
     
     if (!sgId) {
       return NextResponse.json({ 

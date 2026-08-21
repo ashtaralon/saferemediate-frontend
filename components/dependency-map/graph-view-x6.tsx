@@ -52,7 +52,6 @@ const AWS_COLORS: Record<string, { bg: string; border: string; gradient: string;
   Aurora: { bg: '#3B48CC', border: '#2E3AB5', gradient: 'linear-gradient(135deg, #527FFF 0%, #3B48CC 100%)', label: 'AURORA' },
   S3: { bg: '#3F8624', border: '#2D6B19', gradient: 'linear-gradient(135deg, #6AAF35 0%, #3F8624 100%)', label: 'S3' },
   S3Bucket: { bg: '#3F8624', border: '#2D6B19', gradient: 'linear-gradient(135deg, #6AAF35 0%, #3F8624 100%)', label: 'S3' },
-  S3Bucket: { bg: '#3F8624', border: '#2D6B19', gradient: 'linear-gradient(135deg, #6AAF35 0%, #3F8624 100%)', label: 'S3' },
   SecurityGroup: { bg: '#DD344C', border: '#C42D42', gradient: 'linear-gradient(135deg, #FF5C5C 0%, #DD344C 100%)', label: 'SG' },
   IAMRole: { bg: '#7B68EE', border: '#6A5ACD', gradient: 'linear-gradient(135deg, #9683EC 0%, #7B68EE 100%)', label: 'IAM' },
   IAMPolicy: { bg: '#7B68EE', border: '#6A5ACD', gradient: 'linear-gradient(135deg, #9683EC 0%, #7B68EE 100%)', label: 'POLICY' },

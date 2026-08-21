@@ -116,7 +116,7 @@ describe("enrichArchitectureForSpotlight", () => {
     const pathWithNacl: ConvergencePath = {
       ...cyntrotestPath,
       path_id: "with-nacl",
-      hops: [naclHop as ConvergencePath["hops"][number]],
+      hops: [naclHop as NonNullable<ConvergencePath["hops"]>[number]],
     }
     const enriched = enrichArchitectureForSpotlight(emptyArch, [pathWithNacl], null)
     expect(enriched.nacls?.[0]?.id).toBe("acl-071aecb1e96778858")

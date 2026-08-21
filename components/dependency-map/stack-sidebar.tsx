@@ -64,7 +64,7 @@ interface IamRole {
   shortName: string;
   type: string;
   usedCount: number;
-  totalCount: number;
+  totalCount: number | null;
 }
 
 interface Flow {
@@ -400,6 +400,7 @@ export function StackSidebar({
   };
 
   const getIamStatus = (role: IamRole): StatusColor => {
+    if (role.totalCount == null) return 'amber';
     if (role.totalCount === 0) return 'green';
     const ratio = role.usedCount / role.totalCount;
     if (ratio >= 0.8) return 'green';

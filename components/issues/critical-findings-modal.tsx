@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { X } from "lucide-react"
-import { BulkAutomationModal } from "./bulk-automation-modal"
+import { BulkAutomationModal } from "../bulk-automation-modal"
 
 interface Finding {
   id: string

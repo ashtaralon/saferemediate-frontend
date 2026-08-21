@@ -16,7 +16,7 @@ export function CoverageStrip({ posture, issues }: CoverageStripProps) {
   const p = posture.data
   const obs = p?.dimensions?.observability
   const obsScore = typeof obs?.score === "number" ? Math.round(obs.score) : null
-  const obsDetails: any = obs?.details ?? null
+  const obsDetails = (obs as (typeof obs & { details?: Record<string, unknown> }) | undefined)?.details
   const flow = obsDetails?.with_flow_logs
   const cloudtrail = obsDetails?.with_cloudtrail
   const totalRes = obsDetails?.total_resources

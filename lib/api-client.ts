@@ -512,6 +512,12 @@ async function httpPost<T>(path: string, body: any): Promise<T> {
   return res.json() as Promise<T>
 }
 
+/** Public POST helper for legacy callers; browser requests stay on the
+ * same-origin authenticated backend proxy. */
+export function apiPost<T = unknown>(path: string, body: unknown): Promise<T> {
+  return httpPost<T>(path, body)
+}
+
 /**
  * Simulate a fix for a finding
  * payload can be:
