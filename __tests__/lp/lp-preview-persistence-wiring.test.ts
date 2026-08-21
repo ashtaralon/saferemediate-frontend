@@ -52,4 +52,19 @@ describe('Resource Risk Preview persistence wiring', () => {
     expect(analysisModalSource).not.toContain('`${safetyScore}% safe to remove`')
     expect(analysisModalSource).toContain('A restore point will be created and verified before Apply changes AWS.')
   })
+
+  it('replaces the complete modal snapshot with the user-triggered simulation response', () => {
+    expect(analysisModalSource).toContain('const applySimulateFixSnapshot =')
+    expect(analysisModalSource).toContain('applySimulateFixSnapshot(result)')
+    expect(analysisModalSource).toContain('setSafetyContext(safety)')
+    expect(analysisModalSource).toContain('setRemovalSafety(')
+    expect(analysisModalSource).toContain('setPreviewObservationDays(')
+    expect(analysisModalSource).toContain('setDecisionPersistence(')
+    expect(analysisModalSource).toContain('setPlanToken(null)')
+    expect(analysisModalSource).toContain('setPlanPermissions(null)')
+    expect(analysisModalSource).toContain('requestVersion !== simulateFixRequestVersion.current')
+    expect(analysisModalSource.indexOf('applySimulateFixSnapshot(result)')).toBeLessThan(
+      analysisModalSource.lastIndexOf('setShowSimulation(true)'),
+    )
+  })
 })
