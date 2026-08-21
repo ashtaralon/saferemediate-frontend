@@ -107,4 +107,19 @@ describe('lpIntegrityCopy — stale vs never-ran', () => {
     })
     expect(copy.title).toBe('Analysis did not run')
   })
+
+  it('complete analysis with unknown generation is not "did not run"', () => {
+    const copy = lpIntegrityCopy({
+      state: 'NOT_READY',
+      analysisComplete: true,
+      mutationBlocked: true,
+      countsArePartial: true,
+      failedAnalyzers: [],
+      reason:
+        'Analysis complete; remediation is not ready because the active generation is unknown.',
+    })
+    expect(copy.title).toBe('Remediation is not ready')
+    expect(copy.body).toContain('active generation is unknown')
+    expect(copy.title.toLowerCase()).not.toContain('did not run')
+  })
 })
