@@ -15,6 +15,7 @@ describe("IAM remediation authority", () => {
     expect(result).toEqual({
       evidenceUnavailable: false,
       canonicalPlanReady: true,
+      hardBlocked: false,
       effectiveIsRemediable: true,
       effectiveReason: "Canonical safety decision issued a signed change plan",
     })
@@ -35,14 +36,19 @@ describe("IAM remediation authority", () => {
   it("never lets a plan-like payload override canonical BLOCK", () => {
     const result = resolveIamRemediationAuthority({
       legacyIsRemediable: false,
-      legacyReason: "Evidence incomplete",
+      legacyReason: "Effective observation 6/90 days; collect more evidence before remediation",
       canonicalDecision: "BLOCK",
+      canonicalReason: "Observation window 6d is below the 7d mutation floor",
       planToken: "must-not-authorize",
       planPermissions: ["s3:ListBucket"],
     })
 
     expect(result.canonicalPlanReady).toBe(false)
-    expect(result.evidenceUnavailable).toBe(true)
+    expect(result.hardBlocked).toBe(true)
+    expect(result.evidenceUnavailable).toBe(false)
+    expect(result.effectiveIsRemediable).toBe(false)
+    expect(result.effectiveReason).toBe("Observation window 6d is below the 7d mutation floor")
+    expect(result.effectiveReason).not.toContain("6/90")
   })
 
   it("keeps legacy readiness for backends without canonical plans", () => {

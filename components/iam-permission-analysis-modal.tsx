@@ -1056,10 +1056,11 @@ export function IAMPermissionAnalysisModal({
       legacyIsRemediable: gapData.is_remediable,
       legacyReason: gapData.remediable_reason,
       canonicalDecision: safetyContext?.decision_canonical,
+      canonicalReason: safetyContext?.unsafe_reasons?.[0],
       planToken,
       planPermissions,
     })
-    if (authority.evidenceUnavailable) {
+    if (authority.hardBlocked || authority.evidenceUnavailable) {
       setSelectedPermissionsToRemove(new Set())
       return
     }
@@ -1081,7 +1082,7 @@ export function IAMPermissionAnalysisModal({
     // bundle. The UI labels this legacy state separately and Apply remains
     // governed by the normal remediability gate.
     setSelectedPermissionsToRemove(new Set(gapData.unused_permissions))
-  }, [planPermissions, planToken, removalSafety, safetyContext?.decision_canonical, gapData, safetyLoading])
+  }, [planPermissions, planToken, removalSafety, safetyContext?.decision_canonical, safetyContext?.unsafe_reasons, gapData, safetyLoading])
 
   const fetchSafetyContext = async (): Promise<SimulateFixSafety | null> => {
     setSafetyLoading(true)
@@ -1452,9 +1453,18 @@ export function IAMPermissionAnalysisModal({
       legacyIsRemediable: gapData.is_remediable,
       legacyReason: gapData.remediable_reason,
       canonicalDecision: safetyContext?.decision_canonical,
+      canonicalReason: safetyContext?.unsafe_reasons?.[0],
       planToken,
       planPermissions,
     })
+    if (remediationAuthority.hardBlocked) {
+      toast({
+        title: "Apply blocked",
+        description: remediationAuthority.effectiveReason,
+        variant: "destructive",
+      })
+      return undefined
+    }
     if (remediationAuthority.evidenceUnavailable) {
       toast({
         title: "More data needed",
@@ -2656,6 +2666,7 @@ export function IAMPermissionAnalysisModal({
     legacyIsRemediable: gapData?.is_remediable,
     legacyReason: gapData?.remediable_reason,
     canonicalDecision: safetyContext?.decision_canonical,
+    canonicalReason: safetyContext?.unsafe_reasons?.[0],
     planToken,
     planPermissions,
   })
@@ -3125,8 +3136,9 @@ export function IAMPermissionAnalysisModal({
   })()
 
   const blockedReason =
-    safetyContext?.unsafe_reasons?.[0]
-      || (remediationAuthority.evidenceUnavailable ? remediationAuthority.effectiveReason : null)
+    (remediationAuthority.hardBlocked || remediationAuthority.evidenceUnavailable
+      ? remediationAuthority.effectiveReason
+      : null)
       || null
 
   if (!isOpen) return null
@@ -4061,7 +4073,7 @@ export function IAMPermissionAnalysisModal({
                   type="checkbox"
                   checked={detachManagedPolicies}
                   onChange={(e) => setDetachManagedPolicies(e.target.checked)}
-                  disabled={applying || remediationAuthority.evidenceUnavailable || managedPolicyRewriteRequired}
+                  disabled={applying || remediationAuthority.hardBlocked || remediationAuthority.evidenceUnavailable || managedPolicyRewriteRequired}
                   className="rounded border-[var(--border,#d1d5db)] text-orange-600 focus:ring-orange-500"
                 />
                 <span className="text-sm" style={{ color: "var(--muted-foreground, #6b7280)" }}>
@@ -4076,6 +4088,7 @@ export function IAMPermissionAnalysisModal({
                 // (data_confidence UNKNOWN / reason 'usage_not_computed'). Undefined
                 // on older backends → not gated.
                 const evidenceUnknown = remediationAuthority.evidenceUnavailable
+                const canonicalBlocked = remediationAuthority.hardBlocked
                 const lowConfidence = safetyScore < 50
                 const pipelineBlocked = verdictBucket === 'blocked'
                 // Honest counts: report what the user actually selected. Non-auto
@@ -4125,6 +4138,23 @@ export function IAMPermissionAnalysisModal({
                       <XCircle className="w-4 h-4" />
                       BLOCKED - Service Role
                     </button>
+                  )
+                } else if (canonicalBlocked) {
+                  return (
+                    <div className="flex items-center gap-3">
+                      <span className="text-sm text-[#b91c1c] max-w-md text-right">
+                        {remediationAuthority.effectiveReason}
+                      </span>
+                      <button
+                        disabled
+                        data-testid="iam-canonical-blocked"
+                        className="px-6 py-2.5 bg-gray-400 text-white rounded-lg font-bold cursor-not-allowed flex items-center gap-2"
+                        title={remediationAuthority.effectiveReason}
+                      >
+                        <XCircle className="w-4 h-4" />
+                        BLOCKED
+                      </button>
+                    </div>
                   )
                 } else if (evidenceUnknown) {
                   // Backend says this role is NOT remediable: no policy data, or
