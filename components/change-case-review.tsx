@@ -34,6 +34,8 @@ interface ChangeCaseRun {
   checkpoint?: {
     checkpoint_id?: string
     dependency_hash?: string
+    preimage_hash?: string
+    expected_applied_hash?: string
     dependency_snapshot?: {
       live_eni_ids?: string[]
       neptune_eni_ids?: string[] | null
@@ -58,7 +60,7 @@ interface ChangeCaseRun {
     post_change_verified?: boolean
     domain_result?: Record<string, unknown>
     error?: { code?: string; message?: string }
-    summary?: { rules_removed?: number; consumers_canaried?: number; consumers_expanded?: number }
+    summary?: { rules_removed?: number; permissions_removed?: number; rules_failed?: number; consumers_canaried?: number; consumers_expanded?: number }
   } | null
   rollback?: { status: string; automatic?: boolean; at?: string; rolled_back_by?: string } | null
   events: ChangeCaseEvent[]
@@ -121,8 +123,8 @@ export interface ChangeCaseArtifact {
   }
   proposed_change: {
     kind: string
-    before: Array<{ rule_id?: string; action?: string; protocol: string; port: string; source: string; purpose?: string }>
-    after: Array<{ protocol: string; port: string; source: string; purpose?: string }>
+    before: Array<{ rule_id?: string; action?: string; protocol?: string; port?: string; source?: string; purpose?: string; permission?: string; source_policies?: string[] }>
+    after: Array<{ protocol?: string; port?: string; source?: string; purpose?: string; permission?: string; effective_grant?: string }>
     untouched: string[]
     claim: string
     cves_fixed?: number
@@ -193,6 +195,20 @@ function RuleLine({ rule }: { rule: { protocol: string; port: string; source: st
   )
 }
 
+function PermissionLine({ item, proposed = false }: {
+  item: { permission?: string; source_policies?: string[]; effective_grant?: string }
+  proposed?: boolean
+}) {
+  return (
+    <div className={`rounded-lg border px-3 py-2 text-xs ${proposed ? 'border-emerald-200 bg-emerald-50 text-emerald-950' : 'border-slate-200 bg-white text-slate-700'}`}>
+      <span className="font-mono font-semibold">{item.permission || 'Unknown permission'}</span>
+      <div className="mt-1 text-[11px] opacity-75">
+        {proposed ? `Effective grant: ${item.effective_grant || 'removed'}` : `Granted by: ${item.source_policies?.join(', ') || 'source unresolved'}`}
+      </div>
+    </div>
+  )
+}
+
 export function ChangeCaseReview({
   changeCase,
   executing,
@@ -222,6 +238,7 @@ export function ChangeCaseReview({
   const hasGaps = current.evidence.gaps.length > 0
   const isConfigAssertion = current.execution_request.mutation_class === 'config_assertion'
   const isSecurityGroup = current.scope.resource_type === 'SecurityGroup' || Boolean(current.scope.sg_id)
+  const isIamPermission = current.scope.resource_type === 'IAMRole' && current.proposed_change.kind === 'IAM_PERMISSION_REMOVAL'
   const observedRecords = current.evidence.observed_traffic_records ?? current.evidence.observed_access_records ?? 0
   const uniqueSources = current.evidence.rule_unique_source_count_display ?? String(current.evidence.rule_unique_source_count ?? 0)
   const shared = current.blast_radius.shared_substrate || []
@@ -353,16 +370,20 @@ export function ChangeCaseReview({
             <div className="text-xs font-bold uppercase tracking-wide text-slate-600">2. What exactly changes?</div>
             <div className="mt-3 grid gap-4 md:grid-cols-2">
               <div>
-                <div className="mb-2 text-xs font-semibold text-slate-800">{isSecurityGroup ? 'Current reviewed rule' : 'Current reviewed policy statement'}</div>
+                <div className="mb-2 text-xs font-semibold text-slate-800">{isSecurityGroup ? 'Current reviewed rule' : isIamPermission ? 'Current exact permission grant' : 'Current reviewed policy statement'}</div>
                 <div className="space-y-2">
-                  {current.proposed_change.before.map((rule, index) => <RuleLine key={`${rule.rule_id}-${index}`} rule={rule} />)}
+                  {current.proposed_change.before.map((rule, index) => isIamPermission
+                    ? <PermissionLine key={`${rule.permission}-${index}`} item={rule} />
+                    : <RuleLine key={`${rule.rule_id}-${index}`} rule={{ protocol: rule.protocol || 'policy', port: rule.port || 'statement', source: rule.source || 'selected principal', purpose: rule.purpose }} />)}
                 </div>
               </div>
               <div>
                 <div className="mb-2 text-xs font-semibold text-emerald-800">Proposed state</div>
                 <div className="space-y-2">
                   {current.proposed_change.after.length > 0
-                    ? current.proposed_change.after.map((rule, index) => <RuleLine key={`${rule.protocol}-${rule.port}-${index}`} rule={rule} />)
+                    ? current.proposed_change.after.map((rule, index) => isIamPermission
+                      ? <PermissionLine key={`${rule.permission}-${index}`} item={rule} proposed />
+                      : <RuleLine key={`${rule.protocol}-${rule.port}-${index}`} rule={{ protocol: rule.protocol || 'policy', port: rule.port || 'statement', source: rule.source || 'selected principal', purpose: rule.purpose }} />)
                     : <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">Remove only the reviewed {isSecurityGroup ? 'rule' : 'policy statement'}. All unlisted items stay unchanged.</div>}
                 </div>
               </div>
@@ -376,8 +397,8 @@ export function ChangeCaseReview({
               3. What could break, and how strong is the evidence?
             </div>
             <div className="mt-3 grid gap-2 sm:grid-cols-3">
-              <div className="rounded-xl bg-white p-3"><div className="text-lg font-bold">{observedRecords.toLocaleString()}</div><div className="text-[10px] text-slate-600">{isSecurityGroup ? 'Observed admitted-traffic events' : 'Observed S3 access records'}</div></div>
-              <div className="rounded-xl bg-white p-3"><div className="text-sm font-bold">{uniqueSources}</div><div className="text-[10px] text-slate-600">{isSecurityGroup ? 'Distinct rule sources' : 'Observed principals'}</div></div>
+              <div className="rounded-xl bg-white p-3"><div className="text-lg font-bold">{observedRecords.toLocaleString()}</div><div className="text-[10px] text-slate-600">{isSecurityGroup ? 'Observed admitted-traffic events' : isIamPermission ? 'Observed IAM use events' : 'Observed S3 access records'}</div></div>
+              <div className="rounded-xl bg-white p-3"><div className="text-sm font-bold">{uniqueSources}</div><div className="text-[10px] text-slate-600">{isSecurityGroup ? 'Distinct rule sources' : isIamPermission ? 'Known role consumers' : 'Observed principals'}</div></div>
               <div className="rounded-xl bg-white p-3"><div className="text-lg font-bold">{isConfigAssertion ? 'Not required' : `${current.evidence.effective_days ?? 'Unknown'} / ${current.evidence.requested_days}`}</div><div className="text-[10px] text-slate-600">{isConfigAssertion ? 'Behavioral gate' : 'Evidence days'}</div></div>
             </div>
             <p className="mt-3 text-xs text-slate-700">{current.narrative.risk_summary}</p>
@@ -408,7 +429,7 @@ export function ChangeCaseReview({
               ))}
             </ol>
             <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
-              <strong>Pre-change simulation:</strong> {current.simulation.rules_to_change} exact {isSecurityGroup ? 'rule' : 'change item'}(s); {current.simulation.potential_impact_count} potential-impact record(s).
+              <strong>Pre-change simulation:</strong> {current.simulation.rules_to_change} exact {isSecurityGroup ? 'rule' : isIamPermission ? 'permission' : 'change item'}(s); {current.simulation.potential_impact_count} potential-impact record(s).
               {current.simulation.warnings.map((warning) => (
                 <div key={warning} className="mt-1 text-amber-800">⚠ {warning}</div>
               ))}
@@ -436,7 +457,8 @@ export function ChangeCaseReview({
                 <div className="mt-3 rounded-xl border border-blue-200 bg-white p-3 text-xs text-slate-700">
                   <div><strong>Durable checkpoint:</strong> {checkpoint.checkpoint_id}</div>
                   {isSecurityGroup && <div className="mt-1"><strong>Exact SG handoff:</strong> {checkpoint.source_sg?.sg_id || current.scope.sg_id} → {checkpoint.clone?.sg_id || checkpoint.clone?.group_name || 'clone pending'}</div>}
-                  <div className="mt-1"><strong>Frozen dependency hash:</strong> <span className="font-mono">{checkpoint.dependency_hash || 'pending'}</span></div>
+                  <div className="mt-1"><strong>{isIamPermission ? 'Approved policy preimage' : 'Frozen dependency hash'}:</strong> <span className="font-mono">{checkpoint.preimage_hash || checkpoint.dependency_hash || 'pending'}</span></div>
+                  {isIamPermission && checkpoint.expected_applied_hash && <div className="mt-1"><strong>Expected verified postimage:</strong> <span className="font-mono">{checkpoint.expected_applied_hash}</span></div>}
                 </div>
               )}
               {executionResult && (
@@ -513,7 +535,7 @@ export function ChangeCaseReview({
                   I reviewed the checkpoint and rollback plan.
                 </label>
                 <button onClick={approve} disabled={busy !== null || approvedBy.trim().length < 2 || rationale.trim().length < 8 || !rollbackAcknowledged || (hasGaps && !riskAccepted)} className="w-full rounded-xl bg-violet-500 px-4 py-3 text-sm font-bold hover:bg-violet-400 disabled:opacity-50">
-                  {busy === 'approve' ? 'Recording approval…' : 'Approve exact signed plan'}
+                  {busy === 'approve' ? 'Recording approval…' : 'Approve exact frozen plan'}
                 </button>
               </div>
             )}

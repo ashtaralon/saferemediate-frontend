@@ -161,4 +161,64 @@ describe('Change Case approval report', () => {
     expect(screen.getByText('applied and checked')).toBeInTheDocument()
     expect(screen.queryByText(/Exact SG handoff/)).not.toBeInTheDocument()
   })
+
+  it('renders an IAM permission Change Case as exact permissions and policy hashes', () => {
+    const current = artifact()
+    current.schema_version = 'change-case/v4'
+    current.scope = {
+      system_name: 'payments',
+      resource_id: 'arn:aws:iam::123456789012:role/app-role',
+      resource_name: 'app-role',
+      resource_type: 'IAMRole',
+    }
+    current.proposed_change = {
+      kind: 'IAM_PERMISSION_REMOVAL',
+      before: [{ permission: 's3:DeleteObject', source_policies: ['app-inline'] }],
+      after: [{ permission: 's3:DeleteObject', effective_grant: 'REMOVED' }],
+      untouched: ['trust policy', 'managed policies', 'unselected IAM actions'],
+      claim: 'Remove one exact unused IAM action.',
+    }
+    current.evidence = {
+      observed_access_records: 0,
+      rule_unique_source_count_display: '2',
+      requested_days: 90,
+      effective_days: 45,
+      complete: true,
+      gaps: [],
+    }
+    current.workflow = {
+      status: 'SUCCEEDED',
+      version: 5,
+      requested_by: 'requester@example.com',
+      created_at: '2026-08-21T00:00:00Z',
+      updated_at: '2026-08-21T00:15:00Z',
+      approvals: [],
+      events: [],
+      latest_run: {
+        run_id: 'run-iam',
+        status: 'SUCCEEDED',
+        started_at: '2026-08-21T00:05:00Z',
+        executed_by: 'operator@example.com',
+        snapshot_id: 'iam-snapshot-1',
+        events: [],
+        checkpoint: {
+          checkpoint_id: 'iam-snapshot-1',
+          preimage_hash: 'preimage-123',
+          expected_applied_hash: 'postimage-456',
+        },
+        result: { success: true, summary: { permissions_removed: 1 } },
+      },
+    }
+
+    render(<ChangeCaseReview changeCase={current} executing={false} onClose={vi.fn()} />)
+
+    expect(screen.getByText('Current exact permission grant')).toBeInTheDocument()
+    expect(screen.getAllByText('s3:DeleteObject')).toHaveLength(2)
+    expect(screen.getByText('Granted by: app-inline')).toBeInTheDocument()
+    expect(screen.getByText('Effective grant: REMOVED')).toBeInTheDocument()
+    expect(screen.getByText('Approved policy preimage:')).toBeInTheDocument()
+    expect(screen.getByText('preimage-123')).toBeInTheDocument()
+    expect(screen.getByText('postimage-456')).toBeInTheDocument()
+    expect(screen.getByText('applied and checked')).toBeInTheDocument()
+  })
 })
