@@ -399,7 +399,7 @@ export default function GuidedSystemMap({ systemName }: { systemName: string }) 
               <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
                 <div className="text-xs uppercase tracking-[0.18em] text-slate-400">Sources</div>
                 <div className="mt-2 text-sm font-medium text-slate-200">
-                  {derived.enabledSources.slice(0, 2).join(" • ") || "Neo4j graph"}
+                  {derived.enabledSources.slice(0, 2).join(" • ") || "Neptune graph"}
                 </div>
               </div>
             </div>

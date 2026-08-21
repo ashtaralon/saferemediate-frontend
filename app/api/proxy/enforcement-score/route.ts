@@ -127,6 +127,12 @@ interface EnforcementScore {
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
   const systemName = searchParams.get('systemName')
+  const scope = new URLSearchParams()
+  for (const key of ["customer_id", "account_group", "account_id", "region"]) {
+    const value = searchParams.get(key)
+    if (value) scope.set(key, value)
+  }
+  const scopeQuery = scope.toString()
 
   // Empty systemName → org-wide aggregate from /api/systems.
   // Honest weighted average of health_score by resourceCount.
@@ -134,7 +140,7 @@ export async function GET(request: NextRequest) {
   // was hitting whenever no system was selected.
   if (!systemName) {
     try {
-      const res = await fetch(`${BACKEND_URL}/api/systems`, {
+      const res = await fetch(`${BACKEND_URL}/api/systems${scopeQuery ? `?${scopeQuery}` : ""}`, {
         headers: { 'Content-Type': 'application/json' },
         cache: 'no-store',
       })

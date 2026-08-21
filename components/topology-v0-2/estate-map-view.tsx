@@ -1136,7 +1136,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
         </div>
         <div className="text-xs mt-2" style={{ color: "#5A6B7A" }}>
           The graph backend did not finish computing for {systemName}. This usually
-          clears when Neo4j routing recovers — try again in a moment.
+          clears when Neptune routing recovers — try again in a moment.
         </div>
         <button
           type="button"
@@ -1817,7 +1817,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
 
       <footer className={`${ESTATE_SHELL_X} pb-6 text-[10px] leading-relaxed`} style={{ color: "#5A6B7A" }}>
         Live read from <span className="font-mono">/api/topology-risk/{data.system}</span>.
-        Glance groups real Neo4j nodes only — empty cells are honest, not fabricated.
+        Glance groups real Neptune nodes only — empty cells are honest, not fabricated.
       </footer>
 
       {!mapEnlarged ? (

@@ -82,7 +82,7 @@ const getEdgeColor = (type: string): string => {
 // ============================================
 // MAIN COMPONENT
 // ============================================
-export default function Neo4jDataView({ systemName }: Props) {
+export default function NeptuneDataView({ systemName }: Props) {
   const [nodes, setNodes] = useState<GraphNode[]>([]);
   const [edges, setEdges] = useState<GraphEdge[]>([]);
   const [loading, setLoading] = useState(true);
@@ -140,7 +140,7 @@ export default function Neo4jDataView({ systemName }: Props) {
       setStats({ nodes: procNodes.length, edges: procEdges.length, types });
       setLoading(false);
     } catch (err: any) {
-      console.error('Neo4j data load error:', err);
+      console.error('Neptune data load error:', err);
       setError(err.message);
       setLoading(false);
     }
@@ -185,7 +185,7 @@ export default function Neo4jDataView({ systemName }: Props) {
       <div className="h-full w-full flex items-center justify-center bg-slate-900 rounded-xl">
         <div className="text-center">
           <RefreshCw className="w-8 h-8 text-orange-500 animate-spin mx-auto mb-3" />
-          <p className="text-white text-sm font-medium">Loading Neo4j Data...</p>
+          <p className="text-white text-sm font-medium">Loading Neptune Data...</p>
           <p className="text-slate-400 text-xs mt-1">Fetching from database</p>
         </div>
       </div>

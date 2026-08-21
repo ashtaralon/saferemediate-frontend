@@ -220,7 +220,7 @@ interface NewResource {
   properties: Record<string, any>
 }
 
-async function runNeo4jQuery(cypher: string): Promise<any[]> {
+async function runGraphQuery(cypher: string): Promise<any[]> {
   if (!NEO4J_URI || !NEO4J_PASSWORD) return []
 
   try {

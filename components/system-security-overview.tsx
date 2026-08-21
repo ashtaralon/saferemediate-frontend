@@ -989,7 +989,7 @@ export function SystemSecurityOverview({ systemName, onViewOnMap }: SystemSecuri
             
             {/* Footer with data source */}
             <div className="px-6 py-3 bg-gray-50 border-t text-xs text-[var(--muted-foreground,#6b7280)]">
-              Data source: Neo4j + CloudTrail • 365 days observation
+              Data source: Neptune + CloudTrail • 365 days observation
             </div>
           </div>
         </div>
@@ -1985,7 +1985,7 @@ export function SystemSecurityOverview({ systemName, onViewOnMap }: SystemSecuri
           </div>
         </div>
         <div className="mt-4 flex gap-2 text-xs">
-          <span className="bg-white/20 px-3 py-1 rounded-full">Neo4j</span>
+          <span className="bg-white/20 px-3 py-1 rounded-full">Neptune</span>
           <span className="bg-white/20 px-3 py-1 rounded-full">VPC Flow Logs ({summary.totalHits.toLocaleString()} hits)</span>
           <span className="bg-white/20 px-3 py-1 rounded-full">CloudTrail</span>
           <button onClick={fetchAllData} className="bg-white/20 px-3 py-1 rounded-full hover:bg-white/30 flex items-center gap-1">
@@ -2235,7 +2235,7 @@ export function SystemSecurityOverview({ systemName, onViewOnMap }: SystemSecuri
           <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#ef444410]0" /> Internet</span>
           <span className="flex items-center gap-1"><ChevronRight className="w-3 h-3 text-[var(--muted-foreground,#9ca3af)]" /> Click for details</span>
         </div>
-        <div>Data: Neo4j • VPC Flow Logs • CloudTrail | {new Date().toLocaleString()}</div>
+        <div>Data: Neptune • VPC Flow Logs • CloudTrail | {new Date().toLocaleString()}</div>
       </div>
     </div>
   )

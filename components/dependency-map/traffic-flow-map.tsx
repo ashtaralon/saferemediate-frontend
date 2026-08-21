@@ -6254,7 +6254,7 @@ export function UnifiedArchitectureDiagram({
                   ? "Effective route table has a route to an Internet Gateway. Subnet is publicly-routable per AWS canonical definition. Does not include NAT-GW route inspection."
                   : subnet.isPublic === false
                     ? "Effective route table has no IGW route. Subnet is private. May still have NAT-GW egress (not inspected by this classifier)."
-                    : "Subnet.public not set in Neo4j — either subnet_visibility_collector hasn't classified this subnet yet, or the workload's IN_SUBNET edge resolves to a duplicate without the :Subnet label. Never fabricated.";
+                    : "Subnet.public not set in Neptune — either subnet_visibility_collector hasn't classified this subnet yet, or the workload's IN_SUBNET edge resolves to a duplicate without the :Subnet label. Never fabricated.";
               return (
                 <div
                   key={subnet.id}
@@ -7663,7 +7663,7 @@ function RefreshStatusBadge({
       {status === 'fetching' && (
         <>
           <div className="w-3 h-3 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
-          <span>Syncing with Neo4j...</span>
+          <span>Syncing with Neptune...</span>
         </>
       )}
       {status === 'success' && changes && changes.totalChanges > 0 && (
@@ -10685,7 +10685,7 @@ export default function TrafficFlowMap({
     const nodes = rawDepMap.nodes || [];
     const edges = rawDepMap.edges || rawDepMap.relationships || [];
 
-    console.log(`[TrafficFlowMap] Loaded ${nodes.length} nodes, ${edges.length} edges from Neo4j`);
+    console.log(`[TrafficFlowMap] Loaded ${nodes.length} nodes, ${edges.length} edges from Neptune`);
 
     if (nodes.length === 0) {
       setEmptyDataError('No data available');

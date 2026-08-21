@@ -99,7 +99,7 @@ const CHECK_TOOLTIPS: Record<string, string> = {
   confidence_gate: "Confidence scoring gate (visibility + trust ramp + evidence)",
   implicit_dependencies: "S3→KMS Class-H dependency check",
   drift_guard: "AWS state was unchanged between snapshot and rollback",
-  snapshot: "Pre-mutation snapshot written to S3 + DynamoDB + Neo4j",
+  snapshot: "Pre-mutation snapshot written to S3 + DynamoDB + Neptune",
   snapshot_loaded: "Snapshot loaded and validated for rollback",
 }
 
@@ -971,7 +971,7 @@ const EventDetailModal = ({ event, isOpen, onClose, onRollback }: EventDetailMod
             )}
             {event.source && (
               <span className={`text-xs px-2 py-1 rounded ${event.source === 'neo4j' ? 'bg-purple-900/50 text-purple-400' : 'bg-green-900/50 text-green-400'}`}>
-                {event.source === 'neo4j' ? 'Neo4j Event' : 'Checkpoint'}
+                {event.source === 'neo4j' ? 'Neptune Event' : 'Checkpoint'}
               </span>
             )}
           </div>
@@ -2018,7 +2018,7 @@ export function RemediationTimeline({
                       <p className="text-xs mt-0.5" style={{ color: "var(--text-secondary)" }}>
                         {formatDateTime(event.timestamp)} • {event.approved_by}
                         {event.source === 'neo4j' && (
-                          <span className="text-purple-400 ml-2">● Neo4j</span>
+                          <span className="text-purple-400 ml-2">● Neptune</span>
                         )}
                         <SafetyPipelineStrip
                           signals={event.metadata?.safety_signals}

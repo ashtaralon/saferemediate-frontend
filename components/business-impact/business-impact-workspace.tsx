@@ -5,6 +5,7 @@ import { AlertTriangle, BarChart3, Building2, Loader2, RefreshCw, Settings2, Shi
 import { BusinessImpactPanel } from "./business-impact-panel"
 import { BusinessImpactSettings } from "./business-impact-settings"
 import type { BusinessImpactResponse, SystemRegulatoryExposureSummary } from "@/lib/business-impact"
+import { useScopedSystemCatalog } from "@/lib/scoped-system-catalog"
 
 type SystemOption = {
   name: string
@@ -72,6 +73,7 @@ function summaryStatus(summary?: SystemRegulatoryExposureSummary): { label: stri
 }
 
 export function BusinessImpactWorkspace({ initialSystem }: { initialSystem?: string | null }) {
+  const systemsCatalog = useScopedSystemCatalog()
   const [systems, setSystems] = useState<SystemOption[]>([])
   const [portfolio, setPortfolio] = useState<BusinessImpactResponse | null>(null)
   const [selectedSystem, setSelectedSystem] = useState(initialSystem || "")
@@ -84,10 +86,18 @@ export function BusinessImpactWorkspace({ initialSystem }: { initialSystem?: str
   const [refreshKey, setRefreshKey] = useState(0)
 
   const load = useCallback(async () => {
+    if (!systemsCatalog.ready) return
+    if (!systemsCatalog.url) {
+      setSystems([])
+      setPortfolio(null)
+      setSelectedSystem("")
+      setLoading(false)
+      return
+    }
     setLoading(true)
     setError(null)
     try {
-      const systemsResponse = await fetch("/api/proxy/systems", { cache: "no-store" })
+      const systemsResponse = await fetch(systemsCatalog.url, { cache: "no-store" })
       const systemsPayload = await systemsResponse.json()
       if (!systemsResponse.ok) throw new Error(systemsPayload.detail || systemsPayload.error || "Could not load systems")
       const nextSystems = normalizeSystems(systemsPayload)
@@ -111,7 +121,7 @@ export function BusinessImpactWorkspace({ initialSystem }: { initialSystem?: str
     } finally {
       setLoading(false)
     }
-  }, [refreshKey])
+  }, [refreshKey, systemsCatalog.ready, systemsCatalog.url])
 
   useEffect(() => { void load() }, [load])
 

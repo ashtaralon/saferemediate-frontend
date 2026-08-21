@@ -125,7 +125,7 @@ function LoadingState() {
   return (
     <div className="flex flex-col h-full items-center justify-center p-12">
       <Loader2 className="w-8 h-8 text-cyan-500 animate-spin mb-3" />
-      <div className="text-sm text-muted-foreground">Building canvas from Neo4j…</div>
+      <div className="text-sm text-muted-foreground">Building canvas from Neptune…</div>
       <div className="text-[10px] text-muted-foreground mt-1">V2 producer · edge-proven, no inference</div>
     </div>
   )

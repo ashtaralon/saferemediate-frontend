@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { useScopedSystemCatalog } from "@/lib/scoped-system-catalog"
 
 interface SystemPickerCardProps {
   onSelect: (system: string) => void
@@ -13,13 +14,21 @@ interface SystemPickerCardProps {
  * decides whether to update local state, push a URL, etc.
  */
 export function SystemPickerCard({ onSelect }: SystemPickerCardProps) {
+  const systemsCatalog = useScopedSystemCatalog()
   const [systems, setSystems] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
+    if (!systemsCatalog.ready) return
+    if (!systemsCatalog.url) {
+      setSystems([])
+      setError(null)
+      setLoading(false)
+      return
+    }
     let cancelled = false
-    fetch("/api/proxy/systems")
+    fetch(systemsCatalog.url)
       .then((r) => r.json())
       .then((d) => {
         if (cancelled) return
@@ -46,7 +55,7 @@ export function SystemPickerCard({ onSelect }: SystemPickerCardProps) {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [systemsCatalog.ready, systemsCatalog.url])
 
   return (
     <div className="mx-auto mt-12 max-w-md rounded-xl border border-slate-200 bg-white p-6 shadow-sm">

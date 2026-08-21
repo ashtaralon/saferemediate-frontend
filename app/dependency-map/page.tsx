@@ -14,26 +14,34 @@
 import { Suspense, useEffect, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import GraphViewV2 from "@/components/dependency-map/graph-view-v2"
+import { catalogSystemName, useScopedSystemCatalog } from "@/lib/scoped-system-catalog"
 
 function DependencyMapView() {
   const searchParams = useSearchParams()
   const fromUrl = searchParams?.get("system") ?? null
   const [systemName, setSystemName] = useState<string | null>(fromUrl)
-  const [resolving, setResolving] = useState(fromUrl === null)
+  const [resolving, setResolving] = useState(true)
+  const systemsCatalog = useScopedSystemCatalog()
 
   useEffect(() => {
-    if (fromUrl) {
-      setSystemName(fromUrl)
+    if (!systemsCatalog.ready) return
+    if (!systemsCatalog.url) {
+      setSystemName(null)
       setResolving(false)
       return
     }
+    const catalogUrl = systemsCatalog.url
     let cancelled = false
     ;(async () => {
       try {
-        const res = await fetch("/api/proxy/systems", { cache: "no-store" })
+        setResolving(true)
+        const res = await fetch(catalogUrl, { cache: "no-store" })
         const json = res.ok ? await res.json() : {}
-        const name = (json.systems ?? [])[0]?.name
-        if (!cancelled) setSystemName(typeof name === "string" && name ? name : null)
+        const names = (json.systems ?? [])
+          .map((system: any) => String(system?.name || system?.SystemName || ""))
+          .filter(Boolean)
+        const selected = catalogSystemName(fromUrl, names) || names[0] || null
+        if (!cancelled) setSystemName(selected)
       } catch {
         if (!cancelled) setSystemName(null)
       } finally {
@@ -43,7 +51,7 @@ function DependencyMapView() {
     return () => {
       cancelled = true
     }
-  }, [fromUrl])
+  }, [fromUrl, systemsCatalog.ready, systemsCatalog.url])
 
   if (resolving) {
     return (

@@ -3,6 +3,7 @@
 import Link from "next/link"
 import { useCachedFetch } from "@/lib/use-cached-fetch"
 import { StaleIndicator } from "@/components/dashboard/v3/card-shell"
+import { useScopedSystemCatalog } from "@/lib/scoped-system-catalog"
 
 /**
  * Dense systems table — the centerpiece of the operator-dense home.
@@ -130,11 +131,13 @@ function CriticalityBadge({ value }: { value?: string }) {
 }
 
 export function DenseSystemsTable() {
+  const systemsCatalog = useScopedSystemCatalog("/api/proxy/systems/with-families")
   const { data, loading, error, retry, isStale: cacheStale, cachedAt } = useCachedFetch<Response>(
-    "/api/proxy/systems/with-families",
+    systemsCatalog.url,
     {
-      cacheKey: "dense-systems-with-families",
+      cacheKey: `dense-systems-with-families:${systemsCatalog.scopeKey}`,
       fetchInit: { cache: "no-store" },
+      isCacheable: () => systemsCatalog.available,
     },
   )
 
