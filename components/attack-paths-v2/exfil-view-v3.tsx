@@ -861,7 +861,7 @@ function DamageRemediationPanel({
         </div>
       </section>
 
-      {/* REMEDIATION — Neo4j-grounded. Every section reads its data
+      {/* REMEDIATION — Neptune-grounded. Every section reads its data
           from selectedPath.remediation. When the field is absent,
           we render an explicit "remediation enrichment not computed"
           state — no faking. */}
@@ -872,7 +872,7 @@ function DamageRemediationPanel({
             How to reduce the damage
           </h3>
           <span className="text-[10px] text-emerald-700 dark:text-emerald-300/60">
-            · all claims tied to Neo4j rows
+            · all claims tied to Neptune rows
           </span>
         </div>
         {!rem ? (
@@ -1148,7 +1148,7 @@ function RemediationSGCol({ rem }: { rem: RemediationSG }) {
         <div className="text-[12px] text-amber-700 dark:text-amber-300 leading-snug">
           <span className="font-semibold">SG rules not collected.</span>
           <div className="text-[11px] text-amber-700 dark:text-amber-300/70 mt-1">
-            Workload is VPC-attached but no SG rule data is in Neo4j. Run{" "}
+            Workload is VPC-attached but no SG rule data is in Neptune. Run{" "}
             <span className="font-mono">/api/admin/run-consumer-edges</span>
             then refresh.
           </div>

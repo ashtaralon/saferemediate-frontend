@@ -1592,7 +1592,7 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
       // Handle timeout errors specifically
       let errorMessage = err.message || 'Unknown error'
       if (err.message?.includes('timeout') || err.message?.includes('aborted') || err.name === 'AbortError') {
-        errorMessage = 'The operation was aborted due to timeout. The auto-tagger could not propagate tags. Check Neo4j connection and ensure there are tagged seed resources.'
+        errorMessage = 'The operation was aborted due to timeout. The auto-tagger could not propagate tags. Check Neptune connectivity and ensure there are tagged seed resources.'
       }
       
       setAutoTaggerResult({ 
@@ -2002,7 +2002,7 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
                 onClick={() => {
                   setRefreshKey((k) => k + 1)
                 }}
-                title="Refresh from Neo4j (re-read existing data)"
+                title="Refresh from Neptune (re-read existing data)"
                 aria-label="Refresh"
                 className="flex items-center justify-center w-9 h-9 border border-[var(--border,#e5e7eb)] text-[var(--muted-foreground,#6b7280)] rounded-lg hover:bg-gray-50 hover:text-[var(--foreground,#374151)] transition-colors"
               >
@@ -2428,7 +2428,7 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
 
             {/* Live Now strip — slim full-width "what just happened on
                 this system" line. Reads the most recent RemediationEvent
-                joined to a resource carrying this SystemName (real Neo4j
+                joined to a resource carrying this SystemName (real Neptune
                 data, not fabricated). Three-state aware: loading,
                 has-event, idle, error. Operator's daily question
                 ("did anything happen here?") now has an answer above
@@ -3274,7 +3274,7 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
                 <div className="bg-[#ef444410] border border-[#ef444440] rounded-lg p-4">
                   <p className="text-[#ef4444] font-medium">Error: {autoTaggerResult.error}</p>
                   <p className="text-sm text-[#ef4444] mt-2">
-                    The auto-tagger could not propagate tags. Check Neo4j connection and ensure there are tagged seed resources.
+                    The auto-tagger could not propagate tags. Check Neptune connectivity and ensure there are tagged seed resources.
                   </p>
                 </div>
               )}
@@ -3329,7 +3329,7 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
                               This means either:
                               <br />• No ACTUAL_TRAFFIC relationships exist (need to ingest VPC Flow Logs)
                               <br />• All resources are already tagged
-                              <br />• Resources don't have the right labels in Neo4j
+                              <br />• Resources don't have the right labels in Neptune
                             </p>
                           </div>
                         )}

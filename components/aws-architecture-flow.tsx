@@ -340,7 +340,7 @@ export default function AWSArchitectureFlow({ systemName }: Props) {
 
       {/* Footer */}
       <div className="px-4 py-2 border-t bg-slate-50 text-xs text-slate-500 flex justify-between">
-        <span>Neo4j: {data?.summary?.totalNodes || 0} nodes, {data?.summary?.totalEdges || 0} edges</span>
+        <span>Neptune: {data?.summary?.totalNodes || 0} nodes, {data?.summary?.totalEdges || 0} edges</span>
         <span>{data?.summary?.internetExposedNodes || 0} internet exposed</span>
       </div>
     </div>

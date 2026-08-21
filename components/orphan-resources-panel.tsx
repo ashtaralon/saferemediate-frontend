@@ -272,7 +272,7 @@ export function OrphanResourcesPanel() {
     const blockReasons: string[] = [
       `${resourceType} ${displayName}`,
       "Direct delete bypasses the 30-day quarantine hold.",
-      "Records OverrideEvent in Neo4j before the AWS mutation (Decision Contract §7).",
+      "Records OverrideEvent in Neptune before the AWS mutation (Decision Contract §7).",
       "Pre-deletion snapshot is written for rollback context (data NOT in snapshot for S3).",
     ]
     setOverrideState(buildOverrideStateForOpen(blockReasons))

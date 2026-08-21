@@ -208,7 +208,7 @@ function ServicePathMap({
         <div>
           <h3 className="text-sm font-bold" style={{ color: "#1A2330" }}>Service inspector</h3>
           <p className="mt-0.5 text-[11px]" style={{ color: "#5A6B7A" }}>
-            Neo4j graph · incident dependency segments and deterministic service routing
+            Neptune graph · incident dependency segments and deterministic service routing
           </p>
         </div>
         <span

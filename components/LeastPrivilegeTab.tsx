@@ -1544,7 +1544,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
     try {
       setAnalyzing(true)
 
-      console.log('[RefreshAll] Starting refresh from Neo4j (no AWS calls)')
+      console.log('[RefreshAll] Starting refresh from Neptune (no AWS calls)')
 
       // Reload the main data from Neo4j only (no force_refresh to avoid AWS calls)
       await fetchGaps(true, false)

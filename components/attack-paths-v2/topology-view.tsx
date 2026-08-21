@@ -181,7 +181,7 @@ export default function TopologyView({ systemName, selectedPath }: TopologyViewP
       <div className="mb-4 flex items-baseline gap-3">
         <h2 className="text-base font-semibold text-foreground tracking-wide uppercase">Topology View</h2>
         <span className="text-[10px] text-muted-foreground italic">
-          AWS-style containment · sourced from Neo4j as-is
+          AWS-style containment · sourced from Neptune as-is
         </span>
         {hasPath && (
           <span className="text-[10px] font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-300 ml-2 bg-amber-500/10 border border-amber-500/30 rounded px-2 py-0.5">

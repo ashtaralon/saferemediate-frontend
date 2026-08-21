@@ -585,7 +585,7 @@ export default function AWSTopologyMapLive({ systemName }: Props) {
       <div className="px-4 py-2.5 border-t bg-white text-xs text-slate-500 flex justify-between items-center">
         <span className="flex items-center gap-2">
           <Database className="w-3.5 h-3.5 text-[#22c55e]"/>
-          <span>Neo4j: <strong className="text-slate-700">{data?.summary?.totalNodes||0}</strong> nodes, <strong className="text-slate-700">{data?.summary?.totalEdges||0}</strong> edges</span>
+          <span>Neptune: <strong className="text-slate-700">{data?.summary?.totalNodes||0}</strong> nodes, <strong className="text-slate-700">{data?.summary?.totalEdges||0}</strong> edges</span>
         </span>
         <span className="flex items-center gap-2">
           <Globe className="w-3.5 h-3.5 text-[#ef4444]"/>

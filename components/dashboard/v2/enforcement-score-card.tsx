@@ -25,7 +25,7 @@ export function EnforcementScoreCard({ state, onRetry }: EnforcementScoreCardPro
       {!hasRealScore ? (
         <DashboardEmptyState
           title="Score not yet computed for this system"
-          hint="Backend scoring returned empty payload — confirm the system name matches what exists in Neo4j."
+          hint="Backend scoring returned empty payload — confirm the system name matches what exists in Neptune."
         />
       ) : (
         <div className="flex flex-col gap-5">

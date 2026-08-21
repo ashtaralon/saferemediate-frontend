@@ -82,7 +82,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       { 
         success: false, 
-        error: error.message || 'Failed to trigger auto-tagger. Check Neo4j connection and ensure there are tagged seed resources.',
+        error: error.message || 'Failed to trigger auto-tagger. Check Neptune connectivity and ensure there are tagged seed resources.',
         detail: String(error)
       },
       { status: 500 }

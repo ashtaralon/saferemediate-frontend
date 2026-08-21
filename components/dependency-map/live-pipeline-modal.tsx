@@ -187,7 +187,7 @@ const UNIFIED_STAGE_TEMPLATE: PipelineStage[] = [
   {
     id: "snapshot",
     label: "Snapshot",
-    description: "Rollback state written to Neo4j (unified Snapshot label)",
+    description: "Rollback state written to Neptune (unified Snapshot label)",
     status: "pending",
   },
   {
@@ -1258,7 +1258,7 @@ export function LivePipelineModal({ workload, onClose }: LivePipelineModalProps)
                   <div className="text-[10px] text-red-100/80 leading-relaxed">
                     Override requires a written rationale and identity capture.
                     The backend records an{" "}
-                    <code className="font-mono">OverrideEvent</code> in Neo4j
+                    <code className="font-mono">OverrideEvent</code> in Neptune
                     on every force=true execution (Decision Contract §7).
                   </div>
                   <button

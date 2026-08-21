@@ -49,7 +49,7 @@ export function SeverityDistributionCard({ state, onRetry }: SeverityDistributio
       {declaredTotal === 0 ? (
         <DashboardEmptyState
           title="No open findings"
-          hint="Neo4j returned no findings for this system."
+          hint="Neptune returned no findings for this system."
         />
       ) : (
         <div className="flex flex-col gap-3">
