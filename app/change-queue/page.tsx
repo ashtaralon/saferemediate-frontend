@@ -40,7 +40,7 @@ interface AnalyzedIntent {
   }
 }
 
-export default function ChangeQueuePage() {
+export function ChangeQueueView({ systemName }: { systemName?: string }) {
   const [cases, setCases] = useState<QueueCase[]>([])
   const [capabilities, setCapabilities] = useState<Capability[]>([])
   const [intents, setIntents] = useState<AnalyzedIntent[]>([])
@@ -52,14 +52,20 @@ export default function ChangeQueuePage() {
     setLoading(true)
     setError(null)
     try {
-      const customerQuery = scopeCustomer ? `&customer_id=${encodeURIComponent(scopeCustomer)}` : ''
-      const response = await fetch(`/api/proxy/change-cases?limit=100${customerQuery}`, { cache: 'no-store' })
+      const query = new URLSearchParams({ limit: '100' })
+      if (scopeCustomer) query.set('customer_id', scopeCustomer)
+      if (systemName) query.set('system_name', systemName)
+      const response = await fetch(`/api/proxy/change-cases?${query}`, { cache: 'no-store' })
       const payload = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(payload.detail || payload.error || 'Change Queue failed')
       setCases(payload.cases || [])
       const [capabilityResponse, intentResponse] = await Promise.all([
         fetch('/api/proxy/change-assurance/capabilities', { cache: 'no-store' }),
-        fetch(`/api/proxy/change-assurance/intents?limit=20${customerQuery}`, { cache: 'no-store' }),
+        fetch(`/api/proxy/change-assurance/intents?${new URLSearchParams({
+          limit: '20',
+          ...(scopeCustomer ? { customer_id: scopeCustomer } : {}),
+          ...(systemName ? { system_name: systemName } : {}),
+        })}`, { cache: 'no-store' }),
       ])
       if (capabilityResponse.ok) {
         const capabilityPayload = await capabilityResponse.json().catch(() => ({}))
@@ -80,10 +86,14 @@ export default function ChangeQueuePage() {
     const selectedCustomer = new URLSearchParams(window.location.search).get('customer_id') || ''
     setCustomerId(selectedCustomer)
     void load(selectedCustomer)
+  // `load` intentionally remains local because Refresh reuses the same scope.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [systemName])
 
-  const scopeQuery = customerId ? `?customer_id=${encodeURIComponent(customerId)}` : ''
+  const scopeParams = new URLSearchParams()
+  if (customerId) scopeParams.set('customer_id', customerId)
+  if (systemName) scopeParams.set('system_name', systemName)
+  const scopeQuery = scopeParams.size ? `?${scopeParams}` : ''
 
   return (
     <main className="min-h-screen bg-slate-50 p-6 text-slate-950">
@@ -91,8 +101,8 @@ export default function ChangeQueuePage() {
         <header className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-violet-700"><ClipboardList className="h-4 w-4" /> Change assurance</div>
-            <h1 className="mt-2 text-3xl font-bold">Change Queue</h1>
-            <p className="mt-2 max-w-3xl text-sm text-slate-600">Only durable, exact Change Cases appear here. Open a case to approve, execute, observe, rollback, and download its current report.</p>
+            <h1 className="mt-2 text-3xl font-bold">Change Queue{systemName ? ` · ${systemName}` : ''}</h1>
+            <p className="mt-2 max-w-3xl text-sm text-slate-600">{systemName ? `Only changes related to ${systemName} are shown. System identity follows Cyntro's case-insensitive SystemName tag boundary.` : 'Organization-wide view of every analyzed change and durable Change Case.'} Open a case to approve, execute, observe, rollback, and download its current report.</p>
           </div>
           <div className="flex gap-2">
             <Link href={`/change-queue/new${scopeQuery}`} className="flex items-center gap-2 rounded-xl bg-violet-600 px-4 py-2 text-sm font-bold text-white hover:bg-violet-700"><Plus className="h-4 w-4" /> Analyze change</Link>
@@ -162,4 +172,13 @@ export default function ChangeQueuePage() {
       </div>
     </main>
   )
+}
+
+export default function ChangeQueuePage() {
+  const [querySystemName, setQuerySystemName] = useState<string | null>(null)
+  useEffect(() => {
+    setQuerySystemName(new URLSearchParams(window.location.search).get('system_name')?.trim() || '')
+  }, [])
+  if (querySystemName === null) return null
+  return <ChangeQueueView systemName={querySystemName || undefined} />
 }
