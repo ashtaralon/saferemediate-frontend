@@ -7,13 +7,17 @@ export async function forwardChangeAssurance(
   method: 'GET' | 'POST',
 ) {
   const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), method === 'POST' ? 90_000 : 30_000)
+  const timeout = setTimeout(() => controller.abort(), method === 'POST' ? 180_000 : 30_000)
   try {
+    const headers: Record<string, string> = {}
+    if (method === 'POST') headers['Content-Type'] = 'application/json'
+    const authorization = request.headers.get('authorization')
+    if (authorization) headers.Authorization = authorization
     const response = await fetch(`${getBackendBaseUrl()}${backendPath}`, {
       method,
       cache: 'no-store',
       signal: controller.signal,
-      headers: method === 'POST' ? { 'Content-Type': 'application/json' } : undefined,
+      headers: Object.keys(headers).length ? headers : undefined,
       body: method === 'POST' ? JSON.stringify(await request.json()) : undefined,
     })
     const body = await response.json().catch(() => ({ detail: 'Change assurance returned an unreadable response.' }))

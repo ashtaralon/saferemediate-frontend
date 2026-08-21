@@ -54,6 +54,9 @@ interface ChangeCaseRun {
     expanded_eni_ids?: string[]
     rollback_performed?: boolean
     rollback_succeeded?: boolean
+    post_change_verification?: { verified?: boolean; detail?: string }
+    post_change_verified?: boolean
+    domain_result?: Record<string, unknown>
     error?: { code?: string; message?: string }
     summary?: { rules_removed?: number; consumers_canaried?: number; consumers_expanded?: number }
   } | null
@@ -89,8 +92,8 @@ export interface ChangeCaseArtifact {
     resource_id: string
     resource_name: string
     resource_type: string
-    sg_id: string
-    sg_name?: string
+    sg_id?: string | null
+    sg_name?: string | null
   }
   decision: {
     state: string
@@ -103,33 +106,36 @@ export interface ChangeCaseArtifact {
     scheme: string
     plan_hash: string
     plan_token?: string
-    expires_at_epoch: number
+    expires_at_epoch?: number
     case_id_is_mutation_authority: false
   }
   execution_request: {
     rules: Array<Record<string, unknown>>
     create_snapshot: true
+    create_checkpoint?: boolean
     dry_run: false
     force: boolean
     mode: 'auto'
-    mutation_class?: 'config_assertion'
+    mutation_class?: string
+    [key: string]: unknown
   }
   proposed_change: {
     kind: string
-    before: Array<{ rule_id?: string; action: string; protocol: string; port: string; source: string; purpose?: string }>
+    before: Array<{ rule_id?: string; action?: string; protocol: string; port: string; source: string; purpose?: string }>
     after: Array<{ protocol: string; port: string; source: string; purpose?: string }>
     untouched: string[]
     claim: string
-    cves_fixed: 0
-    findings_attributable_to_removed_paths: 'UNKNOWN' | string[]
+    cves_fixed?: number
+    findings_attributable_to_removed_paths?: 'UNKNOWN' | string[]
   }
   evidence: {
-    observed_traffic_records: number
-    observed_events_are_verified_application_use: false
-    rule_unique_source_count: number | null
-    rule_unique_source_count_kind: string
-    rule_unique_source_count_display: string
-    requested_days: number
+    observed_traffic_records?: number
+    observed_access_records?: number
+    observed_events_are_verified_application_use?: boolean
+    rule_unique_source_count?: number | null
+    rule_unique_source_count_kind?: string
+    rule_unique_source_count_display?: string
+    requested_days?: number
     effective_days?: number | null
     complete: boolean
     gaps: Array<{ code: string; message: string; how_to_close?: string }>
@@ -150,8 +156,8 @@ export interface ChangeCaseArtifact {
     simulated_at?: string | null
   }
   rollout: { strategy: string; steps: string[]; stop_conditions: string[] }
-  rollback: { available: boolean; summary: string; preserves_original_aws_rule_id: false }
-  iac_reconciliation: { status: string; instruction: string }
+  rollback: { available: boolean; summary: string; preserves_original_aws_rule_id: boolean }
+  iac_reconciliation?: { status: string; instruction: string }
   residual_risk: string[]
   narrative: {
     executive_summary: string
@@ -215,6 +221,9 @@ export function ChangeCaseReview({
 
   const hasGaps = current.evidence.gaps.length > 0
   const isConfigAssertion = current.execution_request.mutation_class === 'config_assertion'
+  const isSecurityGroup = current.scope.resource_type === 'SecurityGroup' || Boolean(current.scope.sg_id)
+  const observedRecords = current.evidence.observed_traffic_records ?? current.evidence.observed_access_records ?? 0
+  const uniqueSources = current.evidence.rule_unique_source_count_display ?? String(current.evidence.rule_unique_source_count ?? 0)
   const shared = current.blast_radius.shared_substrate || []
   const workflow = current.workflow
   const canProceed = current.decision.state !== 'EXECUTION_UNSAFE'
@@ -332,9 +341,11 @@ export function ChangeCaseReview({
             <p className="mt-1 text-xs leading-5 text-slate-700">{current.narrative.operator_summary}</p>
             <div className="mt-3 rounded-lg border border-violet-200 bg-white p-3 text-xs text-slate-700">
               <strong>Verified claim:</strong> {current.proposed_change.claim}.{' '}
-              {Array.isArray(current.proposed_change.findings_attributable_to_removed_paths)
-                ? `Verified path attribution: ${current.proposed_change.findings_attributable_to_removed_paths.join(', ')}. The findings remain open until the software is patched.`
-                : 'Finding-to-path attribution remains UNKNOWN; this network change is not presented as a software patch.'}
+              {isSecurityGroup
+                ? Array.isArray(current.proposed_change.findings_attributable_to_removed_paths)
+                  ? `Verified path attribution: ${current.proposed_change.findings_attributable_to_removed_paths.join(', ')}. The findings remain open until the software is patched.`
+                  : 'Finding-to-path attribution remains UNKNOWN; this network change is not presented as a software patch.'
+                : 'This access-policy change is not presented as a vulnerability patch and does not close unrelated findings.'}
             </div>
           </section>
 
@@ -342,7 +353,7 @@ export function ChangeCaseReview({
             <div className="text-xs font-bold uppercase tracking-wide text-slate-600">2. What exactly changes?</div>
             <div className="mt-3 grid gap-4 md:grid-cols-2">
               <div>
-                <div className="mb-2 text-xs font-semibold text-slate-800">Current reviewed rule</div>
+                <div className="mb-2 text-xs font-semibold text-slate-800">{isSecurityGroup ? 'Current reviewed rule' : 'Current reviewed policy statement'}</div>
                 <div className="space-y-2">
                   {current.proposed_change.before.map((rule, index) => <RuleLine key={`${rule.rule_id}-${index}`} rule={rule} />)}
                 </div>
@@ -352,7 +363,7 @@ export function ChangeCaseReview({
                 <div className="space-y-2">
                   {current.proposed_change.after.length > 0
                     ? current.proposed_change.after.map((rule, index) => <RuleLine key={`${rule.protocol}-${rule.port}-${index}`} rule={rule} />)
-                    : <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">Remove only the reviewed rule. All unlisted rules stay unchanged.</div>}
+                    : <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">Remove only the reviewed {isSecurityGroup ? 'rule' : 'policy statement'}. All unlisted items stay unchanged.</div>}
                 </div>
               </div>
             </div>
@@ -365,8 +376,8 @@ export function ChangeCaseReview({
               3. What could break, and how strong is the evidence?
             </div>
             <div className="mt-3 grid gap-2 sm:grid-cols-3">
-              <div className="rounded-xl bg-white p-3"><div className="text-lg font-bold">{current.evidence.observed_traffic_records.toLocaleString()}</div><div className="text-[10px] text-slate-600">Observed admitted-traffic events</div></div>
-              <div className="rounded-xl bg-white p-3"><div className="text-sm font-bold">{current.evidence.rule_unique_source_count_display}</div><div className="text-[10px] text-slate-600">Distinct rule sources</div></div>
+              <div className="rounded-xl bg-white p-3"><div className="text-lg font-bold">{observedRecords.toLocaleString()}</div><div className="text-[10px] text-slate-600">{isSecurityGroup ? 'Observed admitted-traffic events' : 'Observed S3 access records'}</div></div>
+              <div className="rounded-xl bg-white p-3"><div className="text-sm font-bold">{uniqueSources}</div><div className="text-[10px] text-slate-600">{isSecurityGroup ? 'Distinct rule sources' : 'Observed principals'}</div></div>
               <div className="rounded-xl bg-white p-3"><div className="text-lg font-bold">{isConfigAssertion ? 'Not required' : `${current.evidence.effective_days ?? 'Unknown'} / ${current.evidence.requested_days}`}</div><div className="text-[10px] text-slate-600">{isConfigAssertion ? 'Behavioral gate' : 'Evidence days'}</div></div>
             </div>
             <p className="mt-3 text-xs text-slate-700">{current.narrative.risk_summary}</p>
@@ -382,7 +393,7 @@ export function ChangeCaseReview({
             ))}
             {shared.length > 0 && (
               <div className="mt-2 text-xs text-slate-700">
-                <strong>Known shared SG consumers:</strong> {shared.map((item) => item.resource_name || item.resource_id).join(', ')}.
+                <strong>{isSecurityGroup ? 'Known shared SG consumers' : 'Known shared dependencies'}:</strong> {shared.map((item) => item.resource_name || item.resource_id).join(', ')}.
                 {!current.blast_radius.shared_substrate_complete && ' Completeness is not attested; the execution pipeline rechecks live attachments.'}
               </div>
             )}
@@ -397,13 +408,13 @@ export function ChangeCaseReview({
               ))}
             </ol>
             <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
-              <strong>Pre-change simulation:</strong> {current.simulation.rules_to_change} exact rule(s); {current.simulation.potential_impact_count} potential-impact record(s).
+              <strong>Pre-change simulation:</strong> {current.simulation.rules_to_change} exact {isSecurityGroup ? 'rule' : 'change item'}(s); {current.simulation.potential_impact_count} potential-impact record(s).
               {current.simulation.warnings.map((warning) => (
                 <div key={warning} className="mt-1 text-amber-800">⚠ {warning}</div>
               ))}
             </div>
             <div className="mt-3 flex gap-2 rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs text-blue-950"><RotateCcw className="h-4 w-4 shrink-0" />{current.rollback.summary}</div>
-            <div className="mt-2 text-xs text-slate-600">IaC follow-up: {current.iac_reconciliation.instruction}</div>
+            {current.iac_reconciliation?.instruction && <div className="mt-2 text-xs text-slate-600">IaC follow-up: {current.iac_reconciliation.instruction}</div>}
           </section>
 
           {latestRun && (
@@ -411,20 +422,28 @@ export function ChangeCaseReview({
               <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-blue-800"><ShieldCheck className="h-4 w-4" /> Live supervised execution evidence</div>
               <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
                 <div className="rounded-xl bg-white p-3"><div className="text-[10px] uppercase text-slate-500">Run stage</div><div className="mt-1 text-sm font-bold">{latestRun.status.replace(/_/g, ' ')}</div></div>
-                <div className="rounded-xl bg-white p-3"><div className="text-[10px] uppercase text-slate-500">Dependency parity</div><div className="mt-1 text-sm font-bold">{dependency?.graph_parity === true ? 'Neptune = live AWS' : dependency?.graph_parity === false ? 'Mismatch — blocked' : 'Pending'}</div></div>
-                <div className="rounded-xl bg-white p-3"><div className="text-[10px] uppercase text-slate-500">Consumers covered</div><div className="mt-1 text-sm font-bold">{dependency?.live_eni_ids?.length ?? 'Pending'}</div></div>
-                <div className="rounded-xl bg-white p-3"><div className="text-[10px] uppercase text-slate-500">Health signals</div><div className="mt-1 text-sm font-bold">{dependency?.target_health_complete === true ? 'Complete' : dependency ? 'Incomplete — blocked' : 'Pending'}</div></div>
+                {isSecurityGroup ? <>
+                  <div className="rounded-xl bg-white p-3"><div className="text-[10px] uppercase text-slate-500">Dependency parity</div><div className="mt-1 text-sm font-bold">{dependency?.graph_parity === true ? 'Neptune = live AWS' : dependency?.graph_parity === false ? 'Mismatch — blocked' : 'Pending'}</div></div>
+                  <div className="rounded-xl bg-white p-3"><div className="text-[10px] uppercase text-slate-500">Consumers covered</div><div className="mt-1 text-sm font-bold">{dependency?.live_eni_ids?.length ?? 'Pending'}</div></div>
+                  <div className="rounded-xl bg-white p-3"><div className="text-[10px] uppercase text-slate-500">Health signals</div><div className="mt-1 text-sm font-bold">{dependency?.target_health_complete === true ? 'Complete' : dependency ? 'Incomplete — blocked' : 'Pending'}</div></div>
+                </> : <>
+                  <div className="rounded-xl bg-white p-3"><div className="text-[10px] uppercase text-slate-500">Checkpoint</div><div className="mt-1 text-sm font-bold">{latestRun.snapshot_id ? 'Captured' : 'Pending'}</div></div>
+                  <div className="rounded-xl bg-white p-3"><div className="text-[10px] uppercase text-slate-500">Policy verification</div><div className="mt-1 text-sm font-bold">{executionResult?.post_change_verified === true || executionResult?.post_change_verification?.verified === true ? 'Verified' : executionResult?.success === false ? 'Failed' : 'Pending'}</div></div>
+                  <div className="rounded-xl bg-white p-3"><div className="text-[10px] uppercase text-slate-500">Rollback</div><div className="mt-1 text-sm font-bold">{executionResult?.rollback_performed ? (executionResult.rollback_succeeded ? 'Verified' : 'Needs attention') : 'Not required'}</div></div>
+                </>}
               </div>
               {checkpoint && (
                 <div className="mt-3 rounded-xl border border-blue-200 bg-white p-3 text-xs text-slate-700">
                   <div><strong>Durable checkpoint:</strong> {checkpoint.checkpoint_id}</div>
-                  <div className="mt-1"><strong>Exact SG handoff:</strong> {checkpoint.source_sg?.sg_id || current.scope.sg_id} → {checkpoint.clone?.sg_id || checkpoint.clone?.group_name || 'clone pending'}</div>
+                  {isSecurityGroup && <div className="mt-1"><strong>Exact SG handoff:</strong> {checkpoint.source_sg?.sg_id || current.scope.sg_id} → {checkpoint.clone?.sg_id || checkpoint.clone?.group_name || 'clone pending'}</div>}
                   <div className="mt-1"><strong>Frozen dependency hash:</strong> <span className="font-mono">{checkpoint.dependency_hash || 'pending'}</span></div>
                 </div>
               )}
               {executionResult && (
                 <div className={`mt-3 rounded-xl border p-3 text-xs ${executionResult.rollback_performed ? 'border-amber-300 bg-amber-50 text-amber-950' : 'border-emerald-200 bg-emerald-50 text-emerald-950'}`}>
-                  <div><strong>Canary:</strong> {executionResult.canary_eni_id || 'not reached'} · <strong>expanded:</strong> {executionResult.expanded_eni_ids?.length ?? 0} consumer(s)</div>
+                  {isSecurityGroup
+                    ? <div><strong>Canary:</strong> {executionResult.canary_eni_id || 'not reached'} · <strong>expanded:</strong> {executionResult.expanded_eni_ids?.length ?? 0} consumer(s)</div>
+                    : <div><strong>Policy change:</strong> {executionResult.success === true ? 'applied and checked' : executionResult.success === false ? 'did not complete' : executionResult.status?.replace(/_/g, ' ') || 'pending'}</div>}
                   <div className="mt-1"><strong>Automatic rollback:</strong> {executionResult.rollback_performed ? (executionResult.rollback_succeeded ? 'performed and verified' : 'failed — manual intervention required') : 'not required'}</div>
                   {executionResult.error?.message && <div className="mt-1"><strong>Stop reason:</strong> {executionResult.error.message}</div>}
                 </div>

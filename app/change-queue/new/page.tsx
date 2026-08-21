@@ -49,6 +49,7 @@ export default function AnalyzeChangePage() {
     () => capabilities.find(item => item.capability_id === selected),
     [capabilities, selected],
   )
+  const scopeQuery = scope.customerId ? `?customer_id=${encodeURIComponent(scope.customerId)}` : ''
 
   const chooseCapability = (id: string) => {
     setSelected(id)
@@ -99,7 +100,7 @@ export default function AnalyzeChangePage() {
       })
       const payload = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(payload.detail || payload.error || 'Change analysis failed')
-      router.push(`/change-queue/intents/${encodeURIComponent(payload.intent_id)}`)
+      router.push(`/change-queue/intents/${encodeURIComponent(payload.intent_id)}${scopeQuery}`)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Change analysis failed')
     } finally {
@@ -110,7 +111,7 @@ export default function AnalyzeChangePage() {
   return (
     <main className="min-h-screen bg-slate-50 p-6 text-slate-950">
       <div className="mx-auto max-w-5xl">
-        <Link href="/change-queue" className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-violet-700"><ArrowLeft className="h-4 w-4" /> Change Queue</Link>
+        <Link href={`/change-queue${scopeQuery}`} className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-violet-700"><ArrowLeft className="h-4 w-4" /> Change Queue</Link>
         <div className="mt-5 grid gap-6 lg:grid-cols-[1.4fr_.8fr]">
           <form onSubmit={submit} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
             <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[.16em] text-violet-700"><GitBranch className="h-4 w-4" /> Customer change intent</div>
