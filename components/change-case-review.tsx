@@ -535,7 +535,11 @@ export function ChangeCaseReview({
                   I reviewed the checkpoint and rollback plan.
                 </label>
                 <button onClick={approve} disabled={busy !== null || approvedBy.trim().length < 2 || rationale.trim().length < 8 || !rollbackAcknowledged || (hasGaps && !riskAccepted)} className="w-full rounded-xl bg-violet-500 px-4 py-3 text-sm font-bold hover:bg-violet-400 disabled:opacity-50">
-                  {busy === 'approve' ? 'Recording approval…' : 'Approve exact frozen plan'}
+                  {busy === 'approve'
+                    ? 'Recording approval…'
+                    : isIamPermission
+                      ? 'Approve exact frozen plan'
+                      : 'Approve exact signed plan'}
                 </button>
               </div>
             )}
