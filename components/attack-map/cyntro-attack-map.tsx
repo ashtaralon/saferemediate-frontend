@@ -26,7 +26,7 @@ interface CyntroAttackMapProps {
 }
 
 const VARIANT_HINT: Record<string, string> = {
-  surface: "VPC attack surface · nested subnet + SG shield · live Neo4j path",
+  surface: "VPC attack surface · nested subnet + SG shield · live Neptune path",
   target: "Subnet grid · reachability / lateral / exfil lenses",
   classic: "Path-only spine · constraint bands",
 }

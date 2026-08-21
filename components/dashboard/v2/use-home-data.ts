@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { filterActivePaths } from "@/lib/active-filters"
+import { useScopedSystemCatalog } from "@/lib/scoped-system-catalog"
 
 // ── Fetch types (aligned to existing proxy responses) ────────────────────
 
@@ -198,6 +199,7 @@ async function fetchJson<T>(url: string, signal: AbortSignal): Promise<T> {
 }
 
 export function useHomeData(systemName: string): UseHomeDataResult {
+  const systemsCatalog = useScopedSystemCatalog()
   const [enforcement, setEnforcement] = useState<SourceState<EnforcementScoreData>>(
     initialSourceState<EnforcementScoreData>(),
   )
@@ -256,21 +258,29 @@ export function useHomeData(systemName: string): UseHomeDataResult {
     // Empty system → call the proxy without systemName; the proxy handles
     // the no-system case with an org-wide aggregate (weighted by resource
     // count). Same shape comes back.
+    if (!sys && !systemsCatalog.url) {
+      setEnforcement({ data: null, loading: false, error: null, fetchedAt: Date.now() })
+      return
+    }
     const url = sys
       ? `/api/proxy/enforcement-score?systemName=${encodeURIComponent(sys)}`
-      : `/api/proxy/enforcement-score`
+      : systemsCatalog.url!.replace("/api/proxy/systems", "/api/proxy/enforcement-score")
     runFetch<EnforcementScoreData>(url, setEnforcement)
-  }, [runFetch])
+  }, [runFetch, systemsCatalog.url])
 
   const fetchPosture = useCallback(() => {
     const sys = systemRef.current
     // Empty system → call the no-path-param posture-score route, which is
     // a sibling that returns the org-wide aggregate.
+    if (!sys && !systemsCatalog.url) {
+      setPosture({ data: null, loading: false, error: null, fetchedAt: Date.now() })
+      return
+    }
     const url = sys
       ? `/api/proxy/posture-score/${encodeURIComponent(sys)}`
-      : `/api/proxy/posture-score`
+      : systemsCatalog.url!.replace("/api/proxy/systems", "/api/proxy/posture-score")
     runFetch<PostureScoreData>(url, setPosture)
-  }, [runFetch])
+  }, [runFetch, systemsCatalog.url])
 
   const fetchIssues = useCallback(() => {
     const sys = systemRef.current
@@ -308,14 +318,19 @@ export function useHomeData(systemName: string): UseHomeDataResult {
     })
   }, [runFetch])
 
-  // Systems list is global — does not depend on the selected system
+  // Systems list is scoped to the current organization/account/region.
   const fetchSystems = useCallback(() => {
-    runFetch<any>(`/api/proxy/systems`, setSystems, (raw) => {
+    if (!systemsCatalog.ready) return
+    if (!systemsCatalog.url) {
+      setSystems({ data: [], loading: false, error: null, fetchedAt: Date.now() })
+      return
+    }
+    runFetch<any>(systemsCatalog.url, setSystems, (raw) => {
       if (Array.isArray(raw?.systems)) return raw.systems
       if (Array.isArray(raw)) return raw
       return []
     })
-  }, [runFetch])
+  }, [runFetch, systemsCatalog.ready, systemsCatalog.url])
 
   const refresh = useCallback(() => {
     abortRef.current?.abort()

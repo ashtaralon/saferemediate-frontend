@@ -3,9 +3,10 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 
 // ============================================
-// NEO4J CONFIGURATION
+// CYNTRO NEPTUNE GRAPH
 // ============================================
-// Using Next.js API route to avoid CORS (routes through /api/neo4j/query)
+// Data is read through the backend dependency-map API; the browser never
+// connects to a graph database directly.
 
 // ============================================
 // AWS ICON COMPONENT
@@ -211,7 +212,7 @@ const AnimatedEdge = ({
 // ============================================
 // MAIN COMPONENT
 // ============================================
-export default function Neo4jAWSMap() {
+export default function NeptuneAWSMap() {
   const [nodes, setNodes] = useState<GraphNode[]>([]);
   const [edges, setEdges] = useState<GraphEdge[]>([]);
   const [loading, setLoading] = useState(true);
@@ -453,7 +454,7 @@ export default function Neo4jAWSMap() {
       <div className="h-full w-full flex items-center justify-center bg-slate-900">
         <div className="text-center">
           <div className="w-10 h-10 border-4 border-orange-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-          <p className="text-white text-sm font-medium">Loading from Neo4j...</p>
+          <p className="text-white text-sm font-medium">Loading from Neptune...</p>
           <p className="text-slate-400 text-xs mt-1">Fetching {viewMode} data</p>
         </div>
       </div>

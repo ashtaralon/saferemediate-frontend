@@ -39,6 +39,7 @@ import {
   type SharedSGRowRaw,
 } from "./types"
 import { NarrowingDiffPanel } from "./narrowing-diff-panel"
+import { catalogSystemName, useScopedSystemCatalog } from "@/lib/scoped-system-catalog"
 
 interface SharedRolesApiResponse {
   shared_roles?: Array<Omit<SharedRoleRow, "type">>
@@ -215,6 +216,7 @@ function normalizeIAM(raw: Omit<SharedRoleRow, "type">): SharedRoleRow {
 }
 
 export function SharedResourcesListView({ systemName: systemNameProp, embedded = false }: Props) {
+  const systemsCatalog = useScopedSystemCatalog()
   const router = useRouter()
   const [resolvedSystemName, setResolvedSystemName] = useState(systemNameProp ?? "")
   const [rows, setRows] = useState<SharedResourceRow[] | null>(null)
@@ -233,17 +235,23 @@ export function SharedResourcesListView({ systemName: systemNameProp, embedded =
 
   useEffect(() => {
     if (systemNameProp || resolvedSystemName) return
+    if (!systemsCatalog.ready) return
+    if (!systemsCatalog.url) {
+      setResolvedSystemName("")
+      setLoading(false)
+      return
+    }
+    const catalogUrl = systemsCatalog.url
     let cancelled = false
     ;(async () => {
       const fromUrl = new URLSearchParams(window.location.search).get("system")
-      if (fromUrl) {
-        if (!cancelled) setResolvedSystemName(fromUrl)
-        return
-      }
       try {
-        const response = await fetch("/api/proxy/systems", { cache: "no-store" })
+        const response = await fetch(catalogUrl, { cache: "no-store" })
         const json = response.ok ? await response.json() : {}
-        const name = (json.systems ?? [])[0]?.name
+        const names = (json.systems ?? [])
+          .map((system: any) => String(system?.name || system?.SystemName || ""))
+          .filter(Boolean)
+        const name = catalogSystemName(fromUrl, names) || names[0]
         if (!cancelled && typeof name === "string" && name) setResolvedSystemName(name)
       } catch {
         if (!cancelled) setLoading(false)
@@ -252,7 +260,7 @@ export function SharedResourcesListView({ systemName: systemNameProp, embedded =
     return () => {
       cancelled = true
     }
-  }, [resolvedSystemName, systemNameProp])
+  }, [resolvedSystemName, systemNameProp, systemsCatalog.ready, systemsCatalog.url])
 
   const fetchAll = useCallback(async () => {
     if (!resolvedSystemName) return

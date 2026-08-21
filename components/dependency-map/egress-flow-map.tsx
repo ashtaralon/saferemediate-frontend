@@ -4001,7 +4001,7 @@ export function EgressFlowMap({ systemName }: { systemName: string }) {
         <div className="text-center">
           <div className="w-10 h-10 border-3 border-cyan-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
           <p className="text-white text-sm font-medium">Loading Egress Flow Map…</p>
-          <p className="text-slate-400 text-xs mt-1">Querying Neo4j + ipinfo.io</p>
+          <p className="text-slate-400 text-xs mt-1">Querying Neptune + ipinfo.io</p>
         </div>
       </div>
     )

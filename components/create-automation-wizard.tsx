@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import { createPortal } from "react-dom"
 import { X, AlertTriangle, Shield, Camera, Activity, RotateCcw } from "lucide-react"
 import type { AutomationRule, CreateRuleData } from "@/hooks/useAutomationRules"
+import { useScopedSystemCatalog } from "@/lib/scoped-system-catalog"
 
 interface CreateAutomationWizardProps {
   isOpen: boolean
@@ -38,6 +39,7 @@ const CRITICALITIES = [
 const TOTAL_STEPS = 5
 
 export function CreateAutomationWizard({ isOpen, onClose, onSave, editingRule, lockedSystemName }: CreateAutomationWizardProps) {
+  const systemsCatalog = useScopedSystemCatalog()
   const [step, setStep] = useState(1)
   const [saving, setSaving] = useState(false)
   const [systems, setSystems] = useState<SystemItem[]>([])
@@ -125,9 +127,14 @@ export function CreateAutomationWizard({ isOpen, onClose, onSave, editingRule, l
 
   // Fetch systems for step 3
   useEffect(() => {
-    if (isOpen) {
+    if (isOpen && systemsCatalog.ready) {
+      if (!systemsCatalog.url) {
+        setSystems([])
+        setLoadingSystems(false)
+        return
+      }
       setLoadingSystems(true)
-      fetch("/api/proxy/systems")
+      fetch(systemsCatalog.url)
         .then((res) => res.ok ? res.json() : { systems: [] })
         .then((data) => {
           const sysList: SystemItem[] = (data.systems || []).map((s: any) => ({
@@ -140,7 +147,7 @@ export function CreateAutomationWizard({ isOpen, onClose, onSave, editingRule, l
         .catch(() => setSystems([]))
         .finally(() => setLoadingSystems(false))
     }
-  }, [isOpen])
+  }, [isOpen, systemsCatalog.ready, systemsCatalog.url])
 
   const [mounted, setMounted] = useState(false)
   useEffect(() => { setMounted(true) }, [])

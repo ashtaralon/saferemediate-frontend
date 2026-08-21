@@ -21,6 +21,7 @@ jobs:
       - run: npm ci
       - run: npx vitest run __tests__
       - run: npm run lint:cve-evidence
+      - run: npm run lint:system-scope
 
       # Type-error gate. The baseline is zero: any regression blocks CI.
       - name: tsc-ratchet

@@ -72,6 +72,7 @@ import { fetchWithTransientRetry } from "@/lib/transient-retry"
 import { normalizeSecurityFinding, asCount } from "@/lib/security-finding-normalize"
 import { RequestEpoch } from "@/lib/request-epoch"
 import { SystemExecutiveOverview } from "@/components/system-detail/system-executive-overview"
+import { useScopedSystemCatalog } from "@/lib/scoped-system-catalog"
 
 // Lazy load heavy components with dynamic imports for better performance
 const CloudGraphTab = dynamic(
@@ -679,6 +680,7 @@ const ENVIRONMENT_OPTIONS = [
 // =============================================================================
 
 export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection, initialTab, initialAttackPathMode }: SystemDetailDashboardProps) {
+  const systemsCatalog = useScopedSystemCatalog()
   // Attacker Map lives as an internal chip next to Attack Path (not a Risk sub-tab).
   const resolvedInitialTab = initialTab === "attacker-map" ? "attack-paths" : (initialTab ?? "overview")
   const showLegacyOverview: boolean = false
@@ -1360,12 +1362,13 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
   }
 
   const fetchSystemMeta = async () => {
+    if (!systemsCatalog.url) return
     try {
       // Use cached /api/proxy/systems (5m server cache + edge SWR), NOT
       // /systems/available (no-store, 90s cold path). The available route
       // was timing out under Render pressure and left the header stuck on
       // "AWS region pending" even when systems data was warm elsewhere.
-      const res = await fetch("/api/proxy/systems")
+      const res = await fetch(systemsCatalog.url)
       if (res.ok) {
         const data = await res.json()
         const match = (data.systems || []).find(
@@ -1447,7 +1450,7 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
 
   useEffect(() => {
     fetchSystemMeta()
-  }, [systemName])
+  }, [systemName, systemsCatalog.url])
 
   // The executive Overview reads one bounded, server-composed snapshot.
   // Legacy fetchAllData remains for old helpers while they are retired, but
@@ -1589,7 +1592,7 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
       // Handle timeout errors specifically
       let errorMessage = err.message || 'Unknown error'
       if (err.message?.includes('timeout') || err.message?.includes('aborted') || err.name === 'AbortError') {
-        errorMessage = 'The operation was aborted due to timeout. The auto-tagger could not propagate tags. Check Neo4j connection and ensure there are tagged seed resources.'
+        errorMessage = 'The operation was aborted due to timeout. The auto-tagger could not propagate tags. Check Neptune connectivity and ensure there are tagged seed resources.'
       }
       
       setAutoTaggerResult({ 
@@ -1999,7 +2002,7 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
                 onClick={() => {
                   setRefreshKey((k) => k + 1)
                 }}
-                title="Refresh from Neo4j (re-read existing data)"
+                title="Refresh from Neptune (re-read existing data)"
                 aria-label="Refresh"
                 className="flex items-center justify-center w-9 h-9 border border-[var(--border,#e5e7eb)] text-[var(--muted-foreground,#6b7280)] rounded-lg hover:bg-gray-50 hover:text-[var(--foreground,#374151)] transition-colors"
               >
@@ -2425,7 +2428,7 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
 
             {/* Live Now strip — slim full-width "what just happened on
                 this system" line. Reads the most recent RemediationEvent
-                joined to a resource carrying this SystemName (real Neo4j
+                joined to a resource carrying this SystemName (real Neptune
                 data, not fabricated). Three-state aware: loading,
                 has-event, idle, error. Operator's daily question
                 ("did anything happen here?") now has an answer above
@@ -3271,7 +3274,7 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
                 <div className="bg-[#ef444410] border border-[#ef444440] rounded-lg p-4">
                   <p className="text-[#ef4444] font-medium">Error: {autoTaggerResult.error}</p>
                   <p className="text-sm text-[#ef4444] mt-2">
-                    The auto-tagger could not propagate tags. Check Neo4j connection and ensure there are tagged seed resources.
+                    The auto-tagger could not propagate tags. Check Neptune connectivity and ensure there are tagged seed resources.
                   </p>
                 </div>
               )}
@@ -3326,7 +3329,7 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
                               This means either:
                               <br />• No ACTUAL_TRAFFIC relationships exist (need to ingest VPC Flow Logs)
                               <br />• All resources are already tagged
-                              <br />• Resources don't have the right labels in Neo4j
+                              <br />• Resources don't have the right labels in Neptune
                             </p>
                           </div>
                         )}

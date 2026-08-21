@@ -17,29 +17,38 @@ import { Suspense, useEffect, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { EstateMapView } from "@/components/topology-v0-2/estate-map-view"
 import { pickWorstSystemName } from "@/lib/pick-worst-system"
+import { catalogSystemName, useScopedSystemCatalog } from "@/lib/scoped-system-catalog"
 
 function EstateView() {
   const params = useSearchParams()
   const fromUrl = params.get("systemName")
   const [systemName, setSystemName] = useState<string | null>(fromUrl)
-  const [resolving, setResolving] = useState(!fromUrl)
+  const [resolving, setResolving] = useState(true)
+  const systemsCatalog = useScopedSystemCatalog()
 
   useEffect(() => {
-    if (fromUrl) {
-      setSystemName(fromUrl)
+    if (!systemsCatalog.ready) return
+    if (!systemsCatalog.url) {
+      setSystemName(null)
       setResolving(false)
       return
     }
+    const catalogUrl = systemsCatalog.url
     let cancelled = false
     ;(async () => {
       try {
-        const res = await fetch("/api/proxy/systems", { cache: "no-store" })
+        setResolving(true)
+        const res = await fetch(catalogUrl, { cache: "no-store" })
         const json = res.ok ? await res.json() : {}
+        const names = (json.systems ?? [])
+          .map((system: any) => String(system?.name || system?.SystemName || ""))
+          .filter(Boolean)
+        const requested = catalogSystemName(fromUrl, names)
         // Default to the WORST system (most criticals, then highs, then lowest
         // health) — mirrors the dashboard's "Systems Needing Attention" ranking,
         // so a bare /topology/v0.2-estate lands on the system that needs eyes,
         // not an arbitrary first entry.
-        if (!cancelled) setSystemName(pickWorstSystemName(json.systems))
+        if (!cancelled) setSystemName(requested || pickWorstSystemName(json.systems))
       } catch {
         if (!cancelled) setSystemName(null)
       } finally {
@@ -49,7 +58,7 @@ function EstateView() {
     return () => {
       cancelled = true
     }
-  }, [fromUrl])
+  }, [fromUrl, systemsCatalog.ready, systemsCatalog.url])
 
   if (resolving) {
     return <div className="min-h-screen p-8" style={{ background: "#F4F6F8", color: "#5A6B7A" }}>Resolving system…</div>

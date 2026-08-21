@@ -167,7 +167,7 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
     fetchGapData()
   }, [systemName])  // Re-fetch when systemName changes
 
-  const mapNeo4jResources = (neo4jResources: any[]): ServiceNode[] => {
+  const mapGraphResources = (graphResources: any[]): ServiceNode[] => {
     const TYPE_NORMALIZE: Record<string, string> = {
       LambdaFunction: "Lambda",
       S3Bucket: "S3",
@@ -181,7 +181,7 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
       NetworkInterface: "ENI",
     }
 
-    return neo4jResources.map((r: any) => {
+    return graphResources.map((r: any) => {
       const rawType = r.type || "Unknown"
       const normalizedType = TYPE_NORMALIZE[rawType] || rawType
       return {
@@ -212,41 +212,41 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
     setLoading(true)
     if (attempt === 1) setLoadError(null)
     try {
-      const neo4jResponse = await fetch(
+      const graphResponse = await fetch(
         `/api/proxy/system-resources/${encodeURIComponent(systemName)}`,
         { cache: "no-store" },
       )
 
-      let neo4jData: any = null
+      let graphData: any = null
       try {
-        neo4jData = await neo4jResponse.json()
+        graphData = await graphResponse.json()
       } catch {
-        neo4jData = null
+        graphData = null
       }
 
-      if (neo4jResponse.ok && neo4jData && !neo4jData.error) {
-        const mapped = mapNeo4jResources(neo4jData.resources || [])
+      if (graphResponse.ok && graphData && !graphData.error) {
+        const mapped = mapGraphResources(graphData.resources || [])
         console.log(
-          `[AllServices] Neo4j attributed resources: ${mapped.length} (${neo4jData.duplicates_removed || 0} deduped server-side)`,
+          `[AllServices] Neptune attributed resources: ${mapped.length} (${graphData.duplicates_removed || 0} deduped server-side)`,
         )
         setServices(mapped)
         return
       }
 
       const proxyError =
-        neo4jData?.error ||
-        (neo4jResponse.status === 504
+        graphData?.error ||
+        (graphResponse.status === 504
           ? "Backend timed out — Render worker may be cold. Wait 30s and refresh."
-          : neo4jResponse.status >= 500
-            ? `Backend unavailable (HTTP ${neo4jResponse.status})`
+          : graphResponse.status >= 500
+            ? `Backend unavailable (HTTP ${graphResponse.status})`
             : null)
 
       const shouldRetry =
         attempt < 3 &&
-        (neo4jResponse.status === 504 ||
-          neo4jResponse.status === 502 ||
-          neo4jResponse.status === 503 ||
-          (neo4jResponse.status === 500 && proxyError))
+        (graphResponse.status === 504 ||
+          graphResponse.status === 502 ||
+          graphResponse.status === 503 ||
+          (graphResponse.status === 500 && proxyError))
 
       if (shouldRetry) {
         console.warn(`[AllServices] Retry ${attempt}/3 after proxy failure`)
@@ -259,7 +259,7 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
       }
 
       // Empty graph attribution — honest zero, not a fetch failure.
-      if (neo4jResponse.ok) {
+      if (graphResponse.ok) {
         setServices([])
         return
       }

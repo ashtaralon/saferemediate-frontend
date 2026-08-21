@@ -61,7 +61,7 @@ interface DataStoreAccess {
   recommendation: string
 }
 
-async function runNeo4jQuery(cypher: string): Promise<any[]> {
+async function runGraphQuery(cypher: string): Promise<any[]> {
   if (!NEO4J_URI || !NEO4J_PASSWORD) return []
   try {
     let httpUri = NEO4J_URI
@@ -119,7 +119,7 @@ export async function GET(
     if (detailRes.ok) detail = await detailRes.json()
 
     // 2. Get connected data stores from Neo4j
-    const connectedStores = await runNeo4jQuery(
+    const connectedStores = await runGraphQuery(
       `MATCH (n {name: '${name.replace(/'/g, "\\'")}'})-[r]-(m) WHERE m.type IN ['S3', 'RDS', 'DynamoDB', 'Lambda', 'LambdaFunction', 'KMS', 'Secret', 'SecretsManager'] RETURN m.name AS name, m.type AS type, labels(m) AS labels`
     )
 
@@ -165,12 +165,12 @@ export async function GET(
     }
 
     // 3b. Query table-level DATA_ACCESS relationships from Neo4j (from RDS query log collector)
-    const tableAccessData = await runNeo4jQuery(
+    const tableAccessData = await runGraphQuery(
       `MATCH (u)-[r:DATA_ACCESS]->(t:DatabaseTable) WHERE u.name = '${name.replace(/'/g, "\\'")}' OR u.name CONTAINS '${name.replace(/'/g, "\\'").split('/').pop()}' RETURN t.name AS table_name, t.database AS database, t.rds_instance AS rds_instance, t.schema AS schema, r.operations AS operations, r.access_count AS count, r.last_seen AS last_seen, r.daily_avg AS daily_avg, r.via_db_user AS via_db_user`
     )
 
     // Also try matching by database user linked to this identity via USES_DB_USER
-    const dbUserTableAccess = await runNeo4jQuery(
+    const dbUserTableAccess = await runGraphQuery(
       `MATCH (role:Resource {name: '${name.replace(/'/g, "\\'")}'})-[:USES_DB_USER]->(u:DatabaseUser)-[r:DATA_ACCESS]->(t:DatabaseTable) RETURN t.name AS table_name, t.database AS database, t.rds_instance AS rds_instance, t.schema AS schema, r.operations AS operations, r.access_count AS count, r.last_seen AS last_seen, r.daily_avg AS daily_avg, u.name AS via_db_user`
     )
 

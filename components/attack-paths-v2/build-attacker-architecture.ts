@@ -2098,7 +2098,7 @@ export function buildAttackerArchitecture(
         port: null,
         protocol: null,
         inferred: true,
-        inferred_reason: `VPCEndpoint serves "${vpce.serviceHint}". ${res.name || res.id} is a ${res.type} in the same account. AWS routes service traffic via the VPCE even though Neo4j doesn't stamp the edge.`,
+        inferred_reason: `VPCEndpoint serves "${vpce.serviceHint}". ${res.name || res.id} is a ${res.type} in the same account. AWS routes service traffic via the VPCE even though Neptune doesn't stamp the edge.`,
       })
     }
   }

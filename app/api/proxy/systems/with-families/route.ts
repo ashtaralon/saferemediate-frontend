@@ -3,8 +3,6 @@ import { getBackendBaseUrl } from "@/lib/server/backend-url"
 import { getCached, setCached, TTL_SLOW } from "@/lib/server/proxy-cache"
 
 const BACKEND_URL = getBackendBaseUrl()
-const CACHE_KEY = "systems-with-families"
-
 export const maxDuration = 30
 
 /**
@@ -41,13 +39,20 @@ type AllSystemsResponse = {
   errors?: string[]
 }
 
-export async function GET(_req: NextRequest) {
-  const cached = getCached(CACHE_KEY)
+export async function GET(req: NextRequest) {
+  const scope = new URLSearchParams()
+  for (const key of ["customer_id", "account_group", "account_id", "region"]) {
+    const value = req.nextUrl.searchParams.get(key)
+    if (value) scope.set(key, value)
+  }
+  const query = scope.toString()
+  const cacheKey = `systems-with-families:${query || "unscoped"}`
+  const cached = getCached(cacheKey)
   if (cached) {
     return NextResponse.json(cached, { headers: { "X-Cache": "HIT" } })
   }
   try {
-    const r = await fetch(`${BACKEND_URL}/api/service-risk-scores/all-systems`, {
+    const r = await fetch(`${BACKEND_URL}/api/service-risk-scores/all-systems${query ? `?${query}` : ""}`, {
       headers: { "Content-Type": "application/json" },
       cache: "no-store",
       signal: AbortSignal.timeout(25000),
@@ -72,7 +77,7 @@ export async function GET(_req: NextRequest) {
       total: data.total ?? 0,
       errors: data.errors ?? [],
     }
-    setCached(CACHE_KEY, payload, TTL_SLOW)
+    setCached(cacheKey, payload, TTL_SLOW)
     return NextResponse.json(payload, { headers: { "X-Cache": "MISS" } })
   } catch (e) {
     return NextResponse.json(

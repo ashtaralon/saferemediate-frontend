@@ -510,7 +510,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
         if (response.status === 404) {
           errorMessage = "Backend endpoint not found. The re-ingest feature may not be deployed yet."
         } else if (response.status === 503) {
-          errorMessage = "Backend service unavailable. Collectors or Neo4j may not be configured."
+          errorMessage = "Backend service unavailable. Collectors or Neptune may not be configured."
         } else if (response.status === 504) {
           errorMessage = "Request timeout. Re-ingestion may still be running - check backend logs."
         }

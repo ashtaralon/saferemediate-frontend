@@ -49,7 +49,7 @@ const PRIMARY_TABS: ModeTabDef[] = [
     key: "convergence",
     label: "Convergence",
     title:
-      "In-system Neo4j paths to this crown jewel on real VPC placement — observed vs configured. Platform/out-of-scope paths are counted separately, not drawn as “all paths”.",
+      "In-system Neptune paths to this crown jewel on real VPC placement — observed vs configured. Platform/out-of-scope paths are counted separately, not drawn as “all paths”.",
   },
   {
     key: "exposure",
@@ -66,7 +66,7 @@ const PRIMARY_TABS: ModeTabDef[] = [
     key: "topology",
     label: "Topology",
     title:
-      "3-pane Attack Graph on AWS topology — crown jewels left, real VPC containment center, paths ranked by damage right. Every node from Neo4j.",
+      "3-pane Attack Graph on AWS topology — crown jewels left, real VPC containment center, paths ranked by damage right. Every node from Neptune.",
   },
 ]
 
@@ -75,13 +75,13 @@ const BETA_TABS: ModeTabDef[] = [
     key: "attacker_v2",
     label: "Attack Map (beta)",
     title:
-      "Typed, edge-proven canvas — every node and edge comes from an explicit Neo4j relationship; the renderer does zero inference.",
+      "Typed, edge-proven canvas — every node and edge comes from an explicit Neptune relationship; the renderer does zero inference.",
   },
   {
     key: "phase",
     label: "Phases (beta)",
     title:
-      "Attacker-phase map (Entry → Reach → Land → Steal Creds → Become → Reach Data → Exfil + Persist + Defense). Reads materialized AttackPath nodes; every line is a real Neo4j edge.",
+      "Attacker-phase map (Entry → Reach → Land → Steal Creds → Become → Reach Data → Exfil + Persist + Defense). Reads materialized AttackPath nodes; every line is a real Neptune edge.",
   },
 ]
 

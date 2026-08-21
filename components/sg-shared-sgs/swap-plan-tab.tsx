@@ -20,7 +20,7 @@ const PHASE_1_STEP_META: Record<string, { label: string; icon: any; desc: string
   snapshot_source_state: {
     label: "Snapshot source SG",
     icon: Camera,
-    desc: "Writes SGSnapshot row to Neo4j + S3 before any mutation.",
+    desc: "Writes SGSnapshot row to Neptune + S3 before any mutation.",
   },
   create_scoped_sgs: {
     label: "Create scoped SGs",

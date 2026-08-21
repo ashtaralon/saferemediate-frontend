@@ -7,6 +7,7 @@ import {
 } from "@/lib/use-cached-fetch"
 import { ErrorCard, LoadingCard, Section } from "./card-shell"
 import { descriptorClass, labelClass, scorePillClass } from "./styles"
+import { useScopedSystemCatalog } from "@/lib/scoped-system-catalog"
 
 /**
  * Top systems by BRSS — with mix bar.
@@ -127,13 +128,18 @@ export function TopSystemsCard({
   limit?: number
   shared?: UseCachedFetchResult<SystemsResponse>
 } = {}) {
+  const systemsCatalog = useScopedSystemCatalog("/api/proxy/systems/with-families")
   // SWR via localStorage — N+1 fan-out endpoint, slow on cold start.
   // Skipped entirely when the parent supplies its copy (see `shared`).
   // url=null is the hook's existing skip — no second request to a slow
   // N+1 endpoint when the parent already read it.
   const own = useCachedFetch<SystemsResponse>(
-    shared ? null : "/api/proxy/systems/with-families",
-    { cacheKey: "ciso-brief-systems", fetchInit: { cache: "no-store" } },
+    shared ? null : systemsCatalog.url,
+    {
+      cacheKey: `ciso-brief-systems:${systemsCatalog.scopeKey}`,
+      fetchInit: { cache: "no-store" },
+      isCacheable: () => systemsCatalog.available,
+    },
   )
   // ONE reading, metadata included. Selecting `data` from `shared` but
   // `isStale`/`cachedAt` from `own` split the reading in half: in Executive

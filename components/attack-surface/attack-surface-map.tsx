@@ -70,7 +70,7 @@ export function AttackSurfaceMap({
             ATTACK SURFACE RISK MAP
           </p>
           <p className="text-[10px] mt-0.5 text-muted-foreground">
-            Live Neo4j control-plane path state
+            Live Neptune control-plane path state
             {headerHint ? <span className="font-mono ml-1.5">· {headerHint}</span> : null}
           </p>
         </div>
