@@ -32,7 +32,7 @@ export default function ChangeCasePage() {
       <ChangeCaseReview
         changeCase={changeCase}
         executing={false}
-        onClose={() => router.push('/change-queue')}
+        onClose={() => router.push(`/change-queue${window.location.search}`)}
         onCaseUpdate={setChangeCase}
       />
     </main>

@@ -105,4 +105,60 @@ describe('Change Case approval report', () => {
     expect(screen.getByText('Change record')).toBeInTheDocument()
     expect(screen.getByText('Engineering evidence')).toBeInTheDocument()
   })
+
+  it('renders an S3 statement-removal Change Case without SG-specific claims', () => {
+    const current = artifact()
+    current.schema_version = 'change-case/v4'
+    current.scope = {
+      system_name: 'payments',
+      resource_id: 'customer-data',
+      resource_name: 'customer-data',
+      resource_type: 'S3Bucket',
+      sg_id: null,
+    }
+    current.proposed_change = {
+      kind: 'S3_POLICY_STATEMENT_REMOVAL',
+      before: [{ rule_id: 'UnusedWriter', action: 'REMOVE', protocol: 'S3 POLICY', port: 's3:PutObject', source: 'arn:aws:iam::123:role/old', purpose: 'Bucket-policy statement UnusedWriter' }],
+      after: [],
+      untouched: ['Unselected policy statements', 'bucket objects'],
+      claim: 'Removes only the reviewed bucket-policy statements.',
+      cves_fixed: 0,
+      findings_attributable_to_removed_paths: 'UNKNOWN',
+    }
+    current.evidence = {
+      observed_access_records: 0,
+      observed_traffic_records: 0,
+      rule_unique_source_count: 0,
+      rule_unique_source_count_display: '0',
+      requested_days: 90,
+      effective_days: 90,
+      complete: true,
+      gaps: [],
+    }
+    current.workflow = {
+      status: 'SUCCEEDED',
+      version: 4,
+      requested_by: 'requester@example.com',
+      created_at: '2026-08-21T00:00:00Z',
+      updated_at: '2026-08-21T00:15:00Z',
+      approvals: [],
+      events: [],
+      latest_run: {
+        run_id: 'run-s3',
+        status: 'SUCCEEDED',
+        started_at: '2026-08-21T00:05:00Z',
+        executed_by: 'operator@example.com',
+        snapshot_id: 's3-policy-snapshot-1',
+        events: [],
+        result: { success: true, post_change_verification: { verified: true } },
+      },
+    }
+
+    render(<ChangeCaseReview changeCase={current} executing={false} onClose={vi.fn()} />)
+
+    expect(screen.getByText('Current reviewed policy statement')).toBeInTheDocument()
+    expect(screen.getByText('Observed S3 access records')).toBeInTheDocument()
+    expect(screen.getByText('applied and checked')).toBeInTheDocument()
+    expect(screen.queryByText(/Exact SG handoff/)).not.toBeInTheDocument()
+  })
 })

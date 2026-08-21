@@ -3,7 +3,17 @@
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
-import { AlertTriangle, ArrowLeft, CheckCircle2, CircleHelp, GitBranch, LockKeyhole, Network, ShieldAlert, TimerReset } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, CheckCircle2, CircleHelp, GitBranch, Loader2, LockKeyhole, Network, ShieldAlert, TimerReset, Workflow } from 'lucide-react'
+
+interface ExecutionHandoff {
+  state: string
+  available: boolean
+  workflow_kind?: string
+  workflow_id?: string
+  adapter_id?: string
+  adapter_version?: string
+  reason?: string
+}
 
 interface IntentDocument {
   intent_id: string
@@ -42,7 +52,21 @@ interface IntentDocument {
     limits: string[]
   }
   decision: { state: string; reason: string }
-  execution: { available_in_cyntro: boolean; available_from_this_intent: boolean; state: string; reason: string }
+  execution: {
+    available_in_cyntro: boolean
+    available_from_this_intent: boolean
+    state: string
+    reason: string
+    handoff: ExecutionHandoff
+  }
+  execution_handoff?: {
+    workflow_kind: string
+    workflow_id: string
+    adapter_id: string
+    adapter_version: string
+    created_at: string
+    contains_mutation_authority: false
+  }
 }
 
 const riskStyles: Record<string, string> = {
@@ -56,10 +80,16 @@ export default function ChangeIntentDossierPage() {
   const params = useParams<{ intentId: string }>()
   const [document, setDocument] = useState<IntentDocument | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [converting, setConverting] = useState(false)
+  const [handoffError, setHandoffError] = useState<string | null>(null)
+  const [customerId, setCustomerId] = useState('')
 
   useEffect(() => {
     let cancelled = false
-    fetch(`/api/proxy/change-assurance/intents/${encodeURIComponent(params.intentId)}`, { cache: 'no-store' })
+    const selectedCustomer = new URLSearchParams(window.location.search).get('customer_id') || ''
+    setCustomerId(selectedCustomer)
+    const customerQuery = selectedCustomer ? `?customer_id=${encodeURIComponent(selectedCustomer)}` : ''
+    fetch(`/api/proxy/change-assurance/intents/${encodeURIComponent(params.intentId)}${customerQuery}`, { cache: 'no-store' })
       .then(async response => {
         const payload = await response.json().catch(() => ({}))
         if (!response.ok) throw new Error(payload.detail || 'Risk dossier failed')
@@ -74,12 +104,40 @@ export default function ChangeIntentDossierPage() {
 
   const dossier = document.risk_dossier
   const change = document.intent.change
+  const handoff = document.execution.handoff || { state: document.execution.state, available: false, reason: document.execution.reason }
+  const scopeQuery = customerId ? `?customer_id=${encodeURIComponent(customerId)}` : ''
+
+  const createHandoff = async () => {
+    setConverting(true)
+    setHandoffError(null)
+    try {
+      const response = await fetch(`/api/proxy/change-assurance/intents/${encodeURIComponent(document.intent_id)}/execution-handoff`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ observation_days: 90 }),
+        cache: 'no-store',
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        const detail = payload.detail || payload.error || 'Execution handoff failed'
+        throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail))
+      }
+      const refresh = await fetch(`/api/proxy/change-assurance/intents/${encodeURIComponent(document.intent_id)}${scopeQuery}`, { cache: 'no-store' })
+      const refreshed = await refresh.json().catch(() => ({}))
+      if (!refresh.ok) throw new Error(refreshed.detail || 'The workflow was created, but the dossier could not be refreshed')
+      setDocument(refreshed)
+    } catch (cause) {
+      setHandoffError(cause instanceof Error ? cause.message : 'Execution handoff failed')
+    } finally {
+      setConverting(false)
+    }
+  }
   return (
     <main className="min-h-screen bg-slate-50 p-6 text-slate-950">
       <div className="mx-auto max-w-6xl">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <Link href="/change-queue" className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-violet-700"><ArrowLeft className="h-4 w-4" /> Change Queue</Link>
-          <Link href="/change-queue/new" className="rounded-xl border border-violet-300 bg-white px-4 py-2 text-sm font-bold text-violet-700">Analyze another change</Link>
+          <Link href={`/change-queue${scopeQuery}`} className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-violet-700"><ArrowLeft className="h-4 w-4" /> Change Queue</Link>
+          <Link href={`/change-queue/new${scopeQuery}`} className="rounded-xl border border-violet-300 bg-white px-4 py-2 text-sm font-bold text-violet-700">Analyze another change</Link>
         </div>
 
         <header className="mt-5 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -141,11 +199,23 @@ export default function ChangeIntentDossierPage() {
             </Section>
 
             <Section icon={<LockKeyhole className="h-4 w-4" />} title="Execution boundary">
-              <div className={`rounded-xl border p-3 text-sm ${document.execution.available_from_this_intent ? 'border-emerald-200 bg-emerald-50 text-emerald-950' : 'border-amber-200 bg-amber-50 text-amber-950'}`}>
-                <strong>{document.execution.state.replace(/_/g, ' ')}</strong><p className="mt-1">{document.execution.reason}</p>
+              <div className={`rounded-xl border p-3 text-sm ${handoff.state === 'HANDED_OFF' ? 'border-emerald-200 bg-emerald-50 text-emerald-950' : handoff.available ? 'border-blue-200 bg-blue-50 text-blue-950' : 'border-amber-200 bg-amber-50 text-amber-950'}`}>
+                <strong>{handoff.state.replace(/_/g, ' ')}</strong><p className="mt-1">{handoff.reason || document.execution.reason}</p>
               </div>
               {document.capability && <p className="mt-3 text-xs text-slate-500">Managed workflow: {document.capability.execution.workflow.replace(/_/g, ' ')}</p>}
-              <p className="mt-3 text-xs font-semibold text-slate-700">This dossier cannot execute AWS and contains no mutation token.</p>
+              {handoff.state === 'AVAILABLE' && (
+                <button onClick={() => void createHandoff()} disabled={converting} className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-violet-600 px-4 py-3 text-sm font-bold text-white hover:bg-violet-700 disabled:opacity-50">
+                  {converting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Workflow className="h-4 w-4" />}
+                  {converting ? 'Revalidating current evidence…' : 'Create supervised workflow'}
+                </button>
+              )}
+              {handoff.state === 'HANDED_OFF' && handoff.workflow_id && (
+                handoff.workflow_kind === 'CHANGE_CASE_V4'
+                  ? <Link href={`/change-queue/${encodeURIComponent(handoff.workflow_id)}${scopeQuery}`} className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-3 text-sm font-bold text-white hover:bg-emerald-700"><Workflow className="h-4 w-4" /> Open supervised Change Case</Link>
+                  : <div className="mt-4 rounded-xl border border-emerald-200 bg-white p-3 text-xs text-emerald-950"><strong>{handoff.workflow_kind?.replace(/_/g, ' ')}</strong><div className="mt-1 break-all font-mono">{handoff.workflow_id}</div><p className="mt-2">The Neptune workflow is ready for approval in its managed service surface.</p></div>
+              )}
+              {handoffError && <div role="alert" className="mt-3 rounded-xl border border-red-300 bg-red-50 p-3 text-xs text-red-900">{handoffError}</div>}
+              <p className="mt-3 text-xs font-semibold text-slate-700">Creating a workflow does not execute AWS. This dossier contains no mutation token; approval, live preflight, checkpoint, execution, verification, and rollback remain separate gates.</p>
             </Section>
 
             <Section icon={<CircleHelp className="h-4 w-4" />} title="Evidence readiness">

@@ -11,7 +11,7 @@ interface QueueCase {
   system_name: string
   resource_name: string
   resource_type: string
-  sg_id: string
+  sg_id?: string | null
   change_kind: string
   rules_to_change: number
   decision_state: string
@@ -33,7 +33,11 @@ interface AnalyzedIntent {
   capability: null | { display_name: string }
   risk_dossier: { risk_band: string; blast_radius: { direct_dependency_count: number; systems: string[] }; evidence_gap_count: number }
   decision: { state: string }
-  execution: { available_from_this_intent: boolean; state: string }
+  execution: {
+    available_from_this_intent: boolean
+    state: string
+    handoff?: { state: string; available: boolean; workflow_kind?: string; workflow_id?: string }
+  }
 }
 
 export default function ChangeQueuePage() {
@@ -42,18 +46,20 @@ export default function ChangeQueuePage() {
   const [intents, setIntents] = useState<AnalyzedIntent[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [customerId, setCustomerId] = useState('')
 
-  const load = async () => {
+  const load = async (scopeCustomer = customerId) => {
     setLoading(true)
     setError(null)
     try {
-      const response = await fetch('/api/proxy/change-cases?limit=100', { cache: 'no-store' })
+      const customerQuery = scopeCustomer ? `&customer_id=${encodeURIComponent(scopeCustomer)}` : ''
+      const response = await fetch(`/api/proxy/change-cases?limit=100${customerQuery}`, { cache: 'no-store' })
       const payload = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(payload.detail || payload.error || 'Change Queue failed')
       setCases(payload.cases || [])
       const [capabilityResponse, intentResponse] = await Promise.all([
         fetch('/api/proxy/change-assurance/capabilities', { cache: 'no-store' }),
-        fetch('/api/proxy/change-assurance/intents?limit=20', { cache: 'no-store' }),
+        fetch(`/api/proxy/change-assurance/intents?limit=20${customerQuery}`, { cache: 'no-store' }),
       ])
       if (capabilityResponse.ok) {
         const capabilityPayload = await capabilityResponse.json().catch(() => ({}))
@@ -70,7 +76,14 @@ export default function ChangeQueuePage() {
     }
   }
 
-  useEffect(() => { void load() }, [])
+  useEffect(() => {
+    const selectedCustomer = new URLSearchParams(window.location.search).get('customer_id') || ''
+    setCustomerId(selectedCustomer)
+    void load(selectedCustomer)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const scopeQuery = customerId ? `?customer_id=${encodeURIComponent(customerId)}` : ''
 
   return (
     <main className="min-h-screen bg-slate-50 p-6 text-slate-950">
@@ -82,7 +95,7 @@ export default function ChangeQueuePage() {
             <p className="mt-2 max-w-3xl text-sm text-slate-600">Only durable, exact Change Cases appear here. Open a case to approve, execute, observe, rollback, and download its current report.</p>
           </div>
           <div className="flex gap-2">
-            <Link href="/change-queue/new" className="flex items-center gap-2 rounded-xl bg-violet-600 px-4 py-2 text-sm font-bold text-white hover:bg-violet-700"><Plus className="h-4 w-4" /> Analyze change</Link>
+            <Link href={`/change-queue/new${scopeQuery}`} className="flex items-center gap-2 rounded-xl bg-violet-600 px-4 py-2 text-sm font-bold text-white hover:bg-violet-700"><Plus className="h-4 w-4" /> Analyze change</Link>
             <button onClick={() => void load()} disabled={loading} className="flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> Refresh</button>
           </div>
         </header>
@@ -104,14 +117,19 @@ export default function ChangeQueuePage() {
         </section>}
 
         {error && <div role="alert" className="mt-6 rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-900">{error}</div>}
-        <div className="mt-8 flex items-end justify-between gap-4"><div><div className="text-xs font-bold uppercase tracking-[.14em] text-violet-700">Customer-proposed changes</div><h2 className="mt-1 text-xl font-bold">Risk dossiers</h2></div><Link href="/change-queue/new" className="text-sm font-bold text-violet-700">Analyze a change →</Link></div>
+        <div className="mt-8 flex items-end justify-between gap-4"><div><div className="text-xs font-bold uppercase tracking-[.14em] text-violet-700">Customer-proposed changes</div><h2 className="mt-1 text-xl font-bold">Risk dossiers</h2></div><Link href={`/change-queue/new${scopeQuery}`} className="text-sm font-bold text-violet-700">Analyze a change →</Link></div>
         {!loading && !error && intents.length === 0 && <div className="mt-3 rounded-2xl border border-dashed border-slate-300 bg-white p-6 text-sm text-slate-600">No customer-authored change has been analyzed yet.</div>}
         <div className="mt-3 grid gap-3 lg:grid-cols-2">
-          {intents.map(item => <Link key={item.intent_id} href={`/change-queue/intents/${encodeURIComponent(item.intent_id)}`} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-violet-300">
+          {intents.map(item => <Link key={item.intent_id} href={`/change-queue/intents/${encodeURIComponent(item.intent_id)}${scopeQuery}`} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-violet-300">
             <div className="flex items-start justify-between gap-3"><div><div className="text-xs font-bold uppercase tracking-wide text-violet-700">{item.capability?.display_name || 'Graph impact only'}</div><div className="mt-1 font-semibold">{item.intent.change.action.replace(/_/g, ' ')}</div></div><span className={`rounded-full px-2.5 py-1 text-[10px] font-black ${item.risk_dossier.risk_band === 'CRITICAL' ? 'bg-red-100 text-red-800' : item.risk_dossier.risk_band === 'HIGH' ? 'bg-orange-100 text-orange-800' : item.risk_dossier.risk_band === 'MEDIUM' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}>{item.risk_dossier.risk_band}</span></div>
             <div className="mt-2 font-mono text-xs text-slate-500">{item.intent.change.resource_type} · {item.intent.change.resource_id}</div>
             <div className="mt-3 text-xs text-slate-600">{item.risk_dossier.blast_radius.direct_dependency_count} direct dependencies · {item.risk_dossier.blast_radius.systems.length} systems · {item.risk_dossier.evidence_gap_count} evidence gaps</div>
-            <div className="mt-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">{item.decision.state.replace(/_/g, ' ')} · {item.execution.state.replace(/_/g, ' ')}</div>
+            <div className="mt-2 flex flex-wrap gap-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              <span>{item.decision.state.replace(/_/g, ' ')}</span>
+              <span className={`rounded-full px-2 py-0.5 ${item.execution.handoff?.state === 'HANDED_OFF' ? 'bg-emerald-100 text-emerald-800' : item.execution.handoff?.available ? 'bg-blue-100 text-blue-800' : 'bg-slate-100 text-slate-600'}`}>
+                {(item.execution.handoff?.state || item.execution.state).replace(/_/g, ' ')}
+              </span>
+            </div>
           </Link>)}
         </div>
 
@@ -126,15 +144,15 @@ export default function ChangeQueuePage() {
 
         <div className="mt-6 space-y-3">
           {cases.map((item) => (
-            <Link key={item.case_id} href={`/change-queue/${encodeURIComponent(item.case_id)}`} className="grid gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-violet-300 md:grid-cols-[1.4fr_1fr_auto]">
+            <Link key={item.case_id} href={`/change-queue/${encodeURIComponent(item.case_id)}${scopeQuery}`} className="grid gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-violet-300 md:grid-cols-[1.4fr_1fr_auto]">
               <div>
                 <div className="text-xs font-bold uppercase tracking-wide text-violet-700">{item.change_kind.replace(/_/g, ' ')}</div>
                 <div className="mt-1 text-lg font-semibold">{item.resource_name}</div>
-                <div className="mt-1 font-mono text-xs text-slate-500">{item.sg_id} · {item.case_id}</div>
+                <div className="mt-1 font-mono text-xs text-slate-500">{item.sg_id || item.resource_type} · {item.case_id}</div>
               </div>
               <div className="text-sm text-slate-700">
                 <div>{item.system_name} · {item.resource_type}</div>
-                <div className="mt-1">{item.rules_to_change} exact rule{item.rules_to_change === 1 ? '' : 's'} · {item.evidence_complete ? 'evidence complete' : `${item.evidence_gap_count} evidence gap${item.evidence_gap_count === 1 ? '' : 's'}`}</div>
+                <div className="mt-1">{item.rules_to_change} exact change item{item.rules_to_change === 1 ? '' : 's'} · {item.evidence_complete ? 'evidence complete' : `${item.evidence_gap_count} evidence gap${item.evidence_gap_count === 1 ? '' : 's'}`}</div>
                 <div className="mt-1 text-xs text-slate-500">Updated {new Date(item.updated_at).toLocaleString()}</div>
               </div>
               <div className="self-center rounded-full bg-slate-100 px-3 py-1 text-xs font-bold uppercase tracking-wide text-slate-700">{item.status.replace(/_/g, ' ')}</div>
