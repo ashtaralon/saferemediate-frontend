@@ -1,19 +1,8 @@
 #!/usr/bin/env bash
 # TypeScript error ratchet.
 #
-# next.config.js sets `typescript: { ignoreBuildErrors: true }`, so the build
-# ships regardless of type errors and nothing stops the count from growing.
-# It has reached 262. The two largest classes are TS18048 ("possibly
-# undefined", 39) and TS2339 ("property does not exist", 38) — precisely the
-# null-safety family that produced a run of production defects in the Resource
-# Risk tab: `100 - null` rendering an unmeasured role as a perfect score, a
-# nullable band declared non-nullable, counts coerced from null to 0.
-#
-# Those were all found by hand. The compiler already knew.
-#
-# Turning ignoreBuildErrors off today would simply break the build, so this is
-# a RATCHET: the count may fall, never rise. New code must be type-clean even
-# while the existing debt is paid down.
+# TypeScript error gate. The historical debt is cleared and the committed
+# baseline is zero, so every new type error fails CI and the production build.
 #
 # Mechanic mirrors check_ir_purity.sh / check_signal_language.sh: a baseline
 # file, drift fails the build, the baseline only shrinks.
@@ -44,7 +33,7 @@ BASELINE="$(tr -d '[:space:]' < "$BASELINE_FILE")"
 # happened on 2026-08-01 and hid 18 real errors. Refuse to run unless the
 # project's own compiler is present.
 if [[ ! -x "$TSC" ]]; then
-  echo "config error: $TSC not found — run 'pnpm install' first." >&2
+  echo "config error: $TSC not found — run 'npm ci' first." >&2
   echo "Refusing to report a count without a compiler: 'no errors' and" >&2
   echo "'never ran' are indistinguishable in the output." >&2
   exit 2
