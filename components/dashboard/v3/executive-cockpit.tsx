@@ -12,6 +12,8 @@ import {
   Sparkles,
 } from "lucide-react"
 import { useRouter } from "next/navigation"
+import { useAccountScope } from "@/lib/account-scope-context"
+import { withAccountScope } from "@/lib/account-scope"
 import {
   RECOVERY_POLL_MS,
   STALE_BACKEND_RECOVERING,
@@ -427,22 +429,20 @@ export function ExecutiveCockpit({
   onReportData?: (report: ManagementReportContext) => void
 }) {
   const router = useRouter()
-  const snapshot = useCachedFetch<ExecutiveSnapshot>(
-    "/api/proxy/dashboard/executive-snapshot",
-    {
-      cacheKey: "dashboard-executive-snapshot-v1",
-      maxStaleMs: 60 * 60 * 1000,
-      fetchInit: { cache: "no-store" },
-      transientRetries: 2,
-      failClosedOnError: true,
-      autoRetryMs: RECOVERY_POLL_MS,
-      isCacheable: isCacheableExecutiveSnapshot,
-    },
-  )
+  const accountScope = useAccountScope()
+  const scopeKey = [
+    accountScope.customerId || "unresolved",
+    accountScope.groupId,
+    accountScope.accountId,
+    accountScope.region,
+  ].join(":")
+  const systemsCatalogUrl = !accountScope.loading && accountScope.customerId
+    ? withAccountScope("/api/proxy/systems", accountScope)
+    : null
   const systemsCatalog = useCachedFetch<SystemsCatalogResponse>(
-    "/api/proxy/systems",
+    systemsCatalogUrl,
     {
-      cacheKey: "management-report-systems-v1",
+      cacheKey: `management-report-systems-v2:${scopeKey}`,
       maxStaleMs: 60 * 60 * 1000,
       fetchInit: { cache: "no-store" },
       transientRetries: 1,
@@ -451,7 +451,49 @@ export function ExecutiveCockpit({
     },
   )
 
-  const data = snapshot.data
+  const scopedSystems = useMemo(() => {
+    const byCanonicalName = new Map<string, string>()
+    for (const system of systemsCatalog.data?.systems || []) {
+      const name = system.SystemName || system.name
+      if (typeof name !== "string" || !name.trim()) continue
+      const trimmed = name.trim()
+      if (!byCanonicalName.has(trimmed.toLocaleLowerCase())) {
+        byCanonicalName.set(trimmed.toLocaleLowerCase(), trimmed)
+      }
+    }
+    return Array.from(byCanonicalName.values())
+  }, [systemsCatalog.data])
+  const scopedSystemName = scopedSystems.length === 1 ? scopedSystems[0] : null
+  const snapshotUrl = scopedSystemName
+    ? `/api/proxy/dashboard/systems/${encodeURIComponent(scopedSystemName)}`
+    : null
+  const snapshot = useCachedFetch<ExecutiveSnapshot>(
+    snapshotUrl,
+    {
+      cacheKey: `dashboard-executive-snapshot-v2:${scopeKey}:${scopedSystemName || "no-single-system"}`,
+      maxStaleMs: 60 * 60 * 1000,
+      fetchInit: { cache: "no-store" },
+      transientRetries: 2,
+      failClosedOnError: true,
+      autoRetryMs: RECOVERY_POLL_MS,
+      isCacheable: isCacheableExecutiveSnapshot,
+    },
+  )
+
+  const data = useMemo(() => {
+    if (!snapshot.data || !scopedSystemName) return snapshot.data
+    const material = snapshot.data.material_risk
+    const analyzed = material.serve_state === "NOT_READY" ? 0 : 1
+    return {
+      ...snapshot.data,
+      material_risk: {
+        ...material,
+        systems_discovered: 1,
+        systems_scanned: analyzed,
+        systems_uncomputed: 1 - analyzed,
+      },
+    }
+  }, [scopedSystemName, snapshot.data])
   const sources: ReportSource[] = useMemo(() => {
     if (!data) return []
     const readingAt = snapshot.cachedAt || Date.parse(data.computed_at) || null
@@ -484,7 +526,30 @@ export function ExecutiveCockpit({
     })
   }, [data, onReportData, sources, systemsCatalog.data])
 
-  if (snapshot.loading && !data) return <LoadingCard label="Cloud risk and remediation overview" />
+  if (accountScope.loading || systemsCatalog.loading || (snapshot.loading && !data)) {
+    return <LoadingCard label="Cloud risk and remediation overview" />
+  }
+  if (accountScope.error || systemsCatalog.error) {
+    return <ErrorCard
+      label="Cloud risk and remediation overview"
+      error={accountScope.error || systemsCatalog.error || "Scoped systems catalog unavailable"}
+      onRetry={accountScope.error ? accountScope.refresh : systemsCatalog.retry}
+    />
+  }
+  if (scopedSystems.length === 0) {
+    return <ErrorCard
+      label="Cloud risk and remediation overview"
+      error="No Neptune-backed SystemName is available in the selected scope"
+      onRetry={systemsCatalog.retry}
+    />
+  }
+  if (scopedSystems.length > 1) {
+    return <ErrorCard
+      label="Cloud risk and remediation overview"
+      error="A scoped multi-system executive aggregate is not available yet; Cyntro will not substitute the unscoped estate reading"
+      onRetry={systemsCatalog.retry}
+    />
+  }
   if ((snapshot.error || !data) && !data) {
     return <ErrorCard label="Cloud risk and remediation overview" error={snapshot.error || "Executive snapshot unavailable"} onRetry={snapshot.retry} />
   }
