@@ -2,6 +2,17 @@ import { cleanup, render, screen } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }))
+vi.mock("@/lib/account-scope-context", () => ({
+  useAccountScope: () => ({
+    customerId: "testbed-webshop",
+    groupId: "all",
+    accountId: "all",
+    region: "all",
+    loading: false,
+    error: null,
+    refresh: vi.fn(),
+  }),
+}))
 
 let payload: unknown
 let staleReason: string | null = null
@@ -9,8 +20,10 @@ let staleReason: string | null = null
 vi.mock("@/lib/use-cached-fetch", () => ({
   STALE_BACKEND_RECOVERING: "backend recovering",
   RECOVERY_POLL_MS: 12000,
-  useCachedFetch: () => ({
-    data: payload,
+  useCachedFetch: (url: string | null) => ({
+    data: url?.startsWith("/api/proxy/systems")
+      ? { systems: [{ name: "testbed-webshop", SystemName: "testbed-webshop" }] }
+      : payload,
     isStale: staleReason !== null,
     cachedAt: staleReason ? Date.now() - 60_000 : null,
     staleReason,
@@ -34,7 +47,7 @@ function snapshot(state: "READY" | "PARTIAL" = "READY") {
     narrative: {
       tone: "action_required",
       title: "Action required",
-      body: `Cyntro identified ${lower ? "at least " : ""}170 attack paths to ${lower ? "at least " : ""}18 crown jewels across 1 of 8 systems analyzed.`,
+      body: `testbed-webshop has ${lower ? "at least " : ""}170 attack paths to ${lower ? "at least " : ""}18 crown jewels.`,
     },
     material_risk: {
       serve_state: state,
@@ -98,7 +111,7 @@ describe("executive snapshot, rendered", () => {
     expect(screen.getByText(/Analysis in progress/i)).toBeInTheDocument()
     expect(screen.getByText("≥170")).toBeInTheDocument()
     expect(screen.getByText("≥18")).toBeInTheDocument()
-    expect(screen.getByText(/1\/8 systems/i)).toBeInTheDocument()
+    expect(screen.getByText(/1\/1 systems/i)).toBeInTheDocument()
   })
 
   it("labels a cached reading while transport recovers", () => {
@@ -113,14 +126,14 @@ describe("executive snapshot, rendered", () => {
     render(<ExecutiveCockpit onReportData={onReportData} />)
 
     expect(onReportData).toHaveBeenCalledWith(expect.objectContaining({
-      scope: "8 of 8 business systems analyzed",
+      scope: "1 of 1 business systems analyzed",
       sources: expect.arrayContaining([
         expect.objectContaining({ label: "Material risk", state: "READY" }),
         expect.objectContaining({ label: "Verified outcomes", state: "READY" }),
       ]),
       snapshot: expect.objectContaining({
         metrics: expect.objectContaining({
-          systems: 8,
+          systems: 1,
           reachableCrownJewels: 18,
           viableAttackPaths: 170,
           proposedChanges: 2,

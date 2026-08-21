@@ -8,10 +8,18 @@ const proxy = readFileSync(join(ROOT, "app/api/proxy/dashboard/executive-snapsho
 
 describe("executive cockpit authority", () => {
   it("uses one governed endpoint rather than five independently-timed feeds", () => {
-    expect(cockpit).toContain("/api/proxy/dashboard/executive-snapshot")
+    expect(cockpit).toContain("/api/proxy/dashboard/systems/")
     expect(cockpit).not.toContain("/api/proxy/systems/with-families")
     expect(cockpit).not.toContain("/api/proxy/identity-attack-paths/all")
     expect(cockpit).not.toContain("/api/proxy/remediation-candidates")
+  })
+
+  it("derives the executive reading from the selected scoped Systems catalog", () => {
+    expect(cockpit).toContain("useAccountScope()")
+    expect(cockpit).toContain('withAccountScope("/api/proxy/systems", accountScope)')
+    expect(cockpit).toContain("management-report-systems-v2:${scopeKey}")
+    expect(cockpit).toContain("systems_discovered: 1")
+    expect(cockpit).toContain("will not substitute the unscoped estate reading")
   })
 
   it("never caches an unmeasured semantic failure", () => {
