@@ -53,4 +53,56 @@ describe('Change Case approval report', () => {
       else delete (URL as unknown as Record<string, unknown>).revokeObjectURL
     }
   })
+
+  it('renders Neptune dependency parity, the durable checkpoint, and supervised rollout evidence', () => {
+    const current = artifact()
+    current.schema_version = 'change-case/v3'
+    current.workflow = {
+      status: 'ROLLED_BACK',
+      version: 12,
+      requested_by: 'requester@example.com',
+      created_at: '2026-08-21T00:00:00Z',
+      updated_at: '2026-08-21T00:15:00Z',
+      approvals: [],
+      events: [],
+      latest_run: {
+        run_id: 'run-supervised',
+        status: 'ROLLED_BACK',
+        started_at: '2026-08-21T00:05:00Z',
+        completed_at: '2026-08-21T00:10:00Z',
+        executed_by: 'operator@example.com',
+        events: [],
+        checkpoint: {
+          checkpoint_id: 'checkpoint-neptune-1',
+          dependency_hash: 'dependency-hash-1',
+          source_sg: { sg_id: 'sg-source' },
+          clone: { sg_id: 'sg-clone' },
+          dependency_snapshot: {
+            live_eni_ids: ['eni-canary', 'eni-expanded'],
+            neptune_eni_ids: ['eni-canary', 'eni-expanded'],
+            graph_parity: true,
+            all_consumers_supported: true,
+            target_health_complete: true,
+          },
+        },
+        result: {
+          success: true,
+          canary_eni_id: 'eni-canary',
+          expanded_eni_ids: ['eni-expanded'],
+          rollback_performed: true,
+          rollback_succeeded: true,
+        },
+      },
+    }
+
+    render(<ChangeCaseReview changeCase={current} executing={false} onClose={vi.fn()} onProceed={vi.fn()} />)
+
+    expect(screen.getByTestId('supervised-execution-evidence')).toHaveTextContent('Neptune = live AWS')
+    expect(screen.getByTestId('supervised-execution-evidence')).toHaveTextContent('checkpoint-neptune-1')
+    expect(screen.getByTestId('supervised-execution-evidence')).toHaveTextContent('sg-source → sg-clone')
+    expect(screen.getByTestId('supervised-execution-evidence')).toHaveTextContent('performed and verified')
+    expect(screen.getByText('Executive outcome')).toBeInTheDocument()
+    expect(screen.getByText('Change record')).toBeInTheDocument()
+    expect(screen.getByText('Engineering evidence')).toBeInTheDocument()
+  })
 })
