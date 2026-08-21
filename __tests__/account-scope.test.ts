@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest"
-import { resourceAccountId, scopeMatchesResource, withAccountScope } from "@/lib/account-scope"
+import {
+  normalizeCustomerRoster,
+  resolveCustomerId,
+  resourceAccountId,
+  scopeMatchesResource,
+  withAccountScope,
+} from "@/lib/account-scope"
 
 describe("account scope", () => {
   it("resolves account identity from explicit fields before an ARN", () => {
@@ -31,5 +37,19 @@ describe("account scope", () => {
       accountId: "all",
       region: "all",
     })).toBe("/api/proxy/systems?customer_id=acme")
+  })
+
+  it("rejects a stale organization and recovers to the first registered customer", () => {
+    const roster = normalizeCustomerRoster([
+      { customer_id: "testbed-webshop", display_name: "Testbed Webshop" },
+    ])
+
+    expect(resolveCustomerId("alon-prod", roster)).toBe("testbed-webshop")
+    expect(resolveCustomerId("testbed-webshop", roster)).toBe("testbed-webshop")
+  })
+
+  it("does not invent an organization when the authoritative roster is empty", () => {
+    expect(resolveCustomerId("alon-prod", [])).toBeNull()
+    expect(normalizeCustomerRoster({ customers: [] })).toEqual([])
   })
 })

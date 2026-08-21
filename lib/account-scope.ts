@@ -20,6 +20,35 @@ export interface AccountScopeOptions {
   groups: AccountGroupOption[]
 }
 
+export interface CustomerScopeOption {
+  customer_id: string
+  display_name: string
+}
+
+export function normalizeCustomerRoster(payload: unknown): CustomerScopeOption[] {
+  if (!Array.isArray(payload)) return []
+  return payload.flatMap((entry) => {
+    if (!entry || typeof entry !== "object") return []
+    const customerId = (entry as Record<string, unknown>).customer_id
+    if (typeof customerId !== "string" || !customerId.trim()) return []
+    const displayName = (entry as Record<string, unknown>).display_name
+    return [{
+      customer_id: customerId,
+      display_name: typeof displayName === "string" && displayName.trim() ? displayName : customerId,
+    }]
+  })
+}
+
+export function resolveCustomerId(
+  requestedCustomerId: string | null,
+  customers: CustomerScopeOption[],
+): string | null {
+  if (requestedCustomerId && customers.some((customer) => customer.customer_id === requestedCustomerId)) {
+    return requestedCustomerId
+  }
+  return customers[0]?.customer_id ?? null
+}
+
 export interface ProductScope {
   customerId: string | null
   groupId: string

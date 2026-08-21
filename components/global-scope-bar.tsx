@@ -62,9 +62,15 @@ export function GlobalScopeBar() {
           icon={Building2}
           value={scope.customerId || ""}
           onChange={scope.setCustomerId}
-          disabled={!scope.customerId}
+          disabled={scope.loading || scope.customers.length === 0}
         >
-          <option value={scope.customerId || ""}>{scope.customerId || "Not configured"}</option>
+          {scope.customers.length === 0 ? (
+            <option value="">Not configured</option>
+          ) : scope.customers.map((customer) => (
+            <option key={customer.customer_id} value={customer.customer_id}>
+              {customer.display_name}
+            </option>
+          ))}
         </ScopeSelect>
         <ScopeSelect label="Group" icon={Layers3} value={scope.groupId} onChange={scope.setGroupId}>
           <option value="all">All account groups</option>

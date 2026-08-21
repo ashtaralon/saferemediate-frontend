@@ -96,6 +96,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
   const [availableSystems, setAvailableSystems] = useState<AvailableSystem[]>([])
   const [isLoadingAvailable, setIsLoadingAvailable] = useState(false)
   const [backendStatus, setBackendStatus] = useState<"connected" | "offline" | "checking">("checking")
+  const [systemsError, setSystemsError] = useState<string | null>(null)
   const [isLoadingData, setIsLoadingData] = useState(true)
   const [gapData, setGapData] = useState<{ allowed: number; used: number; unused: number }>({
     allowed: 0,
@@ -108,6 +109,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
   const dropdownRef = useRef<HTMLDivElement>(null)
   const emptyDropdownRef = useRef<HTMLDivElement>(null)
   const { toast } = useToast()
+  const systemsCacheKey = `cyntro-systems:${accountScope.customerId || "unresolved"}:${accountScope.groupId}:${accountScope.accountId}:${accountScope.region}`
 
   // Fetch gap-analysis from real CloudTrail data
   const fetchGapAnalysisFromFindings = useCallback(async () => {
@@ -176,6 +178,8 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
       if (systemsRes.ok) {
         const systemsData = await systemsRes.json()
         const backendSystems = systemsData.systems || []
+        setSystemsError(null)
+        setBackendStatus("connected")
         
         console.log("[systems-view] Loaded", backendSystems.length, "systems from backend")
 
@@ -230,14 +234,13 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
 
           console.log(`[systems-view] Deduplicated ${transformedSystems.length} systems to ${deduplicatedSystems.length}`)
           setLocalSystems(deduplicatedSystems)
-          setBackendStatus("connected")
         } else {
-          // No systems returned - show empty state
+          // This is a verified empty response for the selected scope.
           setLocalSystems([])
         }
       } else {
         console.warn(`[systems-view] Systems API returned ${systemsRes.status}`)
-        setLocalSystems([])
+        setSystemsError(`Systems data is unavailable (${systemsRes.status})`)
         setBackendStatus("offline")
       }
     } catch (fetchErr: any) {
@@ -247,22 +250,37 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
       } else {
         console.error("[systems-view] Failed to fetch systems:", fetchErr.message)
       }
-      setLocalSystems([])
+      setSystemsError("Systems data is temporarily unavailable")
       setBackendStatus("offline")
     } finally {
       setIsLoadingData(false)
       setIsScanning(false)
     }
-  }, [fetchGapAnalysisFromFindings])
+  }, [
+    accountScope.accountId,
+    accountScope.customerId,
+    accountScope.groupId,
+    accountScope.region,
+    fetchGapAnalysisFromFindings,
+  ])
 
 
   // Load from cache FIRST, then fetch fresh data - stale-while-revalidate
   useEffect(() => {
+    if (accountScope.loading) return
+    if (!accountScope.customerId) {
+      setLocalSystems([])
+      setIsLoadingData(false)
+      setBackendStatus("offline")
+      return
+    }
     let hasCache = false
+    setBackendStatus("checking")
+    setSystemsError(null)
 
     // Step 1: Try to load from cache immediately
     try {
-      const cached = localStorage.getItem("cyntro-systems")
+      const cached = localStorage.getItem(systemsCacheKey)
       if (cached) {
         const parsed = JSON.parse(cached)
         if (Array.isArray(parsed) && parsed.length > 0) {
@@ -271,6 +289,9 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
           setIsLoadingData(false) // Hide loading spinner immediately
           hasCache = true
         }
+      } else {
+        // Never leak a previous organization's systems into the new scope.
+        setLocalSystems([])
       }
     } catch (e) {
       console.warn("[systems-view] Failed to parse cached systems:", e)
@@ -278,8 +299,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
 
     // Step 2: Fetch fresh data (background if cache exists, with spinner if not)
     fetchSystemsData(hasCache)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []) // Only run once on mount - fetchSystemsData is stable via useCallback
+  }, [accountScope.customerId, accountScope.loading, fetchSystemsData, systemsCacheKey])
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -298,9 +318,9 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
   // Save to cache whenever systems change
   useEffect(() => {
     if (localSystems.length > 0) {
-      localStorage.setItem("cyntro-systems", JSON.stringify(localSystems))
+      localStorage.setItem(systemsCacheKey, JSON.stringify(localSystems))
     }
-  }, [localSystems])
+  }, [localSystems, systemsCacheKey])
 
   useEffect(() => {
     if (propSystems.length > 0) {
@@ -600,6 +620,20 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
   }
 
   if (localSystems.length === 0 && !isLoadingData) {
+    const hasNoAccounts = !accountScope.loading && !accountScope.error && accountScope.options?.accounts.length === 0
+    const title = accountScope.error || systemsError
+      ? "Systems data unavailable"
+      : hasNoAccounts
+        ? "No AWS accounts connected"
+        : "No Tagged Systems Found"
+    const description = accountScope.error
+      ? "Cyntro could not verify the organization scope. Existing systems have not been deleted. Retry the scope metadata request."
+      : systemsError
+        ? "Cyntro could not verify the systems inventory. Existing systems have not been deleted. Retry the request."
+        : hasNoAccounts
+          ? `The ${accountScope.customerId || "selected"} organization has no AWS accounts in scope.`
+          : "No resources tagged with SystemName were found in the selected organization, account group, account, and region."
+    const isUnavailable = Boolean(accountScope.error || systemsError)
     return (
       <div className="space-y-4">
         <BackToDashboard />
@@ -611,12 +645,21 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
           <div className="w-16 h-16 bg-[#8b5cf620] rounded-full flex items-center justify-center mx-auto mb-6">
             <Shield className="w-8 h-8" style={{ color: "#8b5cf6" }} />
           </div>
-          <h2 className="text-lg font-semibold mb-2" style={{ color: "var(--text-primary)" }}>No Systems Found</h2>
+          <h2 className="text-lg font-semibold mb-2" style={{ color: "var(--text-primary)" }}>{title}</h2>
           <p className="text-sm mb-8" style={{ color: "var(--text-secondary)" }}>
-            Add your first system to start monitoring security and compliance across your infrastructure.
+            {description}
           </p>
 
-          <div className="relative inline-block" ref={emptyDropdownRef}>
+          {isUnavailable ? (
+            <button
+              onClick={() => accountScope.error ? accountScope.refresh() : fetchSystemsData()}
+              className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors hover:opacity-90"
+              style={{ color: "var(--text-secondary)", borderColor: "var(--border-subtle)" }}
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+              Retry
+            </button>
+          ) : !hasNoAccounts ? <div className="relative inline-block" ref={emptyDropdownRef}>
             <button
               onClick={handleAddSystemClick}
               className="inline-flex items-center gap-1.5 text-white px-3 py-1.5 rounded-lg text-xs font-medium transition-colors hover:opacity-90"
@@ -673,7 +716,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
                 </div>
               </div>
             )}
-          </div>
+          </div> : null}
         </div>
       </div>
       </div>
