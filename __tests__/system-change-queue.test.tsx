@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react"
+import { act, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { ChangeQueueView } from "@/components/change-queue-view"
@@ -115,6 +115,64 @@ describe("system Change Queue", () => {
     expect(urls.find((url) => url.includes("change-cases"))).toContain("customer_id=testbed-webshop")
     expect(urls.find((url) => url.includes("change-assurance/intents"))).toContain("customer_id=testbed-webshop")
     expect(await screen.findByText("Tenant · testbed-webshop")).toBeInTheDocument()
+  })
+
+  it("ignores a stale tenant's response that finishes after the new tenant's", async () => {
+    // The mock ignores the abort signal on purpose: this pins the
+    // generation guard for the worst case where cancellation didn't land.
+    let resolveOldTenantCases: (response: Response) => void = () => {}
+    const oldTenantCases = new Promise<Response>((resolve) => {
+      resolveOldTenantCases = resolve
+    })
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes("change-cases")) {
+        if (url.includes("customer_id=tenant-a")) return oldTenantCases
+        return Promise.resolve(new Response(JSON.stringify({ cases: [] }), { status: 200 }))
+      }
+      if (url.includes("capabilities")) {
+        return Promise.resolve(new Response(JSON.stringify({ capabilities: [] }), { status: 200 }))
+      }
+      return Promise.resolve(new Response(JSON.stringify({ intents: [] }), { status: 200 }))
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    mockCustomerId = "tenant-a"
+    const view = render(<ChangeQueueView />)
+    expect(await screen.findByText("Tenant · tenant-a")).toBeInTheDocument()
+
+    // Org picker switches tenant while tenant-a's cases request is still in flight.
+    mockCustomerId = "tenant-b"
+    view.rerender(<ChangeQueueView />)
+    expect(await screen.findByText("Tenant · tenant-b")).toBeInTheDocument()
+    expect(await screen.findByText("No Change Cases yet")).toBeInTheDocument()
+
+    // The old tenant's request now finishes late, carrying tenant-a data.
+    // Flush the full continuation chain before asserting, so the negative
+    // assertion below cannot pass trivially before the stale write would land.
+    await act(async () => {
+      resolveOldTenantCases(new Response(JSON.stringify({
+        cases: [{
+          case_id: "case-tenant-a-1",
+          status: "OPEN",
+          updated_at: "2026-01-01T00:00:00Z",
+          system_name: "Legacy",
+          resource_name: "tenant-a-secret-case",
+          resource_type: "SecurityGroup",
+          change_kind: "sg_narrow",
+          rules_to_change: 1,
+          decision_state: "REQUIRE_APPROVAL",
+          evidence_complete: true,
+          evidence_gap_count: 0,
+          rollback_available: true,
+        }],
+      }), { status: 200 }))
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+
+    // Tenant-a data must never render beneath the tenant-b label.
+    expect(screen.queryByText("tenant-a-secret-case")).not.toBeInTheDocument()
+    expect(screen.getByText("No Change Cases yet")).toBeInTheDocument()
   })
 
   it("renders the back arrow only on the standalone page", async () => {

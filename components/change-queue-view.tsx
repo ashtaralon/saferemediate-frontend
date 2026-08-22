@@ -1,7 +1,7 @@
 "use client"
 
 import Link from 'next/link'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { AlertTriangle, ClipboardList, GitBranch, Plus, RefreshCw, ShieldCheck } from 'lucide-react'
 import { BackToDashboard } from '@/components/back-to-dashboard'
 import { useAccountScope } from '@/lib/account-scope-context'
@@ -87,8 +87,18 @@ export function ChangeQueueView({ systemName, showBack }: { systemName?: string;
   // instead of hand-parsing window.location like this view used to.
   const { customerId: scopeCustomerId } = useAccountScope()
   const customerId = scopeCustomerId || ''
+  const loadGeneration = useRef(0)
+  const abortRef = useRef<AbortController | null>(null)
 
   const load = async () => {
+    // A newer load supersedes any in-flight one: abort the previous requests
+    // and bump the generation so a late response from an outdated tenant or
+    // system scope can never paint under the current scope's labels.
+    const generation = ++loadGeneration.current
+    abortRef.current?.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
+    const active = () => loadGeneration.current === generation && !controller.signal.aborted
     setLoading(true)
     const scoped = (extra: Record<string, string>) => new URLSearchParams({
       ...extra,
@@ -98,26 +108,31 @@ export function ChangeQueueView({ systemName, showBack }: { systemName?: string;
     // Lane 2 (durable Change Cases) and Lane 1 (analysis dossiers) have independent
     // backends — one failing must not blank the other, so each fetch settles on its own.
     const loadCases = async () => {
-      const response = await fetch(`/api/proxy/change-cases?${scoped({ limit: '100' })}`, { cache: 'no-store' })
+      const response = await fetch(`/api/proxy/change-cases?${scoped({ limit: '100' })}`, { cache: 'no-store', signal: controller.signal })
       const payload = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(payload.detail || payload.error || 'Change Case queue failed')
+      if (!active()) return
       setCases(payload.cases || [])
       setCasesLoadedAt(new Date())
     }
     const loadIntents = async () => {
-      const response = await fetch(`/api/proxy/change-assurance/intents?${scoped({ limit: '20' })}`, { cache: 'no-store' })
+      const response = await fetch(`/api/proxy/change-assurance/intents?${scoped({ limit: '20' })}`, { cache: 'no-store', signal: controller.signal })
       const payload = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(payload.detail || payload.error || 'Analyzed-change list failed')
+      if (!active()) return
       setIntents(payload.intents || [])
       setIntentsLoadedAt(new Date())
     }
     const loadCapabilities = async () => {
-      const response = await fetch('/api/proxy/change-assurance/capabilities', { cache: 'no-store' })
+      const response = await fetch('/api/proxy/change-assurance/capabilities', { cache: 'no-store', signal: controller.signal })
       if (!response.ok) return
       const payload = await response.json().catch(() => ({}))
+      if (!active()) return
       setCapabilities(payload.capabilities || [])
     }
     const [caseResult, intentResult] = await Promise.allSettled([loadCases(), loadIntents(), loadCapabilities()])
+    // A superseded load must not write anything — not even its errors.
+    if (!active()) return
     setCasesError(caseResult.status === 'rejected'
       ? (caseResult.reason instanceof Error ? caseResult.reason.message : 'Change Case queue failed')
       : null)
@@ -138,6 +153,7 @@ export function ChangeQueueView({ systemName, showBack }: { systemName?: string;
     setCasesError(null)
     setIntentsError(null)
     void load()
+    return () => abortRef.current?.abort()
   // Reload whenever the org picker changes tenant or the system scope changes.
   // `load` intentionally remains local because Refresh reuses the same scope.
   // eslint-disable-next-line react-hooks/exhaustive-deps
