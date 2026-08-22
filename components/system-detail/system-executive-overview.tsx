@@ -62,11 +62,22 @@ export function shouldShowGlobalStateBanner(
 export function proposedChangeCount(
   remediation: SystemExecutiveSnapshot["remediation"],
 ): number | null {
-  const returned = finite(remediation.returned_count)
-  if (returned !== null) return returned
-  const ready = finite(remediation.ready_on_page)
-  const held = finite(remediation.held_on_page)
-  return ready !== null && held !== null ? ready + held : null
+  // Proposed = ready to execute. Held rows are visible separately; summing
+  // them into "proposed" overclaims unauthorized work as a change queue.
+  return finite(remediation.ready_on_page)
+}
+
+export function candidateReviewLabel(candidate: {
+  unused_count?: number | null
+  remediation_id?: string | null
+}): string {
+  // Snapshot unused/total counts come from the legacy candidate projection
+  // (expanded IAM action sets). Do not render them — LP's canonical list
+  // is the only permission-count authority.
+  if (candidate.remediation_id) {
+    return candidate.remediation_id.replaceAll("_", " ").toLowerCase()
+  }
+  return "review required"
 }
 
 export function resourceRiskNavigationTarget(): "least-privilege" {
@@ -296,7 +307,7 @@ export function SystemExecutiveOverview({
           <div className="mt-4 space-y-2.5">
             {candidates.length === 0 ? <div className="rounded-xl bg-slate-50 px-3 py-4 text-sm text-slate-600">No candidate rows are available in this reading.</div> : candidates.slice(0, 5).map((candidate, index) => (
               <div key={`${candidate.resource_id}-${index}`} className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 px-3.5 py-3">
-                <div className="min-w-0"><div className="truncate text-sm font-semibold text-slate-900">{candidate.resource_id || "Unnamed resource"}</div><div className="text-xs text-slate-500">{candidate.resource_type || "Resource"}{typeof candidate.unused_count === "number" ? ` · ${candidate.unused_count} unused permissions` : candidate.remediation_id ? ` · ${candidate.remediation_id.replaceAll("_", " ").toLowerCase()}` : " · review required"}</div></div>
+                <div className="min-w-0"><div className="truncate text-sm font-semibold text-slate-900">{candidate.resource_id || "Unnamed resource"}</div><div className="text-xs text-slate-500">{candidate.resource_type || "Resource"} · {candidateReviewLabel(candidate)}</div></div>
                 <span className={`rounded-full px-2 py-1 text-[10px] font-bold uppercase ${candidate.can_auto_apply ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>{candidate.can_auto_apply ? "ready" : "held"}</span>
               </div>
             ))}

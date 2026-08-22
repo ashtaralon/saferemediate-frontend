@@ -13,7 +13,9 @@ import { describe, expect, it } from 'vitest'
 import {
   deriveLPIntegrity,
   isStaleAnalysisReason,
+  lpEvidenceGapCopy,
   lpIntegrityCopy,
+  lpIntegrityFooter,
   type LPIntegrityFields,
 } from '@/lib/lp-integrity'
 
@@ -106,6 +108,14 @@ describe('lpIntegrityCopy — stale vs never-ran', () => {
       reason: null,
     })
     expect(copy.title).toBe('Analysis did not run')
+    expect(lpIntegrityFooter({
+      state: 'NOT_READY',
+      analysisComplete: false,
+      mutationBlocked: true,
+      countsArePartial: true,
+      failedAnalyzers: [],
+      reason: null,
+    })).toMatch(/until the analysis completes/)
   })
 
   it('complete analysis with unknown generation is not "did not run"', () => {
@@ -121,5 +131,51 @@ describe('lpIntegrityCopy — stale vs never-ran', () => {
     expect(copy.title).toBe('Remediation is not ready')
     expect(copy.body).toContain('active generation is unknown')
     expect(copy.title.toLowerCase()).not.toContain('did not run')
+    expect(lpIntegrityFooter({
+      state: 'NOT_READY',
+      analysisComplete: true,
+      mutationBlocked: true,
+      countsArePartial: true,
+      failedAnalyzers: [],
+      reason: copy.body,
+    })).toBe(
+      'Analysis is complete, but remediation remains unavailable until an authoritative generation is active.',
+    )
+    expect(lpIntegrityFooter({
+      state: 'NOT_READY',
+      analysisComplete: true,
+      mutationBlocked: true,
+      countsArePartial: true,
+      failedAnalyzers: [],
+      reason: copy.body,
+    })).not.toMatch(/until the analysis completes/i)
+  })
+})
+
+describe('lpEvidenceGapCopy — analysis vs observation', () => {
+  it('does not claim analysis did not run when the sweep completed', () => {
+    const copy = lpEvidenceGapCopy({
+      state: 'NOT_READY',
+      analysisComplete: true,
+      mutationBlocked: true,
+      countsArePartial: true,
+      failedAnalyzers: [],
+      reason: 'Analysis complete; remediation is not ready because the active generation is unknown.',
+    })
+    expect(copy.title).toBe('Some resources also lack enough observation data')
+    expect(copy.body).toContain('Analysis already ran')
+    expect(copy.body.toLowerCase()).not.toContain("don't have enough observation data to analyse")
+  })
+
+  it('keeps the observation-gap title when analysis never completed', () => {
+    const copy = lpEvidenceGapCopy({
+      state: 'NOT_READY',
+      analysisComplete: false,
+      mutationBlocked: true,
+      countsArePartial: true,
+      failedAnalyzers: [],
+      reason: null,
+    })
+    expect(copy.title).toBe("These resources don't have enough observation data to analyse")
   })
 })

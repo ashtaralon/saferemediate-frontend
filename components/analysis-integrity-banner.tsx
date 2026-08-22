@@ -2,7 +2,7 @@
 
 import { AlertTriangle, XOctagon } from "lucide-react"
 import type { LPIntegrity } from "@/lib/lp-integrity"
-import { lpIntegrityCopy } from "@/lib/lp-integrity"
+import { lpIntegrityCopy, lpIntegrityFooter } from "@/lib/lp-integrity"
 
 /**
  * Banner shown when an LP analyzer sweep did not complete.
@@ -24,6 +24,7 @@ export function AnalysisIntegrityBanner({
 
   const notReady = integrity.state === "NOT_READY"
   const { title, body } = lpIntegrityCopy(integrity)
+  const footer = lpIntegrityFooter(integrity)
   const Icon = notReady ? XOctagon : AlertTriangle
 
   // NOT_READY (nothing ran) is red; INTEGRITY_HELD (some analyzers ran) amber.
@@ -44,10 +45,7 @@ export function AnalysisIntegrityBanner({
       <div className="min-w-0 space-y-1">
         <p className="text-sm font-semibold leading-tight">{title}</p>
         <p className="text-sm leading-snug opacity-90">{body}</p>
-        <p className="text-xs opacity-75">
-          Remediation is unavailable until the analysis completes. Counts and
-          totals below are partial.
-        </p>
+        {footer ? <p className="text-xs opacity-75">{footer}</p> : null}
       </div>
     </div>
   )

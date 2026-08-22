@@ -823,7 +823,7 @@ export function ManagementReportDrawer({
                 </div>
                 {showTechnical ? <div className="mt-5 rounded-xl border border-slate-200 p-4">
                   <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.12em] text-slate-500"><ShieldCheck className="h-4 w-4 text-emerald-600" />Next safe changes</div>
-                  {safeCandidates.length ? <div className="mt-3 grid gap-2 sm:grid-cols-2">{safeCandidates.map((candidate, index) => <div key={`${candidate.resourceId}-${index}`} className="rounded-md bg-slate-50 px-3 py-2"><div className="truncate text-xs font-semibold text-slate-900">{candidate.resourceType} · {candidate.resourceId}</div><div className="mt-1 text-[10px] text-slate-500">{candidate.system ?? "System not reported"} · {showNumber(candidate.unusedCount)} of {showNumber(candidate.totalPermissions)} permissions unused</div></div>)}</div> : <p className="mt-2 text-sm text-slate-600">No change is currently published as safe to execute. Candidates may be held for evidence or approval.</p>}
+                  {safeCandidates.length ? <div className="mt-3 grid gap-2 sm:grid-cols-2">{safeCandidates.map((candidate, index) => <div key={`${candidate.resourceId}-${index}`} className="rounded-md bg-slate-50 px-3 py-2"><div className="truncate text-xs font-semibold text-slate-900">{candidate.resourceType} · {candidate.resourceId}</div><div className="mt-1 text-[10px] text-slate-500">{candidate.system ?? "System not reported"} · review required</div></div>)}</div> : <p className="mt-2 text-sm text-slate-600">No change is currently published as safe to execute. Candidates may be held for evidence or approval.</p>}
                 </div> : null}
               </section> : null}
 

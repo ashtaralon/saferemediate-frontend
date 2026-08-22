@@ -9,7 +9,7 @@ import type { DecisionOutcomeCanonical, SimulateFixResponse } from '@/lib/types'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useToast } from '@/hooks/use-toast'
 import { dispatchRemediationChanged, onRemediationChanged } from '@/lib/remediation-events'
-import { deriveLPIntegrity } from '@/lib/lp-integrity'
+import { deriveLPIntegrity, lpEvidenceGapCopy } from '@/lib/lp-integrity'
 import {
   mergeLpResourcesAfterFetch,
   markResourceVerifying,
@@ -1899,6 +1899,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
   const evidenceBlockedCount = openRiskResources.filter(
     (r) => resourceRiskDecision(r) === 'BLOCK',
   ).length
+  const evidenceGapCopy = lpEvidenceGapCopy(integrity)
   const manualReviewCount = openRiskResources.filter(
     (r) => resourceRiskDecision(r) === 'MANUAL_REVIEW',
   ).length
@@ -2143,13 +2144,10 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
           <Eye className="w-5 h-5 mt-0.5 flex-shrink-0" style={{ color: "#f59e0b" }} />
           <div className="flex-1">
             <div className="text-sm font-semibold mb-1" style={{ color: "var(--text-primary)" }}>
-              These resources don't have enough observation data to analyse
+              {evidenceGapCopy.title}
             </div>
             <div className="text-xs leading-relaxed" style={{ color: "var(--text-secondary)" }}>
-              Cyntro decides what can change from observed traffic and API calls.
-              When VPC Flow Logs, S3 Data Events, or CloudTrail Data Events are
-              missing for a resource, it stays in this queue as Blocked instead
-              of being hidden or treated as safe.
+              {evidenceGapCopy.body}
             </div>
           </div>
           <button
