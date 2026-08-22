@@ -30,10 +30,12 @@ const TOPOLOGY_RETRY_TIMEOUT_MS = Math.max(
 )
 
 function scopeFromRequest(req: NextRequest) {
+  const customerId = req.nextUrl.searchParams.get("customer_id")
   const accountId = req.nextUrl.searchParams.get("account_id")
   const region = req.nextUrl.searchParams.get("region")
   const vpcId = req.nextUrl.searchParams.get("vpc_id")
   return {
+    customerId: customerId && /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(customerId) ? customerId : null,
     accountId: accountId && /^\d{12}$/.test(accountId) ? accountId : null,
     region: region && /^[a-z]{2}(-gov)?-[a-z]+-\d+$/.test(region) ? region : null,
     vpcId: vpcId && vpcId.startsWith("vpc-") ? vpcId : null,
@@ -42,6 +44,7 @@ function scopeFromRequest(req: NextRequest) {
 
 function backendQueryString(scope: ReturnType<typeof scopeFromRequest>): string {
   const params = new URLSearchParams()
+  if (scope.customerId) params.set("customer_id", scope.customerId)
   if (scope.accountId) params.set("account_id", scope.accountId)
   if (scope.region) params.set("region", scope.region)
   if (scope.vpcId) params.set("vpc_id", scope.vpcId)
