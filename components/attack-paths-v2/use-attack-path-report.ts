@@ -18,7 +18,7 @@ import type {
   CrownJewelSummary,
 } from "@/components/identity-attack-paths/types"
 import { coerceProxyErrorMessage } from "@/lib/proxy-error-message"
-import { resolveClosurePathId } from "./derive-attack-path-id"
+import { resolveReportPathIds } from "./derive-attack-path-id"
 import type { ClosurePreview } from "./closure-outcome-types"
 import type { AttackPathReport } from "./attack-path-report-types"
 
@@ -33,6 +33,15 @@ interface UseAttackPathReport {
   error: string | null
   /** Manual retry — wired to the "Retry" affordance in the unavailable card. */
   retry: () => void
+}
+
+function isNotFoundError(err: unknown): boolean {
+  const msg = String((err as Error)?.message ?? err).toLowerCase()
+  return (
+    msg.includes("not found") ||
+    msg.includes("http_404") ||
+    msg.includes("404")
+  )
 }
 
 export function useAttackPathReport(
@@ -86,9 +95,9 @@ export function useAttackPathReport(
     }
 
     ;(async () => {
-      let pathId: string
+      let candidates: string[]
       try {
-        pathId = await resolveClosurePathId(path)
+        candidates = await resolveReportPathIds(path)
       } catch (e) {
         if (!cancelled) {
           setError(String(e))
@@ -96,36 +105,53 @@ export function useAttackPathReport(
         }
         return
       }
-
-      // Backend-first with retries (cold Render/Aura wake).
-      for (let attempt = 0; attempt < 3; attempt++) {
-        try {
-          const rep = await fetchReport(pathId)
-          if (cancelled) return
-          setReport(rep)
-          setSource("backend")
-          setError(null)
-          setLoading(false)
-          return
-        } catch (e) {
-          if (cancelled) return
-          if (attempt < 2) {
-            await new Promise((res) => setTimeout(res, 1500 * (attempt + 1)))
-            continue
-          }
-          // Final failure. Honest unavailable state — no FE fallback.
-          setReport(null)
-          setSource(null)
-          setError(String((e as Error).message ?? e))
+      if (candidates.length === 0) {
+        if (!cancelled) {
+          setError("No report path id")
           setLoading(false)
         }
+        return
       }
+
+      let lastError: unknown = null
+      for (let ci = 0; ci < candidates.length; ci++) {
+        const pathId = candidates[ci]
+        // Backend-first with retries (cold Render/Aura wake) per candidate.
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            const rep = await fetchReport(pathId)
+            if (cancelled) return
+            setReport(rep)
+            setSource("backend")
+            setError(null)
+            setLoading(false)
+            return
+          } catch (e) {
+            if (cancelled) return
+            lastError = e
+            // Wrong id shape (IAP hash that isn't an :AttackPath) — try next.
+            if (isNotFoundError(e) && ci < candidates.length - 1) {
+              break
+            }
+            if (attempt < 2) {
+              await new Promise((res) => setTimeout(res, 1500 * (attempt + 1)))
+              continue
+            }
+          }
+        }
+      }
+
+      if (cancelled) return
+      setReport(null)
+      setSource(null)
+      setError(String((lastError as Error)?.message ?? lastError ?? "report_unavailable"))
+      setLoading(false)
     })()
 
     return () => {
       cancelled = true
     }
-  }, [path?.id, path?.attack_path_id, nonce])
+  }, [path?.id, path?.attack_path_id, path?.materialized, nonce])
 
   return { report, source, loading, error, retry }
 }
