@@ -13,5 +13,5 @@ export default function ChangeQueuePage() {
   }, [])
 
   if (querySystemName === null) return null
-  return <ChangeQueueView systemName={querySystemName || undefined} />
+  return <ChangeQueueView systemName={querySystemName || undefined} showBack />
 }

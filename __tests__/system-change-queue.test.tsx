@@ -3,6 +3,10 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { ChangeQueueView } from "@/components/change-queue-view"
 
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn() }),
+}))
+
 describe("system Change Queue", () => {
   afterEach(() => vi.unstubAllGlobals())
 
@@ -83,5 +87,26 @@ describe("system Change Queue", () => {
     expect(
       screen.queryByText("No customer-authored change has been analyzed yet."),
     ).not.toBeInTheDocument()
+  })
+
+  it("renders the back arrow only on the standalone page", async () => {
+    const okFetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes("change-cases")) return new Response(JSON.stringify({ cases: [] }), { status: 200 })
+      if (url.includes("capabilities")) return new Response(JSON.stringify({ capabilities: [] }), { status: 200 })
+      return new Response(JSON.stringify({ intents: [] }), { status: 200 })
+    })
+    vi.stubGlobal("fetch", okFetch)
+
+    const standalone = render(<ChangeQueueView showBack />)
+    expect(await screen.findByRole("button", { name: "Back to dashboard" })).toBeInTheDocument()
+    standalone.unmount()
+
+    // Embedded in the system-detail dashboard tab: no back arrow.
+    render(<ChangeQueueView systemName="Payment-Production" />)
+    expect(
+      await screen.findByRole("heading", { name: "Change Queue · Payment-Production" }),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Back to dashboard" })).not.toBeInTheDocument()
   })
 })

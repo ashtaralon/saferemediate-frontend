@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { AlertTriangle, ClipboardList, GitBranch, Plus, RefreshCw, ShieldCheck } from 'lucide-react'
+import { BackToDashboard } from '@/components/back-to-dashboard'
 
 interface QueueCase {
   case_id: string
@@ -68,7 +69,9 @@ function SectionErrorCard({ title, message, onRetry, retrying }: { title: string
   )
 }
 
-export function ChangeQueueView({ systemName }: { systemName?: string }) {
+// showBack renders the shared back arrow — only the standalone /change-queue page
+// sets it; the system-detail dashboard embeds this view inside its own tab nav.
+export function ChangeQueueView({ systemName, showBack }: { systemName?: string; showBack?: boolean }) {
   const [cases, setCases] = useState<QueueCase[]>([])
   const [capabilities, setCapabilities] = useState<Capability[]>([])
   const [intents, setIntents] = useState<AnalyzedIntent[]>([])
@@ -135,11 +138,18 @@ export function ChangeQueueView({ systemName }: { systemName?: string }) {
     <main className="min-h-screen bg-slate-50 p-6 text-slate-950">
       <div className="mx-auto max-w-7xl">
         <header className="flex flex-wrap items-start justify-between gap-4">
-          <div>
+          <div className="flex items-start gap-3">
+            {showBack && <BackToDashboard
+              href={customerId ? `/?${new URLSearchParams({ customer_id: customerId })}` : '/'}
+              className="mt-0.5 rounded-lg p-2 transition-colors hover:bg-slate-200"
+              iconClassName="h-5 w-5 text-slate-700"
+            />}
+            <div>
             <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-violet-700"><ClipboardList className="h-4 w-4" /> Change assurance</div>
             <h1 className="mt-2 text-3xl font-bold">Change Queue{systemName ? ` · ${systemName}` : ''}</h1>
             <p className="mt-2 max-w-3xl text-sm text-slate-600">{systemName ? `Only changes related to ${systemName} are shown. System identity follows Cyntro's case-insensitive SystemName tag boundary.` : 'Organization-wide view of every analyzed change and durable Change Case.'} Open a case to approve, execute, observe, rollback, and download its current report.</p>
             {customerId && <div className="mt-3 flex flex-wrap gap-2"><span className="rounded-full border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700">Tenant · {customerId}</span></div>}
+            </div>
           </div>
           <div className="flex flex-col items-end gap-2">
             <div className="flex gap-2">
