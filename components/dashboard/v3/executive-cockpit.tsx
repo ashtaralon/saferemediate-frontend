@@ -336,10 +336,8 @@ function CandidateList({ candidates, held }: { candidates: ExecutiveCandidate[];
                 {candidate.can_auto_apply ? "ready" : "held"}
               </span>
             </div>
-            {candidate.unused_count !== null && candidate.unused_count !== undefined ? (
-              <div className="mt-2 text-xs text-slate-600">
-                {candidate.unused_count} unused of {candidate.total_permissions ?? "—"} permissions
-              </div>
+            {candidate.block_reason ? (
+              <div className="mt-2 text-xs text-slate-600">{candidate.block_reason.replaceAll("_", " ")}</div>
             ) : null}
           </div>
         ))}

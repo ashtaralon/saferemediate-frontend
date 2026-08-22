@@ -91,6 +91,40 @@ export function isStaleAnalysisReason(reason: string | null | undefined): boolea
   return /timed out|stale|last complete analysis|warming/i.test(reason)
 }
 
+/** Footer under the banner title/body. Must not contradict them. */
+export function lpIntegrityFooter(integrity: LPIntegrity): string | null {
+  if (integrity.state === "READY") return null
+  if (integrity.analysisComplete) {
+    return "Analysis is complete, but remediation remains unavailable until an authoritative generation is active."
+  }
+  return "Remediation is unavailable until the analysis completes. Counts and totals below are partial."
+}
+
+/**
+ * Copy for the blocked-row callout.
+ *
+ * The queue counts every `BLOCK` decision, including ownership and other
+ * non-evidence reasons. When analysis already ran, do not invent an
+ * observation-gap explanation from that count.
+ */
+export function lpEvidenceGapCopy(integrity: LPIntegrity): {
+  title: string
+  body: string
+} {
+  if (integrity.analysisComplete) {
+    return {
+      title: "Some resources are also blocked",
+      body:
+        "Analysis already ran. The system-level blocker is that no authoritative generation is active. Individual resources may have additional blockers; review the reason shown on each row.",
+    }
+  }
+  return {
+    title: "These resources don't have enough observation data to analyse",
+    body:
+      "Cyntro decides what can change from observed traffic and API calls. When VPC Flow Logs, S3 Data Events, or CloudTrail Data Events are missing for a resource, it stays in this queue as Blocked instead of being hidden or treated as safe.",
+  }
+}
+
 /** Copy for the banner. Kept here so every surface says the same thing. */
 export function lpIntegrityCopy(integrity: LPIntegrity): {
   title: string

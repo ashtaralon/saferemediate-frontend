@@ -13,9 +13,12 @@ import { describe, expect, it } from 'vitest'
 import {
   deriveLPIntegrity,
   isStaleAnalysisReason,
+  lpEvidenceGapCopy,
   lpIntegrityCopy,
+  lpIntegrityFooter,
   type LPIntegrityFields,
 } from '@/lib/lp-integrity'
+import { resourceRiskDecision } from '@/lib/resource-risk-decision'
 
 describe('deriveLPIntegrity — mutationBlocked is veto only', () => {
   it('READY + analysis_complete clears the veto', () => {
@@ -106,6 +109,14 @@ describe('lpIntegrityCopy — stale vs never-ran', () => {
       reason: null,
     })
     expect(copy.title).toBe('Analysis did not run')
+    expect(lpIntegrityFooter({
+      state: 'NOT_READY',
+      analysisComplete: false,
+      mutationBlocked: true,
+      countsArePartial: true,
+      failedAnalyzers: [],
+      reason: null,
+    })).toMatch(/until the analysis completes/)
   })
 
   it('complete analysis with unknown generation is not "did not run"', () => {
@@ -121,5 +132,76 @@ describe('lpIntegrityCopy — stale vs never-ran', () => {
     expect(copy.title).toBe('Remediation is not ready')
     expect(copy.body).toContain('active generation is unknown')
     expect(copy.title.toLowerCase()).not.toContain('did not run')
+    expect(lpIntegrityFooter({
+      state: 'NOT_READY',
+      analysisComplete: true,
+      mutationBlocked: true,
+      countsArePartial: true,
+      failedAnalyzers: [],
+      reason: copy.body,
+    })).toBe(
+      'Analysis is complete, but remediation remains unavailable until an authoritative generation is active.',
+    )
+    expect(lpIntegrityFooter({
+      state: 'NOT_READY',
+      analysisComplete: true,
+      mutationBlocked: true,
+      countsArePartial: true,
+      failedAnalyzers: [],
+      reason: copy.body,
+    })).not.toMatch(/until the analysis completes/i)
+  })
+})
+
+describe('lpEvidenceGapCopy — analysis vs observation', () => {
+  const ownershipBlockedRow = {
+    resourceName: 'cyntro-tb-prod-web-role',
+    decisionCanonical: 'BLOCK' as const,
+    remediableReason:
+      'Ownership is unknown; execution adapter cannot be selected safely',
+    coverageState: 'COMPLETE',
+    category: 'audit' as const,
+  }
+
+  it('does not invent an observation explanation for an ownership-blocked row', () => {
+    expect(resourceRiskDecision(ownershipBlockedRow)).toBe('BLOCK')
+    const copy = lpEvidenceGapCopy({
+      state: 'NOT_READY',
+      analysisComplete: true,
+      mutationBlocked: true,
+      countsArePartial: true,
+      failedAnalyzers: [],
+      reason: 'Analysis complete; remediation is not ready because the active generation is unknown.',
+    })
+    expect(copy.title).toBe('Some resources are also blocked')
+    expect(copy.body).toContain('review the reason shown on each row')
+    expect(copy.body).not.toMatch(/observation data|VPC Flow Logs|CloudTrail|S3 Data Events/i)
+    expect(copy.title.toLowerCase()).not.toContain('observation')
+  })
+
+  it('does not claim analysis did not run when the sweep completed', () => {
+    const copy = lpEvidenceGapCopy({
+      state: 'NOT_READY',
+      analysisComplete: true,
+      mutationBlocked: true,
+      countsArePartial: true,
+      failedAnalyzers: [],
+      reason: 'Analysis complete; remediation is not ready because the active generation is unknown.',
+    })
+    expect(copy.title).toBe('Some resources are also blocked')
+    expect(copy.body).toContain('Analysis already ran')
+    expect(copy.body.toLowerCase()).not.toContain("don't have enough observation data to analyse")
+  })
+
+  it('keeps the observation-gap title when analysis never completed', () => {
+    const copy = lpEvidenceGapCopy({
+      state: 'NOT_READY',
+      analysisComplete: false,
+      mutationBlocked: true,
+      countsArePartial: true,
+      failedAnalyzers: [],
+      reason: null,
+    })
+    expect(copy.title).toBe("These resources don't have enough observation data to analyse")
   })
 })

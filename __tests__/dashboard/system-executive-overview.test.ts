@@ -6,6 +6,7 @@ import {
   isSystemExecutiveSnapshot,
 } from "@/lib/system-executive-snapshot"
 import {
+  candidateReviewLabel,
   proposedChangeCount,
   resourceRiskNavigationTarget,
   shouldShowGlobalStateBanner,
@@ -86,7 +87,21 @@ describe("system executive overview", () => {
       },
     })
     expect(shouldShowGlobalStateBanner(data as never, false)).toBe(false)
-    expect(proposedChangeCount((data as never as { remediation: never }).remediation)).toBe(2)
+    expect(proposedChangeCount((data as never as { remediation: never }).remediation)).toBe(0)
+  })
+
+  it("does not treat snapshot unused_count as a proposed change or a displayed count", () => {
+    const remediation = {
+      serve_state: "NOT_READY",
+      analysis_complete: true,
+      returned_count: 17,
+      ready_on_page: 0,
+      held_on_page: 17,
+    }
+    expect(proposedChangeCount(remediation as never)).toBe(0)
+    expect(candidateReviewLabel({ unused_count: 61098 })).toBe("review required")
+    expect(overview).not.toMatch(/unused_count\} unused/)
+    expect(overview).not.toContain("unused of")
   })
 
   it("still shows the global warning when a core risk section is incomplete", () => {
