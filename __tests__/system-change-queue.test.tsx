@@ -7,8 +7,17 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
 }))
 
+let mockCustomerId: string | null = null
+
+vi.mock("@/lib/account-scope-context", () => ({
+  useAccountScope: () => ({ customerId: mockCustomerId }),
+}))
+
 describe("system Change Queue", () => {
-  afterEach(() => vi.unstubAllGlobals())
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    mockCustomerId = null
+  })
 
   it("requests both queues through the server-side SystemName scope", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
@@ -87,6 +96,25 @@ describe("system Change Queue", () => {
     expect(
       screen.queryByText("No customer-authored change has been analyzed yet."),
     ).not.toBeInTheDocument()
+  })
+
+  it("forwards the org-picker tenant scope to both queues", async () => {
+    mockCustomerId = "testbed-webshop"
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes("change-cases")) return new Response(JSON.stringify({ cases: [] }), { status: 200 })
+      if (url.includes("capabilities")) return new Response(JSON.stringify({ capabilities: [] }), { status: 200 })
+      return new Response(JSON.stringify({ intents: [] }), { status: 200 })
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    render(<ChangeQueueView />)
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
+    const urls = fetchMock.mock.calls.map(([url]) => String(url))
+    expect(urls.find((url) => url.includes("change-cases"))).toContain("customer_id=testbed-webshop")
+    expect(urls.find((url) => url.includes("change-assurance/intents"))).toContain("customer_id=testbed-webshop")
+    expect(await screen.findByText("Tenant · testbed-webshop")).toBeInTheDocument()
   })
 
   it("renders the back arrow only on the standalone page", async () => {
