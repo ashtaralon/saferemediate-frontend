@@ -101,8 +101,11 @@ export function lpIntegrityFooter(integrity: LPIntegrity): string | null {
 }
 
 /**
- * Copy for the evidence-blocked queue callout. Analysis can be complete
- * while individual rows still lack observation — those are different facts.
+ * Copy for the blocked-row callout.
+ *
+ * The queue counts every `BLOCK` decision, including ownership and other
+ * non-evidence reasons. When analysis already ran, do not invent an
+ * observation-gap explanation from that count.
  */
 export function lpEvidenceGapCopy(integrity: LPIntegrity): {
   title: string
@@ -110,9 +113,9 @@ export function lpEvidenceGapCopy(integrity: LPIntegrity): {
 } {
   if (integrity.analysisComplete) {
     return {
-      title: "Some resources also lack enough observation data",
+      title: "Some resources are also blocked",
       body:
-        "Analysis already ran. The system-level blocker is that no authoritative generation is active. Individual resources may additionally lack VPC Flow Logs, S3 Data Events, or CloudTrail Data Events — those stay Blocked instead of being treated as safe.",
+        "Analysis already ran. The system-level blocker is that no authoritative generation is active. Individual resources may have additional blockers; review the reason shown on each row.",
     }
   }
   return {

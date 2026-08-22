@@ -18,6 +18,7 @@ import {
   lpIntegrityFooter,
   type LPIntegrityFields,
 } from '@/lib/lp-integrity'
+import { resourceRiskDecision } from '@/lib/resource-risk-decision'
 
 describe('deriveLPIntegrity — mutationBlocked is veto only', () => {
   it('READY + analysis_complete clears the veto', () => {
@@ -153,6 +154,31 @@ describe('lpIntegrityCopy — stale vs never-ran', () => {
 })
 
 describe('lpEvidenceGapCopy — analysis vs observation', () => {
+  const ownershipBlockedRow = {
+    resourceName: 'cyntro-tb-prod-web-role',
+    decisionCanonical: 'BLOCK' as const,
+    remediableReason:
+      'Ownership is unknown; execution adapter cannot be selected safely',
+    coverageState: 'COMPLETE',
+    category: 'audit' as const,
+  }
+
+  it('does not invent an observation explanation for an ownership-blocked row', () => {
+    expect(resourceRiskDecision(ownershipBlockedRow)).toBe('BLOCK')
+    const copy = lpEvidenceGapCopy({
+      state: 'NOT_READY',
+      analysisComplete: true,
+      mutationBlocked: true,
+      countsArePartial: true,
+      failedAnalyzers: [],
+      reason: 'Analysis complete; remediation is not ready because the active generation is unknown.',
+    })
+    expect(copy.title).toBe('Some resources are also blocked')
+    expect(copy.body).toContain('review the reason shown on each row')
+    expect(copy.body).not.toMatch(/observation data|VPC Flow Logs|CloudTrail|S3 Data Events/i)
+    expect(copy.title.toLowerCase()).not.toContain('observation')
+  })
+
   it('does not claim analysis did not run when the sweep completed', () => {
     const copy = lpEvidenceGapCopy({
       state: 'NOT_READY',
@@ -162,7 +188,7 @@ describe('lpEvidenceGapCopy — analysis vs observation', () => {
       failedAnalyzers: [],
       reason: 'Analysis complete; remediation is not ready because the active generation is unknown.',
     })
-    expect(copy.title).toBe('Some resources also lack enough observation data')
+    expect(copy.title).toBe('Some resources are also blocked')
     expect(copy.body).toContain('Analysis already ran')
     expect(copy.body.toLowerCase()).not.toContain("don't have enough observation data to analyse")
   })
