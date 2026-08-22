@@ -189,11 +189,12 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
   const [hiddenAzs, setHiddenAzs] = useState<string[]>([])
   const scopeParams = useMemo(
     () => ({
+      customerId: productScope.customerId,
       accountId: selectedAccountId,
       region: selectedRegionId,
       vpcId: scopedVpc,
     }),
-    [selectedAccountId, selectedRegionId, scopedVpc],
+    [productScope.customerId, selectedAccountId, selectedRegionId, scopedVpc],
   )
   const cacheKey = buildTopologyRiskCacheKey(systemName, scopeParams)
   const url = buildTopologyRiskProxyUrl(systemName, scopeParams)
@@ -229,6 +230,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     // Primary is VPC-scoped; fetch account/region once for Compare rails.
     let cancelled = false
     const mergedUrl = buildTopologyRiskProxyUrl(systemName, {
+      customerId: productScope.customerId,
       accountId: selectedAccountId,
       region: selectedRegionId,
     })
@@ -243,6 +245,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     }
   }, [
     systemName,
+    productScope.customerId,
     selectedAccountId,
     selectedRegionId,
     needsMergedTopology,

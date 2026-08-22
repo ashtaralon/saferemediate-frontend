@@ -1,6 +1,7 @@
 /** Build topology-risk proxy URLs and client cache keys — must match BE scope. */
 
 export interface TopologyScopeParams {
+  customerId?: string | null
   accountId?: string | null
   region?: string | null
   vpcId?: string | null
@@ -11,6 +12,7 @@ export function buildTopologyRiskProxyUrl(
   scope: TopologyScopeParams = {},
 ): string {
   const params = new URLSearchParams()
+  if (scope.customerId) params.set("customer_id", scope.customerId)
   if (scope.accountId) params.set("account_id", scope.accountId)
   if (scope.region) params.set("region", scope.region)
   if (scope.vpcId) params.set("vpc_id", scope.vpcId)
@@ -24,12 +26,12 @@ export function buildTopologyRiskCacheKey(
   systemName: string,
   scope: TopologyScopeParams = {},
 ): string {
-  return `topology-risk:${systemName}:v10:${scope.accountId ?? ""}:${scope.region ?? ""}:${scope.vpcId ?? "all"}`
+  return `topology-risk:${scope.customerId ?? ""}:${systemName}:v11:${scope.accountId ?? ""}:${scope.region ?? ""}:${scope.vpcId ?? "all"}`
 }
 
 /** Proxy server cache key — mirrors BE {system}::{account}::{region}::{vpc}.
  * Schema suffix busts Vercel/in-memory poison after Wave-D empty envelopes. */
-const TOPOLOGY_RISK_SERVER_CACHE_SCHEMA = "2026-07-27:selected-scope-echo"
+const TOPOLOGY_RISK_SERVER_CACHE_SCHEMA = "2026-08-22:tenant-scoped-neptune"
 
 export function buildTopologyRiskServerCacheKey(
   systemName: string,
@@ -38,9 +40,10 @@ export function buildTopologyRiskServerCacheKey(
   const account = scope.accountId ?? ""
   const region = scope.region ?? ""
   const vpc = scope.vpcId ?? ""
+  const tenant = scope.customerId ?? ""
   const base =
     !account && !region && !vpc
-      ? `topology-risk:${systemName}`
-      : `topology-risk:${systemName}:${account}:${region}:${vpc}`
+      ? `topology-risk:${tenant}:${systemName}`
+      : `topology-risk:${tenant}:${systemName}:${account}:${region}:${vpc}`
   return `${base}:${TOPOLOGY_RISK_SERVER_CACHE_SCHEMA}`
 }
