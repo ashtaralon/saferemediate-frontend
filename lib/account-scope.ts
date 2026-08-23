@@ -56,6 +56,61 @@ export interface ProductScope {
   region: string
 }
 
+export interface ScopeHealResult extends Pick<ProductScope, "groupId" | "accountId" | "region"> {
+  // Human-readable description of each value that was reset, empty when the
+  // scope was already valid. Shown to the operator — a silent reset would be
+  // as confusing as the silent mismatch it replaces.
+  cleared: string[]
+}
+
+/**
+ * Validate a (possibly persisted) narrowing scope against the organization's
+ * live account/region options, resetting any value the options cannot satisfy.
+ *
+ * Why this exists (incident 2026-08-23): the narrowing scope is persisted in
+ * localStorage and re-applied to every page. A region left behind by a
+ * browser-automation session matched no account of the organization, so every
+ * scoped read returned an EMPTY list with no error — the whole product looked
+ * like data loss, survived reloads, and gave the operator nothing to act on.
+ * The options payload is the authority on what can match; a narrowing that
+ * the options cannot satisfy can never return data and must heal to "all"
+ * instead of being applied.
+ */
+export function healScopeAgainstOptions(
+  scope: Pick<ProductScope, "groupId" | "accountId" | "region">,
+  options: AccountScopeOptions,
+): ScopeHealResult {
+  const cleared: string[] = []
+  let groupId = scope.groupId || "all"
+  let accountId = scope.accountId || "all"
+  let region = scope.region || "all"
+
+  if (groupId !== "all" && !options.groups.some((group) => group.group_id === groupId)) {
+    cleared.push(`Account group "${groupId}" is not available for this organization — reset to All`)
+    groupId = "all"
+  }
+  // Mirror the scope bar's dependent-option logic exactly: accounts are
+  // filtered by the (healed) group, regions by the (healed) account.
+  const accountsInGroup = groupId === "all"
+    ? options.accounts
+    : options.accounts.filter((account) => account.group_ids.includes(groupId))
+  if (accountId !== "all" && !accountsInGroup.some((account) => account.account_id === accountId)) {
+    cleared.push(`Account "${accountId}" is not available in the selected scope — reset to All`)
+    accountId = "all"
+  }
+  const selectedAccount = accountId === "all"
+    ? null
+    : accountsInGroup.find((account) => account.account_id === accountId) ?? null
+  const validRegions = selectedAccount
+    ? selectedAccount.regions
+    : accountsInGroup.flatMap((account) => account.regions)
+  if (region !== "all" && !validRegions.includes(region)) {
+    cleared.push(`Region "${region}" is not available in the selected scope — reset to All`)
+    region = "all"
+  }
+  return { groupId, accountId, region, cleared }
+}
+
 export function resourceAccountId(resource: Record<string, unknown>): string | null {
   const direct = resource.account_id ?? resource.accountId ?? resource.aws_account_id
   if (typeof direct === "string" && /^\d{12}$/.test(direct)) return direct

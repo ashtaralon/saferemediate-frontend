@@ -97,6 +97,11 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
   const [isLoadingAvailable, setIsLoadingAvailable] = useState(false)
   const [backendStatus, setBackendStatus] = useState<"connected" | "offline" | "checking">("checking")
   const [systemsError, setSystemsError] = useState<string | null>(null)
+  // Count of systems the organization has OUTSIDE the active narrowing
+  // filters, probed only when the scoped list came back empty. Filtered-empty
+  // must never masquerade as "no systems" (incident 2026-08-23: a stray
+  // persisted region rendered a healthy org as data loss for hours).
+  const [hiddenByScope, setHiddenByScope] = useState<number | null>(null)
   const [isLoadingData, setIsLoadingData] = useState(true)
   const [gapData, setGapData] = useState<{ allowed: number; used: number; unused: number }>({
     allowed: 0,
@@ -234,9 +239,38 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
 
           console.log(`[systems-view] Deduplicated ${transformedSystems.length} systems to ${deduplicatedSystems.length}`)
           setLocalSystems(deduplicatedSystems)
+          setHiddenByScope(null)
         } else {
-          // This is a verified empty response for the selected scope.
+          // This is a verified empty response for the selected scope. When a
+          // narrowing filter is active, ask the same endpoint with the
+          // filters lifted so the empty state can say what the filters hide
+          // instead of reading as data loss.
           setLocalSystems([])
+          const narrowed =
+            accountScope.groupId !== "all" ||
+            accountScope.accountId !== "all" ||
+            accountScope.region !== "all"
+          if (narrowed && accountScope.customerId) {
+            try {
+              const probeRes = await fetch(
+                withAccountScope("/api/proxy/systems", {
+                  customerId: accountScope.customerId,
+                  groupId: "all",
+                  accountId: "all",
+                  region: "all",
+                }),
+                { signal: AbortSignal.timeout(30000), cache: "no-store" },
+              )
+              const probe = probeRes.ok ? await probeRes.json() : null
+              const count = Array.isArray(probe?.systems) ? probe.systems.length : 0
+              setHiddenByScope(count > 0 ? count : null)
+            } catch {
+              // An unavailable probe must not invent a claim either way.
+              setHiddenByScope(null)
+            }
+          } else {
+            setHiddenByScope(null)
+          }
         }
       } else {
         console.warn(`[systems-view] Systems API returned ${systemsRes.status}`)
@@ -621,18 +655,26 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
 
   if (localSystems.length === 0 && !isLoadingData) {
     const hasNoAccounts = !accountScope.loading && !accountScope.error && accountScope.options?.accounts.length === 0
+    // A filtered-empty (systems exist, the narrowing filters hide them) is a
+    // different situation from a true empty and must say so — with the count
+    // from the real unfiltered probe and a one-click way out.
+    const hiddenByFilters = !accountScope.error && !systemsError && hiddenByScope !== null && hiddenByScope > 0
     const title = accountScope.error || systemsError
       ? "Systems data unavailable"
-      : hasNoAccounts
-        ? "No AWS accounts connected"
-        : "No Tagged Systems Found"
+      : hiddenByFilters
+        ? "Systems hidden by scope filters"
+        : hasNoAccounts
+          ? "No AWS accounts connected"
+          : "No Tagged Systems Found"
     const description = accountScope.error
       ? "Cyntro could not verify the organization scope. Existing systems have not been deleted. Retry the scope metadata request."
       : systemsError
         ? "Cyntro could not verify the systems inventory. Existing systems have not been deleted. Retry the request."
-        : hasNoAccounts
-          ? `The ${accountScope.customerId || "selected"} organization has no AWS accounts in scope.`
-          : "No resources tagged with SystemName were found in the selected organization, account group, account, and region."
+        : hiddenByFilters
+          ? `${hiddenByScope} ${hiddenByScope === 1 ? "system exists" : "systems exist"} in this organization outside the selected account group, account, or region filters. Nothing has been deleted.`
+          : hasNoAccounts
+            ? `The ${accountScope.customerId || "selected"} organization has no AWS accounts in scope.`
+            : "No resources tagged with SystemName were found in the selected organization, account group, account, and region."
     const isUnavailable = Boolean(accountScope.error || systemsError)
     return (
       <div className="space-y-4">
@@ -650,7 +692,15 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
             {description}
           </p>
 
-          {isUnavailable ? (
+          {hiddenByFilters ? (
+            <button
+              onClick={() => accountScope.setGroupId("all")}
+              className="inline-flex items-center gap-1.5 text-white px-3 py-1.5 rounded-lg text-xs font-medium transition-colors hover:opacity-90"
+              style={{ background: "#8b5cf6" }}
+            >
+              Reset filters to All
+            </button>
+          ) : isUnavailable ? (
             <button
               onClick={() => accountScope.error ? accountScope.refresh() : fetchSystemsData()}
               className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors hover:opacity-90"

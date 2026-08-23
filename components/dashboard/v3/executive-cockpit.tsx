@@ -461,6 +461,30 @@ export function ExecutiveCockpit({
     }
     return Array.from(byCanonicalName.values())
   }, [systemsCatalog.data])
+  // When the SCOPED catalog is empty while a narrowing filter is active, probe
+  // the same endpoint with the filters lifted so the card can say what the
+  // filters hide instead of reading as data loss (incident 2026-08-23: a
+  // stray persisted region blanked this card for hours with no way out).
+  const narrowedScope =
+    accountScope.groupId !== "all" || accountScope.accountId !== "all" || accountScope.region !== "all"
+  const scopedCatalogEmpty =
+    !accountScope.loading && !systemsCatalog.loading && !systemsCatalog.error && scopedSystems.length === 0
+  const unscopedProbeUrl = scopedCatalogEmpty && narrowedScope && accountScope.customerId
+    ? `/api/proxy/systems?customer_id=${encodeURIComponent(accountScope.customerId)}`
+    : null
+  const unscopedProbe = useCachedFetch<SystemsCatalogResponse>(
+    unscopedProbeUrl,
+    {
+      cacheKey: `management-report-systems-unscoped-probe:${accountScope.customerId || "unresolved"}`,
+      maxStaleMs: 5 * 60 * 1000,
+      fetchInit: { cache: "no-store" },
+      isCacheable: (value) => Boolean(value && typeof value === "object" && Array.isArray((value as SystemsCatalogResponse).systems)),
+    },
+  )
+  // null = probe absent/unresolved (unknown), never coerced to zero — the
+  // cockpit honesty ratchet forbids defaulting an unknown metric to 0.
+  const hiddenByFilters = narrowedScope ? (unscopedProbe.data?.systems?.length ?? null) : null
+
   const scopedSystemName = scopedSystems.length === 1 ? scopedSystems[0] : null
   const snapshotUrl = scopedSystemName
     ? `/api/proxy/dashboard/systems/${encodeURIComponent(scopedSystemName)}`
@@ -524,7 +548,14 @@ export function ExecutiveCockpit({
     })
   }, [data, onReportData, sources, systemsCatalog.data])
 
-  if (accountScope.loading || systemsCatalog.loading || (snapshot.loading && !data)) {
+  if (
+    accountScope.loading ||
+    systemsCatalog.loading ||
+    (snapshot.loading && !data) ||
+    // While the filtered-empty probe is in flight the verdict ("hidden by
+    // filters" vs "no systems") is not known yet — don't flash the wrong card.
+    (scopedCatalogEmpty && narrowedScope && unscopedProbe.loading && !unscopedProbe.data)
+  ) {
     return <LoadingCard label="Cloud risk and remediation overview" />
   }
   if (accountScope.error || systemsCatalog.error) {
@@ -535,6 +566,27 @@ export function ExecutiveCockpit({
     />
   }
   if (scopedSystems.length === 0) {
+    if (hiddenByFilters !== null && hiddenByFilters > 0) {
+      // Systems exist; the narrowing filters hide them. A different situation
+      // from a true empty, with a one-click way out — never the same card.
+      return (
+        <div className="rounded-[14px] border border-amber-200 bg-amber-50/50 p-5">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+            Cloud risk and remediation overview
+          </div>
+          <div className="mt-2 text-sm text-amber-800">
+            {hiddenByFilters} {hiddenByFilters === 1 ? "system exists" : "systems exist"} in this organization
+            outside the selected account group, account, or region filters. Nothing has been deleted.
+          </div>
+          <button
+            onClick={() => accountScope.setGroupId("all")}
+            className="mt-3 rounded-md border border-amber-300 bg-white px-3 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100"
+          >
+            Reset filters to All
+          </button>
+        </div>
+      )
+    }
     return <ErrorCard
       label="Cloud risk and remediation overview"
       error="No Neptune-backed SystemName is available in the selected scope"

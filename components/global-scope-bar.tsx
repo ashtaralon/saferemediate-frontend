@@ -11,6 +11,7 @@ function ScopeSelect({
   children,
   icon: Icon,
   disabled = false,
+  narrowing = false,
 }: {
   label: string
   value: string
@@ -18,17 +19,24 @@ function ScopeSelect({
   children: React.ReactNode
   icon: typeof Cloud
   disabled?: boolean
+  // A narrowing value (anything but "all") silently filters every scoped view,
+  // so it must be visibly different from the neutral state at a glance.
+  narrowing?: boolean
 }) {
   return (
     <label className="flex shrink-0 items-center gap-2 border-r border-slate-200 px-4 last:border-r-0">
-      <Icon className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-      <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">{label}</span>
+      <Icon className={`h-3.5 w-3.5 shrink-0 ${narrowing ? "text-indigo-500" : "text-slate-400"}`} />
+      <span className={`text-[10px] font-bold uppercase tracking-[0.16em] ${narrowing ? "text-indigo-500" : "text-slate-400"}`}>
+        {label}
+      </span>
       <select
         aria-label={label}
         value={value}
         disabled={disabled}
         onChange={(event) => onChange(event.target.value)}
-        className="max-w-52 bg-transparent text-xs font-semibold text-slate-700 outline-none disabled:text-slate-400"
+        className={`max-w-52 bg-transparent text-xs font-semibold outline-none disabled:text-slate-400 ${
+          narrowing ? "text-indigo-700" : "text-slate-700"
+        }`}
       >
         {children}
       </select>
@@ -52,7 +60,21 @@ export function GlobalScopeBar() {
   ).sort()
 
   return (
-    <div className="sticky top-0 z-[60] h-11 overflow-x-auto border-b border-slate-200 bg-white/95 shadow-sm backdrop-blur">
+    <div className="sticky top-0 z-[60] border-b border-slate-200 bg-white/95 shadow-sm backdrop-blur">
+      {scope.scopeNotices.length > 0 && (
+        <div className="flex items-center gap-3 border-b border-amber-200 bg-amber-50 px-4 py-1.5 text-xs text-amber-800">
+          <span className="text-[10px] font-bold uppercase tracking-[0.16em]">Scope reset</span>
+          <span>{scope.scopeNotices.join(" · ")}</span>
+          <button
+            onClick={scope.dismissScopeNotices}
+            aria-label="Dismiss scope notice"
+            className="ml-auto rounded px-1.5 font-semibold text-amber-700 hover:bg-amber-100"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+      <div className="h-11 overflow-x-auto">
       <div className="flex h-full min-w-max items-center">
         <div className="flex h-full shrink-0 items-center px-4 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
           Scope
@@ -72,13 +94,25 @@ export function GlobalScopeBar() {
             </option>
           ))}
         </ScopeSelect>
-        <ScopeSelect label="Group" icon={Layers3} value={scope.groupId} onChange={scope.setGroupId}>
+        <ScopeSelect
+          label="Group"
+          icon={Layers3}
+          value={scope.groupId}
+          onChange={scope.setGroupId}
+          narrowing={scope.groupId !== "all"}
+        >
           <option value="all">All account groups</option>
           {(scope.options?.groups || []).map((group) => (
             <option key={group.group_id} value={group.group_id}>{group.name}</option>
           ))}
         </ScopeSelect>
-        <ScopeSelect label="Account" icon={Cloud} value={scope.accountId} onChange={scope.setAccountId}>
+        <ScopeSelect
+          label="Account"
+          icon={Cloud}
+          value={scope.accountId}
+          onChange={scope.setAccountId}
+          narrowing={scope.accountId !== "all"}
+        >
           <option value="all">All accounts</option>
           {accountOptions.map((account) => (
             <option key={account.account_id} value={account.account_id}>
@@ -86,7 +120,13 @@ export function GlobalScopeBar() {
             </option>
           ))}
         </ScopeSelect>
-        <ScopeSelect label="Region" icon={Globe2} value={scope.region} onChange={scope.setRegion}>
+        <ScopeSelect
+          label="Region"
+          icon={Globe2}
+          value={scope.region}
+          onChange={scope.setRegion}
+          narrowing={scope.region !== "all"}
+        >
           <option value="all">All regions</option>
           {regionOptions.map((value) => <option key={value} value={value}>{value}</option>)}
         </ScopeSelect>
@@ -97,6 +137,7 @@ export function GlobalScopeBar() {
             <span>{accountOptions.length} accounts in view</span>
           ) : null}
         </div>
+      </div>
       </div>
     </div>
   )
