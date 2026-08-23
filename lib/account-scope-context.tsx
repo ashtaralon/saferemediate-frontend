@@ -10,6 +10,7 @@ import {
 } from "react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import {
+  healScopeAgainstOptions,
   normalizeCustomerRoster,
   resolveCustomerId,
   type AccountScopeOptions,
@@ -22,6 +23,11 @@ interface AccountScopeContextValue extends ProductScope {
   customers: CustomerScopeOption[]
   loading: boolean
   error: string | null
+  // Non-empty after a persisted narrowing value was reset because the live
+  // options could not satisfy it (see healScopeAgainstOptions). The scope bar
+  // surfaces these; a silent reset would be as opaque as the silent mismatch.
+  scopeNotices: string[]
+  dismissScopeNotices: () => void
   setCustomerId: (value: string) => void
   setGroupId: (value: string) => void
   setAccountId: (value: string) => void
@@ -55,6 +61,7 @@ export function AccountScopeProvider({ children }: { children: ReactNode }) {
   const [customers, setCustomers] = useState<CustomerScopeOption[]>([])
   const [loading, setLoading] = useState(pathname !== "/login")
   const [error, setError] = useState<string | null>(null)
+  const [scopeNotices, setScopeNotices] = useState<string[]>([])
   const [reloadKey, setReloadKey] = useState(0)
 
   const updateParam = (key: string, value: string, dependentKeys: string[] = []) => {
@@ -108,6 +115,32 @@ export function AccountScopeProvider({ children }: { children: ReactNode }) {
         if (!response.ok) throw new Error(`Account scope is unavailable (${response.status})`)
         const body = await response.json()
         if (!cancelled) setOptions(body)
+
+        // Heal a persisted narrowing the live options cannot satisfy — such a
+        // scope can never return data, and applying it blanks every scoped
+        // view with no error (incident 2026-08-23: a stray persisted region
+        // emptied Systems and Home for hours). The URL is cleaned in the same
+        // step, otherwise the rebind effect below would re-apply the stale
+        // query parameter and undo the heal. Only on the same-customer path:
+        // a customer switch above already reset the narrowing to "all", and
+        // healing with this closure's pre-switch values could resurrect them.
+        if (selected !== requested) return
+        const healed = healScopeAgainstOptions({ groupId, accountId, region }, body)
+        if (!cancelled && healed.cleared.length > 0) {
+          setGroupState(healed.groupId)
+          setAccountState(healed.accountId)
+          setRegionState(healed.region)
+          setScopeNotices(healed.cleared)
+          const next = new URLSearchParams(searchParams.toString())
+          const applyParam = (key: string, value: string) => {
+            if (value === "all") next.delete(key)
+            else next.set(key, value)
+          }
+          applyParam("account_group", healed.groupId)
+          applyParam("account_id", healed.accountId)
+          applyParam("region", healed.region)
+          startTransition(() => router.replace(`${pathname}${next.size ? `?${next}` : ""}`, { scroll: false }))
+        }
       } catch (reason) {
         if (!cancelled) setError(reason instanceof Error ? reason.message : String(reason))
       } finally {
@@ -168,6 +201,8 @@ export function AccountScopeProvider({ children }: { children: ReactNode }) {
         customers,
         loading,
         error,
+        scopeNotices,
+        dismissScopeNotices: () => setScopeNotices([]),
         setCustomerId,
         setGroupId: (value) => {
           setGroupState(value)
