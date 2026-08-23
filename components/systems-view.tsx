@@ -658,7 +658,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
     // A filtered-empty (systems exist, the narrowing filters hide them) is a
     // different situation from a true empty and must say so — with the count
     // from the real unfiltered probe and a one-click way out.
-    const hiddenByFilters = !accountScope.error && !systemsError && (hiddenByScope ?? 0) > 0
+    const hiddenByFilters = !accountScope.error && !systemsError && hiddenByScope !== null && hiddenByScope > 0
     const title = accountScope.error || systemsError
       ? "Systems data unavailable"
       : hiddenByFilters

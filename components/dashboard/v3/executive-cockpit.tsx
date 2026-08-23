@@ -481,7 +481,9 @@ export function ExecutiveCockpit({
       isCacheable: (value) => Boolean(value && typeof value === "object" && Array.isArray((value as SystemsCatalogResponse).systems)),
     },
   )
-  const hiddenByFilters = narrowedScope ? (unscopedProbe.data?.systems?.length ?? 0) : 0
+  // null = probe absent/unresolved (unknown), never coerced to zero — the
+  // cockpit honesty ratchet forbids defaulting an unknown metric to 0.
+  const hiddenByFilters = narrowedScope ? (unscopedProbe.data?.systems?.length ?? null) : null
 
   const scopedSystemName = scopedSystems.length === 1 ? scopedSystems[0] : null
   const snapshotUrl = scopedSystemName
@@ -564,7 +566,7 @@ export function ExecutiveCockpit({
     />
   }
   if (scopedSystems.length === 0) {
-    if (hiddenByFilters > 0) {
+    if (hiddenByFilters !== null && hiddenByFilters > 0) {
       // Systems exist; the narrowing filters hide them. A different situation
       // from a true empty, with a one-click way out — never the same card.
       return (
