@@ -14,7 +14,7 @@ const CACHE_TTL = 30 * 1000 // 30 seconds
 
 export async function GET(req: NextRequest) {
   const url = new URL(req.url)
-  const systemName = url.searchParams.get("systemName")
+  const systemName = url.searchParams.get("systemName") || url.searchParams.get("system_name")
   if (!systemName) {
     return NextResponse.json({ error: "systemName query parameter is required" }, { status: 400 })
   }
@@ -39,7 +39,7 @@ export async function GET(req: NextRequest) {
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), 20000)
 
-    const depMapUrl = `${BACKEND_URL}/api/dependency-map/full?system_name=${encodeURIComponent(systemName)}&max_nodes=500`
+    const depMapUrl = `${BACKEND_URL}/api/dependency-map/full?systemName=${encodeURIComponent(systemName)}&max_nodes=500`
 
     const depRes = await fetch(depMapUrl, {
       cache: "no-store",
@@ -57,7 +57,7 @@ export async function GET(req: NextRequest) {
     const edges = depData.edges || depData.relationships || []
 
     // Filter for traffic-related edges
-    const trafficTypes = ['ACTUAL_TRAFFIC', 'OBSERVED_TRAFFIC', 'ACTUAL_API_CALL', 'API_CALL', 'RUNTIME_CALLS', 'ACTUAL_S3_ACCESS', 'ACCESSES_RESOURCE']
+    const trafficTypes = ['ACTUAL_TRAFFIC', 'OBSERVED_TRAFFIC', 'ACTUAL_API_CALL', 'API_CALL', 'RUNTIME_CALLS', 'ACTUAL_S3_ACCESS', 'ATTRIBUTED_S3_ACCESS', 'ACCESSES_RESOURCE']
 
     const trafficEdges = edges.filter((e: any) => {
       const edgeType = e.edge_type || e.type || ''

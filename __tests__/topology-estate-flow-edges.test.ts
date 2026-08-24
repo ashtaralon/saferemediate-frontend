@@ -47,6 +47,25 @@ describe("estate-flow-edges", () => {
     expect(out[0]?.coverage_state).toBe("unknown")
   })
 
+  it("draws an exact workload-attributed EC2 to S3 edge", () => {
+    const visible = new Set(["ec2-a", "bucket-b"])
+    const index = new Map([["ec2-a", "ec2-a"], ["bucket-b", "bucket-b"]])
+    const types = new Map([["ec2-a", "EC2"], ["bucket-b", "S3"]])
+    const out = depMapEdgesToTrafficEdges(
+      [{ source: "ec2-a", target: "bucket-b", type: "ATTRIBUTED_S3_ACCESS", protocol: "s3:GetObject" }],
+      visible,
+      index,
+      types,
+    )
+    expect(out).toHaveLength(1)
+    expect(out[0]).toMatchObject({
+      source_id: "ec2-a",
+      target_id: "bucket-b",
+      edge_class: "edge_service",
+      protocol: "s3:GetObject",
+    })
+  })
+
   it("shows an honest empty attack overlay instead of ordinary traffic", () => {
     const visible = new Set(["lambda-a", "bucket-b"])
     const index = new Map([["lambda-a", "lambda-a"], ["bucket-b", "bucket-b"]])
