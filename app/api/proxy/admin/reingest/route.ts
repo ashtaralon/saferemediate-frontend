@@ -2,7 +2,7 @@ import { getBackendBaseUrl } from "@/lib/server/backend-url"
 import { coerceProxyErrorMessage } from "@/lib/proxy-error-message"
 
 /**
- * Re-ingest proxy — unified with the "Sync from AWS" pipeline.
+ * Compatibility proxy for the Neptune-safe "Sync from AWS" pipeline.
  *
  * Historical note (now obsolete):
  *   This route used to call POST /api/admin/reingest, which was broken
@@ -13,19 +13,15 @@ import { coerceProxyErrorMessage } from "@/lib/proxy-error-message"
  *   and scope.
  *
  * Current behavior:
- *   Both buttons now trigger the same /api/collectors/sync-all/start
- *   async job — 36 steps covering resource discovery, telemetry, v6.2
- *   collectors, materializers, and classifiers.
+ *   Both buttons trigger /api/v2/sync/start. The web tier enqueues only;
+ *   collection and graph activation run under the dedicated projector role.
  *
  *   The scope/target fields in the request body are accepted for
- *   backwards compatibility but currently ignored — the sync-all
- *   endpoint is global only. Per-system narrowing requires a backend
- *   filter that doesn't exist yet.
+ *   backwards compatibility but currently ignored. The backend returns the
+ *   exact sources refreshed and the lanes that are not connected yet.
  */
 
 export const dynamic = "force-dynamic"
-
-const DAYS = 7
 
 export async function POST(request: Request) {
   const backendUrl =
@@ -34,17 +30,17 @@ export async function POST(request: Request) {
   const startTime = Date.now()
 
   try {
-    // Parse body but ignore fields — sync-all doesn't filter by scope yet.
+    // Parse body but ignore fields — the certified managed lane is tenant scoped.
     const body = await request.json().catch(() => ({}))
     const scope = body.scope ?? "all"
     const target = body.target ?? null
 
-    const target_url = `${backendUrl}/api/collectors/sync-all/start?days=${DAYS}`
-    console.log("[API Proxy] Re-ingest → sync-all/start:", {
+    const target_url = `${backendUrl}/api/v2/sync/start`
+    console.log("[API Proxy] Re-ingest → v2/sync/start:", {
       scope,
       target,
       target_url,
-      note: "scope/target currently ignored — sync-all is global",
+      note: "scope/target currently ignored — managed refresh is tenant scoped",
     })
 
     const fetchStart = Date.now()
@@ -57,7 +53,7 @@ export async function POST(request: Request) {
 
     if (!response.ok) {
       const errorText = await response.text()
-      console.error("[API Proxy] sync-all/start failed:", {
+      console.error("[API Proxy] v2/sync/start failed:", {
         status: response.status,
         errorText: errorText.slice(0, 500),
         fetchTimeMs,
@@ -86,28 +82,15 @@ export async function POST(request: Request) {
 
     const data = await response.json()
 
-    // Normalize response to the shape handleReingest() already consumes,
-    // plus pass through job_id so the caller can optionally poll.
-    // sync-all returns either {success:true, job_id, message} on new jobs,
-    // or {success:false, existing_job_id, ...} if one is already running.
-    if (!data.success && data.existing_job_id) {
-      return Response.json({
-        success: true,
-        already_running: true,
-        job_id: data.existing_job_id,
-        current_step: data.current_step,
-        message: data.message ?? "A sync job is already running",
-        collectors_run: [], // historical shape for toast
-        _debug: { fetchTimeMs, totalTimeMs: Date.now() - startTime },
-      })
-    }
-
     return Response.json({
       success: true,
       job_id: data.job_id,
       status_url: data.status_url,
-      message: data.message ?? "Full 36-step sync job started. Takes several minutes.",
-      collectors_run: [], // historical shape — real progress comes from polling status_url
+      message: data.message ?? "Managed AWS refresh queued for the Neptune projector.",
+      sources: data.sources ?? [],
+      deferred_sources: data.deferred_sources ?? [],
+      deduplicated: Boolean(data.deduplicated),
+      collectors_run: [],
       _debug: { fetchTimeMs, totalTimeMs: Date.now() - startTime },
     })
   } catch (error: any) {

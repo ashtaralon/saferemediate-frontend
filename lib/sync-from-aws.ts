@@ -1,7 +1,16 @@
-/** Shared client for the v6.2 async sync-all data engine (36 steps). */
+/** Shared client for the Neptune-safe managed AWS refresh plane. */
+
+import { coerceProxyErrorMessage } from "@/lib/proxy-error-message"
 
 export const SYNC_ALL_DAYS = 7
-export const DEFAULT_SYNC_TOTAL_STEPS = 36
+export const DEFAULT_SYNC_TOTAL_STEPS = 2
+
+export interface DeferredSyncSource {
+  source: string
+  label: string
+  state: "NOT_CONNECTED" | string
+  missing_env?: string[]
+}
 
 export interface SyncJobStatus {
   job_id: string
@@ -12,6 +21,8 @@ export interface SyncJobStatus {
   message: string
   progress_percent: number
   results?: Record<string, unknown>
+  deferred_sources?: DeferredSyncSource[]
+  serving_store?: "neptune" | string
   error?: string
 }
 
@@ -23,6 +34,8 @@ export interface SyncStartResult {
   total_steps?: number
   message?: string
   error?: string
+  deferred_sources?: DeferredSyncSource[]
+  serving_store?: "neptune" | string
 }
 
 export interface SyncProgress {
@@ -41,6 +54,10 @@ export interface StartSyncOptions {
 
 export const SYNC_STEP_LABELS: Record<string, string> = {
   starting: "Starting...",
+  collection_queued: "Queued for the dedicated projector",
+  inspector_collection_and_projection: "Refreshing Inspector evidence in Neptune",
+  neptune_projection_activated: "Neptune projection activated",
+  neptune_projection_failed: "Neptune projection failed",
   resource_collectors: "Discovering AWS resources (EC2, ALB, Lambda, RDS, S3, IAM, EventBridge)",
   imdsv2: "Collecting EC2 IMDS configuration",
   tag_sync: "Syncing AWS tags",
@@ -88,12 +105,10 @@ export const SYNC_STEP_LABELS: Record<string, string> = {
 }
 
 export function buildSyncAllStartUrl(options: StartSyncOptions = {}): string {
-  const days = options.days ?? SYNC_ALL_DAYS
-  const params = new URLSearchParams({ days: String(days) })
-  if (options.skipFlowLogs) {
-    params.set("skip_flow_logs", "true")
-  }
-  return `/api/proxy/collectors/sync-all/start?${params.toString()}`
+  // Retain the argument for call-site compatibility. The managed refresh API
+  // owns source windows; the browser must not revive legacy sync-all options.
+  void options
+  return "/api/proxy/sync/start"
 }
 
 export function getStepLabel(stepName: string | undefined, fallback?: string): string {
@@ -117,7 +132,18 @@ export function toSyncProgress(status: SyncJobStatus): SyncProgress {
 
 export function formatSyncSuccessMessage(results?: Record<string, unknown>): string {
   if (!results) {
-    return "Sync completed successfully"
+    return "AWS evidence refreshed in Neptune"
+  }
+
+  const vulnerability = results.vulnerability_findings as Record<string, unknown> | undefined
+  if (vulnerability) {
+    const findings = Number(vulnerability.active_findings || 0)
+    const coverage = Number(vulnerability.active_coverage || 0)
+    const deferred = Array.isArray(results.deferred_sources) ? results.deferred_sources.length : 0
+    const suffix = deferred
+      ? ` ${deferred} additional data ${deferred === 1 ? "source is" : "sources are"} not connected yet.`
+      : ""
+    return `Inspector refreshed in Neptune: ${findings} active findings across ${coverage} covered resources.${suffix}`
   }
 
   const flowLogs = results.flow_logs as Record<string, number> | undefined
@@ -142,7 +168,15 @@ export async function startSyncAllJob(
 
   if (!response.ok) {
     const errorText = await response.text()
-    throw new Error(errorText || `Sync failed: ${response.status}`)
+    let errorBody: unknown = null
+    try {
+      errorBody = errorText ? JSON.parse(errorText) : null
+    } catch {
+      errorBody = null
+    }
+    throw new Error(
+      coerceProxyErrorMessage(errorBody, errorText || `Sync failed: ${response.status}`),
+    )
   }
 
   const data = (await response.json()) as SyncStartResult
@@ -163,7 +197,7 @@ export async function startSyncAllJob(
 }
 
 export async function fetchSyncJobStatus(jobId: string): Promise<SyncJobStatus | null> {
-  const response = await fetch(`/api/proxy/collectors/sync-all/status/${jobId}`, {
+  const response = await fetch(`/api/proxy/sync/status/${encodeURIComponent(jobId)}`, {
     signal: AbortSignal.timeout(8000),
   })
 
