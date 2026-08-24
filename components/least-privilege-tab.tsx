@@ -878,7 +878,7 @@ export const LeastPrivilegeTab: React.FC<LeastPrivilegeTabProps> = ({
             <button
               onClick={() => void startSync()}
               disabled={syncing}
-              title="Run the full 36-step sync-all pipeline (takes several minutes)"
+              title="Queue a managed AWS evidence refresh through the dedicated Neptune projector"
               className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${
                 syncing
                   ? 'bg-blue-600/50 text-blue-200 cursor-not-allowed'

@@ -95,7 +95,7 @@ export function IdentitiesSection({ onRequestRemediation, systemName }: Identiti
           <div className="flex items-center gap-1.5 text-xs" style={{ color: "var(--text-secondary)" }}>
             <Clock className="w-3.5 h-3.5" />
             <span>Last sync: {formatLastSync(lastSync)}</span>
-            <span className="text-[10px] opacity-60">(full 36-step pipeline)</span>
+            <span className="text-[10px] opacity-60">(managed Neptune refresh)</span>
           </div>
           <button
             onClick={() => void startSync()}

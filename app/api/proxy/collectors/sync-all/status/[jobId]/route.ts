@@ -1,50 +1,12 @@
-import { NextRequest, NextResponse } from "next/server"
-import { getBackendBaseUrl } from "@/lib/server/backend-url"
+import { NextRequest } from "next/server"
+import { GET as managedGet } from "@/app/api/proxy/sync/status/[jobId]/route"
 
-const BACKEND_URL =
-  getBackendBaseUrl()
-
+/** @deprecated Use /api/proxy/sync/status/:jobId. */
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
-
 export async function GET(
   request: NextRequest,
-  { params }: { params: Promise<{ jobId: string }> }
+  context: { params: Promise<{ jobId: string }> },
 ) {
-  try {
-    const { jobId } = await params
-
-    const response = await fetch(`${BACKEND_URL}/api/collectors/sync-all/status/${jobId}`, {
-      method: "GET",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      signal: AbortSignal.timeout(10000), // 10 second timeout for status check
-    })
-
-    if (!response.ok) {
-      const errorText = await response.text()
-      console.error(`[Collectors Proxy] Status check error: ${response.status}`, errorText)
-      return NextResponse.json(
-        {
-          success: false,
-          error: `Backend returned ${response.status}`,
-          detail: errorText,
-        },
-        { status: response.status }
-      )
-    }
-
-    const data = await response.json()
-    return NextResponse.json(data)
-  } catch (error: any) {
-    console.error("[Collectors Proxy] Status check error:", error)
-    return NextResponse.json(
-      {
-        success: false,
-        error: error.message || "Failed to get sync status",
-      },
-      { status: 500 }
-    )
-  }
+  return managedGet(request, context)
 }

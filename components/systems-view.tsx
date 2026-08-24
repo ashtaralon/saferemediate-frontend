@@ -571,14 +571,12 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
         alreadyRunning: result.already_running,
       })
 
-      // This button now unifies with "Sync from AWS" — it kicks off the same
-      // 36-step async pipeline (resource discovery, telemetry, v6.2 collectors,
-      // materializers, classifiers). No per-system scoping today — sync-all is global.
+      const deferred = Array.isArray(result.deferred_sources) ? result.deferred_sources : []
       toast({
-        title: result.already_running ? "Sync already in progress" : "Sync from AWS started",
-        description: result.already_running
-          ? `A sync job is already running (step ${result.current_step ?? "?"}/${result.total_steps ?? 36}). Watch the Overview card for completion.`
-          : `Running the full 36-step data pipeline (flow logs, CloudTrail, IAM last-accessed, Access Analyzer, behavioral sync, materializers, classifiers). Takes several minutes — click Refresh on the Overview card when it's done.`,
+        title: result.deduplicated ? "AWS refresh already queued" : "Sync from AWS started",
+        description: deferred.length
+          ? `Inspector is queued for the dedicated Neptune projector. ${deferred.length} additional data source${deferred.length === 1 ? " is" : "s are"} not connected to on-demand refresh yet.`
+          : "AWS evidence refresh is queued for the dedicated Neptune projector.",
       })
 
       // Refresh systems data after a short delay so any IAM-tag changes surface.
