@@ -43,9 +43,9 @@ describe('IaC Change Intelligence', () => {
     vi.stubGlobal('fetch', fetchMock)
     const view = render(<AnalyzeChangePage />)
 
-    expect(screen.getByRole('heading', { name: 'Know the blast radius before you deploy' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Will this change break anything?' })).toBeInTheDocument()
     expect(screen.getByText(/IaC-proven facts, configured topology, observed runtime behavior/)).toBeInTheDocument()
-    const submit = screen.getByRole('button', { name: 'Analyze blast radius' })
+    const submit = screen.getByRole('button', { name: 'Check for breaking changes' })
     expect(submit).toBeDisabled()
 
     const file = new File(['{}'], 'tfplan.json', { type: 'application/json' })
@@ -114,7 +114,7 @@ describe('IaC Change Intelligence', () => {
     expect(await screen.findByText('current.json')).toBeInTheDocument()
     expect(await screen.findByText('proposed.json')).toBeInTheDocument()
     fireEvent.change(screen.getByLabelText('Why is this change needed?'), { target: { value: 'Upgrade the database through an evaluated change set.' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Analyze blast radius' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Check for breaking changes' }))
 
     await waitFor(() => expect(push).toHaveBeenCalledWith('/change-queue/intents/ci-cfn-1?customer_id=tenant-a'))
     const call = fetchMock.mock.calls.find(([url]) => String(url).includes('/analyze-iac'))
@@ -146,7 +146,7 @@ describe('IaC Change Intelligence', () => {
     inputs.forEach((input, index) => fireEvent.change(input, { target: { files: [files[index]] } }))
     expect(await screen.findByText('proposed.json')).toBeInTheDocument()
     fireEvent.change(screen.getByLabelText('Why is this change needed?'), { target: { value: 'Validate a large evaluated infrastructure change safely.' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Analyze blast radius' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Check for breaking changes' }))
 
     expect(await screen.findByText('The combined analysis request is larger than 4 MB. Split the change into separately reviewed plans.')).toBeInTheDocument()
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/analyze-iac'))).toBe(false)

@@ -198,7 +198,7 @@ export function IaCChangeDossier({ document, customerId }: { document: IaCIntent
       <div className="mx-auto max-w-7xl">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <Link href={`/change-queue${scopeQuery}`} className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-violet-700"><ArrowLeft className="h-4 w-4" /> Change Queue</Link>
-          <Link href={`/change-queue/new${scopeQuery}`} className="rounded-xl border border-violet-300 bg-white px-4 py-2 text-sm font-bold text-violet-700">Analyze another change</Link>
+          <Link href={`/change-queue/new${scopeQuery}`} className="rounded-xl border border-violet-300 bg-white px-4 py-2 text-sm font-bold text-violet-700">Check another change</Link>
         </div>
 
         <section className={`mt-5 rounded-2xl border p-6 shadow-sm ${conclusionStyles[conclusion.state] || conclusionStyles.REQUIRE_REVIEW}`}>
