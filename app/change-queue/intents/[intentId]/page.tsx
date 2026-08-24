@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import { AlertTriangle, ArrowLeft, CheckCircle2, CircleHelp, GitBranch, Loader2, LockKeyhole, Network, ShieldAlert, TimerReset, Workflow } from 'lucide-react'
+import { IaCChangeDossier, type IaCIntentDocument } from '@/components/iac-change-dossier'
 
 interface ExecutionHandoff {
   state: string
@@ -32,6 +33,7 @@ interface IntentDocument {
   }
   analysis_coverage: { performed_level: string; graph_impact: string; service_risk_model: string; service_simulation: string; execution_assurance: string }
   risk_dossier: {
+    analysis_kind?: string
     risk_band: string
     risk_indicator: number
     risk_indicator_explanation: string
@@ -106,6 +108,10 @@ export default function ChangeIntentDossierPage() {
   const change = document.intent.change
   const handoff = document.execution.handoff || { state: document.execution.state, available: false, reason: document.execution.reason }
   const scopeQuery = customerId ? `?customer_id=${encodeURIComponent(customerId)}` : ''
+
+  if (dossier.analysis_kind === 'IAC_CHANGE_INTELLIGENCE') {
+    return <IaCChangeDossier document={document as unknown as IaCIntentDocument} customerId={customerId} />
+  }
 
   const createHandoff = async () => {
     setConverting(true)
