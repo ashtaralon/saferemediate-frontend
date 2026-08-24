@@ -9,7 +9,8 @@ import type { DecisionOutcomeCanonical, SimulateFixResponse } from '@/lib/types'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useToast } from '@/hooks/use-toast'
 import { dispatchRemediationChanged, onRemediationChanged } from '@/lib/remediation-events'
-import { deriveLPIntegrity, lpEvidenceGapCopy } from '@/lib/lp-integrity'
+import { deriveLPIntegrity, lpEvidenceGapCopy, lpIntegrityCopy } from '@/lib/lp-integrity'
+import { resolveLPReviewSurface } from '@/lib/lp-review-routing'
 import {
   mergeLpResourcesAfterFetch,
   markResourceVerifying,
@@ -374,23 +375,24 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         (r.resourceName === detail.resourceName || r.id === detail.resourceName),
     )
     if (!match) return false
-    // Same gate as handleResourceClick — a deep link must not be a second door
-    // into the remediation modals when the analysis is held. Two entry points
-    // to the same destructive surface means the gate has to be on both.
-    if (integrity.mutationBlocked) {
+    // Review routing and mutation authority are separate decisions. IAM keeps
+    // its canonical Change Case while held; the veto is passed into that
+    // surface and blocks approval/execution there.
+    const reviewSurface = resolveLPReviewSurface(detail.resourceType, integrity.mutationBlocked)
+    if (reviewSurface === 'read-only') {
       setSelectedResource(match)
       setDrawerOpen(true)
       return true
     }
-    if (detail.resourceType === 'IAMRole') {
+    if (reviewSurface === 'iam') {
       setSelectedIAMRole(match.resourceName)
       setSelectedIAMFindingId(match.findingId || null)
       setIamModalOpen(true)
-    } else if (detail.resourceType === 'S3Bucket') {
+    } else if (reviewSurface === 's3') {
       setSelectedS3Bucket(match.resourceName)
       setSelectedS3Resource(match)
       setS3ModalOpen(true)
-    } else if (detail.resourceType === 'SecurityGroup') {
+    } else if (reviewSurface === 'security-group') {
       let sgId = match.id
       if (!sgId?.startsWith('sg-')) {
         if (match.resourceName?.startsWith('sg-')) sgId = match.resourceName
@@ -402,9 +404,6 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       setSelectedSGId(sgId)
       setSelectedSGName(match.resourceName)
       setSgModalOpen(true)
-    } else {
-      setSelectedResource(match)
-      setDrawerOpen(true)
     }
     return true
   }
@@ -1821,25 +1820,21 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
   }
   // Handle resource click (open appropriate modal)
   const handleResourceClick = (resource: GapResource) => {
-    // The three typed modals below are the remediation surfaces — they carry
-    // Apply. When the analyzer sweep did not complete, route to the read-only
-    // drawer instead: a permission the failed analyzer would have shown as
-    // in-use is simply absent from this payload, so "unused" here is not a
-    // finding, it is a gap. Inspection stays open; the cut does not.
-    if (integrity.mutationBlocked) {
+    const reviewSurface = resolveLPReviewSurface(resource.resourceType, integrity.mutationBlocked)
+    if (reviewSurface === 'read-only') {
       setSelectedResource(resource)
       setDrawerOpen(true)
       return
     }
-    if (resource.resourceType === 'IAMRole') {
+    if (reviewSurface === 'iam') {
       setSelectedIAMRole(resource.resourceName)
       setSelectedIAMFindingId(resource.findingId || null)
       setIamModalOpen(true)
-    } else if (resource.resourceType === 'S3Bucket') {
+    } else if (reviewSurface === 's3') {
       setSelectedS3Bucket(resource.resourceName)
       setSelectedS3Resource(resource)
       setS3ModalOpen(true)
-    } else if (resource.resourceType === 'SecurityGroup') {
+    } else if (reviewSurface === 'security-group') {
       let sgId = resource.id
       if (!sgId?.startsWith('sg-')) {
         if (resource.resourceName?.startsWith('sg-')) {
@@ -1852,9 +1847,6 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       setSelectedSGId(sgId)
       setSelectedSGName(resource.resourceName)
       setSgModalOpen(true)
-    } else {
-      setSelectedResource(resource)
-      setDrawerOpen(true)
     }
   }
 
@@ -3619,10 +3611,12 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         roleName={selectedIAMRole || ''}
         findingId={selectedIAMFindingId || undefined}
         systemName={systemName}
-        // This IAM flow is protected by the backend's verified signed-plan
-        // token and exact permission-set check. Keep sibling LP mutation
-        // surfaces behind LP_MUTATION_APPLY_DISABLED until they ship the same boundary.
-        applyDisabled={false}
+        // IAM review stays on the canonical signed-plan Change Case even when
+        // the estate generation is held. Authority is a separate veto.
+        applyDisabled={integrity.mutationBlocked}
+        authorityHoldReason={
+          integrity.mutationBlocked ? lpIntegrityCopy(integrity).body : null
+        }
         onApplyFix={(data) => {
           console.log('[IAM] Apply fix requested:', data)
         }}
