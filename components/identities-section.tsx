@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { SYNC_SURFACES, laneRefreshedAt, laneState, type LaneState, notRefreshedReason } from "@/lib/sync-surfaces"
 import {
   LayoutDashboard,
   Bot,
@@ -39,10 +40,20 @@ export function IdentitiesSection({ onRequestRemediation, systemName }: Identiti
   const [syncDone, setSyncDone] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
 
+  // Identities renders IAM evidence, which this refresh does NOT collect: the
+  // round dispatches the Inspector lane only. The freshness stamp therefore
+  // comes from the backend receipt for THIS lane, and is null whenever the
+  // lane was not refreshed — previously the round merely succeeding was enough
+  // to paint a green "Synced" and stamp new Date(), claiming AWS freshness the
+  // client had no basis for.
+  const [laneOutcome, setLaneOutcome] = useState<LaneState>("UNKNOWN")
+
   const { syncing, startSync } = useSyncFromAWS({
-    onComplete: () => {
-      setLastSync(new Date().toISOString())
-      setSyncDone(true)
+    onComplete: (payload?: Record<string, unknown>) => {
+      const lane = SYNC_SURFACES.iam.lane
+      setLaneOutcome(laneState(lane, payload))
+      setLastSync(laneRefreshedAt(lane, payload))
+      setSyncDone(laneState(lane, payload) === "REFRESHED")
       setRefreshKey((k) => k + 1)
       setTimeout(() => setSyncDone(false), 3000)
     },
@@ -94,8 +105,7 @@ export function IdentitiesSection({ onRequestRemediation, systemName }: Identiti
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1.5 text-xs" style={{ color: "var(--text-secondary)" }}>
             <Clock className="w-3.5 h-3.5" />
-            <span>Last sync: {formatLastSync(lastSync)}</span>
-            <span className="text-[10px] opacity-60">(managed Neptune refresh)</span>
+            <span>{SYNC_SURFACES.iam.evidence} last refreshed: {formatLastSync(lastSync)}</span>
           </div>
           <button
             onClick={() => void startSync()}
@@ -109,22 +119,31 @@ export function IdentitiesSection({ onRequestRemediation, systemName }: Identiti
             {syncDone ? (
               <>
                 <Check className="w-4 h-4" />
-                Synced
+                Refreshed
               </>
             ) : syncing ? (
               <>
                 <RefreshCw className="w-4 h-4 animate-spin" />
-                Syncing...
+                Refreshing...
               </>
             ) : (
               <>
                 <RefreshCw className="w-4 h-4" />
-                Sync from AWS
+                {SYNC_SURFACES.iam.action}
               </>
             )}
           </button>
         </div>
       </div>
+
+      {notRefreshedReason(SYNC_SURFACES.iam, laneOutcome) && (
+        <div
+          className="mb-4 rounded-lg border px-3 py-2 text-xs"
+          style={{ borderColor: "#f59e0b40", background: "#f59e0b10", color: "#f59e0b" }}
+        >
+          {notRefreshedReason(SYNC_SURFACES.iam, laneOutcome)}
+        </div>
+      )}
 
       {/* Tab Navigation */}
       <div
