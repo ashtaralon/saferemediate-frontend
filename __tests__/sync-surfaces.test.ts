@@ -1,99 +1,139 @@
 /**
  * A screen may only claim freshness the backend actually granted.
  *
- * Observed 2026-08-24: "Sync from AWS" on seven surfaces ran one Inspector-only
- * operation; Identities then painted a green "Synced" stamped with
- * `new Date()` — the browser's clock — for data AWS never re-read. These pin
- * the two rules that prevent it: a lane is REFRESHED only if the backend said
- * so, and a timestamp comes only from a backend receipt.
+ * Two bugs are pinned here, both of which shipped:
+ *
+ * 1. Identities called setLastSync(new Date()) — the BROWSER's clock — whenever
+ *    a round completed, painting a green "Synced" for IAM evidence that an
+ *    Inspector-only round never collected.
+ * 2. The first fix then read `sources` as proof of refresh. `sources` is the
+ *    QUEUED list; treating it as freshness moves the same lie from the clock
+ *    into the payload.
+ *
+ * And a screen rarely depends on one lane: IAM needs configuration AND observed
+ * use, so it is only as fresh as its least fresh lane.
  */
 import { describe, expect, it } from "vitest"
 
 import {
   SYNC_SURFACES,
+  laneCapability,
   laneRefreshedAt,
   laneState,
   notRefreshedReason,
+  surfaceCapability,
+  surfaceRefreshedAt,
+  unsupportedLanes,
 } from "@/lib/sync-surfaces"
 
-// Exactly what POST /api/v2/sync/start returns on this tenant today.
-const START = {
-  sources: ["vulnerability_findings"],
-  deferred_sources: [
-    { source: "inventory_reconcile", label: "AWS inventory", state: "NOT_CONNECTED" },
-    { source: "api_activity", label: "CloudTrail API activity", state: "NOT_CONNECTED" },
-    { source: "network_flow", label: "VPC network flow", state: "NOT_CONNECTED" },
+// Exactly what GET /api/v2/sync/capabilities returns on this deployment.
+const CAPS = {
+  lanes: [
+    { lane: "vulnerability_findings", state: "CONNECTED" },
+    { lane: "inventory_reconcile", state: "NOT_CONNECTED", missing_env: ["CYNTRO_INVENTORY_QUEUE_URL"] },
+    { lane: "api_activity", state: "NOT_CONNECTED", missing_env: ["CYNTRO_CLOUDTRAIL_QUEUE_URL"] },
+    { lane: "network_flow", state: "NOT_CONNECTED", missing_env: ["CYNTRO_FLOWLOG_QUEUE_URL"] },
   ],
 }
 
-const COMPLETED = {
+const START = {
+  sources: ["vulnerability_findings"],
+  deferred_sources: [
+    { source: "inventory_reconcile", state: "NOT_CONNECTED" },
+    { source: "api_activity", state: "NOT_CONNECTED" },
+    { source: "network_flow", state: "NOT_CONNECTED" },
+  ],
+}
+
+const DONE = {
   ...START,
   refreshed_sources: ["vulnerability_findings"],
   completed_at: "2026-08-24T12:05:00Z",
 }
 
-describe("laneState", () => {
-  it("marks the Inspector lane refreshed", () => {
-    expect(laneState("vulnerability_findings", COMPLETED)).toBe("REFRESHED")
+describe("`sources` is queued, not refreshed", () => {
+  it("maps a queued lane to QUEUED, never REFRESHED", () => {
+    expect(laneState("vulnerability_findings", START)).toBe("QUEUED")
   })
 
-  it.each(["inventory_reconcile", "api_activity", "network_flow"] as const)(
-    "does not claim %s was refreshed",
-    (lane) => {
-      expect(laneState(lane, COMPLETED)).toBe("NOT_CONNECTED")
-    },
-  )
-
-  it("is UNKNOWN before any round, never REFRESHED", () => {
-    expect(laneState("inventory_reconcile", null)).toBe("UNKNOWN")
-    expect(laneState("vulnerability_findings", {})).toBe("UNKNOWN")
-  })
-
-  it("treats a lane the backend never mentioned as UNKNOWN", () => {
-    expect(laneState("network_flow", { sources: ["vulnerability_findings"] })).toBe("UNKNOWN")
-  })
-})
-
-describe("laneRefreshedAt — the false-freshness guard", () => {
-  it("returns the backend receipt for a refreshed lane", () => {
-    expect(laneRefreshedAt("vulnerability_findings", COMPLETED)).toBe("2026-08-24T12:05:00Z")
-  })
-
-  it("returns null for a lane that was NOT refreshed, even on a successful round", () => {
-    // This is the Identities bug: the round succeeded, so the screen stamped
-    // the clock. Success of the ROUND is not freshness of THIS lane.
-    expect(laneRefreshedAt("inventory_reconcile", COMPLETED)).toBeNull()
-  })
-
-  it("returns null when the lane refreshed but the backend gave no stamp", () => {
-    // Never substitute a local clock for a missing receipt.
+  it("grants no freshness for a merely queued lane", () => {
     expect(laneRefreshedAt("vulnerability_findings", START)).toBeNull()
   })
+
+  it("marks refreshed only from refreshed_sources on a completed round", () => {
+    expect(laneState("vulnerability_findings", DONE)).toBe("REFRESHED")
+    expect(laneRefreshedAt("vulnerability_findings", DONE)).toBe("2026-08-24T12:05:00Z")
+  })
+
+  it("returns null when a lane refreshed but carries no receipt", () => {
+    const noStamp = { refreshed_sources: ["vulnerability_findings"] }
+    expect(laneRefreshedAt("vulnerability_findings", noStamp)).toBeNull()
+  })
 })
 
-describe("surface contract", () => {
-  it("never labels a button with a whole-cloud claim", () => {
+describe("a surface is as fresh as its least fresh required lane", () => {
+  it("models IAM as configuration AND observed use", () => {
+    expect(SYNC_SURFACES.iam.requiredLanes).toEqual(["inventory_reconcile", "api_activity"])
+  })
+
+  it("is not fresh when only some required lanes refreshed", () => {
+    const partial = {
+      refreshed_sources: ["inventory_reconcile"],
+      completed_at: "2026-08-24T13:00:00Z",
+    }
+    expect(surfaceRefreshedAt(SYNC_SURFACES.iam, partial)).toBeNull()
+  })
+
+  it("is fresh only when every required lane refreshed", () => {
+    const both = {
+      refreshed_sources: ["inventory_reconcile", "api_activity"],
+      completed_at: "2026-08-24T14:00:00Z",
+    }
+    expect(surfaceRefreshedAt(SYNC_SURFACES.iam, both)).toBe("2026-08-24T14:00:00Z")
+  })
+
+  it("gives IAM no freshness from an Inspector-only round", () => {
+    // The original Identities bug, now unexpressible.
+    expect(surfaceRefreshedAt(SYNC_SURFACES.iam, DONE)).toBeNull()
+  })
+})
+
+describe("capability is known before the click", () => {
+  it("reads per-lane capability from the backend map", () => {
+    expect(laneCapability("vulnerability_findings", CAPS)).toBe("CONNECTED")
+    expect(laneCapability("api_activity", CAPS)).toBe("NOT_CONNECTED")
+  })
+
+  it("marks a surface unsupported when ANY required lane is not connected", () => {
+    expect(surfaceCapability(SYNC_SURFACES.cve, CAPS)).toBe("CONNECTED")
+    expect(surfaceCapability(SYNC_SURFACES.iam, CAPS)).toBe("NOT_CONNECTED")
+    expect(surfaceCapability(SYNC_SURFACES.behavioral, CAPS)).toBe("NOT_CONNECTED")
+    expect(surfaceCapability(SYNC_SURFACES.dependencyMap, CAPS)).toBe("NOT_CONNECTED")
+  })
+
+  it("names which lanes are missing, not a bare unavailable", () => {
+    expect(unsupportedLanes(SYNC_SURFACES.iam, CAPS)).toEqual([
+      "inventory_reconcile",
+      "api_activity",
+    ])
+  })
+
+  it("is UNKNOWN before capabilities load, so nothing is assumed", () => {
+    expect(surfaceCapability(SYNC_SURFACES.cve, null)).toBe("UNKNOWN")
+    expect(notRefreshedReason(SYNC_SURFACES.iam, null, DONE)).toBeNull()
+  })
+})
+
+describe("labels", () => {
+  it("never claims to sync the whole cloud", () => {
     for (const surface of Object.values(SYNC_SURFACES)) {
       expect(surface.action).not.toMatch(/sync from aws/i)
       expect(surface.action).toMatch(/^Refresh /)
+      expect(surface.requiredLanes.length).toBeGreaterThan(0)
     }
   })
 
-  it("binds every surface to a real backend lane", () => {
-    const lanes = new Set([
-      "vulnerability_findings",
-      "inventory_reconcile",
-      "api_activity",
-      "network_flow",
-    ])
-    for (const surface of Object.values(SYNC_SURFACES)) {
-      expect(lanes.has(surface.lane)).toBe(true)
-    }
-  })
-
-  it("explains a not-connected lane instead of failing silently", () => {
-    const reason = notRefreshedReason(SYNC_SURFACES.inventory, "NOT_CONNECTED")
-    expect(reason).toContain("not connected")
-    expect(notRefreshedReason(SYNC_SURFACES.cve, "REFRESHED")).toBeNull()
+  it("explains an unsupported surface up front", () => {
+    expect(notRefreshedReason(SYNC_SURFACES.iam, CAPS, DONE)).toContain("not connected")
   })
 })

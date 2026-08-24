@@ -1,18 +1,14 @@
 "use client"
 
 import { useState } from "react"
-import { SYNC_SURFACES, laneRefreshedAt, laneState, type LaneState, notRefreshedReason } from "@/lib/sync-surfaces"
+import { RefreshEvidenceButton } from "@/components/RefreshEvidenceButton"
 import {
   LayoutDashboard,
   Bot,
   User,
   ExternalLink,
   Crown,
-  RefreshCw,
-  Check,
-  Clock,
 } from "lucide-react"
-import { useSyncFromAWS } from "@/hooks/use-sync-from-aws"
 import { IdentitiesOverviewTab } from "./identities/identities-overview-tab"
 import { NHITab } from "./identities/nhi-tab"
 import { HumanIdentitiesTab } from "./identities/human-identities-tab"
@@ -36,40 +32,13 @@ interface IdentitiesSectionProps {
 
 export function IdentitiesSection({ onRequestRemediation, systemName }: IdentitiesSectionProps) {
   const [activeTab, setActiveTab] = useState<TabId>("overview")
-  const [lastSync, setLastSync] = useState<string | null>(null)
-  const [syncDone, setSyncDone] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
 
-  // Identities renders IAM evidence, which this refresh does NOT collect: the
-  // round dispatches the Inspector lane only. The freshness stamp therefore
-  // comes from the backend receipt for THIS lane, and is null whenever the
-  // lane was not refreshed — previously the round merely succeeding was enough
-  // to paint a green "Synced" and stamp new Date(), claiming AWS freshness the
-  // client had no basis for.
-  const [laneOutcome, setLaneOutcome] = useState<LaneState>("UNKNOWN")
+  // The refresh control owns label, capability, freshness and the round.
+  // Identities only needs to know when to refetch — it must never decide for
+  // itself that its data is fresh.
+  const handleRefreshed = () => setRefreshKey((k) => k + 1)
 
-  const { syncing, startSync } = useSyncFromAWS({
-    onComplete: (payload?: Record<string, unknown>) => {
-      const lane = SYNC_SURFACES.iam.lane
-      setLaneOutcome(laneState(lane, payload))
-      setLastSync(laneRefreshedAt(lane, payload))
-      setSyncDone(laneState(lane, payload) === "REFRESHED")
-      setRefreshKey((k) => k + 1)
-      setTimeout(() => setSyncDone(false), 3000)
-    },
-  })
-
-  const formatLastSync = (iso: string | null) => {
-    if (!iso) return "Never"
-    const d = new Date(iso)
-    const now = new Date()
-    const diffMin = Math.round((now.getTime() - d.getTime()) / 60000)
-    if (diffMin < 1) return "Just now"
-    if (diffMin < 60) return `${diffMin}m ago`
-    const diffHrs = Math.round(diffMin / 60)
-    if (diffHrs < 24) return `${diffHrs}h ago`
-    return d.toLocaleDateString()
-  }
 
   const renderTab = () => {
     switch (activeTab) {
@@ -103,45 +72,10 @@ export function IdentitiesSection({ onRequestRemediation, systemName }: Identiti
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1.5 text-xs" style={{ color: "var(--text-secondary)" }}>
-            <Clock className="w-3.5 h-3.5" />
-            <span>{SYNC_SURFACES.iam.evidence} last refreshed: {formatLastSync(lastSync)}</span>
-          </div>
-          <button
-            onClick={() => void startSync()}
-            disabled={syncing}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all hover:opacity-90 disabled:opacity-50"
-            style={{
-              background: syncDone ? "#10b981" : "#3b82f6",
-              color: "#ffffff",
-            }}
-          >
-            {syncDone ? (
-              <>
-                <Check className="w-4 h-4" />
-                Refreshed
-              </>
-            ) : syncing ? (
-              <>
-                <RefreshCw className="w-4 h-4 animate-spin" />
-                Refreshing...
-              </>
-            ) : (
-              <>
-                <RefreshCw className="w-4 h-4" />
-                {SYNC_SURFACES.iam.action}
-              </>
-            )}
-          </button>
+          <RefreshEvidenceButton surface="iam" onRefreshed={handleRefreshed} />
         </div>
       </div>
 
-      {notRefreshedReason(SYNC_SURFACES.iam, laneOutcome) && (
-        <div
-          className="mb-4 rounded-lg border px-3 py-2 text-xs"
-          style={{ borderColor: "#f59e0b40", background: "#f59e0b10", color: "#f59e0b" }}
-        >
-          {notRefreshedReason(SYNC_SURFACES.iam, laneOutcome)}
         </div>
       )}
 

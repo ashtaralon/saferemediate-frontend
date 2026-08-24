@@ -1,20 +1,23 @@
 /**
- * What each screen's refresh button actually refreshes.
+ * What each screen's refresh control can actually refresh, and whether it did.
  *
- * "Sync from AWS" on seven surfaces used to trigger one Inspector-only
- * operation, then paint a green "Synced" with the BROWSER's clock — so
- * Identities, Inventory, LP and Dependency Map all claimed freshness for data
- * the backend never touched. That is false freshness, and it is the exact
- * failure the no-fabricated-values rule exists to prevent.
+ * Two rules this module exists to enforce, both learned from real bugs:
  *
- * The backend already tells the truth: POST /api/v2/sync/start returns the
- * lanes it dispatched in `sources`, and every lane it did NOT refresh in
- * `deferred_sources` with a state of NOT_CONNECTED or NOT_REQUESTED. This
- * module binds each screen to the lane its data actually comes from, so the
- * label, the enabled state and the freshness stamp are all derived from the
- * backend receipt instead of decided per-component.
+ * 1. A screen may not claim freshness the backend did not grant. Identities
+ *    used to call setLastSync(new Date()) — the BROWSER's clock — whenever a
+ *    round completed, painting a green "Synced" for IAM evidence an
+ *    Inspector-only round never collected.
  *
- * Adding a screen means adding a row here — not inventing new copy.
+ * 2. `sources` is NOT freshness. The start response lists the lanes it QUEUED;
+ *    only a completed round's `refreshed_sources`, together with a backend
+ *    activation receipt, means data actually changed. Reading `sources` as
+ *    refreshed reintroduces bug 1 through the back door — it just moves the
+ *    lie from the clock to the payload.
+ *
+ * A screen also rarely depends on ONE lane. Identities/LP need IAM
+ * configuration AND observed use; Behavioral needs API activity AND network
+ * flow; Dependency Map needs inventory AND network. So a surface declares
+ * `requiredLanes`, and is only as fresh as its LEAST fresh lane.
  */
 
 /** Lane ids exactly as the backend emits them. Do not invent values. */
@@ -24,40 +27,66 @@ export type SyncLane =
   | "api_activity"
   | "network_flow"
 
-/** Per-lane outcome of one sync round, read from the backend response. */
+/** Whether this deployment can refresh a lane at all — from /capabilities. */
+export type LaneCapability = "CONNECTED" | "NOT_CONNECTED" | "UNKNOWN"
+
+/** What one completed round did to a lane. */
 export type LaneState =
-  | "REFRESHED"      // backend dispatched this lane in this round
-  | "NOT_CONNECTED"  // lane has no collection path deployed for this tenant
+  | "REFRESHED"      // completed round listed it in refreshed_sources
+  | "QUEUED"         // start listed it in sources; NOT yet freshness
+  | "NOT_CONNECTED"  // no collection path deployed for this lane
   | "NOT_REQUESTED"  // lane exists but this round did not ask for it
-  | "UNKNOWN"        // no round has run, or the backend said nothing about it
+  | "UNKNOWN"        // nothing has told us
 
 export interface SyncSurface {
-  /** The backend lane this screen's data comes from. */
-  lane: SyncLane
+  /** Every lane whose evidence this screen displays. Freshness is the MIN. */
+  requiredLanes: readonly SyncLane[]
   /** Button label. Names the evidence, never the whole cloud. */
   action: string
-  /** What this screen is showing, for the "not refreshed" explanation. */
+  /** What this screen shows, for the "not refreshed" explanation. */
   evidence: string
 }
 
 export const SYNC_SURFACES = {
   cve: {
-    lane: "vulnerability_findings",
+    requiredLanes: ["vulnerability_findings"],
     action: "Refresh Inspector findings",
     evidence: "Amazon Inspector vulnerability findings",
   },
   inventory: {
-    lane: "inventory_reconcile",
+    requiredLanes: ["inventory_reconcile"],
     action: "Refresh inventory",
     evidence: "AWS resource inventory and configuration",
   },
+  // IAM evidence is configuration AND observed use — policy/boundary/trust
+  // come from inventory collection, actual calls from CloudTrail. Refreshing
+  // one and not the other leaves the screen half-stale, so both are required.
   iam: {
-    lane: "api_activity",
+    requiredLanes: ["inventory_reconcile", "api_activity"],
     action: "Refresh IAM evidence",
-    evidence: "IAM and CloudTrail activity evidence",
+    evidence: "IAM configuration and observed-use evidence",
+  },
+  // Least privilege compares granted against used: same two lanes, and a
+  // verdict computed from a stale half is worse than no verdict.
+  leastPrivilege: {
+    requiredLanes: ["inventory_reconcile", "api_activity"],
+    action: "Refresh least-privilege evidence",
+    evidence: "IAM configuration and observed-use evidence",
+  },
+  // Behavioral intelligence joins API activity to network flow.
+  behavioral: {
+    requiredLanes: ["api_activity", "network_flow"],
+    action: "Refresh behavioral evidence",
+    evidence: "API activity and network flow evidence",
+  },
+  // Dependency map needs the topology (inventory) and the observed edges.
+  dependencyMap: {
+    requiredLanes: ["inventory_reconcile", "network_flow"],
+    action: "Refresh dependency evidence",
+    evidence: "resource inventory and network flow evidence",
   },
   network: {
-    lane: "network_flow",
+    requiredLanes: ["network_flow"],
     action: "Refresh network evidence",
     evidence: "VPC flow log evidence",
   },
@@ -65,18 +94,38 @@ export const SYNC_SURFACES = {
 
 export type SyncSurfaceKey = keyof typeof SYNC_SURFACES
 
-interface DeferredEntry {
+interface LaneEntry {
+  lane?: string
   source?: string
   label?: string
   state?: string
+  missing_env?: string[]
+}
+
+function entries(value: unknown): LaneEntry[] {
+  return Array.isArray(value) ? (value as LaneEntry[]) : []
 }
 
 /**
- * Resolve one lane's outcome from a sync response.
+ * Capability for one lane, from GET /api/v2/sync/capabilities.
  *
- * `results` is the completed-status payload; `startPayload` the start response.
- * Both carry `deferred_sources`; only the completed one carries
- * `refreshed_sources`. Absence of information is UNKNOWN — never REFRESHED.
+ * UNKNOWN until capabilities load — a control must not be enabled on an
+ * assumption, and must not be disabled on one either.
+ */
+export function laneCapability(
+  lane: SyncLane,
+  capabilities: Record<string, unknown> | null | undefined,
+): LaneCapability {
+  const hit = entries(capabilities?.lanes).find((l) => l.lane === lane)
+  if (!hit) return "UNKNOWN"
+  return hit.state === "CONNECTED" ? "CONNECTED" : "NOT_CONNECTED"
+}
+
+/**
+ * What a round did to one lane.
+ *
+ * `refreshed_sources` is the ONLY evidence of refresh. `sources` means queued
+ * and maps to QUEUED, never REFRESHED — a queued lane has changed nothing yet.
  */
 export function laneState(
   lane: SyncLane,
@@ -84,25 +133,28 @@ export function laneState(
 ): LaneState {
   if (!payload) return "UNKNOWN"
 
-  const refreshed = payload.refreshed_sources ?? payload.sources
+  const refreshed = payload.refreshed_sources
   if (Array.isArray(refreshed) && refreshed.includes(lane)) return "REFRESHED"
 
-  const deferred = payload.deferred_sources
-  if (Array.isArray(deferred)) {
-    const hit = (deferred as DeferredEntry[]).find((d) => d?.source === lane)
-    if (hit) {
-      return hit.state === "NOT_CONNECTED" ? "NOT_CONNECTED" : "NOT_REQUESTED"
-    }
+  const deferred = entries(payload.deferred_sources).find((d) => d.source === lane)
+  if (deferred) {
+    return deferred.state === "NOT_CONNECTED" ? "NOT_CONNECTED" : "NOT_REQUESTED"
   }
+
+  const queued = payload.sources
+  if (Array.isArray(queued) && queued.includes(lane)) return "QUEUED"
+
   return "UNKNOWN"
 }
 
 /**
- * The freshness timestamp for a lane — ONLY from a backend receipt.
+ * Freshness for a lane — ONLY a completed backend receipt.
  *
- * Returns null unless the backend both refreshed this lane and stamped when.
- * Never falls back to the browser clock: a local `new Date()` is a claim about
- * AWS that the client is in no position to make.
+ * Requires BOTH that the lane appears in `refreshed_sources` and that the
+ * backend stamped when activation happened. A queued lane, a successful round
+ * that skipped this lane, or a refresh with no receipt all return null. The
+ * browser clock is never a fallback: a local `new Date()` is a claim about AWS
+ * the client is in no position to make.
  */
 export function laneRefreshedAt(
   lane: SyncLane,
@@ -113,16 +165,52 @@ export function laneRefreshedAt(
   return typeof stamp === "string" && stamp.trim() ? stamp : null
 }
 
-/** Human sentence for a lane the round did not refresh. */
-export function notRefreshedReason(surface: SyncSurface, state: LaneState): string | null {
-  switch (state) {
-    case "NOT_CONNECTED":
-      return `${surface.evidence} is not connected to on-demand refresh yet — this button cannot refresh it.`
-    case "NOT_REQUESTED":
-      return `${surface.evidence} was not part of this refresh.`
-    case "UNKNOWN":
-    case "REFRESHED":
-    default:
-      return null
+/** A surface is only as capable as its least-capable required lane. */
+export function surfaceCapability(
+  surface: SyncSurface,
+  capabilities: Record<string, unknown> | null | undefined,
+): LaneCapability {
+  const states = surface.requiredLanes.map((l) => laneCapability(l, capabilities))
+  if (states.includes("NOT_CONNECTED")) return "NOT_CONNECTED"
+  if (states.includes("UNKNOWN")) return "UNKNOWN"
+  return "CONNECTED"
+}
+
+/** Lanes this surface needs that the deployment cannot refresh. */
+export function unsupportedLanes(
+  surface: SyncSurface,
+  capabilities: Record<string, unknown> | null | undefined,
+): SyncLane[] {
+  return surface.requiredLanes.filter((l) => laneCapability(l, capabilities) === "NOT_CONNECTED")
+}
+
+/**
+ * A surface is fresh only when EVERY required lane refreshed, and its
+ * timestamp is the oldest of them — the screen is as stale as its worst part.
+ */
+export function surfaceRefreshedAt(
+  surface: SyncSurface,
+  payload: Record<string, unknown> | null | undefined,
+): string | null {
+  const stamps = surface.requiredLanes.map((l) => laneRefreshedAt(l, payload))
+  if (stamps.some((s) => s === null)) return null
+  return stamps.slice().sort()[0] as string
+}
+
+/** Why this surface was not refreshed, or null when it was. */
+export function notRefreshedReason(
+  surface: SyncSurface,
+  capabilities: Record<string, unknown> | null | undefined,
+  payload?: Record<string, unknown> | null,
+): string | null {
+  const missing = unsupportedLanes(surface, capabilities)
+  if (missing.length > 0) {
+    return `${surface.evidence} is not connected to on-demand refresh yet — this action cannot refresh it.`
   }
+  if (surfaceCapability(surface, capabilities) === "UNKNOWN") return null
+  if (!payload) return null
+  if (surfaceRefreshedAt(surface, payload) === null) {
+    return `${surface.evidence} was not refreshed by this run.`
+  }
+  return null
 }
