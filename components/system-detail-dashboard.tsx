@@ -2902,7 +2902,11 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
 
       {activeTab === "vulnerabilities" && (
         <div className="max-w-[1800px] mx-auto px-8 py-3">
-          <VulnerabilitiesSection key={refreshKey} systemName={systemName} />
+          <VulnerabilitiesSection
+            key={refreshKey}
+            systemName={systemName}
+            refreshToken={refreshKey}
+          />
         </div>
       )}
 
