@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { coerceProxyErrorMessage } from "@/lib/proxy-error-message"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
 const BACKEND_URL =
@@ -31,10 +32,22 @@ export async function POST(request: NextRequest) {
     if (!response.ok) {
       const errorText = await response.text()
       console.error(`[Collectors Proxy] Backend error: ${response.status}`, errorText)
+      // The backend's own sentence beats "Backend returned 503". Parse when
+      // it is JSON; keep the raw text as `detail` either way so nothing is
+      // lost for debugging.
+      let errorBody: unknown = null
+      try {
+        errorBody = JSON.parse(errorText)
+      } catch {
+        errorBody = null
+      }
       return NextResponse.json(
         {
           success: false,
-          error: `Backend returned ${response.status}`,
+          error: coerceProxyErrorMessage(
+            errorBody,
+            errorText || `Backend returned ${response.status}`,
+          ),
           detail: errorText,
         },
         { status: response.status }
