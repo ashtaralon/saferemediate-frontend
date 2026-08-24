@@ -76,9 +76,6 @@ export function IdentitiesSection({ onRequestRemediation, systemName }: Identiti
         </div>
       </div>
 
-        </div>
-      )}
-
       {/* Tab Navigation */}
       <div
         className="flex items-center gap-1 p-1 rounded-lg border"

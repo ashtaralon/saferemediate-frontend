@@ -23,8 +23,10 @@ import {
   notRefreshedReason,
   surfaceCapability,
   surfaceRefreshedAt,
+  surfacesWithUndispatchableLaneSets,
   unsupportedLanes,
 } from "@/lib/sync-surfaces"
+import { buildSyncAllStartUrl } from "@/lib/sync-from-aws"
 
 // Exactly what GET /api/v2/sync/capabilities returns on this deployment.
 const CAPS = {
@@ -120,7 +122,66 @@ describe("capability is known before the click", () => {
 
   it("is UNKNOWN before capabilities load, so nothing is assumed", () => {
     expect(surfaceCapability(SYNC_SURFACES.cve, null)).toBe("UNKNOWN")
-    expect(notRefreshedReason(SYNC_SURFACES.iam, null, DONE)).toBeNull()
+  })
+
+  it("explains itself when capability is UNKNOWN, because UNKNOWN disables", () => {
+    // UNKNOWN used to return no reason, which was survivable only while
+    // UNKNOWN left the button ENABLED. Now that it fails closed, a silent
+    // greyed-out control would read as a broken screen.
+    const reason = notRefreshedReason(SYNC_SURFACES.iam, null, DONE)
+    expect(reason).not.toBeNull()
+    expect(reason).toMatch(/cannot tell/i)
+    expect(reason).toMatch(/disabled/i)
+  })
+
+  it("treats a capability the backend did not call CONNECTED as not connected", () => {
+    // Fail closed on an unrecognised state too: a future backend word must not
+    // fall through to enabled just because it is not the string NOT_CONNECTED.
+    const odd = { lanes: [{ lane: "vulnerability_findings", state: "DEGRADED" }] }
+    expect(laneCapability("vulnerability_findings", odd)).toBe("NOT_CONNECTED")
+    expect(surfaceCapability(SYNC_SURFACES.cve, odd)).toBe("NOT_CONNECTED")
+  })
+
+  it("is NOT_CONNECTED for a lane that can be dispatched but not confirmed", () => {
+    // The backend requires dispatch AND a completion receipt for CONNECTED.
+    // Mirrors api/v2_sync.py::lane_capabilities on the wire this reads.
+    const noReceipt = {
+      lanes: [
+        {
+          lane: "inventory_reconcile",
+          state: "NOT_CONNECTED",
+          receipt: "none",
+          blocked_by: ["no_completion_receipt"],
+        },
+      ],
+    }
+    expect(laneCapability("inventory_reconcile", noReceipt)).toBe("NOT_CONNECTED")
+  })
+})
+
+describe("a surface asks for its own lanes", () => {
+  it("declares lane sets the backend can dispatch in one round", () => {
+    // The backend refuses to mix vulnerability_findings with generic
+    // collection work (mixed_sync_round_not_supported, 400). A surface that
+    // declared both would render an enabled button that fails on every click.
+    expect(surfacesWithUndispatchableLaneSets()).toEqual([])
+  })
+
+  it("builds a start URL carrying this surface's lanes", () => {
+    // A bare start URL is not "refresh everything" — the backend defaults to
+    // the Inspector lane, so a dropped selection silently downgrades the round.
+    expect(buildSyncAllStartUrl({ sources: SYNC_SURFACES.iam.requiredLanes })).toBe(
+      "/api/proxy/sync/start?sources=inventory_reconcile%2Capi_activity",
+    )
+    expect(buildSyncAllStartUrl({ sources: SYNC_SURFACES.cve.requiredLanes })).toBe(
+      "/api/proxy/sync/start?sources=vulnerability_findings",
+    )
+  })
+
+  it("still refuses to revive legacy sync-all options", () => {
+    expect(buildSyncAllStartUrl({ days: 90, skipFlowLogs: true })).toBe(
+      "/api/proxy/sync/start",
+    )
   })
 })
 

@@ -50,6 +50,17 @@ export interface SyncProgress {
 export interface StartSyncOptions {
   days?: number
   skipFlowLogs?: boolean
+  /**
+   * Which data-engine lanes this round must refresh, as the backend names
+   * them (`vulnerability_findings`, `inventory_reconcile`, `api_activity`,
+   * `network_flow`).
+   *
+   * Omitting it is NOT "refresh everything" — the backend defaults to the one
+   * certified Inspector lane. A screen that needs IAM or flow evidence and
+   * sends nothing therefore starts an Inspector round and reports success for
+   * data it never touched. Screens pass their surface's `requiredLanes`.
+   */
+  sources?: readonly string[]
 }
 
 export const SYNC_STEP_LABELS: Record<string, string> = {
@@ -105,10 +116,17 @@ export const SYNC_STEP_LABELS: Record<string, string> = {
 }
 
 export function buildSyncAllStartUrl(options: StartSyncOptions = {}): string {
-  // Retain the argument for call-site compatibility. The managed refresh API
-  // owns source windows; the browser must not revive legacy sync-all options.
-  void options
-  return "/api/proxy/sync/start"
+  // `days` / `skipFlowLogs` stay ignored on purpose: the managed refresh API
+  // owns source windows, and the browser must not revive legacy sync-all
+  // options. `sources` is different — it is the V2 lane selection the backend
+  // reads, and dropping it silently downgrades every screen to the Inspector
+  // default.
+  const { sources } = options
+  if (!sources || sources.length === 0) {
+    return "/api/proxy/sync/start"
+  }
+  const query = new URLSearchParams({ sources: sources.join(",") })
+  return `/api/proxy/sync/start?${query.toString()}`
 }
 
 export function getStepLabel(stepName: string | undefined, fallback?: string): string {

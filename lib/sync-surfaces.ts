@@ -109,8 +109,14 @@ function entries(value: unknown): LaneEntry[] {
 /**
  * Capability for one lane, from GET /api/v2/sync/capabilities.
  *
- * UNKNOWN until capabilities load — a control must not be enabled on an
- * assumption, and must not be disabled on one either.
+ * UNKNOWN until capabilities load, and UNKNOWN keeps a control disabled: a
+ * control must never be ENABLED on an assumption. The reverse asymmetry is
+ * deliberate — being wrongly disabled costs a retry, being wrongly enabled
+ * spends a real AWS collection round and invites a false freshness claim.
+ *
+ * Anything the backend does not call CONNECTED is NOT_CONNECTED. The backend
+ * requires both halves for that word: a configured dispatch path AND a receipt
+ * store that can prove the round finished.
  */
 export function laneCapability(
   lane: SyncLane,
@@ -207,10 +213,35 @@ export function notRefreshedReason(
   if (missing.length > 0) {
     return `${surface.evidence} is not connected to on-demand refresh yet — this action cannot refresh it.`
   }
-  if (surfaceCapability(surface, capabilities) === "UNKNOWN") return null
+  // UNKNOWN now DISABLES the control, so it must also explain itself. Silence
+  // plus a greyed-out button reads as a broken screen; this says which of the
+  // two it is and that a retry is the remedy.
+  if (surfaceCapability(surface, capabilities) === "UNKNOWN") {
+    return `Cannot tell whether ${surface.evidence} can be refreshed right now — this action stays disabled rather than starting a round it cannot account for.`
+  }
   if (!payload) return null
   if (surfaceRefreshedAt(surface, payload) === null) {
     return `${surface.evidence} was not refreshed by this run.`
   }
   return null
+}
+
+/**
+ * Surfaces whose lanes cannot be requested in ONE backend round.
+ *
+ * The backend refuses to mix `vulnerability_findings` with generic collection
+ * work (`mixed_sync_round_not_supported`, HTTP 400): the Inspector lane has a
+ * durable Neptune activation receipt while generic work has a separate run
+ * store, so one round cannot report both. A surface that declared both would
+ * therefore render an enabled button that 400s on every click. Empty is the
+ * only correct answer; a test asserts it.
+ */
+export function surfacesWithUndispatchableLaneSets(): SyncSurfaceKey[] {
+  return (Object.keys(SYNC_SURFACES) as SyncSurfaceKey[]).filter((key) => {
+    // Widened deliberately: indexing the `as const` map with a union key
+    // gives a union of literal tuples, and `.includes` then narrows its own
+    // parameter to `never` for the surfaces that lack the lane.
+    const lanes: readonly SyncLane[] = SYNC_SURFACES[key].requiredLanes
+    return lanes.includes("vulnerability_findings") && lanes.length > 1
+  })
 }

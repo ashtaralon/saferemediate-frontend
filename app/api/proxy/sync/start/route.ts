@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server"
+import { type NextRequest, NextResponse } from "next/server"
 import { coerceProxyErrorMessage } from "@/lib/proxy-error-message"
 import { getNeptuneRefreshBackendBaseUrl } from "@/lib/server/neptune-refresh-backend-url"
 
@@ -12,9 +12,19 @@ export const runtime = "nodejs"
  * endpoint writes the graph inside the serving process, whose Neptune role is
  * intentionally read-only. V2 only enqueues work for a dedicated projector.
  */
-export async function POST() {
+export async function POST(request: NextRequest) {
   try {
-    const response = await fetch(`${getNeptuneRefreshBackendBaseUrl()}/api/v2/sync/start`, {
+    // Forward the lane selection. The backend defaults to the Inspector lane
+    // when `sources` is absent, so dropping it here would silently turn every
+    // screen's refresh into an Inspector round — the exact failure the
+    // per-surface contract exists to prevent.
+    const sources = request.nextUrl.searchParams.get("sources")
+    const target = new URL(`${getNeptuneRefreshBackendBaseUrl()}/api/v2/sync/start`)
+    if (sources) {
+      target.searchParams.set("sources", sources)
+    }
+
+    const response = await fetch(target.toString(), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       signal: AbortSignal.timeout(30_000),
