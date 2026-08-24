@@ -1,8 +1,8 @@
 import { NextRequest } from 'next/server'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('@/lib/server/backend-url', () => ({
-  getBackendBaseUrl: () => 'https://canonical-backend.example',
+vi.mock('@/lib/server/neptune-refresh-backend-url', () => ({
+  getNeptuneRefreshBackendBaseUrl: () => 'https://canonical-backend.example',
 }))
 
 import { POST } from '@/app/api/proxy/vulnerability-map/scanner/sync/route'
