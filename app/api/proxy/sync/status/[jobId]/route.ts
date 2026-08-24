@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { coerceProxyErrorMessage } from "@/lib/proxy-error-message"
-import { getBackendBaseUrl } from "@/lib/server/backend-url"
+import { getNeptuneRefreshBackendBaseUrl } from "@/lib/server/neptune-refresh-backend-url"
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
@@ -16,7 +16,7 @@ export async function GET(
 
   try {
     const response = await fetch(
-      `${getBackendBaseUrl()}/api/v2/sync/status/${encodeURIComponent(jobId)}`,
+      `${getNeptuneRefreshBackendBaseUrl()}/api/v2/sync/status/${encodeURIComponent(jobId)}`,
       { signal: AbortSignal.timeout(10_000), cache: "no-store" },
     )
     const raw = await response.text()
