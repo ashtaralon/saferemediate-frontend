@@ -375,10 +375,10 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         (r.resourceName === detail.resourceName || r.id === detail.resourceName),
     )
     if (!match) return false
-    // Review routing and mutation authority are separate decisions. IAM keeps
-    // its canonical Change Case while held; the veto is passed into that
-    // surface and blocks approval/execution there.
-    const reviewSurface = resolveLPReviewSurface(detail.resourceType, integrity.mutationBlocked)
+    // Review routing and mutation authority are separate decisions. Every
+    // supported lane keeps its typed workflow while held; the veto is passed
+    // into that surface and blocks mutation there.
+    const reviewSurface = resolveLPReviewSurface(detail.resourceType)
     if (reviewSurface === 'read-only') {
       setSelectedResource(match)
       setDrawerOpen(true)
@@ -1820,7 +1820,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
   }
   // Handle resource click (open appropriate modal)
   const handleResourceClick = (resource: GapResource) => {
-    const reviewSurface = resolveLPReviewSurface(resource.resourceType, integrity.mutationBlocked)
+    const reviewSurface = resolveLPReviewSurface(resource.resourceType)
     if (reviewSurface === 'read-only') {
       setSelectedResource(resource)
       setDrawerOpen(true)
@@ -3647,6 +3647,9 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         systemName={systemName || ''}
         resourceData={selectedS3Resource}
         applyDisabled={LP_MUTATION_APPLY_DISABLED}
+        authorityHoldReason={
+          integrity.mutationBlocked ? lpIntegrityCopy(integrity).body : null
+        }
         onApplyFix={(data) => {
           console.log('[S3] Apply fix requested:', data)
         }}
@@ -3685,6 +3688,9 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         sgName={selectedSGName || undefined}
         systemName={systemName || ''}
         applyDisabled={LP_MUTATION_APPLY_DISABLED}
+        authorityHoldReason={
+          integrity.mutationBlocked ? lpIntegrityCopy(integrity).body : null
+        }
         onRemediate={(sgId, summary) => {
           console.log('[SG] Remediate requested:', sgId, summary)
           const sgResource = data?.resources.find(resource =>

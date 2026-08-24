@@ -31,6 +31,8 @@ interface Props {
   onRemediationSuccess?: (...args: any[]) => void
   /** When true, hide/disable Apply mutation controls (mutation boundary not shipped). */
   applyDisabled?: boolean
+  /** Estate-level authority veto; evidence review remains available. */
+  authorityHoldReason?: string | null
 }
 
 export function S3RemediationModal({
@@ -40,6 +42,7 @@ export function S3RemediationModal({
   systemName,
   onRemediationSuccess,
   applyDisabled = false,
+  authorityHoldReason = null,
 }: Props) {
   useEffect(() => {
     if (!isOpen) return
@@ -71,6 +74,16 @@ export function S3RemediationModal({
         >
           ×
         </button>
+        {authorityHoldReason && (
+          <div
+            className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950 shadow-lg"
+            data-testid="s3-authority-hold"
+          >
+            <div className="font-semibold">Data-access execution authority is not ready</div>
+            <p className="mt-1">{authorityHoldReason}</p>
+            <p className="mt-1 text-xs">Evidence review remains available; execution stays blocked until the authoritative Neptune generation is active.</p>
+          </div>
+        )}
         <S3RemediationCard
           bucketName={bucketName}
           applyDisabled={applyDisabled}
