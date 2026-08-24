@@ -313,9 +313,11 @@ export function RemovalSafetyPanel({ bundle }: { bundle: RemovalSafetyBundle }) 
 export function IamRemediationAvailability({
   bundle,
   applyDisabled,
+  disabledReason,
 }: {
   bundle: RemovalSafetyBundle
   applyDisabled: boolean
+  disabledReason?: string | null
 }) {
   const hasCandidates = bundle.scored_candidate_count > 0
 
@@ -345,7 +347,7 @@ export function IamRemediationAvailability({
           )}
           {applyDisabled && (
             <p className="mt-1 text-sm">
-              Production IAM changes are not enabled in this release. You can review a verified plan, but Apply stays unavailable until the signed execution boundary is deployed and qualified.
+              {disabledReason ?? "Production IAM changes are not enabled in this release. You can review a verified plan, but Apply stays unavailable until the signed execution boundary is deployed and qualified."}
             </p>
           )}
         </div>
@@ -597,6 +599,8 @@ interface IAMPermissionAnalysisModalProps {
   onRollbackSuccess?: (roleName: string) => void
   /** When true, hide/disable all Apply mutation controls (mutation boundary not shipped). */
   applyDisabled?: boolean
+  /** Authoritative estate-level veto. Review remains available; approval/execution do not. */
+  authorityHoldReason?: string | null
 }
 
 export function shouldOfferIamSimulation(
@@ -824,6 +828,7 @@ export function IAMPermissionAnalysisModal({
   onRemediationSuccess,
   onRollbackSuccess,
   applyDisabled = false,
+  authorityHoldReason = null,
 }: IAMPermissionAnalysisModalProps) {
   // Fail-loud guard: refuse to render if system context is missing
   if (!systemName) {
@@ -1463,9 +1468,10 @@ export function IAMPermissionAnalysisModal({
 
     if (applyDisabled) {
       toast({
-        title: 'Preview-only environment',
-        description:
+        title: authorityHoldReason ? 'Execution authority is not ready' : 'Preview-only environment',
+        description: authorityHoldReason ??
           'Cyntro can analyze and simulate this plan, but production changes are not enabled in this environment.',
+        variant: authorityHoldReason ? 'destructive' : undefined,
       })
       return undefined
     }
@@ -1835,6 +1841,14 @@ export function IAMPermissionAnalysisModal({
   }
 
   const handleIAMLpRequestApproval = async (permissions: string[]) => {
+    if (authorityHoldReason) {
+      toast({
+        title: "Approval unavailable",
+        description: authorityHoldReason,
+        variant: "destructive",
+      })
+      return
+    }
     if (verdictBucket === "blocked") {
       toast({
         title: "Approval unavailable",
@@ -1856,6 +1870,14 @@ export function IAMPermissionAnalysisModal({
   }
 
   const handleIAMLpApproveRequest = async (requestId: string) => {
+    if (authorityHoldReason) {
+      toast({
+        title: "Approval unavailable",
+        description: authorityHoldReason,
+        variant: "destructive",
+      })
+      return
+    }
     openApprovalAction("approve", { requestId })
   }
 
@@ -1864,6 +1886,14 @@ export function IAMPermissionAnalysisModal({
   }
 
   const handleIAMLpExecuteApprovedRequest = async (requestId: string) => {
+    if (applyDisabled || authorityHoldReason) {
+      toast({
+        title: "Execution blocked",
+        description: authorityHoldReason ?? "Production IAM changes are not enabled in this environment.",
+        variant: "destructive",
+      })
+      return
+    }
     if (verdictBucket === "blocked") {
       toast({
         title: "Execution blocked",
@@ -4204,14 +4234,18 @@ export function IAMPermissionAnalysisModal({
                   return (
                     <div className="flex items-center gap-3">
                       <div className="max-w-sm text-right">
-                        <div className="text-sm font-semibold text-slate-700">Apply unavailable in preview-only mode</div>
-                        <div className="text-xs text-slate-500">You can finalize and review the plan, but this environment cannot change production.</div>
+                        <div className="text-sm font-semibold text-slate-700">
+                          {authorityHoldReason ? 'Approval and execution are held' : 'Apply unavailable in preview-only mode'}
+                        </div>
+                        <div className="text-xs text-slate-500">
+                          {authorityHoldReason ?? 'You can finalize and review the plan, but this environment cannot change production.'}
+                        </div>
                       </div>
                       <button
                         disabled
                         data-testid="iam-apply-disabled"
                         className="px-6 py-2.5 bg-gray-400 text-white rounded-lg font-bold cursor-not-allowed flex items-center gap-2"
-                        title="Production changes are not enabled in this environment"
+                        title={authorityHoldReason ?? 'Production changes are not enabled in this environment'}
                       >
                         <XCircle className="w-4 h-4" />
                         Apply unavailable
@@ -4533,6 +4567,23 @@ export function IAMPermissionAnalysisModal({
             <TrustEnvelopeBadge provenance={provenance} surface="light" />
           </div>
         )}
+        {authorityHoldReason && (
+          <div
+            className="border-b border-amber-200 bg-amber-50 px-5 py-3"
+            data-testid="iam-authority-hold"
+          >
+            <div className="flex items-start gap-2 text-amber-950">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+              <div>
+                <div className="text-xs font-semibold">Execution authority is not ready</div>
+                <p className="mt-0.5 text-xs leading-relaxed">{authorityHoldReason}</p>
+                <p className="mt-1 text-xs leading-relaxed">
+                  Evidence review remains available. Approval and execution stay blocked until the authoritative Neptune generation is active.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto space-y-3 p-4">
@@ -4588,6 +4639,7 @@ export function IAMPermissionAnalysisModal({
                 <IamRemediationAvailability
                   bundle={removalSafety}
                   applyDisabled={applyDisabled}
+                  disabledReason={authorityHoldReason}
                 />
               )}
               {!removalSafety && (
@@ -5244,7 +5296,7 @@ export function IAMPermissionAnalysisModal({
                   </p>
                   {applyDisabled && (
                     <p className="mt-2 text-sm font-medium text-amber-800">
-                      Production IAM execution is also disabled in this release; Preview remains read-only.
+                      {authorityHoldReason ?? "Production IAM execution is also disabled in this release; Preview remains read-only."}
                     </p>
                   )}
                 </div>

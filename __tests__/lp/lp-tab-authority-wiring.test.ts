@@ -38,11 +38,13 @@ describe("LeastPrivilegeTab authority wiring", () => {
     expect(src).not.toMatch(/confidence:\s*rule\.status === 'USED' \? 95/)
   })
 
-  it("integrity vetoes modal Apply path; never invents mutations_allowed", () => {
+  it("keeps held IAM review canonical while integrity vetoes Apply", () => {
     const src = read(TAB)
     expect(src).toContain("mutationBlocked")
     expect(src).not.toContain("mutations_allowed")
-    expect(src).toMatch(/if \(integrity\.mutationBlocked\)/)
+    expect(src).toContain("resolveLPReviewSurface")
+    expect(src).toContain("authorityHoldReason")
+    expect(src).toContain("applyDisabled={integrity.mutationBlocked}")
     expect(src).toContain("lp-apply-disabled")
   })
 

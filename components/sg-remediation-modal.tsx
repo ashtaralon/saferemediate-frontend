@@ -37,6 +37,8 @@ interface Props {
   ) => void
   /** When true, hide/disable Apply mutation controls (mutation boundary not shipped). */
   applyDisabled?: boolean
+  /** Estate-level authority veto; evidence review remains available. */
+  authorityHoldReason?: string | null
 }
 
 export function SGRemediationModal({
@@ -47,6 +49,7 @@ export function SGRemediationModal({
   systemName,
   onRemediate,
   applyDisabled = false,
+  authorityHoldReason = null,
 }: Props) {
   // Lock body scroll while open, restore on close.
   useEffect(() => {
@@ -80,6 +83,16 @@ export function SGRemediationModal({
         >
           ×
         </button>
+        {authorityHoldReason && (
+          <div
+            className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950 shadow-lg"
+            data-testid="sg-authority-hold"
+          >
+            <div className="font-semibold">Security Group execution authority is not ready</div>
+            <p className="mt-1">{authorityHoldReason}</p>
+            <p className="mt-1 text-xs">Evidence review remains available; execution stays blocked until the authoritative Neptune generation is active.</p>
+          </div>
+        )}
         <SGRemediationCard
           sgId={sgId}
           applyDisabled={applyDisabled}
