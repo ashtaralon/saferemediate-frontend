@@ -23,7 +23,10 @@ function getCacheKey(systemName: string, resourceId: string | null): string {
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
-  const systemName = searchParams.get("system_name")
+  // Accept the historical snake_case input, but always call the canonical
+  // backend contract (systemName).  The old forwarding silently produced an
+  // empty/default dependency map even while Neptune contained traffic.
+  const systemName = searchParams.get("systemName") || searchParams.get("system_name")
   if (!systemName) {
     return NextResponse.json({ error: "system_name query parameter is required" }, { status: 400 })
   }
@@ -56,7 +59,7 @@ export async function GET(req: NextRequest) {
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), 55000) // 55s timeout (under 60s Vercel limit)
 
-    const params = new URLSearchParams({ system_name: systemName })
+    const params = new URLSearchParams({ systemName })
     if (resourceId) {
       params.append("resource_id", resourceId)
     }
