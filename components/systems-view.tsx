@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef, useCallback } from "react"
+import { coerceProxyErrorMessage } from "@/lib/proxy-error-message"
 import { healthLabel } from "@/lib/utils"
 import {
   Download,
@@ -538,15 +539,23 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
           responseTimeMs: responseTime,
         })
 
-        // Provide user-friendly error messages
-        let errorMessage = errorData.error || `Re-ingestion failed (${response.status})`
+        // The backend's own sentence wins whenever it sent one. These canned
+        // strings are fallbacks for a silent failure, not overrides: a 503
+        // that says "this tier is read-only by design; the projector worker
+        // refreshes the graph" must not be replaced by a guess that Neptune
+        // "may not be configured" — that sends the operator to the wrong place.
+        const backendMessage = coerceProxyErrorMessage(errorData, "")
 
-        if (response.status === 404) {
-          errorMessage = "Backend endpoint not found. The re-ingest feature may not be deployed yet."
-        } else if (response.status === 503) {
-          errorMessage = "Backend service unavailable. Collectors or Neptune may not be configured."
-        } else if (response.status === 504) {
-          errorMessage = "Request timeout. Re-ingestion may still be running - check backend logs."
+        let errorMessage = backendMessage || `Re-ingestion failed (${response.status})`
+
+        if (!backendMessage) {
+          if (response.status === 404) {
+            errorMessage = "Backend endpoint not found. The re-ingest feature may not be deployed yet."
+          } else if (response.status === 503) {
+            errorMessage = "Backend service unavailable. Collectors or Neptune may not be configured."
+          } else if (response.status === 504) {
+            errorMessage = "Request timeout. Re-ingestion may still be running - check backend logs."
+          }
         }
 
         throw new Error(errorMessage)

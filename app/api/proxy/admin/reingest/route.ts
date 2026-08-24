@@ -1,4 +1,5 @@
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
+import { coerceProxyErrorMessage } from "@/lib/proxy-error-message"
 
 /**
  * Re-ingest proxy — unified with the "Sync from AWS" pipeline.
@@ -70,7 +71,13 @@ export async function POST(request: Request) {
       return Response.json(
         {
           success: false,
-          error: errorData.error || errorData.detail || `Backend returned ${response.status}`,
+          // coerceProxyErrorMessage, not `errorData.error || errorData.detail`:
+          // FastAPI nests a structured refusal under `detail`, so the bare
+          // chain yields an OBJECT and the UI renders "[object Object]".
+          error: coerceProxyErrorMessage(
+            errorData,
+            `Backend returned ${response.status}`,
+          ),
           status: response.status,
         },
         { status: response.status },
