@@ -143,13 +143,13 @@ export default function ChangeIntentDossierPage() {
       <div className="mx-auto max-w-6xl">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <Link href={`/change-queue${scopeQuery}`} className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-violet-700"><ArrowLeft className="h-4 w-4" /> Change Queue</Link>
-          <Link href={`/change-queue/new${scopeQuery}`} className="rounded-xl border border-violet-300 bg-white px-4 py-2 text-sm font-bold text-violet-700">Analyze another change</Link>
+          <Link href={`/change-queue/new${scopeQuery}`} className="rounded-xl border border-violet-300 bg-white px-4 py-2 text-sm font-bold text-violet-700">Check another change</Link>
         </div>
 
         <header className="mt-5 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="flex flex-wrap items-start justify-between gap-5">
             <div>
-              <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[.16em] text-violet-700"><GitBranch className="h-4 w-4" /> Change risk dossier</div>
+              <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[.16em] text-violet-700"><GitBranch className="h-4 w-4" /> Change safety result</div>
               <h1 className="mt-2 text-2xl font-bold">{change.action.replace(/_/g, ' ')}</h1>
               <p className="mt-2 font-mono text-xs text-slate-500">{change.resource_type} · {change.resource_id}</p>
               <p className="mt-3 max-w-3xl text-sm text-slate-700"><strong>Why:</strong> {change.reason}</p>
@@ -170,7 +170,7 @@ export default function ChangeIntentDossierPage() {
 
         <div className="mt-5 grid gap-5 lg:grid-cols-[1.35fr_.85fr]">
           <div className="space-y-5">
-            <Section icon={<Network className="h-4 w-4" />} title="Blast radius from Neptune">
+            <Section icon={<Network className="h-4 w-4" />} title="Affected services and dependency paths">
               <div className="grid gap-3 sm:grid-cols-3">
                 <Metric label="Systems in scope" value={String(dossier.blast_radius.systems.length)} />
                 <Metric label="Periodic dependencies" value={String(dossier.blast_radius.periodic_dependencies.length)} />
@@ -187,7 +187,7 @@ export default function ChangeIntentDossierPage() {
               </div>
             </Section>
 
-            <Section icon={<ShieldAlert className="h-4 w-4" />} title="Why this change is risky">
+            <Section icon={<ShieldAlert className="h-4 w-4" />} title="Why this change could break something">
               <div className="space-y-3">{dossier.risk_drivers.map(driver => <div key={driver.code} className="rounded-xl border border-slate-200 p-3"><div className="text-xs font-bold uppercase tracking-wide text-slate-700">{driver.code.replace(/_/g, ' ')}</div><p className="mt-1 text-sm text-slate-600">{driver.detail}</p></div>)}</div>
             </Section>
 

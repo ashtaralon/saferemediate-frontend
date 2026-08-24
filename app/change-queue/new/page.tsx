@@ -280,28 +280,28 @@ export default function AnalyzeChangePage() {
 
         <header className="mt-5 flex flex-wrap items-end justify-between gap-4">
           <div>
-            <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[.16em] text-violet-700"><GitBranch className="h-4 w-4" /> Pre-change intelligence</div>
-            <h1 className="mt-2 text-3xl font-bold">Know the blast radius before you deploy</h1>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">Cyntro compares the proposed IaC state with the current cloud graph, configured attachments, observed communications, permissions, and derived paths. It shows evidence and uncertainty—never a fictional deterministic simulation.</p>
+            <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[.16em] text-violet-700"><GitBranch className="h-4 w-4" /> Pre-deployment change check</div>
+            <h1 className="mt-2 text-3xl font-bold">Will this change break anything?</h1>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">Upload a Terraform plan or CloudFormation change. Cyntro checks the proposed changes against the current cloud configuration, dependencies, permissions, and observed behavior to show what could break—and what cannot yet be verified—before deployment.</p>
           </div>
           <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-600"><strong className="text-slate-900">Analysis only.</strong> Nothing here changes AWS.</div>
         </header>
 
         <div className="mt-6 grid gap-3 md:grid-cols-2">
           <button type="button" onClick={() => { setMode('iac'); setError(null) }} className={`rounded-2xl border p-5 text-left transition ${mode === 'iac' ? 'border-violet-400 bg-violet-50 ring-2 ring-violet-100' : 'border-slate-200 bg-white hover:border-violet-200'}`}>
-            <div className="flex items-center gap-2 text-sm font-bold"><FileCode2 className="h-5 w-5 text-violet-700" /> Analyze an IaC change <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] uppercase text-violet-800">Recommended</span></div>
-            <p className="mt-2 text-sm text-slate-600">Terraform plan or CloudFormation change set/current-vs-proposed templates. Multi-resource semantic diff plus graph impact.</p>
+            <div className="flex items-center gap-2 text-sm font-bold"><FileCode2 className="h-5 w-5 text-violet-700" /> Check an IaC plan for breaking changes <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] uppercase text-violet-800">Recommended</span></div>
+            <p className="mt-2 text-sm text-slate-600">Terraform plan or CloudFormation change set/current-vs-proposed templates. Cyntro checks every proposed resource change against live dependencies.</p>
           </button>
           <button type="button" onClick={() => { setMode('manual'); setError(null) }} className={`rounded-2xl border p-5 text-left transition ${mode === 'manual' ? 'border-violet-400 bg-violet-50 ring-2 ring-violet-100' : 'border-slate-200 bg-white hover:border-violet-200'}`}>
-            <div className="flex items-center gap-2 text-sm font-bold"><CloudCog className="h-5 w-5 text-violet-700" /> Analyze one manual change</div>
-            <p className="mt-2 text-sm text-slate-600">Use a supported Cyntro capability or describe one exact AWS resource/action.</p>
+            <div className="flex items-center gap-2 text-sm font-bold"><CloudCog className="h-5 w-5 text-violet-700" /> Check one manual change</div>
+            <p className="mt-2 text-sm text-slate-600">Describe one exact AWS resource change and check whether it could break a workload or system.</p>
           </button>
         </div>
 
         {mode === 'iac' ? (
           <form onSubmit={submitIaC} className="mt-6 grid gap-6 lg:grid-cols-[1.45fr_.75fr]">
             <div className="space-y-5">
-              <Panel step="1" title="Change source" subtitle="The plan is the proposed diff; Cyntro's graph is the current operational context.">
+              <Panel step="1" title="Proposed change source" subtitle="The plan describes what will change; Cyntro checks it against the current operational environment.">
                 <div className="grid gap-3 sm:grid-cols-2">
                   <SourceChoice selected={artifactKind === 'TERRAFORM_PLAN_JSON'} icon={<FileCode2 className="h-5 w-5" />} title="Terraform plan JSON" detail="terraform show -json tf.plan" onClick={() => setKind('TERRAFORM_PLAN_JSON')} />
                   <SourceChoice selected={artifactKind === 'CLOUDFORMATION_CHANGE_SET_JSON'} icon={<CloudCog className="h-5 w-5" />} title="CloudFormation" detail="Evaluated change set or template pair" onClick={() => setKind('CLOUDFORMATION_CHANGE_SET_JSON')} />
@@ -375,7 +375,7 @@ export default function AnalyzeChangePage() {
               </Panel>
 
               {error && <div role="alert" className="flex gap-2 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-900"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> {error}</div>}
-              <button disabled={loading || !sourceReady} className="inline-flex items-center gap-2 rounded-xl bg-violet-600 px-5 py-3 text-sm font-bold text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50">{loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />} {loading ? 'Building evidence-backed dossier…' : 'Analyze blast radius'}</button>
+              <button disabled={loading || !sourceReady} className="inline-flex items-center gap-2 rounded-xl bg-violet-600 px-5 py-3 text-sm font-bold text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50">{loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />} {loading ? 'Checking dependencies and evidence…' : 'Check for breaking changes'}</button>
             </div>
 
             <aside className="space-y-4">
@@ -397,7 +397,7 @@ export default function AnalyzeChangePage() {
           <form onSubmit={submitManual} className="mt-6 grid gap-6 lg:grid-cols-[1.4fr_.8fr]">
             <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
               <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[.16em] text-violet-700"><CloudCog className="h-4 w-4" /> Exact resource change</div>
-              <h2 className="mt-2 text-2xl font-bold">Analyze one AWS change</h2>
+              <h2 className="mt-2 text-2xl font-bold">Check one AWS change for breakage</h2>
               <label className="mt-6 block text-sm font-semibold">Change model</label>
               <select value={selected} onChange={event => chooseCapability(event.target.value)} className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-3 text-sm">
                 <option value={CUSTOM}>Other AWS change — graph impact only</option>
