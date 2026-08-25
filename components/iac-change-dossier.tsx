@@ -55,6 +55,10 @@ interface SemanticChange {
   replacement_order?: string | null
   removed_references?: string[]
   added_references?: string[]
+  is_import?: boolean
+  import_id?: string | null
+  importing?: Record<string, unknown>
+  mapping_group_id?: string | null
 }
 
 interface ImpactEdge {
@@ -124,7 +128,9 @@ export interface IaCIntentDocument {
   decision: { state: string; reason: string; approval_binds_to?: string }
   execution: { state: string; reason: string; available_from_this_intent: boolean }
   risk_dossier: {
-    analysis_kind: 'IAC_CHANGE_INTELLIGENCE'
+    analysis_kind: 'IAC_CHANGE_INTELLIGENCE' | 'TERRAFORM_BASELINE_ASSURANCE'
+    baseline_phase?: string
+    readiness?: { state: string; failed_gate_count: number; required_gate_count: number; meaning: string }
     analysis_conclusion: { state: string; headline: string; safe_to_apply: null; safe_to_apply_reason: string }
     risk_band: string
     risk_indicator: number
@@ -190,7 +196,8 @@ export function IaCChangeDossier({ document, customerId }: { document: IaCIntent
   const scopeQuery = customerId ? `?customer_id=${encodeURIComponent(customerId)}` : ''
   const conclusion = dossier.analysis_conclusion
   const summary = dossier.semantic_diff.summary
-  const artifactLabel = dossier.source_artifact.kind === 'TERRAFORM_PLAN_JSON' ? 'Terraform plan' : 'CloudFormation change'
+  const isBaseline = dossier.analysis_kind === 'TERRAFORM_BASELINE_ASSURANCE'
+  const artifactLabel = isBaseline ? 'Terraform baseline import plan' : dossier.source_artifact.kind === 'TERRAFORM_PLAN_JSON' ? 'Terraform plan' : 'CloudFormation change'
   const coverage = dossier.impact_graph.evidence_coverage
 
   return (
@@ -219,7 +226,7 @@ export function IaCChangeDossier({ document, customerId }: { document: IaCIntent
           <div className="flex flex-wrap items-start justify-between gap-5">
             <div>
               <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[.16em] text-violet-700"><FileCode2 className="h-4 w-4" /> {artifactLabel} · frozen review</div>
-              <h2 className="mt-2 text-2xl font-bold">{summary.total_changes} proposed resource change{summary.total_changes === 1 ? '' : 's'}</h2>
+              <h2 className="mt-2 text-2xl font-bold">{summary.total_changes} {isBaseline ? 'baseline import target' : 'proposed resource change'}{summary.total_changes === 1 ? '' : 's'}</h2>
               <p className="mt-2 max-w-3xl text-sm text-slate-700"><strong>Why:</strong> {document.intent.change.reason}</p>
               <div className="mt-3 flex flex-wrap gap-2 text-[11px] font-semibold text-slate-600">
                 <Chip>{dossier.source_artifact.account_id}</Chip>
@@ -235,7 +242,8 @@ export function IaCChangeDossier({ document, customerId }: { document: IaCIntent
               <p className="mt-2">Raw artifact stored: <strong>No</strong> · semantic slice + hash only</p>
             </div>
           </div>
-          <div className="mt-5 grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
+          <div className="mt-5 grid gap-3 sm:grid-cols-3 lg:grid-cols-7">
+            <Metric label="Import" value={String(summary.action_counts.import || 0)} />
             <Metric label="Create" value={String(summary.action_counts.create || 0)} />
             <Metric label="Update" value={String(summary.action_counts.update || 0)} />
             <Metric label="Delete" value={String(summary.action_counts.delete || 0)} />
@@ -244,6 +252,10 @@ export function IaCChangeDossier({ document, customerId }: { document: IaCIntent
             <Metric label="Systems" value={String(dossier.blast_radius.systems.length)} />
           </div>
         </header>
+
+        {isBaseline && dossier.readiness && <section className="mt-5 rounded-2xl border border-amber-300 bg-amber-50 p-5 text-amber-950 shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-4"><div><div className="text-xs font-black uppercase tracking-[.16em]">Baseline readiness · {humanize(dossier.readiness.state)}</div><p className="mt-2 max-w-3xl text-sm leading-6">{dossier.readiness.meaning}</p></div><div className="flex gap-2"><VerdictMetric label="Failed gates" value={String(dossier.readiness.failed_gate_count)} /><VerdictMetric label="Still required" value={String(dossier.readiness.required_gate_count)} /></div></div>
+        </section>}
 
         <div className="mt-5 grid gap-5 xl:grid-cols-[1.45fr_.75fr]">
           <div className="space-y-5">
@@ -287,7 +299,7 @@ export function IaCChangeDossier({ document, customerId }: { document: IaCIntent
             </Section>
 
             <Section icon={<ShieldCheck className="h-4 w-4" />} title="Approval gates">
-              <div className="space-y-2">{dossier.approval_guardrails.map(item => <div key={item.gate} className={`rounded-xl border p-3 ${item.state === 'FAILED' ? 'border-red-200 bg-red-50' : 'border-slate-200 bg-white'}`}><div className="flex items-center justify-between gap-2"><strong className="text-xs uppercase tracking-wide">{humanize(item.gate)}</strong><span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${item.state === 'FAILED' ? 'bg-red-100 text-red-800' : 'bg-amber-100 text-amber-800'}`}>{item.state}</span></div><p className="mt-2 text-xs leading-5 text-slate-600">{item.detail}</p></div>)}</div>
+              <div className="space-y-2">{dossier.approval_guardrails.map(item => <div key={item.gate} className={`rounded-xl border p-3 ${item.state === 'FAILED' ? 'border-red-200 bg-red-50' : item.state === 'PASSED' ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'}`}><div className="flex items-center justify-between gap-2"><strong className="text-xs uppercase tracking-wide">{humanize(item.gate)}</strong><span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${item.state === 'FAILED' ? 'bg-red-100 text-red-800' : item.state === 'PASSED' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>{item.state}</span></div><p className="mt-2 text-xs leading-5 text-slate-600">{item.detail}</p></div>)}</div>
             </Section>
 
             <Section icon={<RotateCcw className="h-4 w-4" />} title="Rollback preparation">
@@ -331,8 +343,10 @@ function FindingCard({ finding }: { finding: Finding }) {
 }
 
 function SemanticChangeRow({ change }: { change: SemanticChange }) {
-  const action = change.actions.includes('create') && change.actions.includes('delete') ? 'replace' : change.actions.join(' + ')
-  return <details className="rounded-xl border border-slate-200 bg-white p-4"><summary className="cursor-pointer list-none"><div className="flex flex-wrap items-center justify-between gap-3"><div><div className="font-mono text-xs font-bold text-slate-900">{change.address}</div><div className="mt-1 text-[11px] text-slate-500">{change.resource_type} · {humanize(change.family)}</div></div><div className="flex items-center gap-2"><span className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase ${action === 'delete' || action === 'replace' ? 'bg-red-100 text-red-800' : action === 'create' ? 'bg-emerald-100 text-emerald-800' : 'bg-blue-100 text-blue-800'}`}>{action}</span>{change.replacement_order && <span className="rounded-full bg-amber-100 px-2.5 py-1 text-[10px] font-black uppercase text-amber-800">{humanize(change.replacement_order)}</span>}</div></div></summary><div className="mt-3 border-t border-slate-100 pt-3"><div className="text-[10px] font-black uppercase text-slate-500">Changed fields</div><div className="mt-2 flex flex-wrap gap-1.5">{change.changed_paths.length === 0 ? <span className="text-xs text-slate-500">No allowlisted field detail was available.</span> : change.changed_paths.map(path => <span key={path} className="rounded bg-slate-100 px-2 py-1 font-mono text-[10px] text-slate-700">{path}</span>)}</div>{change.replace_paths.length > 0 && <div className="mt-3"><div className="text-[10px] font-black uppercase text-red-600">ForceNew paths</div><div className="mt-1 font-mono text-xs text-red-800">{change.replace_paths.join(', ')}</div></div>}{(change.removed_references?.length || change.added_references?.length) ? <div className="mt-3 grid gap-3 md:grid-cols-2">{Boolean(change.removed_references?.length) && <ReferenceList title="Removed references" values={change.removed_references || []} tone="text-red-700" />}{Boolean(change.added_references?.length) && <ReferenceList title="Added references" values={change.added_references || []} tone="text-emerald-700" />}</div> : null}{change.previous_address && <p className="mt-3 text-xs text-slate-600"><strong>Moved from:</strong> <span className="font-mono">{change.previous_address}</span></p>}</div></details>
+  const cloudAction = change.actions.includes('create') && change.actions.includes('delete') ? 'replace' : change.actions.join(' + ')
+  const action = change.is_import ? cloudAction ? `import + ${cloudAction}` : 'import' : cloudAction
+  const destructive = cloudAction === 'delete' || cloudAction === 'replace' || (change.is_import && Boolean(cloudAction))
+  return <details className="rounded-xl border border-slate-200 bg-white p-4"><summary className="cursor-pointer list-none"><div className="flex flex-wrap items-center justify-between gap-3"><div><div className="font-mono text-xs font-bold text-slate-900">{change.address}</div><div className="mt-1 text-[11px] text-slate-500">{change.resource_type} · {humanize(change.family)}</div></div><div className="flex items-center gap-2"><span className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase ${destructive ? 'bg-red-100 text-red-800' : action === 'create' ? 'bg-emerald-100 text-emerald-800' : change.is_import ? 'bg-violet-100 text-violet-800' : 'bg-blue-100 text-blue-800'}`}>{action || 'unknown'}</span>{change.replacement_order && <span className="rounded-full bg-amber-100 px-2.5 py-1 text-[10px] font-black uppercase text-amber-800">{humanize(change.replacement_order)}</span>}</div></div></summary><div className="mt-3 border-t border-slate-100 pt-3">{change.is_import && <div className="mb-3 rounded-lg border border-violet-200 bg-violet-50 p-3 text-xs text-violet-950"><strong>Import ID:</strong> <span className="break-all font-mono">{change.import_id || 'Missing — blocked'}</span>{change.mapping_group_id && <><br /><strong>Mapping group:</strong> <span className="font-mono">{change.mapping_group_id}</span></>}</div>}<div className="text-[10px] font-black uppercase text-slate-500">Changed fields</div><div className="mt-2 flex flex-wrap gap-1.5">{change.changed_paths.length === 0 ? <span className="text-xs text-slate-500">No cloud configuration change is shown in the retained semantic slice.</span> : change.changed_paths.map(path => <span key={path} className="rounded bg-slate-100 px-2 py-1 font-mono text-[10px] text-slate-700">{path}</span>)}</div>{change.replace_paths.length > 0 && <div className="mt-3"><div className="text-[10px] font-black uppercase text-red-600">ForceNew paths</div><div className="mt-1 font-mono text-xs text-red-800">{change.replace_paths.join(', ')}</div></div>}{(change.removed_references?.length || change.added_references?.length) ? <div className="mt-3 grid gap-3 md:grid-cols-2">{Boolean(change.removed_references?.length) && <ReferenceList title="Removed references" values={change.removed_references || []} tone="text-red-700" />}{Boolean(change.added_references?.length) && <ReferenceList title="Added references" values={change.added_references || []} tone="text-emerald-700" />}</div> : null}{change.previous_address && <p className="mt-3 text-xs text-slate-600"><strong>Moved from:</strong> <span className="font-mono">{change.previous_address}</span></p>}</div></details>
 }
 
 function ReferenceList({ title, values, tone }: { title: string; values: string[]; tone: string }) {
