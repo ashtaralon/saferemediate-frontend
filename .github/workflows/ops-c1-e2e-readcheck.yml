@@ -103,6 +103,20 @@ jobs:
             echo "| ${name} | ${verdict} | ${why} |" >> summary.md
           }
 
+          assert_json() {
+            # assert_json <name> <file> <jq-predicate> <jq-detail>
+            #
+            # For claims a substring cannot make: counts, emptiness, and
+            # agreement between a total and the array it counts. On failure
+            # the detail expression prints the ACTUAL numbers — "false
+            # (wanted true)" tells you a check failed but not what the
+            # service said, which is half a diagnosis.
+            local name="$1" file="$2" pred="$3" detail="$4" got
+            got="$(jq -r "if ($pred) then \"ok\" else ($detail) end" \
+              "$file" 2>/dev/null || echo "UNPARSEABLE")"
+            record "$name" "$got" "ok"
+          }
+
           check_lane() {
             # check_lane <file> <lane> <field> <expected>
             #
@@ -141,9 +155,17 @@ jobs:
           # shared roles: CALL{}-free gather (was 500)
           check "shared-roles" "/api/iam/shared-roles" 200 "" "CALL"
           # decision coverage: any()-free (was 500)
-          check "decision-coverage" "/api/decision-coverage/system/${SYS}" 200 "" ""
-          # blast radius: regex-free + degrades instead of re-raising (was 500)
-          check "blast-radius" "/api/business-system/${SYS}/blast-radius" 200 "" ""
+          check "decision-coverage" "/api/decision-coverage/system/${SYS}" 200 \
+            "\"system_name\":\"${SYS}\"" "alon-prod"
+          assert_json "decision-coverage:resources" "$BODY_FILE" \
+            '(.totals.resources > 0)' '"resources=\(.totals.resources)"'
+          # blast radius: regex-free + degrades instead of re-raising (was 500).
+          # The tenant lives at .system.name, and a bare `"name":"<sys>"`
+          # substring would also match any NODE with that name, so assert the
+          # field by path rather than by grep.
+          check "blast-radius" "/api/business-system/${SYS}/blast-radius" 200 "" "alon-prod"
+          assert_json "blast-radius:tenant" "$BODY_FILE" \
+            "(.system.name == \"${SYS}\")" '"system.name=\(.system.name)"'
           # IAM gap: JSON-string lists decoded (was 500 Type mismatch)
           check "iam-gap" "/api/iam-roles/${GAP_ROLE}/gap-analysis" 200 "" "Type mismatch"
           # Orphan detection and SG analysis reach live AWS. A serving process
@@ -165,10 +187,42 @@ jobs:
             "live_aws_disabled_on_neptune_serve: S3 orphan detection" ""
           check "sg-analysis-guard" "/api/security-groups/sg-000000000000/analysis" 503 \
             "live_aws_disabled_on_neptune_serve: security-group analysis" ""
-          # dependency map: the observed-first estate read
-          check "dep-map" "/api/dependency-map/full" 200 "" ""
-          # identities overview: policy fill visible
+          # Dependency map: the observed-first estate read.
+          #
+          # This check used to send no query string at all and assert nothing
+          # but HTTP 200. `system_name` is declared
+          # `Query(default="alon-prod", alias="systemName")` in
+          # api/dependency_map_full.py, so it answered for the Aura tenant —
+          # which does not exist in C1's Neptune — and returned
+          # `{"system_name":"alon-prod","nodes":[],"total_nodes":0,...}`. An
+          # empty map for the wrong tenant scored a PASS.
+          #
+          # The alias is camelCase and FastAPI reads ONLY the alias: a
+          # `?system_name=` spelling is ignored and falls straight back to
+          # the default, silently. Send `systemName` or send nothing.
+          #
+          # The response echoes the tenant in snake_case, so the required
+          # substring and the query parameter are spelled differently on
+          # purpose.
+          check "dep-map" "/api/dependency-map/full?systemName=${SYS}" 200 \
+            "\"system_name\":\"${SYS}\"" "alon-prod"
+          DEP_FILE="$BODY_FILE"
+          # Both halves: the total AND the array. A total that disagrees with
+          # the array it counts is the same vacuous pass in a new costume.
+          assert_json "dep-map:nodes" "$DEP_FILE" \
+            '(.total_nodes > 0) and ((.nodes | length) > 0)' \
+            '"total_nodes=\(.total_nodes) nodes=\(.nodes|length)"'
+          assert_json "dep-map:edges" "$DEP_FILE" \
+            '(.total_edges > 0) and ((.edges | length) > 0)' \
+            '"total_edges=\(.total_edges) edges=\(.edges|length)"'
+
+          # The three checks below also asserted nothing but HTTP 200. They
+          # happen to be returning real testbed data today, but they would
+          # pass just as loudly on an empty body for the wrong tenant, which
+          # is exactly how dep-map hid. Assert the tenant and non-emptiness.
           check "identities" "/api/identities/overview" 200 "" ""
+          assert_json "identities:count" "$BODY_FILE" \
+            '(.total_identities > 0)' '"total_identities=\(.total_identities)"'
 
           # ── V2 sync capability map ───────────────────────────────────────
           # A screen reads this BEFORE enabling a refresh control, so it is a
