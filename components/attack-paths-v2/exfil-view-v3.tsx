@@ -33,6 +33,7 @@
  */
 
 import { useCallback, useMemo, useState } from "react"
+import { isVerifiedNonVpc } from "@/lib/attack-paths/network-banner-state"
 import dynamic from "next/dynamic"
 import { useRouter } from "next/navigation"
 import { ArrowRight, Crown, AlertTriangle, RefreshCw, Loader2, ExternalLink, Globe, ShieldCheck, KeyRound, Share2 } from "lucide-react"
@@ -726,9 +727,17 @@ function DamageRemediationPanel({
       ) &&
       ["0.0.0.0/0", "::/0"].includes(gateway.route_destination_cidr ?? ""),
   )
+  // `is_vpc_attached === false` is NOT proof of non-VPC. Only the Lambda
+  // collector writes an explicit attachment fact, so every EC2 instance
+  // arrives here as an unchecked `false` — indistinguishable from a verified
+  // non-VPC Lambda. Asserting from it cites "network does not gate this path"
+  // against workloads whose network posture was never collected.
+  //
+  // resolveNetworkBannerState already encodes the full rule (explicit verdict,
+  // evidence, complete coverage, verification time, route verdict). This view
+  // was bypassing it with an inline check; go through the one implementation.
   const isNonVpc =
-    selectedPath.workload_network?.is_vpc_attached === false &&
-    !routedInternetExit
+    isVerifiedNonVpc(selectedPath.workload_network) && !routedInternetExit
   const sgList = selectedPath.workload_network?.security_groups ?? []
   const subnetList = selectedPath.workload_network?.subnets ?? []
   const hasPublicSubnet = subnetList.some((s) => s.is_public === true)
@@ -757,7 +766,7 @@ function DamageRemediationPanel({
   }
   if (isNonVpc) {
     damageSentences.push(
-      `The workload is not VPC-attached, so VPC Flow Logs / SG egress / NACLs do not gate this path. IAM is the only line of defense.`,
+      `The workload is verified not VPC-attached, so VPC Flow Logs, security-group egress and NACLs do not gate this path. Authorization still does — IAM policy, resource policy, KMS key policy and IAM conditions all remain in force.`,
     )
   } else if (routedInternetExit) {
     const routeTable = routedInternetExit.route_table

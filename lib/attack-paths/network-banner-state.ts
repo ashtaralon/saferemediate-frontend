@@ -20,8 +20,30 @@
  * needs the server to say so explicitly, with evidence.
  */
 
+/**
+ * The server's explicit verdict. Preferred over `is_vpc_attached` wherever
+ * present, because the boolean cannot distinguish "checked, and it is not
+ * VPC-attached" from "nobody ever checked" — both arrive as `false`.
+ *
+ * Only the Lambda collector writes an explicit attachment fact, so today every
+ * EC2 instance reaches the UI as an unchecked `false`. Reading that as proof is
+ * how "IAM is the only line of defense" ends up cited against a workload whose
+ * network posture was never collected.
+ */
+export type VpcAttachmentState =
+  | "VPC_ATTACHED"
+  | "NOT_VPC_ATTACHED"
+  | "UNKNOWN"
+
 export interface WorkloadNetworkPayload {
+  /**
+   * Legacy boolean. Retained so old payloads still parse, but it is NOT
+   * sufficient on its own: `false` conflates verified-non-VPC with unchecked.
+   * A payload carrying only this degrades to UNKNOWN.
+   */
   is_vpc_attached: boolean
+  /** Authoritative when present. Absent ⇒ legacy payload ⇒ UNKNOWN. */
+  vpc_attachment_state?: VpcAttachmentState | null
   vpc_id?: string | null
   vpc_name?: string | null
   evidence?: string | null
@@ -78,9 +100,20 @@ export function resolveNetworkBannerState(
   if (workloadNetwork) {
     // Every condition is a POSITIVE requirement. An absent field can never
     // satisfy one, so a thinner payload degrades instead of promoting.
-    if (workloadNetwork.is_vpc_attached) {
+    const state = workloadNetwork.vpc_attachment_state
+    if (state === "VPC_ATTACHED" || workloadNetwork.is_vpc_attached) {
       // VPC-attached: real subnets/SGs render from real edges; no banner claim.
       return observation("workload_is_vpc_attached")
+    }
+    if (state === "UNKNOWN") {
+      // The server looked and could not establish it. Say so; do not infer.
+      return observation("workload_vpc_attachment_unknown")
+    }
+    if (state !== "NOT_VPC_ATTACHED") {
+      // No explicit verdict at all — a pre-contract payload. The boolean alone
+      // cannot carry the strong claim, so degrade rather than promote. This
+      // resolves once the backend ships vpc_attachment_state.
+      return observation("workload_vpc_attachment_state_absent")
     }
     if (!workloadNetwork.evidence || !workloadNetwork.evidence.trim()) {
       return observation("workload_network_evidence_missing")
@@ -115,4 +148,25 @@ export function resolveNetworkBannerState(
     return { kind: "unverified", reason: posture.reason, isFinding: false }
   }
   return observation(posture?.reason ?? "posture_absent")
+}
+
+
+/**
+ * The single question a consumer is entitled to ask before claiming a workload
+ * sits outside every customer VPC.
+ *
+ * Exists because `is_vpc_attached === false` was being tested inline in views
+ * that never saw the guards above — the resolver was correct and simply
+ * bypassed. Anything asserting non-applicability of network controls must go
+ * through here, so the rule has exactly one implementation.
+ *
+ * Note what this does NOT license: even a true answer means only that the VPC
+ * network control plane does not apply. Authorization still gates the reach —
+ * IAM, resource policy, KMS key policy and IAM conditions all remain in force.
+ */
+export function isVerifiedNonVpc(
+  workloadNetwork: WorkloadNetworkPayload | null | undefined,
+  posture?: NetworkPostureLike | null,
+): boolean {
+  return resolveNetworkBannerState(workloadNetwork, posture).kind === "verified-non-vpc"
 }
