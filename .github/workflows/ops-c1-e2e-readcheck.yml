@@ -91,13 +91,18 @@ jobs:
           }
 
           record() {
-            # record <name> <got> <want>
-            local name="$1" got="$2" want="$3" verdict why
+            # record <name> <got> <want> [note]
+            #
+            # The note rides along on BOTH verdicts. A pass that prints only
+            # "ok" is unauditable: you cannot tell a map of 27 nodes from a
+            # map of 1 without refetching, and the run log truncates bodies
+            # at 2 KB so the numbers are not recoverable afterwards either.
+            local name="$1" got="$2" want="$3" note="${4:-}" verdict why
             if [ "$got" = "$want" ]; then
-              verdict="PASS"; why="$got"
-              passes=$((passes+1)); echo "PASS  ${name}  [${got}]"
+              verdict="PASS"; why="${got}${note:+ ${note}}"
+              passes=$((passes+1)); echo "PASS  ${name}  [${why}]"
             else
-              verdict="FAIL"; why="${got} (wanted ${want})"
+              verdict="FAIL"; why="${got} (wanted ${want})${note:+ ${note}}"
               fails=$((fails+1)); echo "FAIL  ${name}  ${why}"
             fi
             echo "| ${name} | ${verdict} | ${why} |" >> summary.md
@@ -107,14 +112,16 @@ jobs:
             # assert_json <name> <file> <jq-predicate> <jq-detail>
             #
             # For claims a substring cannot make: counts, emptiness, and
-            # agreement between a total and the array it counts. On failure
-            # the detail expression prints the ACTUAL numbers — "false
-            # (wanted true)" tells you a check failed but not what the
-            # service said, which is half a diagnosis.
-            local name="$1" file="$2" pred="$3" detail="$4" got
-            got="$(jq -r "if ($pred) then \"ok\" else ($detail) end" \
+            # agreement between a total and the array it counts. The detail
+            # expression prints the ACTUAL numbers on BOTH verdicts — a bare
+            # "false (wanted true)" says a check failed but not what the
+            # service answered, and a bare "ok" says a check passed but not
+            # whether it passed on 27 nodes or on 1.
+            local name="$1" file="$2" pred="$3" detail="$4" got note
+            got="$(jq -r "if ($pred) then \"ok\" else \"unmet\" end" \
               "$file" 2>/dev/null || echo "UNPARSEABLE")"
-            record "$name" "$got" "ok"
+            note="$(jq -r "($detail)" "$file" 2>/dev/null || echo "unreadable")"
+            record "$name" "$got" "ok" "$note"
           }
 
           check_lane() {
