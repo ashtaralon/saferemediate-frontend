@@ -11,7 +11,8 @@
 # Actions log API is unavailable.
 #
 # Every request is a GET against public read endpoints; no auth, no
-# mutation, no approval path.
+# mutation, no approval path. That includes the V2 sync capability map,
+# which is read-only by contract and is asserted lane by lane below.
 name: ops-c1-e2e-readcheck
 
 on:
@@ -89,10 +90,67 @@ jobs:
             echo "::endgroup::"
           }
 
+          record() {
+            # record <name> <got> <want> [note]
+            #
+            # The note rides along on BOTH verdicts. A pass that prints only
+            # "ok" is unauditable: you cannot tell a map of 27 nodes from a
+            # map of 1 without refetching, and the run log truncates bodies
+            # at 2 KB so the numbers are not recoverable afterwards either.
+            local name="$1" got="$2" want="$3" note="${4:-}" verdict why
+            if [ "$got" = "$want" ]; then
+              verdict="PASS"; why="${got}${note:+ ${note}}"
+              passes=$((passes+1)); echo "PASS  ${name}  [${why}]"
+            else
+              verdict="FAIL"; why="${got} (wanted ${want})${note:+ ${note}}"
+              fails=$((fails+1)); echo "FAIL  ${name}  ${why}"
+            fi
+            echo "| ${name} | ${verdict} | ${why} |" >> summary.md
+          }
+
+          assert_json() {
+            # assert_json <name> <file> <jq-predicate> <jq-detail>
+            #
+            # For claims a substring cannot make: counts, emptiness, and
+            # agreement between a total and the array it counts. The detail
+            # expression prints the ACTUAL numbers on BOTH verdicts — a bare
+            # "false (wanted true)" says a check failed but not what the
+            # service answered, and a bare "ok" says a check passed but not
+            # whether it passed on 27 nodes or on 1.
+            local name="$1" file="$2" pred="$3" detail="$4" got note
+            got="$(jq -r "if ($pred) then \"ok\" else \"unmet\" end" \
+              "$file" 2>/dev/null || echo "UNPARSEABLE")"
+            note="$(jq -r "($detail)" "$file" 2>/dev/null || echo "unreadable")"
+            record "$name" "$got" "ok" "$note"
+          }
+
+          check_lane() {
+            # check_lane <file> <lane> <field> <expected>
+            #
+            # A substring cannot assert this honestly: the capability map is a
+            # LIST, so grepping '"state": "CONNECTED"' passes whenever ANY lane
+            # is connected — including when the lane under test is not. Select
+            # the lane first, then compare its field.
+            local file="$1" lane="$2" field="$3" want="$4" got
+            # `// "ABSENT"` would be wrong here: jq's alternative operator
+            # fires on false as well as null, so a legitimately false field
+            # would report as missing. Test for null explicitly.
+            got="$(jq -r --arg l "$lane" --arg f "$field" \
+              '(.lanes // []) | map(select(.lane == $l)) | .[0][$f]
+               | if . == null then "ABSENT" else tostring end' \
+              "$file" 2>/dev/null || echo "UNPARSEABLE")"
+            record "caps:${lane}.${field}" "$got" "$want"
+          }
+
           echo "== target: ${API} =="
 
-          # health: up, and NOT reporting a fake AWS failure on graph-serve
-          check "health" "/health" 200 "" "unhealthy: "
+          # liveness: /healthz is the PUBLIC probe. /health is operator-only
+          # (`_PUBLIC_PATHS = {"/healthz"}` in unified/auth_boundary.py), so the
+          # unauthenticated check that used to live here answered 403 forbidden,
+          # not "the service is down". This workflow holds no ops token by
+          # contract, so the data-plane diagnostics /health carries — scheduler
+          # leases, failed routers, AWS connectivity — are NOT asserted here.
+          check "healthz" "/healthz" 200 '"status":"ok"' ""
           # systems: only the testbed tenant, never the Aura estate
           check "systems" "/api/systems" 200 "$SYS" "alon-prod"
           # /all: bmap-free discovery (home dashboard rollup)
@@ -104,20 +162,111 @@ jobs:
           # shared roles: CALL{}-free gather (was 500)
           check "shared-roles" "/api/iam/shared-roles" 200 "" "CALL"
           # decision coverage: any()-free (was 500)
-          check "decision-coverage" "/api/decision-coverage/system/${SYS}" 200 "" ""
-          # blast radius: regex-free + degrades instead of re-raising (was 500)
-          check "blast-radius" "/api/business-system/${SYS}/blast-radius" 200 "" ""
+          check "decision-coverage" "/api/decision-coverage/system/${SYS}" 200 \
+            "\"system_name\":\"${SYS}\"" "alon-prod"
+          assert_json "decision-coverage:resources" "$BODY_FILE" \
+            '(.totals.resources > 0)' '"resources=\(.totals.resources)"'
+          # blast radius: regex-free + degrades instead of re-raising (was 500).
+          # The tenant lives at .system.name, and a bare `"name":"<sys>"`
+          # substring would also match any NODE with that name, so assert the
+          # field by path rather than by grep.
+          check "blast-radius" "/api/business-system/${SYS}/blast-radius" 200 "" "alon-prod"
+          assert_json "blast-radius:tenant" "$BODY_FILE" \
+            "(.system.name == \"${SYS}\")" '"system.name=\(.system.name)"'
           # IAM gap: JSON-string lists decoded (was 500 Type mismatch)
           check "iam-gap" "/api/iam-roles/${GAP_ROLE}/gap-analysis" 200 "" "Type mismatch"
-          # orphan GETs: graph-first on Neptune (were live-AWS 500s)
-          check "orphan-sg" "/api/security-groups/orphan-detection" 200 "" ""
-          check "orphan-s3" "/api/s3-buckets/orphan-detection" 200 "" ""
-          # SG analysis: live-AWS handler must refuse with the named 503
-          check "sg-analysis-guard" "/api/security-groups/sg-000000000000/analysis" 503 "live_aws_disabled_on_neptune_serve" ""
-          # dependency map: the observed-first estate read
-          check "dep-map" "/api/dependency-map/full" 200 "" ""
-          # identities overview: policy fill visible
+          # Orphan detection and SG analysis reach live AWS. A serving process
+          # is neither of the two boundaries allowed to do that (COLLECTION and
+          # MUTATION), so on C1 all three must refuse — 503, not a 200 built
+          # from an unverified read, and not the 500 they returned before the
+          # boundary landed.
+          #
+          # The required substring is the FULL refusal, code AND operation. The
+          # bare code would pass if a route were wired to the wrong guard; the
+          # operation is what proves this route's own guard fired.
+          #
+          # These become 200s only when the graph-first reads exist: scope
+          # resolved server-side, active generation checked, evidence coverage
+          # checked, and never "no edges therefore safe to delete".
+          check "orphan-sg" "/api/security-groups/orphan-detection" 503 \
+            "live_aws_disabled_on_neptune_serve: security-group orphan detection" ""
+          check "orphan-s3" "/api/s3-buckets/orphan-detection" 503 \
+            "live_aws_disabled_on_neptune_serve: S3 orphan detection" ""
+          check "sg-analysis-guard" "/api/security-groups/sg-000000000000/analysis" 503 \
+            "live_aws_disabled_on_neptune_serve: security-group analysis" ""
+          # Dependency map: the observed-first estate read.
+          #
+          # This check used to send no query string at all and assert nothing
+          # but HTTP 200. `system_name` is declared
+          # `Query(default="alon-prod", alias="systemName")` in
+          # api/dependency_map_full.py, so it answered for the Aura tenant —
+          # which does not exist in C1's Neptune — and returned
+          # `{"system_name":"alon-prod","nodes":[],"total_nodes":0,...}`. An
+          # empty map for the wrong tenant scored a PASS.
+          #
+          # The alias is camelCase and FastAPI reads ONLY the alias: a
+          # `?system_name=` spelling is ignored and falls straight back to
+          # the default, silently. Send `systemName` or send nothing.
+          #
+          # The response echoes the tenant in snake_case, so the required
+          # substring and the query parameter are spelled differently on
+          # purpose.
+          check "dep-map" "/api/dependency-map/full?systemName=${SYS}" 200 \
+            "\"system_name\":\"${SYS}\"" "alon-prod"
+          DEP_FILE="$BODY_FILE"
+          # Non-empty AND the total EQUAL to the array it counts. Requiring
+          # both merely positive is not the same claim: total_nodes=12 beside
+          # three nodes satisfies it, which is the vacuous pass in a new
+          # costume. api/dependency_map_full.py:2572 builds the response with
+          # total_nodes=len(nodes) and total_edges=len(edges), so equality is
+          # the endpoint's own contract and any drift from it — a truncation
+          # added without updating the count, a cache returning a stale
+          # total — is a real defect, not a tolerance.
+          assert_json "dep-map:nodes" "$DEP_FILE" \
+            '(.total_nodes > 0) and (.total_nodes == (.nodes | length))' \
+            '"total_nodes=\(.total_nodes) nodes=\(.nodes|length)"'
+          assert_json "dep-map:edges" "$DEP_FILE" \
+            '(.total_edges > 0) and (.total_edges == (.edges | length))' \
+            '"total_edges=\(.total_edges) edges=\(.edges|length)"'
+
+          # The three checks below also asserted nothing but HTTP 200. They
+          # happen to be returning real testbed data today, but they would
+          # pass just as loudly on an empty body for the wrong tenant, which
+          # is exactly how dep-map hid. Assert the tenant and non-emptiness.
           check "identities" "/api/identities/overview" 200 "" ""
+          assert_json "identities:count" "$BODY_FILE" \
+            '(.total_identities > 0)' '"total_identities=\(.total_identities)"'
+
+          # ── V2 sync capability map ───────────────────────────────────────
+          # A screen reads this BEFORE enabling a refresh control, so it is a
+          # serving-truth check, not a liveness one. A lane advertised
+          # CONNECTED that /start would refuse is a false-enable: the operator
+          # spends a real AWS collection round to be told no, or reads the
+          # start response as freshness for data nothing collected.
+          check "sync-capabilities" "/api/v2/sync/capabilities" 200 "lanes" ""
+          CAPS_FILE="$BODY_FILE"
+
+          # Scope is configured on C1 and this lane has a durable Neptune
+          # activation receipt, so it is the one lane that can be refreshed.
+          # Both halves are asserted: dispatch alone was the original bug —
+          # a lane can be enqueueable and still have no way to confirm a round.
+          check_lane "$CAPS_FILE" "vulnerability_findings" "state"   "CONNECTED"
+          check_lane "$CAPS_FILE" "vulnerability_findings" "receipt" "neptune_activation"
+
+          # No collector queues and no completion receipt. These must fail
+          # CLOSED so their screens render a disabled "Not connected" control,
+          # rather than a button that starts a round nobody can confirm.
+          for lane in inventory_reconcile api_activity network_flow; do
+            check_lane "$CAPS_FILE" "$lane" "state" "NOT_CONNECTED"
+          done
+
+          # The serving tier is read-only by construction. If this ever reads
+          # true, something granted the web process authority it must not hold.
+          record "caps:no-mutation-authority" \
+            "$(jq -r '.contains_mutation_authority
+                      | if . == null then "ABSENT" else tostring end' \
+                 "$CAPS_FILE" 2>/dev/null || echo UNPARSEABLE)" \
+            "false"
 
           echo "" >> summary.md
           echo "**${passes} passed, ${fails} failed**" >> summary.md
@@ -128,7 +277,11 @@ jobs:
           echo "FAILS=${fails}" >> "$GITHUB_ENV"
 
       - name: Comment results on PR
-        if: inputs.pr_number != ''
+        # "0" as well as empty: a workflow_dispatch input left blank is
+        # replaced by its DEFAULT, so "" does not actually suppress the
+        # comment — it posts to whatever the default PR is. "0" is the
+        # explicit opt-out, and skipping it here avoids four 404 retries.
+        if: inputs.pr_number != '' && inputs.pr_number != '0'
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ inputs.pr_number }}
