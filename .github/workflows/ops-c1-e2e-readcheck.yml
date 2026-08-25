@@ -214,13 +214,19 @@ jobs:
           check "dep-map" "/api/dependency-map/full?systemName=${SYS}" 200 \
             "\"system_name\":\"${SYS}\"" "alon-prod"
           DEP_FILE="$BODY_FILE"
-          # Both halves: the total AND the array. A total that disagrees with
-          # the array it counts is the same vacuous pass in a new costume.
+          # Non-empty AND the total EQUAL to the array it counts. Requiring
+          # both merely positive is not the same claim: total_nodes=12 beside
+          # three nodes satisfies it, which is the vacuous pass in a new
+          # costume. api/dependency_map_full.py:2572 builds the response with
+          # total_nodes=len(nodes) and total_edges=len(edges), so equality is
+          # the endpoint's own contract and any drift from it — a truncation
+          # added without updating the count, a cache returning a stale
+          # total — is a real defect, not a tolerance.
           assert_json "dep-map:nodes" "$DEP_FILE" \
-            '(.total_nodes > 0) and ((.nodes | length) > 0)' \
+            '(.total_nodes > 0) and (.total_nodes == (.nodes | length))' \
             '"total_nodes=\(.total_nodes) nodes=\(.nodes|length)"'
           assert_json "dep-map:edges" "$DEP_FILE" \
-            '(.total_edges > 0) and ((.edges | length) > 0)' \
+            '(.total_edges > 0) and (.total_edges == (.edges | length))' \
             '"total_edges=\(.total_edges) edges=\(.edges|length)"'
 
           # The three checks below also asserted nothing but HTTP 200. They
