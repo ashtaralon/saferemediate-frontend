@@ -13,7 +13,15 @@ import {
 } from "@/lib/sync-from-aws"
 
 interface UseSyncFromAWSOptions {
-  onComplete?: () => void
+  /**
+   * Called once a round completes. Receives the FULL backend status payload —
+   * `results`, `sources`, `deferred_sources`, `completed_at` — so a screen can
+   * decide whether ITS lane was actually refreshed. Previously this took no
+   * argument, so consumers could only observe "the round succeeded" and
+   * several stamped `new Date()` as an AWS freshness claim on data the round
+   * never touched. Pass the receipt; let the screen read it.
+   */
+  onComplete?: (payload: Record<string, unknown>) => void
   pollIntervalMs?: number
   autoClearMessageMs?: number
 }
@@ -65,7 +73,13 @@ export function useSyncFromAWS(options: UseSyncFromAWSOptions = {}) {
           type: "success",
           text: formatSyncSuccessMessage(data.results),
         })
-        onCompleteRef.current?.()
+        // Merge the status envelope with its `results` body: lane membership
+        // arrives on both depending on stage, and a screen must be able to see
+        // either without knowing which.
+        onCompleteRef.current?.({
+          ...(data as unknown as Record<string, unknown>),
+          ...((data.results ?? {}) as Record<string, unknown>),
+        })
       } else if (data.status === "failed" || data.status === "stale") {
         setSyncing(false)
         setJobId(null)
