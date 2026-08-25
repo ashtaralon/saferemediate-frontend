@@ -11,7 +11,8 @@
 # Actions log API is unavailable.
 #
 # Every request is a GET against public read endpoints; no auth, no
-# mutation, no approval path.
+# mutation, no approval path. That includes the V2 sync capability map,
+# which is read-only by contract and is asserted lane by lane below.
 name: ops-c1-e2e-readcheck
 
 on:
@@ -89,6 +90,37 @@ jobs:
             echo "::endgroup::"
           }
 
+          record() {
+            # record <name> <got> <want>
+            local name="$1" got="$2" want="$3" verdict why
+            if [ "$got" = "$want" ]; then
+              verdict="PASS"; why="$got"
+              passes=$((passes+1)); echo "PASS  ${name}  [${got}]"
+            else
+              verdict="FAIL"; why="${got} (wanted ${want})"
+              fails=$((fails+1)); echo "FAIL  ${name}  ${why}"
+            fi
+            echo "| ${name} | ${verdict} | ${why} |" >> summary.md
+          }
+
+          check_lane() {
+            # check_lane <file> <lane> <field> <expected>
+            #
+            # A substring cannot assert this honestly: the capability map is a
+            # LIST, so grepping '"state": "CONNECTED"' passes whenever ANY lane
+            # is connected — including when the lane under test is not. Select
+            # the lane first, then compare its field.
+            local file="$1" lane="$2" field="$3" want="$4" got
+            # `// "ABSENT"` would be wrong here: jq's alternative operator
+            # fires on false as well as null, so a legitimately false field
+            # would report as missing. Test for null explicitly.
+            got="$(jq -r --arg l "$lane" --arg f "$field" \
+              '(.lanes // []) | map(select(.lane == $l)) | .[0][$f]
+               | if . == null then "ABSENT" else tostring end' \
+              "$file" 2>/dev/null || echo "UNPARSEABLE")"
+            record "caps:${lane}.${field}" "$got" "$want"
+          }
+
           echo "== target: ${API} =="
 
           # health: up, and NOT reporting a fake AWS failure on graph-serve
@@ -118,6 +150,37 @@ jobs:
           check "dep-map" "/api/dependency-map/full" 200 "" ""
           # identities overview: policy fill visible
           check "identities" "/api/identities/overview" 200 "" ""
+
+          # ── V2 sync capability map ───────────────────────────────────────
+          # A screen reads this BEFORE enabling a refresh control, so it is a
+          # serving-truth check, not a liveness one. A lane advertised
+          # CONNECTED that /start would refuse is a false-enable: the operator
+          # spends a real AWS collection round to be told no, or reads the
+          # start response as freshness for data nothing collected.
+          check "sync-capabilities" "/api/v2/sync/capabilities" 200 "lanes" ""
+          CAPS_FILE="$BODY_FILE"
+
+          # Scope is configured on C1 and this lane has a durable Neptune
+          # activation receipt, so it is the one lane that can be refreshed.
+          # Both halves are asserted: dispatch alone was the original bug —
+          # a lane can be enqueueable and still have no way to confirm a round.
+          check_lane "$CAPS_FILE" "vulnerability_findings" "state"   "CONNECTED"
+          check_lane "$CAPS_FILE" "vulnerability_findings" "receipt" "neptune_activation"
+
+          # No collector queues and no completion receipt. These must fail
+          # CLOSED so their screens render a disabled "Not connected" control,
+          # rather than a button that starts a round nobody can confirm.
+          for lane in inventory_reconcile api_activity network_flow; do
+            check_lane "$CAPS_FILE" "$lane" "state" "NOT_CONNECTED"
+          done
+
+          # The serving tier is read-only by construction. If this ever reads
+          # true, something granted the web process authority it must not hold.
+          record "caps:no-mutation-authority" \
+            "$(jq -r '.contains_mutation_authority
+                      | if . == null then "ABSENT" else tostring end' \
+                 "$CAPS_FILE" 2>/dev/null || echo UNPARSEABLE)" \
+            "false"
 
           echo "" >> summary.md
           echo "**${passes} passed, ${fails} failed**" >> summary.md
