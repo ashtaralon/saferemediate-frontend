@@ -1234,9 +1234,11 @@ describe("8. empty network lane provenance (deriveNetworkPosture)", () => {
  * NOT_VPC_ATTACHED is claimed only when EVERY row explicitly says so.
  */
 describe("lane VPC aggregation fails closed", () => {
-  const wn = (over: Record<string, unknown> = {}) => ({
+  type Wn = NonNullable<ConvergencePath["workload_network"]>
+
+  const wn = (over: Partial<Wn> = {}): Wn => ({
     is_vpc_attached: false,
-    vpc_attachment_state: "NOT_VPC_ATTACHED" as const,
+    vpc_attachment_state: "NOT_VPC_ATTACHED",
     evidence: "Lambda VpcConfig empty (no VpcId)",
     verified_at: "T",
     route_verdict: "NOT_VPC_ATTACHED",
@@ -1245,54 +1247,74 @@ describe("lane VPC aggregation fails closed", () => {
     ...over,
   })
 
-  const build = (rows: Array<Record<string, unknown>>) =>
+  /**
+   * A LANE is multiple paths, which selectSpotlightPaths only returns when no
+   * spotlight id is pinned — with an id it filters to that single path. Pinning
+   * it (as an earlier version of this suite did) means the multi-row branch is
+   * never reached and the aggregate is just one row echoed back.
+   */
+  const build = (rows: Array<Partial<Wn>>) =>
     buildPathAuthorityArchitecture({
       paths: rows.map((w, i) =>
         path({
           path_id: `p${i + 1}`,
+          workload_arn: `arn:aws:lambda:eu-west-1:1:function:fn${i + 1}`,
           hops_load_state: "ready",
-          workload_network: w,
+          workload_network: wn(w),
         }),
       ),
-      spotlightPathId: "p1",
+      spotlightPathId: null,
     }).workloadNetwork
 
   it("claims NOT_VPC_ATTACHED when every workload is explicitly verified", () => {
-    expect(build([wn(), wn()])?.vpc_attachment_state).toBe("NOT_VPC_ATTACHED")
+    const all = build([{}, {}])
+    expect(all?.workload_count_queried).toBe(2)
+    expect(all?.vpc_attachment_state).toBe("NOT_VPC_ATTACHED")
   })
 
   it("degrades a MIXED lane to UNKNOWN", () => {
     // verified non-VPC Lambda beside an unchecked EC2
-    const mixed = build([wn(), wn({ vpc_attachment_state: "UNKNOWN" })])
+    const mixed = build([{}, { vpc_attachment_state: "UNKNOWN" }])
+    expect(mixed?.workload_count_queried).toBe(2)
     expect(mixed?.vpc_attachment_state).toBe("UNKNOWN")
   })
 
-  it("degrades a legacy EC2 fallback with no explicit state to UNKNOWN", () => {
-    const legacy = build([wn({ vpc_attachment_state: undefined })])
+  it("degrades a legacy row with no explicit state to UNKNOWN", () => {
+    const legacy = build([{ vpc_attachment_state: undefined }])
     expect(legacy?.vpc_attachment_state).toBe("UNKNOWN")
     // the ambiguous boolean survives for topology, but carries no conclusion
     expect(legacy?.is_vpc_attached).toBe(false)
   })
 
   it("degrades when any single row is unknown, however many are verified", () => {
-    const many = build([wn(), wn(), wn(), wn({ vpc_attachment_state: "UNKNOWN" })])
+    const many = build([{}, {}, {}, { vpc_attachment_state: "UNKNOWN" }])
+    expect(many?.workload_count_queried).toBe(4)
     expect(many?.vpc_attachment_state).toBe("UNKNOWN")
   })
 
   it("reports VPC_ATTACHED when any workload is attached", () => {
-    const attached = build([wn(), wn({ is_vpc_attached: true, vpc_id: "vpc-1" })])
+    const attached = build([{}, { is_vpc_attached: true, vpc_id: "vpc-1" }])
     expect(attached?.vpc_attachment_state).toBe("VPC_ATTACHED")
     expect(attached?.is_vpc_attached).toBe(true)
   })
 
-  it("omits the payload entirely when coverage is partial", () => {
-    // one path in the lane carries no verdict at all — fail closed, no aggregate
+  it("omits the payload entirely when a lane member carries no verdict", () => {
     const arch = buildPathAuthorityArchitecture({
       paths: [
-        path({ path_id: "p1", hops_load_state: "ready", workload_network: wn() }),
-        path({ path_id: "p2", hops_load_state: "ready", workload_network: null }),
+        path({
+          path_id: "p1",
+          workload_arn: "arn:aws:lambda:eu-west-1:1:function:fn1",
+          hops_load_state: "ready",
+          workload_network: wn(),
+        }),
+        path({
+          path_id: "p2",
+          workload_arn: "arn:aws:lambda:eu-west-1:1:function:fn2",
+          hops_load_state: "ready",
+          workload_network: null,
+        }),
       ],
-      spotlightPathId: "p1",
+      spotlightPathId: null,
     })
     expect(arch.workloadNetwork).toBeUndefined()
   })
