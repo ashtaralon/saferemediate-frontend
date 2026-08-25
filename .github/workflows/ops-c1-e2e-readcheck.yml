@@ -191,7 +191,11 @@ jobs:
           echo "FAILS=${fails}" >> "$GITHUB_ENV"
 
       - name: Comment results on PR
-        if: inputs.pr_number != ''
+        # "0" as well as empty: a workflow_dispatch input left blank is
+        # replaced by its DEFAULT, so "" does not actually suppress the
+        # comment — it posts to whatever the default PR is. "0" is the
+        # explicit opt-out, and skipping it here avoids four 404 retries.
+        if: inputs.pr_number != '' && inputs.pr_number != '0'
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ inputs.pr_number }}
