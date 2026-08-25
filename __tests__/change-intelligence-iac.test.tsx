@@ -73,6 +73,51 @@ describe('IaC Change Intelligence', () => {
     expect(body.scope).toMatchObject({ customer_id: 'tenant-a', account_id: '123456789012', region: 'eu-west-1' })
     expect(body.artifact.kind).toBe('TERRAFORM_PLAN_JSON')
     expect(body.artifact.document.resource_changes[0].address).toBe('aws_security_group.app')
+    expect(body.analysis_mode).toBe('IAC_CHANGE_INTELLIGENCE')
+  })
+
+  it('submits an import-aware baseline conservation check as a distinct analysis mode', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+      const url = String(input)
+      if (url.includes('/capabilities')) return new Response(JSON.stringify({ capabilities: [] }), { status: 200 })
+      if (url.includes('/analyze-iac')) return new Response(JSON.stringify({ intent_id: 'ci-baseline-1' }), { status: 200 })
+      throw new Error(`Unexpected URL ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const view = render(<AnalyzeChangePage />)
+
+    fireEvent.click(screen.getByRole('button', { name: /Create Terraform baseline/ }))
+    expect(screen.getByRole('heading', { name: 'Can this import plan conserve production?' })).toBeInTheDocument()
+    expect(screen.getByText(/does not discover resources, generate configuration, approve a manifest/)).toBeInTheDocument()
+
+    const file = jsonFile('baseline-plan.json', {
+      format_version: '1.2',
+      terraform_version: '1.9.8',
+      resource_changes: [{
+        address: 'aws_security_group.web',
+        mode: 'managed',
+        type: 'aws_security_group',
+        change: {
+          actions: ['no-op'],
+          before: null,
+          after: { id: 'sg-1', name: 'web' },
+          importing: { id: 'sg-1' },
+        },
+      }],
+    })
+    const input = view.container.querySelector('input[type="file"]') as HTMLInputElement
+    fireEvent.change(input, { target: { files: [file] } })
+    expect(await screen.findByText('baseline-plan.json')).toBeInTheDocument()
+    expect(screen.getByText('Imports')).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Why is this baseline needed?'), { target: { value: 'Adopt current production resources without changing AWS.' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Check baseline conservation' }))
+
+    await waitFor(() => expect(push).toHaveBeenCalledWith('/change-queue/intents/ci-baseline-1?customer_id=tenant-a'))
+    const call = fetchMock.mock.calls.find(([url]) => String(url).includes('/analyze-iac'))
+    const body = JSON.parse(String(call?.[1]?.body))
+    expect(body.analysis_mode).toBe('TERRAFORM_BASELINE_ASSURANCE')
+    expect(body.artifact.kind).toBe('TERRAFORM_PLAN_JSON')
+    expect(body.artifact.document.resource_changes[0].change.importing.id).toBe('sg-1')
   })
 
   it('renders conclusion, evidence classes, graph scope, gates, and rollback without an apply action', () => {
@@ -89,6 +134,42 @@ describe('IaC Change Intelligence', () => {
     expect(screen.getByText('VPC Flow Logs')).toBeInTheDocument()
     expect(screen.getByText(/90 coverage days/)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /apply/i })).not.toBeInTheDocument()
+  })
+
+  it('renders baseline readiness, import identity, and remaining gates without execution', () => {
+    const document = iacDocument()
+    document.intent.change = { ...document.intent.change, resource_type: 'TerraformBaselinePlan', action: 'ASSESS_TERRAFORM_BASELINE' }
+    document.risk_dossier.analysis_kind = 'TERRAFORM_BASELINE_ASSURANCE'
+    document.risk_dossier.analysis_conclusion = {
+      state: 'NEEDS_EVIDENCE',
+      headline: 'Import-only structure passed; manifest, ownership, and execution evidence are still required.',
+      safe_to_apply: null,
+      safe_to_apply_reason: 'The analysis lane cannot approve or execute Terraform import.',
+    }
+    document.risk_dossier.readiness = { state: 'NOT_READY', failed_gate_count: 0, required_gate_count: 3, meaning: 'This analysis is advisory.' }
+    document.risk_dossier.semantic_diff.summary.action_counts.import = 1
+    document.risk_dossier.semantic_diff.resource_changes = [{
+      address: 'aws_security_group.web',
+      resource_type: 'aws_security_group',
+      family: 'network_security',
+      actions: [],
+      replace_paths: [],
+      changed_paths: [],
+      is_import: true,
+      import_id: 'sg-1',
+    }]
+    document.risk_dossier.approval_guardrails = [
+      { gate: 'NO_CLOUD_MUTATIONS', state: 'PASSED', detail: 'No cloud mutations.' },
+      { gate: 'APPROVED_BASELINE_MANIFEST', state: 'REQUIRED', detail: 'Manifest approval is required.' },
+    ]
+    render(<IaCChangeDossier document={document} customerId="tenant-a" />)
+
+    expect(screen.getByText(/Baseline readiness · Not Ready/)).toBeInTheDocument()
+    expect(screen.getByText('Terraform baseline import plan · frozen review')).toBeInTheDocument()
+    expect(screen.getByText('sg-1')).toBeInTheDocument()
+    expect(screen.getByText('No Cloud Mutations')).toBeInTheDocument()
+    expect(screen.getByText('Approved Baseline Manifest')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /apply|execute|import now/i })).not.toBeInTheDocument()
   })
 
   it('submits an enriched CloudFormation change set with both template contexts', async () => {

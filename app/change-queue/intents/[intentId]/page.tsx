@@ -109,7 +109,7 @@ export default function ChangeIntentDossierPage() {
   const handoff = document.execution.handoff || { state: document.execution.state, available: false, reason: document.execution.reason }
   const scopeQuery = customerId ? `?customer_id=${encodeURIComponent(customerId)}` : ''
 
-  if (dossier.analysis_kind === 'IAC_CHANGE_INTELLIGENCE') {
+  if (dossier.analysis_kind === 'IAC_CHANGE_INTELLIGENCE' || dossier.analysis_kind === 'TERRAFORM_BASELINE_ASSURANCE') {
     return <IaCChangeDossier document={document as unknown as IaCIntentDocument} customerId={customerId} />
   }
 

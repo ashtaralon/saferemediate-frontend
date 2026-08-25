@@ -173,6 +173,9 @@ export function ChangeQueueView({ systemName, showBack }: { systemName?: string;
   if (customerId) scopeParams.set('customer_id', customerId)
   if (systemName) scopeParams.set('system_name', systemName)
   const scopeQuery = scopeParams.size ? `?${scopeParams}` : ''
+  const baselineParams = new URLSearchParams(scopeParams)
+  baselineParams.set('mode', 'baseline')
+  const baselineHref = `/change-queue/new?${baselineParams}`
   const initialIntentLoad = loading && intents.length === 0
   const initialCaseLoad = loading && cases.length === 0
 
@@ -196,6 +199,7 @@ export function ChangeQueueView({ systemName, showBack }: { systemName?: string;
           <div className="flex flex-col items-end gap-2">
             <div className="flex gap-2">
               <Link href={`/change-queue/new${scopeQuery}`} className="flex items-center gap-2 rounded-xl bg-violet-600 px-4 py-2 text-sm font-bold text-white hover:bg-violet-700"><Plus className="h-4 w-4" /> Check a change</Link>
+              <Link href={baselineHref} className="flex items-center gap-2 rounded-xl border border-violet-300 bg-white px-4 py-2 text-sm font-bold text-violet-700 hover:bg-violet-50"><GitBranch className="h-4 w-4" /> Create Terraform baseline</Link>
               <button onClick={() => void load()} disabled={loading} className="flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> Refresh</button>
             </div>
             {refreshedAt && <span className="text-xs text-slate-500">Refreshed {refreshedAt.toLocaleTimeString()}</span>}
@@ -224,13 +228,14 @@ export function ChangeQueueView({ systemName, showBack }: { systemName?: string;
         {!loading && !intentsError && intents.length === 0 && <div className="mt-3 rounded-2xl border border-dashed border-slate-300 bg-white p-6 text-sm text-slate-600">No customer-authored change has been analyzed yet.</div>}
         <div className={`mt-3 grid gap-3 lg:grid-cols-2 ${intentsError ? 'opacity-60' : ''}`}>
           {intents.map(item => {
-            const isIaC = item.risk_dossier.analysis_kind === 'IAC_CHANGE_INTELLIGENCE'
+            const isBaseline = item.risk_dossier.analysis_kind === 'TERRAFORM_BASELINE_ASSURANCE'
+            const isIaC = item.risk_dossier.analysis_kind === 'IAC_CHANGE_INTELLIGENCE' || isBaseline
             const sourceLabel = item.risk_dossier.source_artifact?.kind === 'TERRAFORM_PLAN_JSON' ? 'Terraform' : item.risk_dossier.source_artifact?.kind === 'CLOUDFORMATION_CHANGE_SET_JSON' ? 'CloudFormation' : null
             const changeCount = item.risk_dossier.semantic_diff_summary?.total_changes || 0
             const findingCount = item.risk_dossier.finding_counts?.total || 0
             const conclusion = item.risk_dossier.analysis_conclusion?.state || item.decision.state
             return <Link key={item.intent_id} href={`/change-queue/intents/${encodeURIComponent(item.intent_id)}${scopeQuery}`} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-violet-300">
-              <div className="flex items-start justify-between gap-3"><div><div className="text-xs font-bold uppercase tracking-wide text-violet-700">{sourceLabel ? `${sourceLabel} · Change safety check` : item.capability?.display_name || 'Dependency check only'}</div><div className="mt-1 font-semibold">{isIaC ? `${changeCount} proposed resource change${changeCount === 1 ? '' : 's'}` : item.intent.change.action.replace(/_/g, ' ')}</div></div><span className={`rounded-full px-2.5 py-1 text-[10px] font-black ${item.risk_dossier.risk_band === 'CRITICAL' ? 'bg-red-100 text-red-800' : item.risk_dossier.risk_band === 'HIGH' ? 'bg-orange-100 text-orange-800' : item.risk_dossier.risk_band === 'MEDIUM' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}>{item.risk_dossier.risk_band}</span></div>
+              <div className="flex items-start justify-between gap-3"><div><div className="text-xs font-bold uppercase tracking-wide text-violet-700">{isBaseline ? 'Terraform · Baseline conservation' : sourceLabel ? `${sourceLabel} · Change safety check` : item.capability?.display_name || 'Dependency check only'}</div><div className="mt-1 font-semibold">{isBaseline ? `${changeCount} baseline import target${changeCount === 1 ? '' : 's'}` : isIaC ? `${changeCount} proposed resource change${changeCount === 1 ? '' : 's'}` : item.intent.change.action.replace(/_/g, ' ')}</div></div><span className={`rounded-full px-2.5 py-1 text-[10px] font-black ${item.risk_dossier.risk_band === 'CRITICAL' ? 'bg-red-100 text-red-800' : isBaseline ? 'bg-amber-100 text-amber-800' : item.risk_dossier.risk_band === 'HIGH' ? 'bg-orange-100 text-orange-800' : item.risk_dossier.risk_band === 'MEDIUM' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}>{isBaseline ? 'NOT READY' : item.risk_dossier.risk_band}</span></div>
               {isIaC ? <p className="mt-2 line-clamp-2 text-sm text-slate-600">{item.risk_dossier.analysis_conclusion?.headline}</p> : <div className="mt-2 font-mono text-xs text-slate-500">{item.intent.change.resource_type} · {item.intent.change.resource_id}</div>}
               <div className="mt-3 text-xs text-slate-600">{isIaC ? `${findingCount} findings · ${item.risk_dossier.blast_radius.direct_dependency_count} adjacent resources` : `${item.risk_dossier.blast_radius.direct_dependency_count} graph-adjacent resources`} · {item.risk_dossier.blast_radius.systems.length} systems · {item.risk_dossier.evidence_gap_count} evidence gaps</div>
               <div className="mt-2 flex flex-wrap gap-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">

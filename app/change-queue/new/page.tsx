@@ -34,10 +34,10 @@ interface ArtifactFile {
   name: string
   size: number
   document: Record<string, unknown>
-  summary: { changes: number; creates: number; updates: number; deletes: number; replaces: number; types: string[] }
+  summary: { changes: number; imports: number; creates: number; updates: number; deletes: number; replaces: number; types: string[] }
 }
 
-type IntakeMode = 'iac' | 'manual'
+type IntakeMode = 'iac' | 'baseline' | 'manual'
 type ArtifactKind = 'TERRAFORM_PLAN_JSON' | 'CLOUDFORMATION_CHANGE_SET_JSON'
 type CloudFormationInput = 'change-set' | 'enriched-change-set' | 'template-pair'
 
@@ -76,6 +76,10 @@ export default function AnalyzeChangePage() {
 
   useEffect(() => {
     const search = new URLSearchParams(window.location.search)
+    if (search.get('mode') === 'baseline') {
+      setMode('baseline')
+      setArtifactKind('TERRAFORM_PLAN_JSON')
+    }
     const requestedSystem = search.get('system_name')?.trim() || ''
     if (requestedSystem) {
       setSystemName(requestedSystem)
@@ -205,6 +209,7 @@ export default function AnalyzeChangePage() {
         commit_sha: commitSha || undefined,
         pull_request_url: pullRequestUrl || undefined,
       },
+      analysis_mode: mode === 'baseline' ? 'TERRAFORM_BASELINE_ASSURANCE' : 'IAC_CHANGE_INTELLIGENCE',
       reason,
       requested_by: requestedBy,
     })
@@ -280,17 +285,21 @@ export default function AnalyzeChangePage() {
 
         <header className="mt-5 flex flex-wrap items-end justify-between gap-4">
           <div>
-            <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[.16em] text-violet-700"><GitBranch className="h-4 w-4" /> Pre-deployment change check</div>
-            <h1 className="mt-2 text-3xl font-bold">Will this change break anything?</h1>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">Upload a Terraform plan or CloudFormation change. Cyntro checks the proposed changes against the current cloud configuration, dependencies, permissions, and observed behavior to show what could break—and what cannot yet be verified—before deployment.</p>
+            <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[.16em] text-violet-700"><GitBranch className="h-4 w-4" /> {mode === 'baseline' ? 'Brownfield Terraform adoption' : 'Pre-deployment change check'}</div>
+            <h1 className="mt-2 text-3xl font-bold">{mode === 'baseline' ? 'Can this import plan conserve production?' : 'Will this change break anything?'}</h1>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">{mode === 'baseline' ? 'Upload an import-aware Terraform plan. Cyntro preserves every import target, blocks any create, update, replace, or delete action, and checks the target against current Neptune dependency evidence. This phase remains analysis-only.' : 'Upload a Terraform plan or CloudFormation change. Cyntro checks the proposed changes against the current cloud configuration, dependencies, permissions, and observed behavior to show what could break—and what cannot yet be verified—before deployment.'}</p>
           </div>
           <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-600"><strong className="text-slate-900">Analysis only.</strong> Nothing here changes AWS.</div>
         </header>
 
-        <div className="mt-6 grid gap-3 md:grid-cols-2">
+        <div className="mt-6 grid gap-3 md:grid-cols-3">
           <button type="button" onClick={() => { setMode('iac'); setError(null) }} className={`rounded-2xl border p-5 text-left transition ${mode === 'iac' ? 'border-violet-400 bg-violet-50 ring-2 ring-violet-100' : 'border-slate-200 bg-white hover:border-violet-200'}`}>
             <div className="flex items-center gap-2 text-sm font-bold"><FileCode2 className="h-5 w-5 text-violet-700" /> Check an IaC plan for breaking changes <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] uppercase text-violet-800">Recommended</span></div>
             <p className="mt-2 text-sm text-slate-600">Terraform plan or CloudFormation change set/current-vs-proposed templates. Cyntro checks every proposed resource change against live dependencies.</p>
+          </button>
+          <button type="button" onClick={() => { setMode('baseline'); setKind('TERRAFORM_PLAN_JSON'); setError(null) }} className={`rounded-2xl border p-5 text-left transition ${mode === 'baseline' ? 'border-violet-400 bg-violet-50 ring-2 ring-violet-100' : 'border-slate-200 bg-white hover:border-violet-200'}`}>
+            <div className="flex items-center gap-2 text-sm font-bold"><GitBranch className="h-5 w-5 text-violet-700" /> Create Terraform baseline <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] uppercase text-amber-800">Phase 1</span></div>
+            <p className="mt-2 text-sm text-slate-600">Check an import-aware Terraform plan and block any action that would change AWS. Manifest, ownership, generation, and execution remain gated.</p>
           </button>
           <button type="button" onClick={() => { setMode('manual'); setError(null) }} className={`rounded-2xl border p-5 text-left transition ${mode === 'manual' ? 'border-violet-400 bg-violet-50 ring-2 ring-violet-100' : 'border-slate-200 bg-white hover:border-violet-200'}`}>
             <div className="flex items-center gap-2 text-sm font-bold"><CloudCog className="h-5 w-5 text-violet-700" /> Check one manual change</div>
@@ -298,14 +307,20 @@ export default function AnalyzeChangePage() {
           </button>
         </div>
 
-        {mode === 'iac' ? (
+        {mode !== 'manual' ? (
           <form onSubmit={submitIaC} className="mt-6 grid gap-6 lg:grid-cols-[1.45fr_.75fr]">
             <div className="space-y-5">
-              <Panel step="1" title="Proposed change source" subtitle="The plan describes what will change; Cyntro checks it against the current operational environment.">
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <SourceChoice selected={artifactKind === 'TERRAFORM_PLAN_JSON'} icon={<FileCode2 className="h-5 w-5" />} title="Terraform plan JSON" detail="terraform show -json tf.plan" onClick={() => setKind('TERRAFORM_PLAN_JSON')} />
-                  <SourceChoice selected={artifactKind === 'CLOUDFORMATION_CHANGE_SET_JSON'} icon={<CloudCog className="h-5 w-5" />} title="CloudFormation" detail="Evaluated change set or template pair" onClick={() => setKind('CLOUDFORMATION_CHANGE_SET_JSON')} />
-                </div>
+              <Panel step="1" title={mode === 'baseline' ? 'Import-aware Terraform plan' : 'Proposed change source'} subtitle={mode === 'baseline' ? 'Cyntro retains import semantics, blocks cloud mutations, and keeps execution unavailable.' : 'The plan describes what will change; Cyntro checks it against the current operational environment.'}>
+                {mode === 'baseline' ? (
+                  <div className="rounded-xl border border-violet-200 bg-violet-50 p-4 text-sm leading-6 text-violet-950">
+                    Generate with <code className="rounded bg-white px-1.5 py-0.5 text-xs">terraform plan -out=tf.plan</code> and <code className="rounded bg-white px-1.5 py-0.5 text-xs">terraform show -json tf.plan</code>. This phase checks import conservation only; it does not discover resources, generate configuration, approve a manifest, import state, or change AWS.
+                  </div>
+                ) : (
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <SourceChoice selected={artifactKind === 'TERRAFORM_PLAN_JSON'} icon={<FileCode2 className="h-5 w-5" />} title="Terraform plan JSON" detail="terraform show -json tf.plan" onClick={() => setKind('TERRAFORM_PLAN_JSON')} />
+                    <SourceChoice selected={artifactKind === 'CLOUDFORMATION_CHANGE_SET_JSON'} icon={<CloudCog className="h-5 w-5" />} title="CloudFormation" detail="Evaluated change set or template pair" onClick={() => setKind('CLOUDFORMATION_CHANGE_SET_JSON')} />
+                  </div>
+                )}
 
                 {artifactKind === 'CLOUDFORMATION_CHANGE_SET_JSON' && (
                   <div className="mt-4 flex flex-wrap gap-2" role="group" aria-label="CloudFormation input type">
@@ -333,8 +348,9 @@ export default function AnalyzeChangePage() {
                 )}
 
                 {sourceReady && sourceSummary && (
-                  <div className="mt-4 grid gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-4 sm:grid-cols-5">
+                  <div className="mt-4 grid gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-4 sm:grid-cols-6">
                     <MiniMetric label="Changes" value={sourceSummary.changes} />
+                    <MiniMetric label="Imports" value={sourceSummary.imports} />
                     <MiniMetric label="Create" value={sourceSummary.creates} />
                     <MiniMetric label="Update" value={sourceSummary.updates} />
                     <MiniMetric label="Delete" value={sourceSummary.deletes} />
@@ -363,8 +379,8 @@ export default function AnalyzeChangePage() {
                 </div>
               </Panel>
 
-              <Panel step="3" title="Change context" subtitle="Give reviewers enough ownership and intent to make a decision.">
-                <label className="block text-sm font-semibold">Why is this change needed?<textarea required minLength={8} value={reason} onChange={event => setReason(event.target.value)} placeholder="Upgrade, security control, incident prevention, architecture change…" className="mt-2 min-h-24 w-full rounded-xl border border-slate-300 px-3 py-3 font-normal" /></label>
+              <Panel step="3" title={mode === 'baseline' ? 'Baseline context' : 'Change context'} subtitle="Give reviewers enough ownership and intent to make a decision.">
+                <label className="block text-sm font-semibold">{mode === 'baseline' ? 'Why is this baseline needed?' : 'Why is this change needed?'}<textarea required minLength={8} value={reason} onChange={event => setReason(event.target.value)} placeholder={mode === 'baseline' ? 'Bring current resources under Terraform without changing production…' : 'Upgrade, security control, incident prevention, architecture change…'} className="mt-2 min-h-24 w-full rounded-xl border border-slate-300 px-3 py-3 font-normal" /></label>
                 <div className="mt-4 grid gap-4 sm:grid-cols-2">
                   <label className="text-sm font-semibold">Requested by<input required minLength={2} value={requestedBy} onChange={event => setRequestedBy(event.target.value)} className="mt-2 w-full rounded-xl border border-slate-300 px-3 py-3 font-normal" /></label>
                   <label className="text-sm font-semibold">Repository <span className="font-normal text-slate-400">optional</span><input value={repository} onChange={event => setRepository(event.target.value)} placeholder="org/platform-infra" className="mt-2 w-full rounded-xl border border-slate-300 px-3 py-3 font-normal" /></label>
@@ -375,7 +391,7 @@ export default function AnalyzeChangePage() {
               </Panel>
 
               {error && <div role="alert" className="flex gap-2 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-900"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> {error}</div>}
-              <button disabled={loading || !sourceReady} className="inline-flex items-center gap-2 rounded-xl bg-violet-600 px-5 py-3 text-sm font-bold text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50">{loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />} {loading ? 'Checking dependencies and evidence…' : 'Check for breaking changes'}</button>
+              <button disabled={loading || !sourceReady} className="inline-flex items-center gap-2 rounded-xl bg-violet-600 px-5 py-3 text-sm font-bold text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50">{loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />} {loading ? 'Checking dependencies and evidence…' : mode === 'baseline' ? 'Check baseline conservation' : 'Check for breaking changes'}</button>
             </div>
 
             <aside className="space-y-4">
@@ -456,6 +472,7 @@ function summarizeArtifact(document: Record<string, unknown>): ArtifactFile['sum
     ? Object.entries(document.Resources as Record<string, unknown>)
     : []
   let changes = 0
+  let imports = 0
   let creates = 0
   let updates = 0
   let deletes = 0
@@ -467,12 +484,14 @@ function summarizeArtifact(document: Record<string, unknown>): ArtifactFile['sum
       const item = row as Record<string, unknown>
       const change = item.change && typeof item.change === 'object' ? item.change as Record<string, unknown> : {}
       const actions = Array.isArray(change.actions) ? change.actions.map(String) : []
-      if (actions.length === 0 || actions.every(action => action === 'no-op')) continue
+      const isImport = Boolean(change.importing && typeof change.importing === 'object')
+      if (isImport) imports += 1
+      if ((actions.length === 0 || actions.every(action => action === 'no-op')) && !isImport) continue
       changes += 1
       if (actions.includes('create') && actions.includes('delete')) replaces += 1
       else if (actions.includes('create')) creates += 1
       else if (actions.includes('delete')) deletes += 1
-      else updates += 1
+      else if (!isImport || actions.some(action => action !== 'no-op')) updates += 1
       if (typeof item.type === 'string') types.add(item.type)
     }
   } else if (cloudFormationRows) {
@@ -496,7 +515,7 @@ function summarizeArtifact(document: Record<string, unknown>): ArtifactFile['sum
       if (value && typeof value === 'object' && typeof (value as Record<string, unknown>).Type === 'string') types.add(String((value as Record<string, unknown>).Type))
     }
   }
-  return { changes, creates, updates, deletes, replaces, types: Array.from(types).sort() }
+  return { changes, imports, creates, updates, deletes, replaces, types: Array.from(types).sort() }
 }
 
 function summarizeTemplateDiff(current: Record<string, unknown>, proposed: Record<string, unknown>): ArtifactFile['summary'] {
@@ -521,7 +540,7 @@ function summarizeTemplateDiff(current: Record<string, unknown>, proposed: Recor
     const row = (after || before) as Record<string, unknown> | undefined
     if (row && typeof row.Type === 'string') types.add(row.Type)
   }
-  return { changes: creates + updates + deletes, creates, updates, deletes, replaces: 0, types: Array.from(types).sort() }
+  return { changes: creates + updates + deletes, imports: 0, creates, updates, deletes, replaces: 0, types: Array.from(types).sort() }
 }
 
 function formatBytes(value: number): string {
