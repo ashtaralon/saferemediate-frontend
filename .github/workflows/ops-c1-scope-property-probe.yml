@@ -1,0 +1,141 @@
+# Does the graph actually carry tenant scope, or is scoping riding on ARNs?
+#
+# Before any scoped orphan read can ship, one fact has to be established by
+# execution: do the candidate nodes in C1's Neptune carry `customer_id` /
+# `tenant_id`? If they do not, a scoped query returns zero rows and reports
+# "no orphans" — a confident wrong answer, and strictly worse than the 503
+# it would replace.
+#
+# The obvious evidence is misleading. api/systems.py scopes with an OR:
+#
+#     coalesce(r.customer_id, r.tenant_id) = $customer_id
+#     OR coalesce(r.account_id, r.accountId, r.aws_account_id,
+#                 split(coalesce(r.arn, r.Arn, r.ARN, ''), ':')[4]) = $account_id
+#
+# The second branch DERIVES the account id from the ARN, so it matches almost
+# any node that has one. GET /api/systems returning 134 resources therefore
+# proves only that at least one branch matched — it is entirely consistent
+# with customer_id being absent from the graph. A WHERE clause that produces
+# the answer is not evidence for either half of it.
+#
+# So this probe reads raw node properties and COUNTS presence per label,
+# separating the two branches. It draws no conclusion from a sample: it
+# reports total_nodes alongside the number actually returned, and says
+# plainly when coverage is partial, because "property absent" is a negative
+# conclusion and a truncated read cannot support one.
+#
+# Read-only: a single GET against a deployed debug endpoint. Neptune is
+# VPC-internal, so this is the only reachable surface that exposes raw
+# properties. No mutation, no auth, no approval path.
+name: ops-c1-scope-property-probe
+
+on:
+  workflow_dispatch:
+    inputs:
+      api_base:
+        description: "Backend base URL to probe"
+        required: true
+        default: "https://cyntro-c1.onrender.com"
+      system_name:
+        description: "Tenant system to inspect"
+        required: true
+        default: "testbed-webshop"
+      limit:
+        description: "Node cap. Must exceed total_nodes or coverage is partial."
+        required: true
+        default: "1000"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Probe scope properties
+        env:
+          API: ${{ inputs.api_base }}
+          SYS: ${{ inputs.system_name }}
+          LIMIT: ${{ inputs.limit }}
+        run: |
+          set -uo pipefail
+          BODY="$(mktemp)"
+          # NOTE: this route declares `system_name` with NO alias, unlike
+          # dependency-map's camelCase `systemName`. Sending the wrong
+          # spelling is silently ignored by FastAPI.
+          URL="${API}/api/system-resources/debug/neo4j-raw?system_name=${SYS}&limit=${LIMIT}"
+          echo "== GET ${URL} =="
+          CODE="$(curl -sS --max-time 120 -o "$BODY" -w "%{http_code}" "$URL" || echo 000)"
+          echo "HTTP ${CODE}"
+          if [ "$CODE" != "200" ]; then
+            echo "probe could not read the graph; no conclusion is available"
+            head -c 500 "$BODY"; echo
+            exit 1
+          fi
+
+          echo
+          echo "== coverage =="
+          jq -r '
+            "total_nodes in scope : \(.total_nodes)",
+            "nodes returned       : \(.sample_nodes | length)",
+            (if (.sample_nodes | length) >= .total_nodes
+             then "coverage             : COMPLETE — absence claims are safe"
+             else "coverage             : PARTIAL — raise limit; absence claims are NOT safe"
+             end)
+          ' "$BODY"
+
+          echo
+          echo "== scope-property presence, per label =="
+          echo "(branch A = customer_id/tenant_id; branch B = account_id/ARN-derived)"
+          jq -r '
+            .sample_nodes
+            | map({
+                label: (.labels | map(select(. != "Resource")) | first // (.labels | first) // "?"),
+                p: .properties
+              })
+            | group_by(.label)
+            | map({
+                label: .[0].label,
+                n: length,
+                customer_id: (map(select(.p.customer_id != null)) | length),
+                tenant_id:   (map(select(.p.tenant_id   != null)) | length),
+                account_id:  (map(select(.p.account_id  != null)) | length),
+                arn:         (map(select((.p.arn // .p.Arn // .p.ARN) != null)) | length),
+                SystemName:  (map(select((.p.SystemName // .p.systemName // .p.system_name) != null)) | length)
+              })
+            | sort_by(-.n)
+            | (["LABEL","N","customer_id","tenant_id","account_id","arn","SystemName"] | @tsv),
+              (.[] | [.label, .n, .customer_id, .tenant_id, .account_id, .arn, .SystemName] | @tsv)
+          ' "$BODY" | column -t
+
+          echo
+          echo "== verdict =="
+          jq -r '
+            (.sample_nodes | length) as $n
+            | (.total_nodes) as $total
+            | ($n >= $total) as $complete
+            | (.sample_nodes | map(select(.properties.customer_id != null or .properties.tenant_id != null)) | length) as $a
+            | (.sample_nodes | map(select((.properties.account_id // .properties.accountId // .properties.aws_account_id) != null
+                                          or (.properties.arn // .properties.Arn // .properties.ARN) != null)) | length) as $b
+            | "branch A (customer_id/tenant_id) present on : \($a)/\($n)",
+              "branch B (account_id or ARN)     present on : \($b)/\($n)",
+              (if $a == 0 and $complete then
+                 "\nBRANCH A IS ABSENT. A scoped read keyed on customer_id/tenant_id would match nothing and report \"no orphans\". Scope must key on the account branch, or the property must be backfilled first."
+               elif $a == 0 then
+                 "\nBranch A absent from every node READ, but coverage is partial — this is not yet an absence claim. Raise limit past \($total) and re-run."
+               elif $a < $n then
+                 "\nBRANCH A IS PARTIAL. A scoped read keyed on it would SILENTLY DROP the \($n - $a) nodes that lack it — the most dangerous case, because it returns plausible non-empty output. Holds regardless of coverage: a node missing the property has already been observed."
+               elif $complete then
+                 "\nBranch A present on every node in scope. Keying on it is safe for this tenant; still confirm for labels absent from this sample."
+               else
+                 "\nBranch A present on every node READ, but coverage is partial — NO CONCLUSION. The \($total - $n) unread nodes are exactly where a missing property would hide. Raise limit past \($total) and re-run."
+               end)
+          ' "$BODY"
+
+          echo
+          echo "== distinct scope values seen (cross-tenant sanity) =="
+          jq -r '[.sample_nodes[].properties
+                  | {c: .customer_id, t: .tenant_id,
+                     a: (.account_id // .accountId // .aws_account_id)}]
+                 | unique | .[] | tostring' "$BODY"
