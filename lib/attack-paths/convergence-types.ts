@@ -140,7 +140,15 @@ export interface ConvergencePath {
    * verified-non-vpc Attack Map banner.
    */
   workload_network?: {
+    /**
+     * Topology only. `true` is unambiguous; `false` conflates "checked, not
+     * attached" with "never checked" — only the Lambda collector writes an
+     * explicit fact, so every EC2 arrives as an unchecked `false`. Read
+     * vpc_attachment_state for any conclusion, via isVerifiedNonVpc().
+     */
     is_vpc_attached: boolean
+    /** Server verdict. Absent ⇒ pre-contract payload ⇒ treated as UNKNOWN. */
+    vpc_attachment_state?: "VPC_ATTACHED" | "NOT_VPC_ATTACHED" | "UNKNOWN" | null
     vpc_id?: string | null
     vpc_name?: string | null
     evidence?: string | null

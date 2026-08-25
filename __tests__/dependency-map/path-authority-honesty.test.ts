@@ -1222,3 +1222,78 @@ describe("8. empty network lane provenance (deriveNetworkPosture)", () => {
     expect(arch.workloadNetwork).toBeUndefined()
   })
 })
+
+/**
+ * The lane aggregate is a shared chokepoint: every view that reads
+ * architecture.workloadNetwork inherits whatever it decides. It used to
+ * synthesize a lane-level `is_vpc_attached: false` from rows that may all have
+ * been unchecked, carrying no verdict at all — so one verified non-VPC Lambda
+ * beside one never-checked EC2 collapsed into a confident "not VPC-attached"
+ * for the whole lane, and any consumer testing the boolean inline cited it.
+ *
+ * NOT_VPC_ATTACHED is claimed only when EVERY row explicitly says so.
+ */
+describe("lane VPC aggregation fails closed", () => {
+  const wn = (over: Record<string, unknown> = {}) => ({
+    is_vpc_attached: false,
+    vpc_attachment_state: "NOT_VPC_ATTACHED" as const,
+    evidence: "Lambda VpcConfig empty (no VpcId)",
+    verified_at: "T",
+    route_verdict: "NOT_VPC_ATTACHED",
+    workload_count_queried: 1,
+    workload_count_in_sample: 1,
+    ...over,
+  })
+
+  const build = (rows: Array<Record<string, unknown>>) =>
+    buildPathAuthorityArchitecture({
+      paths: rows.map((w, i) =>
+        path({
+          path_id: `p${i + 1}`,
+          hops_load_state: "ready",
+          workload_network: w,
+        }),
+      ),
+      spotlightPathId: "p1",
+    }).workloadNetwork
+
+  it("claims NOT_VPC_ATTACHED when every workload is explicitly verified", () => {
+    expect(build([wn(), wn()])?.vpc_attachment_state).toBe("NOT_VPC_ATTACHED")
+  })
+
+  it("degrades a MIXED lane to UNKNOWN", () => {
+    // verified non-VPC Lambda beside an unchecked EC2
+    const mixed = build([wn(), wn({ vpc_attachment_state: "UNKNOWN" })])
+    expect(mixed?.vpc_attachment_state).toBe("UNKNOWN")
+  })
+
+  it("degrades a legacy EC2 fallback with no explicit state to UNKNOWN", () => {
+    const legacy = build([wn({ vpc_attachment_state: undefined })])
+    expect(legacy?.vpc_attachment_state).toBe("UNKNOWN")
+    // the ambiguous boolean survives for topology, but carries no conclusion
+    expect(legacy?.is_vpc_attached).toBe(false)
+  })
+
+  it("degrades when any single row is unknown, however many are verified", () => {
+    const many = build([wn(), wn(), wn(), wn({ vpc_attachment_state: "UNKNOWN" })])
+    expect(many?.vpc_attachment_state).toBe("UNKNOWN")
+  })
+
+  it("reports VPC_ATTACHED when any workload is attached", () => {
+    const attached = build([wn(), wn({ is_vpc_attached: true, vpc_id: "vpc-1" })])
+    expect(attached?.vpc_attachment_state).toBe("VPC_ATTACHED")
+    expect(attached?.is_vpc_attached).toBe(true)
+  })
+
+  it("omits the payload entirely when coverage is partial", () => {
+    // one path in the lane carries no verdict at all — fail closed, no aggregate
+    const arch = buildPathAuthorityArchitecture({
+      paths: [
+        path({ path_id: "p1", hops_load_state: "ready", workload_network: wn() }),
+        path({ path_id: "p2", hops_load_state: "ready", workload_network: null }),
+      ],
+      spotlightPathId: "p1",
+    })
+    expect(arch.workloadNetwork).toBeUndefined()
+  })
+})

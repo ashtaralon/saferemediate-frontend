@@ -8,6 +8,7 @@
  */
 
 import { selectSpotlightPaths } from "@/lib/attack-paths/build-spotlight-active-node-ids"
+import type { VpcAttachmentState } from "@/lib/attack-paths/network-banner-state"
 import type {
   ConvergenceHop,
   ConvergencePath,
@@ -60,7 +61,14 @@ export interface PathAuthorityArchitecture {
    * Absent when any spotlight path lacks workload_network (fail closed).
    */
   workloadNetwork?: {
+    /**
+     * Topology only — "is there a VPC to draw". Safe in the TRUE direction,
+     * which is written only when attachment is real. FALSE is ambiguous and
+     * must never be read as non-applicability; use vpc_attachment_state.
+     */
     is_vpc_attached: boolean
+    /** Fail-closed aggregate verdict for the lane. */
+    vpc_attachment_state?: VpcAttachmentState | null
     vpc_id?: string | null
     vpc_name?: string | null
     evidence?: string | null
@@ -1193,6 +1201,7 @@ export function buildPathAuthorityArchitecture(params: {
       const hit = rows.find((r) => r.is_vpc_attached)!
       return {
         is_vpc_attached: true as const,
+        vpc_attachment_state: "VPC_ATTACHED" as const,
         vpc_id: hit.vpc_id,
         vpc_name: hit.vpc_name,
         evidence: hit.evidence,
@@ -1209,8 +1218,19 @@ export function buildPathAuthorityArchitecture(params: {
     const routeVerdict =
       rows.map((r) => r.route_verdict).find((v) => typeof v === "string" && v.trim()) ??
       null
+    // A lane-level `false` used to be synthesized here from rows that may all
+    // be unchecked, with no state attached — so a mixed lane (one verified
+    // non-VPC Lambda beside one never-checked EC2) collapsed into a confident
+    // "not VPC-attached" for the whole lane. NOT_VPC_ATTACHED is claimed only
+    // when EVERY row explicitly says so; anything else is UNKNOWN.
+    const allExplicitlyNonVpc =
+      rows.length > 0 &&
+      rows.every((r) => r.vpc_attachment_state === "NOT_VPC_ATTACHED")
     return {
       is_vpc_attached: false as const,
+      vpc_attachment_state: (allExplicitlyNonVpc
+        ? "NOT_VPC_ATTACHED"
+        : "UNKNOWN") as VpcAttachmentState,
       vpc_id: null,
       vpc_name: null,
       evidence: evidence || null,

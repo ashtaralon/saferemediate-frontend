@@ -1149,8 +1149,9 @@ function RemediationSGCol({ rem }: { rem: RemediationSG }) {
           <span className="font-semibold">Not applicable on this path.</span>
           <div className="text-[11px] text-muted-foreground mt-1">
             Workload is not VPC-attached — reaches AWS services via the public
-            API endpoint (Service Plane). SG / NACL / subnet controls don't
-            gate this exfil. IAM is the only gate.
+            API endpoint (Service Plane). SG / NACL / subnet controls don&apos;t
+            gate this exfil. Authorization still does: IAM policy, resource
+            policy and service-specific controls all apply.
           </div>
         </div>
       ) : !rem.sgs_collected ? (
@@ -2276,7 +2277,7 @@ function buildExfilArchitecture(
       gateKindLabel = "AWS Control Plane"
       gateName = "Public AWS API endpoint"
       gateStrength = "weak_unobservable"
-      gateHint = "IAM is the only gate — no VPC, no SG"
+      gateHint = "No VPC or SG — gated by IAM, resource policy and service controls"
       destId = `exfil-dest:aws-partition:${selectedPath.path_id}`
       destLabel = "AWS partition"
       destType = "internet"
@@ -2289,7 +2290,7 @@ function buildExfilArchitecture(
       gateKindLabel = "AWS Service Plane"
       gateName = `Public ${payload.jewel.type} endpoint`
       gateStrength = "weak_unobservable"
-      gateHint = "No VPC · IAM is the only gate"
+      gateHint = "No VPC · gated by IAM, resource policy and service controls"
       destId = `exfil-dest:aws-partition:${selectedPath.path_id}`
       destLabel = "AWS partition"
       destType = "internet"

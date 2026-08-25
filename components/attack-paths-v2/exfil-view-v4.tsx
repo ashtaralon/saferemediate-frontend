@@ -835,7 +835,7 @@ function NodeCard({
     chips.push({
       label: "service plane",
       tone: CHIP_CYAN,
-      tooltip: "AWS public API endpoint — IAM is the only gate",
+      tooltip: "AWS public API endpoint — VPC network controls do not apply; authorization remains governed by IAM, resource policies, and service-specific controls",
     })
   }
 
