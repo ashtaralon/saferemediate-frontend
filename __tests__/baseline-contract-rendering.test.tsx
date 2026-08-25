@@ -5,6 +5,18 @@ import { ChangeQueueView } from '@/components/change-queue-view'
 import { IaCChangeDossier, type IaCIntentDocument } from '@/components/iac-change-dossier'
 
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }))
+vi.mock('@/lib/account-scope-context', () => ({
+  useAccountScope: () => ({
+    customerId: 'tenant-a',
+    accountId: '123456789012',
+    region: 'eu-west-1',
+    options: {
+      customer_id: 'tenant-a',
+      accounts: [{ account_id: '123456789012', display_name: 'Production', regions: ['eu-west-1'], group_ids: [], status: 'active' }],
+      groups: [],
+    },
+  }),
+}))
 vi.mock('@/components/change-impact-graph', () => ({
   ChangeImpactGraph: ({ impacts }: { impacts: unknown[] }) => <div>Impact graph · {impacts.length}</div>,
 }))
@@ -154,7 +166,16 @@ function baselineDocument(): IaCIntentDocument {
         periodic_dependencies_assessment: { state: 'NOT_COMPUTED', items: [], detail: 'Not analysed in phase one.' },
         data_dependencies_assessment: { state: 'NOT_COMPUTED', items: [], detail: 'Not analysed in phase one.' },
       },
-      impact_graph: { status: 'COMPLETED', targets_requested: 3, targets_analyzed: 3, targets_resolved: 3, targets_failed: 0, target_limit_reached: false, direct_relationship_count: 3, systems: ['payments'], evidence_coverage: {}, impacts: [], limitations: [] },
+      impact_graph: {
+        status: 'COMPLETED', targets_requested: 3, targets_analyzed: 3, targets_resolved: 3, targets_failed: 0,
+        target_limit_reached: false, direct_relationship_count: 3, systems: ['payments'],
+        evidence_coverage: {
+          status: 'COMPLETED', source_count: 1, enabled_source_count: 1,
+          interpretation: 'Coverage does not prove absence.',
+          sources: [{ source_id: 'flow-1', source_type: 'VPC_FLOW', region: 'eu-west-1', enabled: true, coverage_days: 90, last_run_status: 'SUCCESS' }],
+        },
+        impacts: [], limitations: [],
+      },
       evidence_model: { classes: [], counts: {}, coverage: {}, negative_evidence_rule: 'Absence is not proof.' },
       evidence_gap_count: 6,
       approval_guardrails: [{ gate: 'IMPORT_IDENTITY_PROVEN', state: 'UNKNOWN', detail: 'Adoption identity is not proven for every import target.' }],
