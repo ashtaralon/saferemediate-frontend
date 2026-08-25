@@ -123,8 +123,13 @@ jobs:
 
           echo "== target: ${API} =="
 
-          # health: up, and NOT reporting a fake AWS failure on graph-serve
-          check "health" "/health" 200 "" "unhealthy: "
+          # liveness: /healthz is the PUBLIC probe. /health is operator-only
+          # (`_PUBLIC_PATHS = {"/healthz"}` in unified/auth_boundary.py), so the
+          # unauthenticated check that used to live here answered 403 forbidden,
+          # not "the service is down". This workflow holds no ops token by
+          # contract, so the data-plane diagnostics /health carries — scheduler
+          # leases, failed routers, AWS connectivity — are NOT asserted here.
+          check "healthz" "/healthz" 200 '"status":"ok"' ""
           # systems: only the testbed tenant, never the Aura estate
           check "systems" "/api/systems" 200 "$SYS" "alon-prod"
           # /all: bmap-free discovery (home dashboard rollup)
@@ -141,11 +146,25 @@ jobs:
           check "blast-radius" "/api/business-system/${SYS}/blast-radius" 200 "" ""
           # IAM gap: JSON-string lists decoded (was 500 Type mismatch)
           check "iam-gap" "/api/iam-roles/${GAP_ROLE}/gap-analysis" 200 "" "Type mismatch"
-          # orphan GETs: graph-first on Neptune (were live-AWS 500s)
-          check "orphan-sg" "/api/security-groups/orphan-detection" 200 "" ""
-          check "orphan-s3" "/api/s3-buckets/orphan-detection" 200 "" ""
-          # SG analysis: live-AWS handler must refuse with the named 503
-          check "sg-analysis-guard" "/api/security-groups/sg-000000000000/analysis" 503 "live_aws_disabled_on_neptune_serve" ""
+          # Orphan detection and SG analysis reach live AWS. A serving process
+          # is neither of the two boundaries allowed to do that (COLLECTION and
+          # MUTATION), so on C1 all three must refuse — 503, not a 200 built
+          # from an unverified read, and not the 500 they returned before the
+          # boundary landed.
+          #
+          # The required substring is the FULL refusal, code AND operation. The
+          # bare code would pass if a route were wired to the wrong guard; the
+          # operation is what proves this route's own guard fired.
+          #
+          # These become 200s only when the graph-first reads exist: scope
+          # resolved server-side, active generation checked, evidence coverage
+          # checked, and never "no edges therefore safe to delete".
+          check "orphan-sg" "/api/security-groups/orphan-detection" 503 \
+            "live_aws_disabled_on_neptune_serve: security-group orphan detection" ""
+          check "orphan-s3" "/api/s3-buckets/orphan-detection" 503 \
+            "live_aws_disabled_on_neptune_serve: S3 orphan detection" ""
+          check "sg-analysis-guard" "/api/security-groups/sg-000000000000/analysis" 503 \
+            "live_aws_disabled_on_neptune_serve: security-group analysis" ""
           # dependency map: the observed-first estate read
           check "dep-map" "/api/dependency-map/full" 200 "" ""
           # identities overview: policy fill visible
