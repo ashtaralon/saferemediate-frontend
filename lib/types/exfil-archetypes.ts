@@ -95,7 +95,7 @@ export const ARCHETYPE_CATALOG: Record<ExfilArchetype, ExfilArchetypeSpec> = {
     label: "Serverless · Direct",
     chainShape: "Lambda role → Lambda → AWS service plane → public AWS API",
     trustStory:
-      "IAM is the only gate. Compromising the Lambda role grants full read of the crown jewel via the AWS service plane. No VPC, subnet, security group or NACL applies because the workload is not VPC-attached.",
+      "Compromising the Lambda role grants full read of the crown jewel via the AWS service plane. No VPC, subnet, security group or NACL applies because the workload is not VPC-attached — but authorization still gates the reach: IAM policy, resource policy and service-specific controls all remain in force.",
     closureAction:
       "Scope the Lambda role's resource ARN to the specific crown jewel and remove unused actions. Add a VPC Endpoint with a scoped policy if the service supports it.",
     defaultGateStrength: "weak_unobservable",

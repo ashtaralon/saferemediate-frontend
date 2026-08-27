@@ -10,6 +10,7 @@
 import { describe, expect, it } from "vitest"
 import {
   NETWORK_CLAIM_BACKEND_GAPS,
+  isVerifiedNonVpc,
   resolveNetworkBannerState,
   type WorkloadNetworkPayload,
 } from "@/lib/attack-paths/network-banner-state"
@@ -17,6 +18,9 @@ import {
 /** Full server verdict — collector SSOT + path route_verdict token. */
 const fullyVerified: WorkloadNetworkPayload = {
   is_vpc_attached: false,
+  // The explicit verdict is now required for the strong claim. Without it the
+  // boolean alone cannot distinguish "checked, not attached" from "unchecked".
+  vpc_attachment_state: "NOT_VPC_ATTACHED",
   evidence: "Lambda VpcConfig empty (no VpcId), verified at 2026-07-30T07:00:00Z",
   workload_count_queried: 3,
   workload_count_in_sample: 3,
@@ -138,5 +142,74 @@ describe("no state is ever a finding except the verified one", () => {
         expect(s.reason).toBeTruthy() // never null — that was the #466 symptom
       }
     }
+  })
+})
+
+
+describe("the boolean alone can never carry the strong claim", () => {
+  /**
+   * Only the Lambda collector writes an explicit attachment fact, so every EC2
+   * instance reaches the UI as an unchecked `is_vpc_attached: false` —
+   * byte-identical to a verified non-VPC Lambda. Promoting that to a finding
+   * cites "network does not gate this path" against workloads whose posture was
+   * never collected. Absence of the explicit verdict must degrade, not promote.
+   */
+  it("degrades a pre-contract payload to an observation", () => {
+    const legacy = { ...fullyVerified, vpc_attachment_state: undefined }
+    const s = resolveNetworkBannerState(legacy, READY)
+    expect(s.kind).not.toBe("verified-non-vpc")
+    expect(s.isFinding).toBe(false)
+    expect(s.reason).toBe("workload_vpc_attachment_state_absent")
+  })
+
+  it("degrades an explicit UNKNOWN even when every other field is complete", () => {
+    const s = resolveNetworkBannerState(
+      { ...fullyVerified, vpc_attachment_state: "UNKNOWN" },
+      READY,
+    )
+    expect(s.kind).not.toBe("verified-non-vpc")
+    expect(s.isFinding).toBe(false)
+    expect(s.reason).toBe("workload_vpc_attachment_unknown")
+  })
+
+  it("makes no claim for an explicitly VPC-attached workload", () => {
+    const s = resolveNetworkBannerState(
+      { ...fullyVerified, vpc_attachment_state: "VPC_ATTACHED" },
+      READY,
+    )
+    expect(s.isFinding).toBe(false)
+    expect(s.reason).toBe("workload_is_vpc_attached")
+  })
+
+  it("still requires evidence, coverage, timestamp and route verdict", () => {
+    const weakened: Array<[string, Partial<WorkloadNetworkPayload>]> = [
+      ["evidence", { evidence: "" }],
+      ["verified_at", { verified_at: null }],
+      ["route_verdict", { route_verdict: null }],
+      ["coverage", { workload_count_queried: 1, workload_count_in_sample: 5 }],
+    ]
+    for (const [missing, patch] of weakened) {
+      const s = resolveNetworkBannerState({ ...fullyVerified, ...patch }, READY)
+      expect(s.isFinding, `${missing} must not be promotable`).toBe(false)
+    }
+  })
+})
+
+describe("isVerifiedNonVpc is the single implementation of the rule", () => {
+  /**
+   * The exfiltration view previously tested `is_vpc_attached === false` inline
+   * and never saw the guards above — the resolver was correct and simply
+   * bypassed. Any consumer asserting non-applicability must route through here.
+   */
+  it("is true only for a complete explicit verdict", () => {
+    expect(isVerifiedNonVpc(fullyVerified, READY)).toBe(true)
+  })
+
+  it("is false for legacy, unknown, attached, and absent payloads", () => {
+    expect(isVerifiedNonVpc({ ...fullyVerified, vpc_attachment_state: undefined })).toBe(false)
+    expect(isVerifiedNonVpc({ ...fullyVerified, vpc_attachment_state: "UNKNOWN" })).toBe(false)
+    expect(isVerifiedNonVpc({ ...fullyVerified, vpc_attachment_state: "VPC_ATTACHED" })).toBe(false)
+    expect(isVerifiedNonVpc(null)).toBe(false)
+    expect(isVerifiedNonVpc(undefined)).toBe(false)
   })
 })

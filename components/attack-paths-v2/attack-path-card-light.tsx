@@ -413,7 +413,7 @@ export function AttackPathCardLightView({
         return (
           <Section
             title="How real is this path?"
-            hint={networkIsNA ? "IAM is the only gate on this path" : "three checks the engine runs"}
+            hint={networkIsNA ? "No network hop on this path" : "three checks the engine runs"}
           >
             <div className={`grid grid-cols-1 ${networkIsNA ? "sm:grid-cols-2" : "sm:grid-cols-3"} gap-4`}>
               <GateCard q="Can they be this identity?" g={gates.identity} />
@@ -425,7 +425,8 @@ export function AttackPathCardLightView({
             {networkIsNA && (
               <p className="text-[12px] leading-relaxed mt-3 m-0" style={{ color: C.muted }}>
                 No network hop to cross on this path — the attacker uses standing IAM access,
-                so IAM is the only gate. Network reachability isn&apos;t a check here.
+                so network reachability isn&apos;t a check here. Authorization still gates it:
+                IAM policy, resource policy and KMS key policy all apply.
               </p>
             )}
           </Section>
