@@ -59,6 +59,17 @@ export async function GET(
   try {
     const { resourceId } = await params
     const encodedResourceId = encodeURIComponent(resourceId)
+    // CACHE KEY INVARIANT: `resourceId` alone is the whole key, and that is
+    // only safe because the backend owns the account scope. It resolves the
+    // resource against the deployment's own tenant/account (the same scope
+    // `api.systems` uses) and treats any `customer_id` / `account_id` on the
+    // request as a claim it may confirm but never widen. This proxy forwards
+    // neither, so every cached entry belongs to the one authorized account.
+    //
+    // If request-selectable account scope is ever added here, this key must
+    // include the authorized account and the forwarded request must carry it
+    // -- otherwise one tenant's connections are served to another from cache,
+    // which no backend check can catch because the backend is never called.
     const cacheKey = `connections:${resourceId}`
     const now = Date.now()
 
