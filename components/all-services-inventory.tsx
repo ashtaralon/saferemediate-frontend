@@ -11,8 +11,12 @@ import {
 } from 'lucide-react'
 import { BackToDashboard } from '@/components/back-to-dashboard'
 import { ResourceConfigTab } from '@/components/inventory/resource-config-tab'
-import { ResourceDependenciesTab } from '@/components/inventory/resource-dependencies-tab'
+import {
+  ResourceDependenciesTab,
+  ResourceRelationshipsPreviewTabButton,
+} from '@/components/inventory/resource-dependencies-tab'
 import { dedupeKmsListRows } from '@/lib/inventory-list'
+import { graphRelationshipsPreviewEnabled } from '@/lib/resource-dependencies'
 import { ServiceTypeBadge } from '@/lib/service-type'
 import {
   UNKNOWN,
@@ -34,6 +38,8 @@ import {
 } from '@/lib/inventory-honesty'
 import { useAccountScope } from '@/lib/account-scope-context'
 import { resourceAccountId, withAccountScope } from '@/lib/account-scope'
+
+const GRAPH_RELATIONSHIPS_PREVIEW_ENABLED = graphRelationshipsPreviewEnabled()
 
 // Icon + color for a resource type now come from the canonical
 // `@/lib/service-type` badge — the old per-file `SERVICE_ICONS` map was
@@ -990,20 +996,11 @@ export default function AllServicesInventory({ systemName }: Props) {
                 >
                   Overview
                 </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={activeTab === 'dependencies'}
-                  onClick={() => setActiveTab('dependencies')}
-                  className={`px-6 py-3 font-medium text-sm transition-colors flex items-center gap-2 ${
-                    activeTab === 'dependencies'
-                      ? 'border-b-2 border-violet-600 text-violet-600 bg-white'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  <Network className="w-4 h-4" />
-                  Dependencies
-                </button>
+                <ResourceRelationshipsPreviewTabButton
+                  enabled={GRAPH_RELATIONSHIPS_PREVIEW_ENABLED}
+                  selected={activeTab === 'dependencies'}
+                  onSelect={() => setActiveTab('dependencies')}
+                />
                 {CONFIG_TAB_LABEL[selectedService.type] && (
                   <button
                     type="button"
@@ -1040,7 +1037,7 @@ export default function AllServicesInventory({ systemName }: Props) {
             
             {/* Content */}
             <div className="p-6 overflow-y-auto max-h-[calc(90vh-200px)]" role="tabpanel">
-              {activeTab === 'dependencies' ? (
+              {activeTab === 'dependencies' && GRAPH_RELATIONSHIPS_PREVIEW_ENABLED ? (
                 <ResourceDependenciesTab resourceId={selectedService.id} />
               ) : activeTab === 'config' && CONFIG_TAB_LABEL[selectedService.type] ? (
                 <ResourceConfigTab

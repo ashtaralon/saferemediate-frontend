@@ -1,6 +1,9 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { ResourceDependenciesTab } from "@/components/inventory/resource-dependencies-tab"
+import {
+  ResourceDependenciesTab,
+  ResourceRelationshipsPreviewTabButton,
+} from "@/components/inventory/resource-dependencies-tab"
 
 vi.mock("@/lib/account-scope-context", () => ({
   useAccountScope: () => ({
@@ -61,20 +64,36 @@ describe("All Services Dependencies tab", () => {
   beforeEach(() => vi.restoreAllMocks())
   afterEach(cleanup)
 
-  it("renders scoped evidence and refuses to present an empty direction as absence", async () => {
+  it("renders no tab without the explicit preview gate and renders only the preview label when enabled", () => {
+    const onSelect = vi.fn()
+    const { rerender } = render(
+      <ResourceRelationshipsPreviewTabButton enabled={false} selected={false} onSelect={onSelect} />,
+    )
+    expect(screen.queryByRole("tab")).not.toBeInTheDocument()
+
+    rerender(
+      <ResourceRelationshipsPreviewTabButton enabled selected={false} onSelect={onSelect} />,
+    )
+    const tab = screen.getByRole("tab", { name: "Relationships preview" })
+    expect(screen.queryByRole("tab", { name: "Dependencies" })).not.toBeInTheDocument()
+    fireEvent.click(tab)
+    expect(onSelect).toHaveBeenCalledTimes(1)
+  })
+
+  it("renders scoped adjacency and refuses to present an empty direction as absence", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => Response.json(payload())))
 
     render(<ResourceDependenciesTab resourceId="sg-1" />)
 
-    expect(await screen.findByText("Known dependencies within collected scope")).toBeInTheDocument()
+    expect(await screen.findByText("Graph relationships preview")).toBeInTheDocument()
     expect(screen.getByText(/192 adjacent graph relationships are recorded/)).toBeInTheDocument()
     expect(screen.getByText("Account 111111111111")).toBeInTheDocument()
     expect(screen.getByText("Identity EXACT")).toBeInTheDocument()
     expect(screen.getByText("payments-api")).toBeInTheDocument()
     expect(screen.getByText("Configured")).toBeInTheDocument()
     expect(screen.getByText("CONFIG_PROVEN")).toBeInTheDocument()
-    expect(screen.getByText(/This is not proof that none exist/)).toBeInTheDocument()
-    expect(screen.getByText("This dependency set is truncated")).toBeInTheDocument()
+    expect(screen.getByText(/This is not proof that none exist or that no dependency exists/)).toBeInTheDocument()
+    expect(screen.getByText("This graph relationship set is truncated")).toBeInTheDocument()
   })
 
   it("requests the expanded bounded page without hiding remaining truncation", async () => {
@@ -94,7 +113,7 @@ describe("All Services Dependencies tab", () => {
     await waitFor(() => {
       expect(fetchMock.mock.calls.some(([value]) => String(value).includes("page=500"))).toBe(true)
     })
-    expect(await screen.findByText("This dependency set is truncated")).toBeInTheDocument()
+    expect(await screen.findByText("This graph relationship set is truncated")).toBeInTheDocument()
   })
 
   it("turns a failed read into an explicit no-conclusion state", async () => {
@@ -111,7 +130,7 @@ describe("All Services Dependencies tab", () => {
     expect(await screen.findByText("Dependencies are unavailable")).toBeInTheDocument()
     expect(screen.getByText("No dependency or safety conclusion was produced.")).toBeInTheDocument()
     fireEvent.click(screen.getByRole("button", { name: "Retry" }))
-    expect(await screen.findByText("Known dependencies within collected scope")).toBeInTheDocument()
+    expect(await screen.findByText("Graph relationships preview")).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 })

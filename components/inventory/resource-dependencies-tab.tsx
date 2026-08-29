@@ -7,20 +7,21 @@ import {
   ArrowUpRight,
   Clock3,
   DatabaseZap,
+  Network,
   RefreshCw,
 } from "lucide-react"
 import { useAccountScope } from "@/lib/account-scope-context"
 import { withAccountScope } from "@/lib/account-scope"
 import {
-  dependenciesAreTruncated,
+  relationshipsAreTruncated,
   dependencyDisplayName,
   dependencyErrorMessage,
-  excludedOperationalCount,
+  excludedPreviewRelationshipCount,
   dependencyFreshnessValue,
   dependencyPlaneLabel,
   dependencyRelationshipLabel,
   dependencyRows,
-  dependencyTotal,
+  rawRelationshipTotal,
   type DependencyDirection,
   type DependencyRow,
   type ResourceDependenciesResponse,
@@ -78,9 +79,9 @@ function DependencyCard({ row }: { row: DependencyRow }) {
           </p>
         </div>
         {row.direction === "inbound" ? (
-          <ArrowDownLeft className="h-5 w-5 shrink-0 text-sky-600" aria-label="Inbound consumer" />
+          <ArrowDownLeft className="h-5 w-5 shrink-0 text-sky-600" aria-label="Incoming graph relationship" />
         ) : (
-          <ArrowUpRight className="h-5 w-5 shrink-0 text-violet-600" aria-label="Outbound provider" />
+          <ArrowUpRight className="h-5 w-5 shrink-0 text-violet-600" aria-label="Outgoing graph relationship" />
         )}
       </div>
 
@@ -129,9 +130,9 @@ function DirectionSection({
     <section className="space-y-3">
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="font-semibold text-slate-900">{inbound ? "Used by" : "Uses"}</h3>
+          <h3 className="font-semibold text-slate-900">{inbound ? "Incoming" : "Outgoing"}</h3>
           <p className="text-xs text-slate-500">
-            {inbound ? "Resources that depend on this resource" : "Resources this resource depends on"}
+            {inbound ? "Graph edges directed toward this resource" : "Graph edges directed away from this resource"}
           </p>
         </div>
         <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">
@@ -140,8 +141,8 @@ function DirectionSection({
       </div>
       {rows.length === 0 ? (
         <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-5 text-sm text-slate-600">
-          No {inbound ? "inbound consumers" : "outbound providers"} are known within the returned scope.
-          This is not proof that none exist.
+          No {inbound ? "incoming" : "outgoing"} graph relationships were returned in this page.
+          This is not proof that none exist or that no dependency exists.
         </div>
       ) : (
         <div className="grid gap-3 lg:grid-cols-2">
@@ -154,6 +155,36 @@ function DirectionSection({
 
 interface Props {
   resourceId: string
+}
+
+interface PreviewTabButtonProps {
+  enabled: boolean
+  selected: boolean
+  onSelect: () => void
+}
+
+export function ResourceRelationshipsPreviewTabButton({
+  enabled,
+  selected,
+  onSelect,
+}: PreviewTabButtonProps) {
+  if (!enabled) return null
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={selected}
+      onClick={onSelect}
+      className={`px-6 py-3 font-medium text-sm transition-colors flex items-center gap-2 ${
+        selected
+          ? "border-b-2 border-violet-600 text-violet-600 bg-white"
+          : "text-slate-600 hover:text-slate-900"
+      }`}
+    >
+      <Network className="w-4 h-4" />
+      Relationships preview
+    </button>
+  )
 }
 
 export function ResourceDependenciesTab({ resourceId }: Props) {
@@ -238,9 +269,9 @@ export function ResourceDependenciesTab({ resourceId }: Props) {
 
   if (!data) return null
 
-  const total = dependencyTotal(data)
-  const truncated = dependenciesAreTruncated(data)
-  const operationalExcluded = excludedOperationalCount(data)
+  const total = rawRelationshipTotal(data)
+  const truncated = relationshipsAreTruncated(data)
+  const excluded = excludedPreviewRelationshipCount(data)
   const unattributed = data.scope.account_match_mode === "UNATTRIBUTED"
 
   return (
@@ -249,10 +280,10 @@ export function ResourceDependenciesTab({ resourceId }: Props) {
         <div className="flex items-start gap-3">
           <DatabaseZap className="mt-0.5 h-5 w-5 shrink-0 text-violet-700" />
           <div className="min-w-0">
-            <h3 className="font-semibold text-slate-900">Known dependencies within collected scope</h3>
+            <h3 className="font-semibold text-slate-900">Graph relationships preview</h3>
             <p className="mt-1 text-sm text-slate-600">
               {total} adjacent graph relationship{total === 1 ? " is" : "s are"} recorded for this resource.
-              Eligible configured, observed, derived, and unresolved evidence is shown below; this view does not claim that uncollected dependencies are absent.
+              This preview shows scoped adjacency and evidence metadata. It does not classify every edge as a dependency and does not claim that uncollected relationships are absent.
             </p>
             <div className="mt-3 flex flex-wrap gap-2 text-xs">
               <span className="rounded-full bg-white px-2.5 py-1 text-slate-700 shadow-sm">
@@ -275,9 +306,9 @@ export function ResourceDependenciesTab({ resourceId }: Props) {
         </div>
       )}
 
-      {operationalExcluded > 0 && (
+      {excluded > 0 && (
         <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
-          {operationalExcluded} returned operational bookkeeping relationship{operationalExcluded === 1 ? " was" : "s were"} excluded from the dependency list.
+          {excluded} returned history, operational, or quarantined traffic relationship{excluded === 1 ? " was" : "s were"} excluded from this preview.
         </div>
       )}
 
@@ -285,7 +316,7 @@ export function ResourceDependenciesTab({ resourceId }: Props) {
         <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <p className="font-medium text-amber-900">This dependency set is truncated</p>
+              <p className="font-medium text-amber-900">This graph relationship set is truncated</p>
               <p className="mt-1 text-sm text-amber-800">
                 Showing {data.coverage.inbound.returned + data.coverage.outbound.returned} of {total} relationships. No hidden row is being treated as absent.
               </p>

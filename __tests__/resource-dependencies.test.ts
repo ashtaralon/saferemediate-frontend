@@ -1,14 +1,15 @@
 import { describe, expect, it } from "vitest"
 import {
-  dependenciesAreTruncated,
+  relationshipsAreTruncated,
   dependencyDisplayName,
   dependencyErrorMessage,
-  excludedOperationalCount,
+  excludedPreviewRelationshipCount,
+  graphRelationshipsPreviewEnabled,
   dependencyFreshnessValue,
   dependencyPlaneLabel,
   dependencyRelationshipLabel,
   dependencyRows,
-  dependencyTotal,
+  rawRelationshipTotal,
   type ResourceDependenciesResponse,
 } from "@/lib/resource-dependencies"
 
@@ -33,9 +34,8 @@ function response(): ResourceDependenciesResponse {
         {
           target: { arn: "arn:aws:rds:eu-west-1:111111111111:db:orders", type: "RDSInstance" },
           relationship: {
-            type: "ACTUAL_TRAFFIC",
-            plane: "OBSERVED",
-            last_seen: "2026-08-29T11:00:00Z",
+            type: "READS_FROM",
+            plane: "ALLOWED",
           },
         },
       ],
@@ -61,17 +61,17 @@ describe("All Services dependency contract", () => {
     const outbound = dependencyRows(payload, "outbound")
 
     expect(inbound).toHaveLength(1)
-    expect(inbound[0].role).toBe("Used by")
+    expect(inbound[0].role).toBe("Incoming")
     expect(inbound[0].peer.name).toBe("payments")
     expect(outbound).toHaveLength(1)
-    expect(outbound[0].role).toBe("Uses")
+    expect(outbound[0].role).toBe("Outgoing")
     expect(outbound[0].peer.type).toBe("RDSInstance")
   })
 
   it("uses exact totals instead of returned-row counts", () => {
     const payload = response()
-    expect(dependencyTotal(payload)).toBe(193)
-    expect(dependenciesAreTruncated(payload)).toBe(true)
+    expect(rawRelationshipTotal(payload)).toBe(193)
+    expect(relationshipsAreTruncated(payload)).toBe(true)
   })
 
   it("never upgrades unknown evidence into configured or observed", () => {
@@ -89,8 +89,42 @@ describe("All Services dependency contract", () => {
       target: { id: "audit-1", name: "audit event", type: "OverrideEvent" },
       relationship: { type: "HAS_AUDIT_EVENT", plane: "OPERATIONAL", edge_class: "decision_execution" },
     })
-    expect(excludedOperationalCount(payload)).toBe(1)
+    expect(excludedPreviewRelationshipCount(payload)).toBe(1)
     expect(dependencyRows(payload, "outbound")).toHaveLength(1)
+  })
+
+  it.each([
+    {
+      relationship: { type: "HAD_CONFIGURATION_AT", plane: "OBSERVED" },
+      description: "configuration history",
+    },
+    {
+      relationship: { type: "HAD_ATTACHMENT", plane: "OBSERVED" },
+      description: "historical attachment",
+    },
+    {
+      relationship: {
+        type: "ACTUAL_TRAFFIC",
+        plane: "OBSERVED",
+        source_system: "collectors/flowlogs_aggregator.py (VPC Flow Logs via Athena)",
+      },
+      description: "traffic without canonical endpoint attribution",
+    },
+  ])("quarantines $description from the preview", ({ relationship }) => {
+    const payload = response()
+    payload.connections.outbound.push({
+      target: { id: "quarantined", type: "GraphArtifact" },
+      relationship,
+    })
+    expect(excludedPreviewRelationshipCount(payload)).toBe(1)
+    expect(dependencyRows(payload, "outbound")).toHaveLength(1)
+  })
+
+  it("keeps the preview default-off and requires an exact opt-in", () => {
+    expect(graphRelationshipsPreviewEnabled(undefined)).toBe(false)
+    expect(graphRelationshipsPreviewEnabled("false")).toBe(false)
+    expect(graphRelationshipsPreviewEnabled("TRUE")).toBe(false)
+    expect(graphRelationshipsPreviewEnabled("true")).toBe(true)
   })
 
   it("uses honest fallbacks for missing identity and freshness", () => {

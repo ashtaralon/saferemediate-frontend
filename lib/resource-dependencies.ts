@@ -71,9 +71,27 @@ export interface ResourceDependenciesResponse {
 export interface DependencyRow {
   key: string
   direction: DependencyDirection
-  role: "Used by" | "Uses"
+  role: "Incoming" | "Outgoing"
   peer: DependencyPeer
   relationship: DependencyRelationship
+}
+
+const PREVIEW_EXCLUDED_RELATIONSHIP_TYPES = new Set([
+  "ACTUAL_TRAFFIC",
+  "HAD_ATTACHMENT",
+  "HAD_CONFIGURATION_AT",
+])
+
+/**
+ * The current backend endpoint returns scoped graph adjacency, not the
+ * canonical displayable DependencyFact contract. Keep the preview default-off
+ * until the backend owns that distinction; a frontend deployment must opt in
+ * explicitly for C1 inspection.
+ */
+export function graphRelationshipsPreviewEnabled(
+  value: string | undefined = process.env.NEXT_PUBLIC_ALL_SERVICES_DEPENDENCIES_PREVIEW,
+): boolean {
+  return value === "true"
 }
 
 function text(value: unknown): string {
@@ -88,31 +106,33 @@ export function dependencyRows(
   return items.flatMap((connection, index) => {
     const peer = direction === "inbound" ? connection.source || {} : connection.target || {}
     const relationship = connection.relationship || {}
-    if (isOperationalRelationship(relationship)) return []
+    if (isPreviewExcludedRelationship(relationship)) return []
     const identity = text(peer.arn) || text(peer.id) || text(peer.name) || `unknown-${index}`
     const relation = text(relationship.type) || "UNKNOWN"
     return [{
       key: `${direction}:${identity}:${relation}:${index}`,
       direction,
-      role: direction === "inbound" ? "Used by" : "Uses",
+      role: direction === "inbound" ? "Incoming" : "Outgoing",
       peer,
       relationship,
     }]
   })
 }
 
-export function isOperationalRelationship(relationship: DependencyRelationship): boolean {
+export function isPreviewExcludedRelationship(relationship: DependencyRelationship): boolean {
+  const relationshipType = text(relationship.type).toUpperCase()
   return (
     text(relationship.plane).toUpperCase() === "OPERATIONAL" ||
-    text(relationship.edge_class).toLowerCase() === "decision_execution"
+    text(relationship.edge_class).toLowerCase() === "decision_execution" ||
+    PREVIEW_EXCLUDED_RELATIONSHIP_TYPES.has(relationshipType)
   )
 }
 
-export function excludedOperationalCount(response: ResourceDependenciesResponse): number {
+export function excludedPreviewRelationshipCount(response: ResourceDependenciesResponse): number {
   return ([
     ...(response.connections?.inbound || []),
     ...(response.connections?.outbound || []),
-  ]).filter((connection) => isOperationalRelationship(connection.relationship || {})).length
+  ]).filter((connection) => isPreviewExcludedRelationship(connection.relationship || {})).length
 }
 
 export function dependencyPlaneLabel(plane: unknown): string {
@@ -154,14 +174,14 @@ export function dependencyFreshnessValue(relationship: DependencyRelationship): 
   )
 }
 
-export function dependencyTotal(response: ResourceDependenciesResponse): number {
+export function rawRelationshipTotal(response: ResourceDependenciesResponse): number {
   return (
     Number(response.coverage?.inbound?.relationship_total || 0) +
     Number(response.coverage?.outbound?.relationship_total || 0)
   )
 }
 
-export function dependenciesAreTruncated(response: ResourceDependenciesResponse): boolean {
+export function relationshipsAreTruncated(response: ResourceDependenciesResponse): boolean {
   return Boolean(response.coverage?.inbound?.truncated || response.coverage?.outbound?.truncated)
 }
 
