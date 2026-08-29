@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import { BackToDashboard } from '@/components/back-to-dashboard'
 import { ResourceConfigTab } from '@/components/inventory/resource-config-tab'
+import { ResourceDependenciesTab } from '@/components/inventory/resource-dependencies-tab'
 import { dedupeKmsListRows } from '@/lib/inventory-list'
 import { ServiceTypeBadge } from '@/lib/service-type'
 import {
@@ -312,7 +313,7 @@ export default function AllServicesInventory({ systemName }: Props) {
   const [iamData, setIamData] = useState<any>(null)
   const [iamLoading, setIamLoading] = useState(false)
   const [iamError, setIamError] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState<'overview' | 'iam' | 'config'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'dependencies' | 'iam' | 'config'>('overview')
   const [expandedPolicies, setExpandedPolicies] = useState<Set<string>>(new Set())
   const [showUsedPerms, setShowUsedPerms] = useState(true)
   const [showUnusedPerms, setShowUnusedPerms] = useState(true)
@@ -975,9 +976,11 @@ export default function AllServicesInventory({ systemName }: Props) {
             </div>
 
             {/* Tabs */}
-            {(getIAMRoleName(selectedService) || CONFIG_TAB_LABEL[selectedService.type]) && (
-              <div className="flex border-b bg-slate-50">
+            <div className="flex overflow-x-auto border-b bg-slate-50" role="tablist" aria-label="Resource details">
                 <button
+                  type="button"
+                  role="tab"
+                  aria-selected={activeTab === 'overview'}
                   onClick={() => setActiveTab('overview')}
                   className={`px-6 py-3 font-medium text-sm transition-colors ${
                     activeTab === 'overview'
@@ -987,8 +990,25 @@ export default function AllServicesInventory({ systemName }: Props) {
                 >
                   Overview
                 </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={activeTab === 'dependencies'}
+                  onClick={() => setActiveTab('dependencies')}
+                  className={`px-6 py-3 font-medium text-sm transition-colors flex items-center gap-2 ${
+                    activeTab === 'dependencies'
+                      ? 'border-b-2 border-violet-600 text-violet-600 bg-white'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <Network className="w-4 h-4" />
+                  Dependencies
+                </button>
                 {CONFIG_TAB_LABEL[selectedService.type] && (
                   <button
+                    type="button"
+                    role="tab"
+                    aria-selected={activeTab === 'config'}
                     onClick={() => setActiveTab('config')}
                     className={`px-6 py-3 font-medium text-sm transition-colors flex items-center gap-2 ${
                       activeTab === 'config'
@@ -1002,6 +1022,9 @@ export default function AllServicesInventory({ systemName }: Props) {
                 )}
                 {getIAMRoleName(selectedService) && (
                   <button
+                    type="button"
+                    role="tab"
+                    aria-selected={activeTab === 'iam'}
                     onClick={() => setActiveTab('iam')}
                     className={`px-6 py-3 font-medium text-sm transition-colors flex items-center gap-2 ${
                       activeTab === 'iam'
@@ -1014,11 +1037,12 @@ export default function AllServicesInventory({ systemName }: Props) {
                   </button>
                 )}
               </div>
-            )}
             
             {/* Content */}
-            <div className="p-6 overflow-y-auto max-h-[calc(90vh-200px)]">
-              {activeTab === 'config' && CONFIG_TAB_LABEL[selectedService.type] ? (
+            <div className="p-6 overflow-y-auto max-h-[calc(90vh-200px)]" role="tabpanel">
+              {activeTab === 'dependencies' ? (
+                <ResourceDependenciesTab resourceId={selectedService.id} />
+              ) : activeTab === 'config' && CONFIG_TAB_LABEL[selectedService.type] ? (
                 <ResourceConfigTab
                   resourceId={selectedService.id}
                   resourceType={selectedService.type}
