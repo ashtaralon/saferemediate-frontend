@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { getNeptuneRefreshBackendBaseUrl } from "@/lib/server/neptune-refresh-backend-url"
+import { getNeptuneRefreshBackendBaseUrl, isNeptuneRefreshBackendConfigured } from "@/lib/server/neptune-refresh-backend-url"
 
 afterEach(() => {
   vi.unstubAllEnvs()
@@ -20,6 +20,16 @@ describe("Neptune refresh backend binding", () => {
     vi.stubEnv("CYNTRO_SYNC_BACKEND_URL", "https://refresh.example/finish/")
 
     expect(getNeptuneRefreshBackendBaseUrl()).toBe("https://refresh.example/finish")
+  })
+
+  it("treats an unset refresh URL as not configured", () => {
+    vi.stubEnv("CYNTRO_SYNC_BACKEND_URL", "")
+    expect(isNeptuneRefreshBackendConfigured()).toBe(false)
+  })
+
+  it("treats a dedicated refresh URL as configured", () => {
+    vi.stubEnv("CYNTRO_SYNC_BACKEND_URL", "https://refresh.example")
+    expect(isNeptuneRefreshBackendConfigured()).toBe(true)
   })
 
   it("rejects localhost in a Vercel deployment", () => {
