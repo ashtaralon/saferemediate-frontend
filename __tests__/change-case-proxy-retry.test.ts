@@ -3,8 +3,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { NextRequest } from 'next/server'
 
-vi.mock('@/lib/server/neptune-refresh-backend-url', () => ({
-  getNeptuneRefreshBackendBaseUrl: () => 'https://backend.test',
+vi.mock('@/lib/server/backend-url', () => ({
+  getBackendBaseUrl: () => 'https://backend.test',
 }))
 
 import { POST } from '@/app/api/proxy/vulnerability-map/[systemName]/resource/[resourceId]/network-risk-reduction/change-case/route'
