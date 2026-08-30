@@ -11,6 +11,10 @@ function pointsAtLocalhost(url: string): boolean {
  * at the customer-scoped read API used by the rest of the UI and must not steer
  * mutation/collection requests to a serving tier that lacks the projector queue.
  */
+export function isNeptuneRefreshBackendConfigured(): boolean {
+  return Boolean(process.env.CYNTRO_SYNC_BACKEND_URL?.trim())
+}
+
 export function getNeptuneRefreshBackendBaseUrl(): string {
   const configured = process.env.CYNTRO_SYNC_BACKEND_URL?.trim()
   const resolved = (configured || DEFAULT_NEPTUNE_REFRESH_BACKEND).replace(/\/+$/, "")

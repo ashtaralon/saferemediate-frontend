@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/lib/server/neptune-refresh-backend-url', () => ({
   getNeptuneRefreshBackendBaseUrl: () => 'https://canonical-backend.example',
+  isNeptuneRefreshBackendConfigured: () => true,
 }))
 
 import { POST } from '@/app/api/proxy/vulnerability-map/scanner/sync/route'
