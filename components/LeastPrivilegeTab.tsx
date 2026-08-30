@@ -40,6 +40,10 @@ import {
 import { useAccountScope } from '@/lib/account-scope-context'
 import { resourceAccountId, withAccountScope } from '@/lib/account-scope'
 import { TerraformExecutionChip } from '@/components/terraform-execution-chip'
+import {
+  resolveSecurityGroupReviewTarget,
+  type SecurityGroupReviewTarget,
+} from '@/lib/security-group-review-target'
 
 // ---------- Safe helpers ----------
 const safeArray = <T,>(v: unknown): T[] => Array.isArray(v) ? v : []
@@ -324,6 +328,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
   const [sgModalOpen, setSgModalOpen] = useState(false)
   const [selectedSGId, setSelectedSGId] = useState<string | null>(null)
   const [selectedSGName, setSelectedSGName] = useState<string | null>(null)
+  const [selectedSGTarget, setSelectedSGTarget] = useState<SecurityGroupReviewTarget | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
   const [resourceTypeFilter, setResourceTypeFilter] = useState<string>('all')
   const [decisionFilter, setDecisionFilter] = useState<ResourceRiskDecision | 'all'>('all')
@@ -339,6 +344,23 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
   const pendingResourceRiskOpen = useRef<ResourceRiskOpenDetail | null>(null)
   const lpDataRef = useRef(data)
   lpDataRef.current = data
+
+  const openSecurityGroupReview = (resource: GapResource): boolean => {
+    const target = resolveSecurityGroupReviewTarget(resource)
+    if (!target) {
+      toast({
+        title: 'Security Group review scope is incomplete',
+        description: 'The finding is missing its AWS account or Region. Refresh inventory before reviewing it.',
+        variant: 'destructive',
+      })
+      return false
+    }
+    setSelectedSGTarget(target)
+    setSelectedSGId(target.sgId)
+    setSelectedSGName(resource.resourceName)
+    setSgModalOpen(true)
+    return true
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -393,17 +415,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       setSelectedS3Resource(match)
       setS3ModalOpen(true)
     } else if (reviewSurface === 'security-group') {
-      let sgId = match.id
-      if (!sgId?.startsWith('sg-')) {
-        if (match.resourceName?.startsWith('sg-')) sgId = match.resourceName
-        else if (match.resourceArn?.includes('security-group/')) {
-          const m = match.resourceArn.match(/security-group\/(sg-[a-z0-9]+)/)
-          if (m) sgId = m[1]
-        }
-      }
-      setSelectedSGId(sgId)
-      setSelectedSGName(match.resourceName)
-      setSgModalOpen(true)
+      return openSecurityGroupReview(match)
     }
     return true
   }
@@ -1835,18 +1847,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       setSelectedS3Resource(resource)
       setS3ModalOpen(true)
     } else if (reviewSurface === 'security-group') {
-      let sgId = resource.id
-      if (!sgId?.startsWith('sg-')) {
-        if (resource.resourceName?.startsWith('sg-')) {
-          sgId = resource.resourceName
-        } else if (resource.resourceArn?.includes('security-group/')) {
-          const match = resource.resourceArn.match(/security-group\/(sg-[a-z0-9]+)/)
-          if (match) sgId = match[1]
-        }
-      }
-      setSelectedSGId(sgId)
-      setSelectedSGName(resource.resourceName)
-      setSgModalOpen(true)
+      openSecurityGroupReview(resource)
     }
   }
 
@@ -3683,8 +3684,10 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
           setSgModalOpen(false)
           setSelectedSGId(null)
           setSelectedSGName(null)
+          setSelectedSGTarget(null)
         }}
         sgId={selectedSGId || ''}
+        reviewTarget={selectedSGTarget || undefined}
         sgName={selectedSGName || undefined}
         systemName={systemName || ''}
         applyDisabled={LP_MUTATION_APPLY_DISABLED}
