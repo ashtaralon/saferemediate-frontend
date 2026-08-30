@@ -19,7 +19,15 @@ export async function POST(
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), 30000) // 30 second timeout
 
-    const backendUrl = `${BACKEND_URL}/api/security-groups/${sgId}/simulate`
+    const scopeParams = new URLSearchParams()
+    const accountId = req.nextUrl.searchParams.get("account_id")
+    const region = req.nextUrl.searchParams.get("region")
+    if (accountId) scopeParams.set("account_id", accountId)
+    if (region) scopeParams.set("region", region)
+    const query = scopeParams.toString()
+    const backendUrl = `${BACKEND_URL}/api/security-groups/${encodeURIComponent(sgId)}/simulate${
+      query ? `?${query}` : ""
+    }`
 
     console.log(`[proxy] security-groups/${sgId}/simulate -> ${backendUrl}`)
 
@@ -77,4 +85,3 @@ export async function POST(
     )
   }
 }
-

@@ -32,14 +32,24 @@ export async function GET(
       )
     }
 
-    const cached = cache[sgId]
+    const accountId = req.nextUrl.searchParams.get("account_id") || ""
+    const region = req.nextUrl.searchParams.get("region") || ""
+    const scopeParams = new URLSearchParams()
+    if (accountId) scopeParams.set("account_id", accountId)
+    if (region) scopeParams.set("region", region)
+    const cacheKey = `${accountId}:${region}:${sgId}`
+
+    const cached = cache[cacheKey]
     if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
       return NextResponse.json(cached.data, {
         headers: { "X-Cache": "HIT", "Cache-Control": "no-store" },
       })
     }
 
-    const backendUrl = `${BACKEND_URL}/api/security-groups/${sgId}/gap-analysis`
+    const query = scopeParams.toString()
+    const backendUrl = `${BACKEND_URL}/api/security-groups/${encodeURIComponent(sgId)}/gap-analysis${
+      query ? `?${query}` : ""
+    }`
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), 55000)
 
@@ -52,7 +62,14 @@ export async function GET(
     clearTimeout(timeoutId)
 
     if (!res.ok) {
-      const detail = await res.text().catch(() => "")
+      const rawDetail = await res.text().catch(() => "")
+      let detail = rawDetail
+      try {
+        const parsed = JSON.parse(rawDetail) as { detail?: unknown; error?: unknown }
+        detail = String(parsed.detail || parsed.error || rawDetail)
+      } catch {
+        // Preserve non-JSON backend errors as text.
+      }
       console.error(`[SG Rule Analysis] Backend ${res.status}: ${detail.slice(0, 200)}`)
       return backendError({
         status: res.status,
@@ -62,7 +79,7 @@ export async function GET(
     }
 
     const data = (await res.json()) as Record<string, unknown>
-    cache[sgId] = { data, timestamp: Date.now() }
+    cache[cacheKey] = { data, timestamp: Date.now() }
     return NextResponse.json(data, {
       headers: { "X-Cache": "MISS", "Cache-Control": "no-store" },
     })
@@ -71,7 +88,9 @@ export async function GET(
       "[SG Rule Analysis] Error:",
       error instanceof Error ? error.message : error,
     )
-    const cached = sgId ? cache[sgId] : undefined
+    const accountId = req.nextUrl.searchParams.get("account_id") || ""
+    const region = req.nextUrl.searchParams.get("region") || ""
+    const cached = sgId ? cache[`${accountId}:${region}:${sgId}`] : undefined
     if (
       error instanceof Error &&
       error.name === "AbortError" &&

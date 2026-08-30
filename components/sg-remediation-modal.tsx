@@ -19,11 +19,13 @@
 import React, { useEffect } from "react"
 import { SGRemediationCard } from "./sg-remediation-card"
 import { REMEDIATION_MODAL_BACKDROP_STYLE } from "./remediation-modal-chrome"
+import type { SecurityGroupReviewTarget } from "@/lib/security-group-review-target"
 
 interface Props {
   isOpen: boolean
   onClose: () => void
   sgId: string
+  reviewTarget?: SecurityGroupReviewTarget
   sgName?: string
   systemName?: string
   /**
@@ -45,6 +47,7 @@ export function SGRemediationModal({
   isOpen,
   onClose,
   sgId,
+  reviewTarget,
   sgName,
   systemName,
   onRemediate,
@@ -95,6 +98,7 @@ export function SGRemediationModal({
         )}
         <SGRemediationCard
           sgId={sgId}
+          reviewTarget={reviewTarget}
           applyDisabled={applyDisabled}
           onApplied={(applied_sgId, summary) => {
             onRemediate?.(applied_sgId, summary)

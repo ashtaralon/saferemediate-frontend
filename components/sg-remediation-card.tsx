@@ -37,6 +37,10 @@ import {
   type SharedOverrideState,
 } from "@/components/override-modal-shared"
 import { dispatchRemediationChanged } from "@/lib/remediation-events"
+import {
+  securityGroupReviewQuery,
+  type SecurityGroupReviewTarget,
+} from "@/lib/security-group-review-target"
 
 // ── Types ─────────────────────────────────────────────────────────
 
@@ -104,6 +108,7 @@ interface SGGapResponse {
 
 interface SGRemediationCardProps {
   sgId: string
+  reviewTarget?: SecurityGroupReviewTarget
   onSimulate?: (sgId: string, ruleId: string, action: string) => void
   /**
    * Notification fired AFTER a successful apply completes. The card
@@ -311,6 +316,7 @@ function routingFromScore(score: number, operation: Operation): RoutingState {
 
 export function SGRemediationCard({
   sgId,
+  reviewTarget,
   onSimulate,
   onApplied,
   applyDisabled = false,
@@ -325,12 +331,26 @@ export function SGRemediationCard({
   // a full-card error replace (line 990); this banner shows in-place so
   // the rule list stays visible and the operator can retry.
   const [applyError, setApplyError] = useState<string | null>(null)
+  const reviewQuery = useMemo(
+    () => (reviewTarget ? securityGroupReviewQuery(reviewTarget) : ""),
+    [reviewTarget],
+  )
+  const reviewUrl = useMemo(() => {
+    return `/api/proxy/security-groups/${encodeURIComponent(sgId)}/rule-analysis${
+      reviewQuery ? `?${reviewQuery}` : ""
+    }`
+  }, [reviewQuery, sgId])
+  const simulateUrl = useMemo(() => {
+    return `/api/proxy/security-groups/${encodeURIComponent(sgId)}/simulate${
+      reviewQuery ? `?${reviewQuery}` : ""
+    }`
+  }, [reviewQuery, sgId])
 
   useEffect(() => {
     let cancelled = false
     setLoading(true)
     setErr(null)
-    fetch(`/api/proxy/security-groups/${sgId}/rule-analysis`, {
+    fetch(reviewUrl, {
       cache: "no-store",
     })
       .then(async (r) => {
@@ -366,7 +386,7 @@ export function SGRemediationCard({
     return () => {
       cancelled = true
     }
-  }, [sgId])
+  }, [reviewUrl])
 
   // ── Bucket rules + aggregate score ─────────────────────────────
   //
@@ -554,7 +574,7 @@ export function SGRemediationCard({
 
     setRuleSimResults((prev) => ({ ...prev, [rule.rule_id]: { kind: "loading" } }))
 
-    fetch(`/api/proxy/security-groups/${sgId}/simulate`, {
+    fetch(simulateUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ rules_to_remove: [ruleToRemove], dry_run: true }),
@@ -634,7 +654,7 @@ export function SGRemediationCard({
     const ctrl = new AbortController()
     const tid = setTimeout(() => {
       setPreflight({ kind: "checking" })
-      fetch(`/api/proxy/security-groups/${sgId}/simulate`, {
+      fetch(simulateUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ rules_to_remove, dry_run: true }),
@@ -682,7 +702,7 @@ export function SGRemediationCard({
       clearTimeout(tid)
       ctrl.abort()
     }
-  }, [selected, ruleViews, sgId])
+  }, [selected, ruleViews, simulateUrl])
 
   // ── Apply lifecycle ────────────────────────────────────────────
   //
@@ -816,7 +836,7 @@ export function SGRemediationCard({
       setSelected(new Set())
       // Trigger a refetch of gap-analysis
       setTimeout(() => {
-        fetch(`/api/proxy/security-groups/${sgId}/rule-analysis`, {
+        fetch(reviewUrl, {
           cache: "no-store",
         })
           .then((r) => r.json())
@@ -897,7 +917,7 @@ export function SGRemediationCard({
         })
         // Background refresh of the card data
         setTimeout(() => {
-          fetch(`/api/proxy/security-groups/${sgId}/rule-analysis`, {
+          fetch(reviewUrl, {
             cache: "no-store",
           })
             .then((rr) => rr.json())
