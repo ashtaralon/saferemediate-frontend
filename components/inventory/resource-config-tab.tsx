@@ -844,6 +844,7 @@ export function ResourceConfigTab({ resourceId, resourceType, systemName, onPrim
   const [readiness, setReadiness] = useState<ReadinessPayload | null>(null)
   const [readinessLoading, setReadinessLoading] = useState(true)
   const [readinessError, setReadinessError] = useState<string | null>(null)
+  const readinessLabel = toNeo4jLabel(resourceType)
 
   useEffect(() => {
     let cancelled = false
@@ -882,7 +883,7 @@ export function ResourceConfigTab({ resourceId, resourceType, systemName, onPrim
         cancelled = true
       }
     }
-    const label = toNeo4jLabel(resourceType)
+    const label = readinessLabel
     if (!label) {
       setReadinessLoading(false)
       setReadiness(null)
@@ -914,19 +915,19 @@ export function ResourceConfigTab({ resourceId, resourceType, systemName, onPrim
     return () => {
       cancelled = true
     }
-  }, [loading, resourceId, resourceType])
+  }, [loading, readinessLabel, resourceId])
 
   useEffect(() => {
     if (!loading && !readinessLoading) onPrimarySettled?.()
   }, [loading, onPrimarySettled, readinessLoading])
 
-  const readinessBanner = (
+  const readinessBanner = readinessLabel ? (
     <ReadinessBadges
       readiness={readiness}
       loading={readinessLoading}
       error={readinessError}
     />
-  )
+  ) : null
 
   if (loading) {
     return (

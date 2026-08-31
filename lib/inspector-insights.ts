@@ -28,6 +28,22 @@ export function humanizeInspectorError(raw: string, resourceType?: string): Insi
   const msg = raw.trim()
   const lower = msg.toLowerCase()
 
+  if (
+    lower.includes("<!doctype html") ||
+    lower.includes("<html") ||
+    lower.includes("<svg")
+  ) {
+    return [
+      {
+        severity: "warning",
+        title: "Inspector service unavailable",
+        detail:
+          "Cyntro received an invalid gateway response while loading this configuration. Inventory and dependency data remain available.",
+        tags: resourceType ? [resourceType] : undefined,
+      },
+    ]
+  }
+
   if (lower.includes("subnet") && lower.includes("not found")) {
     return [
       {

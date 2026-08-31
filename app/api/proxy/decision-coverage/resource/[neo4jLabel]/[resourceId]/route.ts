@@ -12,6 +12,13 @@ import { resilientBackendJsonRead } from "@/lib/server/resilient-backend-read"
 
 export const maxDuration = 60
 
+function safeBackendDetail(body: string): string {
+  if (/<!doctype html|<html|<svg/i.test(body)) {
+    return "Readiness backend returned an invalid gateway response."
+  }
+  return body.slice(0, 500)
+}
+
 export async function GET(
   _request: NextRequest,
   {
@@ -42,7 +49,7 @@ export async function GET(
         return backendError({
           status: result.status,
           message: errorMessage,
-          detail: (result.body ?? "").slice(0, 500),
+          detail: safeBackendDetail(result.body ?? ""),
         })
       }
       return backendUnreachable(`Readiness backend unavailable: ${result.error}`)

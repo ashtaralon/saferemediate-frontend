@@ -19,6 +19,30 @@ afterEach(() => {
 })
 
 describe("ResourceConfigTab read ordering", () => {
+  it("does not request or advertise readiness for an unsupported resource type", async () => {
+    const calls: string[] = []
+    vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      calls.push(String(input))
+      return Promise.resolve(jsonResponse({
+        resource_type: "EC2",
+        supported: true,
+        current: { title: "Target group", source: "Neo4j", properties: { port: 80 } },
+      }))
+    })
+
+    render(
+      <ResourceConfigTab
+        resourceId="i-0123456789abcdef0"
+        resourceType="EC2"
+        systemName="test-system"
+      />,
+    )
+
+    await waitFor(() => expect(calls).toHaveLength(1))
+    expect(calls[0]).toContain("/api/proxy/inspector/")
+    expect(document.body).not.toHaveTextContent("Readiness check unavailable")
+  })
+
   it("finishes Inspector before starting readiness and secondary enrichment", async () => {
     const calls: string[] = []
     let finishInspector: ((response: Response) => void) | undefined

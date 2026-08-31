@@ -47,4 +47,14 @@ describe("inspector-insights", () => {
     expect(insights[0].detail).toContain("bounded retry deadline")
     expect(insights[0].detail).not.toContain("large accounts")
   })
+
+  it("never renders an upstream HTML error document", () => {
+    const insights = humanizeInspectorError(
+      '<!DOCTYPE html><html><body><svg>Render</svg><h1>Not Found</h1></body></html>',
+      "TargetGroup",
+    )
+
+    expect(insights[0].title).toBe("Inspector service unavailable")
+    expect(insights[0].detail).not.toMatch(/<!DOCTYPE|<svg|<html>/)
+  })
 })

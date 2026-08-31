@@ -83,4 +83,24 @@ describe("Estate resilient proxy routes", () => {
       origin: "proxy",
     })
   })
+
+  it("does not forward an upstream HTML error document", async () => {
+    resilientReadMock.mockResolvedValue({
+      ok: false,
+      status: 404,
+      body: '<!DOCTYPE html><html><body><svg>Render</svg>Not Found</body></html>',
+      error: "HTTP 404",
+      latencyMs: 50,
+    })
+
+    const response = await getInspector(
+      new NextRequest("https://ui.test/api/proxy/inspector/arn%3Atest"),
+      { params: Promise.resolve({ resourceId: "arn:test" }) },
+    )
+    const body = await response.json()
+
+    expect(response.status).toBe(404)
+    expect(JSON.stringify(body)).not.toMatch(/<!DOCTYPE|<html|<svg/)
+    expect(body.detail).toBe("Inspector backend returned an invalid gateway response.")
+  })
 })

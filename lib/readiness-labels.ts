@@ -10,17 +10,18 @@ const DISPLAY_TO_NEO4J_LABEL: Record<string, string> = {
   NetworkInterface: "NetworkInterface",
   CloudTrail: "CloudTrailTrail",
   CloudTrailTrail: "CloudTrailTrail",
+  EventBridge: "EventBridgeRule",
+  EventBridgeRule: "EventBridgeRule",
   SQS: "SQSQueue",
   SQSQueue: "SQSQueue",
   DynamoDB: "DynamoDBTable",
   DynamoDBTable: "DynamoDBTable",
   RDS: "RDSInstance",
   RDSInstance: "RDSInstance",
-  EC2: "EC2Instance",
-  EC2Instance: "EC2Instance",
   ALB: "LoadBalancer",
   NLB: "LoadBalancer",
   LoadBalancer: "LoadBalancer",
+  TargetGroup: "TargetGroup",
   SecurityGroup: "SecurityGroup",
   IAMRole: "IAMRole",
   IAMPolicy: "IAMPolicy",
@@ -31,8 +32,7 @@ const DISPLAY_TO_NEO4J_LABEL: Record<string, string> = {
 }
 
 export function toNeo4jLabel(resourceType: string): string | null {
-  const mapped = DISPLAY_TO_NEO4J_LABEL[resourceType] ?? resourceType
-  return mapped || null
+  return DISPLAY_TO_NEO4J_LABEL[resourceType] ?? null
 }
 
 export interface ReadinessPayload {
