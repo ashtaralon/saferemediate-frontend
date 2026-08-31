@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import {
   AlertTriangle,
   ArrowDownLeft,
@@ -155,6 +155,7 @@ export function DetailPanel({ node, systemName, accountId, region, vpcId, onClos
   const [narration, setNarration] = useState<EstateOperatorNarration | null>(null)
   const [narrationLoading, setNarrationLoading] = useState(false)
   const [narrationError, setNarrationError] = useState(false)
+  const [primarySettledResourceId, setPrimarySettledResourceId] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [plan, setPlan] = useState<S3VpcePlan | null>(null)
@@ -187,7 +188,7 @@ export function DetailPanel({ node, systemName, accountId, region, vpcId, onClos
   }, [node?.id])
 
   useEffect(() => {
-    if (!node) return
+    if (!node || primarySettledResourceId !== node.id) return
     let cancelled = false
     const load = async () => {
       setLoading(true)
@@ -207,7 +208,7 @@ export function DetailPanel({ node, systemName, accountId, region, vpcId, onClos
     }
     void load()
     return () => { cancelled = true }
-  }, [node, systemName, accountId, region, vpcId])
+  }, [node, systemName, accountId, region, vpcId, primarySettledResourceId])
 
   useEffect(() => {
     const operationId = plan?.operation_id
@@ -250,7 +251,7 @@ export function DetailPanel({ node, systemName, accountId, region, vpcId, onClos
   }, [execution?.snapshot_id, plan?.operation_id, systemName])
 
   useEffect(() => {
-    if (!node) return
+    if (!node || !dossier) return
     let cancelled = false
     const loadNarration = async () => {
       setNarrationLoading(true)
@@ -273,7 +274,11 @@ export function DetailPanel({ node, systemName, accountId, region, vpcId, onClos
     }
     void loadNarration()
     return () => { cancelled = true }
-  }, [node, systemName, accountId, region, vpcId])
+  }, [node, systemName, accountId, region, vpcId, dossier])
+
+  const markPrimaryReadSettled = useCallback(() => {
+    setPrimarySettledResourceId(node?.id ?? null)
+  }, [node?.id])
 
   if (!node) return null
 
@@ -582,7 +587,13 @@ export function DetailPanel({ node, systemName, accountId, region, vpcId, onClos
                 </div>
               </div>
             ) : null}
-            <ResourceConfigTab resourceId={node.id} resourceType={node.type ?? "Resource"} systemName={systemName} />
+            <ResourceConfigTab
+              key={node.id}
+              resourceId={node.id}
+              resourceType={node.type ?? "Resource"}
+              systemName={systemName}
+              onPrimarySettled={markPrimaryReadSettled}
+            />
           </div>
         ) : null}
 

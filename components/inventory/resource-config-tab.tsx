@@ -33,6 +33,7 @@ interface Props {
   resourceId: string
   resourceType: string
   systemName?: string
+  onPrimarySettled?: () => void
 }
 
 interface SgRule {
@@ -836,7 +837,7 @@ function InsightSections({ data }: { data: InspectorPayload }) {
   )
 }
 
-export function ResourceConfigTab({ resourceId, resourceType, systemName }: Props) {
+export function ResourceConfigTab({ resourceId, resourceType, systemName, onPrimarySettled }: Props) {
   const [data, setData] = useState<InspectorPayload | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -875,6 +876,12 @@ export function ResourceConfigTab({ resourceId, resourceType, systemName }: Prop
 
   useEffect(() => {
     let cancelled = false
+    if (loading) {
+      setReadinessLoading(true)
+      return () => {
+        cancelled = true
+      }
+    }
     const label = toNeo4jLabel(resourceType)
     if (!label) {
       setReadinessLoading(false)
@@ -907,7 +914,11 @@ export function ResourceConfigTab({ resourceId, resourceType, systemName }: Prop
     return () => {
       cancelled = true
     }
-  }, [resourceId, resourceType])
+  }, [loading, resourceId, resourceType])
+
+  useEffect(() => {
+    if (!loading && !readinessLoading) onPrimarySettled?.()
+  }, [loading, onPrimarySettled, readinessLoading])
 
   const readinessBanner = (
     <ReadinessBadges

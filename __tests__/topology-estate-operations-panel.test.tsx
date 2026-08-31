@@ -8,9 +8,10 @@ import { DetailPanel } from "@/components/topology-v0-2/detail-panel"
 import type { TopologyNode } from "@/components/topology-v0-2/types"
 
 vi.mock("@/components/inventory/resource-config-tab", () => ({
-  ResourceConfigTab: ({ resourceId }: { resourceId: string }) => (
-    <div data-testid="inventory-config">Inventory configuration for {resourceId}</div>
-  ),
+  ResourceConfigTab: ({ resourceId, onPrimarySettled }: { resourceId: string; onPrimarySettled?: () => void }) => {
+    React.useEffect(() => onPrimarySettled?.(), [onPrimarySettled])
+    return <div data-testid="inventory-config">Inventory configuration for {resourceId}</div>
+  },
 }))
 
 vi.mock("@/lib/service-type", () => ({
@@ -131,6 +132,20 @@ describe("Estate operations panel", () => {
       expect.stringContaining(`/api/proxy/operational-map/alon-prod/resource?`),
       expect.objectContaining({ cache: "no-store" }),
     ))
+  })
+
+  it("waits for primary configuration reads before loading secondary enrichment", async () => {
+    const calls: string[] = []
+    vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      calls.push(String(input))
+      return standardBackendResponse(input)
+    })
+    renderPanel()
+
+    await screen.findByTestId("estate-resource-overview")
+    await screen.findByText(narration.operator_summary)
+    expect(calls[0]).toContain("/resource?")
+    expect(calls[1]).toContain("/resource/narration?")
   })
 
   it("explains who depends on the resource and what it depends on using evidence labels", async () => {
