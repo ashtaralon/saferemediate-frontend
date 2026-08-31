@@ -50,6 +50,12 @@ import { readJsonCache, writeJsonCache } from "@/lib/browser-cache"
 // V2 is the default home. Set NEXT_PUBLIC_DASHBOARD_V2=false in Vercel to
 // roll back to the legacy home without a code redeploy.
 const DASHBOARD_V2_ENABLED = process.env.NEXT_PUBLIC_DASHBOARD_V2 !== "false"
+// The V2/V3 dashboards own their scoped data hooks. The legacy Home loader
+// below used to run anyway, launching issues-summary twice plus findings and
+// Security Hub on every page mount—even when the operator immediately opened
+// Topology. Those unused requests saturated the backend and starved the
+// Inspector drawer. Keep them exclusively for the legacy dashboard.
+const LEGACY_HOME_DATA_ENABLED = !DASHBOARD_V2_ENABLED && !DASHBOARD_V3_ENABLED
 const FETCH_TIMEOUT = 30000 // 30 second timeout (proxy routes use 28s, so client needs 30s+)
 
 // Helper function to fetch with timeout
@@ -344,6 +350,11 @@ export default function HomePage() {
 
   // Load from cache FIRST, then fetch fresh data - stale-while-revalidate
   useEffect(() => {
+    if (!LEGACY_HOME_DATA_ENABLED) {
+      setLoading(false)
+      return
+    }
+
     let hasCache = false
 
     // Step 1: Try to load from cache immediately
@@ -379,7 +390,7 @@ export default function HomePage() {
   }, []) // Only run once on mount
 
   useEffect(() => {
-    if (!autoRefresh) return
+    if (!LEGACY_HOME_DATA_ENABLED || !autoRefresh) return
 
     const interval = setInterval(() => {
       loadData(true) // Always background refresh for auto-refresh

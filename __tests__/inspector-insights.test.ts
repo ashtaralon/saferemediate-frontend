@@ -44,7 +44,7 @@ describe("inspector-insights", () => {
     const insights = humanizeInspectorError("Inspector backend request timed out")
 
     expect(insights[0].title).toBe("Inspector timed out")
-    expect(insights[0].detail).toContain("55-second deadline")
+    expect(insights[0].detail).toContain("bounded retry deadline")
     expect(insights[0].detail).not.toContain("large accounts")
   })
 })

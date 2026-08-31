@@ -68,7 +68,7 @@ export function humanizeInspectorError(raw: string, resourceType?: string): Insi
         severity: "warning",
         title: "Inspector timed out",
         detail:
-          "The analysis request exceeded its 55-second deadline. Inventory and dependencies remain available; retry once, then check backend health if it repeats.",
+          "The analysis request exceeded its bounded retry deadline. Inventory and dependencies remain available; retry once, then check backend health if it repeats.",
       },
     ]
   }
