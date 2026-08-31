@@ -39,6 +39,34 @@ export interface StartSyncOptions {
   skipFlowLogs?: boolean
 }
 
+export function syncStartErrorMessage(raw: string, status: number): string {
+  try {
+    const outer = JSON.parse(raw) as { error?: string; detail?: unknown }
+    let detail = outer.detail
+    if (typeof detail === "string" && detail.trim().startsWith("{")) {
+      try {
+        detail = JSON.parse(detail)
+      } catch {
+        // Keep the bounded outer error below.
+      }
+    }
+    const backendDetail = detail && typeof detail === "object" && "detail" in detail
+      ? (detail as { detail?: unknown }).detail
+      : detail
+    if (
+      backendDetail &&
+      typeof backendDetail === "object" &&
+      (backendDetail as { error?: string }).error === "sync_all_unavailable_on_serving_tier"
+    ) {
+      return "AWS refresh is managed by the Neptune projector. This read-only serving tier cannot start collectors; check projector health and the latest projection cycle."
+    }
+    if (outer.error && !outer.error.trim().startsWith("{")) return outer.error.slice(0, 500)
+  } catch {
+    // The proxy normally returns JSON; never expose an HTML or arbitrary body.
+  }
+  return `AWS sync could not start (HTTP ${status}). Retry after the data plane recovers.`
+}
+
 export const SYNC_STEP_LABELS: Record<string, string> = {
   starting: "Starting...",
   resource_collectors: "Discovering AWS resources (EC2, ALB, Lambda, RDS, S3, IAM, EventBridge)",
@@ -142,7 +170,7 @@ export async function startSyncAllJob(
 
   if (!response.ok) {
     const errorText = await response.text()
-    throw new Error(errorText || `Sync failed: ${response.status}`)
+    throw new Error(syncStartErrorMessage(errorText, response.status))
   }
 
   const data = (await response.json()) as SyncStartResult
