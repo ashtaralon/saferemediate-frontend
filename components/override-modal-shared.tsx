@@ -168,7 +168,7 @@ export function OverrideModalShared({
             <div className="flex items-center gap-3 mb-3">
               <span className="text-2xl">⚠</span>
               <h3 className="text-lg font-bold text-[#b45309]">
-                Override required
+                Are you sure you want to remediate anyway?
               </h3>
             </div>
             <p className="text-sm text-[var(--foreground,#111827)] mb-3">
@@ -270,7 +270,7 @@ export function OverrideModalShared({
                         : "Apply the change with override"
                 }
               >
-                Apply Anyway
+                Remediate anyway
               </button>
             </div>
           </>
