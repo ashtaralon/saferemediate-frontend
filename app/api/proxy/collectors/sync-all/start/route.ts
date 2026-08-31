@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
+import { getBackendBaseUrl } from "@/lib/server/backend-url"
+import { safeBackendErrorDetail } from "@/lib/server/safe-backend-detail"
 
-const BACKEND_URL =
-  "https://saferemediate-backend-f.onrender.com"
+const BACKEND_URL = getBackendBaseUrl()
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
@@ -34,7 +35,7 @@ export async function POST(request: NextRequest) {
         {
           success: false,
           error: `Backend returned ${response.status}`,
-          detail: errorText,
+          detail: safeBackendErrorDetail(errorText, response.status),
         },
         { status: response.status }
       )

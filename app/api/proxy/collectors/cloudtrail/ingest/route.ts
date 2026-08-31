@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server"
+import { getBackendBaseUrl } from "@/lib/server/backend-url"
+import { safeBackendErrorDetail } from "@/lib/server/safe-backend-detail"
 
 export const dynamic = "force-dynamic"
 export const fetchCache = "force-no-store"
 export const maxDuration = 300 // 5 minutes for CloudTrail ingestion
 
-const BACKEND_URL =
-  "https://saferemediate-backend-f.onrender.com"
+const BACKEND_URL = getBackendBaseUrl()
 
 export async function POST(req: NextRequest) {
   try {
@@ -39,7 +40,7 @@ export async function POST(req: NextRequest) {
       try {
         errorData = JSON.parse(errorText)
       } catch {
-        errorData = { detail: errorText || `Backend returned ${res.status}` }
+        errorData = { detail: safeBackendErrorDetail(errorText, res.status) }
       }
 
       return NextResponse.json(
