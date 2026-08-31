@@ -91,9 +91,43 @@ export function isStaleAnalysisReason(reason: string | null | undefined): boolea
   return /timed out|stale|last complete analysis|warming/i.test(reason)
 }
 
+/**
+ * True when a backend reason ASSERTS the sweep finished.
+ *
+ * Pairing one of these with the "Analysis did not run" title contradicts it,
+ * and that shipped: while the backend was restarting, the proxy served a stale
+ * fallback with no `analysis_complete`, so `analysisComplete` derived to false
+ * and the banner said all three of
+ *
+ *   title  "Analysis did not run"
+ *   body   "Analysis complete; remediation is not ready because ..."
+ *   footer "Remediation is unavailable until the analysis completes."
+ *
+ * A payload that reports a finished sweep in prose while withholding the
+ * boolean is not evidence either way — it is an inconsistent payload, and the
+ * honest banner says so rather than picking whichever half reads better.
+ */
+export function assertsAnalysisComplete(
+  reason: string | null | undefined,
+): boolean {
+  if (!reason) return false
+  return /analysis (is )?complete|analysis already ran/i.test(reason)
+}
+
+/** The payload contradicts itself: prose claims a finished sweep, the boolean
+ *  does not confirm one. Neither half may be rendered as fact. */
+export function hasInconsistentAnalysisState(integrity: LPIntegrity): boolean {
+  return !integrity.analysisComplete && assertsAnalysisComplete(integrity.reason)
+}
+
 /** Footer under the banner title/body. Must not contradict them. */
 export function lpIntegrityFooter(integrity: LPIntegrity): string | null {
   if (integrity.state === "READY") return null
+  // Checked BEFORE analysisComplete: "until the analysis completes" asserts the
+  // sweep has not finished, which contradicts a body reporting that it has.
+  if (hasInconsistentAnalysisState(integrity)) {
+    return "Counts and totals below are partial. Remediation stays blocked until a response with a confirmed analysis state is available."
+  }
   if (integrity.analysisComplete) {
     // Must not name a cause. This said "until an authoritative generation is
     // active", which was false wherever a generation WAS active and some other
@@ -134,6 +168,16 @@ export function lpIntegrityCopy(integrity: LPIntegrity): {
   body: string
 } {
   if (integrity.state === "NOT_READY") {
+    // FIRST: a payload whose prose claims a finished sweep while the boolean
+    // withholds one. Neither "did not run" nor "complete" may be stated, so
+    // name the inconsistency instead of repeating either half.
+    if (hasInconsistentAnalysisState(integrity)) {
+      return {
+        title: "Analysis state unavailable",
+        body:
+          "This response reports a completed analysis without confirming one — typically a cached reply served while the backend is restarting. Its counts are partial and remediation stays blocked. Reload once the backend is reachable.",
+      }
+    }
     // Stale-cache / timeout paths still show rows; "did not run" is a lie when
     // the proxy forced NOT_READY over a previous complete payload.
     if (isStaleAnalysisReason(integrity.reason)) {

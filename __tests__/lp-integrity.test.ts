@@ -11,7 +11,9 @@
 
 import { describe, expect, it } from 'vitest'
 import {
+  assertsAnalysisComplete,
   deriveLPIntegrity,
+  hasInconsistentAnalysisState,
   isStaleAnalysisReason,
   lpEvidenceGapCopy,
   lpIntegrityCopy,
@@ -160,6 +162,53 @@ describe('lpIntegrityCopy — stale vs never-ran', () => {
       failedAnalyzers: [],
       reason: copy.body,
     })).not.toMatch(/until the analysis completes/i)
+  })
+})
+
+describe('a payload that contradicts itself is not rendered as fact', () => {
+  // Regression, 2026-08-31 (C1). While the backend was restarting, the proxy
+  // served a stale fallback carrying integrityReason but no analysis_complete.
+  // The banner then showed three mutually exclusive claims at once:
+  //   title  "Analysis did not run"
+  //   body   "Analysis complete; remediation is not ready because ..."
+  //   footer "Remediation is unavailable until the analysis completes."
+  // lpIntegrityFooter's own docstring says it must not contradict the body.
+  const inconsistent = {
+    state: 'NOT_READY' as const,
+    analysisComplete: false,
+    mutationBlocked: true,
+    countsArePartial: true,
+    failedAnalyzers: [],
+    reason:
+      'Analysis complete; remediation is not ready because the active generation is unknown.',
+  }
+
+  it('detects the inconsistency', () => {
+    expect(assertsAnalysisComplete(inconsistent.reason)).toBe(true)
+    expect(hasInconsistentAnalysisState(inconsistent)).toBe(true)
+  })
+
+  it('never claims the analysis did not run while echoing that it completed', () => {
+    const copy = lpIntegrityCopy(inconsistent)
+    expect(copy.title).not.toMatch(/did not run/i)
+    expect(copy.body).not.toMatch(/analysis complete/i)
+    expect(copy.title).toBe('Analysis state unavailable')
+  })
+
+  it('footer does not claim we are waiting on a sweep that reported completion', () => {
+    const footer = lpIntegrityFooter(inconsistent)
+    expect(footer).not.toMatch(/until the analysis completes/i)
+    expect(footer).toMatch(/partial/i)
+  })
+
+  it('leaves the consistent cases alone', () => {
+    const complete = { ...inconsistent, analysisComplete: true }
+    expect(hasInconsistentAnalysisState(complete)).toBe(false)
+    expect(lpIntegrityCopy(complete).title).toBe('Remediation is not ready')
+
+    const neverRan = { ...inconsistent, reason: null }
+    expect(hasInconsistentAnalysisState(neverRan)).toBe(false)
+    expect(lpIntegrityCopy(neverRan).title).toBe('Analysis did not run')
   })
 })
 
