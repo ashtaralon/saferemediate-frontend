@@ -199,6 +199,19 @@ export function resolveDefaultPermissionSelection(
   return planIsSafeSubset ? planPermissions : candidates
 }
 
+export function resolveBreakGlassPermissionSelection(
+  removalSafety: RemovalSafetyBundle | null,
+  legacyUnused: string[],
+): string[] {
+  if (!removalSafety) return Array.from(new Set(legacyUnused))
+  return removalSafety.permissions
+    .filter(item =>
+      item.disposition === "REMOVAL_CANDIDATE"
+      || item.disposition === "INSUFFICIENT_EVIDENCE"
+    )
+    .map(item => item.permission)
+}
+
 export function RemovalSafetyPanel({ bundle }: { bundle: RemovalSafetyBundle }) {
   const byPermission = new Map(bundle.permissions.map(item => [item.permission, item]))
   const candidates = bundle.permissions.filter(item => item.disposition === "REMOVAL_CANDIDATE")
@@ -944,6 +957,8 @@ export function IAMPermissionAnalysisModal({
   // sending it can never execute a different set than what is shown.
   const [planToken, setPlanToken] = useState<string | null>(null)
   const [planPermissions, setPlanPermissions] = useState<string[] | null>(null)
+  const [breakGlassPlanActive, setBreakGlassPlanActive] = useState(false)
+  const [breakGlassPreparing, setBreakGlassPreparing] = useState(false)
   // Default to `true` so the FIRST render shows the loading skeleton,
   // not the "Cyntro could not verify safety" red fallback below
   // (which only fires correctly once the fetch has actually completed
@@ -1069,6 +1084,10 @@ export function IAMPermissionAnalysisModal({
       planToken,
       planPermissions,
     })
+    if (breakGlassPlanActive && planPermissions) {
+      setSelectedPermissionsToRemove(new Set(planPermissions))
+      return
+    }
     if (authority.hardBlocked || authority.evidenceUnavailable) {
       setSelectedPermissionsToRemove(new Set())
       return
@@ -1091,7 +1110,7 @@ export function IAMPermissionAnalysisModal({
     // bundle. The UI labels this legacy state separately and Apply remains
     // governed by the normal remediability gate.
     setSelectedPermissionsToRemove(new Set(gapData.unused_permissions))
-  }, [planPermissions, planToken, removalSafety, safetyContext?.decision_canonical, safetyContext?.unsafe_reasons, gapData, safetyLoading])
+  }, [breakGlassPlanActive, planPermissions, planToken, removalSafety, safetyContext?.decision_canonical, safetyContext?.unsafe_reasons, gapData, safetyLoading])
 
   const fetchSafetyContext = async (): Promise<SimulateFixSafety | null> => {
     const requestVersion = ++simulateFixRequestVersion.current
@@ -1103,6 +1122,7 @@ export function IAMPermissionAnalysisModal({
     setDecisionPersistence(null)
     setPlanToken(null)
     setPlanPermissions(null)
+    setBreakGlassPlanActive(false)
     setManagedPolicyRewriteRequired(false)
     setDetachManagedPolicies(false)
     try {
@@ -1458,6 +1478,74 @@ export function IAMPermissionAnalysisModal({
     onClose()
   }
 
+  const handlePrepareBreakGlass = async () => {
+    if (!gapData || breakGlassPreparing) return
+    const permissions = resolveBreakGlassPermissionSelection(
+      removalSafety,
+      gapData.unused_permissions,
+    )
+    if (permissions.length === 0) {
+      toast({
+        title: "No overpermission is available to remove",
+        description: "Used and protected permissions are intentionally excluded from break-glass remediation.",
+        variant: "destructive",
+      })
+      return
+    }
+    setBreakGlassPreparing(true)
+    try {
+      const response = await fetch('/api/proxy/least-privilege/break-glass-plan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          resource_type: 'IAMRole',
+          resource_id: gapData.role_arn || roleName,
+          system_name: systemName,
+          permissions_to_remove: permissions,
+        }),
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok || !payload?.plan?.plan_token) {
+        const detail = payload?.detail
+        const blockers = Array.isArray(detail?.blockers) ? detail.blockers.join(' ') : ''
+        throw new Error(
+          detail?.message || payload?.error || blockers
+          || `Could not prepare break-glass plan (${response.status})`,
+        )
+      }
+      const permissionsFromPlan = Array.isArray(payload.plan.permissions_to_remove)
+        ? payload.plan.permissions_to_remove.map((item: unknown) => String(item))
+        : permissions
+      setPlanToken(String(payload.plan.plan_token))
+      setPlanPermissions(permissionsFromPlan)
+      setSelectedPermissionsToRemove(new Set(permissionsFromPlan))
+      setManagedPolicyRewriteRequired(false)
+      setDetachManagedPolicies(false)
+      setBreakGlassPlanActive(true)
+      setOverrideModal({
+        open: true,
+        rationale: '',
+        ackRollback: true,
+        phase: 'form',
+        message: '',
+        operatorName: '',
+        operatorEmail: '',
+        blockReasons: [
+          authorityHoldReason || 'Canonical execution authority is unavailable.',
+          'The selected permissions have incomplete or stale usage evidence.',
+        ],
+      })
+    } catch (err: any) {
+      toast({
+        title: "Cannot prepare exact remediation",
+        description: err?.message || 'Break-glass planning failed.',
+        variant: "destructive",
+      })
+    } finally {
+      setBreakGlassPreparing(false)
+    }
+  }
+
   const handleApplyFix = async (
     force: boolean = false,
     prebuiltLineage?: Record<string, any>,
@@ -1466,7 +1554,11 @@ export function IAMPermissionAnalysisModal({
   ): Promise<string | undefined> => {
     if (!gapData) return undefined
 
-    if (applyDisabled) {
+    const isBreakGlassSubmission = Boolean(
+      force && prebuiltLineage && breakGlassPlanActive && planToken,
+    )
+
+    if (applyDisabled && !isBreakGlassSubmission) {
       toast({
         title: authorityHoldReason ? 'Execution authority is not ready' : 'Preview-only environment',
         description: authorityHoldReason ??
@@ -1490,7 +1582,7 @@ export function IAMPermissionAnalysisModal({
       planToken,
       planPermissions,
     })
-    if (remediationAuthority.hardBlocked) {
+    if (remediationAuthority.hardBlocked && !isBreakGlassSubmission) {
       toast({
         title: "Apply blocked",
         description: remediationAuthority.effectiveReason,
@@ -1498,7 +1590,7 @@ export function IAMPermissionAnalysisModal({
       })
       return undefined
     }
-    if (remediationAuthority.evidenceUnavailable) {
+    if (remediationAuthority.evidenceUnavailable && !isBreakGlassSubmission) {
       toast({
         title: "More data needed",
         description: remediationAuthority.effectiveReason
@@ -4569,18 +4661,28 @@ export function IAMPermissionAnalysisModal({
         )}
         {authorityHoldReason && (
           <div
-            className="border-b border-amber-200 bg-amber-50 px-5 py-3"
+            className="border-b border-orange-400 bg-orange-950 px-5 py-3"
             data-testid="iam-authority-hold"
           >
-            <div className="flex items-start gap-2 text-amber-950">
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
-              <div>
-                <div className="text-xs font-semibold">Execution authority is not ready</div>
-                <p className="mt-0.5 text-xs leading-relaxed">{authorityHoldReason}</p>
-                <p className="mt-1 text-xs leading-relaxed">
-                  Evidence review remains available. Approval and execution stay blocked until the authoritative Neptune generation is active.
-                </p>
+            <div className="flex items-start justify-between gap-4 text-orange-50">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-orange-300" />
+                <div>
+                  <div className="text-xs font-bold">Remediation needs an operator override</div>
+                  <p className="mt-0.5 text-xs leading-relaxed text-orange-100">{authorityHoldReason}</p>
+                  <p className="mt-1 text-xs leading-relaxed text-orange-100">
+                    Evidence review remains available. You may remediate anyway after confirming the exact change and accepting the risk.
+                  </p>
+                </div>
               </div>
+              <button
+                type="button"
+                onClick={handlePrepareBreakGlass}
+                disabled={breakGlassPreparing || applying}
+                className="shrink-0 rounded-md border border-orange-200 bg-white px-3 py-1.5 text-xs font-bold text-orange-950 shadow-sm hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {breakGlassPreparing ? 'Preparing exact plan…' : 'Remediate anyway'}
+              </button>
             </div>
           </div>
         )}

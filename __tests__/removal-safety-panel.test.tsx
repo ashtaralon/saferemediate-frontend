@@ -8,6 +8,7 @@ import {
   hasExecutableIamSelection,
   IamRemediationAvailability,
   RemovalSafetyPanel,
+  resolveBreakGlassPermissionSelection,
   resolveDefaultPermissionSelection,
   selectionMatchesSignedIamPlan,
   shouldOfferIamSimulation,
@@ -352,5 +353,28 @@ describe("RemovalSafetyPanel", () => {
       "iam:ListRoles",
       "sts:AssumeRole",
     ])).toEqual(["iam:ListRoles"])
+  })
+
+  it("break-glass includes unproven unused actions but never used or protected actions", () => {
+    const bundle: RemovalSafetyBundle = {
+      scorer_version: "2.0.0-shadow",
+      plan_score: null,
+      scored_candidate_count: 1,
+      used_count: 1,
+      protected_count: 1,
+      insufficient_evidence_count: 1,
+      shadow_only: true,
+      groups: [],
+      permissions: [
+        { permission: "s3:GetObject", disposition: "USED", score: null, band: null, consequence_class: "ROUTINE", reason: "Observed", limiting_factors: [] },
+        { permission: "s3:ListBucket", disposition: "INSUFFICIENT_EVIDENCE", score: null, band: null, consequence_class: "ROUTINE", reason: "Coverage missing", limiting_factors: [] },
+        { permission: "logs:DescribeLogGroups", disposition: "REMOVAL_CANDIDATE", score: 90, band: "STRONG", consequence_class: "ROUTINE", reason: "No use", limiting_factors: [] },
+        { permission: "ssm:PutInventory", disposition: "PROTECTED", score: null, band: null, consequence_class: "ROUTINE", reason: "Protected", limiting_factors: [] },
+      ],
+    }
+    expect(resolveBreakGlassPermissionSelection(bundle, [])).toEqual([
+      "s3:ListBucket",
+      "logs:DescribeLogGroups",
+    ])
   })
 })
