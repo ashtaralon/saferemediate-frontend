@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest"
 const BACKEND_URL =
   process.env.BACKEND_URL ||
   process.env.NEXT_PUBLIC_BACKEND_URL ||
-  "https://saferemediate-backend-f.onrender.com"
+  "https://cyntro-c1.onrender.com"
 
 const PROXY_BASE = process.env.FRONTEND_URL || ""
 

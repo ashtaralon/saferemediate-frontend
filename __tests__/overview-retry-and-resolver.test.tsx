@@ -195,15 +195,14 @@ describe("SystemBlastRadiusHero — empty reasons are three distinct claims", ()
 // ---------------------------------------------------------------------------
 
 describe("getBackendBaseUrl", () => {
-  const RENDER_PROD = "https://saferemediate-backend-f.onrender.com"
+  const RENDER_PROD = "https://cyntro-c1.onrender.com"
 
-  it("falls back to the same Render URL the route used to hardcode", async () => {
+  it("falls back to the canonical C1 backend", async () => {
     vi.resetModules()
     const prev = process.env.BACKEND_URL_OVERRIDE
     delete process.env.BACKEND_URL_OVERRIDE
 
     const { getBackendBaseUrl } = await import("@/lib/server/backend-url")
-    // Prod behaviour is unchanged by the switch away from the literal.
     expect(getBackendBaseUrl()).toBe(RENDER_PROD)
 
     if (prev !== undefined) process.env.BACKEND_URL_OVERRIDE = prev
@@ -216,6 +215,19 @@ describe("getBackendBaseUrl", () => {
 
     const { getBackendBaseUrl } = await import("@/lib/server/backend-url")
     expect(getBackendBaseUrl()).toBe("http://127.0.0.1:8788")
+
+    if (prev === undefined) delete process.env.BACKEND_URL_OVERRIDE
+    else process.env.BACKEND_URL_OVERRIDE = prev
+  })
+
+  it("rejects the suspended legacy backend even when a stale override remains", async () => {
+    vi.resetModules()
+    const prev = process.env.BACKEND_URL_OVERRIDE
+    process.env.BACKEND_URL_OVERRIDE = "https://saferemediate-backend-f.onrender.com"
+
+    const { getBackendBaseUrl, getBackendUrlDiagnostics } = await import("@/lib/server/backend-url")
+    expect(getBackendBaseUrl()).toBe(RENDER_PROD)
+    expect(getBackendUrlDiagnostics().rejectedRetiredOverride).toBe(true)
 
     if (prev === undefined) delete process.env.BACKEND_URL_OVERRIDE
     else process.env.BACKEND_URL_OVERRIDE = prev
