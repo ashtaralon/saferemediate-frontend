@@ -140,8 +140,18 @@ describe('lpIntegrityCopy — stale vs never-ran', () => {
       failedAnalyzers: [],
       reason: copy.body,
     })).toBe(
-      'Analysis is complete, but remediation remains unavailable until an authoritative generation is active.',
+      'Analysis is complete, but remediation remains unavailable until the readiness blocker above is cleared.',
     )
+    // The footer must not name a cause: a generation can be active while a
+    // different readiness check is the blocker.
+    expect(lpIntegrityFooter({
+      state: 'NOT_READY',
+      analysisComplete: true,
+      mutationBlocked: true,
+      countsArePartial: true,
+      failedAnalyzers: [],
+      reason: copy.body,
+    })).not.toMatch(/generation is (unknown|active)/i)
     expect(lpIntegrityFooter({
       state: 'NOT_READY',
       analysisComplete: true,

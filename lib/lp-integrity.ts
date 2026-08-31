@@ -95,7 +95,10 @@ export function isStaleAnalysisReason(reason: string | null | undefined): boolea
 export function lpIntegrityFooter(integrity: LPIntegrity): string | null {
   if (integrity.state === "READY") return null
   if (integrity.analysisComplete) {
-    return "Analysis is complete, but remediation remains unavailable until an authoritative generation is active."
+    // Must not name a cause. This said "until an authoritative generation is
+    // active", which was false wherever a generation WAS active and some other
+    // readiness check was the blocker — the banner body carries the real one.
+    return "Analysis is complete, but remediation remains unavailable until the readiness blocker above is cleared."
   }
   return "Remediation is unavailable until the analysis completes. Counts and totals below are partial."
 }
@@ -115,7 +118,7 @@ export function lpEvidenceGapCopy(integrity: LPIntegrity): {
     return {
       title: "Some resources are also blocked",
       body:
-        "Analysis already ran. The system-level blocker is that no authoritative generation is active. Individual resources may have additional blockers; review the reason shown on each row.",
+        "Analysis already ran. A system-level readiness blocker applies — the banner above names it. Individual resources may have additional blockers; review the reason shown on each row.",
     }
   }
   return {
@@ -146,7 +149,11 @@ export function lpIntegrityCopy(integrity: LPIntegrity): {
         title: "Remediation is not ready",
         body:
           integrity.reason ??
-          "Analysis complete; remediation is not ready because the active generation is unknown.",
+          // No cause here. The backend names the real blocker in `reason`; when
+          // it is absent we do not know why, and the previous fallback asserted
+          // "the active generation is unknown" — a specific, checkable claim
+          // made from a missing field.
+          "Analysis complete; remediation is not ready. The backend did not report which readiness check is blocking.",
       }
     }
     return {
