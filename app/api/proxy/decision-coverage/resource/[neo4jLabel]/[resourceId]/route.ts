@@ -5,6 +5,10 @@ import {
   backendTimeout,
   backendUnreachable,
 } from "@/lib/server/proxy-error"
+import {
+  backendFailureMessage,
+  fetchBackendWithRetry,
+} from "@/lib/server/backend-response"
 
 export const maxDuration = 60
 
@@ -21,7 +25,7 @@ export async function GET(
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), 30_000)
 
-    const response = await fetch(backendUrl, {
+    const response = await fetchBackendWithRetry(backendUrl, {
       method: "GET",
       headers: { "Content-Type": "application/json" },
       signal: controller.signal,
@@ -32,13 +36,7 @@ export async function GET(
 
     if (!response.ok) {
       const errorText = await response.text()
-      let errorMessage = `Backend returned ${response.status}`
-      try {
-        const errorJson = JSON.parse(errorText)
-        if (errorJson.detail) errorMessage = errorJson.detail
-      } catch {
-        if (errorText) errorMessage = errorText
-      }
+      const errorMessage = backendFailureMessage("Readiness", response.status, errorText)
       return backendError({
         status: response.status,
         message: errorMessage,

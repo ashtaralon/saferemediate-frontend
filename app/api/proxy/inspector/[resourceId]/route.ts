@@ -5,6 +5,10 @@ import {
   backendTimeout,
   backendUnreachable,
 } from "@/lib/server/proxy-error"
+import {
+  backendFailureMessage,
+  fetchBackendWithRetry,
+} from "@/lib/server/backend-response"
 
 export const maxDuration = 60
 
@@ -31,7 +35,7 @@ export async function GET(
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), 55_000) // 60 second timeout
 
-    const response = await fetch(backendUrl, {
+    const response = await fetchBackendWithRetry(backendUrl, {
       method: "GET",
       headers: {
         "Content-Type": "application/json",
@@ -46,19 +50,7 @@ export async function GET(
       const errorText = await response.text()
       console.error(`[Resource Inspector Proxy] Backend error ${response.status}: ${errorText}`)
 
-      let errorMessage = `Inspector backend returned ${response.status}`
-      try {
-        const errorJson = JSON.parse(errorText)
-        if (errorJson.detail) {
-          errorMessage = errorJson.detail
-        }
-      } catch {
-        if (response.status === 503 && /service suspended/i.test(errorText)) {
-          errorMessage = "Inspector service suspended or unavailable"
-        } else if (errorText) {
-          errorMessage = errorText
-        }
-      }
+      const errorMessage = backendFailureMessage("Inspector", response.status, errorText)
 
       return backendError({
         status: response.status,
