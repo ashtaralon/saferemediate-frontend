@@ -26,6 +26,8 @@ describe("Estate inspector backend routing", () => {
     expect(source).toContain("/healthz")
     expect(source).toContain("lookup(hostname")
     expect(source).toContain("socketProbe")
+    expect(source).toContain('request.cookies.get("cyntro_auth")')
+    expect(source).not.toContain("record.address")
     expect(source).not.toContain("CYNTRO_SERVICE_TOKEN")
   })
 
