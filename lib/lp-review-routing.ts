@@ -13,8 +13,19 @@ export type LPReviewSurface =
  * actions. Mutation authority is passed into the selected workflow separately.
  */
 export function resolveLPReviewSurface(resourceType: string): LPReviewSurface {
-  if (resourceType === "IAMRole") return "iam"
-  if (resourceType === "SecurityGroup") return "security-group"
-  if (resourceType === "S3Bucket") return "s3"
+  // Resource-risk readers have historically emitted both graph labels
+  // (`IAMRole`) and display-shaped labels (`IAM Role`).  Review routing is a
+  // safety boundary: an innocuous representation difference must not send a
+  // supported resource to the legacy generic drawer, where the signed-plan
+  // controls are absent.  Normalize only separators/case; unknown types still
+  // fail closed to the read-only surface.
+  const normalized = String(resourceType || "")
+    .trim()
+    .replace(/[\s_-]+/g, "")
+    .toLowerCase()
+
+  if (normalized === "iamrole") return "iam"
+  if (normalized === "securitygroup") return "security-group"
+  if (normalized === "s3bucket") return "s3"
   return "read-only"
 }
