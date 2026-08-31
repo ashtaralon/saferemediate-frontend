@@ -1,4 +1,6 @@
-const RENDER_PROD = "https://saferemediate-backend-f.onrender.com"
+// Canonical C1 backend. Keep the environment override for customer-resident
+// deployments, but never fall back to the retired/suspended legacy service.
+const RENDER_PROD = "https://cyntro-c1.onrender.com"
 
 let _logged = false
 let _validated = false

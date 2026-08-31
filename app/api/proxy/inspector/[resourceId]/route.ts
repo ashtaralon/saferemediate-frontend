@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server"
+import { getBackendBaseUrl } from "@/lib/server/backend-url"
+import {
+  backendError,
+  backendTimeout,
+  backendUnreachable,
+} from "@/lib/server/proxy-error"
 
-const BACKEND_URL =
-  "https://saferemediate-backend-f.onrender.com"
+export const maxDuration = 60
 
 export async function GET(
   request: NextRequest,
@@ -15,7 +20,10 @@ export async function GET(
   const systemName = searchParams.get("system_name") || ""
   const resourceType = searchParams.get("resource_type") || ""
 
-  const backendUrl = `${BACKEND_URL}/api/inspector/${encodeURIComponent(resourceId)}?window=${window}${systemName ? `&system_name=${systemName}` : ""}${resourceType ? `&resource_type=${encodeURIComponent(resourceType)}` : ""}`
+  const query = new URLSearchParams({ window })
+  if (systemName) query.set("system_name", systemName)
+  if (resourceType) query.set("resource_type", resourceType)
+  const backendUrl = `${getBackendBaseUrl()}/api/inspector/${encodeURIComponent(resourceId)}?${query.toString()}`
 
   console.log(`[Resource Inspector Proxy] Fetching: ${backendUrl}`)
 
@@ -29,6 +37,7 @@ export async function GET(
         "Content-Type": "application/json",
       },
       signal: controller.signal,
+      cache: "no-store",
     })
 
     clearTimeout(timeoutId)
@@ -37,28 +46,25 @@ export async function GET(
       const errorText = await response.text()
       console.error(`[Resource Inspector Proxy] Backend error ${response.status}: ${errorText}`)
 
-      // Try to parse the error detail from backend JSON response
-      let errorMessage = `Backend returned ${response.status}`
+      let errorMessage = `Inspector backend returned ${response.status}`
       try {
         const errorJson = JSON.parse(errorText)
         if (errorJson.detail) {
           errorMessage = errorJson.detail
         }
       } catch {
-        // If not JSON, use the raw text
-        if (errorText) {
+        if (response.status === 503 && /service suspended/i.test(errorText)) {
+          errorMessage = "Inspector service suspended or unavailable"
+        } else if (errorText) {
           errorMessage = errorText
         }
       }
 
-      return NextResponse.json(
-        {
-          success: false,
-          error: errorMessage,
-          detail: errorText,
-        },
-        { status: response.status }
-      )
+      return backendError({
+        status: response.status,
+        message: errorMessage,
+        detail: errorText.slice(0, 500),
+      })
     }
 
     const data = await response.json()
@@ -67,22 +73,14 @@ export async function GET(
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
       console.error(`[Resource Inspector Proxy] Request timed out for ${resourceId}`)
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Request timed out",
-        },
-        { status: 504 }
-      )
+      return backendTimeout("Inspector backend request timed out")
     }
 
     console.error(`[Resource Inspector Proxy] Error for ${resourceId}:`, error)
-    return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : "Failed to fetch inspector data",
-      },
-      { status: 500 }
+    return backendUnreachable(
+      error instanceof Error
+        ? `Inspector backend unavailable: ${error.message}`
+        : "Inspector backend unavailable",
     )
   }
 }

@@ -67,7 +67,23 @@ export function humanizeInspectorError(raw: string, resourceType?: string): Insi
       {
         severity: "warning",
         title: "Inspector timed out",
-        detail: "The backend took too long. Retry in a few seconds — large accounts can be slow.",
+        detail:
+          "The analysis request exceeded its 55-second deadline. Inventory and dependencies remain available; retry once, then check backend health if it repeats.",
+      },
+    ]
+  }
+
+  if (
+    lower.includes("service suspended") ||
+    lower.includes("service unavailable") ||
+    lower.includes("backend unavailable")
+  ) {
+    return [
+      {
+        severity: "warning",
+        title: "Inspector service unavailable",
+        detail:
+          "Cyntro could not reach its analysis service. The resource still exists and its inventory and dependency data remain valid.",
       },
     ]
   }

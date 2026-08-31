@@ -32,4 +32,19 @@ describe("inspector-insights", () => {
     )
     expect(insights[0].title).toMatch(/subnet|Wrong resource/i)
   })
+
+  it("distinguishes an unavailable inspector service from a slow account", () => {
+    const insights = humanizeInspectorError("Inspector service suspended or unavailable")
+
+    expect(insights[0].title).toBe("Inspector service unavailable")
+    expect(insights[0].detail).toContain("inventory and dependency data remain valid")
+  })
+
+  it("explains the actual inspector deadline without blaming account size", () => {
+    const insights = humanizeInspectorError("Inspector backend request timed out")
+
+    expect(insights[0].title).toBe("Inspector timed out")
+    expect(insights[0].detail).toContain("55-second deadline")
+    expect(insights[0].detail).not.toContain("large accounts")
+  })
 })

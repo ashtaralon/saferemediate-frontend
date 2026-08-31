@@ -858,7 +858,7 @@ export function ResourceConfigTab({ resourceId, resourceType, systemName }: Prop
         const res = await fetch(`/api/proxy/inspector/${encodeURIComponent(resourceId)}${query}`)
         const body = await res.json().catch(() => null)
         if (!res.ok) {
-          throw new Error(body?.detail || body?.error || `Inspector returned ${res.status}`)
+          throw new Error(body?.error || body?.detail || `Inspector returned ${res.status}`)
         }
         if (!cancelled) setData(body)
       } catch (e: any) {
