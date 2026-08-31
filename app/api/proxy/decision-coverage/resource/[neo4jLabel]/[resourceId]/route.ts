@@ -7,8 +7,8 @@ import {
 } from "@/lib/server/proxy-error"
 import {
   backendFailureMessage,
-  fetchBackendWithRetry,
 } from "@/lib/server/backend-response"
+import { resilientBackendJsonRead } from "@/lib/server/resilient-backend-read"
 
 export const maxDuration = 60
 
@@ -22,34 +22,43 @@ export async function GET(
   const backendUrl = `${getBackendBaseUrl()}/api/decision-coverage/resource/${encodeURIComponent(neo4jLabel)}/${encodeURIComponent(resourceId)}`
 
   try {
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 30_000)
-
-    const response = await fetchBackendWithRetry(backendUrl, {
-      method: "GET",
-      headers: { "Content-Type": "application/json" },
-      signal: controller.signal,
-      cache: "no-store",
+    const result = await resilientBackendJsonRead<Record<string, unknown>>({
+      key: `readiness:${backendUrl}`,
+      url: backendUrl,
+      attemptTimeoutMs: 6_000,
+      attempts: 2,
+      freshTtlMs: 60_000,
+      staleTtlMs: 24 * 60 * 60 * 1000,
+      init: {
+        method: "GET",
+        headers: { "Content-Type": "application/json" },
+      },
     })
 
-    clearTimeout(timeoutId)
-
-    if (!response.ok) {
-      const errorText = await response.text()
-      const errorMessage = backendFailureMessage("Readiness", response.status, errorText)
-      return backendError({
-        status: response.status,
-        message: errorMessage,
-        detail: errorText.slice(0, 500),
-      })
+    if (!result.ok) {
+      if (result.timedOut) return backendTimeout("Readiness backend request timed out")
+      if (result.status) {
+        const errorMessage = backendFailureMessage("Readiness", result.status, result.body ?? "")
+        return backendError({
+          status: result.status,
+          message: errorMessage,
+          detail: (result.body ?? "").slice(0, 500),
+        })
+      }
+      return backendUnreachable(`Readiness backend unavailable: ${result.error}`)
     }
 
-    const data = await response.json()
-    return NextResponse.json(data)
+    const data = result.source === "stale-cache"
+      ? { ...result.data, fromStaleCache: true, staleReason: result.staleReason, staleAgeMs: result.staleAgeMs }
+      : result.data
+    return NextResponse.json(data, {
+      headers: {
+        "Cache-Control": "no-store",
+        "X-Cyntro-Read-Source": result.source,
+        "X-Cyntro-Backend-Latency-Ms": String(result.latencyMs),
+      },
+    })
   } catch (error) {
-    if (error instanceof Error && error.name === "AbortError") {
-      return backendTimeout("Readiness backend request timed out")
-    }
     return backendUnreachable(
       error instanceof Error
         ? `Readiness backend unavailable: ${error.message}`

@@ -47,6 +47,14 @@ export function ReadinessBadges({
 
   return (
     <div className="rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-3 space-y-2">
+      {readiness.fromStaleCache && (
+        <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+          Last-good readiness shown — the live backend is unavailable
+          {typeof readiness.staleAgeMs === "number"
+            ? ` (${Math.max(1, Math.round(readiness.staleAgeMs / 60_000))}m old)`
+            : ""}.
+        </p>
+      )}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
           Data readiness

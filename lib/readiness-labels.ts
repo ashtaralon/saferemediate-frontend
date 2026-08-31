@@ -46,6 +46,9 @@ export interface ReadinessPayload {
   max_outcome: string
   missing?: string[]
   surface_id?: string | null
+  fromStaleCache?: boolean
+  staleReason?: string | null
+  staleAgeMs?: number | null
 }
 
 export const READINESS_LAYER_LABELS = [

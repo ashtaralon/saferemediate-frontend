@@ -7,8 +7,8 @@ import {
 } from "@/lib/server/proxy-error"
 import {
   backendFailureMessage,
-  fetchBackendWithRetry,
 } from "@/lib/server/backend-response"
+import { resilientBackendJsonRead } from "@/lib/server/resilient-backend-read"
 
 export const maxDuration = 60
 
@@ -32,42 +32,46 @@ export async function GET(
   console.log(`[Resource Inspector Proxy] Fetching: ${backendUrl}`)
 
   try {
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 55_000) // 60 second timeout
-
-    const response = await fetchBackendWithRetry(backendUrl, {
-      method: "GET",
-      headers: {
-        "Content-Type": "application/json",
+    const result = await resilientBackendJsonRead<Record<string, unknown>>({
+      key: `inspector:${backendUrl}`,
+      url: backendUrl,
+      attemptTimeoutMs: 8_000,
+      attempts: 2,
+      freshTtlMs: 60_000,
+      staleTtlMs: 24 * 60 * 60 * 1000,
+      init: {
+        method: "GET",
+        headers: { "Content-Type": "application/json" },
       },
-      signal: controller.signal,
-      cache: "no-store",
     })
 
-    clearTimeout(timeoutId)
+    if (!result.ok) {
+      console.error(`[Resource Inspector Proxy] Backend failure: ${result.error}`)
+      if (result.timedOut) return backendTimeout("Inspector backend request timed out")
+      if (result.status) {
+        const errorMessage = backendFailureMessage("Inspector", result.status, result.body ?? "")
+        return backendError({
+          status: result.status,
+          message: errorMessage,
+          detail: (result.body ?? "").slice(0, 500),
+        })
+      }
 
-    if (!response.ok) {
-      const errorText = await response.text()
-      console.error(`[Resource Inspector Proxy] Backend error ${response.status}: ${errorText}`)
-
-      const errorMessage = backendFailureMessage("Inspector", response.status, errorText)
-
-      return backendError({
-        status: response.status,
-        message: errorMessage,
-        detail: errorText.slice(0, 500),
-      })
+      return backendUnreachable(`Inspector backend unavailable: ${result.error}`)
     }
 
-    const data = await response.json()
-    console.log(`[Resource Inspector Proxy] Success for ${resourceId} (type: ${data.resource_type})`)
-    return NextResponse.json(data)
+    const data = result.source === "stale-cache"
+      ? { ...result.data, fromStaleCache: true, staleReason: result.staleReason, staleAgeMs: result.staleAgeMs }
+      : result.data
+    console.log(`[Resource Inspector Proxy] Success for ${resourceId} (source: ${result.source})`)
+    return NextResponse.json(data, {
+      headers: {
+        "Cache-Control": "no-store",
+        "X-Cyntro-Read-Source": result.source,
+        "X-Cyntro-Backend-Latency-Ms": String(result.latencyMs),
+      },
+    })
   } catch (error) {
-    if (error instanceof Error && error.name === "AbortError") {
-      console.error(`[Resource Inspector Proxy] Request timed out for ${resourceId}`)
-      return backendTimeout("Inspector backend request timed out")
-    }
-
     console.error(`[Resource Inspector Proxy] Error for ${resourceId}:`, error)
     return backendUnreachable(
       error instanceof Error

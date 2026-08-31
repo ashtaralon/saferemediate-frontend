@@ -994,6 +994,14 @@ export function ResourceConfigTab({ resourceId, resourceType, systemName }: Prop
   return (
     <div className="space-y-4">
       {readinessBanner}
+      {data.fromStaleCache && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          Last-good configuration shown — the live backend is unavailable
+          {typeof data.staleAgeMs === "number"
+            ? ` (${Math.max(1, Math.round(data.staleAgeMs / 60_000))}m old)`
+            : ""}.
+        </div>
+      )}
       {configBody}
     </div>
   )

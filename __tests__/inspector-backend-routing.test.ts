@@ -14,6 +14,19 @@ describe("Estate inspector backend routing", () => {
     expect(source).toContain("getBackendBaseUrl()")
     expect(source).not.toContain('const BACKEND_URL =')
     expect(source).not.toContain('"https://saferemediate-backend-f.onrender.com"')
+    expect(source).toContain("resilientBackendJsonRead")
+  })
+
+  it("provides a secretless transport diagnostic for Vercel-to-backend failures", () => {
+    const source = readFileSync(
+      join(root, "app/api/proxy/transport-diagnostics/route.ts"),
+      "utf8",
+    )
+
+    expect(source).toContain("/healthz")
+    expect(source).toContain("lookup(hostname")
+    expect(source).toContain("socketProbe")
+    expect(source).not.toContain("CYNTRO_SERVICE_TOKEN")
   })
 
   it("does not fall back to the suspended legacy backend", () => {
