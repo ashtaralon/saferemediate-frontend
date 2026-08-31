@@ -132,6 +132,19 @@ afterEach(() => {
 })
 
 describe("Estate operations panel", () => {
+  it("can open after initially rendering with no selected resource", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(standardBackendResponse)
+    const view = render(
+      <DetailPanel node={null} systemName="alon-prod" onClose={() => {}} />,
+    )
+
+    view.rerender(
+      <DetailPanel node={node} systemName="alon-prod" mapNodes={[node]} onClose={() => {}} />,
+    )
+
+    expect(await screen.findByTestId("inventory-config")).toHaveTextContent(node.id)
+  })
+
   it("reuses the Inventory resource inspector as the default click experience", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(standardBackendResponse)
     renderPanel()

@@ -294,6 +294,16 @@ export function DetailPanel({
     setPrimarySettledResourceId(node?.id ?? null)
   }, [node?.id])
 
+  const mapDependencyFallback = useMemo(
+    () => node
+      ? buildMapDependencyFallback(node, mapNodes, mapEdges, {
+        systemName,
+        stale: mapEvidenceStale,
+      })
+      : null,
+    [mapEdges, mapEvidenceStale, mapNodes, node, systemName],
+  )
+
   if (!node) return null
 
   const isS3 = node.type === "S3" || node.type === "S3Bucket"
@@ -396,15 +406,6 @@ export function DetailPanel({
     setVerification({ ...result, state: "ROLLED_BACK" } as S3VpceVerification)
   })
 
-  const mapDependencyFallback = useMemo(
-    () => node
-      ? buildMapDependencyFallback(node, mapNodes, mapEdges, {
-        systemName,
-        stale: mapEvidenceStale,
-      })
-      : null,
-    [mapEdges, mapEvidenceStale, mapNodes, node, systemName],
-  )
   const dependencyDossier = dossier ?? mapDependencyFallback
   const upstream = dependencyDossier?.dependencies.upstream ?? []
   const downstream = dependencyDossier?.dependencies.downstream ?? []
