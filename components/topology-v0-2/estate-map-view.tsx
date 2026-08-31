@@ -1770,6 +1770,9 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
           vpcId={scopedVpc}
           accountId={selectedAccountId}
           region={selectedRegionId}
+          mapNodes={scopedEstate?.nodes ?? data.nodes}
+          mapEdges={scopedTrafficEdges}
+          mapEvidenceStale={data.fromStaleCache === true || data.from_snapshot === true || Boolean(data.staleReason)}
           onClose={() => setSelectedNodeId(null)}
         />
       ) : null}
@@ -1949,6 +1952,9 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
                   vpcId={scopedVpc}
                   accountId={selectedAccountId}
                   region={selectedRegionId}
+                  mapNodes={scopedEstate?.nodes ?? data.nodes}
+                  mapEdges={scopedTrafficEdges}
+                  mapEvidenceStale={data.fromStaleCache === true || data.from_snapshot === true || Boolean(data.staleReason)}
                   onClose={() => setSelectedNodeId(null)}
                 />
               </div>

@@ -106,6 +106,21 @@ function renderPanel() {
       accountId="745783559495"
       region="eu-west-1"
       vpcId="vpc-prod"
+      mapNodes={[
+        node,
+        { id: "i-map-consumer", name: "map-consumer", type: "EC2", subnet_id: "subnet-app", score: null, stale: null, is_jewel: false },
+      ]}
+      mapEdges={[{
+        source_id: "i-map-consumer",
+        target_id: node.id,
+        protocol: "ACTUAL_S3_ACCESS",
+        port: 443,
+        last_seen: "2026-08-06T09:00:00Z",
+        evidence_type: "observed",
+        evidence_source: "cloudtrail",
+        activity_count: 9,
+      }]}
+      mapEvidenceStale
       onClose={() => {}}
     />,
   )
@@ -146,6 +161,22 @@ describe("Estate operations panel", () => {
     await screen.findByText(narration.operator_summary)
     expect(calls[0]).toContain("/resource?")
     expect(calls[1]).toContain("/resource/narration?")
+  })
+
+  it("falls back to real Estate-map relationships without exposing Neptune internals", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      detail: "topology_risk_failed: Neptune read failed: HTTPSConnectionPool(host=internal-neptune, port=8182): Read timed out",
+    }), {
+      status: 503,
+      headers: { "Content-Type": "application/json" },
+    }))
+    renderPanel()
+    fireEvent.click(screen.getByTestId("estate-operations-tab-dependencies"))
+
+    expect(await screen.findByTestId("estate-dependencies-fallback")).toHaveTextContent("stale snapshot")
+    expect(screen.getByText("map-consumer")).toBeInTheDocument()
+    expect(screen.getByText("9 events")).toBeInTheDocument()
+    expect(screen.queryByText(/HTTPSConnectionPool|internal-neptune|port=8182/)).not.toBeInTheDocument()
   })
 
   it("explains who depends on the resource and what it depends on using evidence labels", async () => {

@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import {
   AlertTriangle,
   ArrowDownLeft,
@@ -19,8 +19,9 @@ import {
 } from "lucide-react"
 import { ResourceConfigTab } from "@/components/inventory/resource-config-tab"
 import { ServiceTypeBadge } from "@/lib/service-type"
-import type { TopologyNode } from "./types"
+import type { TopologyNode, TrafficEdge } from "./types"
 import {
+  buildMapDependencyFallback,
   operationalRequest,
   snapshotMirrorSummary,
   type EstateOperatorNarration,
@@ -39,6 +40,9 @@ interface Props {
   accountId?: string | null
   region?: string | null
   vpcId?: string | null
+  mapNodes?: TopologyNode[]
+  mapEdges?: TrafficEdge[]
+  mapEvidenceStale?: boolean
   onClose: () => void
 }
 
@@ -149,7 +153,17 @@ function blockerGuidance(code: string) {
   }
 }
 
-export function DetailPanel({ node, systemName, accountId, region, vpcId, onClose }: Props) {
+export function DetailPanel({
+  node,
+  systemName,
+  accountId,
+  region,
+  vpcId,
+  mapNodes = [],
+  mapEdges = [],
+  mapEvidenceStale = false,
+  onClose,
+}: Props) {
   const [tab, setTab] = useState<Tab>("resource")
   const [dossier, setDossier] = useState<OperationalDossier | null>(null)
   const [narration, setNarration] = useState<EstateOperatorNarration | null>(null)
@@ -382,8 +396,18 @@ export function DetailPanel({ node, systemName, accountId, region, vpcId, onClos
     setVerification({ ...result, state: "ROLLED_BACK" } as S3VpceVerification)
   })
 
-  const upstream = dossier?.dependencies.upstream ?? []
-  const downstream = dossier?.dependencies.downstream ?? []
+  const mapDependencyFallback = useMemo(
+    () => node
+      ? buildMapDependencyFallback(node, mapNodes, mapEdges, {
+        systemName,
+        stale: mapEvidenceStale,
+      })
+      : null,
+    [mapEdges, mapEvidenceStale, mapNodes, node, systemName],
+  )
+  const dependencyDossier = dossier ?? mapDependencyFallback
+  const upstream = dependencyDossier?.dependencies.upstream ?? []
+  const downstream = dependencyDossier?.dependencies.downstream ?? []
   const expectedApply = plan?.bucket_name && plan.vpc_id ? `APPLY ${plan.bucket_name} ${plan.vpc_id}` : ""
   const expectedRollback = execution?.snapshot_id ? `ROLLBACK ${execution.snapshot_id}` : ""
   const operationState = operation?.state
@@ -600,16 +624,22 @@ export function DetailPanel({ node, systemName, accountId, region, vpcId, onClos
         {tab === "dependencies" ? (
           <div className="space-y-5" data-testid="estate-operations-dependencies">
             {loading ? <div className="flex items-center gap-2 text-sm text-slate-500"><Loader2 className="h-4 w-4 animate-spin" /> Correlating behavioral dependencies…</div> : null}
-            {error ? <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div> : null}
-            {dossier ? (
+            {error && mapDependencyFallback ? (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800" data-testid="estate-dependencies-fallback">
+                Live Neptune enrichment is temporarily unavailable. Showing only relationships already present in the Estate map
+                {mapEvidenceStale ? " (stale snapshot)" : ""}; no dependencies are inferred.
+              </div>
+            ) : null}
+            {error && !mapDependencyFallback ? <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">Live dependency enrichment is temporarily unavailable. Retry after the graph service recovers.</div> : null}
+            {dependencyDossier ? (
               <>
                 <div className="grid grid-cols-3 gap-3">
-                  <Metric label="Consumers" value={dossier.dependencies.summary.consumer_count} />
-                  <Metric label="Observed links" value={dossier.dependencies.summary.observed} />
-                  <Metric label="Evidence" value={dossier.evidence.coverage_state} />
+                  <Metric label="Consumers" value={dependencyDossier.dependencies.summary.consumer_count} />
+                  <Metric label="Observed links" value={dependencyDossier.dependencies.summary.observed} />
+                  <Metric label="Evidence" value={dependencyDossier.evidence.coverage_state} />
                 </div>
                 <div className="rounded-xl border p-3 text-xs" style={{ borderColor: "#DDE3E8", background: "#FFFFFF", color: "#5A6B7A" }}>
-                  <strong style={{ color: "#1A2330" }}>90-day behavioral view</strong> · latest {relativeTime(dossier.evidence.latest_observation)} · sources {dossier.evidence.sources.join(", ") || "not reported"}
+                  <strong style={{ color: "#1A2330" }}>90-day behavioral view</strong> · latest {relativeTime(dependencyDossier.evidence.latest_observation)} · sources {dependencyDossier.evidence.sources.join(", ") || "not reported"}
                 </div>
                 <section>
                   <h3 className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-wide"><ArrowDownLeft className="h-4 w-4 text-teal-600" /> Who depends on this ({upstream.length})</h3>

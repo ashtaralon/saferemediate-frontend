@@ -444,6 +444,121 @@ export interface EstateOperatorNarration {
   model?: string | null
 }
 
+type MapDependencyNode = {
+  id: string
+  name: string
+  type: string | null
+  vpc_id?: string | null
+  subnet_ids?: string[]
+  subnet_id?: string | null
+}
+
+type MapDependencyEdge = {
+  source_id: string
+  target_id: string
+  protocol?: string | null
+  port?: number | null
+  last_seen?: string | null
+  evidence_type?: OperationalEvidenceType
+  evidence_source?: string
+  coverage_state?: string
+  activity_count?: number | null
+  egress_path?: string | null
+  via_vpce_id?: string | null
+  via_igw?: boolean | null
+}
+
+/**
+ * Build an honest dependency dossier from relationships already present in the
+ * Estate payload. This is a degraded fallback only: it never invents edges and
+ * deliberately drops ambiguous self-edges produced by same-name service twins.
+ */
+export function buildMapDependencyFallback(
+  resource: MapDependencyNode,
+  nodes: MapDependencyNode[],
+  edges: MapDependencyEdge[],
+  options?: { systemName?: string; stale?: boolean },
+): OperationalDossier {
+  const nodesById = new Map(nodes.map(node => [node.id, node]))
+  const connections: OperationalConnection[] = []
+  const seen = new Set<string>()
+
+  const describeNode = (id: string): MapDependencyNode => {
+    if (id === "__igw__") return { id, name: "Internet (via IGW)", type: "InternetGateway" }
+    if (id === "__aws_s3__") return { id, name: "Amazon S3", type: "S3" }
+    if (id === "__aws_api__") return { id, name: "AWS API", type: "AWSService" }
+    return nodesById.get(id) ?? { id, name: id, type: "Resource" }
+  }
+
+  for (const edge of edges) {
+    const isSource = edge.source_id === resource.id
+    const isTarget = edge.target_id === resource.id
+    if (!isSource && !isTarget) continue
+    if (isSource && isTarget) continue
+
+    const direction: OperationalConnection["direction"] = isTarget ? "upstream" : "downstream"
+    const neighbor = describeNode(isTarget ? edge.source_id : edge.target_id)
+    const evidenceType = edge.evidence_type
+      ?? (edge.last_seen || edge.protocol?.startsWith("ACTUAL_") ? "observed" : "configured")
+    const key = [direction, neighbor.id, edge.protocol ?? "", edge.port ?? ""].join("|")
+    if (seen.has(key)) continue
+    seen.add(key)
+    connections.push({
+      direction,
+      resource_id: neighbor.id,
+      resource_name: neighbor.name,
+      resource_type: neighbor.type ?? "Resource",
+      vpc_id: neighbor.vpc_id ?? null,
+      subnet_ids: neighbor.subnet_ids ?? (neighbor.subnet_id ? [neighbor.subnet_id] : undefined),
+      protocol: edge.protocol ?? null,
+      port: edge.port == null ? null : String(edge.port),
+      last_seen: edge.last_seen ?? null,
+      evidence_type: evidenceType,
+      evidence_source: edge.evidence_source ?? "estate_topology",
+      coverage_state: edge.coverage_state ?? "partial",
+      activity_count: edge.activity_count ?? null,
+      egress_path: edge.egress_path ?? null,
+      via_vpce_id: edge.via_vpce_id ?? null,
+      via_igw: edge.via_igw === true,
+    })
+  }
+
+  const upstream = connections.filter(connection => connection.direction === "upstream")
+  const downstream = connections.filter(connection => connection.direction === "downstream")
+  const latestObservation = connections
+    .map(connection => connection.last_seen)
+    .filter((value): value is string => Boolean(value))
+    .sort()
+    .at(-1) ?? null
+
+  return {
+    resource: {
+      id: resource.id,
+      name: resource.name,
+      type: resource.type ?? "Resource",
+      system_name: options?.systemName ?? "",
+      vpc_id: resource.vpc_id ?? null,
+    },
+    dependencies: {
+      upstream,
+      downstream,
+      summary: {
+        consumer_count: upstream.length,
+        observed: connections.filter(connection => connection.evidence_type === "observed").length,
+        configured: connections.filter(connection => connection.evidence_type === "configured").length,
+        inferred: connections.filter(connection => connection.evidence_type === "inferred").length,
+      },
+    },
+    evidence: {
+      window_days: 90,
+      latest_observation: latestObservation,
+      sources: [options?.stale ? "estate_topology_snapshot" : "estate_topology"],
+      coverage_state: options?.stale ? "stale · partial" : "partial",
+    },
+    change_capabilities: [],
+  }
+}
+
 export async function operationalRequest<T>(
   systemName: string,
   path: string,

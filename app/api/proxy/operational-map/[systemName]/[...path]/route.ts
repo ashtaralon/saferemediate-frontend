@@ -11,6 +11,8 @@ export const maxDuration = 60
 // including the read-only analyze that Preview mode promises still works.
 const OPERATIONAL_SECRET_PREFIXES = new Set(["s3-vpce", "s3-bucket-policy", "s3-posture"])
 
+const GRAPH_INFRASTRUCTURE_ERROR = /neptune read failed|httpsconnectionpool|read timed out|connection timed out|connection refused/i
+
 async function forward(
   request: NextRequest,
   params: Promise<{ systemName: string; path: string[] }>,
@@ -31,14 +33,30 @@ async function forward(
       signal: AbortSignal.timeout(55_000),
     })
     const body = await response.text()
+    if (!response.ok && GRAPH_INFRASTRUCTURE_ERROR.test(body)) {
+      return NextResponse.json(
+        {
+          code: "OPERATIONAL_GRAPH_UNAVAILABLE",
+          detail: "Live operational graph enrichment is temporarily unavailable.",
+        },
+        { status: response.status === 504 ? 504 : 503 },
+      )
+    }
     return new NextResponse(body, {
       status: response.status,
       headers: { "Content-Type": response.headers.get("Content-Type") ?? "application/json" },
     })
   } catch (error) {
     return NextResponse.json(
-      { detail: error instanceof Error ? error.message : "Operational map request failed" },
-      { status: 502 },
+      {
+        code: error instanceof Error && error.name === "TimeoutError"
+          ? "OPERATIONAL_GRAPH_TIMEOUT"
+          : "OPERATIONAL_GRAPH_UNAVAILABLE",
+        detail: error instanceof Error && error.name === "TimeoutError"
+          ? "Live operational graph enrichment timed out."
+          : "Live operational graph enrichment is temporarily unavailable.",
+      },
+      { status: error instanceof Error && error.name === "TimeoutError" ? 504 : 503 },
     )
   }
 }
