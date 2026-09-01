@@ -66,6 +66,32 @@ describe("dependency relation registry (§5.4)", () => {
     expect(resolved.label).toBe("unnamed relationship")
   })
 
+  it("registers every relationship the backend profile can return", () => {
+    // Mirrors api/operational_map.py _PROFILE_ALL_RELATIONSHIPS plus the two
+    // synthesized by _PROFILE_ROLE_BRIDGE_QUERY. An unregistered one renders
+    // untyped, so this list drifting is a product regression.
+    const backendAllowList = [
+      "ACTUAL_API_CALL", "ACTUAL_S3_ACCESS", "ACCESSES_RESOURCE", "ACTUAL_TRAFFIC", "CALLS",
+      "RUNTIME_CALLS", "ASSUMED_ROLE_OBSERVED", "INVOKED", "QUERIED", "PUBLISHED_TO", "CONSUMED_FROM",
+      "USES_ROLE", "ASSUMES_ROLE", "HAS_ROLE", "HAS_POLICY", "ATTACHED_POLICY", "USES_POLICY",
+      "GRANTS_ACCESS_TO", "TRUSTS", "CAN_ASSUME",
+      "HAS_INSTANCE_PROFILE", "SECURED_BY", "MEMBER_OF", "IN_SUBNET", "IN_VPC", "HAS_SECURITY_GROUP",
+      "ATTACHED_TO", "PROTECTS", "ENCRYPTED_BY", "ENCRYPTED_WITH", "USES_KMS_KEY_FOR_ENCRYPTION",
+      "ROUTES_VIA", "ASSOCIATED_WITH", "HAS_TARGET_GROUP", "TARGETS", "BEHIND_LOAD_BALANCER",
+      "HAS_STAGE", "INTEGRATES_WITH", "TRIGGERS", "HAS_TRIGGER", "DELIVERS_TO", "WRITES_LOGS_TO",
+      "HAS_ROUTE_TABLE", "HAS_SUBNET", "CONTAINS",
+      "USES_ROLE_VIA_INSTANCE_PROFILE", "ASSIGNED_VIA_INSTANCE_PROFILE",
+    ]
+    expect(backendAllowList.filter(name => !RELATION_REGISTRY[name])).toEqual([])
+  })
+
+  it("lands the EC2 and IAM-role sides of the instance-profile bridge opposite", () => {
+    // The bridge query hardcodes DOWNSTREAM for the EC2 side and UPSTREAM for
+    // the role side, so both must resolve from the selected resource's view.
+    expect(resolveRelation("USES_ROLE_VIA_INSTANCE_PROFILE", "DOWNSTREAM").perspective).toBe("USES")
+    expect(resolveRelation("ASSIGNED_VIA_INSTANCE_PROFILE", "UPSTREAM").perspective).toBe("USED_BY")
+  })
+
   it("gives every registered relation both labels and a mechanism", () => {
     for (const [name, definition] of Object.entries(RELATION_REGISTRY)) {
       expect(definition.forward, name).toBeTruthy()

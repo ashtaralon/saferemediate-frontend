@@ -4,7 +4,7 @@ import React from "react"
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react"
 import { afterEach, describe, expect, it } from "vitest"
 
-import { DependenciesTab } from "@/components/inventory/dependencies-tab"
+import { DependenciesTab, minimumViewsFor } from "@/components/inventory/dependencies-tab"
 import type { Dependency, DependenciesPayload, DossierSection } from "@/lib/resource-dossier-types"
 
 const UID = "aws:ec2:eu-west-1:123456789012:instance/i-123"
@@ -118,6 +118,16 @@ describe("Dependencies tab (§6.2)", () => {
     const boundaries = screen.getByRole("region", { name: "Unknowns and boundaries" })
     expect(within(boundaries).getByText(/Activation context, attribution profile/)).toBeInTheDocument()
     expect(within(boundaries).getByText(/Referenced-SG rules/)).toBeInTheDocument()
+  })
+
+  it("finds the §6.4 family through every type spelling the graph carries", () => {
+    // §3.3 measured SecurityGroup, AWS::EC2::SecurityGroup and ec2:security-group
+    // coexisting; an exact-string lookup silently drops the coverage note.
+    for (const spelling of ["SecurityGroup", "AWS::EC2::SecurityGroup", "ec2:security-group"]) {
+      expect(minimumViewsFor(spelling), spelling).not.toBeNull()
+    }
+    expect(minimumViewsFor("S3Bucket")).toBeNull()
+    expect(minimumViewsFor(null)).toBeNull()
   })
 
   it("withholds a derived row that arrives without its derivation (§5.5)", () => {

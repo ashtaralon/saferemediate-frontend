@@ -25,19 +25,16 @@
 import { useMemo, useState } from "react"
 import { ChevronDown, ChevronRight, Database, Info, ShieldQuestion } from "lucide-react"
 import { deriveDependencyMaturity, type DependencyMaturity } from "@/lib/dependency-coverage"
-import { resolveRelation, type Perspective, type ResolvedRelation } from "@/lib/dependency-relations"
-import type {
-  BasisClass,
-  DependenciesPayload,
-  Dependency,
-  DossierSection,
-  EvidenceBinding,
-  SourceGenerationRef,
-} from "@/lib/resource-dossier-types"
-import { canonicalDependencyIdentity, displayIdentity, EvidenceRefList, StateBadge } from "./dossier-primitives"
-
-/** Derived rows are admitted only with their derivation exposed (§5.5). */
-const DERIVED_RELATIONSHIPS = new Set(["CAN_REACH", "MAY_ACCESS"])
+import {
+  buildPairs,
+  dedupeEvidenceRefs,
+  dedupeSourceRefs,
+  type PairRow,
+  type RelationFact,
+} from "@/lib/dependency-pairs"
+import type { Perspective } from "@/lib/dependency-relations"
+import type { BasisClass, DependenciesPayload, DossierSection } from "@/lib/resource-dossier-types"
+import { EvidenceRefList, StateBadge } from "./dossier-primitives"
 
 const PAGE_SIZE = 10
 
@@ -65,98 +62,25 @@ const MINIMUM_VIEWS: Record<string, string[]> = {
   ],
 }
 
+/**
+ * Resolve the §6.4 family from any of the type spellings the graph carries.
+ * §3.3 measured SecurityGroup, AWS::EC2::SecurityGroup and ec2:security-group
+ * live at once, so an exact-string lookup silently drops the coverage note.
+ */
+export function minimumViewsFor(resourceType: string | null | undefined): string[] | null {
+  const normalized = String(resourceType ?? "").toLowerCase().replace(/[^a-z]/g, "")
+  if (!normalized) return null
+  for (const [family, views] of Object.entries(MINIMUM_VIEWS)) {
+    if (normalized.endsWith(family.toLowerCase())) return views
+  }
+  return null
+}
+
 const PERSPECTIVE_SECTIONS: Array<{ id: Perspective; title: string; blurb: string }> = [
   { id: "USES", title: "Uses", blurb: "Providers and upstream capabilities this resource depends on." },
   { id: "USED_BY", title: "Used by", blurb: "Consumers that depend on this resource." },
   { id: "PEER", title: "Observed communication", blurb: "Runtime flows where neither side is the declared provider." },
 ]
-
-interface RelationFact {
-  resolved: ResolvedRelation
-  basisClass: BasisClass
-  freshness: string
-  actions: string[]
-  observationDays: number | null
-  lastSeen: string | null
-  viaVpce: string | null
-  evidenceRefs: EvidenceBinding[]
-  sourceGenerationRefs: SourceGenerationRef[]
-  aliasesCollapsed: string[]
-}
-
-interface PairRow {
-  key: string
-  identity: string | null
-  label: string
-  counterpartyType: string | null
-  perspective: Perspective
-  facts: RelationFact[]
-}
-
-function buildPairs(ledger: Dependency[]) {
-  const pairs = new Map<string, PairRow>()
-  const derived: Dependency[] = []
-  const unregistered = new Set<string>()
-  const generic = new Set<string>()
-  const unresolvedIdentities: string[] = []
-
-  for (const dependency of ledger) {
-    if (DERIVED_RELATIONSHIPS.has(String(dependency.relationship ?? ""))) {
-      derived.push(dependency)
-      continue
-    }
-    const resolved = resolveRelation(dependency.relationship, dependency.direction)
-    if (!resolved.registered) unregistered.add(resolved.rawRelationship || "unnamed relationship")
-    if (resolved.generic) generic.add(resolved.rawRelationship)
-
-    const identity = canonicalDependencyIdentity(dependency)
-    const label = displayIdentity(dependency)
-    const counterpartyType = dependency.principal_type ?? dependency.target_type ?? null
-    if (!identity) unresolvedIdentities.push(label)
-
-    const key = `${resolved.perspective}::${identity ?? `${counterpartyType ?? "unknown"}:${label}`}`
-    const existing = pairs.get(key) ?? {
-      key, identity, label, counterpartyType, perspective: resolved.perspective, facts: [],
-    }
-
-    // §5.5: one pair row. Legacy spellings of one relationship collapse onto
-    // the canonical name instead of showing the same attachment twice.
-    const twin = existing.facts.find(fact =>
-      fact.resolved.canonicalRelationship === resolved.canonicalRelationship
-      && fact.basisClass === dependency.basis_class)
-    if (twin) {
-      if (resolved.rawRelationship !== twin.resolved.rawRelationship
-        && !twin.aliasesCollapsed.includes(resolved.rawRelationship)) {
-        twin.aliasesCollapsed.push(resolved.rawRelationship)
-      }
-      twin.evidenceRefs = [...twin.evidenceRefs, ...(dependency.evidence_refs ?? [])]
-      twin.sourceGenerationRefs = [...twin.sourceGenerationRefs, ...(dependency.source_generation_refs ?? [])]
-    } else {
-      existing.facts.push({
-        resolved,
-        basisClass: dependency.basis_class,
-        freshness: dependency.freshness,
-        actions: dependency.actions ?? [],
-        observationDays: dependency.observation_days ?? null,
-        lastSeen: dependency.last_seen ?? null,
-        viaVpce: dependency.via_vpce ?? null,
-        evidenceRefs: dependency.evidence_refs ?? [],
-        sourceGenerationRefs: dependency.source_generation_refs ?? [],
-        aliasesCollapsed: [],
-      })
-    }
-    pairs.set(key, existing)
-  }
-
-  const rows = [...pairs.values()].sort((a, b) => a.label.localeCompare(b.label))
-  return {
-    rows,
-    derived,
-    unregistered: [...unregistered],
-    generic: [...generic],
-    unresolvedIdentities,
-  }
-}
 
 function MaturityChip({ maturity, label }: { maturity: DependencyMaturity; label: string }) {
   const tone = maturity === "READY"
@@ -213,8 +137,8 @@ function FactLine({ fact }: { fact: RelationFact }) {
 function PairCard({ pair }: { pair: PairRow }) {
   const [open, setOpen] = useState(false)
   const drawerId = `evidence-${pair.key.replace(/[^a-zA-Z0-9_-]/g, "-")}`
-  const refs = pair.facts.flatMap(fact => fact.evidenceRefs)
-  const sourceRefs = pair.facts.flatMap(fact => fact.sourceGenerationRefs)
+  const refs = dedupeEvidenceRefs(pair.facts.flatMap(fact => fact.evidenceRefs))
+  const sourceRefs = dedupeSourceRefs(pair.facts.flatMap(fact => fact.sourceGenerationRefs))
 
   return (
     <li className="rounded-xl border border-slate-200 bg-white p-4">
@@ -308,7 +232,7 @@ export function DependenciesTab({ section, resourceType }: Props) {
   }), [built.rows])
 
   const staleCount = ledger.filter(row => row.freshness === "STALE").length
-  const minimumViews = resourceType ? MINIMUM_VIEWS[resourceType] ?? null : null
+  const minimumViews = minimumViewsFor(resourceType)
 
   return (
     <div className="space-y-5">
