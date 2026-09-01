@@ -6,6 +6,15 @@ on:
   pull_request:
   push:
     branches: [main]
+  # On-demand run against any branch. Without this the suite was reachable only
+  # by opening a PR, so an agent or operator on a machine that cannot reach the
+  # npm registry had no way to execute __tests__ at all, and "the tests pass"
+  # rested on a local run nobody could reproduce.
+  #
+  # Verified 2026-09-01: the REST dispatch works while this trigger exists ONLY
+  # on the target branch — the default-branch rule applies to the Actions UI
+  # branch picker, not to the API — so this is usable before it merges.
+  workflow_dispatch: {}
 jobs:
   vitest:
     runs-on: ubuntu-latest
