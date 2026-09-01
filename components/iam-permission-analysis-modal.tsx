@@ -1531,7 +1531,7 @@ export function IAMPermissionAnalysisModal({
         operatorName: '',
         operatorEmail: '',
         blockReasons: [
-          authorityHoldReason || 'Canonical execution authority is unavailable.',
+          overrideHoldReason || 'Canonical execution authority is unavailable.',
           'The selected permissions have incomplete or stale usage evidence.',
         ],
       })
@@ -2878,6 +2878,11 @@ export function IAMPermissionAnalysisModal({
     ? permissionView.protected
     : unusedPermissions.filter(p => protectedSet.has(p.permission))
   const removableCount = removablePerms.length
+  const overrideHoldReason = authorityHoldReason ?? (
+    warnPerms.length > 0
+      ? `${warnPerms.length} not-observed permission${warnPerms.length === 1 ? '' : 's'} still ${warnPerms.length === 1 ? 'has' : 'have'} incomplete action-level usage evidence.`
+      : null
+  )
 
   const renderChangeStatusCard = () => {
     if (!safetyContext) return null
@@ -4659,7 +4664,7 @@ export function IAMPermissionAnalysisModal({
             <TrustEnvelopeBadge provenance={provenance} surface="light" />
           </div>
         )}
-        {authorityHoldReason && (
+        {overrideHoldReason && (
           <div
             className="border-b border-orange-400 bg-orange-950 px-5 py-3"
             data-testid="iam-authority-hold"
@@ -4668,10 +4673,10 @@ export function IAMPermissionAnalysisModal({
               <div className="flex items-start gap-2">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-orange-300" />
                 <div>
-                  <div className="text-xs font-bold">Remediation needs an operator override</div>
-                  <p className="mt-0.5 text-xs leading-relaxed text-orange-100">{authorityHoldReason}</p>
+                  <div className="text-xs font-bold">Operator override is available</div>
+                  <p className="mt-0.5 text-xs leading-relaxed text-orange-100">{overrideHoldReason}</p>
                   <p className="mt-1 text-xs leading-relaxed text-orange-100">
-                    Evidence review remains available. You may remediate anyway after confirming the exact change and accepting the risk.
+                    Cyntro will not silently approve the change, but it will not lock you out. Remediate Anyway prepares an exact, reversible plan and then asks you to confirm the risk and audit details.
                   </p>
                 </div>
               </div>
@@ -4681,7 +4686,7 @@ export function IAMPermissionAnalysisModal({
                 disabled={breakGlassPreparing || applying}
                 className="shrink-0 rounded-md border border-orange-200 bg-white px-3 py-1.5 text-xs font-bold text-orange-950 shadow-sm hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {breakGlassPreparing ? 'Preparing exact plan…' : 'Remediate anyway'}
+                {breakGlassPreparing ? 'Preparing exact plan…' : 'Remediate Anyway'}
               </button>
             </div>
           </div>
