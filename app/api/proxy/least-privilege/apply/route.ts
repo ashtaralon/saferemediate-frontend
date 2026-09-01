@@ -48,7 +48,11 @@ export async function POST(request: Request) {
 
     return NextResponse.json(
       {
-        success: raw.success ?? true,
+        // A 200 with no `success` field is not a successful apply. This is
+        // a MUTATION path: `?? true` reported a permission removal as
+        // applied whenever the backend omitted the field, which is the one
+        // place a default must never be optimistic.
+        success: raw.success === true,
         systemName,
         roleName: raw.roleName ?? "",
         checkpoint: raw.checkpoint ?? "",
