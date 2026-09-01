@@ -333,7 +333,7 @@ export function ResourceDossier({
               payload={dependencies}
               loading={dependenciesLoading}
               error={dependenciesError}
-              coverage={data.dependencies.coverage}
+              coverage={dependencies?.coverage ?? data.dependencies.coverage}
               serveState={data.dependencies.serve_state}
               notes={data.dependencies.notes}
               resourceType={resourceType}
