@@ -16,24 +16,27 @@
  * copy of the same facts. Derived capabilities and Unknowns keep their own
  * sections because they are different claims, not different framings.
  *
- * Nothing here invents a value. Fields the dossier does not supply — activation
- * context, attribution profile, mechanism certification, per-row account and
- * region, complete/partial/truncated qualifiers — are reported as unavailable
- * in "Unknowns and boundaries" rather than defaulted (§2.3, DE-307).
+ * Rows, roles and labels come from GET /api/resource-dependencies (DE-305).
+ * The tab does not re-resolve relationships client-side.
+ *
+ * Activation context and attribution profile are still reported as unavailable
+ * rather than defaulted (§2.3, DE-307). Completeness, counterparty account and
+ * region now come from the read model when the graph supplied them.
  */
 
 import { useMemo, useState } from "react"
-import { ChevronDown, ChevronRight, Database, Info, ShieldQuestion } from "lucide-react"
-import { deriveDependencyMaturity, type DependencyMaturity } from "@/lib/dependency-coverage"
+import { ChevronDown, ChevronRight, Database, Info, LoaderCircle, ShieldQuestion } from "lucide-react"
+import { deriveDependencyMaturity, type DependencyCoverageInput, type DependencyMaturity } from "@/lib/dependency-coverage"
 import {
-  buildPairs,
   dedupeEvidenceRefs,
   dedupeSourceRefs,
-  type PairRow,
-  type RelationFact,
-} from "@/lib/dependency-pairs"
-import type { Perspective } from "@/lib/dependency-relations"
-import type { BasisClass, DependenciesPayload, DossierSection } from "@/lib/resource-dossier-types"
+  mapApiPair,
+  type PairRowView,
+  type Perspective,
+  type RelationFactView,
+  type ResourceDependenciesResponse,
+} from "@/lib/resource-dependencies"
+import type { BasisClass } from "@/lib/resource-dossier-types"
 import { EvidenceRefList, StateBadge } from "./dossier-primitives"
 
 const PAGE_SIZE = 10
@@ -102,7 +105,7 @@ function SummaryTile({ value, caption }: { value: string | number; caption: stri
   )
 }
 
-function FactLine({ fact }: { fact: RelationFact }) {
+function FactLine({ fact }: { fact: RelationFactView }) {
   return (
     <li className="rounded-lg border border-slate-100 bg-slate-50 p-2.5">
       <div className="flex flex-wrap items-center gap-2">
@@ -134,7 +137,7 @@ function FactLine({ fact }: { fact: RelationFact }) {
   )
 }
 
-function PairCard({ pair }: { pair: PairRow }) {
+function PairCard({ pair }: { pair: PairRowView }) {
   const [open, setOpen] = useState(false)
   const drawerId = `evidence-${pair.key.replace(/[^a-zA-Z0-9_-]/g, "-")}`
   const refs = dedupeEvidenceRefs(pair.facts.flatMap(fact => fact.evidenceRefs))
@@ -178,7 +181,7 @@ function PairCard({ pair }: { pair: PairRow }) {
   )
 }
 
-function PerspectiveSection({ title, blurb, rows }: { title: string; blurb: string; rows: PairRow[] }) {
+function PerspectiveSection({ title, blurb, rows }: { title: string; blurb: string; rows: PairRowView[] }) {
   const [visible, setVisible] = useState(PAGE_SIZE)
   const headingId = `dependencies-${title.replaceAll(" ", "-").toLowerCase()}`
   if (!rows.length) return null
@@ -210,29 +213,76 @@ function PerspectiveSection({ title, blurb, rows }: { title: string; blurb: stri
 }
 
 interface Props {
-  section: DossierSection<DependenciesPayload>
+  payload: ResourceDependenciesResponse | null
+  loading?: boolean
+  error?: string | null
+  coverage?: DependencyCoverageInput | null
+  serveState?: string | null
+  notes?: string | null
   resourceType?: string | null
 }
 
-export function DependenciesTab({ section, resourceType }: Props) {
-  const ledger = useMemo(() => section.payload?.ledger ?? [], [section.payload])
-  const counts = section.payload?.counts_by_basis
-  const built = useMemo(() => buildPairs(ledger), [ledger])
-
-  const maturity = useMemo(() => deriveDependencyMaturity(
-    section.serve_state,
-    section.coverage,
-    ledger.map(row => ({ freshness: row.freshness, basisClass: row.basis_class })),
-  ), [ledger, section.coverage, section.serve_state])
-
+export function DependenciesTab({
+  payload,
+  loading = false,
+  error = null,
+  coverage = null,
+  serveState = null,
+  notes = null,
+  resourceType,
+}: Props) {
+  const pairs = useMemo(
+    () => (payload?.page.rows ?? []).map(mapApiPair),
+    [payload],
+  )
   const byPerspective = useMemo(() => ({
-    USES: built.rows.filter(row => row.perspective === "USES"),
-    USED_BY: built.rows.filter(row => row.perspective === "USED_BY"),
-    PEER: built.rows.filter(row => row.perspective === "PEER"),
-  }), [built.rows])
-
-  const staleCount = ledger.filter(row => row.freshness === "STALE").length
+    USES: pairs.filter(row => row.perspective === "USES"),
+    USED_BY: pairs.filter(row => row.perspective === "USED_BY"),
+    PEER: pairs.filter(row => row.perspective === "PEER"),
+  }), [pairs])
+  const facts = useMemo(() => pairs.flatMap(row => row.facts), [pairs])
+  const maturity = useMemo(() => deriveDependencyMaturity(
+    serveState,
+    coverage,
+    facts.map(fact => ({ freshness: fact.freshness, basisClass: fact.basisClass })),
+  ), [coverage, facts, serveState])
+  const staleCount = facts.filter(fact => fact.freshness === "STALE").length
+  const unregistered = Object.keys(payload?.counts.unregistered_relationships ?? {})
+  const generic = [...new Set(facts.filter(fact => fact.resolved.generic).map(fact => fact.resolved.rawRelationship))]
+  const unresolvedCount = payload?.counts.unresolved_counterparties ?? 0
+  const derivedExcluded = payload?.counts.excluded.derived_without_derivation ?? 0
+  const basisCounts = useMemo(() => {
+    const counts = { OBSERVED: 0, CONFIGURED: 0, STRUCTURAL: 0 }
+    for (const fact of facts) {
+      if (fact.basisClass in counts) counts[fact.basisClass] += 1
+    }
+    return counts
+  }, [facts])
   const minimumViews = minimumViewsFor(resourceType)
+  const perspectiveCounts = payload?.counts.by_perspective ?? { USES: 0, USED_BY: 0, PEER: 0 }
+
+  if (loading) {
+    return (
+      <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white p-5 text-sm text-slate-600">
+        <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden />
+        Loading resource-anchored dependencies…
+      </div>
+    )
+  }
+  if (error) {
+    return (
+      <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-5 text-sm text-red-900">
+        {error}
+      </div>
+    )
+  }
+  if (!payload) {
+    return (
+      <div className="rounded-xl border border-slate-200 bg-white p-5 text-sm text-slate-600">
+        No dependency assertions are available. This is not proof that dependencies do not exist.
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-5">
@@ -241,28 +291,26 @@ export function DependenciesTab({ section, resourceType }: Props) {
           <h3 id="dependencies-summary" className="text-sm font-bold text-slate-950">Dependency summary</h3>
           <div className="flex items-center gap-2">
             <MaturityChip maturity={maturity.maturity} label={maturity.label} />
-            <StateBadge value={section.serve_state} />
+            <StateBadge value={serveState || (payload.counts.completeness === "TRUNCATED" ? "PARTIAL" : "ACTIVE")} />
           </div>
         </div>
         <p className="mt-2 text-xs leading-5 text-slate-600">{maturity.reason}</p>
         <div className="mt-3 grid grid-cols-3 gap-3">
-          <SummaryTile value={byPerspective.USES.length} caption="Providers used" />
-          <SummaryTile value={byPerspective.USED_BY.length} caption="Consumers" />
-          <SummaryTile value={byPerspective.PEER.length} caption="Observed peers" />
+          <SummaryTile value={perspectiveCounts.USES} caption="Providers used" />
+          <SummaryTile value={perspectiveCounts.USED_BY} caption="Consumers" />
+          <SummaryTile value={perspectiveCounts.PEER} caption="Observed peers" />
         </div>
-        {counts ? (
-          <div className="mt-3 flex flex-wrap gap-3 text-[11px] text-slate-600">
-            {(["OBSERVED", "CONFIGURED", "STRUCTURAL"] as BasisClass[]).map(basis => (
-              <span key={basis}>{basis.toLowerCase()}: <strong className="text-slate-900">{counts[basis] ?? 0}</strong></span>
-            ))}
-          </div>
-        ) : null}
+        <div className="mt-3 flex flex-wrap gap-3 text-[11px] text-slate-600">
+          {(["OBSERVED", "CONFIGURED", "STRUCTURAL"] as BasisClass[]).map(basis => (
+            <span key={basis}>{basis.toLowerCase()}: <strong className="text-slate-900">{basisCounts[basis]}</strong></span>
+          ))}
+        </div>
         <p className="mt-2 text-[11px] text-slate-500">
-          {section.notes ?? "Basis classes are separate proof sets and are never added into a consumer total."}
+          {notes ?? "Basis classes are separate proof sets and are never added into a consumer total."}
         </p>
       </section>
 
-      {ledger.length === 0 ? (
+      {pairs.length === 0 ? (
         <div className="rounded-xl border border-slate-200 bg-white p-5 text-sm text-slate-600">
           No dependency assertions are available. This is not proof that dependencies do not exist.
         </div>
@@ -279,15 +327,15 @@ export function DependenciesTab({ section, resourceType }: Props) {
 
       <section aria-labelledby="dependencies-derived" className="rounded-xl border border-slate-200 bg-white p-4">
         <h3 id="dependencies-derived" className="text-sm font-bold text-slate-950">Derived capabilities</h3>
-        {built.derived.length === 0 ? (
+        {derivedExcluded === 0 ? (
           <p className="mt-2 text-xs leading-5 text-slate-600">
             No derived reachability or effective-access rows are computed for this resource in this release.
             Absence of a derived row is not a statement that the resource cannot reach anything.
           </p>
         ) : (
           <p className="mt-2 text-xs leading-5 text-amber-900">
-            {built.derived.length} derived row{built.derived.length === 1 ? "" : "s"} were returned without a derivation,
-            mandatory inputs, or coverage. They are withheld rather than shown as direct attachments.
+            {derivedExcluded} derived row{derivedExcluded === 1 ? "" : "s"} were withheld because they had no derivation,
+            mandatory inputs, or coverage. They are not shown as direct attachments.
           </p>
         )}
       </section>
@@ -299,7 +347,8 @@ export function DependenciesTab({ section, resourceType }: Props) {
         </div>
         <ul className="mt-3 space-y-1.5 text-xs leading-5 text-amber-900">
           <li>
-            This view shows known dependencies within collected scope for one AWS account and generation.
+            This view shows known dependencies within collected scope for one AWS account and generation
+            {payload.scope.generation !== "UNKNOWN" ? ` (${payload.scope.generation})` : ""}.
             It is not a claim that every dependency or every consumer outside that scope is modelled.
           </li>
           {maturity.missingSources.length ? (
@@ -309,18 +358,18 @@ export function DependenciesTab({ section, resourceType }: Props) {
             <li>Current coverage cannot support: {maturity.insufficientFor.join("; ")}.</li>
           ) : null}
           {staleCount ? <li>{staleCount} relationship{staleCount === 1 ? " is" : "s are"} marked stale by their collector and are shown, not dropped.</li> : null}
-          {built.unresolvedIdentities.length ? (
-            <li>{built.unresolvedIdentities.length} endpoint{built.unresolvedIdentities.length === 1 ? "" : "s"} could not be resolved to a canonical AWS identity.</li>
+          {unresolvedCount ? (
+            <li>{unresolvedCount} endpoint{unresolvedCount === 1 ? "" : "s"} could not be resolved to a canonical AWS identity.</li>
           ) : null}
-          {built.unregistered.length ? (
-            <li>Not in the relationship contract, so shown untyped: <span className="font-mono">{built.unregistered.join(", ")}</span>.</li>
+          {unregistered.length ? (
+            <li>Not in the relationship contract, so shown untyped: <span className="font-mono">{unregistered.join(", ")}</span>.</li>
           ) : null}
-          {built.generic.length ? (
-            <li>Generic relationship{built.generic.length === 1 ? "" : "s"} <span className="font-mono">{built.generic.join(", ")}</span> carry no dependency meaning and are not given a typed label.</li>
+          {generic.length ? (
+            <li>Generic relationship{generic.length === 1 ? "" : "s"} <span className="font-mono">{generic.join(", ")}</span> carry no dependency meaning and are not given a typed label.</li>
           ) : null}
           <li>
-            Counts describe this response. Activation context, attribution profile, per-relationship account and region,
-            and complete/partial/truncated qualifiers are not supplied by the dependency API yet.
+            Completeness for this response: {payload.counts.completeness}.
+            Activation context, attribution profile, and mechanism certification are not supplied yet.
           </li>
           {minimumViews ? (
             <li>

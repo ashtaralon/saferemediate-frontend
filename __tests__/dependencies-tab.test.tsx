@@ -5,50 +5,114 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 import { afterEach, describe, expect, it } from "vitest"
 
 import { DependenciesTab, minimumViewsFor } from "@/components/inventory/dependencies-tab"
-import type { Dependency, DependenciesPayload, DossierSection } from "@/lib/resource-dossier-types"
+import {
+  emptyDependenciesResponse,
+  type DependencyApiFact,
+  type DependencyApiPair,
+  type ResourceDependenciesResponse,
+} from "@/lib/resource-dependencies"
 
-const UID = "aws:ec2:eu-west-1:123456789012:instance/i-123"
-
-function row(overrides: Partial<Dependency>): Dependency {
+function fact(overrides: Partial<DependencyApiFact> = {}): DependencyApiFact {
   return {
-    direction: "DOWNSTREAM",
+    registered: true,
+    generic: false,
+    label: "protected by",
+    perspective: "USES",
+    mechanism: "M01",
+    mechanism_label: "Network attachment and interface policy",
+    capability: "network policy",
+    canonical_relationship: "SECURED_BY",
+    raw_relationship: "SECURED_BY",
+    fact_id: "dependency:1",
     basis_class: "STRUCTURAL",
     freshness: "UNKNOWN",
-    relationship: "SECURED_BY",
-    resource_canonical_resource_uid: UID,
+    actions: [],
+    observation_days: null,
+    first_seen: null,
+    last_seen: null,
+    via_vpce: null,
     evidence_refs: [],
     source_generation_refs: [],
+    aliases_collapsed: [],
     ...overrides,
   }
 }
 
-function section(
-  ledger: Dependency[],
-  overrides: Partial<DossierSection<DependenciesPayload>> = {},
-): DossierSection<DependenciesPayload> {
+function pair(overrides: Partial<DependencyApiPair> = {}): DependencyApiPair {
   return {
-    serve_state: "PARTIAL" as const,
-    payload: {
-      ledger,
-      counts_by_basis: {
-        OBSERVED: ledger.filter(item => item.basis_class === "OBSERVED").length,
-        CONFIGURED: ledger.filter(item => item.basis_class === "CONFIGURED").length,
-        STRUCTURAL: ledger.filter(item => item.basis_class === "STRUCTURAL").length,
-      },
+    pair_key: "USES::arn:aws:ec2:eu-west-1:123456789012:security-group/sg-1",
+    perspective: "USES",
+    counterparty: {
+      identity: "arn:aws:ec2:eu-west-1:123456789012:security-group/sg-1",
+      label: "sg-1",
+      type: "SecurityGroup",
+      account_id: "123456789012",
+      region: "eu-west-1",
+      scope: "IN_ACCOUNT",
     },
-    coverage: null,
-    notes: null,
+    facts: [fact()],
     ...overrides,
   }
+}
+
+function payload(rows: DependencyApiPair[], extra: Partial<ResourceDependenciesResponse> = {}): ResourceDependenciesResponse {
+  const by_perspective = { USES: 0, USED_BY: 0, PEER: 0 as const }
+  for (const row of rows) by_perspective[row.perspective] += 1
+  const unregistered: Record<string, number> = {}
+  let unresolved = 0
+  for (const row of rows) {
+    if (!row.counterparty.identity) unresolved += 1
+    for (const item of row.facts) {
+      if (!item.registered) {
+        unregistered[item.raw_relationship] = (unregistered[item.raw_relationship] || 0) + 1
+      }
+    }
+  }
+  return emptyDependenciesResponse({
+    page: { rows, returned: rows.length, total: rows.length, offset: 0, next_cursor: null },
+    counts: {
+      by_perspective,
+      external_counterparties: 0,
+      unresolved_counterparties: unresolved,
+      unregistered_relationships: unregistered,
+      excluded: extra.counts?.excluded ?? {},
+      ledger_rows_read: rows.length,
+      completeness: "COMPLETE",
+      matching_filters: rows.length,
+      all_perspectives: rows.length,
+    },
+    ...extra,
+  })
 }
 
 afterEach(cleanup)
 
-describe("Dependencies tab (§6.2)", () => {
+describe("Dependencies tab (§6.2) — DE-305 payload", () => {
   it("splits by perspective instead of printing the raw edge direction", () => {
-    render(<DependenciesTab section={section([
-      row({ relationship: "SECURED_BY", direction: "DOWNSTREAM", target_arn: "arn:aws:ec2:eu-west-1:123456789012:security-group/sg-1", target_type: "SecurityGroup" }),
-      row({ relationship: "TRUSTS", direction: "DOWNSTREAM", basis_class: "CONFIGURED", target_arn: "arn:aws:iam::123456789012:role/caller", target_type: "IAMRole" }),
+    render(<DependenciesTab payload={payload([
+      pair(),
+      pair({
+        pair_key: "USED_BY::arn:aws:iam::123456789012:role/caller",
+        perspective: "USED_BY",
+        counterparty: {
+          identity: "arn:aws:iam::123456789012:role/caller",
+          label: "caller",
+          type: "IAMRole",
+          account_id: "123456789012",
+          region: null,
+          scope: "IN_ACCOUNT",
+        },
+        facts: [fact({
+          label: "trusts",
+          perspective: "USED_BY",
+          mechanism: "M05",
+          mechanism_label: "Authorization",
+          capability: "effective authorization",
+          canonical_relationship: "TRUSTS",
+          raw_relationship: "TRUSTS",
+          basis_class: "CONFIGURED",
+        })],
+      }),
     ])} />)
 
     expect(screen.getByRole("heading", { name: /^Uses/ })).toBeInTheDocument()
@@ -58,22 +122,44 @@ describe("Dependencies tab (§6.2)", () => {
     expect(screen.queryByText(/DOWNSTREAM|UPSTREAM/)).not.toBeInTheDocument()
   })
 
-  it("renders one pair row and collapses a legacy spelling of the same attachment", () => {
-    const sg = { target_arn: "arn:aws:ec2:eu-west-1:123456789012:security-group/sg-1", target_type: "SecurityGroup" }
-    render(<DependenciesTab section={section([
-      row({ relationship: "SECURED_BY", ...sg }),
-      row({ relationship: "HAS_SECURITY_GROUP", ...sg }),
+  it("renders one pair row and discloses a collapsed legacy spelling from the server", () => {
+    render(<DependenciesTab payload={payload([
+      pair({
+        facts: [fact({ aliases_collapsed: ["HAS_SECURITY_GROUP"] })],
+      }),
     ])} />)
 
     expect(screen.getAllByText("protected by")).toHaveLength(1)
     expect(screen.getByText(/Also stored as HAS_SECURITY_GROUP/)).toBeInTheDocument()
-    // One counterparty, counted once.
     expect(screen.getByRole("heading", { name: "Uses (1)" })).toBeInTheDocument()
   })
 
   it("shows an unregistered relationship untyped and reports it as a boundary", () => {
-    render(<DependenciesTab section={section([
-      row({ relationship: "ResourcePolicyGrant", direction: "UPSTREAM", principal_arn: "arn:aws:iam::123456789012:role/orders-reader" }),
+    render(<DependenciesTab payload={payload([
+      pair({
+        pair_key: "USED_BY::arn:aws:iam::123456789012:role/orders-reader",
+        perspective: "USED_BY",
+        counterparty: {
+          identity: "arn:aws:iam::123456789012:role/orders-reader",
+          label: "arn:aws:iam::123456789012:role/orders-reader",
+          type: "IAMRole",
+          account_id: "123456789012",
+          region: null,
+          scope: "IN_ACCOUNT",
+        },
+        facts: [fact({
+          registered: false,
+          generic: false,
+          label: "ResourcePolicyGrant",
+          perspective: "USED_BY",
+          mechanism: null,
+          mechanism_label: null,
+          capability: null,
+          canonical_relationship: "ResourcePolicyGrant",
+          raw_relationship: "ResourcePolicyGrant",
+          basis_class: "CONFIGURED",
+        })],
+      }),
     ])} />)
 
     expect(screen.getByText("(unregistered relationship)")).toBeInTheDocument()
@@ -82,8 +168,26 @@ describe("Dependencies tab (§6.2)", () => {
   })
 
   it("refuses to give a §6.3 generic relationship a dependency label", () => {
-    render(<DependenciesTab section={section([
-      row({ relationship: "ASSOCIATED_WITH", target_display_name: "some-thing", target_type: "VPC" }),
+    render(<DependenciesTab payload={payload([
+      pair({
+        pair_key: "PEER::some-thing",
+        perspective: "PEER",
+        counterparty: {
+          identity: null,
+          label: "some-thing",
+          type: "VPC",
+          account_id: null,
+          region: null,
+          scope: "UNKNOWN",
+        },
+        facts: [fact({
+          generic: true,
+          label: "associated with",
+          perspective: "PEER",
+          canonical_relationship: "ASSOCIATED_WITH",
+          raw_relationship: "ASSOCIATED_WITH",
+        })],
+      }),
     ])} />)
 
     expect(screen.getByText("(generic relationship)")).toBeInTheDocument()
@@ -92,13 +196,26 @@ describe("Dependencies tab (§6.2)", () => {
   })
 
   it("paginates a high-degree resource without dropping consumers", () => {
-    const ledger = Array.from({ length: 23 }, (_, index) => row({
-      relationship: "PROTECTS",
-      direction: "DOWNSTREAM",
-      target_arn: `arn:aws:ec2:eu-west-1:123456789012:instance/i-${String(index).padStart(3, "0")}`,
-      target_type: "EC2Instance",
+    const rows = Array.from({ length: 23 }, (_, index) => pair({
+      pair_key: `USED_BY::arn:aws:ec2:eu-west-1:123456789012:instance/i-${String(index).padStart(3, "0")}`,
+      perspective: "USED_BY",
+      counterparty: {
+        identity: `arn:aws:ec2:eu-west-1:123456789012:instance/i-${String(index).padStart(3, "0")}`,
+        label: `i-${String(index).padStart(3, "0")}`,
+        type: "EC2Instance",
+        account_id: "123456789012",
+        region: "eu-west-1",
+        scope: "IN_ACCOUNT",
+      },
+      facts: [fact({
+        label: "protects",
+        perspective: "USED_BY",
+        canonical_relationship: "PROTECTS",
+        raw_relationship: "PROTECTS",
+        fact_id: `dependency:${index}`,
+      })],
     }))
-    render(<DependenciesTab section={section(ledger)} />)
+    render(<DependenciesTab payload={payload(rows)} />)
 
     expect(screen.getByText("Showing 10 of 23. Nothing is dropped.")).toBeInTheDocument()
     fireEvent.click(screen.getByRole("button", { name: /Show 10 more/ }))
@@ -108,21 +225,20 @@ describe("Dependencies tab (§6.2)", () => {
   })
 
   it("keeps an empty ledger an absence of evidence, not an absence of dependencies", () => {
-    render(<DependenciesTab section={section([])} />)
+    render(<DependenciesTab payload={payload([])} />)
     expect(screen.getByText(/No dependency assertions are available/)).toBeInTheDocument()
     expect(screen.getByText(/not proof that dependencies do not exist/)).toBeInTheDocument()
   })
 
-  it("states the fields the dependency API does not supply rather than defaulting them", () => {
-    render(<DependenciesTab section={section([])} resourceType="SecurityGroup" />)
+  it("states remaining unavailable fields rather than defaulting them", () => {
+    render(<DependenciesTab payload={payload([])} resourceType="SecurityGroup" />)
     const boundaries = screen.getByRole("region", { name: "Unknowns and boundaries" })
     expect(within(boundaries).getByText(/Activation context, attribution profile/)).toBeInTheDocument()
+    expect(within(boundaries).getByText(/Completeness for this response: COMPLETE/)).toBeInTheDocument()
     expect(within(boundaries).getByText(/Referenced-SG rules/)).toBeInTheDocument()
   })
 
   it("finds the §6.4 family through every type spelling the graph carries", () => {
-    // §3.3 measured SecurityGroup, AWS::EC2::SecurityGroup and ec2:security-group
-    // coexisting; an exact-string lookup silently drops the coverage note.
     for (const spelling of ["SecurityGroup", "AWS::EC2::SecurityGroup", "ec2:security-group"]) {
       expect(minimumViewsFor(spelling), spelling).not.toBeNull()
     }
@@ -131,11 +247,21 @@ describe("Dependencies tab (§6.2)", () => {
   })
 
   it("withholds a derived row that arrives without its derivation (§5.5)", () => {
-    render(<DependenciesTab section={section([
-      row({ relationship: "CAN_REACH", target_arn: "arn:aws:s3:::orders-data", target_type: "S3Bucket" }),
-    ])} />)
+    render(<DependenciesTab payload={payload([], {
+      counts: {
+        by_perspective: { USES: 0, USED_BY: 0, PEER: 0 },
+        external_counterparties: 0,
+        unresolved_counterparties: 0,
+        unregistered_relationships: {},
+        excluded: { derived_without_derivation: 1 },
+        ledger_rows_read: 1,
+        completeness: "COMPLETE",
+        matching_filters: 0,
+        all_perspectives: 0,
+      },
+    })} />)
 
-    expect(screen.getByText(/withheld rather than shown as direct attachments/)).toBeInTheDocument()
+    expect(screen.getByText(/withheld because they had no derivation/)).toBeInTheDocument()
     expect(screen.queryByText("S3 bucket · orders-data")).not.toBeInTheDocument()
   })
 })

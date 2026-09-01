@@ -25,6 +25,10 @@ import type {
 } from "@/lib/resource-dossier-types"
 import { DependenciesTab } from "./dependencies-tab"
 import { EvidenceRefList, StateBadge } from "./dossier-primitives"
+import {
+  isResourceDependenciesResponse,
+  type ResourceDependenciesResponse,
+} from "@/lib/resource-dependencies"
 
 interface ProfileFact {
   key: string
@@ -140,6 +144,9 @@ export function ResourceDossier({
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [expandedAssertion, setExpandedAssertion] = useState<number | null>(null)
+  const [dependencies, setDependencies] = useState<ResourceDependenciesResponse | null>(null)
+  const [dependenciesError, setDependenciesError] = useState<string | null>(null)
+  const [dependenciesLoading, setDependenciesLoading] = useState(false)
 
   useEffect(() => {
     // The dossier is a viewport-fixed modal panel. Lock the page underneath it
@@ -157,6 +164,8 @@ export function ResourceDossier({
     setData(null)
     setError(null)
     setLoading(true)
+    setDependencies(null)
+    setDependenciesError(null)
     const query = new URLSearchParams({
       resource_id: resourceId,
       window_days: "90",
@@ -172,6 +181,35 @@ export function ResourceDossier({
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
   }, [accountId, region, resourceId, scope.accountId, scope.region, systemName])
+
+  useEffect(() => {
+    if (tab !== "dependencies" || !data) return
+    let cancelled = false
+    setDependenciesLoading(true)
+    setDependenciesError(null)
+    const query = new URLSearchParams({
+      resource_id: resourceId,
+      page_size: "200",
+    })
+    const resolvedAccount = (accountId && accountId !== "all" ? accountId : null)
+      || data.identity.account
+      || (scope.accountId && scope.accountId !== "all" ? scope.accountId : null)
+    if (resolvedAccount) query.set("account_id", resolvedAccount)
+    fetch(`/api/proxy/resource-dependencies/${encodeURIComponent(systemName)}?${query}`, { cache: "no-store" })
+      .then(readJson)
+      .then(body => {
+        if (cancelled) return
+        if (!isResourceDependenciesResponse(body)) {
+          throw new Error("Dependency read model returned an unexpected payload")
+        }
+        setDependencies(body)
+      })
+      .catch(cause => {
+        if (!cancelled) setDependenciesError(cause instanceof Error ? cause.message : String(cause))
+      })
+      .finally(() => { if (!cancelled) setDependenciesLoading(false) })
+    return () => { cancelled = true }
+  }, [accountId, data, resourceId, scope.accountId, systemName, tab])
 
   const counts = data?.dependencies.payload?.counts_by_basis
   const lifecycleFacts = data?.lifecycle.payload?.facts ?? []
@@ -291,7 +329,15 @@ export function ResourceDossier({
 
         {data && tab === "dependencies" ? (
           <div id="dossier-panel-dependencies" role="tabpanel" aria-labelledby="dossier-tab-dependencies">
-            <DependenciesTab section={data.dependencies} resourceType={resourceType} />
+            <DependenciesTab
+              payload={dependencies}
+              loading={dependenciesLoading}
+              error={dependenciesError}
+              coverage={data.dependencies.coverage}
+              serveState={data.dependencies.serve_state}
+              notes={data.dependencies.notes}
+              resourceType={resourceType}
+            />
           </div>
         ) : null}
 
