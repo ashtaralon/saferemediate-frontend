@@ -228,6 +228,7 @@ describe("Dependencies tab (§6.2) — DE-305 payload", () => {
     render(<DependenciesTab payload={payload([])} />)
     expect(screen.getByText(/No dependency assertions are available/)).toBeInTheDocument()
     expect(screen.getByText(/not proof that dependencies do not exist/)).toBeInTheDocument()
+    expect(screen.queryByText("ACTIVE")).not.toBeInTheDocument()
   })
 
   it("states remaining unavailable fields rather than defaulting them", () => {

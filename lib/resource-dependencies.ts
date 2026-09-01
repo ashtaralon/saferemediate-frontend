@@ -8,7 +8,8 @@
  */
 
 import { typedAwsIdentity } from "@/lib/dependency-identity"
-import type { BasisClass, Coverage, EvidenceBinding, SourceGenerationRef } from "@/lib/resource-dossier-types"
+import type { DependencyCoverageInput } from "@/lib/dependency-coverage"
+import type { BasisClass, EvidenceBinding, SourceGenerationRef } from "@/lib/resource-dossier-types"
 
 export function dedupeEvidenceRefs(refs: EvidenceBinding[]): EvidenceBinding[] {
   const seen = new Map<string, EvidenceBinding>()
@@ -48,6 +49,13 @@ export interface RelationFactView {
   evidenceRefs: EvidenceBinding[]
   sourceGenerationRefs: SourceGenerationRef[]
   aliasesCollapsed: string[]
+  derivation?: {
+    kind?: string
+    complete?: boolean
+    inputs?: string[]
+    mandatory_inputs?: string[]
+    missing_inputs?: string[]
+  } | null
 }
 
 export interface PairRowView {
@@ -89,6 +97,13 @@ export interface DependencyApiFact {
   evidence_refs: EvidenceBinding[]
   source_generation_refs: SourceGenerationRef[]
   aliases_collapsed: string[]
+  derivation?: {
+    kind?: string
+    complete?: boolean
+    inputs?: string[]
+    mandatory_inputs?: string[]
+    missing_inputs?: string[]
+  } | null
 }
 
 export interface DependencyApiPair {
@@ -131,6 +146,11 @@ export interface ResourceDependenciesResponse {
     matching_filters?: number
     all_perspectives?: number
   }
+  coverage?: DependencyCoverageInput | null
+  type_views?: {
+    family: string
+    views: Array<{ title: string; items: unknown[] }>
+  } | null
   assembly?: { latency_ms: number }
 }
 
@@ -185,6 +205,7 @@ export function mapApiPair(row: DependencyApiPair): PairRowView {
       evidenceRefs: fact.evidence_refs ?? [],
       sourceGenerationRefs: fact.source_generation_refs ?? [],
       aliasesCollapsed: [...(fact.aliases_collapsed ?? [])],
+      derivation: fact.derivation ?? null,
     })),
   }
 }

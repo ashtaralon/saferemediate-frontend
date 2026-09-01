@@ -158,7 +158,7 @@ function PairCard({ pair }: { pair: PairRowView }) {
         </div>
       </div>
       <ul className="mt-3 space-y-2">
-        {pair.facts.map(fact => <FactLine key={`${fact.resolved.rawRelationship}-${fact.basisClass}`} fact={fact} />)}
+        {pair.facts.map(fact => <FactLine key={fact.factId} fact={fact} />)}
       </ul>
       <div className="mt-3 border-t border-slate-100 pt-2">
         <button
@@ -241,16 +241,18 @@ export function DependenciesTab({
     PEER: pairs.filter(row => row.perspective === "PEER"),
   }), [pairs])
   const facts = useMemo(() => pairs.flatMap(row => row.facts), [pairs])
+  const resolvedCoverage = coverage ?? payload?.coverage ?? null
   const maturity = useMemo(() => deriveDependencyMaturity(
     serveState,
-    coverage,
+    resolvedCoverage,
     facts.map(fact => ({ freshness: fact.freshness, basisClass: fact.basisClass })),
-  ), [coverage, facts, serveState])
+  ), [resolvedCoverage, facts, serveState])
   const staleCount = facts.filter(fact => fact.freshness === "STALE").length
   const unregistered = Object.keys(payload?.counts.unregistered_relationships ?? {})
   const generic = [...new Set(facts.filter(fact => fact.resolved.generic).map(fact => fact.resolved.rawRelationship))]
   const unresolvedCount = payload?.counts.unresolved_counterparties ?? 0
   const derivedExcluded = payload?.counts.excluded.derived_without_derivation ?? 0
+  const derivedFacts = facts.filter(fact => fact.derivation?.complete)
   const basisCounts = useMemo(() => {
     const counts = { OBSERVED: 0, CONFIGURED: 0, STRUCTURAL: 0 }
     for (const fact of facts) {
@@ -291,7 +293,7 @@ export function DependenciesTab({
           <h3 id="dependencies-summary" className="text-sm font-bold text-slate-950">Dependency summary</h3>
           <div className="flex items-center gap-2">
             <MaturityChip maturity={maturity.maturity} label={maturity.label} />
-            <StateBadge value={serveState || (payload.counts.completeness === "TRUNCATED" ? "PARTIAL" : "ACTIVE")} />
+            <StateBadge value={serveState || (payload.counts.completeness === "TRUNCATED" ? "PARTIAL" : payload.scope.generation === "UNKNOWN" ? "UNKNOWN" : "ACTIVE")} />
           </div>
         </div>
         <p className="mt-2 text-xs leading-5 text-slate-600">{maturity.reason}</p>
@@ -327,7 +329,16 @@ export function DependenciesTab({
 
       <section aria-labelledby="dependencies-derived" className="rounded-xl border border-slate-200 bg-white p-4">
         <h3 id="dependencies-derived" className="text-sm font-bold text-slate-950">Derived capabilities</h3>
-        {derivedExcluded === 0 ? (
+        {derivedFacts.length ? (
+          <ul className="mt-2 space-y-1.5 text-xs leading-5 text-slate-700">
+            {derivedFacts.map(fact => (
+              <li key={fact.factId}>
+                {fact.resolved.label}
+                {fact.derivation?.inputs?.length ? ` · from ${fact.derivation.inputs.join(", ")}` : ""}
+              </li>
+            ))}
+          </ul>
+        ) : derivedExcluded === 0 ? (
           <p className="mt-2 text-xs leading-5 text-slate-600">
             No derived reachability or effective-access rows are computed for this resource in this release.
             Absence of a derived row is not a statement that the resource cannot reach anything.
@@ -338,7 +349,30 @@ export function DependenciesTab({
             mandatory inputs, or coverage. They are not shown as direct attachments.
           </p>
         )}
+        {derivedFacts.length && derivedExcluded ? (
+          <p className="mt-2 text-xs leading-5 text-amber-900">
+            {derivedExcluded} further derived row{derivedExcluded === 1 ? "" : "s"} withheld (incomplete inputs).
+          </p>
+        ) : null}
       </section>
+
+      {payload.type_views?.views?.length ? (
+        <section aria-labelledby="dependencies-family-views" className="rounded-xl border border-slate-200 bg-white p-4">
+          <h3 id="dependencies-family-views" className="text-sm font-bold text-slate-950">
+            {payload.type_views.family} configuration
+          </h3>
+          <ul className="mt-3 space-y-3">
+            {payload.type_views.views.map(view => (
+              <li key={view.title}>
+                <div className="text-xs font-semibold text-slate-800">{view.title}</div>
+                <div className="mt-1 font-mono text-[11px] text-slate-600">
+                  {view.items.length} recorded {view.items.length === 1 ? "item" : "items"} from graph configuration.
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       <section aria-labelledby="dependencies-boundaries" className="rounded-xl border border-amber-200 bg-amber-50 p-4">
         <div className="flex items-center gap-2">
@@ -371,7 +405,7 @@ export function DependenciesTab({
             Completeness for this response: {payload.counts.completeness}.
             Activation context, attribution profile, and mechanism certification are not supplied yet.
           </li>
-          {minimumViews ? (
+          {payload.type_views?.views?.length ? null : minimumViews ? (
             <li>
               Not yet available for this resource family: {minimumViews.join("; ")}.
             </li>
