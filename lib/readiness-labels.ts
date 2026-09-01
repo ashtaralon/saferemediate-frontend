@@ -16,8 +16,6 @@ const DISPLAY_TO_NEO4J_LABEL: Record<string, string> = {
   DynamoDBTable: "DynamoDBTable",
   RDS: "RDSInstance",
   RDSInstance: "RDSInstance",
-  EC2: "EC2Instance",
-  EC2Instance: "EC2Instance",
   ALB: "LoadBalancer",
   NLB: "LoadBalancer",
   LoadBalancer: "LoadBalancer",
@@ -31,8 +29,10 @@ const DISPLAY_TO_NEO4J_LABEL: Record<string, string> = {
 }
 
 export function toNeo4jLabel(resourceType: string): string | null {
-  const mapped = DISPLAY_TO_NEO4J_LABEL[resourceType] ?? resourceType
-  return mapped || null
+  // Only labels present in the decision-coverage matrix may be queried. A
+  // passthrough here made display-only types such as EC2 call the backend with
+  // an unsupported label and rendered an operator-facing 400 as a data error.
+  return DISPLAY_TO_NEO4J_LABEL[resourceType] ?? null
 }
 
 export interface ReadinessPayload {

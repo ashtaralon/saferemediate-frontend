@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
+import { coerceProxyErrorMessage } from "@/lib/proxy-error-message"
 
 const BACKEND_URL =
   process.env.BACKEND_URL_OVERRIDE ||
@@ -30,13 +31,14 @@ export async function GET(
 
     if (!response.ok) {
       const errorText = await response.text()
-      let errorMessage = `Backend returned ${response.status}`
+      let errorBody: unknown = null
       try {
-        const errorJson = JSON.parse(errorText)
-        if (errorJson.detail) errorMessage = errorJson.detail
-      } catch {
-        if (errorText) errorMessage = errorText
-      }
+        errorBody = JSON.parse(errorText)
+      } catch {}
+      const errorMessage = coerceProxyErrorMessage(
+        errorBody,
+        errorText || `Backend returned ${response.status}`,
+      )
       return NextResponse.json(
         { success: false, error: errorMessage },
         { status: response.status },

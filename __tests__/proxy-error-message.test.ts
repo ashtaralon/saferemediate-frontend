@@ -76,3 +76,13 @@ describe("coerceProxyErrorMessage — existing shapes are unchanged", () => {
     expect(coerceProxyErrorMessage(body, "fb")).toBe(expected)
   })
 })
+
+describe("coerceProxyErrorMessage — upstream HTML failures", () => {
+  it("never leaks a complete Render error document into operator UI", () => {
+    const html = '<!DOCTYPE html><html><head><title>502</title></head><body>Bad Gateway</body></html>'
+    expect(coerceProxyErrorMessage(null, html)).toBe("Backend temporarily unavailable")
+    expect(coerceProxyErrorMessage({ detail: html }, "Backend returned 502")).toBe(
+      "Backend returned 502",
+    )
+  })
+})

@@ -35,4 +35,11 @@ describe("ReadinessBadges", () => {
     expect(screen.getByText(/collection provenance is missing or stale/)).toBeInTheDocument()
     expect(screen.queryByText(/Configuration not fully collected/)).not.toBeInTheDocument()
   })
+
+  it("renders unsupported resource types as not scored rather than failed", () => {
+    render(<ReadinessBadges readiness={null} unsupported />)
+
+    expect(screen.getByText(/not scored for this resource type/)).toBeInTheDocument()
+    expect(screen.queryByText(/unavailable/)).not.toBeInTheDocument()
+  })
 })

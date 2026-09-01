@@ -17,11 +17,21 @@ export function ReadinessBadges({
   readiness,
   loading,
   error,
+  unsupported,
 }: {
   readiness: ReadinessPayload | null
   loading?: boolean
   error?: string | null
+  unsupported?: boolean
 }) {
+  if (unsupported) {
+    return (
+      <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
+        Data readiness is not scored for this resource type yet.
+      </div>
+    )
+  }
+
   if (loading) {
     return (
       <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">

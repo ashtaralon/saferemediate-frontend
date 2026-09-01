@@ -16,6 +16,16 @@
 const HUMAN_KEYS = ["reason", "message", "detail", "error"] as const
 const GUIDANCE_KEYS = ["what_to_do", "hint"] as const
 
+const HTML_ERROR_RE = /^\s*(?:<!doctype\s+html\b|<html\b)/i
+
+function safeText(value: string, fallback: string): string {
+  const trimmed = value.trim()
+  if (!trimmed) return fallback
+  // Render/Vercel can return a complete branded HTML error page for a 5xx.
+  // Never pass that document through a JSON proxy into an operator panel.
+  return HTML_ERROR_RE.test(trimmed) ? fallback : trimmed
+}
+
 function firstString(
   obj: Record<string, unknown>,
   keys: readonly string[],
@@ -28,15 +38,19 @@ function firstString(
 }
 
 export function coerceProxyErrorMessage(body: unknown, fallback: string): string {
+  const safeFallback = safeText(fallback, "Backend temporarily unavailable")
   const b = body as { detail?: unknown; error?: unknown; code?: unknown } | null
   const d = b?.detail ?? b?.error
-  if (typeof d === "string" && d.trim()) return d
+  if (typeof d === "string" && d.trim()) return safeText(d, safeFallback)
   if (Array.isArray(d)) {
     return d
       .map((item) => {
-        if (typeof item === "string") return item
+        if (typeof item === "string") return safeText(item, safeFallback)
         if (item && typeof item === "object" && "msg" in item) {
-          return String((item as { msg?: unknown }).msg ?? JSON.stringify(item))
+          return safeText(
+            String((item as { msg?: unknown }).msg ?? JSON.stringify(item)),
+            safeFallback,
+          )
         }
         return JSON.stringify(item)
       })
@@ -51,17 +65,17 @@ export function coerceProxyErrorMessage(body: unknown, fallback: string): string
     // also carries guidance, lead with the guidance instead of the slug.
     const primaryIsSlug = primary !== null && !/\s/.test(primary)
     if (primary && !(primaryIsSlug && guidance)) {
-      return guidance ? `${primary} ${guidance}` : primary
+      return safeText(guidance ? `${primary} ${guidance}` : primary, safeFallback)
     }
-    if (guidance) return guidance
+    if (guidance) return safeText(guidance, safeFallback)
   }
   if (d != null) {
     try {
       return typeof d === "object" ? JSON.stringify(d) : String(d)
     } catch {
-      return fallback
+      return safeFallback
     }
   }
   if (typeof b?.code === "string" && b.code.trim()) return b.code
-  return fallback
+  return safeFallback
 }
