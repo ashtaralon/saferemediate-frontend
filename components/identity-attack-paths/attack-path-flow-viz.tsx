@@ -165,7 +165,7 @@ function AssumeRoleChainStrip({ path }: { path: IdentityAttackPath }) {
       source: nodeById.get(e.source),
       target: nodeById.get(e.target),
       type: String(e.type ?? ""),
-      observed: Boolean((e as any).is_observed ?? true),
+      observed: Boolean((e as any).is_observed === true),
     }))
   }, [path])
 

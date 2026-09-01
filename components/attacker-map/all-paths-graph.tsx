@@ -248,7 +248,7 @@ function buildMergedGraph(
       if (src === tgt) continue
       const key = `${src}::${tgt}::${e.type ?? ""}`
       const prev = edgeIndex.get(key)
-      const isObserved = !!e.is_observed || (e.type ?? "").startsWith("ACTUAL_")
+      const isObserved = e.is_observed === true
       if (prev) {
         prev.pathIndexes.add(pi)
         if (isObserved) prev.isObserved = true

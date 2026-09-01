@@ -195,7 +195,7 @@ function buildGraph(
   // 2) Add the path edges (BFS chain)
   for (const e of path.edges) {
     if (!nodes.has(e.source) || !nodes.has(e.target)) continue
-    const observed = (e as any).is_observed || e.type === "ACTUAL_TRAFFIC" || e.type?.startsWith("ACTUAL_")
+    const observed = (e as any).is_observed === true
     edges.push({
       id: `${e.source}--${e.type}--${e.target}`,
       source: e.source,
