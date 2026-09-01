@@ -118,7 +118,12 @@ describe("classifyIapResponse", () => {
 // ---------------------------------------------------------------------------
 describe("classifyIapResponse across the source-key rename", () => {
   const envelope = (freshness: object, missing: string[]) => ({
-    result: { system_name: "testbed-webshop", crown_jewels: [], paths: [], total_jewels: 0 },
+    // `error: null` is required, not decoration. classifyIapResponse's second
+    // parameter is `{ error?: string | null }` — every property optional, which
+    // makes it a WEAK type, and TypeScript rejects an argument sharing no
+    // property with a weak type (TS2559). Without this key each of the five
+    // calls below is a type error while reading as perfectly valid JS.
+    result: { system_name: "testbed-webshop", crown_jewels: [], paths: [], total_jewels: 0, error: null },
     provenance: { freshness, completeness: { status: "partial", missing_sources: missing } },
   })
 
