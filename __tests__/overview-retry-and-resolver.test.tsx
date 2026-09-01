@@ -200,13 +200,35 @@ describe("getBackendBaseUrl", () => {
   it("falls back to the same Render URL the route used to hardcode", async () => {
     vi.resetModules()
     const prev = process.env.BACKEND_URL_OVERRIDE
+    const prevProductionUrl = process.env.VERCEL_PROJECT_PRODUCTION_URL
+    const prevVercelUrl = process.env.VERCEL_URL
     delete process.env.BACKEND_URL_OVERRIDE
+    delete process.env.VERCEL_PROJECT_PRODUCTION_URL
+    delete process.env.VERCEL_URL
 
     const { getBackendBaseUrl } = await import("@/lib/server/backend-url")
     // Prod behaviour is unchanged by the switch away from the literal.
     expect(getBackendBaseUrl()).toBe(RENDER_PROD)
 
     if (prev !== undefined) process.env.BACKEND_URL_OVERRIDE = prev
+    if (prevProductionUrl !== undefined) process.env.VERCEL_PROJECT_PRODUCTION_URL = prevProductionUrl
+    if (prevVercelUrl !== undefined) process.env.VERCEL_URL = prevVercelUrl
+  })
+
+  it("binds the C1 Vercel project to the C1 backend without an override", async () => {
+    vi.resetModules()
+    const prev = process.env.BACKEND_URL_OVERRIDE
+    const prevProductionUrl = process.env.VERCEL_PROJECT_PRODUCTION_URL
+    delete process.env.BACKEND_URL_OVERRIDE
+    process.env.VERCEL_PROJECT_PRODUCTION_URL = "cyntro-c1.vercel.app"
+
+    const { getBackendBaseUrl } = await import("@/lib/server/backend-url")
+    expect(getBackendBaseUrl()).toBe("https://cyntro-c1.onrender.com")
+
+    if (prev === undefined) delete process.env.BACKEND_URL_OVERRIDE
+    else process.env.BACKEND_URL_OVERRIDE = prev
+    if (prevProductionUrl === undefined) delete process.env.VERCEL_PROJECT_PRODUCTION_URL
+    else process.env.VERCEL_PROJECT_PRODUCTION_URL = prevProductionUrl
   })
 
   it("honours BACKEND_URL_OVERRIDE, which the hardcoded literal could not", async () => {
