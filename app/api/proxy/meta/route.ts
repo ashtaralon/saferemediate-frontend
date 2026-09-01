@@ -24,6 +24,9 @@ async function backendIdentity() {
       status?: string
       build_sha?: string
       build_branch?: string
+      build_branch_source?: string
+      build_branch_verified_against_sha?: boolean
+      build_branch_caveat?: string
       features?: Record<string, boolean> | null
     } | null
     return {
@@ -33,6 +36,17 @@ async function backendIdentity() {
       // commit — the absence itself identifies an older build.
       build_sha: body?.build_sha ?? null,
       build_branch: body?.build_branch ?? null,
+      // This route picks fields rather than spreading, so a caveat added
+      // backend-side does not arrive on its own — and it is THIS surface that
+      // needs it. build_branch is the service's CONFIGURED branch, not a fact
+      // about where build_sha came from; on C1 it read "main" while the live
+      // commit was the tip of a feature branch, which sent a fix to a branch
+      // this service does not build. Relaying the caveat is the whole point of
+      // the backend change; dropping it here reinstated the original defect.
+      build_branch_source: body?.build_branch_source ?? null,
+      build_branch_verified_against_sha:
+        body?.build_branch_verified_against_sha ?? null,
+      build_branch_caveat: body?.build_branch_caveat ?? null,
       // Effective mutation availability, as the backend gates compute it.
       // The Fixes tab reads this to present enforcement as Preview-only
       // while execution is disabled. Null on older backend builds.
