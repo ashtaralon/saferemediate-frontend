@@ -14,6 +14,33 @@ const BACKEND_URL = getBackendBaseUrl()
 
 const cache = new Map<string, { data: any; timestamp: number }>()
 const CACHE_TTL = 2 * 60 * 1000
+const TRANSIENT_STATUSES = new Set([408, 425, 429, 502, 503, 504, 522, 524])
+
+async function fetchFindings(url: string): Promise<Response> {
+  let response: Response | undefined
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 55000)
+    try {
+      response = await fetch(url, {
+        method: "GET",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        cache: "no-store",
+        signal: controller.signal,
+      })
+    } finally {
+      clearTimeout(timeoutId)
+    }
+    if (response.ok || !TRANSIENT_STATUSES.has(response.status) || attempt === 1) {
+      return response
+    }
+    // A Render cold start can answer the first request at the gateway before
+    // the service is ready. One bounded retry prevents a transient 502 from
+    // becoming the page's terminal state without hiding real 4xx failures.
+    await new Promise((resolve) => setTimeout(resolve, 400))
+  }
+  return response as Response
+}
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
@@ -30,18 +57,12 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 55000)
     const params = new URLSearchParams()
     if (systemId) params.append("system_id", systemId)
     const qs = params.toString()
-    const res = await fetch(`${BACKEND_URL}/api/network-lp/findings${qs ? `?${qs}` : ""}`, {
-      method: "GET",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
-      cache: "no-store",
-      signal: controller.signal,
-    })
-    clearTimeout(timeoutId)
+    const res = await fetchFindings(
+      `${BACKEND_URL}/api/network-lp/findings${qs ? `?${qs}` : ""}`,
+    )
 
     if (!res.ok) {
       const errorText = await res.text().catch(() => "")
