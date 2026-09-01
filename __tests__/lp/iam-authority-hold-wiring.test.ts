@@ -11,7 +11,10 @@ describe("IAM authority hold", () => {
   it("shows a high-contrast hold with a controlled override action", () => {
     expect(source).toContain('data-testid="iam-authority-hold"')
     expect(source).toContain("bg-orange-950")
-    expect(source).toContain("Remediate anyway")
+    expect(source).toContain("warnPerms.length > 0")
+    expect(source).toContain("Operator override is available")
+    expect(source).toContain("it will not lock you out")
+    expect(source).toContain("Remediate Anyway")
     expect(source).toContain("handlePrepareBreakGlass")
   })
 
