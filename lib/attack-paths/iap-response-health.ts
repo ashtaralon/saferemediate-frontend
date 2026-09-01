@@ -6,8 +6,9 @@
 // system yet" is a FABRICATED conclusion (CLAUDE.md rule #1): it tells the
 // operator the system is clean when the truth is "we couldn't read the graph."
 //
-// Crown jewels are derived from the Neo4j graph, so an empty jewel list is
-// only meaningful when the `neo4j_graph` source was actually read and fresh.
+// Crown jewels are derived from the serving graph (Amazon Neptune), so an
+// empty jewel list is only meaningful when that source was actually read and
+// fresh.
 // This pure classifier is the single place that distinguishes the two — the
 // UI gates its honest-empty state on it. Works for ANY system: no hardcoded
 // ids, no per-system logic; it reads the response's own provenance.
@@ -15,7 +16,21 @@ import type { Provenance } from "@/components/trust/trust-envelope-badge"
 import { isTrustEnvelope } from "@/components/trust/trust-envelope-badge"
 
 // The graph source that crown-jewel + attack-path derivation reads from.
-const JEWEL_SOURCE = "neo4j_graph"
+// The backend renamed this key from `neo4j_graph` to `serving_graph`: the old
+// name was the Bolt DRIVER package's, never the database, and the engine is
+// Amazon Neptune. The backend emits BOTH keys during the transition, and the
+// two repos deploy independently, so read the canonical one and fall back —
+// this file must be correct against a backend of either vintage.
+const JEWEL_SOURCE = "serving_graph"
+const JEWEL_SOURCE_LEGACY = "neo4j_graph"
+
+/** The graph freshness entry, whichever key this backend emits. */
+export function jewelSourceEntry(
+  freshness: Record<string, unknown> | null | undefined,
+): unknown {
+  if (!freshness) return undefined
+  return freshness[JEWEL_SOURCE] ?? freshness[JEWEL_SOURCE_LEGACY]
+}
 
 export interface IapResponseHealth {
   /** True when the response is an error / cold-compute envelope that must NOT
@@ -61,8 +76,16 @@ export function classifyIapResponse(
     : null
   if (provenance) {
     const missing = provenance.completeness?.missing_sources ?? []
-    const graphMissing = missing.includes(JEWEL_SOURCE)
-    const graphStatus = provenance.freshness?.[JEWEL_SOURCE]?.status
+    // Accept either spelling: an older backend reports only `neo4j_graph`,
+    // a newer one reports `serving_graph` (and echoes the legacy key). Keying
+    // on one alone would read a perfectly healthy response as "graph
+    // unavailable" and hide real crown jewels behind a false failure state.
+    const graphMissing =
+      missing.includes(JEWEL_SOURCE) || missing.includes(JEWEL_SOURCE_LEGACY)
+    const graphStatus = (
+      provenance.freshness?.[JEWEL_SOURCE] ??
+      provenance.freshness?.[JEWEL_SOURCE_LEGACY]
+    )?.status
     const graphUnavailable =
       graphMissing || graphStatus === "unknown" || graphStatus === "stale"
     if (graphUnavailable) {

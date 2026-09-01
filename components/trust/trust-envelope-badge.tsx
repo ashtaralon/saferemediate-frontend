@@ -114,7 +114,13 @@ export function genericizeSourceName(raw: string): string {
 
 export function genericizeCaveat(raw: string): string {
   return raw
+    // Backend renamed neo4j_graph -> serving_graph (the engine is Neptune;
+    // the old key named the Bolt driver package). Both are matched: the
+    // backends emit both during the transition and deploy independently.
+    .replace(/serving_graph is stale/gi, 'Resource relationship data is stale')
     .replace(/neo4j_graph is stale/gi, 'Resource relationship data is stale')
+    .replace(/serving_graph freshness is unknown/gi, 'Resource relationship data freshness is unknown')
+    .replace(/neo4j_graph freshness is unknown/gi, 'Resource relationship data freshness is unknown')
     .replace(/access_advisor freshness is unknown/gi, 'Permission usage freshness is unknown')
     .replace(/behavioral_map is stale/gi, 'Behavioral context is stale')
     .replace(/iam_usage/gi, 'activity history')

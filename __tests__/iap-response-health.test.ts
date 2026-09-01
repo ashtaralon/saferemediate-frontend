@@ -105,3 +105,54 @@ describe("classifyIapResponse", () => {
     expect(classifyIapResponse(undefined, undefined).failed).toBe(false)
   })
 })
+
+// ---------------------------------------------------------------------------
+// Source-key rename: neo4j_graph -> serving_graph.
+//
+// The backend renamed this key (the old one was the Bolt DRIVER package's
+// name, never the database; the engine is Amazon Neptune) and emits BOTH
+// during the transition. The two repositories deploy independently, so this
+// classifier must be correct against a backend of either vintage. Keying on
+// one spelling alone would read a healthy response as "graph unavailable"
+// and hide real crown jewels behind a false failure state.
+// ---------------------------------------------------------------------------
+describe("classifyIapResponse across the source-key rename", () => {
+  const envelope = (freshness: object, missing: string[]) => ({
+    result: { system_name: "testbed-webshop", crown_jewels: [], paths: [], total_jewels: 0 },
+    provenance: { freshness, completeness: { status: "partial", missing_sources: missing } },
+  })
+
+  it("treats a fresh serving_graph as healthy (new backend)", () => {
+    const env = envelope(
+      { serving_graph: { last_sync: "2026-09-01T00:00:00Z", age_seconds: 60, status: "fresh" } },
+      [],
+    )
+    expect(classifyIapResponse(env, env.result).graphUnavailable).toBe(false)
+  })
+
+  it("treats a fresh neo4j_graph as healthy (old backend)", () => {
+    const env = envelope(
+      { neo4j_graph: { last_sync: "2026-09-01T00:00:00Z", age_seconds: 60, status: "fresh" } },
+      [],
+    )
+    expect(classifyIapResponse(env, env.result).graphUnavailable).toBe(false)
+  })
+
+  it("treats both keys present as healthy (transitional dual-emit)", () => {
+    const fresh = { last_sync: "2026-09-01T00:00:00Z", age_seconds: 60, status: "fresh" }
+    const env = envelope({ serving_graph: fresh, neo4j_graph: fresh }, [])
+    expect(classifyIapResponse(env, env.result).graphUnavailable).toBe(false)
+  })
+
+  it("still detects an unavailable graph under the new key", () => {
+    const env = envelope({ serving_graph: { status: "stale" } }, [])
+    const health = classifyIapResponse(env, env.result)
+    expect(health.failed).toBe(true)
+    expect(health.graphUnavailable).toBe(true)
+  })
+
+  it("still detects a missing graph source under the new key", () => {
+    const env = envelope({}, ["serving_graph"])
+    expect(classifyIapResponse(env, env.result).graphUnavailable).toBe(true)
+  })
+})
