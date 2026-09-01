@@ -37,7 +37,8 @@ export async function GET(req: NextRequest) {
       })
     }
 
-    const backendUrl = `${BACKEND_URL}/api/dependency-map-v2?systemId=${encodeURIComponent(systemId)}&window=${window}&mode=${mode}`
+    const backendParams = new URLSearchParams({ systemId, window, mode })
+    const backendUrl = `${BACKEND_URL}/api/dependency-map-v2?${backendParams.toString()}`
 
     console.log(`[proxy] dependency-map/v2 -> ${backendUrl}`)
 
@@ -62,30 +63,12 @@ export async function GET(req: NextRequest) {
       const errorText = await res.text()
       console.error(`[proxy] dependency-map/v2 backend returned ${res.status}: ${errorText}`)
 
-      // Return empty structure on error
       return NextResponse.json(
         {
-          system_id: systemId,
-          window: window,
-          mode: mode,
-          containers: [],
-          nodes: [],
-          edges: [],
-          coverage: {
-            flow_logs_enabled_enis_pct: 0,
-            analysis_window: window,
-            observed_edges: 0,
-            total_flows: 0,
-            notes: ["Backend error: " + res.status],
-          },
-          total_containers: 0,
-          total_nodes: 0,
-          total_edges: 0,
-          categories: {},
-          last_updated: new Date().toISOString(),
-          error: `Backend returned ${res.status}`,
+          error: `Dependency-map backend returned ${res.status}`,
+          detail: errorText.slice(0, 500),
         },
-        { status: 200 }
+        { status: res.status }
       )
     }
 
@@ -104,29 +87,10 @@ export async function GET(req: NextRequest) {
   } catch (error: any) {
     console.error("[proxy] dependency-map/v2 error:", error)
 
+    const timedOut = error?.name === "AbortError"
     return NextResponse.json(
-      {
-        system_id: "unknown",
-        window: "7d",
-        mode: "observed",
-        containers: [],
-        nodes: [],
-        edges: [],
-        coverage: {
-          flow_logs_enabled_enis_pct: 0,
-          analysis_window: "7d",
-          observed_edges: 0,
-          total_flows: 0,
-          notes: ["Error: " + (error.message || "Unknown error")],
-        },
-        total_containers: 0,
-        total_nodes: 0,
-        total_edges: 0,
-        categories: {},
-        last_updated: new Date().toISOString(),
-        error: error.message || "Internal server error",
-      },
-      { status: 200 }
+      { error: timedOut ? "Dependency-map backend timed out" : "Dependency-map backend unavailable" },
+      { status: timedOut ? 504 : 502 }
     )
   }
 }
