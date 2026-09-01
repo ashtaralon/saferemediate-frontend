@@ -159,7 +159,25 @@ export function isResourceDependenciesResponse(
 ): value is ResourceDependenciesResponse {
   if (!value || typeof value !== "object") return false
   const body = value as { schema?: unknown; page?: unknown; counts?: unknown }
-  return body.schema === "resource-dependencies/v1" && Boolean(body.page) && Boolean(body.counts)
+  if (body.schema !== "resource-dependencies/v1") return false
+
+  // `Boolean(page) && Boolean(counts)` alone is not enough. A body carrying
+  // `counts: {}` — a partial serialisation, a legacy cached payload, a proxy
+  // answering 200 with something else — passes that check, reaches the tab, and
+  // renders `payload?.counts.by_perspective ?? { USES: 0, USED_BY: 0, PEER: 0 }`
+  // as "0 providers used". That is a FABRICATED number presented as a reading
+  // of the graph, which rule 1 forbids outright, and it is worse than an error
+  // because nothing on screen says it is wrong.
+  //
+  // So check the fields the tab dereferences, not just the objects containing
+  // them. A body that fails here takes the existing Unavailable path, which
+  // says we could not read the dependencies rather than claiming there are none.
+  const isObject = (v: unknown): v is Record<string, unknown> =>
+    typeof v === "object" && v !== null && !Array.isArray(v)
+
+  if (!isObject(body.page) || !Array.isArray(body.page.rows)) return false
+  if (!isObject(body.counts) || !isObject(body.counts.by_perspective)) return false
+  return true
 }
 
 function isNetworkAddress(value: string) {
