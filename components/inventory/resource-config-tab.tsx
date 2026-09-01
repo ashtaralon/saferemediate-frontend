@@ -837,6 +837,7 @@ function InsightSections({ data }: { data: InspectorPayload }) {
 }
 
 export function ResourceConfigTab({ resourceId, resourceType, systemName }: Props) {
+  const readinessLabel = toNeo4jLabel(resourceType)
   const [data, setData] = useState<InspectorPayload | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -875,7 +876,7 @@ export function ResourceConfigTab({ resourceId, resourceType, systemName }: Prop
 
   useEffect(() => {
     let cancelled = false
-    const label = toNeo4jLabel(resourceType)
+    const label = readinessLabel
     if (!label) {
       setReadinessLoading(false)
       setReadiness(null)
@@ -907,13 +908,14 @@ export function ResourceConfigTab({ resourceId, resourceType, systemName }: Prop
     return () => {
       cancelled = true
     }
-  }, [resourceId, resourceType])
+  }, [readinessLabel, resourceId])
 
   const readinessBanner = (
     <ReadinessBadges
       readiness={readiness}
       loading={readinessLoading}
       error={readinessError}
+      unsupported={!readinessLabel}
     />
   )
 
