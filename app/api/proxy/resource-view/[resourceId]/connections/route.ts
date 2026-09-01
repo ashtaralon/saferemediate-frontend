@@ -59,7 +59,14 @@ export async function GET(
   try {
     const { resourceId } = await params
     const encodedResourceId = encodeURIComponent(resourceId)
-    const cacheKey = `connections:${resourceId}`
+    const incoming = new URL(request.url)
+    const backendParams = new URLSearchParams()
+    for (const key of ["customer_id", "account_id", "page"] as const) {
+      const value = incoming.searchParams.get(key)
+      if (value) backendParams.set(key, value)
+    }
+    const backendQuery = backendParams.toString()
+    const cacheKey = `connections:${resourceId}:${backendQuery}`
     const now = Date.now()
 
     // Check in-memory cache
@@ -93,7 +100,7 @@ export async function GET(
 
     // Main request with retry logic
     const response = await fetchWithRetry(
-      `${BACKEND_URL}/api/resource-view/${encodedResourceId}/connections`,
+      `${BACKEND_URL}/api/resource-view/${encodedResourceId}/connections${backendQuery ? `?${backendQuery}` : ""}`,
       {
         headers: {
           "Content-Type": "application/json",

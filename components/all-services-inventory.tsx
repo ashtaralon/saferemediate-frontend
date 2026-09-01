@@ -11,7 +11,12 @@ import {
 } from 'lucide-react'
 import { BackToDashboard } from '@/components/back-to-dashboard'
 import { ResourceConfigTab } from '@/components/inventory/resource-config-tab'
+import {
+  ResourceDependenciesTab,
+  ResourceRelationshipsPreviewTabButton,
+} from '@/components/inventory/resource-dependencies-tab'
 import { dedupeKmsListRows } from '@/lib/inventory-list'
+import { graphRelationshipsPreviewEnabled } from '@/lib/resource-dependencies'
 import { ServiceTypeBadge } from '@/lib/service-type'
 import {
   UNKNOWN,
@@ -33,6 +38,8 @@ import {
 } from '@/lib/inventory-honesty'
 import { useAccountScope } from '@/lib/account-scope-context'
 import { resourceAccountId, withAccountScope } from '@/lib/account-scope'
+
+const GRAPH_RELATIONSHIPS_PREVIEW_ENABLED = graphRelationshipsPreviewEnabled()
 
 // Icon + color for a resource type now come from the canonical
 // `@/lib/service-type` badge — the old per-file `SERVICE_ICONS` map was
@@ -312,7 +319,7 @@ export default function AllServicesInventory({ systemName }: Props) {
   const [iamData, setIamData] = useState<any>(null)
   const [iamLoading, setIamLoading] = useState(false)
   const [iamError, setIamError] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState<'overview' | 'iam' | 'config'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'dependencies' | 'iam' | 'config'>('overview')
   const [expandedPolicies, setExpandedPolicies] = useState<Set<string>>(new Set())
   const [showUsedPerms, setShowUsedPerms] = useState(true)
   const [showUnusedPerms, setShowUnusedPerms] = useState(true)
@@ -975,9 +982,11 @@ export default function AllServicesInventory({ systemName }: Props) {
             </div>
 
             {/* Tabs */}
-            {(getIAMRoleName(selectedService) || CONFIG_TAB_LABEL[selectedService.type]) && (
-              <div className="flex border-b bg-slate-50">
+            <div className="flex overflow-x-auto border-b bg-slate-50" role="tablist" aria-label="Resource details">
                 <button
+                  type="button"
+                  role="tab"
+                  aria-selected={activeTab === 'overview'}
                   onClick={() => setActiveTab('overview')}
                   className={`px-6 py-3 font-medium text-sm transition-colors ${
                     activeTab === 'overview'
@@ -987,8 +996,16 @@ export default function AllServicesInventory({ systemName }: Props) {
                 >
                   Overview
                 </button>
+                <ResourceRelationshipsPreviewTabButton
+                  enabled={GRAPH_RELATIONSHIPS_PREVIEW_ENABLED}
+                  selected={activeTab === 'dependencies'}
+                  onSelect={() => setActiveTab('dependencies')}
+                />
                 {CONFIG_TAB_LABEL[selectedService.type] && (
                   <button
+                    type="button"
+                    role="tab"
+                    aria-selected={activeTab === 'config'}
                     onClick={() => setActiveTab('config')}
                     className={`px-6 py-3 font-medium text-sm transition-colors flex items-center gap-2 ${
                       activeTab === 'config'
@@ -1002,6 +1019,9 @@ export default function AllServicesInventory({ systemName }: Props) {
                 )}
                 {getIAMRoleName(selectedService) && (
                   <button
+                    type="button"
+                    role="tab"
+                    aria-selected={activeTab === 'iam'}
                     onClick={() => setActiveTab('iam')}
                     className={`px-6 py-3 font-medium text-sm transition-colors flex items-center gap-2 ${
                       activeTab === 'iam'
@@ -1014,11 +1034,12 @@ export default function AllServicesInventory({ systemName }: Props) {
                   </button>
                 )}
               </div>
-            )}
             
             {/* Content */}
-            <div className="p-6 overflow-y-auto max-h-[calc(90vh-200px)]">
-              {activeTab === 'config' && CONFIG_TAB_LABEL[selectedService.type] ? (
+            <div className="p-6 overflow-y-auto max-h-[calc(90vh-200px)]" role="tabpanel">
+              {activeTab === 'dependencies' && GRAPH_RELATIONSHIPS_PREVIEW_ENABLED ? (
+                <ResourceDependenciesTab resourceId={selectedService.id} />
+              ) : activeTab === 'config' && CONFIG_TAB_LABEL[selectedService.type] ? (
                 <ResourceConfigTab
                   resourceId={selectedService.id}
                   resourceType={selectedService.type}
