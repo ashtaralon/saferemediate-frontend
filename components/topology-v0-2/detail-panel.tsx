@@ -632,6 +632,14 @@ export function DetailPanel({
               </div>
             ) : null}
             {error && !mapDependencyFallback ? <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">Live dependency enrichment is temporarily unavailable. Retry after the graph service recovers.</div> : null}
+            {!error && dependencyDossier?.evidence.materialized && dependencyDossier.evidence.coverage_state.startsWith("stale") ? (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800" data-testid="estate-dependencies-materialized-stale">
+                Showing the last-good materialized dependency generation
+                {typeof dependencyDossier.evidence.snapshot_age_seconds === "number"
+                  ? ` (${Math.max(1, Math.round(dependencyDossier.evidence.snapshot_age_seconds / 3600))}h old)`
+                  : ""}. Configured relationships remain valid; behavioral absence is not authoritative until collection refreshes.
+              </div>
+            ) : null}
             {dependencyDossier ? (
               <>
                 <div className="grid grid-cols-3 gap-3">

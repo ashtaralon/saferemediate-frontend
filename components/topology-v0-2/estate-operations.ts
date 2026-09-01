@@ -45,6 +45,8 @@ export interface OperationalDossier {
     latest_observation?: string | null
     sources: string[]
     coverage_state: string
+    materialized?: boolean
+    snapshot_age_seconds?: number | null
   }
   change_capabilities: Array<{ kind: string; available: boolean; label: string }>
 }

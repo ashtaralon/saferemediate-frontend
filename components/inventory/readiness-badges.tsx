@@ -44,6 +44,7 @@ export function ReadinessBadges({
     evidence_collected: readiness.evidence_collected,
     remediation_ready: readiness.remediation_ready,
   }
+  const inventoryOnly = readiness.surface_id?.startsWith("inventory:") === true
 
   return (
     <div className="rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-3 space-y-2">
@@ -60,20 +61,23 @@ export function ReadinessBadges({
           Data readiness
         </p>
         <span className="text-[11px] px-2 py-0.5 rounded-full bg-white border border-slate-200 text-slate-700">
-          Max decision: <strong>{formatMaxOutcome(readiness.max_outcome)}</strong>
+          {inventoryOnly ? "Inspection state" : "Max decision"}: <strong>{formatMaxOutcome(readiness.max_outcome)}</strong>
         </span>
       </div>
 
       <div className="grid grid-cols-2 gap-1.5">
-        {READINESS_LAYER_LABELS.map(({ key, label }) => (
+        {READINESS_LAYER_LABELS.map(({ key, label }) => {
+          const notScored = inventoryOnly && (key === "evidence_collected" || key === "remediation_ready")
+          return (
           <div
             key={key}
             className="flex items-center gap-1.5 text-[11px] text-slate-700 min-w-0"
           >
-            <LayerIcon ok={layers[key]} unknown={key === "evidence_collected" && !readiness.surface_id?.startsWith("inventory") && !layers[key] && !layers.config_collected} />
-            <span className="truncate">{label}</span>
+            <LayerIcon ok={layers[key]} unknown={notScored || (key === "evidence_collected" && !inventoryOnly && !layers[key] && !layers.config_collected)} />
+            <span className="truncate">{label}{notScored ? " · not scored" : ""}</span>
           </div>
-        ))}
+          )
+        })}
       </div>
 
       {!readiness.config_collected && (

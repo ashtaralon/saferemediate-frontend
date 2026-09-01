@@ -205,6 +205,27 @@ describe("Estate operations panel", () => {
     expect(screen.getByText("configured")).toBeInTheDocument()
   })
 
+  it("labels a stale materialized dependency generation without reporting a live failure", async () => {
+    const materialized = {
+      ...dossier,
+      evidence: {
+        ...dossier.evidence,
+        coverage_state: "stale · partial",
+        materialized: true,
+        snapshot_age_seconds: 7200,
+      },
+    }
+    vi.spyOn(globalThis, "fetch").mockImplementation((input) =>
+      response(String(input).includes("/resource/narration?") ? narration : materialized),
+    )
+    renderPanel()
+    fireEvent.click(screen.getByTestId("estate-operations-tab-dependencies"))
+
+    expect(await screen.findByTestId("estate-dependencies-materialized-stale")).toHaveTextContent("2h old")
+    expect(screen.getByTestId("estate-dependencies-materialized-stale")).toHaveTextContent("behavioral absence is not authoritative")
+    expect(screen.queryByTestId("estate-dependencies-fallback")).not.toBeInTheDocument()
+  })
+
   it("shows blockers and never exposes execution for an unproven route scope", async () => {
     const blockedPlan = {
       readiness: "BLOCKED",
