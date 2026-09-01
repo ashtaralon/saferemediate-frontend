@@ -59,6 +59,57 @@ export function shouldShowGlobalStateBanner(
   return !(coreSectionsReady && remediationReviewOnly)
 }
 
+/** Core sections that are not READY, by display name. Derived from
+ *  serve_state only — the same five sections shouldShowGlobalStateBanner
+ *  gates on. */
+export function unavailableCoreSections(data: SystemExecutiveSnapshot): string[] {
+  const names: string[] = []
+  if (data.material_risk.serve_state !== "READY") names.push("Material risk")
+  if (data.resource_risk.serve_state !== "READY") names.push("Resource risk")
+  if (data.evidence.serve_state !== "READY") names.push("Evidence")
+  if (data.outcomes.serve_state !== "READY") names.push("Outcomes")
+  if (data.context.serve_state !== "READY") names.push("Context")
+  return names
+}
+
+/**
+ * Banner subtitle.
+ *
+ * Was one unconditional sentence — "Decisions remain fail-closed while the
+ * unavailable sections recover." — rendered under all three headlines,
+ * including the two where nothing is recovering. That asserts a trajectory the
+ * state does not support, and it costs behaviour rather than only precision: an
+ * operator told a section is "recovering" WAITS, when the section may need a
+ * job run, a permission granted, or evidence collected before it can ever be
+ * available.
+ *
+ * `serve_state` establishes WHICH sections are unavailable and nothing more. It
+ * does not carry why, whether the condition is retryable, or what to run — the
+ * backend emits a per-section `reason` (api/executive_snapshot.py) but it is
+ * absent from SystemExecutiveSnapshot, so this layer cannot honestly say more
+ * than "unavailable". Naming the sections is the most this data earns; adding
+ * operator guidance requires the backend to expose stable structured fields
+ * (reason / retryable / operator_action), not a frontend mapping of reason
+ * strings.
+ */
+export function stateBannerDetail(
+  data: SystemExecutiveSnapshot,
+  recovering: boolean,
+): string {
+  if (recovering) {
+    return "Decisions remain fail-closed while the backend recovers."
+  }
+  const failClosed =
+    "Decisions remain fail-closed until the required sections are available."
+  const names = unavailableCoreSections(data)
+  if (names.length === 0) return failClosed
+  const list =
+    names.length === 1
+      ? names[0]
+      : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`
+  return `${list} ${names.length === 1 ? "is" : "are"} unavailable. ${failClosed}`
+}
+
 export function proposedChangeCount(
   remediation: SystemExecutiveSnapshot["remediation"],
 ): number | null {
@@ -96,9 +147,7 @@ function StateBanner({ data, recovering }: { data: SystemExecutiveSnapshot; reco
             ? "Partial system reading — unavailable figures are not zero"
             : "System risk reading is not ready"}
       </div>
-      <p className="mt-1 text-xs opacity-80">
-        Decisions remain fail-closed while the unavailable sections recover.
-      </p>
+      <p className="mt-1 text-xs opacity-80">{stateBannerDetail(data, recovering)}</p>
     </div>
   )
 }
