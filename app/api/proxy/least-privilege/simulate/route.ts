@@ -49,13 +49,17 @@ export async function POST(request: Request) {
     // normalize a bit
     return NextResponse.json(
       {
-        success: raw.success ?? true,
+        // Absent `success` is not success — same rule as the apply route.
+        success: raw.success === true,
         systemName,
         roleName: raw.roleName ?? raw.role_name ?? "",
         allowed: raw.allowed ?? [],
         used: raw.used ?? [],
         unused: raw.unused ?? [],
-        confidence: raw.confidence ?? 99,
+        // Was `?? 99`: a fabricated 99% confidence whenever the backend
+        // reported none — a manufactured number on a screen an operator
+        // reads before removing permissions. Null renders as unknown.
+        confidence: raw.confidence ?? null,
         plan: raw.plan ?? [],
         planId: raw.planId ?? raw.plan_id ?? null,
       },
