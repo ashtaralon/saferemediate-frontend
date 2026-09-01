@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useState, type KeyboardEvent } from "react"
 import {
   AlertTriangle,
   CheckCircle2,
@@ -8,7 +8,6 @@ import {
   ChevronRight,
   CircleHelp,
   Clock3,
-  Database,
   Gauge,
   LoaderCircle,
   ShieldCheck,
@@ -16,79 +15,16 @@ import {
 } from "lucide-react"
 import { ServiceTypeBadge } from "@/lib/service-type"
 import { useAccountScope } from "@/lib/account-scope-context"
-
-type ServeState = "ACTIVE" | "PARTIAL" | "NOT_READY" | "INTEGRITY_HELD" | "NOT_APPLICABLE"
-type AssertionState = "OBSERVED" | "CONFIGURED" | "INFERRED" | "UNKNOWN" | "BLOCKED" | "NOT_APPLICABLE"
-type BasisClass = "OBSERVED" | "CONFIGURED" | "STRUCTURAL"
-
-interface Coverage {
-  state: "FULL" | "PARTIAL" | "NONE" | "UNKNOWN"
-  required_sources: string[]
-  present_sources: string[]
-  missing_sources: string[]
-  sufficient_for: string[]
-  insufficient_for: string[]
-}
-
-interface EvidenceBinding {
-  object_key: string
-  version_id: string
-  digest: string
-}
-
-interface SourceGenerationRef {
-  plane: string
-  generation: string
-  head_hash: string
-  evidence_binding: EvidenceBinding | null
-}
-
-interface Assertion<T = unknown> {
-  state: AssertionState
-  value: T | null
-  basis: string
-  sources: string[]
-  evidence_refs: EvidenceBinding[]
-  authority_basis: string
-  as_of: string
-  window: { start: string; end: string; days: number } | null
-  coverage: Coverage
-  source_generation_refs: SourceGenerationRef[]
-  policy_version: string | null
-}
-
-interface Dependency {
-  direction: "UPSTREAM" | "DOWNSTREAM"
-  basis_class: BasisClass
-  freshness: string
-  relationship: string
-  principal_canonical_resource_uid?: string | null
-  principal_arn?: string | null
-  principal_display_name?: string | null
-  principal_type?: string | null
-  target_canonical_resource_uid?: string | null
-  target_arn?: string | null
-  target_display_name?: string | null
-  target_type?: string | null
-  resource_canonical_resource_uid: string
-  first_seen?: string | null
-  last_seen?: string | null
-  observation_days?: number | null
-  actions?: string[]
-  read_prefixes?: string[]
-  write_prefixes?: string[]
-  delete_prefixes?: string[]
-  via_vpce?: string | null
-  evidence_refs: EvidenceBinding[]
-  source_generation_refs: SourceGenerationRef[]
-}
-
-interface DossierSection<T> {
-  serve_state: ServeState
-  payload: T | null
-  coverage: Coverage | null
-  notes: string | null
-}
+import type {
+  Assertion,
+  BasisClass,
+  Coverage,
+  DependenciesPayload,
+  DossierSection,
+  ServeState,
+} from "@/lib/resource-dossier-types"
+import { DependenciesTab } from "./dependencies-tab"
+import { EvidenceRefList, StateBadge } from "./dossier-primitives"
 
 interface ProfileFact {
   key: string
@@ -118,10 +54,7 @@ interface ResourceDossierData {
   }>
   lifecycle: DossierSection<ProfileFactsPayload>
   fitness: DossierSection<ProfileFactsPayload>
-  dependencies: DossierSection<{
-    ledger: Dependency[]
-    counts_by_basis: Record<BasisClass, number>
-  }>
+  dependencies: DossierSection<DependenciesPayload>
   changes: DossierSection<never>
   actions: DossierSection<never>
   evidence: DossierSection<{
@@ -157,106 +90,6 @@ interface Props {
 }
 
 type Tab = "purpose" | "dependencies" | "evidence"
-
-function StateBadge({ value, axis = "state" }: { value: string; axis?: "state" | "coverage" }) {
-  const style = value === "ACTIVE" || value === "FULL" || value === "OBSERVED"
-    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-    : value === "PARTIAL" || value === "CONFIGURED" || value === "STRUCTURAL"
-      ? "border-amber-200 bg-amber-50 text-amber-800"
-      : value === "INTEGRITY_HELD" || value === "HELD" || value === "BLOCKED"
-        ? "border-rose-200 bg-rose-50 text-rose-800"
-        : "border-slate-200 bg-slate-50 text-slate-600"
-  const labels: Record<string, string> = axis === "coverage" ? {
-    FULL: "Complete coverage",
-    PARTIAL: "Partial coverage",
-    NONE: "No coverage proof",
-    UNKNOWN: "Coverage unverified",
-  } : {
-    ACTIVE: "Verified profile",
-    PARTIAL: "Evidence available",
-    NOT_READY: "Identity available",
-    INTEGRITY_HELD: "Evidence review",
-    NOT_APPLICABLE: "Not applicable",
-    OBSERVED: "Observed",
-    CONFIGURED: "Configured",
-    STRUCTURAL: "Structural",
-    INFERRED: "Inferred",
-    BLOCKED: "Evidence blocked",
-    HELD: "Evidence held",
-  }
-  return <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${style}`}>{labels[value] ?? value.replaceAll("_", " ")}</span>
-}
-
-function canonicalDependencyIdentity(dependency: Dependency) {
-  return dependency.principal_arn
-    ?? dependency.principal_canonical_resource_uid
-    ?? dependency.target_arn
-    ?? dependency.target_canonical_resource_uid
-    ?? null
-}
-
-function typedAwsIdentity(identity: string, resourceType?: string | null) {
-  if (identity === "*") return "Any AWS principal"
-  if (!identity.startsWith("arn:")) {
-    const tail = identity.split(/[/:]/).filter(Boolean).at(-1) ?? identity
-    return resourceType ? `${resourceType} · ${tail}` : tail
-  }
-
-  const parts = identity.split(":")
-  const service = parts[2] ?? "AWS"
-  const resource = parts.slice(5).join(":")
-  const path = resource.split("/").filter(Boolean)
-  const tail = path.at(-1) ?? resource
-
-  if (service === "ec2" && path[0] === "instance") return `EC2 instance · ${tail}`
-  if (service === "sts" && path[0] === "assumed-role") {
-    const role = path[1] ?? "unknown role"
-    const session = path.slice(2).join("/")
-    return `STS session · ${role}${session ? ` / ${session}` : ""}`
-  }
-  if (service === "iam" && path[0] === "role") return `IAM role · ${path.slice(1).join("/")}`
-  if (service === "iam" && path[0] === "user") return `IAM user · ${path.slice(1).join("/")}`
-  if (service === "iam" && resource === "root") return "AWS account root"
-  if (service === "lambda" && resource.startsWith("function:")) {
-    return `Lambda function · ${resource.slice("function:".length)}`
-  }
-  if (service === "s3") return `S3 bucket · ${resource}`
-  if (service === "kms") return `KMS key · ${tail}`
-
-  const serviceLabel = service === "events" ? "EventBridge" : service.toUpperCase()
-  return `${resourceType || serviceLabel} · ${tail}`
-}
-
-function isNetworkAddress(value: string) {
-  return /^(?:\d{1,3}\.){3}\d{1,3}$/.test(value) || value.includes(":")
-}
-
-function displayIdentity(dependency: Dependency) {
-  const canonical = canonicalDependencyIdentity(dependency)
-  const resolved = dependency.principal_display_name ?? dependency.target_display_name
-  if (resolved && resolved !== canonical && !resolved.startsWith("arn:")) {
-    return !canonical && isNetworkAddress(resolved) ? `Network endpoint · ${resolved}` : resolved
-  }
-  if (canonical) return typedAwsIdentity(canonical, dependency.principal_type ?? dependency.target_type)
-  return "Relationship endpoint"
-}
-
-function EvidenceRefList({ refs, sourceRefs = [] }: { refs: EvidenceBinding[]; sourceRefs?: SourceGenerationRef[] }) {
-  if (!refs.length) return sourceRefs.length ? (
-    <div className="space-y-1 text-slate-600">
-      {sourceRefs.map(ref => <div key={`${ref.plane}:${ref.generation}`}><span className="font-semibold capitalize">{ref.plane}</span> generation <span className="font-mono">{ref.generation}</span> · object-level evidence link unavailable</div>)}
-    </div>
-  ) : <span className="text-slate-600">Object-level evidence link unavailable</span>
-  return (
-    <ul className="space-y-1">
-      {refs.map(ref => (
-        <li key={`${ref.object_key}:${ref.version_id}`} className="break-all font-mono text-[10px] text-slate-600">
-          {ref.object_key} · version {ref.version_id} · sha {ref.digest.slice(0, 12)}…
-        </li>
-      ))}
-    </ul>
-  )
-}
 
 export function formatFactValue(key: string, value: unknown) {
   if (value === null || value === undefined || value === "") return "Unavailable"
@@ -340,22 +173,28 @@ export function ResourceDossier({
     return () => { cancelled = true }
   }, [accountId, region, resourceId, scope.accountId, scope.region, systemName])
 
-  const dependencies = data?.dependencies.payload?.ledger ?? []
   const counts = data?.dependencies.payload?.counts_by_basis
   const lifecycleFacts = data?.lifecycle.payload?.facts ?? []
   const fitnessFacts = data?.fitness.payload?.facts ?? []
   const hasConfigurationProfile = Boolean(data?.purpose.payload?.profile_id)
-  const grouped = useMemo(() => ({
-    OBSERVED: dependencies.filter(item => item.basis_class === "OBSERVED"),
-    CONFIGURED: dependencies.filter(item => item.basis_class === "CONFIGURED"),
-    STRUCTURAL: dependencies.filter(item => item.basis_class === "STRUCTURAL"),
-  }), [dependencies])
 
   const tabs: Array<{ id: Tab; label: string }> = [
     { id: "purpose", label: "Purpose" },
     { id: "dependencies", label: "Dependencies" },
     { id: "evidence", label: "Technical evidence" },
   ]
+
+  // Roving-focus arrow keys, per the WAI-ARIA tabs pattern (DE-307).
+  const onTabKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0
+    const jump = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : null
+    if (!step && jump === null) return
+    event.preventDefault()
+    const current = tabs.findIndex(item => item.id === tab)
+    const next = jump ?? (current + step + tabs.length) % tabs.length
+    setTab(tabs[next].id)
+    document.getElementById(`dossier-tab-${tabs[next].id}`)?.focus()
+  }
 
   return (
     <aside className="fixed inset-y-0 right-0 z-[240] flex w-full max-w-[680px] flex-col border-l border-slate-200 bg-white shadow-2xl" role="dialog" aria-label={`Resource dossier for ${resourceName ?? resourceId}`}>
@@ -372,11 +211,22 @@ export function ResourceDossier({
         </div>
       </header>
 
-      <nav className="grid grid-cols-3 border-b border-slate-200 bg-slate-50 px-3 pt-2">
+      <div role="tablist" aria-label="Resource dossier sections" className="grid grid-cols-3 border-b border-slate-200 bg-slate-50 px-3 pt-2" onKeyDown={onTabKeyDown}>
         {tabs.map(item => (
-          <button key={item.id} type="button" disabled={!data} onClick={() => setTab(item.id)} className={`border-b-2 px-2 py-2 text-xs font-semibold disabled:cursor-not-allowed disabled:text-slate-300 ${tab === item.id && data ? "border-teal-500 bg-white text-slate-950" : "border-transparent text-slate-500 hover:text-slate-800"}`}>{item.label}</button>
+          <button
+            key={item.id}
+            id={`dossier-tab-${item.id}`}
+            type="button"
+            role="tab"
+            aria-selected={tab === item.id}
+            aria-controls={`dossier-panel-${item.id}`}
+            tabIndex={tab === item.id ? 0 : -1}
+            disabled={!data}
+            onClick={() => setTab(item.id)}
+            className={`border-b-2 px-2 py-2 text-xs font-semibold disabled:cursor-not-allowed disabled:text-slate-300 ${tab === item.id && data ? "border-teal-500 bg-white text-slate-950" : "border-transparent text-slate-500 hover:text-slate-800"}`}
+          >{item.label}</button>
         ))}
-      </nav>
+      </div>
 
       <div className="flex-1 overflow-y-auto bg-[#F4F6F8] p-5">
         {loading ? <div className="flex items-center gap-2 text-sm text-slate-600"><LoaderCircle className="h-4 w-4 animate-spin" />Assembling generation-pinned evidence…</div> : null}
@@ -389,7 +239,7 @@ export function ResourceDossier({
         ) : null}
 
         {data && tab === "purpose" ? (
-          <div className="space-y-4">
+          <div id="dossier-panel-purpose" role="tabpanel" aria-labelledby="dossier-tab-purpose" className="space-y-4">
             <section className="rounded-xl border border-slate-200 bg-white p-5">
               <div className="flex items-center justify-between gap-3"><div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">{hasConfigurationProfile ? "Operational profile" : data.serve_state === "NOT_READY" ? "Identity profile" : "Established purpose"}</div><StateBadge value={data.purpose.serve_state} /></div>
               {data.purpose.payload?.summary ? (
@@ -440,30 +290,13 @@ export function ResourceDossier({
         ) : null}
 
         {data && tab === "dependencies" ? (
-          <div className="space-y-5">
-            <div className="rounded-lg border border-teal-200 bg-teal-50 p-3 text-xs text-teal-900">{data.dependencies.notes ?? "Basis classes are separate proof sets and are never added into a consumer total."}</div>
-            {dependencies.length === 0 ? <div className="rounded-xl border border-slate-200 bg-white p-5 text-sm text-slate-600">No dependency assertions are available. This is not proof that dependencies do not exist.</div> : null}
-            {(["OBSERVED", "CONFIGURED", "STRUCTURAL"] as BasisClass[]).map(basis => grouped[basis].length ? (
-              <section key={basis}>
-                <div className="mb-2 flex items-center gap-2"><StateBadge value={basis} /><span className="text-xs text-slate-500">{grouped[basis].length} assertion{grouped[basis].length === 1 ? "" : "s"}</span></div>
-                <div className="space-y-3">
-                  {grouped[basis].map((dependency, index) => (
-                    <article key={`${basis}-${canonicalDependencyIdentity(dependency)}-${index}`} className="rounded-xl border border-slate-200 bg-white p-4">
-                      <div className="flex items-start gap-3"><Database className="mt-0.5 h-4 w-4 shrink-0 text-teal-700" /><div className="min-w-0 flex-1"><div className="text-sm font-semibold text-slate-900">{displayIdentity(dependency)}</div>{canonicalDependencyIdentity(dependency) && displayIdentity(dependency) !== canonicalDependencyIdentity(dependency) ? <div className="mt-1 break-all font-mono text-[10px] text-slate-500">{canonicalDependencyIdentity(dependency)}</div> : null}<div className="mt-1 text-xs text-slate-500">{dependency.direction} · {dependency.relationship} · {dependency.freshness}</div></div></div>
-                      {dependency.actions?.length ? <div className="mt-3 text-xs text-slate-600">Actions: {dependency.actions.join(", ")}</div> : null}
-                      {dependency.observation_days ? <div className="mt-1 text-xs text-slate-600">Observed over {dependency.observation_days} days · last seen {dependency.last_seen ? new Date(dependency.last_seen).toLocaleString() : "unknown"}</div> : null}
-                      {dependency.via_vpce ? <div className="mt-1 text-xs text-slate-600">Via VPC endpoint: <span className="font-mono">{dependency.via_vpce}</span></div> : null}
-                      <div className="mt-3 border-t border-slate-100 pt-3 text-xs"><EvidenceRefList refs={dependency.evidence_refs ?? []} sourceRefs={dependency.source_generation_refs ?? []} /></div>
-                    </article>
-                  ))}
-                </div>
-              </section>
-            ) : null)}
+          <div id="dossier-panel-dependencies" role="tabpanel" aria-labelledby="dossier-tab-dependencies">
+            <DependenciesTab section={data.dependencies} resourceType={resourceType} />
           </div>
         ) : null}
 
         {data && tab === "evidence" ? (
-          <div className="space-y-4">
+          <div id="dossier-panel-evidence" role="tabpanel" aria-labelledby="dossier-tab-evidence" className="space-y-4">
             <section className="rounded-xl border border-slate-200 bg-white p-4 text-xs text-slate-600">
               <div className="flex items-center justify-between"><span className="font-semibold text-slate-900">Evidence status</span><StateBadge value={data.evidence.serve_state} /></div>
               <div className="mt-3 flex items-center justify-between"><span className="font-semibold text-slate-900">Object-level evidence links unavailable</span><span>{data.evidence.payload?.missing_immutable_evidence_bindings ?? 0}</span></div>

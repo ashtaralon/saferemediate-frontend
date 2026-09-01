@@ -357,7 +357,7 @@ describe("Resource Dossier v6", () => {
     expect(requestUrl).not.toContain("tenant=")
     expect(requestUrl).toContain("account_id=123456789012")
 
-    fireEvent.click(screen.getByRole("button", { name: "Dependencies" }))
+    fireEvent.click(screen.getByRole("tab", { name: "Dependencies" }))
     expect(await screen.findByText("IAM role · orders-reader")).toBeInTheDocument()
     expect(await screen.findByText("arn:aws:iam::123456789012:role/orders-reader")).toBeInTheDocument()
     expect(screen.getByText(/intentionally not summed/)).toBeInTheDocument()
@@ -383,9 +383,9 @@ describe("Resource Dossier v6", () => {
     expect(screen.queryByText("NOT READY")).not.toBeInTheDocument()
     expect(screen.getByText("aws:ec2:eu-west-1:123456789012:instance/i-123")).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole("button", { name: "Dependencies" }))
+    fireEvent.click(screen.getByRole("tab", { name: "Dependencies" }))
     expect(await screen.findByText(/No dependency assertions are available/)).toBeInTheDocument()
-    fireEvent.click(screen.getByRole("button", { name: "Technical evidence" }))
+    fireEvent.click(screen.getByRole("tab", { name: "Technical evidence" }))
     expect(await screen.findByText(/service-specific configuration and activity evidence are not available/i)).toBeInTheDocument()
     expect(screen.queryByText(/NOT_READY/)).not.toBeInTheDocument()
     await waitFor(() => expect(fetch).toHaveBeenCalledWith(
@@ -423,10 +423,21 @@ describe("Resource Dossier v6", () => {
     expect(screen.queryByText("NOT READY")).not.toBeInTheDocument()
     expect(screen.getAllByText("Partial coverage").length).toBeGreaterThan(0)
 
-    fireEvent.click(screen.getByRole("button", { name: "Dependencies" }))
+    fireEvent.click(screen.getByRole("tab", { name: "Dependencies" }))
     expect(await screen.findByText("orders-worker")).toBeInTheDocument()
     expect(screen.getByText("Network endpoint · 3.253.40.255")).toBeInTheDocument()
     expect(screen.queryByText("Canonical identity unavailable")).not.toBeInTheDocument()
+
+    // Perspective, not raw graph direction (§6.3).
+    expect(screen.getByRole("heading", { name: /^Uses/ })).toBeInTheDocument()
+    expect(screen.getByText("runs as (via instance profile)")).toBeInTheDocument()
+    expect(screen.getByText("observed communicating with")).toBeInTheDocument()
+    expect(screen.queryByText(/DOWNSTREAM/)).not.toBeInTheDocument()
+
+    // Evidence is a drawer; generation pinning is still one click away.
+    for (const drawer of screen.getAllByRole("button", { name: "Evidence" })) {
+      fireEvent.click(drawer)
+    }
     expect(screen.getByText("authorization")).toBeInTheDocument()
     expect(screen.getByText("a1")).toBeInTheDocument()
   })
