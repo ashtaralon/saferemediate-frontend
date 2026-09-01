@@ -258,7 +258,19 @@ export function buildLinearModel(
           layer: "ctx",
           sourceId: role.id,
           targetId: card.id,
-          observed: nb.edge_types.some((t) => /ACTUAL|ACCESS|OBSERVED/i.test(t)) || null,
+          // Edge TYPE is not evidence — the same inference PR #783 removed from
+          // clean-attack-flow.tsx and all-paths-graph.tsx, in regex form here.
+          // /ACCESS/i matches ACCESSES_RESOURCE, which a config-only edge also
+          // carries, so a name match painted unproven reach green.
+          //
+          // There is nothing better to derive from at this grain:
+          // ReachableNeighbor (identity-attack-paths/types.ts) carries only
+          // edge_types and edge_count — derive-reachable-neighbors.ts drops
+          // significance and every evidence stamp off the lateral edges before
+          // this point. So the honest value is null (unknown), which
+          // basisEdgeColor renders via the style="priv" fallback. Restoring a
+          // real signal here means carrying stamps through that derivation.
+          observed: null,
         })
         ly += card.h + 12
       }
@@ -267,8 +279,20 @@ export function buildLinearModel(
 
   // ── synthesize the spine (mirrors the Neo4j hop chain) ──
   const profile = workCards.find(isProfile)
-  const roleObserved =
-    model.edges.find((e) => e.targetId === jewel?.id && e.observed === true)?.observed ?? true
+  // Was a tautology: the `find` predicate already required `observed === true`,
+  // so a hit yielded true and a miss yielded `undefined ?? true` — also true.
+  // It could never be false, including when the model carried no edges at all,
+  // and it is applied to spineEdge(role, jewel, "accesses") — the role reaching
+  // the crown jewel, the most consequential edge in this view. A hardcoded
+  // verdict wearing the shape of a derivation.
+  //
+  // The predicate's own intent is "is there an observed edge into the jewel",
+  // which `some` states honestly. Where the answer is no, grey is correct:
+  // basisEdgeColor maps false to BASIS.config, and spineEdge coalesces to
+  // false, so nothing renders as proven that was not.
+  const roleObserved = model.edges.some(
+    (e) => e.targetId === jewel?.id && e.observed === true,
+  )
   const edges = [
     hasIngress ? spineEdge(internet, igw, { label: "reaches" }) : null,
     hasIngress ? spineEdge(igw, foothold, { label: "reaches" }) : null,
