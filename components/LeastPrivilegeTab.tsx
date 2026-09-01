@@ -4298,12 +4298,16 @@ function SummaryTab({ resource }: { resource: GapResource }) {
               </div>
             </div>
             <div className="rounded-lg border border-[var(--border,#e5e7eb)] p-4">
-              <div className="text-sm text-[var(--muted-foreground,#4b5563)] mb-1">Attack Surface Reduction</div>
+              {/* Was "Attack Surface Reduction", which named a reduction you
+                  would ACHIEVE by removing these — an outcome claim that
+                  presumes the unobserved permissions are safely removable. The
+                  number measures what was not observed; that is all it can say. */}
+              <div className="text-sm text-[var(--muted-foreground,#4b5563)] mb-1">Not Observed</div>
               <div className="text-3xl font-bold text-[#ef4444]">
                 {resource.gapPercent !== null ? `${resource.gapPercent.toFixed(0)}%` : 'N/A'}
               </div>
               <div className="text-xs text-[var(--muted-foreground,#6b7280)] mt-1">
-                {resource.gapCount ?? 0} permissions
+                {resource.gapCount ?? 0} of {resource.allowedCount ?? '—'} permissions
               </div>
             </div>
           </>
@@ -4344,21 +4348,40 @@ function SummaryTab({ resource }: { resource: GapResource }) {
               className="bg-[#22c55e10]0 h-full flex items-center justify-center text-white text-xs font-medium"
               style={{ width: `${((resource.usedCount ?? 0) / Math.max(1, resource.allowedCount ?? 0)) * 100}%` }}
             >
-              Used ({(resource.usedCount ?? 0)})
+              Observed ({(resource.usedCount ?? 0)})
             </div>
             <div
               className="bg-[#ef444410]0 h-full flex items-center justify-center text-white text-xs font-medium"
               style={{ width: `${((resource.gapCount ?? 0) / Math.max(1, resource.allowedCount ?? 0)) * 100}%` }}
             >
-              Unused ({(resource.gapCount ?? 0)})
+              {/* Was "Unused". A permission missing from the evidence is not
+                  observed; "unused" is the negative claim the evidence layer
+                  refuses to make without ingest health and coverage. */}
+              Not observed ({(resource.gapCount ?? 0)})
             </div>
           </div>
         )}
+        {/* "only N were used" and "the other M are your attack surface" stated
+            two INFERRED claims as measured fact. A permission absent from the
+            evidence is not observed; calling it unused, or calling the
+            remainder attack surface, asserts the sensor was on and complete for
+            the whole window — which this payload does not establish. See
+            unified/lp_safety/measured_zero.py: trusting a zero needs maturity
+            AND ingest health AND coverage, and only maturity is carried today. */}
         <p className="text-sm text-[var(--foreground,#374151)]">
           <strong>{resource.resourceName}</strong> has <strong>{resource.allowedCount ?? '—'} allowed permissions</strong>.
-          In <strong>{resource.evidence?.observationDays ?? '—'} days</strong> of observation, only <strong>{resource.usedCount ?? '—'} were used</strong>.
-          The other <strong>{resource.gapCount ?? '—'} ({resource.gapPercent !== null ? `${resource.gapPercent.toFixed(0)}%` : '—'})</strong> are your attack surface.
+          Over <strong>{resource.evidence?.observationDays ?? '—'} days</strong> of evidence,{' '}
+          <strong>{resource.usedCount ?? '—'}</strong> {resource.usedCount === 1 ? 'was' : 'were'} observed in use
+          and <strong>{resource.gapCount ?? '—'}{resource.gapPercent !== null ? ` (${resource.gapPercent.toFixed(0)}%)` : ''}</strong> {resource.gapCount === 1 ? 'was' : 'were'} not observed.
         </p>
+        {resource.evidence?.coverage?.complete !== true && (
+          <p className="mt-2 text-xs text-[var(--muted-foreground,#6b7280)]">
+            Not observed is not the same as unused. Evidence coverage for this
+            resource is not confirmed complete, so these counts cannot establish
+            that the unobserved permissions are safe to remove — review the
+            Evidence tab before acting on them.
+          </p>
+        )}
       </div>
 
       {(resource.highRiskUnused?.length || 0) > 0 && (
