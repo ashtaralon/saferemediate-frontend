@@ -10,6 +10,8 @@ import {
   proposedChangeCount,
   resourceRiskNavigationTarget,
   shouldShowGlobalStateBanner,
+  stateBannerDetail,
+  unavailableCoreSections,
 } from "@/components/system-detail/system-executive-overview"
 
 const root = join(__dirname, "..", "..")
@@ -71,6 +73,59 @@ describe("system executive overview", () => {
     expect(resourceRiskNavigationTarget()).toBe("least-privilege")
     expect(overview.match(/onNavigate\(resourceRiskNavigationTarget\(\)\)/g)).toHaveLength(2)
     expect(overview).not.toMatch(/ResourceRisks[^\n]+onNavigate\("vulnerabilities"\)/)
+  })
+
+  // Regression, 2026-09-01. The subtitle was ONE unconditional sentence --
+  // "Decisions remain fail-closed while the unavailable sections recover." --
+  // rendered under all three headlines, including the two where nothing is
+  // recovering. Existing tests only asserted whether the banner APPEARED, never
+  // its wording, so the false claim was ungated. Reviewer's correction: do not
+  // say "computed" either; serve_state says WHICH section is unavailable and
+  // nothing about why, whether it is retryable, or what to run.
+  it("only claims recovery in the recovering state", () => {
+    const data = fixture({ serve_state: "PARTIAL" })
+    expect(stateBannerDetail(data as never, true)).toBe(
+      "Decisions remain fail-closed while the backend recovers.",
+    )
+    const detail = stateBannerDetail(data as never, false)
+    expect(detail).not.toMatch(/recover/i)
+    expect(detail).toContain("until the required sections are available")
+  })
+
+  it("never promises a cause or an action serve_state cannot establish", () => {
+    const detail = stateBannerDetail(fixture({ serve_state: "PARTIAL" }) as never, false)
+    // "computed" asserts the cause is "not yet computed"; a section may instead
+    // be unavailable for missing evidence, denied permissions, or a failed job.
+    expect(detail).not.toMatch(/comput/i)
+    expect(detail).not.toMatch(/\brun\b|classifier|sync|retry/i)
+  })
+
+  it("names the unavailable sections rather than saying 'some sections'", () => {
+    const one = fixture({
+      serve_state: "PARTIAL",
+      resource_risk: { serve_state: "NOT_READY", analysis_complete: false },
+    })
+    expect(unavailableCoreSections(one as never)).toEqual(["Resource risk"])
+    expect(stateBannerDetail(one as never, false)).toBe(
+      "Resource risk is unavailable. Decisions remain fail-closed until the required sections are available.",
+    )
+
+    const two = fixture({
+      serve_state: "PARTIAL",
+      resource_risk: { serve_state: "NOT_READY", analysis_complete: false },
+      evidence: { serve_state: "NOT_READY", analysis_complete: false },
+    })
+    expect(stateBannerDetail(two as never, false)).toContain(
+      "Resource risk and Evidence are unavailable.",
+    )
+  })
+
+  it("drops the section clause when every core section is ready", () => {
+    const data = fixture({ serve_state: "PARTIAL" })
+    expect(unavailableCoreSections(data as never)).toEqual([])
+    expect(stateBannerDetail(data as never, false)).toBe(
+      "Decisions remain fail-closed until the required sections are available.",
+    )
   })
 
   it("keeps a remediation-only hold local instead of alarming the whole system", () => {
