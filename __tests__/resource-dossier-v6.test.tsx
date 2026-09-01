@@ -5,6 +5,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { formatFactValue, ResourceDossier } from "@/components/inventory/resource-dossier"
+import { emptyDependenciesResponse, type ResourceDependenciesResponse } from "@/lib/resource-dependencies"
 
 vi.mock("@/lib/account-scope-context", () => ({
   useAccountScope: () => ({
@@ -17,6 +18,165 @@ vi.mock("@/lib/account-scope-context", () => ({
 vi.mock("@/lib/service-type", () => ({
   ServiceTypeBadge: ({ type }: { type: string }) => <div aria-label={`Service type ${type}`} />,
 }))
+
+function jsonResponse(body: unknown) {
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { "Content-Type": "application/json" },
+  })
+}
+
+function mockDossierAndDeps(dossierBody: unknown, deps: ResourceDependenciesResponse) {
+  return vi.spyOn(globalThis, "fetch").mockImplementation(async input => {
+    const url = String(input)
+    if (url.includes("/resource-dependencies/")) return jsonResponse(deps)
+    return jsonResponse(dossierBody)
+  })
+}
+
+const emptyDeps = emptyDependenciesResponse()
+
+const s3Deps: ResourceDependenciesResponse = emptyDependenciesResponse({
+  page: {
+    rows: [{
+      pair_key: "USED_BY::arn:aws:iam::123456789012:role/orders-reader",
+      perspective: "USED_BY",
+      counterparty: {
+        identity: "arn:aws:iam::123456789012:role/orders-reader",
+        label: "arn:aws:iam::123456789012:role/orders-reader",
+        type: "IAMRole",
+        account_id: "123456789012",
+        region: null,
+        scope: "IN_ACCOUNT",
+      },
+      facts: [{
+        registered: false,
+        generic: false,
+        label: "ResourcePolicyGrant",
+        perspective: "USED_BY",
+        mechanism: null,
+        mechanism_label: null,
+        capability: null,
+        canonical_relationship: "ResourcePolicyGrant",
+        raw_relationship: "ResourcePolicyGrant",
+        fact_id: "dependency:s3-reader",
+        basis_class: "CONFIGURED",
+        freshness: "UNKNOWN",
+        actions: ["s3:GetObject"],
+        observation_days: null,
+        first_seen: null,
+        last_seen: null,
+        via_vpce: null,
+        evidence_refs: [],
+        source_generation_refs: [],
+        aliases_collapsed: [],
+      }],
+    }],
+    returned: 1,
+    total: 1,
+    offset: 0,
+    next_cursor: null,
+  },
+  counts: {
+    by_perspective: { USES: 0, USED_BY: 1, PEER: 0 },
+    external_counterparties: 0,
+    unresolved_counterparties: 0,
+    unregistered_relationships: { ResourcePolicyGrant: 1 },
+    excluded: {},
+    ledger_rows_read: 1,
+    completeness: "COMPLETE",
+    matching_filters: 1,
+    all_perspectives: 1,
+  },
+})
+
+const ec2Deps: ResourceDependenciesResponse = emptyDependenciesResponse({
+  page: {
+    rows: [{
+      pair_key: "USES::arn:aws:iam::123456789012:role/orders-worker",
+      perspective: "USES",
+      counterparty: {
+        identity: "arn:aws:iam::123456789012:role/orders-worker",
+        label: "orders-worker",
+        type: "IAMRole",
+        account_id: "123456789012",
+        region: null,
+        scope: "IN_ACCOUNT",
+      },
+      facts: [{
+        registered: true,
+        generic: false,
+        label: "runs as (via instance profile)",
+        perspective: "USES",
+        mechanism: "M04",
+        mechanism_label: "Runtime identity binding",
+        capability: "identity binding",
+        canonical_relationship: "USES_ROLE_VIA_INSTANCE_PROFILE",
+        raw_relationship: "USES_ROLE_VIA_INSTANCE_PROFILE",
+        fact_id: "dependency:role",
+        basis_class: "CONFIGURED",
+        freshness: "UNKNOWN",
+        actions: [],
+        observation_days: null,
+        first_seen: null,
+        last_seen: null,
+        via_vpce: null,
+        evidence_refs: [],
+        source_generation_refs: [{ plane: "authorization", generation: "a1", head_hash: "head-a1", evidence_binding: null }],
+        aliases_collapsed: [],
+      }],
+    }, {
+      pair_key: "PEER::3.253.40.255",
+      perspective: "PEER",
+      counterparty: {
+        identity: null,
+        label: "3.253.40.255",
+        type: "IPAddress",
+        account_id: null,
+        region: null,
+        scope: "UNKNOWN",
+      },
+      facts: [{
+        registered: true,
+        generic: false,
+        label: "observed communicating with",
+        perspective: "PEER",
+        mechanism: "M15",
+        mechanism_label: "External endpoint",
+        capability: "network path",
+        canonical_relationship: "ACTUAL_TRAFFIC",
+        raw_relationship: "ACTUAL_TRAFFIC",
+        fact_id: "dependency:peer",
+        basis_class: "OBSERVED",
+        freshness: "CURRENT",
+        actions: [],
+        observation_days: null,
+        first_seen: null,
+        last_seen: null,
+        via_vpce: null,
+        evidence_refs: [],
+        source_generation_refs: [{ plane: "behavioral", generation: "b1", head_hash: "head-b1", evidence_binding: null }],
+        aliases_collapsed: [],
+      }],
+    }],
+    returned: 2,
+    total: 2,
+    offset: 0,
+    next_cursor: null,
+  },
+  counts: {
+    by_perspective: { USES: 1, USED_BY: 0, PEER: 1 },
+    external_counterparties: 0,
+    unresolved_counterparties: 1,
+    unregistered_relationships: {},
+    excluded: {},
+    ledger_rows_read: 2,
+    completeness: "COMPLETE",
+    matching_filters: 2,
+    all_perspectives: 2,
+  },
+})
+
 
 const dossier = {
   identity: {
@@ -333,10 +493,7 @@ describe("Resource Dossier v6", () => {
   })
 
   it("keeps tenant scope server-authoritative and does not turn missing evidence into an absence claim", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify(dossier), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    }))
+    mockDossierAndDeps(dossier, s3Deps)
     render(
       <ResourceDossier
         resourceId="arn:aws:s3:::orders-data"
@@ -357,17 +514,14 @@ describe("Resource Dossier v6", () => {
     expect(requestUrl).not.toContain("tenant=")
     expect(requestUrl).toContain("account_id=123456789012")
 
-    fireEvent.click(screen.getByRole("button", { name: "Dependencies" }))
+    fireEvent.click(screen.getByRole("tab", { name: "Dependencies" }))
     expect(await screen.findByText("IAM role · orders-reader")).toBeInTheDocument()
     expect(await screen.findByText("arn:aws:iam::123456789012:role/orders-reader")).toBeInTheDocument()
     expect(screen.getByText(/intentionally not summed/)).toBeInTheDocument()
   })
 
   it("renders identity-only payloads without exposing internal NOT_READY states", async () => {
-    const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify(identityOnlyDossier), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    }))
+    const fetch = mockDossierAndDeps(identityOnlyDossier, emptyDeps)
     render(
       <ResourceDossier
         resourceId="i-123"
@@ -383,9 +537,9 @@ describe("Resource Dossier v6", () => {
     expect(screen.queryByText("NOT READY")).not.toBeInTheDocument()
     expect(screen.getByText("aws:ec2:eu-west-1:123456789012:instance/i-123")).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole("button", { name: "Dependencies" }))
+    fireEvent.click(screen.getByRole("tab", { name: "Dependencies" }))
     expect(await screen.findByText(/No dependency assertions are available/)).toBeInTheDocument()
-    fireEvent.click(screen.getByRole("button", { name: "Technical evidence" }))
+    fireEvent.click(screen.getByRole("tab", { name: "Technical evidence" }))
     expect(await screen.findByText(/service-specific configuration and activity evidence are not available/i)).toBeInTheDocument()
     expect(screen.queryByText(/NOT_READY/)).not.toBeInTheDocument()
     await waitFor(() => expect(fetch).toHaveBeenCalledWith(
@@ -398,10 +552,7 @@ describe("Resource Dossier v6", () => {
   })
 
   it("renders the shared EC2 configuration profile and generation-pinned relationships", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify(configurationProfileDossier), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    }))
+    mockDossierAndDeps(configurationProfileDossier, ec2Deps)
     render(
       <ResourceDossier
         resourceId="i-123"
@@ -423,10 +574,21 @@ describe("Resource Dossier v6", () => {
     expect(screen.queryByText("NOT READY")).not.toBeInTheDocument()
     expect(screen.getAllByText("Partial coverage").length).toBeGreaterThan(0)
 
-    fireEvent.click(screen.getByRole("button", { name: "Dependencies" }))
+    fireEvent.click(screen.getByRole("tab", { name: "Dependencies" }))
     expect(await screen.findByText("orders-worker")).toBeInTheDocument()
     expect(screen.getByText("Network endpoint · 3.253.40.255")).toBeInTheDocument()
     expect(screen.queryByText("Canonical identity unavailable")).not.toBeInTheDocument()
+
+    // Perspective, not raw graph direction (§6.3).
+    expect(screen.getByRole("heading", { name: /^Uses/ })).toBeInTheDocument()
+    expect(screen.getByText("runs as (via instance profile)")).toBeInTheDocument()
+    expect(screen.getByText("observed communicating with")).toBeInTheDocument()
+    expect(screen.queryByText(/DOWNSTREAM/)).not.toBeInTheDocument()
+
+    // Evidence is a drawer; generation pinning is still one click away.
+    for (const drawer of screen.getAllByRole("button", { name: "Evidence" })) {
+      fireEvent.click(drawer)
+    }
     expect(screen.getByText("authorization")).toBeInTheDocument()
     expect(screen.getByText("a1")).toBeInTheDocument()
   })

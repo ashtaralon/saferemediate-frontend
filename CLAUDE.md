@@ -6,8 +6,9 @@ Guidance for Claude Code / agents working in the saferemediate-frontend Next.js 
 
 1. **Real data only — no mock, ever.** (Alon, 2026-06-09; highest priority.) NEVER render mock /
    sample / placeholder / hardcoded / "seeded" values. Every number, finding, path, gap, verdict,
-   and before/after must come from the real backend, which reads the Neo4j graph (the map = single
-   source of truth). When data is absent, render an honest empty / loading / "not computed yet"
+   and before/after must come from the real backend, which reads the serving graph
+   (Neptune in production C1; the Bolt driver still uses ``NEO4J_*`` env names).
+   The map is the serving source of truth for product reads. When data is absent, render an honest empty / loading / "not computed yet"
    state — never a fabricated value. Do NOT add a `MOCK_MODE` flag; wire to the real proxy/backend.
    (See memory: `feedback_no_mock_data`, `feedback_no_mock_numbers_in_ui`.)
 
@@ -25,4 +26,4 @@ Guidance for Claude Code / agents working in the saferemediate-frontend Next.js 
 ## Example feature (real-data, no mock)
 `components/attack-paths-v2/closure-outcome-panel.tsx` + `use-closure-preview.ts` render the
 "what you're approving" view from `GET /api/proxy/attack-paths/<id>/closure-preview` → the live
-backend → the Neo4j `AttackPath` node. No mock; honest loading/error/empty states.
+backend → the serving-graph `AttackPath` node. No mock; honest loading/error/empty states.
