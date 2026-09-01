@@ -23,6 +23,7 @@ import {
 import { CoverageBanner } from './coverage-banner'
 import { Switch } from '@/components/ui/switch'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { dependencyMapV2ProxyUrl } from '@/lib/dependency-map-v2-query'
 
 // ============================================================================
 // TYPES
@@ -211,6 +212,7 @@ export default function GraphViewV2({
   const [mode, setMode] = useState<'observed' | 'observed+potential'>('observed')
   const [timeWindow] = useState('7d')
   const [isLoading, setIsLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [selected, setSelected] = useState<ComponentNode | null>(null)
   const [focusedNode, setFocusedNode] = useState<string | null>(null) // For focus mode
   const [zoom, setZoom] = useState(0.55)
@@ -227,25 +229,30 @@ export default function GraphViewV2({
     setIsLoading(true)
     try {
       const res = await fetch(
-        `/api/proxy/dependency-map/v2?systemId=${encodeURIComponent(systemName)}&window=${timeWindow}&mode=${mode}`,
+        dependencyMapV2ProxyUrl(systemName, timeWindow, mode),
         { cache: 'no-store' }
       )
 
-      if (res.ok) {
-        const data = await res.json()
-        setContainers(data.containers || [])
-        setNodes(data.nodes || [])
-        setEdges(data.edges || [])
-        setCoverage(data.coverage || {
-          flow_logs_enabled_enis_pct: 0,
-          analysis_window: timeWindow,
-          observed_edges: 0,
-          total_flows: 0,
-          notes: []
-        })
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}))
+        setLoadError(payload.error || `Dependency map unavailable (${res.status})`)
+        return
       }
+      const data = await res.json()
+      setLoadError(null)
+      setContainers(data.containers || [])
+      setNodes(data.nodes || [])
+      setEdges(data.edges || [])
+      setCoverage(data.coverage || {
+        flow_logs_enabled_enis_pct: 0,
+        analysis_window: timeWindow,
+        observed_edges: 0,
+        total_flows: 0,
+        notes: []
+      })
     } catch (e) {
       console.error('[GraphViewV2] Failed to fetch data:', e)
+      setLoadError('Dependency map is temporarily unavailable. Existing verified data is retained.')
     } finally {
       setIsLoading(false)
     }
@@ -515,6 +522,13 @@ export default function GraphViewV2({
     <div className={containerClass} style={containerStyle}>
       {/* Coverage Banner */}
       <CoverageBanner coverage={coverage} mode={mode} onModeChange={handleModeChange} />
+
+      {loadError && (
+        <div className="flex items-center gap-2 border-b border-red-700 bg-red-950 px-3 py-2 text-sm text-red-100" role="alert">
+          <XCircle className="h-4 w-4 shrink-0" />
+          <span>{loadError}</span>
+        </div>
+      )}
 
       {/* Header — two-row editorial layout.
           Row 1: title only (clean focal point).
