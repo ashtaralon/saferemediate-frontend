@@ -2,16 +2,16 @@ import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 import {
-  candidateReviewLabel,
-  import {,
   isCacheableSystemExecutiveSnapshot,
   isSystemExecutiveSnapshot,
+} from "@/lib/system-executive-snapshot"
+import {
+  candidateReviewLabel,
   proposedChangeCount,
   resourceRiskNavigationTarget,
   shouldShowGlobalStateBanner,
   stateBannerDetail,
   unavailableCoreSections,
-  } from "@/lib/system-executive-snapshot",
 } from "@/components/system-detail/system-executive-overview"
 
 const root = join(__dirname, "..", "..")
