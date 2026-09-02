@@ -8,10 +8,11 @@
  * lane header states the prefix once. The full name stays in the chip title.
  *
  * The prefix is cut at a separator so it never splits a word, and it is
- * backed off until every name keeps at least `minRemainder` characters: for
- * "…-a" / "…-b" / "…-c" the prefix stops one token earlier and the chips read
- * "…prod-a". Fewer than `minNames` names, no shared separator-bounded prefix
- * of `minPrefix` characters, or a name that would be left empty: no elision.
+ * backed off until every name keeps at least `minRemainder` characters, so
+ * "…consumer-a" / "…consumer-b" / "…consumer-c" never become "…a" / "…b" /
+ * "…c" while a short but whole token ("…cart", "…logs") stays. Fewer than
+ * `minNames` names, no shared separator-bounded prefix of `minPrefix`
+ * characters, or a name that would be left too short: no elision.
  */
 
 export interface ElidedNames {
@@ -37,7 +38,7 @@ function longestCommonPrefix(names: string[]): string {
 /** Longest separator-bounded prefix shared by every name, per the rules above. */
 export function sharedNamePrefix(
   names: readonly string[],
-  { minNames = 3, minPrefix = 6, minRemainder = 6 }: { minNames?: number; minPrefix?: number; minRemainder?: number } = {},
+  { minNames = 3, minPrefix = 6, minRemainder = 3 }: { minNames?: number; minPrefix?: number; minRemainder?: number } = {},
 ): string {
   const list = names.filter((name): name is string => typeof name === "string" && name.length > 0)
   if (list.length < minNames) return ""

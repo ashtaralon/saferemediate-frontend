@@ -183,7 +183,43 @@ test("fullscreen: each off-VPC rail lane scrolls in its track, both lanes stay o
   expect(await fullscreen.getByTestId("topology-regional-lane-body").evaluate(el => el.scrollTop)).toBe(0)
   await expect(fullscreen.getByTestId("topology-serverless-lane-above")).toBeVisible()
 
-  // 4: edge anchoring after the scroll.
+  // 4: edge anchoring after the scroll. Edges into a rail CHIP end at the chip
+  // (or pin to its lane's edge when it is scrolled out); intra-rail BUNDLES
+  // end at their target lane's left edge (and start at their source lane's).
+  const bundleAnchors = await page.evaluate(() => {
+    const root = document.querySelector('[data-testid="topology-estate-map-fullscreen"]')!
+    const laneBox = (key: string | null) => {
+      const lane = root.querySelector(
+        key === "lane:serverless" ? '[data-testid="topology-serverless-tier"]' : '[data-testid="topology-regional-data-tier"]',
+      )
+      const r = lane?.getBoundingClientRect()
+      return r ? { l: r.left, t: r.top, r: r.right, b: r.bottom } : null
+    }
+    const out: Array<{
+      label: string
+      start: { x: number; y: number }
+      end: { x: number; y: number }
+      source: { l: number; t: number; r: number; b: number } | null
+      target: { l: number; t: number; r: number; b: number } | null
+    }> = []
+    for (const group of Array.from(root.querySelectorAll<SVGGElement>("g[data-flow-bundle]"))) {
+      const path = group.querySelector("path") as SVGPathElement | null
+      const ctm = path?.getScreenCTM()
+      if (!path || !ctm) continue
+      const p0 = path.getPointAtLength(0)
+      const p1 = path.getPointAtLength(path.getTotalLength())
+      const start = new DOMPoint(p0.x, p0.y).matrixTransform(ctm)
+      const end = new DOMPoint(p1.x, p1.y).matrixTransform(ctm)
+      out.push({
+        label: group.querySelector("text")?.textContent ?? "",
+        start: { x: start.x, y: start.y },
+        end: { x: end.x, y: end.y },
+        source: laneBox(group.getAttribute("data-flow-source")),
+        target: laneBox(group.getAttribute("data-flow-target")),
+      })
+    }
+    return out
+  })
   const anchored = await page.evaluate(() => {
     const root = document.querySelector('[data-testid="topology-estate-map-fullscreen"]')!
     const railEl = root.querySelector('[data-testid="topology-edge-services-rail"]')!
@@ -217,8 +253,21 @@ test("fullscreen: each off-VPC rail lane scrolls in its track, both lanes stay o
     }
     return out
   })
-  expect(anchored.length).toBeGreaterThan(0)
+  // The captured payload's only rail-bound edge is the intra-rail Lambda → S3
+  // access, which is now a bundle; a payload with in-VPC → rail edges also
+  // exercises the chip anchoring below.
+  expect(anchored.length + bundleAnchors.length).toBeGreaterThan(0)
   const tolerance = 16
+  for (const b of bundleAnchors) {
+    expect(b.source, `bundle ${b.label} starts at a lane`).not.toBeNull()
+    expect(b.target, `bundle ${b.label} ends at a lane`).not.toBeNull()
+    expect(Math.abs(b.start.x - b.source!.l), `bundle ${b.label} leaves its source lane's left edge`).toBeLessThanOrEqual(tolerance)
+    expect(b.start.y, `bundle ${b.label} leaves within its source lane`).toBeGreaterThanOrEqual(b.source!.t - tolerance)
+    expect(b.start.y, `bundle ${b.label} leaves within its source lane`).toBeLessThanOrEqual(b.source!.b + tolerance)
+    expect(Math.abs(b.end.x - b.target!.l), `bundle ${b.label} enters its target lane's left edge`).toBeLessThanOrEqual(tolerance)
+    expect(b.end.y, `bundle ${b.label} enters within its target lane`).toBeGreaterThanOrEqual(b.target!.t - tolerance)
+    expect(b.end.y, `bundle ${b.label} enters within its target lane`).toBeLessThanOrEqual(b.target!.b + tolerance)
+  }
   for (const a of anchored) {
     if (a.visible) {
       expect(a.end.x, `edge into ${a.id} ends at the chip (x)`).toBeGreaterThanOrEqual(a.chip.l - tolerance)
