@@ -218,6 +218,18 @@ export function resolveBreakGlassPermissionSelection(
     .map(item => item.permission)
 }
 
+/**
+ * A "held by policy" permission is kept by a rule Cyntro applies to the
+ * role's configuration (SSM Agent channels, KMS, STS, iam:PassRole,
+ * cross-account trust, dependency checks). The hold is a configured decision;
+ * it is not an observation that this role used the permission, so it is
+ * never presented beside the observed counts as if it were evidence.
+ */
+export const HELD_BY_POLICY_TITLE =
+  "Kept by a Cyntro rule over the role's configuration, not by observed use of this role."
+export const HELD_BY_POLICY_NOTE =
+  "Held by policy is a configured hold, not evidence: Cyntro keeps these by rule and did not measure their use."
+
 export function RemovalSafetyPanel({ bundle }: { bundle: RemovalSafetyBundle }) {
   const byPermission = new Map(bundle.permissions.map(item => [item.permission, item]))
   const candidates = bundle.permissions.filter(item => item.disposition === "REMOVAL_CANDIDATE")
@@ -237,12 +249,26 @@ export function RemovalSafetyPanel({ bundle }: { bundle: RemovalSafetyBundle }) 
       <div className="flex items-start justify-between gap-4">
         <div>
           <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Removal safety</div>
-          <h3 className="mt-1 text-lg font-bold text-slate-900">
-            {bundle.scored_candidate_count} verified for removal · {bundle.insufficient_evidence_count} awaiting evidence · {bundle.used_count} in use · {bundle.protected_count} protected
+          <h3 className="mt-1 flex flex-wrap items-baseline gap-x-2 text-lg font-bold text-slate-900">
+            <span data-testid="removal-safety-observed">
+              {bundle.scored_candidate_count} verified for removal · {bundle.insufficient_evidence_count} awaiting evidence · {bundle.used_count} in use
+            </span>
+            <span
+              className="rounded-full border border-slate-300 bg-slate-100 px-2.5 py-0.5 text-sm font-semibold text-slate-600"
+              data-testid="removal-safety-held"
+              title={HELD_BY_POLICY_TITLE}
+            >
+              {bundle.protected_count} held by policy
+            </span>
           </h3>
           <p className="mt-1 text-sm text-slate-600">
             This is an evidence index, not a probability. It measures how strongly the observed data supports removal without breaking expected use.
           </p>
+          {bundle.protected_count > 0 && (
+            <p className="mt-1 text-xs text-slate-500" data-testid="removal-safety-held-note">
+              {HELD_BY_POLICY_NOTE}
+            </p>
+          )}
         </div>
         {bundle.plan_score !== null && (
           <div className="shrink-0 rounded-lg bg-slate-900 px-3 py-2 text-center text-white">
@@ -3911,8 +3937,8 @@ export function IAMPermissionAnalysisModal({
                 })
                 if (protectedCount > 0) buckets.push({
                   key: 'protected', count: protectedCount, band: '—',
-                  label: 'Protected — never touched',
-                  hint: 'Internal-service or break-glass permissions Cyntro will not modify.',
+                  label: 'Held by policy or reserved — never touched',
+                  hint: 'Kept by a Cyntro rule or reserved by you; a configured hold, not evidence of use.',
                   color: '#6b7280', bg: '#f9fafb', border: '#e5e7eb',
                   perms: [], actionable: false,
                 })
@@ -4019,7 +4045,7 @@ export function IAMPermissionAnalysisModal({
                             <span className="font-semibold text-sm" style={{ color: "var(--foreground, #111827)" }}>
                               {(() => {
                                 const count = group.permission_count ?? group.permissions.length
-                                if (isProtected) return `Protected operations (${count})`
+                                if (isProtected) return `Held by policy (${count})`
                                 if (isReserved) return `Reserved operations (${count})`
                                 if (group.data_source_type === 'management_event') return `Logged operations (${count})`
                                 if (group.data_source_type === 'data_event') return `Data-plane operations (${count})`
@@ -4028,8 +4054,8 @@ export function IAMPermissionAnalysisModal({
                               })()}
                             </span>
                             {isProtected ? (
-                              <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-[#6b728020] text-[#6b7280]">
-                                PROTECTED
+                              <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-[#6b728020] text-[#6b7280]" title={HELD_BY_POLICY_TITLE}>
+                                HELD BY POLICY
                               </span>
                             ) : isWarn ? (
                               <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-[#eab30820] text-[#eab308]">
@@ -5251,16 +5277,16 @@ export function IAMPermissionAnalysisModal({
                 <div className="mt-1 text-sm text-[#92400e]">not safe to change yet</div>
               </div>
               <div className="rounded-lg border border-[#d1d5db] bg-[#f9fafb] p-4">
-                <div className="text-xs uppercase tracking-[0.18em] text-[#4b5563]">Protected / keep</div>
+                <div className="text-xs uppercase tracking-[0.18em] text-[#4b5563]">Held by policy</div>
                 <div className="mt-2 text-3xl font-bold text-[#4b5563]">{protectedPerms.length}</div>
-                <div className="mt-1 text-sm text-[#6b7280]">excluded from removal</div>
+                <div className="mt-1 text-sm text-[#6b7280]">kept by rule, not by observed use</div>
               </div>
             </div>
             <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800" data-testid="permission-removal-answer">
               <strong>What can be removed now:</strong>{" "}
               {removableCount > 0
                 ? `${removableCount} evidence-verified permission${removableCount === 1 ? "" : "s"}, listed below.`
-                : "nothing. Every not-observed permission is either awaiting evidence or protected."}
+                : "nothing. Every not-observed permission is either awaiting evidence or held by policy."}
             </div>
             <h3 className="text-lg font-bold text-[var(--foreground,#111827)]">Permission Usage Breakdown</h3>
 
@@ -5393,20 +5419,20 @@ export function IAMPermissionAnalysisModal({
                     </div>
                   )}
 
-                  {/* Protected permissions (SSM, iam:PassRole, KMS, STS) */}
+                  {/* Held by policy (SSM channels, iam:PassRole, KMS, STS, dependency and trust holds) */}
                   {protectedPerms.length > 0 && (
                     <div className="border-2 border-[#d1d5db] bg-[#f9fafb] rounded-xl p-4 opacity-75">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <Lock className="w-5 h-5 text-[#6b7280]" />
-                          <span className="font-semibold text-[#6b7280]">Protected Permissions ({protectedPerms.length})</span>
+                          <span className="font-semibold text-[#6b7280]">Held by policy ({protectedPerms.length})</span>
                         </div>
-                        <span className="px-3 py-1 bg-[#6b728015] text-[#6b7280] border border-[#d1d5db] rounded-lg text-sm font-medium">
-                          Do not remove
+                        <span className="px-3 py-1 bg-[#6b728015] text-[#6b7280] border border-[#d1d5db] rounded-lg text-sm font-medium" title={HELD_BY_POLICY_TITLE}>
+                          Kept by rule
                         </span>
                       </div>
                       <p className="text-xs mt-2 text-[#6b7280]">
-                        These actions are explicitly excluded from removal because they are dependencies, control-plane primitives, or protected infrastructure behavior.
+                        Cyntro keeps these by rule: SSM Agent channels, KMS, STS, iam:PassRole, dependency and cross-account trust holds. Each row names its rule. {HELD_BY_POLICY_NOTE}
                       </p>
                       <div className="mt-3 grid grid-cols-2 gap-2 max-h-32 overflow-y-auto">
                         {protectedPerms.map((perm, i) => (
@@ -5459,9 +5485,9 @@ export function IAMPermissionAnalysisModal({
                   <div className="mt-1 text-sm text-[var(--muted-foreground,#6b7280)]">permissions that will be kept</div>
                 </div>
                 <div className="rounded-lg border border-[var(--border,#e5e7eb)] bg-white p-4">
-                  <div className="text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground,#6b7280)]">Protected</div>
+                  <div className="text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground,#6b7280)]">Held by policy</div>
                   <div className="mt-2 text-3xl font-bold text-[var(--foreground,#111827)]">{removalSafety?.protected_count ?? permissionView.protected.length}</div>
-                  <div className="mt-1 text-sm text-[var(--muted-foreground,#6b7280)]">permissions excluded from removal</div>
+                  <div className="mt-1 text-sm text-[var(--muted-foreground,#6b7280)]">kept by rule, not by observed use</div>
                 </div>
               </div>
 

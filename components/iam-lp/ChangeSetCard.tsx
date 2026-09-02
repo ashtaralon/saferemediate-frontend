@@ -3,6 +3,7 @@
 import { ChevronDown, ChevronUp } from "lucide-react"
 import { useMemo } from "react"
 import { cn } from "@/lib/utils"
+import { iamGroupReasonCopy } from "@/lib/iam-group-reason"
 import { dispositionForGroup } from "./resolvers/permissionDisposition"
 import type { ConfidenceGroup, DecisionSplit, Disposition, IamGapAnalysis } from "./types"
 
@@ -70,7 +71,7 @@ export function ChangeSetCard({
           <div className="text-xs uppercase tracking-[0.16em] text-slate-500">After</div>
           <div className="mt-2 text-2xl font-bold text-slate-950">{gap.summary.used_count}</div>
           <div className="mt-1 text-sm text-slate-600">
-            kept observed actions{split.protectedCount > 0 ? ` · ${split.protectedCount} protected kept` : ""}
+            kept observed actions{split.protectedCount > 0 ? ` · ${split.protectedCount} held by policy` : ""}
           </div>
         </div>
         <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
@@ -83,7 +84,7 @@ export function ChangeSetCard({
       <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4">
         <ul className="space-y-2 text-sm text-slate-700">
           <li>• Remove {gap.summary.unused_count} unused permissions</li>
-          <li>• Keep {split.protectedCount} protected or reserved permissions</li>
+          <li>• Keep {split.protectedCount} permissions held by policy or reserved</li>
           <li>• No trust-policy change</li>
           <li>• No resource replacement</li>
         </ul>
@@ -110,12 +111,15 @@ export function ChangeSetCard({
                         {disposition === "auto_apply"
                           ? "Auto-apply"
                           : disposition === "protected"
-                            ? "Protected"
+                            ? "Held by policy"
                             : "Needs approval"}
                       </span>
                     </div>
                     <div className="mt-3 text-sm font-semibold text-slate-900">{group.label}</div>
-                    {group.explanation && <div className="mt-1 text-sm text-slate-600">{group.explanation}</div>}
+                    {(() => {
+                      const reason = iamGroupReasonCopy(group)
+                      return reason ? <div className="mt-1 text-sm text-slate-600">{reason}</div> : null
+                    })()}
                   </div>
                   <div className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
                     {group.permission_count} permissions

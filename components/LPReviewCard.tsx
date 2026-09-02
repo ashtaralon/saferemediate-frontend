@@ -178,7 +178,7 @@ export function LPReviewCard(props: LPReviewCardProps) {
   const stayChips: Array<{ label: string; count: number; color: string; bg: string; icon: React.ReactNode }> = [
     { label: "actively used",        count: usedCount,      color: "#166534", bg: "#dcfce7", icon: <CheckCircle2 className="w-3 h-3" /> },
     { label: "risky to remove",      count: warnCount,      color: "#9a3412", bg: "#ffedd5", icon: <AlertTriangle className="w-3 h-3" /> },
-    { label: "protected",            count: protectedCount, color: "#991b1b", bg: "#fee2e2", icon: <Lock className="w-3 h-3" /> },
+    { label: "held by policy",       count: protectedCount, color: "#991b1b", bg: "#fee2e2", icon: <Lock className="w-3 h-3" /> },
   ].filter(c => c.count > 0)
 
   if (loading) {

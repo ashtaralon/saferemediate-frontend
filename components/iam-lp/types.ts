@@ -81,6 +81,8 @@ export type ConfidenceGroup = {
   block_reason_code?: string | null
   block_reason_human?: string | null
   explanation?: string
+  /** Facts-only evidence sentence from a reconciling backend (F17). */
+  evidence_summary?: string | null
   color?: string
 }
 
