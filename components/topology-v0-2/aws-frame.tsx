@@ -80,6 +80,7 @@ import {
   type ViewDensity,
 } from "./estate-glance"
 import { awsIconUrl, awsServiceLabel } from "./aws-architecture-icons"
+import { elideSharedPrefix } from "./chip-names"
 
 interface Props {
   vpcTopology: VpcTopology
@@ -1291,12 +1292,15 @@ function ServiceNodeIcon({
   onSelect,
   dense = false,
   railChip = false,
+  displayName,
 }: {
   node: TopologyNode
   selected: boolean
   onSelect: (id: string) => void
   dense?: boolean
   railChip?: boolean
+  /** Label shown on the chip when it differs from the name (shared prefix elided); the title keeps the full name. */
+  displayName?: string
 }) {
   const typeLabel = node.type ?? "?"
   const isForeignOwner = node.is_foreign === true
@@ -1309,7 +1313,7 @@ function ServiceNodeIcon({
     <ServiceIconShell
       type={node.type}
       selected={selected}
-      label={node.name}
+      label={displayName ?? node.name}
       sublabel={ownerChip ? `shared · ${ownerChip}` : multiAz ? `${typeLabel} · Multi-AZ` : typeLabel}
       title={
         ownerChip
@@ -2233,6 +2237,10 @@ function ServerlessComputeTier({
     ),
   ).length
   const notVpcAttached = nodes.length - attachmentUnresolved
+  // Six "cyntro-tb-prod-c…" chips are six copies of nothing: drop the prefix
+  // the lane's names share and say it once in the header (chip-names.ts).
+  const elided = elideSharedPrefix(nodes.map(node => node.name))
+  const displayName = new Map(nodes.map((node, i) => [node.id, elided.labels[i]]))
   return (
     <div
       className={compact ? "rounded-md p-2 flex flex-col min-h-0" : "rounded-md p-2.5"}
@@ -2253,6 +2261,12 @@ function ServerlessComputeTier({
         <div className="mt-0.5 text-[9px]" style={{ color: "#6366F1" }}>
           {notVpcAttached} not VPC-attached
           {attachmentUnresolved > 0 ? ` · ${attachmentUnresolved} attachment unresolved` : ""}
+          {elided.prefix ? (
+            <span data-testid="topology-serverless-name-prefix" title="The chips omit this shared prefix">
+              {" · names start with "}
+              <span className="font-mono">{elided.prefix}</span>
+            </span>
+          ) : null}
         </div>
       </div>
       <RailLaneBody lane="serverless" compact={compact} revision={nodes.length}>
@@ -2271,6 +2285,7 @@ function ServerlessComputeTier({
             onSelect={onSelect}
             dense
             railChip={compact}
+            displayName={displayName.get(node.id)}
           />
         ))}
         {groups
@@ -2293,6 +2308,7 @@ function ServerlessComputeTier({
                 onSelect={onSelect}
                 dense={compact}
                 railChip={compact}
+                displayName={displayName.get(n.id)}
               />
             ))}
       </div>
@@ -2335,6 +2351,10 @@ function RegionalDataServicesTier({
   const remainingInventory = inventory.filter(node => !namedIds.has(node.id))
   const useStacks = glance && shouldGlanceStackRail(remainingInventory)
   const groups = useStacks ? groupNodesByType(remainingInventory) : null
+  // Shared-prefix elision over the named inventory (sentinel anchors keep
+  // their own labels); the header states the omitted prefix once.
+  const elided = elideSharedPrefix(inventory.map(node => node.name))
+  const displayName = new Map(inventory.map((node, i) => [node.id, elided.labels[i]]))
   return (
     <div
       className={compact ? "rounded-md p-2 flex flex-col min-h-0" : "rounded-md p-2.5 mt-2"}
@@ -2352,6 +2372,16 @@ function RegionalDataServicesTier({
         data-flow-obstacle="regional-tier-header"
       >
         Regional · S3 / DDB / KMS ({nodes.length})
+        {elided.prefix ? (
+          <div
+            className="normal-case tracking-normal font-medium text-[9px] mt-0.5"
+            style={{ color: "#5E35B1" }}
+            data-testid="topology-regional-name-prefix"
+            title="The chips omit this shared prefix"
+          >
+            names start with <span className="font-mono">{elided.prefix}</span>
+          </div>
+        ) : null}
       </div>
       {neo4jDestAnchors.length > 0 ? (
         <div
@@ -2380,6 +2410,7 @@ function RegionalDataServicesTier({
             onSelect={onSelect}
             dense
             railChip={compact}
+            displayName={displayName.get(node.id)}
           />
         ))}
         {groups
@@ -2402,6 +2433,7 @@ function RegionalDataServicesTier({
                 onSelect={onSelect}
                 dense={compact}
                 railChip={compact}
+                displayName={displayName.get(n.id)}
               />
             ))}
       </div>
