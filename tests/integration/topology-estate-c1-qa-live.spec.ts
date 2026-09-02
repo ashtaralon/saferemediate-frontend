@@ -299,7 +299,11 @@ test.describe("C1 live QA — estate map against the deployed graph", () => {
     // wait again — the same thing an operator does — and report how many
     // loads it took.
     const mapTab = page.getByTestId("topology-estate-view-map")
-    const blocked = page.getByText(/Topology risk unavailable|No systems available yet|Preparing /i)
+    // "Preparing <system>" is the map's LOADING card, not a blocked state:
+    // matching it here made every load return at once and the probe spent its
+    // three attempts in a minute without ever waiting for the map (run
+    // 33675359540). Only a real refusal short-circuits the wait.
+    const blocked = page.getByText(/Topology risk unavailable|No systems available yet/i)
     const loads: Array<{ attempt: number; mounted: boolean; reason: string | null; ms: number }> = []
     let mounted = false
     for (let attempt = 1; attempt <= 3 && !mounted; attempt += 1) {

@@ -78,10 +78,6 @@ jobs:
             (cd test-results && find . -type f \( -name '*.png' -o -name '*.json' -o -name '*.md' \) \
               -exec cp --parents {} "../publish/${RUN_DIR}/" \; 2>/dev/null || true)
           fi
-          # Vercel tries to build every pushed branch; the results branch is
-          # not an app. A vercel.json whose ignoreCommand exits 0 tells Vercel
-          # to skip it instead of logging an ERROR deployment per run.
-          printf '{ "ignoreCommand": "exit 0" }\n' > publish/vercel.json
           {
             echo "# c1-ui-qa run ${GITHUB_RUN_ID}"
             echo
@@ -100,6 +96,11 @@ jobs:
           else
             git checkout -q --orphan "$RESULTS_BRANCH"
           fi
+          # After the checkout, never before it: an untracked vercel.json
+          # aborts the checkout once the branch carries one (run 33675359540).
+          # Vercel tries to build every pushed branch and the results branch is
+          # not an app; an ignoreCommand that exits 0 makes it skip.
+          printf '{ "ignoreCommand": "exit 0" }\n' > vercel.json
           git add -A
           git commit -q -m "c1-ui-qa run ${GITHUB_RUN_ID}: ${TARGET}"
           for i in 1 2 3; do
