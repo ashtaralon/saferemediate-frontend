@@ -22,6 +22,14 @@ on:
         description: System shown on the estate map
         required: true
         default: testbed-webshop
+  # The harness self-tests against C1 whenever it changes. That first run is
+  # also what registers the workflow, so it can then be dispatched from the
+  # branch it lives on (GitHub answers 404 to a dispatch of a workflow that
+  # exists only on a branch and has never run).
+  push:
+    paths:
+      - .github/workflows/c1-ui-qa.yml
+      - tests/integration/topology-estate-c1-qa-live.spec.ts
 jobs:
   playwright-live:
     runs-on: ubuntu-latest
@@ -37,8 +45,9 @@ jobs:
       - name: Live QA against the deployed estate map
         run: npx playwright test tests/integration/topology-estate-c1-qa-live.spec.ts --reporter=list
         env:
-          FRONTEND_URL: ${{ inputs.frontend_url }}
-          C1_SYSTEM: ${{ inputs.system }}
+          # A push carries no inputs: fall back to the C1 production defaults.
+          FRONTEND_URL: ${{ inputs.frontend_url || 'https://cyntro-c1.vercel.app' }}
+          C1_SYSTEM: ${{ inputs.system || 'testbed-webshop' }}
           PW_CHANNEL: chromium
           CI: "1"
       - name: Upload report and screenshots
