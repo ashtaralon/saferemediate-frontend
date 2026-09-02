@@ -193,7 +193,9 @@ test("fullscreen: each off-VPC rail lane scrolls in its track, both lanes stay o
 
   // 4: edge anchoring after the scroll. Edges into a rail CHIP end at the chip
   // (or pin to its lane's edge when it is scrolled out); intra-rail BUNDLES
-  // end at their target lane's left edge (and start at their source lane's).
+  // leave their source lane's left edge and end at the CHIP they name — at
+  // its left edge when it is on screen, on its clip boundary when the lane
+  // has scrolled it away.
   const bundleAnchors = await page.evaluate(() => {
     const root = document.querySelector('[data-testid="topology-estate-map-fullscreen"]')!
     const box = (el: Element | null) => {
@@ -208,14 +210,57 @@ test("fullscreen: each off-VPC rail lane scrolls in its track, both lanes stay o
             : '[data-testid="topology-regional-data-tier"]',
         ),
       )
-    const chipBox = (id: string | null) =>
-      id ? box(root.querySelector(`[data-flow-id="${CSS.escape(id)}"]`)) : null
+    // Mirror the overlay's own endpoint clipping: a chip is clamped against
+    // every scrollable / overflow-hidden ancestor, and a chip scrolled fully
+    // out of its lane collapses to a point on that clip boundary on purpose
+    // (so the arrow points INTO the rail instead of dangling). Measure the
+    // clamped box the renderer actually targets, not the raw chip rect.
+    const chipBox = (id: string | null) => {
+      if (!id) return null
+      const el = root.querySelector<HTMLElement>(`[data-flow-id="${CSS.escape(id)}"]`)
+      if (!el) return null
+      const r = el.getBoundingClientRect()
+      let clipL = -Infinity, clipT = -Infinity, clipR = Infinity, clipB = Infinity
+      let p: HTMLElement | null = el.parentElement
+      while (p && p !== root) {
+        const st = window.getComputedStyle(p)
+        if (/(auto|scroll|hidden)/.test(st.overflowY + st.overflowX)) {
+          const pr = p.getBoundingClientRect()
+          clipL = Math.max(clipL, pr.left)
+          clipT = Math.max(clipT, pr.top)
+          clipR = Math.min(clipR, pr.right)
+          clipB = Math.min(clipB, pr.bottom)
+        }
+        p = p.parentElement
+      }
+      const L = Math.max(r.left, clipL)
+      const T = Math.max(r.top, clipT)
+      const R = Math.min(r.right, clipR)
+      const B = Math.min(r.bottom, clipB)
+      return {
+        l: L,
+        t: T,
+        r: R,
+        b: B,
+        column: { l: r.left, r: r.right },
+        clip: { t: clipT, b: clipB },
+        visible: R > L && B > T,
+      }
+    }
     const out: Array<{
       label: string
       start: { x: number; y: number }
       end: { x: number; y: number }
       source: { l: number; t: number; r: number; b: number } | null
-      target: { l: number; t: number; r: number; b: number } | null
+      target: {
+        l: number
+        t: number
+        r: number
+        b: number
+        column: { l: number; r: number }
+        clip: { t: number; b: number }
+        visible: boolean
+      } | null
       targetId: string | null
     }> = []
     for (const group of Array.from(root.querySelectorAll<SVGGElement>("g[data-flow-bundle]"))) {
@@ -283,9 +328,19 @@ test("fullscreen: each off-VPC rail lane scrolls in its track, both lanes stay o
     expect(Math.abs(b.start.x - b.source!.l), `bundle ${b.label} leaves its source lane's left edge`).toBeLessThanOrEqual(tolerance)
     expect(b.start.y, `bundle ${b.label} leaves within its source lane`).toBeGreaterThanOrEqual(b.source!.t - tolerance)
     expect(b.start.y, `bundle ${b.label} leaves within its source lane`).toBeLessThanOrEqual(b.source!.b + tolerance)
-    expect(Math.abs(b.end.x - b.target!.l), `bundle ${b.label} enters its target chip's left edge`).toBeLessThanOrEqual(tolerance)
-    expect(b.end.y, `bundle ${b.label} enters within its target chip`).toBeGreaterThanOrEqual(b.target!.t - tolerance)
-    expect(b.end.y, `bundle ${b.label} enters within its target chip`).toBeLessThanOrEqual(b.target!.b + tolerance)
+    const target = b.target!
+    if (target.visible) {
+      expect(Math.abs(b.end.x - target.l), `bundle ${b.label} enters its target chip's left edge`).toBeLessThanOrEqual(tolerance)
+      expect(b.end.y, `bundle ${b.label} enters within its target chip`).toBeGreaterThanOrEqual(target.t - tolerance)
+      expect(b.end.y, `bundle ${b.label} enters within its target chip`).toBeLessThanOrEqual(target.b + tolerance)
+    } else {
+      // Target scrolled out of its lane: the arrow must still point INTO the
+      // rail at the chip's column, never dangle over unrelated content.
+      expect(b.end.x, `bundle ${b.label} points into its target's column`).toBeGreaterThanOrEqual(target.column.l - tolerance)
+      expect(b.end.x, `bundle ${b.label} points into its target's column`).toBeLessThanOrEqual(target.column.r + tolerance)
+      expect(b.end.y, `bundle ${b.label} lands on its target's clip boundary`).toBeGreaterThanOrEqual(target.clip.t - tolerance)
+      expect(b.end.y, `bundle ${b.label} lands on its target's clip boundary`).toBeLessThanOrEqual(target.clip.b + tolerance)
+    }
   }
   for (const a of anchored) {
     if (a.visible) {
