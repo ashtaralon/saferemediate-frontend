@@ -1,0 +1,13 @@
+{
+  "test": "estate map on the deployed frontend: lanes, NAT chips, ALB band, coverage pill",
+  "status": "failed",
+  "measurements": [
+    {
+      "name": "estate-page",
+      "data": {
+        "mounted": false,
+        "reason": "No systems available yet. Run a sync, then open a system from the dashboard."
+      }
+    }
+  ]
+}
