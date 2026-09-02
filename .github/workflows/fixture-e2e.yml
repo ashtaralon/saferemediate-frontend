@@ -1,0 +1,57 @@
+# Deterministic browser geometry specs (tests/integration/*-fixture.spec.ts).
+#
+# These intercept the topology proxy routes and serve a captured payload
+# (tests/integration/topology-fixture.ts), so they need a running app but no
+# backend, and they reproduce identically on any runner. They are NOT a
+# deployed-backend smoke — that stays with the *-live specs.
+#
+# CI is the browser here on purpose: the driving sandbox cannot reach the npm
+# registry (see unit-tests.yml), so the only reproducible place to prove that
+# the fullscreen rail is reachable and flow edges stay anchored while it
+# scrolls is this job.
+name: fixture-e2e
+on:
+  pull_request:
+  workflow_dispatch: {}
+jobs:
+  playwright-fixture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Build
+        run: npm run build
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+      - name: Start the app
+        run: |
+          set -euo pipefail
+          (npx next start -p 3000 > next-start.log 2>&1 &)
+          for i in $(seq 1 60); do
+            if curl -sf -o /dev/null http://localhost:3000/login; then echo "app up after ${i} tries"; exit 0; fi
+            sleep 2
+          done
+          echo "::error::app did not start"; cat next-start.log; exit 1
+      - name: Playwright fixture specs
+        run: npx playwright test tests/integration/topology-fullscreen-rail-fixture.spec.ts tests/integration/topology-platform-map-qa-fixture.spec.ts
+        env:
+          FRONTEND_URL: http://localhost:3000
+          PW_CHANNEL: chromium
+          CI: "1"
+      - name: Upload report and screenshots
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-fixture-report
+          path: |
+            playwright-report/
+            test-results/
+            next-start.log
+          retention-days: 7
+          if-no-files-found: ignore

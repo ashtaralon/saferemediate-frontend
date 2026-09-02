@@ -776,7 +776,9 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     if (e.button !== 0) return
     // Let chips / buttons / links handle their own clicks; only the bare canvas pans.
     const t = e.target as HTMLElement
-    if (t.closest('button, a, input, select, [data-flow-id], [role="button"]')) return
+    // A scroll region (the off-VPC rail) owns its own drag: a scrollbar
+    // drag must scroll it, not pan the canvas underneath.
+    if (t.closest('button, a, input, select, [data-flow-id], [role="button"], [data-scroll-region]')) return
     userAdjustedRef.current = true // manual pan — stop auto-refit stealing the view
     panDrag.current = { x: e.clientX, y: e.clientY, px: pan.x, py: pan.y }
     setPanning(true)

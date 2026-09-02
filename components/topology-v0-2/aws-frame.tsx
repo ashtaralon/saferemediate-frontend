@@ -1996,7 +1996,7 @@ function ServerlessComputeTier({
       <div
         className={
           compact
-            ? "flex flex-wrap gap-1 max-w-full max-h-[190px] overflow-y-auto justify-center"
+            ? "flex flex-wrap gap-1 max-w-full justify-center"
             : "flex flex-wrap gap-1.5 max-w-full justify-center"
         }
       >
@@ -2219,6 +2219,9 @@ function EncodingLegend() {
 interface FlowPath {
   d: string
   cls: TrafficEdgeClass
+  /** Endpoint ids from the payload edge — exposed as data-flow-source/-target on the drawn group. */
+  sourceId: string
+  targetId: string
   protocol: string | null
   port: number | null
   externalDestinations: number | null
@@ -2856,6 +2859,8 @@ function FlowOverlay({
         next.push({
           d,
           cls,
+          sourceId: e.source_id,
+          targetId: e.target_id,
           protocol: e.protocol,
           port: e.port,
           externalDestinations: e.external_destinations ?? null,
@@ -3090,7 +3095,7 @@ function FlowOverlay({
           !dimmed &&
           motionKind === "historical"
         return (
-        <g key={i}>
+        <g key={i} data-flow-source={p.sourceId} data-flow-target={p.targetId}>
           {/* Soft halo behind the line so it's visible over the busy chip grid */}
           <path
             d={p.d}
@@ -5229,12 +5234,23 @@ export function AwsFrame({
                 />
                 <div
                   className={`flex flex-col gap-2 w-[224px] max-w-[224px] min-h-0 ${
-                    presentationMode ? "" : "shrink-0 ml-1"
+                    presentationMode ? "overflow-y-auto" : "shrink-0 ml-1"
                   }`}
-                  // In fullscreen the zoom viewport owns scrolling + fits the map;
-                  // the old internal rail scroll clipped chips and broke flow
-                  // anchoring under scale. Let the rail grow; density tiles keep
-                  // it short. (P0-A/B — replaces the calc(100vh-220px) overflow.)
+                  // Fullscreen: the region grid pins this column to its
+                  // minmax(0,1fr) track and clips overflow, and computeFit pins
+                  // the content box to the viewport height — so a rail taller
+                  // than the viewport was cut off with no gesture able to reach
+                  // the hidden Regional chips (the density collapse it was
+                  // meant to rely on never fires: fitH is always 1). The column
+                  // therefore owns ONE bounded scroll here. That is safe for the
+                  // flow overlay: visibleRect clamps anchors to this scroll box
+                  // and the capture-phase scroll listener re-measures, so an
+                  // edge to a scrolled-out chip pins to the rail edge instead of
+                  // dangling — the failure that made P0-A/B remove the earlier
+                  // calc(100vh-220px) scroll no longer applies.
+                  // data-scroll-region keeps the fullscreen pan handler off this
+                  // box (a drag on the scrollbar must scroll, not pan).
+                  data-scroll-region="edge-services-rail"
                   data-testid="topology-edge-services-rail"
                 >
                   <ServerlessComputeTier
