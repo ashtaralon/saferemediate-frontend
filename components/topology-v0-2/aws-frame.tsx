@@ -1070,6 +1070,7 @@ function ServiceIconShell({
   flowId,
   extraAttrs,
   dense = false,
+  railChip = false,
   multiAz = false,
   signalColor,
   signalLabel,
@@ -1087,6 +1088,10 @@ function ServiceIconShell({
   extraAttrs?: Record<string, string | number | undefined>
   /** Cell density — smaller glyph, drop sublabel so 1 service fits without scroll. */
   dense?: boolean
+  /** Rail lane chip (fullscreen): dense and capped to half the lane row
+   *  minus the gap, so two chips share a row whatever the scrollbar
+   *  width. See RAIL_LANE_MIN_PX for why the lanes need it. */
+  railChip?: boolean
   /** Multi-AZ instance — badge it so a DB spanning zones reads as ONE resource. */
   multiAz?: boolean
   /** Integrated posture signal. It stays a small cue, not the map's primary grammar. */
@@ -1107,7 +1112,7 @@ function ServiceIconShell({
       {...extraAttrs}
       className={
         dense
-          ? "relative flex flex-col items-center gap-0.5 min-w-[68px] max-w-[112px] px-1.5 py-1 rounded-md transition-all shrink-0"
+          ? `relative flex flex-col items-center gap-0.5 min-w-[68px] ${railChip ? "max-w-[calc(50%-4px)]" : "max-w-[112px]"} px-1.5 py-1 rounded-md transition-all shrink-0`
           : "relative flex flex-col items-center gap-0.5 min-w-[76px] max-w-[128px] px-2 py-1.5 rounded-md transition-all shrink-0"
       }
       style={{
@@ -1267,11 +1272,13 @@ function ServiceNodeIcon({
   selected,
   onSelect,
   dense = false,
+  railChip = false,
 }: {
   node: TopologyNode
   selected: boolean
   onSelect: (id: string) => void
   dense?: boolean
+  railChip?: boolean
 }) {
   const typeLabel = node.type ?? "?"
   const isForeignOwner = node.is_foreign === true
@@ -1295,6 +1302,7 @@ function ServiceNodeIcon({
       testId={isForeignOwner ? "topology-foreign-node" : "topology-service-node-icon"}
       flowId={node.id}
       dense={dense}
+      railChip={railChip}
       multiAz={multiAz}
       signalColor={signal.ring}
       signalLabel={
@@ -2002,9 +2010,59 @@ function StackTile({
 }
 
 /** Fullscreen rail lanes: each lane's flex basis is its own content height
- *  and both may shrink, so a lane with more chips gets more of the column,
- *  and every lane keeps at least its header plus one row of chips. */
-const RAIL_LANE_FLEX = { flex: "0 1 auto", minHeight: 96 } as const
+ *  and both may shrink, so a lane with more chips gets more of the column.
+ *  The floor comes from useRailLaneFloor and is set per lane. */
+const RAIL_LANE_FLEX = { flex: "0 1 auto" } as const
+/** Floor of one fullscreen lane, so its body always shows one full row of
+ *  chips: padding 16 + the taller (Lambda) header 35 + both fold pills
+ *  2 × 24 + one row of dense chips 54 = 153. The lanes render dense chips
+ *  capped to half a row (ServiceIconShell railChip) for the same reason: a
+ *  full-size inventory chip is ~82px and, with a long name, one per row, and
+ *  the 96px floor the lane split shipped with could not hold one once the
+ *  coverage pill took its share of the column (fixture spec, 720px tall). */
+export const RAIL_LANE_MIN_PX = 154
+/** Vertical gap between the two lanes (the rail column's gap-2). */
+const RAIL_LANE_GAP_PX = 8
+
+/** Floor one lane may claim so that BOTH floors still fit the rail column:
+ *  the full floor when the column affords two, else an equal split of the
+ *  column (a window that short is tiny; sharing beats clipping one lane).
+ *  An unmeasured column (null, or 0 before layout) keeps the full floor. */
+export function railLaneFloorPx(columnHeight: number | null): number {
+  if (columnHeight == null || !Number.isFinite(columnHeight) || columnHeight <= 0) return RAIL_LANE_MIN_PX
+  return Math.max(0, Math.min(RAIL_LANE_MIN_PX, Math.floor((columnHeight - RAIL_LANE_GAP_PX) / 2)))
+}
+
+/** Live lane floor for the fullscreen rail column, re-measured on resize. */
+function useRailLaneFloor(ref: React.RefObject<HTMLDivElement | null>, enabled: boolean): number {
+  const [floor, setFloor] = useState(RAIL_LANE_MIN_PX)
+  useEffect(() => {
+    const el = ref.current
+    if (!enabled || !el) {
+      setFloor(RAIL_LANE_MIN_PX)
+      return
+    }
+    let raf = 0
+    const measure = () => {
+      raf = 0
+      const next = railLaneFloorPx(el.clientHeight)
+      setFloor(prev => (prev === next ? prev : next))
+    }
+    const schedule = () => {
+      if (!raf) raf = window.requestAnimationFrame(measure)
+    }
+    schedule()
+    window.addEventListener("resize", schedule)
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(schedule) : null
+    ro?.observe(el)
+    return () => {
+      window.removeEventListener("resize", schedule)
+      ro?.disconnect()
+      if (raf) window.cancelAnimationFrame(raf)
+    }
+  }, [ref, enabled])
+  return floor
+}
 
 /** Chips of a lane body that sit above / below its visible fold. Measured
  *  from live rects (scroll, resize, and a content revision re-measure), so
@@ -2125,6 +2183,7 @@ function ServerlessComputeTier({
   compact = false,
   viewDensity = "glance",
   namedFlowNodeIds,
+  laneMinHeight,
 }: {
   nodes: TopologyNode[]
   selectedNodeId: string | null
@@ -2135,6 +2194,8 @@ function ServerlessComputeTier({
   viewDensity?: ViewDensity
   /** Observed dependency participants stay named in Glance instead of hiding in Lambda ×N. */
   namedFlowNodeIds?: Set<string>
+  /** Fullscreen lane floor from useRailLaneFloor (see RAIL_LANE_MIN_PX). */
+  laneMinHeight?: number
 }) {
   if (nodes.length === 0) return null
   const glance = viewDensity === "glance"
@@ -2162,7 +2223,7 @@ function ServerlessComputeTier({
         background: "#EEF2FF",
         border: "1px solid #C7D2FE",
         borderLeft: "3px solid #4338CA",
-        ...(compact ? RAIL_LANE_FLEX : {}),
+        ...(compact ? { ...RAIL_LANE_FLEX, minHeight: laneMinHeight ?? RAIL_LANE_MIN_PX } : {}),
       }}
     >
       {/* Flow obstacle: the badge nudge pass (FlowOverlay pass 4) keeps edge
@@ -2191,6 +2252,7 @@ function ServerlessComputeTier({
             selected={node.id === selectedNodeId}
             onSelect={onSelect}
             dense
+            railChip={compact}
           />
         ))}
         {groups
@@ -2211,6 +2273,8 @@ function ServerlessComputeTier({
                 node={n}
                 selected={n.id === selectedNodeId}
                 onSelect={onSelect}
+                dense={compact}
+                railChip={compact}
               />
             ))}
       </div>
@@ -2226,6 +2290,7 @@ function RegionalDataServicesTier({
   compact = false,
   viewDensity = "glance",
   namedFlowNodeIds,
+  laneMinHeight,
 }: {
   nodes: TopologyNode[]
   selectedNodeId: string | null
@@ -2234,6 +2299,8 @@ function RegionalDataServicesTier({
   densityCollapsed?: boolean
   viewDensity?: ViewDensity
   namedFlowNodeIds?: Set<string>
+  /** Fullscreen lane floor from useRailLaneFloor (see RAIL_LANE_MIN_PX). */
+  laneMinHeight?: number
 }) {
   if (nodes.length === 0) return null
   const glance = viewDensity === "glance"
@@ -2258,7 +2325,7 @@ function RegionalDataServicesTier({
         background: "#EDE7F6",
         border: "1px solid #D1C4E9",
         borderLeft: "3px solid #5E35B1",
-        ...(compact ? RAIL_LANE_FLEX : {}),
+        ...(compact ? { ...RAIL_LANE_FLEX, minHeight: laneMinHeight ?? RAIL_LANE_MIN_PX } : {}),
       }}
     >
       <div
@@ -2279,6 +2346,8 @@ function RegionalDataServicesTier({
               node={n}
               selected={n.id === selectedNodeId}
               onSelect={onSelect}
+              dense={compact}
+              railChip={compact}
             />
           ))}
         </div>
@@ -2292,6 +2361,7 @@ function RegionalDataServicesTier({
             selected={node.id === selectedNodeId}
             onSelect={onSelect}
             dense
+            railChip={compact}
           />
         ))}
         {groups
@@ -2312,6 +2382,8 @@ function RegionalDataServicesTier({
                 node={n}
                 selected={n.id === selectedNodeId}
                 onSelect={onSelect}
+                dense={compact}
+                railChip={compact}
               />
             ))}
       </div>
@@ -5060,6 +5132,8 @@ export function AwsFrame({
       : topo.edges.igws
   const accountSuffix = topo.account_id ? `· acct ${topo.account_id}` : ""
   const flowContainerRef = useRef<HTMLDivElement | null>(null)
+  const railColumnRef = useRef<HTMLDivElement | null>(null)
+  const railLaneMinHeight = useRailLaneFloor(railColumnRef, presentationMode)
 
   const attackPathEdgeCount = attackPathFlowCount
 
@@ -5552,11 +5626,13 @@ export function AwsFrame({
                   // P0-A/B remove the earlier calc(100vh-220px) scroll no longer
                   // applies. data-scroll-region keeps the fullscreen pan handler
                   // off this column (a drag on a lane scrollbar must scroll).
+                  ref={railColumnRef}
                   data-scroll-region="edge-services-rail"
                   data-testid="topology-edge-services-rail"
                 >
                   <ServerlessComputeTier
                     nodes={serverlessTierNodes}
+                    laneMinHeight={railLaneMinHeight}
                     selectedNodeId={selectedNodeId}
                     onSelect={onSelect}
                     roleForWorkload={roleForWorkload}
@@ -5567,6 +5643,7 @@ export function AwsFrame({
                   />
                   <RegionalDataServicesTier
                     nodes={regionalTierNodes}
+                    laneMinHeight={railLaneMinHeight}
                     selectedNodeId={selectedNodeId}
                     onSelect={onSelect}
                     compact={presentationMode}

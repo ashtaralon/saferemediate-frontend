@@ -19,7 +19,10 @@ import { ESTATE_URL, railHeaderBadgeOverlaps, routeSnapshot } from "./topology-f
  *      inside the lane's box and the viewport after — the page and the
  *      Regional lane do not move, and the fold counters flip,
  *   4. flow edges into rail chips end inside the chip, and edges into
- *      scrolled-out chips pin to their lane's edge — never dangle.
+ *      scrolled-out chips pin to their lane's edge — never dangle,
+ *   5. the lane's chips are dense and two share a row, and the lane body is
+ *      never shorter than one row (RAIL_LANE_MIN_PX): the coverage pill
+ *      above the grid took the slack the 96px floor had been living on.
  */
 test("fullscreen: each off-VPC rail lane scrolls in its track, both lanes stay on screen, edges stay anchored", async ({
   context,
@@ -96,6 +99,13 @@ test("fullscreen: each off-VPC rail lane scrolls in its track, both lanes stay o
   const chips = laneBody.locator("[data-flow-id]")
   const chipCount = await chips.count()
   expect(chipCount).toBeGreaterThan(0)
+  // 5a: chips are capped to half a row, so the first two share the first
+  // row (a full-size chip with a long name forced one per row).
+  const [first, second] = await Promise.all([chips.nth(0).boundingBox(), chips.nth(1).boundingBox()])
+  expect(first).not.toBeNull()
+  expect(second).not.toBeNull()
+  expect(Math.abs(first!.y - second!.y)).toBeLessThan(1)
+  expect(second!.x).toBeGreaterThanOrEqual(first!.x + first!.width - 1)
   const last = chips.nth(chipCount - 1)
   const bodyBox = await laneBody.boundingBox()
   const before = await last.boundingBox()
@@ -113,6 +123,8 @@ test("fullscreen: each off-VPC rail lane scrolls in its track, both lanes stay o
   expect(after!.y).toBeGreaterThanOrEqual(bodyAfter!.y - 1)
   expect(after!.y + after!.height).toBeLessThanOrEqual(bodyAfter!.y + bodyAfter!.height + 1)
   expect(after!.y + after!.height).toBeLessThanOrEqual(720)
+  // 5b: the lane body is at least one chip tall even with both fold pills up.
+  expect(bodyAfter!.height).toBeGreaterThanOrEqual(after!.height)
   // The LANE scrolled — not the page, not the Regional lane.
   expect(await page.evaluate(() => window.scrollY)).toBe(pageScrollBefore)
   expect(await laneBody.evaluate(el => el.scrollTop)).toBeGreaterThan(0)

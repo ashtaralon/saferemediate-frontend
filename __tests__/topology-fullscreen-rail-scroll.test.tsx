@@ -8,7 +8,10 @@
  * off and nothing could reach the hidden Regional chips (2026-09-02). The
  * column now bounds two LANES — Lambda | Regional — and each lane body owns
  * its own scroll (RailLaneBody), so both lanes stay on screen together; the
- * nested Lambda-tier cap is gone. happy-dom has no layout, so the geometry
+ * nested Lambda-tier cap is gone. Each lane also keeps a floor sized for one
+ * full row of dense, half-row chips (RAIL_LANE_MIN_PX): the 96px floor the
+ * split shipped with could not hold a full-size chip once the coverage pill
+ * took its share of the column. happy-dom has no layout, so the geometry
  * itself is covered by tests/integration/
  * topology-fullscreen-rail-fixture.spec.ts; this pins the structure.
  */
@@ -16,7 +19,7 @@ import React from "react"
 import { afterEach, beforeAll, describe, expect, it } from "vitest"
 import { cleanup, render, screen, within } from "@testing-library/react"
 
-import { AwsFrame } from "@/components/topology-v0-2/aws-frame"
+import { AwsFrame, RAIL_LANE_MIN_PX, railLaneFloorPx } from "@/components/topology-v0-2/aws-frame"
 import type { SubnetMeta, TopologyNode, VpcTopology } from "@/components/topology-v0-2/types"
 
 beforeAll(() => {
@@ -123,6 +126,34 @@ describe("fullscreen off-VPC rail: two lanes, each owning one bounded scroll", (
     expect(regionalHeader).toHaveTextContent("Regional · S3 / DDB / KMS (2)")
   })
 
+  it("fullscreen lane chips are dense and capped to half a row; each lane carries the floor", () => {
+    renderFrame(true)
+    const rail = screen.getByTestId("topology-edge-services-rail")
+    for (const lane of ["serverless", "regional"] as const) {
+      const body = within(rail).getByTestId(`topology-${lane}-lane-body`)
+      const chips = within(body).getAllByTestId("topology-service-node-icon")
+      expect(chips.length).toBeGreaterThan(0)
+      for (const chip of chips) {
+        expect(chip.className).toContain("min-w-[68px]")
+        expect(chip.className).toContain("max-w-[calc(50%-4px)]")
+        expect(chip.className).not.toContain("max-w-[112px]")
+      }
+    }
+    // happy-dom has no layout: the column measures 0, so the full floor holds.
+    expect(within(rail).getByTestId("topology-serverless-tier").style.minHeight).toBe(`${RAIL_LANE_MIN_PX}px`)
+    expect(within(rail).getByTestId("topology-regional-data-tier").style.minHeight).toBe(`${RAIL_LANE_MIN_PX}px`)
+  })
+
+  it("railLaneFloorPx: the full floor when the column affords two, an equal split when it cannot", () => {
+    expect(railLaneFloorPx(null)).toBe(RAIL_LANE_MIN_PX)
+    expect(railLaneFloorPx(0)).toBe(RAIL_LANE_MIN_PX)
+    expect(railLaneFloorPx(390)).toBe(RAIL_LANE_MIN_PX) // 2 × 154 + 8 ≤ 390
+    expect(railLaneFloorPx(316)).toBe(RAIL_LANE_MIN_PX) // exactly two floors + the gap
+    expect(railLaneFloorPx(300)).toBe(146) // (300 − 8) / 2
+    expect(railLaneFloorPx(100)).toBe(46)
+    expect(railLaneFloorPx(4)).toBe(0)
+  })
+
   it("embedded mode is unchanged: the rail and its lanes grow with the page", () => {
     renderFrame(false)
     const rail = screen.getByTestId("topology-edge-services-rail")
@@ -131,5 +162,14 @@ describe("fullscreen off-VPC rail: two lanes, each owning one bounded scroll", (
     expect(rail.querySelectorAll("[class*='overflow-y-auto']")).toHaveLength(0)
     expect(screen.getByTestId("topology-serverless-lane-body")).not.toHaveAttribute("data-scroll-region")
     expect(screen.queryByTestId("topology-serverless-lane-more")).toBeNull()
+    // Full-size inventory chips and no lane floor: the page grows instead.
+    const chips = within(rail).getAllByTestId("topology-service-node-icon")
+    expect(chips.length).toBeGreaterThan(0)
+    for (const chip of chips) {
+      expect(chip.className).toContain("min-w-[76px]")
+      expect(chip.className).not.toContain("calc(50%-4px)")
+    }
+    expect(within(rail).getByTestId("topology-serverless-tier").style.minHeight).toBe("")
+    expect(within(rail).getByTestId("topology-regional-data-tier").style.minHeight).toBe("")
   })
 })
