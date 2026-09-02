@@ -85,6 +85,15 @@ test("fullscreen platform map shows named Lambda, protected AZ labels, direction
   await page.waitForTimeout(600) // double-rAF measure after the fit
   expect(await railHeaderBadgeOverlaps(page)).toEqual([])
 
+  // The load balancer band is the first row above the AZ grid.
+  const albBand = fullscreen.getByTestId("topology-alb-band")
+  await expect(albBand).toBeVisible()
+  const albBox = await albBand.boundingBox()
+  const azHeaderBox = await fullscreen.locator('[data-flow-obstacle="az-header-row"]').first().boundingBox()
+  expect(albBox).not.toBeNull()
+  expect(azHeaderBox).not.toBeNull()
+  expect(albBox!.y + albBox!.height).toBeLessThanOrEqual(azHeaderBox!.y + 1)
+
   await lambda.click()
   const detail = page.getByTestId("topology-service-detail-panel")
   await expect(detail).toBeVisible()

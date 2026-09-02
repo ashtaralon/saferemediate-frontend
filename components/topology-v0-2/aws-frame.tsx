@@ -33,6 +33,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { Boxes, GitBranch, Globe2, ShieldAlert, Users } from "lucide-react"
 import {
+  type EdgeNatGw,
   type IamRoleRollup,
   type ScoreTier,
   type SecurityGroupMeta,
@@ -1379,10 +1380,58 @@ function InventoryCellWorkloads({
   )
 }
 
+/** One NAT gateway. `placement="subnet"` is the chip pinned inside the
+ *  public subnet cell that owns `nat.subnet_id`; `"unplaced"` is the
+ *  frame-level fallback for a NAT whose subnet is missing or not in the grid. */
+function NatGatewayChip({
+  nat,
+  placement,
+  compact = false,
+}: {
+  nat: EdgeNatGw
+  placement: "subnet" | "unplaced"
+  compact?: boolean
+}) {
+  return (
+    <span
+      className={
+        compact
+          ? "inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-md max-w-full min-w-0"
+          : "inline-flex items-center gap-1.5 text-[12px] font-semibold px-2.5 py-1.5 rounded-md max-w-full min-w-0"
+      }
+      style={{
+        background: "linear-gradient(180deg, #FFF9F0 0%, #FFFFFF 100%)",
+        border: "2px solid #FF9900",
+        color: "#7B3F00",
+      }}
+      data-testid="topology-nat-gateway-chip"
+      data-nat-id={nat.id}
+      data-nat-placement={placement}
+      title={
+        placement === "subnet"
+          ? `NAT gateway · ${nat.name} · subnet ${nat.subnet_id} (from vpc_topology.edges)`
+          : `NAT gateway · ${nat.name} · subnet ${nat.subnet_id ?? "unknown"} is not in this grid (from vpc_topology.edges)`
+      }
+    >
+      <span
+        className={
+          compact
+            ? "inline-flex items-center justify-center rounded w-5 h-5 shrink-0"
+            : "inline-flex items-center justify-center rounded w-8 h-8 shrink-0"
+        }
+        style={{ background: "#8C4FFF", color: "white" }}
+      >
+        <AwsServiceGlyph kind="nat" size={compact ? 13 : 20} />
+      </span>
+      <span className="truncate">NAT GW · {nat.name}</span>
+    </span>
+  )
+}
+
 function SubnetCell({
   tier, az, subnetsHere, workloadsHere, sgIndex, selectedNodeId, onSelect,
   compact = false, roleForWorkload, densityCollapsed = false,
-  viewDensity = "glance",
+  viewDensity = "glance", natGwsHere = [],
 }: {
   tier: SubnetTier
   az: string
@@ -1395,6 +1444,8 @@ function SubnetCell({
   roleForWorkload?: (nodeId: string) => IamRoleRollup | undefined
   densityCollapsed?: boolean
   viewDensity?: ViewDensity
+  /** NAT gateways whose subnet_id is one of `subnetsHere` (see placeNatGateways). */
+  natGwsHere?: EdgeNatGw[]
 }) {
   void sgIndex
   void densityCollapsed
@@ -1505,6 +1556,17 @@ function SubnetCell({
           </span>
         ) : null}
       </div>
+
+      {natGwsHere.length > 0 ? (
+        <div
+          className="flex flex-wrap gap-1 shrink-0 mb-1"
+          data-testid="topology-subnet-cell-nat"
+        >
+          {natGwsHere.map(nat => (
+            <NatGatewayChip key={nat.id} nat={nat} placement="subnet" compact />
+          ))}
+        </div>
+      ) : null}
 
       {empty ? (
         workloadsHere.length > 0 ? (
@@ -3300,6 +3362,32 @@ export function frameVpcIds(subnets: SubnetMeta[], primaryVpcId: string | null):
   return ids
 }
 
+/** Pin each NAT gateway to the AZ x tier cell that owns its subnet_id. A NAT
+ *  with no subnet_id, or one whose subnet is not in this grid, is returned as
+ *  `unplaced` so the frame can still show it (labelled) instead of dropping it. */
+export function placeNatGateways(
+  natGws: readonly EdgeNatGw[],
+  subnetsByCell: ReadonlyMap<string, readonly SubnetMeta[]>,
+): { byCell: Map<string, EdgeNatGw[]>; unplaced: EdgeNatGw[] } {
+  const cellBySubnet = new Map<string, string>()
+  for (const [cellKey, cellSubnets] of subnetsByCell) {
+    for (const subnet of cellSubnets) cellBySubnet.set(subnet.id, cellKey)
+  }
+  const byCell = new Map<string, EdgeNatGw[]>()
+  const unplaced: EdgeNatGw[] = []
+  for (const nat of natGws) {
+    const cellKey = nat.subnet_id ? cellBySubnet.get(nat.subnet_id) : undefined
+    if (!cellKey) {
+      unplaced.push(nat)
+      continue
+    }
+    const list = byCell.get(cellKey) ?? []
+    list.push(nat)
+    byCell.set(cellKey, list)
+  }
+  return { byCell, unplaced }
+}
+
 interface CanvasGrid {
   byAzAndTier: Map<string, Map<SubnetTier, TopologyNode[]>>
   subnetsByCell: Map<string, SubnetMeta[]>
@@ -3795,7 +3883,8 @@ function MultiVpcCompareBands({
   const viewDensity: ViewDensity = "glance"
 
   const hasAnyAlb = frames.some(f => f.grid.albNodes.length > 0)
-  const hasAnyNat = frames.some(f => f.natGws.length > 0)
+  // Only NATs the grids cannot place need the ingress strip; placed NATs sit in their subnet cell.
+  const hasAnyNat = frames.some(f => placeNatGateways(f.natGws, f.grid.subnetsByCell).unplaced.length > 0)
   const hasIngress = hasAnyAlb || hasAnyNat
   // Compare always uses Compare floors — presentation mins crush subnet cells
   // when width is split across VPC columns (Alon, 2026-07-09).
@@ -3919,6 +4008,8 @@ function MultiVpcCompareBands({
 
         {frames.map((f, idx) => {
           const isShared = Boolean(f.isForeign)
+          const natPlacement = placeNatGateways(f.natGws, f.grid.subnetsByCell)
+          const hasUnplacedNat = natPlacement.unplaced.length > 0
           const borderColor = isShared ? "#F59E0B" : "#00C2A8"
           const columnBg = isShared ? "rgba(255, 251, 235, 0.72)" : "rgba(240, 253, 250, 0.55)"
           return (
@@ -3955,7 +4046,7 @@ function MultiVpcCompareBands({
               {hasIngress ? (
                 <div
                   className={`px-2 flex flex-col items-center gap-1 ${
-                    f.grid.albNodes.length > 0 || f.natGws.length > 0 ? "py-2" : "py-1"
+                    f.grid.albNodes.length > 0 || hasUnplacedNat ? "py-2" : "py-1"
                   }`}
                   style={{
                     borderBottom: `1px dashed ${isShared ? "#FCD34D" : "#99F6E4"}`,
@@ -3965,7 +4056,7 @@ function MultiVpcCompareBands({
                           ? "#FFF7ED"
                           : "#F5F3FF"
                         : "transparent",
-                    minHeight: f.grid.albNodes.length > 0 || f.natGws.length > 0 ? 52 : 28,
+                    minHeight: f.grid.albNodes.length > 0 || hasUnplacedNat ? 52 : 28,
                   }}
                 >
                   {f.grid.albNodes.length > 0 ? (
@@ -3995,28 +4086,14 @@ function MultiVpcCompareBands({
                       No ALB
                     </div>
                   )}
-                  {f.natGws.length > 0 ? (
-                    <div className="flex flex-wrap gap-1 justify-center">
-                      {f.natGws.map(n => (
-                        <span
-                          key={n.id}
-                          className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1.5 rounded-md"
-                          style={{
-                            background: "linear-gradient(180deg, #FFF9F0 0%, #FFFFFF 100%)",
-                            border: "2px solid #FF9900",
-                            color: "#7B3F00",
-                          }}
-                          data-testid="topology-nat-gateway-chip"
-                          title={`NAT gateway · ${n.name} (from vpc_topology.edges)`}
-                        >
-                          <span
-                            className="inline-flex items-center justify-center rounded text-[9px] font-bold w-7 h-7 shrink-0"
-                            style={{ background: PAL.awsFrame, color: PAL.awsOrange }}
-                          >
-                            NAT
-                          </span>
-                          {n.name}
-                        </span>
+                  {hasUnplacedNat ? (
+                    <div
+                      className="flex flex-wrap gap-1 justify-center"
+                      data-testid="topology-nat-gateway-fallback"
+                      title="NAT gateways whose subnet is not in this grid"
+                    >
+                      {natPlacement.unplaced.map(n => (
+                        <NatGatewayChip key={n.id} nat={n} placement="unplaced" compact />
                       ))}
                     </div>
                   ) : null}
@@ -4075,6 +4152,7 @@ function MultiVpcCompareBands({
                               tier={tier}
                               az={az}
                               subnetsHere={subnetsHere}
+                              natGwsHere={natPlacement.byCell.get(`${az}::${tier}`) ?? []}
                               workloadsHere={workloadsHere}
                               sgIndex={sgIndex}
                               selectedNodeId={selectedNodeId}
@@ -4228,35 +4306,26 @@ function VpcCanvasFrame({
 }: VpcCanvasFrameProps) {
   void igws // IGWs render on the region network rail (with VPCEs), not in-frame.
   const { byAzAndTier, subnetsByCell, albNodes, azs, azGridColumns, vpcGridMinWidth } = grid
-  const hasNats = natGws.length > 0
+  // A NAT gateway lives in a public subnet: pin each one to the cell that owns
+  // its subnet_id. Only NATs the grid cannot place stay on the frame-level strip.
+  const natPlacement = useMemo(() => placeNatGateways(natGws, subnetsByCell), [natGws, subnetsByCell])
+  const hasNats = natPlacement.unplaced.length > 0
   // IGWs render on the region VPCE rail (right of VPC), not above Web.
 
+  // Fallback only: a NAT whose subnet_id is missing or outside this frame's
+  // grid still renders, labelled as such, instead of being dropped.
   const natBand = hasNats && (
-    <div className="mb-1.5 pb-1 border-b border-dashed" style={{ borderColor: "#CBD5E1" }}>
+    <div
+      className="mb-1.5 pb-1 border-b border-dashed"
+      style={{ borderColor: "#CBD5E1" }}
+      data-testid="topology-nat-gateway-fallback"
+    >
       <div className="text-[9px] uppercase tracking-[0.12em] font-semibold mb-1" style={{ color: PAL.slate }}>
-        NAT gateways ({natGws.length})
+        NAT gateways · subnet not in this grid ({natPlacement.unplaced.length})
       </div>
       <div className="flex flex-wrap gap-1.5">
-        {natGws.map(n => (
-          <span
-            key={n.id}
-            className="inline-flex items-center gap-1.5 text-[12px] font-semibold px-2.5 py-1.5 rounded-md"
-            style={{
-              background: "linear-gradient(180deg, #FFF9F0 0%, #FFFFFF 100%)",
-              border: "2px solid #FF9900",
-              color: "#7B3F00",
-            }}
-            data-testid="topology-nat-gateway-chip"
-            title={`NAT gateway · ${n.name} (from vpc_topology.edges)`}
-          >
-            <span
-              className="inline-flex items-center justify-center rounded w-8 h-8 shrink-0"
-              style={{ background: "#8C4FFF", color: "white" }}
-            >
-              <AwsServiceGlyph kind="nat" size={20} />
-            </span>
-            NAT GW · {n.name}
-          </span>
+        {natPlacement.unplaced.map(n => (
+          <NatGatewayChip key={n.id} nat={n} placement="unplaced" />
         ))}
       </div>
     </div>
@@ -4429,11 +4498,11 @@ function VpcCanvasFrame({
           </div>
         ) : (
           <>
-            {/* Row 2 (subgrid): NAT + ALB + AZ headers — height = max across
+            {/* Row 2 (subgrid): ALB + NAT fallback + AZ headers — height = max across
                 VPCs so every Web tier starts on the same Y. */}
             <div style={{ gridRow: 2, minHeight: 0 }} className="min-h-0">
-              {natBand}
               {albBand}
+              {natBand}
               <div className="mt-1">{azHeaderRow}</div>
             </div>
 
@@ -4483,6 +4552,7 @@ function VpcCanvasFrame({
                           tier={tier}
                           az={az}
                           subnetsHere={subnetsHere}
+                          natGwsHere={natPlacement.byCell.get(`${az}::${tier}`) ?? []}
                           workloadsHere={workloadsHere}
                           sgIndex={sgIndex}
                           selectedNodeId={selectedNodeId}
@@ -4510,8 +4580,8 @@ function VpcCanvasFrame({
            the canonical AWS reference (AZ as failure-domain columns). */
         <div className="mt-2" data-testid="topology-aws-az-columns">
           <div className="space-y-2">
-            {natBand}
             {albBand}
+            {natBand}
             <div
               className="grid gap-2.5"
               style={{
@@ -4559,6 +4629,7 @@ function VpcCanvasFrame({
                         tier={tier}
                         az={az}
                         subnetsHere={subnetsHere}
+                        natGwsHere={natPlacement.byCell.get(`${az}::${tier}`) ?? []}
                         workloadsHere={workloadsHere}
                         sgIndex={sgIndex}
                         selectedNodeId={selectedNodeId}
@@ -4581,8 +4652,8 @@ function VpcCanvasFrame({
       ) : (
         <div className="mt-2">
           <div className="space-y-2">
-            {natBand}
             {albBand}
+            {natBand}
             {azHeaderRow}
             <div data-testid="topology-tier-stack" className="contents">
               {TIERS.map(tier => (
@@ -4617,6 +4688,7 @@ function VpcCanvasFrame({
                             tier={tier}
                             az={az}
                             subnetsHere={subnetsHere}
+                            natGwsHere={natPlacement.byCell.get(`${az}::${tier}`) ?? []}
                             workloadsHere={workloadsHere}
                             sgIndex={sgIndex}
                             selectedNodeId={selectedNodeId}
