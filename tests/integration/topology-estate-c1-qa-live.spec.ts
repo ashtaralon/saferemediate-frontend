@@ -26,6 +26,7 @@
  *   FRONTEND_URL=https://cyntro-c1.vercel.app C1_SYSTEM=testbed-webshop \
  *     npx playwright test tests/integration/topology-estate-c1-qa-live.spec.ts
  */
+import fs from "node:fs"
 import { expect, test, type Page } from "@playwright/test"
 import { authedApi, liveGetWithRetry, seedAuthCookie } from "./live-auth"
 import { railHeaderBadgeOverlaps } from "./topology-fixture"
@@ -95,16 +96,30 @@ interface TopologyRisk {
   } | null
 }
 
+/** Every measurement of the current test, written out by the afterEach below. */
+const measurements: Array<{ name: string; data: unknown }> = []
+
 function report(name: string, data: unknown) {
+  measurements.push({ name, data })
   console.log(`C1QA ${name} ${JSON.stringify(data)}`)
 }
 
+/** Attachments are written as files under the test's output directory so the
+ *  publish step of the workflow can ship them with the screenshots. */
 async function attachJson(name: string, data: unknown) {
-  await test.info().attach(name, {
-    body: JSON.stringify(data, null, 2),
-    contentType: "application/json",
-  })
+  const path = test.info().outputPath(name)
+  fs.writeFileSync(path, JSON.stringify(data, null, 2))
+  await test.info().attach(name, { path, contentType: "application/json" })
 }
+
+test.afterEach(async () => {
+  if (measurements.length === 0) return
+  await attachJson("c1qa-measurements.json", {
+    test: test.info().title,
+    status: test.info().status,
+    measurements: measurements.splice(0, measurements.length),
+  })
+})
 
 async function shot(page: Page, name: string) {
   const path = test.info().outputPath(`${name}.png`)
