@@ -15,6 +15,7 @@ export default defineConfig({
     exclude: [
       ...configDefaults.exclude,
       "tests/integration/**/*-live.spec.ts",
+      "tests/integration/**/*-fixture.spec.ts",
       "tests/integration/**/ac1_capital_one_e2e.spec.ts",
     ],
     globals: true,

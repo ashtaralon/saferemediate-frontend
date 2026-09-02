@@ -1,87 +1,9 @@
-import fs from "node:fs"
-import path from "node:path"
-import { expect, test, type Page } from "@playwright/test"
+import { expect, test } from "@playwright/test"
 import { seedAuthCookie } from "./live-auth"
+import { ESTATE_URL, SNAPSHOT, railHeaderBadgeOverlaps, routeSnapshot } from "./topology-fixture"
 
-const SYSTEM = "alon-prod"
-const ESTATE_URL = `/topology/v0.2-estate?systemName=${SYSTEM}`
-const RAW_SNAPSHOT = JSON.parse(
-  fs.readFileSync(
-    path.join(process.cwd(), "docs/mocks/topology-snapshot-alon-prod.json"),
-    "utf8",
-  ),
-)
-const SNAPSHOT = {
-  ...RAW_SNAPSHOT,
-  traffic_authority: {
-    state: "authoritative_positive_only",
-    mode: "incremental",
-    active_generation: 7,
-    window_days: 90,
-    authoritative_endpoint_count: RAW_SNAPSHOT.nodes.length,
-    endpoint_count: RAW_SNAPSHOT.nodes.length,
-    projected_edge_count: RAW_SNAPSHOT.traffic_edges.length,
-    authority_scope: "positive_confirmed_tcp",
-    absence_authority: "unknown",
-    normalization_version: "tcp_syn_connection_v1",
-    limitation: "Confirmed TCP segments are authoritative; a missing segment is not evidence of no traffic.",
-  },
-  traffic_edges: RAW_SNAPSHOT.traffic_edges.map((edge: { protocol?: string | null }, index: number) => {
-    const configured = ["ROUTES_TO", "QUERIES_DB"].includes(edge.protocol ?? "")
-    return {
-      ...edge,
-      evidence_type: configured ? "configured" : "observed",
-      evidence_source: configured ? "aws_configuration" : "behavioral_summary",
-      authority_state: configured ? "configured" : "authoritative",
-      path_basis: configured ? "configured_route" : "observed_segment",
-      projection_generation: configured ? null : 7,
-      evidence_id: configured ? null : `mock-edge-${index}`,
-      normalization_basis: configured ? null : "tcp_syn_connection_v1",
-      normalization_provenance: configured ? [] : ["NATIVE_REQUEST_TCP_FLAGS"],
-    }
-  }),
-}
-
-async function routeSnapshot(page: Page) {
-  await page.route(`**/api/proxy/topology-risk/${SYSTEM}**`, async route => {
-    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(SNAPSHOT) })
-  })
-  await page.route("**/api/proxy/dependency-map/full**", async route => {
-    const nodes = SNAPSHOT.nodes.map((node: { id: string; name: string; type: string }) => ({
-      id: node.id,
-      name: node.name,
-      type: node.type,
-      properties: { arn: node.id },
-    }))
-    const edges = SNAPSHOT.traffic_edges.map(
-      (edge: {
-        source_id: string
-        target_id: string
-        protocol: string | null
-        port: number | null
-        last_seen: string | null
-      }) => ({
-        source: edge.source_id,
-        target: edge.target_id,
-        type: edge.protocol ?? "ACTUAL_TRAFFIC",
-        protocol: edge.protocol,
-        port: edge.port,
-        last_seen: edge.last_seen,
-      }),
-    )
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({ nodes, edges }),
-    })
-  })
-  await page.route("**/api/proxy/findings/severity-summary**", async route => {
-    await route.fulfill({ status: 200, contentType: "application/json", body: "{}" })
-  })
-  await page.route("**/api/proxy/findings/decision-routing**", async route => {
-    await route.fulfill({ status: 200, contentType: "application/json", body: "{}" })
-  })
-}
+// Deterministic fixture spec (renamed from *-qa-live 2026-09-02): it never
+// reaches a backend — see tests/integration/topology-fixture.ts.
 
 test("fullscreen platform map shows named Lambda, protected AZ labels, directional flow, legend, and e2e service path", async ({
   context,
@@ -93,6 +15,9 @@ test("fullscreen platform map shows named Lambda, protected AZ labels, direction
   await page.setViewportSize({ width: 2048, height: 1100 })
   await page.goto(ESTATE_URL, { waitUntil: "domcontentloaded" })
 
+  // The page resolves the system through the product scope + scoped catalog
+  // (all answered by routeSnapshot) before it mounts the map and its tabs.
+  await expect(page.getByTestId("topology-estate-view-map")).toBeVisible({ timeout: 60_000 })
   await page.getByRole("tab", { name: "Network topology" }).click()
   await expect(page.getByRole("heading", { name: "Service index" })).toBeVisible()
   await expect(page.getByText("Next worst")).toHaveCount(0)
@@ -113,6 +38,17 @@ test("fullscreen platform map shows named Lambda, protected AZ labels, direction
   const authorityState = page.getByTestId("topology-traffic-authority-state").first()
   await expect(authorityState).toContainText("Confirmed TCP paths")
   await expect(authorityState).toContainText("missing segment is not evidence of no traffic")
+
+  // Flow-log coverage pill: every number is the payload's lane_coverage block.
+  const coverage = SNAPSHOT.traffic_authority.lane_coverage
+  const pill = page.getByTestId("topology-lane-coverage").first()
+  await expect(pill).toBeVisible()
+  await expect(pill.getByTestId("topology-lane-coverage-totals")).toHaveText(
+    `${coverage.authoritative} of ${coverage.eligible} eligible endpoints covered · ${coverage.unknown} unknown · ${coverage.not_applicable} not applicable · generation 7`,
+  )
+  await expect(pill.getByTestId("topology-lane-coverage-serverless")).toHaveAttribute("data-lane-state", "unknown")
+  await expect(pill.getByTestId("topology-lane-coverage-regional")).toHaveAttribute("data-lane-state", "not_applicable")
+  await expect(pill.getByTestId("topology-lane-coverage-warning")).toHaveCount(coverage.warnings.length)
 
   await page.getByTestId("topology-estate-map-enlarge").click()
   const fullscreen = page.getByTestId("topology-estate-map-fullscreen")
@@ -156,6 +92,11 @@ test("fullscreen platform map shows named Lambda, protected AZ labels, direction
     expect(isTopmost).toBe(true)
   }
 
+  // Rail tier headers are flow obstacles: no edge label paints over them.
+  await page.waitForTimeout(600) // double-rAF measure after the fit
+  expect(await railHeaderBadgeOverlaps(page)).toEqual([])
+
+
   await lambda.click()
   const detail = page.getByTestId("topology-service-detail-panel")
   await expect(detail).toBeVisible()
@@ -163,7 +104,7 @@ test("fullscreen platform map shows named Lambda, protected AZ labels, direction
   await expect(detail.getByText("AWS-managed runtime · not VPC-attached").first()).toBeVisible()
   const pathMap = detail.getByTestId("topology-service-path-map")
   await expect(pathMap).toBeVisible()
-  await expect(pathMap).toContainText("Neo4j graph")
+  await expect(pathMap).toContainText("Neptune graph")
   await expect(pathMap).toContainText("Generation 7 · confirmed TCP")
   await expect(pathMap).toContainText("alon-prod-continuous-traffic")
   await expect(pathMap).toContainText("alon-demo-data-bucket-745783559495")

@@ -33,7 +33,9 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { Boxes, GitBranch, Globe2, ShieldAlert, Users } from "lucide-react"
 import {
+  type EdgeNatGw,
   type IamRoleRollup,
+  type LaneCoverage,
   type ScoreTier,
   type SecurityGroupMeta,
   SIGNAL_LABEL,
@@ -1068,6 +1070,7 @@ function ServiceIconShell({
   flowId,
   extraAttrs,
   dense = false,
+  railChip = false,
   multiAz = false,
   signalColor,
   signalLabel,
@@ -1085,6 +1088,10 @@ function ServiceIconShell({
   extraAttrs?: Record<string, string | number | undefined>
   /** Cell density — smaller glyph, drop sublabel so 1 service fits without scroll. */
   dense?: boolean
+  /** Rail lane chip (fullscreen): dense and capped to half the lane row
+   *  minus the gap, so two chips share a row whatever the scrollbar
+   *  width. See RAIL_LANE_MIN_PX for why the lanes need it. */
+  railChip?: boolean
   /** Multi-AZ instance — badge it so a DB spanning zones reads as ONE resource. */
   multiAz?: boolean
   /** Integrated posture signal. It stays a small cue, not the map's primary grammar. */
@@ -1105,7 +1112,7 @@ function ServiceIconShell({
       {...extraAttrs}
       className={
         dense
-          ? "relative flex flex-col items-center gap-0.5 min-w-[68px] max-w-[112px] px-1.5 py-1 rounded-md transition-all shrink-0"
+          ? `relative flex flex-col items-center gap-0.5 min-w-[68px] ${railChip ? "max-w-[calc(50%-4px)]" : "max-w-[112px]"} px-1.5 py-1 rounded-md transition-all shrink-0`
           : "relative flex flex-col items-center gap-0.5 min-w-[76px] max-w-[128px] px-2 py-1.5 rounded-md transition-all shrink-0"
       }
       style={{
@@ -1265,11 +1272,13 @@ function ServiceNodeIcon({
   selected,
   onSelect,
   dense = false,
+  railChip = false,
 }: {
   node: TopologyNode
   selected: boolean
   onSelect: (id: string) => void
   dense?: boolean
+  railChip?: boolean
 }) {
   const typeLabel = node.type ?? "?"
   const isForeignOwner = node.is_foreign === true
@@ -1293,6 +1302,7 @@ function ServiceNodeIcon({
       testId={isForeignOwner ? "topology-foreign-node" : "topology-service-node-icon"}
       flowId={node.id}
       dense={dense}
+      railChip={railChip}
       multiAz={multiAz}
       signalColor={signal.ring}
       signalLabel={
@@ -1379,10 +1389,58 @@ function InventoryCellWorkloads({
   )
 }
 
+/** One NAT gateway. `placement="subnet"` is the chip pinned inside the
+ *  public subnet cell that owns `nat.subnet_id`; `"unplaced"` is the
+ *  frame-level fallback for a NAT whose subnet is missing or not in the grid. */
+function NatGatewayChip({
+  nat,
+  placement,
+  compact = false,
+}: {
+  nat: EdgeNatGw
+  placement: "subnet" | "unplaced"
+  compact?: boolean
+}) {
+  return (
+    <span
+      className={
+        compact
+          ? "inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-md max-w-full min-w-0"
+          : "inline-flex items-center gap-1.5 text-[12px] font-semibold px-2.5 py-1.5 rounded-md max-w-full min-w-0"
+      }
+      style={{
+        background: "linear-gradient(180deg, #FFF9F0 0%, #FFFFFF 100%)",
+        border: "2px solid #FF9900",
+        color: "#7B3F00",
+      }}
+      data-testid="topology-nat-gateway-chip"
+      data-nat-id={nat.id}
+      data-nat-placement={placement}
+      title={
+        placement === "subnet"
+          ? `NAT gateway · ${nat.name} · subnet ${nat.subnet_id} (from vpc_topology.edges)`
+          : `NAT gateway · ${nat.name} · subnet ${nat.subnet_id ?? "unknown"} is not in this grid (from vpc_topology.edges)`
+      }
+    >
+      <span
+        className={
+          compact
+            ? "inline-flex items-center justify-center rounded w-5 h-5 shrink-0"
+            : "inline-flex items-center justify-center rounded w-8 h-8 shrink-0"
+        }
+        style={{ background: "#8C4FFF", color: "white" }}
+      >
+        <AwsServiceGlyph kind="nat" size={compact ? 13 : 20} />
+      </span>
+      <span className="truncate">NAT GW · {nat.name}</span>
+    </span>
+  )
+}
+
 function SubnetCell({
   tier, az, subnetsHere, workloadsHere, sgIndex, selectedNodeId, onSelect,
   compact = false, roleForWorkload, densityCollapsed = false,
-  viewDensity = "glance",
+  viewDensity = "glance", natGwsHere = [],
 }: {
   tier: SubnetTier
   az: string
@@ -1395,6 +1453,8 @@ function SubnetCell({
   roleForWorkload?: (nodeId: string) => IamRoleRollup | undefined
   densityCollapsed?: boolean
   viewDensity?: ViewDensity
+  /** NAT gateways whose subnet_id is one of `subnetsHere` (see placeNatGateways). */
+  natGwsHere?: EdgeNatGw[]
 }) {
   void sgIndex
   void densityCollapsed
@@ -1505,6 +1565,17 @@ function SubnetCell({
           </span>
         ) : null}
       </div>
+
+      {natGwsHere.length > 0 ? (
+        <div
+          className="flex flex-wrap gap-1 shrink-0 mb-1"
+          data-testid="topology-subnet-cell-nat"
+        >
+          {natGwsHere.map(nat => (
+            <NatGatewayChip key={nat.id} nat={nat} placement="subnet" compact />
+          ))}
+        </div>
+      ) : null}
 
       {empty ? (
         workloadsHere.length > 0 ? (
@@ -1938,6 +2009,173 @@ function StackTile({
   )
 }
 
+/** Fullscreen rail lanes: each lane's flex basis is its own content height
+ *  and both may shrink, so a lane with more chips gets more of the column.
+ *  The floor comes from useRailLaneFloor and is set per lane. */
+const RAIL_LANE_FLEX = { flex: "0 1 auto" } as const
+/** Floor of one fullscreen lane, so its body always shows one full row of
+ *  chips: padding 16 + the taller (Lambda) header 35 + both fold pills
+ *  2 × 24 + one row of dense chips 54 = 153. The lanes render dense chips
+ *  capped to half a row (ServiceIconShell railChip) for the same reason: a
+ *  full-size inventory chip is ~82px and, with a long name, one per row, and
+ *  the 96px floor the lane split shipped with could not hold one once the
+ *  coverage pill took its share of the column (fixture spec, 720px tall). */
+export const RAIL_LANE_MIN_PX = 154
+/** Vertical gap between the two lanes (the rail column's gap-2). */
+const RAIL_LANE_GAP_PX = 8
+
+/** Floor one lane may claim so that BOTH floors still fit the rail column:
+ *  the full floor when the column affords two, else an equal split of the
+ *  column (a window that short is tiny; sharing beats clipping one lane).
+ *  An unmeasured column (null, or 0 before layout) keeps the full floor. */
+export function railLaneFloorPx(columnHeight: number | null): number {
+  if (columnHeight == null || !Number.isFinite(columnHeight) || columnHeight <= 0) return RAIL_LANE_MIN_PX
+  return Math.max(0, Math.min(RAIL_LANE_MIN_PX, Math.floor((columnHeight - RAIL_LANE_GAP_PX) / 2)))
+}
+
+/** Live lane floor for the fullscreen rail column, re-measured on resize. */
+function useRailLaneFloor(ref: React.RefObject<HTMLDivElement | null>, enabled: boolean): number {
+  const [floor, setFloor] = useState(RAIL_LANE_MIN_PX)
+  useEffect(() => {
+    const el = ref.current
+    if (!enabled || !el) {
+      setFloor(RAIL_LANE_MIN_PX)
+      return
+    }
+    let raf = 0
+    const measure = () => {
+      raf = 0
+      const next = railLaneFloorPx(el.clientHeight)
+      setFloor(prev => (prev === next ? prev : next))
+    }
+    const schedule = () => {
+      if (!raf) raf = window.requestAnimationFrame(measure)
+    }
+    schedule()
+    window.addEventListener("resize", schedule)
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(schedule) : null
+    ro?.observe(el)
+    return () => {
+      window.removeEventListener("resize", schedule)
+      ro?.disconnect()
+      if (raf) window.cancelAnimationFrame(raf)
+    }
+  }, [ref, enabled])
+  return floor
+}
+
+/** Chips of a lane body that sit above / below its visible fold. Measured
+ *  from live rects (scroll, resize, and a content revision re-measure), so
+ *  the "+N more" footer is a count of real nodes, never an estimate. */
+function useLaneFold(
+  ref: React.RefObject<HTMLDivElement | null>,
+  enabled: boolean,
+  revision: number,
+): { above: number; below: number } {
+  const [fold, setFold] = useState({ above: 0, below: 0 })
+  useEffect(() => {
+    const el = ref.current
+    if (!enabled || !el) {
+      setFold(prev => (prev.above === 0 && prev.below === 0 ? prev : { above: 0, below: 0 }))
+      return
+    }
+    let raf = 0
+    const measure = () => {
+      raf = 0
+      const box = el.getBoundingClientRect()
+      let above = 0
+      let below = 0
+      // Named chips carry data-flow-id; Glance stack tiles carry data-flow-ids
+      // (one tile for several nodes). Both are real content beyond the fold.
+      for (const chip of Array.from(el.querySelectorAll<HTMLElement>("[data-flow-id], [data-flow-ids]"))) {
+        const r = chip.getBoundingClientRect()
+        if (r.height === 0) continue
+        if (r.bottom > box.bottom + 1) below += 1
+        else if (r.top < box.top - 1) above += 1
+      }
+      setFold(prev => (prev.above === above && prev.below === below ? prev : { above, below }))
+    }
+    const schedule = () => {
+      if (!raf) raf = window.requestAnimationFrame(measure)
+    }
+    schedule()
+    el.addEventListener("scroll", schedule, { passive: true })
+    window.addEventListener("resize", schedule)
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(schedule) : null
+    ro?.observe(el)
+    return () => {
+      el.removeEventListener("scroll", schedule)
+      window.removeEventListener("resize", schedule)
+      ro?.disconnect()
+      if (raf) window.cancelAnimationFrame(raf)
+    }
+  }, [ref, enabled, revision])
+  return fold
+}
+
+/** Scrollable body of one off-VPC rail lane. In fullscreen each lane scrolls
+ *  on its own, so the Lambda and Regional lanes stay on screen together and
+ *  a footer says how many chips are below the fold (the flow overlay pins an
+ *  edge into a scrolled-out chip to this body's edge). Embedded maps grow with
+ *  the page, so the body is a plain wrapper there. */
+function RailLaneBody({
+  lane,
+  compact,
+  revision,
+  children,
+}: {
+  lane: "serverless" | "regional"
+  compact: boolean
+  revision: number
+  children: ReactNode
+}) {
+  const ref = useRef<HTMLDivElement | null>(null)
+  const fold = useLaneFold(ref, compact, revision)
+  const scrollBy = (direction: 1 | -1) => {
+    const el = ref.current
+    if (!el) return
+    el.scrollBy({ top: direction * Math.max(48, el.clientHeight * 0.8), behavior: "smooth" })
+  }
+  const pillClass =
+    "self-center rounded-full px-2 py-0.5 text-[9px] font-semibold tabular-nums shrink-0"
+  return (
+    <>
+      {compact && fold.above > 0 ? (
+        <button
+          type="button"
+          className={`${pillClass} mb-1`}
+          style={{ background: "rgba(255,255,255,0.85)", color: "#475569", border: "1px solid #CBD5E1" }}
+          onClick={() => scrollBy(-1)}
+          data-testid={`topology-${lane}-lane-above`}
+          title={`${fold.above} above the fold — click to scroll up`}
+        >
+          ↑ {fold.above} above
+        </button>
+      ) : null}
+      <div
+        ref={ref}
+        className={compact ? "min-h-0 flex-1 overflow-y-auto" : undefined}
+        data-testid={`topology-${lane}-lane-body`}
+        data-scroll-region={compact ? `${lane}-lane` : undefined}
+      >
+        {children}
+      </div>
+      {compact && fold.below > 0 ? (
+        <button
+          type="button"
+          className={`${pillClass} mt-1`}
+          style={{ background: "rgba(255,255,255,0.85)", color: "#475569", border: "1px solid #CBD5E1" }}
+          onClick={() => scrollBy(1)}
+          data-testid={`topology-${lane}-lane-more`}
+          title={`${fold.below} below the fold — click to scroll down`}
+        >
+          +{fold.below} more ↓
+        </button>
+      ) : null}
+    </>
+  )
+}
+
 function ServerlessComputeTier({
   nodes,
   selectedNodeId,
@@ -1945,6 +2183,7 @@ function ServerlessComputeTier({
   compact = false,
   viewDensity = "glance",
   namedFlowNodeIds,
+  laneMinHeight,
 }: {
   nodes: TopologyNode[]
   selectedNodeId: string | null
@@ -1955,6 +2194,8 @@ function ServerlessComputeTier({
   viewDensity?: ViewDensity
   /** Observed dependency participants stay named in Glance instead of hiding in Lambda ×N. */
   namedFlowNodeIds?: Set<string>
+  /** Fullscreen lane floor from useRailLaneFloor (see RAIL_LANE_MIN_PX). */
+  laneMinHeight?: number
 }) {
   if (nodes.length === 0) return null
   const glance = viewDensity === "glance"
@@ -1976,15 +2217,18 @@ function ServerlessComputeTier({
   const notVpcAttached = nodes.length - attachmentUnresolved
   return (
     <div
-      className={compact ? "rounded-md p-2" : "rounded-md p-2.5"}
+      className={compact ? "rounded-md p-2 flex flex-col min-h-0" : "rounded-md p-2.5"}
       data-testid="topology-serverless-tier"
       style={{
         background: "#EEF2FF",
         border: "1px solid #C7D2FE",
         borderLeft: "3px solid #4338CA",
+        ...(compact ? { ...RAIL_LANE_FLEX, minHeight: laneMinHeight ?? RAIL_LANE_MIN_PX } : {}),
       }}
     >
-      <div className={compact ? "mb-1" : "mb-1.5"}>
+      {/* Flow obstacle: the badge nudge pass (FlowOverlay pass 4) keeps edge
+          labels off this header, as it already does for the AZ headers. */}
+      <div className={compact ? "mb-1" : "mb-1.5"} data-flow-obstacle="serverless-tier-header">
         <div className="text-[10px] uppercase tracking-[0.12em] font-semibold" style={{ color: "#312E81" }}>
           Lambda runtime · outside subnet grid ({nodes.length})
         </div>
@@ -1993,10 +2237,11 @@ function ServerlessComputeTier({
           {attachmentUnresolved > 0 ? ` · ${attachmentUnresolved} attachment unresolved` : ""}
         </div>
       </div>
+      <RailLaneBody lane="serverless" compact={compact} revision={nodes.length}>
       <div
         className={
           compact
-            ? "flex flex-wrap gap-1 max-w-full max-h-[190px] overflow-y-auto justify-center"
+            ? "flex flex-wrap gap-1 max-w-full justify-center"
             : "flex flex-wrap gap-1.5 max-w-full justify-center"
         }
       >
@@ -2007,6 +2252,7 @@ function ServerlessComputeTier({
             selected={node.id === selectedNodeId}
             onSelect={onSelect}
             dense
+            railChip={compact}
           />
         ))}
         {groups
@@ -2027,9 +2273,12 @@ function ServerlessComputeTier({
                 node={n}
                 selected={n.id === selectedNodeId}
                 onSelect={onSelect}
+                dense={compact}
+                railChip={compact}
               />
             ))}
       </div>
+      </RailLaneBody>
     </div>
   )
 }
@@ -2041,6 +2290,7 @@ function RegionalDataServicesTier({
   compact = false,
   viewDensity = "glance",
   namedFlowNodeIds,
+  laneMinHeight,
 }: {
   nodes: TopologyNode[]
   selectedNodeId: string | null
@@ -2049,6 +2299,8 @@ function RegionalDataServicesTier({
   densityCollapsed?: boolean
   viewDensity?: ViewDensity
   namedFlowNodeIds?: Set<string>
+  /** Fullscreen lane floor from useRailLaneFloor (see RAIL_LANE_MIN_PX). */
+  laneMinHeight?: number
 }) {
   if (nodes.length === 0) return null
   const glance = viewDensity === "glance"
@@ -2067,15 +2319,20 @@ function RegionalDataServicesTier({
   const groups = useStacks ? groupNodesByType(remainingInventory) : null
   return (
     <div
-      className={compact ? "rounded-md p-2 mt-2" : "rounded-md p-2.5 mt-2"}
+      className={compact ? "rounded-md p-2 flex flex-col min-h-0" : "rounded-md p-2.5 mt-2"}
       data-testid="topology-regional-data-tier"
       style={{
         background: "#EDE7F6",
         border: "1px solid #D1C4E9",
         borderLeft: "3px solid #5E35B1",
+        ...(compact ? { ...RAIL_LANE_FLEX, minHeight: laneMinHeight ?? RAIL_LANE_MIN_PX } : {}),
       }}
     >
-      <div className="text-[10px] uppercase tracking-[0.12em] font-semibold mb-1.5" style={{ color: "#311B92" }}>
+      <div
+        className="text-[10px] uppercase tracking-[0.12em] font-semibold mb-1.5"
+        style={{ color: "#311B92" }}
+        data-flow-obstacle="regional-tier-header"
+      >
         Regional · S3 / DDB / KMS ({nodes.length})
       </div>
       {neo4jDestAnchors.length > 0 ? (
@@ -2089,10 +2346,13 @@ function RegionalDataServicesTier({
               node={n}
               selected={n.id === selectedNodeId}
               onSelect={onSelect}
+              dense={compact}
+              railChip={compact}
             />
           ))}
         </div>
       ) : null}
+      <RailLaneBody lane="regional" compact={compact} revision={nodes.length}>
       <div className="flex flex-wrap gap-1.5 max-w-full justify-center">
         {namedNodes.map(node => (
           <ServiceNodeIcon
@@ -2101,6 +2361,7 @@ function RegionalDataServicesTier({
             selected={node.id === selectedNodeId}
             onSelect={onSelect}
             dense
+            railChip={compact}
           />
         ))}
         {groups
@@ -2121,9 +2382,12 @@ function RegionalDataServicesTier({
                 node={n}
                 selected={n.id === selectedNodeId}
                 onSelect={onSelect}
+                dense={compact}
+                railChip={compact}
               />
             ))}
       </div>
+      </RailLaneBody>
     </div>
   )
 }
@@ -2161,6 +2425,96 @@ function DiagnosticsAccordion({
         </span>
       </button>
       {open ? <div className="px-4 pb-4 space-y-3">{children}</div> : null}
+    </div>
+  )
+}
+
+const LANE_LABEL: Record<string, string> = {
+  vpc: "In-VPC",
+  serverless: "Lambda",
+  database: "Database",
+  regional: "Regional",
+}
+
+const COVERAGE_STATE_STYLE: Record<string, { bg: string; fg: string; border: string; label: string }> = {
+  authoritative: { bg: "#F0FDFA", fg: "#115E59", border: "#99F6E4", label: "Covered" },
+  partial: { bg: "#FFFBEB", fg: "#92400E", border: "#FCD34D", label: "Partly covered" },
+  none: { bg: "#FEF2F2", fg: "#991B1B", border: "#FECACA", label: "Not covered" },
+  unknown: { bg: "#F1F5F9", fg: "#334155", border: "#CBD5E1", label: "Unknown" },
+  not_applicable: { bg: "#F8FAFC", fg: "#475569", border: "#E2E8F0", label: "Not applicable" },
+  empty: { bg: "#F8FAFC", fg: "#475569", border: "#E2E8F0", label: "No workloads" },
+}
+
+/** Flow-log coverage with an honest denominator (traffic_authority.lane_coverage).
+ *  Renders nothing when the backend predates the contract — an absent number is
+ *  honest, an invented one is not. Every count shown is the backend's. */
+function LaneCoveragePill({ coverage, compact }: { coverage: LaneCoverage; compact: boolean }) {
+  const style = COVERAGE_STATE_STYLE[coverage.state] ?? COVERAGE_STATE_STYLE.unknown
+  const lanes = (["vpc", "database", "serverless", "regional"] as const).flatMap(lane => {
+    const counts = coverage.by_lane?.[lane]
+    return counts && counts.state !== "empty" ? [[lane, counts] as const] : []
+  })
+  return (
+    <div
+      className={compact ? "border-b px-2 py-1 text-[9px]" : "border-b px-2 py-1.5 text-[10px]"}
+      style={{ borderColor: style.border, background: style.bg, color: style.fg }}
+      data-testid="topology-lane-coverage"
+      data-coverage-state={coverage.state}
+    >
+      <div className="flex items-center gap-2 min-w-0 flex-wrap">
+        <span className="shrink-0 font-semibold">Flow-log coverage</span>
+        <span
+          className="shrink-0 rounded-full px-1.5 py-0.5 font-semibold uppercase tracking-wide"
+          style={{ background: "rgba(255,255,255,0.7)", border: `1px solid ${style.border}` }}
+          data-testid="topology-lane-coverage-state"
+        >
+          {style.label}
+        </span>
+        <span className="tabular-nums" data-testid="topology-lane-coverage-totals">
+          {coverage.authoritative} of {coverage.eligible} eligible endpoint{coverage.eligible === 1 ? "" : "s"} covered
+          {coverage.unknown > 0 ? ` · ${coverage.unknown} unknown` : ""}
+          {coverage.not_applicable > 0 ? ` · ${coverage.not_applicable} not applicable` : ""}
+          {coverage.active_generation != null ? ` · generation ${coverage.active_generation}` : ""}
+        </span>
+        <span className="flex items-center gap-1 flex-wrap" data-testid="topology-lane-coverage-lanes">
+          {lanes.map(([lane, counts]) => {
+            const laneStyle = COVERAGE_STATE_STYLE[counts.state] ?? COVERAGE_STATE_STYLE.unknown
+            const detail =
+              counts.state === "not_applicable"
+                ? `${counts.not_applicable} n/a`
+                : counts.state === "unknown"
+                  ? `${counts.unknown} unknown`
+                  : `${counts.authoritative}/${counts.eligible}`
+            return (
+              <span
+                key={lane}
+                className="rounded px-1 py-0.5 font-mono tabular-nums"
+                style={{ background: laneStyle.bg, color: laneStyle.fg, border: `1px solid ${laneStyle.border}` }}
+                title={`${LANE_LABEL[lane] ?? lane}: eligible ${counts.eligible}, covered ${counts.authoritative}, unknown ${counts.unknown}, not applicable ${counts.not_applicable}`}
+                data-testid={`topology-lane-coverage-${lane}`}
+                data-lane-state={counts.state}
+              >
+                {LANE_LABEL[lane] ?? lane} {detail}
+              </span>
+            )
+          })}
+        </span>
+      </div>
+      {coverage.warnings.length > 0 ? (
+        <ul className={compact ? "mt-0.5 space-y-0" : "mt-1 space-y-0.5"} data-testid="topology-lane-coverage-warnings">
+          {coverage.warnings.map(warning => (
+            <li
+              key={warning.code}
+              className="truncate"
+              title={warning.message}
+              data-testid="topology-lane-coverage-warning"
+              data-warning-code={warning.code}
+            >
+              <span className="font-semibold">{LANE_LABEL[warning.lane] ?? warning.lane}:</span> {warning.message}
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </div>
   )
 }
@@ -2219,6 +2573,9 @@ function EncodingLegend() {
 interface FlowPath {
   d: string
   cls: TrafficEdgeClass
+  /** Endpoint ids from the payload edge — exposed as data-flow-source/-target on the drawn group. */
+  sourceId: string
+  targetId: string
   protocol: string | null
   port: number | null
   externalDestinations: number | null
@@ -2856,6 +3213,8 @@ function FlowOverlay({
         next.push({
           d,
           cls,
+          sourceId: e.source_id,
+          targetId: e.target_id,
           protocol: e.protocol,
           port: e.port,
           externalDestinations: e.external_destinations ?? null,
@@ -2955,7 +3314,10 @@ function FlowOverlay({
       }
       for (const p of next) {
         if (!p.badgeLabel) continue
-        const hw = Math.max(14, (p.badgeLabel.length * 6.4) / 2)
+        // Same box the renderer draws (rect width = max(len * 7.6, 28)); the
+        // earlier 6.4/char estimate let wide labels clear the check and still
+        // paint over an obstacle by up to ~12px per side.
+        const hw = Math.max(14, p.badgeLabel.length * 3.8)
         let y = p.badgeY
         if (!clearAt(p.badgeX, y, hw)) {
           let found = false
@@ -3090,7 +3452,7 @@ function FlowOverlay({
           !dimmed &&
           motionKind === "historical"
         return (
-        <g key={i}>
+        <g key={i} data-flow-source={p.sourceId} data-flow-target={p.targetId}>
           {/* Soft halo behind the line so it's visible over the busy chip grid */}
           <path
             d={p.d}
@@ -3227,7 +3589,10 @@ function FlowOverlay({
               />
             </g>
           ) : null}
-          <g transform={`translate(${p.badgeX}, ${p.badgeY})`}>
+          <g
+            transform={`translate(${p.badgeX}, ${p.badgeY})`}
+            data-testid={p.badgeLabel ? "topology-flow-badge" : undefined}
+          >
             {p.badgeLabel ? (
               <>
                 <title>{p.badgeTitle || p.badgeLabel}</title>
@@ -3281,6 +3646,32 @@ export function frameVpcIds(subnets: SubnetMeta[], primaryVpcId: string | null):
     }
   }
   return ids
+}
+
+/** Pin each NAT gateway to the AZ x tier cell that owns its subnet_id. A NAT
+ *  with no subnet_id, or one whose subnet is not in this grid, is returned as
+ *  `unplaced` so the frame can still show it (labelled) instead of dropping it. */
+export function placeNatGateways(
+  natGws: readonly EdgeNatGw[],
+  subnetsByCell: ReadonlyMap<string, readonly SubnetMeta[]>,
+): { byCell: Map<string, EdgeNatGw[]>; unplaced: EdgeNatGw[] } {
+  const cellBySubnet = new Map<string, string>()
+  for (const [cellKey, cellSubnets] of subnetsByCell) {
+    for (const subnet of cellSubnets) cellBySubnet.set(subnet.id, cellKey)
+  }
+  const byCell = new Map<string, EdgeNatGw[]>()
+  const unplaced: EdgeNatGw[] = []
+  for (const nat of natGws) {
+    const cellKey = nat.subnet_id ? cellBySubnet.get(nat.subnet_id) : undefined
+    if (!cellKey) {
+      unplaced.push(nat)
+      continue
+    }
+    const list = byCell.get(cellKey) ?? []
+    list.push(nat)
+    byCell.set(cellKey, list)
+  }
+  return { byCell, unplaced }
 }
 
 interface CanvasGrid {
@@ -3778,7 +4169,8 @@ function MultiVpcCompareBands({
   const viewDensity: ViewDensity = "glance"
 
   const hasAnyAlb = frames.some(f => f.grid.albNodes.length > 0)
-  const hasAnyNat = frames.some(f => f.natGws.length > 0)
+  // Only NATs the grids cannot place need the ingress strip; placed NATs sit in their subnet cell.
+  const hasAnyNat = frames.some(f => placeNatGateways(f.natGws, f.grid.subnetsByCell).unplaced.length > 0)
   const hasIngress = hasAnyAlb || hasAnyNat
   // Compare always uses Compare floors — presentation mins crush subnet cells
   // when width is split across VPC columns (Alon, 2026-07-09).
@@ -3902,6 +4294,8 @@ function MultiVpcCompareBands({
 
         {frames.map((f, idx) => {
           const isShared = Boolean(f.isForeign)
+          const natPlacement = placeNatGateways(f.natGws, f.grid.subnetsByCell)
+          const hasUnplacedNat = natPlacement.unplaced.length > 0
           const borderColor = isShared ? "#F59E0B" : "#00C2A8"
           const columnBg = isShared ? "rgba(255, 251, 235, 0.72)" : "rgba(240, 253, 250, 0.55)"
           return (
@@ -3938,7 +4332,7 @@ function MultiVpcCompareBands({
               {hasIngress ? (
                 <div
                   className={`px-2 flex flex-col items-center gap-1 ${
-                    f.grid.albNodes.length > 0 || f.natGws.length > 0 ? "py-2" : "py-1"
+                    f.grid.albNodes.length > 0 || hasUnplacedNat ? "py-2" : "py-1"
                   }`}
                   style={{
                     borderBottom: `1px dashed ${isShared ? "#FCD34D" : "#99F6E4"}`,
@@ -3948,7 +4342,7 @@ function MultiVpcCompareBands({
                           ? "#FFF7ED"
                           : "#F5F3FF"
                         : "transparent",
-                    minHeight: f.grid.albNodes.length > 0 || f.natGws.length > 0 ? 52 : 28,
+                    minHeight: f.grid.albNodes.length > 0 || hasUnplacedNat ? 52 : 28,
                   }}
                 >
                   {f.grid.albNodes.length > 0 ? (
@@ -3978,28 +4372,14 @@ function MultiVpcCompareBands({
                       No ALB
                     </div>
                   )}
-                  {f.natGws.length > 0 ? (
-                    <div className="flex flex-wrap gap-1 justify-center">
-                      {f.natGws.map(n => (
-                        <span
-                          key={n.id}
-                          className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1.5 rounded-md"
-                          style={{
-                            background: "linear-gradient(180deg, #FFF9F0 0%, #FFFFFF 100%)",
-                            border: "2px solid #FF9900",
-                            color: "#7B3F00",
-                          }}
-                          data-testid="topology-nat-gateway-chip"
-                          title={`NAT gateway · ${n.name} (from vpc_topology.edges)`}
-                        >
-                          <span
-                            className="inline-flex items-center justify-center rounded text-[9px] font-bold w-7 h-7 shrink-0"
-                            style={{ background: PAL.awsFrame, color: PAL.awsOrange }}
-                          >
-                            NAT
-                          </span>
-                          {n.name}
-                        </span>
+                  {hasUnplacedNat ? (
+                    <div
+                      className="flex flex-wrap gap-1 justify-center"
+                      data-testid="topology-nat-gateway-fallback"
+                      title="NAT gateways whose subnet is not in this grid"
+                    >
+                      {natPlacement.unplaced.map(n => (
+                        <NatGatewayChip key={n.id} nat={n} placement="unplaced" compact />
                       ))}
                     </div>
                   ) : null}
@@ -4058,6 +4438,7 @@ function MultiVpcCompareBands({
                               tier={tier}
                               az={az}
                               subnetsHere={subnetsHere}
+                              natGwsHere={natPlacement.byCell.get(`${az}::${tier}`) ?? []}
                               workloadsHere={workloadsHere}
                               sgIndex={sgIndex}
                               selectedNodeId={selectedNodeId}
@@ -4211,35 +4592,26 @@ function VpcCanvasFrame({
 }: VpcCanvasFrameProps) {
   void igws // IGWs render on the region network rail (with VPCEs), not in-frame.
   const { byAzAndTier, subnetsByCell, albNodes, azs, azGridColumns, vpcGridMinWidth } = grid
-  const hasNats = natGws.length > 0
+  // A NAT gateway lives in a public subnet: pin each one to the cell that owns
+  // its subnet_id. Only NATs the grid cannot place stay on the frame-level strip.
+  const natPlacement = useMemo(() => placeNatGateways(natGws, subnetsByCell), [natGws, subnetsByCell])
+  const hasNats = natPlacement.unplaced.length > 0
   // IGWs render on the region VPCE rail (right of VPC), not above Web.
 
+  // Fallback only: a NAT whose subnet_id is missing or outside this frame's
+  // grid still renders, labelled as such, instead of being dropped.
   const natBand = hasNats && (
-    <div className="mb-1.5 pb-1 border-b border-dashed" style={{ borderColor: "#CBD5E1" }}>
+    <div
+      className="mb-1.5 pb-1 border-b border-dashed"
+      style={{ borderColor: "#CBD5E1" }}
+      data-testid="topology-nat-gateway-fallback"
+    >
       <div className="text-[9px] uppercase tracking-[0.12em] font-semibold mb-1" style={{ color: PAL.slate }}>
-        NAT gateways ({natGws.length})
+        NAT gateways · subnet not in this grid ({natPlacement.unplaced.length})
       </div>
       <div className="flex flex-wrap gap-1.5">
-        {natGws.map(n => (
-          <span
-            key={n.id}
-            className="inline-flex items-center gap-1.5 text-[12px] font-semibold px-2.5 py-1.5 rounded-md"
-            style={{
-              background: "linear-gradient(180deg, #FFF9F0 0%, #FFFFFF 100%)",
-              border: "2px solid #FF9900",
-              color: "#7B3F00",
-            }}
-            data-testid="topology-nat-gateway-chip"
-            title={`NAT gateway · ${n.name} (from vpc_topology.edges)`}
-          >
-            <span
-              className="inline-flex items-center justify-center rounded w-8 h-8 shrink-0"
-              style={{ background: "#8C4FFF", color: "white" }}
-            >
-              <AwsServiceGlyph kind="nat" size={20} />
-            </span>
-            NAT GW · {n.name}
-          </span>
+        {natPlacement.unplaced.map(n => (
+          <NatGatewayChip key={n.id} nat={n} placement="unplaced" />
         ))}
       </div>
     </div>
@@ -4412,11 +4784,11 @@ function VpcCanvasFrame({
           </div>
         ) : (
           <>
-            {/* Row 2 (subgrid): NAT + ALB + AZ headers — height = max across
+            {/* Row 2 (subgrid): ALB + NAT fallback + AZ headers — height = max across
                 VPCs so every Web tier starts on the same Y. */}
             <div style={{ gridRow: 2, minHeight: 0 }} className="min-h-0">
-              {natBand}
               {albBand}
+              {natBand}
               <div className="mt-1">{azHeaderRow}</div>
             </div>
 
@@ -4466,6 +4838,7 @@ function VpcCanvasFrame({
                           tier={tier}
                           az={az}
                           subnetsHere={subnetsHere}
+                          natGwsHere={natPlacement.byCell.get(`${az}::${tier}`) ?? []}
                           workloadsHere={workloadsHere}
                           sgIndex={sgIndex}
                           selectedNodeId={selectedNodeId}
@@ -4493,8 +4866,8 @@ function VpcCanvasFrame({
            the canonical AWS reference (AZ as failure-domain columns). */
         <div className="mt-2" data-testid="topology-aws-az-columns">
           <div className="space-y-2">
-            {natBand}
             {albBand}
+            {natBand}
             <div
               className="grid gap-2.5"
               style={{
@@ -4542,6 +4915,7 @@ function VpcCanvasFrame({
                         tier={tier}
                         az={az}
                         subnetsHere={subnetsHere}
+                        natGwsHere={natPlacement.byCell.get(`${az}::${tier}`) ?? []}
                         workloadsHere={workloadsHere}
                         sgIndex={sgIndex}
                         selectedNodeId={selectedNodeId}
@@ -4564,8 +4938,8 @@ function VpcCanvasFrame({
       ) : (
         <div className="mt-2">
           <div className="space-y-2">
-            {natBand}
             {albBand}
+            {natBand}
             {azHeaderRow}
             <div data-testid="topology-tier-stack" className="contents">
               {TIERS.map(tier => (
@@ -4600,6 +4974,7 @@ function VpcCanvasFrame({
                             tier={tier}
                             az={az}
                             subnetsHere={subnetsHere}
+                            natGwsHere={natPlacement.byCell.get(`${az}::${tier}`) ?? []}
                             workloadsHere={workloadsHere}
                             sgIndex={sgIndex}
                             selectedNodeId={selectedNodeId}
@@ -4757,6 +5132,8 @@ export function AwsFrame({
       : topo.edges.igws
   const accountSuffix = topo.account_id ? `· acct ${topo.account_id}` : ""
   const flowContainerRef = useRef<HTMLDivElement | null>(null)
+  const railColumnRef = useRef<HTMLDivElement | null>(null)
+  const railLaneMinHeight = useRailLaneFloor(railColumnRef, presentationMode)
 
   const attackPathEdgeCount = attackPathFlowCount
 
@@ -4850,6 +5227,9 @@ export function AwsFrame({
               : (trafficAuthority?.limitation ?? "Only generation-backed observed segments animate.")}
           </span>
         </div>
+      ) : null}
+      {flowMode === "all_access" && trafficAuthority?.lane_coverage ? (
+        <LaneCoveragePill coverage={trafficAuthority.lane_coverage} compact={presentationMode} />
       ) : null}
       {/* Users → Internet — clustered toward center (not pinned to corners).
           IGW chip lives on the VPCE rail. */}
@@ -5229,16 +5609,30 @@ export function AwsFrame({
                 />
                 <div
                   className={`flex flex-col gap-2 w-[224px] max-w-[224px] min-h-0 ${
-                    presentationMode ? "" : "shrink-0 ml-1"
+                    presentationMode ? "overflow-hidden" : "shrink-0 ml-1"
                   }`}
-                  // In fullscreen the zoom viewport owns scrolling + fits the map;
-                  // the old internal rail scroll clipped chips and broke flow
-                  // anchoring under scale. Let the rail grow; density tiles keep
-                  // it short. (P0-A/B — replaces the calc(100vh-220px) overflow.)
+                  // Fullscreen: the region grid pins this column to its
+                  // minmax(0,1fr) track and computeFit pins the content box to
+                  // the viewport height, so a rail taller than the viewport was
+                  // cut off with nothing able to reach the hidden Regional chips
+                  // (the density collapse it relied on never fires: fitH is
+                  // always 1). The column bounds its two LANES here and each
+                  // lane (Lambda | Regional) owns its own scroll (RailLaneBody),
+                  // so both stay on screen together and a "+N more" footer names
+                  // what is below the fold. Safe for the flow overlay: visibleRect
+                  // clamps anchors to the lane body and the capture-phase scroll
+                  // listener re-measures, so an edge to a scrolled-out chip pins
+                  // to the lane edge instead of dangling — the failure that made
+                  // P0-A/B remove the earlier calc(100vh-220px) scroll no longer
+                  // applies. data-scroll-region keeps the fullscreen pan handler
+                  // off this column (a drag on a lane scrollbar must scroll).
+                  ref={railColumnRef}
+                  data-scroll-region="edge-services-rail"
                   data-testid="topology-edge-services-rail"
                 >
                   <ServerlessComputeTier
                     nodes={serverlessTierNodes}
+                    laneMinHeight={railLaneMinHeight}
                     selectedNodeId={selectedNodeId}
                     onSelect={onSelect}
                     roleForWorkload={roleForWorkload}
@@ -5249,6 +5643,7 @@ export function AwsFrame({
                   />
                   <RegionalDataServicesTier
                     nodes={regionalTierNodes}
+                    laneMinHeight={railLaneMinHeight}
                     selectedNodeId={selectedNodeId}
                     onSelect={onSelect}
                     compact={presentationMode}

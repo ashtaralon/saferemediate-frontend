@@ -232,6 +232,51 @@ export interface IamRoleRollup {
   scope_mode?: "vpc" | "system"
 }
 
+/**
+ * Flow-log coverage per lane (BE >= topology-risk/v8, contract track slice 1).
+ * The denominator is the set of workloads that CAN carry a flow log — a
+ * network interface in a VPC — never every node on the map:
+ *   eligible        workloads with a VPC network interface
+ *   authoritative   eligible workloads the active projection generation covers
+ *   unknown         workloads whose VPC attachment is not verified
+ *   not_applicable  workloads with no interface for a flow log to record
+ */
+export type LaneCoverageState =
+  | "empty"
+  | "not_applicable"
+  | "unknown"
+  | "none"
+  | "partial"
+  | "authoritative"
+export type CoverageLane = "vpc" | "serverless" | "database" | "regional"
+export interface LaneCoverageCounts {
+  eligible: number
+  authoritative: number
+  unknown: number
+  not_applicable: number
+  state: LaneCoverageState | string
+}
+export interface LaneCoverageWarning {
+  code: string
+  lane: CoverageLane | string
+  count: number
+  message: string
+}
+export interface LaneCoverage extends LaneCoverageCounts {
+  basis: "vpc_flow_logs" | string
+  mode: string
+  active_generation: number | null
+  by_lane: Partial<Record<CoverageLane, LaneCoverageCounts>>
+  projection?: {
+    unclassified_external_targets: number
+    unclassified_external_sources: number
+    igw_to_database_rejected: number
+    unresolved_pairs: number
+  }
+  rejected_edges?: { non_vpc_lambda_edges: number }
+  warnings: LaneCoverageWarning[]
+}
+
 export type TrafficEdgeClass = "internal" | "edge_service" | "vpce" | "egress" | "database"
 export type TrafficAuthorityState =
   | "authoritative"
@@ -396,6 +441,8 @@ export interface TopologyRiskResponse {
     absence_authority?: "unknown" | "authoritative" | string
     normalization_version?: string | null
     limitation?: string | null
+    /** Flow-log coverage with an honest denominator (BE >= topology-risk/v8). */
+    lane_coverage?: LaneCoverage
   }
   /** External systems consuming this system's shared data (observed/declared). */
   foreign_shared_access?: ForeignSharedAccessEdge[]
