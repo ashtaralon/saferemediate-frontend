@@ -290,15 +290,33 @@ test.describe("C1 live QA — estate map against the deployed graph", () => {
       }
     })
 
-    await page.goto(ESTATE_URL, { waitUntil: "domcontentloaded" })
+    // Cold reads are the norm here, not an error: the proxy's cache key
+    // carries the page's scope (customer_id and friends), so the map's own
+    // read is uncached even after an unscoped probe, and an uncached
+    // topology-risk on C1 runs close to the proxy's 55s ceiling. The first
+    // load therefore both fills that scoped cache and, if it times out,
+    // leaves the page on its "Preparing …" / "unavailable" state. Reload and
+    // wait again — the same thing an operator does — and report how many
+    // loads it took.
     const mapTab = page.getByTestId("topology-estate-view-map")
-    const blocked = page.getByText(/Topology risk unavailable|No systems available yet/i)
-    await expect(mapTab.or(blocked).first()).toBeVisible({ timeout: 120_000 })
-    if (!(await mapTab.isVisible().catch(() => false))) {
-      const reason = ((await blocked.first().textContent().catch(() => null)) ?? "").replace(/\s+/g, " ").trim()
-      report("estate-page", { mounted: false, reason, gate })
+    const blocked = page.getByText(/Topology risk unavailable|No systems available yet|Preparing /i)
+    const loads: Array<{ attempt: number; mounted: boolean; reason: string | null; ms: number }> = []
+    let mounted = false
+    for (let attempt = 1; attempt <= 3 && !mounted; attempt += 1) {
+      const t0 = Date.now()
+      await page.goto(ESTATE_URL, { waitUntil: "domcontentloaded" })
+      await expect(mapTab.or(blocked).first()).toBeVisible({ timeout: 150_000 })
+      mounted = await mapTab.isVisible().catch(() => false)
+      const reason = mounted
+        ? null
+        : ((await blocked.first().textContent().catch(() => null)) ?? "").replace(/\s+/g, " ").trim()
+      loads.push({ attempt, mounted, reason, ms: Date.now() - t0 })
+      if (!mounted && attempt < 3) await page.waitForTimeout(20_000)
+    }
+    report("estate-page", { mounted, loads, gate })
+    if (!mounted) {
       await shot(page, "c1-estate-blocked")
-      throw new Error(`estate map did not mount: ${reason}`)
+      throw new Error(`estate map did not mount after ${loads.length} loads: ${loads[loads.length - 1]?.reason}`)
     }
     await page.getByRole("tab", { name: "Network topology" }).click()
     const dependencies = page
