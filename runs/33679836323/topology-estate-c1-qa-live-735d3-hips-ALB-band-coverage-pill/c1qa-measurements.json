@@ -1,0 +1,99 @@
+{
+  "test": "estate map on the deployed frontend: lanes, NAT chips, ALB band, coverage pill",
+  "status": "failed",
+  "measurements": [
+    {
+      "name": "estate-page",
+      "data": {
+        "mounted": false,
+        "loads": [
+          {
+            "attempt": 1,
+            "mounted": false,
+            "reason": "Topology risk unavailable",
+            "ms": 113784
+          },
+          {
+            "attempt": 2,
+            "mounted": false,
+            "reason": "No systems available yet. Run a sync, then open a system from the dashboard.",
+            "ms": 4168
+          },
+          {
+            "attempt": 3,
+            "mounted": false,
+            "reason": "No systems available yet. Run a sync, then open a system from the dashboard.",
+            "ms": 3426
+          }
+        ],
+        "gate": [
+          {
+            "path": "/api/proxy/admin/customers",
+            "status": 200,
+            "body": "[{\"customer_id\":\"testbed-webshop\",\"display_name\":\"Cyntro Testbed Webshop\",\"aws_account_id\":\"416651950952\",\"aws_region\":\"eu-west-1\",\"registered_at\":\"2026-08-20T22:19:06.448077+00:00\"}]"
+          },
+          {
+            "path": "/api/proxy/admin/accounts/scope/options/all?customer_id=testbed-webshop",
+            "status": 200,
+            "body": "{\"customer_id\":\"testbed-webshop\",\"accounts\":[{\"account_id\":\"416651950952\",\"display_name\":\"Testbed Webshop\",\"regions\":[\"eu-west-1\"],\"group_ids\":[],\"status\":\"CONNECTED\"}],\"groups\":[]}"
+          },
+          {
+            "path": "/api/proxy/systems?customer_id=testbed-webshop",
+            "status": 200,
+            "body": "{\"success\":true,\"systems\":[{\"name\":\"testbed-webshop\",\"displayName\":\"testbed-webshop\",\"SystemName\":\"testbed-webshop\",\"environment\":\"prod\",\"region\":\"eu-west-1\",\"account_id\":\"416651950952\",\"resourceCount\":134,\"resourceTypes\":[\"IAMRole\"],\"criticality\":\"BUSINESS CRITICAL\",\"status\":\"warning\",\"lastScan\":\"17 days ago\",\"lastScanAt\":\"2026-08-16T11:41:17+00:00\",\"health_score\":60,\"healthScore\":60,\"critical_co"
+          },
+          {
+            "path": "/api/proxy/admin/customers",
+            "status": 200,
+            "body": "[{\"customer_id\":\"testbed-webshop\",\"display_name\":\"Cyntro Testbed Webshop\",\"aws_account_id\":\"416651950952\",\"aws_region\":\"eu-west-1\",\"registered_at\":\"2026-08-20T22:19:06.448077+00:00\"}]"
+          },
+          {
+            "path": "/api/proxy/admin/accounts/scope/options/all?customer_id=testbed-webshop",
+            "status": 200,
+            "body": "{\"customer_id\":\"testbed-webshop\",\"accounts\":[{\"account_id\":\"416651950952\",\"display_name\":\"Testbed Webshop\",\"regions\":[\"eu-west-1\"],\"group_ids\":[],\"status\":\"CONNECTED\"}],\"groups\":[]}"
+          },
+          {
+            "path": "/api/proxy/systems?customer_id=testbed-webshop",
+            "status": 200,
+            "body": "{\"success\":true,\"systems\":[{\"name\":\"testbed-webshop\",\"displayName\":\"testbed-webshop\",\"SystemName\":\"testbed-webshop\",\"environment\":\"prod\",\"region\":\"eu-west-1\",\"account_id\":\"416651950952\",\"resourceCount\":134,\"resourceTypes\":[\"IAMRole\"],\"criticality\":\"BUSINESS CRITICAL\",\"status\":\"warning\",\"lastScan\":\"17 days ago\",\"lastScanAt\":\"2026-08-16T11:41:17+00:00\",\"health_score\":60,\"healthScore\":60,\"critical_co"
+          },
+          {
+            "path": "/api/proxy/topology-risk/testbed-webshop?customer_id=testbed-webshop",
+            "status": 200,
+            "body": "{\"system\":\"testbed-webshop\",\"scored_at\":\"2026-09-02T19:37:49.847971Z\",\"scoring_window_days\":365,\"account_id\":\"416651950952\",\"selected_account_id\":null,\"region\":\"eu-west-1\",\"selected_region_id\":null,\"available_regions\":[\"eu-west-1\"],\"vpc_id\":\"vpc-0c39cde96f29f8f4e\",\"selected_vpc_id\":null,\"available_vpcs\":[{\"vpc_id\":\"vpc-0c39cde96f29f8f4e\",\"name\":\"cyntro-tb-prod-vpc\",\"workload_count\":12,\"tagged_subn"
+          },
+          {
+            "path": "/api/proxy/topology-risk/testbed-webshop?customer_id=testbed-webshop&vpc_id=vpc-0c39cde96f29f8f4e",
+            "status": 504,
+            "body": "<unreadable>"
+          },
+          {
+            "path": "/api/proxy/topology-risk/testbed-webshop?customer_id=testbed-webshop&vpc_id=vpc-0c39cde96f29f8f4e",
+            "status": 502,
+            "body": "<unreadable>"
+          },
+          {
+            "path": "/api/proxy/topology-risk/testbed-webshop?customer_id=testbed-webshop&vpc_id=vpc-0c39cde96f29f8f4e",
+            "status": 502,
+            "body": "<unreadable>"
+          },
+          {
+            "path": "/api/proxy/admin/customers",
+            "status": 502,
+            "body": "<unreadable>"
+          },
+          {
+            "path": "/api/proxy/admin/customers",
+            "status": 502,
+            "body": "<unreadable>"
+          },
+          {
+            "path": "/api/proxy/systems?customer_id=testbed-webshop",
+            "status": 502,
+            "body": "<unreadable>"
+          }
+        ]
+      }
+    }
+  ]
+}
