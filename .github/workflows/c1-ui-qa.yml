@@ -1,0 +1,114 @@
+# Live QA of the estate map on a deployed frontend (C1 by default) against the
+# real graph: tests/integration/topology-estate-c1-qa-live.spec.ts.
+#
+# Dispatched by hand after a deploy. The job log carries the report (every
+# `C1QA <name> <json>` line is a measurement read from the deployed API or
+# from the rendered page); the artifact carries the screenshots and the
+# Playwright report. No app is built or started here: the browser drives the
+# deployed frontend, whose proxy talks to the deployed backend, so this reads
+# production and writes nothing.
+#
+# Only app-cookie-authenticated frontends work: a Vercel-auth protected
+# preview would need a share token in a public workflow log.
+name: c1-ui-qa
+on:
+  workflow_dispatch:
+    inputs:
+      frontend_url:
+        description: Deployed frontend to QA (site cookie auth)
+        required: true
+        default: https://cyntro-c1.vercel.app
+      system:
+        description: System shown on the estate map
+        required: true
+        default: testbed-webshop
+  # The harness self-tests against C1 whenever it changes. That first run is
+  # also what registers the workflow, so it can then be dispatched from the
+  # branch it lives on (GitHub answers 404 to a dispatch of a workflow that
+  # exists only on a branch and has never run).
+  push:
+    paths:
+      - .github/workflows/c1-ui-qa.yml
+      - tests/integration/topology-estate-c1-qa-live.spec.ts
+# contents: write is for the results branch below, nothing else.
+permissions:
+  contents: write
+jobs:
+  playwright-live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Live QA against the deployed estate map
+        run: npx playwright test tests/integration/topology-estate-c1-qa-live.spec.ts --reporter=list
+        env:
+          # A push carries no inputs: fall back to the C1 production defaults.
+          FRONTEND_URL: ${{ inputs.frontend_url || 'https://cyntro-c1.vercel.app' }}
+          C1_SYSTEM: ${{ inputs.system || 'testbed-webshop' }}
+          PW_CHANNEL: chromium
+          CI: "1"
+      - name: Publish screenshots and measurements to the results branch
+        # The artifact below is the full Playwright report, but its download
+        # host is not reachable from every reviewer's tooling. A results
+        # branch is a plain git ref: `git fetch origin c1-ui-qa-results` reads
+        # it anywhere the repository is reachable. One directory per run,
+        # never merged anywhere.
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RESULTS_BRANCH: c1-ui-qa-results
+          RUN_DIR: runs/${{ github.run_id }}
+          TARGET: ${{ inputs.frontend_url || 'https://cyntro-c1.vercel.app' }} ${{ inputs.system || 'testbed-webshop' }}
+        run: |
+          set -euo pipefail
+          remote="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          rm -rf publish && mkdir -p "publish/${RUN_DIR}"
+          if [ -d test-results ]; then
+            (cd test-results && find . -type f \( -name '*.png' -o -name '*.json' -o -name '*.md' \) \
+              -exec cp --parents {} "../publish/${RUN_DIR}/" \; 2>/dev/null || true)
+          fi
+          {
+            echo "# c1-ui-qa run ${GITHUB_RUN_ID}"
+            echo
+            echo "- target: ${TARGET}"
+            echo "- head: ${GITHUB_SHA} (${GITHUB_REF_NAME})"
+            echo "- run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo "- published: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } > "publish/${RUN_DIR}/README.md"
+          find "publish/${RUN_DIR}" -type f | sort
+          cd publish
+          git init -q
+          git config user.name "c1-ui-qa"
+          git config user.email "c1-ui-qa@users.noreply.github.com"
+          if git fetch -q "$remote" "$RESULTS_BRANCH" 2>/dev/null; then
+            git checkout -q -b "$RESULTS_BRANCH" FETCH_HEAD
+          else
+            git checkout -q --orphan "$RESULTS_BRANCH"
+          fi
+          git add -A
+          git commit -q -m "c1-ui-qa run ${GITHUB_RUN_ID}: ${TARGET}"
+          for i in 1 2 3; do
+            if git push -q "$remote" "HEAD:refs/heads/${RESULTS_BRANCH}"; then
+              echo "published to ${RESULTS_BRANCH}/${RUN_DIR}"; exit 0
+            fi
+            echo "push attempt ${i} failed; retrying"
+            sleep $((i * 5))
+            git fetch -q "$remote" "$RESULTS_BRANCH" && git rebase -q FETCH_HEAD || true
+          done
+          echo "::warning::results could not be pushed; the artifact still carries them"
+      - name: Upload report and screenshots
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: c1-ui-qa-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
+          if-no-files-found: ignore
