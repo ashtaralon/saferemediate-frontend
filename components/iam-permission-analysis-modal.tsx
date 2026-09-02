@@ -2178,8 +2178,11 @@ export function IAMPermissionAnalysisModal({
     if (!gapData) return null
     // calculateSafetyScore returns 0-100 already, with same-source
     // backend computation when overall_confidence is set; falls back
-    // to a local heuristic only when backend doesn't provide it.
+    // to a local heuristic only when backend doesn't provide it. It is
+    // null only before gap data exists (F12); with no score there is no
+    // band to draw, so render nothing rather than a number.
     const score = calculateSafetyScore()
+    if (score == null) return null
 
     // v4.4 default thresholds for IAM role narrowing.
     const T_AUTO = 85
