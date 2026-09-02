@@ -28,6 +28,9 @@ test("fullscreen: the off-VPC rail scrolls inside its track and edges stay ancho
   await page.setViewportSize({ width: 1600, height: 820 })
   await page.goto(ESTATE_URL, { waitUntil: "domcontentloaded" })
 
+  // The page resolves the system through the product scope + scoped catalog
+  // (all answered by routeSnapshot) before it mounts the map and its tabs.
+  await expect(page.getByTestId("topology-estate-view-map")).toBeVisible({ timeout: 60_000 })
   await page.getByRole("tab", { name: "Network topology" }).click()
   const dependencies = page
     .getByTestId("topology-flow-mode-toggle")

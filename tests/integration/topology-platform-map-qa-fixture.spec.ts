@@ -15,6 +15,9 @@ test("fullscreen platform map shows named Lambda, protected AZ labels, direction
   await page.setViewportSize({ width: 2048, height: 1100 })
   await page.goto(ESTATE_URL, { waitUntil: "domcontentloaded" })
 
+  // The page resolves the system through the product scope + scoped catalog
+  // (all answered by routeSnapshot) before it mounts the map and its tabs.
+  await expect(page.getByTestId("topology-estate-view-map")).toBeVisible({ timeout: 60_000 })
   await page.getByRole("tab", { name: "Network topology" }).click()
   await expect(page.getByRole("heading", { name: "Service index" })).toBeVisible()
   await expect(page.getByText("Next worst")).toHaveCount(0)
