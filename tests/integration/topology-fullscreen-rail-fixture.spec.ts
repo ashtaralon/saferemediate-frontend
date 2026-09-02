@@ -142,8 +142,14 @@ test("fullscreen: each off-VPC rail lane scrolls in its track, both lanes stay o
   expect(bundling.bundles.flatMap(bundle => bundle.members).sort()).toEqual([...bundling.expected].sort())
   for (const bundle of bundling.bundles) {
     expect(bundle.count, `bundle ${bundle.label} counts its members`).toBe(bundle.members.length)
-    expect(bundle.source, "bundle ends are lanes").toMatch(/^lane:(serverless|regional)$/)
-    expect(bundle.target, "bundle ends are lanes").toMatch(/^lane:(serverless|regional)$/)
+    // The source is the lane the traffic comes from; the TARGET is the chip
+    // that receives it, so the arrow names a service rather than a column.
+    expect(bundle.source, "a bundle leaves a lane").toMatch(/^lane:(serverless|regional)$/)
+    expect(bundle.target, `bundle ${bundle.label} names the service it reaches`).not.toMatch(/^lane:/)
+    expect(
+      bundle.members.every(member => member.endsWith(`→${bundle.target}`)),
+      `every member of ${bundle.label} ends at ${bundle.target}`,
+    ).toBe(true)
   }
   expect(bundling.labelsOverChips, "no flow label paints over a rail chip").toEqual([])
 
