@@ -35,6 +35,7 @@ import { Boxes, GitBranch, Globe2, ShieldAlert, Users } from "lucide-react"
 import {
   type EdgeNatGw,
   type IamRoleRollup,
+  type LaneCoverage,
   type ScoreTier,
   type SecurityGroupMeta,
   SIGNAL_LABEL,
@@ -2352,6 +2353,96 @@ function DiagnosticsAccordion({
         </span>
       </button>
       {open ? <div className="px-4 pb-4 space-y-3">{children}</div> : null}
+    </div>
+  )
+}
+
+const LANE_LABEL: Record<string, string> = {
+  vpc: "In-VPC",
+  serverless: "Lambda",
+  database: "Database",
+  regional: "Regional",
+}
+
+const COVERAGE_STATE_STYLE: Record<string, { bg: string; fg: string; border: string; label: string }> = {
+  authoritative: { bg: "#F0FDFA", fg: "#115E59", border: "#99F6E4", label: "Covered" },
+  partial: { bg: "#FFFBEB", fg: "#92400E", border: "#FCD34D", label: "Partly covered" },
+  none: { bg: "#FEF2F2", fg: "#991B1B", border: "#FECACA", label: "Not covered" },
+  unknown: { bg: "#F1F5F9", fg: "#334155", border: "#CBD5E1", label: "Unknown" },
+  not_applicable: { bg: "#F8FAFC", fg: "#475569", border: "#E2E8F0", label: "Not applicable" },
+  empty: { bg: "#F8FAFC", fg: "#475569", border: "#E2E8F0", label: "No workloads" },
+}
+
+/** Flow-log coverage with an honest denominator (traffic_authority.lane_coverage).
+ *  Renders nothing when the backend predates the contract — an absent number is
+ *  honest, an invented one is not. Every count shown is the backend's. */
+function LaneCoveragePill({ coverage, compact }: { coverage: LaneCoverage; compact: boolean }) {
+  const style = COVERAGE_STATE_STYLE[coverage.state] ?? COVERAGE_STATE_STYLE.unknown
+  const lanes = (["vpc", "database", "serverless", "regional"] as const).flatMap(lane => {
+    const counts = coverage.by_lane?.[lane]
+    return counts && counts.state !== "empty" ? [[lane, counts] as const] : []
+  })
+  return (
+    <div
+      className={compact ? "border-b px-2 py-1 text-[9px]" : "border-b px-2 py-1.5 text-[10px]"}
+      style={{ borderColor: style.border, background: style.bg, color: style.fg }}
+      data-testid="topology-lane-coverage"
+      data-coverage-state={coverage.state}
+    >
+      <div className="flex items-center gap-2 min-w-0 flex-wrap">
+        <span className="shrink-0 font-semibold">Flow-log coverage</span>
+        <span
+          className="shrink-0 rounded-full px-1.5 py-0.5 font-semibold uppercase tracking-wide"
+          style={{ background: "rgba(255,255,255,0.7)", border: `1px solid ${style.border}` }}
+          data-testid="topology-lane-coverage-state"
+        >
+          {style.label}
+        </span>
+        <span className="tabular-nums" data-testid="topology-lane-coverage-totals">
+          {coverage.authoritative} of {coverage.eligible} eligible endpoint{coverage.eligible === 1 ? "" : "s"} covered
+          {coverage.unknown > 0 ? ` · ${coverage.unknown} unknown` : ""}
+          {coverage.not_applicable > 0 ? ` · ${coverage.not_applicable} not applicable` : ""}
+          {coverage.active_generation != null ? ` · generation ${coverage.active_generation}` : ""}
+        </span>
+        <span className="flex items-center gap-1 flex-wrap" data-testid="topology-lane-coverage-lanes">
+          {lanes.map(([lane, counts]) => {
+            const laneStyle = COVERAGE_STATE_STYLE[counts.state] ?? COVERAGE_STATE_STYLE.unknown
+            const detail =
+              counts.state === "not_applicable"
+                ? `${counts.not_applicable} n/a`
+                : counts.state === "unknown"
+                  ? `${counts.unknown} unknown`
+                  : `${counts.authoritative}/${counts.eligible}`
+            return (
+              <span
+                key={lane}
+                className="rounded px-1 py-0.5 font-mono tabular-nums"
+                style={{ background: laneStyle.bg, color: laneStyle.fg, border: `1px solid ${laneStyle.border}` }}
+                title={`${LANE_LABEL[lane] ?? lane}: eligible ${counts.eligible}, covered ${counts.authoritative}, unknown ${counts.unknown}, not applicable ${counts.not_applicable}`}
+                data-testid={`topology-lane-coverage-${lane}`}
+                data-lane-state={counts.state}
+              >
+                {LANE_LABEL[lane] ?? lane} {detail}
+              </span>
+            )
+          })}
+        </span>
+      </div>
+      {coverage.warnings.length > 0 ? (
+        <ul className={compact ? "mt-0.5 space-y-0" : "mt-1 space-y-0.5"} data-testid="topology-lane-coverage-warnings">
+          {coverage.warnings.map(warning => (
+            <li
+              key={warning.code}
+              className="truncate"
+              title={warning.message}
+              data-testid="topology-lane-coverage-warning"
+              data-warning-code={warning.code}
+            >
+              <span className="font-semibold">{LANE_LABEL[warning.lane] ?? warning.lane}:</span> {warning.message}
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </div>
   )
 }
@@ -5062,6 +5153,9 @@ export function AwsFrame({
               : (trafficAuthority?.limitation ?? "Only generation-backed observed segments animate.")}
           </span>
         </div>
+      ) : null}
+      {flowMode === "all_access" && trafficAuthority?.lane_coverage ? (
+        <LaneCoveragePill coverage={trafficAuthority.lane_coverage} compact={presentationMode} />
       ) : null}
       {/* Users → Internet — clustered toward center (not pinned to corners).
           IGW chip lives on the VPCE rail. */}

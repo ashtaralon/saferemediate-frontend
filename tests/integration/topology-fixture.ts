@@ -32,6 +32,71 @@ const RAW_SNAPSHOT = JSON.parse(
     "utf8",
   ),
 )
+/**
+ * Lane coverage the way the backend derives it (traffic_authority.lane_coverage,
+ * topology-risk/v8), from the captured payload's own node types. The payload
+ * carries no VPC-attachment verdict for its Lambdas, so they are `unknown`
+ * (never assumed non-VPC); S3 and DynamoDB have no network interface, so they
+ * are `not_applicable`; EC2, RDS and the load balancer are eligible and, to
+ * match the synthesized active generation above, covered.
+ */
+function laneCoverageFromSnapshot(nodes: Array<{ type: string }>) {
+  const count = (types: string[]) => nodes.filter(node => types.includes(node.type)).length
+  const vpc = count(["EC2", "LoadBalancer"])
+  const database = count(["RDS"])
+  const lambdas = count(["Lambda"])
+  const regional = count(["S3", "DynamoDB"])
+  const lane = (eligible: number, unknown: number, notApplicable: number) => ({
+    eligible,
+    authoritative: eligible,
+    unknown,
+    not_applicable: notApplicable,
+    state:
+      eligible > 0 ? "authoritative" : unknown > 0 ? "unknown" : notApplicable > 0 ? "not_applicable" : "empty",
+  })
+  const warnings: Array<{ code: string; lane: string; count: number; message: string }> = []
+  if (lambdas > 0) {
+    warnings.push({
+      code: "lambda_attachment_unknown",
+      lane: "serverless",
+      count: lambdas,
+      message: `${lambdas} Lambda function(s) have no verified VPC configuration; flow-log coverage for them is unknown, not absent.`,
+    })
+  }
+  if (regional > 0) {
+    warnings.push({
+      code: "regional_services_outside_flow_logs",
+      lane: "regional",
+      count: regional,
+      message: `${regional} regional service(s) have no VPC network interface; VPC flow logs cannot observe them. Access to them is evidenced by CloudTrail data events, a separate lane.`,
+    })
+  }
+  return {
+    basis: "vpc_flow_logs",
+    mode: "incremental",
+    active_generation: 7,
+    state: "partial",
+    eligible: vpc + database,
+    authoritative: vpc + database,
+    unknown: lambdas,
+    not_applicable: regional,
+    by_lane: {
+      vpc: lane(vpc, 0, 0),
+      serverless: lane(0, lambdas, 0),
+      database: lane(database, 0, 0),
+      regional: lane(0, 0, regional),
+    },
+    projection: {
+      unclassified_external_targets: 0,
+      unclassified_external_sources: 0,
+      igw_to_database_rejected: 0,
+      unresolved_pairs: 0,
+    },
+    rejected_edges: { non_vpc_lambda_edges: 0 },
+    warnings,
+  }
+}
+
 export const SNAPSHOT = {
   ...RAW_SNAPSHOT,
   traffic_authority: {
@@ -46,6 +111,7 @@ export const SNAPSHOT = {
     absence_authority: "unknown",
     normalization_version: "tcp_syn_connection_v1",
     limitation: "Confirmed TCP segments are authoritative; a missing segment is not evidence of no traffic.",
+    lane_coverage: laneCoverageFromSnapshot(RAW_SNAPSHOT.nodes),
   },
   traffic_edges: RAW_SNAPSHOT.traffic_edges.map((edge: { protocol?: string | null }, index: number) => {
     const configured = ["ROUTES_TO", "QUERIES_DB"].includes(edge.protocol ?? "")

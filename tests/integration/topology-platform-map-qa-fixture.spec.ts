@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test"
 import { seedAuthCookie } from "./live-auth"
-import { ESTATE_URL, railHeaderBadgeOverlaps, routeSnapshot } from "./topology-fixture"
+import { ESTATE_URL, SNAPSHOT, railHeaderBadgeOverlaps, routeSnapshot } from "./topology-fixture"
 
 // Deterministic fixture spec (renamed from *-qa-live 2026-09-02): it never
 // reaches a backend — see tests/integration/topology-fixture.ts.
@@ -38,6 +38,17 @@ test("fullscreen platform map shows named Lambda, protected AZ labels, direction
   const authorityState = page.getByTestId("topology-traffic-authority-state").first()
   await expect(authorityState).toContainText("Confirmed TCP paths")
   await expect(authorityState).toContainText("missing segment is not evidence of no traffic")
+
+  // Flow-log coverage pill: every number is the payload's lane_coverage block.
+  const coverage = SNAPSHOT.traffic_authority.lane_coverage
+  const pill = page.getByTestId("topology-lane-coverage").first()
+  await expect(pill).toBeVisible()
+  await expect(pill.getByTestId("topology-lane-coverage-totals")).toHaveText(
+    `${coverage.authoritative} of ${coverage.eligible} eligible endpoints covered · ${coverage.unknown} unknown · ${coverage.not_applicable} not applicable · generation 7`,
+  )
+  await expect(pill.getByTestId("topology-lane-coverage-serverless")).toHaveAttribute("data-lane-state", "unknown")
+  await expect(pill.getByTestId("topology-lane-coverage-regional")).toHaveAttribute("data-lane-state", "not_applicable")
+  await expect(pill.getByTestId("topology-lane-coverage-warning")).toHaveCount(coverage.warnings.length)
 
   await page.getByTestId("topology-estate-map-enlarge").click()
   const fullscreen = page.getByTestId("topology-estate-map-fullscreen")
