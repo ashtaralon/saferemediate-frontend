@@ -123,7 +123,12 @@ describe("fullscreen off-VPC rail: two lanes, each owning one bounded scroll", (
     expect(serverlessHeader).not.toBeNull()
     expect(serverlessHeader).toHaveTextContent("Lambda runtime · outside subnet grid (3)")
     expect(regionalHeader).not.toBeNull()
-    expect(regionalHeader).toHaveTextContent("Regional · S3 / DDB / KMS (2)")
+    // The header names what the lane actually holds. This fixture's regional
+    // lane is two S3 buckets, so it must not claim DynamoDB or KMS — the
+    // overstatement C1 production QA caught on 2026-09-02.
+    expect(regionalHeader).toHaveTextContent("Regional · S3 (2)")
+    expect(regionalHeader?.textContent).not.toContain("DDB")
+    expect(regionalHeader?.textContent).not.toContain("KMS")
   })
 
   it("fullscreen lane chips span the lane, one per row; each lane carries the floor", () => {

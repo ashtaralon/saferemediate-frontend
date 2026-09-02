@@ -142,7 +142,9 @@ test.describe("estate map VPC scope e2e", () => {
     await page.goto(ESTATE_URL, { waitUntil: "domcontentloaded" })
     const tier = page.getByTestId("topology-regional-data-tier")
     await expect(tier).toBeVisible({ timeout: 120_000 })
-    await expect(tier.getByText(/Regional · S3 \/ DDB \/ KMS \(\d+\)/i)).toBeVisible()
+    // The header names the families actually in the lane, so it varies by
+    // account; assert its shape, never a fixed family list.
+    await expect(tier.getByText(/Regional · .+ \(\d+\)/i)).toBeVisible()
     const countAll = await tier.locator("button").count()
     expect(countAll).toBeGreaterThanOrEqual(1)
 

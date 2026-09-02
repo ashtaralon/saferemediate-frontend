@@ -171,6 +171,8 @@ describe("lane headers state only what the payload supports", () => {
   })
 
   it("names the regional families the lane holds, commonest first", () => {
+    // Count descending; ties break alphabetically so the header is stable
+    // across syncs rather than following payload order.
     expect(
       regionalFamilies([
         nd({ id: "r1", name: "rule-a", type: "EventBridge" }),
@@ -179,7 +181,7 @@ describe("lane headers state only what the payload supports", () => {
         nd({ id: "b1", name: "bucket-a", type: "S3" }),
         nd({ id: "t1", name: "table-a", type: "DynamoDB" }),
       ]),
-    ).toBe("EventBridge / S3 / DynamoDB")
+    ).toBe("EventBridge / DynamoDB / S3")
     // More families than the header can name: the rest are counted, not dropped.
     expect(
       regionalFamilies([
