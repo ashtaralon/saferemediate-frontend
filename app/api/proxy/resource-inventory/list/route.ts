@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { applyInventoryScopeParams } from "@/lib/inventory-proxy-scope"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
 export const maxDuration = 30
@@ -34,6 +35,7 @@ export async function GET(req: NextRequest) {
   if (cursor) params.set("cursor", cursor)
   if (sort) params.set("sort", sort)
   if (envelope) params.set("envelope", "true")
+  applyInventoryScopeParams(url.searchParams, params)
   for (const key of FILTER_KEYS) {
     const v = url.searchParams.get(key)
     if (v) params.set(key, v)

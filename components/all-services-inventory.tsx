@@ -32,7 +32,9 @@ import {
   regionsQueryParam,
 } from '@/lib/inventory-honesty'
 import { useAccountScope } from '@/lib/account-scope-context'
-import { resourceAccountId, withAccountScope } from '@/lib/account-scope'
+import { resourceAccountId, withAccountScope, type ProductScope } from '@/lib/account-scope'
+
+type InventoryScope = Pick<ProductScope, 'customerId' | 'groupId' | 'accountId' | 'region'>
 
 // Icon + color for a resource type now come from the canonical
 // `@/lib/service-type` badge — the old per-file `SERVICE_ICONS` map was
@@ -106,12 +108,16 @@ type GroupedItems = {
 // Failures are typed — never silent empty success.
 async function fetchGraphListRows(
   alias: string,
-  systemName?: string,
+  systemName: string | undefined,
+  scope: InventoryScope,
 ): Promise<FetchResult<any>> {
   try {
     const system = systemName ? `&system=${encodeURIComponent(systemName)}` : ''
     const res = await fetch(
-      `/api/proxy/resource-inventory/list?resource_type=${alias}${system}&limit=100`,
+      withAccountScope(
+        `/api/proxy/resource-inventory/list?resource_type=${alias}${system}&limit=100`,
+        scope,
+      ),
     )
     if (!res.ok) {
       return {
@@ -135,11 +141,12 @@ async function fetchGraphListRows(
 // DynamoDB stays system-scoped.
 async function fetchDataSecurityServiceItems(
   systemName: string,
+  scope: InventoryScope,
 ): Promise<GroupedItems> {
   const [kmsResult, secretResult, ddbResult] = await Promise.all([
-    fetchGraphListRows('kms'),
-    fetchGraphListRows('secret'),
-    fetchGraphListRows('dynamodb', systemName),
+    fetchGraphListRows('kms', undefined, scope),
+    fetchGraphListRows('secret', undefined, scope),
+    fetchGraphListRows('dynamodb', systemName, scope),
   ])
 
   const items: ServiceItem[] = []
@@ -232,10 +239,16 @@ async function fetchDataSecurityServiceItems(
   }
 }
 
-async function fetchSubnetServiceItems(systemName: string): Promise<GroupedItems> {
+async function fetchSubnetServiceItems(
+  systemName: string,
+  scope: InventoryScope,
+): Promise<GroupedItems> {
   try {
     const res = await fetch(
-      `/api/proxy/resource-inventory/list?resource_type=subnet&system=${encodeURIComponent(systemName)}&limit=100`,
+      withAccountScope(
+        `/api/proxy/resource-inventory/list?resource_type=subnet&system=${encodeURIComponent(systemName)}&limit=100`,
+        scope,
+      ),
     )
     if (!res.ok) {
       return {
@@ -400,8 +413,8 @@ export default function AllServicesInventory({ systemName }: Props) {
       }
 
       const [subnetGroup, dataSecurityGroup] = await Promise.all([
-        fetchSubnetServiceItems(systemName),
-        fetchDataSecurityServiceItems(systemName),
+        fetchSubnetServiceItems(systemName, accountScope),
+        fetchDataSecurityServiceItems(systemName, accountScope),
       ])
       errors.push(...subnetGroup.errors, ...dataSecurityGroup.errors)
       evidenceTimestamps.push(
