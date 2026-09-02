@@ -2000,6 +2000,121 @@ function StackTile({
   )
 }
 
+/** Fullscreen rail lanes: each lane's flex basis is its own content height
+ *  and both may shrink, so a lane with more chips gets more of the column,
+ *  and every lane keeps at least its header plus one row of chips. */
+const RAIL_LANE_FLEX = { flex: "0 1 auto", minHeight: 96 } as const
+
+/** Chips of a lane body that sit above / below its visible fold. Measured
+ *  from live rects (scroll, resize, and a content revision re-measure), so
+ *  the "+N more" footer is a count of real nodes, never an estimate. */
+function useLaneFold(
+  ref: React.RefObject<HTMLDivElement | null>,
+  enabled: boolean,
+  revision: number,
+): { above: number; below: number } {
+  const [fold, setFold] = useState({ above: 0, below: 0 })
+  useEffect(() => {
+    const el = ref.current
+    if (!enabled || !el) {
+      setFold(prev => (prev.above === 0 && prev.below === 0 ? prev : { above: 0, below: 0 }))
+      return
+    }
+    let raf = 0
+    const measure = () => {
+      raf = 0
+      const box = el.getBoundingClientRect()
+      let above = 0
+      let below = 0
+      for (const chip of Array.from(el.querySelectorAll<HTMLElement>("[data-flow-id]"))) {
+        const r = chip.getBoundingClientRect()
+        if (r.height === 0) continue
+        if (r.bottom > box.bottom + 1) below += 1
+        else if (r.top < box.top - 1) above += 1
+      }
+      setFold(prev => (prev.above === above && prev.below === below ? prev : { above, below }))
+    }
+    const schedule = () => {
+      if (!raf) raf = window.requestAnimationFrame(measure)
+    }
+    schedule()
+    el.addEventListener("scroll", schedule, { passive: true })
+    window.addEventListener("resize", schedule)
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(schedule) : null
+    ro?.observe(el)
+    return () => {
+      el.removeEventListener("scroll", schedule)
+      window.removeEventListener("resize", schedule)
+      ro?.disconnect()
+      if (raf) window.cancelAnimationFrame(raf)
+    }
+  }, [ref, enabled, revision])
+  return fold
+}
+
+/** Scrollable body of one off-VPC rail lane. In fullscreen each lane scrolls
+ *  on its own, so the Lambda and Regional lanes stay on screen together and
+ *  a footer says how many chips are below the fold (the flow overlay pins an
+ *  edge into a scrolled-out chip to this body's edge). Embedded maps grow with
+ *  the page, so the body is a plain wrapper there. */
+function RailLaneBody({
+  lane,
+  compact,
+  revision,
+  children,
+}: {
+  lane: "serverless" | "regional"
+  compact: boolean
+  revision: number
+  children: ReactNode
+}) {
+  const ref = useRef<HTMLDivElement | null>(null)
+  const fold = useLaneFold(ref, compact, revision)
+  const scrollBy = (direction: 1 | -1) => {
+    const el = ref.current
+    if (!el) return
+    el.scrollBy({ top: direction * Math.max(48, el.clientHeight * 0.8), behavior: "smooth" })
+  }
+  const pillClass =
+    "self-center rounded-full px-2 py-0.5 text-[9px] font-semibold tabular-nums shrink-0"
+  return (
+    <>
+      {compact && fold.above > 0 ? (
+        <button
+          type="button"
+          className={`${pillClass} mb-1`}
+          style={{ background: "rgba(255,255,255,0.85)", color: "#475569", border: "1px solid #CBD5E1" }}
+          onClick={() => scrollBy(-1)}
+          data-testid={`topology-${lane}-lane-above`}
+          title={`${fold.above} above the fold — click to scroll up`}
+        >
+          ↑ {fold.above} above
+        </button>
+      ) : null}
+      <div
+        ref={ref}
+        className={compact ? "min-h-0 flex-1 overflow-y-auto" : undefined}
+        data-testid={`topology-${lane}-lane-body`}
+        data-scroll-region={compact ? `${lane}-lane` : undefined}
+      >
+        {children}
+      </div>
+      {compact && fold.below > 0 ? (
+        <button
+          type="button"
+          className={`${pillClass} mt-1`}
+          style={{ background: "rgba(255,255,255,0.85)", color: "#475569", border: "1px solid #CBD5E1" }}
+          onClick={() => scrollBy(1)}
+          data-testid={`topology-${lane}-lane-more`}
+          title={`${fold.below} below the fold — click to scroll down`}
+        >
+          +{fold.below} more ↓
+        </button>
+      ) : null}
+    </>
+  )
+}
+
 function ServerlessComputeTier({
   nodes,
   selectedNodeId,
@@ -2038,12 +2153,13 @@ function ServerlessComputeTier({
   const notVpcAttached = nodes.length - attachmentUnresolved
   return (
     <div
-      className={compact ? "rounded-md p-2" : "rounded-md p-2.5"}
+      className={compact ? "rounded-md p-2 flex flex-col min-h-0" : "rounded-md p-2.5"}
       data-testid="topology-serverless-tier"
       style={{
         background: "#EEF2FF",
         border: "1px solid #C7D2FE",
         borderLeft: "3px solid #4338CA",
+        ...(compact ? RAIL_LANE_FLEX : {}),
       }}
     >
       {/* Flow obstacle: the badge nudge pass (FlowOverlay pass 4) keeps edge
@@ -2057,6 +2173,7 @@ function ServerlessComputeTier({
           {attachmentUnresolved > 0 ? ` · ${attachmentUnresolved} attachment unresolved` : ""}
         </div>
       </div>
+      <RailLaneBody lane="serverless" compact={compact} revision={nodes.length}>
       <div
         className={
           compact
@@ -2094,6 +2211,7 @@ function ServerlessComputeTier({
               />
             ))}
       </div>
+      </RailLaneBody>
     </div>
   )
 }
@@ -2131,12 +2249,13 @@ function RegionalDataServicesTier({
   const groups = useStacks ? groupNodesByType(remainingInventory) : null
   return (
     <div
-      className={compact ? "rounded-md p-2 mt-2" : "rounded-md p-2.5 mt-2"}
+      className={compact ? "rounded-md p-2 flex flex-col min-h-0" : "rounded-md p-2.5 mt-2"}
       data-testid="topology-regional-data-tier"
       style={{
         background: "#EDE7F6",
         border: "1px solid #D1C4E9",
         borderLeft: "3px solid #5E35B1",
+        ...(compact ? RAIL_LANE_FLEX : {}),
       }}
     >
       <div
@@ -2161,6 +2280,7 @@ function RegionalDataServicesTier({
           ))}
         </div>
       ) : null}
+      <RailLaneBody lane="regional" compact={compact} revision={nodes.length}>
       <div className="flex flex-wrap gap-1.5 max-w-full justify-center">
         {namedNodes.map(node => (
           <ServiceNodeIcon
@@ -2192,6 +2312,7 @@ function RegionalDataServicesTier({
               />
             ))}
       </div>
+      </RailLaneBody>
     </div>
   )
 }
@@ -5318,22 +5439,23 @@ export function AwsFrame({
                 />
                 <div
                   className={`flex flex-col gap-2 w-[224px] max-w-[224px] min-h-0 ${
-                    presentationMode ? "overflow-y-auto" : "shrink-0 ml-1"
+                    presentationMode ? "overflow-hidden" : "shrink-0 ml-1"
                   }`}
                   // Fullscreen: the region grid pins this column to its
-                  // minmax(0,1fr) track and clips overflow, and computeFit pins
-                  // the content box to the viewport height — so a rail taller
-                  // than the viewport was cut off with no gesture able to reach
-                  // the hidden Regional chips (the density collapse it was
-                  // meant to rely on never fires: fitH is always 1). The column
-                  // therefore owns ONE bounded scroll here. That is safe for the
-                  // flow overlay: visibleRect clamps anchors to this scroll box
-                  // and the capture-phase scroll listener re-measures, so an
-                  // edge to a scrolled-out chip pins to the rail edge instead of
-                  // dangling — the failure that made P0-A/B remove the earlier
-                  // calc(100vh-220px) scroll no longer applies.
-                  // data-scroll-region keeps the fullscreen pan handler off this
-                  // box (a drag on the scrollbar must scroll, not pan).
+                  // minmax(0,1fr) track and computeFit pins the content box to
+                  // the viewport height, so a rail taller than the viewport was
+                  // cut off with nothing able to reach the hidden Regional chips
+                  // (the density collapse it relied on never fires: fitH is
+                  // always 1). The column bounds its two LANES here and each
+                  // lane (Lambda | Regional) owns its own scroll (RailLaneBody),
+                  // so both stay on screen together and a "+N more" footer names
+                  // what is below the fold. Safe for the flow overlay: visibleRect
+                  // clamps anchors to the lane body and the capture-phase scroll
+                  // listener re-measures, so an edge to a scrolled-out chip pins
+                  // to the lane edge instead of dangling — the failure that made
+                  // P0-A/B remove the earlier calc(100vh-220px) scroll no longer
+                  // applies. data-scroll-region keeps the fullscreen pan handler
+                  // off this column (a drag on a lane scrollbar must scroll).
                   data-scroll-region="edge-services-rail"
                   data-testid="topology-edge-services-rail"
                 >

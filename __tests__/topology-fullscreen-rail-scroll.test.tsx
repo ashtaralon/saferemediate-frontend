@@ -6,9 +6,10 @@
  * minmax(0,1fr) track and clips overflow, and computeFit pins the content
  * box to the viewport height, so a rail taller than the viewport was cut
  * off and nothing could reach the hidden Regional chips (2026-09-02). The
- * fix makes the rail column the ONE scroll owner in presentation mode and
- * removes the nested Lambda-tier cap. happy-dom has no layout, so the
- * geometry itself is covered by tests/integration/
+ * column now bounds two LANES — Lambda | Regional — and each lane body owns
+ * its own scroll (RailLaneBody), so both lanes stay on screen together; the
+ * nested Lambda-tier cap is gone. happy-dom has no layout, so the geometry
+ * itself is covered by tests/integration/
  * topology-fullscreen-rail-fixture.spec.ts; this pins the structure.
  */
 import React from "react"
@@ -78,20 +79,35 @@ function renderFrame(presentationMode: boolean) {
   )
 }
 
-describe("fullscreen off-VPC rail owns one bounded scroll", () => {
-  it("presentation mode: the rail column scrolls and nothing inside it does", () => {
+describe("fullscreen off-VPC rail: two lanes, each owning one bounded scroll", () => {
+  it("presentation mode: the column bounds the lanes and each lane body scrolls", () => {
     renderFrame(true)
     const rail = screen.getByTestId("topology-edge-services-rail")
-    expect(rail.className).toMatch(/\boverflow-y-auto\b/)
+    expect(rail.className).toMatch(/\boverflow-hidden\b/)
+    expect(rail.className).not.toMatch(/\boverflow-y-auto\b/)
     expect(rail.className).toMatch(/\bmin-h-0\b/)
     expect(rail).toHaveAttribute("data-scroll-region", "edge-services-rail")
-    // Both tiers are inside the scroll owner …
-    expect(within(rail).getByTestId("topology-serverless-tier")).toBeInTheDocument()
-    expect(within(rail).getByTestId("topology-regional-data-tier")).toBeInTheDocument()
-    // … and no nested scroll box / height cap survives (the old
-    // max-h-[190px] overflow-y-auto on the Lambda chip wrapper).
-    const nested = rail.querySelectorAll("[class*='overflow-y-auto'], [class*='max-h-[']")
-    expect(Array.from(nested).map(el => el.className)).toEqual([])
+    // Both lanes are inside the column …
+    const serverless = within(rail).getByTestId("topology-serverless-tier")
+    const regional = within(rail).getByTestId("topology-regional-data-tier")
+    expect(serverless.className).toMatch(/\bflex-col\b/)
+    expect(regional.className).toMatch(/\bflex-col\b/)
+    // … each lane body is the scroll owner of its lane …
+    const serverlessBody = within(serverless).getByTestId("topology-serverless-lane-body")
+    const regionalBody = within(regional).getByTestId("topology-regional-lane-body")
+    for (const body of [serverlessBody, regionalBody]) {
+      expect(body.className).toMatch(/\boverflow-y-auto\b/)
+      expect(body.className).toMatch(/\bmin-h-0\b/)
+      expect(body.className).toMatch(/\bflex-1\b/)
+      expect(body).toHaveAttribute("data-scroll-region")
+    }
+    // … and nothing else scrolls or caps height (the old max-h-[190px]
+    // overflow-y-auto on the Lambda chip wrapper).
+    const scrollers = Array.from(rail.querySelectorAll("[class*='overflow-y-auto']"))
+    expect(scrollers).toHaveLength(2)
+    expect(scrollers[0]).toBe(serverlessBody)
+    expect(scrollers[1]).toBe(regionalBody)
+    expect(rail.querySelectorAll("[class*='max-h-[']")).toHaveLength(0)
   })
 
   it("both rail tier headers are flow obstacles (badge nudge pass keeps labels off them)", () => {
@@ -107,10 +123,13 @@ describe("fullscreen off-VPC rail owns one bounded scroll", () => {
     expect(regionalHeader).toHaveTextContent("Regional · S3 / DDB / KMS (2)")
   })
 
-  it("embedded mode is unchanged: the rail grows with the page", () => {
+  it("embedded mode is unchanged: the rail and its lanes grow with the page", () => {
     renderFrame(false)
     const rail = screen.getByTestId("topology-edge-services-rail")
     expect(rail.className).not.toMatch(/\boverflow-y-auto\b/)
     expect(rail.className).toMatch(/\bshrink-0\b/)
+    expect(rail.querySelectorAll("[class*='overflow-y-auto']")).toHaveLength(0)
+    expect(screen.getByTestId("topology-serverless-lane-body")).not.toHaveAttribute("data-scroll-region")
+    expect(screen.queryByTestId("topology-serverless-lane-more")).toBeNull()
   })
 })
