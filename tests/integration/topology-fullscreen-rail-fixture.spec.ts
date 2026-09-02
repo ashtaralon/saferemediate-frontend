@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test"
 import { seedAuthCookie } from "./live-auth"
-import { ESTATE_URL, railHeaderBadgeOverlaps, routeSnapshot } from "./topology-fixture"
+import { ESTATE_URL, railHeaderBadgeOverlaps, routeSnapshot, SNAPSHOT } from "./topology-fixture"
 
 /**
  * Fullscreen right-rail clip — browser geometry regression (deterministic).
@@ -22,7 +22,10 @@ import { ESTATE_URL, railHeaderBadgeOverlaps, routeSnapshot } from "./topology-f
  *      scrolled-out chips pin to their lane's edge — never dangle,
  *   5. the lane's chips are dense and two share a row, and the lane body is
  *      never shorter than one row (RAIL_LANE_MIN_PX): the coverage pill
- *      above the grid took the slack the 96px floor had been living on.
+ *      above the grid took the slack the 96px floor had been living on,
+ *   6. an edge with both ends in the rail is carried by exactly one bundle
+ *      path through the flow corridor, and no flow label paints over a rail
+ *      chip (C1 production, 2026-09-02: 22 labels piled on the column).
  */
 test("fullscreen: each off-VPC rail lane scrolls in its track, both lanes stay on screen, edges stay anchored", async ({
   context,
@@ -94,6 +97,55 @@ test("fullscreen: each off-VPC rail lane scrolls in its track, both lanes stay o
   await expect(more).toBeVisible()
   await expect(more).toHaveText(`+${lane.below} more ↓`)
   await expect(fullscreen.getByTestId("topology-serverless-lane-above")).toHaveCount(0)
+
+  // 6: intra-rail edges are bundled through the corridor. Every payload edge
+  // whose both ends resolve to rail chips is carried by exactly one bundle
+  // path (members are "source→target"), and no flow label box intersects a
+  // rail chip.
+  const bundling = await page.evaluate((edges: Array<{ source_id: string; target_id: string }>) => {
+    const root = document.querySelector('[data-testid="topology-estate-map-fullscreen"]')
+    const rail = root?.querySelector('[data-testid="topology-edge-services-rail"]')
+    if (!root || !rail) throw new Error("fullscreen rail is not rendered")
+    const inRail = (id: string) => {
+      const el = root.querySelector(`[data-flow-id="${CSS.escape(id)}"]`)
+      return Boolean(el && rail.contains(el))
+    }
+    const expected = edges
+      .filter(edge => inRail(edge.source_id) && inRail(edge.target_id))
+      .map(edge => `${edge.source_id}→${edge.target_id}`)
+    const bundles = Array.from(root.querySelectorAll<SVGGElement>("g[data-flow-bundle]")).map(group => ({
+      count: Number(group.getAttribute("data-flow-bundle")),
+      members: (group.getAttribute("data-flow-members") ?? "").split("|").filter(Boolean),
+      label: group.querySelector("text")?.textContent ?? "",
+      source: group.getAttribute("data-flow-source"),
+      target: group.getAttribute("data-flow-target"),
+    }))
+    const railChips = Array.from(rail.querySelectorAll<HTMLElement>("[data-flow-id], [data-flow-ids]")).filter(
+      chip => chip.getBoundingClientRect().height > 0,
+    )
+    const labelsOverChips: string[] = []
+    for (const badge of Array.from(root.querySelectorAll<SVGGElement>('[data-testid="topology-flow-badge"]'))) {
+      const box = badge.querySelector("rect")
+      if (!box) continue
+      const r = box.getBoundingClientRect()
+      if (r.width === 0 || r.height === 0) continue
+      for (const chip of railChips) {
+        const c = chip.getBoundingClientRect()
+        if (r.left < c.right && r.right > c.left && r.top < c.bottom && r.bottom > c.top) {
+          labelsOverChips.push(badge.querySelector("text")?.textContent ?? "")
+        }
+      }
+    }
+    return { expected, bundles, labelsOverChips }
+  }, SNAPSHOT.traffic_edges as Array<{ source_id: string; target_id: string }>)
+  expect(bundling.expected.length, "the captured payload carries an intra-rail edge").toBeGreaterThan(0)
+  expect(bundling.bundles.flatMap(bundle => bundle.members).sort()).toEqual([...bundling.expected].sort())
+  for (const bundle of bundling.bundles) {
+    expect(bundle.count, `bundle ${bundle.label} counts its members`).toBe(bundle.members.length)
+    expect(bundle.source, "bundle ends are lanes").toMatch(/^lane:(serverless|regional)$/)
+    expect(bundle.target, "bundle ends are lanes").toMatch(/^lane:(serverless|regional)$/)
+  }
+  expect(bundling.labelsOverChips, "no flow label paints over a rail chip").toEqual([])
 
   // 3: the last Lambda chip is below the lane's fold until the LANE scrolls.
   const chips = laneBody.locator("[data-flow-id]")

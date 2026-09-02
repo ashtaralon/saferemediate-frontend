@@ -2634,6 +2634,8 @@ interface FlowPath {
   badgeLabel: string
   /** Full per-edge detail when badgeLabel is a corridor bundle chip. */
   badgeTitle?: string
+  /** Intra-rail bundle: one path for `count` edges between two rail lanes (members "src→dst"). */
+  bundle?: { count: number; members: string[] }
   /** DB exposure honesty — red stroke + badge when true. */
   isExposed?: boolean
   highlight?: "attack_path" | null
@@ -2795,6 +2797,122 @@ function orthoLeg(src: NatRect, dst: NatRect, corridorX: number | null, exitSpre
     { x: dst.cx, y: midY },
     { x: dst.cx, y: enterY },
   ]
+}
+
+/** The on-line badge text of one edge — the same words in every lens, so a
+ *  rail bundle can group edges by the label they would carry. */
+export function edgeBadgeLabel(
+  e: TrafficEdge,
+  cls: TrafficEdgeClass,
+  routedViaVpce: boolean,
+  routedViaIgw: boolean,
+): string {
+  let badgeLabel = ""
+  if (cls === "egress") {
+    badgeLabel = formatEgressBreakdownBadge(
+      e.external_destinations,
+      e.egress_breakdown,
+    )
+  } else if (cls === "edge_service") {
+    if (routedViaVpce || e.egress_path === "vpce") {
+      // Short-form service tag from the VPCE service_name suffix.
+      const svc = e.via_vpce_service_name ?? ""
+      const tag = svc.endsWith(".s3")
+        ? "S3"
+        : svc.endsWith(".dynamodb")
+          ? "DDB"
+          : e.target_id === AWS_S3_PUBLIC_SENTINEL_ID
+            ? "S3"
+            : "VPCE"
+      badgeLabel = `${tag} access · via VPCE`
+    } else if (routedViaIgw || e.egress_path === "public" || e.via_igw) {
+      const isS3 =
+        e.target_id === AWS_S3_PUBLIC_SENTINEL_ID ||
+        (e.egress_breakdown ?? []).some(b => b.kind === "s3") ||
+        (e.protocol ?? "").includes("S3")
+      const n = e.external_destinations
+      badgeLabel = isS3
+        ? (n ? `S3 · ${n} endpoints · via IGW (prefer VPCE)` : "S3 · via IGW (prefer VPCE)")
+        : `${e.protocol ?? "AWS"} · via IGW/NAT (prefer VPCE)`
+    } else {
+      badgeLabel = e.protocol ?? "edge"
+    }
+  } else if (cls === "vpce") {
+    badgeLabel = "VPCE"
+  } else if (cls === "database") {
+    if (e.is_exposed) {
+      // Flow-Log public IPs on engine port — not foreign_consumer systems.
+      badgeLabel =
+        databasePublicIpExposureLabel(
+          e.external_sources ?? 0,
+          e.port,
+        ) ??
+        (e.port
+          ? `exposed · RDS :${e.port}`
+          : "exposed · RDS")
+    } else {
+      badgeLabel = e.port ? `RDS · ${e.port}` : "RDS"
+    }
+  } else if (
+    e.protocol === "LAUNCHES" ||
+    e.protocol === "TARGETS" ||
+    e.protocol === "HAS_TARGET_GROUP" ||
+    e.protocol === "TRIGGERS" ||
+    e.protocol === "ENCRYPTED_BY" ||
+    e.protocol === "ACCESSES_RESOURCE"
+  ) {
+    badgeLabel =
+      e.protocol === "HAS_TARGET_GROUP"
+        ? "TG"
+        : e.protocol === "ACCESSES_RESOURCE"
+          ? "secret"
+          : e.protocol === "ENCRYPTED_BY"
+            ? "KMS"
+            : e.protocol
+  } else {
+    badgeLabel = e.port ? `${e.port}/${e.protocol ?? "TCP"}` : (e.protocol ?? "TCP")
+  }
+  return badgeLabel
+}
+
+/** Intra-rail bundle geometry. Both ends of the bundle are rail LANES (the
+ *  Lambda tier and the Regional tier), not chips: the path leaves the source
+ *  lane's left edge at its mid-height, runs the flow corridor to the left of
+ *  the column (one bus per bundle, 7px apart), and enters the target lane's
+ *  left edge — never through a chip. Without a corridor element the bus sits
+ *  just left of the lanes. A same-lane bundle loops out and back in. */
+export function railBundleRoute(
+  src: NatRect,
+  dst: NatRect,
+  corridor: NatRect | null,
+  index: number,
+  sameLane: boolean,
+): { pts: Pt[]; bus: Pt } {
+  const busX = corridor ? corridor.l + 10 + index * 7 : Math.min(src.l, dst.l) - 24 - index * 7
+  const srcY = sameLane ? src.cy - 10 : src.cy
+  const dstY = sameLane ? dst.cy + 10 : dst.cy
+  const pts: Pt[] = [
+    { x: src.l, y: srcY },
+    { x: busX, y: srcY },
+    { x: busX, y: dstY },
+    { x: dst.l, y: dstY },
+  ]
+  return { pts, bus: { x: busX, y: (srcY + dstY) / 2 } }
+}
+
+/** "TRIGGERS ×6": the label the members share and how many edges it stands for. */
+export function railBundleLabel(label: string, count: number): string {
+  return count > 1 ? `${label} ×${count}` : label
+}
+
+/** The member whose evidence decides the bundle's line: an authoritative
+ *  observation first, then a historical one, then the first member. */
+export function railBundleLeadEdge(edges: TrafficEdge[]): TrafficEdge {
+  return (
+    edges.find(edge => trafficMotionKind(edge) === "authoritative") ??
+    edges.find(edge => trafficMotionKind(edge) === "historical") ??
+    edges[0]
+  )
 }
 
 function FlowModeToggle({
@@ -3062,7 +3180,22 @@ function FlowOverlay({
         highlight: "attack_path" | null
         viaKind: "vpce" | "igw" | null
         focused: boolean
+        /** Both ends inside the off-VPC rail: the lanes they sit in. */
+        railLanes: { src: HTMLElement; dst: HTMLElement } | null
       }
+      // Off-VPC rail: an edge whose BOTH ends sit in the Lambda | Regional
+      // column would otherwise be drawn straight through the chips between
+      // them with its label on a chip (C1 production, 2026-09-02: TRIGGERS /
+      // TARGETS / ACTUAL_S3_ACCESS piled on the rail).
+      const railEl = container.querySelector<HTMLElement>('[data-testid="topology-edge-services-rail"]')
+      const laneOf = (el: HTMLElement): HTMLElement | null =>
+        railEl?.contains(el)
+          ? el.closest<HTMLElement>(
+              '[data-testid="topology-serverless-tier"], [data-testid="topology-regional-data-tier"]',
+            )
+          : null
+      const laneKey = (lane: HTMLElement): string =>
+        lane.getAttribute("data-testid") === "topology-serverless-tier" ? "serverless" : "regional"
       const elKeys = new Map<HTMLElement, number>()
       const keyOf = (el: HTMLElement) => {
         const k = elKeys.get(el) ?? elKeys.size
@@ -3123,9 +3256,33 @@ function FlowOverlay({
           highlight: e.flow_highlight ?? null,
           viaKind,
           focused: isFocusedOperationalFlow(e, selectedNodeId, flowMode),
+          railLanes: null,
+        }
+        if (!inter) {
+          const srcLane = laneOf(src.el)
+          const dstLane = laneOf(dst.el)
+          if (srcLane && dstLane) job.railLanes = { src: srcLane, dst: dstLane }
         }
         if (grouped) bundles.set(bk, job)
         jobs.push(job)
+      }
+
+      // Intra-rail edges leave the per-chip routing unless the selected chip is
+      // one of their ends: bundled per (source lane, target lane, label) and
+      // routed through the flow corridor, so no line crosses a chip and one
+      // badge carries the real count. Everything else routes as before.
+      const railGroups = new Map<string, { jobs: RouteJob[]; src: HTMLElement; dst: HTMLElement; label: string }>()
+      const drawJobs: RouteJob[] = []
+      for (const j of jobs) {
+        if (!j.railLanes || j.focused) {
+          drawJobs.push(j)
+          continue
+        }
+        const label = edgeBadgeLabel(j.e, j.cls, false, false)
+        const key = `${keyOf(j.railLanes.src)}→${keyOf(j.railLanes.dst)}·${label}`
+        const group = railGroups.get(key)
+        if (group) group.jobs.push(j)
+        else railGroups.set(key, { jobs: [j], src: j.railLanes.src, dst: j.railLanes.dst, label })
       }
 
       // Pass 2 — lane assignment. Rail-bound legs bucket by target column and
@@ -3135,7 +3292,7 @@ function FlowOverlay({
       const H_GAP = 40
       const corridorLane = new Map<RouteJob, number | null>()
       const colBuckets = new Map<number, RouteJob[]>()
-      for (const j of jobs) {
+      for (const j of drawJobs) {
         const target = j.inter ?? j.dst
         if (target.l - j.src.r > H_GAP) {
           const bucket = Math.round(target.l / 32)
@@ -3152,7 +3309,7 @@ function FlowOverlay({
         arr.forEach((j, i) => corridorLane.set(j, colLeft - 18 - i * 7))
       }
       const fanGroups = new Map<number, RouteJob[]>()
-      for (const j of jobs) {
+      for (const j of drawJobs) {
         if (corridorLane.get(j) === null) {
           const arr = fanGroups.get(j.srcKey) ?? []
           arr.push(j)
@@ -3167,7 +3324,7 @@ function FlowOverlay({
 
       // Pass 3 — generate orthogonal paths + on-line badges.
       const next: FlowPath[] = []
-      for (const j of jobs) {
+      for (const j of drawJobs) {
         const laneX = corridorLane.get(j) ?? null
         const spread = exitSpreads.get(j) ?? 0
         let pts: Pt[]
@@ -3194,71 +3351,7 @@ function FlowOverlay({
         if (!d) continue
         const e = j.e
         const cls = j.cls
-        let badgeLabel = ""
-        if (cls === "egress") {
-          badgeLabel = formatEgressBreakdownBadge(
-            e.external_destinations,
-            e.egress_breakdown,
-          )
-        } else if (cls === "edge_service") {
-          if (routedViaVpce || e.egress_path === "vpce") {
-            // Short-form service tag from the VPCE service_name suffix.
-            const svc = e.via_vpce_service_name ?? ""
-            const tag = svc.endsWith(".s3")
-              ? "S3"
-              : svc.endsWith(".dynamodb")
-                ? "DDB"
-                : e.target_id === AWS_S3_PUBLIC_SENTINEL_ID
-                  ? "S3"
-                  : "VPCE"
-            badgeLabel = `${tag} access · via VPCE`
-          } else if (routedViaIgw || e.egress_path === "public" || e.via_igw) {
-            const isS3 =
-              e.target_id === AWS_S3_PUBLIC_SENTINEL_ID ||
-              (e.egress_breakdown ?? []).some(b => b.kind === "s3") ||
-              (e.protocol ?? "").includes("S3")
-            const n = e.external_destinations
-            badgeLabel = isS3
-              ? (n ? `S3 · ${n} endpoints · via IGW (prefer VPCE)` : "S3 · via IGW (prefer VPCE)")
-              : `${e.protocol ?? "AWS"} · via IGW/NAT (prefer VPCE)`
-          } else {
-            badgeLabel = e.protocol ?? "edge"
-          }
-        } else if (cls === "vpce") {
-          badgeLabel = "VPCE"
-        } else if (cls === "database") {
-          if (e.is_exposed) {
-            // Flow-Log public IPs on engine port — not foreign_consumer systems.
-            badgeLabel =
-              databasePublicIpExposureLabel(
-                e.external_sources ?? 0,
-                e.port,
-              ) ??
-              (e.port
-                ? `exposed · RDS :${e.port}`
-                : "exposed · RDS")
-          } else {
-            badgeLabel = e.port ? `RDS · ${e.port}` : "RDS"
-          }
-        } else if (
-          e.protocol === "LAUNCHES" ||
-          e.protocol === "TARGETS" ||
-          e.protocol === "HAS_TARGET_GROUP" ||
-          e.protocol === "TRIGGERS" ||
-          e.protocol === "ENCRYPTED_BY" ||
-          e.protocol === "ACCESSES_RESOURCE"
-        ) {
-          badgeLabel =
-            e.protocol === "HAS_TARGET_GROUP"
-              ? "TG"
-              : e.protocol === "ACCESSES_RESOURCE"
-                ? "secret"
-                : e.protocol === "ENCRYPTED_BY"
-                  ? "KMS"
-                  : e.protocol
-        } else {
-          badgeLabel = e.port ? `${e.port}/${e.protocol ?? "TCP"}` : (e.protocol ?? "TCP")
-        }
+        let badgeLabel = edgeBadgeLabel(e, cls, routedViaVpce, routedViaIgw)
         if (j.count > 1 && !e.is_exposed) badgeLabel = `${j.count} flows`
         next.push({
           d,
@@ -3325,6 +3418,46 @@ function FlowOverlay({
         delete pathExt[i]._edge
         delete pathExt[i]._routedViaIgw
         delete pathExt[i]._routedViaVpce
+      }
+
+      // Rail bundles — one path per (source lane, target lane, label) through
+      // the flow corridor; the badge sits just left of its bus, over the empty
+      // lower part of the network rail, and pass 4 stacks bundles apart.
+      const corridorEl = container.querySelector<HTMLElement>('[data-testid="topology-flow-corridor"]')
+      const corridor = corridorEl ? toNat(visibleRect(corridorEl, corridorEl.getBoundingClientRect())) : null
+      let bundleIndex = 0
+      for (const group of railGroups.values()) {
+        const srcRect = toNat(visibleRect(group.src, group.src.getBoundingClientRect()))
+        const dstRect = toNat(visibleRect(group.dst, group.dst.getBoundingClientRect()))
+        const route = railBundleRoute(srcRect, dstRect, corridor, bundleIndex, group.src === group.dst)
+        bundleIndex += 1
+        const d = orthoPath(route.pts)
+        if (!d) continue
+        const count = group.jobs.reduce((sum, j) => sum + j.count, 0)
+        const label = railBundleLabel(group.label, count)
+        const lead = railBundleLeadEdge(group.jobs.map(j => j.e))
+        const members = group.jobs.map(j => `${j.e.source_id}→${j.e.target_id}`)
+        next.push({
+          d,
+          cls: group.jobs[0].cls,
+          sourceId: `lane:${laneKey(group.src)}`,
+          targetId: `lane:${laneKey(group.dst)}`,
+          protocol: lead.protocol ?? null,
+          port: lead.port ?? null,
+          externalDestinations: null,
+          badgeX: route.bus.x - Math.max(14, label.length * 3.8) - 6,
+          badgeY: route.bus.y,
+          badgeLabel: label,
+          badgeTitle: [label, ...members].join("\n"),
+          isExposed: group.jobs.some(j => Boolean(j.e.is_exposed)),
+          highlight: group.jobs.some(j => j.highlight === "attack_path") ? "attack_path" : null,
+          focused: false,
+          authorityState: lead.authority_state,
+          evidenceType: lead.evidence_type,
+          pathBasis: lead.path_basis,
+          lastSeen: lead.last_seen,
+          bundle: { count, members },
+        })
       }
 
       // Pass 4 — de-overlap badges against BOTH other badges AND chip boxes.
@@ -3502,7 +3635,13 @@ function FlowOverlay({
           !dimmed &&
           motionKind === "historical"
         return (
-        <g key={i} data-flow-source={p.sourceId} data-flow-target={p.targetId}>
+        <g
+          key={i}
+          data-flow-source={p.sourceId}
+          data-flow-target={p.targetId}
+          data-flow-bundle={p.bundle ? String(p.bundle.count) : undefined}
+          data-flow-members={p.bundle ? p.bundle.members.join("|") : undefined}
+        >
           {/* Soft halo behind the line so it's visible over the busy chip grid */}
           <path
             d={p.d}
