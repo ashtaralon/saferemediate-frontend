@@ -252,7 +252,7 @@ test.describe("C1 live QA — estate map against the deployed graph", () => {
     // The first uncached topology read on C1 takes ~54s and this test drives
     // three probes plus a scroll phase after it; 300s left no headroom and the
     // run died mid-phase with its measurements already taken (run 33681801338).
-    test.setTimeout(600_000)
+    test.setTimeout(900_000)
     await seedAuthCookie(context)
     await page.setViewportSize({ width: 1600, height: 900 })
     const pageErrors: string[] = []
@@ -307,18 +307,54 @@ test.describe("C1 live QA — estate map against the deployed graph", () => {
     // three attempts in a minute without ever waiting for the map (run
     // 33675359540). Only a real refusal short-circuits the wait.
     const blocked = page.getByText(/Topology risk unavailable|No systems available yet/i)
+    // Warm the page's OWN cache key first. The API probe above warms the
+    // UNSCOPED read; the page asks for a scoped one, a different proxy key
+    // that is therefore still cold, and an uncached C1 topology read sits
+    // right at the proxy's ~55s ceiling (53.8s in run 33681801338, over it in
+    // 33683706108, where the page never mounted). A warm-up that times out is
+    // not wasted: the backend keeps computing its snapshot, so the next
+    // attempt is faster. Cheap requests, not page loads, so a cold read costs
+    // seconds of budget rather than a whole attempt.
+    const warm: Array<{ attempt: number; status: number | null; ms: number }> = []
+    for (let attempt = 1; attempt <= 4; attempt += 1) {
+      const t0 = Date.now()
+      let status: number | null = null
+      try {
+        const res = await page.request.get(
+          `/api/proxy/topology-risk/${encodeURIComponent(SYSTEM)}?customer_id=${encodeURIComponent(SYSTEM)}`,
+          { timeout: 60_000 }, // just past the proxy's ~55s ceiling
+        )
+        status = res.status()
+      } catch {
+        status = null // the proxy aborted the cold read; try again
+      }
+      warm.push({ attempt, status, ms: Date.now() - t0 })
+      if (status === 200) break
+    }
+    report("scoped-cache-warm", warm)
+
     const loads: Array<{ attempt: number; mounted: boolean; reason: string | null; ms: number }> = []
     let mounted = false
     for (let attempt = 1; attempt <= 3 && !mounted; attempt += 1) {
       const t0 = Date.now()
-      await page.goto(ESTATE_URL, { waitUntil: "domcontentloaded" })
-      await expect(mapTab.or(blocked).first()).toBeVisible({ timeout: 150_000 })
-      mounted = await mapTab.isVisible().catch(() => false)
-      const reason = mounted
-        ? null
-        : ((await blocked.first().textContent().catch(() => null)) ?? "").replace(/\s+/g, " ").trim()
+      let reason: string | null = null
+      try {
+        await page.goto(ESTATE_URL, { waitUntil: "domcontentloaded", timeout: 60_000 })
+        await expect(mapTab.or(blocked).first()).toBeVisible({ timeout: 120_000 })
+        mounted = await mapTab.isVisible().catch(() => false)
+        reason = mounted
+          ? null
+          : ((await blocked.first().textContent({ timeout: 5_000 }).catch(() => null)) ?? "")
+              .replace(/\s+/g, " ")
+              .trim()
+      } catch (error) {
+        // A load that settles into neither the map nor a refusal is ONE failed
+        // attempt, not the end of the run. It used to throw straight out of
+        // the loop, so the retry this loop exists for never happened.
+        reason = `load did not settle: ${(error as Error).message.split("\n")[0]}`
+      }
       loads.push({ attempt, mounted, reason, ms: Date.now() - t0 })
-      if (!mounted && attempt < 3) await page.waitForTimeout(20_000)
+      if (!mounted && attempt < 3) await page.waitForTimeout(15_000)
     }
     report("estate-page", { mounted, loads, gate })
     if (!mounted) {
