@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { applyInventoryScopeParams } from "@/lib/inventory-proxy-scope"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
 export const maxDuration = 30
@@ -18,6 +19,7 @@ export async function GET(req: NextRequest) {
   const params = new URLSearchParams({ resource_type: resourceType })
   if (system) params.set("system", system)
   if (envelope) params.set("envelope", "true")
+  applyInventoryScopeParams(url.searchParams, params)
 
   const backendBase = getBackendBaseUrl()
   const target = `${backendBase}/api/resource-inventory/count?${params.toString()}`
