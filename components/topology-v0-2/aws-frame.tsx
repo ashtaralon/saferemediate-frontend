@@ -2026,7 +2026,9 @@ function useLaneFold(
       const box = el.getBoundingClientRect()
       let above = 0
       let below = 0
-      for (const chip of Array.from(el.querySelectorAll<HTMLElement>("[data-flow-id]"))) {
+      // Named chips carry data-flow-id; Glance stack tiles carry data-flow-ids
+      // (one tile for several nodes). Both are real content beyond the fold.
+      for (const chip of Array.from(el.querySelectorAll<HTMLElement>("[data-flow-id], [data-flow-ids]"))) {
         const r = chip.getBoundingClientRect()
         if (r.height === 0) continue
         if (r.bottom > box.bottom + 1) below += 1
