@@ -3,8 +3,8 @@ export const IAM_LP_COPY = {
   matchesObserved: "This role matches observed use.",
   support: (total: number, used: number) =>
     `It can do ${total} things. We observed it needs ${used}.`,
-  chipObserved: (days: number, events: number) =>
-    `Observed · ${days}d · ${events} events`,
+  chipObserved: (days: number, events: number | null) =>
+    `Observed · ${days}d · ${events == null ? 'events not measured' : `${events} events`}`,
   chipBlocked: "Blocked",
   chipSplit: (auto: number, approval: number) =>
     `${auto} auto-apply · ${approval} need approval`,

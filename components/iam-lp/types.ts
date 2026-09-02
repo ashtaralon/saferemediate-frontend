@@ -11,7 +11,7 @@ export type IamGapAnalysis = {
     lp_score: number | null
     overall_risk: string
     data_confidence: "OBSERVED" | "LOW" | "UNKNOWN" | string
-    cloudtrail_events: number
+    cloudtrail_events: number | null
     high_risk_unused_count: number
     api_relationships: number
     traffic_relationships: number
@@ -81,6 +81,8 @@ export type ConfidenceGroup = {
   block_reason_code?: string | null
   block_reason_human?: string | null
   explanation?: string
+  /** Facts-only evidence sentence from a reconciling backend (F17). */
+  evidence_summary?: string | null
   color?: string
 }
 

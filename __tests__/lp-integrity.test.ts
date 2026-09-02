@@ -14,7 +14,7 @@ import {
   assertsAnalysisComplete,
   deriveLPIntegrity,
   hasInconsistentAnalysisState,
-  isStaleAnalysisReason,
+  isStaleServe,
   lpEvidenceGapCopy,
   lpIntegrityCopy,
   lpIntegrityFooter,
@@ -84,21 +84,56 @@ describe('deriveLPIntegrity — mutationBlocked is veto only', () => {
 })
 
 describe('lpIntegrityCopy — stale vs never-ran', () => {
-  it('stale/timeout reason does not claim Analysis did not run', () => {
+  it('a proxy stale serve is titled Live analysis unavailable, from the typed stamp', () => {
     const reason =
       'Showing the last complete analysis (42s old) — the live analysis timed out. Remediation is unavailable until it succeeds.'
-    expect(isStaleAnalysisReason(reason)).toBe(true)
-    const copy = lpIntegrityCopy({
-      state: 'NOT_READY',
-      analysisComplete: false,
-      mutationBlocked: true,
-      countsArePartial: true,
-      failedAnalyzers: [],
-      reason,
+    const integrity = deriveLPIntegrity({
+      serve_state: 'NOT_READY',
+      analysis_complete: false,
+      integrityReason: reason,
+      fromStaleCache: true,
+      staleReason: 'timeout',
     })
+    expect(isStaleServe(integrity)).toBe(true)
+    expect(integrity.staleReason).toBe('timeout')
+    const copy = lpIntegrityCopy(integrity)
     expect(copy.title).toBe('Live analysis unavailable')
     expect(copy.body).toContain('timed out')
     expect(copy.title.toLowerCase()).not.toContain('did not run')
+  })
+
+  it('the word "stale" in a readiness code does not make a completed analysis "unavailable"', () => {
+    // Regression, 2026-09-02 (C1). The title was chosen by
+    // /timed out|stale|last complete analysis|warming/i over the reason text,
+    // and the backend's honest sentence carries the error code
+    // PROJECTION_WATERMARK_STALE. A completed live analysis was titled
+    // "Live analysis unavailable" — the backend was reachable and current.
+    const integrity = deriveLPIntegrity({
+      serve_state: 'NOT_READY',
+      analysis_complete: true,
+      integrityReason:
+        'Analysis complete; remediation is not ready because generation tick-project-1788265144 is active but its projection lags the ingest head by 8 days 1 hour (PROJECTION_WATERMARK_STALE).',
+    })
+    expect(isStaleServe(integrity)).toBe(false)
+    const copy = lpIntegrityCopy(integrity)
+    expect(copy.title).toBe('Remediation is not ready')
+    expect(copy.title).not.toBe('Live analysis unavailable')
+    expect(copy.body).toContain('PROJECTION_WATERMARK_STALE')
+  })
+
+  it('stale-sounding prose without the stamp is not a stale serve', () => {
+    for (const reason of [
+      'The evidence is stale; the last complete analysis is being recomputed.',
+      'Backend warming up — timed out once.',
+    ]) {
+      const integrity = deriveLPIntegrity({
+        serve_state: 'NOT_READY',
+        analysis_complete: false,
+        integrityReason: reason,
+      })
+      expect(isStaleServe(integrity)).toBe(false)
+      expect(lpIntegrityCopy(integrity).title).not.toBe('Live analysis unavailable')
+    }
   })
 
   it('true never-ran keeps Analysis did not run', () => {

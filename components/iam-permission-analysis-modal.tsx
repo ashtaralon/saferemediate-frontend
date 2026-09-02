@@ -31,6 +31,12 @@ import type {
 import { type RoutingDecision, toRoutingDecision } from "@/lib/decision-routing"
 import { resolveIamRemediationAuthority } from "@/lib/iam-remediation-authority"
 import {
+  iamEventCountCopy,
+  iamObservationWindowCopy,
+  type IamEventCountBasis,
+  type IamObservationWindow,
+} from "@/lib/iam-observation-copy"
+import {
   automationReadiness,
   previewEvidenceNeeds,
   previewPermissionCounts,
@@ -212,6 +218,18 @@ export function resolveBreakGlassPermissionSelection(
     .map(item => item.permission)
 }
 
+/**
+ * A "held by policy" permission is kept by a rule Cyntro applies to the
+ * role's configuration (SSM Agent channels, KMS, STS, iam:PassRole,
+ * cross-account trust, dependency checks). The hold is a configured decision;
+ * it is not an observation that this role used the permission, so it is
+ * never presented beside the observed counts as if it were evidence.
+ */
+export const HELD_BY_POLICY_TITLE =
+  "Kept by a Cyntro rule over the role's configuration, not by observed use of this role."
+export const HELD_BY_POLICY_NOTE =
+  "Held by policy is a configured hold, not evidence: Cyntro keeps these by rule and did not measure their use."
+
 export function RemovalSafetyPanel({ bundle }: { bundle: RemovalSafetyBundle }) {
   const byPermission = new Map(bundle.permissions.map(item => [item.permission, item]))
   const candidates = bundle.permissions.filter(item => item.disposition === "REMOVAL_CANDIDATE")
@@ -231,12 +249,26 @@ export function RemovalSafetyPanel({ bundle }: { bundle: RemovalSafetyBundle }) 
       <div className="flex items-start justify-between gap-4">
         <div>
           <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Removal safety</div>
-          <h3 className="mt-1 text-lg font-bold text-slate-900">
-            {bundle.scored_candidate_count} verified for removal · {bundle.insufficient_evidence_count} awaiting evidence · {bundle.used_count} in use · {bundle.protected_count} protected
+          <h3 className="mt-1 flex flex-wrap items-baseline gap-x-2 text-lg font-bold text-slate-900">
+            <span data-testid="removal-safety-observed">
+              {bundle.scored_candidate_count} verified for removal · {bundle.insufficient_evidence_count} awaiting evidence · {bundle.used_count} in use
+            </span>
+            <span
+              className="rounded-full border border-slate-300 bg-slate-100 px-2.5 py-0.5 text-sm font-semibold text-slate-600"
+              data-testid="removal-safety-held"
+              title={HELD_BY_POLICY_TITLE}
+            >
+              {bundle.protected_count} held by policy
+            </span>
           </h3>
           <p className="mt-1 text-sm text-slate-600">
             This is an evidence index, not a probability. It measures how strongly the observed data supports removal without breaking expected use.
           </p>
+          {bundle.protected_count > 0 && (
+            <p className="mt-1 text-xs text-slate-500" data-testid="removal-safety-held-note">
+              {HELD_BY_POLICY_NOTE}
+            </p>
+          )}
         </div>
         {bundle.plan_score !== null && (
           <div className="shrink-0 rounded-lg bg-slate-900 px-3 py-2 text-center text-white">
@@ -418,6 +450,12 @@ interface GapAnalysisData {
   role_name: string
   role_arn?: string
   observation_days: number
+  /**
+   * Measured bounds behind observation_days (backend `observation_window`).
+   * Null when the backend omitted it. The modal renders only these bounds and
+   * never derives a window edge from the browser clock (F5).
+   */
+  observation_window?: IamObservationWindow | null
   // Backend remediability contract (api/iam_gap_analysis.py). When
   // is_remediable is false the role must NOT be presented as removal-ready:
   // reason is 'no_policy_attached' (sync IAM policies) or 'usage_not_computed'
@@ -435,7 +473,9 @@ interface GapAnalysisData {
     // 'OBSERVED' | 'UNKNOWN' | 'LOW'. UNKNOWN = usage never measured (or no
     // policy attached). Never render a removal/clean verdict on UNKNOWN.
     data_confidence?: string
-    cloudtrail_events: number
+    /** Windowed USED_ACTION hit sum, or null when not measured (F6). */
+    cloudtrail_events: number | null
+    event_count_basis?: IamEventCountBasis | null
     high_risk_unused_count?: number
   }
   permissions_analysis: PermissionAnalysis[]
@@ -647,10 +687,17 @@ export function selectionMatchesSignedIamPlan(
     && planned.every((permission, index) => permission === selected[index])
 }
 
-// Service role analysis from backend (trust policy based)
+// Service role analysis from backend (trust policy based). Classified from
+// the graph copy of the trust document (F14): when the document is not in
+// the serving graph or cannot be parsed the backend sends status
+// "not_computed", is_service_role null and a limitation, never a guess.
 interface BackendServiceRoleAnalysis {
-  is_service_role: boolean
+  is_service_role: boolean | null
   service_principals: string[]
+  status?: 'computed' | 'not_computed' | string | null
+  source?: string | null
+  limitation?: string | null
+  trust_doc_synced_at?: string | null
   analysis: {
     service_principal: string
     service_name: string
@@ -666,7 +713,16 @@ interface BackendServiceRoleAnalysis {
 }
 
 // Fallback client-side analysis when backend doesn't provide trust policy data
-function fallbackAnalyzeRole(roleName: string, cloudtrailEvents: number, unusedCount: number): BackendServiceRoleAnalysis | null {
+function fallbackAnalyzeRole(
+  roleName: string,
+  cloudtrailEvents: number | null,
+  unusedCount: number,
+  backendStatus: string | null = null,
+): BackendServiceRoleAnalysis | null {
+  // The backend now says when it could NOT classify the trust policy
+  // (status "not_computed", F14) and when the event count is unmeasured
+  // (null, F6). Neither is "no usage data"; do not invent an analysis.
+  if (backendStatus === 'not_computed' || cloudtrailEvents == null) return null
   // Only provide fallback for obvious cases when backend analysis is unavailable
   if (cloudtrailEvents === 0 && unusedCount > 0) {
     return {
@@ -1310,6 +1366,8 @@ export function IAMPermissionAnalysisModal({
         // Never invent a 365-day window when gap-analysis omits this field.
         // simulate-fix supplies the measured window and wins at render time.
         observation_days: rawData.observation_days ?? 0,
+        // Measured bounds, or null. Absent bounds render as "not stored".
+        observation_window: rawData.observation_window ?? null,
         // Backend remediability contract — consumed by the mutation gate below.
         is_remediable: rawData.is_remediable,
         remediable_reason: rawData.remediable_reason,
@@ -1322,7 +1380,9 @@ export function IAMPermissionAnalysisModal({
           lp_score: derivedLpScore,
           overall_risk: rawData.summary?.overall_risk ?? rawData.overall_risk ?? 'MEDIUM',
           data_confidence: rawData.summary?.data_confidence ?? rawData.data_confidence,
-          cloudtrail_events: rawData.summary?.cloudtrail_events ?? rawData.event_count ?? rawData.total_events ?? 0,
+          // null stays null: an unmeasured count is not zero events (F6).
+          cloudtrail_events: rawData.summary?.cloudtrail_events ?? null,
+          event_count_basis: rawData.summary?.event_count_basis ?? null,
           high_risk_unused_count: rawData.summary?.high_risk_unused_count ?? rawData.high_risk_unused?.length ?? 0
         },
         // Use backend's permissions_analysis when available (has real usage_count),
@@ -2151,8 +2211,11 @@ export function IAMPermissionAnalysisModal({
     if (!gapData) return null
     // calculateSafetyScore returns 0-100 already, with same-source
     // backend computation when overall_confidence is set; falls back
-    // to a local heuristic only when backend doesn't provide it.
+    // to a local heuristic only when backend doesn't provide it. It is
+    // null only before gap data exists (F12); with no score there is no
+    // band to draw, so render nothing rather than a number.
     const score = calculateSafetyScore()
+    if (score == null) return null
 
     // v4.4 default thresholds for IAM role narrowing.
     const T_AUTO = 85
@@ -2385,25 +2448,35 @@ export function IAMPermissionAnalysisModal({
     // (Behavioral 100, Observability 0) which shreds the trust story
     // — a CISO reads it as "the engine doesn't know what it doesn't
     // know." See review 2026-06-14.
-    const behavioralRaw = events > 200 ? 100 : events > 50 ? 75 : events > 0 ? 40 : 0
+    // An unmeasured event count (null) is not_computed, not a score of 0 (F6).
+    const behavioralRaw: number | null =
+      events == null ? null : events > 200 ? 100 : events > 50 ? 75 : events > 0 ? 40 : 0
     const coverageScore = tel != null ? Math.round(tel * 100) : null
-    const behavioralCapped = coverageScore != null
-      ? Math.min(behavioralRaw, coverageScore)
-      : behavioralRaw
-    const behavioralCapApplied = coverageScore != null && coverageScore < behavioralRaw
+    const behavioralCapped: number | null =
+      behavioralRaw == null
+        ? null
+        : coverageScore != null
+          ? Math.min(behavioralRaw, coverageScore)
+          : behavioralRaw
+    const behavioralCapApplied =
+      behavioralRaw != null && coverageScore != null && coverageScore < behavioralRaw
 
     const dimensions: Dim[] = [
       {
         key: 'behavioral',
         name: 'Behavioral evidence',
         score: behavioralCapped,
-        status: behavioralCapped >= 75 ? 'pass' : behavioralCapped >= 40 ? 'partial' : 'fail',
+        status: behavioralCapped == null
+          ? 'not_computed'
+          : behavioralCapped >= 75 ? 'pass' : behavioralCapped >= 40 ? 'partial' : 'fail',
         data: behavioralCapApplied
-          ? `${obs} days of observation · ${events.toLocaleString()} events captured · score capped by Observability coverage`
-          : `${obs} days of observation · ${events.toLocaleString()} events captured`,
+          ? `${obs} days of observation · ${eventCountCopy.label} · score capped by Observability coverage`
+          : `${obs} days of observation · ${eventCountCopy.label}`,
         hint: behavioralCapApplied
           ? 'Behavioral evidence cannot exceed Observability coverage — enable the missing sources to raise this score.'
-          : events <= 50 ? 'Increase observation window or wait for more activity.' : undefined,
+          : events == null
+            ? 'The windowed event count could not be measured; see the evidence basis.'
+            : events <= 50 ? 'Increase observation window or wait for more activity.' : undefined,
       },
       {
         key: 'coverage',
@@ -2414,8 +2487,8 @@ export function IAMPermissionAnalysisModal({
         // but coverage is low, surface BOTH numbers honestly so the operator
         // doesn't see a "0% sources / 500 events" contradiction without context.
         data: tel != null
-          ? events > 0
-            ? `${Math.round(tel * 100)}% of expected sources active · ${events.toLocaleString()} events from active source(s)`
+          ? events != null && events > 0
+            ? `${Math.round(tel * 100)}% of expected sources active · ${eventCountCopy.label} from active source(s)`
             : `${Math.round(tel * 100)}% of evidence sources active`
           : 'coverage not measured',
         hint: tel != null && tel < 0.85 ? 'Enable the missing evidence sources in this account.' : undefined,
@@ -2820,7 +2893,10 @@ export function IAMPermissionAnalysisModal({
     planPermissions,
   })
   const overallRisk = gapData?.summary?.overall_risk ?? 'UNKNOWN'
-  const cloudtrailEvents = gapData?.summary?.cloudtrail_events ?? 0
+  // number | null. null means the backend could not measure the windowed
+  // count; it is never coerced to 0 (F6).
+  const cloudtrailEvents: number | null = gapData?.summary?.cloudtrail_events ?? null
+  const eventCountCopy = iamEventCountCopy(cloudtrailEvents, gapData?.summary?.event_count_basis ?? null)
 
   const permissionView = buildCanonicalPermissionView(
     gapData?.permissions_analysis ?? [],
@@ -2855,7 +2931,12 @@ export function IAMPermissionAnalysisModal({
     totalCount: totalPermissions,
   })
   const backendAnalysis = (gapData as any)?.service_role_analysis as BackendServiceRoleAnalysis | undefined
-  const serviceAnalysis = backendAnalysis?.analysis || fallbackAnalyzeRole(roleName, cloudtrailEvents, unusedCount)?.analysis
+  const serviceAnalysis = backendAnalysis?.analysis || fallbackAnalyzeRole(
+    roleName,
+    cloudtrailEvents,
+    unusedCount,
+    backendAnalysis?.status ?? null,
+  )?.analysis
   const confidenceGroups = gapData?.confidence_groups
   const dependencyContext = gapData?.dependency_context
   const protectedSet = new Set(
@@ -3173,15 +3254,23 @@ export function IAMPermissionAnalysisModal({
     />
   )
   
-  // Calculate dates
-  const endDate = new Date()
-  const startDate = new Date()
-  startDate.setDate(startDate.getDate() - observationDays)
-  const formatDate = (date: Date) => date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  // Recording-period copy from the backend's measured bounds. The previous
+  // code set the window end to `new Date()` and the start to today minus the
+  // day count (F5); the evidence ends at the newest observed event, which on
+  // C1 was 12 days before "today".
+  const observationWindowCopy = iamObservationWindowCopy(
+    gapData?.observation_window ?? null,
+    observationDays,
+  )
 
-  // Safety score — uses backend-computed confidence when available
-  const calculateSafetyScore = () => {
-    if (!gapData) return 95
+  // Safety score — uses backend-computed confidence when available. Returns
+  // null before gap data exists: an unloaded modal has no score, and the
+  // literal 95 that lived here was a fabricated one (F12).
+  const calculateSafetyScore = (): number | null => {
+    if (!gapData) return null
+    // Comparisons below need a number; an unmeasured count (null) earns no
+    // volume-based adjustment either way (F6).
+    const knownEvents = cloudtrailEvents ?? 0
 
     // Use backend confidence engine score when available (data-driven, not hardcoded)
     if (gapData.confidence_groups?.overall_confidence != null) {
@@ -3220,13 +3309,13 @@ export function IAMPermissionAnalysisModal({
       const highRiskCount = gapData.high_risk_unused?.length ?? 0
       let highRiskPenalty = 0
       if (highRiskCount > 0) {
-        if (cloudtrailEvents > 100000) highRiskPenalty = Math.min(3, highRiskCount)
-        else if (cloudtrailEvents > 10000) highRiskPenalty = Math.min(5, Math.ceil(highRiskCount * 0.5))
-        else if (cloudtrailEvents > 1000) highRiskPenalty = Math.min(8, highRiskCount)
+        if (knownEvents > 100000) highRiskPenalty = Math.min(3, highRiskCount)
+        else if (knownEvents > 10000) highRiskPenalty = Math.min(5, Math.ceil(highRiskCount * 0.5))
+        else if (knownEvents > 1000) highRiskPenalty = Math.min(8, highRiskCount)
         else highRiskPenalty = Math.min(12, highRiskCount * 2)
       }
       score -= highRiskPenalty
-      if (cloudtrailEvents > 0 && cloudtrailEvents < 10) score -= 5
+      if (knownEvents > 0 && knownEvents < 10) score -= 5
     }
 
     return Math.max(10, Math.min(100, score))
@@ -3246,7 +3335,9 @@ export function IAMPermissionAnalysisModal({
   // the single source of truth for the modal banner. The legacy client-side
   // calculateSafetyScore() stays as a fallback only while Agent 5 is loading
   // or if the /api/confidence/check call failed.
-  const safetyScore = confidenceScore?.confidence ?? legacySafetyScore
+  // null until either scorer has a number. Unknown routes to manual review
+  // below; it never reads as a high score (F12).
+  const safetyScore: number | null = confidenceScore?.confidence ?? legacySafetyScore
 
   // ── Verdict bucket — PIPELINE IS AUTHORITATIVE ────────────────────
   // Source-of-truth hierarchy:
@@ -3284,7 +3375,7 @@ export function IAMPermissionAnalysisModal({
   const _pipelineBucket = canonicalToBucket(safetyContext?.decision_canonical ?? null)
   const _agentRouting = confidenceScore?.routing
   const _legacyFallback: 'blocked' | 'manual_review' | 'human_approval' =
-    safetyScore < 50 ? 'manual_review'
+    safetyScore == null || safetyScore < 50 ? 'manual_review'
       : 'human_approval'
   const _nonPipelineCandidate = _agentRouting ?? _legacyFallback
   // AI alone cannot approve auto-execute. Demote to human_approval if it tries.
@@ -3380,7 +3471,7 @@ export function IAMPermissionAnalysisModal({
           
           <div className="space-y-4">
             {[
-              { title: "Loading usage history...", subtitle: `Analyzing ${cloudtrailEvents.toLocaleString()} permission checks`, done: true },
+              { title: "Loading usage history...", subtitle: cloudtrailEvents == null ? 'Analyzing observed API activity' : `Analyzing ${cloudtrailEvents.toLocaleString()} permission checks`, done: true },
               { title: "Identifying unused permissions...", subtitle: `Found ${unusedCount} never-used permissions`, done: true },
               { title: "Checking service dependencies...", subtitle: "Validating active services", done: true },
               {
@@ -3853,8 +3944,8 @@ export function IAMPermissionAnalysisModal({
                 })
                 if (protectedCount > 0) buckets.push({
                   key: 'protected', count: protectedCount, band: '—',
-                  label: 'Protected — never touched',
-                  hint: 'Internal-service or break-glass permissions Cyntro will not modify.',
+                  label: 'Held by policy or reserved — never touched',
+                  hint: 'Kept by a Cyntro rule or reserved by you; a configured hold, not evidence of use.',
                   color: '#6b7280', bg: '#f9fafb', border: '#e5e7eb',
                   perms: [], actionable: false,
                 })
@@ -3961,7 +4052,7 @@ export function IAMPermissionAnalysisModal({
                             <span className="font-semibold text-sm" style={{ color: "var(--foreground, #111827)" }}>
                               {(() => {
                                 const count = group.permission_count ?? group.permissions.length
-                                if (isProtected) return `Protected operations (${count})`
+                                if (isProtected) return `Held by policy (${count})`
                                 if (isReserved) return `Reserved operations (${count})`
                                 if (group.data_source_type === 'management_event') return `Logged operations (${count})`
                                 if (group.data_source_type === 'data_event') return `Data-plane operations (${count})`
@@ -3970,8 +4061,8 @@ export function IAMPermissionAnalysisModal({
                               })()}
                             </span>
                             {isProtected ? (
-                              <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-[#6b728020] text-[#6b7280]">
-                                PROTECTED
+                              <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-[#6b728020] text-[#6b7280]" title={HELD_BY_POLICY_TITLE}>
+                                HELD BY POLICY
                               </span>
                             ) : isWarn ? (
                               <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-[#eab30820] text-[#eab308]">
@@ -4306,7 +4397,7 @@ export function IAMPermissionAnalysisModal({
                 // on older backends → not gated.
                 const evidenceUnknown = remediationAuthority.evidenceUnavailable
                 const canonicalBlocked = remediationAuthority.hardBlocked
-                const lowConfidence = safetyScore < 50
+                const lowConfidence = safetyScore == null || safetyScore < 50
                 const pipelineBlocked = verdictBucket === 'blocked'
                 // Honest counts: report what the user actually selected. Non-auto
                 // selections are now passed under force_override (see handleApplyFix)
@@ -4698,14 +4789,26 @@ export function IAMPermissionAnalysisModal({
           <div className="flex items-center justify-between gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
             <div className="flex items-center gap-2 text-xs" style={{ color: "var(--foreground, #111827)" }}>
               <Calendar className="w-3.5 h-3.5" style={{ color: "#2D51DA" }} />
-              <span className="font-semibold">
-                {observationDays > 0 ? `${observationDays}-day observation` : 'Observation window loading'}
+              <span className="font-semibold" data-testid="observation-window-headline">
+                {gapData ? observationWindowCopy.headline : 'Observation window loading'}
               </span>
               <span className="text-slate-400">·</span>
-              <span style={{ color: "var(--muted-foreground, #6b7280)" }}>{formatDate(startDate)} → {formatDate(endDate)}</span>
+              <span
+                style={{ color: "var(--muted-foreground, #6b7280)" }}
+                data-testid="observation-window-range"
+                title={gapData?.observation_window?.limitation ?? undefined}
+              >
+                {observationWindowCopy.range}
+                {observationWindowCopy.collected ? ` · ${observationWindowCopy.collected}` : ''}
+              </span>
             </div>
-            <span className="text-xs tabular-nums" style={{ color: "var(--muted-foreground, #6b7280)" }}>
-              {cloudtrailEvents.toLocaleString()} API events
+            <span
+              className="text-xs tabular-nums"
+              style={{ color: "var(--muted-foreground, #6b7280)" }}
+              title={eventCountCopy.detail ?? undefined}
+              data-testid="event-count"
+            >
+              {eventCountCopy.label}
             </span>
           </div>
 
@@ -4936,7 +5039,7 @@ export function IAMPermissionAnalysisModal({
                   <div className="flex items-center justify-between mb-2">
                     <div className="text-[11px] font-semibold uppercase tracking-[0.12em]" style={{ color: 'var(--muted-foreground, #6b7280)' }}>Evidence used</div>
                     <div className="text-xs" style={{ color: 'var(--muted-foreground, #6b7280)' }}>
-                      {obs} days · {cloudtrailEvents.toLocaleString()} events
+                      {obs} days · {eventCountCopy.label}
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-sm">
@@ -5181,16 +5284,16 @@ export function IAMPermissionAnalysisModal({
                 <div className="mt-1 text-sm text-[#92400e]">not safe to change yet</div>
               </div>
               <div className="rounded-lg border border-[#d1d5db] bg-[#f9fafb] p-4">
-                <div className="text-xs uppercase tracking-[0.18em] text-[#4b5563]">Protected / keep</div>
+                <div className="text-xs uppercase tracking-[0.18em] text-[#4b5563]">Held by policy</div>
                 <div className="mt-2 text-3xl font-bold text-[#4b5563]">{protectedPerms.length}</div>
-                <div className="mt-1 text-sm text-[#6b7280]">excluded from removal</div>
+                <div className="mt-1 text-sm text-[#6b7280]">kept by rule, not by observed use</div>
               </div>
             </div>
             <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800" data-testid="permission-removal-answer">
               <strong>What can be removed now:</strong>{" "}
               {removableCount > 0
                 ? `${removableCount} evidence-verified permission${removableCount === 1 ? "" : "s"}, listed below.`
-                : "nothing. Every not-observed permission is either awaiting evidence or protected."}
+                : "nothing. Every not-observed permission is either awaiting evidence or held by policy."}
             </div>
             <h3 className="text-lg font-bold text-[var(--foreground,#111827)]">Permission Usage Breakdown</h3>
 
@@ -5323,20 +5426,20 @@ export function IAMPermissionAnalysisModal({
                     </div>
                   )}
 
-                  {/* Protected permissions (SSM, iam:PassRole, KMS, STS) */}
+                  {/* Held by policy (SSM channels, iam:PassRole, KMS, STS, dependency and trust holds) */}
                   {protectedPerms.length > 0 && (
                     <div className="border-2 border-[#d1d5db] bg-[#f9fafb] rounded-xl p-4 opacity-75">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <Lock className="w-5 h-5 text-[#6b7280]" />
-                          <span className="font-semibold text-[#6b7280]">Protected Permissions ({protectedPerms.length})</span>
+                          <span className="font-semibold text-[#6b7280]">Held by policy ({protectedPerms.length})</span>
                         </div>
-                        <span className="px-3 py-1 bg-[#6b728015] text-[#6b7280] border border-[#d1d5db] rounded-lg text-sm font-medium">
-                          Do not remove
+                        <span className="px-3 py-1 bg-[#6b728015] text-[#6b7280] border border-[#d1d5db] rounded-lg text-sm font-medium" title={HELD_BY_POLICY_TITLE}>
+                          Kept by rule
                         </span>
                       </div>
                       <p className="text-xs mt-2 text-[#6b7280]">
-                        These actions are explicitly excluded from removal because they are dependencies, control-plane primitives, or protected infrastructure behavior.
+                        Cyntro keeps these by rule: SSM Agent channels, KMS, STS, iam:PassRole, dependency and cross-account trust holds. Each row names its rule. {HELD_BY_POLICY_NOTE}
                       </p>
                       <div className="mt-3 grid grid-cols-2 gap-2 max-h-32 overflow-y-auto">
                         {protectedPerms.map((perm, i) => (
@@ -5389,9 +5492,9 @@ export function IAMPermissionAnalysisModal({
                   <div className="mt-1 text-sm text-[var(--muted-foreground,#6b7280)]">permissions that will be kept</div>
                 </div>
                 <div className="rounded-lg border border-[var(--border,#e5e7eb)] bg-white p-4">
-                  <div className="text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground,#6b7280)]">Protected</div>
+                  <div className="text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground,#6b7280)]">Held by policy</div>
                   <div className="mt-2 text-3xl font-bold text-[var(--foreground,#111827)]">{removalSafety?.protected_count ?? permissionView.protected.length}</div>
-                  <div className="mt-1 text-sm text-[var(--muted-foreground,#6b7280)]">permissions excluded from removal</div>
+                  <div className="mt-1 text-sm text-[var(--muted-foreground,#6b7280)]">kept by rule, not by observed use</div>
                 </div>
               </div>
 

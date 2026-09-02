@@ -31,7 +31,7 @@ function decisionChipLabel(
   }
   if (split.autoApplyCount > 0) return `${split.autoApplyCount} auto-apply`
   if (split.needsApprovalCount > 0) return `${split.needsApprovalCount} need approval`
-  if (split.protectedCount > 0) return `${split.protectedCount} protected`
+  if (split.protectedCount > 0) return `${split.protectedCount} held by policy`
   return "No change needed"
 }
 

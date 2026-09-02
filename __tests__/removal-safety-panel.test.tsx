@@ -228,7 +228,11 @@ describe("RemovalSafetyPanel", () => {
 
     render(<RemovalSafetyPanel bundle={bundle} />)
 
-    expect(screen.getByText("2 verified for removal · 1 awaiting evidence · 5 in use · 3 protected")).toBeTruthy()
+    expect(screen.getByText("2 verified for removal · 1 awaiting evidence · 5 in use")).toBeTruthy()
+    expect(screen.getByText("3 held by policy")).toBeTruthy()
+    expect(screen.getByTestId("removal-safety-held").getAttribute("title")).toMatch(/not by observed use/i)
+    expect(screen.getByTestId("removal-safety-held-note").textContent).toMatch(/configured hold, not evidence/i)
+    expect(screen.queryByText(/3 protected/)).toBeNull()
     expect(screen.getByText("1 cannot be assessed.")).toBeTruthy()
     expect(screen.getByText("92")).toBeTruthy()
     expect(screen.queryByText(/supporting confidence/i)).toBeNull()
