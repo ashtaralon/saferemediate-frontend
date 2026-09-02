@@ -872,25 +872,6 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
 
   const [totalChecks, setTotalChecks] = useState(0) // Declared totalChecks variable
 
-  // CVE Summary state
-  const [cveSummary, setCveSummary] = useState<{
-    critical: number
-    high: number
-    medium: number
-    low: number
-    totalCves: number
-    servicesAtRisk: string[]
-    loading: boolean
-  }>({
-    critical: 0,
-    high: 0,
-    medium: 0,
-    low: 0,
-    totalCves: 0,
-    servicesAtRisk: [],
-    loading: true
-  })
-
   // =============================================================================
   // Fetch issues summary for severity counts
   // =============================================================================
@@ -1323,44 +1304,6 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
     setRemediatingPermission(null)
   }
 
-  const fetchCVESummary = async () => {
-    try {
-      // Read one source-stamped vulnerability projection. Security-group
-      // ports are network configuration facts and must never be converted
-      // into software findings or service names here.
-      const response = await fetch(`/api/proxy/vulnerability-map/${encodeURIComponent(systemName)}?include_traffic=false`)
-      if (!response.ok) {
-        setCveSummary(prev => ({ ...prev, loading: false }))
-        return
-      }
-      const data = await response.json()
-      const nodes = Array.isArray(data.nodes) ? data.nodes : []
-      const high = nodes.reduce((sum: number, node: any) => sum + Number(node?.vulnerabilities?.high || 0), 0)
-      const medium = nodes.reduce((sum: number, node: any) => sum + Number(node?.vulnerabilities?.medium || 0), 0)
-      const low = nodes.reduce((sum: number, node: any) => sum + Number(node?.vulnerabilities?.low || 0), 0)
-      const software = new Set<string>()
-      nodes.forEach((node: any) => {
-        if (node?.vulnerabilities?.coverage !== 'SCANNED') return
-        for (const name of node?.vulnerabilities?.software_affected || []) {
-          if (name) software.add(String(name))
-        }
-      })
-
-      setCveSummary({
-        critical: Number(data.critical_cves || 0),
-        high,
-        medium,
-        low,
-        totalCves: Number(data.total_cves || 0),
-        servicesAtRisk: Array.from(software).slice(0, 6),
-        loading: false
-      })
-    } catch (error) {
-      console.error('[CVESummary] Error:', error)
-      setCveSummary(prev => ({ ...prev, loading: false }))
-    }
-  }
-
   const fetchSystemMeta = async () => {
     if (!systemsCatalog.url) return
     try {
@@ -1434,10 +1377,11 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
   }
 
   const fetchAllData = async () => {
-    // Critical path first — CVE fan-out deferred so Overview paints without
-    // waiting on N sequential vulnerability calls.
     // Gap card is filled inside fetchIssuesSummary (same issues-summary
     // payload) — do not dual-fetch issues-summary here.
+    // The Overview no longer fetches the vulnerability map: that read
+    // (inventory + Inspector evidence + SG facts) landed in a cveSummary
+    // state nothing rendered. The Vulnerabilities tab owns that fetch.
     await Promise.all([
       fetchIssuesSummary(),
       fetchAutoTagStatus(),
@@ -1445,7 +1389,6 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
       fetchPostureScore(),
       fetchPostureTrend(),
     ])
-    void fetchCVESummary()
   }
 
   useEffect(() => {
