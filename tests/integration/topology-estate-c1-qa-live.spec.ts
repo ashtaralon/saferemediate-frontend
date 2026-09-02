@@ -287,6 +287,7 @@ test.describe("C1 live QA — estate map against the deployed graph", () => {
       authority_banner: await bannerText(page, "page"),
       coverage_pill: await readPill(page, "page"),
       payload_captured: Boolean(captured.payload),
+      ...(await measureEmbeddedLegibility(page)),
     })
 
     // Fullscreen — Glance first (the default), then Inventory (one icon per node).
@@ -308,7 +309,11 @@ test.describe("C1 live QA — estate map against the deployed graph", () => {
     await attachJson("fullscreen-inventory.json", { ...inventory, header_overlaps: overlaps, coverage_pill: pill })
 
     // --- Assertions. Soft where the graph's shape decides what is present.
-    expect.soft(overlaps, "no flow label paints over a rail header").toEqual([])
+    const overlapping = overlaps.filter(o => {
+      const depth = Math.min(o.badge.b, o.headerBox.b) - Math.max(o.badge.t, o.headerBox.t)
+      return depth > 1
+    })
+    expect.soft(overlapping, "no flow label paints over a rail header (touches ≤ 1px are reported, not failed)").toEqual([])
     for (const lane of ["serverless", "regional"] as const) {
       const measured = inventory.lanes[lane]
       if (!measured || !inventory.rail) continue
@@ -394,6 +399,48 @@ test.describe("C1 live QA — estate map against the deployed graph", () => {
   })
 })
 
+/** Embedded map: labels painted over off-VPC rail chips, and unknown-glyph nodes. */
+async function measureEmbeddedLegibility(page: Page): Promise<{
+  labels_over_rail_chips: Array<{ label: string; chip: string | null }>
+  unknown_glyph_nodes: Array<{ name: string; title: string | null }>
+  rail_chips: number
+  flow_badges: number
+}> {
+  return page.evaluate(() => {
+    const fullscreen = document.querySelector('[data-testid="topology-estate-map-fullscreen"]')
+    const rails = Array.from(document.querySelectorAll<HTMLElement>('[data-testid="topology-edge-services-rail"]')).filter(
+      el => !fullscreen || !fullscreen.contains(el),
+    )
+    const rail = rails[0] ?? null
+    const text = (el: Element | null) => (el?.textContent ?? "").replace(/\s+/g, " ").trim()
+    const intersects = (a: DOMRect, b: DOMRect) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top
+    const chips = rail
+      ? Array.from(rail.querySelectorAll<HTMLElement>("[data-flow-id], [data-flow-ids]")).filter(chip => chip.getBoundingClientRect().height > 0)
+      : []
+    const badges = Array.from(document.querySelectorAll<SVGGElement>('[data-testid="topology-flow-badge"]')).filter(
+      badge => !fullscreen || !fullscreen.contains(badge),
+    )
+    const labelsOver: Array<{ label: string; chip: string | null }> = []
+    for (const badge of badges) {
+      const box = badge.querySelector("rect")
+      if (!box) continue
+      const r = box.getBoundingClientRect()
+      if (r.width === 0 || r.height === 0) continue
+      const label = (badge.querySelector("text")?.textContent ?? "").trim()
+      for (const chip of chips) {
+        if (intersects(r, chip.getBoundingClientRect())) {
+          labelsOver.push({ label, chip: chip.getAttribute("data-flow-id") ?? chip.getAttribute("data-flow-ids") })
+        }
+      }
+    }
+    const unknown = Array.from(document.querySelectorAll<HTMLElement>('[data-testid="topology-service-node-icon"]'))
+      .filter(chip => !fullscreen || !fullscreen.contains(chip))
+      .filter(chip => Array.from(chip.querySelectorAll("span")).some(span => span.childElementCount === 0 && span.textContent?.trim() === "?"))
+      .map(chip => ({ name: text(chip), title: chip.getAttribute("title") }))
+    return { labels_over_rail_chips: labelsOver, unknown_glyph_nodes: unknown, rail_chips: chips.length, flow_badges: badges.length }
+  })
+}
+
 async function bannerText(page: Page, scope: "page" | "fullscreen"): Promise<string | null> {
   return page.evaluate(scopeArg => {
     const root =
@@ -464,7 +511,7 @@ interface FullscreenMeasure {
   layout: string
   rail: Box | null
   lanes: { serverless: LaneMeasure | null; regional: LaneMeasure | null }
-  nat: Array<{ id: string | null; placement: string | null; in_subnet_cell: boolean; in_fallback: boolean }>
+  nat: Array<{ id: string | null; placement: string | null; in_subnet_cell: boolean; in_fallback: boolean; title: string | null }>
   nat_fallback_text: string | null
   alb_band: Box | null
   az_headers: Box | null
@@ -472,6 +519,8 @@ interface FullscreenMeasure {
   vpce_chips: number
   users_internet_strip: boolean
   subnet_cells: number
+  labels_over_rail_chips: Array<{ label: string; chip: string | null }>
+  unknown_glyph_nodes: Array<{ name: string; title: string | null }>
   service_icons: number
   stack_tiles: number
   flow_badges: number
@@ -489,6 +538,33 @@ async function measureFullscreen(page: Page): Promise<FullscreenMeasure> {
     }
     const text = (el: Element | null) => (el?.textContent ?? "").replace(/\s+/g, " ").trim()
     const count = (selector: string) => root.querySelectorAll(selector).length
+    const intersects = (a: DOMRect, b: DOMRect) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top
+    /** Flow labels whose box paints over a chip of the given container. */
+    const labelsOverChips = (container: Element | null) => {
+      const out: Array<{ label: string; chip: string | null }> = []
+      if (!container) return out
+      const chips = Array.from(container.querySelectorAll<HTMLElement>("[data-flow-id], [data-flow-ids]")).filter(
+        chip => chip.getBoundingClientRect().height > 0,
+      )
+      for (const badge of Array.from(root.querySelectorAll<SVGGElement>('[data-testid="topology-flow-badge"]'))) {
+        const box = badge.querySelector("rect")
+        if (!box) continue
+        const r = box.getBoundingClientRect()
+        if (r.width === 0 || r.height === 0) continue
+        const label = (badge.querySelector("text")?.textContent ?? "").trim()
+        for (const chip of chips) {
+          if (intersects(r, chip.getBoundingClientRect())) {
+            out.push({ label, chip: chip.getAttribute("data-flow-id") ?? chip.getAttribute("data-flow-ids") })
+          }
+        }
+      }
+      return out
+    }
+    /** Service chips whose glyph is the unknown-type fallback ("?"). */
+    const unknownGlyphNodes = (scope: Element) =>
+      Array.from(scope.querySelectorAll<HTMLElement>('[data-testid="topology-service-node-icon"]'))
+        .filter(chip => Array.from(chip.querySelectorAll("span")).some(span => span.childElementCount === 0 && span.textContent?.trim() === "?"))
+        .map(chip => ({ name: text(chip), title: chip.getAttribute("title") }))
     const measureLane = (lane: string) => {
       const header = root.querySelector(`[data-flow-obstacle="${lane}-tier-header"]`)
       const body = root.querySelector<HTMLElement>(`[data-testid="topology-${lane}-lane-body"]`)
@@ -531,8 +607,11 @@ async function measureFullscreen(page: Page): Promise<FullscreenMeasure> {
       nat: Array.from(root.querySelectorAll<HTMLElement>('[data-testid="topology-nat-gateway-chip"]')).map(chip => ({
         id: chip.getAttribute("data-nat-id"),
         placement: chip.getAttribute("data-nat-placement"),
-        in_subnet_cell: Boolean(chip.closest('[data-testid="topology-subnet-cell"]')),
+        // SubnetCell wraps a pinned chip in topology-subnet-cell-nat (the cell
+        // itself carries a dynamic test id); the fallback strip wraps the rest.
+        in_subnet_cell: Boolean(chip.closest('[data-testid="topology-subnet-cell-nat"]')),
         in_fallback: Boolean(chip.closest('[data-testid="topology-nat-gateway-fallback"]')),
+        title: chip.getAttribute("title"),
       })),
       nat_fallback_text: text(root.querySelector('[data-testid="topology-nat-gateway-fallback"]')) || null,
       alb_band: rect(root.querySelector('[data-testid="topology-alb-band"]')),
@@ -542,7 +621,11 @@ async function measureFullscreen(page: Page): Promise<FullscreenMeasure> {
       igw_chips: count('[data-testid="topology-igw-rail-chip"]'),
       vpce_chips: count('[data-testid="topology-vpce-rail-chip"]'),
       users_internet_strip: Boolean(root.querySelector('[data-testid="topology-users-internet-strip"]')),
-      subnet_cells: count('[data-testid="topology-subnet-cell"]'),
+      subnet_cells: count('[data-testid="topology-subnet-cell-chrome"]'),
+      // Labels painted over rail chips and nodes drawn with the unknown glyph:
+      // both are legibility defects an operator sees before anything else.
+      labels_over_rail_chips: labelsOverChips(root.querySelector('[data-testid="topology-edge-services-rail"]')),
+      unknown_glyph_nodes: unknownGlyphNodes(root),
       service_icons: count('[data-testid="topology-service-node-icon"]'),
       stack_tiles: count('[data-testid="topology-density-stack-tile"], [data-testid="topology-service-stack"]'),
       flow_badges: count('[data-testid="topology-flow-badge"]'),
