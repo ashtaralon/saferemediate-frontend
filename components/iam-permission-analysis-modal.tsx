@@ -30,6 +30,7 @@ import type {
 } from "@/lib/types"
 import { type RoutingDecision, toRoutingDecision } from "@/lib/decision-routing"
 import { resolveIamRemediationAuthority } from "@/lib/iam-remediation-authority"
+import { iamObservationWindowCopy, type IamObservationWindow } from "@/lib/iam-observation-copy"
 import {
   automationReadiness,
   previewEvidenceNeeds,
@@ -418,6 +419,12 @@ interface GapAnalysisData {
   role_name: string
   role_arn?: string
   observation_days: number
+  /**
+   * Measured bounds behind observation_days (backend `observation_window`).
+   * Null when the backend omitted it. The modal renders only these bounds and
+   * never derives a window edge from the browser clock (F5).
+   */
+  observation_window?: IamObservationWindow | null
   // Backend remediability contract (api/iam_gap_analysis.py). When
   // is_remediable is false the role must NOT be presented as removal-ready:
   // reason is 'no_policy_attached' (sync IAM policies) or 'usage_not_computed'
@@ -1310,6 +1317,8 @@ export function IAMPermissionAnalysisModal({
         // Never invent a 365-day window when gap-analysis omits this field.
         // simulate-fix supplies the measured window and wins at render time.
         observation_days: rawData.observation_days ?? 0,
+        // Measured bounds, or null. Absent bounds render as "not stored".
+        observation_window: rawData.observation_window ?? null,
         // Backend remediability contract — consumed by the mutation gate below.
         is_remediable: rawData.is_remediable,
         remediable_reason: rawData.remediable_reason,
@@ -3173,11 +3182,14 @@ export function IAMPermissionAnalysisModal({
     />
   )
   
-  // Calculate dates
-  const endDate = new Date()
-  const startDate = new Date()
-  startDate.setDate(startDate.getDate() - observationDays)
-  const formatDate = (date: Date) => date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  // Recording-period copy from the backend's measured bounds. The previous
+  // code set the window end to `new Date()` and the start to today minus the
+  // day count (F5); the evidence ends at the newest observed event, which on
+  // C1 was 12 days before "today".
+  const observationWindowCopy = iamObservationWindowCopy(
+    gapData?.observation_window ?? null,
+    observationDays,
+  )
 
   // Safety score — uses backend-computed confidence when available
   const calculateSafetyScore = () => {
@@ -4698,11 +4710,18 @@ export function IAMPermissionAnalysisModal({
           <div className="flex items-center justify-between gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
             <div className="flex items-center gap-2 text-xs" style={{ color: "var(--foreground, #111827)" }}>
               <Calendar className="w-3.5 h-3.5" style={{ color: "#2D51DA" }} />
-              <span className="font-semibold">
-                {observationDays > 0 ? `${observationDays}-day observation` : 'Observation window loading'}
+              <span className="font-semibold" data-testid="observation-window-headline">
+                {gapData ? observationWindowCopy.headline : 'Observation window loading'}
               </span>
               <span className="text-slate-400">·</span>
-              <span style={{ color: "var(--muted-foreground, #6b7280)" }}>{formatDate(startDate)} → {formatDate(endDate)}</span>
+              <span
+                style={{ color: "var(--muted-foreground, #6b7280)" }}
+                data-testid="observation-window-range"
+                title={gapData?.observation_window?.limitation ?? undefined}
+              >
+                {observationWindowCopy.range}
+                {observationWindowCopy.collected ? ` · ${observationWindowCopy.collected}` : ''}
+              </span>
             </div>
             <span className="text-xs tabular-nums" style={{ color: "var(--muted-foreground, #6b7280)" }}>
               {cloudtrailEvents.toLocaleString()} API events
