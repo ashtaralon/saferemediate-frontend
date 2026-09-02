@@ -151,13 +151,15 @@ test("fullscreen: each off-VPC rail lane scrolls in its track, both lanes stay o
   const chips = laneBody.locator("[data-flow-id]")
   const chipCount = await chips.count()
   expect(chipCount).toBeGreaterThan(0)
-  // 5a: chips are capped to half a row, so the first two share the first
-  // row (a full-size chip with a long name forced one per row).
+  // 5a: one chip per row, each spanning the lane, so an inbound edge can
+  // reach any chip's left edge without crossing a neighbour.
   const [first, second] = await Promise.all([chips.nth(0).boundingBox(), chips.nth(1).boundingBox()])
   expect(first).not.toBeNull()
   expect(second).not.toBeNull()
-  expect(Math.abs(first!.y - second!.y)).toBeLessThan(1)
-  expect(second!.x).toBeGreaterThanOrEqual(first!.x + first!.width - 1)
+  expect(second!.y).toBeGreaterThanOrEqual(first!.y + first!.height - 1)
+  expect(Math.abs(first!.x - second!.x)).toBeLessThan(1)
+  const laneBodyBox = await laneBody.boundingBox()
+  expect(first!.width).toBeGreaterThan(laneBodyBox!.width * 0.8)
   const last = chips.nth(chipCount - 1)
   const bodyBox = await laneBody.boundingBox()
   const before = await last.boundingBox()
@@ -188,19 +190,27 @@ test("fullscreen: each off-VPC rail lane scrolls in its track, both lanes stay o
   // end at their target lane's left edge (and start at their source lane's).
   const bundleAnchors = await page.evaluate(() => {
     const root = document.querySelector('[data-testid="topology-estate-map-fullscreen"]')!
-    const laneBox = (key: string | null) => {
-      const lane = root.querySelector(
-        key === "lane:serverless" ? '[data-testid="topology-serverless-tier"]' : '[data-testid="topology-regional-data-tier"]',
-      )
-      const r = lane?.getBoundingClientRect()
+    const box = (el: Element | null) => {
+      const r = el?.getBoundingClientRect()
       return r ? { l: r.left, t: r.top, r: r.right, b: r.bottom } : null
     }
+    const laneBox = (key: string | null) =>
+      box(
+        root.querySelector(
+          key === "lane:serverless"
+            ? '[data-testid="topology-serverless-tier"]'
+            : '[data-testid="topology-regional-data-tier"]',
+        ),
+      )
+    const chipBox = (id: string | null) =>
+      id ? box(root.querySelector(`[data-flow-id="${CSS.escape(id)}"]`)) : null
     const out: Array<{
       label: string
       start: { x: number; y: number }
       end: { x: number; y: number }
       source: { l: number; t: number; r: number; b: number } | null
       target: { l: number; t: number; r: number; b: number } | null
+      targetId: string | null
     }> = []
     for (const group of Array.from(root.querySelectorAll<SVGGElement>("g[data-flow-bundle]"))) {
       const path = group.querySelector("path") as SVGPathElement | null
@@ -215,7 +225,8 @@ test("fullscreen: each off-VPC rail lane scrolls in its track, both lanes stay o
         start: { x: start.x, y: start.y },
         end: { x: end.x, y: end.y },
         source: laneBox(group.getAttribute("data-flow-source")),
-        target: laneBox(group.getAttribute("data-flow-target")),
+        target: chipBox(group.getAttribute("data-flow-target")),
+        targetId: group.getAttribute("data-flow-target"),
       })
     }
     return out
@@ -260,13 +271,15 @@ test("fullscreen: each off-VPC rail lane scrolls in its track, both lanes stay o
   const tolerance = 16
   for (const b of bundleAnchors) {
     expect(b.source, `bundle ${b.label} starts at a lane`).not.toBeNull()
-    expect(b.target, `bundle ${b.label} ends at a lane`).not.toBeNull()
+    // The whole point of the bundle: it names the service it reaches.
+    expect(b.targetId, `bundle ${b.label} names its target`).not.toMatch(/^lane:/)
+    expect(b.target, `bundle ${b.label} ends at the chip it names`).not.toBeNull()
     expect(Math.abs(b.start.x - b.source!.l), `bundle ${b.label} leaves its source lane's left edge`).toBeLessThanOrEqual(tolerance)
     expect(b.start.y, `bundle ${b.label} leaves within its source lane`).toBeGreaterThanOrEqual(b.source!.t - tolerance)
     expect(b.start.y, `bundle ${b.label} leaves within its source lane`).toBeLessThanOrEqual(b.source!.b + tolerance)
-    expect(Math.abs(b.end.x - b.target!.l), `bundle ${b.label} enters its target lane's left edge`).toBeLessThanOrEqual(tolerance)
-    expect(b.end.y, `bundle ${b.label} enters within its target lane`).toBeGreaterThanOrEqual(b.target!.t - tolerance)
-    expect(b.end.y, `bundle ${b.label} enters within its target lane`).toBeLessThanOrEqual(b.target!.b + tolerance)
+    expect(Math.abs(b.end.x - b.target!.l), `bundle ${b.label} enters its target chip's left edge`).toBeLessThanOrEqual(tolerance)
+    expect(b.end.y, `bundle ${b.label} enters within its target chip`).toBeGreaterThanOrEqual(b.target!.t - tolerance)
+    expect(b.end.y, `bundle ${b.label} enters within its target chip`).toBeLessThanOrEqual(b.target!.b + tolerance)
   }
   for (const a of anchored) {
     if (a.visible) {

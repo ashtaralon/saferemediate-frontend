@@ -10,6 +10,7 @@ import { afterEach, beforeAll, describe, expect, it } from "vitest"
 import { cleanup, render, screen, within } from "@testing-library/react"
 
 import { AwsFrame } from "@/components/topology-v0-2/aws-frame"
+import { regionalFamilies } from "@/components/topology-v0-2/aws-frame"
 import { elideSharedPrefix, sharedNamePrefix } from "@/components/topology-v0-2/chip-names"
 import type { SubnetMeta, TopologyNode, VpcTopology } from "@/components/topology-v0-2/types"
 
@@ -41,10 +42,34 @@ describe("sharedNamePrefix / elideSharedPrefix", () => {
     expect(sharedNamePrefix(["cyntro-tb-prod-cart", "cyntro-tb-prod-catalog", "cyntro-tb-prod-cache-warm"])).toBe("cyntro-tb-prod-")
   })
 
+  it("takes the family prefix, not the one every name shares — one outlier must not collapse it", () => {
+    // C1's regional lane: nine cyntro-tb-prod-* beside one aws-sam-cli bucket
+    // reduced the common prefix to "cyntro-" and left four chips identical.
+    const names = [
+      "cyntro-tb-prod-appdata",
+      "cyntro-tb-prod-artifacts",
+      "cyntro-tb-prod-consumer-monthly",
+      "cyntro-tb-prod-consumer-weekly",
+      "aws-sam-cli-managed-default-sourcebucket",
+    ]
+    const out = elideSharedPrefix(names)
+    expect(out.prefix).toBe("cyntro-tb-prod-")
+    expect(out.count).toBe(4)
+    // The outlier keeps its own name; nothing is mislabelled.
+    expect(out.labels).toEqual([
+      "…appdata",
+      "…artifacts",
+      "…consumer-monthly",
+      "…consumer-weekly",
+      "aws-sam-cli-managed-default-sourcebucket",
+    ])
+  })
+
   it("does nothing for fewer than three names, no separator-bounded prefix, or a too-short prefix", () => {
     expect(elideSharedPrefix(["cyntro-tb-prod-a-service", "cyntro-tb-prod-b-service"])).toEqual({
       prefix: "",
       labels: ["cyntro-tb-prod-a-service", "cyntro-tb-prod-b-service"],
+      count: 0,
     })
     expect(sharedNamePrefix(["alpha-one", "beta-two", "gamma-three"])).toBe("")
     expect(sharedNamePrefix(["ab-service-one", "ab-service-two", "ab-worker-three"])).toBe("")
@@ -54,6 +79,7 @@ describe("sharedNamePrefix / elideSharedPrefix", () => {
     const names = ["cyntro-tb-prod-consumer-a", "cyntro-tb-prod-consumer-b", "cyntro-tb-prod-consumer-c", ""]
     const out = elideSharedPrefix(names)
     expect(out.prefix).toBe("cyntro-tb-prod-")
+    expect(out.count).toBe(3)
     expect(out.labels[3]).toBe("")
   })
 })
@@ -102,7 +128,7 @@ describe("rail chips elide the lane's shared name prefix", () => {
     const rail = screen.getByTestId("topology-edge-services-rail")
     const serverless = within(rail).getByTestId("topology-serverless-tier")
     const serverlessPrefix = within(serverless).getByTestId("topology-serverless-name-prefix")
-    expect(serverlessPrefix).toHaveTextContent("names start with cyntro-tb-prod-")
+    expect(serverlessPrefix).toHaveTextContent("cyntro-tb-prod-… ×3")
     const lambdaChips = within(serverless).getAllByTestId("topology-service-node-icon")
     expect(lambdaChips.map(chip => chip.querySelector("span.truncate")?.textContent)).toEqual([
       "…consumer-a",
@@ -112,10 +138,57 @@ describe("rail chips elide the lane's shared name prefix", () => {
     expect(lambdaChips[0]).toHaveAttribute("title", expect.stringContaining("cyntro-tb-prod-consumer-a"))
 
     const regional = within(rail).getByTestId("topology-regional-data-tier")
-    expect(within(regional).getByTestId("topology-regional-name-prefix")).toHaveTextContent("names start with cyntro-tb-prod-")
+    expect(within(regional).getByTestId("topology-regional-name-prefix")).toHaveTextContent("cyntro-tb-prod-… ×3")
     const bucketChips = within(regional).getAllByTestId("topology-service-node-icon")
     expect(bucketChips.map(chip => chip.querySelector("span.truncate")?.textContent)).toEqual(["…appdata", "…logs", "…exports"])
     // The in-VPC chip is untouched.
     expect(screen.getByTitle(/^i-web ·/)).toHaveTextContent("i-web")
+  })
+})
+
+describe("lane headers state only what the payload supports", () => {
+  it("calls a Lambda without a VPC reading 'attachment unverified', never 'not VPC-attached'", () => {
+    render(
+      <AwsFrame
+        vpcTopology={vpcTopology}
+        nodes={nodes}
+        mergedVpcView={false}
+        presentationMode={true}
+        viewDensity="inventory"
+        selectedNodeId={null}
+        onSelect={() => {}}
+      />,
+    )
+    const header = screen
+      .getByTestId("topology-serverless-tier")
+      .querySelector('[data-flow-obstacle="serverless-tier-header"]')
+    expect(header).not.toBeNull()
+    // The backend's coverage contract calls these unknown; the header must not
+    // contradict it on the same screen (C1 production QA, 2026-09-02).
+    expect(header).toHaveTextContent("3 attachment unverified")
+    expect(header?.textContent).not.toContain("not VPC-attached")
+    expect(header?.textContent).not.toContain("attachment unresolved")
+  })
+
+  it("names the regional families the lane holds, commonest first", () => {
+    expect(
+      regionalFamilies([
+        nd({ id: "r1", name: "rule-a", type: "EventBridge" }),
+        nd({ id: "r2", name: "rule-b", type: "EventBridge" }),
+        nd({ id: "r3", name: "rule-c", type: "EventBridge" }),
+        nd({ id: "b1", name: "bucket-a", type: "S3" }),
+        nd({ id: "t1", name: "table-a", type: "DynamoDB" }),
+      ]),
+    ).toBe("EventBridge / S3 / DynamoDB")
+    // More families than the header can name: the rest are counted, not dropped.
+    expect(
+      regionalFamilies([
+        nd({ id: "b1", name: "b", type: "S3" }),
+        nd({ id: "t1", name: "t", type: "DynamoDB" }),
+        nd({ id: "k1", name: "k", type: "KMSKey" }),
+        nd({ id: "q1", name: "q", type: "SQS" }),
+      ]),
+    ).toMatch(/\+1$/)
+    expect(regionalFamilies([])).toBe("services")
   })
 })

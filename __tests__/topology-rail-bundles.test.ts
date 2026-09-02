@@ -3,8 +3,9 @@
  * Intra-rail bundling — the pure pieces (C1 production QA, 2026-09-02: 22
  * TRIGGERS / TARGETS / ACTUAL_S3_ACCESS labels painted over rail chips because
  * Lambda → EventBridge / S3 edges ran straight through the off-VPC column).
- * The overlay bundles such edges per (source lane, target lane, label) and
- * routes the bundle through the flow corridor; the Chromium fixture spec
+ * The overlay bundles such edges per (source lane, TARGET CHIP, label) and
+ * routes the bundle through the flow corridor into the chip, so the arrow
+ * names the service that receives the traffic; the Chromium fixture spec
  * proves the geometry, this pins the helpers.
  */
 import { describe, expect, it } from "vitest"
@@ -20,34 +21,49 @@ import type { TrafficEdge } from "@/components/topology-v0-2/types"
 const rect = (l: number, t: number, r: number, b: number) => ({ l, t, r, b, cx: (l + r) / 2, cy: (t + b) / 2 })
 
 describe("railBundleRoute", () => {
-  const serverless = rect(1348, 263, 1572, 480)
-  const regional = rect(1348, 500, 1572, 810)
+  const serverlessLane = rect(1348, 263, 1572, 480)
+  const regionalLane = rect(1348, 500, 1572, 810)
+  // One chip per row, so a chip's left edge is the lane's left edge plus the
+  // lane padding: an inbound edge reaches it without crossing a neighbour.
+  const bucketChip = rect(1359, 560, 1563, 600)
+  const lambdaChip = rect(1359, 300, 1563, 340)
   const corridor = rect(1300, 254, 1348, 870)
 
-  it("leaves the source lane's left edge, runs the corridor, and enters the target lane's left edge", () => {
-    const { pts, bus } = railBundleRoute(serverless, regional, corridor, 0, false)
+  it("leaves the source lane, runs the corridor, and enters the TARGET CHIP's left edge", () => {
+    const { pts, bus } = railBundleRoute(serverlessLane, bucketChip, corridor, 0)
     expect(pts).toEqual([
       { x: 1348, y: 371.5 },
       { x: 1310, y: 371.5 },
-      { x: 1310, y: 655 },
-      { x: 1348, y: 655 },
+      { x: 1310, y: 580 },
+      { x: 1359, y: 580 },
     ])
-    expect(bus).toEqual({ x: 1310, y: 513.25 })
+    // The arrow ends on the chip, so the map names which service receives it.
+    expect(pts[pts.length - 1]).toEqual({ x: bucketChip.l, y: bucketChip.cy })
+    expect(bus).toEqual({ x: 1310, y: 475.75 })
   })
 
   it("gives each bundle its own bus, 7px apart, and runs upward for the reverse direction", () => {
-    expect(railBundleRoute(serverless, regional, corridor, 1, false).bus.x).toBe(1317)
-    const up = railBundleRoute(regional, serverless, corridor, 2, false)
+    expect(railBundleRoute(serverlessLane, bucketChip, corridor, 1).bus.x).toBe(1317)
+    const up = railBundleRoute(regionalLane, lambdaChip, corridor, 2)
     expect(up.pts[0]).toEqual({ x: 1348, y: 655 })
-    expect(up.pts[3]).toEqual({ x: 1348, y: 371.5 })
+    expect(up.pts[3]).toEqual({ x: 1359, y: 320 })
     expect(up.bus.x).toBe(1324)
   })
 
-  it("sits just left of the lanes without a corridor, and loops out and back in for a same-lane bundle", () => {
-    const loop = railBundleRoute(regional, regional, null, 0, true)
-    expect(loop.pts[0]).toEqual({ x: 1348, y: regional.cy - 10 })
-    expect(loop.pts[1].x).toBe(1348 - 24)
-    expect(loop.pts[3]).toEqual({ x: 1348, y: regional.cy + 10 })
+  it("fans departures across the source lane and never leaves it", () => {
+    const low = railBundleRoute(serverlessLane, bucketChip, corridor, 0, -40)
+    const high = railBundleRoute(serverlessLane, bucketChip, corridor, 0, 40)
+    expect(low.pts[0].y).toBeLessThan(high.pts[0].y)
+    for (const route of [low, high, railBundleRoute(serverlessLane, bucketChip, corridor, 0, -9999)]) {
+      expect(route.pts[0].y).toBeGreaterThanOrEqual(serverlessLane.t)
+      expect(route.pts[0].y).toBeLessThanOrEqual(serverlessLane.b)
+    }
+  })
+
+  it("sits just left of the lane when the frame has no corridor element", () => {
+    const noCorridor = railBundleRoute(regionalLane, lambdaChip, null, 0)
+    expect(noCorridor.pts[1].x).toBe(Math.min(regionalLane.l, lambdaChip.l) - 24)
+    expect(noCorridor.pts[3]).toEqual({ x: lambdaChip.l, y: lambdaChip.cy })
   })
 })
 

@@ -72,7 +72,23 @@ export const PLACEMENT_RULES: readonly PlacementRule[] = [
   },
   // ── VPC data tier ─────────────────────────────────────────────
   {
-    types: ["RDS", "RDSInstance", "RDSCluster"],
+    types: [
+      "RDS",
+      "RDSInstance",
+      "RDSCluster",
+      // Neptune, DocumentDB and Redshift are VPC-bound databases like RDS.
+      // Without a rule their slot resolved to "hidden" and they reached the
+      // data tier only because the subnet grid places by subnet id (C1
+      // production QA, 2026-09-02: two Neptune writers).
+      "Neptune",
+      "NeptuneCluster",
+      "NeptuneInstance",
+      "NeptuneDBCluster",
+      "DocumentDB",
+      "DocumentDBCluster",
+      "Redshift",
+      "RedshiftCluster",
+    ],
     slot: "data",
     stack: true,
     chipRole: "anchor",
