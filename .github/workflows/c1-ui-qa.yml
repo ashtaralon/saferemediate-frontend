@@ -33,6 +33,11 @@ on:
 # contents: write is for the results branch below, nothing else.
 permissions:
   contents: write
+# One live run at a time. Three overlapping runs each asked C1 for the same
+# uncached topology read and turned a slow read into 502s for all of them.
+concurrency:
+  group: c1-ui-qa
+  cancel-in-progress: false
 jobs:
   playwright-live:
     runs-on: ubuntu-latest
@@ -91,6 +96,11 @@ jobs:
           else
             git checkout -q --orphan "$RESULTS_BRANCH"
           fi
+          # After the checkout, never before it: an untracked vercel.json
+          # aborts the checkout once the branch carries one (run 33675359540).
+          # Vercel tries to build every pushed branch and the results branch is
+          # not an app; an ignoreCommand that exits 0 makes it skip.
+          printf '{ "ignoreCommand": "exit 0" }\n' > vercel.json
           git add -A
           git commit -q -m "c1-ui-qa run ${GITHUB_RUN_ID}: ${TARGET}"
           for i in 1 2 3; do

@@ -1107,9 +1107,11 @@ function ServiceIconShell({
   extraAttrs?: Record<string, string | number | undefined>
   /** Cell density — smaller glyph, drop sublabel so 1 service fits without scroll. */
   dense?: boolean
-  /** Rail lane chip (fullscreen): dense and capped to half the lane row
-   *  minus the gap, so two chips share a row whatever the scrollbar
-   *  width. See RAIL_LANE_MIN_PX for why the lanes need it. */
+  /** Rail lane chip (fullscreen): one per row, glyph beside the name. Two
+   *  chips per row left no left edge an inbound edge could reach without
+   *  crossing its neighbour, so rail traffic could only be drawn to the LANE
+   *  and no arrow named a service (C1 production QA, 2026-09-02). One per row
+   *  also gives the name the whole lane width. */
   railChip?: boolean
   /** Multi-AZ instance — badge it so a DB spanning zones reads as ONE resource. */
   multiAz?: boolean
@@ -1131,7 +1133,9 @@ function ServiceIconShell({
       {...extraAttrs}
       className={
         dense
-          ? `relative flex flex-col items-center gap-0.5 min-w-[68px] ${railChip ? "max-w-[calc(50%-4px)]" : "max-w-[112px]"} px-1.5 py-1 rounded-md transition-all shrink-0`
+          ? railChip
+            ? "relative flex flex-row items-center gap-1.5 w-full min-w-0 px-1.5 py-1 rounded-md transition-all shrink-0 text-left"
+            : "relative flex flex-col items-center gap-0.5 min-w-[68px] max-w-[112px] px-1.5 py-1 rounded-md transition-all shrink-0"
           : "relative flex flex-col items-center gap-0.5 min-w-[76px] max-w-[128px] px-2 py-1.5 rounded-md transition-all shrink-0"
       }
       style={{
@@ -1216,9 +1220,11 @@ function ServiceIconShell({
       </span>
       <span
         className={
-          dense
-            ? "text-[9px] font-semibold text-center leading-tight truncate w-full"
-            : "text-[10px] font-semibold text-center leading-tight truncate w-full"
+          railChip
+            ? "text-[9px] font-semibold text-left leading-tight truncate flex-1 min-w-0"
+            : dense
+              ? "text-[9px] font-semibold text-center leading-tight truncate w-full"
+              : "text-[10px] font-semibold text-center leading-tight truncate w-full"
         }
         style={{ color: PAL.ink }}
       >
@@ -2228,7 +2234,12 @@ function ServerlessComputeTier({
   const remainingNodes = nodes.filter(node => !namedIds.has(node.id))
   const useStacks = glance && shouldGlanceStackRail(remainingNodes)
   const groups = useStacks ? groupNodesByType(remainingNodes) : null
-  const attachmentUnresolved = nodes.filter(node =>
+  // A missing vpc_id is a missing READING, not a verified "not attached":
+  // the backend's coverage contract calls these Lambdas unknown, and the
+  // header used to call the same functions "not VPC-attached" on the same
+  // screen (C1 production QA, 2026-09-02). It also printed "attachment
+  // unresolved" for exactly the nodes whose attachment WAS resolved.
+  const vpcAttached = nodes.filter(node =>
     Boolean(
       node.vpc_id ||
       node.subnet_id ||
@@ -2236,7 +2247,7 @@ function ServerlessComputeTier({
       node.security_group_ids?.length,
     ),
   ).length
-  const notVpcAttached = nodes.length - attachmentUnresolved
+  const attachmentUnverified = nodes.length - vpcAttached
   // Six "cyntro-tb-prod-c…" chips are six copies of nothing: drop the prefix
   // the lane's names share and say it once in the header (chip-names.ts).
   const elided = elideSharedPrefix(nodes.map(node => node.name))
@@ -2259,12 +2270,17 @@ function ServerlessComputeTier({
           Lambda runtime · outside subnet grid ({nodes.length})
         </div>
         <div className="mt-0.5 text-[9px]" style={{ color: "#6366F1" }}>
-          {notVpcAttached} not VPC-attached
-          {attachmentUnresolved > 0 ? ` · ${attachmentUnresolved} attachment unresolved` : ""}
+          {vpcAttached > 0 ? `${vpcAttached} VPC-attached` : null}
+          {vpcAttached > 0 && attachmentUnverified > 0 ? " · " : null}
+          {attachmentUnverified > 0 ? `${attachmentUnverified} attachment unverified` : null}
           {elided.prefix ? (
-            <span data-testid="topology-serverless-name-prefix" title="The chips omit this shared prefix">
-              {" · names start with "}
+            <span
+              data-testid="topology-serverless-name-prefix"
+              title={`${elided.count} of ${nodes.length} chips omit this shared prefix`}
+            >
+              {" · "}
               <span className="font-mono">{elided.prefix}</span>
+              {`… ×${elided.count}`}
             </span>
           ) : null}
         </div>
@@ -2273,7 +2289,7 @@ function ServerlessComputeTier({
       <div
         className={
           compact
-            ? "flex flex-wrap gap-1 max-w-full justify-center"
+            ? "flex flex-col gap-1 max-w-full"
             : "flex flex-wrap gap-1.5 max-w-full justify-center"
         }
       >
@@ -2315,6 +2331,22 @@ function ServerlessComputeTier({
       </RailLaneBody>
     </div>
   )
+}
+
+/** The service families a regional lane actually holds, commonest first.
+ *  The header used to name "S3 / DDB / KMS" over a lane that was mostly
+ *  EventBridge rules and held no KMS key at all (C1, 2026-09-02). */
+export function regionalFamilies(nodes: TopologyNode[], limit = 3): string {
+  const counts = new Map<string, number>()
+  for (const node of nodes) {
+    const label = awsServiceLabel(node.type ?? "")
+    if (!label) continue
+    counts.set(label, (counts.get(label) ?? 0) + 1)
+  }
+  const ordered = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+  if (ordered.length === 0) return "services"
+  const shown = ordered.slice(0, limit).map(([label]) => label)
+  return ordered.length > limit ? `${shown.join(" / ")} +${ordered.length - limit}` : shown.join(" / ")
 }
 
 function RegionalDataServicesTier({
@@ -2371,15 +2403,15 @@ function RegionalDataServicesTier({
         style={{ color: "#311B92" }}
         data-flow-obstacle="regional-tier-header"
       >
-        Regional · S3 / DDB / KMS ({nodes.length})
+        Regional · {regionalFamilies(nodes)} ({nodes.length})
         {elided.prefix ? (
           <div
             className="normal-case tracking-normal font-medium text-[9px] mt-0.5"
             style={{ color: "#5E35B1" }}
             data-testid="topology-regional-name-prefix"
-            title="The chips omit this shared prefix"
+            title={`${elided.count} of ${nodes.length} chips omit this shared prefix`}
           >
-            names start with <span className="font-mono">{elided.prefix}</span>
+            <span className="font-mono">{elided.prefix}</span>… ×{elided.count}
           </div>
         ) : null}
       </div>
@@ -2401,7 +2433,7 @@ function RegionalDataServicesTier({
         </div>
       ) : null}
       <RailLaneBody lane="regional" compact={compact} revision={nodes.length}>
-      <div className="flex flex-wrap gap-1.5 max-w-full justify-center">
+      <div className={compact ? "flex flex-col gap-1 max-w-full" : "flex flex-wrap gap-1.5 max-w-full justify-center"}>
         {namedNodes.map(node => (
           <ServiceNodeIcon
             key={`flow-${node.id}`}
@@ -2875,27 +2907,33 @@ export function edgeBadgeLabel(
   return badgeLabel
 }
 
-/** Intra-rail bundle geometry. Both ends of the bundle are rail LANES (the
- *  Lambda tier and the Regional tier), not chips: the path leaves the source
- *  lane's left edge at its mid-height, runs the flow corridor to the left of
- *  the column (one bus per bundle, 7px apart), and enters the target lane's
- *  left edge — never through a chip. Without a corridor element the bus sits
- *  just left of the lanes. A same-lane bundle loops out and back in. */
+/** Intra-rail bundle geometry. The source is the rail LANE the traffic comes
+ *  from; the target is the CHIP that receives it, so the arrow names a
+ *  service instead of a column (C1 production QA, 2026-09-02: every arrow
+ *  into a bucket or a rule ended at the lane, and an operator could not tell
+ *  which one). The path leaves the source lane's left edge, runs the flow
+ *  corridor left of the column on its own bus, and enters the target chip's
+ *  LEFT edge — reachable without crossing a neighbour because rail chips are
+ *  one per row. Without a corridor element the bus sits just left of the
+ *  lanes. `srcSpread` fans the departures so bundles from one lane are
+ *  distinguishable. */
 export function railBundleRoute(
-  src: NatRect,
-  dst: NatRect,
+  srcLane: NatRect,
+  dstChip: NatRect,
   corridor: NatRect | null,
   index: number,
-  sameLane: boolean,
+  srcSpread = 0,
 ): { pts: Pt[]; bus: Pt } {
-  const busX = corridor ? corridor.l + 10 + index * 7 : Math.min(src.l, dst.l) - 24 - index * 7
-  const srcY = sameLane ? src.cy - 10 : src.cy
-  const dstY = sameLane ? dst.cy + 10 : dst.cy
+  const busX = corridor
+    ? corridor.l + 10 + index * 7
+    : Math.min(srcLane.l, dstChip.l) - 24 - index * 7
+  const srcY = Math.min(Math.max(srcLane.cy + srcSpread, srcLane.t + 6), srcLane.b - 6)
+  const dstY = dstChip.cy
   const pts: Pt[] = [
-    { x: src.l, y: srcY },
+    { x: srcLane.l, y: srcY },
     { x: busX, y: srcY },
     { x: busX, y: dstY },
-    { x: dst.l, y: dstY },
+    { x: dstChip.l, y: dstY },
   ]
   return { pts, bus: { x: busX, y: (srcY + dstY) / 2 } }
 }
@@ -3180,8 +3218,8 @@ function FlowOverlay({
         highlight: "attack_path" | null
         viaKind: "vpce" | "igw" | null
         focused: boolean
-        /** Both ends inside the off-VPC rail: the lanes they sit in. */
-        railLanes: { src: HTMLElement; dst: HTMLElement } | null
+        /** Both ends inside the off-VPC rail: the source lane, and the target chip and its lane. */
+        railLanes: { src: HTMLElement; dst: HTMLElement; dstChip: HTMLElement } | null
       }
       // Off-VPC rail: an edge whose BOTH ends sit in the Lambda | Regional
       // column would otherwise be drawn straight through the chips between
@@ -3261,7 +3299,7 @@ function FlowOverlay({
         if (!inter) {
           const srcLane = laneOf(src.el)
           const dstLane = laneOf(dst.el)
-          if (srcLane && dstLane) job.railLanes = { src: srcLane, dst: dstLane }
+          if (srcLane && dstLane) job.railLanes = { src: srcLane, dst: dstLane, dstChip: dst.el }
         }
         if (grouped) bundles.set(bk, job)
         jobs.push(job)
@@ -3271,7 +3309,9 @@ function FlowOverlay({
       // one of their ends: bundled per (source lane, target lane, label) and
       // routed through the flow corridor, so no line crosses a chip and one
       // badge carries the real count. Everything else routes as before.
-      const railGroups = new Map<string, { jobs: RouteJob[]; src: HTMLElement; dst: HTMLElement; label: string }>()
+      // Group by SOURCE LANE and TARGET CHIP: one arrow per receiving service,
+      // carrying how many edges it stands for.
+      const railGroups = new Map<string, { jobs: RouteJob[]; src: HTMLElement; dst: HTMLElement; dstId: string; label: string }>()
       const drawJobs: RouteJob[] = []
       for (const j of jobs) {
         if (!j.railLanes || j.focused) {
@@ -3279,10 +3319,11 @@ function FlowOverlay({
           continue
         }
         const label = edgeBadgeLabel(j.e, j.cls, false, false)
-        const key = `${keyOf(j.railLanes.src)}→${keyOf(j.railLanes.dst)}·${label}`
+        const dstChip = j.railLanes.dstChip
+        const key = `${keyOf(j.railLanes.src)}→${keyOf(dstChip)}·${label}`
         const group = railGroups.get(key)
         if (group) group.jobs.push(j)
-        else railGroups.set(key, { jobs: [j], src: j.railLanes.src, dst: j.railLanes.dst, label })
+        else railGroups.set(key, { jobs: [j], src: j.railLanes.src, dst: dstChip, dstId: j.e.target_id, label })
       }
 
       // Pass 2 — lane assignment. Rail-bound legs bucket by target column and
@@ -3425,11 +3466,13 @@ function FlowOverlay({
       // lower part of the network rail, and pass 4 stacks bundles apart.
       const corridorEl = container.querySelector<HTMLElement>('[data-testid="topology-flow-corridor"]')
       const corridor = corridorEl ? toNat(visibleRect(corridorEl, corridorEl.getBoundingClientRect())) : null
+      const railBundles = [...railGroups.values()]
       let bundleIndex = 0
-      for (const group of railGroups.values()) {
+      for (const group of railBundles) {
         const srcRect = toNat(visibleRect(group.src, group.src.getBoundingClientRect()))
         const dstRect = toNat(visibleRect(group.dst, group.dst.getBoundingClientRect()))
-        const route = railBundleRoute(srcRect, dstRect, corridor, bundleIndex, group.src === group.dst)
+        const spread = (bundleIndex - (railBundles.length - 1) / 2) * 10
+        const route = railBundleRoute(srcRect, dstRect, corridor, bundleIndex, spread)
         bundleIndex += 1
         const d = orthoPath(route.pts)
         if (!d) continue
@@ -3441,7 +3484,7 @@ function FlowOverlay({
           d,
           cls: group.jobs[0].cls,
           sourceId: `lane:${laneKey(group.src)}`,
-          targetId: `lane:${laneKey(group.dst)}`,
+          targetId: group.dstId,
           protocol: lead.protocol ?? null,
           port: lead.port ?? null,
           externalDestinations: null,

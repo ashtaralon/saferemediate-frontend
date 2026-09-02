@@ -123,10 +123,15 @@ describe("fullscreen off-VPC rail: two lanes, each owning one bounded scroll", (
     expect(serverlessHeader).not.toBeNull()
     expect(serverlessHeader).toHaveTextContent("Lambda runtime · outside subnet grid (3)")
     expect(regionalHeader).not.toBeNull()
-    expect(regionalHeader).toHaveTextContent("Regional · S3 / DDB / KMS (2)")
+    // The header names what the lane actually holds. This fixture's regional
+    // lane is two S3 buckets, so it must not claim DynamoDB or KMS — the
+    // overstatement C1 production QA caught on 2026-09-02.
+    expect(regionalHeader).toHaveTextContent("Regional · S3 (2)")
+    expect(regionalHeader?.textContent).not.toContain("DDB")
+    expect(regionalHeader?.textContent).not.toContain("KMS")
   })
 
-  it("fullscreen lane chips are dense and capped to half a row; each lane carries the floor", () => {
+  it("fullscreen lane chips span the lane, one per row; each lane carries the floor", () => {
     renderFrame(true)
     const rail = screen.getByTestId("topology-edge-services-rail")
     for (const lane of ["serverless", "regional"] as const) {
@@ -134,10 +139,16 @@ describe("fullscreen off-VPC rail: two lanes, each owning one bounded scroll", (
       const chips = within(body).getAllByTestId("topology-service-node-icon")
       expect(chips.length).toBeGreaterThan(0)
       for (const chip of chips) {
-        expect(chip.className).toContain("min-w-[68px]")
-        expect(chip.className).toContain("max-w-[calc(50%-4px)]")
+        // One per row: a chip's left edge is reachable by an inbound edge
+        // without crossing a neighbour, which is what lets a rail bundle end
+        // on the service it names (C1 production QA, 2026-09-02).
+        expect(chip.className).toContain("w-full")
+        expect(chip.className).toContain("flex-row")
         expect(chip.className).not.toContain("max-w-[112px]")
+        expect(chip.className).not.toContain("calc(50%-4px)")
       }
+      // The chip container stacks rather than wrapping two abreast.
+      expect(body.firstElementChild?.className ?? "").toContain("flex-col")
     }
     // happy-dom has no layout: the column measures 0, so the full floor holds.
     expect(within(rail).getByTestId("topology-serverless-tier").style.minHeight).toBe(`${RAIL_LANE_MIN_PX}px`)
@@ -167,7 +178,7 @@ describe("fullscreen off-VPC rail: two lanes, each owning one bounded scroll", (
     expect(chips.length).toBeGreaterThan(0)
     for (const chip of chips) {
       expect(chip.className).toContain("min-w-[76px]")
-      expect(chip.className).not.toContain("calc(50%-4px)")
+      expect(chip.className).not.toContain("w-full")
     }
     expect(within(rail).getByTestId("topology-serverless-tier").style.minHeight).toBe("")
     expect(within(rail).getByTestId("topology-regional-data-tier").style.minHeight).toBe("")
