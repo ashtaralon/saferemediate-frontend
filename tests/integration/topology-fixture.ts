@@ -141,3 +141,63 @@ export async function routeSnapshot(page: Page) {
     await route.fulfill({ status: 200, contentType: "application/json", body: "{}" })
   })
 }
+
+export interface RailHeaderBadgeOverlap {
+  header: string
+  label: string
+  badge: { l: number; t: number; r: number; b: number }
+  headerBox: { l: number; t: number; r: number; b: number }
+}
+
+/**
+ * Labelled flow badges that paint over the visible part of a rail tier header
+ * inside the fullscreen map. Empty when the badge nudge pass (FlowOverlay
+ * pass 4) kept every label clear of both headers.
+ */
+export async function railHeaderBadgeOverlaps(page: Page): Promise<RailHeaderBadgeOverlap[]> {
+  return page.evaluate(() => {
+    const root = document.querySelector('[data-testid="topology-estate-map-fullscreen"]')
+    if (!root) throw new Error("fullscreen map is not open")
+    const rail = root.querySelector('[data-testid="topology-edge-services-rail"]')
+    if (!rail) throw new Error("edge-services rail is not rendered")
+    const railRect = rail.getBoundingClientRect()
+    const headers = Array.from(
+      root.querySelectorAll<HTMLElement>('[data-flow-obstacle$="-tier-header"]'),
+    ).map(el => {
+      const r = el.getBoundingClientRect()
+      // Only the part inside the rail's scroll box is painted (and is what the
+      // overlay treats as the obstacle).
+      return {
+        name: el.getAttribute("data-flow-obstacle") ?? "",
+        l: Math.max(r.left, railRect.left),
+        t: Math.max(r.top, railRect.top),
+        r: Math.min(r.right, railRect.right),
+        b: Math.min(r.bottom, railRect.bottom),
+      }
+    }).filter(h => h.r > h.l && h.b > h.t)
+    const out: Array<{
+      header: string
+      label: string
+      badge: { l: number; t: number; r: number; b: number }
+      headerBox: { l: number; t: number; r: number; b: number }
+    }> = []
+    for (const badge of Array.from(root.querySelectorAll<SVGGElement>('[data-testid="topology-flow-badge"]'))) {
+      const box = badge.querySelector("rect")
+      if (!box) continue
+      const r = box.getBoundingClientRect()
+      if (r.width === 0 || r.height === 0) continue
+      const label = badge.querySelector("text")?.textContent ?? ""
+      for (const h of headers) {
+        if (r.left < h.r && r.right > h.l && r.top < h.b && r.bottom > h.t) {
+          out.push({
+            header: h.name,
+            label,
+            badge: { l: r.left, t: r.top, r: r.right, b: r.bottom },
+            headerBox: { l: h.l, t: h.t, r: h.r, b: h.b },
+          })
+        }
+      }
+    }
+    return out
+  })
+}

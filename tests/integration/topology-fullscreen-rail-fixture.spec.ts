@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test"
 import { seedAuthCookie } from "./live-auth"
-import { ESTATE_URL, routeSnapshot } from "./topology-fixture"
+import { ESTATE_URL, railHeaderBadgeOverlaps, routeSnapshot } from "./topology-fixture"
 
 /**
  * Fullscreen right-rail clip — browser geometry regression (deterministic).
@@ -60,6 +60,9 @@ test("fullscreen: the off-VPC rail scrolls inside its track and edges stay ancho
   expect(metrics.overflowY).toBe("auto")
   expect(metrics.scrollHeight).toBeGreaterThan(metrics.clientHeight + 40)
   expect(metrics.nestedScrollers).toBe(0)
+
+  // Rail tier headers are flow obstacles: no edge label paints over them.
+  expect(await railHeaderBadgeOverlaps(page)).toEqual([])
 
   // 3: the last Regional chip is below the rail's visible box until the rail scrolls.
   const chips = rail.locator('[data-testid="topology-regional-data-tier"] [data-flow-id]')

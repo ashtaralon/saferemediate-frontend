@@ -1984,7 +1984,9 @@ function ServerlessComputeTier({
         borderLeft: "3px solid #4338CA",
       }}
     >
-      <div className={compact ? "mb-1" : "mb-1.5"}>
+      {/* Flow obstacle: the badge nudge pass (FlowOverlay pass 4) keeps edge
+          labels off this header, as it already does for the AZ headers. */}
+      <div className={compact ? "mb-1" : "mb-1.5"} data-flow-obstacle="serverless-tier-header">
         <div className="text-[10px] uppercase tracking-[0.12em] font-semibold" style={{ color: "#312E81" }}>
           Lambda runtime · outside subnet grid ({nodes.length})
         </div>
@@ -2075,7 +2077,11 @@ function RegionalDataServicesTier({
         borderLeft: "3px solid #5E35B1",
       }}
     >
-      <div className="text-[10px] uppercase tracking-[0.12em] font-semibold mb-1.5" style={{ color: "#311B92" }}>
+      <div
+        className="text-[10px] uppercase tracking-[0.12em] font-semibold mb-1.5"
+        style={{ color: "#311B92" }}
+        data-flow-obstacle="regional-tier-header"
+      >
         Regional · S3 / DDB / KMS ({nodes.length})
       </div>
       {neo4jDestAnchors.length > 0 ? (
@@ -2960,7 +2966,10 @@ function FlowOverlay({
       }
       for (const p of next) {
         if (!p.badgeLabel) continue
-        const hw = Math.max(14, (p.badgeLabel.length * 6.4) / 2)
+        // Same box the renderer draws (rect width = max(len * 7.6, 28)); the
+        // earlier 6.4/char estimate let wide labels clear the check and still
+        // paint over an obstacle by up to ~12px per side.
+        const hw = Math.max(14, p.badgeLabel.length * 3.8)
         let y = p.badgeY
         if (!clearAt(p.badgeX, y, hw)) {
           let found = false
@@ -3232,7 +3241,10 @@ function FlowOverlay({
               />
             </g>
           ) : null}
-          <g transform={`translate(${p.badgeX}, ${p.badgeY})`}>
+          <g
+            transform={`translate(${p.badgeX}, ${p.badgeY})`}
+            data-testid={p.badgeLabel ? "topology-flow-badge" : undefined}
+          >
             {p.badgeLabel ? (
               <>
                 <title>{p.badgeTitle || p.badgeLabel}</title>

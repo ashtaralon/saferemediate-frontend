@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test"
 import { seedAuthCookie } from "./live-auth"
-import { ESTATE_URL, routeSnapshot } from "./topology-fixture"
+import { ESTATE_URL, railHeaderBadgeOverlaps, routeSnapshot } from "./topology-fixture"
 
 // Deterministic fixture spec (renamed from *-qa-live 2026-09-02): it never
 // reaches a backend — see tests/integration/topology-fixture.ts.
@@ -80,6 +80,10 @@ test("fullscreen platform map shows named Lambda, protected AZ labels, direction
     })
     expect(isTopmost).toBe(true)
   }
+
+  // Rail tier headers are flow obstacles: no edge label paints over them.
+  await page.waitForTimeout(600) // double-rAF measure after the fit
+  expect(await railHeaderBadgeOverlaps(page)).toEqual([])
 
   await lambda.click()
   const detail = page.getByTestId("topology-service-detail-panel")

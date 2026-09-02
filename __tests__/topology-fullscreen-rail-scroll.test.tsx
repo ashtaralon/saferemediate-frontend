@@ -94,6 +94,19 @@ describe("fullscreen off-VPC rail owns one bounded scroll", () => {
     expect(Array.from(nested).map(el => el.className)).toEqual([])
   })
 
+  it("both rail tier headers are flow obstacles (badge nudge pass keeps labels off them)", () => {
+    renderFrame(true)
+    const rail = screen.getByTestId("topology-edge-services-rail")
+    const serverless = within(rail).getByTestId("topology-serverless-tier")
+    const regional = within(rail).getByTestId("topology-regional-data-tier")
+    const serverlessHeader = serverless.querySelector('[data-flow-obstacle="serverless-tier-header"]')
+    const regionalHeader = regional.querySelector('[data-flow-obstacle="regional-tier-header"]')
+    expect(serverlessHeader).not.toBeNull()
+    expect(serverlessHeader).toHaveTextContent("Lambda runtime · outside subnet grid (3)")
+    expect(regionalHeader).not.toBeNull()
+    expect(regionalHeader).toHaveTextContent("Regional · S3 / DDB / KMS (2)")
+  })
+
   it("embedded mode is unchanged: the rail grows with the page", () => {
     renderFrame(false)
     const rail = screen.getByTestId("topology-edge-services-rail")
