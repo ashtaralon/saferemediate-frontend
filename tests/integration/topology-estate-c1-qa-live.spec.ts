@@ -249,7 +249,10 @@ test.describe("C1 live QA — estate map against the deployed graph", () => {
   })
 
   test("estate map on the deployed frontend: lanes, NAT chips, ALB band, coverage pill", async ({ context, page }) => {
-    test.setTimeout(300_000)
+    // The first uncached topology read on C1 takes ~54s and this test drives
+    // three probes plus a scroll phase after it; 300s left no headroom and the
+    // run died mid-phase with its measurements already taken (run 33681801338).
+    test.setTimeout(600_000)
     await seedAuthCookie(context)
     await page.setViewportSize({ width: 1600, height: 900 })
     const pageErrors: string[] = []
@@ -426,20 +429,37 @@ test.describe("C1 live QA — estate map against the deployed graph", () => {
       const chipCount = await chips.count()
       const last = chips.nth(chipCount - 1)
       const pageScrollBefore = await page.evaluate(() => window.scrollY)
-      await last.scrollIntoViewIfNeeded()
+      // Every wait here is bounded. Playwright's default action timeout is 0 --
+      // unbounded -- so a `.textContent().catch(() => null)` on an element that
+      // is legitimately absent (the "above" fold pill at scrollTop 0) blocks
+      // until the TEST timeout and the catch never runs.
+      const timings: Record<string, number> = {}
+      const timed = async <T,>(name: string, run: () => Promise<T>): Promise<T> => {
+        const t0 = Date.now()
+        try {
+          return await run()
+        } finally {
+          timings[name] = Date.now() - t0
+        }
+      }
+      await timed("scrollIntoView", () => last.scrollIntoViewIfNeeded({ timeout: 15_000 }))
       await page.waitForTimeout(500)
-      const after = await last.boundingBox()
-      const bodyAfter = await laneBody.boundingBox()
+      const after = await timed("chipBox", () => last.boundingBox())
+      const bodyAfter = await timed("laneBox", () => laneBody.boundingBox())
       const scrolled = {
         chip: after,
         body: bodyAfter,
         lane_scrollTop: await laneBody.evaluate(el => el.scrollTop),
         page_scrolled: (await page.evaluate(() => window.scrollY)) !== pageScrollBefore,
-        above_pill: await fullscreen.getByTestId("topology-serverless-lane-above").textContent().catch(() => null),
-        more_pill: await fullscreen.getByTestId("topology-serverless-lane-more").textContent().catch(() => null),
-        header_overlaps: await railHeaderBadgeOverlaps(page),
+        above_pill: await timed("abovePill", () =>
+          fullscreen.getByTestId("topology-serverless-lane-above").textContent({ timeout: 2_000 }).catch(() => null),
+        ),
+        more_pill: await timed("morePill", () =>
+          fullscreen.getByTestId("topology-serverless-lane-more").textContent({ timeout: 2_000 }).catch(() => null),
+        ),
+        header_overlaps: await timed("headerOverlaps", () => railHeaderBadgeOverlaps(page)),
       }
-      report("fullscreen-inventory-scrolled", scrolled)
+      report("fullscreen-inventory-scrolled", { ...scrolled, timings_ms: timings })
       await shot(page, "c1-fullscreen-inventory-scrolled")
       if (after && bodyAfter) {
         expect.soft(after.y, "scrolled chip inside its lane body (top)").toBeGreaterThanOrEqual(bodyAfter.y - 1)
