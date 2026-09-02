@@ -1,0 +1,44 @@
+{
+  "test": "estate map on the deployed frontend: lanes, NAT chips, ALB band, coverage pill",
+  "status": "failed",
+  "measurements": [
+    {
+      "name": "estate-page",
+      "data": {
+        "mounted": false,
+        "loads": [
+          {
+            "attempt": 1,
+            "mounted": false,
+            "reason": "No systems available yet. Run a sync, then open a system from the dashboard.",
+            "ms": 1518
+          },
+          {
+            "attempt": 2,
+            "mounted": false,
+            "reason": "No systems available yet. Run a sync, then open a system from the dashboard.",
+            "ms": 945
+          },
+          {
+            "attempt": 3,
+            "mounted": false,
+            "reason": "No systems available yet. Run a sync, then open a system from the dashboard.",
+            "ms": 1437
+          }
+        ],
+        "gate": [
+          {
+            "path": "/api/proxy/admin/customers",
+            "status": 502,
+            "body": "<unreadable>"
+          },
+          {
+            "path": "/api/proxy/admin/customers",
+            "status": 502,
+            "body": "<unreadable>"
+          }
+        ]
+      }
+    }
+  ]
+}

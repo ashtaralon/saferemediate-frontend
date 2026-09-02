@@ -1,0 +1,39 @@
+{
+  "test": "topology-risk on the deployed backend: inventory, edges, and the lane-coverage contract",
+  "status": "failed",
+  "measurements": [
+    {
+      "name": "topology-risk-fetch",
+      "data": {
+        "attempts": [
+          {
+            "status": 502,
+            "ms": 0,
+            "x_cache": null
+          },
+          {
+            "status": 502,
+            "ms": 1165,
+            "x_cache": null
+          },
+          {
+            "status": 502,
+            "ms": 1193,
+            "x_cache": null
+          },
+          {
+            "status": 504,
+            "ms": 53546,
+            "x_cache": null
+          },
+          {
+            "status": 502,
+            "ms": 1146,
+            "x_cache": null
+          }
+        ],
+        "total_ms": 97082
+      }
+    }
+  ]
+}
