@@ -2907,6 +2907,67 @@ export function edgeBadgeLabel(
   return badgeLabel
 }
 
+/** The corridor is 48px wide. A fixed 7px-per-bundle march walked bundle 7
+ *  and every one after it clean out of it and onto the rail column, where
+ *  their badges landed on the lane headers (C1 production, 2026-09-02: 11
+ *  intra-rail bundles). The fan now shares whatever width it is given and
+ *  tightens its pitch as bundles are added, so no bus can leave the corridor
+ *  however many bundles the account has. */
+const BUS_PITCH_MAX = 7
+const BUS_PAD = 8
+
+export function busFanOffset(index: number, total: number, usable: number): number {
+  if (total <= 1) return 0
+  const pitch = Math.min(BUS_PITCH_MAX, Math.max(0, usable) / (total - 1))
+  return index * pitch
+}
+
+/** Half the badge box the renderer draws (rect width = max(len * 7.6, 28)).
+ *  The de-overlap pass, the bundle column and the renderer all measure with
+ *  this so the three cannot drift apart. */
+export function badgeHalfWidth(label: string): number {
+  return Math.max(14, label.length * 3.8)
+}
+
+/** Lay the rail bundles' badges out as one column instead of a pile.
+ *
+ *  Each bundle used to anchor its badge on its own bus midpoint, so eleven
+ *  of them landed within a few pixels of each other — a wall of TARGETS /
+ *  TRIGGERS tags that also spilled onto the rail (C1 production QA,
+ *  2026-09-02). They now share one right edge, left of every bus so none can
+ *  reach the rail, and a guaranteed pitch, keeping their bus order top to
+ *  bottom. A stack taller than its bounds lifts whole rather than running off
+ *  the map; a stack taller than the band itself keeps its top and overflows
+ *  downward, which stays on screen.
+ *
+ *  The default pitch clears the de-overlap pass's own 13px vertical conflict
+ *  window, so pass 4 leaves a laid-out column alone. */
+export function stackBundleBadges(
+  items: readonly { y: number; hw: number }[],
+  rightEdge: number,
+  opts: { pitch?: number; minY?: number; maxY?: number } = {},
+): { x: number; y: number }[] {
+  const pitch = opts.pitch ?? 16
+  const order = items
+    .map((item, i) => ({ i, y: item.y, hw: item.hw }))
+    .sort((a, b) => a.y - b.y || a.i - b.i)
+  const out: { x: number; y: number }[] = new Array(items.length)
+  let last = -Infinity
+  for (const item of order) {
+    const y = Math.max(item.y, last + pitch)
+    out[item.i] = { x: rightEdge - item.hw, y }
+    last = y
+  }
+  if (order.length > 0) {
+    let shift = 0
+    if (opts.maxY !== undefined && last > opts.maxY) shift = opts.maxY - last
+    const top = out[order[0].i].y + shift
+    if (opts.minY !== undefined && top < opts.minY) shift += opts.minY - top
+    if (shift !== 0) for (const o of out) o.y += shift
+  }
+  return out
+}
+
 /** Intra-rail bundle geometry. The source is the rail LANE the traffic comes
  *  from; the target is the CHIP that receives it, so the arrow names a
  *  service instead of a column (C1 production QA, 2026-09-02: every arrow
@@ -2923,10 +2984,11 @@ export function railBundleRoute(
   corridor: NatRect | null,
   index: number,
   srcSpread = 0,
+  total = index + 1,
 ): { pts: Pt[]; bus: Pt } {
   const busX = corridor
-    ? corridor.l + 10 + index * 7
-    : Math.min(srcLane.l, dstChip.l) - 24 - index * 7
+    ? corridor.l + BUS_PAD + busFanOffset(index, total, corridor.r - corridor.l - 2 * BUS_PAD)
+    : Math.min(srcLane.l, dstChip.l) - 24 - busFanOffset(index, total, 70)
   const srcY = Math.min(Math.max(srcLane.cy + srcSpread, srcLane.t + 6), srcLane.b - 6)
   const dstY = dstChip.cy
   const pts: Pt[] = [
@@ -3467,12 +3529,13 @@ function FlowOverlay({
       const corridorEl = container.querySelector<HTMLElement>('[data-testid="topology-flow-corridor"]')
       const corridor = corridorEl ? toNat(visibleRect(corridorEl, corridorEl.getBoundingClientRect())) : null
       const railBundles = [...railGroups.values()]
+      const railBadgeSlots: { index: number; y: number; hw: number; busX: number }[] = []
       let bundleIndex = 0
       for (const group of railBundles) {
         const srcRect = toNat(visibleRect(group.src, group.src.getBoundingClientRect()))
         const dstRect = toNat(visibleRect(group.dst, group.dst.getBoundingClientRect()))
         const spread = (bundleIndex - (railBundles.length - 1) / 2) * 10
-        const route = railBundleRoute(srcRect, dstRect, corridor, bundleIndex, spread)
+        const route = railBundleRoute(srcRect, dstRect, corridor, bundleIndex, spread, railBundles.length)
         bundleIndex += 1
         const d = orthoPath(route.pts)
         if (!d) continue
@@ -3480,6 +3543,12 @@ function FlowOverlay({
         const label = railBundleLabel(group.label, count)
         const lead = railBundleLeadEdge(group.jobs.map(j => j.e))
         const members = group.jobs.map(j => `${j.e.source_id}→${j.e.target_id}`)
+        railBadgeSlots.push({
+          index: next.length,
+          y: route.bus.y,
+          hw: badgeHalfWidth(label),
+          busX: route.bus.x,
+        })
         next.push({
           d,
           cls: group.jobs[0].cls,
@@ -3488,7 +3557,7 @@ function FlowOverlay({
           protocol: lead.protocol ?? null,
           port: lead.port ?? null,
           externalDestinations: null,
-          badgeX: route.bus.x - Math.max(14, label.length * 3.8) - 6,
+          badgeX: route.bus.x - badgeHalfWidth(label) - 6,
           badgeY: route.bus.y,
           badgeLabel: label,
           badgeTitle: [label, ...members].join("\n"),
@@ -3500,6 +3569,15 @@ function FlowOverlay({
           pathBasis: lead.path_basis,
           lastSeen: lead.last_seen,
           bundle: { count, members },
+        })
+      }
+      if (railBadgeSlots.length > 1) {
+        // One column, right-aligned left of the LEFTMOST bus so no badge can
+        // reach the rail, whatever the fan did.
+        const laid = stackBundleBadges(railBadgeSlots, Math.min(...railBadgeSlots.map(slot => slot.busX)) - 6)
+        railBadgeSlots.forEach((slot, i) => {
+          next[slot.index].badgeX = laid[i].x
+          next[slot.index].badgeY = laid[i].y
         })
       }
 
@@ -3540,10 +3618,10 @@ function FlowOverlay({
       }
       for (const p of next) {
         if (!p.badgeLabel) continue
-        // Same box the renderer draws (rect width = max(len * 7.6, 28)); the
-        // earlier 6.4/char estimate let wide labels clear the check and still
-        // paint over an obstacle by up to ~12px per side.
-        const hw = Math.max(14, p.badgeLabel.length * 3.8)
+        // Same box the renderer draws; the earlier 6.4/char estimate let wide
+        // labels clear the check and still paint over an obstacle by up to
+        // ~12px per side.
+        const hw = badgeHalfWidth(p.badgeLabel)
         let y = p.badgeY
         if (!clearAt(p.badgeX, y, hw)) {
           let found = false
@@ -3829,9 +3907,9 @@ function FlowOverlay({
               <>
                 <title>{p.badgeTitle || p.badgeLabel}</title>
                 <rect
-                  x={-Math.max(p.badgeLabel.length * 3.8, 14)}
+                  x={-badgeHalfWidth(p.badgeLabel)}
                   y={-7}
-                  width={Math.max(p.badgeLabel.length * 7.6, 28)}
+                  width={badgeHalfWidth(p.badgeLabel) * 2}
                   height={14}
                   rx={3}
                   fill="white"

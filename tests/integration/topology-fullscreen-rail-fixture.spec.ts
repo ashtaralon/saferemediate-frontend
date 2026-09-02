@@ -261,8 +261,13 @@ test("fullscreen: each off-VPC rail lane scrolls in its track, both lanes stay o
         clip: { t: number; b: number }
         visible: boolean
       } | null
+      badge: { l: number; t: number; r: number; b: number } | null
+      railLeft: number
       targetId: string | null
     }> = []
+    const railLeft = root
+      .querySelector('[data-testid="topology-edge-services-rail"]')!
+      .getBoundingClientRect().left
     for (const group of Array.from(root.querySelectorAll<SVGGElement>("g[data-flow-bundle]"))) {
       const path = group.querySelector("path") as SVGPathElement | null
       const ctm = path?.getScreenCTM()
@@ -278,6 +283,8 @@ test("fullscreen: each off-VPC rail lane scrolls in its track, both lanes stay o
         source: laneBox(group.getAttribute("data-flow-source")),
         target: chipBox(group.getAttribute("data-flow-target")),
         targetId: group.getAttribute("data-flow-target"),
+        badge: box(group.querySelector('[data-testid="topology-flow-badge"] rect')),
+        railLeft,
       })
     }
     return out
@@ -320,6 +327,21 @@ test("fullscreen: each off-VPC rail lane scrolls in its track, both lanes stay o
   // exercises the chip anchoring below.
   expect(anchored.length + bundleAnchors.length).toBeGreaterThan(0)
   const tolerance = 16
+  // Bundle badges belong in the corridor, never on the rail: the bus fan used
+  // to march 7px per bundle straight out of the 48px corridor and drop the
+  // later badges onto the lane headers (C1 production, 2026-09-02).
+  const badges = bundleAnchors.flatMap(b => (b.badge ? [{ label: b.label, rect: b.badge, railLeft: b.railLeft }] : []))
+  for (const [i, b] of badges.entries()) {
+    expect(b.rect.r, `bundle ${b.label}'s badge stays left of the rail`).toBeLessThanOrEqual(b.railLeft)
+    for (const other of badges.slice(i + 1)) {
+      const overlaps =
+        b.rect.r > other.rect.l &&
+        b.rect.l < other.rect.r &&
+        b.rect.b > other.rect.t &&
+        b.rect.t < other.rect.b
+      expect(overlaps, `${b.label} and ${other.label} do not stack on each other`).toBe(false)
+    }
+  }
   for (const b of bundleAnchors) {
     expect(b.source, `bundle ${b.label} starts at a lane`).not.toBeNull()
     // The whole point of the bundle: it names the service it reaches.
