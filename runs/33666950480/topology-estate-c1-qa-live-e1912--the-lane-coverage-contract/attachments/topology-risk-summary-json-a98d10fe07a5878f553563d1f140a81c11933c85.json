@@ -1,0 +1,45 @@
+{
+  "system": "testbed-webshop",
+  "account_id": "416651950952",
+  "region": "eu-west-1",
+  "vpc_id": "vpc-0c39cde96f29f8f4e",
+  "available_vpcs": [
+    {
+      "vpc_id": "vpc-0c39cde96f29f8f4e",
+      "workload_count": 12
+    }
+  ],
+  "nodes": 30,
+  "by_type": {
+    "S3": 3,
+    "DynamoDB": 1,
+    "LoadBalancer": 2,
+    "RDS": 3,
+    "Lambda": 6,
+    "EventBridge": 6,
+    "TargetGroup": 2,
+    "Neptune": 2,
+    "EC2": 5
+  },
+  "traffic_edges": 33,
+  "subnets": 6,
+  "nat_gateways": [
+    {
+      "id": "nat-0fd7cf8524e62aea9",
+      "name": "nat-0fd7cf8524e62aea9",
+      "subnet_id": "subnet-05472c7cd0d3a7b90",
+      "subnet_in_grid": true
+    }
+  ],
+  "igws": 1,
+  "vpces": 1,
+  "traffic_authority": {
+    "state": "authoritative_positive_only",
+    "mode": "incremental",
+    "active_generation": 164,
+    "authoritative_endpoint_count": 7,
+    "endpoint_count": 30,
+    "projected_edge_count": 11,
+    "lane_coverage": null
+  }
+}
