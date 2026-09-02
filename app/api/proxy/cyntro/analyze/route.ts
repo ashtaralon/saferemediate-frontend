@@ -115,7 +115,8 @@ async function handleAnalyze(body: { role_name: string; days?: number }) {
           used_count: usedPermissions.length,
           utilization_rate: totalPermissions > 0 ? usedPermissions.length / totalPermissions : 0,
           over_permission_ratio: totalPermissions > 0 ? ((totalPermissions - usedPermissions.length) / totalPermissions) * 100 : 0,
-          total_api_calls: gapData.summary?.cloudtrail_events || 0,
+          // null means not measured; never coerce to 0 (F6).
+          total_api_calls: gapData.summary?.cloudtrail_events ?? null,
           risk_factors: unusedPermissions
             .filter((p: any) => p.risk_level === "HIGH" || p.risk_level === "CRITICAL")
             .slice(0, 3)

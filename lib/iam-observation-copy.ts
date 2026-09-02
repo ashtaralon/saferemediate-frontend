@@ -88,8 +88,12 @@ export function iamObservationWindowCopy(
   const from = formatUtcDay(window?.observed_from)
   const through = formatUtcDay(window?.observed_through)
   const measured = Boolean(window && from && through && !window.limitation)
+  // A window that carries no positive day count (no first observed event on
+  // this row) must not zero out a day count the modal already measured
+  // elsewhere (simulate-fix). Prefer the window's count only when it says
+  // something.
   const days =
-    typeof window?.effective_days === 'number' && window.effective_days >= 0
+    typeof window?.effective_days === 'number' && window.effective_days > 0
       ? window.effective_days
       : fallbackDays
   const headline =
@@ -101,6 +105,51 @@ export function iamObservationWindowCopy(
     headline,
     range: measured ? `${from} → ${through}` : 'observed-event bounds not stored',
     collected: collectedDay ? `collected ${collectedDay}` : null,
+    measured,
+  }
+}
+
+/**
+ * Provenance the backend sends with `summary.cloudtrail_events`
+ * (`unified/lp/usage_edges.py`). The count is the windowed USED_ACTION
+ * hit_count sum; `limitation` says why it is null or partial.
+ */
+export interface IamEventCountBasis {
+  source: string
+  window_days: number | null
+  window_cutoff: string | null
+  edges_in_window: number | null
+  edges_without_hit_count: number | null
+  limitation: string | null
+}
+
+export interface IamEventCountCopy {
+  /** e.g. "50,886 API events" or "API events not measured" */
+  label: string
+  /** Tooltip: source and window, plus the backend's limitation when any. */
+  detail: string | null
+  measured: boolean
+}
+
+/**
+ * Regression, 2026-09-02 (C1 / testbed-webshop, F6): the modal rendered
+ * "50,886 API events" — later 1,672,348 in one block and 40,469,725 in
+ * another for the same role — from a max() of two unrelated, unwindowed
+ * counts. The backend now sends the windowed hit sum or null with a basis.
+ * This helper renders that and never coerces null to 0.
+ */
+export function iamEventCountCopy(
+  events: number | null | undefined,
+  basis: IamEventCountBasis | null | undefined,
+): IamEventCountCopy {
+  const measured = typeof events === 'number' && Number.isFinite(events)
+  const window =
+    basis?.window_days != null ? `last ${basis.window_days} days` : 'decision window'
+  const source = basis?.source ? `${basis.source}, ${window}` : window
+  const detail = basis?.limitation ? `${source}. ${basis.limitation}` : basis ? source : null
+  return {
+    label: measured ? `${events.toLocaleString('en-US')} API events` : 'API events not measured',
+    detail,
     measured,
   }
 }

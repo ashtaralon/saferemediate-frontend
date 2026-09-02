@@ -30,7 +30,12 @@ import type {
 } from "@/lib/types"
 import { type RoutingDecision, toRoutingDecision } from "@/lib/decision-routing"
 import { resolveIamRemediationAuthority } from "@/lib/iam-remediation-authority"
-import { iamObservationWindowCopy, type IamObservationWindow } from "@/lib/iam-observation-copy"
+import {
+  iamEventCountCopy,
+  iamObservationWindowCopy,
+  type IamEventCountBasis,
+  type IamObservationWindow,
+} from "@/lib/iam-observation-copy"
 import {
   automationReadiness,
   previewEvidenceNeeds,
@@ -442,7 +447,9 @@ interface GapAnalysisData {
     // 'OBSERVED' | 'UNKNOWN' | 'LOW'. UNKNOWN = usage never measured (or no
     // policy attached). Never render a removal/clean verdict on UNKNOWN.
     data_confidence?: string
-    cloudtrail_events: number
+    /** Windowed USED_ACTION hit sum, or null when not measured (F6). */
+    cloudtrail_events: number | null
+    event_count_basis?: IamEventCountBasis | null
     high_risk_unused_count?: number
   }
   permissions_analysis: PermissionAnalysis[]
@@ -673,7 +680,16 @@ interface BackendServiceRoleAnalysis {
 }
 
 // Fallback client-side analysis when backend doesn't provide trust policy data
-function fallbackAnalyzeRole(roleName: string, cloudtrailEvents: number, unusedCount: number): BackendServiceRoleAnalysis | null {
+function fallbackAnalyzeRole(
+  roleName: string,
+  cloudtrailEvents: number | null,
+  unusedCount: number,
+  backendStatus: string | null = null,
+): BackendServiceRoleAnalysis | null {
+  // The backend now says when it could NOT classify the trust policy
+  // (status "not_computed", F14) and when the event count is unmeasured
+  // (null, F6). Neither is "no usage data"; do not invent an analysis.
+  if (backendStatus === 'not_computed' || cloudtrailEvents == null) return null
   // Only provide fallback for obvious cases when backend analysis is unavailable
   if (cloudtrailEvents === 0 && unusedCount > 0) {
     return {
@@ -1331,7 +1347,9 @@ export function IAMPermissionAnalysisModal({
           lp_score: derivedLpScore,
           overall_risk: rawData.summary?.overall_risk ?? rawData.overall_risk ?? 'MEDIUM',
           data_confidence: rawData.summary?.data_confidence ?? rawData.data_confidence,
-          cloudtrail_events: rawData.summary?.cloudtrail_events ?? rawData.event_count ?? rawData.total_events ?? 0,
+          // null stays null: an unmeasured count is not zero events (F6).
+          cloudtrail_events: rawData.summary?.cloudtrail_events ?? null,
+          event_count_basis: rawData.summary?.event_count_basis ?? null,
           high_risk_unused_count: rawData.summary?.high_risk_unused_count ?? rawData.high_risk_unused?.length ?? 0
         },
         // Use backend's permissions_analysis when available (has real usage_count),
@@ -2394,25 +2412,35 @@ export function IAMPermissionAnalysisModal({
     // (Behavioral 100, Observability 0) which shreds the trust story
     // — a CISO reads it as "the engine doesn't know what it doesn't
     // know." See review 2026-06-14.
-    const behavioralRaw = events > 200 ? 100 : events > 50 ? 75 : events > 0 ? 40 : 0
+    // An unmeasured event count (null) is not_computed, not a score of 0 (F6).
+    const behavioralRaw: number | null =
+      events == null ? null : events > 200 ? 100 : events > 50 ? 75 : events > 0 ? 40 : 0
     const coverageScore = tel != null ? Math.round(tel * 100) : null
-    const behavioralCapped = coverageScore != null
-      ? Math.min(behavioralRaw, coverageScore)
-      : behavioralRaw
-    const behavioralCapApplied = coverageScore != null && coverageScore < behavioralRaw
+    const behavioralCapped: number | null =
+      behavioralRaw == null
+        ? null
+        : coverageScore != null
+          ? Math.min(behavioralRaw, coverageScore)
+          : behavioralRaw
+    const behavioralCapApplied =
+      behavioralRaw != null && coverageScore != null && coverageScore < behavioralRaw
 
     const dimensions: Dim[] = [
       {
         key: 'behavioral',
         name: 'Behavioral evidence',
         score: behavioralCapped,
-        status: behavioralCapped >= 75 ? 'pass' : behavioralCapped >= 40 ? 'partial' : 'fail',
+        status: behavioralCapped == null
+          ? 'not_computed'
+          : behavioralCapped >= 75 ? 'pass' : behavioralCapped >= 40 ? 'partial' : 'fail',
         data: behavioralCapApplied
-          ? `${obs} days of observation · ${events.toLocaleString()} events captured · score capped by Observability coverage`
-          : `${obs} days of observation · ${events.toLocaleString()} events captured`,
+          ? `${obs} days of observation · ${eventCountCopy.label} · score capped by Observability coverage`
+          : `${obs} days of observation · ${eventCountCopy.label}`,
         hint: behavioralCapApplied
           ? 'Behavioral evidence cannot exceed Observability coverage — enable the missing sources to raise this score.'
-          : events <= 50 ? 'Increase observation window or wait for more activity.' : undefined,
+          : events == null
+            ? 'The windowed event count could not be measured; see the evidence basis.'
+            : events <= 50 ? 'Increase observation window or wait for more activity.' : undefined,
       },
       {
         key: 'coverage',
@@ -2423,8 +2451,8 @@ export function IAMPermissionAnalysisModal({
         // but coverage is low, surface BOTH numbers honestly so the operator
         // doesn't see a "0% sources / 500 events" contradiction without context.
         data: tel != null
-          ? events > 0
-            ? `${Math.round(tel * 100)}% of expected sources active · ${events.toLocaleString()} events from active source(s)`
+          ? events != null && events > 0
+            ? `${Math.round(tel * 100)}% of expected sources active · ${eventCountCopy.label} from active source(s)`
             : `${Math.round(tel * 100)}% of evidence sources active`
           : 'coverage not measured',
         hint: tel != null && tel < 0.85 ? 'Enable the missing evidence sources in this account.' : undefined,
@@ -2829,7 +2857,10 @@ export function IAMPermissionAnalysisModal({
     planPermissions,
   })
   const overallRisk = gapData?.summary?.overall_risk ?? 'UNKNOWN'
-  const cloudtrailEvents = gapData?.summary?.cloudtrail_events ?? 0
+  // number | null. null means the backend could not measure the windowed
+  // count; it is never coerced to 0 (F6).
+  const cloudtrailEvents: number | null = gapData?.summary?.cloudtrail_events ?? null
+  const eventCountCopy = iamEventCountCopy(cloudtrailEvents, gapData?.summary?.event_count_basis ?? null)
 
   const permissionView = buildCanonicalPermissionView(
     gapData?.permissions_analysis ?? [],
@@ -2864,7 +2895,12 @@ export function IAMPermissionAnalysisModal({
     totalCount: totalPermissions,
   })
   const backendAnalysis = (gapData as any)?.service_role_analysis as BackendServiceRoleAnalysis | undefined
-  const serviceAnalysis = backendAnalysis?.analysis || fallbackAnalyzeRole(roleName, cloudtrailEvents, unusedCount)?.analysis
+  const serviceAnalysis = backendAnalysis?.analysis || fallbackAnalyzeRole(
+    roleName,
+    cloudtrailEvents,
+    unusedCount,
+    (backendAnalysis as { status?: string } | undefined)?.status ?? null,
+  )?.analysis
   const confidenceGroups = gapData?.confidence_groups
   const dependencyContext = gapData?.dependency_context
   const protectedSet = new Set(
@@ -3191,9 +3227,14 @@ export function IAMPermissionAnalysisModal({
     observationDays,
   )
 
-  // Safety score — uses backend-computed confidence when available
-  const calculateSafetyScore = () => {
-    if (!gapData) return 95
+  // Safety score — uses backend-computed confidence when available. Returns
+  // null before gap data exists: an unloaded modal has no score, and the
+  // literal 95 that lived here was a fabricated one (F12).
+  const calculateSafetyScore = (): number | null => {
+    if (!gapData) return null
+    // Comparisons below need a number; an unmeasured count (null) earns no
+    // volume-based adjustment either way (F6).
+    const knownEvents = cloudtrailEvents ?? 0
 
     // Use backend confidence engine score when available (data-driven, not hardcoded)
     if (gapData.confidence_groups?.overall_confidence != null) {
@@ -3232,13 +3273,13 @@ export function IAMPermissionAnalysisModal({
       const highRiskCount = gapData.high_risk_unused?.length ?? 0
       let highRiskPenalty = 0
       if (highRiskCount > 0) {
-        if (cloudtrailEvents > 100000) highRiskPenalty = Math.min(3, highRiskCount)
-        else if (cloudtrailEvents > 10000) highRiskPenalty = Math.min(5, Math.ceil(highRiskCount * 0.5))
-        else if (cloudtrailEvents > 1000) highRiskPenalty = Math.min(8, highRiskCount)
+        if (knownEvents > 100000) highRiskPenalty = Math.min(3, highRiskCount)
+        else if (knownEvents > 10000) highRiskPenalty = Math.min(5, Math.ceil(highRiskCount * 0.5))
+        else if (knownEvents > 1000) highRiskPenalty = Math.min(8, highRiskCount)
         else highRiskPenalty = Math.min(12, highRiskCount * 2)
       }
       score -= highRiskPenalty
-      if (cloudtrailEvents > 0 && cloudtrailEvents < 10) score -= 5
+      if (knownEvents > 0 && knownEvents < 10) score -= 5
     }
 
     return Math.max(10, Math.min(100, score))
@@ -3258,7 +3299,9 @@ export function IAMPermissionAnalysisModal({
   // the single source of truth for the modal banner. The legacy client-side
   // calculateSafetyScore() stays as a fallback only while Agent 5 is loading
   // or if the /api/confidence/check call failed.
-  const safetyScore = confidenceScore?.confidence ?? legacySafetyScore
+  // null until either scorer has a number. Unknown routes to manual review
+  // below; it never reads as a high score (F12).
+  const safetyScore: number | null = confidenceScore?.confidence ?? legacySafetyScore
 
   // ── Verdict bucket — PIPELINE IS AUTHORITATIVE ────────────────────
   // Source-of-truth hierarchy:
@@ -3296,7 +3339,7 @@ export function IAMPermissionAnalysisModal({
   const _pipelineBucket = canonicalToBucket(safetyContext?.decision_canonical ?? null)
   const _agentRouting = confidenceScore?.routing
   const _legacyFallback: 'blocked' | 'manual_review' | 'human_approval' =
-    safetyScore < 50 ? 'manual_review'
+    safetyScore == null || safetyScore < 50 ? 'manual_review'
       : 'human_approval'
   const _nonPipelineCandidate = _agentRouting ?? _legacyFallback
   // AI alone cannot approve auto-execute. Demote to human_approval if it tries.
@@ -3392,7 +3435,7 @@ export function IAMPermissionAnalysisModal({
           
           <div className="space-y-4">
             {[
-              { title: "Loading usage history...", subtitle: `Analyzing ${cloudtrailEvents.toLocaleString()} permission checks`, done: true },
+              { title: "Loading usage history...", subtitle: cloudtrailEvents == null ? 'Analyzing observed API activity' : `Analyzing ${cloudtrailEvents.toLocaleString()} permission checks`, done: true },
               { title: "Identifying unused permissions...", subtitle: `Found ${unusedCount} never-used permissions`, done: true },
               { title: "Checking service dependencies...", subtitle: "Validating active services", done: true },
               {
@@ -4318,7 +4361,7 @@ export function IAMPermissionAnalysisModal({
                 // on older backends → not gated.
                 const evidenceUnknown = remediationAuthority.evidenceUnavailable
                 const canonicalBlocked = remediationAuthority.hardBlocked
-                const lowConfidence = safetyScore < 50
+                const lowConfidence = safetyScore == null || safetyScore < 50
                 const pipelineBlocked = verdictBucket === 'blocked'
                 // Honest counts: report what the user actually selected. Non-auto
                 // selections are now passed under force_override (see handleApplyFix)
@@ -4723,8 +4766,13 @@ export function IAMPermissionAnalysisModal({
                 {observationWindowCopy.collected ? ` · ${observationWindowCopy.collected}` : ''}
               </span>
             </div>
-            <span className="text-xs tabular-nums" style={{ color: "var(--muted-foreground, #6b7280)" }}>
-              {cloudtrailEvents.toLocaleString()} API events
+            <span
+              className="text-xs tabular-nums"
+              style={{ color: "var(--muted-foreground, #6b7280)" }}
+              title={eventCountCopy.detail ?? undefined}
+              data-testid="event-count"
+            >
+              {eventCountCopy.label}
             </span>
           </div>
 
@@ -4955,7 +5003,7 @@ export function IAMPermissionAnalysisModal({
                   <div className="flex items-center justify-between mb-2">
                     <div className="text-[11px] font-semibold uppercase tracking-[0.12em]" style={{ color: 'var(--muted-foreground, #6b7280)' }}>Evidence used</div>
                     <div className="text-xs" style={{ color: 'var(--muted-foreground, #6b7280)' }}>
-                      {obs} days · {cloudtrailEvents.toLocaleString()} events
+                      {obs} days · {eventCountCopy.label}
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-sm">

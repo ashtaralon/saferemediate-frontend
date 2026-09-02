@@ -20,7 +20,11 @@ export function EvidenceTable({ gap }: EvidenceTableProps) {
 
   const rows: Array<{ label: string; value: string }> = [
     { label: "Observation window", value: `${gap.observation_days} days` },
-    { label: "API events found", value: `${gap.summary.cloudtrail_events}` },
+    {
+      label: "API events found",
+      // null is "not measured", never "0" or "null" (F6).
+      value: gap.summary.cloudtrail_events == null ? "not measured" : `${gap.summary.cloudtrail_events}`,
+    },
     {
       label: "Evidence source",
       value:

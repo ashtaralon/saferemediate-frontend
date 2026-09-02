@@ -4856,7 +4856,9 @@ function RulesTab({
               }`}>{lpScore}%</span>
             </span>
             <span className="text-xs text-[var(--muted-foreground,#6b7280)]">
-              Based on {iamGapData.summary?.cloudtrail_events || 0} CloudTrail events
+              {iamGapData.summary?.cloudtrail_events == null
+                ? 'CloudTrail event count not measured'
+                : `Based on ${iamGapData.summary.cloudtrail_events} CloudTrail events`}
             </span>
           </div>
         </div>
