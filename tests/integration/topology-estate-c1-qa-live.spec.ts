@@ -243,9 +243,28 @@ test.describe("C1 live QA — estate map against the deployed graph", () => {
     // Assigned from a response listener: an object property, not a `let`, so
     // control-flow analysis does not narrow it to null at the read sites.
     const captured: { payload: TopologyRisk | null } = { payload: null }
+    // The product-scope gate (organization roster, account options, scoped
+    // systems catalog) decides whether the map mounts at all; record what each
+    // of those calls answered so a blocked page comes with its cause.
+    const gate: Array<{ path: string; status: number; body: string }> = []
     page.on("response", async response => {
+      const url = new URL(response.url())
+      const isGate =
+        url.pathname === "/api/proxy/admin/customers" ||
+        url.pathname === "/api/proxy/admin/accounts/scope/options/all" ||
+        url.pathname === "/api/proxy/systems" ||
+        url.pathname.startsWith("/api/proxy/topology-risk/")
+      if (isGate) {
+        let body = ""
+        try {
+          body = (await response.text()).slice(0, 400)
+        } catch {
+          body = "<unreadable>"
+        }
+        gate.push({ path: url.pathname + url.search, status: response.status(), body })
+      }
       if (
-        response.url().includes("/api/proxy/topology-risk/") &&
+        url.pathname.startsWith("/api/proxy/topology-risk/") &&
         response.request().method() === "GET" &&
         response.status() === 200
       ) {
@@ -263,7 +282,7 @@ test.describe("C1 live QA — estate map against the deployed graph", () => {
     await expect(mapTab.or(blocked).first()).toBeVisible({ timeout: 120_000 })
     if (!(await mapTab.isVisible().catch(() => false))) {
       const reason = ((await blocked.first().textContent().catch(() => null)) ?? "").replace(/\s+/g, " ").trim()
-      report("estate-page", { mounted: false, reason })
+      report("estate-page", { mounted: false, reason, gate })
       await shot(page, "c1-estate-blocked")
       throw new Error(`estate map did not mount: ${reason}`)
     }
@@ -282,6 +301,7 @@ test.describe("C1 live QA — estate map against the deployed graph", () => {
       .locator("option")
       .allTextContents()
       .catch(() => [] as string[])
+    report("scope-gate", gate)
     report("embedded", {
       vpc_options: vpcOptions,
       authority_banner: await bannerText(page, "page"),
