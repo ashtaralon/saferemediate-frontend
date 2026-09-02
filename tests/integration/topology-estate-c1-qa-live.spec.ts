@@ -28,7 +28,7 @@
  */
 import fs from "node:fs"
 import { expect, test, type Page } from "@playwright/test"
-import { authedApi, liveGetWithRetry, seedAuthCookie } from "./live-auth"
+import { authedApi, seedAuthCookie } from "./live-auth"
 import { railHeaderBadgeOverlaps } from "./topology-fixture"
 
 const SYSTEM = process.env.C1_SYSTEM || "testbed-webshop"
@@ -180,7 +180,21 @@ test.describe("C1 live QA — estate map against the deployed graph", () => {
   test("topology-risk on the deployed backend: inventory, edges, and the lane-coverage contract", async ({ playwright }) => {
     test.setTimeout(240_000)
     const request = await authedApi(playwright)
-    const res = await liveGetWithRetry(request, TOPOLOGY_RISK_PATH)
+    // Every attempt is recorded with its wall time and the proxy's cache
+    // header: a 50s first read and a 200ms cached one are different facts,
+    // and a 502/503/504 retry (Render cold start) is a third.
+    const attempts: Array<{ status: number; ms: number; x_cache: string | null }> = []
+    let res = await request.get(TOPOLOGY_RISK_PATH)
+    const started = Date.now()
+    let t0 = started
+    attempts.push({ status: res.status(), ms: Date.now() - t0, x_cache: res.headers()["x-cache"] ?? null })
+    for (let i = 1; i < 5 && [502, 503, 504].includes(res.status()); i += 1) {
+      await new Promise(resolve => setTimeout(resolve, 10_000))
+      t0 = Date.now()
+      res = await request.get(TOPOLOGY_RISK_PATH)
+      attempts.push({ status: res.status(), ms: Date.now() - t0, x_cache: res.headers()["x-cache"] ?? null })
+    }
+    report("topology-risk-fetch", { attempts, total_ms: Date.now() - started })
     const text = await res.text()
     expect(res.status(), text.slice(0, 500)).toBe(200)
     const body = JSON.parse(text) as TopologyRisk

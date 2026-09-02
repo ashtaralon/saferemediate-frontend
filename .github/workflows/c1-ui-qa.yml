@@ -73,6 +73,10 @@ jobs:
             (cd test-results && find . -type f \( -name '*.png' -o -name '*.json' -o -name '*.md' \) \
               -exec cp --parents {} "../publish/${RUN_DIR}/" \; 2>/dev/null || true)
           fi
+          # Vercel tries to build every pushed branch; the results branch is
+          # not an app. A vercel.json whose ignoreCommand exits 0 tells Vercel
+          # to skip it instead of logging an ERROR deployment per run.
+          printf '{ "ignoreCommand": "exit 0" }\n' > publish/vercel.json
           {
             echo "# c1-ui-qa run ${GITHUB_RUN_ID}"
             echo
