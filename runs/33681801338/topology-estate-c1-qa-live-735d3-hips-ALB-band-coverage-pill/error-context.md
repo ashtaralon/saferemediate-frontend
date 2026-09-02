@@ -1,0 +1,912 @@
+# Instructions
+
+- Following Playwright test failed.
+- Explain why, be concise, respect Playwright best practices.
+- Provide a snippet of code with the fix, if possible.
+
+# Test info
+
+- Name: topology-estate-c1-qa-live.spec.ts >> C1 live QA — estate map against the deployed graph >> estate map on the deployed frontend: lanes, NAT chips, ALB band, coverage pill
+- Location: tests/integration/topology-estate-c1-qa-live.spec.ts:251:7
+
+# Error details
+
+```
+Test timeout of 300000ms exceeded.
+```
+
+# Page snapshot
+
+```yaml
+- generic [ref=e1]:
+  - generic [ref=e4]:
+    - generic [ref=e5]: Scope
+    - generic [ref=e6]:
+      - img [ref=e7]
+      - generic [ref=e11]: Organization
+      - combobox "Organization" [ref=e12]:
+        - option "Cyntro Testbed Webshop" [selected]
+    - generic [ref=e13]:
+      - img [ref=e14]
+      - generic [ref=e18]: Group
+      - combobox "Group" [ref=e19]:
+        - option "All account groups" [selected]
+    - generic [ref=e20]:
+      - img [ref=e21]
+      - generic [ref=e23]: Account
+      - combobox "Account" [ref=e24]:
+        - option "All accounts" [selected]
+        - option "Testbed Webshop · 416651950952"
+    - generic [ref=e25]:
+      - img [ref=e26]
+      - generic [ref=e31]: Region
+      - combobox "Region" [ref=e32]:
+        - option "All regions" [selected]
+        - option "eu-west-1"
+    - generic [ref=e34]: 1 accounts in view
+  - generic [ref=e35]:
+    - banner [ref=e36]:
+      - generic [ref=e37]:
+        - generic [ref=e38]:
+          - generic [ref=e39]: Estate · Topology v0.2 · testbed-webshop
+          - generic [ref=e40]: cyntro-tb-prod-loadgen-role has 15/25 unused permissions (60% gap) — attached to cyntro-tb-prod-loadgen
+          - generic [ref=e41]: scored 2026-09-02T20:37:18Z · 0 flagged · posture_correlated_at >= now() - 7d on any workload · VPC vpc-0c39cde96f29f8f4e
+        - generic [ref=e42]:
+          - generic [ref=e43]:
+            - generic [ref=e44]: Evidence computed Sep 2, 2026, 8:37 PM
+            - generic [ref=e46]: Snapshot 18m old
+          - button "System stats" [ref=e47]
+    - generic [ref=e48]:
+      - generic [ref=e49]: VPC scope
+      - combobox "VPC scope" [ref=e50]:
+        - option "All VPCs · Compare"
+        - option "cyntro-tb-prod-vpc · vpc-0c39cde96f29f8f4e (12 workloads)" [selected]
+      - generic [ref=e51]: Subnet-linked compute in tier cells; regional/serverless on the right rail.
+    - generic [ref=e52]:
+      - generic [ref=e53]: Availability zones
+      - button "eu-west-1a" [pressed] [ref=e54]
+      - button "eu-west-1b" [pressed] [ref=e55]
+    - generic [ref=e56]:
+      - generic "EC2 / RDS / LoadBalancer in the selected VPC" [ref=e57]: In this VPC
+      - button "EC2 (5)" [pressed] [ref=e58]
+      - button "RDS (3)" [pressed] [ref=e59]
+      - button "LoadBalancer (2)" [pressed] [ref=e60]
+      - button "TargetGroup (2)" [pressed] [ref=e61]
+      - button "Neptune (2)" [pressed] [ref=e62]
+      - generic "Regional services are system-wide. Lambda inventory is system-wide too, while placement distinguishes VPC-attached functions from non-VPC-attached runtimes." [ref=e63]: System-wide
+      - button "Lambda (6)" [pressed] [ref=e64]
+      - button "EventBridge (6)" [pressed] [ref=e65]
+      - button "S3 (3)" [pressed] [ref=e66]
+      - button "DynamoDB (1)" [pressed] [ref=e67]
+      - button "Show all" [ref=e68]
+      - button "Clear all" [ref=e69]
+    - generic [ref=e70]:
+      - main [ref=e71]:
+        - generic [ref=e72]:
+          - tablist "Estate view" [ref=e73]:
+            - tab "Command map" [ref=e74]
+            - tab "Network topology" [selected] [ref=e75]
+          - group "Map density" [ref=e76]:
+            - button "Glance" [ref=e77]
+            - button "Inventory" [ref=e78]
+          - button "Shared neighbors" [pressed] [ref=e79]
+          - button "Open map fullscreen" [ref=e80]:
+            - img [ref=e81]
+            - text: Map fullscreen
+      - complementary [ref=e88]:
+        - complementary [ref=e89]:
+          - generic [ref=e90]:
+            - generic [ref=e91]:
+              - heading "Service index" [level=2] [ref=e92]
+              - generic [ref=e93]: "30"
+            - generic [ref=e94]:
+              - img [ref=e95]
+              - searchbox "Find service in topology" [ref=e98]
+            - button "Filters" [ref=e101]:
+              - img [ref=e102]
+              - text: Filters
+          - list [ref=e104]:
+            - listitem [ref=e105]:
+              - button "cyntro-tb-prod-app Current graph data EC2 · eu-west-1b · app 1 in · 4 out Aug 25, 01:59 AM" [ref=e106]:
+                - generic [ref=e107]:
+                  - img [ref=e109]
+                  - generic [ref=e111]:
+                    - generic [ref=e112]:
+                      - generic [ref=e113]: cyntro-tb-prod-app
+                      - generic "Current graph data" [ref=e114]
+                    - generic [ref=e116]: EC2 · eu-west-1b · app
+                    - generic [ref=e117]:
+                      - generic [ref=e118]: 1 in · 4 out
+                      - generic [ref=e119]:
+                        - img [ref=e120]
+                        - text: Aug 25, 01:59 AM
+            - listitem [ref=e123]:
+              - button "cyntro-tb-prod-app Current graph data EC2 · eu-west-1a · app 1 in · 4 out Aug 25, 01:58 AM" [ref=e124]:
+                - generic [ref=e125]:
+                  - img [ref=e127]
+                  - generic [ref=e129]:
+                    - generic [ref=e130]:
+                      - generic [ref=e131]: cyntro-tb-prod-app
+                      - generic "Current graph data" [ref=e132]
+                    - generic [ref=e134]: EC2 · eu-west-1a · app
+                    - generic [ref=e135]:
+                      - generic [ref=e136]: 1 in · 4 out
+                      - generic [ref=e137]:
+                        - img [ref=e138]
+                        - text: Aug 25, 01:58 AM
+            - listitem [ref=e141]:
+              - button "cyntro-tb-prod-appdata-1c8276f5 Current graph data S3 · global · regional 4 in · 0 out Aug 20, 04:53 PM" [ref=e142]:
+                - generic [ref=e143]:
+                  - img [ref=e145]
+                  - generic [ref=e147]:
+                    - generic [ref=e148]:
+                      - generic [ref=e149]: cyntro-tb-prod-appdata-1c8276f5
+                      - generic "Current graph data" [ref=e150]
+                    - generic [ref=e152]: S3 · global · regional
+                    - generic [ref=e153]:
+                      - generic [ref=e154]: 4 in · 0 out
+                      - generic [ref=e155]:
+                        - img [ref=e156]
+                        - text: Aug 20, 04:53 PM
+            - listitem [ref=e159]:
+              - button "cyntro-tb-prod-consumer-daily Current graph data Lambda · eu-west-1 · regional 2 in · 1 out Aug 31, 11:00 AM" [ref=e160]:
+                - generic [ref=e161]:
+                  - img [ref=e163]
+                  - generic [ref=e165]:
+                    - generic [ref=e166]:
+                      - generic [ref=e167]: cyntro-tb-prod-consumer-daily
+                      - generic "Current graph data" [ref=e168]
+                    - generic [ref=e170]: Lambda · eu-west-1 · regional
+                    - generic [ref=e171]:
+                      - generic [ref=e172]: 2 in · 1 out
+                      - generic [ref=e173]:
+                        - img [ref=e174]
+                        - text: Aug 31, 11:00 AM
+            - listitem [ref=e177]:
+              - button "cyntro-tb-prod-consumer-every_6h Current graph data Lambda · eu-west-1 · regional 2 in · 1 out Aug 31, 11:00 AM" [ref=e178]:
+                - generic [ref=e179]:
+                  - img [ref=e181]
+                  - generic [ref=e183]:
+                    - generic [ref=e184]:
+                      - generic [ref=e185]: cyntro-tb-prod-consumer-every_6h
+                      - generic "Current graph data" [ref=e186]
+                    - generic [ref=e188]: Lambda · eu-west-1 · regional
+                    - generic [ref=e189]:
+                      - generic [ref=e190]: 2 in · 1 out
+                      - generic [ref=e191]:
+                        - img [ref=e192]
+                        - text: Aug 31, 11:00 AM
+            - listitem [ref=e195]:
+              - button "cyntro-tb-prod-consumer-frequent Current graph data Lambda · eu-west-1 · regional 2 in · 1 out Sep 1, 11:00 AM" [ref=e196]:
+                - generic [ref=e197]:
+                  - img [ref=e199]
+                  - generic [ref=e201]:
+                    - generic [ref=e202]:
+                      - generic [ref=e203]: cyntro-tb-prod-consumer-frequent
+                      - generic "Current graph data" [ref=e204]
+                    - generic [ref=e206]: Lambda · eu-west-1 · regional
+                    - generic [ref=e207]:
+                      - generic [ref=e208]: 2 in · 1 out
+                      - generic [ref=e209]:
+                        - img [ref=e210]
+                        - text: Sep 1, 11:00 AM
+            - listitem [ref=e213]:
+              - button "cyntro-tb-prod-consumer-nightly_burst Current graph data Lambda · eu-west-1 · regional 2 in · 1 out Aug 31, 11:00 AM" [ref=e214]:
+                - generic [ref=e215]:
+                  - img [ref=e217]
+                  - generic [ref=e219]:
+                    - generic [ref=e220]:
+                      - generic [ref=e221]: cyntro-tb-prod-consumer-nightly_burst
+                      - generic "Current graph data" [ref=e222]
+                    - generic [ref=e224]: Lambda · eu-west-1 · regional
+                    - generic [ref=e225]:
+                      - generic [ref=e226]: 2 in · 1 out
+                      - generic [ref=e227]:
+                        - img [ref=e228]
+                        - text: Aug 31, 11:00 AM
+            - listitem [ref=e231]:
+              - button "cyntro-tb-prod-tg-app Current graph data TargetGroup · eu-west-1a · app 1 in · 2 out Aug 20, 04:58 PM" [ref=e232]:
+                - generic [ref=e233]:
+                  - img [ref=e235]
+                  - generic [ref=e237]:
+                    - generic [ref=e238]:
+                      - generic [ref=e239]: cyntro-tb-prod-tg-app
+                      - generic "Current graph data" [ref=e240]
+                    - generic [ref=e242]: TargetGroup · eu-west-1a · app
+                    - generic [ref=e243]:
+                      - generic [ref=e244]: 1 in · 2 out
+                      - generic [ref=e245]:
+                        - img [ref=e246]
+                        - text: Aug 20, 04:58 PM
+            - listitem [ref=e249]:
+              - button "cyntro-tb-prod-tg-web Current graph data TargetGroup · eu-west-1a · app 1 in · 2 out Aug 20, 04:58 PM" [ref=e250]:
+                - generic [ref=e251]:
+                  - img [ref=e253]
+                  - generic [ref=e255]:
+                    - generic [ref=e256]:
+                      - generic [ref=e257]: cyntro-tb-prod-tg-web
+                      - generic "Current graph data" [ref=e258]
+                    - generic [ref=e260]: TargetGroup · eu-west-1a · app
+                    - generic [ref=e261]:
+                      - generic [ref=e262]: 1 in · 2 out
+                      - generic [ref=e263]:
+                        - img [ref=e264]
+                        - text: Aug 20, 04:58 PM
+            - listitem [ref=e267]:
+              - button "cyntro-tb-prod-aurora Current graph data RDS · eu-west-1 · regional 2 in · 0 out Aug 24, 10:24 PM" [ref=e268]:
+                - generic [ref=e269]:
+                  - img [ref=e271]
+                  - generic [ref=e273]:
+                    - generic [ref=e274]:
+                      - generic [ref=e275]: cyntro-tb-prod-aurora
+                      - generic "Current graph data" [ref=e276]
+                    - generic [ref=e278]: RDS · eu-west-1 · regional
+                    - generic [ref=e279]:
+                      - generic [ref=e280]: 2 in · 0 out
+                      - generic [ref=e281]:
+                        - img [ref=e282]
+                        - text: Aug 24, 10:24 PM
+            - listitem [ref=e285]:
+              - button "cyntro-tb-prod-aurora-0 Current graph data RDS · eu-west-1a · data 2 in · 0 out Aug 24, 10:24 PM" [ref=e286]:
+                - generic [ref=e287]:
+                  - img [ref=e289]
+                  - generic [ref=e291]:
+                    - generic [ref=e292]:
+                      - generic [ref=e293]: cyntro-tb-prod-aurora-0
+                      - generic "Current graph data" [ref=e294]
+                    - generic [ref=e296]: RDS · eu-west-1a · data
+                    - generic [ref=e297]:
+                      - generic [ref=e298]: 2 in · 0 out
+                      - generic [ref=e299]:
+                        - img [ref=e300]
+                        - text: Aug 24, 10:24 PM
+            - listitem [ref=e303]:
+              - button "cyntro-tb-prod-aurora-1 Current graph data RDS · eu-west-1a · data 2 in · 0 out Aug 24, 10:24 PM" [ref=e304]:
+                - generic [ref=e305]:
+                  - img [ref=e307]
+                  - generic [ref=e309]:
+                    - generic [ref=e310]:
+                      - generic [ref=e311]: cyntro-tb-prod-aurora-1
+                      - generic "Current graph data" [ref=e312]
+                    - generic [ref=e314]: RDS · eu-west-1a · data
+                    - generic [ref=e315]:
+                      - generic [ref=e316]: 2 in · 0 out
+                      - generic [ref=e317]:
+                        - img [ref=e318]
+                        - text: Aug 24, 10:24 PM
+            - listitem [ref=e321]:
+              - button "cyntro-tb-prod-consumer-daily Current graph data EventBridge · eu-west-1 · regional 0 in · 2 out Aug 31, 11:00 AM" [ref=e322]:
+                - generic [ref=e323]:
+                  - img [ref=e325]
+                  - generic [ref=e327]:
+                    - generic [ref=e328]:
+                      - generic [ref=e329]: cyntro-tb-prod-consumer-daily
+                      - generic "Current graph data" [ref=e330]
+                    - generic [ref=e332]: EventBridge · eu-west-1 · regional
+                    - generic [ref=e333]:
+                      - generic [ref=e334]: 0 in · 2 out
+                      - generic [ref=e335]:
+                        - img [ref=e336]
+                        - text: Aug 31, 11:00 AM
+            - listitem [ref=e339]:
+              - button "cyntro-tb-prod-consumer-every_6h Current graph data EventBridge · eu-west-1 · regional 0 in · 2 out Aug 31, 11:00 AM" [ref=e340]:
+                - generic [ref=e341]:
+                  - img [ref=e343]
+                  - generic [ref=e345]:
+                    - generic [ref=e346]:
+                      - generic [ref=e347]: cyntro-tb-prod-consumer-every_6h
+                      - generic "Current graph data" [ref=e348]
+                    - generic [ref=e350]: EventBridge · eu-west-1 · regional
+                    - generic [ref=e351]:
+                      - generic [ref=e352]: 0 in · 2 out
+                      - generic [ref=e353]:
+                        - img [ref=e354]
+                        - text: Aug 31, 11:00 AM
+            - listitem [ref=e357]:
+              - button "cyntro-tb-prod-consumer-frequent Current graph data EventBridge · eu-west-1 · regional 0 in · 2 out Sep 1, 11:00 AM" [ref=e358]:
+                - generic [ref=e359]:
+                  - img [ref=e361]
+                  - generic [ref=e363]:
+                    - generic [ref=e364]:
+                      - generic [ref=e365]: cyntro-tb-prod-consumer-frequent
+                      - generic "Current graph data" [ref=e366]
+                    - generic [ref=e368]: EventBridge · eu-west-1 · regional
+                    - generic [ref=e369]:
+                      - generic [ref=e370]: 0 in · 2 out
+                      - generic [ref=e371]:
+                        - img [ref=e372]
+                        - text: Sep 1, 11:00 AM
+            - listitem [ref=e375]:
+              - button "cyntro-tb-prod-consumer-monthly Current graph data Lambda · eu-west-1 · regional 2 in · 0 out No runtime timestamp" [ref=e376]:
+                - generic [ref=e377]:
+                  - img [ref=e379]
+                  - generic [ref=e381]:
+                    - generic [ref=e382]:
+                      - generic [ref=e383]: cyntro-tb-prod-consumer-monthly
+                      - generic "Current graph data" [ref=e384]
+                    - generic [ref=e386]: Lambda · eu-west-1 · regional
+                    - generic [ref=e387]:
+                      - generic [ref=e388]: 2 in · 0 out
+                      - generic [ref=e389]:
+                        - img
+                        - text: No runtime timestamp
+            - listitem [ref=e392]:
+              - button "cyntro-tb-prod-consumer-monthly Current graph data EventBridge · eu-west-1 · regional 0 in · 2 out No runtime timestamp" [ref=e393]:
+                - generic [ref=e394]:
+                  - img [ref=e396]
+                  - generic [ref=e398]:
+                    - generic [ref=e399]:
+                      - generic [ref=e400]: cyntro-tb-prod-consumer-monthly
+                      - generic "Current graph data" [ref=e401]
+                    - generic [ref=e403]: EventBridge · eu-west-1 · regional
+                    - generic [ref=e404]:
+                      - generic [ref=e405]: 0 in · 2 out
+                      - generic [ref=e406]:
+                        - img
+                        - text: No runtime timestamp
+            - listitem [ref=e409]:
+              - button "cyntro-tb-prod-consumer-nightly_burst Current graph data EventBridge · eu-west-1 · regional 0 in · 2 out Aug 31, 11:00 AM" [ref=e410]:
+                - generic [ref=e411]:
+                  - img [ref=e413]
+                  - generic [ref=e415]:
+                    - generic [ref=e416]:
+                      - generic [ref=e417]: cyntro-tb-prod-consumer-nightly_burst
+                      - generic "Current graph data" [ref=e418]
+                    - generic [ref=e420]: EventBridge · eu-west-1 · regional
+                    - generic [ref=e421]:
+                      - generic [ref=e422]: 0 in · 2 out
+                      - generic [ref=e423]:
+                        - img [ref=e424]
+                        - text: Aug 31, 11:00 AM
+            - listitem [ref=e427]:
+              - button "cyntro-tb-prod-consumer-weekly Current graph data Lambda · eu-west-1 · regional 2 in · 0 out Aug 29, 11:00 AM" [ref=e428]:
+                - generic [ref=e429]:
+                  - img [ref=e431]
+                  - generic [ref=e433]:
+                    - generic [ref=e434]:
+                      - generic [ref=e435]: cyntro-tb-prod-consumer-weekly
+                      - generic "Current graph data" [ref=e436]
+                    - generic [ref=e438]: Lambda · eu-west-1 · regional
+                    - generic [ref=e439]:
+                      - generic [ref=e440]: 2 in · 0 out
+                      - generic [ref=e441]:
+                        - img [ref=e442]
+                        - text: Aug 29, 11:00 AM
+            - listitem [ref=e445]:
+              - button "cyntro-tb-prod-consumer-weekly Current graph data EventBridge · eu-west-1 · regional 0 in · 2 out Aug 29, 11:00 AM" [ref=e446]:
+                - generic [ref=e447]:
+                  - img [ref=e449]
+                  - generic [ref=e451]:
+                    - generic [ref=e452]:
+                      - generic [ref=e453]: cyntro-tb-prod-consumer-weekly
+                      - generic "Current graph data" [ref=e454]
+                    - generic [ref=e456]: EventBridge · eu-west-1 · regional
+                    - generic [ref=e457]:
+                      - generic [ref=e458]: 0 in · 2 out
+                      - generic [ref=e459]:
+                        - img [ref=e460]
+                        - text: Aug 29, 11:00 AM
+            - listitem [ref=e463]:
+              - button "cyntro-tb-prod-web Current graph data EC2 · eu-west-1a · web 1 in · 1 out Aug 25, 01:48 AM" [ref=e464]:
+                - generic [ref=e465]:
+                  - img [ref=e467]
+                  - generic [ref=e469]:
+                    - generic [ref=e470]:
+                      - generic [ref=e471]: cyntro-tb-prod-web
+                      - generic "Current graph data" [ref=e472]
+                    - generic [ref=e474]: EC2 · eu-west-1a · web
+                    - generic [ref=e475]:
+                      - generic [ref=e476]: 1 in · 1 out
+                      - generic [ref=e477]:
+                        - img [ref=e478]
+                        - text: Aug 25, 01:48 AM
+            - listitem [ref=e481]:
+              - button "cyntro-tb-prod-web Current graph data EC2 · eu-west-1b · web 1 in · 1 out Aug 25, 01:59 AM" [ref=e482]:
+                - generic [ref=e483]:
+                  - img [ref=e485]
+                  - generic [ref=e487]:
+                    - generic [ref=e488]:
+                      - generic [ref=e489]: cyntro-tb-prod-web
+                      - generic "Current graph data" [ref=e490]
+                    - generic [ref=e492]: EC2 · eu-west-1b · web
+                    - generic [ref=e493]:
+                      - generic [ref=e494]: 1 in · 1 out
+                      - generic [ref=e495]:
+                        - img [ref=e496]
+                        - text: Aug 25, 01:59 AM
+            - listitem [ref=e499]:
+              - button "cyntro-tb-prod-alb-int Current graph data LoadBalancer · eu-west-1a · app 0 in · 1 out No runtime timestamp" [ref=e500]:
+                - generic [ref=e501]:
+                  - img [ref=e503]
+                  - generic [ref=e505]:
+                    - generic [ref=e506]:
+                      - generic [ref=e507]: cyntro-tb-prod-alb-int
+                      - generic "Current graph data" [ref=e508]
+                    - generic [ref=e510]: LoadBalancer · eu-west-1a · app
+                    - generic [ref=e511]:
+                      - generic [ref=e512]: 0 in · 1 out
+                      - generic [ref=e513]:
+                        - img
+                        - text: No runtime timestamp
+            - listitem [ref=e516]:
+              - button "cyntro-tb-prod-alb-pub Current graph data LoadBalancer · eu-west-1a · web 0 in · 1 out No runtime timestamp" [ref=e517]:
+                - generic [ref=e518]:
+                  - img [ref=e520]
+                  - generic [ref=e522]:
+                    - generic [ref=e523]:
+                      - generic [ref=e524]: cyntro-tb-prod-alb-pub
+                      - generic "Current graph data" [ref=e525]
+                    - generic [ref=e527]: LoadBalancer · eu-west-1a · web
+                    - generic [ref=e528]:
+                      - generic [ref=e529]: 0 in · 1 out
+                      - generic [ref=e530]:
+                        - img
+                        - text: No runtime timestamp
+            - listitem [ref=e533]:
+              - button "cyntro-tb-prod-loadgen Current graph data EC2 · eu-west-1a · app 0 in · 1 out Aug 25, 02:00 AM" [ref=e534]:
+                - generic [ref=e535]:
+                  - img [ref=e537]
+                  - generic [ref=e539]:
+                    - generic [ref=e540]:
+                      - generic [ref=e541]: cyntro-tb-prod-loadgen
+                      - generic "Current graph data" [ref=e542]
+                    - generic [ref=e544]: EC2 · eu-west-1a · app
+                    - generic [ref=e545]:
+                      - generic [ref=e546]: 0 in · 1 out
+                      - generic [ref=e547]:
+                        - img [ref=e548]
+                        - text: Aug 25, 02:00 AM
+            - listitem [ref=e551]:
+              - button "cyntro-evidence-testbed-webshop-950952 Current graph data S3 · global · regional 0 in · 0 out No runtime timestamp" [ref=e552]:
+                - generic [ref=e553]:
+                  - img [ref=e555]
+                  - generic [ref=e558]:
+                    - generic [ref=e559]:
+                      - generic [ref=e560]: cyntro-evidence-testbed-webshop-950952
+                      - generic "Current graph data" [ref=e561]
+                    - generic [ref=e563]: S3 · global · regional
+                    - generic [ref=e564]:
+                      - generic [ref=e565]: 0 in · 0 out
+                      - generic [ref=e566]:
+                        - img
+                        - text: No runtime timestamp
+            - listitem [ref=e569]:
+              - button "cyntro-ingest-head-testbed-webshop Current graph data DynamoDB · eu-west-1 · regional 0 in · 0 out No runtime timestamp" [ref=e570]:
+                - generic [ref=e571]:
+                  - img [ref=e573]
+                  - generic [ref=e576]:
+                    - generic [ref=e577]:
+                      - generic [ref=e578]: cyntro-ingest-head-testbed-webshop
+                      - generic "Current graph data" [ref=e579]
+                    - generic [ref=e581]: DynamoDB · eu-west-1 · regional
+                    - generic [ref=e582]:
+                      - generic [ref=e583]: 0 in · 0 out
+                      - generic [ref=e584]:
+                        - img
+                        - text: No runtime timestamp
+            - listitem [ref=e587]:
+              - button "cyntro-tb-prod-logs-1c8276f5 Current graph data S3 · global · regional 0 in · 0 out No runtime timestamp" [ref=e588]:
+                - generic [ref=e589]:
+                  - img [ref=e591]
+                  - generic [ref=e594]:
+                    - generic [ref=e595]:
+                      - generic [ref=e596]: cyntro-tb-prod-logs-1c8276f5
+                      - generic "Current graph data" [ref=e597]
+                    - generic [ref=e599]: S3 · global · regional
+                    - generic [ref=e600]:
+                      - generic [ref=e601]: 0 in · 0 out
+                      - generic [ref=e602]:
+                        - img
+                        - text: No runtime timestamp
+            - listitem [ref=e605]:
+              - button "cyntro-testbed-webshop Current graph data Neptune · eu-west-1 · regional 0 in · 0 out No runtime timestamp" [ref=e606]:
+                - generic [ref=e607]:
+                  - img [ref=e609]
+                  - generic [ref=e612]:
+                    - generic [ref=e613]:
+                      - generic [ref=e614]: cyntro-testbed-webshop
+                      - generic "Current graph data" [ref=e615]
+                    - generic [ref=e617]: Neptune · eu-west-1 · regional
+                    - generic [ref=e618]:
+                      - generic [ref=e619]: 0 in · 0 out
+                      - generic [ref=e620]:
+                        - img
+                        - text: No runtime timestamp
+            - listitem [ref=e623]:
+              - button "cyntro-testbed-webshop-writer Current graph data Neptune · eu-west-1a · web 0 in · 0 out No runtime timestamp" [ref=e624]:
+                - generic [ref=e625]:
+                  - img [ref=e627]
+                  - generic [ref=e630]:
+                    - generic [ref=e631]:
+                      - generic [ref=e632]: cyntro-testbed-webshop-writer
+                      - generic "Current graph data" [ref=e633]
+                    - generic [ref=e635]: Neptune · eu-west-1a · web
+                    - generic [ref=e636]:
+                      - generic [ref=e637]: 0 in · 0 out
+                      - generic [ref=e638]:
+                        - img
+                        - text: No runtime timestamp
+    - contentinfo [ref=e641]:
+      - text: Live read from
+      - generic [ref=e642]: /api/topology-risk/testbed-webshop
+      - text: . Glance groups real Neptune nodes only — empty cells are honest, not fabricated.
+    - dialog "Topology map full screen" [ref=e643]:
+      - generic [ref=e644]:
+        - generic [ref=e645]:
+          - generic [ref=e646]: Cloud topology
+          - generic [ref=e647]: testbed-webshop
+        - button "Scope" [ref=e648]:
+          - img [ref=e649]
+          - text: Scope
+        - group "Map density" [ref=e650]:
+          - button "Glance" [ref=e651]
+          - button "Inventory" [active] [ref=e652]
+        - generic [ref=e653]:
+          - button "100%" [ref=e654]:
+            - img [ref=e655]
+            - text: 100%
+          - button "Zoom out" [ref=e660]:
+            - img [ref=e661]
+          - generic "Zoom relative to fit — 100% = map fills page width" [ref=e664]: 100%
+          - button "Zoom in" [ref=e665]:
+            - img [ref=e666]
+        - button "Exit map fullscreen" [ref=e669]:
+          - img [ref=e670]
+          - text: Exit
+      - generic [ref=e678]:
+        - generic [ref=e679]:
+          - generic [ref=e680]:
+            - generic [ref=e681]: Platform map
+            - generic [ref=e682]: 1 VPC · 2 AZ · 6 subnets · 30 resources
+          - generic [ref=e683]:
+            - generic [ref=e684]: Map lens
+            - generic [ref=e685]:
+              - button "Architecture" [ref=e686]:
+                - img [ref=e687]
+                - text: Architecture
+              - button "Dependencies" [pressed] [ref=e697]:
+                - img [ref=e698]
+                - text: Dependencies
+              - button "Attack paths" [ref=e702]:
+                - img [ref=e703]
+                - text: Attack paths
+        - generic "Dependency line colors" [ref=e705]:
+          - generic [ref=e706]: Flow colors
+          - generic [ref=e707]:
+            - img [ref=e708]
+            - generic [ref=e710]: Service call
+          - generic [ref=e711]:
+            - img [ref=e712]
+            - generic [ref=e714]: AWS data service
+          - generic [ref=e715]:
+            - img [ref=e716]
+            - generic [ref=e718]: VPC endpoint
+          - generic [ref=e719]:
+            - img [ref=e720]
+            - generic [ref=e722]: Internet egress
+          - generic [ref=e723]:
+            - img [ref=e724]
+            - generic [ref=e726]: Database
+          - generic [ref=e727]:
+            - img [ref=e728]
+            - generic [ref=e730]: Exposure / attack
+          - generic [ref=e731]: Moving = authoritative observed
+          - generic [ref=e735]:
+            - img [ref=e736]
+            - text: Outlined motion = historical direction
+          - generic [ref=e739]:
+            - img [ref=e740]
+            - text: Solid = configured
+          - generic [ref=e741]:
+            - img [ref=e742]
+            - text: Dashed = inferred / unverified
+        - generic [ref=e743]:
+          - generic [ref=e744]: Confirmed TCP paths
+          - generic [ref=e745]: endpoint edge coverage is PARTIAL
+        - generic [ref=e746]:
+          - generic [ref=e747]:
+            - generic [ref=e748]: Flow-log coverage
+            - generic [ref=e749]: Partly covered
+            - generic [ref=e750]: 7 of 14 eligible endpoints covered · 6 unknown · 10 not applicable · generation 164
+            - generic [ref=e751]:
+              - 'generic "In-VPC: eligible 9, covered 5, unknown 0, not applicable 0" [ref=e752]': In-VPC 5/9
+              - 'generic "Database: eligible 5, covered 2, unknown 0, not applicable 0" [ref=e753]': Database 2/5
+              - 'generic "Lambda: eligible 0, covered 0, unknown 6, not applicable 0" [ref=e754]': Lambda 6 unknown
+              - 'generic "Regional: eligible 0, covered 0, unknown 0, not applicable 10" [ref=e755]': Regional 10 n/a
+          - list [ref=e756]:
+            - listitem "6 Lambda function(s) have no verified VPC configuration; flow-log coverage for them is unknown, not absent." [ref=e757]:
+              - generic [ref=e758]: "Lambda:"
+              - text: 6 Lambda function(s) have no verified VPC configuration; flow-log coverage for them is unknown, not absent.
+            - listitem "10 regional service(s) have no VPC network interface; VPC flow logs cannot observe them. Access to them is evidenced by CloudTrail data events, a separate lane." [ref=e759]:
+              - generic [ref=e760]: "Regional:"
+              - text: 10 regional service(s) have no VPC network interface; VPC flow logs cannot observe them. Access to them is evidenced by CloudTrail data events, a separate lane.
+            - listitem "6 observed segment(s) leave the VPC toward endpoints the classifier has not labelled; they are not drawn. A missing arrow here is not evidence of no traffic." [ref=e761]:
+              - generic [ref=e762]: "In-VPC:"
+              - text: 6 observed segment(s) leave the VPC toward endpoints the classifier has not labelled; they are not drawn. A missing arrow here is not evidence of no traffic.
+            - listitem "8 observed inbound segment(s) come from endpoints the classifier has not labelled; they are not drawn." [ref=e763]:
+              - generic [ref=e764]: "In-VPC:"
+              - text: 8 observed inbound segment(s) come from endpoints the classifier has not labelled; they are not drawn.
+        - generic [ref=e765]:
+          - generic [ref=e766]:
+            - img [ref=e768]
+            - generic [ref=e773]:
+              - generic [ref=e774]: Users
+              - generic [ref=e775]: Clients & operators
+          - generic [ref=e777]:
+            - img [ref=e779]
+            - generic [ref=e784]:
+              - generic [ref=e785]: Internet
+              - generic [ref=e786]: Public path via IGW · igw-01b6c643a5c856abe
+        - generic [ref=e787]:
+          - generic [ref=e788]: ☁ AWS Cloud · acct 416651950952
+          - generic [ref=e789]:
+            - generic [ref=e790]: Region · eu-west-1
+            - generic [ref=e791]:
+              - generic [ref=e793]:
+                - generic "vpc-0c39cde96f29f8f4e" [ref=e795]: VPC · vpc-0c39cde96f29f8f4e
+                - generic [ref=e796]:
+                  - generic [ref=e797]:
+                    - generic [ref=e798]:
+                      - img [ref=e799]
+                      - generic [ref=e805]: Load Balancers (2)
+                    - generic [ref=e806]:
+                      - button "cyntro-tb-prod-alb-int Multi-AZ LoadBalancer · arn:aws:elasticloadbalan 0" [ref=e807]:
+                        - generic [ref=e809]:
+                          - generic [ref=e810]:
+                            - generic [ref=e811]: cyntro-tb-prod-alb-int
+                            - generic "Multi-AZ — one resource spanning multiple availability zones (shown in each zone's cell, counted once)" [ref=e812]: Multi-AZ
+                          - generic [ref=e813]: LoadBalancer · arn:aws:elasticloadbalan
+                        - generic [ref=e814]: "0"
+                      - button "cyntro-tb-prod-alb-pub Multi-AZ LoadBalancer · arn:aws:elasticloadbalan 0" [ref=e815]:
+                        - generic [ref=e817]:
+                          - generic [ref=e818]:
+                            - generic [ref=e819]: cyntro-tb-prod-alb-pub
+                            - generic "Multi-AZ — one resource spanning multiple availability zones (shown in each zone's cell, counted once)" [ref=e820]: Multi-AZ
+                          - generic [ref=e821]: LoadBalancer · arn:aws:elasticloadbalan
+                        - generic [ref=e822]: "0"
+                  - generic [ref=e827]:
+                    - generic "eu-west-1a" [ref=e828]
+                    - generic "eu-west-1b" [ref=e829]
+                - generic [ref=e830]:
+                  - generic [ref=e831]: WEB TIER
+                  - generic [ref=e833]:
+                    - 'generic "Public subnet (web tier) · cyntro-tb-prod-public-eu-west-1a · 10.42.0.0/24 · Owner: testbed-webshop" [ref=e834]':
+                      - generic [ref=e835]:
+                        - generic [ref=e836]: Public · cyntro-tb-prod-public-eu-west-1a
+                        - generic [ref=e837]: 10.42.0.0/24
+                      - generic "NAT gateway · nat-0fd7cf8524e62aea9 · subnet subnet-05472c7cd0d3a7b90 (from vpc_topology.edges)" [ref=e839]:
+                        - img [ref=e841]
+                        - generic [ref=e844]: NAT GW · nat-0fd7cf8524e62aea9
+                      - generic [ref=e845]:
+                        - button "quiet posture score cyntro-tb-prod-web" [ref=e846]:
+                          - generic "quiet posture score" [ref=e847]
+                          - generic [ref=e850]: cyntro-tb-prod-web
+                        - button "quiet posture score cyntro-tb-prod-tg-app" [ref=e851]:
+                          - generic "quiet posture score" [ref=e852]
+                          - generic [ref=e855]: cyntro-tb-prod-tg-app
+                        - button "quiet posture score cyntro-tb-prod-tg-web" [ref=e856]:
+                          - generic "quiet posture score" [ref=e857]
+                          - generic [ref=e860]: cyntro-tb-prod-tg-web
+                    - 'generic "Public subnet (web tier) · cyntro-tb-prod-public-eu-west-1b · 10.42.1.0/24 · Owner: testbed-webshop" [ref=e861]':
+                      - generic [ref=e862]:
+                        - generic [ref=e863]: Public · cyntro-tb-prod-public-eu-west-1b
+                        - generic [ref=e864]: 10.42.1.0/24
+                      - button "quiet posture score cyntro-tb-prod-web" [ref=e866]:
+                        - generic "quiet posture score" [ref=e867]
+                        - generic [ref=e870]: cyntro-tb-prod-web
+                - generic [ref=e871]:
+                  - generic [ref=e872]: APPLICATION TIER
+                  - generic [ref=e874]:
+                    - 'generic "Private subnet (app tier) · cyntro-tb-prod-app-eu-west-1a · 10.42.10.0/24 · Owner: testbed-webshop" [ref=e875]':
+                      - generic [ref=e876]:
+                        - generic [ref=e877]: Private · cyntro-tb-prod-app-eu-west-1a
+                        - generic [ref=e878]: 10.42.10.0/24
+                      - generic [ref=e879]:
+                        - button "quiet posture score cyntro-tb-prod-loadgen" [ref=e880]:
+                          - generic "quiet posture score" [ref=e881]
+                          - generic [ref=e884]: cyntro-tb-prod-loadgen
+                        - button "quiet posture score cyntro-tb-prod-app" [ref=e885]:
+                          - generic "quiet posture score" [ref=e886]
+                          - generic [ref=e889]: cyntro-tb-prod-app
+                    - 'generic "Private subnet (app tier) · cyntro-tb-prod-app-eu-west-1b · 10.42.11.0/24 · Owner: testbed-webshop" [ref=e890]':
+                      - generic [ref=e891]:
+                        - generic [ref=e892]: Private · cyntro-tb-prod-app-eu-west-1b
+                        - generic [ref=e893]: 10.42.11.0/24
+                      - button "quiet posture score cyntro-tb-prod-app" [ref=e895]:
+                        - generic "quiet posture score" [ref=e896]
+                        - generic [ref=e899]: cyntro-tb-prod-app
+                - generic [ref=e900]:
+                  - generic [ref=e901]: DATABASE TIER
+                  - generic [ref=e903]:
+                    - 'generic "Private subnet (data tier) · cyntro-tb-prod-data-eu-west-1a · 10.42.20.0/24 · Owner: testbed-webshop" [ref=e904]':
+                      - generic [ref=e905]:
+                        - generic [ref=e906]: Data · cyntro-tb-prod-data-eu-west-1a
+                        - generic [ref=e907]: 10.42.20.0/24
+                      - generic [ref=e908]:
+                        - button "quiet posture score AZ+ cyntro-tb-prod-aurora-0" [ref=e909]:
+                          - generic "quiet posture score" [ref=e910]
+                          - generic "Multi-AZ — one resource spanning multiple availability zones (shown in each zone's cell, counted once)" [ref=e913]: AZ+
+                          - generic [ref=e914]: cyntro-tb-prod-aurora-0
+                        - button "quiet posture score AZ+ cyntro-tb-prod-aurora-1" [ref=e915]:
+                          - generic "quiet posture score" [ref=e916]
+                          - generic "Multi-AZ — one resource spanning multiple availability zones (shown in each zone's cell, counted once)" [ref=e919]: AZ+
+                          - generic [ref=e920]: cyntro-tb-prod-aurora-1
+                        - button "quiet posture score AZ+ cyntro-testbed-webshop-writer" [ref=e921]:
+                          - generic "quiet posture score" [ref=e922]
+                          - generic [ref=e923]:
+                            - img [ref=e925]
+                            - generic "Multi-AZ — one resource spanning multiple availability zones (shown in each zone's cell, counted once)" [ref=e930]: AZ+
+                          - generic [ref=e931]: cyntro-testbed-webshop-writer
+                    - 'generic "Private subnet (data tier) · cyntro-tb-prod-data-eu-west-1b · 10.42.21.0/24 · Owner: testbed-webshop" [ref=e932]':
+                      - generic [ref=e933]:
+                        - generic [ref=e934]: Data · cyntro-tb-prod-data-eu-west-1b
+                        - generic [ref=e935]: 10.42.21.0/24
+                      - generic [ref=e936]:
+                        - button "quiet posture score AZ+ cyntro-tb-prod-aurora-0" [ref=e937]:
+                          - generic "quiet posture score" [ref=e938]
+                          - generic "Multi-AZ — one resource spanning multiple availability zones (shown in each zone's cell, counted once)" [ref=e941]: AZ+
+                          - generic [ref=e942]: cyntro-tb-prod-aurora-0
+                        - button "quiet posture score AZ+ cyntro-tb-prod-aurora-1" [ref=e943]:
+                          - generic "quiet posture score" [ref=e944]
+                          - generic "Multi-AZ — one resource spanning multiple availability zones (shown in each zone's cell, counted once)" [ref=e947]: AZ+
+                          - generic [ref=e948]: cyntro-tb-prod-aurora-1
+                        - button "quiet posture score AZ+ cyntro-testbed-webshop-writer" [ref=e949]:
+                          - generic "quiet posture score" [ref=e950]
+                          - generic [ref=e951]:
+                            - img [ref=e953]
+                            - generic "Multi-AZ — one resource spanning multiple availability zones (shown in each zone's cell, counted once)" [ref=e958]: AZ+
+                          - generic [ref=e959]: cyntro-testbed-webshop-writer
+              - generic [ref=e960]:
+                - button "IGW igw-01b6c643a5c856abe" [ref=e961]:
+                  - img [ref=e963]
+                  - generic [ref=e966]:
+                    - generic [ref=e967]: IGW
+                    - generic [ref=e968]: igw-01b6c643a5c856abe
+                - button "VPCE GW Amazon S3 Private S3 access without NAT/IGW" [ref=e969]:
+                  - img [ref=e971]
+                  - generic [ref=e975]:
+                    - generic [ref=e976]:
+                      - generic [ref=e977]: VPCE
+                      - generic [ref=e978]: GW
+                    - generic [ref=e979]: Amazon S3
+                    - generic [ref=e980]: Private S3 access without NAT/IGW
+              - generic [ref=e982]:
+                - generic [ref=e983]:
+                  - generic [ref=e984]:
+                    - generic [ref=e985]: Lambda runtime · outside subnet grid (6)
+                    - generic [ref=e986]:
+                      - text: 6 attachment unverified
+                      - generic "6 of 6 chips omit this shared prefix" [ref=e987]: · cyntro-tb-prod-consumer-… ×6
+                  - button "↑ 4 above" [ref=e988]
+                  - generic [ref=e990]:
+                    - button "quiet posture score …monthly" [ref=e991]:
+                      - generic "quiet posture score" [ref=e992]
+                      - generic [ref=e995]: …monthly
+                    - button "quiet posture score …weekly" [ref=e996]:
+                      - generic "quiet posture score" [ref=e997]
+                      - generic [ref=e1000]: …weekly
+                    - button "quiet posture score …daily" [ref=e1001]:
+                      - generic "quiet posture score" [ref=e1002]
+                      - generic [ref=e1005]: …daily
+                    - button "quiet posture score …every_6h" [ref=e1006]:
+                      - generic "quiet posture score" [ref=e1007]
+                      - generic [ref=e1010]: …every_6h
+                    - button "quiet posture score …frequent" [ref=e1011]:
+                      - generic "quiet posture score" [ref=e1012]
+                      - generic [ref=e1015]: …frequent
+                    - button "quiet posture score …nightly_burst" [ref=e1016]:
+                      - generic "quiet posture score" [ref=e1017]
+                      - generic [ref=e1020]: …nightly_burst
+                - generic [ref=e1021]:
+                  - generic [ref=e1022]:
+                    - text: Regional · EventBridge / S3 / DynamoDB (10)
+                    - generic "6 of 10 chips omit this shared prefix" [ref=e1023]: cyntro-tb-prod-consumer-… ×6
+                  - generic [ref=e1025]:
+                    - button "quiet posture score cyntro-evidence-testbed-webshop-950952" [ref=e1026]:
+                      - generic "quiet posture score" [ref=e1027]
+                      - generic [ref=e1030]: cyntro-evidence-testbed-webshop-950952
+                    - button "quiet posture score cyntro-ingest-head-testbed-webshop" [ref=e1031]:
+                      - generic "quiet posture score" [ref=e1032]
+                      - generic [ref=e1035]: cyntro-ingest-head-testbed-webshop
+                    - button "quiet posture score cyntro-tb-prod-appdata-1c8276f5" [ref=e1036]:
+                      - generic "quiet posture score" [ref=e1037]
+                      - generic [ref=e1040]: cyntro-tb-prod-appdata-1c8276f5
+                    - button "quiet posture score …daily" [ref=e1041]:
+                      - generic "quiet posture score" [ref=e1042]
+                      - generic [ref=e1045]: …daily
+                    - button "quiet posture score …every_6h" [ref=e1046]:
+                      - generic "quiet posture score" [ref=e1047]
+                      - generic [ref=e1050]: …every_6h
+                    - button "quiet posture score …frequent" [ref=e1051]:
+                      - generic "quiet posture score" [ref=e1052]
+                      - generic [ref=e1055]: …frequent
+                    - button "quiet posture score …monthly" [ref=e1056]:
+                      - generic "quiet posture score" [ref=e1057]
+                      - generic [ref=e1060]: …monthly
+                    - button "quiet posture score …nightly_burst" [ref=e1061]:
+                      - generic "quiet posture score" [ref=e1062]
+                      - generic [ref=e1065]: …nightly_burst
+                    - button "quiet posture score …weekly" [ref=e1066]:
+                      - generic "quiet posture score" [ref=e1067]
+                      - generic [ref=e1070]: …weekly
+                    - button "quiet posture score cyntro-tb-prod-logs-1c8276f5" [ref=e1071]:
+                      - generic "quiet posture score" [ref=e1072]
+                      - generic [ref=e1075]: cyntro-tb-prod-logs-1c8276f5
+                  - button "+6 more ↓" [ref=e1076]
+        - img:
+          - generic:
+            - generic:
+              - generic: TG
+          - generic:
+            - generic:
+              - generic: TG
+          - generic:
+            - generic:
+              - generic: TARGETS
+          - generic:
+            - generic:
+              - generic: TARGETS
+          - generic:
+            - generic:
+              - generic: TARGETS
+          - generic:
+            - generic:
+              - generic: TARGETS
+          - generic:
+            - generic:
+              - generic: Egress · 5 flows
+          - generic:
+            - generic:
+              - generic: RDS · 3306
+          - generic:
+            - generic:
+              - generic: RDS · 3306
+          - generic:
+            - generic:
+              - generic: RDS · 3306
+          - generic:
+            - generic:
+              - generic: RDS · 3306
+          - generic:
+            - generic:
+              - generic: ACTUAL_S3_ACCESS ×4
+          - generic:
+            - generic:
+              - generic: TARGETS
+          - generic:
+            - generic:
+              - generic: TRIGGERS
+          - generic:
+            - generic:
+              - generic: TARGETS
+          - generic:
+            - generic:
+              - generic: TRIGGERS
+          - generic:
+            - generic:
+              - generic: TARGETS
+          - generic:
+            - generic:
+              - generic: TRIGGERS
+          - generic:
+            - generic:
+              - generic: TARGETS
+          - generic:
+            - generic:
+              - generic: TRIGGERS
+          - generic:
+            - generic:
+              - generic: TARGETS
+          - generic:
+            - generic:
+              - generic: TRIGGERS
+          - generic:
+            - generic:
+              - generic: TARGETS
+          - generic:
+            - generic:
+              - generic: TRIGGERS
+  - region "Notifications (F8)":
+    - list
+  - alert [ref=e1077]
+```

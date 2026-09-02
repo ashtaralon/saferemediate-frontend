@@ -1,0 +1,481 @@
+{
+  "test": "estate map on the deployed frontend: lanes, NAT chips, ALB band, coverage pill",
+  "status": "timedOut",
+  "measurements": [
+    {
+      "name": "estate-page",
+      "data": {
+        "mounted": true,
+        "loads": [
+          {
+            "attempt": 1,
+            "mounted": true,
+            "reason": null,
+            "ms": 53835
+          }
+        ],
+        "gate": [
+          {
+            "path": "/api/proxy/admin/customers",
+            "status": 200,
+            "body": "[{\"customer_id\":\"testbed-webshop\",\"display_name\":\"Cyntro Testbed Webshop\",\"aws_account_id\":\"416651950952\",\"aws_region\":\"eu-west-1\",\"registered_at\":\"2026-08-20T22:19:06.448077+00:00\"}]"
+          },
+          {
+            "path": "/api/proxy/admin/customers",
+            "status": 200,
+            "body": "[{\"customer_id\":\"testbed-webshop\",\"display_name\":\"Cyntro Testbed Webshop\",\"aws_account_id\":\"416651950952\",\"aws_region\":\"eu-west-1\",\"registered_at\":\"2026-08-20T22:19:06.448077+00:00\"}]"
+          },
+          {
+            "path": "/api/proxy/admin/accounts/scope/options/all?customer_id=testbed-webshop",
+            "status": 200,
+            "body": "{\"customer_id\":\"testbed-webshop\",\"accounts\":[{\"account_id\":\"416651950952\",\"display_name\":\"Testbed Webshop\",\"regions\":[\"eu-west-1\"],\"group_ids\":[],\"status\":\"CONNECTED\"}],\"groups\":[]}"
+          },
+          {
+            "path": "/api/proxy/admin/accounts/scope/options/all?customer_id=testbed-webshop",
+            "status": 200,
+            "body": "{\"customer_id\":\"testbed-webshop\",\"accounts\":[{\"account_id\":\"416651950952\",\"display_name\":\"Testbed Webshop\",\"regions\":[\"eu-west-1\"],\"group_ids\":[],\"status\":\"CONNECTED\"}],\"groups\":[]}"
+          },
+          {
+            "path": "/api/proxy/systems?customer_id=testbed-webshop",
+            "status": 200,
+            "body": "{\"success\":true,\"systems\":[{\"name\":\"testbed-webshop\",\"displayName\":\"testbed-webshop\",\"SystemName\":\"testbed-webshop\",\"environment\":\"prod\",\"region\":\"eu-west-1\",\"account_id\":\"416651950952\",\"resourceCount\":134,\"resourceTypes\":[\"IAMRole\"],\"criticality\":\"BUSINESS CRITICAL\",\"status\":\"warning\",\"lastScan\":\"17 days ago\",\"lastScanAt\":\"2026-08-16T11:41:17+00:00\",\"health_score\":60,\"healthScore\":60,\"critical_co"
+          },
+          {
+            "path": "/api/proxy/topology-risk/testbed-webshop?customer_id=testbed-webshop",
+            "status": 200,
+            "body": "{\"system\":\"testbed-webshop\",\"scored_at\":\"2026-09-02T19:37:49.847971Z\",\"scoring_window_days\":365,\"account_id\":\"416651950952\",\"selected_account_id\":null,\"region\":\"eu-west-1\",\"selected_region_id\":null,\"available_regions\":[\"eu-west-1\"],\"vpc_id\":\"vpc-0c39cde96f29f8f4e\",\"selected_vpc_id\":null,\"available_vpcs\":[{\"vpc_id\":\"vpc-0c39cde96f29f8f4e\",\"name\":\"cyntro-tb-prod-vpc\",\"workload_count\":12,\"tagged_subn"
+          },
+          {
+            "path": "/api/proxy/topology-risk/testbed-webshop?customer_id=testbed-webshop&vpc_id=vpc-0c39cde96f29f8f4e",
+            "status": 200,
+            "body": "{\"system\":\"testbed-webshop\",\"scored_at\":\"2026-09-02T20:37:18.836767Z\",\"scoring_window_days\":365,\"account_id\":\"416651950952\",\"selected_account_id\":null,\"region\":\"eu-west-1\",\"selected_region_id\":\"eu-west-1\",\"available_regions\":[\"eu-west-1\"],\"vpc_id\":\"vpc-0c39cde96f29f8f4e\",\"selected_vpc_id\":\"vpc-0c39cde96f29f8f4e\",\"available_vpcs\":[{\"vpc_id\":\"vpc-0c39cde96f29f8f4e\",\"name\":\"cyntro-tb-prod-vpc\",\"workl"
+          }
+        ]
+      }
+    },
+    {
+      "name": "scope-gate",
+      "data": [
+        {
+          "path": "/api/proxy/admin/customers",
+          "status": 200,
+          "body": "[{\"customer_id\":\"testbed-webshop\",\"display_name\":\"Cyntro Testbed Webshop\",\"aws_account_id\":\"416651950952\",\"aws_region\":\"eu-west-1\",\"registered_at\":\"2026-08-20T22:19:06.448077+00:00\"}]"
+        },
+        {
+          "path": "/api/proxy/admin/customers",
+          "status": 200,
+          "body": "[{\"customer_id\":\"testbed-webshop\",\"display_name\":\"Cyntro Testbed Webshop\",\"aws_account_id\":\"416651950952\",\"aws_region\":\"eu-west-1\",\"registered_at\":\"2026-08-20T22:19:06.448077+00:00\"}]"
+        },
+        {
+          "path": "/api/proxy/admin/accounts/scope/options/all?customer_id=testbed-webshop",
+          "status": 200,
+          "body": "{\"customer_id\":\"testbed-webshop\",\"accounts\":[{\"account_id\":\"416651950952\",\"display_name\":\"Testbed Webshop\",\"regions\":[\"eu-west-1\"],\"group_ids\":[],\"status\":\"CONNECTED\"}],\"groups\":[]}"
+        },
+        {
+          "path": "/api/proxy/admin/accounts/scope/options/all?customer_id=testbed-webshop",
+          "status": 200,
+          "body": "{\"customer_id\":\"testbed-webshop\",\"accounts\":[{\"account_id\":\"416651950952\",\"display_name\":\"Testbed Webshop\",\"regions\":[\"eu-west-1\"],\"group_ids\":[],\"status\":\"CONNECTED\"}],\"groups\":[]}"
+        },
+        {
+          "path": "/api/proxy/systems?customer_id=testbed-webshop",
+          "status": 200,
+          "body": "{\"success\":true,\"systems\":[{\"name\":\"testbed-webshop\",\"displayName\":\"testbed-webshop\",\"SystemName\":\"testbed-webshop\",\"environment\":\"prod\",\"region\":\"eu-west-1\",\"account_id\":\"416651950952\",\"resourceCount\":134,\"resourceTypes\":[\"IAMRole\"],\"criticality\":\"BUSINESS CRITICAL\",\"status\":\"warning\",\"lastScan\":\"17 days ago\",\"lastScanAt\":\"2026-08-16T11:41:17+00:00\",\"health_score\":60,\"healthScore\":60,\"critical_co"
+        },
+        {
+          "path": "/api/proxy/topology-risk/testbed-webshop?customer_id=testbed-webshop",
+          "status": 200,
+          "body": "{\"system\":\"testbed-webshop\",\"scored_at\":\"2026-09-02T19:37:49.847971Z\",\"scoring_window_days\":365,\"account_id\":\"416651950952\",\"selected_account_id\":null,\"region\":\"eu-west-1\",\"selected_region_id\":null,\"available_regions\":[\"eu-west-1\"],\"vpc_id\":\"vpc-0c39cde96f29f8f4e\",\"selected_vpc_id\":null,\"available_vpcs\":[{\"vpc_id\":\"vpc-0c39cde96f29f8f4e\",\"name\":\"cyntro-tb-prod-vpc\",\"workload_count\":12,\"tagged_subn"
+        },
+        {
+          "path": "/api/proxy/topology-risk/testbed-webshop?customer_id=testbed-webshop&vpc_id=vpc-0c39cde96f29f8f4e",
+          "status": 200,
+          "body": "{\"system\":\"testbed-webshop\",\"scored_at\":\"2026-09-02T20:37:18.836767Z\",\"scoring_window_days\":365,\"account_id\":\"416651950952\",\"selected_account_id\":null,\"region\":\"eu-west-1\",\"selected_region_id\":\"eu-west-1\",\"available_regions\":[\"eu-west-1\"],\"vpc_id\":\"vpc-0c39cde96f29f8f4e\",\"selected_vpc_id\":\"vpc-0c39cde96f29f8f4e\",\"available_vpcs\":[{\"vpc_id\":\"vpc-0c39cde96f29f8f4e\",\"name\":\"cyntro-tb-prod-vpc\",\"workl"
+        }
+      ]
+    },
+    {
+      "name": "embedded",
+      "data": {
+        "vpc_options": [
+          "All VPCs · Compare",
+          "cyntro-tb-prod-vpc · vpc-0c39cde96f29f8f4e (12 workloads)"
+        ],
+        "authority_banner": "Confirmed TCP pathsendpoint edge coverage is PARTIAL",
+        "coverage_pill": {
+          "state": "partial",
+          "totals": "7 of 14 eligible endpoints covered · 6 unknown · 10 not applicable · generation 164",
+          "lanes": [
+            {
+              "testid": "topology-lane-coverage-vpc",
+              "state": "partial",
+              "text": "In-VPC 5/9"
+            },
+            {
+              "testid": "topology-lane-coverage-database",
+              "state": "partial",
+              "text": "Database 2/5"
+            },
+            {
+              "testid": "topology-lane-coverage-serverless",
+              "state": "unknown",
+              "text": "Lambda 6 unknown"
+            },
+            {
+              "testid": "topology-lane-coverage-regional",
+              "state": "not_applicable",
+              "text": "Regional 10 n/a"
+            }
+          ],
+          "warnings": [
+            {
+              "code": "lambda_attachment_unknown",
+              "text": "Lambda: 6 Lambda function(s) have no verified VPC configuration; flow-log coverage for them is unknown, not absent."
+            },
+            {
+              "code": "regional_services_outside_flow_logs",
+              "text": "Regional: 10 regional service(s) have no VPC network interface; VPC flow logs cannot observe them. Access to them is evidenced by CloudTrail data events, a separate lane."
+            },
+            {
+              "code": "egress_destinations_unclassified",
+              "text": "In-VPC: 6 observed segment(s) leave the VPC toward endpoints the classifier has not labelled; they are not drawn. A missing arrow here is not evidence of no traffic."
+            },
+            {
+              "code": "ingress_sources_unclassified",
+              "text": "In-VPC: 8 observed inbound segment(s) come from endpoints the classifier has not labelled; they are not drawn."
+            }
+          ]
+        },
+        "payload_captured": true,
+        "labels_over_rail_chips": [],
+        "unknown_glyph_nodes": [],
+        "rail_chips": 15,
+        "flow_badges": 23
+      }
+    },
+    {
+      "name": "fullscreen-glance",
+      "data": {
+        "viewport": {
+          "w": 1600,
+          "h": 900
+        },
+        "layout": "single-vpc",
+        "rail": {
+          "l": 1348,
+          "t": 340.5,
+          "r": 1572,
+          "b": 870,
+          "w": 224,
+          "h": 529.5
+        },
+        "lanes": {
+          "serverless": {
+            "header": {
+              "l": 1359,
+              "t": 349.5,
+              "r": 1563,
+              "b": 408.5,
+              "w": 204,
+              "h": 59
+            },
+            "header_text": "Lambda runtime · outside subnet grid (6)6 attachment unverified · cyntro-tb-prod-consumer-… ×6",
+            "body": {
+              "l": 1359,
+              "t": 412.5,
+              "r": 1563,
+              "b": 531.78125,
+              "w": 204,
+              "h": 119.28125
+            },
+            "scrollHeight": 260,
+            "clientHeight": 119,
+            "overflowY": "auto",
+            "chips": 6,
+            "above": 0,
+            "below": 4,
+            "more_pill": "+4 more ↓",
+            "above_pill": null
+          },
+          "regional": {
+            "header": {
+              "l": 1359,
+              "t": 581.28125,
+              "r": 1563,
+              "b": 626.78125,
+              "w": 204,
+              "h": 45.5
+            },
+            "header_text": "Regional · EventBridge / S3 / DynamoDB (10)cyntro-tb-prod-consumer-… ×6",
+            "body": {
+              "l": 1359,
+              "t": 632.78125,
+              "r": 1563,
+              "b": 837.5,
+              "w": 204,
+              "h": 204.71875
+            },
+            "scrollHeight": 396,
+            "clientHeight": 205,
+            "overflowY": "auto",
+            "chips": 9,
+            "above": 0,
+            "below": 5,
+            "more_pill": "+5 more ↓",
+            "above_pill": null
+          }
+        },
+        "nat": [
+          {
+            "id": "nat-0fd7cf8524e62aea9",
+            "placement": "subnet",
+            "in_subnet_cell": true,
+            "in_fallback": false,
+            "title": "NAT gateway · nat-0fd7cf8524e62aea9 · subnet subnet-05472c7cd0d3a7b90 (from vpc_topology.edges)"
+          }
+        ],
+        "nat_fallback_text": null,
+        "alb_band": {
+          "l": 36,
+          "t": 373.5,
+          "r": 1120,
+          "b": 457,
+          "w": 1084,
+          "h": 83.5
+        },
+        "az_headers": {
+          "l": 72,
+          "t": 467,
+          "r": 1112,
+          "b": 482,
+          "w": 1040,
+          "h": 15
+        },
+        "igw_chips": 1,
+        "vpce_chips": 1,
+        "users_internet_strip": true,
+        "subnet_cells": 6,
+        "labels_over_rail_chips": [
+          {
+            "label": "TRIGGERS",
+            "chip": "arn:aws:lambda:eu-west-1:416651950952:function:cyntro-tb-prod-consumer-frequent"
+          },
+          {
+            "label": "TARGETS",
+            "chip": "arn:aws:lambda:eu-west-1:416651950952:function:cyntro-tb-prod-consumer-nightly_burst"
+          },
+          {
+            "label": "TARGETS",
+            "chip": "arn:aws:s3:::cyntro-tb-prod-appdata-1c8276f5"
+          },
+          {
+            "label": "TRIGGERS",
+            "chip": "arn:aws:lambda:eu-west-1:416651950952:function:cyntro-tb-prod-consumer-nightly_burst"
+          },
+          {
+            "label": "TRIGGERS",
+            "chip": "arn:aws:s3:::cyntro-tb-prod-appdata-1c8276f5"
+          }
+        ],
+        "unknown_glyph_nodes": [],
+        "service_icons": 13,
+        "stack_tiles": 11,
+        "flow_badges": 23,
+        "authority_banner": "Confirmed TCP pathsendpoint edge coverage is PARTIAL",
+        "header_overlaps": [
+          {
+            "header": "regional-tier-header",
+            "label": "TRIGGERS",
+            "badge": {
+              "l": 1302.199951171875,
+              "t": 590.8203125,
+              "r": 1363,
+              "b": 604.8203125
+            },
+            "headerBox": {
+              "l": 1359,
+              "t": 581.28125,
+              "r": 1563,
+              "b": 626.78125
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "fullscreen-inventory",
+      "data": {
+        "viewport": {
+          "w": 1600,
+          "h": 900
+        },
+        "layout": "single-vpc",
+        "rail": {
+          "l": 1348,
+          "t": 340.5,
+          "r": 1572,
+          "b": 870,
+          "w": 224,
+          "h": 529.5
+        },
+        "lanes": {
+          "serverless": {
+            "header": {
+              "l": 1359,
+              "t": 349.5,
+              "r": 1563,
+              "b": 408.5,
+              "w": 204,
+              "h": 59
+            },
+            "header_text": "Lambda runtime · outside subnet grid (6)6 attachment unverified · cyntro-tb-prod-consumer-… ×6",
+            "body": {
+              "l": 1359,
+              "t": 412.5,
+              "r": 1563,
+              "b": 522.1875,
+              "w": 204,
+              "h": 109.6875
+            },
+            "scrollHeight": 260,
+            "clientHeight": 110,
+            "overflowY": "auto",
+            "chips": 6,
+            "above": 0,
+            "below": 4,
+            "more_pill": "+4 more ↓",
+            "above_pill": null
+          },
+          "regional": {
+            "header": {
+              "l": 1359,
+              "t": 571.6875,
+              "r": 1563,
+              "b": 617.1875,
+              "w": 204,
+              "h": 45.5
+            },
+            "header_text": "Regional · EventBridge / S3 / DynamoDB (10)cyntro-tb-prod-consumer-… ×6",
+            "body": {
+              "l": 1359,
+              "t": 623.1875,
+              "r": 1563,
+              "b": 837.5,
+              "w": 204,
+              "h": 214.3125
+            },
+            "scrollHeight": 436,
+            "clientHeight": 214,
+            "overflowY": "auto",
+            "chips": 10,
+            "above": 0,
+            "below": 6,
+            "more_pill": "+6 more ↓",
+            "above_pill": null
+          }
+        },
+        "nat": [
+          {
+            "id": "nat-0fd7cf8524e62aea9",
+            "placement": "subnet",
+            "in_subnet_cell": true,
+            "in_fallback": false,
+            "title": "NAT gateway · nat-0fd7cf8524e62aea9 · subnet subnet-05472c7cd0d3a7b90 (from vpc_topology.edges)"
+          }
+        ],
+        "nat_fallback_text": null,
+        "alb_band": {
+          "l": 36,
+          "t": 373.5,
+          "r": 1120,
+          "b": 457,
+          "w": 1084,
+          "h": 83.5
+        },
+        "az_headers": {
+          "l": 72,
+          "t": 467,
+          "r": 1112,
+          "b": 482,
+          "w": 1040,
+          "h": 15
+        },
+        "igw_chips": 1,
+        "vpce_chips": 1,
+        "users_internet_strip": true,
+        "subnet_cells": 6,
+        "labels_over_rail_chips": [
+          {
+            "label": "TRIGGERS",
+            "chip": "arn:aws:lambda:eu-west-1:416651950952:function:cyntro-tb-prod-consumer-every_6h"
+          },
+          {
+            "label": "TARGETS",
+            "chip": "arn:aws:lambda:eu-west-1:416651950952:function:cyntro-tb-prod-consumer-nightly_burst"
+          },
+          {
+            "label": "TARGETS",
+            "chip": "arn:aws:s3:::cyntro-evidence-testbed-webshop-950952"
+          },
+          {
+            "label": "TRIGGERS",
+            "chip": "arn:aws:lambda:eu-west-1:416651950952:function:cyntro-tb-prod-consumer-nightly_burst"
+          },
+          {
+            "label": "TRIGGERS",
+            "chip": "arn:aws:s3:::cyntro-evidence-testbed-webshop-950952"
+          }
+        ],
+        "unknown_glyph_nodes": [],
+        "service_icons": 29,
+        "stack_tiles": 0,
+        "flow_badges": 24,
+        "authority_banner": "Confirmed TCP pathsendpoint edge coverage is PARTIAL",
+        "header_overlaps": [],
+        "coverage_pill": {
+          "state": "partial",
+          "totals": "7 of 14 eligible endpoints covered · 6 unknown · 10 not applicable · generation 164",
+          "lanes": [
+            {
+              "testid": "topology-lane-coverage-vpc",
+              "state": "partial",
+              "text": "In-VPC 5/9"
+            },
+            {
+              "testid": "topology-lane-coverage-database",
+              "state": "partial",
+              "text": "Database 2/5"
+            },
+            {
+              "testid": "topology-lane-coverage-serverless",
+              "state": "unknown",
+              "text": "Lambda 6 unknown"
+            },
+            {
+              "testid": "topology-lane-coverage-regional",
+              "state": "not_applicable",
+              "text": "Regional 10 n/a"
+            }
+          ],
+          "warnings": [
+            {
+              "code": "lambda_attachment_unknown",
+              "text": "Lambda: 6 Lambda function(s) have no verified VPC configuration; flow-log coverage for them is unknown, not absent."
+            },
+            {
+              "code": "regional_services_outside_flow_logs",
+              "text": "Regional: 10 regional service(s) have no VPC network interface; VPC flow logs cannot observe them. Access to them is evidenced by CloudTrail data events, a separate lane."
+            },
+            {
+              "code": "egress_destinations_unclassified",
+              "text": "In-VPC: 6 observed segment(s) leave the VPC toward endpoints the classifier has not labelled; they are not drawn. A missing arrow here is not evidence of no traffic."
+            },
+            {
+              "code": "ingress_sources_unclassified",
+              "text": "In-VPC: 8 observed inbound segment(s) come from endpoints the classifier has not labelled; they are not drawn."
+            }
+          ]
+        }
+      }
+    }
+  ]
+}
