@@ -1,0 +1,53 @@
+# Live QA of the estate map on a deployed frontend (C1 by default) against the
+# real graph: tests/integration/topology-estate-c1-qa-live.spec.ts.
+#
+# Dispatched by hand after a deploy. The job log carries the report (every
+# `C1QA <name> <json>` line is a measurement read from the deployed API or
+# from the rendered page); the artifact carries the screenshots and the
+# Playwright report. No app is built or started here: the browser drives the
+# deployed frontend, whose proxy talks to the deployed backend, so this reads
+# production and writes nothing.
+#
+# Only app-cookie-authenticated frontends work: a Vercel-auth protected
+# preview would need a share token in a public workflow log.
+name: c1-ui-qa
+on:
+  workflow_dispatch:
+    inputs:
+      frontend_url:
+        description: Deployed frontend to QA (site cookie auth)
+        required: true
+        default: https://cyntro-c1.vercel.app
+      system:
+        description: System shown on the estate map
+        required: true
+        default: testbed-webshop
+jobs:
+  playwright-live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Live QA against the deployed estate map
+        run: npx playwright test tests/integration/topology-estate-c1-qa-live.spec.ts --reporter=list
+        env:
+          FRONTEND_URL: ${{ inputs.frontend_url }}
+          C1_SYSTEM: ${{ inputs.system }}
+          PW_CHANNEL: chromium
+          CI: "1"
+      - name: Upload report and screenshots
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: c1-ui-qa-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
+          if-no-files-found: ignore
