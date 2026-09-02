@@ -687,10 +687,17 @@ export function selectionMatchesSignedIamPlan(
     && planned.every((permission, index) => permission === selected[index])
 }
 
-// Service role analysis from backend (trust policy based)
+// Service role analysis from backend (trust policy based). Classified from
+// the graph copy of the trust document (F14): when the document is not in
+// the serving graph or cannot be parsed the backend sends status
+// "not_computed", is_service_role null and a limitation, never a guess.
 interface BackendServiceRoleAnalysis {
-  is_service_role: boolean
+  is_service_role: boolean | null
   service_principals: string[]
+  status?: 'computed' | 'not_computed' | string | null
+  source?: string | null
+  limitation?: string | null
+  trust_doc_synced_at?: string | null
   analysis: {
     service_principal: string
     service_name: string
@@ -2928,7 +2935,7 @@ export function IAMPermissionAnalysisModal({
     roleName,
     cloudtrailEvents,
     unusedCount,
-    (backendAnalysis as { status?: string } | undefined)?.status ?? null,
+    backendAnalysis?.status ?? null,
   )?.analysis
   const confidenceGroups = gapData?.confidence_groups
   const dependencyContext = gapData?.dependency_context
