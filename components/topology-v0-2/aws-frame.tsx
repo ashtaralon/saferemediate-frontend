@@ -231,7 +231,7 @@ function AwsServiceGlyph({
   kind,
   size = 18,
 }: {
-  kind: "ec2" | "lambda" | "rds" | "s3" | "ddb" | "igw" | "nat"
+  kind: "ec2" | "lambda" | "rds" | "s3" | "ddb" | "igw" | "nat" | "neptune"
   size?: number
 }) {
   const common = { width: size, height: size, viewBox: "0 0 48 48", fill: "none" as const, "aria-hidden": true as const }
@@ -285,6 +285,16 @@ function AwsServiceGlyph({
         <svg {...common}>
           <rect x="11" y="14" width="26" height="20" rx="3" fill="currentColor" />
           <path d="M18 24h12M27 20l4 4-4 4" stroke="#8C4FFF" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      )
+    case "neptune":
+      // Graph database: three vertices and their edges.
+      return (
+        <svg {...common}>
+          <path d="M24 13L13 34h22z" stroke="currentColor" strokeWidth="2.5" strokeLinejoin="round" fill="none" />
+          <circle cx="24" cy="13" r="5" fill="currentColor" />
+          <circle cx="13" cy="34" r="5" fill="currentColor" />
+          <circle cx="35" cy="34" r="5" fill="currentColor" />
         </svg>
       )
   }
@@ -729,6 +739,14 @@ function nodeIcon(type: string | null): { symbol: ReactNode; bg: string; fg: str
     case "S3":
     case "S3Bucket":
       return { symbol: <AwsServiceGlyph kind="s3" />, bg: "#1E8E3E", fg: "white" }
+    case "Neptune":
+    case "NeptuneCluster":
+    case "NeptuneInstance":
+    case "NeptuneDBCluster":
+      // Graph database, in the database blue of the RDS / DynamoDB fallbacks.
+      // No official-icon slug is registered for Neptune, so this glyph is the
+      // icon — the two C1 Neptune writers rendered the unknown-type "?".
+      return { symbol: <AwsServiceGlyph kind="neptune" />, bg: "#2E73B8", fg: "white" }
     case "KMSKey":
       return { symbol: "KMS", bg: "#DD344C", fg: "white" }
     case "Secret":

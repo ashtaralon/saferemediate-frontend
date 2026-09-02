@@ -84,6 +84,11 @@ export function awsServiceLabel(type: string): string {
       return "S3"
     case "EC2":
       return "EC2"
+    case "Neptune":
+    case "NeptuneCluster":
+    case "NeptuneInstance":
+    case "NeptuneDBCluster":
+      return "Neptune"
     default:
       return type.replace(/Function|Instance|Table|Bucket|Manager/g, "") || type
   }
