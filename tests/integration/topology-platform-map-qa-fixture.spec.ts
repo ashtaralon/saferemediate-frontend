@@ -88,7 +88,7 @@ test("fullscreen platform map shows named Lambda, protected AZ labels, direction
   await expect(detail.getByText("AWS-managed runtime · not VPC-attached").first()).toBeVisible()
   const pathMap = detail.getByTestId("topology-service-path-map")
   await expect(pathMap).toBeVisible()
-  await expect(pathMap).toContainText("Neo4j graph")
+  await expect(pathMap).toContainText("Neptune graph")
   await expect(pathMap).toContainText("Generation 7 · confirmed TCP")
   await expect(pathMap).toContainText("alon-prod-continuous-traffic")
   await expect(pathMap).toContainText("alon-demo-data-bucket-745783559495")
