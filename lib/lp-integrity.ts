@@ -31,6 +31,15 @@ export interface LPIntegrityFields {
   failed_analyzers?: string[]
   integrityReason?: string
   counts_are_partial?: boolean
+  /**
+   * Set by the proxy (app/api/proxy/least-privilege/issues/route.ts) when it
+   * served its last good payload because the live fetch failed. This is the
+   * ONLY signal that a NOT_READY payload is a stale serve; the reason text is
+   * prose and must never be pattern-matched for it (see lpIntegrityCopy).
+   */
+  fromStaleCache?: boolean
+  /** Why the proxy fell back, e.g. "timeout". Display only. */
+  staleReason?: string
 }
 
 export interface LPIntegrity {
@@ -43,6 +52,13 @@ export interface LPIntegrity {
   countsArePartial: boolean
   failedAnalyzers: string[]
   reason: string | null
+  /**
+   * The proxy served a previous payload because the live fetch failed.
+   * Typed, from the proxy — never inferred from `reason`. Absent means
+   * "not a stale serve".
+   */
+  servedFromStaleCache?: boolean
+  staleReason?: string | null
 }
 
 /**
@@ -82,13 +98,29 @@ export function deriveLPIntegrity(
     countsArePartial: payload?.counts_are_partial === true || state !== "READY",
     failedAnalyzers: failed,
     reason: payload?.integrityReason ?? null,
+    servedFromStaleCache: payload?.fromStaleCache === true,
+    staleReason:
+      typeof payload?.staleReason === "string" && payload.staleReason
+        ? payload.staleReason
+        : null,
   }
 }
 
-/** True when NOT_READY is a stale/timeout fallback, not "never analyzed". */
-export function isStaleAnalysisReason(reason: string | null | undefined): boolean {
-  if (!reason) return false
-  return /timed out|stale|last complete analysis|warming/i.test(reason)
+/**
+ * True when NOT_READY is the proxy's stale/timeout fallback, not "never
+ * analyzed".
+ *
+ * Regression, 2026-09-02 (C1 / testbed-webshop, F2). This used to be a regex
+ * over the reason text — /timed out|stale|last complete analysis|warming/ —
+ * and the backend's readiness sentence "…remediation is not ready because
+ * the active generation is unknown (PROJECTION_WATERMARK_STALE)." matched
+ * "stale" inside the error code. A completed live analysis was titled "Live
+ * analysis unavailable", which told the operator the backend was unreachable
+ * or cached when it was neither. The stale serve is a proxy decision and the
+ * proxy already stamps it (`fromStaleCache`); read the stamp, never the prose.
+ */
+export function isStaleServe(integrity: LPIntegrity): boolean {
+  return integrity.servedFromStaleCache === true
 }
 
 /**
@@ -179,8 +211,9 @@ export function lpIntegrityCopy(integrity: LPIntegrity): {
       }
     }
     // Stale-cache / timeout paths still show rows; "did not run" is a lie when
-    // the proxy forced NOT_READY over a previous complete payload.
-    if (isStaleAnalysisReason(integrity.reason)) {
+    // the proxy forced NOT_READY over a previous complete payload. Decided by
+    // the proxy's typed stamp, never by words in the reason (F2).
+    if (isStaleServe(integrity)) {
       return {
         title: "Live analysis unavailable",
         body:
