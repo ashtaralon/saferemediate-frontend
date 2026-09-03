@@ -75,6 +75,9 @@ import {
 import { ConvergencePathList } from "./convergence-path-list"
 import { CrownJewelConvergenceView } from "./crown-jewel-convergence-view"
 import { Zoom0FanInPanel } from "./zoom0-fan-in-panel"
+import { PathCVEAssessmentPanel } from "./path-cve-assessment-panel"
+import { pathCVEsForMode } from "./path-cve-model"
+import { useAttackPathReport } from "./use-attack-path-report"
 import { buildConvergenceFetchUrl } from "@/lib/attack-paths/convergence-fetch-url"
 import type { CrownJewelConvergence } from "@/lib/attack-paths/convergence-types"
 import { matchConvergencePathId } from "@/lib/attack-paths/iap-to-convergence"
@@ -96,6 +99,7 @@ export function AttackPathsV2({
   showEmbeddedAttackMap = true,
   mapOnlyPanel = false,
   onOpenRoleSplit,
+  onOpenVulnerability,
 }: {
   // Embedded mode (dashboard ATTACK PATH tab): `systemName` is supplied by
   // the dashboard and wins over the ?system URL param; the shell renders at a
@@ -119,6 +123,8 @@ export function AttackPathsV2({
    *  page shell, which holds the section-switch state). Threaded to the
    *  attack-path panel's shared-role callout. */
   onOpenRoleSplit?: (roleName: string) => void
+  /** Switch the owning shell to Vulnerabilities after the focus query is set. */
+  onOpenVulnerability?: (focus: { cveId: string; nodeId: string }) => void
 } = {}) {
   const searchParams = useSearchParams()
   const router = useRouter()
@@ -728,6 +734,35 @@ export function AttackPathsV2({
     )
   }, [selectedPathId, jewelPaths])
 
+  const {
+    report: selectedPathReport,
+    loading: selectedPathReportLoading,
+    error: selectedPathReportError,
+    retry: retrySelectedPathReport,
+  } = useAttackPathReport(selectedPath)
+
+  const openVulnerability = (cveId: string, nodeId: string) => {
+    const params = new URLSearchParams(searchParams?.toString() ?? "")
+    params.set("system", systemName ?? "")
+    params.set("view", "cves")
+    params.set("cve", cveId)
+    params.set("asset", nodeId)
+    params.set("vulnerability_focus", "1")
+    if (onOpenVulnerability) {
+      router.replace(`${pathname}?${params.toString()}`, { scroll: false })
+      onOpenVulnerability({ cveId, nodeId })
+      return
+    }
+
+    const standalone = new URLSearchParams()
+    if (systemName) standalone.set("system", systemName)
+    standalone.set("view", "cves")
+    standalone.set("cve", cveId)
+    standalone.set("asset", nodeId)
+    standalone.set("vulnerability_focus", "1")
+    router.push(`/?${standalone.toString()}`)
+  }
+
   // Auto-select the highest-observed-traffic path when a jewel is
   // Auto-select the highest-traffic path when a jewel is selected and no
   // path id is in the URL — EXCEPT on Attack Path mode, where Zoom 0
@@ -1262,18 +1297,36 @@ export function AttackPathsV2({
                   large
                 />
               ) : (
-                <ExfilViewV3
-                  systemName={systemName}
-                  jewel={jewels.find((j) => j.id === selectedJewelId) ?? null}
-                  data={exfilData ?? null}
-                  loading={exfilLoading}
-                  error={exfilError}
-                  retry={exfilRetry}
-                  retrying={exfilRetrying}
-                  attempt={exfilAttempt}
-                  selectedPathId={selectedExfilPathId}
-                  onSelectPath={handleSelectExfilPath}
-                />
+                <div className="min-h-full bg-muted/20">
+                  <div className="px-6 pt-5">
+                    {selectedPath ? (
+                      <PathCVEAssessmentPanel
+                        report={selectedPathReport}
+                        loading={selectedPathReportLoading}
+                        error={selectedPathReportError}
+                        retry={retrySelectedPathReport}
+                        selectedMode="EXFILTRATION"
+                        onOpenVulnerability={openVulnerability}
+                        compact
+                      />
+                    ) : (
+                      <div className="rounded-xl border border-border bg-card p-3 text-[11px] text-muted-foreground">Select an attack path to correlate its CVEs with exfiltration evidence.</div>
+                    )}
+                  </div>
+                  <ExfilViewV3
+                    systemName={systemName}
+                    jewel={jewels.find((j) => j.id === selectedJewelId) ?? null}
+                    data={exfilData ?? null}
+                    loading={exfilLoading}
+                    error={exfilError}
+                    retry={exfilRetry}
+                    retrying={exfilRetrying}
+                    attempt={exfilAttempt}
+                    selectedPathId={selectedExfilPathId}
+                    onSelectPath={handleSelectExfilPath}
+                    cveAssessments={pathCVEsForMode(selectedPathReport, "EXFILTRATION")}
+                  />
+                </div>
               )
             ) : viewMode === "lateral" ? (
               // Jewel-scoped attacker model. The operator picks the initial
@@ -1286,11 +1339,29 @@ export function AttackPathsV2({
                   large
                 />
               ) : (
-                <AtlasLateralView
-                  systemName={systemName}
-                  jewelId={selectedJewelId}
-                  jewelName={selectedJewel.name}
-                />
+                <div className="min-h-full bg-muted/20">
+                  <div className="px-6 pt-5">
+                    {selectedPath ? (
+                      <PathCVEAssessmentPanel
+                        report={selectedPathReport}
+                        loading={selectedPathReportLoading}
+                        error={selectedPathReportError}
+                        retry={retrySelectedPathReport}
+                        selectedMode="LATERAL"
+                        onOpenVulnerability={openVulnerability}
+                        compact
+                      />
+                    ) : (
+                      <div className="rounded-xl border border-border bg-card p-3 text-[11px] text-muted-foreground">Select an attack path to correlate its CVEs with lateral-movement evidence.</div>
+                    )}
+                  </div>
+                  <AtlasLateralView
+                    systemName={systemName}
+                    jewelId={selectedJewelId}
+                    jewelName={selectedJewel.name}
+                    cveAssessments={pathCVEsForMode(selectedPathReport, "LATERAL")}
+                  />
+                </div>
               )
             ) : viewMode === "convergence" ? (
               selectedJewel ? (
@@ -1330,6 +1401,11 @@ export function AttackPathsV2({
                     onClearPath={() => setUrl({ path: null })}
                     isExpanded={isPathExpanded}
                     documentScroll={embedded && isPathExpanded}
+                    cveReport={selectedPathReport}
+                    cveReportLoading={selectedPathReportLoading}
+                    cveReportError={selectedPathReportError}
+                    onRetryCVEReport={retrySelectedPathReport}
+                    onOpenVulnerability={openVulnerability}
                   />
                 </div>
               ) : (
@@ -1374,6 +1450,11 @@ export function AttackPathsV2({
                 onClearPath={() => setUrl({ path: null })}
                 isExpanded={isPathExpanded}
                 documentScroll={embedded && isPathExpanded}
+                cveReport={selectedPathReport}
+                cveReportLoading={selectedPathReportLoading}
+                cveReportError={selectedPathReportError}
+                onRetryCVEReport={retrySelectedPathReport}
+                onOpenVulnerability={openVulnerability}
               />
             ) : (
               <EmptyState

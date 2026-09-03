@@ -329,6 +329,7 @@ export function CurrentAccessDossierPanel({
   hopsPending,
   onClearPin,
   businessImpact,
+  cveAnalysis,
 }: {
   dossier: CurrentAccessDossier | null
   jewelName: string
@@ -337,6 +338,8 @@ export function CurrentAccessDossierPanel({
   hopsPending?: boolean
   onClearPin?: () => void
   businessImpact?: ReactNode
+  /** Backend-authored CVE decision and current-vs-enabled damage delta. */
+  cveAnalysis?: ReactNode
 }) {
   const model = useMemo(() => {
     if (!dossier) return null
@@ -451,6 +454,10 @@ export function CurrentAccessDossierPanel({
         >
           <DataScopeExplorer resourceId={dossier.to.id || dossier.jewel_id} resourceType={dossier.to.type || jewelType || null} systemName={systemName} />
         </DecisionSection>
+
+        {cveAnalysis ? (
+          <div data-testid="current-access-cve-analysis">{cveAnalysis}</div>
+        ) : null}
 
         <DecisionSection
           icon={ShieldCheck}
