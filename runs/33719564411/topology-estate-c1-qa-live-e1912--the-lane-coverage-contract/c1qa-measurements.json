@@ -1,0 +1,171 @@
+{
+  "test": "topology-risk on the deployed backend: inventory, edges, and the lane-coverage contract",
+  "status": "passed",
+  "measurements": [
+    {
+      "name": "topology-risk-fetch",
+      "data": {
+        "attempts": [
+          {
+            "status": 200,
+            "ms": 0,
+            "x_cache": "MISS-RETRY"
+          }
+        ],
+        "total_ms": 0
+      }
+    },
+    {
+      "name": "topology-risk",
+      "data": {
+        "system": "testbed-webshop",
+        "account_id": "416651950952",
+        "region": "eu-west-1",
+        "vpc_id": "vpc-0c39cde96f29f8f4e",
+        "available_vpcs": [
+          {
+            "vpc_id": "vpc-0c39cde96f29f8f4e",
+            "workload_count": 12
+          }
+        ],
+        "nodes": 30,
+        "by_type": {
+          "S3": 3,
+          "DynamoDB": 1,
+          "LoadBalancer": 2,
+          "RDS": 3,
+          "Lambda": 6,
+          "EventBridge": 6,
+          "TargetGroup": 2,
+          "Neptune": 2,
+          "EC2": 5
+        },
+        "traffic_edges": 42,
+        "subnets": 6,
+        "nat_gateways": [
+          {
+            "id": "nat-0fd7cf8524e62aea9",
+            "name": "nat-0fd7cf8524e62aea9",
+            "subnet_id": "subnet-05472c7cd0d3a7b90",
+            "subnet_in_grid": true
+          }
+        ],
+        "igws": 1,
+        "vpces": 1,
+        "traffic_authority": {
+          "state": "authoritative_positive_only",
+          "mode": "incremental",
+          "active_generation": 164,
+          "authoritative_endpoint_count": 7,
+          "endpoint_count": 30,
+          "projected_edge_count": 20,
+          "lane_coverage": {
+            "basis": "vpc_flow_logs",
+            "mode": "incremental",
+            "active_generation": 164,
+            "state": "partial",
+            "eligible": 14,
+            "authoritative": 7,
+            "unknown": 6,
+            "not_applicable": 10,
+            "by_lane": {
+              "vpc": {
+                "eligible": 9,
+                "authoritative": 5,
+                "unknown": 0,
+                "not_applicable": 0,
+                "state": "partial"
+              },
+              "serverless": {
+                "eligible": 0,
+                "authoritative": 0,
+                "unknown": 6,
+                "not_applicable": 0,
+                "state": "unknown"
+              },
+              "database": {
+                "eligible": 5,
+                "authoritative": 2,
+                "unknown": 0,
+                "not_applicable": 0,
+                "state": "partial"
+              },
+              "regional": {
+                "eligible": 0,
+                "authoritative": 0,
+                "unknown": 0,
+                "not_applicable": 10,
+                "state": "not_applicable"
+              }
+            },
+            "projection": {
+              "unclassified_external_targets": 6,
+              "unclassified_external_sources": 8,
+              "igw_to_database_rejected": 2,
+              "unresolved_pairs": 0
+            },
+            "rejected_edges": {
+              "non_vpc_lambda_edges": 0
+            },
+            "warnings": [
+              {
+                "code": "lambda_attachment_unknown",
+                "lane": "serverless",
+                "count": 6,
+                "message": "6 Lambda function(s) have no verified VPC configuration; flow-log coverage for them is unknown, not absent."
+              },
+              {
+                "code": "regional_services_outside_flow_logs",
+                "lane": "regional",
+                "count": 10,
+                "message": "10 regional service(s) have no VPC network interface; VPC flow logs cannot observe them. Access to them is evidenced by CloudTrail data events, a separate lane."
+              },
+              {
+                "code": "egress_destinations_unclassified",
+                "lane": "vpc",
+                "count": 6,
+                "message": "6 observed segment(s) leave the VPC toward endpoints the classifier has not labelled. They are drawn to the unclassified-endpoint node: the traffic is real, the peer's identity is not known."
+              },
+              {
+                "code": "ingress_sources_unclassified",
+                "lane": "vpc",
+                "count": 8,
+                "message": "8 observed inbound segment(s) come from endpoints the classifier has not labelled. They are drawn from the unclassified-endpoint node: the traffic is real, the peer's identity is not known."
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "contract",
+      "data": {
+        "lane_coverage_present": true,
+        "authority_state": "authoritative_positive_only",
+        "active_generation": 164
+      }
+    },
+    {
+      "name": "contract-consistency",
+      "data": {
+        "classified": 30,
+        "nodes": 30,
+        "warnings": [
+          "lambda_attachment_unknown(serverless:6)",
+          "regional_services_outside_flow_logs(regional:10)",
+          "egress_destinations_unclassified(vpc:6)",
+          "ingress_sources_unclassified(vpc:8)"
+        ],
+        "projection": {
+          "unclassified_external_targets": 6,
+          "unclassified_external_sources": 8,
+          "igw_to_database_rejected": 2,
+          "unresolved_pairs": 0
+        },
+        "rejected_edges": {
+          "non_vpc_lambda_edges": 0
+        }
+      }
+    }
+  ]
+}
