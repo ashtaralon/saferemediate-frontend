@@ -888,6 +888,10 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
 
     setFindingsPressureAuthority("loading")
     setAccessExposureAuthority("loading")
+    // Re-arm: it was only ever set false, so a refetch (system switch, poll,
+    // Retry) left the panel showing the PREVIOUS system's findings as though
+    // they were current.
+    setLoadingFindings(true)
     setOverviewFetchError(null)
     setLoadingGap(true)
     setGapError(null)
@@ -2763,7 +2767,37 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
                       <div className="animate-spin rounded-full h-4 w-4 border-2 border-blue-600 border-t-transparent"></div>
                     )}
                   </div>
-                  {securityFindings.length > 0 ? (
+                  {/* Four states, not two.
+                    *
+                    * `securityFindings.length > 0 ? list : "No security findings
+                    * found"` rendered a definitive all-clear whenever the array
+                    * was empty — including while the fetch was still in flight,
+                    * and including when it had failed. Observed in production
+                    * with the Overview beside it still reading "loading" and
+                    * claiming 5 critical findings.
+                    *
+                    * On a security surface "no findings" is a claim about the
+                    * estate. Only a completed, successful read is entitled to
+                    * make it. */}
+                  {loadingFindings ? (
+                    <div className="text-center py-8 text-[var(--muted-foreground,#6b7280)]">
+                      <p>Checking for security findings…</p>
+                    </div>
+                  ) : overviewFetchError ? (
+                    <div className="text-center py-8 text-[var(--muted-foreground,#6b7280)]">
+                      <p>Findings unavailable — the request did not complete.</p>
+                      <p className="mt-1 text-xs text-[var(--muted-foreground,#9ca3af)]">
+                        This is a failed read, not a clean result.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => void fetchIssuesSummary()}
+                        className="mt-2 text-xs font-medium text-[#6366f1] hover:underline"
+                      >
+                        Retry
+                      </button>
+                    </div>
+                  ) : securityFindings.length > 0 ? (
                     <SecurityFindingsList findings={securityFindings} />
                   ) : (
                     <div className="text-center py-8 text-[var(--muted-foreground,#6b7280)]">
