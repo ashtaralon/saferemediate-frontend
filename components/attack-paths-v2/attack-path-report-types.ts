@@ -35,6 +35,7 @@ import type {
   LayerEvidence,
   ReachableDamageBucket,
 } from "./reachable-damage-priority"
+import type { CVEEnabledDamage, PathCVEAssessment, PathCVESummary } from "@/lib/cve-contracts"
 
 export type EvidenceGrade =
   | "OBSERVED" // proven in telemetry (CloudTrail / VPC Flow / data events)
@@ -241,6 +242,13 @@ export interface AttackPathReport {
   attacker_steps: AttackerStep[]
 
   damage_matrix: DamageCell[]
+
+  /** Backend-owned mode-specific CVE decisions. Optional only during the
+   *  report-v1 → report-v2 rollout; absence means the backend has not emitted
+   *  the contract, never that the path is scanned clean. */
+  cve_assessments?: PathCVEAssessment[]
+  cve_enabled_damage?: CVEEnabledDamage[]
+  cve_summary?: PathCVESummary
 
   gap: CapabilityBehaviorGap | null
 
