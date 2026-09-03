@@ -1,0 +1,69 @@
+{
+  "test": "estate map on the deployed frontend: lanes, NAT chips, ALB band, coverage pill",
+  "status": "failed",
+  "measurements": [
+    {
+      "name": "scoped-cache-warm",
+      "data": [
+        {
+          "attempt": 1,
+          "status": 504,
+          "ms": 53557
+        },
+        {
+          "attempt": 2,
+          "status": null,
+          "ms": 37867
+        },
+        {
+          "attempt": 3,
+          "status": 502,
+          "ms": 949
+        },
+        {
+          "attempt": 4,
+          "status": 502,
+          "ms": 1264
+        }
+      ]
+    },
+    {
+      "name": "estate-page",
+      "data": {
+        "mounted": false,
+        "loads": [
+          {
+            "attempt": 1,
+            "mounted": false,
+            "reason": "No systems available yet. Run a sync, then open a system from the dashboard.",
+            "ms": 538
+          },
+          {
+            "attempt": 2,
+            "mounted": false,
+            "reason": "No systems available yet. Run a sync, then open a system from the dashboard.",
+            "ms": 901
+          },
+          {
+            "attempt": 3,
+            "mounted": false,
+            "reason": "No systems available yet. Run a sync, then open a system from the dashboard.",
+            "ms": 885
+          }
+        ],
+        "gate": [
+          {
+            "path": "/api/proxy/admin/customers",
+            "status": 502,
+            "body": "<unreadable>"
+          },
+          {
+            "path": "/api/proxy/admin/customers",
+            "status": 502,
+            "body": "<unreadable>"
+          }
+        ]
+      }
+    }
+  ]
+}
