@@ -3,7 +3,6 @@ import type { CrownJewelSummary } from "@/components/identity-attack-paths/types
 import type { CrownJewelConvergence } from "@/lib/attack-paths/convergence-types"
 import {
   isServeJewelsAuthoritative,
-  reachableJewelPickerList,
   resolveJewelPickerList,
   resolveJewelRailPaths,
   shouldShowAttackPathsNotComputed,
@@ -160,16 +159,24 @@ describe("resolveJewelPickerList", () => {
     ).toEqual(iapJewels)
   })
 
-  it("keeps only assets with real paths on the Attack Paths selector", () => {
-    const reachable = { ...jewel, id: "reachable", path_count: 2 }
-    const internalStore = { ...jewel, id: "internal", path_count: 0 }
-    const clusterMember = { ...jewel, id: "member", path_count: 0 }
+  it("keeps zero-path targets with their explicit state (AP3-104)", () => {
+    const reachable = { ...jewel, id: "reachable", path_count: 2, target_state: "observed" as const }
+    const noRoute = { ...jewel, id: "no-route", path_count: 0, severity: null, target_state: "no_modeled_route" as const }
+    const unconsidered = { ...jewel, id: "unconsidered", path_count: 0, severity: null, target_state: "coverage_incomplete" as const }
 
-    expect(
-      reachableJewelPickerList([internalStore, reachable, clusterMember]).map(
-        (entry) => entry.id,
-      ),
-    ).toEqual(["reachable"])
+    const listed = resolveJewelPickerList({
+      serveJewels: [reachable, noRoute, unconsidered],
+      serveJewelsError: null,
+      iapJewels: [{ ...jewel, path_count: 4 }],
+    })
+    expect(listed.map((entry) => entry.id)).toEqual(["reachable", "no-route", "unconsidered"])
+    expect(listed.map((entry) => entry.target_state)).toEqual([
+      "observed",
+      "no_modeled_route",
+      "coverage_incomplete",
+    ])
+    // a zero-path target carries no severity for the rail to render
+    expect(listed[1]?.severity).toBeNull()
   })
 })
 

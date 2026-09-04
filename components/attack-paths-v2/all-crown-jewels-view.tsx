@@ -178,13 +178,17 @@ export function AllCrownJewelsView({
                     </div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    <span
-                      className={`text-[9px] font-bold uppercase tracking-wider rounded border px-2 py-0.5 ${severityColor(jewel.severity)}`}
-                    >
-                      {jewel.severity}
-                    </span>
+                    {/* No severity exists for a zero-path target (AP3-104) — omit
+                        the badge rather than render a default. */}
+                    {jewel.severity != null && (
+                      <span
+                        className={`text-[9px] font-bold uppercase tracking-wider rounded border px-2 py-0.5 ${severityColor(jewel.severity)}`}
+                      >
+                        {jewel.severity}
+                      </span>
+                    )}
                     <span className="text-xs font-mono text-foreground">
-                      {Math.round(jewel.highest_risk_score)}
+                      {jewel.severity != null ? Math.round(jewel.highest_risk_score) : "—"}
                     </span>
                   </div>
                 </button>

@@ -1,3 +1,4 @@
+import type { TargetState } from "@/lib/types"
 import type { ConvergencePath } from "@/lib/attack-paths/convergence-types"
 
 export interface SeverityBreakdown {
@@ -781,12 +782,23 @@ export interface CrownJewelSummary {
   canonical_id?: string | null
   name: string
   type: string
-  severity: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW"
+  /** Label from the backend scorer. null = no materialized path, so no
+   *  severity exists (AP3-104 zero states); never default to LOW. */
+  severity: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | null
   path_count: number
   highest_risk_score: number
-  is_internet_exposed: boolean
+  /** null = the collector did not record exposure; never rendered as false. */
+  is_internet_exposed: boolean | null
   data_classification: string | null
   priority_score: number
+  // ── AP3-104 target catalog (GET /api/attack-paths/{system}/targets) ──
+  /** Explicit per-target state; absent on legacy /jewels rows. */
+  target_state?: TargetState
+  observed_path_count?: number
+  standing_access_count?: number
+  /** false = reachable_only target that is not in this system's inventory. */
+  inventory_present?: boolean
+  data_classification_source?: "tag" | "unknown"
   // "reachable_only" = jewel isn't tagged to this system but the system's
   // IAM roles reach it via observed edges (shared-bucket-across-systems
   // pattern). Absent/null for in-system jewels.

@@ -212,13 +212,17 @@ export function CJPickerStrip({
                         {cj.data_classification ? ` · ${cj.data_classification}` : ""}
                       </div>
                     </div>
-                    <span
-                      className={`shrink-0 rounded-sm border px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider ${
-                        SEVERITY_ACCENT[cj.severity] ?? "bg-slate-700 text-slate-300 border-slate-600"
-                      }`}
-                    >
-                      {cj.severity}
-                    </span>
+                    {/* No severity exists for a zero-path target (AP3-104):
+                        omit the chip rather than render a default. */}
+                    {cj.severity != null && (
+                      <span
+                        className={`shrink-0 rounded-sm border px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider ${
+                          SEVERITY_ACCENT[cj.severity] ?? "bg-slate-700 text-slate-300 border-slate-600"
+                        }`}
+                      >
+                        {cj.severity}
+                      </span>
+                    )}
                     <span className="shrink-0 font-mono text-sm font-semibold tabular-nums text-slate-200">
                       {(cj.priority_score ?? 0).toFixed(0)}
                     </span>

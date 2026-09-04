@@ -42,13 +42,16 @@ import type { ExfilPayload } from "./exfil-view-v3"
 import { useRetryFetch } from "@/lib/use-retry-fetch"
 import { classifyIapResponse } from "@/lib/attack-paths/iap-response-health"
 import {
-  reachableJewelPickerList,
-  isJewelsPayloadCacheable,
   isServeJewelsAuthoritative,
   resolveJewelPickerList,
   resolveJewelRailPaths,
   shouldShowAttackPathsNotComputed,
 } from "@/lib/attack-paths/resolve-jewel-rail"
+import {
+  isTargetCatalogCacheable,
+  targetCatalogToJewelSummaries,
+  type TargetCatalog,
+} from "@/lib/attack-paths/target-catalog"
 import { ConvergenceMapLoader } from "./convergence-map-loader"
 import { CrownJewelUnionViewLink } from "./crown-jewel-union-view-link"
 import { JewelExposurePanel } from "./jewel-exposure-panel"
@@ -350,13 +353,15 @@ export function AttackPathsV2({
   }, [lastSystemStorageKey, pathname, router, searchParams, systemName, systemsCatalog.ready, systemsCatalog.url])
 
   // Progressive load (P0 perf):
-  //   1. /jewels — fast materialized crown-jewel list → left rail + shell
+  //   1. /targets — inventory-first target catalog (AP3-104): every in-scope
+  //      crown-jewel target with an explicit state, zero paths included →
+  //      left rail + shell
   //   2. by-crown-jewel/summary per selected jewel → path rail (critical)
   //   3. full IAP 5×5 — background only; never bricks the path rail on 502
-  // (Render wake happens via jewels fetch + keep-warm cron — don't fire the
-  // full keep-warm sweep from the browser on every tab open.)
+  // (Render wake happens via the catalog fetch + keep-warm cron — don't fire
+  // the full keep-warm sweep from the browser on every tab open.)
   const jewelsUrl = systemName
-    ? `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}/jewels`
+    ? `/api/proxy/attack-paths/${encodeURIComponent(systemName)}/targets`
     : null
   const {
     data: jewelsRaw,
@@ -364,16 +369,12 @@ export function AttackPathsV2({
     error: jewelsError,
     isStale: jewelsIsStale,
     retry: retryJewels,
-  } = useCachedFetch<{
-    result?: { crown_jewels?: CrownJewelSummary[] }
-    data?: { crown_jewels?: CrownJewelSummary[] }
-    crown_jewels?: CrownJewelSummary[]
-  }>(jewelsUrl, {
-    cacheKey: `iap-v2-jewels:${systemName}`,
+  } = useCachedFetch<TargetCatalog>(jewelsUrl, {
+    cacheKey: `ap-targets:${systemName}`,
     maxStaleMs: 10 * 60 * 1000,
-    // Never SWR-paint a cached empty jewels list — that is how the rail
-    // stuck on "No crown jewels · showing cached" after SERVE recovered.
-    isCacheable: isJewelsPayloadCacheable,
+    // Never SWR-paint a cached NOT_READY / empty catalog — that is how the
+    // rail stuck on "No crown jewels · showing cached" after SERVE recovered.
+    isCacheable: isTargetCatalogCacheable,
   })
 
   // Full IAP fan-out is OPTIONAL enrichment only — never gate the path rail.
@@ -411,14 +412,15 @@ export function AttackPathsV2({
     retryFullIap()
   }
 
-  const liteJewels: CrownJewelSummary[] = useMemo(() => {
-    const cjs =
-      jewelsRaw?.result?.crown_jewels ??
-      jewelsRaw?.data?.crown_jewels ??
-      jewelsRaw?.crown_jewels ??
-      []
-    return Array.isArray(cjs) ? cjs : []
-  }, [jewelsRaw])
+  // Catalog rows → rail summaries. Pure adapter; a zero-path target keeps
+  // its state (no severity, no score) instead of being filtered away.
+  const liteJewels: CrownJewelSummary[] = useMemo(
+    () => targetCatalogToJewelSummaries(jewelsRaw),
+    [jewelsRaw],
+  )
+  const targetCatalogServeState = jewelsRaw?.serve_state ?? null
+  const targetCatalogNotReadyReason = jewelsRaw?.not_ready_reason ?? null
+  const targetCatalogCounts = jewelsRaw?.counts ?? null
 
   // Envelope unwrap. Backend wraps in {provenance, result}; we want the
   // result. Proxy stale fallback may also stamp fromStaleCache on the
@@ -446,16 +448,18 @@ export function AttackPathsV2({
     Boolean((rawData as { fromStaleCache?: boolean } | null)?.fromStaleCache) ||
     Boolean((data as { fromStaleCache?: boolean } | null)?.fromStaleCache)
 
-  // SERVE /jewels is authoritative once loaded (including empty). Full IAP
-  // jewels only before /jewels responds or when /jewels failed — never
-  // overwrite SERVE path_count with IAP phantoms.
+  // The SERVE catalog is authoritative once loaded (including empty and
+  // NOT_READY). Full IAP jewels only before the catalog responds or when it
+  // failed — never overwrite SERVE path_count with IAP phantoms. Zero-path
+  // targets stay listed with their explicit state (AP3-104): hiding them
+  // made "never considered" and "proved unreachable" both look like absence.
   const jewels: CrownJewelSummary[] = useMemo(
     () =>
-      reachableJewelPickerList(resolveJewelPickerList({
+      resolveJewelPickerList({
         serveJewels: jewelsRaw != null ? liteJewels : null,
         serveJewelsError: jewelsError,
         iapJewels: data?.crown_jewels ?? null,
-      })),
+      }),
     [jewelsRaw, liteJewels, jewelsError, data?.crown_jewels],
   )
 
@@ -986,9 +990,9 @@ export function AttackPathsV2({
   }
 
   // Errored / cold-compute IAP envelope with no usable jewels — honest
-  // "couldn't compute", NEVER false "No crown jewels". SERVE /jewels
-  // success (including empty) wins: IAP "Graph snapshot is stale" must
-  // not brick the tab when the projection pin already answered.
+  // "couldn't compute", NEVER false "No crown jewels". A SERVE catalog
+  // answer (including empty / NOT_READY) wins: IAP "Graph snapshot is stale"
+  // must not brick the tab when the projection pin already answered.
   if (
     !zoomMinus1Ready &&
     shouldShowAttackPathsNotComputed({
@@ -1078,8 +1082,8 @@ export function AttackPathsV2({
                   : data && allPaths.length > 0
                     ? `${allPaths.length} loaded paths · ${jewels.length} listed jewels`
                   : jewelsLoading
-                    ? "Loading crown jewels…"
-                    : `${jewels.length} highest-risk jewels${isLoading ? " · totals loading…" : ""}`}
+                    ? "Loading crown-jewel targets…"
+                    : `${jewels.length} targets${isLoading ? " · totals loading…" : ""}`}
                 {showingStale ? " · showing cached" : ""}
               </div>
             </div>
@@ -1088,6 +1092,9 @@ export function AttackPathsV2({
         <CrownJewelListPanel
           jewels={jewels}
           totalReachable={reachableJewelCount}
+          serveState={targetCatalogServeState}
+          notReadyReason={targetCatalogNotReadyReason}
+          stateCounts={targetCatalogCounts}
           selectedJewelId={selectedJewelId}
           onSelect={handleSelectJewel}
         />

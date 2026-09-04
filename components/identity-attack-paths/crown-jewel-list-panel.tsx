@@ -4,6 +4,7 @@ import { useState } from "react"
 import { Shield, Globe, ChevronLeft, ChevronRight } from "lucide-react"
 import { MaterializedScopeBadge } from "@/components/attack-paths-v2/materialized-scope-badge"
 import { ServiceTypeBadge, getServiceMeta } from "@/lib/service-type"
+import { TARGET_STATE_CONFIG, type TargetState } from "@/lib/types"
 import { SeverityBadge } from "./severity-badge"
 import type { CrownJewelSummary } from "./types"
 
@@ -11,11 +12,41 @@ interface CrownJewelListPanelProps {
   jewels: CrownJewelSummary[]
   /** System-wide reachable-jewel total; the rail itself is capped and ranked. */
   totalReachable?: number | null
+  /** AP3-104 target catalog: READY | NOT_READY; null before it answers or on
+   *  the legacy /jewels shape. */
+  serveState?: "READY" | "NOT_READY" | null
+  /** Backend's reason when serveState is NOT_READY (rendered verbatim). */
+  notReadyReason?: string | null
+  /** Per-state totals from the catalog (zero states included). */
+  stateCounts?: Partial<Record<TargetState, number>> | null
   selectedJewelId: string | null
   onSelect: (id: string) => void
   /** Notify parent so the aside can shrink when the list collapses. */
   onCollapsedChange?: (collapsed: boolean) => void
 }
+
+/** Explicit target state chip (AP3-104). Exact backend strings; a state the
+ *  config does not know is not rendered rather than guessed. */
+function TargetStateChip({ state }: { state: TargetState }) {
+  const cfg = TARGET_STATE_CONFIG[state]
+  if (!cfg) return null
+  return (
+    <span
+      className="inline-flex items-center rounded border px-1.5 py-px text-[9.5px] font-medium leading-tight"
+      style={{ color: cfg.color, backgroundColor: cfg.bgColor, borderColor: cfg.color }}
+      title={cfg.description}
+      data-target-state={state}
+    >
+      {cfg.label}
+    </span>
+  )
+}
+
+const ZERO_STATE_ORDER: TargetState[] = [
+  "no_modeled_route",
+  "coverage_incomplete",
+  "projection_not_ready",
+]
 
 /** Crown-jewel names carry a trailing `-<12-digit account id>`; strip it for a
  *  cleaner rail (full name stays in the title attr). Type icon + color now come
@@ -28,6 +59,9 @@ function jewelDisplayName(name: string): string {
 export function CrownJewelListPanel({
   jewels,
   totalReachable,
+  serveState,
+  notReadyReason,
+  stateCounts,
   selectedJewelId,
   onSelect,
   onCollapsedChange,
@@ -70,11 +104,35 @@ export function CrownJewelListPanel({
             <span className="font-semibold tabular-nums text-amber-800 dark:text-amber-300">
               {jewels?.length ?? 0}
             </span>{" "}
-            highest-risk assets
+            {serveState ? "targets" : "highest-risk assets"}
             {typeof totalReachable === "number" && totalReachable > jewels.length
               ? ` of ${totalReachable} reachable`
               : ""}
           </div>
+          {stateCounts && (() => {
+            // Zero states are product truth: say how many targets have no
+            // route, were never considered, or wait on the projection.
+            const parts = ZERO_STATE_ORDER
+              .map((state) => ({ state, n: stateCounts[state] ?? 0 }))
+              .filter(({ n }) => n > 0)
+              .map(({ state, n }) => `${n} ${TARGET_STATE_CONFIG[state].label}`)
+            if (!parts.length) return null
+            return (
+              <div className="text-[10px] text-muted-foreground mt-0.5" data-testid="target-zero-states">
+                {parts.join(" · ")}
+              </div>
+            )
+          })()}
+          {serveState === "NOT_READY" && (
+            <div
+              className="text-[10px] text-amber-700 dark:text-amber-400 mt-0.5"
+              title={notReadyReason ?? undefined}
+              data-testid="target-catalog-not-ready"
+            >
+              Attack-path projection not ready
+              {notReadyReason ? ` — ${notReadyReason}` : ""}
+            </div>
+          )}
         </div>
         <button
           onClick={() => setCollapsedAndNotify(true)}
@@ -97,12 +155,16 @@ export function CrownJewelListPanel({
           // count — that data would be synthesized, and the deep layer
           // (closure panel) would have nothing to back it.
           const notComputed = jewel.paths_not_computed === true
-          const sev = jewel.severity ?? "LOW"
+          // AP3-104: severity is null when no path exists — no badge, no
+          // score, never a default LOW.
+          const sev = jewel.severity ?? null
+          const hasSeverity = !notComputed && sev != null
           const score = Math.round(jewel.highest_risk_score ?? 0)
-          const sevColor = notComputed ? "#64748b" :
+          const sevColor = !hasSeverity ? "#64748b" :
             sev === "CRITICAL" ? "#ef4444" :
             sev === "HIGH" ? "#f97316" :
             sev === "MEDIUM" ? "#eab308" : "#22c55e"
+          const targetState = jewel.target_state
           const svc = getServiceMeta(jewel.type)
 
           return (
@@ -123,7 +185,7 @@ export function CrownJewelListPanel({
                   className="w-9 shrink-0 text-right text-base font-semibold tabular-nums leading-none pt-0.5"
                   style={{ color: sevColor }}
                 >
-                  {notComputed ? "—" : score}
+                  {hasSeverity ? score : "—"}
                 </div>
 
                 <div className="flex min-w-0 flex-1 flex-col gap-1">
@@ -131,7 +193,7 @@ export function CrownJewelListPanel({
                     <span className="truncate text-xs font-semibold text-foreground" title={jewel.name ?? jewel.id}>
                       {jewel.name ? jewelDisplayName(jewel.name) : jewel.id}
                     </span>
-                    {!notComputed && <SeverityBadge severity={sev} size="sm" />}
+                    {hasSeverity && sev != null && <SeverityBadge severity={sev} size="sm" />}
                   </div>
 
                   <div className="flex flex-wrap items-center gap-1.5">
@@ -141,14 +203,16 @@ export function CrownJewelListPanel({
                     >
                       {svc.short}
                     </span>
-                    {notComputed && (
+                    {targetState ? (
+                      <TargetStateChip state={targetState} />
+                    ) : notComputed ? (
                       <span
                         className="text-[10px] text-muted-foreground"
                         title="No materialized attack paths exist for this jewel yet — run the attack-path materializer to compute them."
                       >
                         not computed
                       </span>
-                    )}
+                    ) : null}
                     {!notComputed && (() => {
                       const cc = jewel.class_counts
                       const inSystem = cc != null ? (cc.in_system ?? 0) : (jewel.path_count ?? 0)
@@ -198,7 +262,11 @@ export function CrownJewelListPanel({
         {(jewels?.length ?? 0) === 0 && (
           <div className="text-center py-8">
             <Shield className="w-6 h-6 text-muted-foreground mx-auto mb-2" />
-            <p className="text-xs text-muted-foreground">No crown jewels detected</p>
+            <p className="text-xs text-muted-foreground">
+              {serveState
+                ? "No crown-jewel targets in this system's inventory"
+                : "No crown jewels detected"}
+            </p>
           </div>
         )}
       </div>
