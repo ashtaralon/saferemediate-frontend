@@ -263,7 +263,13 @@ export function stableHash(...parts: string[]): number {
 
 const TILE_TYPES = new Set(['EC2Instance', 'Lambda', 'ECSTask', 'RDS', 'ALB', 'NAT', 'VPCE']);
 const FOOTHOLD_TYPES = new Set(['EC2Instance', 'Lambda', 'ECSTask']);
-const JEWEL_TYPES = new Set(['S3Bucket', 'DynamoDBTable', 'Secret']);
+// A managed database is a crown jewel wherever a path reaches one. RDS was
+// absent because no IAM-anchored path could name it as a target; AP3-102a
+// discovers those paths from observed traffic, so the terminal now arrives
+// here and must be placed as a jewel rather than a generic node.
+const JEWEL_TYPES = new Set([
+  'S3Bucket', 'DynamoDBTable', 'Secret', 'RDSCluster', 'RDSInstance',
+]);
 const EXTERNAL_TYPES = new Set(['Internet', 'OnPrem']);
 
 /* ────────────────────────────────────────────────────────────────────────

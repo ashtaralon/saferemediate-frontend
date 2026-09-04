@@ -16,6 +16,7 @@ const DISPLAY_TO_NEO4J_LABEL: Record<string, string> = {
   DynamoDBTable: "DynamoDBTable",
   RDS: "RDSInstance",
   RDSInstance: "RDSInstance",
+  RDSCluster: "RDSCluster",
   ALB: "LoadBalancer",
   NLB: "LoadBalancer",
   LoadBalancer: "LoadBalancer",

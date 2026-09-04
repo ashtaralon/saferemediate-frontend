@@ -18,6 +18,7 @@ function mapNodeType(t: string): TargetNodeType {
       return "lambda"
     case "RDS":
     case "RDSInstance":
+    case "RDSCluster":
     case "Aurora":
     case "DynamoDBTable":
       return "database"

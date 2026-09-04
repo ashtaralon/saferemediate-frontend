@@ -105,6 +105,11 @@ export function visualTypeFromNodeType(nodeType: string): VisualNodeType {
       return "compute"
     case "RDS":
     case "RDSInstance":
+    // A network-discovered path (AP3-102a) names the CLUSTER as its target,
+    // because cluster members share the endpoint addresses the flow was
+    // keyed by. Without this it falls through to "generic" and an Aurora
+    // cluster renders as an unrecognised box.
+    case "RDSCluster":
     case "Aurora":
     case "DynamoDBTable":
       return "database"
