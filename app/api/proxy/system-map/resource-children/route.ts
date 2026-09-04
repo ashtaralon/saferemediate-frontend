@@ -58,13 +58,15 @@ export async function GET(request: NextRequest) {
     })
 
     if (!res.ok) {
+      const notFound = res.status === 404
       return NextResponse.json(
         {
-          error: `Backend returned ${res.status}`,
+          error: notFound ? "scope_evidence_not_found" : `Backend returned ${res.status}`,
+          code: notFound ? "SCOPE_EVIDENCE_NOT_FOUND" : "SCOPE_EVIDENCE_UNAVAILABLE",
           status: res.status,
           resource_id: resourceId,
         },
-        { status: 502 },
+        { status: notFound ? 404 : 502 },
       )
     }
 
