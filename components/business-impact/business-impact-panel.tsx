@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import { AlertTriangle, ChevronDown, ChevronRight, Landmark, Loader2, Settings2, ShieldCheck } from "lucide-react"
+import { AlertTriangle, ChevronDown, ChevronRight, Landmark, Loader2, RefreshCw, Settings2, ShieldCheck } from "lucide-react"
 import {
   formatImpactMoney,
   type BusinessImpactResponse,
@@ -89,8 +89,21 @@ export function BusinessImpactPanel({ systemName, pathId, environment, criticali
     try {
       const query = pathId ? `?path_id=${encodeURIComponent(pathId)}` : ""
       const response = await fetch(`/api/proxy/business-impact/scenarios/${encodeURIComponent(systemName)}${query}`, { cache: "no-store" })
-      const payload = await response.json()
-      if (!response.ok) throw new Error(payload.detail || payload.error || "Could not calculate business impact")
+      const payload = await response.json().catch(() => null) as BusinessImpactResponse | { detail?: string; error?: string } | null
+      if (!response.ok) {
+        const backendMessage = payload && "detail" in payload
+          ? payload.detail || payload.error
+          : null
+        throw new Error(
+          backendMessage ||
+          "Business impact is temporarily unavailable. Technical exposure and CVE analysis remain available.",
+        )
+      }
+      if (!payload || !("scenarios" in payload) || !Array.isArray(payload.scenarios)) {
+        throw new Error(
+          "Business impact returned an unreadable response. Technical exposure and CVE analysis remain available.",
+        )
+      }
       setData(payload)
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Could not calculate business impact")
@@ -112,7 +125,7 @@ export function BusinessImpactPanel({ systemName, pathId, environment, criticali
       </div>
 
       {loading ? <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white p-4 text-xs text-slate-500"><Loader2 className="h-4 w-4 animate-spin" />Calculating unique business scenarios…</div> : null}
-      {error ? <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900"><AlertTriangle className="h-4 w-4 shrink-0" />{error}</div> : null}
+      {error ? <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900"><AlertTriangle className="h-4 w-4 shrink-0" /><div className="min-w-0 flex-1"><div>{error}</div><button type="button" onClick={() => void load()} className="mt-2 inline-flex items-center gap-1 font-semibold underline underline-offset-2"><RefreshCw className="h-3 w-3" />Retry business impact</button></div></div> : null}
       {!loading && !error && data?.scenarios.length === 0 ? <div className="rounded-lg border border-dashed border-slate-300 bg-white p-4 text-xs text-slate-600">No terminal business-impact scenario is compiled for this path. Privilege and execution capabilities may be enablers without a priced terminal consequence.</div> : null}
       {!loading && !error && data?.scenarios.length ? <div className="space-y-3">{data.scenarios.map((scenario) => <ExposureCard key={scenario.scenario_id} scenario={scenario} />)}</div> : null}
 

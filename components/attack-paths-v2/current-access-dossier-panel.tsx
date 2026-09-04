@@ -16,6 +16,7 @@ import {
   FileText,
   Folder,
   Loader2,
+  RefreshCw,
   Scissors,
   ShieldCheck,
   TriangleAlert,
@@ -206,14 +207,26 @@ function DataScopeExplorer({
   const [loading, setLoading] = useState(false)
   const [loadingChild, setLoadingChild] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [retryKey, setRetryKey] = useState(0)
 
   const fetchScope = async (id: string): Promise<DrilldownChild[]> => {
     const query = new URLSearchParams({ resource_id: id })
     if (systemName) query.set("system_name", systemName)
     const response = await fetch(`/api/proxy/system-map/resource-children?${query.toString()}`)
-    if (!response.ok) throw new Error(`Evidence endpoint returned ${response.status}`)
-    const payload = await response.json()
-    return Array.isArray(payload.children) ? payload.children : []
+    const payload = await response.json().catch(() => null) as {
+      children?: DrilldownChild[]
+      error?: string
+      code?: string
+    } | null
+    if (response.status === 404 || payload?.code === "SCOPE_EVIDENCE_NOT_FOUND") {
+      return []
+    }
+    if (!response.ok) {
+      throw new Error(
+        "Exact object-level Neptune evidence is temporarily unavailable. Bucket-level damage remains available.",
+      )
+    }
+    return Array.isArray(payload?.children) ? payload.children : []
   }
 
   useEffect(() => {
@@ -239,7 +252,7 @@ function DataScopeExplorer({
     }
     // Resource identity is the authority for this fetch.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resourceId, systemName, isS3, isRds])
+  }, [resourceId, systemName, isS3, isRds, retryKey])
 
   if (!isS3 && !isRds) return null
 
@@ -271,7 +284,16 @@ function DataScopeExplorer({
           <Loader2 className="h-3 w-3 animate-spin" /> Loading exact scope…
         </div>
       ) : error ? (
-        <p className="mt-2 text-[10px] text-amber-800 dark:text-amber-300">{error}</p>
+        <div className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/[0.04] p-2.5 text-[10px] leading-relaxed text-amber-900 dark:text-amber-200">
+          <p>{error}</p>
+          <button
+            type="button"
+            onClick={() => setRetryKey((value) => value + 1)}
+            className="mt-2 inline-flex items-center gap-1 font-semibold underline underline-offset-2"
+          >
+            <RefreshCw className="h-3 w-3" /> Retry exact scope
+          </button>
+        </div>
       ) : children?.length === 0 ? (
         <p className="mt-2 rounded-lg border border-dashed border-amber-500/30 bg-amber-500/[0.04] p-2.5 text-[10px] leading-relaxed text-amber-900 dark:text-amber-200">
           {isS3

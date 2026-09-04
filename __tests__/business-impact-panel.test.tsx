@@ -72,6 +72,41 @@ describe("BusinessImpactPanel", () => {
     )
   })
 
+  it("replaces a non-JSON backend failure with a stable retryable message", async () => {
+    global.fetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        json: async () => { throw new SyntaxError("Unexpected token 'I', Internal Server Error") },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          model_version: "biq-conditional-v1.0",
+          annualized_loss_available: false,
+          annualized_loss_reason: "Conditional only",
+          systems: 1,
+          paths_collapsed: 1,
+          scenarios_with_estimates: 0,
+          system_regulatory_summaries: [],
+          regulatory_exposures_mapped: 0,
+          regulatory_exposures_calculated: 0,
+          top_missing_inputs: [],
+          definitions_complete: false,
+          scenarios: [],
+        }),
+      }) as unknown as typeof fetch
+
+    render(<BusinessImpactPanel systemName="payments-prod" pathId="path-1" />)
+
+    expect(await screen.findByText(/Business impact is temporarily unavailable/i)).toBeInTheDocument()
+    expect(screen.queryByText(/Unexpected token/i)).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: /Retry business impact/i }))
+    expect(await screen.findByText(/No terminal business-impact scenario/i)).toBeInTheDocument()
+    expect(global.fetch).toHaveBeenCalledTimes(2)
+  })
+
   it("allows organization definitions to be saved before systems are available", async () => {
     global.fetch = vi.fn()
       .mockResolvedValueOnce({ ok: true, json: async () => ({ data_categories: [], regimes: [], regulatory_catalog_version: "rules-test" }) })
