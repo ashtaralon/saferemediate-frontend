@@ -112,3 +112,35 @@ describe("iapPathsToConvergence — helper may exist, must not paint maps", () =
     expect(src).not.toMatch(/source: "fallback" as const\}\s*\n\s*if \(iapFallback/)
   })
 })
+
+/**
+ * AP3-001-FE: the reverse adapter used to infer `source_kind` from a
+ * lane/regex pick over nodes even when the IAP row carried the server's own
+ * source_kind / workload_arn. Server first; the pick is a flagged fallback.
+ */
+describe("iapPathsToConvergence — origin provenance", () => {
+  it("prefers the server source_kind / workload_arn / workload_name on the row", () => {
+    const conv = iapPathsToConvergence("alon-prod", jewel, [
+      {
+        ...path,
+        source_kind: "LambdaFunction",
+        workload_arn: "arn:aws:lambda:eu-west-1:1:function:fn",
+        materialized_path: { workload_name: "fn" } as never,
+      },
+    ])
+    expect(conv.paths[0]).toMatchObject({
+      source: "fn",
+      source_kind: "LambdaFunction",
+      workload_arn: "arn:aws:lambda:eu-west-1:1:function:fn",
+    })
+    expect(conv.paths[0].origin_inferred).toBeUndefined()
+  })
+
+  it("marks the lane/type pick as inferred when the row has no server origin", () => {
+    const conv = iapPathsToConvergence("alon-prod", jewel, [path])
+    expect(conv.paths[0].source_kind).toBe("EC2Instance")
+    expect(conv.paths[0].origin_inferred).toBe(true)
+    // A node id is never promoted to the server's workload_arn.
+    expect("workload_arn" in conv.paths[0]).toBe(false)
+  })
+})

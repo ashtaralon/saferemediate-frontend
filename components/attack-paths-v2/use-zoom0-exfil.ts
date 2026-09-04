@@ -51,7 +51,10 @@ export function useZoom0Exfil({
     {
       fetchInit,
       refetchKey: `zoom0-exfil:${systemName}:${jewelId}`,
-      maxRetries: 2,
+      // §11 retry budget: one retry, 15s per attempt, then the honest
+      // "timed out — backend may be cold-starting; Retry" state.
+      maxRetries: 1,
+      timeoutMs: 15_000,
       initialDelayMs: 1000,
     },
   )

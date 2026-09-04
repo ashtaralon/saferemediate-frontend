@@ -119,6 +119,13 @@ export interface ConvergencePath {
    * - error: detail fetch failed
    */
   hops_load_state?: "pending" | "ready" | "error" | "fallback"
+  /**
+   * CLIENT-ONLY. Never emitted by SERVE. Set by lib/attack-paths/
+   * iap-to-convergence.ts when it had to pick the workload from node
+   * lane/type order because the IAP row carried no server source_kind /
+   * workload_arn. Absent on every server row.
+   */
+  origin_inferred?: boolean
   /** Multi-edge: one entry per category. Empty list when classifier
    *  hasn't run for this system yet (migration window). */
   initial_access?: InitialAccessEdge[]

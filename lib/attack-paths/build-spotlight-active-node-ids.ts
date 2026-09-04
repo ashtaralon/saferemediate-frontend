@@ -47,7 +47,10 @@ export interface SpotlightArchitectureSlice {
   }>
 }
 
-function extractInstanceId(id: string | null | undefined): string {
+/** "i-…" when the id/ARN carries an EC2 instance id; the input otherwise.
+ *  Exported so origin matching (lib/attack-paths/server-origin.ts) reuses it
+ *  instead of minting another copy. */
+export function extractInstanceId(id: string | null | undefined): string {
   if (!id) return ""
   const match = id.match(/i-[a-f0-9]+/)
   return match ? match[0] : id

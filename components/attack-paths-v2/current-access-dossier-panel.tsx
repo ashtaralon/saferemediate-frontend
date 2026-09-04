@@ -58,9 +58,12 @@ function EvidenceChip({ status }: { status: string }) {
 function Endpoint({
   side,
   endpoint,
+  inferred = false,
 }: {
   side: "from" | "to"
   endpoint: CurrentAccessDossier["from"]
+  /** FROM was reconstructed from hop order (no server-authored origin). */
+  inferred?: boolean
 }) {
   const meta = getServiceMeta(endpoint.type || "Resource")
   return (
@@ -74,6 +77,15 @@ function Endpoint({
           {endpoint.name}
         </div>
         <div className="truncate text-[10px] text-muted-foreground">{meta.label}</div>
+        {inferred ? (
+          <div
+            className="truncate text-[9px] text-amber-700 dark:text-amber-300"
+            title="No server-authored origin on this path — FROM was reconstructed from hop order"
+            data-testid="dossier-origin-inferred"
+          >
+            origin inferred from hop order
+          </div>
+        ) : null}
       </div>
     </div>
   )
@@ -438,7 +450,7 @@ export function CurrentAccessDossierPanel({
         </div>
 
         <div className="mt-3 flex items-center gap-2 rounded-xl border border-border bg-muted/20 p-3">
-          <Endpoint side="from" endpoint={dossier.from} />
+          <Endpoint side="from" endpoint={dossier.from} inferred={dossier.origin_inferred} />
           <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full border border-border bg-background text-primary"><ArrowRight className="h-3.5 w-3.5" /></span>
           <Endpoint side="to" endpoint={{ ...dossier.to, name: dossier.to.name || jewelName, type: dossier.to.type || jewelType || null }} />
         </div>

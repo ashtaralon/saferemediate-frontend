@@ -8,7 +8,11 @@ import type {
   ConvergencePath,
   CrownJewelConvergence,
 } from "./convergence-types"
+import { hasServerOrigin, serverOriginOf } from "./server-origin"
 
+/** Lane / type-order pick — a RECONSTRUCTION. Used only when the IAP row
+ *  carries no server source_kind / workload_arn (see iapPathsToConvergence),
+ *  and then the row is stamped origin_inferred. */
 function pickWorkload(nodes: PathNodeDetail[]): PathNodeDetail | undefined {
   return (
     nodes.find((n) => n.lane === "compute") ??
@@ -34,7 +38,12 @@ export function iapPathsToConvergence(
   for (const p of paths) {
     if (p.evidence_type === "observed") observed += 1
     const nodes = p.nodes ?? []
+    // Server-authored origin first (SERVE rows round-tripped through
+    // convergence-to-iap carry it); the lane/type pick is a fallback that
+    // is flagged, never presented as the server's word.
+    const server = serverOriginOf(p)
     const workload = pickWorkload(nodes)
+    const originInferred = !hasServerOrigin(server) && workload != null
     const role = pickRole(nodes)
     const identity = role?.canonical_id ?? role?.id
     if (identity) choke[identity] = (choke[identity] ?? 0) + 1
@@ -73,8 +82,10 @@ export function iapPathsToConvergence(
 
     out.push({
       path_id: p.attack_path_id ?? p.id,
-      source: workload?.name ?? null,
-      source_kind: workload?.type ?? null,
+      source: server.name ?? workload?.name ?? null,
+      source_kind: server.kind ?? workload?.type ?? null,
+      // Only the server's ARN; a node id is never promoted to workload_arn.
+      ...(server.arn ? { workload_arn: server.arn } : {}),
       identity: identity ?? null,
       identity_name: role?.name ?? null,
       damage: p.damage_capability?.direct_actions ?? [],
@@ -84,10 +95,11 @@ export function iapPathsToConvergence(
       hop_count: p.hop_count,
       routes_via: [],
       role_assumption_observed: p.evidence_type === "observed",
-      cj_target_id: jewel.canonical_id ?? jewel.id,
+      cj_target_id: p.cj_target_id ?? jewel.canonical_id ?? jewel.id,
       hops,
       // Synthetic IAP spine — never authoritative for path-authority TFM.
       hops_load_state: "fallback",
+      ...(originInferred ? { origin_inferred: true } : {}),
     })
   }
 

@@ -48,8 +48,20 @@ export type UseCrownJewelConvergenceOptions = {
   fanInAllDetails?: boolean
 }
 
-const MAX_AUTO_RETRIES = 4
-const RETRY_DELAYS_MS = [3000, 6000, 10000, 15000]
+/**
+ * Retry budget (Attack Paths V3 plan §11): ONE auto-retry, 15s per attempt.
+ * The old 4×55s ladder held the rail on a spinner for minutes against a cold
+ * worker that was never going to answer; after two misses the honest state
+ * is "warming up — Retry", not a fifth attempt.
+ */
+const MAX_AUTO_RETRIES = 1
+/** Attempts the hook makes on its own (initial + auto-retries). Exported so
+ *  the rail's hard-error gate reads the budget instead of pinning a number
+ *  that silently goes stale when the budget changes. */
+export const SUMMARY_MAX_ATTEMPTS = MAX_AUTO_RETRIES + 1
+const RETRY_DELAYS_MS = [3000]
+/** Client per-attempt abort for the summary fetch. */
+export const SUMMARY_ATTEMPT_TIMEOUT_MS = 15_000
 /**
  * Sibling /detail concurrency after the pin settles. Keep low so a cold
  * Render worker is not flooded (fan-in used to fire 4×55s aborts at once).
@@ -63,10 +75,11 @@ const DETAIL_SIBLING_CONCURRENCY = 2
  * sibling that still has subnet/SG/NACL hops in Neo4j. The pin (when set)
  * is fetched first; siblings follow at low concurrency with cold retries.
  *
- * Cold Render workers often return nothing for 55s+ on first hit. We auto-
- * retry the summary a few times instead of surfacing a hard HTTP 502 after
- * one abort — operators were getting bricked by a single cold miss. Detail
- * uses the same idea with shorter per-attempt aborts.
+ * Cold Render workers often return nothing on first hit. We auto-retry the
+ * summary ONCE (15s per attempt, §11 budget) instead of surfacing a hard HTTP
+ * 502 after one abort — then stop and show the honest "warming up — Retry"
+ * state rather than spinning for minutes. Detail uses the same idea with
+ * short per-attempt aborts.
  */
 export function useCrownJewelConvergence(
   systemName: string | null,
@@ -137,7 +150,7 @@ export function useCrownJewelConvergence(
           ctrl.abort(
             new DOMException("Backend warming up — retrying…", "TimeoutError"),
           ),
-        55_000,
+        SUMMARY_ATTEMPT_TIMEOUT_MS,
       )
 
       try {
@@ -178,7 +191,7 @@ export function useCrownJewelConvergence(
         }
         setSummary(null)
         setError(
-          "Couldn’t reach path data after several tries — backend may be cold. Hit Retry.",
+          `Couldn’t reach path data after ${SUMMARY_MAX_ATTEMPTS} attempts — backend may be cold. Hit Retry.`,
         )
         setRetrying(false)
         setLoading(false)

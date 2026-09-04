@@ -13,7 +13,8 @@ import type {
   PathNodeDetail,
   SeverityBreakdown,
 } from "@/components/identity-attack-paths/types"
-import type { ConvergencePath } from "./convergence-types"
+import type { ConvergenceHop, ConvergencePath } from "./convergence-types"
+import { findServerOriginMatch, serverOriginOf } from "./server-origin"
 
 /**
  * Passthrough only. Never derive severity from score thresholds.
@@ -48,12 +49,65 @@ export function severityPassthrough(
   }
 }
 
+/** Server-anchored tier facts for one hop chain (AP3-001-FE). */
+interface TierAnchors {
+  /** Index of the hop tied to the server workload identity
+   *  (workload_arn / workload_name — see server-origin.ts), or null. */
+  entryIndex: number | null
+  /** true when the chain carries the server's is_crown_jewel flag
+   *  (build_full_hops stamps it on every hop); false only on legacy
+   *  payloads that omit the field entirely. */
+  cjAuthoritative: boolean
+}
+
+/** Entry anchor by IDENTITY, never position: exact node_id, ARN tail, EC2
+ *  instance id, then the server workload name. Crown-jewel hops are masked
+ *  so a same-named jewel can never be tagged as the entry. */
+function serverEntryHopIndex(
+  p: ConvergencePath,
+  hops: ConvergenceHop[],
+): number | null {
+  const idx = findServerOriginMatch(
+    hops,
+    (h) =>
+      h.is_crown_jewel === true
+        ? { ids: [] }
+        : { ids: [h.node_id], name: h.name },
+    serverOriginOf(p),
+  )
+  return idx >= 0 ? idx : null
+}
+
+/**
+ * Tier tagging prefers what the server said: `is_crown_jewel` for the jewel,
+ * the workload-identity anchor for the entry. Position (last hop / hop 0) is
+ * used ONLY when that server field is absent, and the fallback is reported
+ * so the path can carry `origin_inferred: true` — a reconstruction is never
+ * presented as a server fact.
+ */
 function hopToNode(
-  hop: NonNullable<ConvergencePath["hops"]>[number],
+  hop: ConvergenceHop,
   index: number,
   total: number,
-): PathNodeDetail {
-  const isCj = hop.is_crown_jewel === true || index === total - 1
+  anchors: TierAnchors,
+): { node: PathNodeDetail; inferred: boolean } {
+  let inferred = false
+  let isCj: boolean
+  if (anchors.cjAuthoritative) {
+    isCj = hop.is_crown_jewel === true
+  } else {
+    isCj = index === total - 1
+    inferred = true
+  }
+  let isEntry = false
+  if (!isCj) {
+    if (anchors.entryIndex != null) {
+      isEntry = index === anchors.entryIndex
+    } else if (index === 0) {
+      isEntry = true
+      inferred = true
+    }
+  }
   // Only set lane when plane maps into PathNodeDetail's union — omit otherwise.
   // Never invent "resource" / "identity" (those are not valid lane values).
   let lane: PathNodeDetail["lane"] | undefined
@@ -61,16 +115,19 @@ function hopToNode(
   else if (hop.plane === "identity") lane = "iam"
   else if (hop.plane === "network" || hop.plane === "compute") lane = "compute"
   return {
-    id: hop.node_id,
-    canonical_id: hop.node_id,
-    name: hop.name || hop.node_id,
-    // Absent type stays empty — never invent "Unknown" as a typed fact.
-    type: hop.node_type || "",
-    tier: isCj ? "crown_jewel" : index === 0 ? "entry" : "identity",
-    ...(lane ? { lane } : {}),
-    // Omit is_internet_exposed / gap_count when unknown — never invent false/0.
-    lp_score: null,
-    subnet_is_public: hop.subnet_public ?? undefined,
+    node: {
+      id: hop.node_id,
+      canonical_id: hop.node_id,
+      name: hop.name || hop.node_id,
+      // Absent type stays empty — never invent "Unknown" as a typed fact.
+      type: hop.node_type || "",
+      tier: isCj ? "crown_jewel" : isEntry ? "entry" : "identity",
+      ...(lane ? { lane } : {}),
+      // Omit is_internet_exposed / gap_count when unknown — never invent false/0.
+      lp_score: null,
+      subnet_is_public: hop.subnet_public ?? undefined,
+    },
+    inferred,
   }
 }
 
@@ -97,7 +154,16 @@ export function convergencePathsToIdentityAttackPaths(
     // Empty hops → empty nodes/edges. Never synthesize entry/role/CJ spine.
     const hops = Array.isArray(p.hops) && p.hops.length > 0 ? p.hops : []
 
-    const nodes = hops.map((h, i) => hopToNode(h, i, hops.length))
+    const anchors: TierAnchors = {
+      entryIndex: serverEntryHopIndex(p, hops),
+      cjAuthoritative: hops.some((h) => typeof h.is_crown_jewel === "boolean"),
+    }
+    let originInferred = false
+    const nodes = hops.map((h, i) => {
+      const { node, inferred } = hopToNode(h, i, hops.length, anchors)
+      if (inferred) originInferred = true
+      return node
+    })
     const edges: IdentityAttackPath["edges"] = []
     for (let i = 0; i < hops.length - 1; i++) {
       const type = edgeTypeFromHop(hops[i + 1])
@@ -170,6 +236,29 @@ export function convergencePathsToIdentityAttackPaths(
         : undefined,
       // ACQUISITION must be carried across the shape change (whitelist).
       acquisition: p.acquisition ?? null,
+      // ---- Server-authored origin + verdicts: PASSTHROUGH, never derived ----
+      // This literal is a whitelist (see convergence-to-iap-acquisition.test):
+      // a field not named here is silently dropped, and every consumer then
+      // reconstructs meaning from hop order. Absent stays null / omitted —
+      // never a client default.
+      source_kind: p.source_kind ?? null,
+      workload_arn: p.workload_arn ?? null,
+      cj_target_id: p.cj_target_id ?? null,
+      route_verdict: p.route_verdict ?? null,
+      workload_network: p.workload_network ?? null,
+      authz_decision: p.authz_decision ?? null,
+      authz_technique_id: p.authz_technique_id ?? null,
+      authz_verdict: p.authz_verdict ?? null,
+      ...(Array.isArray(p.path_bound_observations)
+        ? { path_bound_observations: p.path_bound_observations }
+        : {}),
+      live_traffic_promoted:
+        typeof p.live_traffic_promoted === "boolean"
+          ? p.live_traffic_promoted
+          : null,
+      feasibility: p.feasibility ?? null,
+      // Set ONLY when tier tagging had to fall back to hop position above.
+      ...(originInferred ? { origin_inferred: true } : {}),
     } as IdentityAttackPath
   })
 }

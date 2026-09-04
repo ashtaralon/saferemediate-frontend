@@ -57,6 +57,11 @@ export interface PathShape {
   excess: ExcessState
   /** Assume-hop detail when `hasAssume`; null otherwise. */
   assume: AssumeHopFacts | null
+  /** Always true: the shape is a STRUCTURAL INFERENCE — regexes over edge
+   *  types and node types on the client — never a server verdict. Consumers
+   *  must not present `kind` as backend-authored; the server-authored origin
+   *  is `source_kind` / `workload_arn` on the path (see server-origin.ts). */
+  inferred: true
 }
 
 // Compute foothold node types. Deliberately broad: the discriminator is "is
@@ -94,7 +99,10 @@ export function friendlyRoleName(
   return node?.name ?? fallback ?? "—"
 }
 
-function findComputeFoothold(path: IdentityAttackPath): PathNodeDetail | undefined {
+/** First compute-foothold node on the path (EC2 / Lambda / ECS …), or
+ *  undefined. Exported so the row compiler's identity-only exclusion asks the
+ *  same question the narrative does. */
+export function findComputeFoothold(path: IdentityAttackPath): PathNodeDetail | undefined {
   return (path.nodes ?? []).find(
     (n) =>
       !isPrincipalNodeType(n.type) &&
@@ -171,7 +179,7 @@ export function classifyPathShape(
     kind = "A"
   }
 
-  return { kind, hasCompute, hasAssume, excess, assume }
+  return { kind, hasCompute, hasAssume, excess, assume, inferred: true }
 }
 
 // Damage-verb phrasing (spec §3.2). Build the phrase by joining only the verbs

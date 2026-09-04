@@ -369,7 +369,10 @@ export function ExfilViewV4({ systemName, jewel }: ExfilViewV4Props) {
     useRetryFetch<ExfilPayload>(enabled ? "/api/proxy/attack-chain/exfil-paths" : null, {
       fetchInit,
       refetchKey: `${systemName}:${jewel?.id ?? ""}`,
-      maxRetries: 2,
+      // §11 retry budget: one retry, 15s per attempt, then the honest
+      // "timed out — backend may be cold-starting; Retry" state.
+      maxRetries: 1,
+      timeoutMs: 15_000,
       initialDelayMs: 1000,
     })
 

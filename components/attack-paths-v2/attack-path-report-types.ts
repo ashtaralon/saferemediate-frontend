@@ -408,6 +408,17 @@ export interface PathListRow {
   start_type: string | null
   target_type: string | null
 
+  /** Origin provenance (AP3-001-FE). `source_kind` / `workload_arn` are the
+   *  server-authored compute origin — (:AttackPath).workload_kind /
+   *  workload_arn via SERVE by-crown-jewel — when the row carried them; null
+   *  when the backend did not send them (legacy IAP rows), never a guess.
+   *  `origin_inferred` is true when the FROM tile (or the entry tier upstream)
+   *  had to be reconstructed from hop order — badge it, never present it as
+   *  a server fact. */
+  source_kind: string | null
+  workload_arn: string | null
+  origin_inferred: boolean
+
   /** Crown jewel canonical id this path terminates at. Mirrors
    *  `IdentityAttackPath.crown_jewel_id`. */
   crown_jewel_id: string

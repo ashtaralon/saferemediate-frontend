@@ -11,6 +11,11 @@ import type {
   InitialAccessEdge,
 } from "@/lib/attack-paths/convergence-types"
 import { hopRuleTotalCount } from "@/lib/attack-paths/hop-rule-total-count"
+import {
+  findServerOriginMatch,
+  hasServerOrigin,
+  serverOriginOf,
+} from "@/lib/attack-paths/server-origin"
 
 export type DossierCheckpointKind =
   | "credential"
@@ -52,6 +57,10 @@ export interface CurrentAccessDossier {
   headline: string
   evidence: string
   checkpoints: DossierCheckpoint[]
+  /** true ONLY when `from` had to be reconstructed from hop order because
+   *  the server sent no origin (source_kind / workload_arn / workload_name)
+   *  and no hop could be tied to it. Badge it; never present it as fact. */
+  origin_inferred: boolean
 }
 
 function normType(t: string | undefined | null): string {
@@ -462,15 +471,34 @@ export function buildCurrentAccessDossier(
   if (!path?.path_id) return null
   const hops = Array.isArray(path.hops) ? path.hops : []
   const evidence = evidenceLabel(path.evidence ?? path.confidence)
-  const fromHop = hopByType(
+  // FROM: server-authored origin first (AP3-001-FE). The hop is tied to
+  // workload_arn / workload_name by IDENTITY (server-origin.ts); a type-
+  // substring / hops[0] reconstruction happens ONLY when the server sent no
+  // origin at all — and is then flagged, never presented as fact.
+  const origin = serverOriginOf(path)
+  const anchorIdx = findServerOriginMatch(
     hops,
-    (nt) =>
-      nt.includes("ec2") ||
-      nt.includes("instance") ||
-      nt.includes("lambda") ||
-      nt.includes("ecs") ||
-      nt.includes("fargate"),
-  ) ?? hops[0] ?? null
+    (h) =>
+      h.is_crown_jewel === true
+        ? { ids: [] }
+        : { ids: [h.node_id], name: h.name },
+    origin,
+  )
+  const anchoredHop = anchorIdx >= 0 ? hops[anchorIdx] : null
+  const inferredHop =
+    anchoredHop || hasServerOrigin(origin)
+      ? null
+      : (hopByType(
+          hops,
+          (nt) =>
+            nt.includes("ec2") ||
+            nt.includes("instance") ||
+            nt.includes("lambda") ||
+            nt.includes("ecs") ||
+            nt.includes("fargate"),
+        ) ?? hops[0] ?? null)
+  const fromHop = anchoredHop ?? inferredHop
+  const originInferred = inferredHop != null
   const toHop = hops.find((hop) => hop.is_crown_jewel === true)
     ?? hopByType(
       hops,
@@ -483,7 +511,7 @@ export function buildCurrentAccessDossier(
     )
     ?? hops[hops.length - 1]
     ?? null
-  const sourceId = path.workload_arn ?? path.source ?? fromHop?.node_id ?? null
+  const sourceId = origin.arn ?? origin.name ?? fromHop?.node_id ?? null
   const jewelId = path.cj_target_id ?? toHop?.node_id ?? null
   return {
     path_id: path.path_id,
@@ -491,8 +519,9 @@ export function buildCurrentAccessDossier(
     jewel_id: jewelId,
     from: {
       id: sourceId,
-      name: fromHop ? shortName(fromHop) : (path.source ?? "Source unavailable"),
-      type: fromHop?.node_type ?? path.source_kind ?? null,
+      name: fromHop ? shortName(fromHop) : (origin.name ?? "Source unavailable"),
+      // Server kind outranks the hop's node_type — the hop is corroboration.
+      type: origin.kind ?? fromHop?.node_type ?? null,
     },
     to: {
       id: jewelId,
@@ -512,6 +541,7 @@ export function buildCurrentAccessDossier(
       damageCheckpoint(path),
       cutCheckpoint(path),
     ],
+    origin_inferred: originInferred,
   }
 }
 

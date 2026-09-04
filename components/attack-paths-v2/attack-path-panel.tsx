@@ -180,7 +180,10 @@ export function AttackPathPanel({
   } = useRetryFetch<AttackPathPayload | AttackPathFacadeError>(fetchUrl, {
     refetchKey: `${systemName}:${jewelId}:${pathId}:${pathFromPage ? "page" : "iap"}`,
     fetchInit,
-    maxRetries: 2,
+    // §11 retry budget: one retry, 15s per attempt, then the honest
+    // "timed out — backend may be cold-starting; Retry" state.
+    maxRetries: 1,
+    timeoutMs: 15_000,
     initialDelayMs: 1000,
   })
 

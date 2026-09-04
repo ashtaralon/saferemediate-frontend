@@ -18,7 +18,7 @@ import type { ActivePathList } from "@/lib/active-filters"
 import { initialAccessCategoryFromBackend } from "@/lib/attack-paths/initial-access-from-backend"
 import { getServiceMeta, ServiceTypeBadge } from "@/lib/service-type"
 import type { PathListRow } from "./attack-path-report-types"
-import { compilePathListRow } from "./compile-path-list-row"
+import { compilePathListRows } from "./compile-path-list-row"
 import { MaterializedScopeBadge } from "./materialized-scope-badge"
 import { compareReachableDamagePriority } from "./reachable-damage-priority"
 
@@ -73,17 +73,29 @@ export function PathListGrouped({
   selectedPathId,
   onSelectPath,
 }: PathListGroupedProps) {
-  const rows = useMemo<PathListRow[]>(() => {
-    return paths
-      .map((path) =>
-        compilePathListRow(
-          path,
-          jewel,
-          initialAccessCategoryFromBackend(path),
-        ),
-      )
-      .sort(compareReachableDamagePriority)
+  // Identity-only exposures (server OrphanRole / role-opening chains with no
+  // compute foothold) are counted OUT of the route list, not dropped: the
+  // count renders below so the operator knows where they live (Exposure).
+  const compiled = useMemo(() => {
+    const out = compilePathListRows(paths, jewel, (path) =>
+      initialAccessCategoryFromBackend(path),
+    )
+    const rows: PathListRow[] = [...out.rows].sort(compareReachableDamagePriority)
+    return { rows, identityOnly: out.excludedByReason.identity_only ?? 0 }
   }, [paths, jewel])
+  const rows = compiled.rows
+  const identityOnlyNote =
+    compiled.identityOnly > 0 ? (
+      <div
+        className="mt-1.5 text-[11px] leading-snug text-muted-foreground"
+        data-testid="zoom0-identity-only-exposures"
+      >
+        {compiled.identityOnly} identity-only exposure
+        {compiled.identityOnly === 1 ? "" : "s"} live
+        {compiled.identityOnly === 1 ? "s" : ""} in Exposure — no compute
+        origin to list as a route here.
+      </div>
+    ) : null
 
   if (rows.length === 0) {
     if (jewel?.paths_not_computed) {
@@ -100,16 +112,18 @@ export function PathListGrouped({
             No materialized path evidence exists in Neptune. Nothing is shown
             until the path materializer produces verified routes.
           </div>
+          {identityOnlyNote}
         </div>
       )
     }
     return (
       <div className="px-4 py-6 text-xs text-muted-foreground">
-        No attack paths to{" "}
+        No {compiled.identityOnly > 0 ? "compute-led " : ""}attack paths to{" "}
         <span className="font-mono text-foreground">
           {jewel?.name ?? "this crown jewel"}
         </span>{" "}
         today.
+        {identityOnlyNote}
       </div>
     )
   }
@@ -136,6 +150,7 @@ export function PathListGrouped({
             graphTotal={jewel?.materialized_path_count}
           />
         </div>
+        {identityOnlyNote}
       </div>
 
       <div className="space-y-2 p-3" data-testid="zoom0-path-list">
@@ -163,6 +178,15 @@ export function PathListGrouped({
                 <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-muted-foreground">
                   Path {index + 1}
                 </span>
+                {row.origin_inferred ? (
+                  <span
+                    className="inline-flex items-center rounded border border-amber-500/40 bg-amber-500/10 px-1 py-px text-[9px] font-medium text-amber-700 dark:text-amber-300"
+                    title="No server-authored origin on this path — FROM was reconstructed from hop order"
+                    data-testid="zoom0-origin-inferred"
+                  >
+                    origin inferred
+                  </span>
+                ) : null}
                 {isDataJewel ? (
                   <span className="inline-flex items-center gap-1 text-[9px] text-amber-700 dark:text-amber-300">
                     <Crown className="h-3 w-3" /> Data crown jewel

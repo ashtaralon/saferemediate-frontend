@@ -148,3 +148,108 @@ describe("findPinnedConvergencePath", () => {
     expect(findPinnedConvergencePath(paths, "missing")).toBeNull()
   })
 })
+
+/**
+ * AP3-001-FE: the dossier's FROM tile used to prefer the first hop whose
+ * node_type looked like compute (then hops[0]) over the server's own
+ * `source_kind` / `workload_arn`. Server origin first; hop order only when the
+ * server sent nothing — and then flagged so the panel badges it.
+ */
+describe("buildCurrentAccessDossier — FROM resolution", () => {
+  const hops: ConvergencePath["hops"] = [
+    {
+      node_id: "i-0abc",
+      node_type: "EC2Instance",
+      name: "web-1",
+      plane: "compute",
+      security_groups: [],
+      is_crown_jewel: false,
+    },
+    {
+      node_id: "arn:aws:iam::1:role/r",
+      node_type: "IAMRole",
+      name: "r",
+      plane: "identity",
+      security_groups: [],
+      is_crown_jewel: false,
+    },
+    {
+      node_id: "arn:aws:s3:::bucket",
+      node_type: "S3Bucket",
+      name: "bucket",
+      plane: "data",
+      security_groups: [],
+      is_crown_jewel: true,
+    },
+  ]
+
+  it("server source_kind + workload_arn win; the anchored hop corroborates", () => {
+    const dossier = buildCurrentAccessDossier(
+      path({
+        path_id: "srv",
+        source: "web-1",
+        source_kind: "EC2Instance",
+        workload_arn: "arn:aws:ec2:eu-west-1:1:instance/i-0abc",
+        hops,
+      }),
+    )!
+    expect(dossier.from).toEqual({
+      id: "arn:aws:ec2:eu-west-1:1:instance/i-0abc",
+      name: "web-1",
+      type: "EC2Instance",
+    })
+    expect(dossier.origin_inferred).toBe(false)
+  })
+
+  it("server kind outranks a hop node_type of 'Unknown'", () => {
+    const dossier = buildCurrentAccessDossier(
+      path({
+        path_id: "lambda",
+        source: "fn",
+        source_kind: "LambdaFunction",
+        workload_arn: "arn:aws:lambda:eu-west-1:1:function:fn",
+        hops: [
+          {
+            node_id: "arn:aws:lambda:eu-west-1:1:function:fn",
+            node_type: "Unknown",
+            name: "fn",
+            plane: "compute",
+            security_groups: [],
+            is_crown_jewel: false,
+          },
+        ],
+      }),
+    )!
+    expect(dossier.from.type).toBe("LambdaFunction")
+    expect(dossier.origin_inferred).toBe(false)
+  })
+
+  it("no server origin → hop-order reconstruction, flagged", () => {
+    const dossier = buildCurrentAccessDossier(
+      path({
+        path_id: "legacy",
+        source: undefined,
+        source_kind: undefined,
+        workload_arn: undefined,
+        hops,
+      }),
+    )!
+    expect(dossier.from.name).toBe("web-1")
+    expect(dossier.from.type).toBe("EC2Instance")
+    expect(dossier.origin_inferred).toBe(true)
+  })
+
+  it("no server origin and no hops → 'Source unavailable', nothing inferred", () => {
+    const dossier = buildCurrentAccessDossier(
+      path({
+        path_id: "empty",
+        source: undefined,
+        source_kind: undefined,
+        workload_arn: undefined,
+        hops: [],
+      }),
+    )!
+    expect(dossier.from).toEqual({ id: null, name: "Source unavailable", type: null })
+    expect(dossier.origin_inferred).toBe(false)
+  })
+})

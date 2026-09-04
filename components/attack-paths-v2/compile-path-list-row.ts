@@ -26,6 +26,14 @@ import type {
 } from "@/components/identity-attack-paths/types"
 import { isPrincipalNodeType } from "@/components/identity-attack-paths/types"
 import {
+  findServerOriginMatch,
+  hasServerOrigin,
+  isIdentityOriginKind,
+  serverOriginOf,
+  type ServerOrigin,
+} from "@/lib/attack-paths/server-origin"
+import { findComputeFoothold } from "./path-shape"
+import {
   buildEffectiveDamageMatrix,
   matrixToSummary,
 } from "./effective-damage-matrix"
@@ -76,16 +84,107 @@ function assumeEdgeOf(path: IdentityAttackPath) {
 }
 
 // =============================================================================
+// Origin resolution (AP3-001-FE) — server-authored FIRST, hop order only as a
+// FLAGGED fallback. SERVE rows reach this compiler through convergence-to-iap
+// carrying `source_kind` / `workload_arn` ((:AttackPath).workload_kind /
+// workload_arn); legacy IAP rows carry neither, so they keep the BE-10 hop-
+// order rules below and are badged `origin_inferred`. Matching lives in
+// lib/attack-paths/server-origin.ts, shared with the adapter and the dossier.
+// =============================================================================
+
+export interface PathOrigin {
+  /** Path node tied to the origin — by identity (server) or order (fallback). */
+  node: PathNodeDetail | null
+  /** Server workload kind, else the fallback node's type. null = unknown. */
+  kind: string | null
+  arn: string | null
+  name: string | null
+  /** The server fields as read off the row (null = backend did not send). */
+  server: ServerOrigin
+  /** true when no server origin existed and hop order decided. */
+  inferred: boolean
+  /** true when the origin is an identity kind (role / user / principal /
+   *  OrphanRole) and the path has no compute foothold anywhere: an
+   *  identity-only exposure the compute-led list must not render as a route.
+   *  Counted by compilePathListRows — never silently dropped. */
+  identity_only: boolean
+}
+
+function isJewelNode(path: IdentityAttackPath, n: PathNodeDetail): boolean {
+  if (n.tier === "crown_jewel") return true
+  const cj = path.crown_jewel_id
+  return !!cj && (n.id === cj || n.canonical_id === cj)
+}
+
+/** Hop-order fallback for the start — first non-principal, non-jewel node,
+ *  then nodes[0]. Skipping the jewel matters on orphan-role chains
+ *  ([Principal, S3Bucket]): "first non-principal" used to return the crown
+ *  jewel itself as the FROM tile. */
+function inferStartNode(path: IdentityAttackPath): PathNodeDetail | null {
+  const nodes = path.nodes ?? []
+  return (
+    nodes.find((n) => !isPrincipalNodeType(n.type) && !isJewelNode(path, n)) ??
+    nodes[0] ??
+    null
+  )
+}
+
+export function resolvePathOrigin(path: IdentityAttackPath): PathOrigin {
+  const server = serverOriginOf(path)
+  const nodes = path.nodes ?? []
+  const anchorIdx = findServerOriginMatch(
+    nodes,
+    (n) =>
+      isJewelNode(path, n)
+        ? { ids: [] }
+        : { ids: [n.id, n.canonical_id, n.arn], name: n.name },
+    server,
+  )
+  const anchor = anchorIdx >= 0 ? nodes[anchorIdx] : null
+  if (anchor || hasServerOrigin(server)) {
+    const kind = server.kind ?? anchor?.type ?? null
+    return {
+      node: anchor,
+      kind,
+      arn: server.arn ?? anchor?.canonical_id ?? anchor?.arn ?? null,
+      name: anchor?.name ?? server.name,
+      server,
+      inferred: false,
+      identity_only: isIdentityOriginKind(kind) && !findComputeFoothold(path),
+    }
+  }
+  const node = inferStartNode(path)
+  const kind = node?.type ?? null
+  return {
+    node,
+    kind,
+    arn: node?.canonical_id ?? node?.arn ?? null,
+    name: node?.name ?? null,
+    server,
+    inferred: node != null,
+    identity_only:
+      node != null && isIdentityOriginKind(kind) && !findComputeFoothold(path),
+  }
+}
+
+// =============================================================================
 // Source / identity / target resolution — the BE-10 rules from
 // path-damage-summary.ts, hoisted into the compiler so renderers stop
 // re-running them per row.
 // =============================================================================
 
-/** BE-10 (sibling to BE-9): when the path opens with an assume hop, the
- *  entry is the role doing the assuming (assume-edge source) — NOT
- *  whichever role sits at nodes[0]. Otherwise pick the first non-principal
- *  node (the operator-meaningful workload). */
-function compileSourceLabel(path: IdentityAttackPath): string {
+/** Server-authored origin wins outright. Otherwise BE-10 (sibling to BE-9):
+ *  when the path opens with an assume hop, the entry is the role doing the
+ *  assuming (assume-edge source) — NOT whichever role sits at nodes[0];
+ *  else the first non-principal node (the operator-meaningful workload). */
+function compileSourceLabel(path: IdentityAttackPath, origin: PathOrigin): string {
+  if (!origin.inferred) {
+    if (origin.name || origin.arn) {
+      return friendlyResourceName(origin.name, origin.kind, origin.arn)
+    }
+    // Server sent a kind but no name / arn: unavailable, not a type-as-name.
+    if (origin.kind) return "—"
+  }
   const entry = nodeById(path, assumeEdgeOf(path)?.source)
   if (entry) return friendlyResourceName(entry.name, entry.type)
   const workload = (path.nodes ?? []).find((n) => !isPrincipalNodeType(n.type))
@@ -114,14 +213,6 @@ function compileIdentityLabel(path: IdentityAttackPath): string {
   const role = (path.nodes ?? []).find((n) => n.type === "IAMRole")
   const raw = role?.name ?? path.damage_capability?.role_name ?? "—"
   return friendlyResourceName(raw, role?.type ?? "IAMRole")
-}
-
-/** Operator-meaningful "start" — first non-principal node (widened via
- *  isPrincipalNodeType so STS sessions / AWSPrincipal entries are
- *  skipped). Falls back to nodes[0]. Used for the "start → target" line. */
-function compileStartNode(path: IdentityAttackPath): PathNodeDetail | null {
-  const start = (path.nodes ?? []).find((n) => !isPrincipalNodeType(n.type))
-  return start ?? path.nodes?.[0] ?? null
 }
 
 /** Crown-jewel resolution (Bug #209): the path's nodes[] may end at the
@@ -335,7 +426,56 @@ export function compilePathListRow(
    */
   backendInitialAccessCategory?: InitialAccessCategory,
 ): PathListRow {
-  const start = compileStartNode(path)
+  return compileRow(path, jewel, backendInitialAccessCategory, resolvePathOrigin(path))
+}
+
+export type PathListExclusionReason = "identity_only"
+
+export interface CompiledPathList {
+  rows: PathListRow[]
+  /** Paths withheld from the list, by reason — never silently dropped. The
+   *  caller renders the count ("N identity-only exposures live in Exposure").
+   *  Same vocabulary as fan-in-path-model.ts `identity_only`. */
+  excludedByReason: Partial<Record<PathListExclusionReason, number>>
+  excludedPathIds: string[]
+}
+
+/**
+ * List-level compile. A path whose origin is an identity kind with no compute
+ * foothold (server `OrphanRole`, or a legacy chain that opens on a role /
+ * principal) is not a compute-led route: it is counted out here so the list
+ * can say so, instead of rendering "S3Bucket → S3Bucket" from hop order.
+ */
+export function compilePathListRows(
+  paths: readonly IdentityAttackPath[],
+  jewel: CrownJewelSummary | null,
+  backendInitialAccessCategoryFor?: (
+    path: IdentityAttackPath,
+  ) => InitialAccessCategory | undefined,
+): CompiledPathList {
+  const rows: PathListRow[] = []
+  const excludedByReason: CompiledPathList["excludedByReason"] = {}
+  const excludedPathIds: string[] = []
+  for (const path of paths) {
+    const origin = resolvePathOrigin(path)
+    if (origin.identity_only) {
+      excludedByReason.identity_only = (excludedByReason.identity_only ?? 0) + 1
+      excludedPathIds.push(path.id)
+      continue
+    }
+    rows.push(
+      compileRow(path, jewel, backendInitialAccessCategoryFor?.(path), origin),
+    )
+  }
+  return { rows, excludedByReason, excludedPathIds }
+}
+
+function compileRow(
+  path: IdentityAttackPath,
+  jewel: CrownJewelSummary | null,
+  backendInitialAccessCategory: InitialAccessCategory | undefined,
+  origin: PathOrigin,
+): PathListRow {
   const target = compileTargetNode(path, jewel)
   const fromBackend = narrowCategory(path.initial_access?.category)
   const fromArg = narrowCategory(backendInitialAccessCategory)
@@ -348,12 +488,21 @@ export function compilePathListRow(
       : null
   return {
     id: path.id,
-    source_label: compileSourceLabel(path),
+    source_label: compileSourceLabel(path, origin),
     identity_label: compileIdentityLabel(path),
-    start_label: start?.name ?? start?.id ?? null,
+    start_label:
+      origin.name ??
+      (origin.arn ? friendlyResourceName(null, origin.kind, origin.arn) : null) ??
+      origin.node?.id ??
+      null,
     target_label: target?.name ?? null,
-    start_type: start?.type ?? null,
+    start_type: origin.kind,
     target_type: target?.type ?? jewel?.type ?? null,
+    // Provenance: server fields verbatim (null = not sent), and whether any
+    // consumer upstream or here had to reconstruct from hop order.
+    source_kind: origin.server.kind,
+    workload_arn: origin.server.arn,
+    origin_inferred: origin.inferred || path.origin_inferred === true,
     crown_jewel_id: path.crown_jewel_id,
     severity_label: severityLabel === "UNKNOWN" ? null : severityLabel,
     severity_score: severityScore,

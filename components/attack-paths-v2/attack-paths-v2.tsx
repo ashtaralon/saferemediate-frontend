@@ -81,7 +81,10 @@ import { useAttackPathReport } from "./use-attack-path-report"
 import { buildConvergenceFetchUrl } from "@/lib/attack-paths/convergence-fetch-url"
 import type { CrownJewelConvergence } from "@/lib/attack-paths/convergence-types"
 import { matchConvergencePathId } from "@/lib/attack-paths/iap-to-convergence"
-import { useCrownJewelConvergence } from "@/lib/attack-paths/use-crown-jewel-convergence"
+import {
+  SUMMARY_MAX_ATTEMPTS,
+  useCrownJewelConvergence,
+} from "@/lib/attack-paths/use-crown-jewel-convergence"
 import {
   catalogSystemName,
   scopedStorageKey,
@@ -557,7 +560,10 @@ export function AttackPathsV2({
     !pathsPending &&
     jewelRail.source === "none" &&
     Boolean(jewelSummaryError) &&
-    jewelSummaryAttempts >= 3
+    // Budget-derived, not a pinned number: with §11's single auto-retry the
+    // hook stops after SUMMARY_MAX_ATTEMPTS, so a literal ">= 3" here would
+    // never fire and the hard-error card would silently vanish.
+    jewelSummaryAttempts >= SUMMARY_MAX_ATTEMPTS
 
   // IAP only when SERVE unreachable — label as non-authoritative.
   const pathsFromIapFallback = jewelRail.source === "iap_fallback"
@@ -614,7 +620,10 @@ export function AttackPathsV2({
     {
       fetchInit: exfilFetchInit,
       refetchKey: `exfil:${systemName}:${selectedJewelId ?? ""}`,
-      maxRetries: 2,
+      // §11 retry budget: one retry, 15s per attempt, then the honest
+      // "timed out — backend may be cold-starting; Retry" state.
+      maxRetries: 1,
+      timeoutMs: 15_000,
       initialDelayMs: 1000,
     },
   )

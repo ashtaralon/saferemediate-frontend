@@ -1,3 +1,5 @@
+import type { ConvergencePath } from "@/lib/attack-paths/convergence-types"
+
 export interface SeverityBreakdown {
   /** Legacy API alias retained while all report producers migrate. */
   score?: number
@@ -663,6 +665,38 @@ export interface IdentityAttackPath {
     path_state?: string | null
     activity_state?: string | null
   } | null
+  // ---- Server-authored origin + verdicts (AP3-001-FE) -----------------------
+  // SERVE by-crown-jewel rows carry these straight off (:AttackPath). They are
+  // AUTHORITY for "where does this path start": consumers resolve the origin
+  // from source_kind + workload_arn FIRST and fall back to hop order only when
+  // both are absent (legacy IAP rows), flagging origin_inferred so the UI can
+  // badge a reconstruction instead of presenting it as fact. Absent means the
+  // backend did not send it — never a value an adapter made up. Matching is
+  // shared in lib/attack-paths/server-origin.ts.
+  /** (:AttackPath).workload_kind — EC2Instance | LambdaFunction | ECSService |
+   *  OrphanRole | ExternalPrincipal. Server vocabulary; do not normalize. */
+  source_kind?: string | null
+  /** (:AttackPath).workload_arn — the origin's identity; ties the entry hop. */
+  workload_arn?: string | null
+  /** Crown-jewel target id the server materialized this path against. */
+  cj_target_id?: string | null
+  /** Route verdict envelope from the path materializer (server-owned). */
+  route_verdict?: ConvergencePath["route_verdict"]
+  /** VPC-attachment verdict from collector SSOT — never inferred from hops. */
+  workload_network?: ConvergencePath["workload_network"]
+  /** A1 authorization decision from (:AttackPath) — SERVE-projected. */
+  authz_decision?: string | null
+  authz_technique_id?: string | null
+  authz_verdict?: Record<string, unknown> | null
+  /** O1 path-bound traffic observations. Omitted when the server sent none —
+   *  never an empty list invented client-side. */
+  path_bound_observations?: unknown[]
+  /** O1: path-bound traffic was promoted onto this path. null = not stated. */
+  live_traffic_promoted?: boolean | null
+  /** true ONLY when a consumer had to reconstruct origin / entry tier from
+   *  hop order because no server anchor existed. Never set on a
+   *  server-authored origin; absent = nothing was inferred. */
+  origin_inferred?: boolean
   id: string
   /** Neo4j :AttackPath id (sha256). Closure-preview expects this, not `id`. */
   attack_path_id?: string | null
