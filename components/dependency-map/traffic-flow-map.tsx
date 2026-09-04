@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { riskLabel } from '@/lib/utils';
 import { useCachedFetch } from '@/lib/use-cached-fetch';
 import { resolveVerbChipY } from '@/lib/attack-paths/verb-chip-placement';
-import { Globe, Server, Database, HardDrive, Zap, Network, Shield, ShieldOff, Key, KeyRound, LockKeyhole, RefreshCw, Maximize2, Minimize2, AlertTriangle, Cloud, Info, ChevronDown, ChevronRight, Lock, Unlock, X, ArrowRight, ArrowLeft, Activity, Layers, PanelLeftOpen, PanelLeftClose, Target, GitBranch, Search, ExternalLink, Download, Crown, Gem, Clock, FileText, HelpCircle } from 'lucide-react';
+import { Globe, Server, Database, HardDrive, Zap, Network, Shield, ShieldOff, Key, KeyRound, LockKeyhole, RefreshCw, Maximize2, Minimize2, AlertTriangle, Cloud, Info, ChevronDown, ChevronRight, Lock, Unlock, X, ArrowRight, ArrowLeft, Activity, Layers, PanelLeftOpen, PanelLeftClose, Target, GitBranch, Search, ExternalLink, Download, Crown, Gem, Clock, FileText, HelpCircle, Bug } from 'lucide-react';
 import { derivePrecedenceForDestination, type RoutePrecedence } from "@/lib/route-precedence";
 import { ServiceTypeBadge } from "@/lib/service-type";
 import { buildSpotlightActiveNodeIds } from "@/lib/attack-paths/build-spotlight-active-node-ids";
@@ -25,6 +25,9 @@ import {
 } from "@/lib/dependency-map/vpce-lane-visual";
 import { enrichArchitectureForSpotlight, patchSpotlightFlowCheckpoints } from "@/lib/attack-paths/enrich-architecture-for-spotlight";
 import type { ConvergencePath } from "@/lib/attack-paths/convergence-types";
+import type { PathCVEAssessment } from "@/lib/cve-contracts";
+import { CVE_VERDICT_LABELS } from "@/lib/cve-vocabulary";
+import { pathCVEsForNode } from "@/components/attack-paths-v2/path-cve-model";
 import { AttackPathDetailPanel } from './attack-path-detail-panel';
 import { S3ObjectAccessExpander } from './s3-object-access-expander';
 import { StackSidebar } from './stack-sidebar';
@@ -5034,6 +5037,7 @@ export function UnifiedArchitectureDiagram({
   fullEstateContext = false,
   pathAuthorityOnly = false,
   showObservedTrafficMetrics = false,
+  cveAssessments = [],
 }: {
   architecture: SystemArchitecture;
   animate: boolean;
@@ -5121,6 +5125,8 @@ export function UnifiedArchitectureDiagram({
   pathAuthorityOnly?: boolean;
   /** Show Traffic / Connections / Live Traffic only with path evidence. */
   showObservedTrafficMetrics?: boolean;
+  /** Backend-authored decisions for the currently selected path mode. */
+  cveAssessments?: PathCVEAssessment[];
 }) {
   const [hoveredId, setHoveredIdLocal] = useState<string | null>(null);
   const setHoveredId = useCallback((id: string | null) => setHoveredIdLocal(id), []);
@@ -5534,6 +5540,39 @@ export function UnifiedArchitectureDiagram({
     });
     return vulns;
   }, [attackPaths]);
+
+  const renderComputeCVEBadge = useCallback((node: ServiceNode) => {
+    const decisions = pathCVEsForNode(cveAssessments, [node.id, node.instanceId]);
+    if (decisions.length === 0) return null;
+    const primary = decisions[0];
+    const cveIds = [...new Set(decisions.map((decision) => decision.cve_id))];
+    const exploitable = primary.verdict === 'EXPLOITABLE_NOW';
+    const conditional = primary.verdict === 'EXPLOITABLE_AFTER_FOOTHOLD'
+      || primary.verdict === 'REACHABLE_PRECONDITIONS_MISSING';
+    const blocked = primary.verdict.startsWith('BLOCKED_')
+      || primary.verdict === 'NO_USEFUL_DOWNSTREAM_ACCESS'
+      || primary.verdict === 'PATCHED';
+    const tone = exploitable
+      ? 'border-red-500/60 bg-red-500 text-white'
+      : conditional
+        ? 'border-amber-500/60 bg-amber-500 text-amber-950'
+        : blocked
+          ? 'border-emerald-500/50 bg-emerald-600 text-white'
+          : 'border-border bg-card text-foreground';
+    const label = cveIds.length === 1 ? cveIds[0] : `${cveIds[0]} +${cveIds.length - 1}`;
+    return (
+      <div
+        className={`absolute -bottom-2 -left-2 z-20 inline-flex max-w-[170px] items-center gap-1 rounded-md border px-1.5 py-0.5 font-mono text-[9px] font-bold shadow-md ${tone}`}
+        data-testid="compute-cve-badge"
+        data-cve-node-id={node.id}
+        data-cve-verdict={primary.verdict}
+        title={`${cveIds.join(', ')} · ${CVE_VERDICT_LABELS[primary.verdict]}\n${primary.message}`}
+      >
+        <Bug className="h-3 w-3 shrink-0" aria-hidden="true" />
+        <span className="truncate">{label}</span>
+      </div>
+    );
+  }, [cveAssessments]);
 
   // Debug: Log what the diagram receives
   useEffect(() => {
@@ -5956,6 +5995,7 @@ export function UnifiedArchitectureDiagram({
                       className={`relative mb-3${pathEmphasisClass(node.id)}`}
                     >
                       {renderPathStepBadge(node.id)}
+                      {renderComputeCVEBadge(node)}
                       {/* Legacy attack-path cyan ring + ENTRY chip — gated
                           off in spine mode (pathFilterActive): the numbered
                           spine badges + kill-chain strip ARE the narrative;
@@ -6016,6 +6056,7 @@ export function UnifiedArchitectureDiagram({
                   className={`relative${pathEmphasisClass(node.id)}`}
                 >
                   {renderPathStepBadge(node.id)}
+                  {renderComputeCVEBadge(node)}
                   {/* Attack path vulnerability indicator — legacy overlay,
                       suppressed in spine mode (badge slot collides with the
                       numbered step badge; red ring competes with the spine). */}
@@ -8457,6 +8498,7 @@ export default function TrafficFlowMap({
   systemCrownJewelIds,
   fullEstateContext = false,
   pathAuthorityOnly = false,
+  cveAssessments = [],
 }: {
   systemName: string;
   pathFilter?: TrafficFlowMapPathFilter;
@@ -8596,6 +8638,8 @@ export default function TrafficFlowMap({
    * (same-VPC IGW, traffic totals, partition banner).
    */
   pathAuthorityOnly?: boolean;
+  /** Backend-authored decisions for the currently selected path mode. */
+  cveAssessments?: PathCVEAssessment[];
 }) {
   // rawArchitecture holds the unfiltered architecture from the most
   // recent fetch. We derive the displayed `architecture` from it (with
@@ -11563,6 +11607,7 @@ export default function TrafficFlowMap({
             fullEstateContext={fullEstateContext}
             pathAuthorityOnly={pathAuthorityOnly}
             showObservedTrafficMetrics={showObservedTrafficMetrics}
+            cveAssessments={cveAssessments}
             // pathMode is true whenever the caller has filtered the
             // architecture down to a single attack path (Attack Paths v2)
             // OR has registered a per-node action callback (legacy

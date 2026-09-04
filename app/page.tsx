@@ -589,12 +589,13 @@ export default function HomePage() {
     const jewel = searchParams.get("jewel")
     const path = searchParams.get("path")
     const mode = searchParams.get("mode")
+    const vulnerabilityDeepLink = searchParams.get("vulnerability_focus") === "1"
     const attackPathDeepLink = Boolean(jewel || path || mode)
     return (
       <ErrorBoundary componentName="System Dashboard">
         <SystemDetailDashboard
           systemName={selectedSystem}
-          initialTab={attackPathDeepLink ? "attack-paths" : undefined}
+          initialTab={vulnerabilityDeepLink ? "vulnerabilities" : attackPathDeepLink ? "attack-paths" : undefined}
           initialAttackPathMode={
             mode || (attackPathDeepLink ? "attack-path" : undefined)
           }
@@ -981,7 +982,7 @@ export default function HomePage() {
       case "attack-paths":
         return (
           <ErrorBoundary componentName="Attack Paths">
-            {selectedSystem ? <AttackPathsV2 systemName={selectedSystem} defaultMode="attack-path" onOpenRoleSplit={() => setActiveSection("per-resource")} /> : <div className="text-center py-8 text-gray-500">No system selected</div>}
+            {selectedSystem ? <AttackPathsV2 systemName={selectedSystem} defaultMode="attack-path" onOpenRoleSplit={() => setActiveSection("per-resource")} onOpenVulnerability={() => setActiveSection("vulnerabilities")} /> : <div className="text-center py-8 text-gray-500">No system selected</div>}
           </ErrorBoundary>
         )
 

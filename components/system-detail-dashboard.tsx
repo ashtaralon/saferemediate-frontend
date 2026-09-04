@@ -2813,6 +2813,7 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
             embedded
             defaultMode={initialAttackPathMode ?? "attack-path"}
             showEmbeddedAttackMap={false}
+            onOpenVulnerability={() => setActiveTab("vulnerabilities")}
           />
         </div>
         </LightRouteIsland>

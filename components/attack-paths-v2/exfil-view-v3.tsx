@@ -55,6 +55,7 @@ import {
   type ExfiltrationSimulation,
 } from "./exfiltration-simulation-summary"
 import type { CanvasEdge, CanvasRelationshipType } from "@/lib/types/attack-canvas"
+import type { PathCVEAssessment } from "@/lib/cve-contracts"
 
 // Heavy renderer — lazy-load so the v2 page doesn't pull the full dep-map
 // bundle until the operator switches to exfil view. Same load pattern as
@@ -489,6 +490,7 @@ interface ExfilViewV3Props {
   // back via parent's URL handler, no internal call site after the
   // dropdown was removed.
   onSelectPath: (pathId: string) => void
+  cveAssessments?: PathCVEAssessment[]
 }
 
 export function ExfilViewV3({
@@ -501,6 +503,7 @@ export function ExfilViewV3({
   retrying,
   attempt,
   selectedPathId,
+  cveAssessments = [],
 }: ExfilViewV3Props) {
   const enabled = !!systemName && !!jewel?.id
   // Role detail panel state — 2026-05-27. Click a role chip on the
@@ -639,6 +642,7 @@ export function ExfilViewV3({
           // compact (summary line only); panel carries the 5 sections
           // as tabs.
           onRoleClick={(role) => setDetailRole(role)}
+          cveAssessments={cveAssessments}
         />
         {detailRole && (
           <RoleDetailPanel

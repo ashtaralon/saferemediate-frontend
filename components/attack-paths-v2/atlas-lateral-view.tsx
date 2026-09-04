@@ -6,6 +6,7 @@ import {
   AtlasLateralLensPanel,
 } from "./atlas-lateral-lens"
 import { useAtlasLateral } from "./use-atlas-lateral"
+import type { PathCVEAssessment } from "@/lib/cve-contracts"
 
 /** Jewel-scoped attacker simulation.
  *
@@ -17,10 +18,12 @@ export function AtlasLateralView({
   systemName,
   jewelId,
   jewelName,
+  cveAssessments = [],
 }: {
   systemName: string
   jewelId: string
   jewelName: string
+  cveAssessments?: PathCVEAssessment[]
 }) {
   const atlas = useAtlasLateral({
     systemName,
@@ -72,6 +75,7 @@ export function AtlasLateralView({
           evaluation={atlas.evaluation}
           recommendedFoothold={atlas.candidates.find((candidate) => candidate.atlas_evaluation?.state === "REACHABLE") ?? null}
           onSelectFoothold={atlas.selectFoothold}
+          cveAssessments={cveAssessments}
         />
       </div>
     </div>
