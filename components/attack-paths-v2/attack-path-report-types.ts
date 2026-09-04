@@ -113,6 +113,18 @@ export interface DamageCell {
 
 export interface CapabilityBehaviorGap {
   observed_actions: string[]
+  /**
+   * How `observed_actions` was established for THIS workload (AP3-103).
+   *
+   * `unresolved` means several workloads share the role and nothing in the
+   * evidence says which of them acted. An empty `observed_actions` then
+   * means "cannot attribute", NOT "we looked and saw no use" — rendering
+   * the two the same way is what let a shared role read as idle.
+   * Optional: paths materialized before AP3-103 carry no value.
+   */
+  observed_actions_attribution?: "sole_consumer" | "exact" | "unresolved" | null
+  /** What the ROLE was seen doing, whoever did it (AP3-103). */
+  role_observed_actions?: string[] | null
   observed_scopes: string[]
   unused_dangerous_actions: string[]
   evidence_window?: {

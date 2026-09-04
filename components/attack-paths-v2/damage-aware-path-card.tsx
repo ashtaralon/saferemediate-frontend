@@ -21,6 +21,7 @@
 // does not render this card at all — the hero above already surfaces the
 // unavailable state, a second copy would be noise.
 
+import { describeUnattributedActions } from "@/lib/attack-paths/observed-attribution"
 import { useMemo, useState } from "react"
 import {
   AlertTriangle,
@@ -442,7 +443,21 @@ export function DamageAwarePathCard({
     // IAM line — prefer the report's gap.observed_actions (compiler picked
     // these as the proven set) over re-deriving from path.damage_capability.
     const observedActs = report.gap?.observed_actions ?? []
-    if (observedActs.length > 0) {
+    // AP3-103: an empty list on a shared role means "cannot attribute", not
+    // "no use observed". Falling through to the Configured branch below would
+    // render those two identically and quietly clear the path we know least
+    // about. Returns null for every other path, so nothing else changes.
+    const unattributed = describeUnattributedActions({
+      attribution: report.gap?.observed_actions_attribution,
+      observedActions: observedActs,
+      roleObservedActions: report.gap?.role_observed_actions,
+      // IdentityAttackPath carries no role field; the role is a node on the
+      // path, and this is the resolver the card already uses for it.
+      roleName: resolveIamRoleFromPath(path.nodes ?? []),
+    })
+    if (unattributed) {
+      lines.push({ label: "IAM", ...unattributed })
+    } else if (observedActs.length > 0) {
       const english = observedActs.slice(0, 4).map((a) => actionToEnglish(a).sentence)
       lines.push({
         label: "IAM",
