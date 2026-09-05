@@ -18,7 +18,14 @@ function request(query = "") {
 describe("CloudTrail proxy truthfulness boundary", () => {
   it("does not put customer evidence in a shared cache", async () => {
     const upstream = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      Response.json({ status: "success", events: [{ eventName: "ListBuckets" }], total: 1 }),
+      Response.json({
+        status: "success",
+        events: [{ eventName: "ListBuckets" }],
+        total: 1,
+        analysis_complete: true,
+        counts_are_partial: false,
+        effective_as_of: "2026-09-05T10:00:00Z",
+      }),
     )
 
     const response = await GET(request("?days=7&limit=100&roleName=payments-reader"))
@@ -81,6 +88,25 @@ describe("CloudTrail proxy truthfulness boundary", () => {
       status: "unavailable",
       events: null,
       total: null,
+      error_code: "CLOUDTRAIL_INVALID_RESPONSE",
+    })
+  })
+
+  it("rejects the legacy success shape without positive completeness proof", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      Response.json({ status: "success", events: [], total: 0 }),
+    )
+
+    const response = await GET(request("?days=1&limit=1"))
+    const body = await response.json()
+
+    expect(response.status).toBe(502)
+    expect(body).toMatchObject({
+      status: "unavailable",
+      events: null,
+      total: null,
+      analysis_complete: false,
+      counts_are_partial: true,
       error_code: "CLOUDTRAIL_INVALID_RESPONSE",
     })
   })
