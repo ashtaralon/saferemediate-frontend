@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { backendError, fromCaughtError } from "@/lib/server/proxy-error";
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
+import { normalizeFindingIdentity } from "@/lib/security-finding-identity"
 
 // Allow longer execution time on Vercel (60 seconds for Pro tier)
 export const maxDuration = 60;
@@ -34,20 +35,11 @@ function canonicalResourceType(raw: unknown): unknown {
   return RESOURCE_TYPE_CANONICAL[s] ?? s;
 }
 
-function canonicalFindingId(f: any): string | null {
-  if (!f || typeof f !== "object") return null;
-  const value = [f.finding_id, f.id, f.findingId]
-    .find((candidate) => typeof candidate === "string" && candidate.trim().length > 0);
-  return typeof value === "string" ? value.trim() : null;
-}
-
 function normalizeFinding(f: any): any | null {
-  const findingId = canonicalFindingId(f);
-  if (!findingId) return null;
+  const identity = normalizeFindingIdentity(f);
+  if (!identity) return null;
   return {
-    ...f,
-    id: findingId,
-    finding_id: findingId,
+    ...identity,
     severity: typeof f.severity === "string" ? f.severity.toLowerCase() : f.severity,
     status: typeof f.status === "string" ? f.status.toLowerCase() : f.status,
     resourceType: canonicalResourceType(f.resourceType),

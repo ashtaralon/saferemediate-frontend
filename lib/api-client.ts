@@ -1,4 +1,5 @@
 import type { SecurityFinding } from "./types"
+import { normalizeFindingIdentities } from "./security-finding-identity"
 
 // Browser code always stays on the UI origin. The catch-all server route owns
 // customer-local backend routing and service authentication.
@@ -372,22 +373,16 @@ export async function fetchSecurityFindings(systemName?: string): Promise<Securi
       return []
     }
 
-    let withheldMissingId = 0
-    const mappedFindings = findings.flatMap((f: any): SecurityFinding[] => {
+    const identityResult = normalizeFindingIdentities(findings)
+    const mappedFindings = identityResult.findings.map((f: any): SecurityFinding => {
       // A finding without a canonical backend identity cannot be selected,
       // simulated, deduplicated, or audited safely. Do not invent an ID and do
       // not send the raw row to the browser console (it may contain customer
       // resource context). Withhold it and emit one aggregate diagnostic after
       // normalization instead.
-      const findingId = [f?.finding_id, f?.id, f?.findingId]
-        .find((value) => typeof value === "string" && value.trim().length > 0)
-        ?.trim()
-      if (!findingId) {
-        withheldMissingId += 1
-        return []
-      }
+      const findingId = f.finding_id
 
-      return [{
+      return {
         // Preserve fields not yet represented in SecurityFinding, then pin the
         // canonical fields below so an undefined alias cannot overwrite them.
         ...f,
@@ -419,12 +414,12 @@ export async function fetchSecurityFindings(systemName?: string): Promise<Securi
         used_actions_count: f.used_actions_count || f.observed_actions?.length || 0,
         confidence: f.confidence ?? undefined,
         observation_days: f.observation_days || 30,
-      }]
+      }
     })
 
-    if (withheldMissingId > 0) {
+    if (identityResult.withheldCount > 0) {
       console.warn(
-        `[api-client] Withheld ${withheldMissingId} finding(s) without a canonical backend ID`,
+        `[api-client] Withheld ${identityResult.withheldCount} finding(s) without a canonical backend ID`,
       )
     }
 

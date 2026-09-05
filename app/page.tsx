@@ -46,6 +46,7 @@ import { HomeDashboardV2 } from "@/components/dashboard/v2/home-dashboard-v2"
 import { HomeDashboardV3 } from "@/components/dashboard/v3/home-dashboard-v3"
 import { DASHBOARD_V3_ENABLED } from "@/lib/dashboard-release"
 import { readJsonCache, writeJsonCache } from "@/lib/browser-cache"
+import { normalizeFindingIdentities } from "@/lib/security-finding-identity"
 import { catalogSystemName, useScopedSystemCatalog } from "@/lib/scoped-system-catalog"
 
 // V2 is the default home. Set NEXT_PUBLIC_DASHBOARD_V2=false in Vercel to
@@ -358,7 +359,18 @@ export default function HomePage() {
 
     // Step 1: Try to load from cache immediately
     const cachedInfra = getCachedData<InfrastructureData>(CACHE_KEYS.INFRASTRUCTURE)
-    const cachedFindings = getCachedData<SecurityFinding[]>(CACHE_KEYS.FINDINGS)
+    const cachedFindingRows = getCachedData<SecurityFinding[]>(CACHE_KEYS.FINDINGS) ?? []
+    const cachedFindingResult = normalizeFindingIdentities(cachedFindingRows)
+    const cachedFindings = cachedFindingResult.findings as SecurityFinding[]
+    if (cachedFindingResult.withheldCount > 0) {
+      // Old cache entries predate the canonical-ID boundary. Repair the cache
+      // before rendering so an identity-less row never flashes while the
+      // background refresh is in flight.
+      setCachedData(CACHE_KEYS.FINDINGS, cachedFindings)
+      console.warn(
+        `[page] Withheld ${cachedFindingResult.withheldCount} finding(s) without a canonical ID from browser cache`,
+      )
+    }
     const cachedGap = getCachedData<GapAnalysisData>(CACHE_KEYS.GAP_DATA)
 
     if (cachedInfra) {
