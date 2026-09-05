@@ -212,6 +212,9 @@ describe("Copilot authenticated system scope boundary", () => {
       systemName: "payments",
       resourceType: "s3",
     })
+    const upstreamHeaders = new Headers(upstreamRequest[1]?.headers)
+    expect(upstreamHeaders.get("X-Amzn-Oidc-Data")).toBe("signed-alb-claims")
+    expect(upstreamHeaders.has("X-Amzn-Oidc-Identity")).toBe(false)
   })
 
   it("rejects tools whose downstream endpoint cannot enforce system scope", async () => {
@@ -285,5 +288,31 @@ describe("Copilot authenticated system scope boundary", () => {
     expect(await response.json()).toMatchObject({
       code: "COPILOT_INVALID_ROUTER_RESPONSE",
     })
+  })
+
+  it("marks malformed request responses as no-store", async () => {
+    const response = await POST(
+      new NextRequest("https://app.example/api/proxy/copilot/ask", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{not-json",
+      }),
+    )
+
+    expect(response.status).toBe(400)
+    expect(response.headers.get("Cache-Control")).toBe("no-store")
+  })
+
+  it("marks upstream transport failures as no-store", async () => {
+    process.env.CYNTRO_DEPLOYMENT_MODE = "CUSTOMER_RESIDENT"
+    process.env.CYNTRO_ANALYST_ALLOWED_SYSTEMS = "payments"
+    vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(new Error("transport failed"))
+
+    const response = await POST(
+      post({ question: "count S3 buckets", systemName: "payments" }),
+    )
+
+    expect(response.status).toBe(502)
+    expect(response.headers.get("Cache-Control")).toBe("no-store")
   })
 })

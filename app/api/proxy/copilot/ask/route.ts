@@ -6,6 +6,8 @@ export const maxDuration = 60
 export const dynamic = "force-dynamic"
 export const fetchCache = "force-no-store"
 
+const NO_STORE_HEADERS = { "Cache-Control": "no-store" }
+
 const OPTIONAL_STRING_FIELDS = [
   "roleName",
   "resourceType",
@@ -52,7 +54,7 @@ function capabilityResponse(req: NextRequest, requestedSystemName: unknown) {
       // Capability discovery is a typed state response. POST still uses the
       // decision's fail-closed HTTP status for enforcement.
       status: 200,
-      headers: { "Cache-Control": "no-store" },
+      headers: NO_STORE_HEADERS,
     },
   )
 }
@@ -84,14 +86,14 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json(
       { error: "Invalid JSON body", code: "COPILOT_INVALID_REQUEST" },
-      { status: 400 },
+      { status: 400, headers: NO_STORE_HEADERS },
     )
   }
 
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     return NextResponse.json(
       { error: "JSON body must be an object", code: "COPILOT_INVALID_REQUEST" },
-      { status: 400 },
+      { status: 400, headers: NO_STORE_HEADERS },
     )
   }
 
@@ -99,19 +101,20 @@ export async function POST(req: NextRequest) {
   if (!scope.enabled) {
     return NextResponse.json(
       { error: scope.reason, code: scope.code },
-      { status: scope.status, headers: { "Cache-Control": "no-store" } },
+      { status: scope.status, headers: NO_STORE_HEADERS },
     )
   }
 
   if (typeof body.question !== "string" || !body.question.trim()) {
     return NextResponse.json(
       { error: "Question is required", code: "COPILOT_INVALID_REQUEST" },
-      { status: 400 },
+      { status: 400, headers: NO_STORE_HEADERS },
     )
   }
 
   const backendBase = getBackendBaseUrl()
   const target = `${backendBase}/api/copilot/ask`
+  const signedOidcClaims = req.headers.get("x-amzn-oidc-data")
 
   try {
     const response = await fetch(target, {
@@ -120,6 +123,10 @@ export async function POST(req: NextRequest) {
       headers: {
         Accept: "application/json",
         "Content-Type": "application/json",
+        // The backend independently verifies this ALB-signed JWS and derives
+        // policy-backed RequestScope. Never forward the unsigned identity or
+        // caller-supplied authorization fields.
+        "X-Amzn-Oidc-Data": signedOidcClaims!,
       },
       // Rebuild instead of spreading the caller's object. In particular,
       // caller-supplied scope/principal/authorizedSystems fields never cross
@@ -144,14 +151,14 @@ export async function POST(req: NextRequest) {
           status: data?.status,
           reason_code: data?.reason_code,
         },
-        { status: response.status, headers: { "Cache-Control": "no-store" } },
+        { status: response.status, headers: NO_STORE_HEADERS },
       )
     }
 
     if (!data || typeof data !== "object" || Array.isArray(data)) {
       return NextResponse.json(
         { error: "Copilot router returned an invalid response", code: "COPILOT_INVALID_ROUTER_RESPONSE" },
-        { status: 502 },
+        { status: 502, headers: NO_STORE_HEADERS },
       )
     }
 
@@ -172,7 +179,7 @@ export async function POST(req: NextRequest) {
             error: "Copilot router returned an invalid abstention.",
             code: "COPILOT_INVALID_ROUTER_RESPONSE",
           },
-          { status: 502, headers: { "Cache-Control": "no-store" } },
+          { status: 502, headers: NO_STORE_HEADERS },
         )
       }
 
@@ -186,7 +193,7 @@ export async function POST(req: NextRequest) {
           reason_code: data.reason_code,
           request_scope: { systemName: scope.systemName, source: "server_policy" },
         },
-        { headers: { "Cache-Control": "no-store" } },
+        { headers: NO_STORE_HEADERS },
       )
     }
 
@@ -196,7 +203,7 @@ export async function POST(req: NextRequest) {
           error: "Copilot router returned an invalid decision state.",
           code: "COPILOT_INVALID_ROUTER_RESPONSE",
         },
-        { status: 502, headers: { "Cache-Control": "no-store" } },
+        { status: 502, headers: NO_STORE_HEADERS },
       )
     }
 
@@ -210,7 +217,7 @@ export async function POST(req: NextRequest) {
           error: "The selected Copilot tool cannot enforce the immutable system scope.",
           code: "COPILOT_TOOL_SCOPE_UNSUPPORTED",
         },
-        { status: 422, headers: { "Cache-Control": "no-store" } },
+        { status: 422, headers: NO_STORE_HEADERS },
       )
     }
     const modelSystem = toolArgs.systemName
@@ -223,7 +230,7 @@ export async function POST(req: NextRequest) {
           error: "Copilot router returned a system outside the immutable request scope.",
           code: "COPILOT_SCOPE_CONFLICT",
         },
-        { status: 409, headers: { "Cache-Control": "no-store" } },
+        { status: 409, headers: NO_STORE_HEADERS },
       )
     }
 
@@ -233,7 +240,7 @@ export async function POST(req: NextRequest) {
         tool_args: { ...toolArgs, systemName: scope.systemName },
         request_scope: { systemName: scope.systemName, source: "server_policy" },
       },
-      { headers: { "Cache-Control": "no-store" } },
+      { headers: NO_STORE_HEADERS },
     )
   } catch (error: any) {
     return NextResponse.json(
@@ -241,7 +248,7 @@ export async function POST(req: NextRequest) {
         error: error?.message || "Failed to reach copilot router",
         code: "COPILOT_ROUTER_UNAVAILABLE",
       },
-      { status: 502 }
+      { status: 502, headers: NO_STORE_HEADERS }
     )
   }
 }
