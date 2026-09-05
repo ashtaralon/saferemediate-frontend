@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Sparkles, Loader2, AlertCircle, Shield, Send, Bot } from "lucide-react"
 import { resolveIntent, type IntentRoute, type IntentContext } from "./intent-router"
 import { fetchWithEnvelope } from "@/components/trust/use-trust-envelope"
@@ -77,10 +77,14 @@ export function SavedQuestionGallery({ systemName }: SavedQuestionGalleryProps) 
   const [routing, setRouting] = useState(false)
   const [freeformCapability, setFreeformCapability] =
     useState<FreeformCapability>(INITIAL_CAPABILITY)
+  const requestGenerationRef = useRef(0)
 
   const needsRoleName = selectedId === "unused-on-role" && !roleName
 
   useEffect(() => {
+    requestGenerationRef.current += 1
+    setAnswer(INITIAL_STATE)
+    setRouting(false)
     const lockedSystemName = systemName?.trim()
     if (!lockedSystemName) {
       setFreeformCapability({
@@ -130,6 +134,7 @@ export function SavedQuestionGallery({ systemName }: SavedQuestionGalleryProps) 
   async function runRoute(
     route: IntentRoute,
     decision: RouterDecision | null,
+    requestGeneration = requestGenerationRef.current,
   ) {
     setAnswer({
       ...INITIAL_STATE,
@@ -140,6 +145,7 @@ export function SavedQuestionGallery({ systemName }: SavedQuestionGalleryProps) 
     })
     try {
       const env = await fetchWithEnvelope<any>(route.url)
+      if (requestGenerationRef.current !== requestGeneration) return
       setAnswer({
         ...INITIAL_STATE,
         loading: false,
@@ -150,6 +156,7 @@ export function SavedQuestionGallery({ systemName }: SavedQuestionGalleryProps) 
         decision,
       })
     } catch (err: any) {
+      if (requestGenerationRef.current !== requestGeneration) return
       setAnswer({
         ...INITIAL_STATE,
         loading: false,
@@ -162,18 +169,20 @@ export function SavedQuestionGallery({ systemName }: SavedQuestionGalleryProps) 
   }
 
   async function handleAsk(questionId: string) {
+    const requestGeneration = requestGenerationRef.current
     const route = resolveIntent(questionId, { systemName, roleName: roleName || undefined })
     if (!route) {
       setAnswer({ ...INITIAL_STATE, error: `Unknown question id: ${questionId}` })
       return
     }
     setSelectedId(questionId)
-    await runRoute(route, null)
+    await runRoute(route, null, requestGeneration)
   }
 
   async function handleFreeformAsk(overrideQuestion?: string) {
     const question = (overrideQuestion ?? freeformQuestion).trim()
     if (!question || routing) return
+    const requestGeneration = requestGenerationRef.current
     const lockedSystemName = systemName?.trim()
     if (
       !lockedSystemName ||
@@ -200,6 +209,7 @@ export function SavedQuestionGallery({ systemName }: SavedQuestionGalleryProps) 
         }),
       })
       const data = await res.json()
+      if (requestGenerationRef.current !== requestGeneration) return
       if (!res.ok) {
         throw new Error(data?.error || "Router is unavailable")
       }
@@ -252,14 +262,15 @@ export function SavedQuestionGallery({ systemName }: SavedQuestionGalleryProps) 
         throw new Error(`Unknown tool from router: ${decision.chosen_tool}`)
       }
       setSelectedId(decision.chosen_tool)
-      await runRoute(route, decision)
+      await runRoute(route, decision, requestGeneration)
     } catch (err: any) {
+      if (requestGenerationRef.current !== requestGeneration) return
       setAnswer({
         ...INITIAL_STATE,
         error: err?.message || "Failed to route question",
       })
     } finally {
-      setRouting(false)
+      if (requestGenerationRef.current === requestGeneration) setRouting(false)
     }
   }
 

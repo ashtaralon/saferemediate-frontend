@@ -190,6 +190,16 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    if (data.status !== "routed") {
+      return NextResponse.json(
+        {
+          error: "Copilot router returned an invalid decision state.",
+          code: "COPILOT_INVALID_ROUTER_RESPONSE",
+        },
+        { status: 502, headers: { "Cache-Control": "no-store" } },
+      )
+    }
+
     const toolArgs =
       data.tool_args && typeof data.tool_args === "object" && !Array.isArray(data.tool_args)
         ? data.tool_args

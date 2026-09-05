@@ -160,6 +160,7 @@ describe("Copilot authenticated system scope boundary", () => {
     process.env.CYNTRO_ANALYST_ALLOWED_SYSTEMS = "payments"
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       Response.json({
+        status: "routed",
         chosen_tool: "inventory-count",
         tool_args: { resourceType: "s3", systemName: "other-system" },
         explanation: "count buckets",
@@ -178,6 +179,7 @@ describe("Copilot authenticated system scope boundary", () => {
     process.env.CYNTRO_ANALYST_ALLOWED_SYSTEMS = "payments,shared-services"
     const upstream = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       Response.json({
+        status: "routed",
         chosen_tool: "inventory-count",
         tool_args: { resourceType: "s3" },
         explanation: "count buckets",
@@ -217,6 +219,7 @@ describe("Copilot authenticated system scope boundary", () => {
     process.env.CYNTRO_ANALYST_ALLOWED_SYSTEMS = "payments"
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       Response.json({
+        status: "routed",
         chosen_tool: "unused-on-role",
         tool_args: { roleName: "SharedAdminRole", systemName: "payments" },
         explanation: "inspect role",
@@ -259,6 +262,28 @@ describe("Copilot authenticated system scope boundary", () => {
       source: "keyword",
       reason_code: "unsupported_question",
       request_scope: { systemName: "payments", source: "server_policy" },
+    })
+  })
+
+  it("rejects a routed-looking payload without the routed state", async () => {
+    process.env.CYNTRO_DEPLOYMENT_MODE = "CUSTOMER_RESIDENT"
+    process.env.CYNTRO_ANALYST_ALLOWED_SYSTEMS = "payments"
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      Response.json({
+        chosen_tool: "inventory-count",
+        tool_args: { resourceType: "s3" },
+        explanation: "count buckets",
+        source: "llm",
+      }),
+    )
+
+    const response = await POST(
+      post({ question: "count S3 buckets", systemName: "payments" }),
+    )
+
+    expect(response.status).toBe(502)
+    expect(await response.json()).toMatchObject({
+      code: "COPILOT_INVALID_ROUTER_RESPONSE",
     })
   })
 })
