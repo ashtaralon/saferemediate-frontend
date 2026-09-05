@@ -70,9 +70,13 @@ export async function GET(req: NextRequest) {
       !data ||
       typeof data !== "object" ||
       data.status === "unavailable" ||
-      data.analysis_complete === false ||
+      data.analysis_complete !== true ||
+      data.counts_are_partial !== false ||
+      typeof data.effective_as_of !== "string" ||
+      !data.effective_as_of.trim() ||
       !Array.isArray(data.events) ||
-      !Number.isFinite(data.total)
+      !Number.isInteger(data.total) ||
+      data.total < 0
     ) {
       return NextResponse.json(
         unavailable(
