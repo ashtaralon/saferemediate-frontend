@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { fetchSecurityFindings } from "@/lib/api-client"
+import { normalizeFindingIdentities } from "@/lib/security-finding-identity"
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -8,6 +9,19 @@ afterEach(() => {
 })
 
 describe("security finding identity boundary", () => {
+  it("repairs persisted finding rows before stale-while-revalidate rendering", () => {
+    const result = normalizeFindingIdentities([
+      { finding_id: " canonical-1 ", title: "valid" },
+      { id: "", title: "legacy invalid", resourceId: "customer-resource-marker" },
+    ])
+
+    expect(result.withheldCount).toBe(1)
+    expect(result.findings).toEqual([
+      { id: "canonical-1", finding_id: "canonical-1", title: "valid" },
+    ])
+    expect(JSON.stringify(result.findings)).not.toContain("customer-resource-marker")
+  })
+
   it("normalizes supported backend ID aliases and withholds rows without an ID", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined)
     vi.spyOn(console, "log").mockImplementation(() => undefined)
