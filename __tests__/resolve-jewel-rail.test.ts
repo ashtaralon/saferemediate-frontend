@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest"
 import type { CrownJewelSummary } from "@/components/identity-attack-paths/types"
 import type { CrownJewelConvergence } from "@/lib/attack-paths/convergence-types"
 import {
+  isJewelsPayloadCacheable,
   isServeJewelsAuthoritative,
-  reachableJewelPickerList,
   resolveJewelPickerList,
   resolveJewelRailPaths,
   shouldShowAttackPathsNotComputed,
@@ -135,6 +135,18 @@ describe("resolveJewelRailPaths", () => {
     expect(out.source).toBe("none")
     expect(out.paths).toHaveLength(0)
   })
+
+  it("uses coherent IAP immediately when the collection snapshot is inconsistent", () => {
+    const out = resolveJewelRailPaths({
+      serve: null,
+      serveError: null,
+      serveCollectionAuthoritative: false,
+      jewel,
+      iapPaths: [iapPath],
+    })
+    expect(out.source).toBe("iap_fallback")
+    expect(out.paths).toHaveLength(1)
+  })
 })
 
 describe("resolveJewelPickerList", () => {
@@ -144,6 +156,7 @@ describe("resolveJewelPickerList", () => {
       resolveJewelPickerList({
         serveJewels: [],
         serveJewelsError: null,
+        serveJewelsAuthoritative: true,
         iapJewels,
       }),
     ).toEqual([])
@@ -155,29 +168,40 @@ describe("resolveJewelPickerList", () => {
       resolveJewelPickerList({
         serveJewels: null,
         serveJewelsError: "502",
+        serveJewelsAuthoritative: false,
         iapJewels,
       }),
     ).toEqual(iapJewels)
   })
 
-  it("keeps only assets with real paths on the Attack Paths selector", () => {
+  it("uses full IAP when SERVE claims zero paths without READY_ZERO", () => {
     const reachable = { ...jewel, id: "reachable", path_count: 2 }
     const internalStore = { ...jewel, id: "internal", path_count: 0 }
     const clusterMember = { ...jewel, id: "member", path_count: 0 }
 
     expect(
-      reachableJewelPickerList([internalStore, reachable, clusterMember]).map(
-        (entry) => entry.id,
-      ),
-    ).toEqual(["reachable"])
+      resolveJewelPickerList({
+        serveJewels: [internalStore, clusterMember],
+        serveJewelsError: null,
+        serveJewelsAuthoritative: false,
+        iapJewels: [internalStore, reachable, clusterMember],
+      }).map((entry) => entry.id),
+    ).toEqual(["internal", "reachable", "member"])
   })
 })
 
 describe("shouldShowAttackPathsNotComputed", () => {
-  it("never shows when SERVE /jewels answered empty (IAP stale must not brick)", () => {
+  it("accepts an explicit READY_ZERO response as authoritative", () => {
+    const readyZero = {
+      result: {
+        serve_state: "ACTIVE",
+        coverage_state: "READY_ZERO",
+        crown_jewels: [],
+      },
+    }
     expect(
       shouldShowAttackPathsNotComputed({
-        serveJewelsRaw: { result: { crown_jewels: [] } },
+        serveJewelsRaw: readyZero,
         serveJewelsError: null,
         jewelsEmpty: true,
         iapFailed: true,
@@ -185,9 +209,41 @@ describe("shouldShowAttackPathsNotComputed", () => {
         iapLoading: false,
       }),
     ).toBe(false)
-    expect(isServeJewelsAuthoritative({ result: { crown_jewels: [] } }, null)).toBe(
-      true,
-    )
+    expect(isServeJewelsAuthoritative(readyZero, null)).toBe(true)
+  })
+
+  it("rejects ACTIVE all-zero counts without READY_ZERO", () => {
+    const splitBrain = {
+      result: {
+        serve_state: "ACTIVE",
+        crown_jewels: [{ ...jewel, path_count: 0 }],
+      },
+    }
+
+    expect(isServeJewelsAuthoritative(splitBrain, null)).toBe(false)
+    expect(isJewelsPayloadCacheable(splitBrain)).toBe(false)
+    expect(
+      shouldShowAttackPathsNotComputed({
+        serveJewelsRaw: splitBrain,
+        serveJewelsError: null,
+        jewelsEmpty: false,
+        iapFailed: true,
+        jewelsLoading: false,
+        iapLoading: false,
+      }),
+    ).toBe(false)
+  })
+
+  it("requires READY metadata for nonzero path counts", () => {
+    const ready = {
+      result: {
+        serve_state: "ACTIVE",
+        coverage_state: "READY",
+        crown_jewels: [{ ...jewel, path_count: 4 }],
+      },
+    }
+    expect(isServeJewelsAuthoritative(ready, null)).toBe(true)
+    expect(isJewelsPayloadCacheable(ready)).toBe(true)
   })
 
   it("shows when SERVE unavailable and IAP cold/stale envelope", () => {
