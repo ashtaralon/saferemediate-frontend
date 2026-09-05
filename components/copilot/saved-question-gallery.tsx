@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Sparkles, Loader2, AlertCircle, Shield, Send, Bot } from "lucide-react"
 import { resolveIntent, type IntentRoute, type IntentContext } from "./intent-router"
 import { fetchWithEnvelope } from "@/components/trust/use-trust-envelope"
@@ -39,6 +39,15 @@ interface AnswerState {
   result: any
   provenance: Provenance | null
   decision: RouterDecision | null
+  abstention: { explanation: string; reasonCode: string } | null
+}
+
+interface FreeformCapability {
+  checking: boolean
+  enabled: boolean
+  code: string
+  reason: string
+  systemName: string | null
 }
 
 const INITIAL_STATE: AnswerState = {
@@ -49,6 +58,15 @@ const INITIAL_STATE: AnswerState = {
   result: null,
   provenance: null,
   decision: null,
+  abstention: null,
+}
+
+const INITIAL_CAPABILITY: FreeformCapability = {
+  checking: true,
+  enabled: false,
+  code: "COPILOT_CAPABILITY_CHECK_PENDING",
+  reason: "Checking authenticated system scope…",
+  systemName: null,
 }
 
 export function SavedQuestionGallery({ systemName }: SavedQuestionGalleryProps) {
@@ -57,12 +75,66 @@ export function SavedQuestionGallery({ systemName }: SavedQuestionGalleryProps) 
   const [roleName, setRoleName] = useState("")
   const [freeformQuestion, setFreeformQuestion] = useState("")
   const [routing, setRouting] = useState(false)
+  const [freeformCapability, setFreeformCapability] =
+    useState<FreeformCapability>(INITIAL_CAPABILITY)
+  const requestGenerationRef = useRef(0)
 
   const needsRoleName = selectedId === "unused-on-role" && !roleName
+
+  useEffect(() => {
+    requestGenerationRef.current += 1
+    setAnswer(INITIAL_STATE)
+    setRouting(false)
+    const lockedSystemName = systemName?.trim()
+    if (!lockedSystemName) {
+      setFreeformCapability({
+        checking: false,
+        enabled: false,
+        code: "COPILOT_SYSTEM_SCOPE_REQUIRED",
+        reason: "Select an authorized system before asking a free-form question.",
+        systemName: null,
+      })
+      return
+    }
+
+    const controller = new AbortController()
+    setFreeformCapability(INITIAL_CAPABILITY)
+    void fetch(
+      `/api/proxy/copilot/ask?systemName=${encodeURIComponent(lockedSystemName)}`,
+      { cache: "no-store", signal: controller.signal },
+    )
+      .then(async (response) => {
+        const data = await response.json().catch(() => ({}))
+        if (controller.signal.aborted) return
+        setFreeformCapability({
+          checking: false,
+          enabled: response.ok && data?.enabled === true && data?.systemName === lockedSystemName,
+          code: data?.code || "COPILOT_CAPABILITY_UNAVAILABLE",
+          reason: data?.reason || "Free-form questions are unavailable for this system scope.",
+          systemName: typeof data?.systemName === "string" ? data.systemName : null,
+        })
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return
+        setFreeformCapability({
+          checking: false,
+          enabled: false,
+          code: "COPILOT_CAPABILITY_UNAVAILABLE",
+          reason:
+            error instanceof Error && error.message
+              ? `Free-form scope check failed: ${error.message}`
+              : "Free-form scope check failed.",
+          systemName: null,
+        })
+      })
+
+    return () => controller.abort()
+  }, [systemName])
 
   async function runRoute(
     route: IntentRoute,
     decision: RouterDecision | null,
+    requestGeneration = requestGenerationRef.current,
   ) {
     setAnswer({
       ...INITIAL_STATE,
@@ -73,9 +145,10 @@ export function SavedQuestionGallery({ systemName }: SavedQuestionGalleryProps) 
     })
     try {
       const env = await fetchWithEnvelope<any>(route.url)
+      if (requestGenerationRef.current !== requestGeneration) return
       setAnswer({
+        ...INITIAL_STATE,
         loading: false,
-        error: null,
         headline: route.resultHeadline,
         route,
         result: env.result,
@@ -83,31 +156,45 @@ export function SavedQuestionGallery({ systemName }: SavedQuestionGalleryProps) 
         decision,
       })
     } catch (err: any) {
+      if (requestGenerationRef.current !== requestGeneration) return
       setAnswer({
+        ...INITIAL_STATE,
         loading: false,
         error: err?.message || "Failed to load answer",
         headline: route.resultHeadline,
         route,
-        result: null,
-        provenance: null,
         decision,
       })
     }
   }
 
   async function handleAsk(questionId: string) {
+    const requestGeneration = requestGenerationRef.current
     const route = resolveIntent(questionId, { systemName, roleName: roleName || undefined })
     if (!route) {
       setAnswer({ ...INITIAL_STATE, error: `Unknown question id: ${questionId}` })
       return
     }
     setSelectedId(questionId)
-    await runRoute(route, null)
+    await runRoute(route, null, requestGeneration)
   }
 
   async function handleFreeformAsk(overrideQuestion?: string) {
     const question = (overrideQuestion ?? freeformQuestion).trim()
     if (!question || routing) return
+    const requestGeneration = requestGenerationRef.current
+    const lockedSystemName = systemName?.trim()
+    if (
+      !lockedSystemName ||
+      !freeformCapability.enabled ||
+      freeformCapability.systemName !== lockedSystemName
+    ) {
+      setAnswer({
+        ...INITIAL_STATE,
+        error: freeformCapability.reason || "Free-form questions require an authenticated system scope.",
+      })
+      return
+    }
     if (overrideQuestion) setFreeformQuestion(overrideQuestion)
     setRouting(true)
     setAnswer({ ...INITIAL_STATE, loading: true, headline: "Routing your question…", route: null })
@@ -117,13 +204,28 @@ export function SavedQuestionGallery({ systemName }: SavedQuestionGalleryProps) 
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           question,
-          systemName: systemName || undefined,
+          systemName: lockedSystemName,
           roleName: roleName || undefined,
         }),
       })
       const data = await res.json()
-      if (!res.ok || !data?.chosen_tool) {
-        throw new Error(data?.error || "Router did not pick a tool")
+      if (requestGenerationRef.current !== requestGeneration) return
+      if (!res.ok) {
+        throw new Error(data?.error || "Router is unavailable")
+      }
+      if (data?.status === "abstained" && data?.chosen_tool === null) {
+        setAnswer({
+          ...INITIAL_STATE,
+          headline: "Question not answered",
+          abstention: {
+            explanation: data?.explanation || "This question cannot be answered safely.",
+            reasonCode: data?.reason_code || "unsupported_question",
+          },
+        })
+        return
+      }
+      if (data?.status !== "routed" || !data?.chosen_tool) {
+        throw new Error("Router returned an invalid decision")
       }
       const decision: RouterDecision = {
         chosen_tool: data.chosen_tool,
@@ -131,8 +233,18 @@ export function SavedQuestionGallery({ systemName }: SavedQuestionGalleryProps) 
         explanation: data.explanation || "",
         source: data.source || "llm",
       }
+      const returnedSystem = decision.tool_args.systemName
+      if (
+        typeof returnedSystem !== "string" ||
+        returnedSystem.trim() !== lockedSystemName ||
+        data?.request_scope?.systemName !== lockedSystemName
+      ) {
+        throw new Error("Router response conflicted with the immutable system scope")
+      }
       const ctx: IntentContext = {
-        systemName: decision.tool_args.systemName || systemName || undefined,
+        // Never let model/tool arguments choose scope. The value captured at
+        // submit time is the immutable scope for this request.
+        systemName: lockedSystemName,
         roleName: decision.tool_args.roleName || roleName || undefined,
         windowDays: decision.tool_args.windowDays,
         resourceType: decision.tool_args.resourceType || undefined,
@@ -150,14 +262,15 @@ export function SavedQuestionGallery({ systemName }: SavedQuestionGalleryProps) 
         throw new Error(`Unknown tool from router: ${decision.chosen_tool}`)
       }
       setSelectedId(decision.chosen_tool)
-      await runRoute(route, decision)
+      await runRoute(route, decision, requestGeneration)
     } catch (err: any) {
+      if (requestGenerationRef.current !== requestGeneration) return
       setAnswer({
         ...INITIAL_STATE,
         error: err?.message || "Failed to route question",
       })
     } finally {
-      setRouting(false)
+      if (requestGenerationRef.current === requestGeneration) setRouting(false)
     }
   }
 
@@ -191,15 +304,24 @@ export function SavedQuestionGallery({ systemName }: SavedQuestionGalleryProps) 
                 handleFreeformAsk()
               }
             }}
-            placeholder="Ask anything — e.g. how many S3 buckets do I have?"
+            placeholder={
+              freeformCapability.enabled
+                ? "Ask anything — e.g. how many S3 buckets do I have?"
+                : "Free-form questions require an authenticated system scope"
+            }
             className="flex-1 px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#2D51DA]/30"
             style={{ borderColor: "var(--border-subtle, #e5e7eb)" }}
-            disabled={routing || answer.loading}
+            disabled={!freeformCapability.enabled || routing || answer.loading}
             data-copilot-freeform-input
           />
           <button
             onClick={() => void handleFreeformAsk()}
-            disabled={!freeformQuestion.trim() || routing || answer.loading}
+            disabled={
+              !freeformCapability.enabled ||
+              !freeformQuestion.trim() ||
+              routing ||
+              answer.loading
+            }
             className="inline-flex items-center gap-2 px-4 py-2 bg-[#2D51DA] hover:bg-[#1e3fb5] text-white rounded-lg text-sm font-medium disabled:opacity-50"
             data-copilot-freeform-submit
           >
@@ -207,13 +329,28 @@ export function SavedQuestionGallery({ systemName }: SavedQuestionGalleryProps) 
             Ask
           </button>
         </div>
+        {!freeformCapability.enabled && (
+          <div
+            className="mt-3 flex items-start gap-2 text-xs text-amber-700"
+            data-copilot-freeform-disabled
+            data-reason-code={freeformCapability.code}
+          >
+            {freeformCapability.checking ? (
+              <Loader2 className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 animate-spin" />
+            ) : (
+              <AlertCircle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
+            )}
+            <span>{freeformCapability.reason}</span>
+          </div>
+        )}
         {!answer.loading && !answer.result && !answer.error && (
           <div className="mt-3 flex flex-wrap gap-2">
             {examplePrompts(systemName).map((p) => (
               <button
                 key={p}
-                onClick={() => handleFreeformAsk(p)}
-                className="text-xs px-2.5 py-1 rounded-full border text-[var(--muted-foreground,#6b7280)] hover:text-[#2D51DA] hover:border-[#2D51DA]/40 transition-colors"
+                onClick={() => void handleFreeformAsk(p)}
+                disabled={!freeformCapability.enabled}
+                className="text-xs px-2.5 py-1 rounded-full border text-[var(--muted-foreground,#6b7280)] hover:text-[#2D51DA] hover:border-[#2D51DA]/40 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                 style={{ borderColor: "var(--border-subtle, #e5e7eb)" }}
               >
                 {p}
@@ -245,7 +382,7 @@ export function SavedQuestionGallery({ systemName }: SavedQuestionGalleryProps) 
         </div>
       )}
 
-      {(answer.loading || answer.error || answer.result) && (
+      {(answer.loading || answer.error || answer.result || answer.abstention) && (
         <div className="rounded-2xl border bg-white overflow-hidden"
              style={{ borderColor: "var(--border-subtle, #e5e7eb)" }}
              data-copilot-answer>
@@ -296,6 +433,17 @@ export function SavedQuestionGallery({ systemName }: SavedQuestionGalleryProps) 
             </div>
           )}
 
+          {answer.abstention && (
+            <div
+              className="px-5 py-4 flex items-start gap-2 text-sm text-amber-700"
+              data-copilot-abstention
+              data-reason-code={answer.abstention.reasonCode}
+            >
+              <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+              <div>{answer.abstention.explanation}</div>
+            </div>
+          )}
+
           {answer.result && (
             <div className="p-5">
               <AnswerRenderer route={answer.route!} result={answer.result} />
@@ -308,6 +456,18 @@ export function SavedQuestionGallery({ systemName }: SavedQuestionGalleryProps) 
 }
 
 function AnswerRenderer({ route, result }: { route: any; result: any }) {
+  if (result?.status === "unavailable" || result?.error_code === "GRAPH_UNAVAILABLE") {
+    return (
+      <div className="flex items-start gap-2 text-sm text-amber-700" data-copilot-data-unavailable>
+        <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+        <div>
+          Graph data is unavailable, so Cyntro cannot return a trustworthy count or list yet.
+          Please retry after graph connectivity is restored.
+        </div>
+      </div>
+    )
+  }
+
   if (route.family === "aggregator") {
     const candidates = result.candidates ?? []
     const summary = result.summary ?? {}
