@@ -34,10 +34,20 @@ function canonicalResourceType(raw: unknown): unknown {
   return RESOURCE_TYPE_CANONICAL[s] ?? s;
 }
 
-function normalizeFinding(f: any): any {
-  if (!f || typeof f !== "object") return f;
+function canonicalFindingId(f: any): string | null {
+  if (!f || typeof f !== "object") return null;
+  const value = [f.finding_id, f.id, f.findingId]
+    .find((candidate) => typeof candidate === "string" && candidate.trim().length > 0);
+  return typeof value === "string" ? value.trim() : null;
+}
+
+function normalizeFinding(f: any): any | null {
+  const findingId = canonicalFindingId(f);
+  if (!findingId) return null;
   return {
     ...f,
+    id: findingId,
+    finding_id: findingId,
     severity: typeof f.severity === "string" ? f.severity.toLowerCase() : f.severity,
     status: typeof f.status === "string" ? f.status.toLowerCase() : f.status,
     resourceType: canonicalResourceType(f.resourceType),
@@ -117,13 +127,26 @@ export async function GET(request: Request) {
 
     const data = await response.json();
     const findings = data.findings || data.recommendations || data || [];
-    const total = data.total ?? data.count ?? findings.length;
-
-    const normalized = Array.isArray(findings) ? findings.map(normalizeFinding) : [];
+    const normalized = Array.isArray(findings)
+      ? findings.flatMap((finding: any) => {
+          const canonical = normalizeFinding(finding);
+          return canonical ? [canonical] : [];
+        })
+      : [];
+    const withheldInvalidCount = Array.isArray(findings)
+      ? findings.length - normalized.length
+      : 0;
+    if (withheldInvalidCount > 0) {
+      console.warn(
+        `[Findings Proxy] Withheld ${withheldInvalidCount} finding(s) without a canonical backend ID`,
+      );
+    }
     const result = {
       success: true,
       findings: normalized,
-      total: Array.isArray(findings) ? (total || normalized.length) : 0,
+      // Totals describe only rows safe enough to expose to downstream UI.
+      // The upstream total may include identity-less rows that were withheld.
+      total: normalized.length,
       count: normalized.length,
       source: "backend"
     };
