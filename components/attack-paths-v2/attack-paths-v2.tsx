@@ -42,7 +42,6 @@ import type { ExfilPayload } from "./exfil-view-v3"
 import { useRetryFetch } from "@/lib/use-retry-fetch"
 import { classifyIapResponse } from "@/lib/attack-paths/iap-response-health"
 import {
-  reachableJewelPickerList,
   isJewelsPayloadCacheable,
   isServeJewelsAuthoritative,
   resolveJewelPickerList,
@@ -425,6 +424,8 @@ export function AttackPathsV2({
     return isTrustEnvelope(rawData) ? rawData.result : rawData
   }, [rawData])
 
+  const serveJewelsOk = isServeJewelsAuthoritative(jewelsRaw, jewelsError)
+
   // Soft auto-retry of background IAP only — never surfaces in the path rail.
   useEffect(() => {
     if (!_iapBackgroundError || rawData || isLoading) return
@@ -443,17 +444,20 @@ export function AttackPathsV2({
     Boolean((rawData as { fromStaleCache?: boolean } | null)?.fromStaleCache) ||
     Boolean((data as { fromStaleCache?: boolean } | null)?.fromStaleCache)
 
-  // SERVE /jewels is authoritative once loaded (including empty). Full IAP
-  // jewels only before /jewels responds or when /jewels failed — never
-  // overwrite SERVE path_count with IAP phantoms.
+  // SERVE /jewels wins only when its readiness metadata and path counts form
+  // a coherent contract.  If it claims ACTIVE while every count is zero, use
+  // the full Neptune-backed IAP response instead of hiding all real targets.
+  // Zero-path targets remain selectable: the target rail is inventory-first,
+  // and READY_ZERO is a valid, useful state rather than "no crown jewels".
   const jewels: CrownJewelSummary[] = useMemo(
     () =>
-      reachableJewelPickerList(resolveJewelPickerList({
+      resolveJewelPickerList({
         serveJewels: jewelsRaw != null ? liteJewels : null,
         serveJewelsError: jewelsError,
+        serveJewelsAuthoritative: serveJewelsOk,
         iapJewels: data?.crown_jewels ?? null,
-      })),
-    [jewelsRaw, liteJewels, jewelsError, data?.crown_jewels],
+      }),
+    [jewelsRaw, liteJewels, jewelsError, serveJewelsOk, data?.crown_jewels],
   )
 
   // Trust gate: distinguish a real "0 crown jewels" from a cold/failed
@@ -534,10 +538,17 @@ export function AttackPathsV2({
       resolveJewelRailPaths({
         serve: jewelSummaryConvergence,
         serveError: jewelSummaryError,
+        serveCollectionAuthoritative: serveJewelsOk,
         jewel: selectedJewel,
         iapPaths: [...iapJewelPaths],
       }),
-    [jewelSummaryConvergence, jewelSummaryError, selectedJewel, iapJewelPaths],
+    [
+      jewelSummaryConvergence,
+      jewelSummaryError,
+      serveJewelsOk,
+      selectedJewel,
+      iapJewelPaths,
+    ],
   )
 
   const jewelPaths: ActivePathList<IdentityAttackPath> = useMemo(
@@ -926,7 +937,6 @@ export function AttackPathsV2({
   const zoomMinus1Ready =
     viewMode === "attack-path" && !selectedJewelId && Boolean(systemName)
   const hasUsableJewels = jewels.length > 0
-  const serveJewelsOk = isServeJewelsAuthoritative(jewelsRaw, jewelsError)
   // First-paint spinner only when we can't show Zoom −1 and still have
   // no authoritative jewel list (SERVE empty is settled — don't wait on IAP).
   if (
