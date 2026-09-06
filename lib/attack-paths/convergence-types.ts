@@ -64,6 +64,8 @@ export type PathEvidence =
 
 export interface ConvergencePath {
   path_id: string
+  /** Stable canonical AttackPath id for report/simulation endpoints. */
+  attack_path_id?: string | null
   source?: string | null
   source_kind?: string | null
   workload_arn?: string | null

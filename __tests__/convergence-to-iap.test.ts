@@ -116,6 +116,26 @@ describe("convergencePathsToIdentityAttackPaths", () => {
     expect(out[0].nodes.some((n) => n.tier === "crown_jewel")).toBe(false)
   })
 
+  it("preserves canonical AttackPath identity for report lookup", () => {
+    const paths: ConvergencePath[] = [
+      {
+        path_id: "path-mat-display",
+        attack_path_id: "a".repeat(64),
+        source: "i-abc",
+        damage: [],
+        score: 0,
+        confidence: "configured",
+        hop_count: 0,
+      },
+    ]
+
+    const [out] = convergencePathsToIdentityAttackPaths(jewel, paths)
+
+    expect(out.id).toBe("path-mat-display")
+    expect(out.attack_path_id).toBe("a".repeat(64))
+    expect(out.materialized_path?.id).toBe("a".repeat(64))
+  })
+
   it("MUTATION: missing edge_type_from_prev must not invent REACHES", () => {
     expect(
       edgeTypeFromHop({
