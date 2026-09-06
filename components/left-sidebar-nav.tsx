@@ -113,7 +113,7 @@ export function LeftSidebarNav({
   }> = [
     { id: "home", label: "Home", icon: Home, href: "/" },
     { id: "change-queue", label: "Change Queue", icon: ClipboardList, href: "/change-queue" },
-    { id: "copilot", label: "Ask Copilot", icon: Sparkles, href: "/?section=copilot" },
+    { id: "copilot", label: "Cyntro Analyst", icon: Sparkles, href: "/?section=copilot" },
     { id: "issues", label: "Issues", icon: AlertTriangle, count: issuesCount, href: "/?section=issues" },
     { id: "least-privilege", label: "Resource Risk", icon: Shield, href: "/?section=least-privilege" },
     { id: "attack-paths", label: "Attack Paths", icon: Route, href: "/?section=attack-paths" },
