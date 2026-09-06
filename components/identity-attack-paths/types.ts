@@ -1,3 +1,5 @@
+import type { TargetState } from "@/lib/types"
+
 export interface SeverityBreakdown {
   /** Legacy API alias retained while all report producers migrate. */
   score?: number

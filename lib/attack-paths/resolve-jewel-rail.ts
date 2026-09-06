@@ -30,17 +30,10 @@ export type JewelRailResolution = {
 export function resolveJewelRailPaths(args: {
   serve: CrownJewelConvergence | null
   serveError: string | null
-  serveCollectionAuthoritative?: boolean
   jewel: CrownJewelSummary | null
   iapPaths: IdentityAttackPath[]
 }): JewelRailResolution {
-  const {
-    serve,
-    serveError,
-    serveCollectionAuthoritative = true,
-    jewel,
-    iapPaths,
-  } = args
+  const { serve, serveError, jewel, iapPaths } = args
 
   if (serve != null) {
     if (!jewel) {
@@ -50,13 +43,6 @@ export function resolveJewelRailPaths(args: {
       paths: convergencePathsToIdentityAttackPaths(jewel, serve.paths ?? []),
       source: "serve",
     }
-  }
-
-  // When the collection-level /jewels contract is already inconsistent,
-  // do not wait for three slow per-jewel retries before showing the coherent
-  // full-IAP paths that are already in memory.
-  if (!serveCollectionAuthoritative && iapPaths.length > 0) {
-    return { paths: iapPaths, source: "iap_fallback" }
   }
 
   if (serveError && iapPaths.length > 0) {
@@ -75,24 +61,15 @@ export function resolveJewelRailPaths(args: {
 export function resolveJewelPickerList(args: {
   serveJewels: CrownJewelSummary[] | null
   serveJewelsError: string | null
-  serveJewelsAuthoritative: boolean
   iapJewels: CrownJewelSummary[] | null
 }): CrownJewelSummary[] {
-  const {
-    serveJewels,
-    serveJewelsError,
-    serveJewelsAuthoritative,
-    iapJewels,
-  } = args
-  if (serveJewels != null && !serveJewelsError && serveJewelsAuthoritative) {
+  const { serveJewels, serveJewelsError, iapJewels } = args
+  if (serveJewels != null && !serveJewelsError) {
     return serveJewels
   }
   if (iapJewels && iapJewels.length > 0) {
     return iapJewels
   }
-  // Preserve the real target inventory while the full Neptune-backed IAP
-  // fallback is loading, but do not let this provisional list claim serving
-  // authority or suppress NOT_READY messaging.
   return serveJewels ?? []
 }
 
@@ -133,30 +110,7 @@ export function isServeJewelsAuthoritative(
   serveJewelsRaw: unknown,
   serveJewelsError: string | null | undefined,
 ): boolean {
-  if (serveJewelsRaw == null || serveJewelsError) return false
-  const body = jewelEnvelopeBody(serveJewelsRaw)
-  if (!body || !Array.isArray(body.crown_jewels)) return false
-
-  const serveState = String(body.serve_state ?? "").toUpperCase()
-  const coverageState = String(body.coverage_state ?? "").toUpperCase()
-  if (
-    ["NOT_READY", "INTEGRITY_HELD", "PARTIAL", "ERROR"].includes(serveState) ||
-    ["NOT_READY", "INTEGRITY_HELD", "PARTIAL", "ERROR"].includes(coverageState)
-  ) {
-    return false
-  }
-
-  const visiblePathCount = body.crown_jewels.reduce((total, rawJewel) => {
-    if (!rawJewel || typeof rawJewel !== "object") return total
-    const count = Number((rawJewel as { path_count?: unknown }).path_count ?? 0)
-    return total + (Number.isFinite(count) && count > 0 ? count : 0)
-  }, 0)
-
-  // A zero-path response is authoritative only when the backend explicitly
-  // certifies READY_ZERO.  HTTP 200 + ACTIVE + all-zero counts was the live
-  // split-brain failure that hid a separate full-IAP response containing paths.
-  if (visiblePathCount === 0) return coverageState === "READY_ZERO"
-  return serveState === "ACTIVE" && coverageState === "READY"
+  return serveJewelsRaw != null && !serveJewelsError
 }
 
 /**

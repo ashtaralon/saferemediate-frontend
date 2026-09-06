@@ -135,18 +135,6 @@ describe("resolveJewelRailPaths", () => {
     expect(out.source).toBe("none")
     expect(out.paths).toHaveLength(0)
   })
-
-  it("uses coherent IAP immediately when the collection snapshot is inconsistent", () => {
-    const out = resolveJewelRailPaths({
-      serve: null,
-      serveError: null,
-      serveCollectionAuthoritative: false,
-      jewel,
-      iapPaths: [iapPath],
-    })
-    expect(out.source).toBe("iap_fallback")
-    expect(out.paths).toHaveLength(1)
-  })
 })
 
 describe("resolveJewelPickerList", () => {
@@ -156,7 +144,6 @@ describe("resolveJewelPickerList", () => {
       resolveJewelPickerList({
         serveJewels: [],
         serveJewelsError: null,
-        serveJewelsAuthoritative: true,
         iapJewels,
       }),
     ).toEqual([])
@@ -168,7 +155,6 @@ describe("resolveJewelPickerList", () => {
       resolveJewelPickerList({
         serveJewels: null,
         serveJewelsError: "502",
-        serveJewelsAuthoritative: false,
         iapJewels,
       }),
     ).toEqual(iapJewels)
@@ -196,6 +182,22 @@ describe("resolveJewelPickerList", () => {
 })
 
 describe("shouldShowAttackPathsNotComputed", () => {
+  it("never shows when SERVE /jewels answered empty (IAP stale must not brick)", () => {
+    expect(
+      shouldShowAttackPathsNotComputed({
+        serveJewelsRaw: { result: { crown_jewels: [] } },
+        serveJewelsError: null,
+        jewelsEmpty: true,
+        iapFailed: true,
+        jewelsLoading: false,
+        iapLoading: false,
+      }),
+    ).toBe(false)
+    expect(isServeJewelsAuthoritative({ result: { crown_jewels: [] } }, null)).toBe(
+      true,
+    )
+  })
+
   it("accepts an explicit READY_ZERO response as authoritative", () => {
     const readyZero = {
       result: {
