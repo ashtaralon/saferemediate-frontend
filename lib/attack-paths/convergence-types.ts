@@ -160,6 +160,20 @@ export interface ConvergencePath {
     workload_count_in_sample?: number
     subnets?: Array<{ id: string; name?: string | null; is_public?: boolean | null }>
     security_groups?: Array<{ id: string; name?: string | null }>
+    nacls?: Array<{
+      id: string
+      name?: string | null
+      subnet_ids?: string[]
+      rules_coverage?: "COLLECTED" | "NOT_COLLECTED" | "UNKNOWN" | null
+      rule_count?: number | null
+    }>
+    route_tables?: Array<{
+      id: string
+      name?: string | null
+      subnet_ids?: string[]
+      route_count?: number | null
+      is_main?: boolean | null
+    }>
   } | null
   /** ACQUISITION — who can take THIS principal once already inside the
    *  account. Deliberately NOT initial_access: that is ATT&CK Initial Access
