@@ -15,6 +15,11 @@ import {
   X,
 } from "lucide-react"
 import { ServiceTypeBadge } from "@/lib/service-type"
+import {
+  useResourceDependencies,
+  type DependencyRow,
+  type Perspective,
+} from "./use-resource-dependencies"
 import { useAccountScope } from "@/lib/account-scope-context"
 
 type ServeState = "ACTIVE" | "PARTIAL" | "NOT_READY" | "INTEGRITY_HELD" | "NOT_APPLICABLE"
@@ -340,6 +345,26 @@ export function ResourceDossier({
     return () => { cancelled = true }
   }, [accountId, region, resourceId, scope.accountId, scope.region, systemName])
 
+  // The BOUNDED, resource-anchored projection (DE-305) — the tab's dependency
+  // source. The dossier ledger next to it answers a different question (basis
+  // classes across the whole dossier) and is deliberately NOT used as a
+  // fallback here: two datasets under one heading would show different numbers
+  // for the same resource depending on which one happened to answer.
+  const bounded = useResourceDependencies({
+    systemName,
+    resourceId,
+    accountId: accountId && accountId !== "all" ? accountId : scope.accountId,
+  })
+  const boundedByPerspective = useMemo(() => {
+    const buckets: Record<Perspective, DependencyRow[]> = {
+      USES: [], USED_BY: [], PEER: [],
+    }
+    for (const row of bounded.rows) {
+      if (buckets[row.perspective]) buckets[row.perspective].push(row)
+    }
+    return buckets
+  }, [bounded.rows])
+
   const dependencies = data?.dependencies.payload?.ledger ?? []
   const counts = data?.dependencies.payload?.counts_by_basis
   const lifecycleFacts = data?.lifecycle.payload?.facts ?? []
@@ -439,26 +464,149 @@ export function ResourceDossier({
           </div>
         ) : null}
 
-        {data && tab === "dependencies" ? (
+        {tab === "dependencies" ? (
           <div className="space-y-5">
-            <div className="rounded-lg border border-teal-200 bg-teal-50 p-3 text-xs text-teal-900">{data.dependencies.notes ?? "Basis classes are separate proof sets and are never added into a consumer total."}</div>
-            {dependencies.length === 0 ? <div className="rounded-xl border border-slate-200 bg-white p-5 text-sm text-slate-600">No dependency assertions are available. This is not proof that dependencies do not exist.</div> : null}
-            {(["OBSERVED", "CONFIGURED", "STRUCTURAL"] as BasisClass[]).map(basis => grouped[basis].length ? (
-              <section key={basis}>
-                <div className="mb-2 flex items-center gap-2"><StateBadge value={basis} /><span className="text-xs text-slate-500">{grouped[basis].length} assertion{grouped[basis].length === 1 ? "" : "s"}</span></div>
-                <div className="space-y-3">
-                  {grouped[basis].map((dependency, index) => (
-                    <article key={`${basis}-${canonicalDependencyIdentity(dependency)}-${index}`} className="rounded-xl border border-slate-200 bg-white p-4">
-                      <div className="flex items-start gap-3"><Database className="mt-0.5 h-4 w-4 shrink-0 text-teal-700" /><div className="min-w-0 flex-1"><div className="text-sm font-semibold text-slate-900">{displayIdentity(dependency)}</div>{canonicalDependencyIdentity(dependency) && displayIdentity(dependency) !== canonicalDependencyIdentity(dependency) ? <div className="mt-1 break-all font-mono text-[10px] text-slate-500">{canonicalDependencyIdentity(dependency)}</div> : null}<div className="mt-1 text-xs text-slate-500">{dependency.direction} · {dependency.relationship} · {dependency.freshness}</div></div></div>
-                      {dependency.actions?.length ? <div className="mt-3 text-xs text-slate-600">Actions: {dependency.actions.join(", ")}</div> : null}
-                      {dependency.observation_days ? <div className="mt-1 text-xs text-slate-600">Observed over {dependency.observation_days} days · last seen {dependency.last_seen ? new Date(dependency.last_seen).toLocaleString() : "unknown"}</div> : null}
-                      {dependency.via_vpce ? <div className="mt-1 text-xs text-slate-600">Via VPC endpoint: <span className="font-mono">{dependency.via_vpce}</span></div> : null}
-                      <div className="mt-3 border-t border-slate-100 pt-3 text-xs"><EvidenceRefList refs={dependency.evidence_refs ?? []} sourceRefs={dependency.source_generation_refs ?? []} /></div>
-                    </article>
-                  ))}
-                </div>
+            {/* The exact wording the plan requires: what is shown is what was
+                collected, not everything that exists. */}
+            <div className="rounded-lg border border-teal-200 bg-teal-50 p-3 text-xs text-teal-900">
+              Known dependencies within collected scope. Basis classes are separate proof sets and are never added into a consumer total.
+              {bounded.data?.scope?.generation ? <> Projection generation <span className="font-mono">{bounded.data.scope.generation}</span>.</> : null}
+            </div>
+
+            {bounded.data?.coverage ? (
+              <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
+                <StateBadge value={String(bounded.data.coverage.state ?? "UNKNOWN")} axis="coverage" />
+                {Array.isArray(bounded.data.coverage.missing_sources) && bounded.data.coverage.missing_sources.length ? (
+                  <span>Missing: {bounded.data.coverage.missing_sources.join(", ")}</span>
+                ) : null}
+                {bounded.data.coverage.observation_days ? <span>· observed over {String(bounded.data.coverage.observation_days)} days</span> : null}
+              </div>
+            ) : null}
+
+            {bounded.loading ? (
+              <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white p-5 text-sm text-slate-600">
+                <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden /> Loading dependencies…
+              </div>
+            ) : null}
+
+            {/* A moved generation is not a fault: the projection advanced under
+                an in-flight cursor. Stitching the pages would mix two graphs. */}
+            {bounded.generationMoved ? (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                The projection advanced while this list was paging, so the remaining pages belong to a different generation.
+                <button type="button" onClick={bounded.retry} className="ml-2 rounded border border-amber-300 bg-white px-2 py-1 text-xs font-semibold text-amber-900 hover:bg-amber-100">Reload from the current generation</button>
+              </div>
+            ) : null}
+
+            {bounded.error ? (
+              <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900">
+                Dependencies could not be read: <span className="font-mono text-xs">{bounded.error}</span>. This is not proof that dependencies do not exist.
+                <button type="button" onClick={bounded.retry} className="ml-2 rounded border border-rose-300 bg-white px-2 py-1 text-xs font-semibold text-rose-900 hover:bg-rose-100">Retry</button>
+              </div>
+            ) : null}
+
+            {!bounded.loading && !bounded.error && !bounded.generationMoved && bounded.rows.length === 0 ? (
+              <div className="rounded-xl border border-slate-200 bg-white p-5 text-sm text-slate-600">
+                No dependencies were found for this resource within collected scope. This is not proof that dependencies do not exist.
+              </div>
+            ) : null}
+
+            {/* Perspective-first: the same fact seen from both ends, with the
+                counts saying which number they are. A filtered total that read
+                as the resource's whole dependency count would understate it. */}
+            {(["USES", "USED_BY", "PEER"] as Perspective[]).map(perspective => {
+              const group = boundedByPerspective[perspective]
+              if (!group.length) return null
+              const heading = perspective === "USES" ? "Uses" : perspective === "USED_BY" ? "Used by" : "Peers"
+              return (
+                <section key={perspective}>
+                  <div className="mb-2 flex items-center gap-2">
+                    <span className="text-sm font-semibold text-slate-900">{heading}</span>
+                    <span className="text-xs text-slate-500">{group.length} loaded</span>
+                  </div>
+                  <div className="space-y-3">
+                    {group.map(row => (
+                      <article key={row.pair_key} className="rounded-xl border border-slate-200 bg-white p-4">
+                        <div className="flex items-start gap-3">
+                          <Database className="mt-0.5 h-4 w-4 shrink-0 text-teal-700" aria-hidden />
+                          <div className="min-w-0 flex-1">
+                            <div className="text-sm font-semibold text-slate-900">{row.counterparty.label ?? row.counterparty.identity ?? "Unidentified counterparty"}</div>
+                            {row.counterparty.identity && row.counterparty.identity !== row.counterparty.label ? (
+                              <div className="mt-1 break-all font-mono text-[10px] text-slate-500">{row.counterparty.identity}</div>
+                            ) : null}
+                            <div className="mt-1 text-xs text-slate-500">
+                              {row.counterparty.type ?? "Unknown type"}
+                              {/* UNKNOWN scope means the neighbour carried no
+                                  account, which is different from being ours. */}
+                              {row.counterparty.scope ? ` · ${row.counterparty.scope.replace(/_/g, " ").toLowerCase()}` : ""}
+                              {row.counterparty.account_id ? ` · ${row.counterparty.account_id}` : ""}
+                              {row.counterparty.region ? ` · ${row.counterparty.region}` : ""}
+                            </div>
+                            {row.counterparty.rolled_up_member_count ? (
+                              <div className="mt-1 text-xs text-slate-600">Groups {row.counterparty.rolled_up_member_count} member{row.counterparty.rolled_up_member_count === 1 ? "" : "s"}</div>
+                            ) : null}
+                          </div>
+                        </div>
+                        <div className="mt-3 space-y-2">
+                          {row.facts.map((fact, index) => (
+                            <div key={fact.fact_id ?? `${row.pair_key}-${index}`} className="rounded-lg border border-slate-100 bg-slate-50 p-3 text-xs">
+                              <div className="flex flex-wrap items-center gap-2">
+                                {fact.basis_class ? <StateBadge value={fact.basis_class} /> : null}
+                                <span className="font-semibold text-slate-800">{String(fact.relationship ?? "relationship")}</span>
+                                {fact.mechanism ? <span className="text-slate-500">· {String(fact.mechanism)}</span> : null}
+                                {fact.freshness ? <span className="text-slate-500">· {String(fact.freshness)}</span> : null}
+                              </div>
+                              {Array.isArray(fact.actions) && fact.actions.length ? <div className="mt-2 text-slate-600">Actions: {fact.actions.join(", ")}</div> : null}
+                              {fact.observation_days ? <div className="mt-1 text-slate-600">Observed over {fact.observation_days} days · last seen {fact.last_seen ? new Date(String(fact.last_seen)).toLocaleString() : "unknown"}</div> : null}
+                              {fact.via_vpce ? <div className="mt-1 text-slate-600">Via VPC endpoint: <span className="font-mono">{String(fact.via_vpce)}</span></div> : null}
+                              {/* Derived rows say so; a derivation must never
+                                  read as a direct attachment. */}
+                              {fact.derivation ? <div className="mt-1 text-slate-600">Derived — not a direct attachment.</div> : null}
+                              <div className="mt-2 border-t border-slate-200 pt-2">
+                                <EvidenceRefList refs={(fact.evidence_refs ?? []) as EvidenceBinding[]} sourceRefs={(fact.source_generation_refs ?? []) as SourceGenerationRef[]} />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                </section>
+              )
+            })}
+
+            {/* Paging is explicit. Silent truncation of a high-degree consumer
+                set is the failure this replaces. */}
+            {bounded.data?.page ? (
+              <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600">
+                <span>Showing {bounded.rows.length} of {bounded.data.page.total} dependency row{bounded.data.page.total === 1 ? "" : "s"}.</span>
+                {bounded.hasMore ? (
+                  <button type="button" onClick={bounded.loadMore} disabled={bounded.loadingMore} className="rounded border border-slate-300 bg-white px-2 py-1 font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-60">
+                    {bounded.loadingMore ? "Loading…" : "Load more"}
+                  </button>
+                ) : bounded.rows.length ? <span>Complete for this generation.</span> : null}
+              </div>
+            ) : null}
+
+            {/* Resource-specific views for the four advertised types. Supporting
+                VPC/ENI/policy facts stay context, not extra tabs. */}
+            {bounded.data?.type_views?.views?.length ? (
+              <section className="rounded-xl border border-slate-200 bg-white p-4">
+                <div className="text-sm font-semibold text-slate-900">{bounded.data.type_views.family ?? "Resource"} detail</div>
+                {bounded.data.type_views.views.map((view, index) => (
+                  <div key={view.title ?? index} className="mt-3">
+                    <div className="text-xs font-semibold text-slate-700">{view.title}</div>
+                    <ul className="mt-1 space-y-1">
+                      {(view.items ?? []).map((item, itemIndex) => (
+                        <li key={itemIndex} className="break-all font-mono text-[10px] text-slate-600">
+                          {typeof item === "string" ? item : JSON.stringify(item)}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
               </section>
-            ) : null)}
+            ) : null}
           </div>
         ) : null}
 
