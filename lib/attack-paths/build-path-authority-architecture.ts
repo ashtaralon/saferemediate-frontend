@@ -99,6 +99,9 @@ export interface PathAuthorityArchitecture {
     shortName: string
     isPublic: boolean | null
     connectedComputeIds: string[]
+    routeTableId?: string
+    routeTableCount?: number | null
+    routeTableIsMain?: boolean | null
   }>
   securityGroups: Array<{
     id: string
@@ -1267,6 +1270,18 @@ export function buildPathAuthorityArchitecture(params: {
           shortName: truncate(s.name || s.id),
           isPublic: typeof s.is_public === "boolean" ? s.is_public : null,
           connectedComputeIds: computeId ? [computeId] : [],
+          ...(() => {
+            const rt = (wn.route_tables ?? []).find((row) =>
+              (row.subnet_ids ?? []).includes(s.id),
+            )
+            return rt
+              ? {
+                  routeTableId: rt.id,
+                  routeTableCount: rt.route_count ?? null,
+                  routeTableIsMain: rt.is_main ?? null,
+                }
+              : {}
+          })(),
         })
         if (computeId) {
           pushEdge(
@@ -1298,6 +1313,33 @@ export function buildPathAuthorityArchitecture(params: {
             computeId,
             g.id,
             "SECURED_BY",
+            p.path_id,
+            p.evidence || p.confidence || "configured",
+          )
+        }
+      }
+      for (const acl of wn.nacls ?? []) {
+        if (!acl?.id || seen.nacl.has(acl.id)) continue
+        seen.nacl.add(acl.id)
+        const subnetIds = (acl.subnet_ids ?? []).filter(Boolean)
+        nacls.push({
+          ...emptyCheckpoint(
+            "nacl",
+            acl.id,
+            acl.name || acl.id,
+            subnetIds[0] || computeId || undefined,
+            acl.rule_count ?? null,
+            normalizeRulesCoverage(acl.rules_coverage),
+          ),
+          connectedSources: subnetIds,
+        })
+        for (const subnetId of subnetIds) {
+          pushEdge(
+            edges,
+            edgeSeen,
+            acl.id,
+            subnetId,
+            "ASSOCIATED_WITH",
             p.path_id,
             p.evidence || p.confidence || "configured",
           )

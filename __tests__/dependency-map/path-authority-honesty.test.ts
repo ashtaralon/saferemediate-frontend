@@ -1221,6 +1221,79 @@ describe("8. empty network lane provenance (deriveNetworkPosture)", () => {
     })
     expect(arch.workloadNetwork).toBeUndefined()
   })
+
+  it("draws Neptune-projected subnet, SG, NACL and route-table checkpoints", () => {
+    const arch = buildPathAuthorityArchitecture({
+      paths: [
+        path({
+          path_id: "p1",
+          workload_arn: "i-aaa",
+          hops: [
+            {
+              node_id: "i-aaa",
+              node_type: "EC2Instance",
+              name: "app",
+              plane: "compute",
+              security_groups: [],
+              is_crown_jewel: false,
+            },
+            {
+              node_id: "arn:aws:rds:eu-west-1:1:cluster:db",
+              node_type: "RDSCluster",
+              name: "db",
+              plane: "data",
+              security_groups: [],
+              is_crown_jewel: true,
+              edge_type_from_prev: "ACTUAL_TRAFFIC",
+              edge_evidence: "observed",
+              hit_count: 2,
+            },
+          ],
+          workload_network: {
+            is_vpc_attached: true,
+            vpc_attachment_state: "VPC_ATTACHED",
+            vpc_id: "vpc-1",
+            subnets: [{ id: "subnet-1", name: "private-a", is_public: false }],
+            security_groups: [{ id: "sg-1", name: "app" }],
+            nacls: [{
+              id: "acl-1",
+              name: "private",
+              subnet_ids: ["subnet-1"],
+              rules_coverage: "COLLECTED",
+              rule_count: 6,
+            }],
+            route_tables: [{
+              id: "rtb-1",
+              name: "private",
+              subnet_ids: ["subnet-1"],
+              route_count: 4,
+              is_main: false,
+            }],
+          },
+        }),
+      ],
+      spotlightPathId: "p1",
+    })
+
+    expect(arch.subnets).toContainEqual(expect.objectContaining({
+      id: "subnet-1",
+      routeTableId: "rtb-1",
+      routeTableCount: 4,
+      routeTableIsMain: false,
+    }))
+    expect(arch.securityGroups.map((row) => row.id)).toContain("sg-1")
+    expect(arch.nacls).toContainEqual(expect.objectContaining({
+      id: "acl-1",
+      totalCount: 6,
+      rulesCoverage: "COLLECTED",
+      connectedSources: ["subnet-1"],
+    }))
+    expect(arch.edges).toContainEqual(expect.objectContaining({
+      source_aws_id: "acl-1",
+      target_aws_id: "subnet-1",
+      relationship: "ASSOCIATED_WITH",
+    }))
+  })
 })
 
 /**
