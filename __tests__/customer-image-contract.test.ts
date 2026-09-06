@@ -11,12 +11,20 @@ describe("customer-resident frontend image", () => {
 
     expect(dockerfile).toContain("node scripts/prepare-customer-image.mjs")
     expect(dockerfile).toContain("npm run build -- --webpack")
-    expect(dockerfile).toContain("USER cyntro")
+    expect(dockerfile).toContain("npm prune --omit=dev")
+    expect(dockerfile).toContain("node:24.20.0-bookworm-slim AS runtime")
+    expect(dockerfile).toContain("apt-get upgrade --yes")
+    expect(dockerfile).toContain("/app/.next/standalone")
+    expect(dockerfile).not.toContain("/app/node_modules ./node_modules")
+    expect(dockerfile).toContain('grep -R -q -F "saferemediate-backend-f.onrender.com"')
+    expect(dockerfile).not.toContain("--binary-files")
+    expect(dockerfile).toContain("USER node")
     expect(client).toContain('const BACKEND_URL = "/api/backend"')
     expect(middleware).toContain('CYNTRO_DEPLOYMENT_MODE !== "CUSTOMER_RESIDENT"')
     expect(layout).toContain("Read-only evidence and analysis")
     expect(prepare).toContain("geist-latin.woff2")
     expect(prepare).toContain("saferemediate-backend-f.onrender.com")
+    expect(readFileSync("next.config.js", "utf8")).toContain('=== "CUSTOMER_RESIDENT"')
   })
 
   it("keeps the backend service token server-only", () => {

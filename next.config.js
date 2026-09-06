@@ -8,6 +8,14 @@ const deploymentVersion =
 const nextConfig = {
   reactStrictMode: false,
 
+  // Customer-resident images copy only the dependency closure traced by Next.
+  // This keeps build tooling and unrelated package manifests out of the final
+  // runtime image and materially reduces its vulnerability surface.
+  output:
+    process.env.CYNTRO_DEPLOYMENT_MODE === "CUSTOMER_RESIDENT"
+      ? "standalone"
+      : undefined,
+
   // Bake the source revision into every client bundle. The matching
   // /api/build-version route reads the deployment's runtime revision so
   // long-lived tabs can detect that a newer production bundle exists.
