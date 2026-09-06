@@ -106,11 +106,15 @@ function canonicalizeJewels(raw: CrownJewelSummary[]): JewelDedup {
     const maxPriority = Math.max(...variants.map((v) => v.priority_score ?? 0))
     const maxRisk = Math.max(...variants.map((v) => v.highest_risk_score ?? 0))
     const anyExposed = variants.some((v) => v.is_internet_exposed === true)
-    const sevWinner = variants.reduce<string>((maxSev, v) => {
+    // Highest labelled severity across the variants. A variant with no
+    // severity (zero-path target, AP3-104) contributes nothing; when none
+    // carries one the merged jewel has none — never a default LOW.
+    const sevWinner = variants.reduce<CrownJewelSummary["severity"]>((maxSev, v) => {
+      if (v.severity == null) return maxSev
       const r = SEVERITY_RANK[v.severity] ?? 0
-      const m = SEVERITY_RANK[maxSev] ?? 0
+      const m = maxSev == null ? -1 : (SEVERITY_RANK[maxSev] ?? 0)
       return r > m ? v.severity : maxSev
-    }, "LOW")
+    }, null)
 
     // crown_jewel_source resolution: if any variant is in-system
     // (no source or source === "default"), the jewel IS in-system —
@@ -132,7 +136,7 @@ function canonicalizeJewels(raw: CrownJewelSummary[]): JewelDedup {
       priority_score: maxPriority,
       highest_risk_score: maxRisk,
       is_internet_exposed: anyExposed,
-      severity: sevWinner as CrownJewelSummary["severity"],
+      severity: sevWinner,
       ...sourceField,
     } as CrownJewelSummary)
   }

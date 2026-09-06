@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest"
 import type { CrownJewelSummary } from "@/components/identity-attack-paths/types"
 import type { CrownJewelConvergence } from "@/lib/attack-paths/convergence-types"
 import {
-  isJewelsPayloadCacheable,
   isServeJewelsAuthoritative,
   resolveJewelPickerList,
   resolveJewelRailPaths,
@@ -135,18 +134,6 @@ describe("resolveJewelRailPaths", () => {
     expect(out.source).toBe("none")
     expect(out.paths).toHaveLength(0)
   })
-
-  it("uses coherent IAP immediately when the collection snapshot is inconsistent", () => {
-    const out = resolveJewelRailPaths({
-      serve: null,
-      serveError: null,
-      serveCollectionAuthoritative: false,
-      jewel,
-      iapPaths: [iapPath],
-    })
-    expect(out.source).toBe("iap_fallback")
-    expect(out.paths).toHaveLength(1)
-  })
 })
 
 describe("resolveJewelPickerList", () => {
@@ -156,7 +143,6 @@ describe("resolveJewelPickerList", () => {
       resolveJewelPickerList({
         serveJewels: [],
         serveJewelsError: null,
-        serveJewelsAuthoritative: true,
         iapJewels,
       }),
     ).toEqual([])
@@ -168,40 +154,37 @@ describe("resolveJewelPickerList", () => {
       resolveJewelPickerList({
         serveJewels: null,
         serveJewelsError: "502",
-        serveJewelsAuthoritative: false,
         iapJewels,
       }),
     ).toEqual(iapJewels)
   })
 
-  it("uses full IAP when SERVE claims zero paths without READY_ZERO", () => {
-    const reachable = { ...jewel, id: "reachable", path_count: 2 }
-    const internalStore = { ...jewel, id: "internal", path_count: 0 }
-    const clusterMember = { ...jewel, id: "member", path_count: 0 }
+  it("keeps zero-path targets with their explicit state (AP3-104)", () => {
+    const reachable = { ...jewel, id: "reachable", path_count: 2, target_state: "observed" as const }
+    const noRoute = { ...jewel, id: "no-route", path_count: 0, severity: null, target_state: "no_modeled_route" as const }
+    const unconsidered = { ...jewel, id: "unconsidered", path_count: 0, severity: null, target_state: "coverage_incomplete" as const }
 
-    expect(
-      resolveJewelPickerList({
-        serveJewels: [internalStore, clusterMember],
-        serveJewelsError: null,
-        serveJewelsAuthoritative: false,
-        iapJewels: [internalStore, reachable, clusterMember],
-      }).map((entry) => entry.id),
-    ).toEqual(["internal", "reachable", "member"])
+    const listed = resolveJewelPickerList({
+      serveJewels: [reachable, noRoute, unconsidered],
+      serveJewelsError: null,
+      iapJewels: [{ ...jewel, path_count: 4 }],
+    })
+    expect(listed.map((entry) => entry.id)).toEqual(["reachable", "no-route", "unconsidered"])
+    expect(listed.map((entry) => entry.target_state)).toEqual([
+      "observed",
+      "no_modeled_route",
+      "coverage_incomplete",
+    ])
+    // a zero-path target carries no severity for the rail to render
+    expect(listed[1]?.severity).toBeNull()
   })
 })
 
 describe("shouldShowAttackPathsNotComputed", () => {
-  it("accepts an explicit READY_ZERO response as authoritative", () => {
-    const readyZero = {
-      result: {
-        serve_state: "ACTIVE",
-        coverage_state: "READY_ZERO",
-        crown_jewels: [],
-      },
-    }
+  it("never shows when SERVE /jewels answered empty (IAP stale must not brick)", () => {
     expect(
       shouldShowAttackPathsNotComputed({
-        serveJewelsRaw: readyZero,
+        serveJewelsRaw: { result: { crown_jewels: [] } },
         serveJewelsError: null,
         jewelsEmpty: true,
         iapFailed: true,
@@ -209,41 +192,9 @@ describe("shouldShowAttackPathsNotComputed", () => {
         iapLoading: false,
       }),
     ).toBe(false)
-    expect(isServeJewelsAuthoritative(readyZero, null)).toBe(true)
-  })
-
-  it("rejects ACTIVE all-zero counts without READY_ZERO", () => {
-    const splitBrain = {
-      result: {
-        serve_state: "ACTIVE",
-        crown_jewels: [{ ...jewel, path_count: 0 }],
-      },
-    }
-
-    expect(isServeJewelsAuthoritative(splitBrain, null)).toBe(false)
-    expect(isJewelsPayloadCacheable(splitBrain)).toBe(false)
-    expect(
-      shouldShowAttackPathsNotComputed({
-        serveJewelsRaw: splitBrain,
-        serveJewelsError: null,
-        jewelsEmpty: false,
-        iapFailed: true,
-        jewelsLoading: false,
-        iapLoading: false,
-      }),
-    ).toBe(false)
-  })
-
-  it("requires READY metadata for nonzero path counts", () => {
-    const ready = {
-      result: {
-        serve_state: "ACTIVE",
-        coverage_state: "READY",
-        crown_jewels: [{ ...jewel, path_count: 4 }],
-      },
-    }
-    expect(isServeJewelsAuthoritative(ready, null)).toBe(true)
-    expect(isJewelsPayloadCacheable(ready)).toBe(true)
+    expect(isServeJewelsAuthoritative({ result: { crown_jewels: [] } }, null)).toBe(
+      true,
+    )
   })
 
   it("shows when SERVE unavailable and IAP cold/stale envelope", () => {

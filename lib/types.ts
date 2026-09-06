@@ -1357,3 +1357,49 @@ export interface SharedSGsResponse {
   sg0_pending_items: string[]
   discovered_at: string
 }
+
+// =============================================================================
+// Attack Paths — inventory-first target catalog (AP3-104)
+// GET /api/attack-paths/{system}/targets. Every in-scope crown-jewel target is
+// listed with an explicit state; zero paths is a state, never an omission.
+// Exact backend strings (unified/attack_map/target_catalog.py TARGET_STATES).
+// =============================================================================
+export type TargetState =
+  | "projection_not_ready"
+  | "observed"
+  | "configured_only"
+  | "no_modeled_route"
+  | "coverage_incomplete"
+
+export const TARGET_STATE_CONFIG: Record<TargetState, { label: string; color: string; bgColor: string; description: string }> = {
+  projection_not_ready: {
+    label: "projection not ready",
+    color: "#64748B",
+    bgColor: "rgba(100, 116, 139, 0.12)",
+    description: "The attack-path projection for this account is not activated yet; nothing about this target's routes has been computed.",
+  },
+  observed: {
+    label: "observed",
+    color: "#DC2626",
+    bgColor: "rgba(220, 38, 38, 0.10)",
+    description: "At least one materialized path to this target carries observed use (CloudTrail / flow evidence).",
+  },
+  configured_only: {
+    label: "configured only",
+    color: "#EA580C",
+    bgColor: "rgba(234, 88, 12, 0.10)",
+    description: "Paths to this target exist in configuration; no use has been observed on any of them.",
+  },
+  no_modeled_route: {
+    label: "no modeled route",
+    color: "#0284C7",
+    bgColor: "rgba(2, 132, 199, 0.10)",
+    description: "The materializer considered this target in the active generation and found no route to it.",
+  },
+  coverage_incomplete: {
+    label: "coverage incomplete",
+    color: "#CA8A04",
+    bgColor: "rgba(202, 138, 4, 0.10)",
+    description: "The active generation never considered this target (no manifest entry), so its zero is not verified.",
+  },
+}
