@@ -540,7 +540,6 @@ export function AttackPathsV2({
       resolveJewelRailPaths({
         serve: jewelSummaryConvergence,
         serveError: jewelSummaryError,
-        serveCollectionAuthoritative: serveJewelsOk,
         jewel: selectedJewel,
         iapPaths: [...iapJewelPaths],
       }),
