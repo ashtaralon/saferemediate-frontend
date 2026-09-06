@@ -9,14 +9,11 @@ import { TrustEnvelopeBadge, type Provenance } from "@/components/trust/trust-en
 // Example prompts derive from the active system — never name a pinned one.
 function examplePrompts(systemName?: string): string[] {
   const scope = systemName ? ` in ${systemName}` : ""
-  const target = systemName ?? "my environment"
   return [
-    "how many S3 buckets do I have?",
-    "which IAM role has the most unused permissions?",
-    `list lambda functions${scope}`,
-    `what's the blast radius of ${target}?`,
-    "what changed in the last 7 days?",
-    "what can I safely remediate right now?",
+    `how many crown jewels do we have${scope}?`,
+    `show the top 5 riskiest attack paths${scope}`,
+    `how many critical CVEs do we have${scope}?`,
+    `how many Lambda functions do we have${scope}?`,
   ]
 }
 
@@ -40,6 +37,7 @@ interface AnswerState {
   provenance: Provenance | null
   decision: RouterDecision | null
   abstention: { explanation: string; reasonCode: string } | null
+  analyst: Record<string, any> | null
 }
 
 interface FreeformCapability {
@@ -59,13 +57,14 @@ const INITIAL_STATE: AnswerState = {
   provenance: null,
   decision: null,
   abstention: null,
+  analyst: null,
 }
 
 const INITIAL_CAPABILITY: FreeformCapability = {
   checking: true,
   enabled: false,
-  code: "COPILOT_CAPABILITY_CHECK_PENDING",
-  reason: "Checking authenticated system scope…",
+  code: "ANALYST_CAPABILITY_CHECK_PENDING",
+  reason: "Checking Analyst identity, scope, and runtime…",
   systemName: null,
 }
 
@@ -90,8 +89,8 @@ export function SavedQuestionGallery({ systemName }: SavedQuestionGalleryProps) 
       setFreeformCapability({
         checking: false,
         enabled: false,
-        code: "COPILOT_SYSTEM_SCOPE_REQUIRED",
-        reason: "Select an authorized system before asking a free-form question.",
+        code: "ANALYST_SYSTEM_SCOPE_REQUIRED",
+        reason: "Select an authorized system before asking Cyntro Analyst.",
         systemName: null,
       })
       return
@@ -100,7 +99,7 @@ export function SavedQuestionGallery({ systemName }: SavedQuestionGalleryProps) 
     const controller = new AbortController()
     setFreeformCapability(INITIAL_CAPABILITY)
     void fetch(
-      `/api/proxy/copilot/ask?systemName=${encodeURIComponent(lockedSystemName)}`,
+      `/api/proxy/analyst/query?systemName=${encodeURIComponent(lockedSystemName)}`,
       { cache: "no-store", signal: controller.signal },
     )
       .then(async (response) => {
@@ -109,8 +108,8 @@ export function SavedQuestionGallery({ systemName }: SavedQuestionGalleryProps) 
         setFreeformCapability({
           checking: false,
           enabled: response.ok && data?.enabled === true && data?.systemName === lockedSystemName,
-          code: data?.code || "COPILOT_CAPABILITY_UNAVAILABLE",
-          reason: data?.reason || "Free-form questions are unavailable for this system scope.",
+          code: data?.reason_code || "ANALYST_CAPABILITY_UNAVAILABLE",
+          reason: capabilityReason(data?.reason_code),
           systemName: typeof data?.systemName === "string" ? data.systemName : null,
         })
       })
@@ -119,11 +118,11 @@ export function SavedQuestionGallery({ systemName }: SavedQuestionGalleryProps) 
         setFreeformCapability({
           checking: false,
           enabled: false,
-          code: "COPILOT_CAPABILITY_UNAVAILABLE",
+          code: "ANALYST_CAPABILITY_UNAVAILABLE",
           reason:
             error instanceof Error && error.message
-              ? `Free-form scope check failed: ${error.message}`
-              : "Free-form scope check failed.",
+              ? `Analyst readiness check failed: ${error.message}`
+              : "Analyst readiness check failed.",
           systemName: null,
         })
       })
@@ -191,83 +190,47 @@ export function SavedQuestionGallery({ systemName }: SavedQuestionGalleryProps) 
     ) {
       setAnswer({
         ...INITIAL_STATE,
-        error: freeformCapability.reason || "Free-form questions require an authenticated system scope.",
+        error: freeformCapability.reason || "Analyst requires an authenticated system scope.",
       })
       return
     }
     if (overrideQuestion) setFreeformQuestion(overrideQuestion)
     setRouting(true)
-    setAnswer({ ...INITIAL_STATE, loading: true, headline: "Routing your question…", route: null })
+    setAnswer({ ...INITIAL_STATE, loading: true, headline: "Analyzing your question…", route: null })
     try {
-      const res = await fetch("/api/proxy/copilot/ask", {
+      const res = await fetch("/api/proxy/analyst/query", {
         method: "POST",
+        cache: "no-store",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           question,
           systemName: lockedSystemName,
-          roleName: roleName || undefined,
+          locale: navigator.language || "en",
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
         }),
       })
-      const data = await res.json()
+      const data = await res.json().catch(() => ({
+        status: "unavailable",
+        reason_code: "ANALYST_INVALID_RESPONSE",
+      }))
       if (requestGenerationRef.current !== requestGeneration) return
-      if (!res.ok) {
-        throw new Error(data?.error || "Router is unavailable")
+      if (!data || typeof data !== "object" || Array.isArray(data)) {
+        throw new Error("Analyst returned an invalid response")
       }
-      if (data?.status === "abstained" && data?.chosen_tool === null) {
-        setAnswer({
-          ...INITIAL_STATE,
-          headline: "Question not answered",
-          abstention: {
-            explanation: data?.explanation || "This question cannot be answered safely.",
-            reasonCode: data?.reason_code || "unsupported_question",
-          },
-        })
-        return
-      }
-      if (data?.status !== "routed" || !data?.chosen_tool) {
-        throw new Error("Router returned an invalid decision")
-      }
-      const decision: RouterDecision = {
-        chosen_tool: data.chosen_tool,
-        tool_args: data.tool_args || {},
-        explanation: data.explanation || "",
-        source: data.source || "llm",
-      }
-      const returnedSystem = decision.tool_args.systemName
-      if (
-        typeof returnedSystem !== "string" ||
-        returnedSystem.trim() !== lockedSystemName ||
-        data?.request_scope?.systemName !== lockedSystemName
-      ) {
-        throw new Error("Router response conflicted with the immutable system scope")
-      }
-      const ctx: IntentContext = {
-        // Never let model/tool arguments choose scope. The value captured at
-        // submit time is the immutable scope for this request.
-        systemName: lockedSystemName,
-        roleName: decision.tool_args.roleName || roleName || undefined,
-        windowDays: decision.tool_args.windowDays,
-        resourceType: decision.tool_args.resourceType || undefined,
-        region: decision.tool_args.region || undefined,
-        nameContains: decision.tool_args.nameContains || undefined,
-        createdBefore: decision.tool_args.createdBefore || undefined,
-        createdAfter: decision.tool_args.createdAfter || undefined,
-        sort: decision.tool_args.sort || undefined,
-      }
-      if (decision.tool_args.roleName) {
-        setRoleName(decision.tool_args.roleName)
-      }
-      const route = resolveIntent(decision.chosen_tool, ctx)
-      if (!route) {
-        throw new Error(`Unknown tool from router: ${decision.chosen_tool}`)
-      }
-      setSelectedId(decision.chosen_tool)
-      await runRoute(route, decision, requestGeneration)
+      setAnswer({
+        ...INITIAL_STATE,
+        headline: analystHeadline(data.status),
+        analyst: data,
+        error:
+          !res.ok && data.status !== "unavailable"
+            ? "Cyntro Analyst is currently unavailable."
+            : null,
+      })
     } catch (err: any) {
       if (requestGenerationRef.current !== requestGeneration) return
       setAnswer({
         ...INITIAL_STATE,
-        error: err?.message || "Failed to route question",
+        error: err?.message || "Failed to ask Cyntro Analyst",
       })
     } finally {
       if (requestGenerationRef.current === requestGeneration) setRouting(false)
@@ -279,13 +242,13 @@ export function SavedQuestionGallery({ systemName }: SavedQuestionGalleryProps) 
       <div>
         <div className="inline-flex items-center gap-2 rounded-full border border-[#2D51DA]/15 bg-[#2D51DA]/5 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-[#2D51DA]">
           <Sparkles className="h-3.5 w-3.5" />
-          Copilot
+          Cyntro Analyst
         </div>
         <h1 className="mt-3 text-2xl font-semibold tracking-tight text-[var(--foreground,#111827)] xl:text-3xl">
-          Ask anything about your cloud posture
+          Ask Cyntro about your graph
         </h1>
         <p className="mt-2 text-sm text-[var(--muted-foreground,#6b7280)]">
-          Every answer is traced to real evidence and carries a confidence badge.
+          Answers come from certified read-only operations over your Neptune graph and local evidence.
         </p>
       </div>
 
@@ -306,8 +269,8 @@ export function SavedQuestionGallery({ systemName }: SavedQuestionGalleryProps) 
             }}
             placeholder={
               freeformCapability.enabled
-                ? "Ask anything — e.g. how many S3 buckets do I have?"
-                : "Free-form questions require an authenticated system scope"
+                ? "Ask a question about this system's security graph"
+                : "Analyst requires customer-resident identity and scope"
             }
             className="flex-1 px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#2D51DA]/30"
             style={{ borderColor: "var(--border-subtle, #e5e7eb)" }}
@@ -382,7 +345,7 @@ export function SavedQuestionGallery({ systemName }: SavedQuestionGalleryProps) 
         </div>
       )}
 
-      {(answer.loading || answer.error || answer.result || answer.abstention) && (
+      {(answer.loading || answer.error || answer.result || answer.abstention || answer.analyst) && (
         <div className="rounded-2xl border bg-white overflow-hidden"
              style={{ borderColor: "var(--border-subtle, #e5e7eb)" }}
              data-copilot-answer>
@@ -449,8 +412,113 @@ export function SavedQuestionGallery({ systemName }: SavedQuestionGalleryProps) 
               <AnswerRenderer route={answer.route!} result={answer.result} />
             </div>
           )}
+
+          {answer.analyst && (
+            <div className="p-5">
+              <AnalystAnswerRenderer response={answer.analyst} />
+            </div>
+          )}
         </div>
       )}
+    </div>
+  )
+}
+
+function capabilityReason(reasonCode: unknown): string {
+  switch (reasonCode) {
+    case "ANALYST_DISABLED":
+      return "Cyntro Analyst is not enabled for this customer-resident deployment."
+    case "ANALYST_AUTHENTICATED_PRINCIPAL_UNAVAILABLE":
+    case "ANALYST_IDENTITY_INVALID":
+    case "ANALYST_IDENTITY_UNAVAILABLE":
+      return "Cyntro Analyst requires a verified customer identity."
+    case "ANALYST_SYSTEM_SCOPE_REQUIRED":
+      return "Select an authorized system before asking Cyntro Analyst."
+    case "ANALYST_SYSTEM_SCOPE_FORBIDDEN":
+    case "ANALYST_SCOPE_CONFLICT":
+      return "The selected system is outside your authorized Analyst scope."
+    case "ANALYST_RUNTIME_UNAVAILABLE":
+    case "ANALYST_BACKEND_UNAVAILABLE":
+      return "The customer-local Analyst runtime is unavailable."
+    default:
+      return "Cyntro Analyst is unavailable for this system scope."
+  }
+}
+
+function analystHeadline(status: unknown): string {
+  switch (status) {
+    case "answered": return "Answer"
+    case "partial": return "Partial answer"
+    case "clarify": return "Clarification needed"
+    case "abstain": return "Question not answered"
+    default: return "Analyst unavailable"
+  }
+}
+
+function AnalystAnswerRenderer({ response }: { response: Record<string, any> }) {
+  const status = response.status
+  if (status === "answered" || status === "partial") {
+    const provenance = response.provenance ?? {}
+    const claims = Array.isArray(response.claims) ? response.claims : []
+    return (
+      <div className="space-y-4" data-analyst-answer data-status={status}>
+        {status === "partial" && (
+          <div className="flex items-start gap-2 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
+            <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+            <span>This answer is partial. Missing coverage is not treated as zero.</span>
+          </div>
+        )}
+        {response.deterministic_answer && (
+          <p className="text-lg font-semibold text-[var(--foreground,#111827)]">
+            {response.deterministic_answer}
+          </p>
+        )}
+        {claims.length > 0 && (
+          <div className="grid gap-2 sm:grid-cols-2">
+            {claims.map((claim: any, index: number) => (
+              <div key={claim.claim_id || index} className="rounded-lg border border-[var(--border-subtle,#e5e7eb)] p-3">
+                <div className="text-xs text-[var(--muted-foreground,#6b7280)]">{claim.metric}</div>
+                <div className="mt-1 text-xl font-semibold">
+                  {String(claim.value)}{claim.unit && claim.unit !== "count" ? ` ${claim.unit}` : ""}
+                </div>
+                {claim.effective_as_of && <div className="mt-1 text-xs text-gray-500">As of {claim.effective_as_of}</div>}
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="flex flex-wrap gap-2 text-xs text-[var(--muted-foreground,#6b7280)]">
+          {response.operation && <span>Operation: <code>{response.operation}</code></span>}
+          {provenance.authority_state && <span>Authority: {provenance.authority_state}</span>}
+          {provenance.coverage_state && <span>Coverage: {provenance.coverage_state}</span>}
+          {provenance.effective_as_of && <span>Effective as of: {provenance.effective_as_of}</span>}
+        </div>
+        {Array.isArray(provenance.limitations) && provenance.limitations.length > 0 && (
+          <ul className="list-disc space-y-1 pl-5 text-sm text-amber-800">
+            {provenance.limitations.map((item: unknown, index: number) => (
+              <li key={index}>{String(item)}</li>
+            ))}
+          </ul>
+        )}
+      </div>
+    )
+  }
+  if (status === "clarify") {
+    return <div className="text-sm" data-analyst-clarify>{response.clarification}</div>
+  }
+  return (
+    <div
+      className="flex items-start gap-2 text-sm text-amber-700"
+      data-analyst-safe-state
+      data-status={status || "unavailable"}
+      data-reason-code={response.reason_code || "ANALYST_UNAVAILABLE"}
+    >
+      <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+      <div>
+        {status === "abstain"
+          ? "Cyntro Analyst did not answer because the request is outside its certified operations or could not be interpreted safely."
+          : "Cyntro Analyst cannot return a trustworthy answer right now."}
+        {response.reason_code && <div className="mt-1 font-mono text-xs">{response.reason_code}</div>}
+      </div>
     </div>
   )
 }
