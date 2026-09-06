@@ -137,7 +137,7 @@ export function convergencePathsToIdentityAttackPaths(
 
     return {
       id: p.path_id,
-      attack_path_id: p.path_id,
+      attack_path_id: p.attack_path_id ?? p.path_id,
       crown_jewel_id: cjId,
       nodes,
       edges,
@@ -156,7 +156,7 @@ export function convergencePathsToIdentityAttackPaths(
         role_name: p.identity_name ?? undefined,
       },
       materialized_path: {
-        id: p.path_id,
+        id: p.attack_path_id ?? p.path_id,
         path_status: pathStatus,
         damage_types: damageTypes,
         identity_gate: p.identity_gate ?? "UNKNOWN",
