@@ -457,7 +457,6 @@ export function AttackPathsV2({
       resolveJewelPickerList({
         serveJewels: jewelsRaw != null ? liteJewels : null,
         serveJewelsError: jewelsError,
-        serveJewelsAuthoritative: serveJewelsOk,
         iapJewels: data?.crown_jewels ?? null,
       }),
     [jewelsRaw, liteJewels, jewelsError, data?.crown_jewels],

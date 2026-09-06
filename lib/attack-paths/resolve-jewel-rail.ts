@@ -78,34 +78,6 @@ export function resolveJewelPickerList(args: {
  * NOT_READY (each target then carries `projection_not_ready`). An answered
  * catalog is the truth about this system; never overlay IAP provenance on it.
  */
-type JewelsEnvelope = {
-  serve_state?: unknown
-  coverage_state?: unknown
-  crown_jewels?: unknown
-  result?: JewelsEnvelope
-  data?: JewelsEnvelope
-}
-
-function jewelEnvelopeBody(payload: unknown): JewelsEnvelope | null {
-  if (!payload || typeof payload !== "object") return null
-  const outer = payload as JewelsEnvelope
-  if (outer.result && typeof outer.result === "object") return outer.result
-  if (outer.data && typeof outer.data === "object") return outer.data
-  return outer
-}
-
-/** True when a /jewels proxy payload has at least one crown jewel. */
-export function isJewelsPayloadCacheable(payload: unknown): boolean {
-  return isServeJewelsAuthoritative(payload, null)
-}
-
-/**
- * Resolve paths for the Attack Paths V2 middle rail.
- *
- * - Any successful SERVE envelope (including empty READY_ZERO / NOT_READY)
- *   is authoritative — never pad with IAP.
- * - IAP only when SERVE is unreachable (error, no data) and IAP has rows.
- */
 export function isServeJewelsAuthoritative(
   serveJewelsRaw: unknown,
   serveJewelsError: string | null | undefined,

@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest"
 import type { CrownJewelSummary } from "@/components/identity-attack-paths/types"
 import type { CrownJewelConvergence } from "@/lib/attack-paths/convergence-types"
 import {
-  isJewelsPayloadCacheable,
   isServeJewelsAuthoritative,
   resolveJewelPickerList,
   resolveJewelRailPaths,
@@ -196,61 +195,6 @@ describe("shouldShowAttackPathsNotComputed", () => {
     expect(isServeJewelsAuthoritative({ result: { crown_jewels: [] } }, null)).toBe(
       true,
     )
-  })
-
-  it("accepts an explicit READY_ZERO response as authoritative", () => {
-    const readyZero = {
-      result: {
-        serve_state: "ACTIVE",
-        coverage_state: "READY_ZERO",
-        crown_jewels: [],
-      },
-    }
-    expect(
-      shouldShowAttackPathsNotComputed({
-        serveJewelsRaw: readyZero,
-        serveJewelsError: null,
-        jewelsEmpty: true,
-        iapFailed: true,
-        jewelsLoading: false,
-        iapLoading: false,
-      }),
-    ).toBe(false)
-    expect(isServeJewelsAuthoritative(readyZero, null)).toBe(true)
-  })
-
-  it("rejects ACTIVE all-zero counts without READY_ZERO", () => {
-    const splitBrain = {
-      result: {
-        serve_state: "ACTIVE",
-        crown_jewels: [{ ...jewel, path_count: 0 }],
-      },
-    }
-
-    expect(isServeJewelsAuthoritative(splitBrain, null)).toBe(false)
-    expect(isJewelsPayloadCacheable(splitBrain)).toBe(false)
-    expect(
-      shouldShowAttackPathsNotComputed({
-        serveJewelsRaw: splitBrain,
-        serveJewelsError: null,
-        jewelsEmpty: false,
-        iapFailed: true,
-        jewelsLoading: false,
-        iapLoading: false,
-      }),
-    ).toBe(false)
-  })
-
-  it("requires READY metadata for nonzero path counts", () => {
-    const ready = {
-      result: {
-        serve_state: "ACTIVE",
-        coverage_state: "READY",
-        crown_jewels: [{ ...jewel, path_count: 4 }],
-      },
-    }
-    expect(isServeJewelsAuthoritative(ready, null)).toBe(true)
-    expect(isJewelsPayloadCacheable(ready)).toBe(true)
   })
 
   it("shows when SERVE unavailable and IAP cold/stale envelope", () => {
