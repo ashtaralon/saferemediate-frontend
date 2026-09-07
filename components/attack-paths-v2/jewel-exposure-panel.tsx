@@ -56,6 +56,22 @@ import type { CrownJewelSummary } from "@/components/identity-attack-paths/types
 // so backend schema drift doesn't crash the panel — null shows as "—".
 
 export interface JewelExposureResponse {
+  // AP3-105. Before these existed, "this jewel has no exposed identities" and
+  // "the inventory projection has not been activated yet" rendered as the same
+  // empty view. Optional because a backend deployed before AP3-105 omits them
+  // entirely, and an absent field must not be read as NOT_READY — that would
+  // black out a working panel on the first deploy where the two repos are one
+  // version apart.
+  serve_state?: "READY" | "NOT_READY"
+  coverage_state?: "READY" | "READY_ZERO" | "NOT_READY"
+  not_ready_reason?: string | null
+  generation?: {
+    scope?: string | null
+    projection_generation?: number | null
+    staging_run_id?: string | null
+    customer_id?: string | null
+    account_id?: string | null
+  }
   jewel: {
     id: string
     name: string
@@ -235,6 +251,36 @@ export function JewelExposurePanel({ jewel, systemName }: JewelExposurePanelProp
   }
 
   if (!data) return null
+
+  // AP3-105 — the backend knows whether the inventory generation it reads is
+  // activated. When it is not, every lane below would render empty and read as
+  // "nothing can reach this jewel", which is the fabricated finding CLAUDE.md
+  // rule 1 forbids. An OLDER backend omits serve_state entirely; that is not
+  // NOT_READY, so only an explicit "NOT_READY" takes this branch.
+  if (data.serve_state === "NOT_READY") {
+    return (
+      <div className="flex flex-col h-full">
+        <ExposureHeader jewel={jewel} headline="Exposure not computed yet" />
+        <div className="flex-1 flex items-center justify-center px-6">
+          <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-6 max-w-md text-sm">
+            <div className="flex items-center gap-2 mb-2 text-amber-700 dark:text-amber-300">
+              <AlertTriangle className="h-4 w-4" />
+              <span className="font-semibold">Not computed yet</span>
+            </div>
+            <div className="text-xs text-muted-foreground">
+              No activated inventory generation for this account, so the doors
+              into this jewel are unknown — not zero.
+            </div>
+            {data.not_ready_reason ? (
+              <div className="mt-3 text-[11px] font-mono text-muted-foreground/80">
+                {data.not_ready_reason}
+              </div>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="flex flex-col h-full overflow-y-auto">
