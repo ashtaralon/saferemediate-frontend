@@ -195,7 +195,7 @@ describe("SystemBlastRadiusHero — empty reasons are three distinct claims", ()
 // ---------------------------------------------------------------------------
 
 describe("getBackendBaseUrl", () => {
-  const RENDER_PROD = "https://saferemediate-backend-f.onrender.com"
+  const RENDER_PROD = "https://cyntro-c1.onrender.com"
 
   it("falls back to the same Render URL the route used to hardcode", async () => {
     vi.resetModules()
