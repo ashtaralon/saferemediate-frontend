@@ -1,4 +1,6 @@
-const RENDER_PROD = "https://saferemediate-backend-f.onrender.com"
+// The old shared backend is suspended. C1 is the tenant-scoped serving
+// surface that owns the durable Attack Path snapshots used by this UI.
+const RENDER_PROD = "https://cyntro-c1.onrender.com"
 const C1_RENDER_PROD = "https://cyntro-c1.onrender.com"
 
 let _logged = false
