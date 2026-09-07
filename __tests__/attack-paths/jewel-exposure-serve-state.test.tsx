@@ -75,7 +75,12 @@ describe('AP3-105 exposure serve state', () => {
   it('renders "not computed yet" instead of an empty all-doors view', () => {
     mount(body({ serve_state: 'NOT_READY', coverage_state: 'NOT_READY',
                  not_ready_reason: 'POINTER_MISSING' }))
-    expect(screen.getByText(/Not computed yet/i)).toBeTruthy()
+    // Exact strings, not /Not computed yet/i: the regex matched BOTH the
+    // header headline and the badge, and getByText throws on multiple hits.
+    // Asserting each separately is also the stronger test — it proves the
+    // header changed as well as the body, which a loose regex did not.
+    expect(screen.getByText('Exposure not computed yet')).toBeTruthy()
+    expect(screen.getByText('Not computed yet')).toBeTruthy()
     expect(screen.getByText(/unknown — not zero/i)).toBeTruthy()
   })
 
@@ -87,7 +92,7 @@ describe('AP3-105 exposure serve state', () => {
   it('renders the real empty state when the pin IS live and there are no doors', () => {
     // READY_ZERO is a finding, not an outage: it must reach the normal view.
     mount(body({ serve_state: 'READY', coverage_state: 'READY_ZERO' }))
-    expect(screen.queryByText(/Not computed yet/i)).toBeNull()
+    expect(screen.queryByText('Not computed yet')).toBeNull()
   })
 
   it('renders normally for a backend that predates serve_state', () => {
@@ -95,14 +100,14 @@ describe('AP3-105 exposure serve state', () => {
     // would black out a working panel on the first deploy where the two repos
     // are one version apart.
     mount(body())
-    expect(screen.queryByText(/Not computed yet/i)).toBeNull()
+    expect(screen.queryByText('Not computed yet')).toBeNull()
   })
 
   it('still shows the loading state rather than the not-ready state', () => {
     mocks.useCachedFetch.mockReturnValue({ data: null, loading: true, error: null })
     render(<JewelExposurePanel jewel={JEWEL} systemName="testbed-webshop" />)
     expect(screen.getByText(/Computing the all-doors view/i)).toBeTruthy()
-    expect(screen.queryByText(/Not computed yet/i)).toBeNull()
+    expect(screen.queryByText('Not computed yet')).toBeNull()
   })
 
   it('still shows the transport error state rather than the not-ready state', () => {
@@ -111,6 +116,6 @@ describe('AP3-105 exposure serve state', () => {
     mocks.useCachedFetch.mockReturnValue({ data: null, loading: false, error: 'boom' })
     render(<JewelExposurePanel jewel={JEWEL} systemName="testbed-webshop" />)
     expect(screen.getByText(/Could not load exposure/i)).toBeTruthy()
-    expect(screen.queryByText(/Not computed yet/i)).toBeNull()
+    expect(screen.queryByText('Not computed yet')).toBeNull()
   })
 })
