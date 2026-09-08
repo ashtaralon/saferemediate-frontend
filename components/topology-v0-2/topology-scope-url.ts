@@ -7,6 +7,26 @@ export interface TopologyScopeParams {
   vpcId?: string | null
 }
 
+/**
+ * First topology-risk fetch must carry the product-bar / URL account and
+ * region. Map-local localStorage is empty on a cold browser; waiting for
+ * the post-paint sync fired an unscoped GET, which on C1 either 503s or
+ * starts a Neptune imply/compute and leaves Estate on "Preparing…".
+ */
+export function resolveTopologyScopeParams(
+  selected: { accountId: string | null; regionId: string | null; vpcId: string | null },
+  product: { customerId?: string | null; accountId: string; region: string },
+): TopologyScopeParams {
+  const productAccount = product.accountId !== "all" ? product.accountId : null
+  const productRegion = product.region !== "all" ? product.region : null
+  return {
+    customerId: product.customerId ?? null,
+    accountId: selected.accountId ?? productAccount,
+    region: selected.regionId ?? productRegion,
+    vpcId: selected.vpcId,
+  }
+}
+
 export function buildTopologyRiskProxyUrl(
   systemName: string,
   scope: TopologyScopeParams = {},

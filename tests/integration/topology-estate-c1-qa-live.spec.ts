@@ -326,23 +326,25 @@ test.describe("C1 live QA — estate map against the deployed graph", () => {
     // wait again — the same thing an operator does — and report how many
     // loads it took.
     const mapTab = page.getByTestId("topology-estate-view-map")
-    // "Preparing <system>" is the map's LOADING card, not a blocked state:
-    // matching it here made every load return at once and the probe spent its
-    // three attempts in a minute without ever waiting for the map (run
-    // 33675359540). Only a real refusal short-circuits the wait.
-    const blocked = page.getByText(/Topology risk unavailable|No systems available yet/i)
+    // "Preparing <system>" / "Building estate map" is the LOADING card, not a
+    // blocked state: matching it as success made every load return at once
+    // (run 33675359540). It is a signal to keep waiting. The timeout card
+    // ("Estate map temporarily unavailable") is a real refusal.
+    const blocked = page.getByText(
+      /Topology risk unavailable|No systems available yet|Estate map temporarily unavailable/i,
+    )
     const loads: Array<{ attempt: number; mounted: boolean; reason: string | null; ms: number }> = []
     let mounted = false
     for (let attempt = 1; attempt <= 3 && !mounted; attempt += 1) {
       const t0 = Date.now()
       await page.goto(ESTATE_URL, { waitUntil: "domcontentloaded" })
-      await expect(mapTab.or(blocked).first()).toBeVisible({ timeout: 150_000 })
+      await expect(mapTab.or(blocked).first()).toBeVisible({ timeout: 120_000 })
       mounted = await mapTab.isVisible().catch(() => false)
       const reason = mounted
         ? null
         : ((await blocked.first().textContent().catch(() => null)) ?? "").replace(/\s+/g, " ").trim()
       loads.push({ attempt, mounted, reason, ms: Date.now() - t0 })
-      if (!mounted && attempt < 3) await page.waitForTimeout(20_000)
+      if (!mounted && attempt < 3) await page.waitForTimeout(8_000)
     }
     report("estate-page", { mounted, loads, gate })
     if (!mounted) {
