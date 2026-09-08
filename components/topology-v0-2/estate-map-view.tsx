@@ -32,6 +32,8 @@ import type { CrownJewelSummary, IdentityAttackPath, IdentityAttackPathsResponse
 import {
   buildTopologyRiskCacheKey,
   buildTopologyRiskProxyUrl,
+  capEstateComputingDeadlineMs,
+  resolveTopologyFetchVpcId,
   resolveTopologyScopeParams,
   scopeFromSearch,
 } from "@/components/topology-v0-2/topology-scope-url"
@@ -187,6 +189,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
   }, [productScope.accountId, productScope.region, selectedAccountId])
 
   const scopedVpc = selectedVpcId === "all" ? null : selectedVpcId
+  const openingScope = typeof window !== "undefined" ? scopeFromSearch(window.location.search) : {}
   const scopeParams = useMemo(
     () =>
       resolveTopologyScopeParams(
@@ -196,7 +199,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
           accountId: productScope.accountId,
           region: productScope.region,
         },
-        typeof window !== "undefined" ? scopeFromSearch(window.location.search) : {},
+        openingScope,
       ),
     [
       productScope.customerId,
@@ -209,14 +212,26 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
   )
   const azScopeKey = `${scopeParams.accountId ?? "all"}:${scopeParams.region ?? "all"}:${scopedVpc ?? "all"}`
   const [hiddenAzs, setHiddenAzs] = useState<string[]>([])
-  const cacheKey = buildTopologyRiskCacheKey(systemName, scopeParams)
+  const payloadVpcRef = useRef<string | null>(null)
+  const fetchVpcRef = useRef<string | null>(openingScope.vpcId ?? null)
+  const fetchVpcId = resolveTopologyFetchVpcId({
+    urlVpcId: openingScope.vpcId,
+    selectedVpcId: scopedVpc,
+    payloadVpcId: payloadVpcRef.current,
+    fetchVpcId: fetchVpcRef.current,
+  })
+  fetchVpcRef.current = fetchVpcId
+  const fetchScope = useMemo(
+    () => ({ ...scopeParams, vpcId: fetchVpcId }),
+    [scopeParams, fetchVpcId],
+  )
+  const cacheKey = buildTopologyRiskCacheKey(systemName, fetchScope)
   // C1 fail-closes or implies scope without account+region. If the opening
   // URL had them, wait — do not fire an unscoped GET that starts compute.
-  const openingScope = typeof window !== "undefined" ? scopeFromSearch(window.location.search) : {}
   const url =
-    openingScope.accountId && !scopeParams.accountId
+    openingScope.accountId && !fetchScope.accountId
       ? ""
-      : buildTopologyRiskProxyUrl(systemName, scopeParams)
+      : buildTopologyRiskProxyUrl(systemName, fetchScope)
   const { data, loading, error, isStale, cachedAt, retry, isComputing } = useCachedFetch<TopologyRiskResponse>(url, {
     cacheKey,
     maxStaleMs: 10 * 60 * 1000,
@@ -224,6 +239,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     // Render cold-start 504s self-heal once the wake+snapshot retry lands.
     transientRetries: 2,
   })
+  if (data?.vpc_id) payloadVpcRef.current = data.vpc_id
 
   // Full account/region topology for All-VPCs · Compare scaffold. When the
   // primary fetch is already unscoped (All VPCs), reuse it — a second
@@ -1057,15 +1073,10 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     setComputingStartedAt(null)
   }, [isComputingEnvelope, data?.system_kpis])
 
-  const computingDeadlineMs = useMemo(() => {
-    const raw = data?.compute_deadline_at
-    if (typeof raw === "string") {
-      const t = Date.parse(raw)
-      if (!Number.isNaN(t)) return t
-    }
-    if (computingStartedAt != null) return computingStartedAt + 90_000
-    return null
-  }, [data?.compute_deadline_at, computingStartedAt])
+  const computingDeadlineMs = useMemo(
+    () => capEstateComputingDeadlineMs(data?.compute_deadline_at, computingStartedAt),
+    [data?.compute_deadline_at, computingStartedAt],
+  )
 
   const [nowTick, setNowTick] = useState(() => Date.now())
   const waitingForFirstTopology =
