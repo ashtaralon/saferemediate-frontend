@@ -85,6 +85,9 @@ interface LaneCoverage extends Omit<LaneCounts, "state"> {
 }
 interface TopologyRisk {
   system?: string
+  status?: string
+  refresh_state?: string
+  from_snapshot?: boolean
   account_id?: string | null
   region?: string | null
   vpc_id?: string | null
@@ -205,14 +208,28 @@ test.describe("C1 live QA — estate map against the deployed graph", () => {
       attempts.push({ status: res.status(), ms: Date.now() - t0, x_cache: res.headers()["x-cache"] ?? null })
     }
     report("topology-risk-fetch", { attempts, total_ms: Date.now() - started })
-    const text = await res.text()
+    let text = await res.text()
     expect(res.status(), text.slice(0, 500)).toBe(200)
-    const body = JSON.parse(text) as TopologyRisk
+    let body = JSON.parse(text) as TopologyRisk
+    for (let i = 0; i < 4 && (body.status === "computing" || !body.system); i += 1) {
+      report("topology-risk-computing", {
+        attempt: i + 1,
+        refresh_state: body.refresh_state ?? null,
+      })
+      await new Promise(resolve => setTimeout(resolve, 8_000))
+      t0 = Date.now()
+      res = await request.get(TOPOLOGY_RISK_PATH)
+      attempts.push({ status: res.status(), ms: Date.now() - t0, x_cache: res.headers()["x-cache"] ?? null })
+      text = await res.text()
+      expect(res.status(), text.slice(0, 500)).toBe(200)
+      body = JSON.parse(text) as TopologyRisk
+    }
     const summary = summarizeTopology(body)
     report("topology-risk", summary)
     await attachJson("topology-risk-summary.json", summary)
     await request.dispose()
 
+    expect(body.status, "serving must not stay on a computing envelope").not.toBe("computing")
     expect(body.system).toBe(SYSTEM)
     expect(summary.nodes).toBeGreaterThan(0)
 
