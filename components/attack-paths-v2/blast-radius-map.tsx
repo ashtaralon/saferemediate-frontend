@@ -8,6 +8,7 @@
 import { useCachedFetch } from "@/lib/use-cached-fetch"
 import { BlastRadiusKpiStrip } from "./blast-radius-kpi-strip"
 import { BlastRadiusPlaneCuts } from "./blast-radius-plane-cuts"
+import { buildBlastRadiusUrl, type BlastRadiusScope } from "./blast-radius-scope"
 
 interface ZoneNode {
   id: string
@@ -136,21 +137,25 @@ function ZonesSpine({ zones }: { zones: Zone[] }) {
   )
 }
 
-export function BlastRadiusMap({ systemName }: { systemName: string }) {
-  const url = systemName
-    ? `/api/proxy/business-system/${encodeURIComponent(systemName)}/blast-radius`
-    : null
-  const { data } = useCachedFetch<ZonesPayload>(url, { cacheKey: `blast-radius:${systemName}` })
+export function BlastRadiusMap({
+  systemName,
+  scope = {},
+}: {
+  systemName: string
+  scope?: BlastRadiusScope
+}) {
+  const url = buildBlastRadiusUrl(systemName, scope)
+  const { data } = useCachedFetch<ZonesPayload>(url, { cacheKey: `blast-radius:${url}` })
   const zones = data?.zones ?? []
 
   if (!systemName) return null
 
   return (
     <div className="flex flex-col gap-4 p-4 sm:p-5 bg-background">
-      <BlastRadiusKpiStrip systemName={systemName} />
+      <BlastRadiusKpiStrip systemName={systemName} scope={scope} />
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_380px]">
         {zones.length > 0 ? <ZonesSpine zones={zones} /> : <div />}
-        <BlastRadiusPlaneCuts systemName={systemName} />
+        <BlastRadiusPlaneCuts systemName={systemName} scope={scope} />
       </div>
     </div>
   )
