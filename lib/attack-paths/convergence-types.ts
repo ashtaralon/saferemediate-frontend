@@ -62,6 +62,19 @@ export type PathEvidence =
   | "blocked"
   | string
 
+/** Server-authored Point A. The backend validates kind against its closed
+ * compute registry; clients must not infer this object from hop order. */
+export interface CanonicalComputeRef {
+  kind: string
+  uid: string
+  arn?: string | null
+  native_id?: string | null
+  name?: string | null
+  customer_id?: string | null
+  account_id?: string | null
+  region?: string | null
+}
+
 export interface ConvergencePath {
   path_id: string
   /** Stable canonical AttackPath id for report/simulation endpoints. */
@@ -69,6 +82,8 @@ export interface ConvergencePath {
   source?: string | null
   source_kind?: string | null
   workload_arn?: string | null
+  source_compute?: CanonicalComputeRef | null
+  origin_class?: string | null
   identity?: string | null
   identity_name?: string | null
   damage: string[]

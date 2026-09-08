@@ -252,6 +252,8 @@ export function mergeSummaryWithPathDetails(
       source: p.source,
       source_kind: p.source_kind,
       workload_arn: p.workload_arn,
+      source_compute: p.source_compute ?? null,
+      origin_class: p.origin_class ?? null,
       identity: p.identity,
       identity_name: p.identity_name,
       damage: p.damage,
@@ -317,6 +319,8 @@ export function mergeSummaryWithPathDetails(
     return {
       ...base,
       attack_path_id: detail.attack_path_id ?? base.attack_path_id ?? null,
+      source_compute: detail.source_compute ?? base.source_compute ?? null,
+      origin_class: detail.origin_class ?? base.origin_class ?? null,
       evidence: detailEvidence,
       confidence: detailEvidence,
       identity_gate: detail.identity_gate ?? base.identity_gate,
