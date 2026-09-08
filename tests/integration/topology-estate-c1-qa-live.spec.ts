@@ -24,6 +24,8 @@
  * out of scope: a share token would land in a public workflow log.
  *
  *   FRONTEND_URL=https://cyntro-c1.vercel.app C1_SYSTEM=testbed-webshop \
+ *     C1_CUSTOMER_ID=testbed-webshop C1_ACCOUNT_ID=416651950952 \
+ *     C1_REGION=eu-west-1 \
  *     npx playwright test tests/integration/topology-estate-c1-qa-live.spec.ts
  */
 import fs from "node:fs"
@@ -32,8 +34,16 @@ import { authedApi, seedAuthCookie } from "./live-auth"
 import { railHeaderBadgeOverlaps } from "./topology-fixture"
 
 const SYSTEM = process.env.C1_SYSTEM || "testbed-webshop"
-const ESTATE_URL = `/topology/v0.2-estate?systemName=${encodeURIComponent(SYSTEM)}`
-const TOPOLOGY_RISK_PATH = `/api/proxy/topology-risk/${encodeURIComponent(SYSTEM)}`
+const CUSTOMER = process.env.C1_CUSTOMER_ID || "testbed-webshop"
+const ACCOUNT = process.env.C1_ACCOUNT_ID || "416651950952"
+const REGION = process.env.C1_REGION || "eu-west-1"
+const SCOPE = new URLSearchParams({
+  customer_id: CUSTOMER,
+  account_id: ACCOUNT,
+  region: REGION,
+})
+const ESTATE_URL = `/topology/v0.2-estate?systemName=${encodeURIComponent(SYSTEM)}&${SCOPE}`
+const TOPOLOGY_RISK_PATH = `/api/proxy/topology-risk/${encodeURIComponent(SYSTEM)}?${SCOPE}`
 const COVERAGE_LANES = ["vpc", "serverless", "database", "regional"] as const
 const COVERAGE_STATES = new Set(["empty", "not_applicable", "unknown", "none", "partial", "authoritative"])
 
