@@ -445,6 +445,11 @@ export interface ExfilPayload {
     data_propagation: ExfilEvidenceLane
   }
   destinations: ExfilDestination[]
+  applicability?: {
+    state: "APPLICABLE" | "NOT_APPLICABLE"
+    reason: string
+    impact_model?: string | null
+  }
   // Layer B (2026-05-27) — both fields are non-null only when the
   // request set include_atlas=true. Empty keystones[] is a real
   // signal (ATLAS ran but found no shared-node concentration);
@@ -573,6 +578,31 @@ export function ExfilViewV3({
               <RefreshCw className="h-3 w-3" />
               Retry
             </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (data.applicability?.state === "NOT_APPLICABLE") {
+    return (
+      <div className="flex flex-col h-full">
+        <Header
+          jewel={jewel}
+          subtitle="Exfiltration is not applicable to this asset type"
+        />
+        <div className="flex-1 flex items-center justify-center px-6">
+          <div
+            className="max-w-xl rounded-xl border border-violet-500/30 bg-violet-500/5 p-6"
+            data-testid="exfil-not-applicable"
+          >
+            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+              <KeyRound className="h-4 w-4 text-violet-600" />
+              AWS KMS key material cannot be exported
+            </div>
+            <p className="mt-2 text-xs leading-5 text-muted-foreground">
+              {data.applicability.reason}
+            </p>
           </div>
         </div>
       </div>

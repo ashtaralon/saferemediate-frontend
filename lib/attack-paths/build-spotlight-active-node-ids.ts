@@ -248,6 +248,31 @@ export function buildSpotlightActiveNodeIds(params: {
       if (rv) out.add(rv)
     }
 
+    // The path-authority architecture can hydrate network checkpoints from
+    // the server-authored workload_network envelope even when the compact
+    // hop spine contains only compute -> role -> jewel. These ids must be in
+    // the spotlight set too: TrafficFlowMap applies `hidden` to every
+    // architecture card outside this set. Omitting them produced the exact
+    // live contradiction where the effective route-table card rendered (it
+    // is derived from a subnet) while the subnet, SG and instance-profile
+    // cards themselves were hidden.
+    for (const subnet of p.workload_network?.subnets ?? []) {
+      if (subnet?.id) out.add(subnet.id)
+    }
+    for (const sg of p.workload_network?.security_groups ?? []) {
+      if (sg?.id) out.add(sg.id)
+    }
+    for (const nacl of p.workload_network?.nacls ?? []) {
+      if (nacl?.id) out.add(nacl.id)
+    }
+    for (const routeTable of p.workload_network?.route_tables ?? []) {
+      if (routeTable?.id) out.add(routeTable.id)
+    }
+    for (const profile of p.workload_network?.instance_profiles ?? []) {
+      if (profile?.id) out.add(profile.id)
+      if (profile?.role_id) out.add(profile.role_id)
+    }
+
     for (const h of p.hops || []) {
       if (h.node_id) out.add(h.node_id)
       if (h.subnet_id) out.add(h.subnet_id)
