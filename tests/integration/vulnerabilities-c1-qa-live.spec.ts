@@ -237,6 +237,25 @@ test.describe("C1 live QA — Risk › Vulnerabilities against the deployed grap
         error_head: detail.status() === 200 ? null : detailText.slice(0, 300),
       })
     }
+    // Ids whose resource part contains "/" (DynamoDB tables, load balancers)
+    // must reach the detail handler like any other id. A 404 here is the
+    // single-segment route parameter the drawer used to report as
+    // "temporarily unavailable", recorded so the run shows when the backend
+    // fix is serving.
+    const slashCandidate = nodes.find(node => (node.id ?? "").includes("/") && node.id !== candidate?.id)
+    if (slashCandidate?.id) {
+      const slashPath = `/api/proxy/vulnerability-map/${encodeURIComponent(SYSTEM)}/resource/${encodeURIComponent(slashCandidate.id)}`
+      const t1 = Date.now()
+      const slashDetail = await liveGetWithRetry(request, slashPath)
+      const slashText = await slashDetail.text()
+      report("resource-detail-slash-id", {
+        resource_id: slashCandidate.id,
+        resource_type: slashCandidate.type ?? null,
+        status: slashDetail.status(),
+        ms: Date.now() - t1,
+        error_head: slashDetail.status() === 200 ? null : slashText.slice(0, 300),
+      })
+    }
     await request.dispose()
 
     expect(res.status(), text.slice(0, 500)).toBe(200)
