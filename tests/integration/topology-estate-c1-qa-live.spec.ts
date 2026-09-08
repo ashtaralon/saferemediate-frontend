@@ -333,12 +333,25 @@ test.describe("C1 live QA — estate map against the deployed graph", () => {
     const blocked = page.getByText(
       /Topology risk unavailable|No systems available yet|Estate map temporarily unavailable/i,
     )
+    const riskUrls: string[] = []
+    page.on("request", request => {
+      const href = request.url()
+      if (href.includes("/api/proxy/topology-risk/")) riskUrls.push(href)
+    })
     const loads: Array<{ attempt: number; mounted: boolean; reason: string | null; ms: number }> = []
     let mounted = false
     for (let attempt = 1; attempt <= 3 && !mounted; attempt += 1) {
       const t0 = Date.now()
       await page.goto(ESTATE_URL, { waitUntil: "domcontentloaded" })
-      await expect(mapTab.or(blocked).first()).toBeVisible({ timeout: 120_000 })
+      const firstRisk = await page
+        .waitForRequest(request => request.url().includes("/api/proxy/topology-risk/"), { timeout: 60_000 })
+        .catch(() => null)
+      const unscoped = riskUrls.filter(
+        href => !href.includes("account_id=") || !href.includes("region="),
+      )
+      report("estate-topology-risk-urls", { attempt, first: firstRisk?.url() ?? null, urls: [...riskUrls], unscoped })
+      expect(unscoped, "Estate must not fire an unscoped topology-risk GET on a scoped C1 URL").toEqual([])
+      await expect(mapTab.or(blocked).first()).toBeVisible({ timeout: 90_000 })
       mounted = await mapTab.isVisible().catch(() => false)
       const reason = mounted
         ? null

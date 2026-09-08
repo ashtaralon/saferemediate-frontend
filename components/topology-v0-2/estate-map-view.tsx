@@ -33,6 +33,7 @@ import {
   buildTopologyRiskCacheKey,
   buildTopologyRiskProxyUrl,
   resolveTopologyScopeParams,
+  scopeFromSearch,
 } from "@/components/topology-v0-2/topology-scope-url"
 import { EVIDENCE_TIER_LABEL } from "@/lib/types/scope"
 import type { TopologyNode, TopologyRiskResponse } from "@/components/topology-v0-2/types"
@@ -195,6 +196,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
           accountId: productScope.accountId,
           region: productScope.region,
         },
+        typeof window !== "undefined" ? scopeFromSearch(window.location.search) : {},
       ),
     [
       productScope.customerId,
@@ -208,7 +210,13 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
   const azScopeKey = `${scopeParams.accountId ?? "all"}:${scopeParams.region ?? "all"}:${scopedVpc ?? "all"}`
   const [hiddenAzs, setHiddenAzs] = useState<string[]>([])
   const cacheKey = buildTopologyRiskCacheKey(systemName, scopeParams)
-  const url = buildTopologyRiskProxyUrl(systemName, scopeParams)
+  // C1 fail-closes or implies scope without account+region. If the opening
+  // URL had them, wait — do not fire an unscoped GET that starts compute.
+  const openingScope = typeof window !== "undefined" ? scopeFromSearch(window.location.search) : {}
+  const url =
+    openingScope.accountId && !scopeParams.accountId
+      ? ""
+      : buildTopologyRiskProxyUrl(systemName, scopeParams)
   const { data, loading, error, isStale, cachedAt, retry, isComputing } = useCachedFetch<TopologyRiskResponse>(url, {
     cacheKey,
     maxStaleMs: 10 * 60 * 1000,
@@ -1169,7 +1177,11 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
   if (!hasHydrated || (loading && !data) || (isComputingEnvelope && !data?.system_kpis)) {
     return (
       <div className={`${outerClass} p-6 md:p-10`} style={{ background: "#F4F6F8", color: "#1A2330" }}>
-        <div className="mx-auto max-w-2xl rounded-xl border bg-white p-6 shadow-sm" style={{ borderColor: "#DDE3E8" }}>
+        <div
+          className="mx-auto max-w-2xl rounded-xl border bg-white p-6 shadow-sm"
+          style={{ borderColor: "#DDE3E8" }}
+          data-testid="topology-estate-preparing"
+        >
           <div className="flex items-start gap-3">
             <LoaderCircle className="mt-0.5 h-5 w-5 animate-spin" style={{ color: "#00A991" }} />
             <div>
