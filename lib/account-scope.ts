@@ -39,6 +39,33 @@ export function normalizeCustomerRoster(payload: unknown): CustomerScopeOption[]
   })
 }
 
+/**
+ * useSearchParams() can be empty on the first client paint (Suspense /
+ * hydration). window.location.search is already the navigation URL.
+ * Prefer that so a bookmark with account_id/region is not treated as
+ * "no requested customer" and stripped.
+ */
+export function openingSearchParams(
+  hookSearch: string,
+  locationSearch = typeof window !== "undefined" ? window.location.search : "",
+): URLSearchParams {
+  const fromWindow = String(locationSearch || "").replace(/^\?/, "")
+  if (fromWindow) return new URLSearchParams(fromWindow)
+  return new URLSearchParams(String(hookSearch || "").replace(/^\?/, ""))
+}
+
+/** True only when an explicit requested customer is replaced by another. */
+export function isExplicitCustomerSwitch(
+  requestedCustomerId: string | null | undefined,
+  selectedCustomerId: string | null | undefined,
+): boolean {
+  return Boolean(
+    requestedCustomerId &&
+      selectedCustomerId &&
+      requestedCustomerId !== selectedCustomerId,
+  )
+}
+
 export function resolveCustomerId(
   requestedCustomerId: string | null,
   customers: CustomerScopeOption[],

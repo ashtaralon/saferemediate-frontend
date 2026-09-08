@@ -13,17 +13,32 @@ export interface TopologyScopeParams {
  * the post-paint sync fired an unscoped GET, which on C1 either 503s or
  * starts a Neptune imply/compute and leaves Estate on "Preparing…".
  */
+export function scopeFromSearch(search: string): TopologyScopeParams {
+  const q = new URLSearchParams(String(search || "").replace(/^\?/, ""))
+  const accountId = q.get("account_id")
+  const region = q.get("region")
+  const customerId = q.get("customer_id")
+  const vpcId = q.get("vpc_id")
+  return {
+    customerId: customerId || null,
+    accountId: accountId && /^\d{12}$/.test(accountId) ? accountId : null,
+    region: region && /^[a-z]{2}(-gov)?-[a-z]+-\d+$/.test(region) ? region : null,
+    vpcId: vpcId && vpcId.startsWith("vpc-") ? vpcId : null,
+  }
+}
+
 export function resolveTopologyScopeParams(
   selected: { accountId: string | null; regionId: string | null; vpcId: string | null },
   product: { customerId?: string | null; accountId: string; region: string },
+  urlScope: TopologyScopeParams = {},
 ): TopologyScopeParams {
   const productAccount = product.accountId !== "all" ? product.accountId : null
   const productRegion = product.region !== "all" ? product.region : null
   return {
-    customerId: product.customerId ?? null,
-    accountId: selected.accountId ?? productAccount,
-    region: selected.regionId ?? productRegion,
-    vpcId: selected.vpcId,
+    customerId: product.customerId ?? urlScope.customerId ?? null,
+    accountId: selected.accountId ?? urlScope.accountId ?? productAccount,
+    region: selected.regionId ?? urlScope.region ?? productRegion,
+    vpcId: selected.vpcId ?? urlScope.vpcId ?? null,
   }
 }
 

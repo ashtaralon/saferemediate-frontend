@@ -3,6 +3,7 @@ import {
   buildTopologyRiskProxyUrl,
   buildTopologyRiskServerCacheKey,
   resolveTopologyScopeParams,
+  scopeFromSearch,
 } from "@/components/topology-v0-2/topology-scope-url"
 
 describe("topology scope URLs", () => {
@@ -32,6 +33,34 @@ describe("topology scope URLs", () => {
         vpcId: "vpc-abc",
       }),
     ).toBe("topology-risk:testbed-webshop:alon-prod:v11:745783559495:eu-west-1:vpc-abc")
+  })
+
+  it("reads account and region from the navigation URL", () => {
+    expect(
+      scopeFromSearch(
+        "systemName=testbed-webshop&customer_id=testbed-webshop&account_id=416651950952&region=eu-west-1",
+      ),
+    ).toEqual({
+      customerId: "testbed-webshop",
+      accountId: "416651950952",
+      region: "eu-west-1",
+      vpcId: null,
+    })
+  })
+
+  it("prefers the navigation URL when the product bar is still All", () => {
+    expect(
+      resolveTopologyScopeParams(
+        { accountId: null, regionId: null, vpcId: null },
+        { customerId: "testbed-webshop", accountId: "all", region: "all" },
+        scopeFromSearch("customer_id=testbed-webshop&account_id=416651950952&region=eu-west-1"),
+      ),
+    ).toEqual({
+      customerId: "testbed-webshop",
+      accountId: "416651950952",
+      region: "eu-west-1",
+      vpcId: null,
+    })
   })
 
   it("uses the product-bar account and region when map-local storage is empty", () => {

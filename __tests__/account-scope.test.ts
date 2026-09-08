@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest"
 import {
   healScopeAgainstOptions,
+  isExplicitCustomerSwitch,
   normalizeCustomerRoster,
+  openingSearchParams,
   resolveCustomerId,
   resourceAccountId,
   scopeMatchesResource,
@@ -39,6 +41,22 @@ describe("account scope", () => {
       accountId: "all",
       region: "all",
     })).toBe("/api/proxy/systems?customer_id=acme")
+  })
+
+  it("prefers window.location.search when the hook searchParams are still empty", () => {
+    expect(
+      openingSearchParams(
+        "",
+        "?systemName=testbed-webshop&customer_id=testbed-webshop&account_id=416651950952&region=eu-west-1",
+      ).get("account_id"),
+    ).toBe("416651950952")
+    expect(openingSearchParams("customer_id=alon-prod", "").get("customer_id")).toBe("alon-prod")
+  })
+
+  it("does not treat a missing requested customer as a customer switch", () => {
+    expect(isExplicitCustomerSwitch(null, "testbed-webshop")).toBe(false)
+    expect(isExplicitCustomerSwitch("alon-prod", "testbed-webshop")).toBe(true)
+    expect(isExplicitCustomerSwitch("testbed-webshop", "testbed-webshop")).toBe(false)
   })
 
   it("rejects a stale organization and recovers to the first registered customer", () => {
