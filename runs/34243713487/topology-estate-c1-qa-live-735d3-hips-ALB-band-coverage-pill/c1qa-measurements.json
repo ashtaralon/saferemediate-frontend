@@ -1,0 +1,49 @@
+{
+  "test": "estate map on the deployed frontend: lanes, NAT chips, ALB band, coverage pill",
+  "status": "failed",
+  "measurements": [
+    {
+      "name": "estate-topology-risk-urls",
+      "data": {
+        "attempt": 1,
+        "first": "https://cyntro-c1.vercel.app/api/proxy/topology-risk/testbed-webshop?customer_id=testbed-webshop&account_id=416651950952&region=eu-west-1",
+        "urls": [
+          "https://cyntro-c1.vercel.app/api/proxy/topology-risk/testbed-webshop?customer_id=testbed-webshop&account_id=416651950952&region=eu-west-1"
+        ],
+        "unscoped": [],
+        "responses": []
+      }
+    },
+    {
+      "name": "estate-topology-risk-urls",
+      "data": {
+        "attempt": 2,
+        "first": "https://cyntro-c1.vercel.app/api/proxy/topology-risk/testbed-webshop?customer_id=testbed-webshop&account_id=416651950952&region=eu-west-1",
+        "urls": [
+          "https://cyntro-c1.vercel.app/api/proxy/topology-risk/testbed-webshop?customer_id=testbed-webshop&account_id=416651950952&region=eu-west-1",
+          "https://cyntro-c1.vercel.app/api/proxy/topology-risk/testbed-webshop?customer_id=testbed-webshop&account_id=416651950952&region=eu-west-1&vpc_id=vpc-0c39cde96f29f8f4e",
+          "https://cyntro-c1.vercel.app/api/proxy/topology-risk/testbed-webshop?customer_id=testbed-webshop&account_id=416651950952&region=eu-west-1"
+        ],
+        "unscoped": [],
+        "responses": [
+          {
+            "path": "/api/proxy/topology-risk/testbed-webshop?customer_id=testbed-webshop&account_id=416651950952&region=eu-west-1",
+            "status": 200,
+            "body_status": null,
+            "from_snapshot": true,
+            "system_kpis": true,
+            "nodes": 30
+          },
+          {
+            "path": "/api/proxy/topology-risk/testbed-webshop?customer_id=testbed-webshop&account_id=416651950952&region=eu-west-1&vpc_id=vpc-0c39cde96f29f8f4e",
+            "status": 200,
+            "body_status": "computing",
+            "from_snapshot": null,
+            "system_kpis": false,
+            "nodes": 0
+          }
+        ]
+      }
+    }
+  ]
+}
