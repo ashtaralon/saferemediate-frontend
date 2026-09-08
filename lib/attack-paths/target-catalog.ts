@@ -141,3 +141,26 @@ export function targetCatalogToJewelSummaries(
   if (!catalog || !Array.isArray(catalog.targets)) return []
   return catalog.targets.map(targetEntryToJewelSummary)
 }
+
+/** Active-generation totals for the Attack Paths shell header.
+ *
+ * Do not mix these with the business-system blast-radius endpoint: that is a
+ * different model with a different population. The header and rail must quote
+ * the same target catalog the operator is looking at.
+ */
+export function targetCatalogTotals(
+  catalog: TargetCatalog | null | undefined,
+): { pathCount: number; reachableTargetCount: number } | null {
+  if (!catalog || catalog.serve_state !== "READY" || !Array.isArray(catalog.targets)) {
+    return null
+  }
+  return catalog.targets.reduce(
+    (totals, target) => {
+      const paths = Math.max(0, Number(target.path_count ?? 0))
+      totals.pathCount += paths
+      if (paths > 0) totals.reachableTargetCount += 1
+      return totals
+    },
+    { pathCount: 0, reachableTargetCount: 0 },
+  )
+}

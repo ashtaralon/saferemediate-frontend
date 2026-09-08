@@ -3,6 +3,7 @@ import {
   isTargetCatalogCacheable,
   isTargetCatalogPayload,
   targetCatalogToJewelSummaries,
+  targetCatalogTotals,
   targetEntryToJewelSummary,
   type TargetCatalog,
   type TargetCatalogEntry,
@@ -150,6 +151,28 @@ describe("targetCatalogToJewelSummaries", () => {
   it("is empty for a missing catalog", () => {
     expect(targetCatalogToJewelSummaries(null)).toEqual([])
     expect(targetCatalogToJewelSummaries(undefined)).toEqual([])
+  })
+})
+
+describe("targetCatalogTotals", () => {
+  it("quotes path and reachable-target totals from the active catalog", () => {
+    const value = catalog({
+      serve_state: "READY",
+      targets: [
+        entry({ target_id: "a", path_count: 2 }),
+        entry({ target_id: "b", path_count: 0 }),
+        entry({ target_id: "c", path_count: 3 }),
+      ],
+    })
+
+    expect(targetCatalogTotals(value)).toEqual({
+      pathCount: 5,
+      reachableTargetCount: 2,
+    })
+  })
+
+  it("does not quote totals from a projection that is not ready", () => {
+    expect(targetCatalogTotals(catalog({ serve_state: "NOT_READY" }))).toBeNull()
   })
 })
 

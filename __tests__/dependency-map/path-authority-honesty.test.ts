@@ -1294,6 +1294,83 @@ describe("8. empty network lane provenance (deriveNetworkPosture)", () => {
       relationship: "ASSOCIATED_WITH",
     }))
   })
+
+  it("draws the real EC2 workload-network spine including its instance profile", () => {
+    const arch = buildPathAuthorityArchitecture({
+      paths: [
+        path({
+          path_id: "path-mat-cd9b8c238222",
+          workload_arn: "arn:aws:ec2:eu-west-1:416651950952:instance/i-039d362b9862180c9",
+          hops: [
+            {
+              node_id: "arn:aws:ec2:eu-west-1:416651950952:instance/i-039d362b9862180c9",
+              node_type: "EC2Instance",
+              name: "cyntro-tb-prod-appdata",
+              plane: "compute",
+              security_groups: [],
+              is_crown_jewel: false,
+            },
+            {
+              node_id: "arn:aws:iam::416651950952:role/cyntro-tb-prod-app-role",
+              node_type: "IAMRole",
+              name: "cyntro-tb-prod-app-role",
+              plane: "identity",
+              security_groups: [],
+              is_crown_jewel: false,
+              edge_type_from_prev: "USES_ROLE",
+            },
+          ],
+          workload_network: {
+            is_vpc_attached: true,
+            vpc_attachment_state: "VPC_ATTACHED",
+            vpc_id: "vpc-0c39cde96f29f8f4e",
+            subnets: [{
+              id: "subnet-01cdb66c777975013",
+              name: "cyntro-tb-prod-app-eu-west-1a",
+              is_public: false,
+            }],
+            security_groups: [{
+              id: "sg-0ed42745ba403737f",
+              name: "cyntro-tb-prod-app",
+            }],
+            route_tables: [{
+              id: "rtb-09626f0eee62242b7",
+              subnet_ids: ["subnet-01cdb66c777975013"],
+              route_count: 3,
+              is_main: false,
+            }],
+            instance_profiles: [{
+              id: "arn:aws:iam::416651950952:instance-profile/cyntro-tb-prod-app",
+              name: "cyntro-tb-prod-app",
+              role_id: "arn:aws:iam::416651950952:role/cyntro-tb-prod-app-role",
+              role_name: "cyntro-tb-prod-app-role",
+            }],
+          },
+        }),
+      ],
+      spotlightPathId: "path-mat-cd9b8c238222",
+    })
+
+    expect(arch.subnets).toContainEqual(expect.objectContaining({
+      id: "subnet-01cdb66c777975013",
+      routeTableId: "rtb-09626f0eee62242b7",
+    }))
+    expect(arch.securityGroups.map((row) => row.id)).toContain(
+      "sg-0ed42745ba403737f",
+    )
+    expect(arch.instanceProfiles).toContainEqual(expect.objectContaining({
+      id: "arn:aws:iam::416651950952:instance-profile/cyntro-tb-prod-app",
+      attachedWorkloads: [
+        "arn:aws:ec2:eu-west-1:416651950952:instance/i-039d362b9862180c9",
+      ],
+    }))
+    expect(arch.onPathNodeIds.has("subnet-01cdb66c777975013")).toBe(true)
+    expect(arch.onPathNodeIds.has("sg-0ed42745ba403737f")).toBe(true)
+    expect(arch.edges).toEqual(expect.arrayContaining([
+      expect.objectContaining({ relationship: "HAS_INSTANCE_PROFILE" }),
+      expect.objectContaining({ relationship: "USES_ROLE" }),
+    ]))
+  })
 })
 
 /**

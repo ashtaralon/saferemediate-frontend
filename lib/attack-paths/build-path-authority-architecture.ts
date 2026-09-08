@@ -150,6 +150,7 @@ export interface PathAuthorityArchitecture {
     gapCount: number
     connectedSources: string[]
     connectedTargets: string[]
+    attachedWorkloads?: string[]
   }>
   iamPolicies: []
   vpcEndpoints: Array<{
@@ -422,6 +423,23 @@ export function collectPathAuthorityNodeIds(params: {
     for (const rv of p.routes_via ?? []) {
       if (rv) out.add(rv)
     }
+    const wn = p.workload_network
+    for (const subnet of wn?.subnets ?? []) {
+      if (subnet?.id) out.add(subnet.id)
+    }
+    for (const sg of wn?.security_groups ?? []) {
+      if (sg?.id) out.add(sg.id)
+    }
+    for (const nacl of wn?.nacls ?? []) {
+      if (nacl?.id) out.add(nacl.id)
+    }
+    for (const rt of wn?.route_tables ?? []) {
+      if (rt?.id) out.add(rt.id)
+    }
+    for (const profile of wn?.instance_profiles ?? []) {
+      if (profile?.id) out.add(profile.id)
+      if (profile?.role_id) out.add(profile.role_id)
+    }
     for (const h of p.hops ?? []) {
       if (h.node_id) out.add(h.node_id)
       if (h.subnet_id) out.add(h.subnet_id)
@@ -450,6 +468,7 @@ type PathAuthorityCheckpoint = {
   gapCount: number
   connectedSources: string[]
   connectedTargets: string[]
+  attachedWorkloads?: string[]
 }
 
 function normalizeRulesCoverage(
@@ -1262,27 +1281,42 @@ export function buildPathAuthorityArchitecture(params: {
             c.id === p.workload_arn,
         )?.id || p.workload_arn
       for (const s of wn.subnets ?? []) {
-        if (!s?.id || seen.subnet.has(s.id)) continue
-        seen.subnet.add(s.id)
-        subnets.push({
-          id: s.id,
-          name: s.name || s.id,
-          shortName: truncate(s.name || s.id),
-          isPublic: typeof s.is_public === "boolean" ? s.is_public : null,
-          connectedComputeIds: computeId ? [computeId] : [],
-          ...(() => {
-            const rt = (wn.route_tables ?? []).find((row) =>
-              (row.subnet_ids ?? []).includes(s.id),
-            )
-            return rt
+        if (!s?.id) continue
+        const rt = (wn.route_tables ?? []).find((row) =>
+          (row.subnet_ids ?? []).includes(s.id),
+        )
+        const existing = subnets.find((row) => row.id === s.id)
+        if (existing) {
+          if (s.name) {
+            existing.name = s.name
+            existing.shortName = truncate(s.name)
+          }
+          if (typeof s.is_public === "boolean") existing.isPublic = s.is_public
+          if (computeId && !existing.connectedComputeIds.includes(computeId)) {
+            existing.connectedComputeIds.push(computeId)
+          }
+          if (rt) {
+            existing.routeTableId = rt.id
+            existing.routeTableCount = rt.route_count ?? null
+            existing.routeTableIsMain = rt.is_main ?? null
+          }
+        } else {
+          seen.subnet.add(s.id)
+          subnets.push({
+            id: s.id,
+            name: s.name || s.id,
+            shortName: truncate(s.name || s.id),
+            isPublic: typeof s.is_public === "boolean" ? s.is_public : null,
+            connectedComputeIds: computeId ? [computeId] : [],
+            ...(rt
               ? {
                   routeTableId: rt.id,
                   routeTableCount: rt.route_count ?? null,
                   routeTableIsMain: rt.is_main ?? null,
                 }
-              : {}
-          })(),
-        })
+              : {}),
+          })
+        }
         if (computeId) {
           pushEdge(
             edges,
@@ -1296,16 +1330,27 @@ export function buildPathAuthorityArchitecture(params: {
         }
       }
       for (const g of wn.security_groups ?? []) {
-        if (!g?.id || seen.sg.has(g.id)) continue
-        seen.sg.add(g.id)
-        securityGroups.push(
-          emptyCheckpoint(
-            "security_group",
-            g.id,
-            g.name || g.id,
-            p.workload_arn || undefined,
-          ),
-        )
+        if (!g?.id) continue
+        const existing = securityGroups.find((row) => row.id === g.id)
+        if (existing) {
+          if (g.name) {
+            existing.name = g.name
+            existing.shortName = truncate(g.name)
+          }
+          if (computeId && !existing.connectedSources.includes(computeId)) {
+            existing.connectedSources.push(computeId)
+          }
+        } else {
+          seen.sg.add(g.id)
+          securityGroups.push(
+            emptyCheckpoint(
+              "security_group",
+              g.id,
+              g.name || g.id,
+              computeId || undefined,
+            ),
+          )
+        }
         if (computeId) {
           pushEdge(
             edges,
@@ -1340,6 +1385,56 @@ export function buildPathAuthorityArchitecture(params: {
             acl.id,
             subnetId,
             "ASSOCIATED_WITH",
+            p.path_id,
+            p.evidence || p.confidence || "configured",
+          )
+        }
+      }
+      for (const profile of wn.instance_profiles ?? []) {
+        if (!profile?.id) continue
+        if (!seen.ip.has(profile.id)) {
+          seen.ip.add(profile.id)
+          const checkpoint = emptyCheckpoint(
+            "iam_role",
+            profile.id,
+            profile.name || profile.id,
+            computeId || undefined,
+          )
+          checkpoint.attachedWorkloads = computeId ? [computeId] : []
+          instanceProfiles.push(checkpoint)
+        } else if (computeId) {
+          const checkpoint = instanceProfiles.find((row) => row.id === profile.id)
+          if (checkpoint && !checkpoint.attachedWorkloads?.includes(computeId)) {
+            checkpoint.attachedWorkloads = [
+              ...(checkpoint.attachedWorkloads ?? []),
+              computeId,
+            ]
+          }
+        }
+        if (computeId) {
+          pushEdge(
+            edges,
+            edgeSeen,
+            computeId,
+            profile.id,
+            "HAS_INSTANCE_PROFILE",
+            p.path_id,
+            p.evidence || p.confidence || "configured",
+          )
+        }
+        if (profile.role_id) {
+          if (!seen.role.has(profile.role_id)) {
+            seen.role.add(profile.role_id)
+            iamRoles.push(
+              emptyCheckpoint("iam_role", profile.role_id, profile.role_name || profile.role_id, profile.id),
+            )
+          }
+          pushEdge(
+            edges,
+            edgeSeen,
+            profile.id,
+            profile.role_id,
+            "USES_ROLE",
             p.path_id,
             p.evidence || p.confidence || "configured",
           )

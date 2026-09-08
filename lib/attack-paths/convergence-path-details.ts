@@ -248,6 +248,7 @@ export function mergeSummaryWithPathDetails(
     const evidence = p.evidence ?? p.confidence
     const base: ConvergencePath = {
       path_id: p.path_id,
+      attack_path_id: p.attack_path_id ?? null,
       source: p.source,
       source_kind: p.source_kind,
       workload_arn: p.workload_arn,
@@ -315,6 +316,7 @@ export function mergeSummaryWithPathDetails(
     const detailEvidence = detail.evidence ?? detail.confidence ?? evidence
     return {
       ...base,
+      attack_path_id: detail.attack_path_id ?? base.attack_path_id ?? null,
       evidence: detailEvidence,
       confidence: detailEvidence,
       identity_gate: detail.identity_gate ?? base.identity_gate,
