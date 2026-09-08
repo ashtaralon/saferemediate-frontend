@@ -67,7 +67,9 @@ import {
 import {
   ALB_HEADER_TYPES,
   RDS_TYPES,
+  RAIL_PLACED_TYPES,
   REGIONAL_EDGE_SERVICE_TYPES,
+  TRIGGER_TYPES,
   SERVERLESS_TYPES,
   SYNTHETIC_TIER_TYPES,
 } from "./estate-placement"
@@ -433,6 +435,22 @@ export function extractRegionalDataServices(source: TopologyNode[]): TopologyNod
   for (const n of source) {
     if (n.stale) continue
     if (!n.type || !REGIONAL_EDGE_SERVICE_TYPES.has(n.type)) continue
+    out.push(n)
+  }
+  out.sort((a, b) => (a.score?.rank ?? 999) - (b.score?.rank ?? 999))
+  return out
+}
+
+/**
+ * Triggers band members (EventBridge / SQS / Step Functions) — what INVOKES the
+ * serverless lane. Same shape as extractRegionalDataServices so both bands sort
+ * and filter identically; kept separate because the slot decides the band.
+ */
+export function extractTriggerServices(source: TopologyNode[]): TopologyNode[] {
+  const out: TopologyNode[] = []
+  for (const n of source) {
+    if (n.stale) continue
+    if (!n.type || !TRIGGER_TYPES.has(n.type)) continue
     out.push(n)
   }
   out.sort((a, b) => (a.score?.rank ?? 999) - (b.score?.rank ?? 999))
@@ -2214,6 +2232,7 @@ function ServerlessComputeTier({
   viewDensity = "glance",
   namedFlowNodeIds,
   laneMinHeight,
+  triggerNodes,
 }: {
   nodes: TopologyNode[]
   selectedNodeId: string | null
@@ -2226,8 +2245,14 @@ function ServerlessComputeTier({
   namedFlowNodeIds?: Set<string>
   /** Fullscreen lane floor from useRailLaneFloor (see RAIL_LANE_MIN_PX). */
   laneMinHeight?: number
+  /** Triggers band (EventBridge / SQS / Step Functions) above the chips. */
+  triggerNodes?: TopologyNode[]
 }) {
-  if (nodes.length === 0) return null
+  const triggers = triggerNodes ?? []
+  // A triggers-only lane is still worth drawing: the band members left the
+  // regional rail, so returning null on `nodes.length === 0` alone would drop
+  // them from the map entirely.
+  if (nodes.length === 0 && triggers.length === 0) return null
   const glance = viewDensity === "glance"
   const namedNodes = glance && namedFlowNodeIds
     ? nodes.filter(node => namedFlowNodeIds.has(node.id))
@@ -2287,6 +2312,33 @@ function ServerlessComputeTier({
           ) : null}
         </div>
       </div>
+      {triggers.length > 0 ? (
+        <div
+          className="rounded p-1.5 mb-1.5"
+          style={{ background: "#FFFFFF", border: "1px solid #DDD6FE" }}
+          data-testid="topology-triggers-band"
+          data-flow-obstacle="triggers-band"
+        >
+          <div
+            className="text-[9px] uppercase tracking-[0.12em] font-semibold mb-1"
+            style={{ color: "#5B3C9E" }}
+          >
+            Triggers ({triggers.length})
+          </div>
+          <div className={compact ? "flex flex-col gap-1" : "flex flex-wrap gap-1.5"}>
+            {triggers.map(node => (
+              <ServiceNodeIcon
+                key={node.id}
+                node={node}
+                selected={node.id === selectedNodeId}
+                onSelect={onSelect}
+                dense
+                railChip={compact}
+              />
+            ))}
+          </div>
+        </div>
+      ) : null}
       <RailLaneBody lane="serverless" compact={compact} revision={nodes.length}>
       <div
         className={
@@ -4044,7 +4096,10 @@ export function computeCanvasGrid(
   }
 
   const tryPlaceInGrid = (n: TopologyNode): boolean => {
-    if (n.type && REGIONAL_EDGE_SERVICE_TYPES.has(n.type)) return true
+    // RAIL_PLACED_TYPES, not the regional set: a triggers-slot node has its own
+    // band and must report as "placed" here, or it falls through to the
+    // unplaced bucket and disappears from the map.
+    if (n.type && RAIL_PLACED_TYPES.has(n.type)) return true
     if (!workloadInCanvasVpc(n, canvasVpcId, subnetById)) return false
     const overrideTier =
       n.placement_tier === "web" || n.placement_tier === "app" || n.placement_tier === "data"
@@ -4231,7 +4286,9 @@ export function buildVpcFrames(
     ...frames.flatMap(f => f.grid.staleNodes),
     ...outside.filter(n =>
       n.stale
-      && !(n.type && REGIONAL_EDGE_SERVICE_TYPES.has(n.type))
+      // Same reason as tryPlaceInGrid: triggers have their own band, so a
+      // stale EventBridge rule is not a "stale workload".
+      && !(n.type && RAIL_PLACED_TYPES.has(n.type))
       && !(n.type && SERVERLESS_TYPES.has(n.type)),
     ),
   ]
@@ -5382,6 +5439,10 @@ export function AwsFrame({
     () => extractServerlessOutsideVpc(serverlessSourceNodes ?? nodes, topo.subnets),
     [serverlessSourceNodes, nodes, topo.subnets],
   )
+  const triggerTierNodes = useMemo(
+    () => extractTriggerServices(regionalDataSourceNodes ?? nodes),
+    [regionalDataSourceNodes, nodes],
+  )
   const namedFlowNodeIds = useMemo(() => {
     const ids = new Set<string>()
     if (flowMode === "all_access") {
@@ -5399,9 +5460,13 @@ export function AwsFrame({
     const visible = new Set(nodes.map(n => n.id))
     for (const n of regionalTierNodes) visible.add(n.id)
     for (const n of serverlessTierNodes) visible.add(n.id)
+    // Triggers were edge-visible only because they used to sit in
+    // regionalTierNodes. Leaving them out here drops the TRIGGERS fan-out.
+    for (const n of triggerTierNodes) visible.add(n.id)
     const railIds = new Set<string>([
       ...regionalTierNodes.map(n => n.id),
       ...serverlessTierNodes.map(n => n.id),
+      ...triggerTierNodes.map(n => n.id),
     ])
     let edges = overlayEdgeList.filter(e => {
       if (!visible.has(e.source_id)) return false
@@ -5422,6 +5487,7 @@ export function AwsFrame({
     nodes,
     regionalTierNodes,
     serverlessTierNodes,
+    triggerTierNodes,
     vpceIds,
     mergedVpcView,
   ])
@@ -5960,6 +6026,7 @@ export function AwsFrame({
                 >
                   <ServerlessComputeTier
                     nodes={serverlessTierNodes}
+                    triggerNodes={triggerTierNodes}
                     laneMinHeight={railLaneMinHeight}
                     selectedNodeId={selectedNodeId}
                     onSelect={onSelect}

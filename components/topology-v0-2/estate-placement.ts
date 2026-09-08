@@ -20,7 +20,8 @@ export type MapSlot =
   | "app" // private compute in VPC
   | "data" // datastores in VPC
   | "serverless" // compute outside the subnet grid (often non-VPC Lambda)
-  | "regional" // S3 / DDB / KMS / SQS / … not VPC-bound
+  | "triggers" // what INVOKES the serverless lane — EventBridge / SQS / Step Functions
+  | "regional" // S3 / DDB / KMS / … not VPC-bound
   | "boundary" // IGW / NAT / VPCE (from vpc_topology.edges, not nodes[])
   | "hidden" // identity / config artifacts — Inventory / panels only
 
@@ -100,6 +101,24 @@ export const PLACEMENT_RULES: readonly PlacementRule[] = [
     stack: true,
     chipRole: "volume",
   },
+  // ── Triggers band (sits above the serverless lane) ────────────
+  // These are not destinations the way S3/DDB are -- they are what INVOKES
+  // the Lambda lane, so they read as a source band above it rather than as
+  // another terminal node on the regional rail. Splitting the slot is what
+  // lets the fan-out draw once from a band instead of once per rail chip.
+  {
+    types: [
+      "EventBridge",
+      "EventBridgeRule",
+      "SQS",
+      "SQSQueue",
+      "StepFunction",
+      "StateMachine",
+    ],
+    slot: "triggers",
+    stack: true,
+    chipRole: "volume",
+  },
   // ── Regional rail (not VPC-bound) ─────────────────────────────
   {
     types: [
@@ -110,12 +129,6 @@ export const PLACEMENT_RULES: readonly PlacementRule[] = [
       "KMSKey",
       "Secret",
       "SecretsManagerSecret",
-      "SQS",
-      "SQSQueue",
-      "StepFunction",
-      "StateMachine",
-      "EventBridge",
-      "EventBridgeRule",
     ],
     slot: "regional",
     stack: true,
@@ -144,6 +157,26 @@ export function mapSlotForType(type: string | null | undefined): MapSlot {
 export const REGIONAL_EDGE_SERVICE_TYPES: ReadonlySet<string> = new Set(
   PLACEMENT_RULES.filter(r => r.slot === "regional").flatMap(r => [...r.types]),
 )
+
+/** Types drawn in the triggers band above the serverless lane. */
+export const TRIGGER_TYPES: ReadonlySet<string> = new Set(
+  PLACEMENT_RULES.filter(r => r.slot === "triggers").flatMap(r => [...r.types]),
+)
+
+/**
+ * Every type that renders on a right-hand rail instead of the AZ x tier grid.
+ *
+ * Read this -- NOT `REGIONAL_EDGE_SERVICE_TYPES` -- for any "is this node
+ * grid-placed?" decision. Triggers split out of `regional`, and three call
+ * sites asked the regional set that question: grid placement would have let an
+ * EventBridge rule fall through to the unplaced bucket, and the stale rollup
+ * would have listed it under "Stale workloads". Anything that means "has its
+ * own rail" belongs here so the next slot split cannot silently strand a type.
+ */
+export const RAIL_PLACED_TYPES: ReadonlySet<string> = new Set([
+  ...REGIONAL_EDGE_SERVICE_TYPES,
+  ...TRIGGER_TYPES,
+])
 
 /** Types drawn in the ingress / ALB header band. */
 export const INGRESS_TYPES: ReadonlySet<string> = new Set(
