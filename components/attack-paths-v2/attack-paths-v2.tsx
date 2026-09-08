@@ -49,6 +49,7 @@ import {
 } from "@/lib/attack-paths/resolve-jewel-rail"
 import {
   isTargetCatalogCacheable,
+  targetCatalogTotals,
   targetCatalogToJewelSummaries,
   type TargetCatalog,
 } from "@/lib/attack-paths/target-catalog"
@@ -418,6 +419,7 @@ export function AttackPathsV2({
   const targetCatalogServeState = jewelsRaw?.serve_state ?? null
   const targetCatalogNotReadyReason = jewelsRaw?.not_ready_reason ?? null
   const targetCatalogCounts = jewelsRaw?.counts ?? null
+  const catalogTotals = useMemo(() => targetCatalogTotals(jewelsRaw), [jewelsRaw])
 
   // Envelope unwrap. Backend wraps in {provenance, result}; we want the
   // result. Proxy stale fallback may also stamp fromStaleCache on the
@@ -492,6 +494,9 @@ export function AttackPathsV2({
 
   const blastRadiusPathCount = blastRadiusData?.verdict?.attack_paths
   const reachableJewelCount = blastRadiusData?.verdict?.reachable_crown_jewels
+  const displayedPathCount = catalogTotals?.pathCount ?? blastRadiusPathCount
+  const displayedReachableJewelCount =
+    catalogTotals?.reachableTargetCount ?? reachableJewelCount
 
 
   // Paths for the currently-selected jewel. Empty list = no jewel
@@ -733,10 +738,9 @@ export function AttackPathsV2({
     rawData,
   ])
 
-  // The selected path object, if any. We tolerate selectedPathId
-  // pointing at a path that doesn't exist (e.g. operator deep-linked
-  // an old path id that's since been removed) — UI shows "path not
-  // found" rather than crashing.
+  // The selected path object, if any. A stale deep link temporarily resolves
+  // to null while the current generation settles; the effect below then
+  // clears it and restores the jewel fan-in instead of drawing fake blanks.
   const selectedPath = useMemo(() => {
     if (!selectedPathId) return null
     return (
@@ -745,6 +749,27 @@ export function AttackPathsV2({
       ) ?? null
     )
   }, [selectedPathId, jewelPaths])
+
+  // A bookmarked path id belongs to one immutable generation and can disappear
+  // after a valid rebuild. Once the selected jewel's current path set has
+  // settled, clear a stale id instead of rendering a blank "FROM — Resource"
+  // dossier. Other modes may then apply their normal first-path selection.
+  useEffect(() => {
+    if (!selectedPathId || !selectedJewelId) return
+    if (pathsPending || pathsWarming || jewelSummaryLoading || jewelSummaryRetrying) return
+    if (selectedPath) return
+    setUrl({ path: null })
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- setUrl is URL-state
+    // plumbing whose identity changes with the current search params.
+  }, [
+    selectedPathId,
+    selectedJewelId,
+    selectedPath,
+    pathsPending,
+    pathsWarming,
+    jewelSummaryLoading,
+    jewelSummaryRetrying,
+  ])
 
   const {
     report: selectedPathReport,
@@ -775,7 +800,6 @@ export function AttackPathsV2({
     router.push(`/?${standalone.toString()}`)
   }
 
-  // Auto-select the highest-observed-traffic path when a jewel is
   // Auto-select the highest-traffic path when a jewel is selected and no
   // path id is in the URL — EXCEPT on Attack Path mode, where Zoom 0
   // (jewel fan-in) is the default until the operator picks a path
@@ -1074,9 +1098,9 @@ export function AttackPathsV2({
               />
               )}
               <div className="text-[11px] text-muted-foreground mt-0.5">
-                {typeof blastRadiusPathCount === "number" &&
-                typeof reachableJewelCount === "number"
-                  ? `${blastRadiusPathCount} system paths · ${reachableJewelCount} reachable jewels`
+                {typeof displayedPathCount === "number" &&
+                typeof displayedReachableJewelCount === "number"
+                  ? `${displayedPathCount} active paths · ${displayedReachableJewelCount} reachable targets`
                   : data && allPaths.length > 0
                     ? `${allPaths.length} loaded paths · ${jewels.length} listed jewels`
                   : jewelsLoading
@@ -1089,7 +1113,7 @@ export function AttackPathsV2({
         </div>
         <CrownJewelListPanel
           jewels={jewels}
-          totalReachable={reachableJewelCount}
+          totalReachable={displayedReachableJewelCount}
           serveState={targetCatalogServeState}
           notReadyReason={targetCatalogNotReadyReason}
           stateCounts={targetCatalogCounts}
