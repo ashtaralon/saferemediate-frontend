@@ -174,6 +174,12 @@ export interface ConvergencePath {
       route_count?: number | null
       is_main?: boolean | null
     }>
+    instance_profiles?: Array<{
+      id: string
+      name?: string | null
+      role_id?: string | null
+      role_name?: string | null
+    }>
   } | null
   /** ACQUISITION — who can take THIS principal once already inside the
    *  account. Deliberately NOT initial_access: that is ATT&CK Initial Access
