@@ -1,0 +1,143 @@
+{
+  "test": "Risk › Vulnerabilities on the deployed frontend: KPIs, banner, every sub-tab, evidence drawer",
+  "status": "passed",
+  "measurements": [
+    {
+      "name": "navigation",
+      "data": {
+        "url": "http://localhost:3000/?system=testbed-webshop&vulnerability_focus=1",
+        "bounced_to_login": false
+      }
+    },
+    {
+      "name": "tab-prioritized",
+      "data": {
+        "tab": "Prioritized",
+        "active_tab": "Prioritized",
+        "header": "Vulnerabilities Prioritized by attacker usability and downstream impact, backed by scanner, network, identity, and data evidence. Last scan · 9/8/2026, 3:34:22 PM Scanner refresh unavailable This deployment has no scanner refresh service configured, so Cyntro cannot queue a new scan from here. Existing evidence is still shown as-is.",
+        "kpis": {
+          "exploitable-now": "Exploitable now — Not assessed: no path assessment was returned for this system",
+          "exploitable-after-foothold": "Exploitable after foothold — Not assessed: no path assessment was returned for this system",
+          "blocked-by-controls": "Blocked by controls — Not assessed: no path assessment was returned for this system",
+          "coverage-gaps": "Coverage gaps 5 0 scanner patch candidates"
+        },
+        "banner": "Amazon Inspector evidence — 6 of 11 applicable assets have current scanner coverage. Path exploitability assessments were not returned; Cyntro will not infer a verdict from CVSS or exploit availability. Last successful scan: 9/8/2026, 3:34:22 PM",
+        "alert": "",
+        "counter": "0 of 0",
+        "inventory_rows": 0,
+        "empty_state": "No active CVEs on the 6 assets with current scanner coverage 5 Inspector-scannable assets have no current scanner coverage, so their status is unknown, not clean. Review them on the Assets tab."
+      }
+    },
+    {
+      "name": "tab-assets",
+      "data": {
+        "tab": "Assets",
+        "active_tab": "Assets",
+        "header": "Vulnerabilities Prioritized by attacker usability and downstream impact, backed by scanner, network, identity, and data evidence. Last scan · 9/8/2026, 3:34:22 PM Scanner refresh unavailable This deployment has no scanner refresh service configured, so Cyntro cannot queue a new scan from here. Existing evidence is still shown as-is.",
+        "kpis": {
+          "exploitable-now": "Exploitable now — Not assessed: no path assessment was returned for this system",
+          "exploitable-after-foothold": "Exploitable after foothold — Not assessed: no path assessment was returned for this system",
+          "blocked-by-controls": "Blocked by controls — Not assessed: no path assessment was returned for this system",
+          "coverage-gaps": "Coverage gaps 5 0 scanner patch candidates"
+        },
+        "banner": "Amazon Inspector evidence — 6 of 11 applicable assets have current scanner coverage. Path exploitability assessments were not returned; Cyntro will not infer a verdict from CVSS or exploit availability. Last successful scan: 9/8/2026, 3:34:22 PM",
+        "alert": "",
+        "counter": "17 of 17",
+        "inventory_rows": 17,
+        "empty_state": null
+      }
+    },
+    {
+      "name": "tab-cves",
+      "data": {
+        "tab": "CVEs",
+        "active_tab": "CVEs",
+        "header": "Vulnerabilities Prioritized by attacker usability and downstream impact, backed by scanner, network, identity, and data evidence. Last scan · 9/8/2026, 3:34:22 PM Scanner refresh unavailable This deployment has no scanner refresh service configured, so Cyntro cannot queue a new scan from here. Existing evidence is still shown as-is.",
+        "kpis": {
+          "exploitable-now": "Exploitable now — Not assessed: no path assessment was returned for this system",
+          "exploitable-after-foothold": "Exploitable after foothold — Not assessed: no path assessment was returned for this system",
+          "blocked-by-controls": "Blocked by controls — Not assessed: no path assessment was returned for this system",
+          "coverage-gaps": "Coverage gaps 5 0 scanner patch candidates"
+        },
+        "banner": "Amazon Inspector evidence — 6 of 11 applicable assets have current scanner coverage. Path exploitability assessments were not returned; Cyntro will not infer a verdict from CVSS or exploit availability. Last successful scan: 9/8/2026, 3:34:22 PM",
+        "alert": "",
+        "counter": "0 of 0",
+        "inventory_rows": 0,
+        "empty_state": "No active CVEs on the 6 assets with current scanner coverage 5 Inspector-scannable assets have no current scanner coverage, so their status is unknown, not clean. Review them on the Assets tab."
+      }
+    },
+    {
+      "name": "tab-remediated",
+      "data": {
+        "tab": "Remediated",
+        "active_tab": "Remediated",
+        "header": "Vulnerabilities Prioritized by attacker usability and downstream impact, backed by scanner, network, identity, and data evidence. Last scan · 9/8/2026, 3:34:22 PM Scanner refresh unavailable This deployment has no scanner refresh service configured, so Cyntro cannot queue a new scan from here. Existing evidence is still shown as-is.",
+        "kpis": {
+          "exploitable-now": "Exploitable now — Not assessed: no path assessment was returned for this system",
+          "exploitable-after-foothold": "Exploitable after foothold — Not assessed: no path assessment was returned for this system",
+          "blocked-by-controls": "Blocked by controls — Not assessed: no path assessment was returned for this system",
+          "coverage-gaps": "Coverage gaps 5 0 scanner patch candidates"
+        },
+        "banner": "Amazon Inspector evidence — 6 of 11 applicable assets have current scanner coverage. Path exploitability assessments were not returned; Cyntro will not infer a verdict from CVSS or exploit availability. Last successful scan: 9/8/2026, 3:34:22 PM",
+        "alert": "",
+        "counter": "0 of 0",
+        "inventory_rows": 0,
+        "empty_state": "No remediation history was returned This does not mean no CVEs were remediated; verification history was not included in this response."
+      }
+    },
+    {
+      "name": "tab-map",
+      "data": {
+        "headings": [
+          "SCANNED CLEAN — 6 RESOURCES"
+        ],
+        "stale_banner": null,
+        "text": "Scanner coverage is incomplete No scanner evidence covers 5 resources Inspector can scan. The observed finding totals above are minimums; these resources are not known to be clean. Not applicable to 6 resources These resource types do not run software that can carry a CVE. SCANNED CLEAN — 6 RESOURCES Show Verdict: Exploitable now Exploitable after foothold Blocked by controls Assessment pending Coverage: Scanned clean Unverified Not applicable"
+      }
+    },
+    {
+      "name": "evidence-drawer",
+      "data": {
+        "opened_from": "Assets",
+        "title": "Asset vulnerability evidence",
+        "text": "Asset vulnerability evidence cyntro-ingest-head-testbed-webshop · arn:aws:dynamodb:eu-west-1:416651950952:table/cyntro-ingest-head-testbed-webshop DETERMINISTIC DECISION Not applicable No software findings possible Not applicable Threat urgency Threat enrichment not returned Feasibility here Not assessed Downstream impact Not evaluated ATTACKER EXPLANATION This resource type does not run software that can carry a CVE. ATTACKER POSITION CURRENT ACCESS Not applicable This resource type does not run software that can carry a CVE. LATERAL MOVEMENT Not applicable This resource type does not run software that can carry a CVE. EXFILTRATION Not applicable This resource type does not run software that can carry a CVE. CAPABILITY AND CVE-ENABLED DAMAGE Current reachable damage Evaluated independently in the canonical Attack Path report; not added to the CVE result. Additional damage if exploitation succeeds No CVE-enabled damage was returned. Capability gained Not established Crown jewels reachable None established SCANNER AND RUNTIME EVIDENCE Resource evidence is temporarily unavailable The system-level result remains visible. Request ID: dff5bbd1-540b-4a39-8c75-a390055ca574 Evidence references No reference IDs were returned with this result. REMEDIATION CHOICES Patch or upgrade Remove the vulnerable package/version finding and verify the scanner closes it. Reduce reachable service surface Review exact security-group and runtime evidence before applying a reversible network change. Limit post-exploit capability Scope the workload identity, data permissions, KMS access, or egress route that enables downstream damage. Review asset and network evidence SIMULATION AND APPROVAL No change is authorized from this inventory. Simulation and scoped approval are required before remediation. VERIFICATION HISTORY No completed verification returned Verify finding closure, path reduction, protected behavior, and rollback evidence separately. Close"
+      }
+    },
+    {
+      "name": "proxy-responses",
+      "data": [
+        {
+          "path": "/api/proxy/vulnerability-map/testbed-webshop?include_traffic=false",
+          "status": 200,
+          "x_cache": "HIT"
+        },
+        {
+          "path": "/api/proxy/vulnerability-map/scanner/sync",
+          "status": 503,
+          "x_cache": null
+        },
+        {
+          "path": "/api/proxy/vulnerability-map/testbed-webshop?include_traffic=false",
+          "status": 200,
+          "x_cache": "HIT"
+        },
+        {
+          "path": "/api/proxy/vulnerability-map/testbed-webshop/resource/arn%3Aaws%3Adynamodb%3Aeu-west-1%3A416651950952%3Atable%2Fcyntro-ingest-head-testbed-webshop",
+          "status": 404,
+          "x_cache": null
+        }
+      ]
+    },
+    {
+      "name": "page-errors",
+      "data": []
+    },
+    {
+      "name": "console-errors",
+      "data": [
+        "Failed to load resource: the server responded with a status of 503 (Service Unavailable) @ http://localhost:3000/api/proxy/vulnerability-map/scanner/sync",
+        "Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:3000/api/proxy/vulnerability-map/testbed-webshop/resource/arn%3Aaws%3Adynamodb%3Aeu-west-1%3A416651950952%3Atable%2Fcyntro-ingest-head-testbed-webshop"
+      ]
+    }
+  ]
+}
