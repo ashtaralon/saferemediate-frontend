@@ -275,6 +275,8 @@ export interface LaneCoverage extends LaneCoverageCounts {
   }
   rejected_edges?: { non_vpc_lambda_edges: number }
   warnings: LaneCoverageWarning[]
+  /** Same list as warnings; BE >= Estate Phase 5 hoist. */
+  coverage_gaps?: LaneCoverageWarning[]
 }
 
 export type TrafficEdgeClass = "internal" | "edge_service" | "vpce" | "egress" | "database"
@@ -443,6 +445,8 @@ export interface TopologyRiskResponse {
     limitation?: string | null
     /** Flow-log coverage with an honest denominator (BE >= topology-risk/v8). */
     lane_coverage?: LaneCoverage
+    /** Named rejected/projection gaps. Same list as lane_coverage.warnings. */
+    coverage_gaps?: LaneCoverageWarning[]
   }
   /** External systems consuming this system's shared data (observed/declared). */
   foreign_shared_access?: ForeignSharedAccessEdge[]

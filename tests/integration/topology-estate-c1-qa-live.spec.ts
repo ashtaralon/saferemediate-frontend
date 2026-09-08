@@ -24,6 +24,8 @@
  * out of scope: a share token would land in a public workflow log.
  *
  *   FRONTEND_URL=https://cyntro-c1.vercel.app C1_SYSTEM=testbed-webshop \
+ *     C1_CUSTOMER_ID=testbed-webshop C1_ACCOUNT_ID=416651950952 \
+ *     C1_REGION=eu-west-1 \
  *     npx playwright test tests/integration/topology-estate-c1-qa-live.spec.ts
  */
 import fs from "node:fs"
@@ -32,8 +34,16 @@ import { authedApi, seedAuthCookie } from "./live-auth"
 import { railHeaderBadgeOverlaps } from "./topology-fixture"
 
 const SYSTEM = process.env.C1_SYSTEM || "testbed-webshop"
-const ESTATE_URL = `/topology/v0.2-estate?systemName=${encodeURIComponent(SYSTEM)}`
-const TOPOLOGY_RISK_PATH = `/api/proxy/topology-risk/${encodeURIComponent(SYSTEM)}`
+const CUSTOMER = process.env.C1_CUSTOMER_ID || "testbed-webshop"
+const ACCOUNT = process.env.C1_ACCOUNT_ID || "416651950952"
+const REGION = process.env.C1_REGION || "eu-west-1"
+const SCOPE = new URLSearchParams({
+  customer_id: CUSTOMER,
+  account_id: ACCOUNT,
+  region: REGION,
+})
+const ESTATE_URL = `/topology/v0.2-estate?systemName=${encodeURIComponent(SYSTEM)}&${SCOPE}`
+const TOPOLOGY_RISK_PATH = `/api/proxy/topology-risk/${encodeURIComponent(SYSTEM)}?${SCOPE}`
 const COVERAGE_LANES = ["vpc", "serverless", "database", "regional"] as const
 const COVERAGE_STATES = new Set(["empty", "not_applicable", "unknown", "none", "partial", "authoritative"])
 
@@ -75,6 +85,9 @@ interface LaneCoverage extends Omit<LaneCounts, "state"> {
 }
 interface TopologyRisk {
   system?: string
+  status?: string
+  refresh_state?: string
+  from_snapshot?: boolean
   account_id?: string | null
   region?: string | null
   vpc_id?: string | null
@@ -195,14 +208,28 @@ test.describe("C1 live QA — estate map against the deployed graph", () => {
       attempts.push({ status: res.status(), ms: Date.now() - t0, x_cache: res.headers()["x-cache"] ?? null })
     }
     report("topology-risk-fetch", { attempts, total_ms: Date.now() - started })
-    const text = await res.text()
+    let text = await res.text()
     expect(res.status(), text.slice(0, 500)).toBe(200)
-    const body = JSON.parse(text) as TopologyRisk
+    let body = JSON.parse(text) as TopologyRisk
+    for (let i = 0; i < 4 && (body.status === "computing" || !body.system); i += 1) {
+      report("topology-risk-computing", {
+        attempt: i + 1,
+        refresh_state: body.refresh_state ?? null,
+      })
+      await new Promise(resolve => setTimeout(resolve, 8_000))
+      t0 = Date.now()
+      res = await request.get(TOPOLOGY_RISK_PATH)
+      attempts.push({ status: res.status(), ms: Date.now() - t0, x_cache: res.headers()["x-cache"] ?? null })
+      text = await res.text()
+      expect(res.status(), text.slice(0, 500)).toBe(200)
+      body = JSON.parse(text) as TopologyRisk
+    }
     const summary = summarizeTopology(body)
     report("topology-risk", summary)
     await attachJson("topology-risk-summary.json", summary)
     await request.dispose()
 
+    expect(body.status, "serving must not stay on a computing envelope").not.toBe("computing")
     expect(body.system).toBe(SYSTEM)
     expect(summary.nodes).toBeGreaterThan(0)
 
@@ -533,7 +560,7 @@ async function readPill(page: Page, scope: "page" | "fullscreen"): Promise<PillR
         state: el.getAttribute("data-lane-state"),
         text: text(el),
       })),
-      warnings: Array.from(pill.querySelectorAll('[data-testid="topology-lane-coverage-warning"]')).map(el => ({
+      warnings: Array.from(pill.querySelectorAll('[data-testid="topology-coverage-gap"]')).map(el => ({
         code: el.getAttribute("data-warning-code"),
         text: text(el),
       })),

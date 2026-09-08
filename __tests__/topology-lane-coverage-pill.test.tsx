@@ -13,6 +13,7 @@ import { afterEach, beforeAll, describe, expect, it } from "vitest"
 import { cleanup, render, screen, within } from "@testing-library/react"
 
 import { AwsFrame } from "@/components/topology-v0-2/aws-frame"
+import { resolveCoverageGaps, unnamedCounters } from "@/components/topology-v0-2/coverage-gaps"
 import type {
   LaneCoverage,
   SubnetMeta,
@@ -91,6 +92,12 @@ const coverage: LaneCoverage = {
       count: 3,
       message: "3 observed segment(s) leave the VPC toward endpoints the classifier has not labelled; they are not drawn. A missing arrow here is not evidence of no traffic.",
     },
+    {
+      code: "non_vpc_lambda_edges_rejected",
+      lane: "serverless",
+      count: 1,
+      message: "1 observed segment(s) named a Lambda function that runs outside the VPC; the segment is not drawn.",
+    },
   ],
 }
 
@@ -103,7 +110,12 @@ function authority(laneCoverage?: LaneCoverage): NonNullable<TopologyRiskRespons
     authoritative_endpoint_count: 3,
     endpoint_count: 3,
     limitation: "Confirmed TCP segments are authoritative; a missing segment is not evidence of no traffic.",
-    ...(laneCoverage ? { lane_coverage: laneCoverage } : {}),
+    ...(laneCoverage
+      ? {
+          lane_coverage: laneCoverage,
+          coverage_gaps: laneCoverage.warnings,
+        }
+      : {}),
   }
 }
 
@@ -137,11 +149,23 @@ describe("flow-log coverage pill", () => {
     expect(within(pill).getByTestId("topology-lane-coverage-database")).toHaveTextContent("Database 1/1")
     expect(within(pill).getByTestId("topology-lane-coverage-serverless")).toHaveTextContent("Lambda 1 unknown")
     expect(within(pill).getByTestId("topology-lane-coverage-regional")).toHaveTextContent("Regional 2 n/a")
-    const warnings = within(pill).getAllByTestId("topology-lane-coverage-warning")
-    expect(warnings).toHaveLength(2)
+    const warnings = within(pill).getAllByTestId("topology-coverage-gap")
+    expect(within(pill).getByTestId("topology-coverage-gaps")).toBeTruthy()
+    expect(warnings).toHaveLength(3)
     expect(warnings[0]).toHaveAttribute("data-warning-code", "lambda_to_database_not_collected")
     expect(warnings[0]).toHaveTextContent("Lambda: Lambda → database: not collected.")
     expect(warnings[1]).toHaveTextContent("not evidence of no traffic")
+    expect(warnings[2]).toHaveAttribute("data-warning-code", "non_vpc_lambda_edges_rejected")
+    expect(warnings[2]).toHaveAttribute("data-warning-count", "1")
+  })
+
+  it("names every non-zero rejected or projection counter from coverage_gaps", () => {
+    const gaps = resolveCoverageGaps(authority(coverage))
+    expect(unnamedCounters(coverage, gaps)).toEqual([])
+    expect(unnamedCounters(
+      { ...coverage, rejected_edges: { non_vpc_lambda_edges: 4 } },
+      gaps,
+    )).toEqual(["non_vpc_lambda_edges"])
   })
 
   it("renders nothing when the backend predates the contract", () => {
