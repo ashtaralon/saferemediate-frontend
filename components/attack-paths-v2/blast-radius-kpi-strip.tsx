@@ -7,6 +7,7 @@
 
 import type { ReactNode } from "react"
 import { useCachedFetch } from "@/lib/use-cached-fetch"
+import { buildBlastRadiusUrl, type BlastRadiusScope } from "./blast-radius-scope"
 
 interface BRVerdict {
   attack_paths: number
@@ -94,12 +95,16 @@ function workloadTypeLabel(kind?: string | null): string {
   return "workload"
 }
 
-export function BlastRadiusKpiStrip({ systemName }: { systemName: string }) {
-  const url = systemName
-    ? `/api/proxy/business-system/${encodeURIComponent(systemName)}/blast-radius`
-    : null
+export function BlastRadiusKpiStrip({
+  systemName,
+  scope,
+}: {
+  systemName: string
+  scope: BlastRadiusScope
+}) {
+  const url = buildBlastRadiusUrl(systemName, scope)
   const { data, loading, error, isStale, retry } = useCachedFetch<BlastRadiusPayload>(url, {
-    cacheKey: `blast-radius:${systemName}`,
+    cacheKey: `blast-radius:${url}`,
   })
 
   if (loading && !data) {

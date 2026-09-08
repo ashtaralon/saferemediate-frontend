@@ -1241,7 +1241,14 @@ export function AttackPathsV2({
               onToggleExpand={handleToggleExpand}
               showBeta={showBeta}
             />
-            <ZoomMinus1Landing systemName={systemName} />
+            <ZoomMinus1Landing
+              systemName={systemName}
+              scope={{
+                customerId: searchParams?.get("customer_id"),
+                accountId: searchParams?.get("account_id"),
+                region: searchParams?.get("region"),
+              }}
+            />
           </>
         ) : (
           <>

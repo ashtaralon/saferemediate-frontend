@@ -6,6 +6,7 @@
  */
 
 import { useCachedFetch } from "@/lib/use-cached-fetch"
+import { buildBlastRadiusUrl, type BlastRadiusScope } from "./blast-radius-scope"
 
 interface DependencyItem {
   jewel_type: string
@@ -97,12 +98,16 @@ function CutRow({ cut: c }: { cut: RecommendedCut }) {
   )
 }
 
-export function BlastRadiusPlaneCuts({ systemName }: { systemName: string }) {
-  const url = systemName
-    ? `/api/proxy/business-system/${encodeURIComponent(systemName)}/blast-radius`
-    : null
+export function BlastRadiusPlaneCuts({
+  systemName,
+  scope,
+}: {
+  systemName: string
+  scope: BlastRadiusScope
+}) {
+  const url = buildBlastRadiusUrl(systemName, scope)
   const { data, loading, error, retry } = useCachedFetch<PlaneCutsPayload>(url, {
-    cacheKey: `blast-radius:${systemName}`,
+    cacheKey: `blast-radius:${url}`,
   })
 
   if (loading && !data) {
