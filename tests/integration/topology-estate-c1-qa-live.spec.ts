@@ -494,7 +494,12 @@ test.describe("C1 live QA — estate map against the deployed graph", () => {
       const chipCount = await chips.count()
       const last = chips.nth(chipCount - 1)
       const pageScrollBefore = await page.evaluate(() => window.scrollY)
-      await last.scrollIntoViewIfNeeded()
+      // scrollIntoViewIfNeeded waits on the page viewport. The last Lambda
+      // chip lives in a nested overflow lane, so that wait never finishes
+      // (c1-ui-qa #32 hit the 300s test timeout after the map had mounted).
+      await laneBody.evaluate(el => {
+        el.scrollTop = el.scrollHeight
+      })
       await page.waitForTimeout(500)
       const after = await last.boundingBox()
       const bodyAfter = await laneBody.boundingBox()
