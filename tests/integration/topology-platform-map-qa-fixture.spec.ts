@@ -48,7 +48,9 @@ test("fullscreen platform map shows named Lambda, protected AZ labels, direction
   )
   await expect(pill.getByTestId("topology-lane-coverage-serverless")).toHaveAttribute("data-lane-state", "unknown")
   await expect(pill.getByTestId("topology-lane-coverage-regional")).toHaveAttribute("data-lane-state", "not_applicable")
-  await expect(pill.getByTestId("topology-lane-coverage-warning")).toHaveCount(coverage.warnings.length)
+  await expect(pill.getByTestId("topology-coverage-gap")).toHaveCount(
+    (SNAPSHOT.traffic_authority.coverage_gaps ?? coverage.warnings).length,
+  )
 
   await page.getByTestId("topology-estate-map-enlarge").click()
   const fullscreen = page.getByTestId("topology-estate-map-fullscreen")

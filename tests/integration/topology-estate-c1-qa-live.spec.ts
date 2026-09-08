@@ -533,7 +533,7 @@ async function readPill(page: Page, scope: "page" | "fullscreen"): Promise<PillR
         state: el.getAttribute("data-lane-state"),
         text: text(el),
       })),
-      warnings: Array.from(pill.querySelectorAll('[data-testid="topology-lane-coverage-warning"]')).map(el => ({
+      warnings: Array.from(pill.querySelectorAll('[data-testid="topology-coverage-gap"]')).map(el => ({
         code: el.getAttribute("data-warning-code"),
         text: text(el),
       })),
