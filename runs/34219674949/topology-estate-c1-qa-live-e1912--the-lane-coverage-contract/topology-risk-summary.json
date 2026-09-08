@@ -1,0 +1,15 @@
+{
+  "system": null,
+  "account_id": null,
+  "region": null,
+  "vpc_id": null,
+  "available_vpcs": [],
+  "nodes": 0,
+  "by_type": {},
+  "traffic_edges": 0,
+  "subnets": 0,
+  "nat_gateways": [],
+  "igws": 0,
+  "vpces": 0,
+  "traffic_authority": null
+}
