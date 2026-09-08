@@ -42,6 +42,51 @@ export function resolveTopologyScopeParams(
   }
 }
 
+/**
+ * VPC query param for the topology-risk GET — not the picker value.
+ *
+ * C1 materializes the account+region snapshot. Auto-select / localStorage
+ * then adding `vpc_id` is a different DynamoDB key; that miss returns
+ * `status: computing` and Estate drops the map for "Preparing…".
+ *
+ * Send vpc_id only when the opening URL asked for it, or the operator
+ * picked a VPC that is not the snapshot already on screen.
+ */
+export function resolveTopologyFetchVpcId(args: {
+  urlVpcId?: string | null
+  selectedVpcId?: string | null
+  payloadVpcId?: string | null
+  fetchVpcId?: string | null
+}): string | null {
+  const urlVpc = args.urlVpcId ?? null
+  const selected = args.selectedVpcId ?? null
+  const payload = args.payloadVpcId ?? null
+  const current = args.fetchVpcId ?? null
+  if (urlVpc) return urlVpc
+  if (!selected) return null
+  if (payload && selected === payload) {
+    return current === selected ? selected : null
+  }
+  if (payload && selected !== payload) return selected
+  return current
+}
+
+/** Cold clients must not wait on BE's 180s compute_deadline_at. */
+export const ESTATE_COMPUTING_CLIENT_CAP_MS = 90_000
+
+export function capEstateComputingDeadlineMs(
+  computeDeadlineAt: string | null | undefined,
+  startedAt: number | null,
+  now = Date.now(),
+): number | null {
+  const cap = (startedAt ?? now) + ESTATE_COMPUTING_CLIENT_CAP_MS
+  if (typeof computeDeadlineAt === "string") {
+    const parsed = Date.parse(computeDeadlineAt)
+    if (!Number.isNaN(parsed)) return Math.min(parsed, cap)
+  }
+  return startedAt != null ? cap : null
+}
+
 export function buildTopologyRiskProxyUrl(
   systemName: string,
   scope: TopologyScopeParams = {},

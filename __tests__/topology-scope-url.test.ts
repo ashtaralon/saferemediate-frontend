@@ -2,6 +2,8 @@ import {
   buildTopologyRiskCacheKey,
   buildTopologyRiskProxyUrl,
   buildTopologyRiskServerCacheKey,
+  capEstateComputingDeadlineMs,
+  resolveTopologyFetchVpcId,
   resolveTopologyScopeParams,
   scopeFromSearch,
 } from "@/components/topology-v0-2/topology-scope-url"
@@ -103,6 +105,73 @@ describe("topology scope URLs", () => {
       region: null,
       vpcId: null,
     })
+  })
+
+  it("omits localStorage VPC from the first topology-risk GET", () => {
+    expect(
+      resolveTopologyFetchVpcId({
+        urlVpcId: null,
+        selectedVpcId: "vpc-0c39cde96f29f8f4e",
+        payloadVpcId: null,
+        fetchVpcId: null,
+      }),
+    ).toBeNull()
+  })
+
+  it("does not refetch when auto-select matches the snapshot VPC", () => {
+    expect(
+      resolveTopologyFetchVpcId({
+        urlVpcId: null,
+        selectedVpcId: "vpc-0c39cde96f29f8f4e",
+        payloadVpcId: "vpc-0c39cde96f29f8f4e",
+        fetchVpcId: null,
+      }),
+    ).toBeNull()
+  })
+
+  it("keeps an in-flight VPC fetch after that snapshot lands", () => {
+    expect(
+      resolveTopologyFetchVpcId({
+        urlVpcId: null,
+        selectedVpcId: "vpc-bbbbbbbbbbbbbbbbb",
+        payloadVpcId: "vpc-bbbbbbbbbbbbbbbbb",
+        fetchVpcId: "vpc-bbbbbbbbbbbbbbbbb",
+      }),
+    ).toBe("vpc-bbbbbbbbbbbbbbbbb")
+  })
+
+  it("refetches only when the picker leaves the snapshot VPC", () => {
+    expect(
+      resolveTopologyFetchVpcId({
+        urlVpcId: null,
+        selectedVpcId: "vpc-bbbbbbbbbbbbbbbbb",
+        payloadVpcId: "vpc-0c39cde96f29f8f4e",
+        fetchVpcId: null,
+      }),
+    ).toBe("vpc-bbbbbbbbbbbbbbbbb")
+  })
+
+  it("honors a vpc_id on the opening URL", () => {
+    expect(
+      resolveTopologyFetchVpcId({
+        urlVpcId: "vpc-0c39cde96f29f8f4e",
+        selectedVpcId: null,
+        payloadVpcId: null,
+        fetchVpcId: null,
+      }),
+    ).toBe("vpc-0c39cde96f29f8f4e")
+  })
+
+  it("caps a 180s backend compute deadline to 90s", () => {
+    const started = Date.parse("2026-09-08T12:00:00.000Z")
+    expect(
+      capEstateComputingDeadlineMs("2026-09-08T12:03:00.000Z", started, started),
+    ).toBe(started + 90_000)
+  })
+
+  it("uses the client 90s cap when the backend deadline is missing", () => {
+    const started = Date.parse("2026-09-08T12:00:00.000Z")
+    expect(capEstateComputingDeadlineMs(null, started, started)).toBe(started + 90_000)
   })
 
   it("builds server cache key aligned with BE dimensions", () => {

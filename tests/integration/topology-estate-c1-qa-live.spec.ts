@@ -288,6 +288,14 @@ test.describe("C1 live QA — estate map against the deployed graph", () => {
     // systems catalog) decides whether the map mounts at all; record what each
     // of those calls answered so a blocked page comes with its cause.
     const gate: Array<{ path: string; status: number; body: string }> = []
+    const riskResponses: Array<{
+      path: string
+      status: number
+      body_status: string | null
+      from_snapshot: boolean | null
+      system_kpis: boolean
+      nodes: number
+    }> = []
     page.on("response", async response => {
       const url = new URL(response.url())
       const isGate =
@@ -306,11 +314,19 @@ test.describe("C1 live QA — estate map against the deployed graph", () => {
       }
       if (
         url.pathname.startsWith("/api/proxy/topology-risk/") &&
-        response.request().method() === "GET" &&
-        response.status() === 200
+        response.request().method() === "GET"
       ) {
         try {
-          captured.payload = (await response.json()) as TopologyRisk
+          const payload = (await response.json()) as TopologyRisk
+          riskResponses.push({
+            path: url.pathname + url.search,
+            status: response.status(),
+            body_status: payload.status ?? null,
+            from_snapshot: payload.from_snapshot ?? null,
+            system_kpis: Boolean((payload as { system_kpis?: unknown }).system_kpis),
+            nodes: (payload.nodes ?? []).length,
+          })
+          if (response.status() === 200) captured.payload = payload
         } catch {
           // a non-JSON body is reported below as a missing payload
         }
@@ -349,10 +365,20 @@ test.describe("C1 live QA — estate map against the deployed graph", () => {
       const unscoped = riskUrls.filter(
         href => !href.includes("account_id=") || !href.includes("region="),
       )
-      report("estate-topology-risk-urls", { attempt, first: firstRisk?.url() ?? null, urls: [...riskUrls], unscoped })
+      report("estate-topology-risk-urls", {
+        attempt,
+        first: firstRisk?.url() ?? null,
+        urls: [...riskUrls],
+        unscoped,
+        responses: [...riskResponses],
+      })
       expect(unscoped, "Estate must not fire an unscoped topology-risk GET on a scoped C1 URL").toEqual([])
       await expect(mapTab.or(blocked).first()).toBeVisible({ timeout: 90_000 })
       mounted = await mapTab.isVisible().catch(() => false)
+      expect(
+        riskUrls.filter(href => href.includes("vpc_id=")),
+        "Estate must not add vpc_id when the opening URL did not ask for one",
+      ).toEqual([])
       const reason = mounted
         ? null
         : ((await blocked.first().textContent().catch(() => null)) ?? "").replace(/\s+/g, " ").trim()
