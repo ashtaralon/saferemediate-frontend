@@ -508,8 +508,16 @@ test.describe("C1 live QA — estate map against the deployed graph", () => {
         body: bodyAfter,
         lane_scrollTop: await laneBody.evaluate(el => el.scrollTop),
         page_scrolled: (await page.evaluate(() => window.scrollY)) !== pageScrollBefore,
-        above_pill: await fullscreen.getByTestId("topology-serverless-lane-above").textContent().catch(() => null),
-        more_pill: await fullscreen.getByTestId("topology-serverless-lane-more").textContent().catch(() => null),
+        above_pill: await page.evaluate(() => {
+          const root = document.querySelector('[data-testid="topology-estate-map-fullscreen"]')
+          const el = root?.querySelector('[data-testid="topology-serverless-lane-above"]')
+          return (el?.textContent ?? "").replace(/\s+/g, " ").trim() || null
+        }),
+        more_pill: await page.evaluate(() => {
+          const root = document.querySelector('[data-testid="topology-estate-map-fullscreen"]')
+          const el = root?.querySelector('[data-testid="topology-serverless-lane-more"]')
+          return (el?.textContent ?? "").replace(/\s+/g, " ").trim() || null
+        }),
         header_overlaps: await railHeaderBadgeOverlaps(page),
       }
       report("fullscreen-inventory-scrolled", scrolled)
