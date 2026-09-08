@@ -1194,6 +1194,11 @@ export function AttackPathsV2({
             onSelectPath={handleSelectExfilPath}
             jewelName={selectedJewel?.name ?? null}
             loading={exfilLoading}
+            notApplicableReason={
+              exfilData?.applicability?.state === "NOT_APPLICABLE"
+                ? exfilData.applicability.reason
+                : null
+            }
           />
         ) : viewMode === "convergence" ? (
           <ConvergencePathList
