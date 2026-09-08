@@ -32,6 +32,7 @@ import type { CrownJewelSummary, IdentityAttackPath, IdentityAttackPathsResponse
 import {
   buildTopologyRiskCacheKey,
   buildTopologyRiskProxyUrl,
+  resolveTopologyScopeParams,
 } from "@/components/topology-v0-2/topology-scope-url"
 import { EVIDENCE_TIER_LABEL } from "@/lib/types/scope"
 import type { TopologyNode, TopologyRiskResponse } from "@/components/topology-v0-2/types"
@@ -185,17 +186,27 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
   }, [productScope.accountId, productScope.region, selectedAccountId])
 
   const scopedVpc = selectedVpcId === "all" ? null : selectedVpcId
-  const azScopeKey = `${selectedAccountId ?? "all"}:${selectedRegionId ?? "all"}:${scopedVpc ?? "all"}`
-  const [hiddenAzs, setHiddenAzs] = useState<string[]>([])
   const scopeParams = useMemo(
-    () => ({
-      customerId: productScope.customerId,
-      accountId: selectedAccountId,
-      region: selectedRegionId,
-      vpcId: scopedVpc,
-    }),
-    [productScope.customerId, selectedAccountId, selectedRegionId, scopedVpc],
+    () =>
+      resolveTopologyScopeParams(
+        { accountId: selectedAccountId, regionId: selectedRegionId, vpcId: scopedVpc },
+        {
+          customerId: productScope.customerId,
+          accountId: productScope.accountId,
+          region: productScope.region,
+        },
+      ),
+    [
+      productScope.customerId,
+      productScope.accountId,
+      productScope.region,
+      selectedAccountId,
+      selectedRegionId,
+      scopedVpc,
+    ],
   )
+  const azScopeKey = `${scopeParams.accountId ?? "all"}:${scopeParams.region ?? "all"}:${scopedVpc ?? "all"}`
+  const [hiddenAzs, setHiddenAzs] = useState<string[]>([])
   const cacheKey = buildTopologyRiskCacheKey(systemName, scopeParams)
   const url = buildTopologyRiskProxyUrl(systemName, scopeParams)
   const { data, loading, error, isStale, cachedAt, retry, isComputing } = useCachedFetch<TopologyRiskResponse>(url, {
@@ -230,9 +241,8 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     // Primary is VPC-scoped; fetch account/region once for Compare rails.
     let cancelled = false
     const mergedUrl = buildTopologyRiskProxyUrl(systemName, {
-      customerId: productScope.customerId,
-      accountId: selectedAccountId,
-      region: selectedRegionId,
+      ...scopeParams,
+      vpcId: null,
     })
     fetch(mergedUrl, { cache: "no-store" })
       .then(res => (res.ok ? res.json() : null))
@@ -245,9 +255,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     }
   }, [
     systemName,
-    productScope.customerId,
-    selectedAccountId,
-    selectedRegionId,
+    scopeParams,
     needsMergedTopology,
     primaryIsMerged,
     data,

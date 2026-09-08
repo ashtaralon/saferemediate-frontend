@@ -2,6 +2,7 @@ import {
   buildTopologyRiskCacheKey,
   buildTopologyRiskProxyUrl,
   buildTopologyRiskServerCacheKey,
+  resolveTopologyScopeParams,
 } from "@/components/topology-v0-2/topology-scope-url"
 
 describe("topology scope URLs", () => {
@@ -31,6 +32,48 @@ describe("topology scope URLs", () => {
         vpcId: "vpc-abc",
       }),
     ).toBe("topology-risk:testbed-webshop:alon-prod:v11:745783559495:eu-west-1:vpc-abc")
+  })
+
+  it("uses the product-bar account and region when map-local storage is empty", () => {
+    expect(
+      resolveTopologyScopeParams(
+        { accountId: null, regionId: null, vpcId: null },
+        { customerId: "testbed-webshop", accountId: "416651950952", region: "eu-west-1" },
+      ),
+    ).toEqual({
+      customerId: "testbed-webshop",
+      accountId: "416651950952",
+      region: "eu-west-1",
+      vpcId: null,
+    })
+  })
+
+  it("keeps an explicit map-local account over the product bar", () => {
+    expect(
+      resolveTopologyScopeParams(
+        { accountId: "111111111111", regionId: "us-east-1", vpcId: "vpc-1" },
+        { customerId: "testbed-webshop", accountId: "416651950952", region: "eu-west-1" },
+      ),
+    ).toEqual({
+      customerId: "testbed-webshop",
+      accountId: "111111111111",
+      region: "us-east-1",
+      vpcId: "vpc-1",
+    })
+  })
+
+  it("does not invent account or region from an unscoped product bar", () => {
+    expect(
+      resolveTopologyScopeParams(
+        { accountId: null, regionId: null, vpcId: null },
+        { customerId: "testbed-webshop", accountId: "all", region: "all" },
+      ),
+    ).toEqual({
+      customerId: "testbed-webshop",
+      accountId: null,
+      region: null,
+      vpcId: null,
+    })
   })
 
   it("builds server cache key aligned with BE dimensions", () => {
