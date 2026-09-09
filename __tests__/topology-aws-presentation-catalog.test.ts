@@ -22,11 +22,14 @@ import {
   awsIconIsFamilyFallback,
   awsIconSlug,
   awsIconUrl,
-  awsPlacementScope,
   awsPresentation,
   awsServiceFullName,
   awsServiceLabel,
+  awsServiceScope,
 } from "@/components/topology-v0-2/aws-architecture-icons"
+import type { AwsServiceScope } from "@/components/topology-v0-2/aws-architecture-icons"
+import { PLACEMENT_RULES, mapSlotForType } from "@/components/topology-v0-2/estate-placement"
+import type { MapSlot } from "@/components/topology-v0-2/estate-placement"
 
 const { CATALOG, ALIASES } = __catalogForTest
 
@@ -50,6 +53,7 @@ const VERIFIED_SLUGS = new Set([
   "aws-amazon-eventbridge",
   "aws-amazon-neptune",
   "aws-amazon-rds",
+  "aws-amazon-redshift",
   "aws-amazon-route-53",
   "aws-amazon-simple-notification-service",
   "aws-amazon-simple-queue-service",
@@ -57,6 +61,7 @@ const VERIFIED_SLUGS = new Set([
   "aws-amazon-virtual-private-cloud",
   "aws-aws-cloudtrail",
   "aws-aws-config",
+  "aws-aws-fargate",
   "aws-aws-identity-and-access-management",
   "aws-aws-key-management-service",
   "aws-aws-lambda",
@@ -107,6 +112,7 @@ const VERIFIED_SLUGS = new Set([
   "aws-res-aws-organizations-account",
   "aws-res-aws-organizations-organizational-unit",
   "aws-res-elastic-load-balancing-application-load-balancer",
+  "aws-res-elastic-load-balancing-gateway-load-balancer",
   "aws-res-elastic-load-balancing-network-load-balancer",
 ])
 
@@ -170,8 +176,8 @@ describe("backend type vocabulary is fully covered", () => {
     expect(unresolved).toEqual([])
   })
 
-  it("gives every emitted type a placement scope", () => {
-    const unplaceable = BACKEND_EMITTED_TYPES.filter((t) => !awsPlacementScope(t))
+  it("gives every emitted type a service scope", () => {
+    const unplaceable = BACKEND_EMITTED_TYPES.filter((t) => !awsServiceScope(t))
     expect(unplaceable).toEqual([])
   })
 
@@ -221,48 +227,159 @@ describe("graph twins fold onto one canonical type", () => {
   })
 })
 
-describe("placement follows the AWS canonical nesting", () => {
+describe("service scope follows the AWS canonical nesting", () => {
   it("puts regional services outside the VPC, not in a subnet", () => {
     // Drawing an S3 bucket or a DynamoDB table inside a subnet is the
     // classic wrong AWS diagram; both are reached over an endpoint.
     for (const t of ["S3", "S3Bucket", "DynamoDB", "SQS", "SNSTopic",
                      "EventBridge", "StepFunction", "APIGateway"]) {
-      expect(awsPlacementScope(t)).toBe("regional")
+      expect(awsServiceScope(t)).toBe("regional")
     }
   })
 
   it("puts VPC-level gateways on the boundary", () => {
     for (const t of ["InternetGateway", "IGW", "NATGateway", "NAT",
                      "VPCEndpoint", "VPCE"]) {
-      expect(awsPlacementScope(t)).toBe("vpc-boundary")
+      expect(awsServiceScope(t)).toBe("vpc-boundary")
     }
   })
 
   it("puts IAM and Organizations outside the region", () => {
     for (const t of ["IAMRole", "IAMPolicy", "IAMUser", "InstanceProfile",
                      "Organization", "SCP"]) {
-      expect(awsPlacementScope(t)).toBe("global")
+      expect(awsServiceScope(t)).toBe("global")
     }
   })
 
   it("keeps compute and databases in a subnet", () => {
     for (const t of ["EC2", "RDS", "Neptune", "NetworkInterface",
-                     "LoadBalancer", "NLB"]) {
-      expect(awsPlacementScope(t)).toBe("in-subnet")
+                     "LoadBalancer", "NLB", "Redshift", "RedshiftCluster"]) {
+      expect(awsServiceScope(t)).toBe("in-subnet")
     }
+  })
+
+  it("keeps container compute in a subnet, but not a task definition", () => {
+    // A cluster's control plane is regional; its tasks get an ENI in a subnet
+    // you chose, and the task is what a reader is looking for on this map.
+    // These read `regional` when the catalog was written, contradicting the
+    // placement authority, which draws them in the app tier — a subnet cell.
+    for (const t of ["ECS", "ECSCluster", "ECSService", "ECSTask",
+                     "EKS", "EKSCluster", "K8sCluster", "Fargate"]) {
+      expect(awsServiceScope(t)).toBe("in-subnet")
+    }
+    // A task definition is a versioned registry document — no ENI, no subnet.
+    expect(awsServiceScope("TaskDefinition")).toBe("regional")
   })
 
   it("leaves Lambda placement to the graph", () => {
     // Most Lambdas have no VPC config. Claiming a subnet for them would be
     // network placement with no evidence behind it.
-    expect(awsPlacementScope("Lambda")).toBe("vpc-conditional")
-    expect(awsPlacementScope("LambdaFunction")).toBe("vpc-conditional")
+    expect(awsServiceScope("Lambda")).toBe("vpc-conditional")
+    expect(awsServiceScope("LambdaFunction")).toBe("vpc-conditional")
   })
 
   it("treats frames as containers, never as nodes", () => {
     for (const t of ["VPC", "Subnet", "SecurityGroup", "Account"]) {
-      expect(awsPlacementScope(t)).toBe("container")
+      expect(awsServiceScope(t)).toBe("container")
     }
+  })
+})
+
+/**
+ * The seam between the two tables.
+ *
+ * There are two contracts about where a node belongs, and they are NOT
+ * duplicates: `estate-placement.ts` owns the MapSlot a node is DRAWN in and is
+ * what the renderer consumes; this catalog's `scope` says what AWS says the
+ * service IS. They answer different questions and legitimately diverge — so the
+ * risk is not that they differ, it is that they differ in a way NOBODY DECIDED.
+ *
+ * This block is the ratchet on that. It derives its type list from the two
+ * tables' own keys rather than a hand-written list, because a hand-written list
+ * is how EKS/Fargate/Redshift stayed invisible: an earlier census typed out 62
+ * types by hand, missed those, and reported 2 contradictions where there were 4.
+ */
+describe("the two placement contracts stay reconciled", () => {
+  /** Slots that draw a chip INSIDE an AZ x subnet-tier cell. */
+  const SUBNET_CELL_SLOTS = new Set<MapSlot>(["web", "app", "data"])
+
+  /**
+   * The scope each slot structurally implies. Read off the renderer, not
+   * guessed: the ingress band is built at aws-frame.tsx `albBand` and rendered
+   * ABOVE the AZ grid spanning its full width ("never inside a single AZ's tier
+   * cell"), so `ingress` asserts in-VPC but NOT in-subnet; `serverless` is the
+   * runtime lane outside the subnet grid.
+   */
+  const NATURAL_SCOPE: Partial<Record<MapSlot, readonly AwsServiceScope[]>> = {
+    web: ["in-subnet"],
+    app: ["in-subnet"],
+    data: ["in-subnet"],
+    ingress: ["in-subnet"],
+    serverless: ["vpc-conditional"],
+    triggers: ["regional"],
+    regional: ["regional"],
+    boundary: ["vpc-boundary"],
+    // `hidden` draws nothing, so it makes no structural claim to contradict.
+  }
+
+  /**
+   * Divergences that are deliberate. API Gateway IS regional — it lives outside
+   * every VPC and is reached over an endpoint — and it is DRAWN in the ingress
+   * band because that is where a reader looks for the front door. The band is
+   * not a subnet, so nothing dishonest is asserted by that pairing.
+   */
+  const ACCEPTED_DIVERGENCES = new Set(["APIGateway", "ApiGateway", "APIGATEWAY"])
+
+  const ALL_KNOWN_TYPES = [
+    ...new Set([
+      ...Object.keys(CATALOG),
+      ...Object.keys(ALIASES),
+      ...PLACEMENT_RULES.flatMap((r) => r.types),
+    ]),
+  ].sort()
+
+  it("knows a non-trivial number of types (guards against an empty sweep)", () => {
+    // Without this, a broken derivation turns every assertion below into a
+    // sweep over nothing that passes by vacuum.
+    expect(ALL_KNOWN_TYPES.length).toBeGreaterThan(90)
+  })
+
+  it("never draws a chip in a subnet cell for a service that is not subnet-bound", () => {
+    // The strongest honesty claim on this map: a chip inside an AZ x tier cell
+    // says "this thing has an address in that subnet". If the catalog says the
+    // service is regional or global, the map is asserting a network position
+    // the service cannot have.
+    const contradictions = ALL_KNOWN_TYPES.filter((t) => {
+      const scope = awsServiceScope(t)
+      return scope !== null
+        && SUBNET_CELL_SLOTS.has(mapSlotForType(t))
+        && scope !== "in-subnet"
+    })
+    expect(contradictions).toEqual([])
+  })
+
+  it("can name every type the placement authority places", () => {
+    // A type the authority places but the catalog cannot name renders as
+    // "type unresolved" while still being drawn in a tier — placed and
+    // anonymous. Redshift, Fargate, ECSTask and GatewayLoadBalancer were all
+    // in exactly that state.
+    const placedButUnnamed = ALL_KNOWN_TYPES.filter(
+      (t) => mapSlotForType(t) !== "hidden" && awsServiceScope(t) === null,
+    )
+    expect(placedButUnnamed).toEqual([])
+  })
+
+  it("has no slot/scope divergence beyond the ones on record", () => {
+    const diverging = ALL_KNOWN_TYPES.filter((t) => {
+      const scope = awsServiceScope(t)
+      const natural = NATURAL_SCOPE[mapSlotForType(t)]
+      if (!scope || !natural) return false
+      return !natural.includes(scope) && !ACCEPTED_DIVERGENCES.has(t)
+    })
+    // A new name here is not automatically a bug — it is a decision that has
+    // not been made yet. Either correct the table that is wrong, or add the
+    // type to ACCEPTED_DIVERGENCES with the reason it is honest.
+    expect(diverging).toEqual([])
   })
 })
 
@@ -272,7 +389,7 @@ describe("honest states", () => {
                      "", null, undefined]) {
       expect(awsPresentation(t as string)).toBeNull()
       expect(awsIconUrl(t as string)).toBeNull()
-      expect(awsPlacementScope(t as string)).toBeNull()
+      expect(awsServiceScope(t as string)).toBeNull()
       expect(awsCategory(t as string)).toBeNull()
     }
   })

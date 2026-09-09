@@ -40,15 +40,28 @@
  * header can fit ("ALB"). They are different jobs; collapsing them either
  * overflows the chip or lies in the tooltip.
  *
- * WHAT `scope` IS FOR
- * -------------------
- * AWS's reference diagrams nest Region > VPC > AZ > Subnet type > Subnet >
- * Resources, and an icon is meaningless without knowing WHICH frame it
- * belongs in. S3 is not "in" a subnet; an Internet Gateway sits ON the VPC
- * boundary; IAM is global. `scope` is that fact, and the renderer places by
- * it. Where the answer is data-dependent — a Lambda is in-VPC only if it has
- * a VPC config — the scope is `vpc-conditional` and the renderer MUST read
- * the graph rather than assume.
+ * `scope` IS NOT A PLACEMENT INSTRUCTION — READ THIS BEFORE USING IT
+ * ------------------------------------------------------------------
+ * `estate-placement.ts` is the placement authority. Its `MapSlot` /
+ * `mapSlotForType` / `resolveNodePlacement` decide where a node is DRAWN, they
+ * are what the renderer already consumes, and they must stay the only answer to
+ * that question. This file must never become a second one.
+ *
+ * `scope` answers a different question: what AWS says the service IS. S3 is not
+ * "in" a subnet; an Internet Gateway sits ON the VPC boundary; IAM is global.
+ * That is a fact about the service, useful for tooltips, docs and honesty
+ * checks — not a canvas coordinate.
+ *
+ * The two legitimately diverge, which is exactly why they must not be merged:
+ * API Gateway IS regional (`scope: "regional"`) and is DRAWN in the ingress
+ * band above the AZ grid (`slot: "ingress"`), because that is where a reader
+ * looks for the front door. `__tests__/topology-aws-presentation-catalog.test.ts`
+ * pins the known divergences, so a NEW one fails CI instead of quietly becoming
+ * a contradiction between two tables.
+ *
+ * Where the answer is data-dependent — a Lambda is in-VPC only if it has a VPC
+ * config — the scope is `vpc-conditional`, meaning: the graph decides, not this
+ * table and not a default.
  *
  * HONESTY (CLAUDE.md rule #1)
  * ---------------------------
@@ -68,9 +81,12 @@
 
 const CDN = "https://thesvg.org/icons"
 
-/** Where a service is drawn, relative to the AWS canonical nesting. */
-export type AwsPlacementScope =
-  /** Inside an AZ × tier cell — needs a resolved subnet to place. */
+/**
+ * What AWS says a service IS, relative to the canonical Region > VPC > AZ >
+ * subnet nesting. NOT where the map draws it — `estate-placement.ts` owns that.
+ */
+export type AwsServiceScope =
+  /** VPC-bound: it occupies a subnet, so placing it needs a resolved subnet. */
   | "in-subnet"
   /** Drawn ON the VPC edge: IGW, NAT GW, VPC endpoints. */
   | "vpc-boundary"
@@ -105,7 +121,7 @@ export interface AwsServicePresentation {
    *  the parent service because AWS ships none for the resource itself. */
   precision: "exact" | "family" | "none"
   category: AwsCategory
-  scope: AwsPlacementScope
+  scope: AwsServiceScope
   /** Precise AWS service name — for tooltips and detail panels. */
   name: string
   /** Compact family label — for stack chips and lane headers. */
@@ -160,11 +176,21 @@ const CATALOG: Record<string, AwsServicePresentation> = {
   },
 
   // ------------------------------------------------------------- containers
+  //
+  // A cluster's CONTROL PLANE is regional and AWS-managed; its COMPUTE is not.
+  // In `awsvpc` mode (the only mode Fargate supports) every task gets an ENI in
+  // a subnet you chose, which is a real network position — and it is the task,
+  // not the API endpoint, that a security reader is looking for on this map.
+  // So the container family is `in-subnet`: subnet-bound, and if the graph has
+  // no subnet for a given cluster the answer is the unplaced area, not a guess.
+  // These four read `regional` when this catalog was first written, which put
+  // them in direct contradiction with `estate-placement.ts` — it draws them in
+  // the app tier, i.e. inside a subnet cell. That was this file's error.
   ECS: {
     slug: "aws-amazon-elastic-container-service",
     precision: "exact",
     category: "containers",
-    scope: "regional",
+    scope: "in-subnet",
     name: "ECS Cluster",
     short: "ECS",
   },
@@ -176,6 +202,24 @@ const CATALOG: Record<string, AwsServicePresentation> = {
     name: "ECS Service",
     short: "ECS Service",
   },
+  ECSTask: {
+    slug: "aws-res-amazon-elastic-container-service-task",
+    precision: "exact",
+    category: "containers",
+    scope: "in-subnet",
+    name: "ECS Task",
+    short: "ECS Task",
+  },
+  Fargate: {
+    slug: "aws-aws-fargate",
+    precision: "exact",
+    category: "containers",
+    scope: "in-subnet",
+    name: "AWS Fargate",
+    short: "Fargate",
+  },
+  // A task DEFINITION is the exception: a versioned registry document, not a
+  // running thing. It has no ENI and no subnet, so it stays regional.
   TaskDefinition: {
     slug: "aws-res-amazon-elastic-container-service-task",
     precision: "exact",
@@ -188,7 +232,7 @@ const CATALOG: Record<string, AwsServicePresentation> = {
     slug: "aws-amazon-elastic-kubernetes-service",
     precision: "exact",
     category: "containers",
-    scope: "regional",
+    scope: "in-subnet",
     name: "EKS Cluster",
     short: "EKS",
   },
@@ -245,6 +289,14 @@ const CATALOG: Record<string, AwsServicePresentation> = {
     name: "DocumentDB",
     short: "DocumentDB",
   },
+  Redshift: {
+    slug: "aws-amazon-redshift",
+    precision: "exact",
+    category: "database",
+    scope: "in-subnet",
+    name: "Redshift Cluster",
+    short: "Redshift",
+  },
   DynamoDB: {
     slug: "aws-amazon-dynamodb",
     precision: "exact",
@@ -270,6 +322,14 @@ const CATALOG: Record<string, AwsServicePresentation> = {
     scope: "in-subnet",
     name: "Network Load Balancer",
     short: "NLB",
+  },
+  GatewayLoadBalancer: {
+    slug: "aws-res-elastic-load-balancing-gateway-load-balancer",
+    precision: "exact",
+    category: "networking",
+    scope: "in-subnet",
+    name: "Gateway Load Balancer",
+    short: "GWLB",
   },
   LoadBalancerListener: {
     slug: "aws-res-elastic-load-balancing-application-load-balancer",
@@ -642,6 +702,7 @@ const ALIASES: Record<string, string> = {
   DocDB: "DocumentDB",
   DocDBCluster: "DocumentDB",
   DocDBInstance: "DocumentDB",
+  RedshiftCluster: "Redshift",
   DynamoDBTable: "DynamoDB",
 
   // networking
@@ -709,9 +770,9 @@ export function awsIconUrl(type: string | null | undefined): string | null {
  * unrecognized type — the caller sends those to the explicit unplaced area
  * instead of dropping them or guessing a cell.
  */
-export function awsPlacementScope(
+export function awsServiceScope(
   type: string | null | undefined,
-): AwsPlacementScope | null {
+): AwsServiceScope | null {
   return awsPresentation(type)?.scope ?? null
 }
 

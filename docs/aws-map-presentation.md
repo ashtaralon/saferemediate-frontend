@@ -76,8 +76,54 @@ which reads as a rendering bug.
 
 ## 2. Placement, as data
 
-Nesting is only useful if the renderer knows which frame each service belongs
-in, so every catalog entry carries a `scope`:
+### Who owns placement: two tables, one authority
+
+`components/topology-v0-2/estate-placement.ts` is the placement authority. Its
+`MapSlot` / `mapSlotForType` / `resolveNodePlacement` decide where a node is
+**drawn**, they are what the renderer already consumes, and they are the only
+answer to that question.
+
+The catalog's `scope` is **not** a second answer. It records what AWS says a
+service **is**, relative to the canonical nesting — which is a different
+question, and the two legitimately diverge. API Gateway *is* regional (outside
+every VPC, reached over an endpoint) and is *drawn* in the ingress band, because
+that is where a reader looks for the front door. Nothing dishonest is asserted
+by that pairing, because the ingress band renders above the AZ grid spanning its
+full width and is not a subnet.
+
+Recorded because this was got wrong on the first pass. `scope` was added without
+grepping for prior art, so for a while the repo had two tables that both looked
+like placement, nothing consumed the new one, and they disagreed about four
+types. The reconciliation: rename to `AwsServiceScope` / `awsServiceScope`, state
+in the file header that it is not a placement instruction, and put a guard on the
+seam — `__tests__/topology-aws-presentation-catalog.test.ts` now asserts that no
+type is drawn in a subnet cell unless its scope is `in-subnet`, that every type
+the authority places is nameable by the catalog, and that the only slot-vs-scope
+divergence on record is API Gateway's. A *new* divergence fails CI, where before
+it would have quietly become a contradiction between two tables.
+
+That guard derives its type list from the two tables' own keys. The hand-typed
+census it replaced missed `EKS`, `EKSCluster`, `Fargate`, `Redshift`,
+`RedshiftCluster`, `ECSTask` and `GatewayLoadBalancer` — and so reported 2
+contradictions where there were 4, and no coverage hole where there were 5 types
+the authority placed in a tier while the catalog could not name them at all.
+
+Two real defects came out of it, both in the catalog rather than the authority:
+
+- **The ECS/EKS family read `regional`.** A cluster's *control plane* is
+  regional; its *compute* is not — in `awsvpc` mode (the only mode Fargate
+  supports) every task gets an ENI in a subnet you chose, and the task is what a
+  security reader is looking for. They are now `in-subnet`, agreeing with the
+  authority, which draws them in the app tier. `TaskDefinition` stays `regional`:
+  a versioned registry document has no ENI.
+- **Five placed types had no catalog entry at all** — placed in a tier and
+  rendering as "type unresolved". `Redshift`/`RedshiftCluster`, `Fargate`,
+  `ECSTask` and `GatewayLoadBalancer` now carry their own official icons (all
+  four slugs CDN-verified with controls before use).
+
+### The scope vocabulary
+
+Every catalog entry carries a `scope`:
 
 | `scope` | Drawn | Examples |
 |---|---|---|
@@ -231,11 +277,19 @@ not by colour. `__tests__/topology-frame-nesting-grammar.test.tsx` now asserts
 the ancestry and both strokes, and was checked to fail on the slate value it
 replaced.
 
+Also done: the two-table reconciliation in §2 — `AwsServiceScope` renamed away
+from the placement name it was squatting on, the seam guard that fails CI on a
+new divergence, the ECS/EKS scope correction, and the four missing services.
+Both new guards were checked by reintroducing the defect and watching them fail
+(`ECS`/`ECSCluster` and `Redshift`/`RedshiftCluster` respectively), not just by
+being green.
+
 Not done in this change: the renderer does not yet *consume* `scope`.
-`aws-frame.tsx` still places nodes by its existing logic, so §2 is a contract
-the catalog now exposes and the frame has yet to read. Wiring it — the AZ ×
-tier grid, the boundary lane, the regional and global lanes, and the explicit
-unplaced area — is the next step.
+`aws-frame.tsx` still places nodes by `estate-placement.ts` alone, so the scope
+column is a contract the catalog exposes and the frame has yet to read. Wiring it
+— the boundary lane, the regional and global lanes, and the explicit unplaced
+area — is the next step, and the placement defect that makes it urgent is
+recorded in §7.
 
 ### The delivery chain is healthy — so "I still see the old map" is a code gap
 
@@ -263,3 +317,44 @@ a gap in main's code — which is how the slate region frame above was found.
 
 Use `GET /api/build-version` before diagnosing a "stale UI"; it is cheaper than
 reasoning about Vercel and it answers the actual question.
+
+---
+
+## 7. The placement defect the scope column exists to fix
+
+Measured, not read. A probe rendered `AwsFrame` with nodes the graph cannot
+place and asserted on what reached the DOM, with a control node that *can* be
+placed so an all-absent result could not be mistaken for a broken probe.
+
+| Probe node | Why it can't be placed | Rendered? |
+|---|---|---|
+| `EC2` with a `subnet_id` absent from `subnets` | dangling subnet reference | **present** — in an arbitrary AZ |
+| `EC2` with `subnet_id: null` | no subnet in the graph | **present** — in an arbitrary AZ |
+| `Neptune`, `EKS`, `DocumentDB`, no subnet | no subnet in the graph | **present** — in an arbitrary AZ |
+| `QuantumLedger` (type in no table) | type unresolved | **absent** — silently dropped |
+| `PROBE-control-placed` (real subnet) | — | present (control) |
+
+Two distinct failures, and the first is the worse one:
+
+**A guessed AZ is drawn as a fact.** `pickSyntheticAz` (aws-frame.tsx:4118)
+falls back through "any subnet in this tier" → "any subnet at all" →
+`[...byAzAndTier.keys()][0]`, the first AZ in map-iteration order. A node with no
+subnet in the graph is therefore drawn inside a specific AZ × tier cell, which is
+the map's strongest structural claim, on no evidence. Nothing marks it as
+inferred. This is the "never fabricate" rule breaking in the one place that is
+hardest to notice, because a chip in a plausible cell looks like data.
+
+**A node the map can't place vanishes.** `computeCanvasGrid` declares
+`unplacedNodes` (4114), pushes to it (4196), sorts it (4205) — and then omits it
+from the returned object (4226), along with `serverlessNodes` (4113). The code's
+own comment already says such a node "falls through to the unplaced bucket and
+disappears from the map". The bucket is real, it is filled, and no caller can
+read it.
+
+Both are the same mistake in opposite directions: the map answers "I don't know
+where this is" with either a confident guess or with silence, and never with "I
+don't know". The chosen fix is an **explicit unplaced area outside the AZ grid** —
+the honest empty state, with the node visible and its reason stated
+(`no subnet in graph`, `subnet not found`, `type unresolved`) — plus an
+**engineer placement override** for the cases a human can resolve, recorded as
+operator provenance and never written back as a graph fact (§4).
