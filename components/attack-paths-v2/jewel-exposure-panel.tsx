@@ -101,6 +101,7 @@ export interface JewelExposureResponse {
     nacls: Array<{ id: string; name: string }>
   }
   data_plane: {
+    resource_type?: string | null
     encryption_at_rest: any
     versioning: any
     public_access_block: any
@@ -108,6 +109,16 @@ export interface JewelExposureResponse {
     is_public: boolean | null
     is_sensitive_data: boolean | null
     criticality: string | null
+    engine?: string | null
+    engine_version?: string | null
+    publicly_accessible?: boolean | null
+    storage_encrypted?: boolean | null
+    deletion_protection?: boolean | null
+    backup_retention_period?: number | null
+    multi_az?: boolean | null
+    port?: number | null
+    db_subnet_group_name?: string | null
+    kms_key_id?: string | null
   }
   generated_at: string
   // Slice 8 — exposure-diff timeline. Present only when the request
@@ -390,9 +401,9 @@ export function JewelExposurePanel({ jewel, systemName }: JewelExposurePanelProp
           tone="text-emerald-700 dark:text-emerald-300"
           bg="bg-emerald-500/5 border-emerald-500/20"
           count={null}
-          subtitle="bucket-level controls"
+          subtitle={dataPlaneSubtitle(data.data_plane.resource_type ?? data.jewel.type)}
         >
-          <DataPlaneRow dp={data.data_plane} />
+          <DataPlaneRow dp={data.data_plane} jewelType={data.jewel.type} />
         </LaneCard>
       </div>
     </div>
@@ -734,7 +745,38 @@ function NetworkSummary({ network }: { network: JewelExposureResponse["network"]
   )
 }
 
-function DataPlaneRow({ dp }: { dp: JewelExposureResponse["data_plane"] }) {
+function dataPlaneSubtitle(jewelType: string | null | undefined) {
+  if (jewelType?.startsWith("RDS")) return "database-level controls"
+  if (jewelType === "KMSKey") return "key-level controls"
+  if (jewelType === "DynamoDBTable") return "table-level controls"
+  if (jewelType === "S3Bucket") return "bucket-level controls"
+  return "resource-level controls"
+}
+
+function DataPlaneRow({
+  dp,
+  jewelType,
+}: {
+  dp: JewelExposureResponse["data_plane"]
+  jewelType: string | null
+}) {
+  const kind = dp.resource_type ?? jewelType
+  if (kind?.startsWith("RDS")) {
+    return (
+      <div className="grid grid-cols-2 gap-2 text-[10px]">
+        <DPCell label="Storage encrypted" value={dp.storage_encrypted} />
+        <DPCell label="Publicly accessible" value={dp.publicly_accessible} goodWhenFalse />
+        <DPCell label="Deletion protection" value={dp.deletion_protection} />
+        <DPCell label="Multi-AZ" value={dp.multi_az} />
+        <DPCell label="Backup retention (days)" value={dp.backup_retention_period} />
+        <DPCell label="Engine" value={[dp.engine, dp.engine_version].filter(Boolean).join(" ") || null} />
+        <DPCell label="Port" value={dp.port} />
+        <DPCell label="DB subnet group" value={dp.db_subnet_group_name} />
+        <DPCell label="KMS key" value={dp.kms_key_id} />
+        <DPCell label="Criticality" value={dp.criticality} />
+      </div>
+    )
+  }
   return (
     <div className="grid grid-cols-2 gap-2 text-[10px]">
       <DPCell label="Encryption at rest" value={dp.encryption_at_rest} okWhen="set" />
@@ -877,9 +919,10 @@ function ChangeRow({ change }: { change: ExposureChange }) {
   )
 }
 
-function DPCell({ label, value, okWhen }: { label: string; value: any; okWhen?: string }) {
+function DPCell({ label, value, goodWhenFalse = false }: { label: string; value: any; goodWhenFalse?: boolean; okWhen?: string }) {
   const isNull = value === null || value === undefined
-  const tone = isNull ? "text-muted-foreground" : value === true ? "text-emerald-700 dark:text-emerald-300" : value === false ? "text-red-700 dark:text-red-300" : "text-foreground"
+  const booleanIsGood = typeof value === "boolean" && (goodWhenFalse ? !value : value)
+  const tone = isNull ? "text-muted-foreground" : typeof value === "boolean" ? (booleanIsGood ? "text-emerald-700 dark:text-emerald-300" : "text-red-700 dark:text-red-300") : "text-foreground"
   const display =
     isNull ? "not set" : typeof value === "boolean" ? (value ? "✓" : "✗") : String(value)
   return (

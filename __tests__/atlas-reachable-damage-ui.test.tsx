@@ -10,6 +10,7 @@ vi.mock("next/dynamic", () => ({
 }))
 
 import { AtlasLateralFlowMap } from "@/components/attack-paths-v2/atlas-lateral-flow-map"
+import { AtlasLateralChainCanvas } from "@/components/attack-paths-v2/atlas-lateral-lens"
 import type {
   AtlasFootholdCandidate,
   AtlasLateralResponse,
@@ -145,5 +146,31 @@ describe("ATLAS reachable-damage UI", () => {
     expect(screen.getByTestId("atlas-reachable-damage")).toHaveTextContent("scp_not_evaluated")
     expect(screen.getByTestId("atlas-reachable-damage")).toHaveTextContent("Scope s3:DeleteObject")
     expect(screen.getByTestId("traffic-flow-map-stub")).toBeInTheDocument()
+  })
+
+  it("states when every eligible compute service was evaluated with no lateral route", () => {
+    render(
+      <AtlasLateralChainCanvas
+        selectedFoothold={foothold}
+        response={{ ...response, chains: [], dead_ends: [{ dead_end_id: "dead-1", exhaustion_reason: "no_transition" }] }}
+        loading={false}
+        jewelName="orders-db"
+        evaluation={{
+          coverage_state: "READY",
+          eligible_count: 11,
+          evaluated_count: 11,
+          reachable_count: 0,
+          dead_end_count: 11,
+          error_count: 0,
+          not_evaluated_count: 0,
+        }}
+        recommendedFoothold={null}
+        onSelectFoothold={() => undefined}
+      />,
+    )
+
+    expect(screen.getByText("No lateral route found from any eligible compute service to orders-db")).toBeInTheDocument()
+    expect(screen.getByText(/evaluated all 11 eligible compute services/)).toBeInTheDocument()
+    expect(screen.getByText(/does not describe legitimate current access/)).toBeInTheDocument()
   })
 })

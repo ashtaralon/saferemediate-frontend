@@ -238,12 +238,24 @@ export function AtlasLateralChainCanvas({
     return <div className="flex h-full min-h-[360px] items-center justify-center text-[12px] text-muted-foreground">Simulation evidence unavailable.</div>
   }
   if (response.chains.length === 0) {
+    const noReachableSummary = evaluation
+      && evaluation.evaluated_count === evaluation.eligible_count
+      && evaluation.eligible_count > 0
+      && evaluation.reachable_count === 0
+      ? `ATLAS evaluated all ${evaluation.eligible_count} eligible compute services and found no replay-validated chain under catalog ${response.catalog_version}. This does not describe legitimate current access.`
+      : null
     return (
       <div className="flex h-full min-h-[360px] flex-col items-center justify-center px-6 text-center">
         <ShieldCheck className="h-7 w-7 text-emerald-600" />
-        <p className="mt-2 text-sm font-semibold text-foreground">No modeled chain from {selectedFoothold.workload_name} to {jewelName}</p>
+        <p className="mt-2 text-sm font-semibold text-foreground">
+          {noReachableSummary
+            ? `No lateral route found from any eligible compute service to ${jewelName}`
+            : `No lateral route found from ${selectedFoothold.workload_name} to ${jewelName}`}
+        </p>
         <p className="mt-1 max-w-xl text-[11px] text-muted-foreground">
-          This result applies to the selected foothold—not every service. ATLAS explored {response.dead_ends.length} dead ends under catalog {response.catalog_version}.
+          {noReachableSummary
+            ? noReachableSummary
+            : `This result applies only to the selected foothold. ATLAS explored ${response.dead_ends.length} dead ends under catalog ${response.catalog_version}.`}
         </p>
         {evaluation && evaluation.reachable_count > 0 && recommendedFoothold ? (
           <button

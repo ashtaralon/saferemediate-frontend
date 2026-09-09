@@ -103,6 +103,37 @@ describe('AP3-105 exposure serve state', () => {
     expect(screen.queryByText('Not computed yet')).toBeNull()
   })
 
+  it('renders RDS controls instead of S3 bucket controls', () => {
+    mount(body({
+      serve_state: 'READY',
+      coverage_state: 'READY',
+      jewel: {
+        id: 'arn:aws:rds:eu-west-1:416651950952:cluster:cyntro-tb-prod-aurora',
+        name: 'cyntro-tb-prod-aurora',
+        type: 'RDSCluster',
+        system_name: 'testbed-webshop',
+        is_active: true,
+      },
+      data_plane: {
+        resource_type: 'RDSCluster',
+        storage_encrypted: true,
+        publicly_accessible: false,
+        deletion_protection: true,
+        multi_az: true,
+        backup_retention_period: 7,
+        engine: 'aurora-postgresql',
+        engine_version: '16.3',
+        port: 5432,
+        db_subnet_group_name: 'private-data',
+      },
+    }))
+    expect(screen.getByText('database-level controls')).toBeTruthy()
+    expect(screen.getByText('Storage encrypted')).toBeTruthy()
+    expect(screen.getByText('Publicly accessible')).toBeTruthy()
+    expect(screen.queryByText('Bucket policy')).toBeNull()
+    expect(screen.queryByText('Public access block')).toBeNull()
+  })
+
   it('still shows the loading state rather than the not-ready state', () => {
     mocks.useCachedFetch.mockReturnValue({ data: null, loading: true, error: null })
     render(<JewelExposurePanel jewel={JEWEL} systemName="testbed-webshop" />)
