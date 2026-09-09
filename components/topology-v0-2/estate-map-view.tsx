@@ -46,6 +46,13 @@ import {
   SERVERLESS_TYPES,
 } from "@/components/topology-v0-2/estate-placement"
 import {
+  EMPTY_SCOPED_OVERRIDES,
+  loadScopedOverrides,
+  persistScopedOverrides,
+  readScopedOverrides,
+  updateScopedOverrides,
+} from "@/components/topology-v0-2/placement-overrides"
+import {
   buildTopologyNodeIdIndex,
   buildVisibleCanvasIds,
   attackPathEdgesToTrafficEdges,
@@ -217,6 +224,12 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
   )
   const azScopeKey = `${scopeParams.accountId ?? "all"}:${scopeParams.region ?? "all"}:${scopedVpc ?? "all"}`
   const [hiddenAzs, setHiddenAzs] = useState<string[]>([])
+  // Engineer placement overrides for nodes the graph cannot place. Same
+  // scope key and same localStorage convention as `hiddenAzs` — an operator
+  // preference, never a graph fact. The state carries the scope it was loaded
+  // for, and `placement-overrides.ts` owns the rule that a scope's overrides
+  // are only ever read and written under that same scope.
+  const [placementState, setPlacementState] = useState(EMPTY_SCOPED_OVERRIDES)
   const payloadVpcRef = useRef<string | null>(null)
   const fetchVpcRef = useRef<string | null>(openingScope.vpcId ?? null)
   const fetchVpcId = resolveTopologyFetchVpcId({
@@ -374,6 +387,27 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     if (typeof window === "undefined") return
     window.localStorage.setItem(azStorageKey(systemName, azScopeKey), JSON.stringify(hiddenAzs))
   }, [hiddenAzs, systemName, azScopeKey])
+
+  // Load on scope change, persist on change. Not merged across scopes — an AZ
+  // in one account's VPC is not an AZ in another's.
+  const placementOverrides = readScopedOverrides(placementState, systemName, azScopeKey)
+
+  useEffect(() => {
+    setPlacementState(loadScopedOverrides(systemName, azScopeKey))
+  }, [systemName, azScopeKey])
+
+  useEffect(() => {
+    persistScopedOverrides(placementState, systemName, azScopeKey)
+  }, [placementState, systemName, azScopeKey])
+
+  // `cell === null` clears. The picker hands us a fully-formed target or
+  // nothing; a partial one is refused there rather than half-written here.
+  const handlePlaceNode = useCallback(
+    (nodeId: string, cell: { vpc_id: string; az: string; tier: "web" | "app" | "data" } | null) => {
+      setPlacementState(prev => updateScopedOverrides(prev, systemName, azScopeKey, nodeId, cell))
+    },
+    [systemName, azScopeKey],
+  )
 
   // Default-collapse empty AZs once per scope, only on first data load with no
   // prior user preference. Never hides ALL AZs. The AZ chips + "Show all AZs"
@@ -1312,6 +1346,8 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
       nodes={filteredNodes}
       mergedVpcView={!scopedVpc}
       hiddenAzs={hiddenAzs}
+      placementOverrides={placementOverrides}
+      onPlaceNode={handlePlaceNode}
       serverlessSourceNodes={filteredServerlessSource}
       regionalDataSourceNodes={filteredRegionalSource}
       trafficEdges={scopedTrafficEdges}

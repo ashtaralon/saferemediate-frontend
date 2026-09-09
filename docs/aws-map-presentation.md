@@ -284,12 +284,19 @@ Both new guards were checked by reintroducing the defect and watching them fail
 (`ECS`/`ECSCluster` and `Redshift`/`RedshiftCluster` respectively), not just by
 being green.
 
-Not done in this change: the renderer does not yet *consume* `scope`.
-`aws-frame.tsx` still places nodes by `estate-placement.ts` alone, so the scope
-column is a contract the catalog exposes and the frame has yet to read. Wiring it
-— the boundary lane, the regional and global lanes, and the explicit unplaced
-area — is the next step, and the placement defect that makes it urgent is
-recorded in §7.
+Also done, and the first place the renderer *consumes* `scope`: the explicit
+unplaced area and the engineer placement override in §7. `aws-frame.tsx` reads
+`awsServiceScope` through `isOffCanvasByDesign()` to tell "no rule knows this
+type" from "an identity or config artifact we deliberately keep off the map" —
+a distinction `mapSlotForType` cannot make, because `"hidden"` is its default
+return and no rule in `PLACEMENT_RULES` declares it.
+
+Still not consuming `scope`: the boundary lane (`vpc-boundary`) and the global
+lane. IGWs, NAT gateways and VPC endpoints are placed by their own code paths
+rather than by the scope column, and global services are filtered off the canvas
+rather than drawn above the region frame. Both are presentation gaps, not
+honesty gaps — nothing is currently drawn in a position the graph does not
+support.
 
 ### The delivery chain is healthy — so "I still see the old map" is a code gap
 
@@ -358,3 +365,103 @@ the honest empty state, with the node visible and its reason stated
 (`no subnet in graph`, `subnet not found`, `type unresolved`) — plus an
 **engineer placement override** for the cases a human can resolve, recorded as
 operator provenance and never written back as a graph fact (§4).
+
+### What shipped
+
+`pickSyntheticAz` is deleted. Both of its call sites now return a specific
+reason, and `computeCanvasGrid` returns `unplacedNodes` and `operatorPlacedIds`.
+
+**A third lost population turned up while fixing the first two, and it was the
+largest.** `buildVpcFrames` collected every node that resolved to no VPC into a
+local `outside` array and dropped it — so a node with neither a VPC nor a subnet
+was invisible no matter what the grid did, and an override on it would have been
+recorded and then silently ignored. Overridden no-VPC nodes are now routed into
+the frame the engineer named; the rest are reported.
+
+Four reasons, because the remedy differs and "unplaced" teaches an operator
+nothing:
+
+| Reason | Means | Remedy |
+|---|---|---|
+| `no-subnet-in-graph` | the node names no subnet | run the subnet/ENI collector |
+| `subnet-not-in-graph` | names a subnet absent from the payload | dangling reference; re-sync |
+| `az-unknown-for-subnet` | subnet resolved, carries no AZ | the subnet row is incomplete |
+| `type-unrecognized` | no placement rule knows the type | add it to `estate-placement.ts` |
+
+`az-unknown-for-subnet` was unreachable when first written, and reachability was
+the bug. `subnetInCanvasScope` drops an AZ-less subnet — correctly, since it has
+no column — so the scoped lookup could only ever report a dangling reference,
+sending an operator to re-run a collector that had already returned the subnet.
+Placement is scoped; diagnosis is not. The classifier now falls back to the
+AZ-less subnets specifically.
+
+Three things the override deliberately is not:
+
+- **Not stronger than evidence.** Consulted only after every subnet read fails.
+  A node the graph can place ignores its override entirely.
+- **Not able to conjure geometry.** It must name an AZ some subnet in that VPC
+  reports, and it must name the frame it targets — same-region VPCs share AZ
+  names, so matching on AZ alone would draw one node in every frame at once.
+- **Not indistinguishable from data.** Dashed amber border, a `SET` badge, a
+  `data-operator-placed` attribute, and a permanent "Placed by an engineer —
+  operator provenance, not evidence" list. All of it funnels through
+  `ServiceIconShell`, which is the one component both density renderers reach,
+  so there is no path to an unbadged operator-placed chip.
+
+There is no `pruneOverrides…`: a collector run that temporarily loses a subnet
+must not permanently destroy an engineer's assertion. A stale override is inert
+(the grid refuses it) and filtered out of the provenance list, so it costs one
+localStorage entry and comes back correct if the cell returns.
+
+**Guards** — `__tests__/topology-unplaced-placement.test.tsx` (38) and
+`__tests__/topology-placement-overrides-storage.test.ts` (28). The first
+assertion is an invariant over every occupied cell, not an example: a node sits
+in `(az, tier)` only if one of its own subnets resolves to that az and tier, or
+`operatorPlacedIds` names it. Written that way because `pickSyntheticAz` had
+three fallbacks and an example only pins whichever one fires. Each guard was
+checked by reintroducing the defect it exists for and watching it fail — the
+fabrication (26 fail), the dropped bucket (19), `"hidden"` treated as unknown
+(1), an override matched on AZ alone (1), and an override consulted before
+evidence (1) — then restoring the file and confirming the checksum.
+
+The host's scope fence has its own history: the load and persist effects run in
+the same commit, so persisting on the new scope key while state still held the
+previous scope's overrides stamped one VPC's placements into another's key. The
+value now carries the scope it was loaded for, and `placement-overrides.ts` owns
+the rule rather than the view.
+
+### What will land in the unplaced area — read from source, not sized on C1
+
+**How the endpoint decides placement** (`api/topology_aws.py`, read directly):
+
+- Line 305 restricts the per-subnet workload read to
+  `EC2Instance | LambdaFunction | RDSInstance` and excludes `NetworkInterface`
+  explicitly. ENIs are plumbing this endpoint deliberately never serves, so
+  however many of them lack a subnet, none of them can reach the unplaced area.
+- All five subnet reads in that file traverse `IN_SUBNET`
+  (96, 304, 335, 342, 398). None consults a node's `subnet_id` property. A
+  workload whose subnet the graph records **only** as a property therefore
+  arrives with no placement, and `no-subnet-in-graph` is accurate about the
+  payload it was handed.
+- RDS is the case the override exists for. A DB instance can reach subnets by
+  `ELIGIBLE_SUBNET` — the DB subnet group, which lists *candidate* subnets — and
+  a candidate list cannot name one cell. That is a genuine unknown, not a
+  collector gap.
+
+**The size of that population is not measured here, and the count I first wrote
+was wrong.** It came from `mcp__cyntro-neo4j__*`, which answers
+`CALL dbms.components()` with `Neo4j Kernel 5.27-aura` — Neptune implements no
+`dbms.*` procedures, so a successful answer to that call is itself proof of
+engine. That Aura is frozen (newest `CollectorRun.started_at`
+`2026-08-20T22:40:37Z`) and holds materially different data from C1. Numbers off
+it are not production evidence, so they are not recorded as such.
+
+C1 is reachable only from a process holding `NEPTUNE_ENDPOINT`. Sizing the
+unplaced area for real means running the per-kind
+`IN_SUBNET`-vs-`subnet_id`-vs-neither count from the projector worker, i.e. a
+workflow dispatch — worth doing, and stated as unmeasured until it is.
+
+The reason strings are what make that measurement unnecessary for shipping: the
+area names its own population at render time, per node, with the remedy
+attached. Whether it holds six nodes or sixty, none of them is a chip drawn in a
+cell nobody chose.
