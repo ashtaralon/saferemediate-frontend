@@ -134,6 +134,59 @@ describe('AP3-105 exposure serve state', () => {
     expect(screen.queryByText('Public access block')).toBeNull()
   })
 
+  it('renders canonical security-group rule evidence without reducing it to a name', () => {
+    mount(body({
+      serve_state: 'READY',
+      coverage_state: 'READY',
+      summary: {
+        ...body().summary,
+        security_group_count: 1,
+        subnet_count: 1,
+        vpc_count: 1,
+      },
+      network: {
+        security_groups: [{
+          id: 'sg-0ed42745ba403737f',
+          name: 'aurora',
+          vpc_id: 'vpc-1',
+          ingress_rule_count: 1,
+          egress_rule_count: 1,
+          rules_complete: true,
+          rules_json: JSON.stringify([{
+            direction: 'INGRESS', protocol: 'tcp', from_port: 3306,
+            to_port: 3306, peer_kind: 'SG_REF', peer_value: 'sg-app',
+          }]),
+        }],
+        subnets: [{ id: 'subnet-1', name: 'private-a', is_public: false, vpc_id: 'vpc-1' }],
+        vpcs: ['vpc-1'],
+        nacls: [],
+      },
+    }))
+
+    expect(screen.getByText('rules verified')).toBeTruthy()
+    expect(screen.getByText('1 ingress · 1 egress')).toBeTruthy()
+    expect(screen.getByText('INGRESS · tcp · port 3306 · SG_REF sg-app')).toBeTruthy()
+    expect(screen.getByText('private-a')).toBeTruthy()
+  })
+
+  it('does not call missing security-group rules an empty rule set', () => {
+    mount(body({
+      serve_state: 'READY',
+      coverage_state: 'READY',
+      network: {
+        security_groups: [{
+          id: 'sg-1', name: 'missing-rules', rules_complete: false,
+          rules_incomplete_reason: 'source page missing', rules_json: null,
+        }],
+        subnets: [], vpcs: [], nacls: [],
+      },
+    }))
+
+    expect(screen.getByText('missing-rules')).toBeTruthy()
+    expect(screen.getByText(/Rule set unavailable: source page missing/)).toBeTruthy()
+    expect(screen.queryByText('Verified empty rule set.')).toBeNull()
+  })
+
   it('still shows the loading state rather than the not-ready state', () => {
     mocks.useCachedFetch.mockReturnValue({ data: null, loading: true, error: null })
     render(<JewelExposurePanel jewel={JEWEL} systemName="testbed-webshop" />)
