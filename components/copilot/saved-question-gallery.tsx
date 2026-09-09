@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Sparkles, Loader2, AlertCircle, Shield, Send, Bot } from "lucide-react"
 import { resolveIntent, type IntentRoute, type IntentContext } from "./intent-router"
 import { fetchWithEnvelope } from "@/components/trust/use-trust-envelope"
@@ -9,14 +9,11 @@ import { TrustEnvelopeBadge, type Provenance } from "@/components/trust/trust-en
 // Example prompts derive from the active system — never name a pinned one.
 function examplePrompts(systemName?: string): string[] {
   const scope = systemName ? ` in ${systemName}` : ""
-  const target = systemName ?? "my environment"
   return [
-    "how many S3 buckets do I have?",
-    "which IAM role has the most unused permissions?",
-    `list lambda functions${scope}`,
-    `what's the blast radius of ${target}?`,
-    "what changed in the last 7 days?",
-    "what can I safely remediate right now?",
+    `how many crown jewels do we have${scope}?`,
+    `show the top 5 riskiest attack paths${scope}`,
+    `how many critical CVEs do we have${scope}?`,
+    `how many Lambda functions do we have${scope}?`,
   ]
 }
 
@@ -39,6 +36,16 @@ interface AnswerState {
   result: any
   provenance: Provenance | null
   decision: RouterDecision | null
+  abstention: { explanation: string; reasonCode: string } | null
+  analyst: Record<string, any> | null
+}
+
+interface FreeformCapability {
+  checking: boolean
+  enabled: boolean
+  code: string
+  reason: string
+  systemName: string | null
 }
 
 const INITIAL_STATE: AnswerState = {
@@ -49,6 +56,16 @@ const INITIAL_STATE: AnswerState = {
   result: null,
   provenance: null,
   decision: null,
+  abstention: null,
+  analyst: null,
+}
+
+const INITIAL_CAPABILITY: FreeformCapability = {
+  checking: true,
+  enabled: false,
+  code: "ANALYST_CAPABILITY_CHECK_PENDING",
+  reason: "Checking Analyst identity, scope, and runtime…",
+  systemName: null,
 }
 
 export function SavedQuestionGallery({ systemName }: SavedQuestionGalleryProps) {
@@ -57,12 +74,66 @@ export function SavedQuestionGallery({ systemName }: SavedQuestionGalleryProps) 
   const [roleName, setRoleName] = useState("")
   const [freeformQuestion, setFreeformQuestion] = useState("")
   const [routing, setRouting] = useState(false)
+  const [freeformCapability, setFreeformCapability] =
+    useState<FreeformCapability>(INITIAL_CAPABILITY)
+  const requestGenerationRef = useRef(0)
 
   const needsRoleName = selectedId === "unused-on-role" && !roleName
+
+  useEffect(() => {
+    requestGenerationRef.current += 1
+    setAnswer(INITIAL_STATE)
+    setRouting(false)
+    const lockedSystemName = systemName?.trim()
+    if (!lockedSystemName) {
+      setFreeformCapability({
+        checking: false,
+        enabled: false,
+        code: "ANALYST_SYSTEM_SCOPE_REQUIRED",
+        reason: "Select an authorized system before asking Cyntro Analyst.",
+        systemName: null,
+      })
+      return
+    }
+
+    const controller = new AbortController()
+    setFreeformCapability(INITIAL_CAPABILITY)
+    void fetch(
+      `/api/proxy/analyst/query?systemName=${encodeURIComponent(lockedSystemName)}`,
+      { cache: "no-store", signal: controller.signal },
+    )
+      .then(async (response) => {
+        const data = await response.json().catch(() => ({}))
+        if (controller.signal.aborted) return
+        setFreeformCapability({
+          checking: false,
+          enabled: response.ok && data?.enabled === true && data?.systemName === lockedSystemName,
+          code: data?.reason_code || "ANALYST_CAPABILITY_UNAVAILABLE",
+          reason: capabilityReason(data?.reason_code),
+          systemName: typeof data?.systemName === "string" ? data.systemName : null,
+        })
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return
+        setFreeformCapability({
+          checking: false,
+          enabled: false,
+          code: "ANALYST_CAPABILITY_UNAVAILABLE",
+          reason:
+            error instanceof Error && error.message
+              ? `Analyst readiness check failed: ${error.message}`
+              : "Analyst readiness check failed.",
+          systemName: null,
+        })
+      })
+
+    return () => controller.abort()
+  }, [systemName])
 
   async function runRoute(
     route: IntentRoute,
     decision: RouterDecision | null,
+    requestGeneration = requestGenerationRef.current,
   ) {
     setAnswer({
       ...INITIAL_STATE,
@@ -73,9 +144,10 @@ export function SavedQuestionGallery({ systemName }: SavedQuestionGalleryProps) 
     })
     try {
       const env = await fetchWithEnvelope<any>(route.url)
+      if (requestGenerationRef.current !== requestGeneration) return
       setAnswer({
+        ...INITIAL_STATE,
         loading: false,
-        error: null,
         headline: route.resultHeadline,
         route,
         result: env.result,
@@ -83,81 +155,85 @@ export function SavedQuestionGallery({ systemName }: SavedQuestionGalleryProps) 
         decision,
       })
     } catch (err: any) {
+      if (requestGenerationRef.current !== requestGeneration) return
       setAnswer({
+        ...INITIAL_STATE,
         loading: false,
         error: err?.message || "Failed to load answer",
         headline: route.resultHeadline,
         route,
-        result: null,
-        provenance: null,
         decision,
       })
     }
   }
 
   async function handleAsk(questionId: string) {
+    const requestGeneration = requestGenerationRef.current
     const route = resolveIntent(questionId, { systemName, roleName: roleName || undefined })
     if (!route) {
       setAnswer({ ...INITIAL_STATE, error: `Unknown question id: ${questionId}` })
       return
     }
     setSelectedId(questionId)
-    await runRoute(route, null)
+    await runRoute(route, null, requestGeneration)
   }
 
   async function handleFreeformAsk(overrideQuestion?: string) {
     const question = (overrideQuestion ?? freeformQuestion).trim()
     if (!question || routing) return
+    const requestGeneration = requestGenerationRef.current
+    const lockedSystemName = systemName?.trim()
+    if (
+      !lockedSystemName ||
+      !freeformCapability.enabled ||
+      freeformCapability.systemName !== lockedSystemName
+    ) {
+      setAnswer({
+        ...INITIAL_STATE,
+        error: freeformCapability.reason || "Analyst requires an authenticated system scope.",
+      })
+      return
+    }
     if (overrideQuestion) setFreeformQuestion(overrideQuestion)
     setRouting(true)
-    setAnswer({ ...INITIAL_STATE, loading: true, headline: "Routing your question…", route: null })
+    setAnswer({ ...INITIAL_STATE, loading: true, headline: "Analyzing your question…", route: null })
     try {
-      const res = await fetch("/api/proxy/copilot/ask", {
+      const res = await fetch("/api/proxy/analyst/query", {
         method: "POST",
+        cache: "no-store",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           question,
-          systemName: systemName || undefined,
-          roleName: roleName || undefined,
+          systemName: lockedSystemName,
+          locale: navigator.language || "en",
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
         }),
       })
-      const data = await res.json()
-      if (!res.ok || !data?.chosen_tool) {
-        throw new Error(data?.error || "Router did not pick a tool")
+      const data = await res.json().catch(() => ({
+        status: "unavailable",
+        reason_code: "ANALYST_INVALID_RESPONSE",
+      }))
+      if (requestGenerationRef.current !== requestGeneration) return
+      if (!data || typeof data !== "object" || Array.isArray(data)) {
+        throw new Error("Analyst returned an invalid response")
       }
-      const decision: RouterDecision = {
-        chosen_tool: data.chosen_tool,
-        tool_args: data.tool_args || {},
-        explanation: data.explanation || "",
-        source: data.source || "llm",
-      }
-      const ctx: IntentContext = {
-        systemName: decision.tool_args.systemName || systemName || undefined,
-        roleName: decision.tool_args.roleName || roleName || undefined,
-        windowDays: decision.tool_args.windowDays,
-        resourceType: decision.tool_args.resourceType || undefined,
-        region: decision.tool_args.region || undefined,
-        nameContains: decision.tool_args.nameContains || undefined,
-        createdBefore: decision.tool_args.createdBefore || undefined,
-        createdAfter: decision.tool_args.createdAfter || undefined,
-        sort: decision.tool_args.sort || undefined,
-      }
-      if (decision.tool_args.roleName) {
-        setRoleName(decision.tool_args.roleName)
-      }
-      const route = resolveIntent(decision.chosen_tool, ctx)
-      if (!route) {
-        throw new Error(`Unknown tool from router: ${decision.chosen_tool}`)
-      }
-      setSelectedId(decision.chosen_tool)
-      await runRoute(route, decision)
-    } catch (err: any) {
       setAnswer({
         ...INITIAL_STATE,
-        error: err?.message || "Failed to route question",
+        headline: analystHeadline(data.status),
+        analyst: data,
+        error:
+          !res.ok && data.status !== "unavailable"
+            ? "Cyntro Analyst is currently unavailable."
+            : null,
+      })
+    } catch (err: any) {
+      if (requestGenerationRef.current !== requestGeneration) return
+      setAnswer({
+        ...INITIAL_STATE,
+        error: err?.message || "Failed to ask Cyntro Analyst",
       })
     } finally {
-      setRouting(false)
+      if (requestGenerationRef.current === requestGeneration) setRouting(false)
     }
   }
 
@@ -166,13 +242,13 @@ export function SavedQuestionGallery({ systemName }: SavedQuestionGalleryProps) 
       <div>
         <div className="inline-flex items-center gap-2 rounded-full border border-[#2D51DA]/15 bg-[#2D51DA]/5 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-[#2D51DA]">
           <Sparkles className="h-3.5 w-3.5" />
-          Copilot
+          Cyntro Analyst
         </div>
         <h1 className="mt-3 text-2xl font-semibold tracking-tight text-[var(--foreground,#111827)] xl:text-3xl">
-          Ask anything about your cloud posture
+          Ask Cyntro about your graph
         </h1>
         <p className="mt-2 text-sm text-[var(--muted-foreground,#6b7280)]">
-          Every answer is traced to real evidence and carries a confidence badge.
+          Answers come from certified read-only operations over your Neptune graph and local evidence.
         </p>
       </div>
 
@@ -191,15 +267,24 @@ export function SavedQuestionGallery({ systemName }: SavedQuestionGalleryProps) 
                 handleFreeformAsk()
               }
             }}
-            placeholder="Ask anything — e.g. how many S3 buckets do I have?"
+            placeholder={
+              freeformCapability.enabled
+                ? "Ask a question about this system's security graph"
+                : "Analyst requires customer-resident identity and scope"
+            }
             className="flex-1 px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#2D51DA]/30"
             style={{ borderColor: "var(--border-subtle, #e5e7eb)" }}
-            disabled={routing || answer.loading}
+            disabled={!freeformCapability.enabled || routing || answer.loading}
             data-copilot-freeform-input
           />
           <button
             onClick={() => void handleFreeformAsk()}
-            disabled={!freeformQuestion.trim() || routing || answer.loading}
+            disabled={
+              !freeformCapability.enabled ||
+              !freeformQuestion.trim() ||
+              routing ||
+              answer.loading
+            }
             className="inline-flex items-center gap-2 px-4 py-2 bg-[#2D51DA] hover:bg-[#1e3fb5] text-white rounded-lg text-sm font-medium disabled:opacity-50"
             data-copilot-freeform-submit
           >
@@ -207,13 +292,28 @@ export function SavedQuestionGallery({ systemName }: SavedQuestionGalleryProps) 
             Ask
           </button>
         </div>
+        {!freeformCapability.enabled && (
+          <div
+            className="mt-3 flex items-start gap-2 text-xs text-amber-700"
+            data-copilot-freeform-disabled
+            data-reason-code={freeformCapability.code}
+          >
+            {freeformCapability.checking ? (
+              <Loader2 className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 animate-spin" />
+            ) : (
+              <AlertCircle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
+            )}
+            <span>{freeformCapability.reason}</span>
+          </div>
+        )}
         {!answer.loading && !answer.result && !answer.error && (
           <div className="mt-3 flex flex-wrap gap-2">
             {examplePrompts(systemName).map((p) => (
               <button
                 key={p}
-                onClick={() => handleFreeformAsk(p)}
-                className="text-xs px-2.5 py-1 rounded-full border text-[var(--muted-foreground,#6b7280)] hover:text-[#2D51DA] hover:border-[#2D51DA]/40 transition-colors"
+                onClick={() => void handleFreeformAsk(p)}
+                disabled={!freeformCapability.enabled}
+                className="text-xs px-2.5 py-1 rounded-full border text-[var(--muted-foreground,#6b7280)] hover:text-[#2D51DA] hover:border-[#2D51DA]/40 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                 style={{ borderColor: "var(--border-subtle, #e5e7eb)" }}
               >
                 {p}
@@ -245,7 +345,7 @@ export function SavedQuestionGallery({ systemName }: SavedQuestionGalleryProps) 
         </div>
       )}
 
-      {(answer.loading || answer.error || answer.result) && (
+      {(answer.loading || answer.error || answer.result || answer.abstention || answer.analyst) && (
         <div className="rounded-2xl border bg-white overflow-hidden"
              style={{ borderColor: "var(--border-subtle, #e5e7eb)" }}
              data-copilot-answer>
@@ -296,9 +396,26 @@ export function SavedQuestionGallery({ systemName }: SavedQuestionGalleryProps) 
             </div>
           )}
 
+          {answer.abstention && (
+            <div
+              className="px-5 py-4 flex items-start gap-2 text-sm text-amber-700"
+              data-copilot-abstention
+              data-reason-code={answer.abstention.reasonCode}
+            >
+              <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+              <div>{answer.abstention.explanation}</div>
+            </div>
+          )}
+
           {answer.result && (
             <div className="p-5">
               <AnswerRenderer route={answer.route!} result={answer.result} />
+            </div>
+          )}
+
+          {answer.analyst && (
+            <div className="p-5">
+              <AnalystAnswerRenderer response={answer.analyst} />
             </div>
           )}
         </div>
@@ -307,7 +424,118 @@ export function SavedQuestionGallery({ systemName }: SavedQuestionGalleryProps) 
   )
 }
 
+function capabilityReason(reasonCode: unknown): string {
+  switch (reasonCode) {
+    case "ANALYST_DISABLED":
+      return "Cyntro Analyst is not enabled for this customer-resident deployment."
+    case "ANALYST_AUTHENTICATED_PRINCIPAL_UNAVAILABLE":
+    case "ANALYST_IDENTITY_INVALID":
+    case "ANALYST_IDENTITY_UNAVAILABLE":
+      return "Cyntro Analyst requires a verified customer identity."
+    case "ANALYST_SYSTEM_SCOPE_REQUIRED":
+      return "Select an authorized system before asking Cyntro Analyst."
+    case "ANALYST_SYSTEM_SCOPE_FORBIDDEN":
+    case "ANALYST_SCOPE_CONFLICT":
+      return "The selected system is outside your authorized Analyst scope."
+    case "ANALYST_RUNTIME_UNAVAILABLE":
+    case "ANALYST_BACKEND_UNAVAILABLE":
+      return "The customer-local Analyst runtime is unavailable."
+    default:
+      return "Cyntro Analyst is unavailable for this system scope."
+  }
+}
+
+function analystHeadline(status: unknown): string {
+  switch (status) {
+    case "answered": return "Answer"
+    case "partial": return "Partial answer"
+    case "clarify": return "Clarification needed"
+    case "abstain": return "Question not answered"
+    default: return "Analyst unavailable"
+  }
+}
+
+function AnalystAnswerRenderer({ response }: { response: Record<string, any> }) {
+  const status = response.status
+  if (status === "answered" || status === "partial") {
+    const provenance = response.provenance ?? {}
+    const claims = Array.isArray(response.claims) ? response.claims : []
+    return (
+      <div className="space-y-4" data-analyst-answer data-status={status}>
+        {status === "partial" && (
+          <div className="flex items-start gap-2 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
+            <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+            <span>This answer is partial. Missing coverage is not treated as zero.</span>
+          </div>
+        )}
+        {response.deterministic_answer && (
+          <p className="text-lg font-semibold text-[var(--foreground,#111827)]">
+            {response.deterministic_answer}
+          </p>
+        )}
+        {claims.length > 0 && (
+          <div className="grid gap-2 sm:grid-cols-2">
+            {claims.map((claim: any, index: number) => (
+              <div key={claim.claim_id || index} className="rounded-lg border border-[var(--border-subtle,#e5e7eb)] p-3">
+                <div className="text-xs text-[var(--muted-foreground,#6b7280)]">{claim.metric}</div>
+                <div className="mt-1 text-xl font-semibold">
+                  {String(claim.value)}{claim.unit && claim.unit !== "count" ? ` ${claim.unit}` : ""}
+                </div>
+                {claim.effective_as_of && <div className="mt-1 text-xs text-gray-500">As of {claim.effective_as_of}</div>}
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="flex flex-wrap gap-2 text-xs text-[var(--muted-foreground,#6b7280)]">
+          {response.operation && <span>Operation: <code>{response.operation}</code></span>}
+          {provenance.authority_state && <span>Authority: {provenance.authority_state}</span>}
+          {provenance.coverage_state && <span>Coverage: {provenance.coverage_state}</span>}
+          {provenance.effective_as_of && <span>Effective as of: {provenance.effective_as_of}</span>}
+        </div>
+        {Array.isArray(provenance.limitations) && provenance.limitations.length > 0 && (
+          <ul className="list-disc space-y-1 pl-5 text-sm text-amber-800">
+            {provenance.limitations.map((item: unknown, index: number) => (
+              <li key={index}>{String(item)}</li>
+            ))}
+          </ul>
+        )}
+      </div>
+    )
+  }
+  if (status === "clarify") {
+    return <div className="text-sm" data-analyst-clarify>{response.clarification}</div>
+  }
+  return (
+    <div
+      className="flex items-start gap-2 text-sm text-amber-700"
+      data-analyst-safe-state
+      data-status={status || "unavailable"}
+      data-reason-code={response.reason_code || "ANALYST_UNAVAILABLE"}
+    >
+      <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+      <div>
+        {status === "abstain"
+          ? "Cyntro Analyst did not answer because the request is outside its certified operations or could not be interpreted safely."
+          : "Cyntro Analyst cannot return a trustworthy answer right now."}
+        {response.reason_code && <div className="mt-1 font-mono text-xs">{response.reason_code}</div>}
+      </div>
+    </div>
+  )
+}
+
 function AnswerRenderer({ route, result }: { route: any; result: any }) {
+  if (result?.status === "unavailable" || result?.error_code === "GRAPH_UNAVAILABLE") {
+    return (
+      <div className="flex items-start gap-2 text-sm text-amber-700" data-copilot-data-unavailable>
+        <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+        <div>
+          Graph data is unavailable, so Cyntro cannot return a trustworthy count or list yet.
+          Please retry after graph connectivity is restored.
+        </div>
+      </div>
+    )
+  }
+
   if (route.family === "aggregator") {
     const candidates = result.candidates ?? []
     const summary = result.summary ?? {}

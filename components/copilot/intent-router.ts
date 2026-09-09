@@ -145,6 +145,7 @@ export const CANONICAL_QUESTIONS: CanonicalQuestion[] = [
         url: withEnvelope("/api/proxy/remediation-history/timeline", {
           start_date: start.toISOString().slice(0, 10),
           end_date: end.toISOString().slice(0, 10),
+          system: ctx.systemName,
         }),
         method: "GET",
         family: "history",

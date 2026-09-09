@@ -56,6 +56,9 @@ jobs:
           # A push carries no inputs: fall back to the C1 production defaults.
           FRONTEND_URL: ${{ inputs.frontend_url || 'https://cyntro-c1.vercel.app' }}
           C1_SYSTEM: ${{ inputs.system || 'testbed-webshop' }}
+          C1_CUSTOMER_ID: testbed-webshop
+          C1_ACCOUNT_ID: "416651950952"
+          C1_REGION: eu-west-1
           PW_CHANNEL: chromium
           CI: "1"
       - name: Publish screenshots and measurements to the results branch

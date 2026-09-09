@@ -186,4 +186,61 @@ describe("buildSpotlightActiveNodeIds", () => {
     expect(ids.has("subnet-app2")).toBe(true)
     expect(ids.has("igw-1")).toBe(true)
   })
+
+  it("keeps server-authored workload-network cards visible in path-authority mode", () => {
+    const ids = buildSpotlightActiveNodeIds({
+      paths: [
+        path({
+          path_id: "path-mat-f154cc5c35a3",
+          workload_arn:
+            "arn:aws:ec2:eu-west-1:416651950952:instance/i-0129135b4e4723d6d",
+          workload_network: {
+            is_vpc_attached: true,
+            vpc_attachment_state: "VPC_ATTACHED",
+            vpc_id: "vpc-0c39cde96f29f8f4e",
+            subnets: [
+              {
+                id: "subnet-0ededebe568732139",
+                name: "cyntro-tb-prod-app-eu-west-1b",
+                is_public: false,
+              },
+            ],
+            security_groups: [
+              { id: "sg-0ed42745ba403737f", name: "cyntro-tb-prod-app" },
+            ],
+            nacls: [
+              { id: "acl-1", subnet_ids: ["subnet-0ededebe568732139"] },
+            ],
+            route_tables: [
+              {
+                id: "rtb-09626f0eee62242b7",
+                subnet_ids: ["subnet-0ededebe568732139"],
+                route_count: 3,
+              },
+            ],
+            instance_profiles: [
+              {
+                id: "arn:aws:iam::416651950952:instance-profile/cyntro-tb-prod-app",
+                role_id: "arn:aws:iam::416651950952:role/cyntro-tb-prod-app-role",
+              },
+            ],
+          },
+        }),
+      ],
+      spotlightPathId: "path-mat-f154cc5c35a3",
+      architecture: null,
+      pathAuthorityOnly: true,
+    })
+
+    expect(ids.has("subnet-0ededebe568732139")).toBe(true)
+    expect(ids.has("sg-0ed42745ba403737f")).toBe(true)
+    expect(ids.has("acl-1")).toBe(true)
+    expect(ids.has("rtb-09626f0eee62242b7")).toBe(true)
+    expect(
+      ids.has("arn:aws:iam::416651950952:instance-profile/cyntro-tb-prod-app"),
+    ).toBe(true)
+    expect(
+      ids.has("arn:aws:iam::416651950952:role/cyntro-tb-prod-app-role"),
+    ).toBe(true)
+  })
 })

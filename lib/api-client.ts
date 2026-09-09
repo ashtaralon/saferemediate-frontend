@@ -1,4 +1,5 @@
 import type { SecurityFinding } from "./types"
+import { normalizeFindingIdentities } from "./security-finding-identity"
 
 // Browser code always stays on the UI origin. The catch-all server route owns
 // customer-local backend routing and service authentication.
@@ -372,21 +373,24 @@ export async function fetchSecurityFindings(systemName?: string): Promise<Securi
       return []
     }
 
-    const mappedFindings = findings.map((f: any) => {
-      // Use finding_id from backend as the primary ID (this is the real ID)
-      const findingId = f.finding_id || f.id || f.findingId
-      if (!findingId) {
-        console.warn("[api-client] Finding missing ID:", f)
-      }
-      
+    const identityResult = normalizeFindingIdentities(findings)
+    const mappedFindings = identityResult.findings.map((f: any): SecurityFinding => {
+      // A finding without a canonical backend identity cannot be selected,
+      // simulated, deduplicated, or audited safely. Do not invent an ID and do
+      // not send the raw row to the browser console (it may contain customer
+      // resource context). Withhold it and emit one aggregate diagnostic after
+      // normalization instead.
+      const findingId = f.finding_id
+
       return {
+        // Preserve fields not yet represented in SecurityFinding, then pin the
+        // canonical fields below so an undefined alias cannot overwrite them.
+        ...f,
         // CRITICAL: Use finding_id from backend, not generated ID.
         // Previously fell back to `finding-${Math.random()}`, which produced
         // a NEW id on every render → React key thrashing AND made findings
-        // un-trackable across reloads. Empty string preserves stable identity
-        // (React will warn about duplicate empty keys, which is the correct
-        // signal: backend is missing IDs and that's a bug worth surfacing).
-        id: findingId || "",
+        // un-trackable across reloads. Missing IDs are now withheld above.
+        id: findingId,
         finding_id: findingId, // Preserve original finding_id for API calls
         title: f.title || f.name || "Security Finding",
         severity: (f.severity || "MEDIUM").toUpperCase() as "CRITICAL" | "HIGH" | "MEDIUM" | "LOW",
@@ -410,10 +414,14 @@ export async function fetchSecurityFindings(systemName?: string): Promise<Securi
         used_actions_count: f.used_actions_count || f.observed_actions?.length || 0,
         confidence: f.confidence ?? undefined,
         observation_days: f.observation_days || 30,
-        // Preserve all other fields
-        ...f
       }
     })
+
+    if (identityResult.withheldCount > 0) {
+      console.warn(
+        `[api-client] Withheld ${identityResult.withheldCount} finding(s) without a canonical backend ID`,
+      )
+    }
 
     // Final check - if mapping produced empty array, return empty
     if (mappedFindings.length === 0) {

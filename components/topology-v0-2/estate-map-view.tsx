@@ -32,6 +32,10 @@ import type { CrownJewelSummary, IdentityAttackPath, IdentityAttackPathsResponse
 import {
   buildTopologyRiskCacheKey,
   buildTopologyRiskProxyUrl,
+  capEstateComputingDeadlineMs,
+  resolveTopologyFetchVpcId,
+  resolveTopologyScopeParams,
+  scopeFromSearch,
 } from "@/components/topology-v0-2/topology-scope-url"
 import { EVIDENCE_TIER_LABEL } from "@/lib/types/scope"
 import type { TopologyNode, TopologyRiskResponse } from "@/components/topology-v0-2/types"
@@ -185,19 +189,49 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
   }, [productScope.accountId, productScope.region, selectedAccountId])
 
   const scopedVpc = selectedVpcId === "all" ? null : selectedVpcId
-  const azScopeKey = `${selectedAccountId ?? "all"}:${selectedRegionId ?? "all"}:${scopedVpc ?? "all"}`
-  const [hiddenAzs, setHiddenAzs] = useState<string[]>([])
+  const openingScope = typeof window !== "undefined" ? scopeFromSearch(window.location.search) : {}
   const scopeParams = useMemo(
-    () => ({
-      customerId: productScope.customerId,
-      accountId: selectedAccountId,
-      region: selectedRegionId,
-      vpcId: scopedVpc,
-    }),
-    [productScope.customerId, selectedAccountId, selectedRegionId, scopedVpc],
+    () =>
+      resolveTopologyScopeParams(
+        { accountId: selectedAccountId, regionId: selectedRegionId, vpcId: scopedVpc },
+        {
+          customerId: productScope.customerId,
+          accountId: productScope.accountId,
+          region: productScope.region,
+        },
+        openingScope,
+      ),
+    [
+      productScope.customerId,
+      productScope.accountId,
+      productScope.region,
+      selectedAccountId,
+      selectedRegionId,
+      scopedVpc,
+    ],
   )
-  const cacheKey = buildTopologyRiskCacheKey(systemName, scopeParams)
-  const url = buildTopologyRiskProxyUrl(systemName, scopeParams)
+  const azScopeKey = `${scopeParams.accountId ?? "all"}:${scopeParams.region ?? "all"}:${scopedVpc ?? "all"}`
+  const [hiddenAzs, setHiddenAzs] = useState<string[]>([])
+  const payloadVpcRef = useRef<string | null>(null)
+  const fetchVpcRef = useRef<string | null>(openingScope.vpcId ?? null)
+  const fetchVpcId = resolveTopologyFetchVpcId({
+    urlVpcId: openingScope.vpcId,
+    selectedVpcId: scopedVpc,
+    payloadVpcId: payloadVpcRef.current,
+    fetchVpcId: fetchVpcRef.current,
+  })
+  fetchVpcRef.current = fetchVpcId
+  const fetchScope = useMemo(
+    () => ({ ...scopeParams, vpcId: fetchVpcId }),
+    [scopeParams, fetchVpcId],
+  )
+  const cacheKey = buildTopologyRiskCacheKey(systemName, fetchScope)
+  // C1 fail-closes or implies scope without account+region. If the opening
+  // URL had them, wait — do not fire an unscoped GET that starts compute.
+  const url =
+    openingScope.accountId && !fetchScope.accountId
+      ? ""
+      : buildTopologyRiskProxyUrl(systemName, fetchScope)
   const { data, loading, error, isStale, cachedAt, retry, isComputing } = useCachedFetch<TopologyRiskResponse>(url, {
     cacheKey,
     maxStaleMs: 10 * 60 * 1000,
@@ -205,6 +239,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     // Render cold-start 504s self-heal once the wake+snapshot retry lands.
     transientRetries: 2,
   })
+  if (data?.vpc_id) payloadVpcRef.current = data.vpc_id
 
   // Full account/region topology for All-VPCs · Compare scaffold. When the
   // primary fetch is already unscoped (All VPCs), reuse it — a second
@@ -230,9 +265,8 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     // Primary is VPC-scoped; fetch account/region once for Compare rails.
     let cancelled = false
     const mergedUrl = buildTopologyRiskProxyUrl(systemName, {
-      customerId: productScope.customerId,
-      accountId: selectedAccountId,
-      region: selectedRegionId,
+      ...scopeParams,
+      vpcId: null,
     })
     fetch(mergedUrl, { cache: "no-store" })
       .then(res => (res.ok ? res.json() : null))
@@ -245,9 +279,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     }
   }, [
     systemName,
-    productScope.customerId,
-    selectedAccountId,
-    selectedRegionId,
+    scopeParams,
     needsMergedTopology,
     primaryIsMerged,
     data,
@@ -1041,15 +1073,10 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     setComputingStartedAt(null)
   }, [isComputingEnvelope, data?.system_kpis])
 
-  const computingDeadlineMs = useMemo(() => {
-    const raw = data?.compute_deadline_at
-    if (typeof raw === "string") {
-      const t = Date.parse(raw)
-      if (!Number.isNaN(t)) return t
-    }
-    if (computingStartedAt != null) return computingStartedAt + 90_000
-    return null
-  }, [data?.compute_deadline_at, computingStartedAt])
+  const computingDeadlineMs = useMemo(
+    () => capEstateComputingDeadlineMs(data?.compute_deadline_at, computingStartedAt),
+    [data?.compute_deadline_at, computingStartedAt],
+  )
 
   const [nowTick, setNowTick] = useState(() => Date.now())
   const waitingForFirstTopology =
@@ -1161,7 +1188,11 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
   if (!hasHydrated || (loading && !data) || (isComputingEnvelope && !data?.system_kpis)) {
     return (
       <div className={`${outerClass} p-6 md:p-10`} style={{ background: "#F4F6F8", color: "#1A2330" }}>
-        <div className="mx-auto max-w-2xl rounded-xl border bg-white p-6 shadow-sm" style={{ borderColor: "#DDE3E8" }}>
+        <div
+          className="mx-auto max-w-2xl rounded-xl border bg-white p-6 shadow-sm"
+          style={{ borderColor: "#DDE3E8" }}
+          data-testid="topology-estate-preparing"
+        >
           <div className="flex items-start gap-3">
             <LoaderCircle className="mt-0.5 h-5 w-5 animate-spin" style={{ color: "#00A991" }} />
             <div>

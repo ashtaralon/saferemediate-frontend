@@ -11,6 +11,7 @@ import type {
   SystemArchitecture,
 } from "@/components/dependency-map/traffic-flow-map"
 import type { CanvasEdge, CanvasRelationshipType } from "@/lib/types/attack-canvas"
+import type { PathCVEAssessment } from "@/lib/cve-contracts"
 import type {
   AtlasFootholdCandidate,
   AtlasLateralChain,
@@ -233,6 +234,7 @@ export function AtlasLateralFlowMap({
   jewelId,
   jewelType,
   systemName,
+  cveAssessments = [],
 }: {
   selectedFoothold: AtlasFootholdCandidate
   response: AtlasLateralResponse
@@ -240,6 +242,7 @@ export function AtlasLateralFlowMap({
   jewelId?: string
   jewelType?: string
   systemName?: string
+  cveAssessments?: PathCVEAssessment[]
 }) {
   const [chainIndex, setChainIndex] = useState(0)
   useEffect(() => setChainIndex(0), [response.graph_snapshot_id, selectedFoothold.workload_id])
@@ -348,6 +351,7 @@ export function AtlasLateralFlowMap({
           innerSubtitleOverride={`${selectedFoothold.workload_name} → ${jewelName} · replay validated · modeled, not observed`}
           pathBadgeOverride={`${selectedFoothold.workload_name} → ${jewelName}`}
           defaultShowVPCBoundaries={false}
+          cveAssessments={cveAssessments}
         />
       </div>
       {chain.assumptions_consumed.length ? (

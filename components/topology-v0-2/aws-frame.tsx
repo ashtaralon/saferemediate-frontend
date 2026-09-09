@@ -36,6 +36,7 @@ import {
   type EdgeNatGw,
   type IamRoleRollup,
   type LaneCoverage,
+  type LaneCoverageWarning,
   type ScoreTier,
   type SecurityGroupMeta,
   SIGNAL_LABEL,
@@ -47,6 +48,7 @@ import {
   type TrafficEdgeClass,
   type VpcTopology,
 } from "./types"
+import { resolveCoverageGaps } from "./coverage-gaps"
 import { normalizeVpcTopology } from "./normalize-topology"
 import { createMap } from "./native-map"
 import type { EstateFlowMode } from "./estate-flow-edges"
@@ -2530,7 +2532,15 @@ const COVERAGE_STATE_STYLE: Record<string, { bg: string; fg: string; border: str
 /** Flow-log coverage with an honest denominator (traffic_authority.lane_coverage).
  *  Renders nothing when the backend predates the contract — an absent number is
  *  honest, an invented one is not. Every count shown is the backend's. */
-function LaneCoveragePill({ coverage, compact }: { coverage: LaneCoverage; compact: boolean }) {
+function LaneCoveragePill({
+  coverage,
+  gaps,
+  compact,
+}: {
+  coverage: LaneCoverage
+  gaps: LaneCoverageWarning[]
+  compact: boolean
+}) {
   const style = COVERAGE_STATE_STYLE[coverage.state] ?? COVERAGE_STATE_STYLE.unknown
   const lanes = (["vpc", "database", "serverless", "regional"] as const).flatMap(lane => {
     const counts = coverage.by_lane?.[lane]
@@ -2582,15 +2592,19 @@ function LaneCoveragePill({ coverage, compact }: { coverage: LaneCoverage; compa
           })}
         </span>
       </div>
-      {coverage.warnings.length > 0 ? (
-        <ul className={compact ? "mt-0.5 space-y-0" : "mt-1 space-y-0.5"} data-testid="topology-lane-coverage-warnings">
-          {coverage.warnings.map(warning => (
+      {gaps.length > 0 ? (
+        <ul
+          className={compact ? "mt-0.5 space-y-0" : "mt-1 space-y-0.5"}
+          data-testid="topology-coverage-gaps"
+        >
+          {gaps.map(warning => (
             <li
               key={warning.code}
               className="truncate"
               title={warning.message}
-              data-testid="topology-lane-coverage-warning"
+              data-testid="topology-coverage-gap"
               data-warning-code={warning.code}
+              data-warning-count={warning.count}
             >
               <span className="font-semibold">{LANE_LABEL[warning.lane] ?? warning.lane}:</span> {warning.message}
             </li>
@@ -5539,7 +5553,11 @@ export function AwsFrame({
         </div>
       ) : null}
       {flowMode === "all_access" && trafficAuthority?.lane_coverage ? (
-        <LaneCoveragePill coverage={trafficAuthority.lane_coverage} compact={presentationMode} />
+        <LaneCoveragePill
+          coverage={trafficAuthority.lane_coverage}
+          gaps={resolveCoverageGaps(trafficAuthority)}
+          compact={presentationMode}
+        />
       ) : null}
       {/* Users → Internet — clustered toward center (not pinned to corners).
           IGW chip lives on the VPCE rail. */}

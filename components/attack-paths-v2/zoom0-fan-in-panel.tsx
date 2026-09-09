@@ -71,6 +71,9 @@ import {
   AtlasLateralLensPanel,
 } from "./atlas-lateral-lens"
 import { useAtlasLateral } from "./use-atlas-lateral"
+import type { AttackPathReport } from "./attack-path-report-types"
+import { PathCVEAssessmentPanel } from "./path-cve-assessment-panel"
+import { pathCVEsForMode } from "./path-cve-model"
 
 const TrafficFlowMap = dynamic(
   () => import("@/components/dependency-map/traffic-flow-map"),
@@ -254,6 +257,11 @@ export function Zoom0FanInPanel({
   onClearPath,
   isExpanded = false,
   documentScroll = false,
+  cveReport,
+  cveReportLoading = false,
+  cveReportError = null,
+  onRetryCVEReport,
+  onOpenVulnerability,
 }: {
   systemName: string
   jewel: CrownJewelSummary
@@ -268,6 +276,12 @@ export function Zoom0FanInPanel({
   isExpanded?: boolean
   /** Expanded dashboard mode uses the page scrollbar, not a nested canvas scrollbar. */
   documentScroll?: boolean
+  /** Canonical selected-path report. Its CVE contract is the only verdict authority. */
+  cveReport?: AttackPathReport | null
+  cveReportLoading?: boolean
+  cveReportError?: string | null
+  onRetryCVEReport?: () => void
+  onOpenVulnerability?: (cveId: string, nodeId: string) => void
 }) {
   const cjArn =
     jewel.canonical_id ?? (jewel.id.startsWith("arn:") ? jewel.id : null)
@@ -420,6 +434,18 @@ export function Zoom0FanInPanel({
       ? buildSelectedExfilArchitecture(zoom0Exfil.data, selectedExfilPath)
       : null,
     [selectedExfilPath, zoom0Exfil.data],
+  )
+  const currentCVEAssessments = useMemo(
+    () => pathCVEsForMode(cveReport, "CURRENT"),
+    [cveReport],
+  )
+  const lateralCVEAssessments = useMemo(
+    () => pathCVEsForMode(cveReport, "LATERAL"),
+    [cveReport],
+  )
+  const exfiltrationCVEAssessments = useMemo(
+    () => pathCVEsForMode(cveReport, "EXFILTRATION"),
+    [cveReport],
   )
 
   const mapSpotlightPaths = useMemo(() => {
@@ -811,6 +837,17 @@ export function Zoom0FanInPanel({
               onSelectFoothold={atlasLateral.selectFoothold}
               onRetry={atlasLateral.retry}
             />
+            {pinPathId ? (
+              <PathCVEAssessmentPanel
+                report={cveReport ?? null}
+                loading={cveReportLoading}
+                error={cveReportError}
+                retry={onRetryCVEReport}
+                selectedMode="LATERAL"
+                onOpenVulnerability={onOpenVulnerability}
+                compact
+              />
+            ) : null}
             {onRequestMode ? (
               <button
                 type="button"
@@ -898,6 +935,7 @@ export function Zoom0FanInPanel({
               evaluation={atlasLateral.evaluation}
               recommendedFoothold={atlasLateral.candidates.find((candidate) => candidate.atlas_evaluation?.state === "REACHABLE") ?? null}
               onSelectFoothold={atlasLateral.selectFoothold}
+              cveAssessments={lateralCVEAssessments}
             />
           </div>
         </div>
@@ -929,6 +967,7 @@ export function Zoom0FanInPanel({
                 pathBadgeOverride={`${jewel.name} → ${selectedExfilPath.destination_label ?? selectedExfilPath.channel_label}`}
                 defaultShowVPCBoundaries
                 fullscreenHeaderSlot={renderDetailsTabs("fullscreen")}
+                cveAssessments={exfiltrationCVEAssessments}
               />
             </div>
           )}
@@ -1071,6 +1110,7 @@ export function Zoom0FanInPanel({
                     canvasV2
                     jewelEmphasis
                     fullscreenHeaderSlot={renderDetailsTabs("fullscreen")}
+                    cveAssessments={currentCVEAssessments}
                   />
                 </div>
               )}
@@ -1102,6 +1142,17 @@ export function Zoom0FanInPanel({
                 pathId={pinPathId}
                 environment={null}
                 criticality={jewel.severity ?? null}
+              />
+            }
+            cveAnalysis={
+              <PathCVEAssessmentPanel
+                report={cveReport ?? null}
+                loading={cveReportLoading}
+                error={cveReportError}
+                retry={onRetryCVEReport}
+                selectedMode="CURRENT"
+                onOpenVulnerability={onOpenVulnerability}
+                compact
               />
             }
           />

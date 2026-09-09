@@ -7,6 +7,7 @@ import type { IdentityAttackPath, CrownJewelSummary } from "@/components/identit
 import type { SystemArchitecture } from "@/components/dependency-map/traffic-flow-map"
 import { buildTrafficFlowPathFilter } from "./build-traffic-flow-path-filter"
 import { attachLoadStatePosture } from "@/lib/attack-paths/attach-network-posture"
+import type { PathCVEAssessment } from "@/lib/cve-contracts"
 
 const TrafficFlowMap = dynamic(
   () => import("@/components/dependency-map/traffic-flow-map"),
@@ -22,6 +23,7 @@ export function AttackPathLaneFlowMap({
   canvasV2 = false,
   fullscreenContainerRef,
   onDamageScopeDataNode,
+  cveAssessments = [],
   fillHeight = false,
 }: {
   path: IdentityAttackPath
@@ -38,6 +40,9 @@ export function AttackPathLaneFlowMap({
   canvasV2?: boolean
   fullscreenContainerRef?: RefObject<HTMLDivElement | null>
   onDamageScopeDataNode?: (node: { id: string; name: string; type: string }) => void
+  /** Backend-produced CURRENT-mode CVE decisions. TrafficFlowMap matches
+   *  these to exact compute node identities before painting a badge. */
+  cveAssessments?: PathCVEAssessment[]
   /** When true (Attacker Map expanded), grow with the panel instead of a fixed 520px slot. */
   fillHeight?: boolean
 }) {
@@ -91,6 +96,7 @@ export function AttackPathLaneFlowMap({
         jewelSeverity={canvasV2 ? path.severity?.severity : undefined}
         fullscreenContainerRef={fullscreenContainerRef}
         onDamageScopeDataNode={onDamageScopeDataNode}
+        cveAssessments={cveAssessments}
       />
     </div>
   )

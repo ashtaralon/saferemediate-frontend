@@ -94,10 +94,28 @@ export function convergencePathsToIdentityAttackPaths(
 ): IdentityAttackPath[] {
   const cjId = jewel.canonical_id ?? jewel.id
   return paths.map((p) => {
-    // Empty hops → empty nodes/edges. Never synthesize entry/role/CJ spine.
+    // Empty hops never justify a synthetic role/CJ spine. A server-authored
+    // source_compute is different: it is the validated Point-A contract, so
+    // preserve exactly that one compute node for summary-list rendering.
     const hops = Array.isArray(p.hops) && p.hops.length > 0 ? p.hops : []
 
-    const nodes = hops.map((h, i) => hopToNode(h, i, hops.length))
+    const nodes = hops.length > 0
+      ? hops.map((h, i) => hopToNode(h, i, hops.length))
+      : p.source_compute
+        ? [{
+            id: p.source_compute.arn ?? p.source_compute.uid,
+            canonical_id: p.source_compute.uid,
+            name:
+              p.source_compute.name ??
+              p.source_compute.native_id ??
+              p.source_compute.arn ??
+              p.source_compute.uid,
+            type: p.source_compute.kind,
+            tier: "entry" as const,
+            lane: "compute" as const,
+            lp_score: null,
+          }]
+        : []
     const edges: IdentityAttackPath["edges"] = []
     for (let i = 0; i < hops.length - 1; i++) {
       const type = edgeTypeFromHop(hops[i + 1])
@@ -137,7 +155,7 @@ export function convergencePathsToIdentityAttackPaths(
 
     return {
       id: p.path_id,
-      attack_path_id: p.path_id,
+      attack_path_id: p.attack_path_id ?? p.path_id,
       crown_jewel_id: cjId,
       nodes,
       edges,
@@ -156,14 +174,14 @@ export function convergencePathsToIdentityAttackPaths(
         role_name: p.identity_name ?? undefined,
       },
       materialized_path: {
-        id: p.path_id,
+        id: p.attack_path_id ?? p.path_id,
         path_status: pathStatus,
         damage_types: damageTypes,
         identity_gate: p.identity_gate ?? "UNKNOWN",
         route_gate: p.route_gate ?? "UNKNOWN",
         data_plane_gate: p.data_plane_gate ?? "UNKNOWN",
         role_name: p.identity_name ?? null,
-        workload_name: p.source ?? null,
+        workload_name: p.source_compute?.name ?? p.source ?? null,
       },
       initial_access: p.initial_access?.[0]?.category
         ? { category: p.initial_access[0].category as never }

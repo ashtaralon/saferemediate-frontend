@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { backendError, fromCaughtError } from "@/lib/server/proxy-error";
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
+import { normalizeFindingIdentity } from "@/lib/security-finding-identity"
 
 // Allow longer execution time on Vercel (60 seconds for Pro tier)
 export const maxDuration = 60;
@@ -34,10 +35,11 @@ function canonicalResourceType(raw: unknown): unknown {
   return RESOURCE_TYPE_CANONICAL[s] ?? s;
 }
 
-function normalizeFinding(f: any): any {
-  if (!f || typeof f !== "object") return f;
+function normalizeFinding(f: any): any | null {
+  const identity = normalizeFindingIdentity(f);
+  if (!identity) return null;
   return {
-    ...f,
+    ...identity,
     severity: typeof f.severity === "string" ? f.severity.toLowerCase() : f.severity,
     status: typeof f.status === "string" ? f.status.toLowerCase() : f.status,
     resourceType: canonicalResourceType(f.resourceType),
@@ -117,13 +119,26 @@ export async function GET(request: Request) {
 
     const data = await response.json();
     const findings = data.findings || data.recommendations || data || [];
-    const total = data.total ?? data.count ?? findings.length;
-
-    const normalized = Array.isArray(findings) ? findings.map(normalizeFinding) : [];
+    const normalized = Array.isArray(findings)
+      ? findings.flatMap((finding: any) => {
+          const canonical = normalizeFinding(finding);
+          return canonical ? [canonical] : [];
+        })
+      : [];
+    const withheldInvalidCount = Array.isArray(findings)
+      ? findings.length - normalized.length
+      : 0;
+    if (withheldInvalidCount > 0) {
+      console.warn(
+        `[Findings Proxy] Withheld ${withheldInvalidCount} finding(s) without a canonical backend ID`,
+      );
+    }
     const result = {
       success: true,
       findings: normalized,
-      total: Array.isArray(findings) ? (total || normalized.length) : 0,
+      // Totals describe only rows safe enough to expose to downstream UI.
+      // The upstream total may include identity-less rows that were withheld.
+      total: normalized.length,
       count: normalized.length,
       source: "backend"
     };

@@ -11,7 +11,9 @@ import {
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import {
   healScopeAgainstOptions,
+  isExplicitCustomerSwitch,
   normalizeCustomerRoster,
+  openingSearchParams,
   resolveCustomerId,
   type AccountScopeOptions,
   type CustomerScopeOption,
@@ -52,11 +54,20 @@ export function AccountScopeProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname()
   const router = useRouter()
   const searchParams = useSearchParams()
-  const customerFromUrl = searchParams.get("customer_id")
-  const [customerId, setCustomerState] = useState<string | null>(() => customerFromUrl || storedScope().customerId || null)
-  const [groupId, setGroupState] = useState(() => searchParams.get("account_group") || storedScope().groupId || "all")
-  const [accountId, setAccountState] = useState(() => searchParams.get("account_id") || storedScope().accountId || "all")
-  const [region, setRegionState] = useState(() => searchParams.get("region") || storedScope().region || "all")
+  const opening = openingSearchParams(searchParams.toString())
+  const customerFromUrl = searchParams.get("customer_id") || opening.get("customer_id")
+  const [customerId, setCustomerState] = useState<string | null>(
+    () => customerFromUrl || opening.get("customer_id") || storedScope().customerId || null,
+  )
+  const [groupId, setGroupState] = useState(
+    () => opening.get("account_group") || searchParams.get("account_group") || storedScope().groupId || "all",
+  )
+  const [accountId, setAccountState] = useState(
+    () => opening.get("account_id") || searchParams.get("account_id") || storedScope().accountId || "all",
+  )
+  const [region, setRegionState] = useState(
+    () => opening.get("region") || searchParams.get("region") || storedScope().region || "all",
+  )
   const [options, setOptions] = useState<AccountScopeOptions | null>(null)
   const [customers, setCustomers] = useState<CustomerScopeOption[]>([])
   const [loading, setLoading] = useState(pathname !== "/login")
@@ -84,7 +95,9 @@ export function AccountScopeProvider({ children }: { children: ReactNode }) {
         const roster = normalizeCustomerRoster(await rosterResponse.json())
         if (!cancelled) setCustomers(roster)
 
-        const requested = customerFromUrl || customerId
+        const opening = openingSearchParams(searchParams.toString())
+        const requested =
+          customerFromUrl || opening.get("customer_id") || customerId
         const selected = resolveCustomerId(requested, roster)
         if (!selected) {
           if (!cancelled) {
@@ -94,7 +107,8 @@ export function AccountScopeProvider({ children }: { children: ReactNode }) {
           return
         }
 
-        if (!cancelled && selected !== requested) {
+        const customerSwitched = isExplicitCustomerSwitch(requested, selected)
+        if (!cancelled && customerSwitched) {
           setCustomerState(selected)
           setGroupState("all")
           setAccountState("all")
@@ -107,6 +121,15 @@ export function AccountScopeProvider({ children }: { children: ReactNode }) {
           startTransition(() => router.replace(`${pathname}?${next}`, { scroll: false }))
         } else if (!cancelled) {
           setCustomerState(selected)
+          // Hook searchParams can be empty on first paint; keep the
+          // navigation URL's account/region so Estate does not fire an
+          // unscoped topology-risk GET (C1 imply/compute → Preparing).
+          const openingAccount = opening.get("account_id")
+          const openingRegion = opening.get("region")
+          const openingGroup = opening.get("account_group")
+          if (openingGroup) setGroupState(openingGroup)
+          if (openingAccount) setAccountState(openingAccount)
+          if (openingRegion) setRegionState(openingRegion)
         }
         const response = await fetch(
           `/api/proxy/admin/accounts/scope/options/all?customer_id=${encodeURIComponent(selected)}`,
@@ -124,7 +147,7 @@ export function AccountScopeProvider({ children }: { children: ReactNode }) {
         // query parameter and undo the heal. Only on the same-customer path:
         // a customer switch above already reset the narrowing to "all", and
         // healing with this closure's pre-switch values could resurrect them.
-        if (selected !== requested) return
+        if (customerSwitched) return
         const healed = healScopeAgainstOptions({ groupId, accountId, region }, body)
         if (!cancelled && healed.cleared.length > 0) {
           setGroupState(healed.groupId)

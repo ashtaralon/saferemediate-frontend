@@ -116,6 +116,64 @@ describe("convergencePathsToIdentityAttackPaths", () => {
     expect(out[0].nodes.some((n) => n.tier === "crown_jewel")).toBe(false)
   })
 
+  it("uses server-authored source_compute as Point A when summary hops are pending", () => {
+    const paths: ConvergencePath[] = [
+      {
+        path_id: "ap-summary-lambda",
+        source: null,
+        source_kind: null,
+        workload_arn: "arn:aws:lambda:eu-west-1:1:function:consumer",
+        source_compute: {
+          kind: "LambdaFunction",
+          uid: "lambda:function:consumer",
+          arn: "arn:aws:lambda:eu-west-1:1:function:consumer",
+          name: "consumer",
+        },
+        origin_class: "compute",
+        damage: ["kms:Decrypt"],
+        score: 43,
+        confidence: "configured",
+        hop_count: 2,
+        hops: [],
+      },
+    ]
+
+    const [out] = convergencePathsToIdentityAttackPaths(jewel, paths)
+
+    expect(out.nodes).toEqual([
+      expect.objectContaining({
+        id: "arn:aws:lambda:eu-west-1:1:function:consumer",
+        canonical_id: "lambda:function:consumer",
+        name: "consumer",
+        type: "LambdaFunction",
+        tier: "entry",
+        lane: "compute",
+      }),
+    ])
+    expect(out.edges).toEqual([])
+    expect(out.materialized_path?.workload_name).toBe("consumer")
+  })
+
+  it("preserves canonical AttackPath identity for report lookup", () => {
+    const paths: ConvergencePath[] = [
+      {
+        path_id: "path-mat-display",
+        attack_path_id: "a".repeat(64),
+        source: "i-abc",
+        damage: [],
+        score: 0,
+        confidence: "configured",
+        hop_count: 0,
+      },
+    ]
+
+    const [out] = convergencePathsToIdentityAttackPaths(jewel, paths)
+
+    expect(out.id).toBe("path-mat-display")
+    expect(out.attack_path_id).toBe("a".repeat(64))
+    expect(out.materialized_path?.id).toBe("a".repeat(64))
+  })
+
   it("MUTATION: missing edge_type_from_prev must not invent REACHES", () => {
     expect(
       edgeTypeFromHop({

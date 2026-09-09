@@ -20,18 +20,6 @@ export type JewelRailResolution = {
   source: JewelRailSource
 }
 
-/** True when a /jewels proxy payload has at least one crown jewel. */
-export function isJewelsPayloadCacheable(payload: unknown): boolean {
-  if (!payload || typeof payload !== "object") return false
-  const d = payload as {
-    result?: { crown_jewels?: unknown }
-    data?: { crown_jewels?: unknown }
-    crown_jewels?: unknown
-  }
-  const cjs = d.result?.crown_jewels ?? d.data?.crown_jewels ?? d.crown_jewels
-  return Array.isArray(cjs) && cjs.length > 0
-}
-
 /**
  * Resolve paths for the Attack Paths V2 middle rail.
  *
@@ -65,8 +53,10 @@ export function resolveJewelRailPaths(args: {
 }
 
 /**
- * Jewel picker list: /jewels SERVE is authoritative once loaded.
- * Full IAP jewels only before /jewels responds or when /jewels failed.
+ * Jewel picker list: the SERVE target catalog (/attack-paths/{system}/targets,
+ * AP3-104) is authoritative once loaded — INCLUDING its zero-path targets,
+ * which carry an explicit state and must stay listed. Full IAP jewels only
+ * before the catalog responds or when it failed.
  */
 export function resolveJewelPickerList(args: {
   serveJewels: CrownJewelSummary[] | null
@@ -84,20 +74,9 @@ export function resolveJewelPickerList(args: {
 }
 
 /**
- * Attack Paths is a route investigation surface, not a crown-jewel inventory.
- * Assets with zero materialized paths stay available in Crown Jewels/Inventory
- * but do not belong in this selector: listing them implies missing evidence and
- * creates dead-end clicks. This is evidence-based and never name-hardcoded.
- */
-export function reachableJewelPickerList(
-  jewels: CrownJewelSummary[],
-): CrownJewelSummary[] {
-  return jewels.filter((jewel) => Number(jewel.path_count ?? 0) > 0)
-}
-
-/**
- * True when GET /jewels returned successfully — including empty.
- * Empty SERVE is projection truth, not "not computed yet."
+ * True when the SERVE catalog returned successfully — including empty and
+ * NOT_READY (each target then carries `projection_not_ready`). An answered
+ * catalog is the truth about this system; never overlay IAP provenance on it.
  */
 export function isServeJewelsAuthoritative(
   serveJewelsRaw: unknown,
@@ -108,8 +87,8 @@ export function isServeJewelsAuthoritative(
 
 /**
  * Full-page "Attack paths not computed yet" (IAP cold/stale envelope).
- * Never show when SERVE /jewels already answered — IAP provenance must
- * not override an honest READY / empty projection.
+ * Never show when the SERVE catalog already answered — IAP provenance must
+ * not override an honest READY / empty / NOT_READY projection.
  */
 export function shouldShowAttackPathsNotComputed(args: {
   serveJewelsRaw: unknown

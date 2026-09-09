@@ -62,11 +62,28 @@ export type PathEvidence =
   | "blocked"
   | string
 
+/** Server-authored Point A. The backend validates kind against its closed
+ * compute registry; clients must not infer this object from hop order. */
+export interface CanonicalComputeRef {
+  kind: string
+  uid: string
+  arn?: string | null
+  native_id?: string | null
+  name?: string | null
+  customer_id?: string | null
+  account_id?: string | null
+  region?: string | null
+}
+
 export interface ConvergencePath {
   path_id: string
+  /** Stable canonical AttackPath id for report/simulation endpoints. */
+  attack_path_id?: string | null
   source?: string | null
   source_kind?: string | null
   workload_arn?: string | null
+  source_compute?: CanonicalComputeRef | null
+  origin_class?: string | null
   identity?: string | null
   identity_name?: string | null
   damage: string[]
@@ -158,6 +175,26 @@ export interface ConvergencePath {
     workload_count_in_sample?: number
     subnets?: Array<{ id: string; name?: string | null; is_public?: boolean | null }>
     security_groups?: Array<{ id: string; name?: string | null }>
+    nacls?: Array<{
+      id: string
+      name?: string | null
+      subnet_ids?: string[]
+      rules_coverage?: "COLLECTED" | "NOT_COLLECTED" | "UNKNOWN" | null
+      rule_count?: number | null
+    }>
+    route_tables?: Array<{
+      id: string
+      name?: string | null
+      subnet_ids?: string[]
+      route_count?: number | null
+      is_main?: boolean | null
+    }>
+    instance_profiles?: Array<{
+      id: string
+      name?: string | null
+      role_id?: string | null
+      role_name?: string | null
+    }>
   } | null
   /** ACQUISITION — who can take THIS principal once already inside the
    *  account. Deliberately NOT initial_access: that is ATT&CK Initial Access

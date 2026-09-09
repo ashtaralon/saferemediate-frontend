@@ -7,6 +7,7 @@ import type {
   AtlasLateralResponse,
 } from "./use-atlas-lateral"
 import { AtlasLateralFlowMap } from "./atlas-lateral-flow-map"
+import type { PathCVEAssessment } from "@/lib/cve-contracts"
 
 const LIKELIHOOD_LABEL = {
   EXPOSED: "Exposed foothold",
@@ -213,6 +214,7 @@ export function AtlasLateralChainCanvas({
   evaluation,
   recommendedFoothold,
   onSelectFoothold,
+  cveAssessments = [],
 }: {
   selectedFoothold: AtlasFootholdCandidate | null
   response: AtlasLateralResponse | null
@@ -224,6 +226,7 @@ export function AtlasLateralChainCanvas({
   evaluation: AtlasFootholdEvaluation | null
   recommendedFoothold: AtlasFootholdCandidate | null
   onSelectFoothold: (id: string) => void
+  cveAssessments?: PathCVEAssessment[]
 }) {
   if (loading) {
     return <div className="flex h-full min-h-[360px] items-center justify-center text-[12px] text-muted-foreground"><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Simulating attacker movement…</div>
@@ -262,6 +265,7 @@ export function AtlasLateralChainCanvas({
       jewelId={jewelId}
       jewelType={jewelType}
       systemName={systemName}
+      cveAssessments={cveAssessments}
     />
   )
 }

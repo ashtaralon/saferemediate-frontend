@@ -15,7 +15,6 @@ import { IntegrationsSection } from "@/components/integrations-section"
 import { IdentitiesSection } from "@/components/identities-section"
 import { AutomationSection } from "@/components/automation-section"
 import { PerResourceAnalysis } from "@/components/per-resource-analysis"
-import { VulnerabilitiesSection } from "@/components/vulnerabilities-section"
 import { CVEManagementView } from "@/components/cve-management-view"
 import LeastPrivilegeTab from "@/components/LeastPrivilegeTab"
 import { SavedQuestionGallery } from "@/components/copilot/saved-question-gallery"
@@ -46,6 +45,7 @@ import { HomeDashboardV2 } from "@/components/dashboard/v2/home-dashboard-v2"
 import { HomeDashboardV3 } from "@/components/dashboard/v3/home-dashboard-v3"
 import { DASHBOARD_V3_ENABLED } from "@/lib/dashboard-release"
 import { readJsonCache, writeJsonCache } from "@/lib/browser-cache"
+import { normalizeFindingIdentities } from "@/lib/security-finding-identity"
 import { catalogSystemName, useScopedSystemCatalog } from "@/lib/scoped-system-catalog"
 
 // V2 is the default home. Set NEXT_PUBLIC_DASHBOARD_V2=false in Vercel to
@@ -358,7 +358,18 @@ export default function HomePage() {
 
     // Step 1: Try to load from cache immediately
     const cachedInfra = getCachedData<InfrastructureData>(CACHE_KEYS.INFRASTRUCTURE)
-    const cachedFindings = getCachedData<SecurityFinding[]>(CACHE_KEYS.FINDINGS)
+    const cachedFindingRows = getCachedData<SecurityFinding[]>(CACHE_KEYS.FINDINGS) ?? []
+    const cachedFindingResult = normalizeFindingIdentities(cachedFindingRows)
+    const cachedFindings = cachedFindingResult.findings as SecurityFinding[]
+    if (cachedFindingResult.withheldCount > 0) {
+      // Old cache entries predate the canonical-ID boundary. Repair the cache
+      // before rendering so an identity-less row never flashes while the
+      // background refresh is in flight.
+      setCachedData(CACHE_KEYS.FINDINGS, cachedFindings)
+      console.warn(
+        `[page] Withheld ${cachedFindingResult.withheldCount} finding(s) without a canonical ID from browser cache`,
+      )
+    }
     const cachedGap = getCachedData<GapAnalysisData>(CACHE_KEYS.GAP_DATA)
 
     if (cachedInfra) {
@@ -589,12 +600,13 @@ export default function HomePage() {
     const jewel = searchParams.get("jewel")
     const path = searchParams.get("path")
     const mode = searchParams.get("mode")
+    const vulnerabilityDeepLink = searchParams.get("vulnerability_focus") === "1"
     const attackPathDeepLink = Boolean(jewel || path || mode)
     return (
       <ErrorBoundary componentName="System Dashboard">
         <SystemDetailDashboard
           systemName={selectedSystem}
-          initialTab={attackPathDeepLink ? "attack-paths" : undefined}
+          initialTab={vulnerabilityDeepLink ? "vulnerabilities" : attackPathDeepLink ? "attack-paths" : undefined}
           initialAttackPathMode={
             mode || (attackPathDeepLink ? "attack-path" : undefined)
           }
@@ -981,7 +993,7 @@ export default function HomePage() {
       case "attack-paths":
         return (
           <ErrorBoundary componentName="Attack Paths">
-            {selectedSystem ? <AttackPathsV2 systemName={selectedSystem} defaultMode="attack-path" onOpenRoleSplit={() => setActiveSection("per-resource")} /> : <div className="text-center py-8 text-gray-500">No system selected</div>}
+            {selectedSystem ? <AttackPathsV2 systemName={selectedSystem} defaultMode="attack-path" onOpenRoleSplit={() => setActiveSection("per-resource")} onOpenVulnerability={() => setActiveSection("vulnerabilities")} /> : <div className="text-center py-8 text-gray-500">No system selected</div>}
           </ErrorBoundary>
         )
 

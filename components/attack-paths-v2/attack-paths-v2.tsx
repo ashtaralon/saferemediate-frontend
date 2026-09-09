@@ -42,13 +42,17 @@ import type { ExfilPayload } from "./exfil-view-v3"
 import { useRetryFetch } from "@/lib/use-retry-fetch"
 import { classifyIapResponse } from "@/lib/attack-paths/iap-response-health"
 import {
-  reachableJewelPickerList,
-  isJewelsPayloadCacheable,
   isServeJewelsAuthoritative,
   resolveJewelPickerList,
   resolveJewelRailPaths,
   shouldShowAttackPathsNotComputed,
 } from "@/lib/attack-paths/resolve-jewel-rail"
+import {
+  isTargetCatalogCacheable,
+  targetCatalogTotals,
+  targetCatalogToJewelSummaries,
+  type TargetCatalog,
+} from "@/lib/attack-paths/target-catalog"
 import { ConvergenceMapLoader } from "./convergence-map-loader"
 import { CrownJewelUnionViewLink } from "./crown-jewel-union-view-link"
 import { JewelExposurePanel } from "./jewel-exposure-panel"
@@ -75,6 +79,9 @@ import {
 import { ConvergencePathList } from "./convergence-path-list"
 import { CrownJewelConvergenceView } from "./crown-jewel-convergence-view"
 import { Zoom0FanInPanel } from "./zoom0-fan-in-panel"
+import { PathCVEAssessmentPanel } from "./path-cve-assessment-panel"
+import { pathCVEsForMode } from "./path-cve-model"
+import { useAttackPathReport } from "./use-attack-path-report"
 import { buildConvergenceFetchUrl } from "@/lib/attack-paths/convergence-fetch-url"
 import type { CrownJewelConvergence } from "@/lib/attack-paths/convergence-types"
 import { matchConvergencePathId } from "@/lib/attack-paths/iap-to-convergence"
@@ -96,6 +103,7 @@ export function AttackPathsV2({
   showEmbeddedAttackMap = true,
   mapOnlyPanel = false,
   onOpenRoleSplit,
+  onOpenVulnerability,
 }: {
   // Embedded mode (dashboard ATTACK PATH tab): `systemName` is supplied by
   // the dashboard and wins over the ?system URL param; the shell renders at a
@@ -119,6 +127,8 @@ export function AttackPathsV2({
    *  page shell, which holds the section-switch state). Threaded to the
    *  attack-path panel's shared-role callout. */
   onOpenRoleSplit?: (roleName: string) => void
+  /** Switch the owning shell to Vulnerabilities after the focus query is set. */
+  onOpenVulnerability?: (focus: { cveId: string; nodeId: string }) => void
 } = {}) {
   const searchParams = useSearchParams()
   const router = useRouter()
@@ -341,13 +351,15 @@ export function AttackPathsV2({
   }, [lastSystemStorageKey, pathname, router, searchParams, systemName, systemsCatalog.ready, systemsCatalog.url])
 
   // Progressive load (P0 perf):
-  //   1. /jewels — fast materialized crown-jewel list → left rail + shell
+  //   1. /targets — inventory-first target catalog (AP3-104): every in-scope
+  //      crown-jewel target with an explicit state, zero paths included →
+  //      left rail + shell
   //   2. by-crown-jewel/summary per selected jewel → path rail (critical)
   //   3. full IAP 5×5 — background only; never bricks the path rail on 502
-  // (Render wake happens via jewels fetch + keep-warm cron — don't fire the
-  // full keep-warm sweep from the browser on every tab open.)
+  // (Render wake happens via the catalog fetch + keep-warm cron — don't fire
+  // the full keep-warm sweep from the browser on every tab open.)
   const jewelsUrl = systemName
-    ? `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}/jewels`
+    ? `/api/proxy/attack-paths/${encodeURIComponent(systemName)}/targets`
     : null
   const {
     data: jewelsRaw,
@@ -355,16 +367,12 @@ export function AttackPathsV2({
     error: jewelsError,
     isStale: jewelsIsStale,
     retry: retryJewels,
-  } = useCachedFetch<{
-    result?: { crown_jewels?: CrownJewelSummary[] }
-    data?: { crown_jewels?: CrownJewelSummary[] }
-    crown_jewels?: CrownJewelSummary[]
-  }>(jewelsUrl, {
-    cacheKey: `iap-v2-jewels:${systemName}`,
+  } = useCachedFetch<TargetCatalog>(jewelsUrl, {
+    cacheKey: `ap-targets:${systemName}`,
     maxStaleMs: 10 * 60 * 1000,
-    // Never SWR-paint a cached empty jewels list — that is how the rail
-    // stuck on "No crown jewels · showing cached" after SERVE recovered.
-    isCacheable: isJewelsPayloadCacheable,
+    // Never SWR-paint a cached NOT_READY / empty catalog — that is how the
+    // rail stuck on "No crown jewels · showing cached" after SERVE recovered.
+    isCacheable: isTargetCatalogCacheable,
   })
 
   // Full IAP fan-out is OPTIONAL enrichment only — never gate the path rail.
@@ -402,14 +410,16 @@ export function AttackPathsV2({
     retryFullIap()
   }
 
-  const liteJewels: CrownJewelSummary[] = useMemo(() => {
-    const cjs =
-      jewelsRaw?.result?.crown_jewels ??
-      jewelsRaw?.data?.crown_jewels ??
-      jewelsRaw?.crown_jewels ??
-      []
-    return Array.isArray(cjs) ? cjs : []
-  }, [jewelsRaw])
+  // Catalog rows → rail summaries. Pure adapter; a zero-path target keeps
+  // its state (no severity, no score) instead of being filtered away.
+  const liteJewels: CrownJewelSummary[] = useMemo(
+    () => targetCatalogToJewelSummaries(jewelsRaw),
+    [jewelsRaw],
+  )
+  const targetCatalogServeState = jewelsRaw?.serve_state ?? null
+  const targetCatalogNotReadyReason = jewelsRaw?.not_ready_reason ?? null
+  const targetCatalogCounts = jewelsRaw?.counts ?? null
+  const catalogTotals = useMemo(() => targetCatalogTotals(jewelsRaw), [jewelsRaw])
 
   // Envelope unwrap. Backend wraps in {provenance, result}; we want the
   // result. Proxy stale fallback may also stamp fromStaleCache on the
@@ -418,6 +428,8 @@ export function AttackPathsV2({
     if (!rawData) return null
     return isTrustEnvelope(rawData) ? rawData.result : rawData
   }, [rawData])
+
+  const serveJewelsOk = isServeJewelsAuthoritative(jewelsRaw, jewelsError)
 
   // Soft auto-retry of background IAP only — never surfaces in the path rail.
   useEffect(() => {
@@ -437,16 +449,18 @@ export function AttackPathsV2({
     Boolean((rawData as { fromStaleCache?: boolean } | null)?.fromStaleCache) ||
     Boolean((data as { fromStaleCache?: boolean } | null)?.fromStaleCache)
 
-  // SERVE /jewels is authoritative once loaded (including empty). Full IAP
-  // jewels only before /jewels responds or when /jewels failed — never
-  // overwrite SERVE path_count with IAP phantoms.
+  // The SERVE catalog is authoritative once loaded (including empty and
+  // NOT_READY). Full IAP jewels only before the catalog responds or when it
+  // failed — never overwrite SERVE path_count with IAP phantoms. Zero-path
+  // targets stay listed with their explicit state (AP3-104): hiding them
+  // made "never considered" and "proved unreachable" both look like absence.
   const jewels: CrownJewelSummary[] = useMemo(
     () =>
-      reachableJewelPickerList(resolveJewelPickerList({
+      resolveJewelPickerList({
         serveJewels: jewelsRaw != null ? liteJewels : null,
         serveJewelsError: jewelsError,
         iapJewels: data?.crown_jewels ?? null,
-      })),
+      }),
     [jewelsRaw, liteJewels, jewelsError, data?.crown_jewels],
   )
 
@@ -480,6 +494,9 @@ export function AttackPathsV2({
 
   const blastRadiusPathCount = blastRadiusData?.verdict?.attack_paths
   const reachableJewelCount = blastRadiusData?.verdict?.reachable_crown_jewels
+  const displayedPathCount = catalogTotals?.pathCount ?? blastRadiusPathCount
+  const displayedReachableJewelCount =
+    catalogTotals?.reachableTargetCount ?? reachableJewelCount
 
 
   // Paths for the currently-selected jewel. Empty list = no jewel
@@ -531,7 +548,13 @@ export function AttackPathsV2({
         jewel: selectedJewel,
         iapPaths: [...iapJewelPaths],
       }),
-    [jewelSummaryConvergence, jewelSummaryError, selectedJewel, iapJewelPaths],
+    [
+      jewelSummaryConvergence,
+      jewelSummaryError,
+      serveJewelsOk,
+      selectedJewel,
+      iapJewelPaths,
+    ],
   )
 
   const jewelPaths: ActivePathList<IdentityAttackPath> = useMemo(
@@ -715,10 +738,9 @@ export function AttackPathsV2({
     rawData,
   ])
 
-  // The selected path object, if any. We tolerate selectedPathId
-  // pointing at a path that doesn't exist (e.g. operator deep-linked
-  // an old path id that's since been removed) — UI shows "path not
-  // found" rather than crashing.
+  // The selected path object, if any. A stale deep link temporarily resolves
+  // to null while the current generation settles; the effect below then
+  // clears it and restores the jewel fan-in instead of drawing fake blanks.
   const selectedPath = useMemo(() => {
     if (!selectedPathId) return null
     return (
@@ -728,7 +750,56 @@ export function AttackPathsV2({
     )
   }, [selectedPathId, jewelPaths])
 
-  // Auto-select the highest-observed-traffic path when a jewel is
+  // A bookmarked path id belongs to one immutable generation and can disappear
+  // after a valid rebuild. Once the selected jewel's current path set has
+  // settled, clear a stale id instead of rendering a blank "FROM — Resource"
+  // dossier. Other modes may then apply their normal first-path selection.
+  useEffect(() => {
+    if (!selectedPathId || !selectedJewelId) return
+    if (pathsPending || pathsWarming || jewelSummaryLoading || jewelSummaryRetrying) return
+    if (selectedPath) return
+    setUrl({ path: null })
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- setUrl is URL-state
+    // plumbing whose identity changes with the current search params.
+  }, [
+    selectedPathId,
+    selectedJewelId,
+    selectedPath,
+    pathsPending,
+    pathsWarming,
+    jewelSummaryLoading,
+    jewelSummaryRetrying,
+  ])
+
+  const {
+    report: selectedPathReport,
+    loading: selectedPathReportLoading,
+    error: selectedPathReportError,
+    retry: retrySelectedPathReport,
+  } = useAttackPathReport(selectedPath)
+
+  const openVulnerability = (cveId: string, nodeId: string) => {
+    const params = new URLSearchParams(searchParams?.toString() ?? "")
+    params.set("system", systemName ?? "")
+    params.set("view", "cves")
+    params.set("cve", cveId)
+    params.set("asset", nodeId)
+    params.set("vulnerability_focus", "1")
+    if (onOpenVulnerability) {
+      router.replace(`${pathname}?${params.toString()}`, { scroll: false })
+      onOpenVulnerability({ cveId, nodeId })
+      return
+    }
+
+    const standalone = new URLSearchParams()
+    if (systemName) standalone.set("system", systemName)
+    standalone.set("view", "cves")
+    standalone.set("cve", cveId)
+    standalone.set("asset", nodeId)
+    standalone.set("vulnerability_focus", "1")
+    router.push(`/?${standalone.toString()}`)
+  }
+
   // Auto-select the highest-traffic path when a jewel is selected and no
   // path id is in the URL — EXCEPT on Attack Path mode, where Zoom 0
   // (jewel fan-in) is the default until the operator picks a path
@@ -891,7 +962,6 @@ export function AttackPathsV2({
   const zoomMinus1Ready =
     viewMode === "attack-path" && !selectedJewelId && Boolean(systemName)
   const hasUsableJewels = jewels.length > 0
-  const serveJewelsOk = isServeJewelsAuthoritative(jewelsRaw, jewelsError)
   // First-paint spinner only when we can't show Zoom −1 and still have
   // no authoritative jewel list (SERVE empty is settled — don't wait on IAP).
   if (
@@ -942,9 +1012,9 @@ export function AttackPathsV2({
   }
 
   // Errored / cold-compute IAP envelope with no usable jewels — honest
-  // "couldn't compute", NEVER false "No crown jewels". SERVE /jewels
-  // success (including empty) wins: IAP "Graph snapshot is stale" must
-  // not brick the tab when the projection pin already answered.
+  // "couldn't compute", NEVER false "No crown jewels". A SERVE catalog
+  // answer (including empty / NOT_READY) wins: IAP "Graph snapshot is stale"
+  // must not brick the tab when the projection pin already answered.
   if (
     !zoomMinus1Ready &&
     shouldShowAttackPathsNotComputed({
@@ -1028,14 +1098,14 @@ export function AttackPathsV2({
               />
               )}
               <div className="text-[11px] text-muted-foreground mt-0.5">
-                {typeof blastRadiusPathCount === "number" &&
-                typeof reachableJewelCount === "number"
-                  ? `${blastRadiusPathCount} system paths · ${reachableJewelCount} reachable jewels`
+                {typeof displayedPathCount === "number" &&
+                typeof displayedReachableJewelCount === "number"
+                  ? `${displayedPathCount} active paths · ${displayedReachableJewelCount} reachable targets`
                   : data && allPaths.length > 0
                     ? `${allPaths.length} loaded paths · ${jewels.length} listed jewels`
                   : jewelsLoading
-                    ? "Loading crown jewels…"
-                    : `${jewels.length} highest-risk jewels${isLoading ? " · totals loading…" : ""}`}
+                    ? "Loading crown-jewel targets…"
+                    : `${jewels.length} targets${isLoading ? " · totals loading…" : ""}`}
                 {showingStale ? " · showing cached" : ""}
               </div>
             </div>
@@ -1043,7 +1113,10 @@ export function AttackPathsV2({
         </div>
         <CrownJewelListPanel
           jewels={jewels}
-          totalReachable={reachableJewelCount}
+          totalReachable={displayedReachableJewelCount}
+          serveState={targetCatalogServeState}
+          notReadyReason={targetCatalogNotReadyReason}
+          stateCounts={targetCatalogCounts}
           selectedJewelId={selectedJewelId}
           onSelect={handleSelectJewel}
         />
@@ -1121,6 +1194,11 @@ export function AttackPathsV2({
             onSelectPath={handleSelectExfilPath}
             jewelName={selectedJewel?.name ?? null}
             loading={exfilLoading}
+            notApplicableReason={
+              exfilData?.applicability?.state === "NOT_APPLICABLE"
+                ? exfilData.applicability.reason
+                : null
+            }
           />
         ) : viewMode === "convergence" ? (
           <ConvergencePathList
@@ -1192,7 +1270,14 @@ export function AttackPathsV2({
               onToggleExpand={handleToggleExpand}
               showBeta={showBeta}
             />
-            <ZoomMinus1Landing systemName={systemName} />
+            <ZoomMinus1Landing
+              systemName={systemName}
+              scope={{
+                customerId: searchParams?.get("customer_id"),
+                accountId: searchParams?.get("account_id"),
+                region: searchParams?.get("region"),
+              }}
+            />
           </>
         ) : (
           <>
@@ -1262,18 +1347,36 @@ export function AttackPathsV2({
                   large
                 />
               ) : (
-                <ExfilViewV3
-                  systemName={systemName}
-                  jewel={jewels.find((j) => j.id === selectedJewelId) ?? null}
-                  data={exfilData ?? null}
-                  loading={exfilLoading}
-                  error={exfilError}
-                  retry={exfilRetry}
-                  retrying={exfilRetrying}
-                  attempt={exfilAttempt}
-                  selectedPathId={selectedExfilPathId}
-                  onSelectPath={handleSelectExfilPath}
-                />
+                <div className="min-h-full bg-muted/20">
+                  <div className="px-6 pt-5">
+                    {selectedPath ? (
+                      <PathCVEAssessmentPanel
+                        report={selectedPathReport}
+                        loading={selectedPathReportLoading}
+                        error={selectedPathReportError}
+                        retry={retrySelectedPathReport}
+                        selectedMode="EXFILTRATION"
+                        onOpenVulnerability={openVulnerability}
+                        compact
+                      />
+                    ) : (
+                      <div className="rounded-xl border border-border bg-card p-3 text-[11px] text-muted-foreground">Select an attack path to correlate its CVEs with exfiltration evidence.</div>
+                    )}
+                  </div>
+                  <ExfilViewV3
+                    systemName={systemName}
+                    jewel={jewels.find((j) => j.id === selectedJewelId) ?? null}
+                    data={exfilData ?? null}
+                    loading={exfilLoading}
+                    error={exfilError}
+                    retry={exfilRetry}
+                    retrying={exfilRetrying}
+                    attempt={exfilAttempt}
+                    selectedPathId={selectedExfilPathId}
+                    onSelectPath={handleSelectExfilPath}
+                    cveAssessments={pathCVEsForMode(selectedPathReport, "EXFILTRATION")}
+                  />
+                </div>
               )
             ) : viewMode === "lateral" ? (
               // Jewel-scoped attacker model. The operator picks the initial
@@ -1286,11 +1389,29 @@ export function AttackPathsV2({
                   large
                 />
               ) : (
-                <AtlasLateralView
-                  systemName={systemName}
-                  jewelId={selectedJewelId}
-                  jewelName={selectedJewel.name}
-                />
+                <div className="min-h-full bg-muted/20">
+                  <div className="px-6 pt-5">
+                    {selectedPath ? (
+                      <PathCVEAssessmentPanel
+                        report={selectedPathReport}
+                        loading={selectedPathReportLoading}
+                        error={selectedPathReportError}
+                        retry={retrySelectedPathReport}
+                        selectedMode="LATERAL"
+                        onOpenVulnerability={openVulnerability}
+                        compact
+                      />
+                    ) : (
+                      <div className="rounded-xl border border-border bg-card p-3 text-[11px] text-muted-foreground">Select an attack path to correlate its CVEs with lateral-movement evidence.</div>
+                    )}
+                  </div>
+                  <AtlasLateralView
+                    systemName={systemName}
+                    jewelId={selectedJewelId}
+                    jewelName={selectedJewel.name}
+                    cveAssessments={pathCVEsForMode(selectedPathReport, "LATERAL")}
+                  />
+                </div>
               )
             ) : viewMode === "convergence" ? (
               selectedJewel ? (
@@ -1330,6 +1451,11 @@ export function AttackPathsV2({
                     onClearPath={() => setUrl({ path: null })}
                     isExpanded={isPathExpanded}
                     documentScroll={embedded && isPathExpanded}
+                    cveReport={selectedPathReport}
+                    cveReportLoading={selectedPathReportLoading}
+                    cveReportError={selectedPathReportError}
+                    onRetryCVEReport={retrySelectedPathReport}
+                    onOpenVulnerability={openVulnerability}
                   />
                 </div>
               ) : (
@@ -1374,6 +1500,11 @@ export function AttackPathsV2({
                 onClearPath={() => setUrl({ path: null })}
                 isExpanded={isPathExpanded}
                 documentScroll={embedded && isPathExpanded}
+                cveReport={selectedPathReport}
+                cveReportLoading={selectedPathReportLoading}
+                cveReportError={selectedPathReportError}
+                onRetryCVEReport={retrySelectedPathReport}
+                onOpenVulnerability={openVulnerability}
               />
             ) : (
               <EmptyState

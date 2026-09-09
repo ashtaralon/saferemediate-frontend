@@ -24,6 +24,8 @@
  * out of scope: a share token would land in a public workflow log.
  *
  *   FRONTEND_URL=https://cyntro-c1.vercel.app C1_SYSTEM=testbed-webshop \
+ *     C1_CUSTOMER_ID=testbed-webshop C1_ACCOUNT_ID=416651950952 \
+ *     C1_REGION=eu-west-1 \
  *     npx playwright test tests/integration/topology-estate-c1-qa-live.spec.ts
  */
 import fs from "node:fs"
@@ -32,8 +34,16 @@ import { authedApi, seedAuthCookie } from "./live-auth"
 import { railHeaderBadgeOverlaps } from "./topology-fixture"
 
 const SYSTEM = process.env.C1_SYSTEM || "testbed-webshop"
-const ESTATE_URL = `/topology/v0.2-estate?systemName=${encodeURIComponent(SYSTEM)}`
-const TOPOLOGY_RISK_PATH = `/api/proxy/topology-risk/${encodeURIComponent(SYSTEM)}`
+const CUSTOMER = process.env.C1_CUSTOMER_ID || "testbed-webshop"
+const ACCOUNT = process.env.C1_ACCOUNT_ID || "416651950952"
+const REGION = process.env.C1_REGION || "eu-west-1"
+const SCOPE = new URLSearchParams({
+  customer_id: CUSTOMER,
+  account_id: ACCOUNT,
+  region: REGION,
+})
+const ESTATE_URL = `/topology/v0.2-estate?systemName=${encodeURIComponent(SYSTEM)}&${SCOPE}`
+const TOPOLOGY_RISK_PATH = `/api/proxy/topology-risk/${encodeURIComponent(SYSTEM)}?${SCOPE}`
 const COVERAGE_LANES = ["vpc", "serverless", "database", "regional"] as const
 const COVERAGE_STATES = new Set(["empty", "not_applicable", "unknown", "none", "partial", "authoritative"])
 
@@ -75,6 +85,9 @@ interface LaneCoverage extends Omit<LaneCounts, "state"> {
 }
 interface TopologyRisk {
   system?: string
+  status?: string
+  refresh_state?: string
+  from_snapshot?: boolean
   account_id?: string | null
   region?: string | null
   vpc_id?: string | null
@@ -195,14 +208,28 @@ test.describe("C1 live QA — estate map against the deployed graph", () => {
       attempts.push({ status: res.status(), ms: Date.now() - t0, x_cache: res.headers()["x-cache"] ?? null })
     }
     report("topology-risk-fetch", { attempts, total_ms: Date.now() - started })
-    const text = await res.text()
+    let text = await res.text()
     expect(res.status(), text.slice(0, 500)).toBe(200)
-    const body = JSON.parse(text) as TopologyRisk
+    let body = JSON.parse(text) as TopologyRisk
+    for (let i = 0; i < 4 && (body.status === "computing" || !body.system); i += 1) {
+      report("topology-risk-computing", {
+        attempt: i + 1,
+        refresh_state: body.refresh_state ?? null,
+      })
+      await new Promise(resolve => setTimeout(resolve, 8_000))
+      t0 = Date.now()
+      res = await request.get(TOPOLOGY_RISK_PATH)
+      attempts.push({ status: res.status(), ms: Date.now() - t0, x_cache: res.headers()["x-cache"] ?? null })
+      text = await res.text()
+      expect(res.status(), text.slice(0, 500)).toBe(200)
+      body = JSON.parse(text) as TopologyRisk
+    }
     const summary = summarizeTopology(body)
     report("topology-risk", summary)
     await attachJson("topology-risk-summary.json", summary)
     await request.dispose()
 
+    expect(body.status, "serving must not stay on a computing envelope").not.toBe("computing")
     expect(body.system).toBe(SYSTEM)
     expect(summary.nodes).toBeGreaterThan(0)
 
@@ -249,10 +276,7 @@ test.describe("C1 live QA — estate map against the deployed graph", () => {
   })
 
   test("estate map on the deployed frontend: lanes, NAT chips, ALB band, coverage pill", async ({ context, page }) => {
-    // The first uncached topology read on C1 takes ~54s and this test drives
-    // three probes plus a scroll phase after it; 300s left no headroom and the
-    // run died mid-phase with its measurements already taken (run 33681801338).
-    test.setTimeout(900_000)
+    test.setTimeout(300_000)
     await seedAuthCookie(context)
     await page.setViewportSize({ width: 1600, height: 900 })
     const pageErrors: string[] = []
@@ -264,6 +288,14 @@ test.describe("C1 live QA — estate map against the deployed graph", () => {
     // systems catalog) decides whether the map mounts at all; record what each
     // of those calls answered so a blocked page comes with its cause.
     const gate: Array<{ path: string; status: number; body: string }> = []
+    const riskResponses: Array<{
+      path: string
+      status: number
+      body_status: string | null
+      from_snapshot: boolean | null
+      system_kpis: boolean
+      nodes: number
+    }> = []
     page.on("response", async response => {
       const url = new URL(response.url())
       const isGate =
@@ -282,11 +314,19 @@ test.describe("C1 live QA — estate map against the deployed graph", () => {
       }
       if (
         url.pathname.startsWith("/api/proxy/topology-risk/") &&
-        response.request().method() === "GET" &&
-        response.status() === 200
+        response.request().method() === "GET"
       ) {
         try {
-          captured.payload = (await response.json()) as TopologyRisk
+          const payload = (await response.json()) as TopologyRisk
+          riskResponses.push({
+            path: url.pathname + url.search,
+            status: response.status(),
+            body_status: payload.status ?? null,
+            from_snapshot: payload.from_snapshot ?? null,
+            system_kpis: Boolean((payload as { system_kpis?: unknown }).system_kpis),
+            nodes: (payload.nodes ?? []).length,
+          })
+          if (response.status() === 200) captured.payload = payload
         } catch {
           // a non-JSON body is reported below as a missing payload
         }
@@ -302,59 +342,48 @@ test.describe("C1 live QA — estate map against the deployed graph", () => {
     // wait again — the same thing an operator does — and report how many
     // loads it took.
     const mapTab = page.getByTestId("topology-estate-view-map")
-    // "Preparing <system>" is the map's LOADING card, not a blocked state:
-    // matching it here made every load return at once and the probe spent its
-    // three attempts in a minute without ever waiting for the map (run
-    // 33675359540). Only a real refusal short-circuits the wait.
-    const blocked = page.getByText(/Topology risk unavailable|No systems available yet/i)
-    // Warm the page's OWN cache key first. The API probe above warms the
-    // UNSCOPED read; the page asks for a scoped one, a different proxy key
-    // that is therefore still cold, and an uncached C1 topology read sits
-    // right at the proxy's ~55s ceiling (53.8s in run 33681801338, over it in
-    // 33683706108, where the page never mounted). A warm-up that times out is
-    // not wasted: the backend keeps computing its snapshot, so the next
-    // attempt is faster. Cheap requests, not page loads, so a cold read costs
-    // seconds of budget rather than a whole attempt.
-    const warm: Array<{ attempt: number; status: number | null; ms: number }> = []
-    for (let attempt = 1; attempt <= 4; attempt += 1) {
-      const t0 = Date.now()
-      let status: number | null = null
-      try {
-        const res = await page.request.get(
-          `/api/proxy/topology-risk/${encodeURIComponent(SYSTEM)}?customer_id=${encodeURIComponent(SYSTEM)}`,
-          { timeout: 60_000 }, // just past the proxy's ~55s ceiling
-        )
-        status = res.status()
-      } catch {
-        status = null // the proxy aborted the cold read; try again
-      }
-      warm.push({ attempt, status, ms: Date.now() - t0 })
-      if (status === 200) break
-    }
-    report("scoped-cache-warm", warm)
-
+    // "Preparing <system>" / "Building estate map" is the LOADING card, not a
+    // blocked state: matching it as success made every load return at once
+    // (run 33675359540). It is a signal to keep waiting. The timeout card
+    // ("Estate map temporarily unavailable") is a real refusal.
+    const blocked = page.getByText(
+      /Topology risk unavailable|No systems available yet|Estate map temporarily unavailable/i,
+    )
+    const riskUrls: string[] = []
+    page.on("request", request => {
+      const href = request.url()
+      if (href.includes("/api/proxy/topology-risk/")) riskUrls.push(href)
+    })
     const loads: Array<{ attempt: number; mounted: boolean; reason: string | null; ms: number }> = []
     let mounted = false
     for (let attempt = 1; attempt <= 3 && !mounted; attempt += 1) {
       const t0 = Date.now()
-      let reason: string | null = null
-      try {
-        await page.goto(ESTATE_URL, { waitUntil: "domcontentloaded", timeout: 60_000 })
-        await expect(mapTab.or(blocked).first()).toBeVisible({ timeout: 120_000 })
-        mounted = await mapTab.isVisible().catch(() => false)
-        reason = mounted
-          ? null
-          : ((await blocked.first().textContent({ timeout: 5_000 }).catch(() => null)) ?? "")
-              .replace(/\s+/g, " ")
-              .trim()
-      } catch (error) {
-        // A load that settles into neither the map nor a refusal is ONE failed
-        // attempt, not the end of the run. It used to throw straight out of
-        // the loop, so the retry this loop exists for never happened.
-        reason = `load did not settle: ${(error as Error).message.split("\n")[0]}`
-      }
+      await page.goto(ESTATE_URL, { waitUntil: "domcontentloaded" })
+      const firstRisk = await page
+        .waitForRequest(request => request.url().includes("/api/proxy/topology-risk/"), { timeout: 60_000 })
+        .catch(() => null)
+      const unscoped = riskUrls.filter(
+        href => !href.includes("account_id=") || !href.includes("region="),
+      )
+      report("estate-topology-risk-urls", {
+        attempt,
+        first: firstRisk?.url() ?? null,
+        urls: [...riskUrls],
+        unscoped,
+        responses: [...riskResponses],
+      })
+      expect(unscoped, "Estate must not fire an unscoped topology-risk GET on a scoped C1 URL").toEqual([])
+      await expect(mapTab.or(blocked).first()).toBeVisible({ timeout: 90_000 })
+      mounted = await mapTab.isVisible().catch(() => false)
+      expect(
+        riskUrls.filter(href => href.includes("vpc_id=")),
+        "Estate must not add vpc_id when the opening URL did not ask for one",
+      ).toEqual([])
+      const reason = mounted
+        ? null
+        : ((await blocked.first().textContent().catch(() => null)) ?? "").replace(/\s+/g, " ").trim()
       loads.push({ attempt, mounted, reason, ms: Date.now() - t0 })
-      if (!mounted && attempt < 3) await page.waitForTimeout(15_000)
+      if (!mounted && attempt < 3) await page.waitForTimeout(8_000)
     }
     report("estate-page", { mounted, loads, gate })
     if (!mounted) {
@@ -465,37 +494,33 @@ test.describe("C1 live QA — estate map against the deployed graph", () => {
       const chipCount = await chips.count()
       const last = chips.nth(chipCount - 1)
       const pageScrollBefore = await page.evaluate(() => window.scrollY)
-      // Every wait here is bounded. Playwright's default action timeout is 0 --
-      // unbounded -- so a `.textContent().catch(() => null)` on an element that
-      // is legitimately absent (the "above" fold pill at scrollTop 0) blocks
-      // until the TEST timeout and the catch never runs.
-      const timings: Record<string, number> = {}
-      const timed = async <T,>(name: string, run: () => Promise<T>): Promise<T> => {
-        const t0 = Date.now()
-        try {
-          return await run()
-        } finally {
-          timings[name] = Date.now() - t0
-        }
-      }
-      await timed("scrollIntoView", () => last.scrollIntoViewIfNeeded({ timeout: 15_000 }))
+      // scrollIntoViewIfNeeded waits on the page viewport. The last Lambda
+      // chip lives in a nested overflow lane, so that wait never finishes
+      // (c1-ui-qa #32 hit the 300s test timeout after the map had mounted).
+      await laneBody.evaluate(el => {
+        el.scrollTop = el.scrollHeight
+      })
       await page.waitForTimeout(500)
-      const after = await timed("chipBox", () => last.boundingBox())
-      const bodyAfter = await timed("laneBox", () => laneBody.boundingBox())
+      const after = await last.boundingBox()
+      const bodyAfter = await laneBody.boundingBox()
       const scrolled = {
         chip: after,
         body: bodyAfter,
         lane_scrollTop: await laneBody.evaluate(el => el.scrollTop),
         page_scrolled: (await page.evaluate(() => window.scrollY)) !== pageScrollBefore,
-        above_pill: await timed("abovePill", () =>
-          fullscreen.getByTestId("topology-serverless-lane-above").textContent({ timeout: 2_000 }).catch(() => null),
-        ),
-        more_pill: await timed("morePill", () =>
-          fullscreen.getByTestId("topology-serverless-lane-more").textContent({ timeout: 2_000 }).catch(() => null),
-        ),
-        header_overlaps: await timed("headerOverlaps", () => railHeaderBadgeOverlaps(page)),
+        above_pill: await page.evaluate(() => {
+          const root = document.querySelector('[data-testid="topology-estate-map-fullscreen"]')
+          const el = root?.querySelector('[data-testid="topology-serverless-lane-above"]')
+          return (el?.textContent ?? "").replace(/\s+/g, " ").trim() || null
+        }),
+        more_pill: await page.evaluate(() => {
+          const root = document.querySelector('[data-testid="topology-estate-map-fullscreen"]')
+          const el = root?.querySelector('[data-testid="topology-serverless-lane-more"]')
+          return (el?.textContent ?? "").replace(/\s+/g, " ").trim() || null
+        }),
+        header_overlaps: await railHeaderBadgeOverlaps(page),
       }
-      report("fullscreen-inventory-scrolled", { ...scrolled, timings_ms: timings })
+      report("fullscreen-inventory-scrolled", scrolled)
       await shot(page, "c1-fullscreen-inventory-scrolled")
       if (after && bodyAfter) {
         expect.soft(after.y, "scrolled chip inside its lane body (top)").toBeGreaterThanOrEqual(bodyAfter.y - 1)
@@ -589,7 +614,7 @@ async function readPill(page: Page, scope: "page" | "fullscreen"): Promise<PillR
         state: el.getAttribute("data-lane-state"),
         text: text(el),
       })),
-      warnings: Array.from(pill.querySelectorAll('[data-testid="topology-lane-coverage-warning"]')).map(el => ({
+      warnings: Array.from(pill.querySelectorAll('[data-testid="topology-coverage-gap"]')).map(el => ({
         code: el.getAttribute("data-warning-code"),
         text: text(el),
       })),

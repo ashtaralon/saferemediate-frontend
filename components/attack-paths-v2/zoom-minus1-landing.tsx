@@ -7,8 +7,15 @@
  */
 
 import { BlastRadiusMap } from "./blast-radius-map"
+import type { BlastRadiusScope } from "./blast-radius-scope"
 
-export function ZoomMinus1Landing({ systemName }: { systemName: string }) {
+export function ZoomMinus1Landing({
+  systemName,
+  scope,
+}: {
+  systemName: string
+  scope: BlastRadiusScope
+}) {
   return (
     <div className="flex flex-col h-full min-h-0 bg-background" data-testid="zoom-minus1-landing">
       <div className="px-6 py-4 border-b border-border bg-background">
@@ -21,7 +28,7 @@ export function ZoomMinus1Landing({ systemName }: { systemName: string }) {
         </p>
       </div>
       <div className="flex-1 overflow-y-auto bg-muted/20">
-        <BlastRadiusMap systemName={systemName} />
+        <BlastRadiusMap systemName={systemName} scope={scope} />
       </div>
     </div>
   )

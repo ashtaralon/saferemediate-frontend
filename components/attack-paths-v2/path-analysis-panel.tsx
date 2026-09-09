@@ -37,6 +37,8 @@ import { ClosureOutcomePanel } from "./closure-outcome-panel"
 import { SharedRoleCallout, type SharedRoleCalloutData } from "./shared-role-callout"
 import type { SystemArchitecture } from "@/components/dependency-map/traffic-flow-map"
 import { BusinessImpactPanel } from "@/components/business-impact/business-impact-panel"
+import { PathCVEAssessmentPanel } from "./path-cve-assessment-panel"
+import { pathCVEsForMode } from "./path-cve-model"
 
 interface PathAnalysisPanelProps {
   path: IdentityAttackPath
@@ -359,6 +361,7 @@ export function PathAnalysisPanel({
           systemName={systemName}
           architecture={architecture}
           architectureLoading={architectureLoading}
+          cveAssessments={pathCVEsForMode(report, "CURRENT")}
           fillHeight={mapOnlyPanel}
           fullscreenContainerRef={damageScopePortalContainerRef}
           onDamageScopeDataNode={(node) => {
@@ -480,6 +483,13 @@ export function PathAnalysisPanel({
               omitFixSection
               omitGatesSection
             />
+            <div className="mt-4">
+              <PathCVEAssessmentPanel
+                report={report}
+                selectedMode="CURRENT"
+                compact
+              />
+            </div>
           </>
         ) : (
           <p className="text-[12px] text-muted-foreground">

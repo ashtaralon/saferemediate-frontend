@@ -97,6 +97,33 @@ describe("AccountScopeProvider", () => {
     }
   })
 
+  it("keeps bookmark account and region when hook searchParams have not hydrated", async () => {
+    const saved = searchParams.toString()
+    for (const key of [...searchParams.keys()]) searchParams.delete(key)
+    window.history.replaceState(
+      {},
+      "",
+      "/topology/v0.2-estate?systemName=testbed-webshop&customer_id=testbed-webshop&account_id=111111111111&region=eu-west-1",
+    )
+    try {
+      render(
+        <AccountScopeProvider>
+          <GlobalScopeBar />
+        </AccountScopeProvider>,
+      )
+      const account = await screen.findByRole("combobox", { name: "Account" })
+      await waitFor(() => expect(account).toHaveValue("111111111111"))
+      const stripped = replace.mock.calls.some(([href]) => {
+        const url = String(href)
+        return url.includes("customer_id=") && !url.includes("account_id=111111111111")
+      })
+      expect(stripped).toBe(false)
+    } finally {
+      for (const key of [...searchParams.keys()]) searchParams.delete(key)
+      new URLSearchParams(saved).forEach((value, key) => searchParams.set(key, value))
+    }
+  })
+
   it("does not heal across a customer switch — the switch already reset the narrowing", async () => {
     // URL claims an organization the roster does not have; the provider
     // recovers to the first registered customer and resets the narrowing.

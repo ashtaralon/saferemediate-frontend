@@ -117,6 +117,7 @@ interface ExfilPathListColumnProps {
    *  silent blank rail. */
   jewelName?: string | null
   loading?: boolean
+  notApplicableReason?: string | null
 }
 
 export function ExfilPathListColumn({
@@ -125,6 +126,7 @@ export function ExfilPathListColumn({
   onSelectPath,
   jewelName,
   loading = false,
+  notApplicableReason = null,
 }: ExfilPathListColumnProps) {
   // Group paths by channel, preserving backend's traffic-sorted order
   // inside each group. Unknown channels fall into a synthetic "OTHER"
@@ -171,6 +173,19 @@ export function ExfilPathListColumn({
     return (
       <div className="px-4 py-3 text-[10px] uppercase tracking-wider text-muted-foreground">
         Loading exfil paths…
+      </div>
+    )
+  }
+
+  if (notApplicableReason) {
+    return (
+      <div className="px-4 py-3 space-y-2" data-testid="exfil-rail-not-applicable">
+        <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+          Exfiltration not applicable
+        </div>
+        <div className="text-xs text-muted-foreground leading-relaxed">
+          {notApplicableReason}
+        </div>
       </div>
     )
   }

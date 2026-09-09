@@ -11,7 +11,7 @@
 //  5. Graceful fallback to source_label while spine is in the deprecation window
 // =============================================================================
 
-import { Crown, KeyRound, Server, ShieldAlert, User } from "lucide-react"
+import { Bug, Crown, KeyRound, Server, ShieldAlert, User } from "lucide-react"
 import type {
   IdentityAttackPath,
 } from "@/components/identity-attack-paths/types"
@@ -24,6 +24,9 @@ import type {
 } from "./attack-path-report-types"
 import { SEMANTIC_TOKENS, type SemanticClass } from "./cloud-graph-semantic"
 import { CG } from "./cloud-graph-tokens"
+import type { PathCVEAssessment } from "@/lib/cve-contracts"
+import { CVE_VERDICT_LABELS } from "@/lib/cve-vocabulary"
+import { pathCVEsForMode, pathCVEsForNode } from "./path-cve-model"
 
 interface SpineCard {
   semantic: Extract<SemanticClass, "ENTRY" | "IDENTITY" | "JEWEL">
@@ -34,6 +37,8 @@ interface SpineCard {
   icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>
   /** Origin-confidence visual — only on the left (origin) card. */
   originConfidence?: SpineOriginConfidence
+  /** Exact graph identities used to attach backend CVE decisions. */
+  nodeAliases?: string[]
 }
 
 function findIamRoleName(path: IdentityAttackPath | null | undefined): string | undefined {
@@ -122,6 +127,7 @@ function buildFromSpine(
     badge: unresolved ? "ORIGIN UNRESOLVED" : "ORIGIN",
     icon: originIcon(originNode?.kind),
     originConfidence: conf,
+    nodeAliases: originNode ? [originNode.id, originNode.name] : [],
   }
 
   const unused = unusedPermissionCount(report)
@@ -179,6 +185,9 @@ function buildLegacyFallback(
     badge: "ORIGIN",
     icon: Server,
     originConfidence: "config_complete",
+    nodeAliases: computeNode
+      ? [computeNode.id, computeNode.canonical_id, computeNode.name].filter((value): value is string => Boolean(value))
+      : [],
   }
 
   const role = findIamRoleName(path)
@@ -253,7 +262,7 @@ function originConfidenceStyle(conf: SpineOriginConfidence | undefined): {
   }
 }
 
-function SpineCardView({ card }: { card: SpineCard }) {
+function SpineCardView({ card, cveAssessments = [] }: { card: SpineCard; cveAssessments?: PathCVEAssessment[] }) {
   const token = SEMANTIC_TOKENS[card.semantic]
   const Icon = card.icon
   const originStyle = originConfidenceStyle(card.originConfidence)
@@ -265,6 +274,11 @@ function SpineCardView({ card }: { card: SpineCard }) {
       : 1.5
     : token.width
   const borderStyle = originStyle && !originStyle.solid ? "dashed" : "solid"
+  const nodeAssessments = card.semantic === "ENTRY"
+    ? pathCVEsForNode(cveAssessments, card.nodeAliases ?? [])
+    : []
+  const cveIds = [...new Set(nodeAssessments.map((assessment) => assessment.cve_id))]
+  const topAssessment = nodeAssessments[0]
 
   return (
     <div
@@ -318,6 +332,17 @@ function SpineCardView({ card }: { card: SpineCard }) {
         <div className="text-[11px] mt-0.5 truncate" style={{ color: CG.muted }} title={card.sub}>
           {card.sub}
         </div>
+      ) : null}
+      {topAssessment ? (
+        <span
+          className="absolute -bottom-2 left-2 inline-flex max-w-[calc(100%-1rem)] items-center gap-1 rounded-md border border-red-500/40 bg-card px-1.5 py-0.5 font-mono text-[9px] font-bold text-red-700 shadow-sm dark:text-red-300"
+          data-testid="spine-compute-cve-badge"
+          data-cve-verdict={topAssessment.verdict}
+          title={`${cveIds.join(", ")} · ${CVE_VERDICT_LABELS[topAssessment.verdict]}\n${topAssessment.message}`}
+        >
+          <Bug className="h-3 w-3 shrink-0" />
+          <span className="truncate">{cveIds.length === 1 ? cveIds[0] : `${cveIds[0]} +${cveIds.length - 1}`}</span>
+        </span>
       ) : null}
     </div>
   )
@@ -395,6 +420,7 @@ export function AttackSpineStrip({
   const chainTitle = usedSpine
     ? `${cards[0]?.title} → ${cards[1]?.title} → ${cards[2]?.title}`
     : `${report.current_state.source_label} → ${report.current_state.target_label}`
+  const currentCVEAssessments = pathCVEsForMode(report, "CURRENT")
 
   // Three nodes always: origin |→| principal |→| jewel
   const gridCols = "1fr 40px 1fr 40px 1fr"
@@ -460,7 +486,7 @@ export function AttackSpineStrip({
       </div>
 
       <div className="grid items-stretch gap-0" style={{ gridTemplateColumns: gridCols }}>
-        <SpineCardView card={cards[0]} />
+        <SpineCardView card={cards[0]} cveAssessments={currentCVEAssessments} />
         <SpineArrow delay={0} />
         <SpineCardView card={cards[1]} />
         <SpineArrow delay={0.6} />

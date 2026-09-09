@@ -167,6 +167,33 @@ describe("fetchConvergencePathDetail", () => {
 })
 
 describe("mergeSummaryWithPathDetails", () => {
+  it("preserves the canonical attack_path_id used by report endpoints", () => {
+    const canonicalId = "a".repeat(64)
+    const withCanonical: CrownJewelConvergenceSummary = {
+      ...summary,
+      paths: [
+        summaryPath({
+          path_id: "path-mat-display-id",
+          attack_path_id: canonicalId,
+        }),
+      ],
+    }
+
+    const pending = mergeSummaryWithPathDetails(withCanonical, {})
+    expect(pending.paths[0].attack_path_id).toBe(canonicalId)
+
+    const ready = mergeSummaryWithPathDetails(withCanonical, {
+      "path-mat-display-id": {
+        state: "ready",
+        path: summaryPath({
+          path_id: "path-mat-display-id",
+          attack_path_id: "b".repeat(64),
+        }),
+      },
+    })
+    expect(ready.paths[0].attack_path_id).toBe("b".repeat(64))
+  })
+
   it("keeps hops pending until detail settles — not an authoritative empty spine", () => {
     const merged = mergeSummaryWithPathDetails(summary, {
       "lambda-path": { state: "pending" },

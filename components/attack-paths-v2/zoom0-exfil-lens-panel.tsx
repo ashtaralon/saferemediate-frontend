@@ -83,6 +83,20 @@ export function Zoom0ExfilLensPanel({
             Retry
           </button>
         </p>
+      ) : data?.applicability?.state === "NOT_APPLICABLE" ? (
+        <div
+          className="mt-2 rounded border border-violet-200/80 bg-background/80 px-2.5 py-2 text-[11px] dark:border-violet-500/40"
+          data-empty-state="NOT_APPLICABLE"
+          data-testid="zoom0-exfil-not-applicable"
+        >
+          <p className="flex items-center gap-1.5 font-semibold text-foreground">
+            <KeyRound className="h-3.5 w-3.5 text-violet-600" />
+            AWS KMS key material cannot be exported
+          </p>
+          <p className="mt-1 leading-4 text-muted-foreground">
+            {data.applicability.reason}
+          </p>
+        </div>
       ) : (
         <>
           {coverageText ? (

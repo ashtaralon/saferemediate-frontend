@@ -40,13 +40,20 @@ export async function GET(
     )
   }
 
-  const cacheKey = `business-system-blast-radius|${systemName}`
+  const scope = new URLSearchParams()
+  for (const key of ["customer_id", "account_id", "region"] as const) {
+    const value = req.nextUrl.searchParams.get(key)
+    if (value) scope.set(key, value)
+  }
+  const query = scope.toString()
+  const cacheKey = `business-system-blast-radius|${systemName}|${query}`
   const cached = getCached(cacheKey)
   if (cached) {
     return NextResponse.json(cached, { headers: { "X-Cache": "HIT" } })
   }
 
-  const url = `${getBackendBaseUrl()}/api/business-system/${encodeURIComponent(systemName)}/blast-radius`
+  const baseUrl = `${getBackendBaseUrl()}/api/business-system/${encodeURIComponent(systemName)}/blast-radius`
+  const url = query ? `${baseUrl}?${query}` : baseUrl
   try {
     const res = await fetch(url, {
       headers: { "Content-Type": "application/json" },
