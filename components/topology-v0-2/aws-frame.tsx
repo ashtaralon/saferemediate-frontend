@@ -5748,6 +5748,7 @@ export function AwsFrame({
             : "rounded-lg p-2.5 relative overflow-visible w-full min-w-0"
         }
         style={{ background: PAL.cardBg, border: `2px solid ${PAL.awsFrame}` }}
+        data-testid="topology-cloud-frame"
       >
         <div
           className={
@@ -5760,14 +5761,19 @@ export function AwsFrame({
           ☁ AWS Cloud {accountSuffix}
         </div>
 
-        {/* Region */}
+        {/* Region — teal DASHED against the VPC's teal SOLID. Same hue at
+            adjacent nesting levels is deliberate: AWS's own diagrams separate
+            the region frame from what it contains by stroke style, not colour
+            (dashed = a boundary you can reach across, solid = a network edge).
+            Was slate; slate read as chrome rather than as a frame. */}
         <div
           className={
             presentationMode
               ? "rounded-md p-1.5 relative overflow-hidden w-full min-w-0 flex-1 min-h-0 flex flex-col"
               : "rounded-md p-2.5 mt-1.5 relative overflow-visible w-full min-w-0"
           }
-          style={{ background: PAL.cardBg, border: `1.5px dashed ${PAL.slate}` }}
+          style={{ background: PAL.cardBg, border: `1.5px dashed ${PAL.teal}` }}
+          data-testid="topology-region-frame"
         >
           <div
             className={
@@ -5775,7 +5781,7 @@ export function AwsFrame({
                 ? "text-[10px] uppercase tracking-[0.14em] font-semibold mb-2 px-0.5"
                 : "absolute -top-2.5 left-4 px-2 text-[10px] uppercase tracking-[0.14em] font-semibold"
             }
-            style={{ background: presentationMode ? "transparent" : PAL.cardBg, color: PAL.slate }}
+            style={{ background: presentationMode ? "transparent" : PAL.cardBg, color: "#0E8B7A" }}
           >
             Region · {topo.region ?? "unknown"}
           </div>
