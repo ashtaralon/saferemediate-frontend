@@ -765,8 +765,10 @@ function nodeIcon(type: string | null): { symbol: ReactNode; bg: string; fg: str
     case "NeptuneInstance":
     case "NeptuneDBCluster":
       // Graph database, in the database blue of the RDS / DynamoDB fallbacks.
-      // No official-icon slug is registered for Neptune, so this glyph is the
-      // icon — the two C1 Neptune writers rendered the unknown-type "?".
+      // The presentation catalog now registers `aws-amazon-neptune`, so this
+      // branch is the net below that: reachable only if the slug is ever
+      // withdrawn. Keep it — the two C1 Neptune writers once rendered the
+      // unknown-type "?", and this is what stops that recurring.
       return { symbol: <AwsServiceGlyph kind="neptune" />, bg: "#2E73B8", fg: "white" }
     case "KMSKey":
       return { symbol: "KMS", bg: "#DD344C", fg: "white" }
