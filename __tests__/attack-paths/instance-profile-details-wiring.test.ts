@@ -21,6 +21,7 @@ describe("Attack Map instance-profile details", () => {
     expect(source).toContain("connectedTargets: ipIdToRoleIds.get(n.id) ?? []")
     expect(source).toContain("profile.attachedWorkloads ?? []")
     expect(source).toContain("profile.connectedTargets ?? []")
+    expect(source).toContain("attachedWorkloadIds.some((workloadId)")
     expect(source).toContain("relationship: 'ATTACHED_FROM'")
     expect(source).toContain("relationship: 'BINDS_ROLE'")
   })
@@ -28,5 +29,7 @@ describe("Attack Map instance-profile details", () => {
   it("renders an honest instance-profile label", () => {
     expect(source).toContain("serviceType === 'instance_profile' ? 'instance profile'")
     expect(source).toContain("identity binding, not a traffic endpoint")
+    expect(source).toContain("serviceType === 'instance_profile' ? 'Bound roles' : 'Blast Radius'")
+    expect(source).toContain("serviceType === 'instance_profile' ? 'Attached compute' : 'Dependencies'")
   })
 })

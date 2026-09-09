@@ -2701,10 +2701,17 @@ function ServiceDetailsPopup({
         }
 
         // Older dependency-map payloads may omit the explicit profile→role
-        // edge but still carry the path's normalized flow references. Keep a
-        // deterministic fallback for those snapshots without guessing names.
+        // edge but still carry the path's normalized workload→role flow.
+        // Resolve through attachedWorkloads, which came from the graph's
+        // HAS_INSTANCE_PROFILE edge; never infer a role from a shared name.
+        const attachedWorkloadIds = profile.attachedWorkloads ?? [];
         const profileFlows = architecture.flows.filter((flow) =>
-          flow.instanceProfileId === service.id,
+          flow.instanceProfileId === service.id ||
+          attachedWorkloadIds.some((workloadId) =>
+            flow.sourceId === workloadId ||
+            flow.sourceId.includes(workloadId.slice(-12)) ||
+            workloadId.includes(flow.sourceId.slice(-12)),
+          ),
         );
         profileFlows.forEach((flow) => {
           const compute = architecture.computeServices.find((candidate) =>
@@ -2833,19 +2840,23 @@ function ServiceDetailsPopup({
                 <div className="bg-muted/50 rounded-xl p-4 border border-border">
                   <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400 mb-2">
                     <Target className="w-5 h-5" />
-                    <span className="text-sm font-semibold">Blast Radius</span>
+                    <span className="text-sm font-semibold">{serviceType === 'instance_profile' ? 'Bound roles' : 'Blast Radius'}</span>
                   </div>
                   <div className="text-3xl font-bold text-foreground">{blastRadius?.downstream?.length || 0}</div>
-                  <div className="text-xs text-muted-foreground mt-1">downstream services affected</div>
+                  <div className="text-xs text-muted-foreground mt-1">
+                    {serviceType === 'instance_profile' ? 'IAM roles exposed through this profile' : 'downstream services affected'}
+                  </div>
                 </div>
 
                 <div className="bg-muted/50 rounded-xl p-4 border border-border">
                   <div className="flex items-center gap-2 text-blue-600 dark:text-blue-400 mb-2">
                     <GitBranch className="w-5 h-5" />
-                    <span className="text-sm font-semibold">Dependencies</span>
+                    <span className="text-sm font-semibold">{serviceType === 'instance_profile' ? 'Attached compute' : 'Dependencies'}</span>
                   </div>
                   <div className="text-3xl font-bold text-foreground">{blastRadius?.upstream?.length || 0}</div>
-                  <div className="text-xs text-muted-foreground mt-1">upstream dependencies</div>
+                  <div className="text-xs text-muted-foreground mt-1">
+                    {serviceType === 'instance_profile' ? 'workloads using this profile' : 'upstream dependencies'}
+                  </div>
                 </div>
 
                 <div className="bg-muted/50 rounded-xl p-4 border border-border">
