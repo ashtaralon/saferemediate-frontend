@@ -2326,6 +2326,15 @@ interface RiskAssessment {
   risk_level: string;
 }
 
+type ServiceDetailsKind =
+  | 'compute'
+  | 'resource'
+  | 'security_group'
+  | 'nacl'
+  | 'iam_role'
+  | 'instance_profile'
+  | 'api_call';
+
 function ServiceDetailsPopup({
   service,
   serviceType,
@@ -2333,7 +2342,7 @@ function ServiceDetailsPopup({
   onClose,
 }: {
   service: ServiceNode | SecurityCheckpoint;
-  serviceType: 'compute' | 'resource' | 'security_group' | 'nacl' | 'iam_role' | 'api_call';
+  serviceType: ServiceDetailsKind;
   architecture: SystemArchitecture;
   onClose: () => void;
 }) {
@@ -2370,6 +2379,7 @@ function ServiceDetailsPopup({
   // Get the icon for a node type
   const getNodeIcon = (type: string, name?: string) => {
     const t = inferTypeFromName(name || '', type).toLowerCase();
+    if (t === 'instance_profile') return <Layers className="w-4 h-4" />;
     if (t.includes('ec2') || t === 'compute') return <Server className="w-4 h-4" />;
     if (t.includes('lambda')) return <Zap className="w-4 h-4" />;
     if (t.includes('rds') || t.includes('database')) return <Database className="w-4 h-4" />;
@@ -2388,6 +2398,7 @@ function ServiceDetailsPopup({
   // Get color for a node type
   const getNodeColor = (type: string, name?: string) => {
     const t = inferTypeFromName(name || '', type).toLowerCase();
+    if (t === 'instance_profile') return 'text-amber-700 dark:text-amber-300 bg-amber-500/20 border-amber-500/50';
     if (t.includes('ec2') || t === 'compute') return 'text-blue-600 dark:text-blue-400 bg-blue-500/20 border-blue-500/50';
     if (t.includes('lambda')) return 'text-amber-600 dark:text-amber-400 bg-orange-500/20 border-amber-500/50';
     if (t.includes('rds') || t.includes('database')) return 'text-purple-600 dark:text-purple-400 bg-violet-500/20 border-purple-500/50';
@@ -2498,6 +2509,7 @@ function ServiceDetailsPopup({
           if (serviceType === 'security_group') return 'SecurityGroup';
           if (serviceType === 'nacl') return 'NACL';
           if (serviceType === 'iam_role') return 'IAMRole';
+          if (serviceType === 'instance_profile') return 'InstanceProfile';
           // For api_call, query the underlying resource type, not APICall
           if (serviceType === 'api_call') {
             // API call nodes are named after their target resource
@@ -2511,6 +2523,16 @@ function ServiceDetailsPopup({
           return '';
         };
         const resourceType = getResourceType();
+
+        // InstanceProfile is an attachment container, not an IAM role and not
+        // a standalone blast-radius subject.  The path architecture already
+        // carries the authoritative EC2 -> profile -> role chain, so render
+        // that local binding instead of querying the IAMRole endpoint with a
+        // profile ARN (which returned a misleading empty role drawer).
+        if (serviceType === 'instance_profile') {
+          buildLocalBlastRadius();
+          return;
+        }
 
         // For api_call, strip the 'api-' prefix to get the real resource ID
         const queryResourceId = serviceType === 'api_call' && service.id.startsWith('api-')
@@ -2642,6 +2664,48 @@ function ServiceDetailsPopup({
         });
       }
 
+      if (serviceType === 'instance_profile') {
+        const profileFlows = architecture.flows.filter((flow) =>
+          flow.instanceProfileId === service.id ||
+          Boolean(flow.instanceProfileId && service.id && (
+            flow.instanceProfileId.includes(service.id.slice(-12)) ||
+            service.id.includes(flow.instanceProfileId.slice(-12))
+          )),
+        );
+        profileFlows.forEach((flow) => {
+          const compute = architecture.computeServices.find((candidate) =>
+            candidate.id === flow.sourceId ||
+            candidate.id.includes(flow.sourceId.slice(-12)) ||
+            flow.sourceId.includes(candidate.id.slice(-12)),
+          );
+          if (compute && !upstream.some((node) => node.id === compute.id)) {
+            upstream.push({
+              id: compute.id,
+              name: compute.name,
+              type: compute.type,
+              depth: 1,
+              relationship: 'ATTACHED_FROM',
+            });
+          }
+          const role = architecture.iamRoles.find((candidate) =>
+            candidate.id === flow.roleId ||
+            Boolean(flow.roleId && (
+              candidate.id.includes(flow.roleId.slice(-12)) ||
+              flow.roleId.includes(candidate.id.slice(-12))
+            )),
+          );
+          if (role && !downstream.some((node) => node.id === role.id)) {
+            downstream.push({
+              id: role.id,
+              name: role.name,
+              type: 'IAMRole',
+              depth: 1,
+              relationship: 'BINDS_ROLE',
+            });
+          }
+        });
+      }
+
       setBlastRadius({
         resource_id: service.id,
         resource_name: service.name,
@@ -2657,6 +2721,7 @@ function ServiceDetailsPopup({
 
     // Also fetch risk assessment for attack impact data
     const fetchRiskAssessment = async () => {
+      if (serviceType === 'instance_profile') return;
       try {
         const resourceType = serviceType === 'compute' ? 'EC2' :
                             serviceType === 'resource' ? 'RDSInstance' : '';
@@ -2677,7 +2742,8 @@ function ServiceDetailsPopup({
     return architecture.flows.filter(f =>
       f.sourceId === service.id || f.targetId === service.id ||
       f.sourceId.includes(service.id.slice(-12)) || f.targetId.includes(service.id.slice(-12)) ||
-      f.sgId === service.id || f.naclId === service.id || f.roleId === service.id
+      f.sgId === service.id || f.naclId === service.id || f.roleId === service.id ||
+      f.instanceProfileId === service.id
     );
   }, [architecture.flows, service.id]);
 
@@ -2705,7 +2771,7 @@ function ServiceDetailsPopup({
               <h2 className="text-xl font-bold text-foreground">{service.name}</h2>
               <div className="flex items-center gap-2 mt-1">
                 <span className="text-xs px-2 py-0.5 rounded bg-muted text-foreground uppercase">
-                  {serviceType.replace('_', ' ')}
+                  {serviceType === 'instance_profile' ? 'instance profile' : serviceType.replace('_', ' ')}
                 </span>
                 <span className="text-xs text-muted-foreground font-mono">{service.id.slice(-20)}</span>
               </div>
@@ -9045,7 +9111,10 @@ export default function TrafficFlowMap({
   const [lastChanges, setLastChanges] = useState<DataChanges | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(false); // Manual refresh by default
   const [refreshInterval, setRefreshInterval] = useState(600); // 10 minutes
-  const [selectedService, setSelectedService] = useState<{ service: ServiceNode | SecurityCheckpoint; type: 'compute' | 'resource' | 'security_group' | 'nacl' | 'iam_role' | 'api_call' } | null>(null);
+  const [selectedService, setSelectedService] = useState<{
+    service: ServiceNode | SecurityCheckpoint;
+    type: ServiceDetailsKind;
+  } | null>(null);
   const [showAttackPaths, setShowAttackPaths] = useState(false);
   const [attackPaths, setAttackPaths] = useState<AttackPath[]>([]);
   // 2026-06-25 (density toggle): default ON. Operator workflow
@@ -11690,7 +11759,7 @@ export default function TrafficFlowMap({
               }
               setSelectedService({
                 service,
-                type: type === 'instance_profile' ? 'iam_role' : type,
+                type,
               });
               setSelectedNodeForHops(service.id);
             }}
