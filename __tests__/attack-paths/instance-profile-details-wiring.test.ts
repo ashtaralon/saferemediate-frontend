@@ -17,11 +17,16 @@ describe("Attack Map instance-profile details", () => {
   it("uses the path-local EC2 to profile to role binding", () => {
     expect(source).toContain("if (serviceType === 'instance_profile')")
     expect(source).toContain("flow.instanceProfileId === service.id")
+    expect(source).toContain("const ipIdToRoleIds = new Map<string, string[]>()")
+    expect(source).toContain("connectedTargets: ipIdToRoleIds.get(n.id) ?? []")
+    expect(source).toContain("profile.attachedWorkloads ?? []")
+    expect(source).toContain("profile.connectedTargets ?? []")
     expect(source).toContain("relationship: 'ATTACHED_FROM'")
     expect(source).toContain("relationship: 'BINDS_ROLE'")
   })
 
   it("renders an honest instance-profile label", () => {
     expect(source).toContain("serviceType === 'instance_profile' ? 'instance profile'")
+    expect(source).toContain("identity binding, not a traffic endpoint")
   })
 })

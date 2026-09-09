@@ -2665,12 +2665,46 @@ function ServiceDetailsPopup({
       }
 
       if (serviceType === 'instance_profile') {
+        const profile = service as SecurityCheckpoint;
+        for (const workloadId of profile.attachedWorkloads ?? []) {
+          const compute = architecture.computeServices.find((candidate) =>
+            candidate.id === workloadId ||
+            candidate.instanceId === workloadId ||
+            candidate.id.includes(workloadId.slice(-12)) ||
+            workloadId.includes(candidate.id.slice(-12)),
+          );
+          if (compute && !upstream.some((node) => node.id === compute.id)) {
+            upstream.push({
+              id: compute.id,
+              name: compute.name,
+              type: compute.type,
+              depth: 1,
+              relationship: 'ATTACHED_FROM',
+            });
+          }
+        }
+        for (const roleId of profile.connectedTargets ?? []) {
+          const role = architecture.iamRoles.find((candidate) =>
+            candidate.id === roleId ||
+            candidate.id.includes(roleId.slice(-12)) ||
+            roleId.includes(candidate.id.slice(-12)),
+          );
+          if (role && !downstream.some((node) => node.id === role.id)) {
+            downstream.push({
+              id: role.id,
+              name: role.name,
+              type: 'IAMRole',
+              depth: 1,
+              relationship: 'BINDS_ROLE',
+            });
+          }
+        }
+
+        // Older dependency-map payloads may omit the explicit profile→role
+        // edge but still carry the path's normalized flow references. Keep a
+        // deterministic fallback for those snapshots without guessing names.
         const profileFlows = architecture.flows.filter((flow) =>
-          flow.instanceProfileId === service.id ||
-          Boolean(flow.instanceProfileId && service.id && (
-            flow.instanceProfileId.includes(service.id.slice(-12)) ||
-            service.id.includes(flow.instanceProfileId.slice(-12))
-          )),
+          flow.instanceProfileId === service.id,
         );
         profileFlows.forEach((flow) => {
           const compute = architecture.computeServices.find((candidate) =>
@@ -2819,8 +2853,17 @@ function ServiceDetailsPopup({
                     <Activity className="w-5 h-5" />
                     <span className="text-sm font-semibold">Traffic</span>
                   </div>
-                  <div className="text-3xl font-bold text-foreground">{formatBytes(trafficStats.totalBytes)}</div>
-                  <div className="text-xs text-muted-foreground mt-1">{trafficStats.totalConnections} connections</div>
+                  {serviceType === 'instance_profile' ? (
+                    <>
+                      <div className="text-3xl font-bold text-foreground">N/A</div>
+                      <div className="text-xs text-muted-foreground mt-1">identity binding, not a traffic endpoint</div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="text-3xl font-bold text-foreground">{formatBytes(trafficStats.totalBytes)}</div>
+                      <div className="text-xs text-muted-foreground mt-1">{trafficStats.totalConnections} connections</div>
+                    </>
+                  )}
                 </div>
               </div>
 
@@ -10499,6 +10542,30 @@ export default function TrafficFlowMap({
       ipIdToAttachedWorkloads.set(ipId, list);
     });
 
+    // The second half of the AWS binding is InstanceProfile → IAMRole.
+    // Preserve it on the profile DTO so the detail drawer can explain the
+    // actual credential chain without treating the profile as a role.
+    const ipIdToRoleIds = new Map<string, string[]>();
+    edges.forEach(e => {
+      const eType = (e.edge_type || e.type || '').toUpperCase();
+      if (eType !== 'USES_ROLE') return;
+      const srcId = e.source || e.from;
+      const tgtId = e.target || e.to;
+      if (!srcId || !tgtId) return;
+      const srcType = (nodeMap.get(srcId)?.type || '').toLowerCase();
+      const tgtType = (nodeMap.get(tgtId)?.type || '').toLowerCase();
+      const srcIsIP = srcType.includes('instanceprofile') || srcType === 'instance_profile';
+      const tgtIsIP = tgtType.includes('instanceprofile') || tgtType === 'instance_profile';
+      const srcIsRole = srcType === 'iamrole' || srcType === 'iam_role';
+      const tgtIsRole = tgtType === 'iamrole' || tgtType === 'iam_role';
+      const ipId = srcIsIP && tgtIsRole ? srcId : tgtIsIP && srcIsRole ? tgtId : null;
+      const roleId = srcIsIP && tgtIsRole ? tgtId : tgtIsIP && srcIsRole ? srcId : null;
+      if (!ipId || !roleId) return;
+      const list = ipIdToRoleIds.get(ipId) ?? [];
+      if (!list.includes(roleId)) list.push(roleId);
+      ipIdToRoleIds.set(ipId, list);
+    });
+
     // Pass 2: collect InstanceProfile nodes, attach the workload list.
     const instanceProfiles: SecurityCheckpoint[] = [];
     nodes.forEach(n => {
@@ -10514,7 +10581,7 @@ export default function TrafficFlowMap({
         totalCount: null,
         gapCount: 0,
         connectedSources: [],
-        connectedTargets: [],
+        connectedTargets: ipIdToRoleIds.get(n.id) ?? [],
         attachedWorkloads: ipIdToAttachedWorkloads.get(n.id) ?? [],
       });
     });
