@@ -95,7 +95,7 @@ export interface JewelExposureResponse {
   instance_profiles: ExposureInstanceProfile[]
   policies: ExposurePolicy[]
   network: {
-    security_groups: Array<{ id: string; name: string; vpc_id?: string | null }>
+    security_groups: ExposureSecurityGroup[]
     subnets: Array<{ id: string; name: string; is_public?: boolean | null; vpc_id?: string | null }>
     vpcs: string[]
     nacls: Array<{ id: string; name: string }>
@@ -128,6 +128,26 @@ export interface JewelExposureResponse {
   // of guessing.
   change_log?: ExposureChange[] | null
   change_summary?: ExposureChangeSummary
+}
+
+interface ExposureSecurityGroupRule {
+  direction?: string | null
+  protocol?: string | null
+  from_port?: number | null
+  to_port?: number | null
+  peer_kind?: string | null
+  peer_value?: string | null
+}
+
+interface ExposureSecurityGroup {
+  id: string
+  name: string
+  vpc_id?: string | null
+  ingress_rule_count?: number | null
+  egress_rule_count?: number | null
+  rules_complete?: boolean | null
+  rules_incomplete_reason?: string | null
+  rules_json?: string | ExposureSecurityGroupRule[] | null
 }
 
 export interface ExposureChange {
@@ -714,11 +734,7 @@ function NetworkSummary({ network }: { network: JewelExposureResponse["network"]
         {network.security_groups.length === 0 ? (
           <span className="text-muted-foreground italic">none</span>
         ) : (
-          network.security_groups.map((sg) => (
-            <div key={sg.id} className="font-mono text-foreground truncate">
-              {sg.name}
-            </div>
-          ))
+          network.security_groups.map((sg) => <SecurityGroupSummary key={sg.id} sg={sg} />)
         )}
       </div>
       <div>
@@ -742,6 +758,76 @@ function NetworkSummary({ network }: { network: JewelExposureResponse["network"]
         )}
       </div>
     </div>
+  )
+}
+
+function parseSecurityGroupRules(
+  value: ExposureSecurityGroup["rules_json"],
+): ExposureSecurityGroupRule[] | null {
+  if (Array.isArray(value)) return value
+  if (typeof value !== "string" || value.trim() === "") return null
+  try {
+    const parsed = JSON.parse(value)
+    return Array.isArray(parsed) ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+function securityGroupRuleLabel(rule: ExposureSecurityGroupRule): string {
+  const direction = String(rule.direction || "rule").toUpperCase()
+  const protocol = String(rule.protocol || "all").toLowerCase()
+  const from = rule.from_port
+  const to = rule.to_port
+  const ports = from == null || to == null
+    ? "all ports"
+    : from === to ? `port ${from}` : `ports ${from}-${to}`
+  const peer = [rule.peer_kind, rule.peer_value].filter(Boolean).join(" ") || "peer unknown"
+  return `${direction} · ${protocol} · ${ports} · ${peer}`
+}
+
+function SecurityGroupSummary({ sg }: { sg: ExposureSecurityGroup }) {
+  const rules = parseSecurityGroupRules(sg.rules_json)
+  const ingress = sg.ingress_rule_count
+  const egress = sg.egress_rule_count
+  return (
+    <details className="rounded border border-border bg-card px-2 py-1.5">
+      <summary className="cursor-pointer list-none">
+        <div className="flex items-center gap-2">
+          <span className="font-mono text-foreground truncate" title={sg.id}>{sg.name || sg.id}</span>
+          {sg.rules_complete === true && (
+            <span className="ml-auto shrink-0 text-[9px] uppercase text-emerald-700 dark:text-emerald-300">rules verified</span>
+          )}
+          {sg.rules_complete === false && (
+            <span className="ml-auto inline-flex shrink-0 items-center gap-1 text-[9px] uppercase text-amber-700 dark:text-amber-300">
+              <AlertTriangle className="h-2.5 w-2.5" /> incomplete
+            </span>
+          )}
+        </div>
+        {(ingress != null || egress != null) && (
+          <div className="mt-0.5 text-[9px] text-muted-foreground">
+            {ingress ?? "?"} ingress · {egress ?? "?"} egress
+          </div>
+        )}
+      </summary>
+      <div className="mt-2 space-y-1 border-t border-border pt-2">
+        {sg.rules_complete === false ? (
+          <div className="text-amber-700 dark:text-amber-300">
+            Rule set unavailable{sg.rules_incomplete_reason ? `: ${sg.rules_incomplete_reason}` : ""}
+          </div>
+        ) : rules === null ? (
+          <div className="text-muted-foreground italic">Rule details not supplied by this generation.</div>
+        ) : rules.length === 0 ? (
+          <div className="text-muted-foreground italic">Verified empty rule set.</div>
+        ) : (
+          rules.map((rule, index) => (
+            <div key={`${rule.direction}-${rule.protocol}-${rule.peer_value}-${index}`} className="font-mono text-foreground break-all">
+              {securityGroupRuleLabel(rule)}
+            </div>
+          ))
+        )}
+      </div>
+    </details>
   )
 }
 
