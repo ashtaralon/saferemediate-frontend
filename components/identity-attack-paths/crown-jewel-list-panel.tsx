@@ -165,6 +165,13 @@ export function CrownJewelListPanel({
             sev === "HIGH" ? "#f97316" :
             sev === "MEDIUM" ? "#eab308" : "#22c55e"
           const targetState = jewel.target_state
+          const zeroLabel =
+            targetState === "no_modeled_route" ? "NO PATH" :
+            targetState === "coverage_incomplete" ? "PENDING" :
+            targetState === "projection_not_ready" ? "WAIT" : "—"
+          const zeroDescription = targetState
+            ? TARGET_STATE_CONFIG[targetState]?.description
+            : "No path severity is available for this target."
           const svc = getServiceMeta(jewel.type)
 
           return (
@@ -182,10 +189,11 @@ export function CrownJewelListPanel({
                 <ServiceTypeBadge type={jewel.type} variant="tile" size={34} />
 
                 <div
-                  className="w-9 shrink-0 text-right text-base font-semibold tabular-nums leading-none pt-0.5"
+                  className={`${hasSeverity ? "w-9 text-base" : "w-12 text-[9px] tracking-wide"} shrink-0 text-right font-semibold tabular-nums leading-none pt-0.5`}
                   style={{ color: sevColor }}
+                  aria-label={hasSeverity ? `Risk score ${score}` : zeroDescription}
                 >
-                  {hasSeverity ? score : "—"}
+                  {hasSeverity ? score : zeroLabel}
                 </div>
 
                 <div className="flex min-w-0 flex-1 flex-col gap-1">

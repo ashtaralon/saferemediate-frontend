@@ -512,6 +512,25 @@ export function AttackPathsV2({
       ) ?? null,
     [jewels, selectedJewelId],
   )
+  const selectedJewelHasPaths = Number(selectedJewel?.path_count ?? 0) > 0
+  const selectedJewelZeroState = selectedJewel?.target_state
+  const currentAccessZero =
+    !selectedJewelHasPaths &&
+    (selectedJewelZeroState === "no_modeled_route" ||
+      selectedJewelZeroState === "coverage_incomplete" ||
+      selectedJewelZeroState === "projection_not_ready")
+  const currentAccessZeroTitle =
+    selectedJewelZeroState === "no_modeled_route"
+      ? "No modeled current-access route"
+      : selectedJewelZeroState === "coverage_incomplete"
+        ? "Current-access coverage incomplete"
+        : "Attack-path projection not ready"
+  const currentAccessZeroSubtitle =
+    selectedJewelZeroState === "no_modeled_route"
+      ? "The active generation evaluated this crown jewel and found no compute-to-jewel route. Lateral and Exfiltration remain separate attacker-lens analyses."
+      : selectedJewelZeroState === "coverage_incomplete"
+        ? "The active generation has no evaluation manifest for this crown jewel, so Cyntro does not claim that no route exists."
+        : "No active Attack Paths generation can author a current-access conclusion yet."
 
   const iapJewelPaths: ActivePathList<IdentityAttackPath> = useMemo(() => {
     if (!selectedJewelId) return filterActivePaths([])
@@ -534,8 +553,8 @@ export function AttackPathsV2({
     error: jewelSummaryError,
     retry: retryJewelSummary,
   } = useCrownJewelConvergence(
-    selectedJewel ? systemName : null,
-    selectedJewel,
+    selectedJewelHasPaths && selectedJewel ? systemName : null,
+    selectedJewelHasPaths ? selectedJewel : null,
     selectedPathId,
     [...allPaths],
   )
@@ -564,6 +583,7 @@ export function AttackPathsV2({
 
   const pathsPending =
     Boolean(selectedJewelId) &&
+    selectedJewelHasPaths &&
     jewelPaths.length === 0 &&
     jewelRail.source === "none" &&
     (jewelSummaryLoading || jewelSummaryRetrying)
@@ -581,6 +601,7 @@ export function AttackPathsV2({
 
   const pathsWarming =
     Boolean(selectedJewelId) &&
+    selectedJewelHasPaths &&
     jewelPaths.length === 0 &&
     !pathsHardError &&
     jewelRail.source === "none" &&
@@ -637,9 +658,9 @@ export function AttackPathsV2({
   )
 
   const convergenceFetchUrl = useMemo(() => {
-    if (viewMode !== "convergence" || !systemName || !selectedJewel) return null
+    if (viewMode !== "convergence" || !systemName || !selectedJewel || !selectedJewelHasPaths) return null
     return buildConvergenceFetchUrl(systemName, selectedJewel)
-  }, [viewMode, systemName, selectedJewel])
+  }, [viewMode, systemName, selectedJewel, selectedJewelHasPaths])
 
   const {
     data: convergenceData,
@@ -1290,7 +1311,13 @@ export function AttackPathsV2({
               onToggleExpand={handleToggleExpand}
               showBeta={showBeta}
             />
-            {viewMode === "exposure" ? (
+            {currentAccessZero && ["attack-path", "attacker_map", "attacker_v2", "convergence"].includes(viewMode) ? (
+              <EmptyState
+                title={currentAccessZeroTitle}
+                subtitle={currentAccessZeroSubtitle}
+                large
+              />
+            ) : viewMode === "exposure" ? (
               <JewelExposurePanel
                 jewel={jewels.find((j) => j.id === selectedJewelId)!}
                 systemName={systemName}
