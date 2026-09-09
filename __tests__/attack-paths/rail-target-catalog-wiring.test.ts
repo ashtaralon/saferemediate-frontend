@@ -39,6 +39,13 @@ describe("attack-paths-v2 rail", () => {
     expect(src).toContain("notReadyReason={targetCatalogNotReadyReason}")
     expect(src).toContain("stateCounts={targetCatalogCounts}")
   })
+
+  it("does not fetch or spin a current-access map for an authoritative zero", () => {
+    expect(src).toContain("const selectedJewelHasPaths")
+    expect(src).toContain("selectedJewelHasPaths && selectedJewel ? systemName : null")
+    expect(src).toContain("currentAccessZeroTitle")
+    expect(src).toContain("No modeled current-access route")
+  })
 })
 
 describe("crown-jewel rail panel", () => {
@@ -52,5 +59,11 @@ describe("crown-jewel rail panel", () => {
   it("never defaults a missing severity to LOW", () => {
     expect(src).not.toContain('jewel.severity ?? "LOW"')
     expect(src).toContain("const sev = jewel.severity ?? null")
+  })
+
+  it("names zero states instead of showing an unexplained dash", () => {
+    expect(src).toContain('targetState === "no_modeled_route" ? "NO PATH"')
+    expect(src).toContain('targetState === "coverage_incomplete" ? "PENDING"')
+    expect(src).toContain("{hasSeverity ? score : zeroLabel}")
   })
 })

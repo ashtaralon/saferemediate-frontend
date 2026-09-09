@@ -86,6 +86,35 @@ export function PathListGrouped({
   }, [paths, jewel])
 
   if (rows.length === 0) {
+    if (jewel?.target_state === "no_modeled_route") {
+      return (
+        <div className="px-4 py-6" data-testid="no-modeled-route-state">
+          <div className="text-xs font-medium text-foreground">
+            No modeled current-access route
+          </div>
+          <div className="mt-1.5 text-[11px] text-muted-foreground">
+            The active Attack Paths generation evaluated{" "}
+            <span className="font-mono">{jewel.name}</span> and found no
+            compute-to-jewel route. Lateral and Exfiltration remain available
+            as separate attacker-lens analyses.
+          </div>
+        </div>
+      )
+    }
+    if (jewel?.target_state === "coverage_incomplete") {
+      return (
+        <div className="px-4 py-6" data-testid="coverage-incomplete-state">
+          <div className="text-xs font-medium text-amber-700 dark:text-amber-300">
+            Coverage incomplete
+          </div>
+          <div className="mt-1.5 text-[11px] text-muted-foreground">
+            The active generation has no evaluation manifest for{" "}
+            <span className="font-mono">{jewel.name}</span>. No zero-path
+            conclusion is claimed.
+          </div>
+        </div>
+      )
+    }
     if (jewel?.paths_not_computed) {
       return (
         <div className="px-4 py-6">
