@@ -42,6 +42,7 @@ import type { TopologyNode, TopologyRiskResponse } from "@/components/topology-v
 import { createMap } from "@/components/topology-v0-2/native-map"
 import {
   REGIONAL_EDGE_SERVICE_TYPES,
+  TRIGGER_TYPES,
   SERVERLESS_TYPES,
 } from "@/components/topology-v0-2/estate-placement"
 import {
@@ -78,6 +79,10 @@ const subscribeHydration = () => () => {}
 const RAIL_SERVICE_TYPES = new Set<string>([
   ...SERVERLESS_TYPES,
   ...REGIONAL_EDGE_SERVICE_TYPES,
+  // Triggers live in their own slot but still render on a rail, not the VPC
+  // grid. Omitting them here would count an EventBridge rule as a scoped
+  // VPC-grid service.
+  ...TRIGGER_TYPES,
 ])
 const isRailServiceType = (t?: string | null): boolean => !!t && RAIL_SERVICE_TYPES.has(t)
 
