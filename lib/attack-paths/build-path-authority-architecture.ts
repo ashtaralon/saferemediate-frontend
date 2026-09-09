@@ -1423,6 +1423,10 @@ export function buildPathAuthorityArchitecture(params: {
           )
         }
         if (profile.role_id) {
+          const checkpoint = instanceProfiles.find((row) => row.id === profile.id)
+          if (checkpoint && !checkpoint.connectedTargets.includes(profile.role_id)) {
+            checkpoint.connectedTargets.push(profile.role_id)
+          }
           if (!seen.role.has(profile.role_id)) {
             seen.role.add(profile.role_id)
             iamRoles.push(

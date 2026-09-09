@@ -1363,6 +1363,9 @@ describe("8. empty network lane provenance (deriveNetworkPosture)", () => {
       attachedWorkloads: [
         "arn:aws:ec2:eu-west-1:416651950952:instance/i-039d362b9862180c9",
       ],
+      connectedTargets: [
+        "arn:aws:iam::416651950952:role/cyntro-tb-prod-app-role",
+      ],
     }))
     expect(arch.onPathNodeIds.has("subnet-01cdb66c777975013")).toBe(true)
     expect(arch.onPathNodeIds.has("sg-0ed42745ba403737f")).toBe(true)
