@@ -1,0 +1,29 @@
+{
+  "resource_id": "arn:aws:lambda:eu-west-1:416651950952:function:cyntro-tb-prod-consumer-daily",
+  "resource_name": "cyntro-tb-prod-consumer-daily",
+  "resource_type": "Lambda",
+  "summary": {
+    "total_cves": 0,
+    "critical": 0,
+    "high": 0,
+    "medium": 0,
+    "low": 0,
+    "untriaged": 0,
+    "exploits_available": false,
+    "highest_cvss": 0,
+    "top_cves": [],
+    "software_affected": [],
+    "patch_urgency": "NONE",
+    "exposed_ports": [],
+    "coverage": "SCANNED",
+    "coverage_reason": "The connected vulnerability scanner actively covers this resource."
+  },
+  "cves": [],
+  "port_exposure": [],
+  "remediation_options": [],
+  "status_lines": [
+    "Findings come from the connected scanner. An open port is not a CVE.",
+    "Lambda inbound does not traverse a security group; SG changes cannot mitigate Lambda findings."
+  ],
+  "exposure_assertions": []
+}
