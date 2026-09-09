@@ -212,8 +212,54 @@ glyph because they are frames, which is the AWS convention rather than a gap.
 Done: the catalog, the alias folding, the placement scopes, CDN verification of
 all 47 distinct slugs, and the guard suite.
 
+**The light theme was already there.** Worth recording, because it was assumed
+missing and a restyle was nearly written on top of it. Read from
+`aws-frame.tsx` rather than inferred:
+
+| Element | Already implemented |
+|---|---|
+| Palette | `PAL.bg #F6F8FA`, `PAL.cardBg #FFFFFF` — light, not dark |
+| VPC frame | `2px solid #00C2A8`, header `#0E8B7A` |
+| Tier bands | `TIER_SIDEBAR_LABEL` = WEB TIER / APPLICATION TIER / DATABASE TIER |
+| Subnet cards | `SUBNET_BG` green/blue/purple, matching `SUBNET_BORDER` and `SUBNET_LABEL_FG` (`#1E8E3E` / `#1565C0` / `#4527A0`) |
+| Lane headers | `Lambda runtime · outside subnet grid ({n})`, `Regional · {families} ({n})` — payload-derived |
+
+The one frame that had drifted was the **region**: `1.5px dashed #5A6B7A`,
+slate, reading as page chrome rather than as a boundary. It is now teal dashed
+against the VPC's teal solid — AWS separates those two levels by stroke style,
+not by colour. `__tests__/topology-frame-nesting-grammar.test.tsx` now asserts
+the ancestry and both strokes, and was checked to fail on the slate value it
+replaced.
+
 Not done in this change: the renderer does not yet *consume* `scope`.
 `aws-frame.tsx` still places nodes by its existing logic, so §2 is a contract
 the catalog now exposes and the frame has yet to read. Wiring it — the AZ ×
 tier grid, the boundary lane, the regional and global lanes, and the explicit
-unplaced area — is the next step, together with the light-theme restyle.
+unplaced area — is the next step.
+
+### The delivery chain is healthy — so "I still see the old map" is a code gap
+
+Recorded because the obvious explanation was wrong, and acting on it would have
+sent someone to fix a deployment that is working. Probed 2026-09-09T21:24Z:
+
+| Target | Result |
+|---|---|
+| `cyntro-c1.vercel.app` | `307 → /login`, live. `GET /api/build-version` → `9de4f14d` |
+| `saferemediate-frontend.vercel.app` (this repo's linked Vercel project) | `503 x-vercel-error: DEPLOYMENT_PAUSED` |
+| `cyntro.io` | `503 x-vercel-error: DEPLOYMENT_PAUSED` |
+| `cyntro-frontend.vercel.app` (referenced in older docs) | `404 DEPLOYMENT_NOT_FOUND` |
+
+The two 503s look alarming and are not. `lib/server/backend-url.ts` opens with
+"The old shared backend is suspended. C1 is the tenant-scoped serving surface
+that owns the durable Attack Path snapshots used by this UI", and goes on to
+warn that C1 "must never silently fall back to the legacy SaaS service: that
+service can be paused independently". The pause is the documented steady state
+of a retired surface, not an outage.
+
+What matters is the last column: `9de4f14d` is the `origin/main` HEAD this work
+branched from. **C1 serves current main, exactly.** So no map change is stuck in
+transit, and any difference between the deployed map and the intended design is
+a gap in main's code — which is how the slate region frame above was found.
+
+Use `GET /api/build-version` before diagnosing a "stale UI"; it is cheaper than
+reasoning about Vercel and it answers the actual question.
