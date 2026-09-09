@@ -56,6 +56,29 @@ const RETRY_DELAYS_MS = [3000, 6000, 10000, 15000]
  */
 const DETAIL_SIBLING_CONCURRENCY = 2
 
+const AUTHORITATIVE_ZERO_TARGET_STATES = new Set([
+  "no_modeled_route",
+  "coverage_incomplete",
+  "projection_not_ready",
+])
+
+/**
+ * The target catalog is the authority for zero-path jewels. Asking the
+ * path-summary endpoint for one of these targets can only return NOT_READY:
+ * the materialized path snapshot intentionally contains paths, not zero rows.
+ * Treat the catalog's explicit zero as settled so the UI does not retry a
+ * known-empty summary and leave the operator looking at a warming spinner.
+ */
+export function hasAuthoritativeZeroPaths(
+  jewel: CrownJewelSummary | null,
+): boolean {
+  return Boolean(
+    jewel &&
+      Number(jewel.path_count ?? 0) === 0 &&
+      AUTHORITATIVE_ZERO_TARGET_STATES.has(jewel.target_state ?? ""),
+  )
+}
+
 /** Summary first (fast strip) + hop detail for every path in the model.
  *
  * Fan-in (`fanInAllDetails`) detail-fetches ALL summary path_ids so the
@@ -97,7 +120,7 @@ export function useCrownJewelConvergence(
 
   // Phase 1: summary with auto-retry on cold timeout / 5xx.
   useEffect(() => {
-    if (!systemName || !jewel) {
+    if (!systemName || !jewel || hasAuthoritativeZeroPaths(jewel)) {
       setSummary(null)
       setDetailsByPathId({})
       readyDetailIdsRef.current = new Set()
@@ -193,7 +216,15 @@ export function useCrownJewelConvergence(
       cancelled = true
       if (retryTimer) clearTimeout(retryTimer)
     }
-  }, [systemName, jewel?.id, jewel?.canonical_id, jewel?.name, nonce])
+  }, [
+    systemName,
+    jewel?.id,
+    jewel?.canonical_id,
+    jewel?.name,
+    jewel?.path_count,
+    jewel?.target_state,
+    nonce,
+  ])
 
   const resolvedSelectedPathId = useMemo(
     () => (summary ? matchConvergencePathId(summary.paths, selectedPathId, iapPaths) : null),
