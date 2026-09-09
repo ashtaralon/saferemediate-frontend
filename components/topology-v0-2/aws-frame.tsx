@@ -2704,6 +2704,26 @@ function EncodingLegend() {
           <span className="rounded-full" style={{ width: 12, height: 12, background: "#9CA3AF", opacity: 0.6 }} />
           <span>Stale (dimmed)</span>
         </div>
+        {/* Hatch = a lane the backend could not observe, never a dependency
+            between two resources. Keyed here so the fill reads as "we did not
+            look" rather than "we looked and found nothing" -- the two are not
+            the same claim, and only traffic_authority.coverage_gaps[] can tell
+            them apart. */}
+        <div className="flex items-center gap-2">
+          <span
+            style={{
+              width: 12,
+              height: 12,
+              border: "1px solid #B8C2CC",
+              borderRadius: 2,
+              backgroundColor: "#F3F4F6",
+              backgroundImage:
+                "repeating-linear-gradient(45deg, #B8C2CC 0 2px, transparent 2px 5px)",
+            }}
+            data-testid="topology-legend-coverage-gap-swatch"
+          />
+          <span>Coverage gap (not collected)</span>
+        </div>
       </div>
     </div>
   )
@@ -3512,9 +3532,23 @@ function FlowOverlay({
           // Anchor the egress label to its source chip (in-tier) instead of the
           // longest-segment midpoint, which lands up in the IGW / subnet-header
           // band where every egress line converges and the tags pile up.
+          //
+          // Corridor legs have the same disease for a different reason: a
+          // non-null laneX means the leg shares a vertical bus with its
+          // siblings, so every one of them has the SAME longest segment and
+          // every badge resolves to the same column -- four Lambda->S3 tags
+          // stacked on one point. The source stub is the one part of the path
+          // that is unique per edge, and source chips occupy distinct rows, so
+          // badging there gives each leg its own slot for free. Sign follows
+          // the leg direction, matching how orthoLeg picks the exit edge.
           badge = j.cls === "egress"
             ? { x: j.src.cx, y: j.src.t - 16 }
-            : longestSegmentMid(pts)
+            : laneX !== null
+              ? {
+                  x: j.dst.cx >= j.src.cx ? j.src.r + 16 : j.src.l - 16,
+                  y: j.src.cy,
+                }
+              : longestSegmentMid(pts)
         }
         const d = orthoPath(pts)
         if (!d) continue
