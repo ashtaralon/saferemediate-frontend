@@ -181,7 +181,10 @@ describe("lane headers state only what the payload supports", () => {
         nd({ id: "b1", name: "bucket-a", type: "S3" }),
         nd({ id: "t1", name: "table-a", type: "DynamoDB" }),
       ]),
-    ).toBe("EventBridge / DynamoDB / S3")
+      // DDB, not DynamoDB: a 200px lane header is ~26 uppercase characters and
+      // the long form wrapped the count onto a second line (measured
+      // 2026-09-10). The chips themselves keep the shared catalog's own label.
+    ).toBe("EventBridge / DDB / S3")
     // More families than the header can name: the rest are counted, not dropped.
     expect(
       regionalFamilies([

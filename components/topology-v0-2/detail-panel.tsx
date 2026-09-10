@@ -32,6 +32,7 @@ import {
   type FocusedServicePath,
 } from "./service-paths"
 import { FLOW_COLOR_BY_CLASS } from "./flow-visuals"
+import { relationshipBadgeLabel } from "./estate-edge-labels"
 import {
   operationalRequest,
   snapshotMirrorSummary,
@@ -254,6 +255,18 @@ function ServicePathMap({
                     edge?.authority_state === "inferred" ||
                     edge?.path_basis === "inferred_correlation" ||
                     edge?.path_basis === "synthetic_expansion"
+                  // The chain read its raw graph relationship type out loud
+                  // (`QUERIES_DB` between a workload and its database). The
+                  // words go on screen; the identifier an operator would put
+                  // in a Cypher query stays one hover away, the same deal the
+                  // rail chips make with their elided names.
+                  const edgeWords = edge
+                    ? (relationshipBadgeLabel(edge.protocol) ?? edge.protocol ?? "Dependency")
+                    : "Dependency"
+                  const edgeTitle =
+                    edge?.protocol && edgeWords !== edge.protocol
+                      ? `${edgeWords} · ${edge.protocol}`
+                      : edgeWords
                   return (
                     <div key={`${path.id}:${nodeId}`} className="flex items-center">
                       <div
@@ -272,7 +285,7 @@ function ServicePathMap({
                       </div>
                       {edge ? (
                         <div className="w-28 px-2 text-center">
-                          <svg viewBox="0 0 96 24" className="h-6 w-full overflow-visible" aria-label={edge.protocol ?? "Dependency"}>
+                          <svg viewBox="0 0 96 24" className="h-6 w-full overflow-visible" aria-label={edgeWords}>
                             <line
                               x1="4"
                               y1="12"
@@ -296,8 +309,8 @@ function ServicePathMap({
                               </circle>
                             ) : null}
                           </svg>
-                          <div className="truncate text-[9px] font-semibold" style={{ color: stroke }} title={edge.protocol ?? "Dependency"}>
-                            {edge.protocol ?? "Dependency"}
+                          <div className="truncate text-[9px] font-semibold" style={{ color: stroke }} title={edgeTitle}>
+                            {edgeWords}
                           </div>
                         </div>
                       ) : null}

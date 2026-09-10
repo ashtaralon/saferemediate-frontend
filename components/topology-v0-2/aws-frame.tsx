@@ -57,6 +57,7 @@ import { subnetOwnershipTooltipLine } from "./estate-ownership"
 import {
   databasePublicIpExposureLabel,
   corridorKindForEdge,
+  relationshipBadgeLabel,
   selectBundledCorridorBadges,
 } from "./estate-edge-labels"
 import {
@@ -2125,7 +2126,22 @@ function StackTile({
 /** Fullscreen rail lanes: each lane's flex basis is its own content height
  *  and both may shrink, so a lane with more chips gets more of the column.
  *  The floor comes from useRailLaneFloor and is set per lane. */
-const RAIL_LANE_FLEX = { flex: "0 1 auto" } as const
+/** One off-VPC lane, and the corridor between the two, in the region grid
+ *  (`1fr | 136 | 48 | 200 | 112 | 200`). The lanes sit SIDE BY SIDE, not
+ *  stacked: a Lambda → S3 edge is then a short hop across the corridor between
+ *  them rather than a line down the column it shares with its target, and
+ *  neither lane's height is charged to the other — 16 Lambdas and 18 regional
+ *  services each get the whole column instead of half of it.
+ *
+ *  The corridor is sized to hold a bundle's LABEL beside its bus, not just the
+ *  bus: at the 40px it shipped with, the one S3-access label on the captured
+ *  payload had to park in the left gutter, 293px from the line it named
+ *  (measured 2026-09-10) — the arrangement's whole point is that the traffic
+ *  between the two lanes is legible in the gap. 112 = BUS_PAD 8 + 4 + a
+ *  12-character badge 91 + 2 clear of the far edge; a longer label still falls
+ *  back to the gutter column (busSideBadgeX). */
+export const RAIL_LANE_W_PX = 200
+export const RAIL_LANE_CORRIDOR_W_PX = 112
 /** Floor of one fullscreen lane, so its body always shows one full row of
  *  chips: padding 16 + the taller (Lambda) header 35 + both fold pills
  *  2 × 24 + one row of dense chips 54 = 153. The lanes render dense chips
@@ -2134,16 +2150,15 @@ const RAIL_LANE_FLEX = { flex: "0 1 auto" } as const
  *  the 96px floor the lane split shipped with could not hold one once the
  *  coverage pill took its share of the column (fixture spec, 720px tall). */
 export const RAIL_LANE_MIN_PX = 154
-/** Vertical gap between the two lanes (the rail column's gap-2). */
-const RAIL_LANE_GAP_PX = 8
 
-/** Floor one lane may claim so that BOTH floors still fit the rail column:
- *  the full floor when the column affords two, else an equal split of the
- *  column (a window that short is tiny; sharing beats clipping one lane).
+/** Floor one lane may claim. Side by side each lane owns the column's whole
+ *  height, so it is the full floor unless the column itself is shorter — while
+ *  the lanes were stacked this had to halve the column so BOTH floors fit, and
+ *  a 720px-tall window therefore gave each lane a 146px floor it did not need.
  *  An unmeasured column (null, or 0 before layout) keeps the full floor. */
 export function railLaneFloorPx(columnHeight: number | null): number {
   if (columnHeight == null || !Number.isFinite(columnHeight) || columnHeight <= 0) return RAIL_LANE_MIN_PX
-  return Math.max(0, Math.min(RAIL_LANE_MIN_PX, Math.floor((columnHeight - RAIL_LANE_GAP_PX) / 2)))
+  return Math.max(0, Math.min(RAIL_LANE_MIN_PX, Math.floor(columnHeight)))
 }
 
 /** Live lane floor for the fullscreen rail column, re-measured on resize. */
@@ -2178,8 +2193,9 @@ function useRailLaneFloor(ref: React.RefObject<HTMLDivElement | null>, enabled: 
 }
 
 /** Chips of a lane body that sit above / below its visible fold. Measured
- *  from live rects (scroll, resize, and a content revision re-measure), so
- *  the "+N more" footer is a count of real nodes, never an estimate. */
+ *  from live rects (scroll, resize, its own box, its SCROLL CONTENT, and a
+ *  content revision re-measure), so the "+N more" footer is a count of real
+ *  nodes, never an estimate. */
 function useLaneFold(
   ref: React.RefObject<HTMLDivElement | null>,
   enabled: boolean,
@@ -2193,6 +2209,30 @@ function useLaneFold(
       return
     }
     let raf = 0
+    let observedContent: Element | null = null
+    // Declared here, constructed once `schedule` exists below. `measure` calls
+    // `observeContent`, which needs this observer, which needs `schedule`, which
+    // calls `measure` — a cycle no ordering of consts can satisfy. A forward
+    // `let` breaks it and keeps every closure an arrow declared after the
+    // `!el` guard, so `el` stays narrowed; hoisting a function declaration out
+    // of the cycle instead loses that narrowing. Every call site below runs
+    // after the assignment, and the `?.` reads hold if it is never constructed.
+    let ro: ResizeObserver | null = null
+    // Observing only the body's own box left this count stale at 0 while eight
+    // chips sat below the fold: side by side, each lane is stretched to the
+    // column's full height, so switching density grows the CONTENT inside a box
+    // whose size never changes and the observer never fires (measured
+    // 2026-09-10 at 1600×720 — one window resize was enough to make both fold
+    // pills appear). While the lanes were stacked the same switch resized the
+    // bodies themselves, which is why this held until they were split. Re-resolve
+    // the content node on every measure in case React swaps it out.
+    const observeContent = () => {
+      const content = el.firstElementChild
+      if (content === observedContent) return
+      if (observedContent) ro?.unobserve(observedContent)
+      observedContent = content
+      if (content) ro?.observe(content)
+    }
     const measure = () => {
       raf = 0
       const box = el.getBoundingClientRect()
@@ -2207,15 +2247,17 @@ function useLaneFold(
         else if (r.top < box.top - 1) above += 1
       }
       setFold(prev => (prev.above === above && prev.below === below ? prev : { above, below }))
+      observeContent()
     }
     const schedule = () => {
       if (!raf) raf = window.requestAnimationFrame(measure)
     }
+    ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(schedule) : null
     schedule()
     el.addEventListener("scroll", schedule, { passive: true })
     window.addEventListener("resize", schedule)
-    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(schedule) : null
     ro?.observe(el)
+    observeContent()
     return () => {
       el.removeEventListener("scroll", schedule)
       window.removeEventListener("resize", schedule)
@@ -2352,19 +2394,23 @@ function ServerlessComputeTier({
         background: "#EEF2FF",
         border: "1px solid #C7D2FE",
         borderLeft: "3px solid #4338CA",
-        ...(compact ? { ...RAIL_LANE_FLEX, minHeight: laneMinHeight ?? RAIL_LANE_MIN_PX } : {}),
+        ...(compact ? { minHeight: laneMinHeight ?? RAIL_LANE_MIN_PX } : {}),
       }}
     >
       {/* Flow obstacle: the badge nudge pass (FlowOverlay pass 4) keeps edge
           labels off this header, as it already does for the AZ headers. */}
       <div className={compact ? "mb-1" : "mb-1.5"} data-flow-obstacle="serverless-tier-header">
+        {/* One line. "· outside subnet grid" pushed the count onto a second
+            line in a 200px lane and cost a chip row (measured 2026-09-10); it
+            is a property of the whole lane, not of the title, so it reads on
+            the detail line below with the coverage counts. */}
         <div className="text-[10px] uppercase tracking-[0.12em] font-semibold" style={{ color: "#312E81" }}>
-          Lambda runtime · outside subnet grid ({nodes.length})
+          Lambda runtime ({nodes.length})
         </div>
         <div className="mt-0.5 text-[9px]" style={{ color: "#6366F1" }}>
-          {vpcAttached > 0 ? `${vpcAttached} VPC-attached` : null}
-          {vpcAttached > 0 && attachmentUnverified > 0 ? " · " : null}
-          {attachmentUnverified > 0 ? `${attachmentUnverified} attachment unverified` : null}
+          {"outside subnet grid"}
+          {vpcAttached > 0 ? ` · ${vpcAttached} VPC-attached` : null}
+          {attachmentUnverified > 0 ? ` · ${attachmentUnverified} attachment unverified` : null}
           {elided.prefix ? (
             <span
               data-testid="topology-serverless-name-prefix"
@@ -2452,14 +2498,24 @@ function ServerlessComputeTier({
   )
 }
 
+/** Header-width abbreviations. A lane is 200px wide, which is ~26 uppercase
+ *  characters at the header's 10px/1.2px tracking: "REGIONAL · S3 / DYNAMODB
+ *  (18)" is 29 and wrapped onto a second line (measured 2026-09-10), pushing
+ *  the chips down and costing a row. Only the LANE HEADER shortens — chips keep
+ *  the shared catalog's own label (awsServiceLabel), so nothing here becomes a
+ *  second name for a service on screen. "DDB" is this repo's existing short
+ *  form (TopologyNode.resource_kind in ./types.ts). */
+const FAMILY_SHORT_LABELS: Record<string, string> = { DynamoDB: "DDB" }
+
 /** The service families a regional lane actually holds, commonest first.
  *  The header used to name "S3 / DDB / KMS" over a lane that was mostly
  *  EventBridge rules and held no KMS key at all (C1, 2026-09-02). */
 export function regionalFamilies(nodes: TopologyNode[], limit = 3): string {
   const counts = new Map<string, number>()
   for (const node of nodes) {
-    const label = awsServiceLabel(node.type ?? "")
-    if (!label) continue
+    const full = awsServiceLabel(node.type ?? "")
+    if (!full) continue
+    const label = FAMILY_SHORT_LABELS[full] ?? full
     counts.set(label, (counts.get(label) ?? 0) + 1)
   }
   const ordered = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
@@ -2508,13 +2564,13 @@ function RegionalDataServicesTier({
   const displayName = new Map(inventory.map((node, i) => [node.id, elided.labels[i]]))
   return (
     <div
-      className={compact ? "rounded-md p-2 flex flex-col min-h-0" : "rounded-md p-2.5 mt-2"}
+      className={compact ? "rounded-md p-2 flex flex-col min-h-0" : "rounded-md p-2.5"}
       data-testid="topology-regional-data-tier"
       style={{
         background: "#EDE7F6",
         border: "1px solid #D1C4E9",
         borderLeft: "3px solid #5E35B1",
-        ...(compact ? { ...RAIL_LANE_FLEX, minHeight: laneMinHeight ?? RAIL_LANE_MIN_PX } : {}),
+        ...(compact ? { minHeight: laneMinHeight ?? RAIL_LANE_MIN_PX } : {}),
       }}
     >
       <div
@@ -3018,7 +3074,7 @@ export function edgeBadgeLabel(
         ? (n ? `S3 · ${n} endpoints · via IGW (prefer VPCE)` : "S3 · via IGW (prefer VPCE)")
         : `${e.protocol ?? "AWS"} · via IGW/NAT (prefer VPCE)`
     } else {
-      badgeLabel = e.protocol ?? "edge"
+      badgeLabel = relationshipBadgeLabel(e.protocol) ?? e.protocol ?? "edge"
     }
   } else if (cls === "vpce") {
     badgeLabel = "VPCE"
@@ -3036,24 +3092,17 @@ export function edgeBadgeLabel(
     } else {
       badgeLabel = e.port ? `RDS · ${e.port}` : "RDS"
     }
-  } else if (
-    e.protocol === "LAUNCHES" ||
-    e.protocol === "TARGETS" ||
-    e.protocol === "HAS_TARGET_GROUP" ||
-    e.protocol === "TRIGGERS" ||
-    e.protocol === "ENCRYPTED_BY" ||
-    e.protocol === "ACCESSES_RESOURCE"
-  ) {
-    badgeLabel =
-      e.protocol === "HAS_TARGET_GROUP"
-        ? "TG"
-        : e.protocol === "ACCESSES_RESOURCE"
-          ? "secret"
-          : e.protocol === "ENCRYPTED_BY"
-            ? "KMS"
-            : e.protocol
   } else {
-    badgeLabel = e.port ? `${e.port}/${e.protocol ?? "TCP"}` : (e.protocol ?? "TCP")
+    // The relationship type first (TG / KMS / reads / …), the port form
+    // second. The two never compete: across the captured payload's 27 edges
+    // every port-bearing edge carries protocol TCP and every edge whose
+    // protocol is a relationship type has no port (measured 2026-09-10). The
+    // per-type ternary this replaces lived here rather than in the label
+    // grammar, so the same edge read "secret" in one lens and its raw
+    // relationship type in another.
+    badgeLabel =
+      relationshipBadgeLabel(e.protocol) ??
+      (e.port ? `${e.port}/${e.protocol ?? "TCP"}` : (e.protocol ?? "TCP"))
   }
   return badgeLabel
 }
@@ -3078,6 +3127,27 @@ export function busFanOffset(index: number, total: number, usable: number): numb
  *  this so the three cannot drift apart. */
 export function badgeHalfWidth(label: string): number {
   return Math.max(14, label.length * 3.8)
+}
+
+/** Centre x for a bundle badge placed ON its line — just right of the bus,
+ *  inside the corridor the bus runs in — or `null` when it does not fit.
+ *
+ *  Parked in the left gutter instead, the one S3-access label on the captured
+ *  payload sat 293px from the path it named, with the whole Lambda lane in
+ *  between (measured 2026-09-10). Right of its own bus it reads as that line's
+ *  label. Beside rather than centred ON the bus because the fan starts a
+ *  BUS_PAD in from the corridor's left edge, so a centred box would hang out
+ *  of the corridor and over the lane's chips. */
+export function busSideBadgeX(
+  busX: number,
+  corridor: { l: number; r: number } | null,
+  halfWidth: number,
+): number | null {
+  if (!corridor) return null
+  const left = busX + 4
+  if (left < corridor.l) return null
+  if (left + 2 * halfWidth > corridor.r - 2) return null
+  return left + halfWidth
 }
 
 /** Lay the rail bundles' badges out as one column instead of a pile.
@@ -3123,32 +3193,75 @@ export function stackBundleBadges(
  *  from; the target is the CHIP that receives it, so the arrow names a
  *  service instead of a column (C1 production QA, 2026-09-02: every arrow
  *  into a bucket or a rule ended at the lane, and an operator could not tell
- *  which one). The path leaves the source lane's left edge, runs the flow
- *  corridor left of the column on its own bus, and enters the target chip's
- *  LEFT edge — reachable without crossing a neighbour because rail chips are
- *  one per row. Without a corridor element the bus sits just left of the
- *  lanes. `srcSpread` fans the departures so bundles from one lane are
- *  distinguishable. */
+ *  which one).
+ *
+ *  The bundle runs the corridor that lies BETWEEN its two ends and enters the
+ *  target chip on the side facing that corridor, so with the Lambda and
+ *  Regional lanes side by side a Lambda → S3 bundle is a short hop across the
+ *  corridor between them. Sending every bundle out to the LEFTMOST corridor
+ *  instead — correct while the lanes were stacked in one column — drew this one
+ *  back across the lane it had just left: measured 2026-09-10 against the
+ *  captured payload the geometry specs replay, the S3-access bundle was drawn
+ *  over one of the Lambda chips it had just left. Ends with no corridor between
+ *  them (two chips in one lane, or overlapping rects) take the nearest corridor
+ *  on their left instead, which is a hop out and back rather than a crossing.
+ *
+ *  Two badge anchors, and `corridor` so the caller can tell which one is
+ *  readable: `bus` is ON the line, in the gap between the lanes — where the
+ *  label belongs, and where the whole side-by-side arrangement pays off. It is
+ *  only offered when the label FITS beside its bus in that corridor, which is
+ *  why RAIL_LANE_CORRIDOR_W_PX is sized for a badge and not just for a bus.
+ *  `label` is the fallback: the LEFTMOST corridor, one column that
+ *  stackBundleBadges spreads, for labels too wide for the gap and for accounts
+ *  with more bundles than the gap can hold side by side. Without any corridor
+ *  element both sit just left of the lanes. `srcSpread` fans the departures so
+ *  bundles from one lane are distinguishable. */
 export function railBundleRoute(
   srcLane: NatRect,
   dstChip: NatRect,
-  corridor: NatRect | null,
+  corridors: NatRect[],
   index: number,
   srcSpread = 0,
   total = index + 1,
-): { pts: Pt[]; bus: Pt } {
-  const busX = corridor
-    ? corridor.l + BUS_PAD + busFanOffset(index, total, corridor.r - corridor.l - 2 * BUS_PAD)
+): { pts: Pt[]; bus: Pt; label: Pt; corridor: NatRect | null } {
+  // Rightmost candidate wins: the closest clear run to the target.
+  const widest = (candidates: NatRect[]) =>
+    candidates.length > 0 ? candidates.reduce((best, c) => (c.l > best.l ? c : best)) : null
+  const rightward = dstChip.l >= srcLane.r
+  const leftward = dstChip.r <= srcLane.l
+  const between = rightward
+    ? widest(corridors.filter(c => c.l >= srcLane.r - 1 && c.r <= dstChip.l + 1))
+    : leftward
+      ? widest(corridors.filter(c => c.l >= dstChip.r - 1 && c.r <= srcLane.l + 1))
+      : null
+  const outside = widest(corridors.filter(c => c.r <= Math.min(srcLane.l, dstChip.l) + 1))
+  const bus = between ?? outside
+  const busX = bus
+    ? bus.l + BUS_PAD + busFanOffset(index, total, bus.r - bus.l - 2 * BUS_PAD)
     : Math.min(srcLane.l, dstChip.l) - 24 - busFanOffset(index, total, 70)
+  // Leave and enter on the sides facing the bus.
+  const exitX = busX > srcLane.r ? srcLane.r : srcLane.l
+  const enterX = busX > dstChip.r ? dstChip.r : dstChip.l
   const srcY = Math.min(Math.max(srcLane.cy + srcSpread, srcLane.t + 6), srcLane.b - 6)
   const dstY = dstChip.cy
   const pts: Pt[] = [
-    { x: srcLane.l, y: srcY },
+    { x: exitX, y: srcY },
     { x: busX, y: srcY },
     { x: busX, y: dstY },
-    { x: dstChip.l, y: dstY },
+    { x: enterX, y: dstY },
   ]
-  return { pts, bus: { x: busX, y: (srcY + dstY) / 2 } }
+  const gutter = corridors.length > 0 ? corridors.reduce((a, b) => (a.l <= b.l ? a : b)) : null
+  return {
+    pts,
+    corridor: bus,
+    bus: { x: busX, y: (srcY + dstY) / 2 },
+    label: {
+      x: gutter
+        ? gutter.l + BUS_PAD + busFanOffset(index, total, gutter.r - gutter.l - 2 * BUS_PAD)
+        : Math.min(srcLane.l, dstChip.l) - 24 - busFanOffset(index, total, 70),
+      y: (srcY + dstY) / 2,
+    },
+  }
 }
 
 /** "TRIGGERS ×6": the label the members share and how many edges it stands for. */
@@ -3691,8 +3804,15 @@ function FlowOverlay({
       // Rail bundles — one path per (source lane, target lane, label) through
       // the flow corridor; the badge sits just left of its bus, over the empty
       // lower part of the network rail, and pass 4 stacks bundles apart.
-      const corridorEl = container.querySelector<HTMLElement>('[data-testid="topology-flow-corridor"]')
-      const corridor = corridorEl ? toNat(visibleRect(corridorEl, corridorEl.getBoundingClientRect())) : null
+      // Both corridors: the 48px one left of the rail, and the 40px one between
+      // the Lambda and Regional lanes. railBundleRoute picks whichever lies
+      // between a bundle's own two ends.
+      const corridors = ["topology-flow-corridor", "topology-interlane-corridor"].flatMap(id => {
+        const el = container.querySelector<HTMLElement>(`[data-testid="${id}"]`)
+        if (!el) return []
+        const rect = toNat(visibleRect(el, el.getBoundingClientRect()))
+        return rect.r > rect.l ? [rect] : []
+      })
       const railBundles = [...railGroups.values()]
       const railBadgeSlots: { index: number; y: number; hw: number; busX: number }[] = []
       let bundleIndex = 0
@@ -3700,7 +3820,7 @@ function FlowOverlay({
         const srcRect = toNat(visibleRect(group.src, group.src.getBoundingClientRect()))
         const dstRect = toNat(visibleRect(group.dst, group.dst.getBoundingClientRect()))
         const spread = (bundleIndex - (railBundles.length - 1) / 2) * 10
-        const route = railBundleRoute(srcRect, dstRect, corridor, bundleIndex, spread, railBundles.length)
+        const route = railBundleRoute(srcRect, dstRect, corridors, bundleIndex, spread, railBundles.length)
         bundleIndex += 1
         const d = orthoPath(route.pts)
         if (!d) continue
@@ -3708,12 +3828,17 @@ function FlowOverlay({
         const label = railBundleLabel(group.label, count)
         const lead = railBundleLeadEdge(group.jobs.map(j => j.e))
         const members = group.jobs.map(j => `${j.e.source_id}→${j.e.target_id}`)
-        railBadgeSlots.push({
-          index: next.length,
-          y: route.bus.y,
-          hw: badgeHalfWidth(label),
-          busX: route.bus.x,
-        })
+        // On its own line in the gap between the lanes when the label fits
+        // there; only the ones that don't join the left-gutter column below.
+        const onLineX = busSideBadgeX(route.bus.x, route.corridor, badgeHalfWidth(label))
+        if (onLineX === null) {
+          railBadgeSlots.push({
+            index: next.length,
+            y: route.label.y,
+            hw: badgeHalfWidth(label),
+            busX: route.label.x,
+          })
+        }
         next.push({
           d,
           cls: group.jobs[0].cls,
@@ -3722,8 +3847,8 @@ function FlowOverlay({
           protocol: lead.protocol ?? null,
           port: lead.port ?? null,
           externalDestinations: null,
-          badgeX: route.bus.x - badgeHalfWidth(label) - 6,
-          badgeY: route.bus.y,
+          badgeX: onLineX ?? route.label.x - badgeHalfWidth(label) - 6,
+          badgeY: onLineX === null ? route.label.y : route.bus.y,
           badgeLabel: label,
           badgeTitle: [label, ...members].join("\n"),
           isExposed: group.jobs.some(j => Boolean(j.e.is_exposed)),
@@ -6072,6 +6197,16 @@ export function AwsFrame({
   const flowContainerRef = useRef<HTMLDivElement | null>(null)
   const railColumnRef = useRef<HTMLDivElement | null>(null)
   const railLaneMinHeight = useRailLaneFloor(railColumnRef, presentationMode)
+  // Which off-VPC lanes exist. Mirrors each tier's own early return, so the
+  // column is never sized for a lane that renders null: ServerlessComputeTier
+  // draws for triggers alone (its band members left the regional rail).
+  const showServerlessLane = serverlessTierNodes.length > 0 || triggerTierNodes.length > 0
+  const showRegionalLane = regionalTierNodes.length > 0
+  const showEdgeRail = showServerlessLane || showRegionalLane
+  const railColumnW =
+    showServerlessLane && showRegionalLane
+      ? RAIL_LANE_W_PX * 2 + RAIL_LANE_CORRIDOR_W_PX
+      : RAIL_LANE_W_PX
 
   const attackPathEdgeCount = attackPathFlowCount
 
@@ -6318,12 +6453,8 @@ export function AwsFrame({
               gridTemplateColumns: [
                 "minmax(0, 1fr)",
                 showNetworkRail ? "136px" : null,
-                serverlessTierNodes.length > 0 || regionalTierNodes.length > 0
-                  ? "48px"
-                  : null,
-                serverlessTierNodes.length > 0 || regionalTierNodes.length > 0
-                  ? "224px"
-                  : null,
+                showEdgeRail ? "48px" : null,
+                showEdgeRail ? `${railColumnW}px` : null,
               ]
                 .filter(Boolean)
                 .join(" "),
@@ -6378,9 +6509,23 @@ export function AwsFrame({
                 data-testid="topology-single-vpc-grid"
                 style={{
                   gridTemplateColumns: "minmax(0, 1fr)",
-                  // Presentation floors + equal fr — Data stays on screen at
-                  // width-fill 100% (COMPARE mins were too tall for one viewport).
-                  gridTemplateRows: `auto auto minmax(${tierMin.web}px, 1.35fr) minmax(${tierMin.app}px, 1.2fr) minmax(${tierMin.data}px, 0.65fr)`,
+                  // Tier rows hug their CONTENT above the presentation floors,
+                  // and the column's leftover height stays leftover instead of
+                  // being shared out 1.35fr : 1.2fr : 0.65fr. Those weights
+                  // were written when the tier rows were the whole map, and
+                  // they spend the column on whichever tier is listed first
+                  // rather than on whichever tier holds anything: measured at
+                  // 1800×1000 on the captured payload, Web took 245px to show
+                  // ONE chip per subnet — 84px of it empty below that chip —
+                  // while App fitted two rows of chips into 218px and Data 110.
+                  // 172px of the 657px column, 26%, was blank.
+                  //
+                  // The rail column beside it is a sibling of the region grid's
+                  // single `minmax(0, 1fr)` row, so it still fills the viewport
+                  // at whatever height the VPC settles on: shrinking these rows
+                  // does not shrink the off-VPC lanes or fold another chip away.
+                  gridTemplateRows: `auto auto minmax(${tierMin.web}px, max-content) minmax(${tierMin.app}px, max-content) minmax(${tierMin.data}px, max-content)`,
+                  alignContent: "start",
                   gap: "6px",
                   width: "100%",
                   height: "100%",
@@ -6445,6 +6590,32 @@ export function AwsFrame({
                 style={{ width: "136px" }}
                 data-testid="topology-network-rail"
               >
+                {/* The two off-VPC lanes at the right end each say what they
+                    are; this column said nothing and read as a loose stack of
+                    chips floating beside the VPC. It is the VPC's EDGE — the
+                    internet attachment and the endpoints that reach AWS
+                    services without one — so it is named, with the same
+                    typography the lanes use, and registered as a flow obstacle
+                    so edge labels keep off it like they do the lane headers.
+                    Both counts are the rail's own contents. */}
+                <div data-flow-obstacle="boundary-rail-header" data-testid="topology-boundary-rail-header">
+                  <div
+                    className="text-[10px] uppercase tracking-[0.12em] font-semibold"
+                    style={{ color: "#1E3A8A" }}
+                  >
+                    VPC boundary
+                  </div>
+                  <div className="mt-0.5 text-[9px] leading-snug" style={{ color: "#3B82F6" }}>
+                    {[
+                      railIgws.length > 0
+                        ? `${railIgws.length} internet ${railIgws.length === 1 ? "gateway" : "gateways"}`
+                        : null,
+                      topo.edges.vpces.length > 0 ? `${topo.edges.vpces.length} endpoints` : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </div>
+                </div>
                 {railIgws.map((igw, idx) => {
                   const selectionId = idx === 0 ? "__igw__" : igw.id
                   const selected = selectedNodeId === selectionId
@@ -6547,7 +6718,7 @@ export function AwsFrame({
               </div>
             )}
 
-            {(serverlessTierNodes.length > 0 || regionalTierNodes.length > 0) ? (
+            {showEdgeRail ? (
               <>
                 <div
                   className={`self-stretch min-h-[80px] ${presentationMode ? "" : "shrink-0 mx-3"}`}
@@ -6561,7 +6732,7 @@ export function AwsFrame({
                   aria-hidden
                 />
                 <div
-                  className={`flex flex-col gap-2 w-[224px] max-w-[224px] min-h-0 ${
+                  className={`grid items-stretch min-h-0 ${
                     presentationMode ? "overflow-hidden" : "shrink-0 ml-1"
                   }`}
                   // Fullscreen: the region grid pins this column to its
@@ -6579,7 +6750,21 @@ export function AwsFrame({
                   // P0-A/B remove the earlier calc(100vh-220px) scroll no longer
                   // applies. data-scroll-region keeps the fullscreen pan handler
                   // off this column (a drag on a lane scrollbar must scroll).
+                  //
+                  // The lanes are COLUMNS of this grid, not a stack: Lambda and
+                  // Regional each get the full column height, and the corridor
+                  // between them carries the Lambda → S3 / DynamoDB traffic that
+                  // used to be drawn down the single shared column.
                   ref={railColumnRef}
+                  style={{
+                    width: `${railColumnW}px`,
+                    maxWidth: `${railColumnW}px`,
+                    gridTemplateColumns:
+                      showServerlessLane && showRegionalLane
+                        ? `${RAIL_LANE_W_PX}px ${RAIL_LANE_CORRIDOR_W_PX}px ${RAIL_LANE_W_PX}px`
+                        : `${RAIL_LANE_W_PX}px`,
+                    gridTemplateRows: presentationMode ? "minmax(0, 1fr)" : "auto",
+                  }}
                   data-scroll-region="edge-services-rail"
                   data-testid="topology-edge-services-rail"
                 >
@@ -6595,6 +6780,19 @@ export function AwsFrame({
                     viewDensity={viewDensity}
                     namedFlowNodeIds={namedFlowNodeIds}
                   />
+                  {showServerlessLane && showRegionalLane ? (
+                    <div
+                      className="self-stretch"
+                      style={{
+                        borderLeft: "1px dashed #CBD5E1",
+                        borderRight: "1px dashed #CBD5E1",
+                        background:
+                          "linear-gradient(90deg, transparent, rgba(238,242,246,0.6), transparent)",
+                      }}
+                      data-testid="topology-interlane-corridor"
+                      aria-hidden
+                    />
+                  ) : null}
                   <RegionalDataServicesTier
                     nodes={regionalTierNodes}
                     laneMinHeight={railLaneMinHeight}
