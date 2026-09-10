@@ -72,7 +72,13 @@ import {
   TRIGGER_TYPES,
   SERVERLESS_TYPES,
   SYNTHETIC_TIER_TYPES,
+  mapSlotForType,
 } from "./estate-placement"
+import {
+  NO_PLACEMENT_OVERRIDES,
+  isAssignableTier,
+  type PlacementOverrideMap,
+} from "./placement-overrides"
 import {
   chipRole,
   chipSizeForRole,
@@ -83,7 +89,7 @@ import {
   type ServiceStack,
   type ViewDensity,
 } from "./estate-glance"
-import { awsIconUrl, awsServiceLabel } from "./aws-architecture-icons"
+import { awsIconUrl, awsServiceLabel, awsServiceScope } from "./aws-architecture-icons"
 import { elideSharedPrefix } from "./chip-names"
 
 interface Props {
@@ -128,6 +134,18 @@ interface Props {
   mergedVpcView?: boolean
   /** AZ ids hidden by the operator — remaining columns expand to fill the grid. */
   hiddenAzs?: string[]
+  /**
+   * Engineer placements for nodes the graph cannot place. OPERATOR PROVENANCE,
+   * never a graph fact — see `placement-overrides.ts`. Only consulted after
+   * every subnet read has failed, so evidence always wins.
+   */
+  placementOverrides?: PlacementOverrideMap
+  /**
+   * Called when an engineer picks a cell for an unplaced node, or clears one
+   * (`az`/`tier` null). Absent = the affordance is not offered, and the
+   * unplaced area is read-only.
+   */
+  onPlaceNode?: (nodeId: string, cell: PlacementTarget | null) => void
   presentationMode?: boolean
   /**
    * Fit-to-viewport zoom factor. The fullscreen host wraps this frame in a
@@ -765,8 +783,10 @@ function nodeIcon(type: string | null): { symbol: ReactNode; bg: string; fg: str
     case "NeptuneInstance":
     case "NeptuneDBCluster":
       // Graph database, in the database blue of the RDS / DynamoDB fallbacks.
-      // No official-icon slug is registered for Neptune, so this glyph is the
-      // icon — the two C1 Neptune writers rendered the unknown-type "?".
+      // The presentation catalog now registers `aws-amazon-neptune`, so this
+      // branch is the net below that: reachable only if the slug is ever
+      // withdrawn. Keep it — the two C1 Neptune writers once rendered the
+      // unknown-type "?", and this is what stops that recurring.
       return { symbol: <AwsServiceGlyph kind="neptune" />, bg: "#2E73B8", fg: "white" }
     case "KMSKey":
       return { symbol: "KMS", bg: "#DD344C", fg: "white" }
@@ -1113,6 +1133,7 @@ function ServiceIconShell({
   multiAz = false,
   signalColor,
   signalLabel,
+  operatorPlaced = false,
 }: {
   type: string | null | undefined
   selected: boolean
@@ -1138,6 +1159,13 @@ function ServiceIconShell({
   /** Integrated posture signal. It stays a small cue, not the map's primary grammar. */
   signalColor?: string
   signalLabel?: string
+  /**
+   * This chip sits where an ENGINEER put it, not where the graph says. Rule 2 of
+   * `placement-overrides.ts`: an operator-placed chip must always be tellable
+   * from a graph-placed one, or the map has quietly promoted a human's assertion
+   * to evidence. Amber is the established "the graph doesn't say" language here.
+   */
+  operatorPlaced?: boolean
 }) {
   const ic = nodeIcon(type ?? null)
   const showDepth = Boolean(depth && countBadge && countBadge > 1)
@@ -1150,6 +1178,7 @@ function ServiceIconShell({
       title={title}
       data-testid={testId}
       data-flow-id={flowId}
+      data-operator-placed={operatorPlaced ? "true" : undefined}
       {...extraAttrs}
       className={
         dense
@@ -1160,12 +1189,27 @@ function ServiceIconShell({
       }
       style={{
         background: "#FFFFFF",
-        border: `1px solid ${selected ? PAL.teal : "#D7DEE5"}`,
+        // Dashed amber outline = "a human asserted this position". A solid grey
+        // border would make an engineer's guess look exactly like a collector's
+        // reading, which is the one thing an override must never do.
+        border: operatorPlaced
+          ? `1.5px dashed ${selected ? PAL.teal : "#F59E0B"}`
+          : `1px solid ${selected ? PAL.teal : "#D7DEE5"}`,
         boxShadow: selected
           ? `0 0 0 2px rgba(0,194,168,0.2), 0 4px 12px rgba(15,23,42,0.08)`
           : "0 1px 2px rgba(15,23,42,0.05)",
       }}
     >
+      {operatorPlaced ? (
+        <span
+          className="absolute top-0.5 right-0.5 text-[7px] font-bold px-1 rounded leading-[1.4] z-[3]"
+          style={{ background: "#FEF3C7", color: "#92400E" }}
+          title="Placed by an engineer — the graph has no subnet for this resource. Operator provenance, not evidence."
+          data-testid="topology-operator-placed-badge"
+        >
+          SET
+        </span>
+      ) : null}
       {signalColor ? (
         <span
           className="absolute top-1 left-1 h-1.5 w-1.5 rounded-full"
@@ -1264,11 +1308,15 @@ function ServiceStackChip({
   selectedNodeId,
   onSelect,
   dense = false,
+  operatorPlacedIds,
 }: {
   stack: ServiceStack
   selectedNodeId: string | null
   onSelect: (id: string) => void
   dense?: boolean
+  /** Any member placed by an engineer marks the whole stack — a stack that is
+   *  part evidence and part assertion is not fully evidence. */
+  operatorPlacedIds?: ReadonlySet<string>
 }) {
   const depth = shouldShowStackDepth(stack)
   const selected = stack.nodes.some(n => n.id === selectedNodeId)
@@ -1294,6 +1342,9 @@ function ServiceStackChip({
       flowId={stack.representative.id}
       dense={dense}
       multiAz={multiAz}
+      operatorPlaced={
+        !!operatorPlacedIds && stack.nodes.some(n => operatorPlacedIds.has(n.id))
+      }
       signalColor={signal.ring}
       signalLabel={
         signalNode.stale
@@ -1319,6 +1370,7 @@ function ServiceNodeIcon({
   dense = false,
   railChip = false,
   displayName,
+  operatorPlaced = false,
 }: {
   node: TopologyNode
   selected: boolean
@@ -1327,6 +1379,8 @@ function ServiceNodeIcon({
   railChip?: boolean
   /** Label shown on the chip when it differs from the name (shared prefix elided); the title keeps the full name. */
   displayName?: string
+  /** Drawn where an engineer put it, not where the graph says. */
+  operatorPlaced?: boolean
 }) {
   const typeLabel = node.type ?? "?"
   const isForeignOwner = node.is_foreign === true
@@ -1352,6 +1406,7 @@ function ServiceNodeIcon({
       dense={dense}
       railChip={railChip}
       multiAz={multiAz}
+      operatorPlaced={operatorPlaced}
       signalColor={signal.ring}
       signalLabel={
         node.stale
@@ -1374,12 +1429,14 @@ function GlanceCellWorkloads({
   selectedNodeId,
   onSelect,
   compact,
+  operatorPlacedIds,
 }: {
   workloadsHere: TopologyNode[]
   selectedNodeId: string | null
   onSelect: (id: string) => void
   roleForWorkload?: (nodeId: string) => IamRoleRollup | undefined
   compact?: boolean
+  operatorPlacedIds?: ReadonlySet<string>
 }) {
   const plan = planGlanceCell(workloadsHere)
   return (
@@ -1398,6 +1455,7 @@ function GlanceCellWorkloads({
           selectedNodeId={selectedNodeId}
           onSelect={onSelect}
           dense
+          operatorPlacedIds={operatorPlacedIds}
         />
       ))}
     </div>
@@ -1409,11 +1467,13 @@ function InventoryCellWorkloads({
   selectedNodeId,
   onSelect,
   compact,
+  operatorPlacedIds,
 }: {
   workloadsHere: TopologyNode[]
   selectedNodeId: string | null
   onSelect: (id: string) => void
   compact?: boolean
+  operatorPlacedIds?: ReadonlySet<string>
 }) {
   return (
     <div
@@ -1431,6 +1491,7 @@ function InventoryCellWorkloads({
           selected={n.id === selectedNodeId}
           onSelect={onSelect}
           dense
+          operatorPlaced={operatorPlacedIds?.has(n.id) ?? false}
         />
       ))}
     </div>
@@ -1488,7 +1549,7 @@ function NatGatewayChip({
 function SubnetCell({
   tier, az, subnetsHere, workloadsHere, sgIndex, selectedNodeId, onSelect,
   compact = false, roleForWorkload, densityCollapsed = false,
-  viewDensity = "glance", natGwsHere = [],
+  viewDensity = "glance", natGwsHere = [], operatorPlacedIds,
 }: {
   tier: SubnetTier
   az: string
@@ -1503,6 +1564,8 @@ function SubnetCell({
   viewDensity?: ViewDensity
   /** NAT gateways whose subnet_id is one of `subnetsHere` (see placeNatGateways). */
   natGwsHere?: EdgeNatGw[]
+  /** Node ids in this cell only because an engineer put them here. */
+  operatorPlacedIds?: ReadonlySet<string>
 }) {
   void sgIndex
   void densityCollapsed
@@ -1553,6 +1616,7 @@ function SubnetCell({
         onSelect={onSelect}
         roleForWorkload={roleForWorkload}
         compact={compact}
+        operatorPlacedIds={operatorPlacedIds}
       />
     ) : (
       <InventoryCellWorkloads
@@ -1560,6 +1624,7 @@ function SubnetCell({
         selectedNodeId={selectedNodeId}
         onSelect={onSelect}
         compact={compact}
+        operatorPlacedIds={operatorPlacedIds}
       />
     )
   return (
@@ -4084,11 +4149,81 @@ export function placeNatGateways(
   return { byCell, unplaced }
 }
 
+/**
+ * Why the graph could not place a node. These are distinct because the remedy
+ * is distinct — "run the subnet collector" and "this type has no placement
+ * rule" are different tickets — and because a single "unplaced" label teaches
+ * an operator nothing about whether the gap is theirs to fix.
+ */
+export type UnplacedReason =
+  /** The node names no subnet at all. Usually a collector gap. */
+  | "no-subnet-in-graph"
+  /** The node names a subnet that is not in this payload. Dangling reference. */
+  | "subnet-not-in-graph"
+  /** The subnet resolved, but carries no AZ — so there is no column to put it in. */
+  | "az-unknown-for-subnet"
+  /** Nothing in the placement tables knows this type, so no tier is defensible. */
+  | "type-unrecognized"
+
+export interface UnplacedNode {
+  node: TopologyNode
+  reason: UnplacedReason
+}
+
+/**
+ * Which kind of "the graph cannot place this" applies. Module-level and shared
+ * by both callers on purpose: `computeCanvasGrid` classifies nodes inside a VPC
+ * frame and `buildVpcFrames` classifies the ones that resolved to no VPC at
+ * all, and two classifiers would be two contracts that drift.
+ *
+ * `hasSubnet` answers "is this subnet id in the payload", so the caller decides
+ * what counts as in scope (a frame's own subnets vs every subnet).
+ */
+export function unplacedSubnetReason(
+  n: TopologyNode,
+  hasSubnet: (id: string) => SubnetMeta | undefined,
+): UnplacedReason {
+  const ids = workloadSubnetIds(n)
+  if (ids.length === 0) return "no-subnet-in-graph"
+  const resolved = ids.map(id => hasSubnet(id)).filter((s): s is SubnetMeta => !!s)
+  if (resolved.length === 0) return "subnet-not-in-graph"
+  return "az-unknown-for-subnet"
+}
+
+/**
+ * True when a type is off the canvas BY DESIGN rather than for want of data.
+ *
+ * `mapSlotForType` returns `"hidden"` as its default, so that value alone
+ * cannot tell "no rule knows this type" from "an identity/config artifact we
+ * deliberately keep off the map" — no rule in `PLACEMENT_RULES` declares slot
+ * `"hidden"`. The catalog's scope column answers the second question, which is
+ * exactly why it records what a service IS separately from where it is drawn
+ * (see `aws-architecture-icons.ts` and docs §2).
+ *
+ * Listing an IAM role or a VPC as an unplaced gap would bury the real gaps
+ * under every identity in the account.
+ */
+export function isOffCanvasByDesign(type: string | null | undefined): boolean {
+  const scope = type ? awsServiceScope(type) : null
+  return scope === "global" || scope === "container" || scope === "external"
+}
+
 interface CanvasGrid {
   byAzAndTier: Map<string, Map<SubnetTier, TopologyNode[]>>
   subnetsByCell: Map<string, SubnetMeta[]>
   albNodes: TopologyNode[]
   staleNodes: TopologyNode[]
+  /**
+   * Nodes the graph cannot place, with the reason. Rendered in an explicit
+   * unplaced area outside the AZ grid — NOT dropped, and never guessed into a
+   * cell. This bucket existed for a long time as a local that was filled,
+   * sorted, and then left out of this return value, so every node in it
+   * vanished from the map (`QuantumLedger` in the probe reached no DOM node at
+   * all). Returning it is the fix.
+   */
+  unplacedNodes: UnplacedNode[]
+  /** Node ids drawn where an ENGINEER put them, not where the graph says. */
+  operatorPlacedIds: Set<string>
   azs: string[]
   azGridColumns: string
   vpcGridMinWidth: number
@@ -4103,23 +4238,19 @@ export function computeCanvasGrid(
   subnets: SubnetMeta[],
   nodes: TopologyNode[],
   hiddenAzs: string[],
+  /** Engineer placements for THIS frame. Operator provenance, not graph truth —
+   *  see `placement-overrides.ts`. Only consulted when the graph cannot place
+   *  the node: evidence always wins over a human's assertion. */
+  placementOverrides: PlacementOverrideMap = NO_PLACEMENT_OVERRIDES,
 ): CanvasGrid {
   const primaryRegion = primaryRegionFromSubnets(subnets, canvasVpcId)
   const scopedSubnets = subnets.filter(s => subnetInCanvasScope(s, canvasVpcId, primaryRegion))
   const subnetById = createMap(scopedSubnets.map(s => [s.id, s]))
   const byAzAndTier = new Map<string, Map<SubnetTier, TopologyNode[]>>()
-  const serverlessNodes: TopologyNode[] = []
-  const unplacedNodes: TopologyNode[] = []
+  const unplaced: UnplacedNode[] = []
+  const operatorPlacedIds = new Set<string>()
   const staleNodes: TopologyNode[] = []
   const albNodes: TopologyNode[] = []
-
-  const pickSyntheticAz = (tier: SubnetTier): string | null => {
-    const tierSubnet = scopedSubnets.find(s => s.tier === tier && s.az)
-    if (tierSubnet?.az) return tierSubnet.az
-    const anySub = scopedSubnets.find(s => s.az)
-    if (anySub?.az) return anySub.az
-    return [...byAzAndTier.keys()][0] ?? null
-  }
 
   const placeInTier = (n: TopologyNode, az: string, tier: SubnetTier) => {
     const azMap = byAzAndTier.get(az) ?? new Map<SubnetTier, TopologyNode[]>()
@@ -4129,12 +4260,48 @@ export function computeCanvasGrid(
     byAzAndTier.set(az, azMap)
   }
 
-  const tryPlaceInGrid = (n: TopologyNode): boolean => {
+  /** AZs this VPC actually has. An engineer override may only name one of
+   *  these — honouring an AZ no subnet reports would conjure a grid column,
+   *  which is the same fabrication in a different costume. */
+  const realAzs = new Set(scopedSubnets.map(s => s.az).filter(Boolean) as string[])
+
+  /**
+   * Placement is scoped; DIAGNOSIS is not, and conflating them gave the wrong
+   * remedy. `subnetInCanvasScope` drops a subnet with no `az` (it has no column,
+   * so nothing can be drawn in it), which means the scoped map alone can never
+   * answer "the subnet is right there, it just has no AZ" — every such node was
+   * reported as a dangling reference, sending the operator to re-run a collector
+   * that had in fact already returned the subnet.
+   *
+   * So the reason falls back to the AZ-less subnets specifically. Subnets that
+   * are out of scope for any OTHER cause stay invisible here: they are not in
+   * this frame's graph, which is what `subnet-not-in-graph` says.
+   */
+  const azlessSubnetById = createMap(subnets.filter(s => !s.az).map(s => [s.id, s]))
+  const subnetGapReason = (n: TopologyNode): UnplacedReason =>
+    unplacedSubnetReason(n, id => subnetById.get(id) ?? azlessSubnetById.get(id))
+
+  /** `placed` = drawn in this grid. `elsewhere` = drawn by another lane, or
+   *  belongs to a different VPC frame — either way not this frame's gap.
+   *  `unplaced` = the graph cannot say where it is. */
+  type PlaceResult =
+    | { kind: "placed" }
+    | { kind: "elsewhere" }
+    | { kind: "unplaced"; reason: UnplacedReason }
+  const PLACED: PlaceResult = { kind: "placed" }
+  const ELSEWHERE: PlaceResult = { kind: "elsewhere" }
+
+  const tryPlaceInGrid = (n: TopologyNode): PlaceResult => {
     // RAIL_PLACED_TYPES, not the regional set: a triggers-slot node has its own
-    // band and must report as "placed" here, or it falls through to the
-    // unplaced bucket and disappears from the map.
-    if (n.type && RAIL_PLACED_TYPES.has(n.type)) return true
-    if (!workloadInCanvasVpc(n, canvasVpcId, subnetById)) return false
+    // band (fed independently by `extractTriggerServices`), so it IS drawn —
+    // just not here. Reporting it as this frame's gap would put a chip in the
+    // unplaced area that is already on screen a few pixels away.
+    if (n.type && RAIL_PLACED_TYPES.has(n.type)) return ELSEWHERE
+    // Another frame's node. `buildVpcFrames` partitions by resolved VPC before
+    // calling us, so this is only reachable through a direct call — but if it
+    // were reported as unplaced, a cross-VPC node would appear in EVERY frame's
+    // unplaced area at once.
+    if (!workloadInCanvasVpc(n, canvasVpcId, subnetById)) return ELSEWHERE
     const overrideTier =
       n.placement_tier === "web" || n.placement_tier === "app" || n.placement_tier === "data"
         ? n.placement_tier
@@ -4154,28 +4321,47 @@ export function computeCanvasGrid(
       placedCells.add(key)
       placeInTier(n, sub.az, tier)
     }
-    if (placedCells.size > 0) return true
-    // No resolvable subnet cell — fall back to synthetic / rail placement.
-    if (overrideTier) {
-      const az = pickSyntheticAz(overrideTier)
-      if (az) {
-        placeInTier(n, az, overrideTier)
-        return true
-      }
+    if (placedCells.size > 0) return PLACED
+    // ---- Below here the graph could NOT place this node. -------------------
+    // Everything from this point is either an explicit human claim or an
+    // explicit "I don't know". It is never a guess: `pickSyntheticAz` used to
+    // live here, falling through to "any subnet in this tier" -> "any subnet at
+    // all" -> the first AZ in map-iteration order, and dropping the chip into a
+    // real AZ x tier cell — the map's strongest structural claim — on no
+    // evidence. See docs/aws-map-presentation.md §7.
+
+    // An engineer's placement. Weaker than evidence, which is why it is only
+    // consulted after every subnet read has failed, and why the id is recorded
+    // so the chip can be badged as a human's assertion.
+    const override = placementOverrides[n.id]
+    // The override must name THIS frame. Matching on AZ alone would place the
+    // node in every same-region VPC frame that shares that AZ name.
+    if (override && override.vpc_id === canvasVpcId && realAzs.has(override.az)) {
+      placeInTier(n, override.az, override.tier)
+      operatorPlacedIds.add(n.id)
+      return PLACED
     }
-    if (n.type && SERVERLESS_TYPES.has(n.type)) {
-      serverlessNodes.push(n)
-      return true
-    }
+
+    // A backend `placement_tier` says WHICH tier, never which AZ. Knowing the
+    // tier is not knowing the position, so this is still unplaced — the tier is
+    // carried into the unplaced area as the chip's own label, not as a cell.
+    if (overrideTier) return { kind: "unplaced", reason: subnetGapReason(n) }
+
+    // Lambda's runtime lane is fed by `extractServerlessOutsideVpc` straight
+    // from the payload. This branch used to push onto a local `serverlessNodes`
+    // array that was never returned — a second source for a lane that already
+    // had one. Deleted rather than wired up: the node IS drawn, in that lane.
+    if (n.type && SERVERLESS_TYPES.has(n.type)) return ELSEWHERE
+
     const syntheticTier = n.type ? SYNTHETIC_TIER_TYPES[n.type] : undefined
-    if (syntheticTier) {
-      const az = pickSyntheticAz(syntheticTier)
-      if (az) {
-        placeInTier(n, az, syntheticTier)
-        return true
-      }
+    if (syntheticTier) return { kind: "unplaced", reason: subnetGapReason(n) }
+
+    // No subnet and no tier: is that a data gap or a type we never draw here?
+    if (mapSlotForType(n.type) === "hidden") {
+      if (isOffCanvasByDesign(n.type)) return ELSEWHERE
+      return { kind: "unplaced", reason: "type-unrecognized" }
     }
-    return false
+    return { kind: "unplaced", reason: subnetGapReason(n) }
   }
 
   for (const n of dedupeLambdaServiceTwins(nodes)) {
@@ -4185,13 +4371,13 @@ export function computeCanvasGrid(
       if (workloadInCanvasVpc(n, canvasVpcId, subnetById)) albNodes.push(n)
       continue
     }
-    if (n.stale) {
-      if (tryPlaceInGrid(n)) continue
-      staleNodes.push(n)
-      continue
-    }
-    if (tryPlaceInGrid(n)) continue
-    unplacedNodes.push(n)
+    const result = tryPlaceInGrid(n)
+    if (result.kind !== "unplaced") continue
+    // A stale node the grid cannot place goes to the stale bucket, which the
+    // diagnostics panel already surfaces. Reporting it twice would put the same
+    // chip in two places.
+    if (n.stale) staleNodes.push(n)
+    else unplaced.push({ node: n, reason: result.reason })
   }
 
   for (const azMap of byAzAndTier.values()) {
@@ -4199,8 +4385,7 @@ export function computeCanvasGrid(
       list.sort((a, b) => (a.score?.rank ?? 999) - (b.score?.rank ?? 999))
     }
   }
-  serverlessNodes.sort((a, b) => (a.score?.rank ?? 999) - (b.score?.rank ?? 999))
-  unplacedNodes.sort((a, b) => (a.score?.rank ?? 999) - (b.score?.rank ?? 999))
+  unplaced.sort((a, b) => (a.node.score?.rank ?? 999) - (b.node.score?.rank ?? 999))
   albNodes.sort((a, b) => (a.score?.rank ?? 999) - (b.score?.rank ?? 999))
 
   const scaffoldAzs = scopedSubnets.map(s => s.az).filter(Boolean) as string[]
@@ -4221,7 +4406,17 @@ export function computeCanvasGrid(
   const vpcGridMinWidth =
     azs.length > 0 ? Math.max(240, azs.length * (AZ_COLUMN_MIN_PX + 6) + 40) : 240
 
-  return { byAzAndTier, subnetsByCell, albNodes, staleNodes, azs, azGridColumns, vpcGridMinWidth }
+  return {
+    byAzAndTier,
+    subnetsByCell,
+    albNodes,
+    staleNodes,
+    unplacedNodes: unplaced,
+    operatorPlacedIds,
+    azs,
+    azGridColumns,
+    vpcGridMinWidth,
+  }
 }
 
 export interface VpcFrameSpec {
@@ -4249,7 +4444,16 @@ export function buildVpcFrames(
   hiddenAzs: string[],
   mergedVpcView: boolean,
   igws: VpcTopology["edges"]["igws"] = [],
-): { frames: VpcFrameSpec[]; staleNodes: TopologyNode[] } {
+  placementOverrides: PlacementOverrideMap = NO_PLACEMENT_OVERRIDES,
+): {
+  frames: VpcFrameSpec[]
+  staleNodes: TopologyNode[]
+  /** Every node the graph could not place, across every frame plus the nodes
+   *  that resolved to no VPC at all. One flat list because the unplaced area is
+   *  region-level: not knowing which subnet a node is in usually means not
+   *  knowing which VPC either, so a per-VPC bucket would be a guess. */
+  unplacedNodes: UnplacedNode[]
+} {
   const subnetVpc = createMap(subnets.map(s => [s.id, s.vpc_id ?? null]))
   const resolveVpc = (n: TopologyNode): string | null =>
     n.vpc_id ?? (n.subnet_id ? subnetVpc.get(n.subnet_id) ?? null : null)
@@ -4272,7 +4476,18 @@ export function buildVpcFrames(
     if (seenNodeId.has(n.id)) continue
     seenNodeId.add(n.id)
     const v = resolveVpc(n)
-    if (v && frameIdSet.has(v)) nodesByFrame.get(v)!.push(n)
+    if (v && frameIdSet.has(v)) {
+      nodesByFrame.get(v)!.push(n)
+      continue
+    }
+    // The graph gave us no VPC for this node. If an engineer named one, route it
+    // into THAT frame so their placement can take effect — without this, an
+    // override on the largest unplaced population (no vpc_id at all) would be
+    // recorded and then silently ignored, because no frame ever sees the node.
+    // `computeCanvasGrid` still tries every subnet read first, so this only
+    // decides which frame gets to ask; the graph still wins inside it.
+    const ovVpc = placementOverrides[n.id]?.vpc_id
+    if (ovVpc && frameIdSet.has(ovVpc)) nodesByFrame.get(ovVpc)!.push(n)
     else outside.push(n)
   }
   // NAT gateways grouped by their subnet's VPC; unresolved -> primary frame.
@@ -4305,7 +4520,13 @@ export function buildVpcFrames(
       : null
     return {
       vid,
-      grid: computeCanvasGrid(vid, subnets, nodesByFrame.get(vid) ?? [], hiddenAzs),
+      grid: computeCanvasGrid(
+        vid,
+        subnets,
+        nodesByFrame.get(vid) ?? [],
+        hiddenAzs,
+        placementOverrides,
+      ),
       natGws: natByVpc.get(vid) ?? [],
       igws: igwByVpc.get(vid) ?? [],
       isForeign,
@@ -4326,7 +4547,29 @@ export function buildVpcFrames(
       && !(n.type && SERVERLESS_TYPES.has(n.type)),
     ),
   ]
-  return { frames, staleNodes }
+  // Nodes that resolved to NO VPC and are not stale used to be dropped here:
+  // `outside` fed the stale bucket and nothing else, so a non-stale workload
+  // whose vpc_id the graph never recorded left no trace anywhere on the map.
+  // Same honesty rule as the per-frame bucket — say we don't know where it is.
+  const anySubnet = createMap(subnets.map(s => [s.id, s]))
+  const outsideUnplaced: UnplacedNode[] = outside
+    .filter(n =>
+      !n.stale
+      && !(n.type && RAIL_PLACED_TYPES.has(n.type))
+      && !(n.type && SERVERLESS_TYPES.has(n.type))
+      && !(n.type && ALB_HEADER_TYPES.has(n.type))
+      && !isOffCanvasByDesign(n.type),
+    )
+    .map(n => ({
+      node: n,
+      reason:
+        mapSlotForType(n.type) === "hidden"
+          ? ("type-unrecognized" as const)
+          : unplacedSubnetReason(n, id => anySubnet.get(id)),
+    }))
+  const unplacedNodes = [...frames.flatMap(f => f.grid.unplacedNodes), ...outsideUnplaced]
+  unplacedNodes.sort((a, b) => (a.node.score?.rank ?? 999) - (b.node.score?.rank ?? 999))
+  return { frames, staleNodes, unplacedNodes }
 }
 
 const TIERS: ("web" | "app" | "data")[] = ["web", "app", "data"]
@@ -4854,6 +5097,7 @@ function MultiVpcCompareBands({
                               az={az}
                               subnetsHere={subnetsHere}
                               natGwsHere={natPlacement.byCell.get(`${az}::${tier}`) ?? []}
+                              operatorPlacedIds={f.grid.operatorPlacedIds}
                               workloadsHere={workloadsHere}
                               sgIndex={sgIndex}
                               selectedNodeId={selectedNodeId}
@@ -5254,6 +5498,7 @@ function VpcCanvasFrame({
                           az={az}
                           subnetsHere={subnetsHere}
                           natGwsHere={natPlacement.byCell.get(`${az}::${tier}`) ?? []}
+                          operatorPlacedIds={grid.operatorPlacedIds}
                           workloadsHere={workloadsHere}
                           sgIndex={sgIndex}
                           selectedNodeId={selectedNodeId}
@@ -5331,6 +5576,7 @@ function VpcCanvasFrame({
                         az={az}
                         subnetsHere={subnetsHere}
                         natGwsHere={natPlacement.byCell.get(`${az}::${tier}`) ?? []}
+                        operatorPlacedIds={grid.operatorPlacedIds}
                         workloadsHere={workloadsHere}
                         sgIndex={sgIndex}
                         selectedNodeId={selectedNodeId}
@@ -5390,6 +5636,7 @@ function VpcCanvasFrame({
                             az={az}
                             subnetsHere={subnetsHere}
                             natGwsHere={natPlacement.byCell.get(`${az}::${tier}`) ?? []}
+                            operatorPlacedIds={grid.operatorPlacedIds}
                             workloadsHere={workloadsHere}
                             sgIndex={sgIndex}
                             selectedNodeId={selectedNodeId}
@@ -5417,12 +5664,259 @@ function VpcCanvasFrame({
   )
 }
 
+/** One AZ column an engineer can send an unplaced node to. */
+export interface PlaceableCell {
+  vpc_id: string
+  az: string
+}
+
+/** A cell an engineer picked. Carries the VPC because an AZ name alone does not
+ *  identify a column — same-region VPCs share their AZ names. */
+export interface PlacementTarget {
+  vpc_id: string
+  az: string
+  tier: "web" | "app" | "data"
+}
+
+const UNPLACED_REASON_COPY: Record<
+  UnplacedReason,
+  { label: string; remedy: string }
+> = {
+  "no-subnet-in-graph": {
+    label: "No subnet in the graph",
+    remedy:
+      "The resource carries no subnet_id and no IN_SUBNET edge. Usually a collector gap — run a full sync, then re-check.",
+  },
+  "subnet-not-in-graph": {
+    label: "Names a subnet that is not here",
+    remedy:
+      "The resource points at a subnet id this topology response does not contain. Dangling reference, or the subnet was never collected.",
+  },
+  "az-unknown-for-subnet": {
+    label: "Subnet has no availability zone",
+    remedy:
+      "The subnet resolved, but the graph has no az for it — so there is no column to draw the resource in.",
+  },
+  "type-unrecognized": {
+    label: "No placement rule for this type",
+    remedy:
+      "Neither the placement rules nor the AWS service catalog knows this type, so no tier is defensible. Add it to estate-placement.ts.",
+  },
+}
+
+/**
+ * The explicit unplaced area — the honest answer to "where is this?".
+ *
+ * Sits OUTSIDE every AZ grid, inside the region frame, because that is exactly
+ * what the graph supports: the resource is in the region, and we cannot say
+ * which zone or subnet. It replaces two older behaviours, both of which lied:
+ * a fabricated AZ (`pickSyntheticAz`) and silence (a filled bucket that no
+ * caller could read). See docs/aws-map-presentation.md §7.
+ *
+ * Always rendered when non-empty — never behind an accordion or a density
+ * toggle. A gap you have to go looking for is a gap nobody finds.
+ */
+function UnplacedNodesArea({
+  unplacedNodes,
+  overrides,
+  placeableCells,
+  onPlaceNode,
+  selectedNodeId,
+  onSelect,
+  compact = false,
+}: {
+  unplacedNodes: UnplacedNode[]
+  overrides: PlacementOverrideMap
+  /** Cells the frames actually draw. Empty = nothing to offer, so no picker. */
+  placeableCells: PlaceableCell[]
+  onPlaceNode?: (nodeId: string, cell: PlacementTarget | null) => void
+  selectedNodeId: string | null
+  onSelect: (id: string) => void
+  compact?: boolean
+}) {
+  // List only the overrides that are actually drawn. A stale one — its AZ or
+  // whole VPC gone from the estate, or its AZ collapsed by the operator — is
+  // already inert in `computeCanvasGrid`; listing it here would claim a chip
+  // exists somewhere on the canvas when none does. Deliberately filtered at
+  // read time rather than pruned from storage: a collector run that
+  // temporarily loses a subnet must not destroy an engineer's assertion.
+  const liveCells = new Set(placeableCells.map(c => `${c.vpc_id}::${c.az}`))
+  const overrideEntries = Object.values(overrides).filter(ov =>
+    liveCells.has(`${ov.vpc_id}::${ov.az}`),
+  )
+  if (unplacedNodes.length === 0 && overrideEntries.length === 0) return null
+
+  const byReason = new Map<UnplacedReason, TopologyNode[]>()
+  for (const u of unplacedNodes) {
+    const list = byReason.get(u.reason) ?? []
+    list.push(u.node)
+    byReason.set(u.reason, list)
+  }
+  // Stable, most-actionable-first order rather than insertion order.
+  const REASON_ORDER: UnplacedReason[] = [
+    "no-subnet-in-graph",
+    "subnet-not-in-graph",
+    "az-unknown-for-subnet",
+    "type-unrecognized",
+  ]
+  const canPlace = !!onPlaceNode && placeableCells.length > 0
+  const multiVpc = new Set(placeableCells.map(c => c.vpc_id)).size > 1
+
+  return (
+    <div
+      className={compact ? "mt-1.5 rounded-md px-2 py-1.5" : "mt-2.5 rounded-md px-3 py-2"}
+      style={{ background: "#FFFBEB", border: "1.5px dashed #F59E0B" }}
+      data-testid="topology-unplaced-area"
+    >
+      <div className="flex items-baseline gap-2 flex-wrap">
+        <span
+          className="text-[10px] uppercase tracking-[0.14em] font-semibold"
+          style={{ color: "#92400E" }}
+        >
+          Not placed · the graph does not say where ({unplacedNodes.length})
+        </span>
+        <span className="text-[9px] leading-snug" style={{ color: "#B45309" }}>
+          In this region, zone and subnet unknown. Never guessed into a cell.
+        </span>
+      </div>
+
+      {REASON_ORDER.filter(r => byReason.has(r)).map(reason => {
+        const group = byReason.get(reason)!
+        const copy = UNPLACED_REASON_COPY[reason]
+        return (
+          <div
+            key={reason}
+            className="mt-1.5"
+            data-testid="topology-unplaced-group"
+            data-unplaced-reason={reason}
+          >
+            <div className="text-[9px] font-semibold" style={{ color: "#92400E" }}>
+              {copy.label} ({group.length})
+            </div>
+            <div className="text-[8px] leading-snug mb-1" style={{ color: "#B45309" }}>
+              {copy.remedy}
+            </div>
+            <div className="flex flex-wrap gap-1.5 items-start">
+              {group.map(n => (
+                <div key={n.id} className="flex flex-col items-center gap-0.5">
+                  <ServiceNodeIcon
+                    node={n}
+                    selected={n.id === selectedNodeId}
+                    onSelect={onSelect}
+                    dense
+                  />
+                  {canPlace ? (
+                    <PlacementPicker
+                      nodeId={n.id}
+                      cells={placeableCells}
+                      showVpc={multiVpc}
+                      onPlaceNode={onPlaceNode!}
+                    />
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          </div>
+        )
+      })}
+
+      {overrideEntries.length > 0 ? (
+        <div
+          className="mt-2 pt-1.5 border-t border-dashed"
+          style={{ borderColor: "#FCD34D" }}
+          data-testid="topology-operator-placed-list"
+        >
+          <div className="text-[9px] font-semibold mb-1" style={{ color: "#92400E" }}>
+            Placed by an engineer ({overrideEntries.length}) — operator provenance, not evidence
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {overrideEntries.map(ov => (
+              <span
+                key={ov.node_id}
+                className="inline-flex items-center gap-1 text-[9px] font-semibold px-1.5 py-0.5 rounded"
+                style={{ background: "#FEF3C7", color: "#92400E", border: "1px solid #F59E0B" }}
+                title={`${ov.node_id} → ${ov.vpc_id} · ${ov.az} · ${ov.tier} tier · asserted ${ov.placed_at}`}
+                data-testid="topology-operator-placed-entry"
+                data-node-id={ov.node_id}
+              >
+                <span className="truncate max-w-[160px]">{ov.node_id}</span>
+                <span style={{ opacity: 0.75 }}>
+                  {ov.az} · {ov.tier}
+                </span>
+                {onPlaceNode ? (
+                  <button
+                    type="button"
+                    onClick={() => onPlaceNode(ov.node_id, null)}
+                    className="font-bold px-0.5 leading-none hover:underline"
+                    aria-label={`Clear engineer placement for ${ov.node_id}`}
+                    data-testid="topology-clear-placement"
+                  >
+                    ×
+                  </button>
+                ) : null}
+              </span>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+/** Cell picker for one unplaced node. Native `<select>` on purpose: no new
+ *  dependency, keyboard-accessible, and it reads as a form control rather than
+ *  as map data. */
+function PlacementPicker({
+  nodeId,
+  cells,
+  showVpc,
+  onPlaceNode,
+}: {
+  nodeId: string
+  cells: PlaceableCell[]
+  showVpc: boolean
+  onPlaceNode: (nodeId: string, cell: PlacementTarget | null) => void
+}) {
+  return (
+    <select
+      className="text-[8px] rounded px-0.5 py-[1px] max-w-[112px]"
+      style={{ background: "#FFFFFF", border: "1px solid #F59E0B", color: "#92400E" }}
+      // Always renders "Place…": the control is an action, not a display of
+      // current state. Where a node ended up is shown by the chip itself and by
+      // the "Placed by an engineer" list.
+      value=""
+      aria-label={`Place ${nodeId} in a subnet tier`}
+      data-testid="topology-placement-picker"
+      data-node-id={nodeId}
+      onChange={e => {
+        const [vpcId, az, tier] = e.target.value.split("::")
+        // A malformed option value means a bug, not a placement. Refuse it
+        // rather than writing a half-built override.
+        if (!vpcId || !az || !isAssignableTier(tier ?? "")) return
+        onPlaceNode(nodeId, { vpc_id: vpcId, az, tier: tier as "web" | "app" | "data" })
+      }}
+    >
+      <option value="">Place…</option>
+      {cells.map(c =>
+        TIERS.map(tier => (
+          <option key={`${c.vpc_id}::${c.az}::${tier}`} value={`${c.vpc_id}::${c.az}::${tier}`}>
+            {showVpc ? `${c.vpc_id} · ` : ""}
+            {c.az} · {tier}
+          </option>
+        )),
+      )}
+    </select>
+  )
+}
+
 
 export function AwsFrame({
   vpcTopology,
   nodes,
   mergedVpcView = false,
   hiddenAzs = [],
+  placementOverrides = NO_PLACEMENT_OVERRIDES,
+  onPlaceNode,
   serverlessSourceNodes,
   regionalDataSourceNodes,
   overlayEdges,
@@ -5530,7 +6024,7 @@ export function AwsFrame({
   // frame receives ONLY its own VPC's workloads so a second VPC's compute is
   // never force-fit into the primary's tiles (FE #299/#301 follow-up). Logic
   // lives in the pure, unit-tested buildVpcFrames().
-  const { frames, staleNodes } = useMemo(
+  const { frames, staleNodes, unplacedNodes } = useMemo(
     () =>
       buildVpcFrames(
         topo.subnets,
@@ -5540,8 +6034,28 @@ export function AwsFrame({
         hiddenAzs,
         mergedVpcView,
         topo.edges.igws,
+        placementOverrides,
       ),
-    [topo.subnets, topo.vpc_id, topo.edges.nat_gws, topo.edges.igws, nodes, hiddenAzs, mergedVpcView],
+    [
+      topo.subnets,
+      topo.vpc_id,
+      topo.edges.nat_gws,
+      topo.edges.igws,
+      nodes,
+      hiddenAzs,
+      mergedVpcView,
+      placementOverrides,
+    ],
+  )
+  // Cells the frames ACTUALLY draw, so the picker can never offer a column that
+  // does not exist. `f.grid.azs` is already hidden-AZ filtered, which is the
+  // behaviour we want: an operator who hid a zone is not offered it.
+  const placeableCells = useMemo<PlaceableCell[]>(
+    () =>
+      frames.flatMap(f =>
+        f.vid ? f.grid.azs.map(az => ({ vpc_id: f.vid as string, az })) : [],
+      ),
+    [frames],
   )
   const hasIgw = topo.edges.igws.length > 0
   // Story-strip caption only — the clickable / flow-anchor IGW chip lives
@@ -5746,6 +6260,7 @@ export function AwsFrame({
             : "rounded-lg p-2.5 relative overflow-visible w-full min-w-0"
         }
         style={{ background: PAL.cardBg, border: `2px solid ${PAL.awsFrame}` }}
+        data-testid="topology-cloud-frame"
       >
         <div
           className={
@@ -5758,14 +6273,19 @@ export function AwsFrame({
           ☁ AWS Cloud {accountSuffix}
         </div>
 
-        {/* Region */}
+        {/* Region — teal DASHED against the VPC's teal SOLID. Same hue at
+            adjacent nesting levels is deliberate: AWS's own diagrams separate
+            the region frame from what it contains by stroke style, not colour
+            (dashed = a boundary you can reach across, solid = a network edge).
+            Was slate; slate read as chrome rather than as a frame. */}
         <div
           className={
             presentationMode
               ? "rounded-md p-1.5 relative overflow-hidden w-full min-w-0 flex-1 min-h-0 flex flex-col"
               : "rounded-md p-2.5 mt-1.5 relative overflow-visible w-full min-w-0"
           }
-          style={{ background: PAL.cardBg, border: `1.5px dashed ${PAL.slate}` }}
+          style={{ background: PAL.cardBg, border: `1.5px dashed ${PAL.teal}` }}
+          data-testid="topology-region-frame"
         >
           <div
             className={
@@ -5773,7 +6293,7 @@ export function AwsFrame({
                 ? "text-[10px] uppercase tracking-[0.14em] font-semibold mb-2 px-0.5"
                 : "absolute -top-2.5 left-4 px-2 text-[10px] uppercase tracking-[0.14em] font-semibold"
             }
-            style={{ background: presentationMode ? "transparent" : PAL.cardBg, color: PAL.slate }}
+            style={{ background: presentationMode ? "transparent" : PAL.cardBg, color: "#0E8B7A" }}
           >
             Region · {topo.region ?? "unknown"}
           </div>
@@ -6084,6 +6604,21 @@ export function AwsFrame({
               </>
             ) : null}
           </div>
+
+          {/* Explicit unplaced area — INSIDE the region frame, OUTSIDE every AZ
+              grid, because that is exactly what the graph supports: the resource
+              is in this region and we cannot say which zone or subnet. Rendered
+              in presentation mode too: a gap the fullscreen map hides is a gap
+              the person presenting never mentions. */}
+          <UnplacedNodesArea
+            unplacedNodes={unplacedNodes}
+            overrides={placementOverrides}
+            placeableCells={placeableCells}
+            onPlaceNode={onPlaceNode}
+            selectedNodeId={selectedNodeId}
+            onSelect={onSelect}
+            compact={presentationMode}
+          />
         </div>
       </div>
 

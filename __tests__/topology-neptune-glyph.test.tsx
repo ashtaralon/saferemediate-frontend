@@ -1,9 +1,15 @@
 /// <reference types="vitest/globals" />
 /**
- * Neptune nodes draw a graph glyph, not the unknown-type "?" — structural
- * regression (C1 production QA, 2026-09-02: both cyntro-testbed-webshop-writer
- * chips in the Data tier rendered "?"). The unknown-type fallback itself stays
- * for a type the map has never seen.
+ * Neptune nodes draw an icon, not the unknown-type "?" — structural regression
+ * (C1 production QA, 2026-09-02: both cyntro-testbed-webshop-writer chips in
+ * the Data tier rendered "?"). The unknown-type fallback itself stays for a
+ * type the map has never seen.
+ *
+ * The 2026-09-02 fix was a hand-drawn inline <svg>, because no official Neptune
+ * slug was registered then. The presentation catalog registers
+ * `aws-amazon-neptune`, so the chip now wears the official AWS icon in an
+ * <img> and this asserts on that instead. The regression being guarded is
+ * unchanged: a Neptune node must never fall through to "?".
  */
 import React from "react"
 import { afterEach, beforeAll, describe, expect, it } from "vitest"
@@ -57,7 +63,7 @@ function chipGlyphText(chip: HTMLElement): string[] {
 }
 
 describe("Neptune glyph", () => {
-  it("draws a graph glyph for a Neptune node and keeps the '?' fallback for an unknown type", () => {
+  it("draws an icon for a Neptune node and keeps the '?' fallback for an unknown type", () => {
     render(
       <AwsFrame
         vpcTopology={vpcTopology}
@@ -75,7 +81,11 @@ describe("Neptune glyph", () => {
     expect(neptune).toBeDefined()
     expect(unknown).toBeDefined()
     expect(chipGlyphText(neptune as HTMLElement)).not.toContain("?")
-    expect((neptune as HTMLElement).querySelector("svg")).not.toBeNull()
+    const neptuneIcon = (neptune as HTMLElement).querySelector("img")
+    expect(neptuneIcon).not.toBeNull()
+    // Neptune's own icon, not RDS's — the backend retypes an RDS row whose
+    // engine is neptune, and borrowing the RDS icon would undo that.
+    expect(neptuneIcon!.getAttribute("src")).toContain("aws-amazon-neptune")
     expect(neptune).toHaveAttribute("title", expect.stringContaining("· Neptune"))
     expect(chipGlyphText(unknown as HTMLElement)).toContain("?")
   })
