@@ -168,6 +168,191 @@ test("fullscreen platform map shows named Lambda, protected AZ labels, direction
   ).toBeGreaterThan(48)
   expect(tierSlack!.restored, "the row template is restored after the control measurement").toBeLessThanOrEqual(48)
 
+  // Rows that hug their content leave the column's slack SOMEWHERE, and until
+  // this change it landed outside the VPC border: the frame is a subgrid child
+  // spanning `1 / -1`, so it ends where the last row ends, and content-sized
+  // rows plus `alignContent: start` ended them far above the grid's own bottom
+  // edge — measured 449px of unframed void under the Data tier at this
+  // viewport, which reads as "the diagram stopped" rather than "this VPC has
+  // room left". A trailing `1fr` track absorbs the slack inside the border.
+  // Only observable in a real layout engine, hence here and not in a unit test.
+  const measureFrameFill = () =>
+    page.evaluate(() => {
+      const root = document.querySelector('[data-testid="topology-estate-map-fullscreen"]')!
+      const grid = root.querySelector<HTMLElement>('[data-testid="topology-single-vpc-grid"]')
+      const frame = grid?.querySelector('[data-testid="topology-vpc-frame"]')
+      if (!grid || !frame) return null
+      const voidBelowFrame = () =>
+        Math.round(grid.getBoundingClientRect().bottom - frame.getBoundingClientRect().bottom)
+      const live = voidBelowFrame()
+      // The exact template this replaced — same tracks minus the trailing `1fr`,
+      // with the `alignContent` that went with them — applied to the live grid
+      // and reverted straight after. A bound nothing can violate is decoration.
+      const kept = { rows: grid.style.gridTemplateRows, align: grid.style.alignContent }
+      const withoutFillTrack = kept.rows.replace(/\s+1fr\s*$/, "")
+      grid.style.gridTemplateRows = withoutFillTrack
+      grid.style.alignContent = "start"
+      void grid.getBoundingClientRect() // flush layout before re-measuring
+      const beforeFix = voidBelowFrame()
+      grid.style.gridTemplateRows = kept.rows
+      grid.style.alignContent = kept.align
+      void grid.getBoundingClientRect()
+      return {
+        live,
+        beforeFix,
+        restored: voidBelowFrame(),
+        droppedTrack: withoutFillTrack !== kept.rows,
+        rows: kept.rows,
+        frameHeight: Math.round(frame.getBoundingClientRect().height),
+      }
+    })
+  const frameFill = await measureFrameFill()
+  expect(frameFill, "the fullscreen VPC frame is a child of the single-VPC grid").not.toBeNull()
+  expect(
+    frameFill!.droppedTrack,
+    `the grid's row template must end in the fill track this asserts; it is "${frameFill!.rows}"`,
+  ).toBe(true)
+  expect(frameFill!.frameHeight, "the VPC frame has real height to measure against").toBeGreaterThan(200)
+  expect(
+    frameFill!.live,
+    `${frameFill!.live}px of the column sits below the VPC border — the frame must reach the bottom of its row`,
+  ).toBeLessThanOrEqual(8)
+  expect(
+    frameFill!.beforeFix,
+    `without the fill track the void is only ${frameFill!.beforeFix}px here, so the bound above proves nothing`,
+  ).toBeGreaterThan(100)
+  expect(frameFill!.restored, "the row template is restored after the control measurement").toBeLessThanOrEqual(8)
+
+  // No two workload chips may paint the same string. Labels clip with a CSS
+  // ellipsis, which never enters the text, so a shared prefix long enough to
+  // fill the chip made siblings that differ only in a trailing index render
+  // byte-identical — and "which service talks to which" is the whole point of
+  // this view. The control below proves the collision was real at this width
+  // rather than asserting a property the un-elided build also had.
+  const measureChipLabels = () =>
+    page.evaluate(() => {
+      const root = document.querySelector('[data-testid="topology-estate-map-fullscreen"]')!
+      const frame = root.querySelector('[data-testid="topology-vpc-frame"]')
+      if (!frame) return null
+      const chips = Array.from(
+        frame.querySelectorAll<HTMLElement>(
+          '[data-testid="topology-service-stack"], [data-testid="topology-service-node-icon"], [data-testid="topology-foreign-node"]',
+        ),
+      )
+        // A stack of N is labelled by TYPE, not by a name, so two such stacks
+        // reading alike is correct and its title carries no single name.
+        .filter(chip => (chip.getAttribute("data-stack-count") ?? "1") === "1")
+        .map(chip => ({
+          label: chip.querySelector<HTMLElement>('[data-testid="topology-chip-label"]'),
+          // Every workload chip's title starts with the resource's full name.
+          name: (chip.getAttribute("title") ?? "").split(" · ")[0],
+        }))
+        .filter((c): c is { label: HTMLElement; name: string } => !!c.label && c.name.length > 0)
+      if (chips.length < 2) return null
+      const rendered = chips.map(c => ({
+        shown: c.label.textContent ?? "",
+        name: c.name,
+        overflowPx: c.label.scrollWidth - c.label.clientWidth,
+      }))
+      const sharedLen = (a: string, b: string) => {
+        let i = 0
+        while (i < a.length && i < b.length && a[i] === b[i]) i += 1
+        return i
+      }
+      // The closest-named pair the frame actually holds — the pair most at risk,
+      // found from the DOM rather than named in this file.
+      let pair = { a: 0, b: 1, shared: -1 }
+      for (let i = 0; i < chips.length; i += 1) {
+        for (let j = i + 1; j < chips.length; j += 1) {
+          const shared = sharedLen(chips[i].name, chips[j].name)
+          if (shared > pair.shared) pair = { a: i, b: j, shared }
+        }
+      }
+      // Write the un-elided name back and ask whether the label's visible box
+      // can show ANYTHING past the prefix the pair shares. If it cannot, the two
+      // chips paint the same string — the defect, measured, not assumed.
+      const unElided = [pair.a, pair.b].map(idx => {
+        const c = chips[idx]
+        const kept = c.label.textContent
+        c.label.textContent = c.name
+        void c.label.getBoundingClientRect()
+        let sharedPrefixWidthPx = 0
+        const textNode = c.label.firstChild
+        if (textNode) {
+          const range = document.createRange()
+          range.setStart(textNode, 0)
+          range.setEnd(textNode, Math.min(pair.shared, c.name.length))
+          sharedPrefixWidthPx = Math.round(range.getBoundingClientRect().width)
+        }
+        const out = {
+          name: c.name,
+          overflowPx: c.label.scrollWidth - c.label.clientWidth,
+          sharedPrefixWidthPx,
+          visibleWidthPx: c.label.clientWidth,
+        }
+        c.label.textContent = kept
+        void c.label.getBoundingClientRect()
+        return out
+      })
+      return { rendered, sharedPrefix: chips[pair.a].name.slice(0, pair.shared), unElided }
+    })
+  const chipLabels = await measureChipLabels()
+  expect(chipLabels, "the fullscreen VPC frame renders at least two named workload chips").not.toBeNull()
+  const shownLabels = chipLabels!.rendered.map(r => r.shown)
+  const duplicated = shownLabels.filter((l, i) => shownLabels.indexOf(l) !== i)
+  expect(
+    duplicated,
+    `chips paint the same text ${JSON.stringify(duplicated)} for different resources ${JSON.stringify(
+      chipLabels!.rendered.filter(r => duplicated.includes(r.shown)).map(r => r.name),
+    )}`,
+  ).toEqual([])
+  const closestPairShown = chipLabels!.rendered.filter(r => chipLabels!.unElided.some(u => u.name === r.name))
+  expect(
+    closestPairShown.map(r => r.overflowPx).every(px => px <= 1),
+    `the closest-named pair is still clipped after eliding: ${JSON.stringify(closestPairShown)}`,
+  ).toBe(true)
+  expect(
+    chipLabels!.sharedPrefix.length,
+    "this payload's closest-named pair shares no prefix, so nothing here is under test",
+  ).toBeGreaterThan(6)
+  for (const u of chipLabels!.unElided) {
+    expect(
+      u.overflowPx,
+      `"${u.name}" fits its chip un-elided (${u.visibleWidthPx}px), so eliding it proves nothing`,
+    ).toBeGreaterThan(0)
+    expect(
+      u.sharedPrefixWidthPx,
+      `un-elided, "${u.name}" shows ${u.visibleWidthPx}px and the prefix it shares is only ${u.sharedPrefixWidthPx}px, so the tail was visible and the chips did not collide`,
+    ).toBeGreaterThanOrEqual(u.visibleWidthPx)
+  }
+
+  // What the chips stopped saying is said once, here, and the two must tell one
+  // story: every shortened label is exactly its full name minus what this badge
+  // states. Without that tie, the header could name any prefix at all.
+  const namePrefix = fullscreen.getByTestId("topology-vpc-name-prefix")
+  await expect(namePrefix).toBeVisible()
+  const badgeText = (await namePrefix.textContent()) ?? ""
+  const badge = /^(.+)… ×(\d+)$/.exec(badgeText)
+  expect(badge, `the frame's prefix badge reads "${badgeText}"`).not.toBeNull()
+  const statedPrefix = badge![1]
+  // The family prefix backs off to a token boundary EVERY member shares, so it
+  // is a prefix of the closest pair's own overlap rather than equal to it.
+  expect(
+    chipLabels!.sharedPrefix.startsWith(statedPrefix),
+    `the badge states "${statedPrefix}" but the closest pair shares "${chipLabels!.sharedPrefix}"`,
+  ).toBe(true)
+  const shortened = chipLabels!.rendered.filter(r => r.shown.startsWith("…"))
+  expect(shortened.length, "no chip in the frame is shortened, so the badge describes nothing").toBeGreaterThanOrEqual(2)
+  for (const c of shortened) {
+    expect(c.shown, `"${c.name}" is not "${statedPrefix}" plus what its chip shows`).toBe(
+      `…${c.name.slice(statedPrefix.length)}`,
+    )
+  }
+  // Counts workloads, which is ≥ the shortened chips: a member inside a depth
+  // stack is in the family but has no chip of its own to shorten.
+  expect(Number(badge![2]), "the badge counts fewer workloads than there are shortened chips").toBeGreaterThanOrEqual(
+    shortened.length,
+  )
 
   await lambda.click()
   const detail = page.getByTestId("topology-service-detail-panel")

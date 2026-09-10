@@ -10,7 +10,11 @@ import { afterEach, beforeAll, describe, expect, it } from "vitest"
 import { cleanup, render, screen, within } from "@testing-library/react"
 
 import { AwsFrame } from "@/components/topology-v0-2/aws-frame"
-import { regionalFamilies } from "@/components/topology-v0-2/aws-frame"
+import {
+  buildFrameNameElision,
+  computeCanvasGrid,
+  regionalFamilies,
+} from "@/components/topology-v0-2/aws-frame"
 import { elideSharedPrefix, sharedNamePrefix } from "@/components/topology-v0-2/chip-names"
 import type { SubnetMeta, TopologyNode, VpcTopology } from "@/components/topology-v0-2/types"
 
@@ -143,6 +147,132 @@ describe("rail chips elide the lane's shared name prefix", () => {
     expect(bucketChips.map(chip => chip.querySelector("span.truncate")?.textContent)).toEqual(["…appdata", "…logs", "…exports"])
     // The in-VPC chip is untouched.
     expect(screen.getByTitle(/^i-web ·/)).toHaveTextContent("i-web")
+  })
+})
+
+// In-VPC workload chips. The rail lanes above elide per lane, which works
+// because a lane IS the whole family. Inside the VPC the family is split across
+// tier rows by role — web siblings in the web row, their app peer one row down —
+// so per-cell or per-row elision sees 1-2 names, declines (minNames = 3), and
+// leaves two chips reading the same clipped string. Elision is therefore
+// computed per FRAME, and the frame header states the prefix once.
+// The two web siblings sit in DIFFERENT AZs, as a load-balanced pair does in
+// every real account. That matters: within one cell, Glance groups same-type
+// nodes into a single ×N stack labelled by TYPE, so two siblings sharing a
+// subnet never collide in the first place. The collision needs one chip per
+// cell, which is what an AZ-spread pair produces.
+const TIERED_SUBNETS: SubnetMeta[] = [
+  sn({ id: "subnet-web-1a", tier: "web", az: "eu-west-1a", cidr: "10.42.1.0/24" }),
+  sn({ id: "subnet-web-1b", tier: "web", az: "eu-west-1b", cidr: "10.42.2.0/24" }),
+  sn({ id: "subnet-app-1a", tier: "app", az: "eu-west-1a", cidr: "10.42.10.0/24" }),
+  sn({ id: "subnet-data-1a", tier: "data", az: "eu-west-1a", cidr: "10.42.20.0/24" }),
+]
+const tieredTopology: VpcTopology = {
+  ...vpcTopology,
+  azs: ["eu-west-1a", "eu-west-1b"],
+  subnets: TIERED_SUBNETS,
+}
+/** Two web siblings + one app sibling: a family no single tier row can see. */
+const TIERED_SIBLINGS: TopologyNode[] = [
+  nd({ id: "i-web-1", name: "cyntro-tb-prod-web-1", type: "EC2", vpc_id: VPC, subnet_id: "subnet-web-1a" }),
+  nd({ id: "i-web-2", name: "cyntro-tb-prod-web-2", type: "EC2", vpc_id: VPC, subnet_id: "subnet-web-1b" }),
+  nd({ id: "i-app-1", name: "cyntro-tb-prod-app-1", type: "EC2", vpc_id: VPC, subnet_id: "subnet-app-1a" }),
+]
+
+function renderFrame(nodesToRender: TopologyNode[], viewDensity: "glance" | "inventory") {
+  render(
+    <AwsFrame
+      vpcTopology={tieredTopology}
+      nodes={nodesToRender}
+      mergedVpcView={false}
+      presentationMode={true}
+      viewDensity={viewDensity}
+      selectedNodeId={null}
+      onSelect={() => {}}
+    />,
+  )
+}
+
+function chipLabels(testId: string): string[] {
+  return screen
+    .getAllByTestId(testId)
+    .map(chip => within(chip).getByTestId("topology-chip-label").textContent ?? "")
+}
+
+describe("buildFrameNameElision", () => {
+  it("finds the family across tier rows, which no single row can see", () => {
+    const grid = computeCanvasGrid(VPC, TIERED_SUBNETS, TIERED_SIBLINGS, [])
+    const elision = buildFrameNameElision(grid)
+    expect(elision.prefix).toBe("cyntro-tb-prod-")
+    expect(elision.count).toBe(3)
+    expect(elision.total).toBe(3)
+    expect(elision.displayName("i-web-1")).toBe("…web-1")
+    expect(elision.displayName("i-web-2")).toBe("…web-2")
+    expect(elision.displayName("i-app-1")).toBe("…app-1")
+
+    // The control that makes the assertion above mean something: elide per tier
+    // row — the widest scope short of the frame — and the whole web row is two
+    // names, so elideSharedPrefix correctly declines and the pair still collides.
+    const webRow = [...grid.byAzAndTier.values()].flatMap(byTier => byTier.get("web") ?? [])
+    expect(webRow.map(n => n.name).sort()).toEqual(["cyntro-tb-prod-web-1", "cyntro-tb-prod-web-2"])
+    expect(elideSharedPrefix(webRow.map(n => n.name)).prefix).toBe("")
+  })
+
+  it("returns undefined per node when there is no family, so callers fall back to the full name", () => {
+    const twoOnly = TIERED_SIBLINGS.slice(0, 2)
+    const elision = buildFrameNameElision(computeCanvasGrid(VPC, TIERED_SUBNETS, twoOnly, []))
+    expect(elision.prefix).toBe("")
+    expect(elision.count).toBe(0)
+    expect(elision.total).toBe(2)
+    expect(elision.displayName("i-web-1")).toBeUndefined()
+  })
+
+  it("counts a multi-AZ workload once, not once per cell it is drawn in", () => {
+    // Drawn in both zones' web cells; one resource, so one family member. If it
+    // counted per cell, a 3-member family could be two names in a trench coat.
+    const multiAz = nd({
+      id: "i-span",
+      name: "cyntro-tb-prod-web-3",
+      type: "EC2",
+      vpc_id: VPC,
+      subnet_ids: ["subnet-web-1a", "subnet-web-1b"],
+    } as Partial<TopologyNode> & Pick<TopologyNode, "id">)
+    const grid = computeCanvasGrid(VPC, TIERED_SUBNETS, [...TIERED_SIBLINGS, multiAz], [])
+    const cells = [
+      grid.byAzAndTier.get("eu-west-1a")?.get("web") ?? [],
+      grid.byAzAndTier.get("eu-west-1b")?.get("web") ?? [],
+    ]
+    expect(cells.flat().filter(n => n.id === "i-span")).toHaveLength(2)
+    expect(buildFrameNameElision(grid).total).toBe(4)
+  })
+})
+
+describe("VPC workload chips elide the frame's shared name prefix", () => {
+  it("shortens the label, states the prefix once in the frame header, keeps the full name on the title", () => {
+    renderFrame(TIERED_SIBLINGS, "glance")
+    const header = screen.getByTestId("topology-vpc-frame-header")
+    expect(within(header).getByTestId("topology-vpc-name-prefix")).toHaveTextContent("cyntro-tb-prod-… ×3")
+    // One EC2 per cell, so each is a lone stack labelled by its representative's
+    // name — the site where two siblings used to render the same clipped text.
+    expect(chipLabels("topology-service-stack").sort()).toEqual(["…app-1", "…web-1", "…web-2"])
+    expect(screen.getByTitle(/^cyntro-tb-prod-web-1 ·/)).toBeTruthy()
+    expect(screen.getByTitle(/^cyntro-tb-prod-web-2 ·/)).toBeTruthy()
+  })
+
+  it("elides in Inventory density too — same frame, per-node chips", () => {
+    renderFrame(TIERED_SIBLINGS, "inventory")
+    expect(chipLabels("topology-service-node-icon").sort()).toEqual(["…app-1", "…web-1", "…web-2"])
+  })
+
+  it("leaves labels and header alone when the frame has no shared prefix", () => {
+    // Non-vacuity: without this the tests above would also pass on a build that
+    // elided unconditionally, which would mislabel unrelated workloads.
+    renderFrame(TIERED_SIBLINGS.slice(0, 2), "glance")
+    expect(screen.queryByTestId("topology-vpc-name-prefix")).toBeNull()
+    expect(chipLabels("topology-service-stack").sort()).toEqual([
+      "cyntro-tb-prod-web-1",
+      "cyntro-tb-prod-web-2",
+    ])
   })
 })
 
