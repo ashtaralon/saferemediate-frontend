@@ -56,14 +56,29 @@ interface ResourceAnalysis {
   resource_id: string
   resource_name: string
   resource_type: string
+  /** ROLE-LEVEL grant count — NOT this resource's own grant. The granted
+   *  per-resource set lives on :PermissionStatement, which this endpoint does
+   *  not read. */
   permissions_granted: number
+  permissions_granted_role_level?: number
+  granted_grain?: "role_flat" | "statement"
   permissions_used: PermissionUsed[]
-  unused_permissions: string[]
+  /** null when per-resource unused is not derivable — which is the case while
+   *  the grant is role-flat. The backend used to subtract this resource's
+   *  observed actions from the ROLE's whole allow-set and call the remainder
+   *  "never used here", painting the role's grant onto every resource. */
+  unused_permissions: string[] | null
+  unused_permissions_role_level?: string[]
+  unused_reason?: string
   risk_factors: string[]
   used_count: number
-  utilization_rate: number
-  over_permission_ratio: number
+  /** null when the resource has NO observations. Never seen acting is not
+   *  "0% utilized / 100% over-permissioned" — that is absence of evidence
+   *  rendered as evidence, on the screen that drives removal. */
+  utilization_rate: number | null
+  over_permission_ratio: number | null
   total_api_calls: number
+  has_observed_data?: boolean
 }
 
 interface AnalysisData {
@@ -1487,11 +1502,29 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
                 </div>
                 <div className="divide-y" style={{ borderColor: "var(--border-subtle)" }}>
                   {analysisData.analyses.map((a) => {
-                    const unusedShown = a.unused_permissions.slice(0, 4)
-                    const unusedMore = a.unused_permissions.length > 4 ? a.unused_permissions.length - 4 : 0
+                    // Per-resource unused is null while the grant is role-flat.
+                    const unusedList = a.unused_permissions
+                    const unusedShown = unusedList?.slice(0, 4) ?? []
+                    const unusedMore = (unusedList?.length ?? 0) > 4 ? (unusedList as string[]).length - 4 : 0
                     const label = getServiceMeta(a.resource_type).label
-                    const utilPct = a.utilization_rate < 0.005 ? "<1" : String(Math.round(a.utilization_rate * 100))
-                    const utilColor = a.utilization_rate < 0.1 ? "#ef4444" : a.utilization_rate < 0.5 ? "#f97316" : "#22c55e"
+                    // `null` must NOT coerce here: `null < 0.005` is true in JS,
+                    // which would render "<1%" for a resource we have never
+                    // observed — the same false certainty the backend fix
+                    // removes, arriving through the comparison instead.
+                    const util = a.utilization_rate
+                    const hasUtil = typeof util === "number"
+                    const utilPct = !hasUtil
+                      ? "—"
+                      : util < 0.005
+                        ? "<1"
+                        : String(Math.round(util * 100))
+                    const utilColor = !hasUtil
+                      ? "var(--text-muted)"
+                      : util < 0.1
+                        ? "#ef4444"
+                        : util < 0.5
+                          ? "#f97316"
+                          : "#22c55e"
                     return (
                       <div key={a.resource_id} className="px-4 py-3">
                         <div className="grid grid-cols-[2fr_80px_80px_80px_100px] gap-2 items-center">
@@ -1504,9 +1537,9 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
                           </div>
                           <div className="text-center text-sm font-medium" style={{ color: "var(--text-primary)" }}>{a.permissions_granted}</div>
                           <div className="text-center text-sm font-medium" style={{ color: "#22c55e" }}>{a.used_count}</div>
-                          <div className="text-center text-sm font-medium" style={{ color: "#ef4444" }}>{a.unused_permissions.length}</div>
+                          <div className="text-center text-sm font-medium" style={{ color: unusedList ? "#ef4444" : "var(--text-muted)" }}>{unusedList ? unusedList.length : "—"}</div>
                           <div className="text-center">
-                            <span className="px-2 py-0.5 rounded text-xs font-semibold" style={{ background: `${utilColor}20`, color: utilColor }}>{utilPct}%</span>
+                            <span className="px-2 py-0.5 rounded text-xs font-semibold" style={hasUtil ? { background: `${utilColor}20`, color: utilColor } : { color: utilColor }} title={hasUtil ? undefined : "No API calls observed — utilization is unknown, not zero."}>{hasUtil ? `${utilPct}%` : utilPct}</span>
                           </div>
                         </div>
 
@@ -1529,7 +1562,7 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
                             )}
                           </div>
                           <div>
-                            <p className="text-xs uppercase tracking-wider mb-1.5 font-semibold" style={{ color: "var(--text-muted)" }}>Never used ({a.unused_permissions.length}):</p>
+                            <p className="text-xs uppercase tracking-wider mb-1.5 font-semibold" style={{ color: "var(--text-muted)" }}>{unusedList ? `Never used (${unusedList.length}):` : "Never used on this resource:"}</p>
                             <div className="flex flex-wrap gap-1">
                               {unusedShown.map((u, i) => (
                                 <span key={i} className="px-1.5 py-0.5 rounded text-xs font-mono" style={{ background: "#ef444415", color: "#ef4444" }}>{u}</span>
@@ -1558,8 +1591,8 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
                 </div>
                 {(() => {
                   const zeroUsage = analysisData.analyses.filter(a => a.used_count === 0)
-                  const partialUsage = analysisData.analyses.filter(a => a.used_count > 0 && a.unused_permissions.length > 0)
-                  const fullUsage = analysisData.analyses.filter(a => a.used_count > 0 && a.unused_permissions.length === 0)
+                  const partialUsage = analysisData.analyses.filter(a => a.used_count > 0 && (a.unused_permissions ?? []).length > 0)
+                  const fullUsage = analysisData.analyses.filter(a => a.used_count > 0 && (a.unused_permissions ?? []).length === 0)
                   return (
                     <>
                       <p className="text-sm mb-3" style={{ color: "var(--text-secondary)" }}>
@@ -1582,9 +1615,9 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
                                 <span style={{ color: "var(--text-muted)" }}>&bull;</span>
                                 <span className="font-mono" style={{ color: "#ef4444" }}>{a.resource_name}</span>
                                 <span style={{ color: "var(--text-muted)" }}>— 0 of {a.permissions_granted} used</span>
-                                {a.unused_permissions.length > 0 && (
+                                {(a.unused_permissions ?? []).length > 0 && (
                                   <span className="px-1.5 py-0.5 rounded font-mono" style={{ background: "#ef444415", color: "#ef4444", fontSize: "10px" }}>
-                                    remove: {a.unused_permissions.slice(0, 3).join(", ")}{a.unused_permissions.length > 3 ? ` +${a.unused_permissions.length - 3} more` : ""}
+                                    remove: {(a.unused_permissions ?? []).slice(0, 3).join(", ")}{(a.unused_permissions ?? []).length > 3 ? ` +${(a.unused_permissions ?? []).length - 3} more` : ""}
                                   </span>
                                 )}
                               </div>
@@ -1606,13 +1639,13 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
                                 <div className="flex items-center gap-2">
                                   <span style={{ color: "var(--text-muted)" }}>&bull;</span>
                                   <span className="font-mono" style={{ color: "#f97316" }}>{a.resource_name}</span>
-                                  <span style={{ color: "var(--text-muted)" }}>— keep {a.used_count}, remove {a.unused_permissions.length}</span>
+                                  <span style={{ color: "var(--text-muted)" }}>— keep {a.used_count}, remove {(a.unused_permissions ?? []).length}</span>
                                 </div>
                                 <div className="ml-4 mt-0.5 flex flex-wrap gap-1">
-                                  {a.unused_permissions.slice(0, 4).map((p, i) => (
+                                  {(a.unused_permissions ?? []).slice(0, 4).map((p, i) => (
                                     <span key={i} className="px-1.5 py-0.5 rounded font-mono" style={{ background: "#ef444415", color: "#ef4444", fontSize: "10px" }}>{p}</span>
                                   ))}
-                                  {a.unused_permissions.length > 4 && <span style={{ color: "var(--text-muted)", fontSize: "10px" }}>+{a.unused_permissions.length - 4} more</span>}
+                                  {(a.unused_permissions ?? []).length > 4 && <span style={{ color: "var(--text-muted)", fontSize: "10px" }}>+{(a.unused_permissions ?? []).length - 4} more</span>}
                                 </div>
                               </div>
                             ))}
