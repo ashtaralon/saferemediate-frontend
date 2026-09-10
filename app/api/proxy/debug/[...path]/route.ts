@@ -7,11 +7,31 @@ export const maxDuration = 60
 
 const BACKEND_URL = getBackendBaseUrl()
 
+/** Production Vercel — never forward debug graph writers. */
+function isProductionDeploy(): boolean {
+  if (process.env.VERCEL_ENV === "production") return true
+  // Non-Vercel prod builds (NODE_ENV=production, no preview/dev VERCEL_ENV)
+  if (
+    process.env.NODE_ENV === "production" &&
+    process.env.VERCEL_ENV !== "preview" &&
+    process.env.VERCEL_ENV !== "development"
+  ) {
+    return true
+  }
+  return false
+}
+
 async function forwardDebugRequest(
   req: NextRequest,
   context: { params: Promise<{ path: string[] }> },
-  method: "GET" | "POST"
+  method: "GET" | "POST" | "DELETE",
 ) {
+  // Defense in depth: prod FE must not proxy mutation debug routes even if
+  // the backend router were mis-registered.
+  if (isProductionDeploy() && method !== "GET") {
+    return NextResponse.json({ error: "Not found" }, { status: 404 })
+  }
+
   const { path } = await context.params
 
   if (!path || path.length === 0) {
@@ -28,7 +48,7 @@ async function forwardDebugRequest(
       "Content-Type": req.headers.get("content-type") || "application/json",
       Accept: req.headers.get("accept") || "application/json",
     },
-    body: method === "POST" ? await req.text() : undefined,
+    body: method === "POST" || method === "DELETE" ? await req.text() : undefined,
     cache: "no-store",
   })
 
@@ -48,7 +68,7 @@ export async function GET(req: NextRequest, context: { params: Promise<{ path: s
   } catch (error: any) {
     return NextResponse.json(
       { error: error?.message || "Failed to proxy debug request" },
-      { status: 502 }
+      { status: 502 },
     )
   }
 }
@@ -59,7 +79,18 @@ export async function POST(req: NextRequest, context: { params: Promise<{ path: 
   } catch (error: any) {
     return NextResponse.json(
       { error: error?.message || "Failed to proxy debug request" },
-      { status: 502 }
+      { status: 502 },
+    )
+  }
+}
+
+export async function DELETE(req: NextRequest, context: { params: Promise<{ path: string[] }> }) {
+  try {
+    return await forwardDebugRequest(req, context, "DELETE")
+  } catch (error: any) {
+    return NextResponse.json(
+      { error: error?.message || "Failed to proxy debug request" },
+      { status: 502 },
     )
   }
 }
