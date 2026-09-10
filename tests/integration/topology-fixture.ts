@@ -267,3 +267,79 @@ export async function railHeaderBadgeOverlaps(page: Page): Promise<RailHeaderBad
     return out
   })
 }
+
+export interface ChromeTextDefects {
+  /** Leaf text boxes that paint over each other. */
+  overlaps: Array<{ a: string; b: string; overlapX: number; overlapY: number }>
+  /** Leaf text that is laid out but squeezed to zero width — present in the DOM,
+   *  invisible on screen. A `truncate` label starved by a `shrink-0` sibling
+   *  reads to an operator as "this system has no name". */
+  collapsed: Array<{ text: string; left: number; top: number }>
+}
+
+/**
+ * Layout defects in a header row, measured in a real browser.
+ *
+ * Two failure modes, one helper, because a narrow viewport produces both from
+ * the same cause — a non-wrapping flex row whose content exceeds it:
+ *
+ *   1. a `shrink-0` child overflows its own squeezed wrapper and paints on top
+ *      of the next control, and
+ *   2. a `truncate` sibling absorbs the whole shortfall and renders at zero
+ *      width, silently dropping information rather than shortening it.
+ *
+ * Mode 2 is the one a screenshot review misses: there is nothing to see, so
+ * the header looks merely sparse. Only measurement catches it.
+ *
+ * `<option>` elements are skipped — they have no box by specification, not by
+ * defect. `display: none` is skipped too (no client rects): hiding a label at a
+ * breakpoint is a decision, collapsing it to zero is an accident.
+ *
+ * Takes a full CSS selector, not a bare test id, because the map's header rows
+ * exist in both the inline map and the fullscreen overlay at once — a bare id
+ * resolves to the background copy and measures the wrong element.
+ */
+export async function chromeTextDefects(page: Page, selector: string): Promise<ChromeTextDefects> {
+  return page.evaluate((sel: string) => {
+    const root = document.querySelector<HTMLElement>(sel)
+    if (!root) throw new Error(`no element matching ${sel}`)
+    const leaves: Array<{ text: string; l: number; t: number; r: number; b: number; w: number }> = []
+    const walk = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT)
+    const consider = (el: Element) => {
+      if (el.children.length > 0) return
+      if (el.tagName === "OPTION" || el.closest("select")) return
+      const text = (el.textContent ?? "").trim()
+      if (!text) return
+      if (el.getClientRects().length === 0) return
+      const cs = getComputedStyle(el)
+      if (cs.visibility === "hidden" || cs.position === "absolute" || cs.position === "fixed") return
+      const r = el.getBoundingClientRect()
+      leaves.push({ text, l: r.left, t: r.top, r: r.right, b: r.bottom, w: r.width })
+    }
+    consider(root)
+    while (walk.nextNode()) consider(walk.currentNode as Element)
+
+    const overlaps: ChromeTextDefects["overlaps"] = []
+    for (let i = 0; i < leaves.length; i += 1) {
+      for (let j = i + 1; j < leaves.length; j += 1) {
+        const a = leaves[i]
+        const b = leaves[j]
+        const overlapX = Math.min(a.r, b.r) - Math.max(a.l, b.l)
+        const overlapY = Math.min(a.b, b.b) - Math.max(a.t, b.t)
+        // Sub-pixel touching is antialiasing, not a collision.
+        if (overlapX > 1 && overlapY > 1) {
+          overlaps.push({
+            a: a.text.slice(0, 40),
+            b: b.text.slice(0, 40),
+            overlapX: Math.round(overlapX),
+            overlapY: Math.round(overlapY),
+          })
+        }
+      }
+    }
+    const collapsed = leaves
+      .filter(l => l.w < 1)
+      .map(l => ({ text: l.text.slice(0, 60), left: Math.round(l.l), top: Math.round(l.t) }))
+    return { overlaps, collapsed }
+  }, selector)
+}
