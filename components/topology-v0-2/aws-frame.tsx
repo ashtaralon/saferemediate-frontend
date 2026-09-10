@@ -90,7 +90,12 @@ import {
   type ServiceStack,
   type ViewDensity,
 } from "./estate-glance"
-import { awsIconUrl, awsServiceLabel, awsServiceScope } from "./aws-architecture-icons"
+import {
+  awsIconUrl,
+  awsServiceFullName,
+  awsServiceLabel,
+  awsServiceScope,
+} from "./aws-architecture-icons"
 import { elideSharedPrefix } from "./chip-names"
 
 interface Props {
@@ -141,6 +146,12 @@ interface Props {
    * every subnet read has failed, so evidence always wins.
    */
   placementOverrides?: PlacementOverrideMap
+  /**
+   * What the single-VPC narrow removed upstream, so this canvas can SAY that a
+   * device it cannot draw exists. Read only by the foreign-ingress reference —
+   * these nodes are never placed, never counted, never given a chip.
+   */
+  crossVpc?: CrossVpcRemovals
   /**
    * Called when an engineer picks a cell for an unplaced node, or clears one
    * (`az`/`tier` null). Absent = the affordance is not offered, and the
@@ -4634,6 +4645,63 @@ export interface VpcFrameSpec {
   showIamControlPlane: boolean
 }
 
+/**
+ * An ingress device (ALB / API GW) this system really has, in a VPC this view
+ * draws no frame for.
+ *
+ * Rendered as ONE text reference on the boundary rail — never a chip in the
+ * VPC on screen, because it is not in it. Same rule as
+ * `OutOfScopeOverflowLine`: say what is missing and where it actually is,
+ * rather than fabricating a placement or staying silent. Scoped mode drops
+ * every non-frame node, and `outsideUnplaced` deliberately excludes ingress
+ * types (they own a band in merged mode, so listing them as "unplaced" would
+ * double-report), which together left the scoped canvas with no trace of a
+ * load balancer the graph does report.
+ */
+export interface ForeignIngressRef {
+  id: string
+  name: string
+  /** TopologyNode.type — resolved to an AWS service name at render time. */
+  type: string
+  /** VPC the graph puts it in. `null` = the graph never recorded one. */
+  vpcId: string | null
+  /** System owning that VPC's subnets, when the payload says so. */
+  ownerSystem: string | null
+}
+
+/**
+ * Nodes and subnets a single-VPC narrow removed before this module ran.
+ * Mirrors `SystemScopeResult["crossVpc"]`; kept structural so `aws-frame` does
+ * not depend on the scope module.
+ */
+export interface CrossVpcRemovals {
+  nodes: TopologyNode[]
+  subnets: SubnetMeta[]
+}
+
+const NO_CROSS_VPC_REMOVALS: CrossVpcRemovals = { nodes: [], subnets: [] }
+
+/**
+ * Whether a VPC's subnets belong to a co-tenant, and which system.
+ *
+ * One rule, two callers (the frame badge and the foreign-ingress reference):
+ * "foreign" means THIS system owns none of the VPC's subnets — it only occupies
+ * a co-tenant's. A second copy of this test would be a competing contract.
+ */
+function vpcOwnership(
+  subnets: SubnetMeta[],
+  vid: string | null,
+): { isForeign: boolean; ownerSystem: string | null } {
+  const vidSubnets = subnets.filter(s => s.vpc_id === vid)
+  const isForeign = vidSubnets.length > 0 && vidSubnets.every(s => s.is_foreign === true)
+  return {
+    isForeign,
+    ownerSystem: isForeign
+      ? vidSubnets.find(s => s.owner_system_name)?.owner_system_name ?? null
+      : null,
+  }
+}
+
 /** Assemble the per-VPC frame specs + the aggregated stale-workload list the
  *  merged Estate Map renders. Pure (no hooks) so it is unit-testable and runs
  *  inside a single parent useMemo. Partitions workloads by resolved VPC so each
@@ -4649,6 +4717,9 @@ export function buildVpcFrames(
   mergedVpcView: boolean,
   igws: VpcTopology["edges"]["igws"] = [],
   placementOverrides: PlacementOverrideMap = NO_PLACEMENT_OVERRIDES,
+  /** What a single-VPC narrow removed upstream — see `SystemScopeResult.crossVpc`.
+   *  Used ONLY to derive `foreignIngress`; never placed, never counted. */
+  crossVpc: CrossVpcRemovals = NO_CROSS_VPC_REMOVALS,
 ): {
   frames: VpcFrameSpec[]
   staleNodes: TopologyNode[]
@@ -4657,6 +4728,10 @@ export function buildVpcFrames(
    *  region-level: not knowing which subnet a node is in usually means not
    *  knowing which VPC either, so a per-VPC bucket would be a guess. */
   unplacedNodes: UnplacedNode[]
+  /** Ingress devices in VPCs this view draws no frame for. See
+   *  `ForeignIngressRef` — always empty in merged mode, where every VPC in the
+   *  payload gets a frame and its own ALB band. */
+  foreignIngress: ForeignIngressRef[]
 } {
   const subnetVpc = createMap(subnets.map(s => [s.id, s.vpc_id ?? null]))
   const resolveVpc = (n: TopologyNode): string | null =>
@@ -4715,13 +4790,9 @@ export function buildVpcFrames(
     igwByVpc.set(target, list)
   }
   const frames: VpcFrameSpec[] = ids.map((vid, idx) => {
-    const vidSubnets = subnets.filter(s => s.vpc_id === vid)
     // A frame is "foreign" when THIS system owns none of its subnets — it only
     // occupies a co-tenant's shared-VPC subnets (all is_foreign). Badge it.
-    const isForeign = vidSubnets.length > 0 && vidSubnets.every(s => s.is_foreign === true)
-    const ownerSystem = isForeign
-      ? vidSubnets.find(s => s.owner_system_name)?.owner_system_name ?? null
-      : null
+    const { isForeign, ownerSystem } = vpcOwnership(subnets, vid)
     return {
       vid,
       grid: computeCanvasGrid(
@@ -4773,7 +4844,43 @@ export function buildVpcFrames(
     }))
   const unplacedNodes = [...frames.flatMap(f => f.grid.unplacedNodes), ...outsideUnplaced]
   unplacedNodes.sort((a, b) => (a.node.score?.rank ?? 999) - (b.node.score?.rank ?? 999))
-  return { frames, staleNodes, unplacedNodes }
+  // The ingress devices the two buckets above BOTH decline to carry: an ALB in
+  // another VPC is not this frame's gap (so not `unplacedNodes`) and not stale
+  // (so not `staleNodes`) — it is a real device somewhere we are not drawing.
+  // Stale ones are left out on purpose: they are already in `staleNodes`, and
+  // reporting one resource twice reads as two.
+  //
+  // `outside` alone is NOT enough, which is the whole reason `crossVpc` exists.
+  // Measured on the captured estate payload: the estate view narrows the node
+  // list to the selected VPC BEFORE this function runs (46 nodes -> 38), so the
+  // vpc-086 ALB never reaches `outside` and this list came back empty while the
+  // device was absent from the entire document. `crossVpc` is what that narrow
+  // removed, so the two together are every device this canvas cannot draw.
+  const seen = new Set<string>()
+  const candidates = [...outside, ...crossVpc.nodes].filter(n => {
+    if (seen.has(n.id)) return false
+    seen.add(n.id)
+    return true
+  })
+  // Ownership needs the subnets of the VPCs we are NOT drawing — the narrow took
+  // those too, and without them every co-tenant reads as unknown.
+  const ownershipSubnets = crossVpc.subnets.length > 0 ? [...subnets, ...crossVpc.subnets] : subnets
+  const foreignIngress: ForeignIngressRef[] = candidates
+    .filter(n => !n.stale && n.type && ALB_HEADER_TYPES.has(n.type) && !frameIdSet.has(resolveVpc(n) ?? ""))
+    .map(n => {
+      const vid = resolveVpc(n)
+      return {
+        id: n.id,
+        name: n.name,
+        type: n.type as string,
+        vpcId: vid,
+        // Only when the payload says so. No vpc_id, or a VPC whose subnets this
+        // system owns, means we do not know a co-tenant — say nothing.
+        ownerSystem: vid ? vpcOwnership(ownershipSubnets, vid).ownerSystem : null,
+      }
+    })
+  foreignIngress.sort((a, b) => a.name.localeCompare(b.name))
+  return { frames, staleNodes, unplacedNodes, foreignIngress }
 }
 
 const TIERS: ("web" | "app" | "data")[] = ["web", "app", "data"]
@@ -6166,6 +6273,7 @@ export function AwsFrame({
   mergedVpcView = false,
   hiddenAzs = [],
   placementOverrides = NO_PLACEMENT_OVERRIDES,
+  crossVpc = NO_CROSS_VPC_REMOVALS,
   onPlaceNode,
   serverlessSourceNodes,
   regionalDataSourceNodes,
@@ -6274,7 +6382,7 @@ export function AwsFrame({
   // frame receives ONLY its own VPC's workloads so a second VPC's compute is
   // never force-fit into the primary's tiles (FE #299/#301 follow-up). Logic
   // lives in the pure, unit-tested buildVpcFrames().
-  const { frames, staleNodes, unplacedNodes } = useMemo(
+  const { frames, staleNodes, unplacedNodes, foreignIngress } = useMemo(
     () =>
       buildVpcFrames(
         topo.subnets,
@@ -6285,6 +6393,7 @@ export function AwsFrame({
         mergedVpcView,
         topo.edges.igws,
         placementOverrides,
+        crossVpc,
       ),
     [
       topo.subnets,
@@ -6295,6 +6404,7 @@ export function AwsFrame({
       hiddenAzs,
       mergedVpcView,
       placementOverrides,
+      crossVpc,
     ],
   )
   // Cells the frames ACTUALLY draw, so the picker can never offer a column that
@@ -6312,7 +6422,11 @@ export function AwsFrame({
   // on the VPCE rail (right of VPC), same column as VPC endpoints.
   const primaryIgw = topo.edges.igws[0]
   const hasVpces = topo.edges.vpces.length > 0
-  const showNetworkRail = hasIgw || hasVpces
+  // The foreign-ingress reference lives on this rail, so it has to be able to
+  // OPEN it: an account with no IGW and no endpoint but an ALB in a sibling VPC
+  // would otherwise drop the reference on the floor — the same silent omission
+  // the reference exists to end.
+  const showNetworkRail = hasIgw || hasVpces || foreignIngress.length > 0
   // Prefer IGWs from the primary/scoped frame; fall back to topo list.
   const railIgws =
     frames.flatMap(f => f.igws).length > 0
@@ -6649,19 +6763,31 @@ export function AwsFrame({
                   // single `minmax(0, 1fr)` row, so it still fills the viewport
                   // at whatever height the VPC settles on: shrinking these rows
                   // does not shrink the off-VPC lanes or fold another chip away.
-                  // The trailing `1fr` is what makes "leftover stays leftover"
-                  // land INSIDE the VPC border. Rows hugging content plus
-                  // `alignContent: start` left the slack below the grid's own
+                  //
+                  // A trailing `1fr` used to absorb the leftover into a sixth
+                  // track — "leftover stays leftover", landing INSIDE the VPC
+                  // border rather than as unframed void below it (measured 449px
+                  // of it at 2048×1100 back when the rows hugged content and
+                  // `alignContent: start` put the slack outside the grid's own
                   // content box, where the frame — a subgrid child spanning
-                  // `1 / -1` — could not reach it: measured 449px of unframed
-                  // void under the DATA tier at 2048×1100, exactly the region
-                  // row's height minus the tiers. A sixth track absorbs it, so
-                  // the frame border still reaches the bottom of the region row
-                  // and the blank collects as one band below DATA. No child
-                  // claims row 6 (header is 1, ALB/AZ band 2, tiers 3-5).
-                  // `alignContent` is then inert — the tracks fill the
-                  // container — so it is gone rather than left to mislead.
-                  gridTemplateRows: `auto auto minmax(${tierMin.web}px, max-content) minmax(${tierMin.app}px, max-content) minmax(${tierMin.data}px, max-content) 1fr`,
+                  // `1 / -1` — could not reach it). That fixed the border but
+                  // banked the height: ~335px collected as one dead band below
+                  // DATA, which no chip and no edge can use.
+                  //
+                  // So the tier rows take it instead (Alon, 2026-09-10). `auto`
+                  // as the MAX puts a track in grid's stretch set (CSS Grid
+                  // §12.8), and `align-content`'s initial `normal` behaves as
+                  // `stretch` on a grid container, so the leftover is shared out
+                  // across rows 3-5 with no `fr` weights to guess wrong: every
+                  // tier gets vertical room, and the gap between one tier's
+                  // chips and the next grows, which is what makes a traffic edge
+                  // between two services followable. `minmax(auto, max-content)`
+                  // on the header and the ALB/AZ band keeps them hugging their
+                  // content — a `max-content` max is NOT in the stretch set, so
+                  // the chrome cannot eat a fifth of the band. The floors stay:
+                  // stretch only ever ADDS, and an `auto` max is never below
+                  // max-content, so no chip is clipped to pay for this.
+                  gridTemplateRows: `minmax(auto, max-content) minmax(auto, max-content) minmax(${tierMin.web}px, auto) minmax(${tierMin.app}px, auto) minmax(${tierMin.data}px, auto)`,
                   gap: "6px",
                   width: "100%",
                   height: "100%",
@@ -6741,16 +6867,24 @@ export function AwsFrame({
                   >
                     VPC boundary
                   </div>
-                  <div className="mt-0.5 text-[9px] leading-snug" style={{ color: "#3B82F6" }}>
-                    {[
+                  {/* Both counts are the rail's own DEVICES. The foreign-ingress
+                      reference below is deliberately not counted here — it is a
+                      pointer off this canvas, not a device on this boundary — so
+                      the subtitle can be empty when the rail only carries one. */}
+                  {(() => {
+                    const devices = [
                       railIgws.length > 0
                         ? `${railIgws.length} internet ${railIgws.length === 1 ? "gateway" : "gateways"}`
                         : null,
                       topo.edges.vpces.length > 0 ? `${topo.edges.vpces.length} endpoints` : null,
-                    ]
-                      .filter(Boolean)
-                      .join(" · ")}
-                  </div>
+                    ].filter(Boolean)
+                    if (devices.length === 0) return null
+                    return (
+                      <div className="mt-0.5 text-[9px] leading-snug" style={{ color: "#3B82F6" }}>
+                        {devices.join(" · ")}
+                      </div>
+                    )
+                  })()}
                 </div>
                 {railIgws.map((igw, idx) => {
                   const selectionId = idx === 0 ? "__igw__" : igw.id
@@ -6851,6 +6985,62 @@ export function AwsFrame({
                     </button>
                   )
                 })}
+                {/* An ingress device this system really has, in a VPC this view
+                    does not draw. Text, not a chip, and in slate rather than the
+                    rail's blue: it is NOT a device on this boundary, and a chip
+                    here would assert a placement the graph contradicts. Same
+                    contract as `OutOfScopeOverflowLine` — one honest line naming
+                    where the resource actually is. */}
+                {foreignIngress.length > 0 && (
+                  <div
+                    className="mt-1 pt-1.5 border-t border-dashed"
+                    style={{ borderColor: "#CBD5E1" }}
+                    data-flow-obstacle="foreign-ingress-reference"
+                    data-testid="topology-foreign-ingress-reference"
+                    data-foreign-ingress-count={foreignIngress.length}
+                  >
+                    <div
+                      className="text-[9px] uppercase tracking-[0.12em] font-semibold"
+                      style={{ color: PAL.slate }}
+                    >
+                      Not in this VPC
+                    </div>
+                    {foreignIngress.map(ref => {
+                      const where = ref.vpcId
+                        ? `VPC ${shortVpcId(ref.vpcId)}`
+                        : "VPC not recorded in the graph"
+                      return (
+                        <div
+                          key={ref.id}
+                          className="mt-1 text-[9px] leading-snug"
+                          style={{ color: PAL.slate }}
+                          data-testid="topology-foreign-ingress-line"
+                          data-foreign-ingress-vpc={ref.vpcId ?? ""}
+                          title={[
+                            `${awsServiceFullName(ref.type)} · ${ref.name}`,
+                            ref.vpcId
+                              ? `Runs in ${ref.vpcId}, not the VPC drawn here — so it gets no chip on this canvas.`
+                              : "The graph records no VPC for this device, so this canvas cannot place it.",
+                            ref.ownerSystem
+                              ? `That VPC's subnets are tagged for "${ref.ownerSystem}".`
+                              : null,
+                            "Switch to All VPCs · Compare to see it in its own VPC.",
+                          ]
+                            .filter(Boolean)
+                            .join("\n")}
+                        >
+                          <div className="font-semibold truncate" style={{ color: "#475569" }}>
+                            {awsServiceLabel(ref.type)} · {ref.name}
+                          </div>
+                          <div className="truncate">{where}</div>
+                          {ref.ownerSystem ? (
+                            <div className="truncate">· {ref.ownerSystem}</div>
+                          ) : null}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
               </div>
             )}
 

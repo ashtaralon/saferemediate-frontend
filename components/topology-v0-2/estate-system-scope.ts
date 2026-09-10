@@ -36,6 +36,20 @@ export type SystemScopeResult = {
   availableVpcs: AvailableVpc[]
   /** VPC ids this system owns or uses (workloads / own-tagged subnets). */
   usedVpcIds: string[]
+  /**
+   * What the single-VPC narrow REMOVED — set only by
+   * `narrowSystemEstateToVpc`, absent from the unscoped result.
+   *
+   * The narrow is right to drop these (they are not in the VPC on screen), but
+   * a drop with no record is how the demo system's only load balancer went
+   * missing from the Estate Map: it lives in the sibling vpc-086, so the scoped
+   * canvas would not draw it, would not list it as unplaced (it is not this
+   * frame's gap), and would not call it stale. Nothing on screen said it
+   * existed. Whoever removes a resource from the view owns reporting it, so the
+   * narrow hands back exactly what it took — nodes AND the subnets that name
+   * their owning system — and `AwsFrame` renders one honest reference line.
+   */
+  crossVpc?: { nodes: TopologyNode[]; subnets: SubnetMeta[] }
 }
 
 /**
@@ -203,14 +217,22 @@ export function narrowSystemEstateToVpc(
   scoped: SystemScopeResult,
   vpcId: string,
 ): SystemScopeResult {
+  const inThisVpc = (n: TopologyNode) => {
+    if (n.vpc_id === vpcId) return true
+    // Regional / serverless stay visible on rails in single-VPC view.
+    if (!n.vpc_id) return true
+    return false
+  }
+  const allSubnets = scoped.vpcTopology.subnets ?? []
   return {
     ...scoped,
-    nodes: scoped.nodes.filter(n => {
-      if (n.vpc_id === vpcId) return true
-      // Regional / serverless stay visible on rails in single-VPC view.
-      if (!n.vpc_id) return true
-      return false
-    }),
+    nodes: scoped.nodes.filter(inThisVpc),
+    // The removals, kept rather than discarded — see `crossVpc` on
+    // SystemScopeResult for why a silent drop is the bug.
+    crossVpc: {
+      nodes: scoped.nodes.filter(n => !inThisVpc(n)),
+      subnets: allSubnets.filter(s => s.vpc_id !== vpcId),
+    },
     vpcTopology: {
       ...scoped.vpcTopology,
       vpc_id: vpcId,

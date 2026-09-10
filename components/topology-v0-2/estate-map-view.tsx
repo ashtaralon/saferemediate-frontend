@@ -13,6 +13,7 @@ import { AwsFrame, dedupeLambdaServiceTwins, listTopologyAzs } from "@/component
 import { CanvasPane } from "@/components/topology-v0-2/canvas-pane"
 import {
   applyFilters,
+  applyFiltersOffCanvas,
   applyTypeFilter,
   allWorkloadTypes,
   defaultFilters,
@@ -882,6 +883,37 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     return base.filter(n => n.is_foreign !== true)
   }, [gridSourceNodes, effectiveFilters, showSharedNeighbors])
 
+  /**
+   * The nodes the single-VPC narrow removed, put through the operator's filters.
+   * AwsFrame uses these only to SAY that an ingress device exists in a VPC this
+   * canvas does not draw — nothing here is ever placed or counted.
+   *
+   * Filtering matters: a reference that ignored the type filter would name a
+   * load balancer on a canvas the operator has ticked load balancers off of —
+   * but plain `applyFilters` deletes ALL of these, because the rail's type
+   * universe is built from the nodes the canvas kept. `applyFiltersOffCanvas`
+   * carries that reasoning and the measurement behind it.
+   */
+  const mapCrossVpc = useMemo(() => {
+    const removed = scopedEstate?.crossVpc
+    if (!removed) return undefined
+    const base = applyFiltersOffCanvas(
+      removed.nodes,
+      effectiveFilters,
+      allWorkloadTypes(data?.system_kpis ?? null, chipCountNodes),
+    )
+    return {
+      nodes: showSharedNeighbors ? base : base.filter(n => n.is_foreign !== true),
+      subnets: removed.subnets,
+    }
+  }, [
+    scopedEstate,
+    effectiveFilters,
+    showSharedNeighbors,
+    data?.system_kpis,
+    chipCountNodes,
+  ])
+
   const filteredServerlessSource = useMemo(() => {
     const base = applyTypeFilter(serverlessSourceNodes, effectiveFilters)
     if (showSharedNeighbors) return base
@@ -1347,6 +1379,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
       mergedVpcView={!scopedVpc}
       hiddenAzs={hiddenAzs}
       placementOverrides={placementOverrides}
+      crossVpc={mapCrossVpc}
       onPlaceNode={handlePlaceNode}
       serverlessSourceNodes={filteredServerlessSource}
       regionalDataSourceNodes={filteredRegionalSource}
