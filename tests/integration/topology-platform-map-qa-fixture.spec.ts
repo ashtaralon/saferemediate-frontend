@@ -52,6 +52,39 @@ test("fullscreen platform map shows named Lambda, protected AZ labels, direction
     (SNAPSHOT.traffic_authority.coverage_gaps ?? coverage.warnings).length,
   )
 
+  // The INLINE map, before fullscreen: this is the surface in the operator's own
+  // screenshot, and it is the tight one — the Lambda and Regional lanes take the
+  // right third, so the VPC frame is ~950px and the boundary strip's five edge
+  // devices genuinely do not fit on one line. Fullscreen is ~1490px and fits, so
+  // asserting only there would never exercise the overflow path.
+  // Document-wide is unambiguous here and only here: the fullscreen overlay is
+  // not mounted yet, so exactly one map exists. Every query AFTER the enlarge
+  // click has to scope to the overlay.
+  await expect(page.getByTestId("topology-estate-map-fullscreen")).toHaveCount(0)
+  const inlineGeom = await page.evaluate(() => {
+    const strip = document.querySelector('[data-testid="topology-vpc-boundary-strip"]')
+    const id = document.querySelector('[data-testid="topology-vpc-frame-id"]') as HTMLElement | null
+    if (!strip || !id) return null
+    const s = strip.getBoundingClientRect()
+    return {
+      idVisibleFraction: id.clientWidth / id.scrollWidth,
+      stripHeight: Math.round(s.height),
+      clippedPills: [
+        ...document.querySelectorAll(
+          '[data-testid="topology-igw-rail-chip"],[data-testid="topology-vpce-rail-chip"]',
+        ),
+      ].filter(el => {
+        const r = el.getBoundingClientRect()
+        return r.width < 40 || r.left < s.left - 1 || r.right > s.right + 1
+      }).length,
+    }
+  })
+  expect(inlineGeom).not.toBeNull()
+  // Wraps to a second row rather than clipping a device or eating the VPC's id.
+  expect(inlineGeom!.clippedPills).toBe(0)
+  expect(inlineGeom!.stripHeight).toBeLessThanOrEqual(56)
+  expect(inlineGeom!.idVisibleFraction).toBeGreaterThan(0.6)
+
   await page.getByTestId("topology-estate-map-enlarge").click()
   const fullscreen = page.getByTestId("topology-estate-map-fullscreen")
   await expect(fullscreen).toBeVisible()
@@ -98,17 +131,84 @@ test("fullscreen platform map shows named Lambda, protected AZ labels, direction
   await page.waitForTimeout(600) // double-rAF measure after the fit
   expect(await railHeaderBadgeOverlaps(page)).toEqual([])
 
-  // The IGW / VPCE column is named like the two lanes beside it, and its
-  // counts are the chips it actually renders — asserted against the DOM rather
-  // than against a number, so a header that outgrows its column fails here.
-  const boundaryHeader = fullscreen.getByTestId("topology-boundary-rail-header")
-  await expect(boundaryHeader).toContainText("VPC boundary")
+  // The IGW and the VPC endpoints render ON the VPC frame's top border, where
+  // the icon catalog's `scope: "vpc-boundary"` always said they belong — not in
+  // a column outside the card. Geometry is the assertion, not the testid: both
+  // layouts render the same chips, so only their box relative to the frame's
+  // border can tell them apart.
   const igwChips = await fullscreen.getByTestId("topology-igw-rail-chip").count()
   const vpceChips = await fullscreen.getByTestId("topology-vpce-rail-chip").count()
   expect(igwChips + vpceChips).toBeGreaterThan(0)
-  await expect(boundaryHeader).toContainText(
-    `${igwChips} internet ${igwChips === 1 ? "gateway" : "gateways"} · ${vpceChips} endpoints`,
+  const boundaryStrip = fullscreen.getByTestId("topology-vpc-boundary-strip").first()
+  await expect(boundaryStrip).toBeVisible()
+  // `root.querySelector`, not `document.querySelector`: the inline map is still
+  // mounted behind the fullscreen overlay, so a document-wide query measures
+  // whichever instance happens to come first in the DOM — a different frame
+  // width, and therefore different geometry, than the one under assertion.
+  const boundaryGeom = await fullscreen.evaluate((root: HTMLElement) => {
+    const q = (sel: string) => root.querySelector(sel)
+    const frame = q('[data-testid="topology-vpc-frame"]')
+    const strip = q('[data-testid="topology-vpc-boundary-strip"]')
+    const igw = q('[data-testid="topology-igw-rail-chip"]')
+    const id = q('[data-testid="topology-vpc-frame-id"]') as HTMLElement | null
+    if (!frame || !strip || !igw || !id) return null
+    const f = frame.getBoundingClientRect()
+    const s = strip.getBoundingClientRect()
+    return {
+      inFrameHorizontally: s.left >= f.left && s.right <= f.right + 1,
+      // "On the top edge": within the frame's own header band, not floating in
+      // the tier grid below it and not outside the card to the right. Two pill
+      // rows' worth, because wrapping is the designed overflow (below).
+      withinTopBand: s.top >= f.top - 1 && s.bottom <= f.top + 64,
+      igwInsideFrame: frame.contains(igw),
+      // Vertical room the strip must not take back from the tier rows (#851).
+      // Capped at two pill rows: a third would mean the strip has become a lane
+      // of its own rather than a border, and #851's minmax() rows pay for it.
+      stripHeight: Math.round(s.height),
+      // The strip and the VPC's id are the only flexible items on this line, so
+      // "did the strip fit?" and "does the frame still say which VPC it is?" are
+      // one question. As `shrink-0` the strip won it outright and the id
+      // rendered as "VPC…" — a merged canvas of anonymous frames.
+      // Measured, not read: `textContent` returns the whole id however little of
+      // it is on screen (the truncation is CSS), so it would pass on the broken
+      // layout too. clientWidth/scrollWidth is the fraction actually visible.
+      frameIdWidth: Math.round(id.getBoundingClientRect().width),
+      frameIdVisibleFraction: id.clientWidth / id.scrollWidth,
+      // No pill may be clipped away: a hidden endpoint is a device the graph
+      // reports and the map silently denies. Wrapping is the allowed answer, so
+      // this checks each pill against the strip's box rather than one line's.
+      clippedPills: [
+        ...root.querySelectorAll(
+          '[data-testid="topology-igw-rail-chip"],[data-testid="topology-vpce-rail-chip"]',
+        ),
+      ].filter(el => {
+        const r = el.getBoundingClientRect()
+        return r.width < 40 || r.left < s.left - 1 || r.right > s.right + 1
+      }).length,
+    }
+  })
+  expect(boundaryGeom).not.toBeNull()
+  expect(boundaryGeom!.igwInsideFrame).toBe(true)
+  expect(boundaryGeom!.inFrameHorizontally).toBe(true)
+  expect(boundaryGeom!.withinTopBand).toBe(true)
+  expect(boundaryGeom!.stripHeight).toBeLessThanOrEqual(56)
+  expect(boundaryGeom!.clippedPills).toBe(0)
+  // Not "VPC…". Enough of the id to tell this frame from a sibling.
+  expect(boundaryGeom!.frameIdWidth).toBeGreaterThanOrEqual(132)
+  expect(boundaryGeom!.frameIdVisibleFraction).toBeGreaterThan(0.6)
+  // The old column only appears now for a device with no frame to sit on.
+  await expect(fullscreen.getByTestId("topology-boundary-rail-header")).toContainText(
+    "Not in this VPC",
   )
+  // Once, not twice. Moving the chips out left the column with a single kind of
+  // content but two headings for it, a dashed rule apart — the browser showed
+  // "Not in this VPC" stacked on itself, which reads as two sections.
+  expect(
+    await fullscreen
+      .getByTestId("topology-network-rail")
+      .getByText("Not in this VPC")
+      .count(),
+  ).toBe(1)
 
   // This payload's only load balancer is in vpc-086bcc2186fa42c96 — NOT the VPC
   // this canvas draws — and the scoped grid used to drop it without a word: it is
@@ -118,7 +218,9 @@ test("fullscreen platform map shows named Lambda, protected AZ labels, direction
   const foreignIngress = fullscreen.getByTestId("topology-foreign-ingress-reference")
   await expect(foreignIngress).toBeVisible()
   await expect(foreignIngress).toHaveAttribute("data-foreign-ingress-count", "1")
-  await expect(foreignIngress).toContainText("Not in this VPC")
+  // No heading of its own — the column's one heading, asserted above, is this
+  // block's heading. It carried a second "Not in this VPC" back when the IGW and
+  // VPCE chips shared the column and it needed to separate itself from them.
   await expect(foreignIngress).toContainText("ALB · alon-prod-3tier-alb")
   // The co-tenant is read off that VPC's subnets, not asserted by this spec.
   await expect(foreignIngress).toContainText("payment-production")

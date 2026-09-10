@@ -291,12 +291,39 @@ type" from "an identity or config artifact we deliberately keep off the map" —
 a distinction `mapSlotForType` cannot make, because `"hidden"` is its default
 return and no rule in `PLACEMENT_RULES` declares it.
 
-Still not consuming `scope`: the boundary lane (`vpc-boundary`) and the global
-lane. IGWs, NAT gateways and VPC endpoints are placed by their own code paths
-rather than by the scope column, and global services are filtered off the canvas
-rather than drawn above the region frame. Both are presentation gaps, not
-honesty gaps — nothing is currently drawn in a position the graph does not
-support.
+The boundary lane's *position* is now what the table says. IGWs and VPC
+endpoints render on the owning VPC frame's top border — `boundaryStrip` in
+`VpcCanvasFrame`, which in presentation mode is the frame's row-1 subgrid track,
+i.e. the VPC's own top edge. Before this, both were drawn in a 136px column to
+the RIGHT of the VPC card (#349), outside its border: the devices read as loose
+chips *beside* a VPC rather than attachments *to* it, and the internet path left
+the canvas sideways to reach the IGW instead of running down from the top edge
+to the load balancers under it. NAT gateways were already in-frame (the ALB
+band's fallback row).
+
+Placing them on a frame made "which VPC?" a question the region-level column
+never had to answer, so `buildVpcFrames` now groups endpoints by `vpc_id` the
+way it already grouped IGWs — with one deliberate difference, asserted in
+`__tests__/topology-per-vpc-frames.test.ts`: a missing `vpc_id` falls back to
+the primary frame (BE deploy lag on the stamp), but a `vpc_id` naming a VPC this
+view draws no frame for is **dropped**, never re-homed. Re-homing it would print
+a sibling VPC's SSM endpoint on this VPC's edge — the mislabel
+`narrowSystemEstateToVpc` guards against upstream.
+
+That column survives for exactly one thing and is titled for it — "Not in this
+VPC", an ingress device the system really has in a VPC this canvas does not
+draw. It is text, not a chip, and it renders only when there is such a device.
+
+Still not consuming `scope` as a *column*: even on the boundary, IGWs, NAT
+gateways and VPC endpoints reach their position through their own typed code
+paths (`igws` / `vpces` / `nat_gws` off `VpcTopology.edges`) rather than by the
+renderer reading `awsServiceScope(type) === "vpc-boundary"`. Seven catalog
+entries carry that scope; the other four — `EIP`, `VPNGateway`, `EICEndpoint`,
+`VPCPeering` — appear nowhere under `components/topology-v0-2/` outside the
+catalog itself, so the Estate Map does not draw them at all. The global lane is
+likewise unconsumed: global services are filtered off the canvas rather than
+drawn above the region frame. Both remain presentation gaps, not honesty gaps —
+nothing is drawn in a position the graph does not support.
 
 ### The delivery chain is healthy — so "I still see the old map" is a code gap
 

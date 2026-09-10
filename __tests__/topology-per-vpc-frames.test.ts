@@ -382,6 +382,47 @@ describe("buildVpcFrames — IGW on VPC edge", () => {
   })
 })
 
+// The IGW and the VPC endpoints used to render in one region-level column beside
+// the VPC card, so nothing ever had to decide WHICH VPC an endpoint belonged to.
+// Drawing them on a frame's boundary makes that a per-frame question, and a
+// wrong answer labels a sibling VPC's endpoint on this VPC's edge.
+describe("buildVpcFrames — VPC endpoints on the owning frame's boundary", () => {
+  const VPCES = [
+    { id: "vpce-own-s3", service_name: "com.amazonaws.eu-west-1.s3", endpoint_type: "Gateway", vpc_id: OWN },
+    { id: "vpce-shared-ssm", service_name: "com.amazonaws.eu-west-1.ssm", endpoint_type: "Interface", vpc_id: SHARED },
+  ]
+
+  it("gives each frame only its own endpoints", () => {
+    const { frames } = buildVpcFrames(SUBNETS, NODES, OWN, [], [], true, [], undefined, undefined, VPCES)
+    expect(frames.find(f => f.vid === OWN)!.vpces.map(v => v.id)).toEqual(["vpce-own-s3"])
+    expect(frames.find(f => f.vid === SHARED)!.vpces.map(v => v.id)).toEqual(["vpce-shared-ssm"])
+  })
+
+  it("drops a sibling VPC's endpoint from a scoped canvas rather than re-homing it", () => {
+    // Scoped to OWN: the SHARED endpoint has a real vpc_id that this view draws
+    // no frame for. Falling back to the primary frame would put an SSM endpoint
+    // on the wrong VPC's boundary — the exact mislabel narrowSystemEstateToVpc
+    // guards against upstream.
+    const { frames } = buildVpcFrames(SUBNETS, NODES, OWN, [], [], false, [], undefined, undefined, VPCES)
+    expect(frames.map(f => f.vid)).toEqual([OWN])
+    expect(frames[0].vpces.map(v => v.id)).toEqual(["vpce-own-s3"])
+  })
+
+  it("falls back to the primary frame only when vpc_id is missing entirely", () => {
+    // BE deploy lag on the vpc_id stamp: unattributed is not the same as
+    // attributed-elsewhere, and matches the existing igw rule.
+    const unstamped = [{ id: "vpce-nostamp", service_name: "com.amazonaws.eu-west-1.s3" }]
+    const { frames } = buildVpcFrames(SUBNETS, NODES, OWN, [], [], true, [], undefined, undefined, unstamped)
+    expect(frames.find(f => f.vid === OWN)!.vpces.map(v => v.id)).toEqual(["vpce-nostamp"])
+    expect(frames.find(f => f.vid === SHARED)!.vpces).toEqual([])
+  })
+
+  it("is empty when the payload carries no endpoints", () => {
+    const { frames } = buildVpcFrames(SUBNETS, NODES, OWN, [], [], true)
+    expect(frames.every(f => f.vpces.length === 0)).toBe(true)
+  })
+})
+
 describe("computeCanvasGrid — VPC isolation", () => {
   it("excludes a workload whose VPC differs from the canvas VPC", () => {
     // Defense in depth: even handed a mixed node list, a frame drops foreign VPC nodes.

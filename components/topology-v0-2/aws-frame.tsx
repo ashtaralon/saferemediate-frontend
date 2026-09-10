@@ -3838,7 +3838,7 @@ function FlowOverlay({
 
       // Rail bundles — one path per (source lane, target lane, label) through
       // the flow corridor; the badge sits just left of its bus, over the empty
-      // lower part of the network rail, and pass 4 stacks bundles apart.
+      // lower part of the off-canvas column, and pass 4 stacks bundles apart.
       // Both corridors: the 48px one left of the rail, and the 40px one between
       // the Lambda and Regional lanes. railBundleRoute picks whichever lies
       // between a bundle's own two ends.
@@ -4640,6 +4640,15 @@ export interface VpcFrameSpec {
   natGws: VpcTopology["edges"]["nat_gws"]
   /** Internet gateways attached to this VPC (BE edges.igws). */
   igws: VpcTopology["edges"]["igws"]
+  /**
+   * VPC endpoints belonging to this VPC (BE edges.vpces).
+   *
+   * Per-frame, not region-level: an endpoint is attached to exactly one VPC, and
+   * the merged view draws a frame per VPC. Handing every frame the whole region's
+   * endpoints is how a vpc-0329 SSM endpoint ended up labelled on a vpc-086
+   * frame (the same class of bug `narrowSystemEstateToVpc` guards against).
+   */
+  vpces: VpcTopology["edges"]["vpces"]
   isForeign: boolean
   ownerSystem: string | null
   showIamControlPlane: boolean
@@ -4649,8 +4658,8 @@ export interface VpcFrameSpec {
  * An ingress device (ALB / API GW) this system really has, in a VPC this view
  * draws no frame for.
  *
- * Rendered as ONE text reference on the boundary rail — never a chip in the
- * VPC on screen, because it is not in it. Same rule as
+ * Rendered as ONE text reference in the "Not in this VPC" column — never a chip
+ * in the VPC on screen, because it is not in it. Same rule as
  * `OutOfScopeOverflowLine`: say what is missing and where it actually is,
  * rather than fabricating a placement or staying silent. Scoped mode drops
  * every non-frame node, and `outsideUnplaced` deliberately excludes ingress
@@ -4720,6 +4729,10 @@ export function buildVpcFrames(
   /** What a single-VPC narrow removed upstream — see `SystemScopeResult.crossVpc`.
    *  Used ONLY to derive `foreignIngress`; never placed, never counted. */
   crossVpc: CrossVpcRemovals = NO_CROSS_VPC_REMOVALS,
+  /** VPC endpoints, grouped onto their owning frame — see `VpcFrameSpec.vpces`.
+   *  Appended last on purpose: inserting it before `crossVpc` would silently
+   *  re-bind every existing 9-argument call site. */
+  vpces: VpcTopology["edges"]["vpces"] = [],
 ): {
   frames: VpcFrameSpec[]
   staleNodes: TopologyNode[]
@@ -4789,6 +4802,19 @@ export function buildVpcFrames(
     list.push(igw)
     igwByVpc.set(target, list)
   }
+  // VPC endpoints grouped the same way. A MISSING vpc_id falls to the primary
+  // frame (BE deploy lag on the vpc_id stamp), matching the igw rule above and
+  // `narrowSystemEstateToVpc`'s `!i.vpc_id` allowance — an endpoint stamped with
+  // a vpc_id this view draws no frame for is dropped rather than mis-attached.
+  const vpceByVpc = new Map<string, VpcTopology["edges"]["vpces"]>()
+  for (const vpce of vpces) {
+    const v0 = vpce.vpc_id ?? null
+    const target = v0 && frameIdSet.has(v0) ? v0 : v0 ? null : ids[0] ?? null
+    if (!target) continue
+    const list = vpceByVpc.get(target) ?? []
+    list.push(vpce)
+    vpceByVpc.set(target, list)
+  }
   const frames: VpcFrameSpec[] = ids.map((vid, idx) => {
     // A frame is "foreign" when THIS system owns none of its subnets — it only
     // occupies a co-tenant's shared-VPC subnets (all is_foreign). Badge it.
@@ -4804,6 +4830,7 @@ export function buildVpcFrames(
       ),
       natGws: natByVpc.get(vid) ?? [],
       igws: igwByVpc.get(vid) ?? [],
+      vpces: vpceByVpc.get(vid) ?? [],
       isForeign,
       ownerSystem,
       showIamControlPlane: idx === 0,
@@ -5495,6 +5522,7 @@ function PrimaryPlusPeerStrip({
         grid={primary.grid}
         natGws={primary.natGws}
         igws={primary.igws}
+        vpces={primary.vpces}
         isForeign={primary.isForeign}
         ownerSystem={primary.ownerSystem}
         showIamControlPlane
@@ -5546,6 +5574,7 @@ interface VpcCanvasFrameProps {
   grid: CanvasGrid
   natGws: VpcTopology["edges"]["nat_gws"]
   igws?: VpcTopology["edges"]["igws"]
+  vpces?: VpcTopology["edges"]["vpces"]
   isForeign: boolean
   ownerSystem: string | null
   showIamControlPlane: boolean
@@ -5571,6 +5600,7 @@ function VpcCanvasFrame({
   grid,
   natGws,
   igws = [],
+  vpces = [],
   isForeign,
   ownerSystem,
   showIamControlPlane,
@@ -5585,7 +5615,6 @@ function VpcCanvasFrame({
   densityCollapsed,
   viewDensity,
 }: VpcCanvasFrameProps) {
-  void igws // IGWs render on the region network rail (with VPCEs), not in-frame.
   const { byAzAndTier, subnetsByCell, albNodes, azs, azGridColumns, vpcGridMinWidth } = grid
 
   // Chip labels: drop the prefix every workload in this frame shares, and say it
@@ -5596,7 +5625,134 @@ function VpcCanvasFrame({
   // its subnet_id. Only NATs the grid cannot place stay on the frame-level strip.
   const natPlacement = useMemo(() => placeNatGateways(natGws, subnetsByCell), [natGws, subnetsByCell])
   const hasNats = natPlacement.unplaced.length > 0
-  // IGWs render on the region VPCE rail (right of VPC), not above Web.
+
+  /**
+   * The VPC's edge devices, drawn ON this frame's top border.
+   *
+   * AWS diagram grammar, and this repo's own catalog: an Internet Gateway
+   * "sits ON the VPC boundary" and a gateway endpoint is placed "ON the VPC
+   * boundary, not inside a subnet card" (`aws-architecture-icons.ts`, which
+   * gives both `scope: "vpc-boundary"`). The renderer did not honour that —
+   * `docs/aws-map-presentation.md` recorded the gap as "Still not consuming
+   * `scope`: the boundary lane" — and put them in a 136px column to the RIGHT
+   * of the VPC card instead, outside its border. Two costs, both visible in
+   * Alon's C1 screenshot (2026-09-11): the devices read as loose chips beside
+   * the VPC rather than attachments to it, and the internet path left the
+   * canvas sideways to reach the IGW instead of running down from the top edge
+   * to the load balancers under it.
+   *
+   * Compact by construction. In presentation mode this is the frame's row-1
+   * subgrid track, shared across every VPC frame, so a tall strip would take
+   * back the vertical room #851 just gave the tier rows.
+   *
+   * Shrinkable, and wrapping rather than clipping. Measured on the running app
+   * with five devices on a ~950px frame: as `shrink-0` the strip claimed its
+   * full natural width and the header's VPC id — the one label that says WHICH
+   * frame this is on a merged canvas — collapsed to "VPC…". So the strip yields
+   * width first (`min-w-0`), and when even that is not enough it wraps to a
+   * second line. It must never `overflow: hidden` a pill away: a clipped
+   * endpoint is a device the graph reports and the map silently denies.
+   */
+  const boundaryStrip = (igws.length > 0 || vpces.length > 0) && (
+    <div
+      className="flex items-center justify-end gap-1 flex-wrap min-w-0"
+      data-flow-obstacle="vpc-boundary-strip"
+      data-testid="topology-vpc-boundary-strip"
+    >
+      {igws.map((igw, idx) => {
+        // First IGW keeps the `__igw__` flow anchor the region edges target;
+        // extras are addressed by their own id. Unchanged from the rail so
+        // FlowOverlay keeps resolving the internet path.
+        const selectionId = idx === 0 ? "__igw__" : igw.id
+        const selected = selectedNodeId === selectionId
+        return (
+          <button
+            type="button"
+            key={igw.id}
+            onClick={() => onSelect(selectionId)}
+            aria-pressed={selected}
+            data-flow-id={selectionId}
+            data-igw-id={igw.id}
+            data-testid="topology-igw-rail-chip"
+            title={[
+              `${igw.name} (${igw.id})`,
+              igw.vpc_id ? `VPC · ${igw.vpc_id}` : null,
+              "Internet Gateway · on the VPC boundary",
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+            className="rounded-sm overflow-hidden flex items-center gap-1 pr-1.5 text-left transition hover:brightness-95 max-w-[150px]"
+            style={{
+              background: "linear-gradient(180deg, #EFF6FF 0%, #FFFFFF 100%)",
+              border: "1.5px solid #3B82F6",
+              color: "#1E40AF",
+              boxShadow: selected ? "0 0 0 2px rgba(14,139,122,0.25)" : undefined,
+            }}
+          >
+            <span
+              className="flex items-center justify-center shrink-0 px-1 self-stretch"
+              style={{ background: "#8C4FFF", color: "white" }}
+            >
+              <AwsServiceGlyph kind="igw" size={13} />
+            </span>
+            <span className="text-[8px] font-bold uppercase tracking-[0.1em] shrink-0">IGW</span>
+            <span className="text-[9px] font-semibold truncate normal-case tracking-normal font-mono">
+              {igw.name}
+            </span>
+          </button>
+        )
+      })}
+      {vpces.map(v => {
+        const meta = resolveVpceMeta(v.service_name, v.endpoint_type)
+        const selected = selectedNodeId === v.id
+        return (
+          <button
+            type="button"
+            key={v.id}
+            onClick={() => onSelect(v.id)}
+            aria-pressed={selected}
+            data-flow-id={v.id}
+            data-testid="topology-vpce-rail-chip"
+            title={[
+              meta.label,
+              `${meta.type} endpoint · ${v.id}`,
+              v.service_name ?? "",
+              meta.purpose,
+            ]
+              .filter(Boolean)
+              .join("\n")}
+            className="rounded-sm overflow-hidden flex items-center gap-1 pr-1.5 text-left transition hover:brightness-95 max-w-[150px]"
+            style={{
+              background: "#DBEAFE",
+              border: selected ? "1.5px solid #0E8B7A" : "1.5px solid #3B82F6",
+              color: "#1E40AF",
+              boxShadow: selected ? "0 0 0 2px rgba(14,139,122,0.2)" : undefined,
+            }}
+          >
+            <span
+              className="flex items-center justify-center shrink-0 px-1 self-stretch"
+              style={{ background: "white" }}
+            >
+              <VpceIcon size={15} />
+            </span>
+            <span className="text-[8px] font-bold uppercase tracking-[0.1em] shrink-0">VPCE</span>
+            <span
+              className="px-1 rounded-sm text-[7px] font-bold shrink-0"
+              style={{
+                background: meta.type === "Gateway" ? "#1E40AF" : "#3B82F6",
+                color: "white",
+              }}
+            >
+              {meta.type === "Gateway" ? "GW" : "IF"}
+            </span>
+            <span className="text-[9px] font-semibold truncate normal-case tracking-normal">
+              {meta.label}
+            </span>
+          </button>
+        )
+      })}
+    </div>
+  )
 
   // Fallback only: a NAT whose subnet_id is missing or outside this frame's
   // grid still renders, labelled as such, instead of being dropped.
@@ -5760,7 +5916,13 @@ function VpcCanvasFrame({
         style={{ color: "#0E8B7A", gridRow: presentationMode ? 1 : undefined }}
         data-testid="topology-vpc-frame-header"
       >
-        <span className="truncate" title={vpcId ?? "unknown"}>
+        {/* Floored, because this is the frame's name. The boundary strip to the
+            right of it is the only other flexible item on this line, and with
+            five edge devices on a ~950px frame the label lost the whole
+            negotiation and rendered as "VPC…" — a merged canvas of frames that
+            do not say which VPC they are. 132px keeps enough of the id to tell
+            two VPCs apart; the full one stays in the title either way. */}
+        <span className="truncate" style={{ minWidth: 132 }} title={vpcId ?? "unknown"} data-testid="topology-vpc-frame-id">
           VPC · {vpcId ?? "unknown"}
         </span>
         {nameElision.prefix ? (
@@ -5785,6 +5947,9 @@ function VpcCanvasFrame({
             shared · {ownerSystem}
           </span>
         ) : null}
+        {/* Pushed to the right end of the same line, so the edge devices sit ON
+            the top border rather than in a column beside the card. */}
+        {boundaryStrip ? <div className="ml-auto min-w-0">{boundaryStrip}</div> : null}
       </div>
 
       {presentationMode ? (
@@ -6394,12 +6559,14 @@ export function AwsFrame({
         topo.edges.igws,
         placementOverrides,
         crossVpc,
+        topo.edges.vpces,
       ),
     [
       topo.subnets,
       topo.vpc_id,
       topo.edges.nat_gws,
       topo.edges.igws,
+      topo.edges.vpces,
       nodes,
       hiddenAzs,
       mergedVpcView,
@@ -6418,20 +6585,14 @@ export function AwsFrame({
     [frames],
   )
   const hasIgw = topo.edges.igws.length > 0
-  // Story-strip caption only — the clickable / flow-anchor IGW chip lives
-  // on the VPCE rail (right of VPC), same column as VPC endpoints.
+  // Story-strip caption only — the clickable / flow-anchor IGW chip lives on the
+  // owning VPC frame's top border (see `boundaryStrip` in VpcCanvasFrame).
   const primaryIgw = topo.edges.igws[0]
-  const hasVpces = topo.edges.vpces.length > 0
-  // The foreign-ingress reference lives on this rail, so it has to be able to
-  // OPEN it: an account with no IGW and no endpoint but an ALB in a sibling VPC
-  // would otherwise drop the reference on the floor — the same silent omission
-  // the reference exists to end.
-  const showNetworkRail = hasIgw || hasVpces || foreignIngress.length > 0
-  // Prefer IGWs from the primary/scoped frame; fall back to topo list.
-  const railIgws =
-    frames.flatMap(f => f.igws).length > 0
-      ? frames.flatMap(f => f.igws)
-      : topo.edges.igws
+  // This column used to hold the IGW and the VPC endpoints, outside the VPC card
+  // it belonged to. They now render ON the frame's boundary, where the catalog's
+  // `scope: "vpc-boundary"` always said they go, so the only thing left that has
+  // no frame to sit on is a device in a VPC this view does not draw.
+  const showNetworkRail = foreignIngress.length > 0
   const accountSuffix = topo.account_id ? `· acct ${topo.account_id}` : ""
   const flowContainerRef = useRef<HTMLDivElement | null>(null)
   const railColumnRef = useRef<HTMLDivElement | null>(null)
@@ -6802,6 +6963,7 @@ export function AwsFrame({
                     grid={f.grid}
                     natGws={f.natGws}
                     igws={f.igws}
+                    vpces={f.vpces}
                     isForeign={f.isForeign}
                     ownerSystem={f.ownerSystem}
                     showIamControlPlane={f.showIamControlPlane}
@@ -6826,6 +6988,7 @@ export function AwsFrame({
                   grid={f.grid}
                   natGws={f.natGws}
                   igws={f.igws}
+                  vpces={f.vpces}
                   isForeign={f.isForeign}
                   ownerSystem={f.ownerSystem}
                   showIamControlPlane={f.showIamControlPlane}
@@ -6843,7 +7006,9 @@ export function AwsFrame({
               ))
             )}
 
-            {/* Network rail — IGW + VPCEs, right of VPC (same column). */}
+            {/* Off-canvas column, right of the VPC. Once held the IGW + VPCEs;
+                those are on their own frame's boundary now, so all that is left
+                is a device in a VPC this view draws no frame for. */}
             {showNetworkRail && (
               <div
                 className={`flex flex-col gap-1.5 self-stretch justify-start pt-1 z-10 ${
@@ -6852,139 +7017,18 @@ export function AwsFrame({
                 style={{ width: "136px" }}
                 data-testid="topology-network-rail"
               >
-                {/* The two off-VPC lanes at the right end each say what they
-                    are; this column said nothing and read as a loose stack of
-                    chips floating beside the VPC. It is the VPC's EDGE — the
-                    internet attachment and the endpoints that reach AWS
-                    services without one — so it is named, with the same
-                    typography the lanes use, and registered as a flow obstacle
-                    so edge labels keep off it like they do the lane headers.
-                    Both counts are the rail's own contents. */}
+                {/* This column now carries ONE thing: a device in a VPC this
+                    view draws no frame for. The IGW and the VPC endpoints moved
+                    onto their own frame's boundary, so naming this "VPC
+                    boundary" would be false — nothing in here is on it. */}
                 <div data-flow-obstacle="boundary-rail-header" data-testid="topology-boundary-rail-header">
                   <div
                     className="text-[10px] uppercase tracking-[0.12em] font-semibold"
-                    style={{ color: "#1E3A8A" }}
+                    style={{ color: PAL.slate }}
                   >
-                    VPC boundary
+                    Not in this VPC
                   </div>
-                  {/* Both counts are the rail's own DEVICES. The foreign-ingress
-                      reference below is deliberately not counted here — it is a
-                      pointer off this canvas, not a device on this boundary — so
-                      the subtitle can be empty when the rail only carries one. */}
-                  {(() => {
-                    const devices = [
-                      railIgws.length > 0
-                        ? `${railIgws.length} internet ${railIgws.length === 1 ? "gateway" : "gateways"}`
-                        : null,
-                      topo.edges.vpces.length > 0 ? `${topo.edges.vpces.length} endpoints` : null,
-                    ].filter(Boolean)
-                    if (devices.length === 0) return null
-                    return (
-                      <div className="mt-0.5 text-[9px] leading-snug" style={{ color: "#3B82F6" }}>
-                        {devices.join(" · ")}
-                      </div>
-                    )
-                  })()}
                 </div>
-                {railIgws.map((igw, idx) => {
-                  const selectionId = idx === 0 ? "__igw__" : igw.id
-                  const selected = selectedNodeId === selectionId
-                  return (
-                  <button
-                    type="button"
-                    key={igw.id}
-                    onClick={() => onSelect(selectionId)}
-                    aria-pressed={selected}
-                    data-flow-id={selectionId}
-                    data-igw-id={igw.id}
-                    data-testid="topology-igw-rail-chip"
-                    title={[
-                      `${igw.name} (${igw.id})`,
-                      igw.vpc_id ? `VPC · ${igw.vpc_id}` : null,
-                      "Internet Gateway · VPC attachment",
-                    ]
-                      .filter(Boolean)
-                      .join(" · ")}
-                    className="rounded-md shadow-sm overflow-hidden flex items-stretch text-left transition hover:brightness-95"
-                    style={{
-                      background: "linear-gradient(180deg, #EFF6FF 0%, #FFFFFF 100%)",
-                      border: "2px solid #3B82F6",
-                      color: "#1E40AF",
-                      boxShadow: selected ? "0 0 0 3px rgba(14,139,122,0.2)" : undefined,
-                    }}
-                  >
-                    <div
-                      className="flex items-center justify-center shrink-0 px-1.5"
-                      style={{ background: "#8C4FFF", color: "white" }}
-                    >
-                      <AwsServiceGlyph kind="igw" size={22} />
-                    </div>
-                    <div className="flex-1 min-w-0 px-1.5 py-1">
-                      <div className="text-[8px] font-bold uppercase tracking-[0.12em] leading-none">
-                        IGW
-                      </div>
-                      <div className="text-[10px] font-semibold leading-tight truncate mt-0.5">
-                        {igw.name}
-                      </div>
-                    </div>
-                  </button>
-                  )
-                })}
-                {topo.edges.vpces.map(v => {
-                  const meta = resolveVpceMeta(v.service_name, v.endpoint_type)
-                  const selected = selectedNodeId === v.id
-                  const tooltip = [
-                    meta.label,
-                    `${meta.type} endpoint · ${v.id}`,
-                    v.service_name ?? "",
-                    meta.purpose,
-                  ].filter(Boolean).join("\n")
-                  return (
-                    <button
-                      type="button"
-                      key={v.id}
-                      onClick={() => onSelect(v.id)}
-                      aria-pressed={selected}
-                      data-flow-id={v.id}
-                      data-testid="topology-vpce-rail-chip"
-                      title={tooltip}
-                      className="rounded-md shadow-sm overflow-hidden flex items-stretch text-left transition hover:brightness-95"
-                      style={{
-                        background: "#DBEAFE",
-                        border: selected ? "2px solid #0E8B7A" : "1.5px solid #3B82F6",
-                        color: "#1E40AF",
-                        boxShadow: selected ? "0 0 0 3px rgba(14,139,122,0.16)" : undefined,
-                      }}
-                    >
-                      <div
-                        className="flex items-center justify-center shrink-0 px-1.5"
-                        style={{ background: "white" }}
-                      >
-                        <VpceIcon size={32} />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between px-2 pt-1 pb-0.5 text-[8px] font-bold uppercase tracking-[0.12em] leading-none">
-                          <span>VPCE</span>
-                          <span
-                            className="px-1 rounded-sm text-[7px]"
-                            style={{
-                              background: meta.type === "Gateway" ? "#1E40AF" : "#3B82F6",
-                              color: "white",
-                            }}
-                          >
-                            {meta.type === "Gateway" ? "GW" : "IF"}
-                          </span>
-                        </div>
-                        <div className="px-2 text-[10px] font-semibold leading-tight truncate">
-                          {meta.label}
-                        </div>
-                        <div className="px-2 pb-1 text-[8px] leading-snug" style={{ color: "#1E3A8A", opacity: 0.85 }}>
-                          {meta.purpose}
-                        </div>
-                      </div>
-                    </button>
-                  )
-                })}
                 {/* An ingress device this system really has, in a VPC this view
                     does not draw. Text, not a chip, and in slate rather than the
                     rail's blue: it is NOT a device on this boundary, and a chip
@@ -6993,18 +7037,16 @@ export function AwsFrame({
                     where the resource actually is. */}
                 {foreignIngress.length > 0 && (
                   <div
-                    className="mt-1 pt-1.5 border-t border-dashed"
-                    style={{ borderColor: "#CBD5E1" }}
                     data-flow-obstacle="foreign-ingress-reference"
                     data-testid="topology-foreign-ingress-reference"
                     data-foreign-ingress-count={foreignIngress.length}
                   >
-                    <div
-                      className="text-[9px] uppercase tracking-[0.12em] font-semibold"
-                      style={{ color: PAL.slate }}
-                    >
-                      Not in this VPC
-                    </div>
+                    {/* No heading of its own, and no rule above it: this block used
+                        to sit under the IGW/VPCE chips and needed both to separate
+                        itself from them. They are on the VPC's boundary now, so the
+                        rail's one heading IS this block's heading — printing "Not in
+                        this VPC" twice, a dashed rule apart, said there were two
+                        kinds of thing here when there is only ever one. */}
                     {foreignIngress.map(ref => {
                       const where = ref.vpcId
                         ? `VPC ${shortVpcId(ref.vpcId)}`
