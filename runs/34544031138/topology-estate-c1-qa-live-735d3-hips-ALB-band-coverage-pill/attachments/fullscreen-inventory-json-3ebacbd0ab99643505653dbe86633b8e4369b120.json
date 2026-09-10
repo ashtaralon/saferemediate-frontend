@@ -1,0 +1,148 @@
+{
+  "viewport": {
+    "w": 1600,
+    "h": 900
+  },
+  "layout": "single-vpc",
+  "rail": {
+    "l": 1060,
+    "t": 327,
+    "r": 1572,
+    "b": 729.25,
+    "w": 512,
+    "h": 402.25
+  },
+  "lanes": {
+    "serverless": {
+      "header": {
+        "l": 1071,
+        "t": 336,
+        "r": 1251,
+        "b": 393.5,
+        "w": 180,
+        "h": 57.5
+      },
+      "header_text": "Lambda runtime (6)outside subnet grid · 6 attachment unverified · cyntro-tb-prod-consumer-… ×6",
+      "body": {
+        "l": 1071,
+        "t": 695,
+        "r": 1251,
+        "b": 696.75,
+        "w": 180,
+        "h": 1.75
+      },
+      "scrollHeight": 260,
+      "clientHeight": 2,
+      "overflowY": "auto",
+      "chips": 6,
+      "above": 0,
+      "below": 6,
+      "more_pill": "+6 more ↓",
+      "above_pill": null
+    },
+    "regional": {
+      "header": {
+        "l": 1383,
+        "t": 336,
+        "r": 1563,
+        "b": 366.5,
+        "w": 180,
+        "h": 30.5
+      },
+      "header_text": "Regional · S3 / DDB (4)cyntro-… ×4",
+      "body": {
+        "l": 1383,
+        "t": 372.5,
+        "r": 1563,
+        "b": 720.25,
+        "w": 180,
+        "h": 347.75
+      },
+      "scrollHeight": 348,
+      "clientHeight": 348,
+      "overflowY": "auto",
+      "chips": 4,
+      "above": 0,
+      "below": 0,
+      "more_pill": null,
+      "above_pill": null
+    }
+  },
+  "nat": [
+    {
+      "id": "nat-0fd7cf8524e62aea9",
+      "placement": "subnet",
+      "in_subnet_cell": true,
+      "in_fallback": false,
+      "title": "NAT gateway · nat-0fd7cf8524e62aea9 · subnet subnet-05472c7cd0d3a7b90 (from vpc_topology.edges)"
+    }
+  ],
+  "nat_fallback_text": null,
+  "alb_band": {
+    "l": 36,
+    "t": 362,
+    "r": 980,
+    "b": 445.5,
+    "w": 944,
+    "h": 83.5
+  },
+  "az_headers": {
+    "l": 72,
+    "t": 455.5,
+    "r": 972,
+    "b": 470.5,
+    "w": 900,
+    "h": 15
+  },
+  "igw_chips": 1,
+  "vpce_chips": 1,
+  "users_internet_strip": true,
+  "subnet_cells": 6,
+  "labels_over_rail_chips": [],
+  "unknown_glyph_nodes": [],
+  "service_icons": 31,
+  "stack_tiles": 0,
+  "flow_badges": 20,
+  "authority_banner": "Traffic evidence not yet authoritativeOutlined packets show historical source-to-target direction; they do not claim live traffic.",
+  "header_overlaps": [],
+  "coverage_pill": {
+    "state": "none",
+    "totals": "0 of 14 eligible endpoints covered · 16 not applicable",
+    "lanes": [
+      {
+        "testid": "topology-lane-coverage-vpc",
+        "state": "none",
+        "text": "In-VPC 0/9"
+      },
+      {
+        "testid": "topology-lane-coverage-database",
+        "state": "none",
+        "text": "Database 0/5"
+      },
+      {
+        "testid": "topology-lane-coverage-serverless",
+        "state": "not_applicable",
+        "text": "Lambda 6 n/a"
+      },
+      {
+        "testid": "topology-lane-coverage-regional",
+        "state": "not_applicable",
+        "text": "Regional 10 n/a"
+      }
+    ],
+    "warnings": [
+      {
+        "code": "lambda_to_database_not_collected",
+        "text": "Lambda: Lambda → database: not collected. 6 function(s) run outside the VPC, so no flow log or CloudTrail data event observes their connections to the 5 database(s) in scope."
+      },
+      {
+        "code": "regional_services_outside_flow_logs",
+        "text": "Regional: 10 regional service(s) have no VPC network interface; VPC flow logs cannot observe them. Access to them is evidenced by CloudTrail data events, a separate lane."
+      },
+      {
+        "code": "canonical_projection_inactive",
+        "text": "In-VPC: The canonical flow-log projection is not active for this scope (mode legacy); none of the 14 eligible endpoint(s) is covered yet."
+      }
+    ]
+  }
+}
