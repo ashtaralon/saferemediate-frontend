@@ -1284,6 +1284,10 @@ function ServiceIconShell({
         ) : null}
       </span>
       <span
+        // `truncate` clips with a CSS ellipsis, which never enters the text — the
+        // only way to know a label is cut is to compare scrollWidth to
+        // clientWidth on this element, so it carries a stable hook for that.
+        data-testid="topology-chip-label"
         className={
           railChip
             ? "text-[9px] font-semibold text-left leading-tight truncate flex-1 min-w-0"
@@ -1309,12 +1313,18 @@ function ServiceStackChip({
   selectedNodeId,
   onSelect,
   dense = false,
+  displayName,
   operatorPlacedIds,
 }: {
   stack: ServiceStack
   selectedNodeId: string | null
   onSelect: (id: string) => void
   dense?: boolean
+  /** Label for the representative when a shared prefix has been elided; only
+   *  consulted on a lone service, since a depth stack labels itself by TYPE
+   *  ("EC2 instance") and has no single name to shorten. Titles keep the full
+   *  name either way. */
+  displayName?: string
   /** Any member placed by an engineer marks the whole stack — a stack that is
    *  part evidence and part assertion is not fully evidence. */
   operatorPlacedIds?: ReadonlySet<string>
@@ -1335,7 +1345,7 @@ function ServiceStackChip({
       selected={selected}
       depth={depth}
       countBadge={stack.nodes.length}
-      label={depth ? stack.label : stack.representative.name}
+      label={depth ? stack.label : (displayName ?? stack.representative.name)}
       sublabel={depth ? `${stack.nodes.length} in cell` : stack.label}
       title={title}
       onClick={() => onSelect(stack.representative.id)}
@@ -1430,6 +1440,7 @@ function GlanceCellWorkloads({
   selectedNodeId,
   onSelect,
   compact,
+  displayNameForWorkload,
   operatorPlacedIds,
 }: {
   workloadsHere: TopologyNode[]
@@ -1437,6 +1448,8 @@ function GlanceCellWorkloads({
   onSelect: (id: string) => void
   roleForWorkload?: (nodeId: string) => IamRoleRollup | undefined
   compact?: boolean
+  /** Frame-scoped shared-prefix elision; undefined per node = show it in full. */
+  displayNameForWorkload?: (nodeId: string) => string | undefined
   operatorPlacedIds?: ReadonlySet<string>
 }) {
   const plan = planGlanceCell(workloadsHere)
@@ -1456,6 +1469,7 @@ function GlanceCellWorkloads({
           selectedNodeId={selectedNodeId}
           onSelect={onSelect}
           dense
+          displayName={displayNameForWorkload?.(stack.representative.id)}
           operatorPlacedIds={operatorPlacedIds}
         />
       ))}
@@ -1468,12 +1482,15 @@ function InventoryCellWorkloads({
   selectedNodeId,
   onSelect,
   compact,
+  displayNameForWorkload,
   operatorPlacedIds,
 }: {
   workloadsHere: TopologyNode[]
   selectedNodeId: string | null
   onSelect: (id: string) => void
   compact?: boolean
+  /** Frame-scoped shared-prefix elision; undefined per node = show it in full. */
+  displayNameForWorkload?: (nodeId: string) => string | undefined
   operatorPlacedIds?: ReadonlySet<string>
 }) {
   return (
@@ -1492,6 +1509,7 @@ function InventoryCellWorkloads({
           selected={n.id === selectedNodeId}
           onSelect={onSelect}
           dense
+          displayName={displayNameForWorkload?.(n.id)}
           operatorPlaced={operatorPlacedIds?.has(n.id) ?? false}
         />
       ))}
@@ -1550,7 +1568,8 @@ function NatGatewayChip({
 function SubnetCell({
   tier, az, subnetsHere, workloadsHere, sgIndex, selectedNodeId, onSelect,
   compact = false, roleForWorkload, densityCollapsed = false,
-  viewDensity = "glance", natGwsHere = [], operatorPlacedIds,
+  viewDensity = "glance", natGwsHere = [], displayNameForWorkload,
+  operatorPlacedIds,
 }: {
   tier: SubnetTier
   az: string
@@ -1565,6 +1584,9 @@ function SubnetCell({
   viewDensity?: ViewDensity
   /** NAT gateways whose subnet_id is one of `subnetsHere` (see placeNatGateways). */
   natGwsHere?: EdgeNatGw[]
+  /** Frame-scoped shared-prefix elision — computed once per VPC frame because a
+   *  name family routinely straddles subnets, so no cell can see the whole set. */
+  displayNameForWorkload?: (nodeId: string) => string | undefined
   /** Node ids in this cell only because an engineer put them here. */
   operatorPlacedIds?: ReadonlySet<string>
 }) {
@@ -1617,6 +1639,7 @@ function SubnetCell({
         onSelect={onSelect}
         roleForWorkload={roleForWorkload}
         compact={compact}
+        displayNameForWorkload={displayNameForWorkload}
         operatorPlacedIds={operatorPlacedIds}
       />
     ) : (
@@ -1625,6 +1648,7 @@ function SubnetCell({
         selectedNodeId={selectedNodeId}
         onSelect={onSelect}
         compact={compact}
+        displayNameForWorkload={displayNameForWorkload}
         operatorPlacedIds={operatorPlacedIds}
       />
     )
@@ -4544,6 +4568,61 @@ export function computeCanvasGrid(
   }
 }
 
+export interface FrameNameElision {
+  /** The prefix every member of the family shares; `""` = no family found. */
+  prefix: string
+  /** How many workloads in this frame are in the family. */
+  count: number
+  /** Distinct workloads drawn in this frame — the honest denominator for `count`. */
+  total: number
+  /** Chip label for a node id; `undefined` = not in the family, render its full name. */
+  displayName: (nodeId: string) => string | undefined
+}
+
+/**
+ * Shared-prefix elision for the workload chips of ONE VPC frame.
+ *
+ * Chip labels truncate from the END, so sibling workloads whose names differ
+ * only in a trailing index render as byte-identical text: two chips showing the
+ * same clipped string are two copies of nothing, and the "which service talks to
+ * which" read this map exists for is impossible on that pair. Dropping the
+ * prefix they share puts the distinguishing tail back on screen. The frame
+ * header states the omitted prefix once and every chip title keeps the full
+ * name, so nothing is lost — only unrepeated.
+ *
+ * Frame-scoped, not cell- or tier-scoped, because `elideSharedPrefix` needs
+ * `minNames = 3` and a naming family routinely straddles subnets — the members
+ * are siblings by role, which is exactly what puts them in DIFFERENT tiers. Per
+ * cell such a family is 1-2 names, the helper correctly declines, and the
+ * collision survives; the whole frame is the smallest scope that sees the set.
+ *
+ * Pure — no hooks — so both the single-VPC canvas and the multi-VPC compare
+ * bands can call it (the latter once per frame inside one parent memo) instead
+ * of growing a second, divergent implementation.
+ */
+export function buildFrameNameElision(grid: Pick<CanvasGrid, "byAzAndTier">): FrameNameElision {
+  const byId = new Map<string, TopologyNode>()
+  for (const byTier of grid.byAzAndTier.values()) {
+    for (const list of byTier.values()) {
+      // A multi-AZ workload is drawn in every zone's cell but is ONE resource:
+      // key by id so it counts once toward minNames, not once per cell.
+      for (const node of list) if (!byId.has(node.id)) byId.set(node.id, node)
+    }
+  }
+  const nodes = [...byId.values()]
+  const elided = elideSharedPrefix(nodes.map(n => n.name))
+  const labelById = new Map(nodes.map((n, i) => [n.id, elided.labels[i]] as const))
+  return {
+    prefix: elided.prefix,
+    count: elided.count,
+    total: nodes.length,
+    // No prefix found => every label equals its name; return undefined so callers
+    // fall through to `node.name` rather than pinning an identical copy of it.
+    displayName: (nodeId: string) =>
+      elided.prefix ? labelById.get(nodeId) : undefined,
+  }
+}
+
 export interface VpcFrameSpec {
   vid: string | null
   grid: CanvasGrid
@@ -4806,10 +4885,13 @@ function VpcColumnChrome({
   frame,
   compact,
   isPrimary,
+  nameElision,
 }: {
   frame: VpcFrameSpec
   compact?: boolean
   isPrimary?: boolean
+  /** Shared prefix this column's chips omit — stated here, once, or nowhere. */
+  nameElision?: FrameNameElision
 }) {
   const cidrs = [
     ...new Set(
@@ -4884,6 +4966,16 @@ function VpcColumnChrome({
           {cidrHint}
         </div>
       ) : null}
+      {nameElision?.prefix ? (
+        <div
+          className="text-[9px] mt-0.5 truncate normal-case tracking-normal font-medium"
+          style={{ color: "#5A6B7A" }}
+          data-testid="topology-compare-vpc-name-prefix"
+          title={`${nameElision.count} of ${nameElision.total} workloads in this VPC drop the shared prefix "${nameElision.prefix}" from their chip label — every tooltip still carries the full name`}
+        >
+          <span className="font-mono">{nameElision.prefix}</span>… ×{nameElision.count}
+        </div>
+      ) : null}
       {frame.grid.azs.length > 0 ? (
         <div
           className="grid gap-1.5 mt-1.5 pt-1.5"
@@ -4946,6 +5038,12 @@ function MultiVpcCompareBands({
   // same width as a 1-AZ primary (equal 1fr made each AZ cell ~half as wide).
   const colTemplate = compareVpcColumnTemplate(frames)
   const story = buildCompareArchitectureStory(frames, systemLabel)
+  // Chip labels: elide the prefix a VPC's own workloads share, stated once in
+  // that column's chrome. Per frame, not across the estate — two VPCs with
+  // different naming families must not borrow each other's prefix.
+  const nameElisionByFrame = new Map(
+    frames.map(f => [f.vid, buildFrameNameElision(f.grid)] as const),
+  )
   // Compare always collapses density — Web stacks must never grow the band.
   // Glance is the default architecture density (role hierarchy + cell collapse).
   const densityCollapsed = true
@@ -5109,7 +5207,12 @@ function MultiVpcCompareBands({
                   background: isShared ? "#FFFBEB" : "#F0FDFA",
                 }}
               >
-                <VpcColumnChrome frame={f} compact={compact} isPrimary={idx === 0} />
+                <VpcColumnChrome
+                  frame={f}
+                  compact={compact}
+                  isPrimary={idx === 0}
+                  nameElision={nameElisionByFrame.get(f.vid)}
+                />
               </div>
 
               {hasIngress ? (
@@ -5223,6 +5326,7 @@ function MultiVpcCompareBands({
                               subnetsHere={subnetsHere}
                               natGwsHere={natPlacement.byCell.get(`${az}::${tier}`) ?? []}
                               operatorPlacedIds={f.grid.operatorPlacedIds}
+                              displayNameForWorkload={nameElisionByFrame.get(f.vid)?.displayName}
                               workloadsHere={workloadsHere}
                               sgIndex={sgIndex}
                               selectedNodeId={selectedNodeId}
@@ -5376,6 +5480,11 @@ function VpcCanvasFrame({
 }: VpcCanvasFrameProps) {
   void igws // IGWs render on the region network rail (with VPCEs), not in-frame.
   const { byAzAndTier, subnetsByCell, albNodes, azs, azGridColumns, vpcGridMinWidth } = grid
+
+  // Chip labels: drop the prefix every workload in this frame shares, and say it
+  // once in the header instead of N times in truncated chips. See
+  // `buildFrameNameElision` for why this is frame- and not cell-scoped.
+  const nameElision = useMemo(() => buildFrameNameElision(grid), [grid])
   // A NAT gateway lives in a public subnet: pin each one to the cell that owns
   // its subnet_id. Only NATs the grid cannot place stay on the frame-level strip.
   const natPlacement = useMemo(() => placeNatGateways(natGws, subnetsByCell), [natGws, subnetsByCell])
@@ -5547,6 +5656,19 @@ function VpcCanvasFrame({
         <span className="truncate" title={vpcId ?? "unknown"}>
           VPC · {vpcId ?? "unknown"}
         </span>
+        {nameElision.prefix ? (
+          // Said once here so the chips below don't each spend their width
+          // repeating it. Not decoration — without this line the shortened
+          // labels would be the only record of the full name on screen.
+          <span
+            className="px-1 rounded-sm text-[9px] font-medium normal-case tracking-normal shrink-0 font-mono"
+            style={{ background: "#F1F5F9", color: "#475569", border: "1px solid #CBD5E1" }}
+            data-testid="topology-vpc-name-prefix"
+            title={`${nameElision.count} of ${nameElision.total} workloads in this VPC drop the shared prefix "${nameElision.prefix}" from their chip label — every tooltip still carries the full name`}
+          >
+            {nameElision.prefix}… ×{nameElision.count}
+          </span>
+        ) : null}
         {isForeign && ownerSystem ? (
           <span
             className="px-1 rounded-sm text-[8px] font-semibold normal-case tracking-normal shrink-0"
@@ -5624,6 +5746,7 @@ function VpcCanvasFrame({
                           subnetsHere={subnetsHere}
                           natGwsHere={natPlacement.byCell.get(`${az}::${tier}`) ?? []}
                           operatorPlacedIds={grid.operatorPlacedIds}
+                          displayNameForWorkload={nameElision.displayName}
                           workloadsHere={workloadsHere}
                           sgIndex={sgIndex}
                           selectedNodeId={selectedNodeId}
@@ -5702,6 +5825,7 @@ function VpcCanvasFrame({
                         subnetsHere={subnetsHere}
                         natGwsHere={natPlacement.byCell.get(`${az}::${tier}`) ?? []}
                         operatorPlacedIds={grid.operatorPlacedIds}
+                        displayNameForWorkload={nameElision.displayName}
                         workloadsHere={workloadsHere}
                         sgIndex={sgIndex}
                         selectedNodeId={selectedNodeId}
@@ -5762,6 +5886,7 @@ function VpcCanvasFrame({
                             subnetsHere={subnetsHere}
                             natGwsHere={natPlacement.byCell.get(`${az}::${tier}`) ?? []}
                             operatorPlacedIds={grid.operatorPlacedIds}
+                            displayNameForWorkload={nameElision.displayName}
                             workloadsHere={workloadsHere}
                             sgIndex={sgIndex}
                             selectedNodeId={selectedNodeId}
@@ -6524,8 +6649,19 @@ export function AwsFrame({
                   // single `minmax(0, 1fr)` row, so it still fills the viewport
                   // at whatever height the VPC settles on: shrinking these rows
                   // does not shrink the off-VPC lanes or fold another chip away.
-                  gridTemplateRows: `auto auto minmax(${tierMin.web}px, max-content) minmax(${tierMin.app}px, max-content) minmax(${tierMin.data}px, max-content)`,
-                  alignContent: "start",
+                  // The trailing `1fr` is what makes "leftover stays leftover"
+                  // land INSIDE the VPC border. Rows hugging content plus
+                  // `alignContent: start` left the slack below the grid's own
+                  // content box, where the frame — a subgrid child spanning
+                  // `1 / -1` — could not reach it: measured 449px of unframed
+                  // void under the DATA tier at 2048×1100, exactly the region
+                  // row's height minus the tiers. A sixth track absorbs it, so
+                  // the frame border still reaches the bottom of the region row
+                  // and the blank collects as one band below DATA. No child
+                  // claims row 6 (header is 1, ALB/AZ band 2, tiers 3-5).
+                  // `alignContent` is then inert — the tracks fill the
+                  // container — so it is gone rather than left to mislead.
+                  gridTemplateRows: `auto auto minmax(${tierMin.web}px, max-content) minmax(${tierMin.app}px, max-content) minmax(${tierMin.data}px, max-content) 1fr`,
                   gap: "6px",
                   width: "100%",
                   height: "100%",
