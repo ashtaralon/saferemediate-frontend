@@ -2732,6 +2732,10 @@ const COVERAGE_STATE_STYLE: Record<string, { bg: string; fg: string; border: str
   authoritative: { bg: "#F0FDFA", fg: "#115E59", border: "#99F6E4", label: "Covered" },
   partial: { bg: "#FFFBEB", fg: "#92400E", border: "#FCD34D", label: "Partly covered" },
   none: { bg: "#FEF2F2", fg: "#991B1B", border: "#FECACA", label: "Not covered" },
+  // Not red, and not "Not covered": the canonical projection is inactive for this
+  // scope, so no endpoint was examined. Red would report a measurement the
+  // backend never took — `authoritative` is a counter that never ran.
+  not_computed: { bg: "#F1F5F9", fg: "#334155", border: "#CBD5E1", label: "Not measured" },
   unknown: { bg: "#F1F5F9", fg: "#334155", border: "#CBD5E1", label: "Unknown" },
   not_applicable: { bg: "#F8FAFC", fg: "#475569", border: "#E2E8F0", label: "Not applicable" },
   empty: { bg: "#F8FAFC", fg: "#475569", border: "#E2E8F0", label: "No workloads" },
@@ -2771,7 +2775,11 @@ function LaneCoveragePill({
           {style.label}
         </span>
         <span className="tabular-nums" data-testid="topology-lane-coverage-totals">
-          {coverage.authoritative} of {coverage.eligible} eligible endpoint{coverage.eligible === 1 ? "" : "s"} covered
+          {/* With the projection inactive the covered count is not a measurement,
+              so state the denominator — which IS measured — and stop. */}
+          {coverage.state === "not_computed"
+            ? `${coverage.eligible} eligible endpoint${coverage.eligible === 1 ? "" : "s"}, coverage not measured`
+            : `${coverage.authoritative} of ${coverage.eligible} eligible endpoint${coverage.eligible === 1 ? "" : "s"} covered`}
           {coverage.unknown > 0 ? ` · ${coverage.unknown} unknown` : ""}
           {coverage.not_applicable > 0 ? ` · ${coverage.not_applicable} not applicable` : ""}
           {coverage.active_generation != null ? ` · generation ${coverage.active_generation}` : ""}
@@ -2784,13 +2792,21 @@ function LaneCoveragePill({
                 ? `${counts.not_applicable} n/a`
                 : counts.state === "unknown"
                   ? `${counts.unknown} unknown`
-                  : `${counts.authoritative}/${counts.eligible}`
+                  : counts.state === "not_computed"
+                    // A `0/9` fraction here reads as nine endpoints checked and
+                    // none covered. Nothing was checked.
+                    ? `${counts.eligible} not measured`
+                    : `${counts.authoritative}/${counts.eligible}`
             return (
               <span
                 key={lane}
                 className="rounded px-1 py-0.5 font-mono tabular-nums"
                 style={{ background: laneStyle.bg, color: laneStyle.fg, border: `1px solid ${laneStyle.border}` }}
-                title={`${LANE_LABEL[lane] ?? lane}: eligible ${counts.eligible}, covered ${counts.authoritative}, unknown ${counts.unknown}, not applicable ${counts.not_applicable}`}
+                title={`${LANE_LABEL[lane] ?? lane}: eligible ${counts.eligible}, ${
+                  counts.state === "not_computed"
+                    ? "covered not measured (projection inactive)"
+                    : `covered ${counts.authoritative}`
+                }, unknown ${counts.unknown}, not applicable ${counts.not_applicable}`}
                 data-testid={`topology-lane-coverage-${lane}`}
                 data-lane-state={counts.state}
               >

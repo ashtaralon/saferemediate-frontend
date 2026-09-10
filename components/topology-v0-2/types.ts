@@ -240,11 +240,18 @@ export interface IamRoleRollup {
  *   authoritative   eligible workloads the active projection generation covers
  *   unknown         workloads whose VPC attachment is not verified
  *   not_applicable  workloads with no interface for a flow log to record
+ *
+ * `not_computed` (BE >= topology-risk/v10) and `none` are different answers and
+ * must never render alike. `not_computed` means the canonical projection is not
+ * active for this scope, so no endpoint was examined — `authoritative: 0` there
+ * is a counter that never ran, not a measurement. `none` means the projection IS
+ * active, endpoints WERE examined, and none is covered: a real finding.
  */
 export type LaneCoverageState =
   | "empty"
   | "not_applicable"
   | "unknown"
+  | "not_computed"
   | "none"
   | "partial"
   | "authoritative"

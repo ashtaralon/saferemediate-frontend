@@ -45,7 +45,21 @@ const SCOPE = new URLSearchParams({
 const ESTATE_URL = `/topology/v0.2-estate?systemName=${encodeURIComponent(SYSTEM)}&${SCOPE}`
 const TOPOLOGY_RISK_PATH = `/api/proxy/topology-risk/${encodeURIComponent(SYSTEM)}?${SCOPE}`
 const COVERAGE_LANES = ["vpc", "serverless", "database", "regional"] as const
-const COVERAGE_STATES = new Set(["empty", "not_applicable", "unknown", "none", "partial", "authoritative"])
+// Allowlist on purpose, NOT derived from the FE's LaneCoverageState union: this
+// probe reads the live deploy, so an unannounced backend state must fail here.
+// Deriving it from the union would let anyone widen the type and silence the
+// probe. `not_computed` is BE >= topology-risk/v10 — the canonical projection is
+// inactive for the scope, so no endpoint was examined; distinct from `none`,
+// which is a real measured zero.
+const COVERAGE_STATES = new Set([
+  "empty",
+  "not_applicable",
+  "unknown",
+  "not_computed",
+  "none",
+  "partial",
+  "authoritative",
+])
 
 interface TopologyNode {
   id?: string
@@ -142,8 +156,13 @@ async function shot(page: Page, name: string) {
 
 /** The coverage pill's text as the UI shows it, from the payload's numbers (the component's format). */
 function expectedTotalsText(coverage: LaneCoverage): string {
+  // `not_computed` (BE >= topology-risk/v10): the canonical projection is not
+  // active for this scope, so `authoritative` is a counter that never ran. The
+  // pill states the denominator — which IS measured — and no covered fraction.
   return (
-    `${coverage.authoritative} of ${coverage.eligible} eligible endpoint${coverage.eligible === 1 ? "" : "s"} covered` +
+    (coverage.state === "not_computed"
+      ? `${coverage.eligible} eligible endpoint${coverage.eligible === 1 ? "" : "s"}, coverage not measured`
+      : `${coverage.authoritative} of ${coverage.eligible} eligible endpoint${coverage.eligible === 1 ? "" : "s"} covered`) +
     (coverage.unknown > 0 ? ` · ${coverage.unknown} unknown` : "") +
     (coverage.not_applicable > 0 ? ` · ${coverage.not_applicable} not applicable` : "") +
     (coverage.active_generation != null ? ` · generation ${coverage.active_generation}` : "")
