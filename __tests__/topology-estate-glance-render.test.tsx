@@ -113,9 +113,20 @@ describe("AwsFrame Glance density (generic)", () => {
     expect(screen.getByText("entry-alb")).toBeTruthy()
     // NAT from real edge metadata
     expect(screen.getByTestId("topology-nat-gateway-chip")).toBeTruthy()
-    // IGW + VPCEs share the network rail right of the VPC
-    expect(screen.getByTestId("topology-network-rail")).toBeTruthy()
-    expect(screen.getByTestId("topology-igw-rail-chip")).toBeTruthy()
+    // IGW + VPCEs sit ON the VPC frame's boundary, not in a column beside it.
+    // Containment is the assertion: the previous placement rendered the same
+    // chip OUTSIDE the frame, so `getByTestId` alone passed either way and could
+    // not tell the two layouts apart.
+    const boundaryStrip = screen.getByTestId("topology-vpc-boundary-strip")
+    const igwChip = screen.getByTestId("topology-igw-rail-chip")
+    expect(boundaryStrip.contains(igwChip)).toBe(true)
+    const vpcFrame = screen.getAllByTestId("topology-vpc-frame")[0]
+    expect(vpcFrame.contains(boundaryStrip)).toBe(true)
+    // The frame header IS the VPC's top edge — that is what makes it "on" the
+    // boundary rather than merely inside the card.
+    expect(screen.getByTestId("topology-vpc-frame-header").contains(igwChip)).toBe(true)
+    // And the old column is gone when there is nothing off-canvas to report.
+    expect(screen.queryByTestId("topology-network-rail")).toBeNull()
     expect(screen.getByTestId("topology-users-internet-strip")).toBeTruthy()
     expect(screen.getByText("Users")).toBeTruthy()
     expect(screen.getByText("Internet")).toBeTruthy()
