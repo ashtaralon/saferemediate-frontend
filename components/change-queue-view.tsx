@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react'
 import { AlertTriangle, ClipboardList, GitBranch, Plus, RefreshCw, ShieldCheck } from 'lucide-react'
 import { BackToDashboard } from '@/components/back-to-dashboard'
 import { useAccountScope } from '@/lib/account-scope-context'
+import { describeAdjacency, normalizeAdjacency } from '@/lib/change-assurance/baseline-contract'
 
 interface QueueCase {
   case_id: string
@@ -41,7 +42,12 @@ interface AnalyzedIntent {
     finding_counts?: { total?: number; by_severity?: Record<string, number> }
     source_artifact?: { kind?: string }
     semantic_diff_summary?: { total_changes?: number; action_counts?: Record<string, number> }
-    blast_radius: { direct_dependency_count: number; direct_dependency_count_semantics?: string; systems: string[] }
+    blast_radius: {
+      direct_dependency_count?: number
+      dependency_incidences?: number
+      direct_dependency_count_semantics?: string
+      systems: string[]
+    }
     evidence_gap_count: number
   }
   decision: { state: string }
@@ -237,7 +243,7 @@ export function ChangeQueueView({ systemName, showBack }: { systemName?: string;
             return <Link key={item.intent_id} href={`/change-queue/intents/${encodeURIComponent(item.intent_id)}${scopeQuery}`} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-violet-300">
               <div className="flex items-start justify-between gap-3"><div><div className="text-xs font-bold uppercase tracking-wide text-violet-700">{isBaseline ? 'Terraform · Baseline conservation' : sourceLabel ? `${sourceLabel} · Change safety check` : item.capability?.display_name || 'Dependency check only'}</div><div className="mt-1 font-semibold">{isBaseline ? `${changeCount} baseline import target${changeCount === 1 ? '' : 's'}` : isIaC ? `${changeCount} proposed resource change${changeCount === 1 ? '' : 's'}` : item.intent.change.action.replace(/_/g, ' ')}</div></div><span className={`rounded-full px-2.5 py-1 text-[10px] font-black ${item.risk_dossier.risk_band === 'CRITICAL' ? 'bg-red-100 text-red-800' : isBaseline ? 'bg-amber-100 text-amber-800' : item.risk_dossier.risk_band === 'HIGH' ? 'bg-orange-100 text-orange-800' : item.risk_dossier.risk_band === 'MEDIUM' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}>{isBaseline ? 'NOT READY' : item.risk_dossier.risk_band}</span></div>
               {isIaC ? <p className="mt-2 line-clamp-2 text-sm text-slate-600">{item.risk_dossier.analysis_conclusion?.headline}</p> : <div className="mt-2 font-mono text-xs text-slate-500">{item.intent.change.resource_type} · {item.intent.change.resource_id}</div>}
-              <div className="mt-3 text-xs text-slate-600">{isIaC ? `${findingCount} findings · ${item.risk_dossier.blast_radius.direct_dependency_count} adjacent resources` : `${item.risk_dossier.blast_radius.direct_dependency_count} graph-adjacent resources`} · {item.risk_dossier.blast_radius.systems.length} systems · {item.risk_dossier.evidence_gap_count} evidence gaps</div>
+              <div className="mt-3 text-xs text-slate-600">{isIaC ? `${findingCount} findings · ${describeAdjacency(normalizeAdjacency(item.risk_dossier.blast_radius))}` : describeAdjacency(normalizeAdjacency(item.risk_dossier.blast_radius))} · {item.risk_dossier.blast_radius.systems.length} systems · {item.risk_dossier.evidence_gap_count} evidence gaps</div>
               <div className="mt-2 flex flex-wrap gap-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                 <span>{conclusion.replace(/_/g, ' ')}</span>
                 {isIaC && item.risk_dossier.confidence?.level && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-slate-700">Evidence {item.risk_dossier.confidence.level}</span>}
