@@ -1,0 +1,141 @@
+{
+  "test": "Risk › Vulnerabilities on the deployed frontend: KPIs, banner, every sub-tab, evidence drawer",
+  "status": "passed",
+  "measurements": [
+    {
+      "name": "navigation",
+      "data": {
+        "url": "https://cyntro-c1.vercel.app/?system=testbed-webshop&vulnerability_focus=1",
+        "bounced_to_login": false
+      }
+    },
+    {
+      "name": "tab-prioritized",
+      "data": {
+        "tab": "Prioritized",
+        "active_tab": "Prioritized",
+        "header": "Vulnerabilities Prioritized by attacker usability and downstream impact, backed by scanner, network, identity, and data evidence. Last scan · 9/10/2026, 5:31:11 PM Refresh scanner findings",
+        "kpis": {
+          "exploitable-now": "Exploitable now — Not assessed: no path assessment was returned for this system",
+          "exploitable-after-foothold": "Exploitable after foothold — Not assessed: no path assessment was returned for this system",
+          "blocked-by-controls": "Blocked by controls — Not assessed: no path assessment was returned for this system",
+          "coverage-gaps": "Coverage gaps 0 5 scanner patch candidates"
+        },
+        "banner": "Amazon Inspector evidence — 11 of 11 applicable assets have current scanner coverage. Path exploitability assessments were not returned; Cyntro will not infer a verdict from CVSS or exploit availability. Last successful scan: 9/10/2026, 5:31:11 PM",
+        "alert": "",
+        "counter": "5 of 5",
+        "inventory_rows": 5,
+        "empty_state": null
+      }
+    },
+    {
+      "name": "tab-assets",
+      "data": {
+        "tab": "Assets",
+        "active_tab": "Assets",
+        "header": "Vulnerabilities Prioritized by attacker usability and downstream impact, backed by scanner, network, identity, and data evidence. Last scan · 9/10/2026, 5:31:11 PM Refresh scanner findings",
+        "kpis": {
+          "exploitable-now": "Exploitable now — Not assessed: no path assessment was returned for this system",
+          "exploitable-after-foothold": "Exploitable after foothold — Not assessed: no path assessment was returned for this system",
+          "blocked-by-controls": "Blocked by controls — Not assessed: no path assessment was returned for this system",
+          "coverage-gaps": "Coverage gaps 0 5 scanner patch candidates"
+        },
+        "banner": "Amazon Inspector evidence — 11 of 11 applicable assets have current scanner coverage. Path exploitability assessments were not returned; Cyntro will not infer a verdict from CVSS or exploit availability. Last successful scan: 9/10/2026, 5:31:11 PM",
+        "alert": "",
+        "counter": "17 of 17",
+        "inventory_rows": 17,
+        "empty_state": null
+      }
+    },
+    {
+      "name": "tab-cves",
+      "data": {
+        "tab": "CVEs",
+        "active_tab": "CVEs",
+        "header": "Vulnerabilities Prioritized by attacker usability and downstream impact, backed by scanner, network, identity, and data evidence. Last scan · 9/10/2026, 5:31:11 PM Refresh scanner findings",
+        "kpis": {
+          "exploitable-now": "Exploitable now — Not assessed: no path assessment was returned for this system",
+          "exploitable-after-foothold": "Exploitable after foothold — Not assessed: no path assessment was returned for this system",
+          "blocked-by-controls": "Blocked by controls — Not assessed: no path assessment was returned for this system",
+          "coverage-gaps": "Coverage gaps 0 5 scanner patch candidates"
+        },
+        "banner": "Amazon Inspector evidence — 11 of 11 applicable assets have current scanner coverage. Path exploitability assessments were not returned; Cyntro will not infer a verdict from CVSS or exploit availability. Last successful scan: 9/10/2026, 5:31:11 PM",
+        "alert": "",
+        "counter": "25 of 25",
+        "inventory_rows": 25,
+        "empty_state": null
+      }
+    },
+    {
+      "name": "tab-remediated",
+      "data": {
+        "tab": "Remediated",
+        "active_tab": "Remediated",
+        "header": "Vulnerabilities Prioritized by attacker usability and downstream impact, backed by scanner, network, identity, and data evidence. Last scan · 9/10/2026, 5:31:11 PM Refresh scanner findings",
+        "kpis": {
+          "exploitable-now": "Exploitable now — Not assessed: no path assessment was returned for this system",
+          "exploitable-after-foothold": "Exploitable after foothold — Not assessed: no path assessment was returned for this system",
+          "blocked-by-controls": "Blocked by controls — Not assessed: no path assessment was returned for this system",
+          "coverage-gaps": "Coverage gaps 0 5 scanner patch candidates"
+        },
+        "banner": "Amazon Inspector evidence — 11 of 11 applicable assets have current scanner coverage. Path exploitability assessments were not returned; Cyntro will not infer a verdict from CVSS or exploit availability. Last successful scan: 9/10/2026, 5:31:11 PM",
+        "alert": "",
+        "counter": "0 of 0",
+        "inventory_rows": 0,
+        "empty_state": "No remediation history was returned This does not mean no CVEs were remediated; verification history was not included in this response."
+      }
+    },
+    {
+      "name": "tab-map",
+      "data": {
+        "headings": [
+          "HIGH — 5 RESOURCES",
+          "SCANNED CLEAN — 6 RESOURCES"
+        ],
+        "stale_banner": null,
+        "text": "HIGH — 5 RESOURCES i-039d362b9862180c9 EC2 • Compute Assessment pending Highest CVSS 10.0 293 scanner findings | 55 High 176 Med 62 Low Ports: 8080 Patch soon cyntro-tb-prod-app EC2 • Compute Assessment pending Highest CVSS 10.0 293 scanner findings | 55 High 176 Med 62 Low Patch soon cyntro-tb-prod-loadgen EC2 • Compute Assessment pending Highest CVSS 10.0 293 scanner findings | 55 High 176 Med 62 Low Patch soon cyntro-tb-prod-web EC2 • Compute Assessment pending Highest CVSS 10.0 293 scanner findings | 68 High 163 Med 62 Low Patch soon cyntro-tb-prod-web EC2 • Compute Assessment pending Highest CVSS 10.0 293 scanner findings | 68 High 163 Med 62 Low Patch soon Not applicable to 6 resources These resource types do not run software that can carry a CVE. SCANNED CLEAN — 6 RESOURCES Show Verdict: Exploitable now Exploitable after foothold Blocked by controls Assessment pending Coverage: Scanned clean Unverified Not applicable"
+      }
+    },
+    {
+      "name": "evidence-drawer",
+      "data": {
+        "opened_from": "Prioritized",
+        "title": "CVE-2026-72357",
+        "text": "CVE-2026-72357 cyntro-tb-prod-app · i-0129135b4e4723d6d DETERMINISTIC DECISION Unverified 293 active findings 55 high · 176 medium · 62 low Current coverage Threat urgency Threat enrichment not returned Feasibility here Not assessed Downstream impact Not evaluated ATTACKER EXPLANATION Scanner evidence identifies findings on this asset, but the canonical path assessment was not returned. Cyntro cannot say an attacker can use them until network, authentication, runtime, identity, and data gates are evaluated. ATTACKER POSITION CURRENT ACCESS Unverified No deterministic assessment was returned for this attacker position. LATERAL MOVEMENT Unverified No deterministic assessment was returned for this attacker position. EXFILTRATION Unverified No deterministic assessment was returned for this attacker position. CAPABILITY AND CVE-ENABLED DAMAGE Current reachable damage Evaluated independently in the canonical Attack Path report; not added to the CVE result. Additional damage if exploitation succeeds No CVE-enabled damage was returned. Capability gained Not established Crown jewels reachable None established SCANNER AND RUNTIME EVIDENCE CVE-2026-72057 Medium CVSS 8.2 kernel6.18-tools In the Linux kernel, the following vulnerability has been resolved: net/sched: act_ct: preserve tc_skb_cb across defragmentation tcf_ct_handle_fragments() calls nf_ct_handle_fragments() without saving and restoring skb->cb. The defrag helper clears IPCB/IP6CB, which aliases the tc_skb_cb/qdisc_skb_cb control buffer. Fragmented traffic through act_ct therefore loses qdisc metadata such as pkt_segs and can trigger WARN_ON_ONCE() in qdisc_pkt_segs() when panic_on_warn is enabled. Save and restore the full tc_skb_cb around nf_ct_handle_fragments(), matching the pattern used by ovs_ct_handle_fragments(). CVE-2026-72057 Medium CVSS 8.2 kernel6.18 In the Linux kernel, the following vulnerability has been resolved: net/sched: act_ct: preserve tc_skb_cb across defragmentation tcf_ct_handle_fragments() calls nf_ct_handle_fragments() without saving and restoring skb->cb. The defrag helper clears IPCB/IP6CB, which aliases the tc_skb_cb/qdisc_skb_cb control buffer. Fragmented traffic through act_ct therefore loses qdisc metadata such as pkt_segs and can trigger WARN_ON_ONCE() in qdisc_pkt_segs() when panic_on_warn is enabled. Save and restore the full tc_skb_cb around nf_ct_handle_fragments(), matching the pattern used by ovs_ct_handle_fragments(). CVE-2026-73075 Medium CVSS 4.6 xxd Vim is an open"
+      }
+    },
+    {
+      "name": "proxy-responses",
+      "data": [
+        {
+          "path": "/api/proxy/vulnerability-map/scanner/sync",
+          "status": 200,
+          "x_cache": null
+        },
+        {
+          "path": "/api/proxy/vulnerability-map/testbed-webshop?include_traffic=false",
+          "status": 200,
+          "x_cache": "HIT"
+        },
+        {
+          "path": "/api/proxy/vulnerability-map/testbed-webshop?include_traffic=false",
+          "status": 200,
+          "x_cache": "MISS"
+        },
+        {
+          "path": "/api/proxy/vulnerability-map/testbed-webshop/resource/i-0129135b4e4723d6d",
+          "status": 200,
+          "x_cache": null
+        }
+      ]
+    },
+    {
+      "name": "page-errors",
+      "data": []
+    },
+    {
+      "name": "console-errors",
+      "data": []
+    }
+  ]
+}
