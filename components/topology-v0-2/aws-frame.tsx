@@ -6097,19 +6097,24 @@ export function AwsFrame({
       }
       style={{ background: PAL.bg, border: `1px solid #DDE3E8`, width: "100%" }}
     >
+      {/* The summary row wraps rather than collides. On a narrow viewport it
+          could not hold the summary and the lens toggle at once: "Platform map"
+          wrapped onto two lines and the counts line truncated to ZERO width, so
+          the estate summary silently disappeared instead of being shortened. */}
       {onFlowModeChange ? (
         <div
           className={
             presentationMode
-              ? "flex items-center justify-between gap-3 pb-0"
-              : "flex items-center justify-between gap-3 pb-1"
+              ? "flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 pb-0"
+              : "flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 pb-1"
           }
+          data-testid="topology-platform-map-summary"
         >
-          <div className="flex items-center gap-2 min-w-0">
-            <span className="text-[10px] font-semibold" style={{ color: PAL.ink }}>
+          <div className="flex items-center gap-2 min-w-0 overflow-hidden">
+            <span className="text-[10px] font-semibold shrink-0" style={{ color: PAL.ink }}>
               Platform map
             </span>
-            <span className="text-[9px] font-mono truncate" style={{ color: PAL.slate }}>
+            <span className="text-[9px] font-mono truncate min-w-0" style={{ color: PAL.slate }}>
               {platformSummary.vpcs} VPC · {platformSummary.azs} AZ · {platformSummary.subnets} subnets · {platformSummary.resources} resources
             </span>
           </div>

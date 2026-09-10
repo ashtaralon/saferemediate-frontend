@@ -1921,16 +1921,28 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
           aria-modal="true"
           aria-label="Topology map full screen"
         >
-          {/* Slim one-row chrome: identity · scope toggle · zoom controls · exit */}
+          {/* Slim chrome: identity · scope toggle · zoom controls · exit.
+              One row whenever one row fits, and it wraps rather than collide
+              when it doesn't. A fixed `h-11` single row could not hold these
+              controls on a narrow viewport, so the controls overflowed and the
+              identity block was squeezed to nothing: on a ~460px-wide window
+              the system name truncated to ZERO width (the one label the
+              operator most needs) while the eyebrow label painted on top of
+              the Scope button. Wrapping costs a row of map height only at the
+              widths where the alternative was an unreadable header. */}
           <div
-            className="flex items-center gap-3 shrink-0 border-b px-4 h-11"
+            className="flex flex-wrap items-center gap-x-3 gap-y-1 shrink-0 border-b px-4 py-1 min-h-11"
             style={{ borderColor: "#DDE3E8", background: "#FFFFFF" }}
+            data-testid="topology-estate-fullscreen-chrome"
           >
-            <div className="flex items-baseline gap-2 min-w-0">
+            {/* `overflow-hidden`: the eyebrow below is `shrink-0`, so without it
+                a squeezed wrapper lets that child paint outside its own box and
+                over the next control. */}
+            <div className="flex items-baseline gap-2 min-w-0 overflow-hidden">
               <span className="text-[10px] uppercase tracking-[0.14em] font-semibold shrink-0" style={{ color: "#5A6B7A" }}>
                 Cloud topology
               </span>
-              <span className="text-[13px] font-semibold truncate" style={{ color: "#1A2330" }}>
+              <span className="text-[13px] font-semibold truncate min-w-0" style={{ color: "#1A2330" }}>
                 {data.system}
               </span>
             </div>
@@ -1974,10 +1986,12 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
               })}
             </div>
 
-            <div className="flex-1" />
-
-            {/* Zoom controls */}
-            <div className="flex items-center gap-0.5 rounded-md border p-0.5 shrink-0" style={{ borderColor: "#CBD5E1", background: "#FFFFFF" }}>
+            {/* Zoom controls. `ml-auto` here rather than a `flex-1` spacer div:
+                a basis-0 spacer only pushes the items sharing its own wrapped
+                row, so on two rows the trailing cluster would hug the left. An
+                auto margin resolves per flex line, so this cluster right-aligns
+                on whichever row it lands on. */}
+            <div className="flex items-center gap-0.5 rounded-md border p-0.5 shrink-0 ml-auto" style={{ borderColor: "#CBD5E1", background: "#FFFFFF" }}>
               <button
                 type="button"
                 onClick={fitView}

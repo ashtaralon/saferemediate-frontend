@@ -1,6 +1,12 @@
 import { expect, test } from "@playwright/test"
 import { seedAuthCookie } from "./live-auth"
-import { ESTATE_URL, railHeaderBadgeOverlaps, routeSnapshot, SNAPSHOT } from "./topology-fixture"
+import {
+  chromeTextDefects,
+  ESTATE_URL,
+  railHeaderBadgeOverlaps,
+  routeSnapshot,
+  SNAPSHOT,
+} from "./topology-fixture"
 
 /**
  * Fullscreen right-rail clip — browser geometry regression (deterministic).
@@ -378,4 +384,118 @@ test("fullscreen: each off-VPC rail lane scrolls in its track, both lanes stay o
   }
 
   await page.screenshot({ path: "test-results/fullscreen-rail-scrolled.png", fullPage: false })
+})
+
+/**
+ * Header layout across viewport widths — browser geometry regression.
+ *
+ * On C1 (2026-09-10) the fullscreen chrome on a ~460px-wide window was
+ * unreadable: measured in the live browser, the "Cloud topology" eyebrow
+ * (`shrink-0`, 110px) overflowed its squeezed `min-w-0` wrapper by 14px and
+ * painted over the Glance/Inventory toggle, while the system name — the one
+ * label that says WHICH estate this is — truncated to exactly zero width and
+ * disappeared. The Platform-map summary row failed the same way: the label
+ * wrapped to two lines and `N VPC · N AZ · N subnets · N resources` collapsed
+ * to zero width.
+ *
+ * A screenshot review cannot catch the second half of that: a label rendered
+ * at zero width leaves nothing on screen to look wrong. Both rows now wrap
+ * instead of colliding, and this sweeps the widths to prove it.
+ *
+ * Non-vacuity is asserted, not assumed: at the narrowest width the chrome must
+ * actually have wrapped (taller than one row) and the system name must have
+ * real width — otherwise "no overlaps" would pass on an empty header.
+ */
+test("header rows wrap instead of colliding, and no label collapses to zero width", async ({
+  context,
+  page,
+}) => {
+  test.setTimeout(150_000)
+  await seedAuthCookie(context)
+  await routeSnapshot(page)
+  await page.setViewportSize({ width: 1600, height: 900 })
+  await page.goto(ESTATE_URL, { waitUntil: "domcontentloaded" })
+
+  await expect(page.getByTestId("topology-estate-view-map")).toBeVisible({ timeout: 60_000 })
+  await page.getByRole("tab", { name: "Network topology" }).click()
+
+  const INLINE_SUMMARY = '[data-testid="topology-platform-map-summary"]'
+  const FS = '[data-testid="topology-estate-map-fullscreen"]'
+  const FS_CHROME = '[data-testid="topology-estate-fullscreen-chrome"]'
+  const FS_SUMMARY = `${FS} ${INLINE_SUMMARY}`
+
+  // The inline map's summary row fails at narrow widths too — same shape.
+  await expect(page.locator(INLINE_SUMMARY).first()).toBeVisible()
+  for (const width of [420, 460, 560, 768]) {
+    await page.setViewportSize({ width, height: 900 })
+    await page.waitForTimeout(400)
+    expect(
+      await chromeTextDefects(page, INLINE_SUMMARY),
+      `inline platform-map summary at ${width}px`,
+    ).toEqual({ overlaps: [], collapsed: [] })
+  }
+
+  await page.setViewportSize({ width: 1600, height: 900 })
+  await page.waitForTimeout(400)
+  await page.getByTestId("topology-estate-map-enlarge").click()
+  await expect(page.getByTestId("topology-estate-map-fullscreen")).toBeVisible()
+  await page.waitForTimeout(900)
+
+  const NARROWEST = 420
+  for (const width of [NARROWEST, 460, 560, 768, 1024, 1600]) {
+    await page.setViewportSize({ width, height: 900 })
+    // Two frames for the wrap plus the fit-to-viewport refit.
+    await page.waitForTimeout(600)
+
+    expect(
+      await chromeTextDefects(page, FS_CHROME),
+      `fullscreen chrome at ${width}px`,
+    ).toEqual({ overlaps: [], collapsed: [] })
+    expect(
+      await chromeTextDefects(page, FS_SUMMARY),
+      `fullscreen platform-map summary at ${width}px`,
+    ).toEqual({ overlaps: [], collapsed: [] })
+
+    // Every control stays reachable inside the viewport — wrapping must not
+    // push the Exit button off the right edge instead of onto the next row.
+    const chromeGeometry = await page.evaluate(
+      ({ chromeSel }) => {
+        const chrome = document.querySelector<HTMLElement>(chromeSel)
+        if (!chrome) throw new Error("fullscreen chrome not found")
+        const escapees: string[] = []
+        for (const el of Array.from(chrome.querySelectorAll<HTMLElement>("button"))) {
+          const r = el.getBoundingClientRect()
+          if (r.width === 0) continue
+          if (r.left < -1 || r.right > window.innerWidth + 1) {
+            escapees.push(`${(el.textContent ?? el.getAttribute("aria-label") ?? "?").trim()} @ ${Math.round(r.left)}..${Math.round(r.right)}`)
+          }
+        }
+        return { height: Math.round(chrome.getBoundingClientRect().height), escapees }
+      },
+      { chromeSel: FS_CHROME },
+    )
+    expect(chromeGeometry.escapees, `controls inside the viewport at ${width}px`).toEqual([])
+
+    if (width === NARROWEST) {
+      // Non-vacuity 1: the row genuinely could not fit on one 44px line here,
+      // so the sweep is exercising the tight case the bug lived in.
+      expect(chromeGeometry.height, "chrome wrapped at the narrowest width").toBeGreaterThan(44)
+      // Non-vacuity 2: the system name is actually painted, with real width.
+      const nameWidth = await page.evaluate(
+        ({ chromeSel, system }) => {
+          const chrome = document.querySelector<HTMLElement>(chromeSel)
+          const el = Array.from(chrome?.querySelectorAll<HTMLElement>("span") ?? []).find(
+            s => (s.textContent ?? "").trim() === system,
+          )
+          return el ? Math.round(el.getBoundingClientRect().width) : -1
+        },
+        { chromeSel: FS_CHROME, system: SNAPSHOT.system },
+      )
+      expect(nameWidth, "system name is painted with real width").toBeGreaterThan(0)
+    }
+  }
+
+  await page.setViewportSize({ width: 460, height: 900 })
+  await page.waitForTimeout(600)
+  await page.screenshot({ path: "test-results/fullscreen-chrome-narrow.png", fullPage: false })
 })
