@@ -286,6 +286,38 @@ export function applyTypeFilter(nodes: TopologyNode[], filters: EstateFilters): 
   return nodes.filter(n => filters.types.has(n.type ?? "?"))
 }
 
+/**
+ * Filter nodes that are NOT on the canvas — the ones a single-VPC narrow removed
+ * and that survive only as a text reference.
+ *
+ * `applyFilters` cannot be used on them directly. `typeRows` (and so the whole
+ * type universe) is derived from the nodes the canvas KEPT, so a removed node's
+ * type is absent from `filters.types` by construction and the type gate deletes
+ * every one of them: measured on the captured estate payload, the scoped
+ * universe is {DynamoDB, EC2, Lambda, RDS, S3} and the cross-VPC LoadBalancer —
+ * the only device the reference exists to name — was dropped while all seven
+ * removed EC2/RDS nodes passed.
+ *
+ * `offeredTypes` is what the rail actually renders (`allWorkloadTypes` over the
+ * same node list the rail is handed). A type it never offered was never ticked
+ * off, so it passes the type gate; a type it DID offer is a real operator
+ * decision and is honoured. Severity / stale filters, whose universe is a fixed
+ * list, apply unchanged.
+ */
+export function applyFiltersOffCanvas(
+  nodes: TopologyNode[],
+  filters: EstateFilters,
+  offeredTypes: Set<string>,
+): TopologyNode[] {
+  if (nodes.length === 0) return []
+  const types = new Set(filters.types)
+  for (const n of nodes) {
+    const t = n.type ?? "?"
+    if (!offeredTypes.has(t)) types.add(t)
+  }
+  return applyFilters(nodes, { ...filters, types })
+}
+
 export function allWorkloadTypes(
   kpis: SystemKpis | null,
   countNodes?: TopologyNode[] | null,

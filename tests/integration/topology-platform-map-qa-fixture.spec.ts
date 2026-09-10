@@ -110,118 +110,175 @@ test("fullscreen platform map shows named Lambda, protected AZ labels, direction
     `${igwChips} internet ${igwChips === 1 ? "gateway" : "gateways"} · ${vpceChips} endpoints`,
   )
 
-  // Tier rows hug their chips. They used to split the column's whole leftover
-  // height 1.35fr : 1.2fr : 0.65fr, which spends it on whichever tier is listed
-  // first rather than on whichever tier holds anything: measured on this payload
-  // at 1800×1000, Web took 245px to show ONE chip per subnet — 84px of it blank
-  // below that chip — while App fitted two rows into 218px, 26% of the column
-  // blank overall. A fr split cannot be caught by reading the CSS (every row
-  // looks symmetrical) or by a jsdom test (no layout), so this is measured in
-  // the browser, at this spec's tall viewport: the waste only exists when the
-  // column has height to misallocate (at 1600×720 the same split wasted 25px,
-  // which is why the assertion is not in the rail spec).
-  const measureTierSlack = () =>
-    page.evaluate(() => {
-      const root = document.querySelector('[data-testid="topology-estate-map-fullscreen"]')!
-      const grid = root.querySelector<HTMLElement>('[data-testid="topology-single-vpc-grid"]')
-      const frame = root.querySelector('[data-testid="topology-vpc-frame"]')
-      if (!grid || !frame) return null
-      // Named chips carry data-flow-id, Glance stack tiles data-flow-ids, so this
-      // measures real content at whichever density the map opened in.
-      const perCell = () =>
-        Array.from(frame.querySelectorAll<HTMLElement>('[data-testid="topology-subnet-cell-workloads"]')).flatMap(
-          cell => {
-            const chips = Array.from(cell.querySelectorAll<HTMLElement>("[data-flow-id], [data-flow-ids]"))
-            if (chips.length === 0) return []
-            const bottom = cell.getBoundingClientRect().bottom
-            const lowest = Math.max(...chips.map(c => c.getBoundingClientRect().bottom))
-            return [{ chips: chips.length, blankBelow: Math.round(bottom - lowest) }]
-          },
-        )
-      const worst = (cells: Array<{ blankBelow: number }>) =>
-        cells.reduce((max, c) => Math.max(max, c.blankBelow), 0)
-      const live = perCell()
-      // The same measurement under the row template this replaced, applied to the
-      // live grid and reverted straight after — a bound nothing can violate is
-      // decoration, and this one had to be moved once already to find a viewport
-      // where the defect is reachable.
-      const kept = { rows: grid.style.gridTemplateRows, align: grid.style.alignContent }
-      grid.style.gridTemplateRows = "auto auto minmax(0, 1.35fr) minmax(0, 1.2fr) minmax(0, 0.65fr)"
-      grid.style.alignContent = "stretch"
-      void grid.getBoundingClientRect() // flush layout before re-measuring
-      const underFrSplit = worst(perCell())
-      grid.style.gridTemplateRows = kept.rows
-      grid.style.alignContent = kept.align
-      void grid.getBoundingClientRect()
-      return { live, worst: worst(live), underFrSplit, restored: worst(perCell()) }
-    })
-  const tierSlack = await measureTierSlack()
-  expect(tierSlack, "the VPC grid exposes the row template to re-measure").not.toBeNull()
-  expect(tierSlack!.live.length, "the VPC frame has tier cells holding chips to measure").toBeGreaterThan(0)
+  // This payload's only load balancer is in vpc-086bcc2186fa42c96 — NOT the VPC
+  // this canvas draws — and the scoped grid used to drop it without a word: it is
+  // not this frame's gap (so not the unplaced area) and not stale (so not the
+  // diagnostics list). The rail now says where it really is, in text, because a
+  // chip here would assert a placement the graph contradicts.
+  const foreignIngress = fullscreen.getByTestId("topology-foreign-ingress-reference")
+  await expect(foreignIngress).toBeVisible()
+  await expect(foreignIngress).toHaveAttribute("data-foreign-ingress-count", "1")
+  await expect(foreignIngress).toContainText("Not in this VPC")
+  await expect(foreignIngress).toContainText("ALB · alon-prod-3tier-alb")
+  // The co-tenant is read off that VPC's subnets, not asserted by this spec.
+  await expect(foreignIngress).toContainText("payment-production")
+  const foreignLine = foreignIngress.getByTestId("topology-foreign-ingress-line").first()
+  // The visible id is truncated to fit a 136px rail; the full one has to survive
+  // somewhere, or the reference names a VPC the operator cannot look up.
+  await expect(foreignLine).toHaveAttribute(
+    "data-foreign-ingress-vpc",
+    "vpc-086bcc2186fa42c96",
+  )
+  await expect(foreignLine).toHaveAttribute("title", /vpc-086bcc2186fa42c96/)
+  // Referenced, never drawn: the ALB gets no chip inside the VPC on screen. Every
+  // workload chip carries `data-flow-id={node.id}`, and this ALB's id is an ARN
+  // containing its name — so the zero below is a real absence, and the count
+  // beside it proves the selector finds chips at all rather than nothing.
+  await expect(fullscreen.getByTestId("topology-alb-band")).toHaveCount(0)
   expect(
-    tierSlack!.worst,
-    `a tier leaves ${tierSlack!.worst}px blank below its chips — rows must hug content, not split the column`,
-  ).toBeLessThanOrEqual(48)
-  expect(
-    tierSlack!.underFrSplit,
-    `the fr split this replaced wastes only ${tierSlack!.underFrSplit}px here, so the bound above proves nothing`,
-  ).toBeGreaterThan(48)
-  expect(tierSlack!.restored, "the row template is restored after the control measurement").toBeLessThanOrEqual(48)
+    await fullscreen.locator("[data-flow-id]").count(),
+    "the canvas draws no flow-anchored chips, so the ALB's absence below is vacuous",
+  ).toBeGreaterThan(0)
+  await expect(
+    fullscreen.locator('[data-flow-id*="alon-prod-3tier-alb"]'),
+  ).toHaveCount(0)
 
-  // Rows that hug their content leave the column's slack SOMEWHERE, and until
-  // this change it landed outside the VPC border: the frame is a subgrid child
-  // spanning `1 / -1`, so it ends where the last row ends, and content-sized
-  // rows plus `alignContent: start` ended them far above the grid's own bottom
-  // edge — measured 449px of unframed void under the Data tier at this
-  // viewport, which reads as "the diagram stopped" rather than "this VPC has
-  // room left". A trailing `1fr` track absorbs the slack inside the border.
-  // Only observable in a real layout engine, hence here and not in a unit test.
-  const measureFrameFill = () =>
+  // Where the column's leftover height goes. Three states, one measurement,
+  // because every wrong answer here was a plausible-looking version of the same
+  // pixels landing somewhere useless:
+  //
+  //   fr split      — 1.35fr : 1.2fr : 0.65fr. Spends the slack on whichever
+  //                   tier is listed first, not on whichever tier holds
+  //                   anything: measured on this payload at 1800×1000, Web took
+  //                   245px to show ONE chip per subnet while App fitted two
+  //                   rows into 218px. Misallocation.
+  //   content + start — rows hug their chips and the slack lands OUTSIDE the VPC
+  //                   border: the frame is a subgrid child spanning `1 / -1`, so
+  //                   it ends where the last row ends — measured 449px of
+  //                   unframed void under the Data tier, which reads as "the
+  //                   diagram stopped". Fixed by a trailing `1fr` track, which
+  //                   then held the slack as one dead band inside the border.
+  //   live          — `minmax(floor, auto)` tier maxes with no explicit
+  //                   alignContent. An `auto` max puts a track in grid's stretch
+  //                   set (CSS Grid §12.8) and `align-content: normal` behaves
+  //                   as stretch, so leftover height is shared EQUALLY by the
+  //                   three tier rows and the chips get the room. The chrome
+  //                   rows keep `max-content` maxes and stay out of that set.
+  //
+  // None of this is visible in the CSS (every row looks symmetrical) or to a
+  // jsdom test (no layout), so it is measured in the browser at this spec's tall
+  // viewport — the slack only exists when the column has height to place, which
+  // is why these assertions are not in the rail spec.
+  const measureTierFill = () =>
     page.evaluate(() => {
       const root = document.querySelector('[data-testid="topology-estate-map-fullscreen"]')!
       const grid = root.querySelector<HTMLElement>('[data-testid="topology-single-vpc-grid"]')
       const frame = grid?.querySelector('[data-testid="topology-vpc-frame"]')
       if (!grid || !frame) return null
+      // Used track sizes, not the authored template — the whole question is what
+      // the layout engine did with the slack.
+      const tracks = () =>
+        getComputedStyle(grid).gridTemplateRows
+          .split(" ")
+          .map(v => Math.round(parseFloat(v)))
       const voidBelowFrame = () =>
         Math.round(grid.getBoundingClientRect().bottom - frame.getBoundingClientRect().bottom)
-      const live = voidBelowFrame()
-      // The exact template this replaced — same tracks minus the trailing `1fr`,
-      // with the `alignContent` that went with them — applied to the live grid
-      // and reverted straight after. A bound nothing can violate is decoration.
+      const read = () => ({ tracks: tracks(), void: voidBelowFrame() })
+      const live = read()
       const kept = { rows: grid.style.gridTemplateRows, align: grid.style.alignContent }
-      const withoutFillTrack = kept.rows.replace(/\s+1fr\s*$/, "")
-      grid.style.gridTemplateRows = withoutFillTrack
+      // Control 1 — content-sized tier rows. Same floors, `max-content` maxes, so
+      // the tier tracks leave the stretch set and every track sits at exactly its
+      // content size. That is both the pre-#850 state AND the baseline the bonus
+      // below is measured against.
+      const hugged = kept.rows.replace(/,\s*auto\)/g, ", max-content)")
+      grid.style.gridTemplateRows = hugged
       grid.style.alignContent = "start"
       void grid.getBoundingClientRect() // flush layout before re-measuring
-      const beforeFix = voidBelowFrame()
+      const hug = read()
+      // Control 2 — the fr weights #849 removed. Same leftover height, allocated
+      // by declaration order instead of equally. A bound nothing can violate is
+      // decoration, so the spread assertion needs a template that blows it.
+      grid.style.gridTemplateRows = "auto auto minmax(0, 1.35fr) minmax(0, 1.2fr) minmax(0, 0.65fr)"
+      grid.style.alignContent = "stretch"
+      void grid.getBoundingClientRect()
+      const frSplit = read()
       grid.style.gridTemplateRows = kept.rows
       grid.style.alignContent = kept.align
       void grid.getBoundingClientRect()
       return {
         live,
-        beforeFix,
-        restored: voidBelowFrame(),
-        droppedTrack: withoutFillTrack !== kept.rows,
+        hug,
+        frSplit,
+        restored: read(),
         rows: kept.rows,
+        rewroteMaxes: hugged !== kept.rows,
         frameHeight: Math.round(frame.getBoundingClientRect().height),
       }
     })
-  const frameFill = await measureFrameFill()
-  expect(frameFill, "the fullscreen VPC frame is a child of the single-VPC grid").not.toBeNull()
+  const fill = await measureTierFill()
+  expect(fill, "the fullscreen VPC frame is a child of the single-VPC grid").not.toBeNull()
   expect(
-    frameFill!.droppedTrack,
-    `the grid's row template must end in the fill track this asserts; it is "${frameFill!.rows}"`,
+    fill!.rewroteMaxes,
+    `the tier rows must carry \`auto\` maxes for stretch to reach them; the template is "${fill!.rows}"`,
   ).toBe(true)
-  expect(frameFill!.frameHeight, "the VPC frame has real height to measure against").toBeGreaterThan(200)
   expect(
-    frameFill!.live,
-    `${frameFill!.live}px of the column sits below the VPC border — the frame must reach the bottom of its row`,
+    fill!.hug.tracks,
+    "the content-sized control changed no track size, so it never applied",
+  ).not.toEqual(fill!.live.tracks)
+  // Header + AZ band + three tiers. The dead trailing `1fr` band is gone: the
+  // tiers hold that height now, so a sixth track means the fill track came back.
+  expect(
+    fill!.live.tracks.length,
+    `the grid must have 5 rows — chrome, band, three tiers — not ${fill!.live.tracks.length}`,
+  ).toBe(5)
+  expect(fill!.frameHeight, "the VPC frame has real height to measure against").toBeGreaterThan(200)
+
+  // #850's guarantee, unchanged: the border reaches the bottom of the column.
+  expect(
+    fill!.live.void,
+    `${fill!.live.void}px of the column sits below the VPC border — the frame must reach the bottom of its row`,
   ).toBeLessThanOrEqual(8)
   expect(
-    frameFill!.beforeFix,
-    `without the fill track the void is only ${frameFill!.beforeFix}px here, so the bound above proves nothing`,
+    fill!.hug.void,
+    `content-sized rows leave only ${fill!.hug.void}px unframed here, so the bound above proves nothing`,
   ).toBeGreaterThan(100)
-  expect(frameFill!.restored, "the row template is restored after the control measurement").toBeLessThanOrEqual(8)
+  expect(fill!.restored.void, "the row template is restored after the control measurements").toBeLessThanOrEqual(8)
+
+  // What each row did with the slack. Bonus = used size − content size, read
+  // from the same two track lists, so the chrome rows are a built-in negative
+  // control: `max-content` maxes keep them out of the stretch set and their
+  // bonus must be zero.
+  const bonus = fill!.live.tracks.map((px, i) => px - fill!.hug.tracks[i])
+  const tierBonus = bonus.slice(2)
+  expect(
+    bonus.slice(0, 2),
+    `the chrome rows must not stretch — they grew ${bonus.slice(0, 2).join("/")}px`,
+  ).toEqual([0, 0])
+  expect(
+    Math.min(...tierBonus),
+    `a tier row got ${Math.min(...tierBonus)}px of the column's slack — every tier must gain room for its chips`,
+  ).toBeGreaterThan(0)
+  const spread = Math.max(...tierBonus) - Math.min(...tierBonus)
+  expect(
+    spread,
+    `the tier rows split the slack ${tierBonus.join("/")}px — stretch must share it equally, not by declaration order`,
+  ).toBeLessThanOrEqual(2)
+  const frSpread = (() => {
+    const b = fill!.frSplit.tracks.map((px, i) => px - fill!.hug.tracks[i]).slice(2)
+    return Math.max(...b) - Math.min(...b)
+  })()
+  expect(
+    frSpread,
+    `the fr split allocates within ${frSpread}px of evenly here, so the spread bound above proves nothing`,
+  ).toBeGreaterThan(40)
+  // Cross-check, two independent instruments: the height the tiers gained is the
+  // height that used to sit unframed below the border. Bounding rects and used
+  // track sizes have to agree, or one of them is being misread.
+  const absorbed = tierBonus.reduce((a, b) => a + b, 0)
+  expect(
+    Math.abs(absorbed + fill!.live.void - fill!.hug.void),
+    `tiers absorbed ${absorbed}px but ${fill!.hug.void}px was unframed — the two measurements disagree`,
+  ).toBeLessThanOrEqual(6)
 
   // No two workload chips may paint the same string. Labels clip with a CSS
   // ellipsis, which never enters the text, so a shared prefix long enough to
