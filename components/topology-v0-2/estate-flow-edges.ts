@@ -33,8 +33,10 @@ const REGIONAL_NODE_TYPES = new Set([
   "S3", "S3Bucket", "KMSKey", "DynamoDB", "DynamoDBTable", "Secret", "SecretsManagerSecret", "RDS",
 ])
 
-/** Observed access / traffic — excludes pure IAM plumbing in all-access mode. */
-const ALL_ACCESS_EDGE_TYPES = new Set([
+/** Observed access / traffic — excludes pure IAM plumbing in all-access mode.
+ *  Exported so the label grammar can be held to it: every type that can reach
+ *  the map has to have words, or the badge prints the graph identifier. */
+export const ALL_ACCESS_EDGE_TYPES = new Set([
   "ACTUAL_TRAFFIC",
   "ACTUAL_S3_ACCESS",
   "ATTRIBUTED_S3_ACCESS",

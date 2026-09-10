@@ -427,8 +427,10 @@ describe("service naming", () => {
   })
 
   it("keeps the chip label short enough to fit a stack header", () => {
-    // A stack chip reads "EC2 x5", not "EC2 Instance x5"; a lane header reads
-    // "EventBridge / DynamoDB / S3". The precise name belongs in the tooltip.
+    // A stack chip reads "EC2 x5", not "EC2 Instance x5". The precise name
+    // belongs in the tooltip. A lane header shortens further still, in its own
+    // table (FAMILY_SHORT_LABELS in aws-frame.tsx) — this catalog is what the
+    // CHIPS read, and it must not pick up header-width abbreviations.
     expect(awsServiceLabel("LoadBalancer")).toBe("ALB")
     expect(awsServiceLabel("EC2")).toBe("EC2")
     expect(awsServiceLabel("EC2Instance")).toBe("EC2")

@@ -98,6 +98,76 @@ test("fullscreen platform map shows named Lambda, protected AZ labels, direction
   await page.waitForTimeout(600) // double-rAF measure after the fit
   expect(await railHeaderBadgeOverlaps(page)).toEqual([])
 
+  // The IGW / VPCE column is named like the two lanes beside it, and its
+  // counts are the chips it actually renders — asserted against the DOM rather
+  // than against a number, so a header that outgrows its column fails here.
+  const boundaryHeader = fullscreen.getByTestId("topology-boundary-rail-header")
+  await expect(boundaryHeader).toContainText("VPC boundary")
+  const igwChips = await fullscreen.getByTestId("topology-igw-rail-chip").count()
+  const vpceChips = await fullscreen.getByTestId("topology-vpce-rail-chip").count()
+  expect(igwChips + vpceChips).toBeGreaterThan(0)
+  await expect(boundaryHeader).toContainText(
+    `${igwChips} internet ${igwChips === 1 ? "gateway" : "gateways"} · ${vpceChips} endpoints`,
+  )
+
+  // Tier rows hug their chips. They used to split the column's whole leftover
+  // height 1.35fr : 1.2fr : 0.65fr, which spends it on whichever tier is listed
+  // first rather than on whichever tier holds anything: measured on this payload
+  // at 1800×1000, Web took 245px to show ONE chip per subnet — 84px of it blank
+  // below that chip — while App fitted two rows into 218px, 26% of the column
+  // blank overall. A fr split cannot be caught by reading the CSS (every row
+  // looks symmetrical) or by a jsdom test (no layout), so this is measured in
+  // the browser, at this spec's tall viewport: the waste only exists when the
+  // column has height to misallocate (at 1600×720 the same split wasted 25px,
+  // which is why the assertion is not in the rail spec).
+  const measureTierSlack = () =>
+    page.evaluate(() => {
+      const root = document.querySelector('[data-testid="topology-estate-map-fullscreen"]')!
+      const grid = root.querySelector<HTMLElement>('[data-testid="topology-single-vpc-grid"]')
+      const frame = root.querySelector('[data-testid="topology-vpc-frame"]')
+      if (!grid || !frame) return null
+      // Named chips carry data-flow-id, Glance stack tiles data-flow-ids, so this
+      // measures real content at whichever density the map opened in.
+      const perCell = () =>
+        Array.from(frame.querySelectorAll<HTMLElement>('[data-testid="topology-subnet-cell-workloads"]')).flatMap(
+          cell => {
+            const chips = Array.from(cell.querySelectorAll<HTMLElement>("[data-flow-id], [data-flow-ids]"))
+            if (chips.length === 0) return []
+            const bottom = cell.getBoundingClientRect().bottom
+            const lowest = Math.max(...chips.map(c => c.getBoundingClientRect().bottom))
+            return [{ chips: chips.length, blankBelow: Math.round(bottom - lowest) }]
+          },
+        )
+      const worst = (cells: Array<{ blankBelow: number }>) =>
+        cells.reduce((max, c) => Math.max(max, c.blankBelow), 0)
+      const live = perCell()
+      // The same measurement under the row template this replaced, applied to the
+      // live grid and reverted straight after — a bound nothing can violate is
+      // decoration, and this one had to be moved once already to find a viewport
+      // where the defect is reachable.
+      const kept = { rows: grid.style.gridTemplateRows, align: grid.style.alignContent }
+      grid.style.gridTemplateRows = "auto auto minmax(0, 1.35fr) minmax(0, 1.2fr) minmax(0, 0.65fr)"
+      grid.style.alignContent = "stretch"
+      void grid.getBoundingClientRect() // flush layout before re-measuring
+      const underFrSplit = worst(perCell())
+      grid.style.gridTemplateRows = kept.rows
+      grid.style.alignContent = kept.align
+      void grid.getBoundingClientRect()
+      return { live, worst: worst(live), underFrSplit, restored: worst(perCell()) }
+    })
+  const tierSlack = await measureTierSlack()
+  expect(tierSlack, "the VPC grid exposes the row template to re-measure").not.toBeNull()
+  expect(tierSlack!.live.length, "the VPC frame has tier cells holding chips to measure").toBeGreaterThan(0)
+  expect(
+    tierSlack!.worst,
+    `a tier leaves ${tierSlack!.worst}px blank below its chips — rows must hug content, not split the column`,
+  ).toBeLessThanOrEqual(48)
+  expect(
+    tierSlack!.underFrSplit,
+    `the fr split this replaced wastes only ${tierSlack!.underFrSplit}px here, so the bound above proves nothing`,
+  ).toBeGreaterThan(48)
+  expect(tierSlack!.restored, "the row template is restored after the control measurement").toBeLessThanOrEqual(48)
+
 
   await lambda.click()
   const detail = page.getByTestId("topology-service-detail-panel")
@@ -110,7 +180,12 @@ test("fullscreen platform map shows named Lambda, protected AZ labels, direction
   await expect(pathMap).toContainText("Generation 7 · confirmed TCP")
   await expect(pathMap).toContainText("alon-prod-continuous-traffic")
   await expect(pathMap).toContainText("alon-demo-data-bucket-745783559495")
-  await expect(pathMap.getByText("ACTUAL_S3_ACCESS").first()).toBeVisible()
+  // The words, not the graph relationship type. The identifier an operator
+  // would paste into Cypher stays on the hover title.
+  const s3Segment = pathMap.getByText("S3 access", { exact: true }).first()
+  await expect(s3Segment).toBeVisible()
+  await expect(s3Segment).toHaveAttribute("title", "S3 access · ACTUAL_S3_ACCESS")
+  await expect(pathMap.getByText("ACTUAL_S3_ACCESS")).toHaveCount(0)
   await expect(pathMap.getByTestId("topology-inspector-flow-packet").first()).toBeAttached()
   await expect(detail.getByText("alon-demo-data-bucket-745783559495").last()).toBeVisible()
   await expect(detail).toHaveAttribute("data-expanded", "false")
@@ -146,7 +221,8 @@ test("fullscreen platform map shows named Lambda, protected AZ labels, direction
   const vpcePathMap = vpceDetail.getByTestId("topology-service-path-map")
   await expect(vpcePathMap).toContainText("SafeRemediate-Test-Frontend-1")
   await expect(vpcePathMap).toContainText("AWS SSM Messages")
-  await expect(vpcePathMap.getByText(/ACTUAL_TRAFFIC|AWS_SERVICE/).first()).toBeVisible()
+  await expect(vpcePathMap.getByText(/^(traffic|AWS service|via VPCE)$/).first()).toBeVisible()
+  await expect(vpcePathMap.getByText(/ACTUAL_TRAFFIC|AWS_SERVICE|VPC_ENDPOINT/)).toHaveCount(0)
 
   const focusedPacket = fullscreen
     .locator('[data-testid="topology-flow-packet"][data-flow-focused="true"]')

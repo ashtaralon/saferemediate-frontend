@@ -19,7 +19,13 @@ import React from "react"
 import { afterEach, beforeAll, describe, expect, it } from "vitest"
 import { cleanup, render, screen, within } from "@testing-library/react"
 
-import { AwsFrame, RAIL_LANE_MIN_PX, railLaneFloorPx } from "@/components/topology-v0-2/aws-frame"
+import {
+  AwsFrame,
+  RAIL_LANE_CORRIDOR_W_PX,
+  RAIL_LANE_MIN_PX,
+  RAIL_LANE_W_PX,
+  railLaneFloorPx,
+} from "@/components/topology-v0-2/aws-frame"
 import type { SubnetMeta, TopologyNode, VpcTopology } from "@/components/topology-v0-2/types"
 
 beforeAll(() => {
@@ -121,7 +127,10 @@ describe("fullscreen off-VPC rail: two lanes, each owning one bounded scroll", (
     const serverlessHeader = serverless.querySelector('[data-flow-obstacle="serverless-tier-header"]')
     const regionalHeader = regional.querySelector('[data-flow-obstacle="regional-tier-header"]')
     expect(serverlessHeader).not.toBeNull()
-    expect(serverlessHeader).toHaveTextContent("Lambda runtime · outside subnet grid (3)")
+    // The title is one line at a 200px lane width; the qualifier that used to
+    // wrap it onto a second line still reads, on the detail line below.
+    expect(serverlessHeader).toHaveTextContent("Lambda runtime (3)")
+    expect(serverlessHeader).toHaveTextContent("outside subnet grid")
     expect(regionalHeader).not.toBeNull()
     // The header names what the lane actually holds. This fixture's regional
     // lane is two S3 buckets, so it must not claim DynamoDB or KMS — the
@@ -155,14 +164,35 @@ describe("fullscreen off-VPC rail: two lanes, each owning one bounded scroll", (
     expect(within(rail).getByTestId("topology-regional-data-tier").style.minHeight).toBe(`${RAIL_LANE_MIN_PX}px`)
   })
 
-  it("railLaneFloorPx: the full floor when the column affords two, an equal split when it cannot", () => {
+  it("the lanes are side-by-side columns with a corridor between them", () => {
+    renderFrame(true)
+    const rail = screen.getByTestId("topology-edge-services-rail")
+    expect(rail.className).toMatch(/\bgrid\b/)
+    // 200 | 40 | 200. Lambda runtime and Regional read as two parallel lanes
+    // at the right end of the region, and the traffic between them crosses the
+    // corridor rather than running down the column it shares with its target.
+    expect(rail.style.gridTemplateColumns).toBe(
+      `${RAIL_LANE_W_PX}px ${RAIL_LANE_CORRIDOR_W_PX}px ${RAIL_LANE_W_PX}px`,
+    )
+    expect(rail.style.width).toBe(`${RAIL_LANE_W_PX * 2 + RAIL_LANE_CORRIDOR_W_PX}px`)
+    expect(Array.from(rail.children).map(child => child.getAttribute("data-testid"))).toEqual([
+      "topology-serverless-tier",
+      "topology-interlane-corridor",
+      "topology-regional-data-tier",
+    ])
+  })
+
+  it("railLaneFloorPx: the full floor unless the column itself is shorter", () => {
     expect(railLaneFloorPx(null)).toBe(RAIL_LANE_MIN_PX)
     expect(railLaneFloorPx(0)).toBe(RAIL_LANE_MIN_PX)
-    expect(railLaneFloorPx(390)).toBe(RAIL_LANE_MIN_PX) // 2 × 154 + 8 ≤ 390
-    expect(railLaneFloorPx(316)).toBe(RAIL_LANE_MIN_PX) // exactly two floors + the gap
-    expect(railLaneFloorPx(300)).toBe(146) // (300 − 8) / 2
-    expect(railLaneFloorPx(100)).toBe(46)
-    expect(railLaneFloorPx(4)).toBe(0)
+    expect(railLaneFloorPx(390)).toBe(RAIL_LANE_MIN_PX)
+    // Side by side each lane owns the WHOLE column, so a 300px column that had
+    // to be halved into a 146px floor while the lanes were stacked now affords
+    // the full row to both.
+    expect(railLaneFloorPx(300)).toBe(RAIL_LANE_MIN_PX)
+    expect(railLaneFloorPx(RAIL_LANE_MIN_PX)).toBe(RAIL_LANE_MIN_PX)
+    expect(railLaneFloorPx(100)).toBe(100)
+    expect(railLaneFloorPx(4)).toBe(4)
   })
 
   it("embedded mode is unchanged: the rail and its lanes grow with the page", () => {

@@ -17,6 +17,61 @@ export function databasePublicIpExposureLabel(
   return `${n} ${ipWord} on RDS`
 }
 
+/**
+ * What one graph relationship type is CALLED on the map.
+ *
+ * The edge payload piggybacks the Neo4j relationship type in `protocol`
+ * (topology_risk `"protocol": r["rel"]`), and every renderer that had no case
+ * for a value printed it verbatim — so a bundle badge on the estate map read
+ * `ACTUAL_S3_ACCESS` and the inspector's path chain read `QUERIES_DB`
+ * (measured 2026-09-10 on the captured payload the geometry specs replay).
+ * A graph constant is not product copy.
+ *
+ * The rule for what belongs here: an UNDERSCORE means the string is a graph
+ * identifier, never a word a reader knows. `TRIGGERS` / `TARGETS` /
+ * `LAUNCHES` carry no underscore, read as English already, and are left
+ * alone rather than translated for its own sake.
+ *
+ * Each label states only what the edge type itself states. `ACCESSES_RESOURCE`
+ * is a DECLARED policy grant to any resource (backend:
+ * FOREIGN_SHARED_DECLARED_RELS), so it reads "accesses" — the older "secret"
+ * named a target type the edge does not carry. Observed-vs-configured is the
+ * line's own job (solid / dashed) and is not restated in words.
+ *
+ * Distinct from `verbForRelationship` in components/dependency-map/
+ * traffic-flow-map.tsx, which answers a different question — the verb that
+ * makes an attack chain read as a sentence ("sends traffic to"). These are
+ * badge tags sized for a 48px corridor and a 112px inspector slot.
+ */
+const RELATIONSHIP_BADGE_LABELS: Record<string, string> = {
+  ACTUAL_TRAFFIC: "traffic",
+  OBSERVED_TRAFFIC: "traffic",
+  ACTUAL_S3_ACCESS: "S3 access",
+  ATTRIBUTED_S3_ACCESS: "S3 access · attributed",
+  S3_OPERATION: "S3 access",
+  ACTUAL_API_CALL: "API call",
+  API_CALL: "API call",
+  RUNTIME_CALLS: "calls",
+  READS_FROM: "reads",
+  WRITES_TO: "writes",
+  ACCESSES_RESOURCE: "accesses",
+  ROUTES_TO: "route",
+  QUERIES_DB: "DB query",
+  HAS_TARGET_GROUP: "TG",
+  ENCRYPTED_BY: "KMS",
+  // service-paths.ts mints these three itself for synthetic hops.
+  AWS_SERVICE: "AWS service",
+  VPC_ENDPOINT: "via VPCE",
+  PUBLIC_EGRESS: "public egress",
+}
+
+/** `null` for anything unmapped, so a caller keeps its own fallback rather
+ *  than this table inventing a name for an edge type it does not know. */
+export function relationshipBadgeLabel(protocol: string | null | undefined): string | null {
+  if (!protocol) return null
+  return RELATIONSHIP_BADGE_LABELS[protocol.toUpperCase()] ?? null
+}
+
 /** Visual corridor for rail-bound overlay badges (not DB exposure). */
 export type CorridorKind = "egress" | "s3_via_igw" | "aws_api_via_igw" | "vpce"
 

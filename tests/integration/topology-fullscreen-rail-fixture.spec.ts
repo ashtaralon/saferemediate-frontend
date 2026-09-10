@@ -26,12 +26,13 @@ import {
  *      Regional lane do not move, and the fold counters flip,
  *   4. flow edges into rail chips end inside the chip, and edges into
  *      scrolled-out chips pin to their lane's edge — never dangle,
- *   5. the lane's chips are dense and two share a row, and the lane body is
- *      never shorter than one row (RAIL_LANE_MIN_PX): the coverage pill
- *      above the grid took the slack the 96px floor had been living on,
+ *   5. the lane's chips are one per row, each spanning the lane, and the lane
+ *      body is never shorter than one row (RAIL_LANE_MIN_PX): the coverage
+ *      pill above the grid took the slack the 96px floor had been living on,
  *   6. an edge with both ends in the rail is carried by exactly one bundle
- *      path through the flow corridor, and no flow label paints over a rail
- *      chip (C1 production, 2026-09-02: 22 labels piled on the column).
+ *      path through the corridor between the lanes, and neither the label nor
+ *      the path itself lands on a rail chip (C1 production, 2026-09-02: 22
+ *      labels piled on the column).
  */
 test("fullscreen: each off-VPC rail lane scrolls in its track, both lanes stay on screen, edges stay anchored", async ({
   context,
@@ -40,8 +41,10 @@ test("fullscreen: each off-VPC rail lane scrolls in its track, both lanes stay o
   test.setTimeout(150_000)
   await seedAuthCookie(context)
   await routeSnapshot(page)
-  // A short viewport on purpose: 16 Lambdas + 18 regional services must not
-  // fit even after both lanes take their share of the column.
+  // A short viewport on purpose. Side by side each lane owns the column's whole
+  // height rather than half of it, so the payload's 14 Lambdas and 18 regional
+  // services must STILL overflow here — otherwise the fold assertions below
+  // would pass without measuring anything.
   await page.setViewportSize({ width: 1600, height: 720 })
   await page.goto(ESTATE_URL, { waitUntil: "domcontentloaded" })
 
@@ -142,7 +145,39 @@ test("fullscreen: each off-VPC rail lane scrolls in its track, both lanes stay o
         }
       }
     }
-    return { expected, bundles, labelsOverChips }
+    // The PATH, not just its label. With the two lanes side by side a bundle
+    // that routes out to the leftmost corridor is drawn back across the lane it
+    // just left, straight over that lane's chips (measured 2026-09-10 on this
+    // payload: the S3-access bundle crossed the ConfidenceScorer chip). Sample
+    // each bundle path along its length, skipping the ends — a path is supposed
+    // to touch its own two endpoints.
+    const pathsOverChips: Array<{ label: string; target: string | null; chips: string[] }> = []
+    for (const group of Array.from(root.querySelectorAll<SVGGElement>("g[data-flow-bundle]"))) {
+      const path = group.querySelector("path") as SVGPathElement | null
+      const ctm = path?.getScreenCTM()
+      if (!path || !ctm) continue
+      const len = path.getTotalLength()
+      if (!len) continue
+      const hit = new Set<string>()
+      for (let d = 8; d <= len - 8; d += 4) {
+        const p = path.getPointAtLength(d)
+        const s = new DOMPoint(p.x, p.y).matrixTransform(ctm)
+        for (const chip of railChips) {
+          const c = chip.getBoundingClientRect()
+          if (s.x > c.left + 2 && s.x < c.right - 2 && s.y > c.top + 2 && s.y < c.bottom - 2) {
+            hit.add(chip.getAttribute("data-flow-id") ?? chip.getAttribute("data-flow-ids") ?? "?")
+          }
+        }
+      }
+      if (hit.size > 0) {
+        pathsOverChips.push({
+          label: group.querySelector("text")?.textContent ?? "",
+          target: group.getAttribute("data-flow-target"),
+          chips: [...hit],
+        })
+      }
+    }
+    return { expected, bundles, labelsOverChips, pathsOverChips }
   }, SNAPSHOT.traffic_edges as Array<{ source_id: string; target_id: string }>)
   expect(bundling.expected.length, "the captured payload carries an intra-rail edge").toBeGreaterThan(0)
   expect(bundling.bundles.flatMap(bundle => bundle.members).sort()).toEqual([...bundling.expected].sort())
@@ -158,6 +193,7 @@ test("fullscreen: each off-VPC rail lane scrolls in its track, both lanes stay o
     ).toBe(true)
   }
   expect(bundling.labelsOverChips, "no flow label paints over a rail chip").toEqual([])
+  expect(bundling.pathsOverChips, "no bundle path is drawn across a rail chip").toEqual([])
 
   // 3: the last Lambda chip is below the lane's fold until the LANE scrolls.
   const chips = laneBody.locator("[data-flow-id]")
@@ -333,12 +369,31 @@ test("fullscreen: each off-VPC rail lane scrolls in its track, both lanes stay o
   // exercises the chip anchoring below.
   expect(anchored.length + bundleAnchors.length).toBeGreaterThan(0)
   const tolerance = 16
-  // Bundle badges belong in the corridor, never on the rail: the bus fan used
-  // to march 7px per bundle straight out of the 48px corridor and drop the
-  // later badges onto the lane headers (C1 production, 2026-09-02).
+  // Bundle badges belong in a CORRIDOR — never over a lane's chips: the bus fan
+  // used to march 7px per bundle straight out of the 48px corridor and drop the
+  // later badges onto the lane headers (C1 production, 2026-09-02). Two
+  // corridors qualify now that the lanes sit side by side: the gutter left of
+  // the rail, and the gap BETWEEN the lanes, which is where a bundle's label
+  // sits on its own line when it fits. "Left of the rail" was the old
+  // one-corridor form of this and would now reject the on-line placement that
+  // is the point of the arrangement.
+  const corridorBands = await page.evaluate(() => {
+    const root = document.querySelector('[data-testid="topology-estate-map-fullscreen"]')!
+    return ["topology-flow-corridor", "topology-interlane-corridor"].flatMap(id => {
+      const el = root.querySelector(`[data-testid="${id}"]`)
+      if (!el) return []
+      const r = el.getBoundingClientRect()
+      return [{ id, l: r.left, r: r.right }]
+    })
+  })
+  expect(corridorBands.length, "the frame renders the corridors the buses run in").toBeGreaterThan(0)
   const badges = bundleAnchors.flatMap(b => (b.badge ? [{ label: b.label, rect: b.badge, railLeft: b.railLeft }] : []))
   for (const [i, b] of badges.entries()) {
-    expect(b.rect.r, `bundle ${b.label}'s badge stays left of the rail`).toBeLessThanOrEqual(b.railLeft)
+    const band = corridorBands.find(c => b.rect.l >= c.l - 2 && b.rect.r <= c.r + 2)
+    expect(
+      band ?? (b.rect.r <= b.railLeft ? { id: "left of rail" } : null),
+      `bundle ${b.label}'s badge (${Math.round(b.rect.l)}..${Math.round(b.rect.r)}) sits in a corridor, not over a lane — bands ${JSON.stringify(corridorBands)}`,
+    ).not.toBeNull()
     for (const other of badges.slice(i + 1)) {
       const overlaps =
         b.rect.r > other.rect.l &&
@@ -353,12 +408,20 @@ test("fullscreen: each off-VPC rail lane scrolls in its track, both lanes stay o
     // The whole point of the bundle: it names the service it reaches.
     expect(b.targetId, `bundle ${b.label} names its target`).not.toMatch(/^lane:/)
     expect(b.target, `bundle ${b.label} ends at the chip it names`).not.toBeNull()
-    expect(Math.abs(b.start.x - b.source!.l), `bundle ${b.label} leaves its source lane's left edge`).toBeLessThanOrEqual(tolerance)
+    // WHICH vertical edge it leaves on is the corridor's choice: with the Lambda
+    // and Regional lanes side by side, a Lambda → S3 bundle hops out of the
+    // right edge into the corridor between them, and the reverse direction
+    // leaves the left edge. What must hold is that it leaves on an edge of its
+    // own lane rather than out of the middle of it, and enters its target the
+    // same way — that is what keeps it off the chips it passes.
+    const leavesAnEdge = Math.min(Math.abs(b.start.x - b.source!.l), Math.abs(b.start.x - b.source!.r))
+    expect(leavesAnEdge, `bundle ${b.label} leaves its source lane on a vertical edge`).toBeLessThanOrEqual(tolerance)
     expect(b.start.y, `bundle ${b.label} leaves within its source lane`).toBeGreaterThanOrEqual(b.source!.t - tolerance)
     expect(b.start.y, `bundle ${b.label} leaves within its source lane`).toBeLessThanOrEqual(b.source!.b + tolerance)
     const target = b.target!
     if (target.visible) {
-      expect(Math.abs(b.end.x - target.l), `bundle ${b.label} enters its target chip's left edge`).toBeLessThanOrEqual(tolerance)
+      const entersAnEdge = Math.min(Math.abs(b.end.x - target.l), Math.abs(b.end.x - target.r))
+      expect(entersAnEdge, `bundle ${b.label} enters its target chip on a vertical edge`).toBeLessThanOrEqual(tolerance)
       expect(b.end.y, `bundle ${b.label} enters within its target chip`).toBeGreaterThanOrEqual(target.t - tolerance)
       expect(b.end.y, `bundle ${b.label} enters within its target chip`).toBeLessThanOrEqual(target.b + tolerance)
     } else {
@@ -382,6 +445,13 @@ test("fullscreen: each off-VPC rail lane scrolls in its track, both lanes stay o
       expect(a.end.y, `edge into scrolled-out ${a.id} pins to its lane`).toBeLessThanOrEqual(a.lane.b + tolerance)
     }
   }
+
+  // Tier rows hug their chips rather than splitting the column 1.35fr : 1.2fr :
+  // 0.65fr — asserted in the platform-map QA spec, not here. Measured 2026-09-10:
+  // at THIS test's 720px-tall viewport the old fr split wasted at most 25px,
+  // because a short column has little slack to misallocate, so a bound placed
+  // here would pass on the broken layout too. The waste needs a tall viewport to
+  // exist, so the assertion lives where the viewport is 2048×1100.
 
   await page.screenshot({ path: "test-results/fullscreen-rail-scrolled.png", fullPage: false })
 })
