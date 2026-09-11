@@ -2177,13 +2177,29 @@ function StackTile({
  *  back to the gutter column (busSideBadgeX). */
 export const RAIL_LANE_W_PX = 200
 export const RAIL_LANE_CORRIDOR_W_PX = 112
+/** One dense rail-chip row: the 28px glyph + py-1 twice + the 1px border,
+ *  measured 40px live at 1600×900. It is the lane body's own floor — a body
+ *  shorter than this shows no chip at all, which is what the Lambda lane did
+ *  on C1 (measured 1.75px, 2026-09-11). */
+export const RAIL_LANE_ROW_PX = 40
+
 /** Floor of one fullscreen lane, so its body always shows one full row of
  *  chips: padding 16 + the taller (Lambda) header 35 + both fold pills
- *  2 × 24 + one row of dense chips 54 = 153. The lanes render dense chips
+ *  2 × 24 + one RAIL_LANE_ROW_PX row + 14 = 153. The lanes render dense chips
  *  capped to half a row (ServiceIconShell railChip) for the same reason: a
  *  full-size inventory chip is ~82px and, with a long name, one per row, and
  *  the 96px floor the lane split shipped with could not hold one once the
- *  coverage pill took its share of the column (fixture spec, 720px tall). */
+ *  coverage pill took its share of the column (fixture spec, 720px tall).
+ *
+ *  This floor is the lane's, and a lane floor cannot protect the body inside
+ *  it: on C1 the Lambda lane was 402px — far above the floor, so it never
+ *  bound — while its body measured 1.75px and showed zero Lambda chips. The
+ *  budget above never counted the triggers band, which renders one chip per
+ *  row in a 200px lane and measured 291.5px of the 402. The body is the only
+ *  `flex: 1 1 0%` child of the lane, so it absorbed the whole overrun. What
+ *  actually protects the chips is per-child: RAIL_LANE_ROW_PX on the body,
+ *  and a content-proportional basis (`flex-auto`) on both scrolling regions
+ *  so a deficit is shared between them instead of landing on one. */
 export const RAIL_LANE_MIN_PX = 154
 
 /** Floor one lane may claim. Side by side each lane owns the column's whole
@@ -2342,9 +2358,16 @@ function RailLaneBody({
           ↑ {fold.above} above
         </button>
       ) : null}
+      {/* `flex-auto`, not `flex-1`: with a 0% basis this body is the only child
+          whose hypothetical height is zero, so every pixel the rest of the lane
+          overruns is taken out of the chips — the triggers band's 291.5px left
+          it 1.75px on C1. A content basis makes a deficit shrink both scrolling
+          regions in proportion to what they hold, and RAIL_LANE_ROW_PX is the
+          floor that keeps one chip visible whatever the arithmetic says. */}
       <div
         ref={ref}
-        className={compact ? "min-h-0 flex-1 overflow-y-auto" : undefined}
+        className={compact ? "min-h-0 flex-auto overflow-y-auto" : undefined}
+        style={compact ? { minHeight: RAIL_LANE_ROW_PX } : undefined}
         data-testid={`topology-${lane}-lane-body`}
         data-scroll-region={compact ? `${lane}-lane` : undefined}
       >
@@ -2419,8 +2442,14 @@ function ServerlessComputeTier({
   const attachmentUnverified = nodes.length - vpcAttached
   // Six "cyntro-tb-prod-c…" chips are six copies of nothing: drop the prefix
   // the lane's names share and say it once in the header (chip-names.ts).
-  const elided = elideSharedPrefix(nodes.map(node => node.name))
-  const displayName = new Map(nodes.map((node, i) => [node.id, elided.labels[i]]))
+  // Over the WHOLE lane, triggers included: C1's six EventBridge rules are named
+  // for the six Lambdas they fire, so eliding only the Lambdas left every
+  // visible trigger chip reading "cyntro-tb-prod-consu…" — this elision's own
+  // defect, one band higher (measured 2026-09-11). The header states one prefix
+  // for the lane, so it has to be a prefix of every chip it claims to cover.
+  const laneNodes = [...nodes, ...triggers]
+  const elided = elideSharedPrefix(laneNodes.map(node => node.name))
+  const displayName = new Map(laneNodes.map((node, i) => [node.id, elided.labels[i]]))
   return (
     <div
       className={compact ? "rounded-md p-2 flex flex-col min-h-0" : "rounded-md p-2.5"}
@@ -2449,7 +2478,7 @@ function ServerlessComputeTier({
           {elided.prefix ? (
             <span
               data-testid="topology-serverless-name-prefix"
-              title={`${elided.count} of ${nodes.length} chips omit this shared prefix`}
+              title={`${elided.count} of ${laneNodes.length} chips omit this shared prefix`}
             >
               {" · "}
               <span className="font-mono">{elided.prefix}</span>
@@ -2458,20 +2487,31 @@ function ServerlessComputeTier({
           ) : null}
         </div>
       </div>
+      {/* The band is a GUEST in the Lambda lane, so in a lane it scrolls on its
+          own share rather than pushing the chips out: six EventBridge triggers
+          are one per row in a 200px lane (291.5px measured on C1), which is
+          more than the whole lane had to give. `flex-auto` + `min-h-0` lets it
+          shrink alongside the body in proportion to what each holds, and the
+          header keeps stating the true count of what is inside. */}
       {triggers.length > 0 ? (
         <div
-          className="rounded p-1.5 mb-1.5"
+          className={compact ? "rounded p-1.5 mb-1.5 flex flex-col min-h-0 flex-auto" : "rounded p-1.5 mb-1.5"}
           style={{ background: "#FFFFFF", border: "1px solid #DDD6FE" }}
           data-testid="topology-triggers-band"
           data-flow-obstacle="triggers-band"
         >
           <div
-            className="text-[9px] uppercase tracking-[0.12em] font-semibold mb-1"
+            className="text-[9px] uppercase tracking-[0.12em] font-semibold mb-1 shrink-0"
             style={{ color: "#5B3C9E" }}
           >
             Triggers ({triggers.length})
           </div>
-          <div className={compact ? "flex flex-col gap-1" : "flex flex-wrap gap-1.5"}>
+          <div
+            className={compact ? "flex flex-col gap-1 min-h-0 flex-auto overflow-y-auto" : "flex flex-wrap gap-1.5"}
+            style={compact ? { minHeight: RAIL_LANE_ROW_PX } : undefined}
+            data-testid="topology-triggers-band-list"
+            data-scroll-region={compact ? "triggers-band" : undefined}
+          >
             {triggers.map(node => (
               <ServiceNodeIcon
                 key={node.id}
@@ -2480,6 +2520,7 @@ function ServerlessComputeTier({
                 onSelect={onSelect}
                 dense
                 railChip={compact}
+                displayName={displayName.get(node.id)}
               />
             ))}
           </div>
@@ -3320,6 +3361,60 @@ export function railBundleLabel(label: string, count: number): string {
   return count > 1 ? `${label} ×${count}` : label
 }
 
+/** One rail bundle, reduced to what deciding its badge needs. The two keys are
+ *  opaque identities compared for equality only — the overlay passes `keyOf`'s
+ *  per-element numbers, tests pass readable names. Neither may contain `→`. */
+export interface RailBundleBadgeInput {
+  /** Identity of the lane the traffic leaves. */
+  srcKey: string | number
+  /** Identity of the lane it reaches — the LANE, not the receiving chip. */
+  dstLaneKey: string | number
+  /** The word the badge shows, count excluded. */
+  label: string
+  /** The edges this one arrow stands for, as `source→target`. */
+  members: string[]
+  /** How many edges it stands for (a member may aggregate several). */
+  count: number
+}
+
+/** Which rail bundles say their word, and which stay silent because a sibling
+ *  already said it for the whole lane pair.
+ *
+ *  Bundling per RECEIVING CHIP is right for a fan-IN — four Lambdas writing one
+ *  bucket become a single `S3 access ×4` — but a 1:1 pairing across the same two
+ *  lanes yields one bundle per edge, each showing the identical word. C1's six
+ *  EventBridge rules firing six Lambdas measured TWELVE badges stacked in the
+ *  gutter column reading TARGETS / TRIGGERS over and over (2026-09-11, x≈945-952,
+ *  y 535-730) — the opposite of seeing the traffic between the services. So the
+ *  label collapses one level higher, at the lane pair.
+ *
+ *  Returns, by bundle index: the collapsed count + every member it now speaks
+ *  for (this bundle carries the word), `null` (a sibling carries it — draw the
+ *  arrow, print nothing), or absent (alone on its lane pair and label, so the
+ *  caller's own count stands). Arrows are never dropped: only the word moves. */
+export function collapseRailBundleBadges(
+  bundles: readonly RailBundleBadgeInput[],
+): Map<number, { count: number; members: string[] } | null> {
+  const byPair = new Map<string, number[]>()
+  bundles.forEach((bundle, i) => {
+    const key = `${bundle.srcKey}→${bundle.dstLaneKey}·${bundle.label}`
+    const idxs = byPair.get(key) ?? []
+    idxs.push(i)
+    byPair.set(key, idxs)
+  })
+  const collapse = new Map<number, { count: number; members: string[] } | null>()
+  for (const idxs of byPair.values()) {
+    if (idxs.length < 2) continue
+    const count = idxs.reduce((sum, i) => sum + bundles[i].count, 0)
+    const members = idxs.flatMap(i => bundles[i].members)
+    // The middle bundle by bus order, so the one chip sits inside its own fan
+    // rather than at the top or bottom edge of it.
+    const owner = idxs[Math.floor(idxs.length / 2)]
+    for (const i of idxs) collapse.set(i, i === owner ? { count, members } : null)
+  }
+  return collapse
+}
+
 /** The member whose evidence decides the bundle's line: an authoritative
  *  observation first, then a historical one, then the first member. */
 export function railBundleLeadEdge(edges: TrafficEdge[]): TrafficEdge {
@@ -3688,7 +3783,10 @@ function FlowOverlay({
       // badge carries the real count. Everything else routes as before.
       // Group by SOURCE LANE and TARGET CHIP: one arrow per receiving service,
       // carrying how many edges it stands for.
-      const railGroups = new Map<string, { jobs: RouteJob[]; src: HTMLElement; dst: HTMLElement; dstId: string; label: string }>()
+      const railGroups = new Map<
+        string,
+        { jobs: RouteJob[]; src: HTMLElement; dst: HTMLElement; dstLane: HTMLElement; dstId: string; label: string }
+      >()
       const drawJobs: RouteJob[] = []
       for (const j of jobs) {
         if (!j.railLanes || j.focused) {
@@ -3700,7 +3798,19 @@ function FlowOverlay({
         const key = `${keyOf(j.railLanes.src)}→${keyOf(dstChip)}·${label}`
         const group = railGroups.get(key)
         if (group) group.jobs.push(j)
-        else railGroups.set(key, { jobs: [j], src: j.railLanes.src, dst: dstChip, dstId: j.e.target_id, label })
+        else {
+          railGroups.set(key, {
+            jobs: [j],
+            src: j.railLanes.src,
+            dst: dstChip,
+            // The receiving LANE as well as the chip: grouping per chip is right
+            // for a fan-IN and makes one group per edge for a 1:1 pairing, so the
+            // label has to be collapsed a level higher (see badgeCollapse below).
+            dstLane: j.railLanes.dst,
+            dstId: j.e.target_id,
+            label,
+          })
+        }
       }
 
       // Pass 2 — lane assignment. Rail-bound legs bucket by target column and
@@ -3865,24 +3975,44 @@ function FlowOverlay({
         return rect.r > rect.l ? [rect] : []
       })
       const railBundles = [...railGroups.values()]
+      // One label per (source lane → target LANE → label), not one per receiving
+      // chip — see collapseRailBundleBadges for the C1 measurement that forced
+      // it. index → the one collapsed badge, or `null` for "a sibling carries it".
+      const badgeCollapse = collapseRailBundleBadges(
+        railBundles.map(group => ({
+          srcKey: keyOf(group.src),
+          dstLaneKey: keyOf(group.dstLane),
+          label: group.label,
+          members: group.jobs.map(j => `${j.e.source_id}→${j.e.target_id}`),
+          count: group.jobs.reduce((n, j) => n + j.count, 0),
+        })),
+      )
       const railBadgeSlots: { index: number; y: number; hw: number; busX: number }[] = []
-      let bundleIndex = 0
-      for (const group of railBundles) {
+      for (let bundleIndex = 0; bundleIndex < railBundles.length; bundleIndex += 1) {
+        const group = railBundles[bundleIndex]
         const srcRect = toNat(visibleRect(group.src, group.src.getBoundingClientRect()))
         const dstRect = toNat(visibleRect(group.dst, group.dst.getBoundingClientRect()))
         const spread = (bundleIndex - (railBundles.length - 1) / 2) * 10
         const route = railBundleRoute(srcRect, dstRect, corridors, bundleIndex, spread, railBundles.length)
-        bundleIndex += 1
         const d = orthoPath(route.pts)
         if (!d) continue
         const count = group.jobs.reduce((sum, j) => sum + j.count, 0)
-        const label = railBundleLabel(group.label, count)
         const lead = railBundleLeadEdge(group.jobs.map(j => j.e))
+        const collapsed = badgeCollapse.get(bundleIndex)
+        // `null` = collapsed onto a sibling: the arrow is drawn, the word is not
+        // repeated. Absent = this bundle is alone on its lane pair and label.
+        const label =
+          collapsed === null ? "" : railBundleLabel(group.label, collapsed?.count ?? count)
+        // Two scopes, kept apart: `members` is what THIS arrow stands for and is
+        // what the detail panel reads off `bundle`; the collapsed badge's title
+        // has to list every pair its count claims, or the chip says ×6 over a
+        // tooltip naming one.
         const members = group.jobs.map(j => `${j.e.source_id}→${j.e.target_id}`)
+        const titleMembers = collapsed?.members ?? members
         // On its own line in the gap between the lanes when the label fits
         // there; only the ones that don't join the left-gutter column below.
-        const onLineX = busSideBadgeX(route.bus.x, route.corridor, badgeHalfWidth(label))
-        if (onLineX === null) {
+        const onLineX = label ? busSideBadgeX(route.bus.x, route.corridor, badgeHalfWidth(label)) : null
+        if (label && onLineX === null) {
           railBadgeSlots.push({
             index: next.length,
             y: route.label.y,
@@ -3901,7 +4031,10 @@ function FlowOverlay({
           badgeX: onLineX ?? route.label.x - badgeHalfWidth(label) - 6,
           badgeY: onLineX === null ? route.label.y : route.bus.y,
           badgeLabel: label,
-          badgeTitle: [label, ...members].join("\n"),
+          // No word, no tooltip — the same pairing the de-overlap pass above
+          // uses when it suppresses a badge. A title alone would put a hover
+          // hint on a chip that isn't there.
+          badgeTitle: label ? [label, ...titleMembers].join("\n") : undefined,
           isExposed: group.jobs.some(j => Boolean(j.e.is_exposed)),
           highlight: group.jobs.some(j => j.highlight === "attack_path") ? "attack_path" : null,
           focused: false,
