@@ -3660,12 +3660,15 @@ export function railInboundCaption(
  *  claims a route table the payload does not carry: the IGW is reported with
  *  the workloads whose egress the map routes through it, an endpoint with the
  *  workloads that reach it, and "not observed" is the honest word for zero. */
-export function boundaryIgwCaption(edges: readonly TrafficEdge[]): string {
-  const sources = new Set(
-    edges
-      .filter(e => e.target_id === "__igw__" || e.via_igw || e.egress_path === "public")
-      .map(e => e.source_id),
-  )
+export function boundaryIgwCaption(
+  edges: readonly TrafficEdge[],
+  igw: { id: string; primary: boolean },
+): string {
+  // The `__igw__` sentinel and the public-path routing name the frame's FIRST
+  // gateway; a further IGW is only reached by an edge that names its id.
+  const reaches = (e: TrafficEdge) =>
+    e.target_id === igw.id || (igw.primary && (e.target_id === "__igw__" || Boolean(e.via_igw) || e.egress_path === "public"))
+  const sources = new Set(edges.filter(reaches).map(e => e.source_id))
   const n = sources.size
   return n > 0 ? `egress: ${n} workload${n === 1 ? "" : "s"}` : "egress: not observed"
 }
@@ -6370,7 +6373,6 @@ function VpcBoundaryColumn({
   selectedNodeId: string | null
   onSelect: (id: string) => void
 }) {
-  const igwCaption = boundaryIgwCaption(edges)
   return (
     <div
       className="flex flex-col self-stretch min-h-0 z-10"
@@ -6414,7 +6416,7 @@ function VpcBoundaryColumn({
                   data-testid="topology-boundary-caption"
                   title="Workloads whose egress the map routes through this gateway — counted from the drawn edges."
                 >
-                  {igwCaption}
+                  {boundaryIgwCaption(edges, { id: igw.id, primary: idx === 0 })}
                 </div>
               </div>
             )

@@ -205,7 +205,13 @@ test("fullscreen platform map shows named Lambda, protected AZ labels, direction
   // the IGW counts workloads, at least one endpoint is in use, and an unused one
   // says "not observed" rather than inventing a number.
   expect(boundaryGeom!.captions).toHaveLength(igwChips + vpceChips)
-  for (const caption of boundaryGeom!.captions.slice(0, igwChips)) expect(caption).toMatch(/^egress: \d+ workloads?$/)
+  // The first IGW is the one the egress edges name; a further one on this frame
+  // (this payload also carries the OTHER VPC's gateway, which falls to the
+  // primary frame) is reached by nothing and says so.
+  for (const caption of boundaryGeom!.captions.slice(0, igwChips)) {
+    expect(caption).toMatch(/^egress: (\d+ workloads?|not observed)$/)
+  }
+  expect(boundaryGeom!.captions[0]).toMatch(/^egress: \d+ workloads?$/)
   for (const caption of boundaryGeom!.captions.slice(igwChips)) expect(caption).toMatch(/^use: (\d+ workloads?|not observed)$/)
   expect(boundaryGeom!.captions.slice(igwChips).some(caption => /^use: \d+ workload/.test(caption))).toBe(true)
   expect(boundaryGeom!.captions.slice(igwChips)).toContain("use: not observed")

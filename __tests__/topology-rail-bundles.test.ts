@@ -632,10 +632,18 @@ describe("boundary captions", () => {
       edge({ source_id: "i-1", target_id: "arn:aws:s3:::b", edge_class: "edge_service", via_igw: true }),
       edge({ source_id: "i-3", target_id: "arn:aws:s3:::b", edge_class: "edge_service", egress_path: "public" }),
     ]
-    expect(boundaryIgwCaption(edges)).toBe("egress: 3 workloads")
-    expect(boundaryIgwCaption([edges[0]])).toBe("egress: 1 workload")
-    expect(boundaryIgwCaption([edge({ source_id: "i-1", target_id: "arn:aws:s3:::b", edge_class: "edge_service" })])).toBe(
-      "egress: not observed",
+    const primary = { id: "igw-main", primary: true }
+    expect(boundaryIgwCaption(edges, primary)).toBe("egress: 3 workloads")
+    expect(boundaryIgwCaption([edges[0]], primary)).toBe("egress: 1 workload")
+    expect(
+      boundaryIgwCaption([edge({ source_id: "i-1", target_id: "arn:aws:s3:::b", edge_class: "edge_service" })], primary),
+    ).toBe("egress: not observed")
+    // A second gateway on the frame is not the `__igw__` the egress edges name:
+    // it counts only edges that name its own id, or it says so.
+    const extra = { id: "igw-extra", primary: false }
+    expect(boundaryIgwCaption(edges, extra)).toBe("egress: not observed")
+    expect(boundaryIgwCaption([edge({ source_id: "i-7", target_id: "igw-extra", edge_class: "egress" })], extra)).toBe(
+      "egress: 1 workload",
     )
   })
 
