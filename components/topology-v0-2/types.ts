@@ -219,6 +219,11 @@ export interface EdgeNatGw {
   name: string
   subnet_id: string | null
   vpc_id?: string | null
+  /** The address the internet sees a NAT-routed workload as. Collected by
+   *  the NAT collector, surfaced by the backend since the egress path
+   *  contract; absent on older deploys. */
+  public_ip?: string | null
+  connectivity_type?: string | null
 }
 
 export interface EdgeVpce {
