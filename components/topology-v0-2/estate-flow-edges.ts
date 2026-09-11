@@ -394,18 +394,22 @@ export function selectEstateFlowEdges(opts: {
  *                              primary-IGW anchor "__igw__")
  *   via_igw / egress_path    → the IGW alone (the pre-hop contract)
  *
- * A hop equal to the edge's own target is dropped: an `egress` edge already
- * terminates at "__igw__", so its IGW hop IS the destination. The renderer
- * resolves each id against the DOM and skips a chip it cannot find, so the
- * worst case is a shorter line, never an invented one.
+ * A hop that IS the edge's own destination is dropped: an `egress` edge already
+ * terminates at the "__igw__" anchor (the primary IGW chip), so an IGW hop of
+ * any spelling would only repeat the destination. The renderer resolves each
+ * id against the DOM and skips a chip it cannot find, so the worst case is a
+ * shorter line, never an invented one.
  */
 export function egressHopFlowIds(
   e: Pick<TrafficEdge, "target_id"> &
     Partial<Pick<TrafficEdge, "egress_hops" | "via_vpce_id" | "via_nat_id" | "via_igw_id" | "via_igw" | "egress_path">>,
 ): string[] {
   const ids: string[] = []
+  const isIgw = (id: string) => id === "__igw__" || id.startsWith("igw-")
+  const isDestination = (id: string) =>
+    id === e.target_id || (e.target_id === "__igw__" && isIgw(id))
   const push = (id: string | null | undefined) => {
-    if (id && id !== e.target_id && !ids.includes(id)) ids.push(id)
+    if (id && !isDestination(id) && !ids.includes(id)) ids.push(id)
   }
   if (e.egress_hops && e.egress_hops.length > 0) {
     for (const hop of e.egress_hops) push(hop?.id)
