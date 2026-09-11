@@ -351,6 +351,15 @@ export interface EgressDestination {
   last_seen?: string | null
 }
 
+/** One hop the source subnet's route table puts between a workload and the
+ *  internet: the NAT gateway (in its own subnet), then the IGW; or a gateway
+ *  VPC endpoint. Structural facts only, in path order. */
+export interface EgressHop {
+  kind: "nat" | "igw" | "vpce" | string
+  id: string
+  subnet_id?: string | null
+}
+
 export interface TrafficEdge {
   source_id: string
   // For egress edges this is the sentinel "__igw__" — the FE terminates
@@ -412,6 +421,21 @@ export interface TrafficEdge {
   /** The busiest destinations behind an outbound edge; `external_destinations`
    *  is the full count. Absent on internal / database edges and on older BE. */
   destinations?: EgressDestination[] | null
+  /** The route the source subnet's default route establishes, in the ratified
+   *  S3_TRANSPORT_PROVENANCE_v1 vocabulary (fail-closed: TGW / peering /
+   *  blackhole / unfresh inventory → AMBIGUOUS). Absent on older BE; null when
+   *  this deploy did not compute it. Never a confidence number. */
+  structural_route?: "VPCE" | "NAT" | "IGW" | "NO_VPC_CONTEXT" | "AMBIGUOUS" | null
+  /** The NAT gateway the default route names when `structural_route` is NAT. */
+  via_nat_id?: string | null
+  /** The IGW the traffic leaves through — directly, or after the NAT. */
+  via_igw_id?: string | null
+  /** Ordered hops between the source chip and the destination. The renderer
+   *  routes the line through each hop chip it can find and never invents one
+   *  it cannot; a missing chip means a shorter line, not a guessed one. */
+  egress_hops?: EgressHop[] | null
+  route_basis?: string | null
+  route_last_seen?: string | null
   /** Lane 3 — attack-path overlay uses IAP PathEdgeDetail rows. */
   flow_highlight?: "attack_path" | null
 }

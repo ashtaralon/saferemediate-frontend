@@ -5,6 +5,7 @@ import {
   ensureAwsPublicServiceSentinels,
   formatEgressBreakdownBadge,
   formatEgressDestinationsTitle,
+  formatEgressRouteLine,
 } from "@/components/topology-v0-2/aws-frame"
 import type { TopologyNode, TrafficEdge } from "@/components/topology-v0-2/types"
 
@@ -125,6 +126,40 @@ describe("formatEgressDestinationsTitle", () => {
   it("is just the badge when the backend sent no destinations", () => {
     expect(formatEgressDestinationsTitle({ destinations: null }, "egress")).toBe("egress")
     expect(formatEgressDestinationsTitle({ external_destinations: 4 }, "egress · 4 dest")).toBe("egress · 4 dest")
+  })
+
+  it("puts the route line between the badge and the destinations", () => {
+    const title = formatEgressDestinationsTitle(
+      {
+        external_destinations: 1,
+        destinations: [{ address: "52.95.1.11", kind: "external", port: 443, observation_count: 42 }],
+        via_nat_id: "nat-0fd7",
+        via_igw_id: "igw-01b6",
+      },
+      "egress · 1 · via NAT",
+    )
+    expect(title.split("\n")).toEqual([
+      "egress · 1 · via NAT",
+      "route · NAT nat-0fd7 → IGW igw-01b6",
+      "52.95.1.11 · external · :443 · 42 obs",
+    ])
+  })
+})
+
+describe("formatEgressRouteLine", () => {
+  it("names the hops the backend established, in order", () => {
+    expect(formatEgressRouteLine({
+      egress_hops: [{ kind: "nat", id: "nat-1" }, { kind: "igw", id: "igw-1" }],
+    })).toBe("route · NAT nat-1 → IGW igw-1")
+    expect(formatEgressRouteLine({ via_vpce_id: "vpce-9" })).toBe("route · VPCE vpce-9")
+    expect(formatEgressRouteLine({ via_nat_id: "nat-1" })).toBe("route · NAT nat-1 → IGW (primary)")
+  })
+
+  it("says unresolved when the backend looked and could not pin a route, and nothing when it made no claim", () => {
+    expect(formatEgressRouteLine({ structural_route: "AMBIGUOUS" })).toBe("route · unresolved (AMBIGUOUS)")
+    expect(formatEgressRouteLine({ structural_route: "NO_VPC_CONTEXT" })).toBe("route · unresolved (NO_VPC_CONTEXT)")
+    expect(formatEgressRouteLine({})).toBeNull()
+    expect(formatEgressRouteLine({ structural_route: null })).toBeNull()
   })
 })
 

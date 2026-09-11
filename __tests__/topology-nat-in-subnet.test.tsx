@@ -120,6 +120,8 @@ describe("NAT gateway placement on the estate map", () => {
     const chips = screen.getAllByTestId("topology-nat-gateway-chip")
     expect(chips).toHaveLength(1)
     expect(chips[0]).toHaveAttribute("data-nat-placement", "subnet")
+    // The chip is a flow anchor: a NAT-routed egress line is drawn through it.
+    expect(chips[0].getAttribute("data-flow-id")).toBe(chips[0].getAttribute("data-nat-id"))
     expect(chips[0]).toHaveTextContent("NAT GW · cyntro-tb-nat-1a")
     const webCell = document.querySelector('[data-testid^="topology-subnet-cell"][title*="subnet-web-1a"]')
     expect(webCell).not.toBeNull()

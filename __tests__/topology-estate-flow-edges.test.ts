@@ -6,6 +6,7 @@ import {
   filterMergedVpcOverlayEdges,
   mergeTrafficEdges,
   selectEstateFlowEdges,
+  egressHopFlowIds,
 } from "@/components/topology-v0-2/estate-flow-edges"
 import type { TopologyNode } from "@/components/topology-v0-2/types"
 
@@ -352,5 +353,40 @@ describe("filterMergedVpcOverlayEdges", () => {
       { railIds: new Set(["s3"]), vpceIds: new Set(["vpce-1"]) },
     )
     expect(out).toHaveLength(4)
+  })
+})
+
+
+describe("egressHopFlowIds", () => {
+  it("routes a NAT-routed public-path edge through the NAT chip and then the IGW", () => {
+    expect(egressHopFlowIds({ target_id: "__aws_s3__", via_nat_id: "nat-1", via_igw_id: "igw-1" }))
+      .toEqual(["nat-1", "igw-1"])
+    expect(egressHopFlowIds({ target_id: "__aws_s3__", via_nat_id: "nat-1" }))
+      .toEqual(["nat-1", "__igw__"])
+  })
+
+  it("drops a hop that is the edge's own destination: an egress edge already ends at the IGW", () => {
+    expect(egressHopFlowIds({ target_id: "__igw__", via_nat_id: "nat-1", via_igw_id: "igw-1" }))
+      .toEqual(["nat-1"])
+    expect(egressHopFlowIds({ target_id: "__igw__", via_igw: true })).toEqual([])
+  })
+
+  it("prefers the BE's ordered hops when it sent them", () => {
+    expect(egressHopFlowIds({
+      target_id: "__aws_api__",
+      via_nat_id: "nat-other",
+      egress_hops: [{ kind: "nat", id: "nat-1", subnet_id: "subnet-a" }, { kind: "igw", id: "igw-1" }],
+    })).toEqual(["nat-1", "igw-1"])
+  })
+
+  it("keeps the VPCE and the plain-IGW contracts as they were", () => {
+    expect(egressHopFlowIds({ target_id: "arn:aws:s3:::b", via_vpce_id: "vpce-1" })).toEqual(["vpce-1"])
+    expect(egressHopFlowIds({ target_id: "__aws_s3__", via_igw: true })).toEqual(["__igw__"])
+    expect(egressHopFlowIds({ target_id: "__aws_s3__", egress_path: "public", via_igw_id: "igw-2" })).toEqual(["igw-2"])
+  })
+
+  it("names no hop without a fact", () => {
+    expect(egressHopFlowIds({ target_id: "i-worker" })).toEqual([])
+    expect(egressHopFlowIds({ target_id: "__aws_s3__", structural_route: "AMBIGUOUS" } as never)).toEqual([])
   })
 })
