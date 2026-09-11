@@ -128,6 +128,43 @@ describe("formatEgressDestinationsTitle", () => {
     expect(formatEgressDestinationsTitle({ external_destinations: 4 }, "egress · 4 dest")).toBe("egress · 4 dest")
   })
 
+  it("falls back to the legacy sampled hosts when the edge carries no destinations", () => {
+    // C1 serves the map in legacy traffic-authority mode (live QA run
+    // 34656422629): the edge has egress_breakdown[].sample_hosts and a count,
+    // never `destinations`. The samples are observed peers, so they are named.
+    const title = formatEgressDestinationsTitle(
+      {
+        external_destinations: 32,
+        destinations: [],
+        egress_breakdown: [
+          { kind: "external", count: 32, sample_hosts: ["3.5.73.1", "3.5.72.73"] },
+        ],
+        via_nat_id: "nat-0fd7",
+        via_igw_id: "igw-01b6",
+      },
+      "egress · 32 (ext 32) · via NAT",
+    )
+    expect(title.split("\n")).toEqual([
+      "egress · 32 (ext 32) · via NAT",
+      "route · NAT nat-0fd7 → IGW igw-01b6",
+      "3.5.73.1 · external",
+      "3.5.72.73 · external",
+      "+30 more",
+    ])
+  })
+
+  it("prefers the projected destinations over the legacy samples when both exist", () => {
+    const title = formatEgressDestinationsTitle(
+      {
+        external_destinations: 2,
+        destinations: [{ address: "52.95.1.11", kind: "external", port: 443, observation_count: 42 }],
+        egress_breakdown: [{ kind: "external", count: 2, sample_hosts: ["52.95.1.11", "52.95.1.12"] }],
+      },
+      "egress · 2",
+    )
+    expect(title.split("\n")).toEqual(["egress · 2", "52.95.1.11 · external · :443 · 42 obs", "+1 more"])
+  })
+
   it("puts the route line between the badge and the destinations", () => {
     const title = formatEgressDestinationsTitle(
       {
