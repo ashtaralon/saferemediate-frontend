@@ -711,6 +711,16 @@ interface FullscreenMeasure {
   cells_under_az_headers: number
   igw_chips: number
   vpce_chips: number
+  /** The VPC BOUNDARY column (IGW top, endpoints bottom) beside the frame, and its captions. */
+  vpc_boundary_column: boolean
+  boundary_captions: string[]
+  /** Rail bundle shapes (2026-09-11): same-lane trunks, feeder legs + their per-member marks, and the words the trunks carry. */
+  rail_trunks: number
+  rail_bundle_paths: number
+  rail_feeder_legs: number
+  rail_feeder_marks: number
+  rail_bundle_words: string[]
+  rail_chip_captions: string[]
   users_internet_strip: boolean
   subnet_cells: number
   labels_over_rail_chips: Array<{ label: string; chip: string | null }>
@@ -834,6 +844,19 @@ async function measureFullscreen(page: Page): Promise<FullscreenMeasure> {
       })(),
       igw_chips: count('[data-testid="topology-igw-rail-chip"]'),
       vpce_chips: count('[data-testid="topology-vpce-rail-chip"]'),
+      vpc_boundary_column: Boolean(root.querySelector('[data-testid="topology-vpc-boundary-column"]')),
+      boundary_captions: Array.from(root.querySelectorAll('[data-testid="topology-boundary-caption"]')).map(el => text(el)),
+      rail_trunks: count('g[data-flow-target^="trunk:"]'),
+      rail_bundle_paths: count("g[data-flow-bundle]"),
+      rail_feeder_legs: Array.from(root.querySelectorAll("[data-flow-feeder-legs]")).reduce(
+        (n, el) => n + ((el.getAttribute("d") ?? "").match(/M /g) ?? []).length,
+        0,
+      ),
+      rail_feeder_marks: count("[data-flow-feeder]"),
+      rail_bundle_words: Array.from(
+        root.querySelectorAll('[data-testid="topology-flow-badge"]:not([data-flow-feeder]) text'),
+      ).map(el => text(el)),
+      rail_chip_captions: Array.from(root.querySelectorAll('[data-testid="topology-chip-caption"]')).map(el => text(el)),
       users_internet_strip: Boolean(root.querySelector('[data-testid="topology-users-internet-strip"]')),
       subnet_cells: count('[data-testid="topology-subnet-cell-chrome"]'),
       // Labels painted over rail chips and nodes drawn with the unknown glyph:

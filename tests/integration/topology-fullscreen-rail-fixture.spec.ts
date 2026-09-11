@@ -176,10 +176,18 @@ test("fullscreen: each off-VPC rail lane scrolls in its track, both lanes stay o
     const expected = edges
       .filter(edge => inRail(edge.source_id) && inRail(edge.target_id))
       .map(edge => `${edge.source_id}→${edge.target_id}`)
+    // A bundle's own label is the trunk's badge; the "API" badges on its feeder
+    // legs are per-member marks, excluded here (`data-flow-feeder`).
+    const bundleLabel = (group: Element) =>
+      group.querySelector('[data-testid="topology-flow-badge"]:not([data-flow-feeder]) text')?.textContent ?? ""
     const bundles = Array.from(root.querySelectorAll<SVGGElement>("g[data-flow-bundle]")).map(group => ({
       count: Number(group.getAttribute("data-flow-bundle")),
       members: (group.getAttribute("data-flow-members") ?? "").split("|").filter(Boolean),
-      label: group.querySelector("text")?.textContent ?? "",
+      label: bundleLabel(group),
+      // Feeders: one dotted leg and one "API" badge per member, or none for a
+      // bundle drawn as a plain trunk (a same-lane stub).
+      feederLegs: ((group.querySelector("[data-flow-feeder-legs]")?.getAttribute("d") ?? "").match(/M /g) ?? []).length,
+      feederBadges: group.querySelectorAll("[data-flow-feeder]").length,
       source: group.getAttribute("data-flow-source"),
       target: group.getAttribute("data-flow-target"),
     }))
@@ -225,7 +233,7 @@ test("fullscreen: each off-VPC rail lane scrolls in its track, both lanes stay o
       }
       if (hit.size > 0) {
         pathsOverChips.push({
-          label: group.querySelector("text")?.textContent ?? "",
+          label: bundleLabel(group),
           target: group.getAttribute("data-flow-target"),
           chips: [...hit],
         })
@@ -245,7 +253,19 @@ test("fullscreen: each off-VPC rail lane scrolls in its track, both lanes stay o
       bundle.members.every(member => member.endsWith(`→${bundle.target}`)),
       `every member of ${bundle.label} ends at ${bundle.target}`,
     ).toBe(true)
+    // A feeder bundle gives EVERY member its own leg to the bus and its own
+    // "API" mark at the chip it leaves — the Lambda → S3 shape Alon asked for
+    // (2026-09-11): follow a function to the bus, the bus to the bucket. A
+    // bundle with no legs is a same-lane stub and has no marks either.
+    if (bundle.feederLegs > 0) {
+      expect(bundle.feederLegs, `bundle ${bundle.label} has one leg per member`).toBe(bundle.members.length)
+      expect(bundle.feederBadges, `bundle ${bundle.label} marks every leg`).toBe(bundle.members.length)
+    } else {
+      expect(bundle.feederBadges).toBe(0)
+    }
   }
+  // Non-vacuous: this payload's Lambda → S3 access is a feeder bundle.
+  expect(bundling.bundles.some(bundle => bundle.feederLegs > 0), "a feeder bundle is drawn").toBe(true)
   expect(bundling.labelsOverChips, "no flow label paints over a rail chip").toEqual([])
   expect(bundling.pathsOverChips, "no bundle path is drawn across a rail chip").toEqual([])
 
@@ -275,15 +295,17 @@ test("fullscreen: each off-VPC rail lane scrolls in its track, both lanes stay o
       const entry = pairs.get(key) ?? { words: [], arrows: 0 }
       entry.arrows += 1
       // The count is the part that legitimately differs; the repeated WORD is
-      // the defect, so compare the label with its `×N` stripped.
-      const label = group.querySelector('[data-testid="topology-flow-badge"] text')?.textContent ?? ""
+      // the defect, so compare the label with its `×N` stripped. The trunk's
+      // badge only: the per-member "API" marks on feeder legs are not labels.
+      const label =
+        group.querySelector('[data-testid="topology-flow-badge"]:not([data-flow-feeder]) text')?.textContent ?? ""
       const word = label.replace(/\s*×\s*\d+\s*$/, "").trim()
       if (word) entry.words.push(word)
       pairs.set(key, entry)
     }
-    const badges = Array.from(root.querySelectorAll('[data-testid="topology-flow-badge"] text')).map(
-      t => (t.textContent ?? "").trim(),
-    )
+    const badges = Array.from(
+      root.querySelectorAll('[data-testid="topology-flow-badge"]:not([data-flow-feeder]) text'),
+    ).map(t => (t.textContent ?? "").trim())
     return { pairs: [...pairs.entries()].map(([key, v]) => ({ key, ...v })), badges }
   })
   console.log(`RAIL LABELLING ${JSON.stringify(labelling)}`)
@@ -456,6 +478,8 @@ test("fullscreen: each off-VPC rail lane scrolls in its track, both lanes stay o
       badge: { l: number; t: number; r: number; b: number } | null
       railLeft: number
       targetId: string | null
+      /** Where each feeder leg leaves — a member chip's edge — in screen coordinates. */
+      legStarts: Array<{ x: number; y: number }>
     }> = []
     const railLeft = root
       .querySelector('[data-testid="topology-edge-services-rail"]')!
@@ -468,15 +492,23 @@ test("fullscreen: each off-VPC rail lane scrolls in its track, both lanes stay o
       const p1 = path.getPointAtLength(path.getTotalLength())
       const start = new DOMPoint(p0.x, p0.y).matrixTransform(ctm)
       const end = new DOMPoint(p1.x, p1.y).matrixTransform(ctm)
+      // The legs are one path of `M x y …` subpaths; each subpath's first point
+      // is where a member leaves its chip.
+      const legsD = group.querySelector("[data-flow-feeder-legs]")?.getAttribute("d") ?? ""
+      const legStarts = Array.from(legsD.matchAll(/M\s+(-?[\d.]+)\s+(-?[\d.]+)/g)).map(m => {
+        const pt = new DOMPoint(Number(m[1]), Number(m[2])).matrixTransform(ctm)
+        return { x: pt.x, y: pt.y }
+      })
       out.push({
-        label: group.querySelector("text")?.textContent ?? "",
+        label: group.querySelector('[data-testid="topology-flow-badge"]:not([data-flow-feeder]) text')?.textContent ?? "",
         start: { x: start.x, y: start.y },
         end: { x: end.x, y: end.y },
         source: laneBox(group.getAttribute("data-flow-source")),
         target: chipBox(group.getAttribute("data-flow-target")),
         targetId: group.getAttribute("data-flow-target"),
-        badge: box(group.querySelector('[data-testid="topology-flow-badge"] rect')),
+        badge: box(group.querySelector('[data-testid="topology-flow-badge"]:not([data-flow-feeder]) rect')),
         railLeft,
+        legStarts,
       })
     }
     return out
@@ -564,8 +596,26 @@ test("fullscreen: each off-VPC rail lane scrolls in its track, both lanes stay o
     // leaves the left edge. What must hold is that it leaves on an edge of its
     // own lane rather than out of the middle of it, and enters its target the
     // same way — that is what keeps it off the chips it passes.
-    const leavesAnEdge = Math.min(Math.abs(b.start.x - b.source!.l), Math.abs(b.start.x - b.source!.r))
-    expect(leavesAnEdge, `bundle ${b.label} leaves its source lane on a vertical edge`).toBeLessThanOrEqual(tolerance)
+    //
+    // A FEEDER bundle leaves the lane once per member: each dotted leg starts
+    // at its own chip's edge, and the trunk starts where the farthest leg has
+    // already joined the bus, inside a corridor. A plain bundle (a same-lane
+    // stub) starts at the lane's edge itself.
+    if (b.legStarts.length > 0) {
+      expect(
+        corridorBands.some(c => b.start.x >= c.l - 2 && b.start.x <= c.r + 2),
+        `bundle ${b.label}'s trunk starts on a bus in a corridor (x=${Math.round(b.start.x)}, bands ${JSON.stringify(corridorBands)})`,
+      ).toBe(true)
+      for (const leg of b.legStarts) {
+        const leavesAnEdge = Math.min(Math.abs(leg.x - b.source!.l), Math.abs(leg.x - b.source!.r))
+        expect(leavesAnEdge, `a leg of ${b.label} leaves a chip on its source lane's edge`).toBeLessThanOrEqual(tolerance)
+        expect(leg.y, `a leg of ${b.label} leaves within its source lane`).toBeGreaterThanOrEqual(b.source!.t - tolerance)
+        expect(leg.y, `a leg of ${b.label} leaves within its source lane`).toBeLessThanOrEqual(b.source!.b + tolerance)
+      }
+    } else {
+      const leavesAnEdge = Math.min(Math.abs(b.start.x - b.source!.l), Math.abs(b.start.x - b.source!.r))
+      expect(leavesAnEdge, `bundle ${b.label} leaves its source lane on a vertical edge`).toBeLessThanOrEqual(tolerance)
+    }
     expect(b.start.y, `bundle ${b.label} leaves within its source lane`).toBeGreaterThanOrEqual(b.source!.t - tolerance)
     expect(b.start.y, `bundle ${b.label} leaves within its source lane`).toBeLessThanOrEqual(b.source!.b + tolerance)
     const target = b.target!
