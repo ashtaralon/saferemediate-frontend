@@ -581,19 +581,30 @@ export function formatEgressBreakdownBadge(
  *  that is not outbound). Addresses only: the BE invents no hostname. */
 export function formatEgressDestinationsTitle(
   e: Pick<TrafficEdge, "destinations" | "external_destinations"> &
-    Partial<Pick<TrafficEdge, "egress_hops" | "via_nat_id" | "via_igw_id" | "via_vpce_id" | "structural_route">>,
+    Partial<Pick<TrafficEdge, "egress_breakdown" | "egress_hops" | "via_nat_id" | "via_igw_id" | "via_vpce_id" | "structural_route">>,
   badgeLabel: string,
 ): string {
   const route = formatEgressRouteLine(e)
   const dests = (e.destinations ?? []).filter(d => d && d.address)
-  if (dests.length === 0) return route ? `${badgeLabel}\n${route}` : badgeLabel
-  const total = e.external_destinations ?? dests.length
-  const lines = dests.map(d => {
-    const port = d.port != null ? ` · :${d.port}` : ""
-    const obs = d.observation_count != null ? ` · ${d.observation_count} obs` : ""
-    return `${d.address} · ${d.kind}${port}${obs}`
-  })
-  const more = total > dests.length ? [`+${total - dests.length} more`] : []
+  // The legacy fetcher (the path C1 serves in "legacy" traffic-authority mode)
+  // carries no `destinations`; it keeps up to five sampled addresses per kind
+  // in `egress_breakdown[].sample_hosts`. Those are real observed peers, so
+  // they name the destinations too -- without a port or an observation count,
+  // which that shape never had.
+  const sampled = dests.length > 0 ? [] : (e.egress_breakdown ?? []).flatMap(b =>
+    (b.sample_hosts ?? []).filter(Boolean).map(address => ({ address, kind: b.kind })),
+  )
+  if (dests.length === 0 && sampled.length === 0) return route ? `${badgeLabel}\n${route}` : badgeLabel
+  const named = dests.length > 0 ? dests.length : sampled.length
+  const total = e.external_destinations ?? named
+  const lines = dests.length > 0
+    ? dests.map(d => {
+        const port = d.port != null ? ` · :${d.port}` : ""
+        const obs = d.observation_count != null ? ` · ${d.observation_count} obs` : ""
+        return `${d.address} · ${d.kind}${port}${obs}`
+      })
+    : sampled.map(d => `${d.address} · ${d.kind}`)
+  const more = total > named ? [`+${total - named} more`] : []
   return [badgeLabel, ...(route ? [route] : []), ...lines, ...more].join("\n")
 }
 
