@@ -11,9 +11,13 @@
 import { describe, expect, it } from "vitest"
 
 import {
+  RAIL_FEEDER_BADGE_INSET,
   RAIL_LANE_CORRIDOR_W_PX,
   RAIL_LANE_W_PX,
   badgeHalfWidth,
+  boundaryIgwCaption,
+  boundaryVpceCaption,
+  busCenteredBadgeX,
   busFanOffset,
   busSideBadgeX,
   collapseRailBundleBadges,
@@ -21,7 +25,12 @@ import {
   railBundleLabel,
   railBundleLeadEdge,
   railBundleRoute,
+  railFeederLabel,
+  railFeederRoute,
+  railInboundCaption,
+  railTrunkRoute,
   stackBundleBadges,
+  trunkBusX,
 } from "@/components/topology-v0-2/aws-frame"
 import type { RailBundleBadgeInput } from "@/components/topology-v0-2/aws-frame"
 import { ALL_ACCESS_EDGE_TYPES } from "@/components/topology-v0-2/estate-flow-edges"
@@ -405,5 +414,248 @@ describe("edgeBadgeLabel", () => {
         expect(edgeBadgeLabel(edge({ protocol: type }), cls, false, false), `${type} as ${cls}`).not.toContain("_")
       }
     }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Trunks and feeders (Alon, 2026-09-11). The same lane geometry as above.
+// ---------------------------------------------------------------------------
+const RAIL_R2 = 1772
+const regionalLane2 = rect(RAIL_R2 - RAIL_LANE_W_PX, 254, RAIL_R2, 911)
+const interlane2 = rect(regionalLane2.l - RAIL_LANE_CORRIDOR_W_PX, 254, regionalLane2.l, 911)
+const serverlessLane2 = rect(interlane2.l - RAIL_LANE_W_PX, 254, interlane2.l, 911)
+const leftGutter2 = rect(serverlessLane2.l - 60, 254, serverlessLane2.l - 12, 911)
+const corridors2 = [leftGutter2, interlane2]
+const bucketChip2 = rect(regionalLane2.l + 8, 700, regionalLane2.r - 8, 740)
+const lambdaChip2 = rect(serverlessLane2.l + 8, 300, serverlessLane2.r - 8, 340)
+
+describe("railBundleRoute with a feeder inset", () => {
+  it("moves the bus into the corridor by the inset and keeps the whole fan inside it", () => {
+    const first = railBundleRoute(serverlessLane2, bucketChip2, corridors2, 0, 0, 1, RAIL_FEEDER_BADGE_INSET)
+    expect(first.bus.x).toBe(interlane2.l + 8 + RAIL_FEEDER_BADGE_INSET)
+    for (const total of [2, 11, 40]) {
+      for (let i = 0; i < total; i++) {
+        const { bus } = railBundleRoute(serverlessLane2, bucketChip2, corridors2, i, 0, total, RAIL_FEEDER_BADGE_INSET)
+        expect(bus.x).toBeGreaterThanOrEqual(interlane2.l + 8 + RAIL_FEEDER_BADGE_INSET)
+        expect(bus.x).toBeLessThanOrEqual(interlane2.r - 8)
+      }
+    }
+  })
+
+  it("is the classic bus when no inset is asked for", () => {
+    expect(railBundleRoute(serverlessLane2, bucketChip2, corridors2, 0).bus.x).toBe(interlane2.l + 8)
+  })
+})
+
+describe("busCenteredBadgeX", () => {
+  const corridor = { l: interlane2.l, r: interlane2.r }
+  const feederBus = corridor.l + 8 + RAIL_FEEDER_BADGE_INSET
+
+  it("lays a label the corridor can hold ON its bus, kept inside the corridor", () => {
+    const hw = badgeHalfWidth("S3 access ×4")
+    // Beside the bus there is no room once the bus sits 42px in — which is why
+    // the centred placement exists.
+    expect(busSideBadgeX(feederBus, corridor, hw)).toBeNull()
+    const x = busCenteredBadgeX(feederBus, corridor, hw)
+    expect(x).not.toBeNull()
+    expect(x! - hw).toBeGreaterThanOrEqual(corridor.l + 2)
+    expect(x! + hw).toBeLessThanOrEqual(corridor.r - 2)
+    // Only slid as far off the bus as the corridor's edge forces.
+    expect(Math.abs(x! - feederBus)).toBeLessThan(hw)
+  })
+
+  it("refuses a label wider than the corridor, so the caller falls back to the gutter column", () => {
+    expect(busCenteredBadgeX(feederBus, corridor, badgeHalfWidth("ACTUAL_S3_ACCESS ×12 · via VPCE"))).toBeNull()
+  })
+
+  it("has nowhere to put it without a corridor", () => {
+    expect(busCenteredBadgeX(feederBus, null, 20)).toBeNull()
+  })
+})
+
+describe("trunkBusX", () => {
+  it("runs in the nearest corridor LEFT of the lane, 12px in from its right edge", () => {
+    expect(trunkBusX(serverlessLane2, corridors2)).toBe(leftGutter2.r - 12)
+    // The inter-lane corridor lies left of the Regional lane, so that lane's
+    // trunk runs there — never the gutter across the Lambda lane.
+    expect(trunkBusX(regionalLane2, corridors2)).toBe(interlane2.r - 12)
+  })
+
+  it("sits just left of the lane when the frame renders no corridor", () => {
+    expect(trunkBusX(serverlessLane2, [])).toBe(serverlessLane2.l - 14)
+  })
+
+  it("stays inside a corridor too narrow for the 12px inset", () => {
+    expect(trunkBusX({ l: 100 }, [rect(96, 0, 99, 10)])).toBe(100)
+  })
+})
+
+describe("railTrunkRoute", () => {
+  // The C1 shape: the triggers band at the top of the Lambda lane and six
+  // functions under it, one per RAIL_LANE_ROW_PX row.
+  const band = rect(serverlessLane2.l + 8, 300, serverlessLane2.r - 8, 420)
+  const fns = Array.from({ length: 6 }, (_, i) => ({
+    id: `fn-${i}`,
+    rect: rect(serverlessLane2.l + 8, 440 + i * 40, serverlessLane2.r - 8, 470 + i * 40),
+  }))
+  const busX = trunkBusX(serverlessLane2, corridors2)
+
+  it("leaves the band ONCE, runs the gutter to the farthest function, and stubs into each", () => {
+    const route = railTrunkRoute(band, fns, busX)
+    expect(route.exit).toEqual({ x: band.l, y: band.cy })
+    expect(route.trunk).toEqual([[route.exit, { x: busX, y: band.cy }, { x: busX, y: fns[5].rect.cy }]])
+    expect(route.stubs).toHaveLength(6)
+    route.stubs.forEach((stub, i) => {
+      expect(stub.targetId).toBe(fns[i].id)
+      // Bus → the chip's left edge: the arrowhead names the function.
+      expect(stub.pts).toEqual([{ x: busX, y: fns[i].rect.cy }, { x: fns[i].rect.l, y: fns[i].rect.cy }])
+    })
+    // Nothing but the stubs' last points enters the lane: the trunk runs the
+    // gutter, so no line crosses a chip on its way to another. Six rules used to
+    // be twelve curves across this gutter.
+    for (const pt of route.trunk.flat()) expect(pt.x).toBeLessThanOrEqual(band.l)
+  })
+
+  it("adds a second run upward when chips lie on both sides of the exit", () => {
+    const above = { id: "fn-up", rect: rect(serverlessLane2.l + 8, 260, serverlessLane2.r - 8, 290) }
+    const route = railTrunkRoute(band, [above, fns[0]], busX)
+    expect(route.trunk).toHaveLength(2)
+    expect(route.trunk[0][2].y).toBe(fns[0].rect.cy)
+    expect(route.trunk[1][2].y).toBe(above.rect.cy)
+  })
+
+  it("a source with nothing to feed is an exit and no run — not a throw", () => {
+    const route = railTrunkRoute(band, [], busX)
+    expect(route.trunk).toEqual([[route.exit, { x: busX, y: band.cy }]])
+    expect(route.stubs).toEqual([])
+  })
+
+  it("leaves on the side facing the bus", () => {
+    const rightBus = railTrunkRoute(band, fns, band.r + 30)
+    expect(rightBus.exit.x).toBe(band.r)
+    expect(rightBus.stubs[0].pts[1].x).toBe(fns[0].rect.r)
+  })
+})
+
+describe("railFeederRoute", () => {
+  const busX = interlane2.l + 8 + RAIL_FEEDER_BADGE_INSET
+  const lambdas = [300, 340, 380, 420].map((t, i) => ({
+    sourceId: `fn-${i}`,
+    rect: rect(serverlessLane2.l + 8, t, serverlessLane2.r - 8, t + 30),
+  }))
+
+  it("every member leaves its OWN chip on a leg to the bus; the trunk carries the one arrow into the target", () => {
+    const route = railFeederRoute(lambdas, bucketChip2, busX)
+    expect(route.feeders.map(f => f.pts)).toEqual(
+      lambdas.map(m => [{ x: m.rect.r, y: m.rect.cy }, { x: busX, y: m.rect.cy }]),
+    )
+    expect(route.feeders.map(f => f.sourceId)).toEqual(["fn-0", "fn-1", "fn-2", "fn-3"])
+    expect(route.enter).toEqual({ x: bucketChip2.l, y: bucketChip2.cy })
+    // From the member farthest from the bucket, down the bus, into the bucket.
+    expect(route.trunk).toEqual([[{ x: busX, y: lambdas[0].rect.cy }, { x: busX, y: bucketChip2.cy }, route.enter]])
+    // Each leg is long enough to carry its "API" badge clear of both the chip and the bus.
+    for (const leg of route.feeders) {
+      expect(leg.pts[1].x - leg.pts[0].x).toBeGreaterThanOrEqual(badgeHalfWidth("API") * 2 + 10)
+    }
+  })
+
+  it("runs leftward into a target on the left", () => {
+    const back = railFeederRoute([{ sourceId: "rule", rect: bucketChip2 }], lambdaChip2, busX)
+    expect(back.feeders[0].pts[0]).toEqual({ x: bucketChip2.l, y: bucketChip2.cy })
+    expect(back.enter).toEqual({ x: lambdaChip2.r, y: lambdaChip2.cy })
+  })
+
+  it("adds a second run when members sit on both sides of the target", () => {
+    const route = railFeederRoute(
+      [
+        { sourceId: "up", rect: rect(serverlessLane2.l + 8, 285, serverlessLane2.r - 8, 315) },
+        { sourceId: "down", rect: rect(serverlessLane2.l + 8, 885, serverlessLane2.r - 8, 915) },
+      ],
+      bucketChip2,
+      busX,
+    )
+    expect(route.trunk).toEqual([
+      [{ x: busX, y: 300 }, { x: busX, y: bucketChip2.cy }, route.enter],
+      [{ x: busX, y: bucketChip2.cy }, { x: busX, y: 900 }],
+    ])
+  })
+})
+
+describe("railFeederLabel", () => {
+  it("names the access PLANE a leg leaves on, and nothing for a plain network edge", () => {
+    expect(railFeederLabel("edge_service")).toBe("API")
+    expect(railFeederLabel("vpce")).toBe("API")
+    expect(railFeederLabel("database")).toBe("DB")
+    expect(railFeederLabel("internal")).toBeNull()
+    expect(railFeederLabel("egress")).toBeNull()
+  })
+})
+
+describe("railInboundCaption", () => {
+  const s3 = (source_id: string, extra: Partial<TrafficEdge> = {}): TrafficEdge =>
+    edge({ source_id, target_id: "bucket", protocol: "ACTUAL_S3_ACCESS", edge_class: "edge_service", ...extra })
+  const isFn = (id: string) => id.startsWith("fn-")
+
+  it("counts distinct FUNCTIONS, not edges, and names the plane", () => {
+    const edges = [s3("fn-a"), s3("fn-b"), s3("fn-c"), s3("fn-d"), s3("fn-a", { protocol: "WRITES_TO" })]
+    expect(railInboundCaption("bucket", edges, isFn)).toBe("4 fn · service-plane access")
+  })
+
+  it("keeps sources that are not functions apart", () => {
+    const edges = [s3("fn-a"), s3("fn-b"), s3("i-0ee29afa0048943e0")]
+    expect(railInboundCaption("bucket", edges, isFn)).toBe("2 fn · 1 other · service-plane access")
+  })
+
+  it("is null when nothing reaches the chip — never '0 fn'", () => {
+    expect(railInboundCaption("bucket", [s3("fn-a", { target_id: "elsewhere" })], isFn)).toBeNull()
+    expect(railInboundCaption("bucket", [], isFn)).toBeNull()
+  })
+
+  it("does not call a mixed plane service-plane", () => {
+    const edges = [s3("fn-a"), edge({ source_id: "i-1", target_id: "bucket", protocol: "TCP", port: 443, edge_class: "internal" })]
+    expect(railInboundCaption("bucket", edges, isFn)).toBe("1 fn · 1 other · access")
+    expect(
+      railInboundCaption(
+        "db",
+        [edge({ source_id: "i-1", target_id: "db", port: 5432, edge_class: "database" })],
+        isFn,
+      ),
+    ).toBe("1 other · database access")
+  })
+})
+
+describe("boundary captions", () => {
+  it("count the workloads whose egress the map routes through the IGW, and say when there are none", () => {
+    const edges = [
+      edge({ source_id: "i-1", target_id: "__igw__", edge_class: "egress" }),
+      edge({ source_id: "i-2", target_id: "__igw__", edge_class: "egress" }),
+      edge({ source_id: "i-1", target_id: "arn:aws:s3:::b", edge_class: "edge_service", via_igw: true }),
+      edge({ source_id: "i-3", target_id: "arn:aws:s3:::b", edge_class: "edge_service", egress_path: "public" }),
+    ]
+    const primary = { id: "igw-main", primary: true }
+    expect(boundaryIgwCaption(edges, primary)).toBe("egress: 3 workloads")
+    expect(boundaryIgwCaption([edges[0]], primary)).toBe("egress: 1 workload")
+    expect(
+      boundaryIgwCaption([edge({ source_id: "i-1", target_id: "arn:aws:s3:::b", edge_class: "edge_service" })], primary),
+    ).toBe("egress: not observed")
+    // A second gateway on the frame is not the `__igw__` the egress edges name:
+    // it counts only edges that name its own id, or it says so.
+    const extra = { id: "igw-extra", primary: false }
+    expect(boundaryIgwCaption(edges, extra)).toBe("egress: not observed")
+    expect(boundaryIgwCaption([edge({ source_id: "i-7", target_id: "igw-extra", edge_class: "egress" })], extra)).toBe(
+      "egress: 1 workload",
+    )
+  })
+
+  it("count the workloads that reach an endpoint directly or route through it", () => {
+    const edges = [
+      edge({ source_id: "i-1", target_id: "vpce-ssm", edge_class: "vpce" }),
+      edge({ source_id: "i-2", target_id: "vpce-ssm", edge_class: "vpce" }),
+      edge({ source_id: "i-1", target_id: "vpce-ssm", edge_class: "vpce", port: 443 }),
+      edge({ source_id: "i-9", target_id: "arn:aws:s3:::b", edge_class: "edge_service", via_vpce_id: "vpce-s3" }),
+    ]
+    expect(boundaryVpceCaption(edges, "vpce-ssm")).toBe("use: 2 workloads")
+    expect(boundaryVpceCaption(edges, "vpce-s3")).toBe("use: 1 workload")
+    expect(boundaryVpceCaption(edges, "vpce-ec2messages")).toBe("use: not observed")
   })
 })

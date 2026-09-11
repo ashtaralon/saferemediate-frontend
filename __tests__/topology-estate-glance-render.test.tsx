@@ -113,18 +113,23 @@ describe("AwsFrame Glance density (generic)", () => {
     expect(screen.getByText("entry-alb")).toBeTruthy()
     // NAT from real edge metadata
     expect(screen.getByTestId("topology-nat-gateway-chip")).toBeTruthy()
-    // IGW + VPCEs sit ON the VPC frame's boundary, not in a column beside it.
-    // Containment is the assertion: the previous placement rendered the same
-    // chip OUTSIDE the frame, so `getByTestId` alone passed either way and could
-    // not tell the two layouts apart.
-    const boundaryStrip = screen.getByTestId("topology-vpc-boundary-strip")
+    // IGW + VPCEs: on a single-frame canvas they are drawn in the VPC BOUNDARY
+    // column beside the frame — IGW at the top, endpoints at the bottom — not
+    // side by side on the frame's header line (Alon, 2026-09-11), and not in the
+    // old "Not in this VPC" column. Containment is the assertion: `getByTestId`
+    // alone passes in every layout and cannot tell them apart.
+    const boundaryColumn = screen.getByTestId("topology-vpc-boundary-column")
     const igwChip = screen.getByTestId("topology-igw-rail-chip")
-    expect(boundaryStrip.contains(igwChip)).toBe(true)
+    expect(boundaryColumn.contains(igwChip)).toBe(true)
+    expect(screen.getByTestId("topology-vpc-boundary-column-header").textContent).toMatch(/VPC boundary/i)
     const vpcFrame = screen.getAllByTestId("topology-vpc-frame")[0]
-    expect(vpcFrame.contains(boundaryStrip)).toBe(true)
-    // The frame header IS the VPC's top edge — that is what makes it "on" the
-    // boundary rather than merely inside the card.
-    expect(screen.getByTestId("topology-vpc-frame-header").contains(igwChip)).toBe(true)
+    expect(vpcFrame.contains(igwChip)).toBe(false)
+    expect(screen.queryByTestId("topology-vpc-boundary-strip")).toBeNull()
+    // The IGW keeps the flow anchor the egress edges target, wherever it is drawn.
+    expect(igwChip.getAttribute("data-flow-id")).toBe("__igw__")
+    // Its caption is counted from the drawn edges — none are passed here, and
+    // the caption says so rather than inventing a number.
+    expect(screen.getAllByTestId("topology-boundary-caption")[0].textContent).toBe("egress: not observed")
     // And the old column is gone when there is nothing off-canvas to report.
     expect(screen.queryByTestId("topology-network-rail")).toBeNull()
     expect(screen.getByTestId("topology-users-internet-strip")).toBeTruthy()

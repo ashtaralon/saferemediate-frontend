@@ -54,35 +54,40 @@ test("fullscreen platform map shows named Lambda, protected AZ labels, direction
 
   // The INLINE map, before fullscreen: this is the surface in the operator's own
   // screenshot, and it is the tight one — the Lambda and Regional lanes take the
-  // right third, so the VPC frame is ~950px and the boundary strip's five edge
-  // devices genuinely do not fit on one line. Fullscreen is ~1490px and fits, so
-  // asserting only there would never exercise the overflow path.
+  // right third, so the VPC frame is ~950px. It is a single-frame canvas like
+  // the fullscreen one, so its IGW and endpoints are in the VPC BOUNDARY column
+  // beside the frame, not on the header line, and the VPC id — which used to
+  // lose that line to five pills and render as "VPC…" — has it to itself.
   // Document-wide is unambiguous here and only here: the fullscreen overlay is
   // not mounted yet, so exactly one map exists. Every query AFTER the enlarge
   // click has to scope to the overlay.
   await expect(page.getByTestId("topology-estate-map-fullscreen")).toHaveCount(0)
   const inlineGeom = await page.evaluate(() => {
-    const strip = document.querySelector('[data-testid="topology-vpc-boundary-strip"]')
+    const column = document.querySelector('[data-testid="topology-vpc-boundary-column"]')
+    const frame = document.querySelector('[data-testid="topology-vpc-frame"]')
     const id = document.querySelector('[data-testid="topology-vpc-frame-id"]') as HTMLElement | null
-    if (!strip || !id) return null
-    const s = strip.getBoundingClientRect()
+    if (!column || !frame || !id) return null
+    const c = column.getBoundingClientRect()
+    const f = frame.getBoundingClientRect()
     return {
       idVisibleFraction: id.clientWidth / id.scrollWidth,
-      stripHeight: Math.round(s.height),
+      headerStrip: document.querySelector('[data-testid="topology-vpc-boundary-strip"]') !== null,
+      rightOfFrame: c.left >= f.right - 1,
       clippedPills: [
         ...document.querySelectorAll(
           '[data-testid="topology-igw-rail-chip"],[data-testid="topology-vpce-rail-chip"]',
         ),
       ].filter(el => {
         const r = el.getBoundingClientRect()
-        return r.width < 40 || r.left < s.left - 1 || r.right > s.right + 1
+        return r.width < 40 || r.left < c.left - 1 || r.right > c.right + 1
       }).length,
     }
   })
   expect(inlineGeom).not.toBeNull()
-  // Wraps to a second row rather than clipping a device or eating the VPC's id.
+  expect(inlineGeom!.headerStrip).toBe(false)
+  expect(inlineGeom!.rightOfFrame).toBe(true)
+  // Every device fits the column: none clipped, none narrower than a pill.
   expect(inlineGeom!.clippedPills).toBe(0)
-  expect(inlineGeom!.stripHeight).toBeLessThanOrEqual(56)
   expect(inlineGeom!.idVisibleFraction).toBeGreaterThan(0.6)
 
   await page.getByTestId("topology-estate-map-enlarge").click()
@@ -131,16 +136,19 @@ test("fullscreen platform map shows named Lambda, protected AZ labels, direction
   await page.waitForTimeout(600) // double-rAF measure after the fit
   expect(await railHeaderBadgeOverlaps(page)).toEqual([])
 
-  // The IGW and the VPC endpoints render ON the VPC frame's top border, where
-  // the icon catalog's `scope: "vpc-boundary"` always said they belong — not in
-  // a column outside the card. Geometry is the assertion, not the testid: both
-  // layouts render the same chips, so only their box relative to the frame's
-  // border can tell them apart.
+  // The IGW and the VPC endpoints render in the VPC BOUNDARY column between the
+  // VPC frame and the rail — the IGW at the TOP (the path up to the internet),
+  // the endpoints at the BOTTOM, level with the data tier — not side by side on
+  // the frame's header line (Alon, 2026-09-11: "u cant put it like here, one
+  // next to the other"). Geometry is the assertion, not the testid: both layouts
+  // render the same chips, so only their boxes can tell them apart.
   const igwChips = await fullscreen.getByTestId("topology-igw-rail-chip").count()
   const vpceChips = await fullscreen.getByTestId("topology-vpce-rail-chip").count()
-  expect(igwChips + vpceChips).toBeGreaterThan(0)
-  const boundaryStrip = fullscreen.getByTestId("topology-vpc-boundary-strip").first()
-  await expect(boundaryStrip).toBeVisible()
+  expect(igwChips, "this payload attaches an IGW to the drawn VPC").toBeGreaterThan(0)
+  expect(vpceChips, "this payload has VPC endpoints").toBeGreaterThan(0)
+  await expect(fullscreen.getByTestId("topology-vpc-boundary-column")).toBeVisible()
+  await expect(fullscreen.getByTestId("topology-vpc-boundary-column-header")).toHaveText(/VPC boundary/i)
+  await expect(fullscreen.getByTestId("topology-vpc-boundary-strip")).toHaveCount(0)
   // `root.querySelector`, not `document.querySelector`: the inline map is still
   // mounted behind the fullscreen overlay, so a document-wide query measures
   // whichever instance happens to come first in the DOM — a different frame
@@ -148,52 +156,70 @@ test("fullscreen platform map shows named Lambda, protected AZ labels, direction
   const boundaryGeom = await fullscreen.evaluate((root: HTMLElement) => {
     const q = (sel: string) => root.querySelector(sel)
     const frame = q('[data-testid="topology-vpc-frame"]')
-    const strip = q('[data-testid="topology-vpc-boundary-strip"]')
+    const column = q('[data-testid="topology-vpc-boundary-column"]')
+    const corridor = q('[data-testid="topology-flow-corridor"]')
     const igw = q('[data-testid="topology-igw-rail-chip"]')
     const id = q('[data-testid="topology-vpc-frame-id"]') as HTMLElement | null
-    if (!frame || !strip || !igw || !id) return null
+    if (!frame || !column || !corridor || !igw || !id) return null
     const f = frame.getBoundingClientRect()
-    const s = strip.getBoundingClientRect()
+    const c = column.getBoundingClientRect()
+    const k = corridor.getBoundingClientRect()
+    const g = igw.getBoundingClientRect()
+    const vpceEls = [...root.querySelectorAll('[data-testid="topology-vpce-rail-chip"]')]
+    const vpces = vpceEls.map(el => el.getBoundingClientRect())
     return {
-      inFrameHorizontally: s.left >= f.left && s.right <= f.right + 1,
-      // "On the top edge": within the frame's own header band, not floating in
-      // the tier grid below it and not outside the card to the right. Two pill
-      // rows' worth, because wrapping is the designed overflow (below).
-      withinTopBand: s.top >= f.top - 1 && s.bottom <= f.top + 64,
-      igwInsideFrame: frame.contains(igw),
-      // Vertical room the strip must not take back from the tier rows (#851).
-      // Capped at two pill rows: a third would mean the strip has become a lane
-      // of its own rather than a border, and #851's minmax() rows pay for it.
-      stripHeight: Math.round(s.height),
-      // The strip and the VPC's id are the only flexible items on this line, so
-      // "did the strip fit?" and "does the frame still say which VPC it is?" are
-      // one question. As `shrink-0` the strip won it outright and the id
-      // rendered as "VPC…" — a merged canvas of anonymous frames.
-      // Measured, not read: `textContent` returns the whole id however little of
-      // it is on screen (the truncation is CSS), so it would pass on the broken
-      // layout too. clientWidth/scrollWidth is the fraction actually visible.
+      // Beside the frame, before the flow corridor: VPC | boundary | gutter | rail.
+      rightOfFrame: c.left >= f.right - 1,
+      leftOfCorridor: c.right <= k.left + 1,
+      igwInColumn: column.contains(igw),
+      igwOutsideFrame: !frame.contains(igw),
+      // px from the column's top: under its header and the "↑ Internet" line.
+      igwFromTop: g.top - c.top,
+      igwAboveEveryEndpoint: vpces.every(v => v.top >= g.bottom),
+      // px from the last endpoint's bottom to the column's bottom: bottom-anchored,
+      // with only its own caption under it.
+      endpointsFromBottom: vpces.length > 0 ? c.bottom - Math.max(...vpces.map(v => v.bottom)) : null,
+      // No pill may be clipped away: a hidden endpoint is a device the graph
+      // reports and the map silently denies.
+      clippedPills: [igw, ...vpceEls].filter(el => {
+        const r = el.getBoundingClientRect()
+        return r.width < 40 || r.left < c.left - 1 || r.right > c.right + 1 || r.top < c.top - 1 || r.bottom > c.bottom + 1
+      }).length,
+      captions: [...root.querySelectorAll('[data-testid="topology-boundary-caption"]')].map(el => el.textContent ?? ""),
+      // The frame still says which VPC it is; the strip's departure only gave the
+      // id more room. Measured, not read: `textContent` returns the whole id
+      // however little of it is on screen.
       frameIdWidth: Math.round(id.getBoundingClientRect().width),
       frameIdVisibleFraction: id.clientWidth / id.scrollWidth,
-      // No pill may be clipped away: a hidden endpoint is a device the graph
-      // reports and the map silently denies. Wrapping is the allowed answer, so
-      // this checks each pill against the strip's box rather than one line's.
-      clippedPills: [
-        ...root.querySelectorAll(
-          '[data-testid="topology-igw-rail-chip"],[data-testid="topology-vpce-rail-chip"]',
-        ),
-      ].filter(el => {
-        const r = el.getBoundingClientRect()
-        return r.width < 40 || r.left < s.left - 1 || r.right > s.right + 1
-      }).length,
     }
   })
   expect(boundaryGeom).not.toBeNull()
-  expect(boundaryGeom!.igwInsideFrame).toBe(true)
-  expect(boundaryGeom!.inFrameHorizontally).toBe(true)
-  expect(boundaryGeom!.withinTopBand).toBe(true)
-  expect(boundaryGeom!.stripHeight).toBeLessThanOrEqual(56)
+  expect(boundaryGeom!.rightOfFrame).toBe(true)
+  expect(boundaryGeom!.leftOfCorridor).toBe(true)
+  expect(boundaryGeom!.igwInColumn).toBe(true)
+  expect(boundaryGeom!.igwOutsideFrame).toBe(true)
+  expect(boundaryGeom!.igwFromTop).toBeLessThanOrEqual(60)
+  expect(boundaryGeom!.igwAboveEveryEndpoint).toBe(true)
+  expect(boundaryGeom!.endpointsFromBottom).not.toBeNull()
+  expect(boundaryGeom!.endpointsFromBottom!).toBeLessThanOrEqual(24)
   expect(boundaryGeom!.clippedPills).toBe(0)
-  // Not "VPC…". Enough of the id to tell this frame from a sibling.
+  // One caption per device, each counted from the edges the map draws — never a
+  // route table the payload does not carry. This payload routes egress from
+  // several workloads through the IGW, draws EC2 → SSM endpoint flows and one
+  // S3 access through the S3 gateway endpoint, and nothing to ec2messages: so
+  // the IGW counts workloads, at least one endpoint is in use, and an unused one
+  // says "not observed" rather than inventing a number.
+  expect(boundaryGeom!.captions).toHaveLength(igwChips + vpceChips)
+  // The first IGW is the one the egress edges name; a further one on this frame
+  // (this payload also carries the OTHER VPC's gateway, which falls to the
+  // primary frame) is reached by nothing and says so.
+  for (const caption of boundaryGeom!.captions.slice(0, igwChips)) {
+    expect(caption).toMatch(/^egress: (\d+ workloads?|not observed)$/)
+  }
+  expect(boundaryGeom!.captions[0]).toMatch(/^egress: \d+ workloads?$/)
+  for (const caption of boundaryGeom!.captions.slice(igwChips)) expect(caption).toMatch(/^use: (\d+ workloads?|not observed)$/)
+  expect(boundaryGeom!.captions.slice(igwChips).some(caption => /^use: \d+ workload/.test(caption))).toBe(true)
+  expect(boundaryGeom!.captions.slice(igwChips)).toContain("use: not observed")
   expect(boundaryGeom!.frameIdWidth).toBeGreaterThanOrEqual(132)
   expect(boundaryGeom!.frameIdVisibleFraction).toBeGreaterThan(0.6)
   // The old column only appears now for a device with no frame to sit on.

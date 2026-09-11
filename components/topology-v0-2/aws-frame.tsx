@@ -1159,6 +1159,7 @@ function ServiceIconShell({
   signalColor,
   signalLabel,
   operatorPlaced = false,
+  caption,
 }: {
   type: string | null | undefined
   selected: boolean
@@ -1167,6 +1168,8 @@ function ServiceIconShell({
   label: string
   sublabel: string
   title: string
+  /** Rail chip only: one line under the name saying what reaches it ("4 fn · service-plane access"). */
+  caption?: string
   onClick: () => void
   testId: string
   flowId?: string
@@ -1307,22 +1310,50 @@ function ServiceIconShell({
           </span>
         ) : null}
       </span>
-      <span
-        // `truncate` clips with a CSS ellipsis, which never enters the text — the
-        // only way to know a label is cut is to compare scrollWidth to
-        // clientWidth on this element, so it carries a stable hook for that.
-        data-testid="topology-chip-label"
-        className={
-          railChip
-            ? "text-[9px] font-semibold text-left leading-tight truncate flex-1 min-w-0"
-            : dense
+      {railChip ? (
+        // Name over an optional caption, in the row beside the glyph. The
+        // caption is the receiving end of a rail bundle stated at the chip —
+        // "4 fn · service-plane access" under the bucket — so the arrow's count
+        // and the chip agree without a tooltip. Two lines of 9px + 8px still
+        // fit the 28px glyph, so the RAIL_LANE_ROW_PX row does not grow.
+        <span className="flex flex-col flex-1 min-w-0 text-left leading-tight">
+          <span
+            // `truncate` clips with a CSS ellipsis, which never enters the text —
+            // the only way to know a label is cut is to compare scrollWidth to
+            // clientWidth on this element, so it carries a stable hook for that.
+            data-testid="topology-chip-label"
+            className="text-[9px] font-semibold truncate min-w-0"
+            style={{ color: PAL.ink }}
+          >
+            {label}
+          </span>
+          {caption ? (
+            <span
+              data-testid="topology-chip-caption"
+              className="text-[8px] font-medium truncate min-w-0"
+              style={{ color: PAL.slate }}
+              title={caption}
+            >
+              {caption}
+            </span>
+          ) : null}
+        </span>
+      ) : (
+        <span
+          // `truncate` clips with a CSS ellipsis, which never enters the text — the
+          // only way to know a label is cut is to compare scrollWidth to
+          // clientWidth on this element, so it carries a stable hook for that.
+          data-testid="topology-chip-label"
+          className={
+            dense
               ? "text-[9px] font-semibold text-center leading-tight truncate w-full"
               : "text-[10px] font-semibold text-center leading-tight truncate w-full"
-        }
-        style={{ color: PAL.ink }}
-      >
-        {label}
-      </span>
+          }
+          style={{ color: PAL.ink }}
+        >
+          {label}
+        </span>
+      )}
       {!dense && sublabel ? (
         <span className="text-[9px] font-mono text-center truncate w-full" style={{ color: PAL.slate }}>
           {sublabel}
@@ -1406,6 +1437,7 @@ function ServiceNodeIcon({
   railChip = false,
   displayName,
   operatorPlaced = false,
+  caption,
 }: {
   node: TopologyNode
   selected: boolean
@@ -1416,6 +1448,8 @@ function ServiceNodeIcon({
   displayName?: string
   /** Drawn where an engineer put it, not where the graph says. */
   operatorPlaced?: boolean
+  /** Rail chip caption — what reaches this service (railInboundCaption). */
+  caption?: string
 }) {
   const typeLabel = node.type ?? "?"
   const isForeignOwner = node.is_foreign === true
@@ -1442,6 +1476,7 @@ function ServiceNodeIcon({
       railChip={railChip}
       multiAz={multiAz}
       operatorPlaced={operatorPlaced}
+      caption={caption}
       signalColor={signal.ring}
       signalLabel={
         node.stale
@@ -2215,6 +2250,13 @@ export const RAIL_LANE_ROW_PX = 40
  *  so a deficit is shared between them instead of landing on one. */
 export const RAIL_LANE_MIN_PX = 154
 
+/** The VPC BOUNDARY column between the VPC frame and the flow corridor: the
+ *  Internet Gateway at its top (the path up to the internet), the VPC endpoints
+ *  at its bottom, level with the data tier they serve. Wide enough for an
+ *  "IGW · name" chip with a caption under it; narrower than the 136px "Not in
+ *  this VPC" column because nothing here spells out a VPC id. */
+export const VPC_BOUNDARY_COL_W_PX = 132
+
 /** Floor one lane may claim. Side by side each lane owns the column's whole
  *  height, so it is the full floor unless the column itself is shorter — while
  *  the lanes were stacked this had to halve the column so BOTH floors fit, and
@@ -2621,6 +2663,7 @@ function RegionalDataServicesTier({
   viewDensity = "glance",
   namedFlowNodeIds,
   laneMinHeight,
+  inboundCaptions,
 }: {
   nodes: TopologyNode[]
   selectedNodeId: string | null
@@ -2631,6 +2674,8 @@ function RegionalDataServicesTier({
   namedFlowNodeIds?: Set<string>
   /** Fullscreen lane floor from useRailLaneFloor (see RAIL_LANE_MIN_PX). */
   laneMinHeight?: number
+  /** Per chip, what reaches it over the rail — see railInboundCaption. */
+  inboundCaptions?: ReadonlyMap<string, string>
 }) {
   if (nodes.length === 0) return null
   const glance = viewDensity === "glance"
@@ -2707,6 +2752,7 @@ function RegionalDataServicesTier({
             dense
             railChip={compact}
             displayName={displayName.get(node.id)}
+            caption={compact ? inboundCaptions?.get(node.id) : undefined}
           />
         ))}
         {groups
@@ -2730,6 +2776,7 @@ function RegionalDataServicesTier({
                 dense={compact}
                 railChip={compact}
                 displayName={displayName.get(n.id)}
+                caption={compact ? inboundCaptions?.get(n.id) : undefined}
               />
             ))}
       </div>
@@ -2989,6 +3036,12 @@ interface FlowPath {
   evidenceType?: TrafficEdge["evidence_type"]
   pathBasis?: TrafficEdge["path_basis"]
   lastSeen?: TrafficEdge["last_seen"]
+  /** No arrowhead: a trunk that feeds stubs rather than an edge ending at a chip. */
+  arrow?: boolean
+  /** Dotted feeder legs from each member chip to the trunk in `d`, one subpath per member. */
+  stubD?: string
+  /** Fixed badges on the feeder legs ("API" at each function's edge); not moved by the de-overlap pass. */
+  stubBadges?: { x: number; y: number; label: string; title: string }[]
 }
 
 export type TrafficMotionKind = "authoritative" | "historical" | "none"
@@ -3328,6 +3381,9 @@ export function railBundleRoute(
   index: number,
   srcSpread = 0,
   total = index + 1,
+  /** Extra room left of the bus inside its corridor — for a feeder bundle, the
+   *  legs' own badges (RAIL_FEEDER_BADGE_INSET). 0 keeps the classic bus. */
+  busInset = 0,
 ): { pts: Pt[]; bus: Pt; label: Pt; corridor: NatRect | null } {
   // Rightmost candidate wins: the closest clear run to the target.
   const widest = (candidates: NatRect[]) =>
@@ -3342,7 +3398,7 @@ export function railBundleRoute(
   const outside = widest(corridors.filter(c => c.r <= Math.min(srcLane.l, dstChip.l) + 1))
   const bus = between ?? outside
   const busX = bus
-    ? bus.l + BUS_PAD + busFanOffset(index, total, bus.r - bus.l - 2 * BUS_PAD)
+    ? bus.l + BUS_PAD + busInset + busFanOffset(index, total, bus.r - bus.l - 2 * BUS_PAD - busInset)
     : Math.min(srcLane.l, dstChip.l) - 24 - busFanOffset(index, total, 70)
   // Leave and enter on the sides facing the bus.
   const exitX = busX > srcLane.r ? srcLane.r : srcLane.l
@@ -3436,6 +3492,202 @@ export function railBundleLeadEdge(edges: TrafficEdge[]): TrafficEdge {
     edges.find(edge => trafficMotionKind(edge) === "historical") ??
     edges[0]
   )
+}
+
+/** Room a feeder leg's "API" badge needs between a member chip's edge and the
+ *  bus it joins. BUS_PAD past the corridor's edge — where a bus used to start —
+ *  left no leg to badge. 34 = a 3-character badge (28) + 6 clear of the bus. */
+export const RAIL_FEEDER_BADGE_INSET = 34
+
+/** Centre x for a badge laid ON its bus — the whole label inside the corridor,
+ *  slid off the bus only as far as the corridor's edges force. `null` when the
+ *  corridor is too narrow for the label, so the caller falls back to the gutter
+ *  column. A feeder trunk's bus sits RAIL_FEEDER_BADGE_INSET into the corridor
+ *  and so rarely has room BESIDE it for busSideBadgeX; on it, it does. */
+export function busCenteredBadgeX(
+  busX: number,
+  corridor: { l: number; r: number } | null,
+  halfWidth: number,
+): number | null {
+  if (!corridor) return null
+  if (2 * halfWidth > corridor.r - corridor.l - 4) return null
+  return Math.min(Math.max(busX, corridor.l + halfWidth + 2), corridor.r - halfWidth - 2)
+}
+
+/** Where a same-lane trunk runs: in the nearest corridor LEFT of the lane,
+ *  hugging the lane so every stub into a chip is short — 12px in from the
+ *  corridor's right edge keeps the stubs' arrowheads clear of the lane's border.
+ *  Just left of the lane when the frame renders no corridor. */
+export function trunkBusX(lane: { l: number }, corridors: readonly { l: number; r: number }[]): number {
+  const onTheLeft = corridors.filter(c => c.r <= lane.l + 1)
+  if (onTheLeft.length === 0) return lane.l - 14
+  const nearest = onTheLeft.reduce((a, b) => (b.r > a.r ? b : a))
+  return Math.max(nearest.l + 4, nearest.r - 12)
+}
+
+/** One trunk down the gutter and one stub into every chip it feeds. */
+export interface RailTrunkRoute {
+  /** The trunk as orthogonal polylines: out of `src`, then down (and, when chips
+   *  lie on both sides of the exit, also up) the bus to the farthest chip. */
+  trunk: Pt[][]
+  /** One short leg per receiving chip, bus → chip edge; drawn with an arrowhead. */
+  stubs: { pts: Pt[]; targetId: string }[]
+  busX: number
+  /** Where the trunk leaves `src`. */
+  exit: Pt
+}
+
+/** Trunk geometry for edges whose both ends are in ONE lane — C1's EventBridge
+ *  rules in the triggers band firing the Lambdas below them in the same lane.
+ *  Bundled per receiving chip, six rules became twelve separate curves fanned
+ *  across the 48px gutter, each leaving the lane's edge at its own height and
+ *  each turning back into it (Alon, 2026-09-11: "spaghetti green lines, we
+ *  can't understand anything that way"). The traffic here is a bus: it leaves
+ *  the band ONCE, runs the gutter beside the lane, and a short stub with its own
+ *  arrowhead turns into each function. The badge sits on the trunk, once.
+ *  `src` is the box the traffic leaves (the triggers band, or the union of the
+ *  source chips when they are not in a band); `targets` the chips it reaches. */
+export function railTrunkRoute(
+  src: NatRect,
+  targets: readonly { id: string; rect: NatRect }[],
+  busX: number,
+): RailTrunkRoute {
+  const exit: Pt = { x: busX < src.l ? src.l : src.r, y: src.cy }
+  const trunk: Pt[][] = []
+  const runTo = (ys: number[]) => {
+    if (ys.length === 0) return
+    const far = ys.reduce((a, b) => (Math.abs(b - exit.y) > Math.abs(a - exit.y) ? b : a))
+    trunk.push([exit, { x: busX, y: exit.y }, { x: busX, y: far }])
+  }
+  runTo(targets.filter(t => t.rect.cy >= exit.y).map(t => t.rect.cy))
+  runTo(targets.filter(t => t.rect.cy < exit.y).map(t => t.rect.cy))
+  if (trunk.length === 0) trunk.push([exit, { x: busX, y: exit.y }])
+  const stubs = targets.map(t => ({
+    targetId: t.id,
+    pts: [
+      { x: busX, y: t.rect.cy },
+      { x: busX < t.rect.l ? t.rect.l : t.rect.r, y: t.rect.cy },
+    ],
+  }))
+  return { trunk, stubs, busX, exit }
+}
+
+/** A feeder bundle: every member chip joins the bus on its own dotted leg, the
+ *  bus runs the corridor between the lanes, ONE arrow enters the receiving chip. */
+export interface RailFeederRoute {
+  /** The solid trunk: from the member farthest from the target along the bus
+   *  and into the chip; a second run when members lie on both sides of it. */
+  trunk: Pt[][]
+  /** One dotted leg per member, chip edge → bus. */
+  feeders: { pts: Pt[]; sourceId: string }[]
+  busX: number
+  enter: Pt
+}
+
+/** Geometry for the Lambda → S3 shape. Four functions writing one bucket used
+ *  to leave the LANE's edge as one line at the lane's centre, so nothing on the
+ *  map said which functions those were. Each member now leaves its own chip,
+ *  the legs converge on the bus, and the trunk carries the one arrowhead into
+ *  the target — the reader follows a function to the bus and the bus to the
+ *  bucket. */
+export function railFeederRoute(
+  members: readonly { sourceId: string; rect: NatRect }[],
+  dstChip: NatRect,
+  busX: number,
+): RailFeederRoute {
+  const dstY = dstChip.cy
+  const enter: Pt = { x: busX > dstChip.r ? dstChip.r : dstChip.l, y: dstY }
+  const feeders = members.map(m => ({
+    sourceId: m.sourceId,
+    pts: [
+      { x: busX > m.rect.r ? m.rect.r : m.rect.l, y: m.rect.cy },
+      { x: busX, y: m.rect.cy },
+    ],
+  }))
+  const ys = members.map(m => m.rect.cy)
+  const above = ys.filter(y => y < dstY)
+  const below = ys.filter(y => y > dstY)
+  const far = (arr: number[]) => arr.reduce((a, b) => (Math.abs(b - dstY) > Math.abs(a - dstY) ? b : a))
+  const main = above.length >= below.length ? above : below
+  const other = main === above ? below : above
+  const trunk: Pt[][] = []
+  if (main.length > 0) trunk.push([{ x: busX, y: far(main) }, { x: busX, y: dstY }, enter])
+  else trunk.push([{ x: busX, y: dstY }, enter])
+  if (other.length > 0) trunk.push([{ x: busX, y: dstY }, { x: busX, y: far(other) }])
+  return { trunk, feeders, busX, enter }
+}
+
+/** What a feeder leg says at the chip it leaves: the access PLANE of the edge,
+ *  not its graph identifier — service-plane API calls against S3 / DynamoDB /
+ *  an endpoint, or a database connection. `null` for a plain network edge,
+ *  which the trunk's own label already names in full. */
+export function railFeederLabel(cls: TrafficEdgeClass): string | null {
+  if (cls === "edge_service" || cls === "vpce") return "API"
+  if (cls === "database") return "DB"
+  return null
+}
+
+/** The caption under a regional chip that receives rail traffic: how many
+ *  functions (and other sources) reach it, and on which plane. Counted from the
+ *  edges the map draws, so it agrees with the arrow beside it; `null` when
+ *  nothing reaches the chip — an absence, never "0 fn". */
+export function railInboundCaption(
+  targetId: string,
+  edges: readonly TrafficEdge[],
+  isFunction: (sourceId: string) => boolean,
+): string | null {
+  const inbound = edges.filter(e => e.target_id === targetId && e.source_id !== targetId)
+  if (inbound.length === 0) return null
+  const fns = new Set<string>()
+  const others = new Set<string>()
+  for (const e of inbound) (isFunction(e.source_id) ? fns : others).add(e.source_id)
+  const who = [
+    fns.size > 0 ? `${fns.size} fn` : null,
+    others.size > 0 ? `${others.size} other` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ")
+  const servicePlane = (e: TrafficEdge) => e.edge_class === "edge_service" || e.edge_class === "vpce"
+  const plane = inbound.every(servicePlane)
+    ? "service-plane access"
+    : inbound.every(e => e.edge_class === "database")
+      ? "database access"
+      : "access"
+  return `${who} · ${plane}`
+}
+
+/** Captions for the VPC boundary column, from the edges the map draws. Neither
+ *  claims a route table the payload does not carry: the IGW is reported with
+ *  the workloads whose egress the map routes through it, an endpoint with the
+ *  workloads that reach it, and "not observed" is the honest word for zero. */
+export function boundaryIgwCaption(
+  edges: readonly TrafficEdge[],
+  igw: { id: string; primary: boolean },
+): string {
+  // The `__igw__` sentinel and the public-path routing name the frame's FIRST
+  // gateway; a further IGW is only reached by an edge that names its id.
+  const reaches = (e: TrafficEdge) =>
+    e.target_id === igw.id || (igw.primary && (e.target_id === "__igw__" || Boolean(e.via_igw) || e.egress_path === "public"))
+  const sources = new Set(edges.filter(reaches).map(e => e.source_id))
+  const n = sources.size
+  return n > 0 ? `egress: ${n} workload${n === 1 ? "" : "s"}` : "egress: not observed"
+}
+
+export function boundaryVpceCaption(edges: readonly TrafficEdge[], vpceId: string): string {
+  const sources = new Set(
+    edges.filter(e => e.target_id === vpceId || e.via_vpce_id === vpceId).map(e => e.source_id),
+  )
+  const n = sources.size
+  return n > 0 ? `use: ${n} workload${n === 1 ? "" : "s"}` : "use: not observed"
+}
+
+/** Smallest box around a set of chips. */
+function unionRect(rects: readonly NatRect[]): NatRect {
+  const l = Math.min(...rects.map(r => r.l))
+  const t = Math.min(...rects.map(r => r.t))
+  const r = Math.max(...rects.map(r => r.r))
+  const b = Math.max(...rects.map(r => r.b))
+  return { l, t, r, b, cx: (l + r) / 2, cy: (t + b) / 2 }
 }
 
 function FlowModeToggle({
@@ -3703,6 +3955,8 @@ function FlowOverlay({
         highlight: "attack_path" | null
         viaKind: "vpce" | "igw" | null
         focused: boolean
+        /** The element the edge leaves — a same-lane trunk asks whether it is in the triggers band. */
+        srcEl: HTMLElement
         /** Both ends inside the off-VPC rail: the source lane, and the target chip and its lane. */
         railLanes: { src: HTMLElement; dst: HTMLElement; dstChip: HTMLElement } | null
       }
@@ -3771,6 +4025,7 @@ function FlowOverlay({
         const job: RouteJob = {
           e,
           cls,
+          srcEl: src.el,
           src: toNat(visibleRect(src.el, src.el.getBoundingClientRect())),
           dst: toNat(visibleRect(dst.el, dst.el.getBoundingClientRect())),
           inter,
@@ -3975,63 +4230,231 @@ function FlowOverlay({
         delete pathExt[i]._routedViaVpce
       }
 
-      // Rail bundles — one path per (source lane, target lane, label) through
-      // the flow corridor; the badge sits just left of its bus, over the empty
-      // lower part of the off-canvas column, and pass 4 stacks bundles apart.
-      // Both corridors: the 48px one left of the rail, and the 40px one between
-      // the Lambda and Regional lanes. railBundleRoute picks whichever lies
-      // between a bundle's own two ends.
+      // Rail bundles. Two shapes, both routed through the corridors rather than
+      // across the chips — the 48px gutter left of the rail and the gap between
+      // the Lambda and Regional lanes:
+      //
+      //  · SAME-LANE trunk — C1's EventBridge rules in the triggers band firing
+      //    the Lambdas below them. One trunk per lane leaves the band once, runs
+      //    the gutter, and turns into each function with a short stub of its
+      //    own. Bundled per receiving chip this drew twelve fanned curves in a
+      //    48px gutter (Alon, 2026-09-11: "spaghetti green lines").
+      //  · FEEDER — a fan-in across the lanes (four Lambdas → one bucket). Each
+      //    member leaves its own chip on a dotted leg, the legs join one bus in
+      //    the corridor between the lanes, and one arrow enters the target.
+      //
+      // Every `g[data-flow-bundle]` still stands for exactly the edges into ONE
+      // chip (count + members), so the fixture spec's accounting holds: a
+      // trunk's stubs carry the bundles, the trunk itself carries the badge.
       const corridors = ["topology-flow-corridor", "topology-interlane-corridor"].flatMap(id => {
         const el = container.querySelector<HTMLElement>(`[data-testid="${id}"]`)
         if (!el) return []
         const rect = toNat(visibleRect(el, el.getBoundingClientRect()))
         return rect.r > rect.l ? [rect] : []
       })
-      const railBundles = [...railGroups.values()]
-      // One label per (source lane → target LANE → label), not one per receiving
-      // chip — see collapseRailBundleBadges for the C1 measurement that forced
-      // it. index → the one collapsed badge, or `null` for "a sibling carries it".
+      type RailGroup = NonNullable<ReturnType<typeof railGroups.get>>
+      const measure = (el: HTMLElement) => toNat(visibleRect(el, el.getBoundingClientRect()))
+      const memberKeys = (group: RailGroup) => group.jobs.map(j => `${j.e.source_id}→${j.e.target_id}`)
+      const bundleCount = (group: RailGroup) => group.jobs.reduce((n, j) => n + j.count, 0)
+      const railBadgeSlots: { index: number; y: number; hw: number; busX: number }[] = []
+      const feederBadgesPlaced: { x: number; y: number; hw: number }[] = []
+
+      // Same-lane trunks, keyed by the lane and by where in it the traffic
+      // leaves (the triggers band, or the chips themselves), so rules → functions
+      // and functions → queues in one lane never share a trunk with arrows both
+      // ways on it.
+      const trunks = new Map<string, { lane: HTMLElement; band: HTMLElement | null; groups: RailGroup[] }>()
+      const feeders: RailGroup[] = []
+      for (const group of railGroups.values()) {
+        if (group.src !== group.dstLane) {
+          feeders.push(group)
+          continue
+        }
+        const band = group.src.querySelector<HTMLElement>('[data-testid="topology-triggers-band"]')
+        const fromBand = band !== null && group.jobs.every(j => band.contains(j.srcEl))
+        const key = `${keyOf(group.src)}·${fromBand ? "band" : "body"}`
+        const entry = trunks.get(key)
+        if (entry) entry.groups.push(group)
+        else trunks.set(key, { lane: group.src, band: fromBand ? band : null, groups: [group] })
+      }
+      for (const t of trunks.values()) {
+        const laneRect = measure(t.lane)
+        const busX = trunkBusX(laneRect, corridors)
+        const srcBox = t.band ? measure(t.band) : unionRect(t.groups.flatMap(g => g.jobs.map(j => j.src)))
+        // One stub per receiving CHIP: TRIGGERS and TARGETS into the same
+        // function are one stub carrying both.
+        const byChip = new Map<HTMLElement, RailGroup[]>()
+        for (const g of t.groups) byChip.set(g.dst, [...(byChip.get(g.dst) ?? []), g])
+        const chips = [...byChip.entries()].map(([el, groups]) => ({
+          el,
+          groups,
+          id: groups[0].dstId,
+          rect: measure(el),
+        }))
+        const route = railTrunkRoute(srcBox, chips.map(c => ({ id: c.id, rect: c.rect })), busX)
+        const trunkD = route.trunk.map(polyline => orthoPath(polyline)).filter(Boolean).join(" ")
+        if (!trunkD) continue
+        const jobsAll = t.groups.flatMap(g => g.jobs)
+        const lead = railBundleLeadEdge(jobsAll.map(j => j.e))
+        const laneId = `lane:${laneKey(t.lane)}`
+        // One badge per WORD the trunk carries — TRIGGERS ×6 over TARGETS ×6
+        // when the graph holds both edge types for the same pairs. Merging them
+        // into one word would assert two edge types mean the same thing;
+        // printing one per receiving chip was the twelve. The first word rides
+        // the trunk path; further words are badge-only entries (empty `d`).
+        const byWord = new Map<string, { count: number; members: string[] }>()
+        for (const g of t.groups) {
+          const acc = byWord.get(g.label) ?? { count: 0, members: [] }
+          acc.count += bundleCount(g)
+          acc.members.push(...memberKeys(g))
+          byWord.set(g.label, acc)
+        }
+        let wordIndex = 0
+        for (const [word, acc] of byWord) {
+          const label = railBundleLabel(word, acc.count)
+          const hw = badgeHalfWidth(label)
+          const y = route.exit.y + wordIndex * 16
+          railBadgeSlots.push({ index: next.length, y, hw, busX })
+          next.push({
+            d: wordIndex === 0 ? trunkD : "",
+            cls: jobsAll[0].cls,
+            sourceId: laneId,
+            targetId: `trunk:${laneKey(t.lane)}`,
+            protocol: lead.protocol ?? null,
+            port: lead.port ?? null,
+            externalDestinations: null,
+            badgeX: busX - hw - 6,
+            badgeY: y,
+            badgeLabel: label,
+            badgeTitle: [label, ...acc.members].join("\n"),
+            isExposed: jobsAll.some(j => Boolean(j.e.is_exposed)),
+            highlight: jobsAll.some(j => j.highlight === "attack_path") ? "attack_path" : null,
+            focused: false,
+            authorityState: lead.authority_state,
+            evidenceType: lead.evidence_type,
+            pathBasis: lead.path_basis,
+            lastSeen: lead.last_seen,
+            arrow: false,
+          })
+          wordIndex += 1
+        }
+        route.stubs.forEach((stub, i) => {
+          const chip = chips[i]
+          const d = orthoPath(stub.pts)
+          if (!d) return
+          const chipJobs = chip.groups.flatMap(g => g.jobs)
+          const chipLead = railBundleLeadEdge(chipJobs.map(j => j.e))
+          next.push({
+            d,
+            cls: chipJobs[0].cls,
+            sourceId: laneId,
+            targetId: chip.id,
+            protocol: chipLead.protocol ?? null,
+            port: chipLead.port ?? null,
+            externalDestinations: null,
+            badgeX: stub.pts[1].x,
+            badgeY: stub.pts[1].y,
+            badgeLabel: "",
+            badgeTitle: undefined,
+            isExposed: chipJobs.some(j => Boolean(j.e.is_exposed)),
+            highlight: chipJobs.some(j => j.highlight === "attack_path") ? "attack_path" : null,
+            focused: false,
+            authorityState: chipLead.authority_state,
+            evidenceType: chipLead.evidence_type,
+            pathBasis: chipLead.path_basis,
+            lastSeen: chipLead.last_seen,
+            bundle: {
+              count: chip.groups.reduce((n, g) => n + bundleCount(g), 0),
+              members: chip.groups.flatMap(memberKeys),
+            },
+          })
+        })
+      }
+
+      // Feeder bundles across the lanes. One label per (source lane → target
+      // LANE → label), not one per receiving chip — see collapseRailBundleBadges
+      // for the C1 measurement that forced it. index → the one collapsed badge,
+      // or `null` for "a sibling carries it".
       const badgeCollapse = collapseRailBundleBadges(
-        railBundles.map(group => ({
+        feeders.map(group => ({
           srcKey: keyOf(group.src),
           dstLaneKey: keyOf(group.dstLane),
           label: group.label,
-          members: group.jobs.map(j => `${j.e.source_id}→${j.e.target_id}`),
-          count: group.jobs.reduce((n, j) => n + j.count, 0),
+          members: memberKeys(group),
+          count: bundleCount(group),
         })),
       )
-      const railBadgeSlots: { index: number; y: number; hw: number; busX: number }[] = []
-      for (let bundleIndex = 0; bundleIndex < railBundles.length; bundleIndex += 1) {
-        const group = railBundles[bundleIndex]
-        const srcRect = toNat(visibleRect(group.src, group.src.getBoundingClientRect()))
-        const dstRect = toNat(visibleRect(group.dst, group.dst.getBoundingClientRect()))
-        const spread = (bundleIndex - (railBundles.length - 1) / 2) * 10
-        const route = railBundleRoute(srcRect, dstRect, corridors, bundleIndex, spread, railBundles.length)
-        const d = orthoPath(route.pts)
-        if (!d) continue
-        const count = group.jobs.reduce((sum, j) => sum + j.count, 0)
+      feeders.forEach((group, bundleIndex) => {
+        const srcRect = measure(group.src)
+        const dstRect = measure(group.dst)
+        // The classic route decides the bus and the corridor; the members' own
+        // legs replace its single departure from the lane's edge.
+        const route = railBundleRoute(
+          srcRect,
+          dstRect,
+          corridors,
+          bundleIndex,
+          0,
+          feeders.length,
+          RAIL_FEEDER_BADGE_INSET,
+        )
+        const busX = route.pts[1].x
+        const feeder = railFeederRoute(
+          group.jobs.map(j => ({ sourceId: j.e.source_id, rect: j.src })),
+          dstRect,
+          busX,
+        )
+        const d = feeder.trunk.map(polyline => orthoPath(polyline)).filter(Boolean).join(" ")
+        if (!d) return
+        const stubD = feeder.feeders.map(leg => orthoPath(leg.pts)).filter(Boolean).join(" ")
+        const word = railFeederLabel(group.jobs[0].cls)
+        const stubBadges = word
+          ? feeder.feeders.map((leg, i) => {
+              const hw = badgeHalfWidth(word)
+              const towardBus = leg.pts[1].x >= leg.pts[0].x ? 1 : -1
+              const job = group.jobs[i]
+              // On the leg just short of the bus, i.e. inside the corridor: the
+              // bus sits RAIL_FEEDER_BADGE_INSET in, so the mark clears the lane
+              // however wide its chips render (a mark measured from the chip's
+              // edge painted over a rail chip, fixture-e2e 2026-09-11).
+              return {
+                x: leg.pts[1].x - towardBus * (hw + 4),
+                y: leg.pts[0].y,
+                label: word,
+                title: [
+                  edgeBadgeLabel(job.e, job.cls, false, false),
+                  `${job.e.source_id} → ${job.e.target_id}`,
+                  job.e.evidence_type ? `evidence: ${job.e.evidence_type}` : null,
+                ]
+                  .filter(Boolean)
+                  .join("\n"),
+              }
+            })
+          : []
+        for (const b of stubBadges) feederBadgesPlaced.push({ x: b.x, y: b.y, hw: badgeHalfWidth(b.label) })
+        const count = bundleCount(group)
         const lead = railBundleLeadEdge(group.jobs.map(j => j.e))
         const collapsed = badgeCollapse.get(bundleIndex)
         // `null` = collapsed onto a sibling: the arrow is drawn, the word is not
         // repeated. Absent = this bundle is alone on its lane pair and label.
-        const label =
-          collapsed === null ? "" : railBundleLabel(group.label, collapsed?.count ?? count)
+        const label = collapsed === null ? "" : railBundleLabel(group.label, collapsed?.count ?? count)
         // Two scopes, kept apart: `members` is what THIS arrow stands for and is
         // what the detail panel reads off `bundle`; the collapsed badge's title
         // has to list every pair its count claims, or the chip says ×6 over a
         // tooltip naming one.
-        const members = group.jobs.map(j => `${j.e.source_id}→${j.e.target_id}`)
+        const members = memberKeys(group)
         const titleMembers = collapsed?.members ?? members
-        // On its own line in the gap between the lanes when the label fits
-        // there; only the ones that don't join the left-gutter column below.
-        const onLineX = label ? busSideBadgeX(route.bus.x, route.corridor, badgeHalfWidth(label)) : null
+        const hw = badgeHalfWidth(label)
+        // On its own line in the gap between the lanes — beside the bus when the
+        // label fits there, else centred on it — and only a label that fits
+        // neither way joins the left-gutter column below.
+        const onLineX = label
+          ? (busSideBadgeX(busX, route.corridor, hw) ?? busCenteredBadgeX(busX, route.corridor, hw))
+          : null
+        // Midway down the trunk's main run, where the legs have already joined it.
+        const busMidY = (feeder.trunk[0][0].y + feeder.enter.y) / 2
         if (label && onLineX === null) {
-          railBadgeSlots.push({
-            index: next.length,
-            y: route.label.y,
-            hw: badgeHalfWidth(label),
-            busX: route.label.x,
-          })
+          railBadgeSlots.push({ index: next.length, y: busMidY, hw, busX: route.label.x })
         }
         next.push({
           d,
@@ -4041,8 +4464,8 @@ function FlowOverlay({
           protocol: lead.protocol ?? null,
           port: lead.port ?? null,
           externalDestinations: null,
-          badgeX: onLineX ?? route.label.x - badgeHalfWidth(label) - 6,
-          badgeY: onLineX === null ? route.label.y : route.bus.y,
+          badgeX: onLineX ?? route.label.x - hw - 6,
+          badgeY: busMidY,
           badgeLabel: label,
           // No word, no tooltip — the same pairing the de-overlap pass above
           // uses when it suppresses a badge. A title alone would put a hover
@@ -4056,8 +4479,10 @@ function FlowOverlay({
           pathBasis: lead.path_basis,
           lastSeen: lead.last_seen,
           bundle: { count, members },
+          stubD,
+          stubBadges,
         })
-      }
+      })
       if (railBadgeSlots.length > 1) {
         // One column, right-aligned left of the LEFTMOST bus so no badge can
         // reach the rail, whatever the fan did.
@@ -4091,7 +4516,9 @@ function FlowOverlay({
         seenObstacle.add(k)
         chipObstacles.push(r)
       }
-      const placed: { x: number; y: number; hw: number }[] = []
+      // Feeder-leg badges are placed by construction (beside their chip) and are
+      // not moved; they are seeded here so no other label is laid over them.
+      const placed: { x: number; y: number; hw: number }[] = [...feederBadgesPlaced]
       const clearAt = (x: number, y: number, hw: number): boolean => {
         for (const o of chipObstacles) {
           if (x + hw > o.l - 4 && x - hw < o.r + 4 && y + 7 > o.t - 4 && y - 7 < o.b + 4) {
@@ -4235,10 +4662,12 @@ function FlowOverlay({
           p.pathBasis === "inferred_correlation" ||
           p.pathBasis === "synthetic_expansion"
         const animateFlow =
+          Boolean(p.d) &&
           flowMode !== "architecture" &&
           !dimmed &&
           motionKind === "authoritative"
         const animateHistoricalDirection =
+          Boolean(p.d) &&
           flowMode !== "architecture" &&
           !dimmed &&
           motionKind === "historical"
@@ -4250,6 +4679,9 @@ function FlowOverlay({
           data-flow-bundle={p.bundle ? String(p.bundle.count) : undefined}
           data-flow-members={p.bundle ? p.bundle.members.join("|") : undefined}
         >
+          {/* A badge-only entry (a same-lane trunk's second word) draws no line. */}
+          {p.d ? (
+          <>
           {/* Soft halo behind the line so it's visible over the busy chip grid */}
           <path
             d={p.d}
@@ -4285,7 +4717,7 @@ function FlowOverlay({
                   : undefined
             }
             strokeLinecap="round"
-            markerEnd={`url(#flow-arrow-${markerCls})`}
+            markerEnd={p.arrow === false ? undefined : `url(#flow-arrow-${markerCls})`}
           >
             {p.highlight === "attack_path" ? (
               <animate
@@ -4297,6 +4729,23 @@ function FlowOverlay({
               />
             ) : null}
           </path>
+          </>
+          ) : null}
+          {/* Feeder legs: each member chip's own dotted run to the bus. Dotted
+              because the leg is a member's share of the trunk, not an edge of
+              its own — the arrowhead and the label ride the trunk. */}
+          {p.stubD ? (
+            <path
+              d={p.stubD}
+              fill="none"
+              stroke={stroke}
+              strokeWidth={1.2}
+              strokeOpacity={dimmed ? "0.18" : "0.7"}
+              strokeDasharray="2 3"
+              strokeLinecap="round"
+              data-flow-feeder-legs="true"
+            />
+          ) : null}
           {animateFlow ? (
             <>
               <path
@@ -4418,6 +4867,35 @@ function FlowOverlay({
               </>
             ) : null}
           </g>
+          {/* "● API" at each function's edge: which plane the member leaves on.
+              Rendered after the trunk's badge so the first badge in this group
+              stays the trunk's. */}
+          {(p.stubBadges ?? []).map((b, k) => {
+            const hw = badgeHalfWidth(b.label)
+            return (
+              <g
+                key={`feeder-${k}`}
+                transform={`translate(${b.x}, ${b.y})`}
+                data-testid="topology-flow-badge"
+                data-flow-feeder="true"
+              >
+                <title>{b.title}</title>
+                <rect x={-hw} y={-6} width={hw * 2} height={12} rx={6} fill="white" stroke={stroke} strokeWidth="0.75" opacity="0.94" />
+                <circle cx={-hw + 5} cy={0} r={1.7} fill={stroke} />
+                <text
+                  x={2.5}
+                  y={2.6}
+                  textAnchor="middle"
+                  fontSize="7"
+                  fontWeight="700"
+                  fontFamily="ui-sans-serif, system-ui, sans-serif"
+                  fill={stroke}
+                >
+                  {b.label}
+                </text>
+              </g>
+            )
+          })}
         </g>
         )
       })}
@@ -5749,6 +6227,241 @@ function PrimaryPlusPeerStrip({
   )
 }
 
+/** The Internet Gateway chip. `selectionId` is `__igw__` for the first IGW —
+ *  the flow anchor the region's egress edges target — and the IGW's own id for
+ *  extras. The same chip wherever it is drawn, so FlowOverlay keeps resolving
+ *  the internet path: on the frame's header line (merged canvas) or in the VPC
+ *  BOUNDARY column beside the frame (single-frame canvas). */
+function IgwBoundaryChip({
+  igw,
+  selectionId,
+  selected,
+  onSelect,
+  fill = false,
+}: {
+  igw: VpcTopology["edges"]["igws"][number]
+  selectionId: string
+  selected: boolean
+  onSelect: (id: string) => void
+  /** Take the column's full width instead of the header strip's 150px cap. */
+  fill?: boolean
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(selectionId)}
+      aria-pressed={selected}
+      data-flow-id={selectionId}
+      data-igw-id={igw.id}
+      data-testid="topology-igw-rail-chip"
+      title={[
+        `${igw.name} (${igw.id})`,
+        igw.vpc_id ? `VPC · ${igw.vpc_id}` : null,
+        "Internet Gateway · on the VPC boundary",
+      ]
+        .filter(Boolean)
+        .join(" · ")}
+      className={`rounded-sm overflow-hidden flex items-center gap-1 pr-1.5 text-left transition hover:brightness-95 ${
+        fill ? "w-full max-w-full min-w-0" : "max-w-[150px]"
+      }`}
+      style={{
+        background: "linear-gradient(180deg, #EFF6FF 0%, #FFFFFF 100%)",
+        border: "1.5px solid #3B82F6",
+        color: "#1E40AF",
+        boxShadow: selected ? "0 0 0 2px rgba(14,139,122,0.25)" : undefined,
+      }}
+    >
+      <span
+        className="flex items-center justify-center shrink-0 px-1 self-stretch"
+        style={{ background: "#8C4FFF", color: "white" }}
+      >
+        <AwsServiceGlyph kind="igw" size={13} />
+      </span>
+      <span className="text-[8px] font-bold uppercase tracking-[0.1em] shrink-0">IGW</span>
+      <span className="text-[9px] font-semibold truncate normal-case tracking-normal font-mono">
+        {igw.name}
+      </span>
+    </button>
+  )
+}
+
+/** A VPC endpoint chip: service, Gateway/Interface, id in the title. */
+function VpceBoundaryChip({
+  vpce,
+  selected,
+  onSelect,
+  fill = false,
+}: {
+  vpce: VpcTopology["edges"]["vpces"][number]
+  selected: boolean
+  onSelect: (id: string) => void
+  fill?: boolean
+}) {
+  const meta = resolveVpceMeta(vpce.service_name, vpce.endpoint_type)
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(vpce.id)}
+      aria-pressed={selected}
+      data-flow-id={vpce.id}
+      data-testid="topology-vpce-rail-chip"
+      title={[
+        meta.label,
+        `${meta.type} endpoint · ${vpce.id}`,
+        vpce.service_name ?? "",
+        meta.purpose,
+      ]
+        .filter(Boolean)
+        .join("\n")}
+      className={`rounded-sm overflow-hidden flex items-center gap-1 pr-1.5 text-left transition hover:brightness-95 ${
+        fill ? "w-full max-w-full min-w-0" : "max-w-[150px]"
+      }`}
+      style={{
+        background: "#DBEAFE",
+        border: selected ? "1.5px solid #0E8B7A" : "1.5px solid #3B82F6",
+        color: "#1E40AF",
+        boxShadow: selected ? "0 0 0 2px rgba(14,139,122,0.2)" : undefined,
+      }}
+    >
+      <span
+        className="flex items-center justify-center shrink-0 px-1 self-stretch"
+        style={{ background: "white" }}
+      >
+        <VpceIcon size={15} />
+      </span>
+      <span className="text-[8px] font-bold uppercase tracking-[0.1em] shrink-0">VPCE</span>
+      <span
+        className="px-1 rounded-sm text-[7px] font-bold shrink-0"
+        style={{
+          background: meta.type === "Gateway" ? "#1E40AF" : "#3B82F6",
+          color: "white",
+        }}
+      >
+        {meta.type === "Gateway" ? "GW" : "IF"}
+      </span>
+      <span className="text-[9px] font-semibold truncate normal-case tracking-normal">
+        {meta.label}
+      </span>
+    </button>
+  )
+}
+
+/**
+ * The VPC BOUNDARY column — between the VPC frame and the rail, on a
+ * single-frame canvas.
+ *
+ * The frame's edge devices used to sit side by side on its header line, IGW
+ * next to four endpoints next to the VPC id (Alon, 2026-09-11: "u cant put it
+ * like here, one next to the other"). On the boundary they belong to, they
+ * have a vertical order: the Internet Gateway at the TOP, where the path up to
+ * the internet leaves, and the endpoints at the BOTTOM, level with the data
+ * tier whose private paths to S3 / SSM they carry. Each carries one caption
+ * counted from the edges the map draws (`boundaryIgwCaption`,
+ * `boundaryVpceCaption`); neither claims a route table the payload does not
+ * carry. The `__igw__` flow anchor moves with the IGW chip, so egress edges
+ * keep landing on it.
+ *
+ * A merged canvas draws one frame per VPC and keeps each frame's devices on
+ * its own header strip, where they stay attributable to their VPC.
+ */
+function VpcBoundaryColumn({
+  igws,
+  vpces,
+  edges,
+  selectedNodeId,
+  onSelect,
+}: {
+  igws: VpcTopology["edges"]["igws"]
+  vpces: VpcTopology["edges"]["vpces"]
+  edges: TrafficEdge[]
+  selectedNodeId: string | null
+  onSelect: (id: string) => void
+}) {
+  return (
+    <div
+      className="flex flex-col self-stretch min-h-0 z-10"
+      style={{ width: `${VPC_BOUNDARY_COL_W_PX}px` }}
+      data-testid="topology-vpc-boundary-column"
+      data-scroll-region="vpc-boundary"
+    >
+      <div
+        className="text-[10px] uppercase tracking-[0.12em] font-semibold shrink-0"
+        style={{ color: "#1E40AF" }}
+        data-flow-obstacle="vpc-boundary-header"
+        data-testid="topology-vpc-boundary-column-header"
+      >
+        VPC boundary
+      </div>
+      {igws.length > 0 ? (
+        <div className="flex flex-col gap-1 mt-1 shrink-0" data-testid="topology-vpc-boundary-ingress">
+          {/* The IGW is, by definition, the VPC's attachment to the internet; the
+              Users → Internet strip above the cloud frame names the same path. */}
+          <div
+            className="text-[9px] font-semibold"
+            style={{ color: PAL.slate }}
+            data-flow-obstacle="vpc-boundary-internet"
+          >
+            ↑ Internet
+          </div>
+          {igws.map((igw, idx) => {
+            const selectionId = idx === 0 ? "__igw__" : igw.id
+            return (
+              <div key={igw.id} className="flex flex-col gap-0.5 min-w-0">
+                <IgwBoundaryChip
+                  igw={igw}
+                  selectionId={selectionId}
+                  selected={selectedNodeId === selectionId}
+                  onSelect={onSelect}
+                  fill
+                />
+                <div
+                  className="text-[8px] leading-tight truncate"
+                  style={{ color: PAL.slate }}
+                  data-testid="topology-boundary-caption"
+                  title="Workloads whose egress the map routes through this gateway — counted from the drawn edges."
+                >
+                  {boundaryIgwCaption(edges, { id: igw.id, primary: idx === 0 })}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      ) : null}
+      <div className="flex-1 min-h-[8px]" aria-hidden />
+      {vpces.length > 0 ? (
+        // Scrolls rather than clips when the column is shorter than its
+        // endpoints: a clipped endpoint is a device the graph reports and the
+        // map silently denies.
+        <div
+          className="flex flex-col gap-1 mb-0.5 min-h-0 overflow-y-auto"
+          data-testid="topology-vpc-boundary-endpoints"
+        >
+          <div
+            className="text-[9px] font-semibold shrink-0"
+            style={{ color: PAL.slate }}
+            data-flow-obstacle="vpc-boundary-endpoints-header"
+          >
+            Endpoints ({vpces.length})
+          </div>
+          {vpces.map(v => (
+            <div key={v.id} className="flex flex-col gap-0.5 min-w-0 shrink-0">
+              <VpceBoundaryChip vpce={v} selected={selectedNodeId === v.id} onSelect={onSelect} fill />
+              <div
+                className="text-[8px] leading-tight truncate"
+                style={{ color: PAL.slate }}
+                data-testid="topology-boundary-caption"
+                title="Workloads the map draws reaching this endpoint — counted from the drawn edges, not from a route table."
+              >
+                {boundaryVpceCaption(edges, v.id)}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 interface VpcCanvasFrameProps {
   vpcId: string | null
   grid: CanvasGrid
@@ -5765,6 +6478,9 @@ interface VpcCanvasFrameProps {
   selectedNodeId: string | null
   highlightedRoleName: string | null
   onSelect: (id: string) => void
+  /** The IGW and endpoints are drawn in the VPC BOUNDARY column beside this
+   *  frame (single-frame canvas); the header strip stays empty of them. */
+  boundaryInColumn?: boolean
   presentationMode: boolean
   densityCollapsed: boolean
   viewDensity: ViewDensity
@@ -5791,6 +6507,7 @@ function VpcCanvasFrame({
   selectedNodeId,
   highlightedRoleName,
   onSelect,
+  boundaryInColumn = false,
   presentationMode,
   densityCollapsed,
   viewDensity,
@@ -5840,97 +6557,20 @@ function VpcCanvasFrame({
       data-testid="topology-vpc-boundary-strip"
     >
       {igws.map((igw, idx) => {
-        // First IGW keeps the `__igw__` flow anchor the region edges target;
-        // extras are addressed by their own id. Unchanged from the rail so
-        // FlowOverlay keeps resolving the internet path.
         const selectionId = idx === 0 ? "__igw__" : igw.id
-        const selected = selectedNodeId === selectionId
         return (
-          <button
-            type="button"
+          <IgwBoundaryChip
             key={igw.id}
-            onClick={() => onSelect(selectionId)}
-            aria-pressed={selected}
-            data-flow-id={selectionId}
-            data-igw-id={igw.id}
-            data-testid="topology-igw-rail-chip"
-            title={[
-              `${igw.name} (${igw.id})`,
-              igw.vpc_id ? `VPC · ${igw.vpc_id}` : null,
-              "Internet Gateway · on the VPC boundary",
-            ]
-              .filter(Boolean)
-              .join(" · ")}
-            className="rounded-sm overflow-hidden flex items-center gap-1 pr-1.5 text-left transition hover:brightness-95 max-w-[150px]"
-            style={{
-              background: "linear-gradient(180deg, #EFF6FF 0%, #FFFFFF 100%)",
-              border: "1.5px solid #3B82F6",
-              color: "#1E40AF",
-              boxShadow: selected ? "0 0 0 2px rgba(14,139,122,0.25)" : undefined,
-            }}
-          >
-            <span
-              className="flex items-center justify-center shrink-0 px-1 self-stretch"
-              style={{ background: "#8C4FFF", color: "white" }}
-            >
-              <AwsServiceGlyph kind="igw" size={13} />
-            </span>
-            <span className="text-[8px] font-bold uppercase tracking-[0.1em] shrink-0">IGW</span>
-            <span className="text-[9px] font-semibold truncate normal-case tracking-normal font-mono">
-              {igw.name}
-            </span>
-          </button>
+            igw={igw}
+            selectionId={selectionId}
+            selected={selectedNodeId === selectionId}
+            onSelect={onSelect}
+          />
         )
       })}
-      {vpces.map(v => {
-        const meta = resolveVpceMeta(v.service_name, v.endpoint_type)
-        const selected = selectedNodeId === v.id
-        return (
-          <button
-            type="button"
-            key={v.id}
-            onClick={() => onSelect(v.id)}
-            aria-pressed={selected}
-            data-flow-id={v.id}
-            data-testid="topology-vpce-rail-chip"
-            title={[
-              meta.label,
-              `${meta.type} endpoint · ${v.id}`,
-              v.service_name ?? "",
-              meta.purpose,
-            ]
-              .filter(Boolean)
-              .join("\n")}
-            className="rounded-sm overflow-hidden flex items-center gap-1 pr-1.5 text-left transition hover:brightness-95 max-w-[150px]"
-            style={{
-              background: "#DBEAFE",
-              border: selected ? "1.5px solid #0E8B7A" : "1.5px solid #3B82F6",
-              color: "#1E40AF",
-              boxShadow: selected ? "0 0 0 2px rgba(14,139,122,0.2)" : undefined,
-            }}
-          >
-            <span
-              className="flex items-center justify-center shrink-0 px-1 self-stretch"
-              style={{ background: "white" }}
-            >
-              <VpceIcon size={15} />
-            </span>
-            <span className="text-[8px] font-bold uppercase tracking-[0.1em] shrink-0">VPCE</span>
-            <span
-              className="px-1 rounded-sm text-[7px] font-bold shrink-0"
-              style={{
-                background: meta.type === "Gateway" ? "#1E40AF" : "#3B82F6",
-                color: "white",
-              }}
-            >
-              {meta.type === "Gateway" ? "GW" : "IF"}
-            </span>
-            <span className="text-[9px] font-semibold truncate normal-case tracking-normal">
-              {meta.label}
-            </span>
-          </button>
-        )
-      })}
+      {vpces.map(v => (
+        <VpceBoundaryChip key={v.id} vpce={v} selected={selectedNodeId === v.id} onSelect={onSelect} />
+      ))}
     </div>
   )
 
@@ -6128,8 +6768,10 @@ function VpcCanvasFrame({
           </span>
         ) : null}
         {/* Pushed to the right end of the same line, so the edge devices sit ON
-            the top border rather than in a column beside the card. */}
-        {boundaryStrip ? <div className="ml-auto min-w-0">{boundaryStrip}</div> : null}
+            the top border rather than in a column beside the card — on a merged
+            canvas. A single-frame canvas draws them in the VPC BOUNDARY column
+            instead (`boundaryInColumn`), IGW above the endpoints. */}
+        {boundaryStrip && !boundaryInColumn ? <div className="ml-auto min-w-0">{boundaryStrip}</div> : null}
       </div>
 
       {presentationMode ? (
@@ -6776,6 +7418,16 @@ export function AwsFrame({
   // `scope: "vpc-boundary"` always said they go, so the only thing left that has
   // no frame to sit on is a device in a VPC this view does not draw.
   const showNetworkRail = foreignIngress.length > 0
+  // The VPC BOUNDARY column: this frame's IGW and endpoints drawn beside the
+  // frame, between it and the rail — IGW at the top, endpoints at the bottom
+  // level with the data tier — instead of side by side on the frame's header
+  // line (Alon, 2026-09-11). Single-frame canvases only: a merged canvas draws
+  // one frame per VPC and each keeps its devices on its own header, where they
+  // stay attributable to their VPC.
+  const boundaryFrame = frames.length === 1 ? frames[0] : null
+  const showBoundaryColumn = Boolean(
+    boundaryFrame && (boundaryFrame.igws.length > 0 || boundaryFrame.vpces.length > 0),
+  )
   const accountSuffix = topo.account_id ? `· acct ${topo.account_id}` : ""
   const flowContainerRef = useRef<HTMLDivElement | null>(null)
   const railColumnRef = useRef<HTMLDivElement | null>(null)
@@ -6790,6 +7442,17 @@ export function AwsFrame({
     showServerlessLane && showRegionalLane
       ? RAIL_LANE_W_PX * 2 + RAIL_LANE_CORRIDOR_W_PX
       : RAIL_LANE_W_PX
+  // "4 fn · service-plane access" under the bucket: the receiving end of the
+  // rail feeders, stated at the chip from the same edges the overlay draws.
+  const railInboundCaptions = useMemo(() => {
+    const functionIds = new Set(serverlessTierNodes.map(node => node.id))
+    const captions = new Map<string, string>()
+    for (const node of regionalTierNodes) {
+      const caption = railInboundCaption(node.id, visibleEdges, id => functionIds.has(id))
+      if (caption) captions.set(node.id, caption)
+    }
+    return captions
+  }, [regionalTierNodes, serverlessTierNodes, visibleEdges])
 
   const attackPathEdgeCount = attackPathFlowCount
 
@@ -7035,6 +7698,7 @@ export function AwsFrame({
               width: "100%",
               gridTemplateColumns: [
                 "minmax(0, 1fr)",
+                showBoundaryColumn ? `${VPC_BOUNDARY_COL_W_PX}px` : null,
                 showNetworkRail ? "136px" : null,
                 showEdgeRail ? "48px" : null,
                 showEdgeRail ? `${railColumnW}px` : null,
@@ -7179,6 +7843,7 @@ export function AwsFrame({
                     presentationMode={presentationMode}
                     densityCollapsed={densityCollapsed}
                     viewDensity={viewDensity}
+                    boundaryInColumn={showBoundaryColumn}
                   />
                 ))}
               </div>
@@ -7204,9 +7869,20 @@ export function AwsFrame({
                   presentationMode={presentationMode}
                   densityCollapsed={densityCollapsed}
                   viewDensity={viewDensity}
+                  boundaryInColumn={showBoundaryColumn}
                 />
               ))
             )}
+
+            {showBoundaryColumn && boundaryFrame ? (
+              <VpcBoundaryColumn
+                igws={boundaryFrame.igws}
+                vpces={boundaryFrame.vpces}
+                edges={visibleEdges}
+                selectedNodeId={selectedNodeId}
+                onSelect={onSelect}
+              />
+            ) : null}
 
             {/* Off-canvas column, right of the VPC. Once held the IGW + VPCEs;
                 those are on their own frame's boundary now, so all that is left
@@ -7365,6 +8041,7 @@ export function AwsFrame({
                   ) : null}
                   <RegionalDataServicesTier
                     nodes={regionalTierNodes}
+                    inboundCaptions={railInboundCaptions}
                     laneMinHeight={railLaneMinHeight}
                     selectedNodeId={selectedNodeId}
                     onSelect={onSelect}
