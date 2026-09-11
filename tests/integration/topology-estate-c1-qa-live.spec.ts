@@ -62,6 +62,9 @@ const COVERAGE_STATES = new Set([
 ])
 
 interface TopologyNode {
+  /** BE >= 2026-09-11: the verified Lambda attachment reading and the graph label. */
+  vpc_attachment_state?: string | null
+  resource_label?: string | null
   id?: string
   name?: string
   type?: string
@@ -189,6 +192,32 @@ function summarizeTopology(body: TopologyRisk) {
     noSubnetByType[type] = (noSubnetByType[type] ?? 0) + 1
     if (node.vpc_id) vpcNoSubnetByType[type] = (vpcNoSubnetByType[type] ?? 0) + 1
   }
+  // The three review defects landed 2026-09-11: the verified attachment state
+  // per function (contradicted the coverage warning before), the graph label
+  // behind an unplaced node (a cluster or target group is a group, not a gap),
+  // and S3 observed_actions as action NAMES (four edges carried characters).
+  const lambdaAttachmentStates: Record<string, number> = {}
+  const unplacedLabels: Record<string, number> = {}
+  for (const node of nodes) {
+    if (node.type === "Lambda") {
+      const state = node.vpc_attachment_state ?? "absent"
+      lambdaAttachmentStates[state] = (lambdaAttachmentStates[state] ?? 0) + 1
+    }
+    const placed = Boolean(node.subnet_id) || (node.subnet_ids ?? []).length > 0
+    if (!placed) {
+      const label = node.resource_label ?? `type:${node.type ?? "?"}`
+      unplacedLabels[label] = (unplacedLabels[label] ?? 0) + 1
+    }
+  }
+  const s3EdgeActions = (body.traffic_edges ?? [])
+    .map(edge => edge as { protocol?: string; source_id?: string; target_id?: string; observed_actions?: unknown })
+    .filter(edge => edge.protocol === "ACTUAL_S3_ACCESS")
+    .slice(0, 12)
+    .map(edge => ({
+      source_id: edge.source_id ?? null,
+      target_id: edge.target_id ?? null,
+      observed_actions: edge.observed_actions ?? null,
+    }))
   const natGws = body.vpc_topology?.edges?.nat_gws ?? []
   const subnetIds = new Set((body.vpc_topology?.subnets ?? []).map(subnet => subnet.id))
   const authority = body.traffic_authority ?? null
@@ -203,6 +232,9 @@ function summarizeTopology(body: TopologyRisk) {
     no_subnet_by_type: noSubnetByType,
     vpc_but_no_subnet_by_type: vpcNoSubnetByType,
     traffic_edges: (body.traffic_edges ?? []).length,
+    lambda_attachment_states: lambdaAttachmentStates,
+    unplaced_labels: unplacedLabels,
+    s3_edge_actions: s3EdgeActions,
     subnets: subnetIds.size,
     nat_gateways: natGws.map(nat => ({
       id: nat.id ?? null,
