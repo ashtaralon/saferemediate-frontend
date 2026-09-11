@@ -526,3 +526,21 @@ The reason strings are what make that measurement unnecessary for shipping: the
 area names its own population at render time, per node, with the remedy
 attached. Whether it holds six nodes or sixty, none of them is a chip drawn in a
 cell nobody chose.
+
+## Egress path: hops, not a straight line to the IGW
+
+An outbound edge is drawn through the chips the backend names from route
+facts, in path order (`egress_hops`, or `via_nat_id` → `via_igw_id`, or the
+older `via_vpce_id` / `via_igw`): a workload in a private subnet reaches the
+internet as **workload → NAT gateway chip (in its public subnet) → IGW at the
+VPC boundary → destination**. The NAT chip is a flow anchor
+(`data-flow-id` = its id). A hop-to-hop leg toward the boundary leaves the
+subnet grid upward first and crosses at the boundary chip's row, so the line
+no longer runs along a tier row through neighbouring chips. A hop chip that is
+not in the DOM is skipped — a shorter line, never an invented one.
+
+The badge says `· via NAT` when the line went through a NAT, and
+`· route unresolved` when the backend looked for a route (`structural_route`)
+and could not pin one (`AMBIGUOUS`, `NO_VPC_CONTEXT`); an older backend that
+makes no route claim gets no suffix. The badge tooltip lists the route
+(`route · NAT nat-… → IGW igw-…`) above the sampled destinations.

@@ -52,7 +52,7 @@ import { resolveCoverageGaps } from "./coverage-gaps"
 import { normalizeVpcTopology } from "./normalize-topology"
 import { createMap } from "./native-map"
 import type { EstateFlowMode } from "./estate-flow-edges"
-import { filterMergedVpcOverlayEdges } from "./estate-flow-edges"
+import { egressHopFlowIds, filterMergedVpcOverlayEdges } from "./estate-flow-edges"
 import { subnetOwnershipTooltipLine } from "./estate-ownership"
 import {
   databasePublicIpExposureLabel,
@@ -580,11 +580,13 @@ export function formatEgressBreakdownBadge(
  *  the badge alone when the BE sent no destinations (older deploy, or an edge
  *  that is not outbound). Addresses only: the BE invents no hostname. */
 export function formatEgressDestinationsTitle(
-  e: Pick<TrafficEdge, "destinations" | "external_destinations">,
+  e: Pick<TrafficEdge, "destinations" | "external_destinations"> &
+    Partial<Pick<TrafficEdge, "egress_hops" | "via_nat_id" | "via_igw_id" | "via_vpce_id" | "structural_route">>,
   badgeLabel: string,
 ): string {
+  const route = formatEgressRouteLine(e)
   const dests = (e.destinations ?? []).filter(d => d && d.address)
-  if (dests.length === 0) return badgeLabel
+  if (dests.length === 0) return route ? `${badgeLabel}\n${route}` : badgeLabel
   const total = e.external_destinations ?? dests.length
   const lines = dests.map(d => {
     const port = d.port != null ? ` · :${d.port}` : ""
@@ -592,7 +594,31 @@ export function formatEgressDestinationsTitle(
     return `${d.address} · ${d.kind}${port}${obs}`
   })
   const more = total > dests.length ? [`+${total - dests.length} more`] : []
-  return [badgeLabel, ...lines, ...more].join("\n")
+  return [badgeLabel, ...(route ? [route] : []), ...lines, ...more].join("\n")
+}
+
+/** One line naming the route the BE established for an outbound edge —
+ *  `route · NAT nat-… → IGW igw-…`, `route · VPCE vpce-…` — or, when the BE
+ *  looked and could not pin one, `route · unresolved (AMBIGUOUS)`. Null when
+ *  the BE made no route claim at all (older deploy, internal edge). */
+export function formatEgressRouteLine(
+  e: Partial<Pick<TrafficEdge, "egress_hops" | "via_nat_id" | "via_igw_id" | "via_vpce_id" | "structural_route">>,
+): string | null {
+  const hops = (e.egress_hops ?? []).filter(h => h && h.id)
+  const named = hops.length > 0
+    ? hops.map(h => `${String(h.kind).toUpperCase()} ${h.id}`)
+    : e.via_vpce_id
+      ? [`VPCE ${e.via_vpce_id}`]
+      : e.via_nat_id
+        ? [`NAT ${e.via_nat_id}`, `IGW ${e.via_igw_id ?? "(primary)"}`]
+        : e.via_igw_id
+          ? [`IGW ${e.via_igw_id}`]
+          : []
+  if (named.length > 0) return `route · ${named.join(" → ")}`
+  if (e.structural_route && !["VPCE", "NAT", "IGW"].includes(e.structural_route)) {
+    return `route · unresolved (${e.structural_route})`
+  }
+  return null
 }
 
 // Friendly metadata for the VPCE boundary chips. The AWS service-name
@@ -1625,6 +1651,7 @@ function NatGatewayChip({
       }}
       data-testid="topology-nat-gateway-chip"
       data-nat-id={nat.id}
+      data-flow-id={nat.id}
       data-nat-placement={placement}
       title={
         placement === "subnet"
@@ -3190,6 +3217,25 @@ function longestSegmentMid(pts: Pt[]): Pt {
  *  the target's LEFT edge. Vertical legs exit bottom/top with a per-edge
  *  `exitSpread` so a fan-out (ALB → N workloads) spreads at the source like
  *  a real architecture diagram instead of stacking on one line. */
+/** A leg from a hop chip to a chip that sits ABOVE and to the right of it —
+ *  the IGW at the VPC boundary, seen from a NAT in a public subnet. Up first
+ *  along the source's left edge, then across at the target's row, so the line
+ *  leaves the subnet grid through the header band instead of running along
+ *  the tier row through every neighbouring chip (the "egress line through the
+ *  app chip" defect, C1 2026-09-11). Any other geometry is the plain leg. */
+function orthoLegToBoundary(src: NatRect, dst: NatRect): Pt[] {
+  const H_GAP = 40
+  if (dst.l - src.r > H_GAP && dst.cy < src.t) {
+    const exitX = Math.min(src.l + 8, src.cx)
+    return [
+      { x: exitX, y: src.t },
+      { x: exitX, y: dst.cy },
+      { x: dst.l, y: dst.cy },
+    ]
+  }
+  return orthoLeg(src, dst, null, 0)
+}
+
 function orthoLeg(src: NatRect, dst: NatRect, corridorX: number | null, exitSpread: number): Pt[] {
   const H_GAP = 40
   if (dst.l - src.r > H_GAP) {
@@ -3241,6 +3287,7 @@ export function edgeBadgeLabel(
   cls: TrafficEdgeClass,
   routedViaVpce: boolean,
   routedViaIgw: boolean,
+  routedViaNat = false,
 ): string {
   let badgeLabel = ""
   if (cls === "egress") {
@@ -3248,6 +3295,13 @@ export function edgeBadgeLabel(
       e.external_destinations,
       e.egress_breakdown,
     )
+    if (routedViaNat) badgeLabel += " · via NAT"
+    // Honesty suffix (S3_TRANSPORT_PROVENANCE_v1): a route the BE looked for
+    // and could not pin is said so, never drawn as a straight public line
+    // without comment. Absent structural_route (older BE) makes no claim.
+    if (e.structural_route && !["VPCE", "NAT", "IGW"].includes(e.structural_route)) {
+      badgeLabel += " · route unresolved"
+    }
   } else if (cls === "edge_service") {
     if (routedViaVpce || e.egress_path === "vpce") {
       // Short-form service tag from the VPCE service_name suffix.
@@ -3266,9 +3320,10 @@ export function edgeBadgeLabel(
         (e.egress_breakdown ?? []).some(b => b.kind === "s3") ||
         (e.protocol ?? "").includes("S3")
       const n = e.external_destinations
+      const via = routedViaNat ? "via NAT → IGW" : routedViaIgw ? "via IGW" : "via IGW/NAT"
       badgeLabel = isS3
-        ? (n ? `S3 · ${n} endpoints · via IGW (prefer VPCE)` : "S3 · via IGW (prefer VPCE)")
-        : `${e.protocol ?? "AWS"} · via IGW/NAT (prefer VPCE)`
+        ? (n ? `S3 · ${n} endpoints · ${via} (prefer VPCE)` : `S3 · ${via} (prefer VPCE)`)
+        : `${e.protocol ?? "AWS"} · ${via} (prefer VPCE)`
     } else {
       badgeLabel = relationshipBadgeLabel(e.protocol) ?? e.protocol ?? "edge"
     }
@@ -3933,6 +3988,24 @@ function FlowOverlay({
       return null
     }
 
+    // A hop chip by its flow id. The primary IGW's anchor is "__igw__" (the
+    // boundary chip keeps that id whatever the gateway is called), so an IGW
+    // id that has no chip of its own falls back to it, then to any IGW chip.
+    // Nothing else falls back: a NAT or VPCE hop is drawn only through its own chip.
+    const resolveHopEl = (id: string): HTMLElement | null => {
+      const exact = container.querySelector<HTMLElement>(
+        `[data-flow-id="${CSS.escape(id)}"]`,
+      )
+      if (exact) return exact
+      if (id === "__igw__" || id.startsWith("igw-")) {
+        return (
+          container.querySelector<HTMLElement>(`[data-flow-id="__igw__"]`) ??
+          container.querySelector<HTMLElement>(`[data-flow-id^="igw-"]`)
+        )
+      }
+      return null
+    }
+
     // Clip an endpoint rect against its scrollable/overflow-hidden ancestors.
     // A rail chip scrolled out of its rail otherwise anchors the edge at its
     // off-screen position — the arrow lands over unrelated content (the
@@ -3987,11 +4060,12 @@ function FlowOverlay({
         cls: TrafficEdgeClass
         src: NatRect
         dst: NatRect
-        inter: NatRect | null
+        /** Chips the line is drawn THROUGH, in path order (NAT → IGW, or a VPCE). */
+        hops: NatRect[]
         srcKey: number
         count: number
         highlight: "attack_path" | null
-        viaKind: "vpce" | "igw" | null
+        viaKinds: Set<"vpce" | "igw" | "nat">
         focused: boolean
         /** The element the edge leaves — a same-lane trunk asks whether it is in the triggers band. */
         srcEl: HTMLElement
@@ -4039,26 +4113,22 @@ function FlowOverlay({
         // via_vpce routing — for S3/DDB Gateway VPCE paths the BE attaches
         // the VPCE id so the flow physically renders THROUGH that chip.
         // Public-path AWS (egress_path=public / via_igw) routes THROUGH the
-        // IGW chip: workload → IGW → S3 (full A→B).
-        // Falls back to a direct route if the chip isn't in the DOM.
-        let inter: NatRect | null = null
-        let viaKind: "vpce" | "igw" | null = null
-        if (e.via_vpce_id) {
-          const interEl = container.querySelector<HTMLElement>(
-            `[data-flow-id="${CSS.escape(e.via_vpce_id)}"]`,
+        // IGW chip: workload → IGW → S3 (full A→B). A NAT-routed edge
+        // (via_nat_id / egress_hops, 2026-09-11 review finding 2) goes
+        // workload → NAT chip in its public subnet → IGW → destination.
+        // Every hop is a chip the BE named from route facts; a chip that is
+        // not in the DOM is skipped, so the line gets shorter, never invented.
+        const hops: NatRect[] = []
+        const viaKinds = new Set<"vpce" | "igw" | "nat">()
+        for (const hopId of egressHopFlowIds(e)) {
+          const hopEl = resolveHopEl(hopId)
+          if (!hopEl || hopEl === src.el || hopEl === dst.el) continue
+          hops.push(toNat(visibleRect(hopEl, hopEl.getBoundingClientRect())))
+          viaKinds.add(
+            hopId === e.via_vpce_id || hopId.startsWith("vpce-") ? "vpce"
+            : hopId.startsWith("nat-") ? "nat"
+            : "igw",
           )
-          if (interEl) {
-            inter = toNat(visibleRect(interEl, interEl.getBoundingClientRect()))
-            viaKind = "vpce"
-          }
-        } else if (e.via_igw || e.egress_path === "public") {
-          const igwEl =
-            container.querySelector<HTMLElement>(`[data-flow-id="__igw__"]`) ??
-            container.querySelector<HTMLElement>(`[data-flow-id^="igw-"]`)
-          if (igwEl) {
-            inter = toNat(visibleRect(igwEl, igwEl.getBoundingClientRect()))
-            viaKind = "igw"
-          }
         }
         const job: RouteJob = {
           e,
@@ -4066,15 +4136,15 @@ function FlowOverlay({
           srcEl: src.el,
           src: toNat(visibleRect(src.el, src.el.getBoundingClientRect())),
           dst: toNat(visibleRect(dst.el, dst.el.getBoundingClientRect())),
-          inter,
+          hops,
           srcKey: keyOf(src.el),
           count: 1,
           highlight: e.flow_highlight ?? null,
-          viaKind,
+          viaKinds,
           focused: isFocusedOperationalFlow(e, selectedNodeId, flowMode),
           railLanes: null,
         }
-        if (!inter) {
+        if (hops.length === 0) {
           const srcLane = laneOf(src.el)
           const dstLane = laneOf(dst.el)
           if (srcLane && dstLane) job.railLanes = { src: srcLane, dst: dstLane, dstChip: dst.el }
@@ -4127,7 +4197,7 @@ function FlowOverlay({
       const corridorLane = new Map<RouteJob, number | null>()
       const colBuckets = new Map<number, RouteJob[]>()
       for (const j of drawJobs) {
-        const target = j.inter ?? j.dst
+        const target = j.hops[0] ?? j.dst
         if (target.l - j.src.r > H_GAP) {
           const bucket = Math.round(target.l / 32)
           const arr = colBuckets.get(bucket) ?? []
@@ -4138,7 +4208,7 @@ function FlowOverlay({
         }
       }
       for (const arr of colBuckets.values()) {
-        const colLeft = Math.min(...arr.map(j => (j.inter ?? j.dst).l))
+        const colLeft = Math.min(...arr.map(j => (j.hops[0] ?? j.dst).l))
         arr.sort((a, b) => a.src.cy - b.src.cy)
         arr.forEach((j, i) => corridorLane.set(j, colLeft - 18 - i * 7))
       }
@@ -4165,13 +4235,24 @@ function FlowOverlay({
         let badge: Pt
         let routedViaVpce = false
         let routedViaIgw = false
-        if (j.inter) {
-          const leg1 = orthoLeg(j.src, j.inter, laneX, spread)
-          const leg2 = orthoLeg(j.inter, j.dst, null, 0)
-          pts = [...leg1, ...leg2]
-          badge = { x: j.inter.cx, y: j.inter.cy + 18 }
-          routedViaVpce = j.viaKind === "vpce"
-          routedViaIgw = j.viaKind === "igw"
+        let routedViaNat = false
+        if (j.hops.length > 0) {
+          // One orthogonal leg per hop. The first leaves the source through
+          // its corridor; a hop-to-hop leg toward a boundary chip goes UP
+          // first, out of the subnet grid, before it goes across (see
+          // orthoLegToBoundary); the last leg lands on the destination.
+          const first = j.hops[0]
+          pts = orthoLeg(j.src, first, laneX, spread)
+          let prev = first
+          for (const hop of j.hops.slice(1)) {
+            pts = [...pts, ...orthoLegToBoundary(prev, hop)]
+            prev = hop
+          }
+          pts = [...pts, ...orthoLegToBoundary(prev, j.dst)]
+          badge = { x: first.cx, y: first.cy + 18 }
+          routedViaVpce = j.viaKinds.has("vpce")
+          routedViaIgw = j.viaKinds.has("igw")
+          routedViaNat = j.viaKinds.has("nat")
         } else {
           pts = orthoLeg(j.src, j.dst, laneX, spread)
           // Anchor the egress label to its source chip (in-tier) instead of the
@@ -4199,7 +4280,7 @@ function FlowOverlay({
         if (!d) continue
         const e = j.e
         const cls = j.cls
-        let badgeLabel = edgeBadgeLabel(e, cls, routedViaVpce, routedViaIgw)
+        let badgeLabel = edgeBadgeLabel(e, cls, routedViaVpce, routedViaIgw, routedViaNat)
         if (j.count > 1 && !e.is_exposed) badgeLabel = `${j.count} flows`
         next.push({
           d,

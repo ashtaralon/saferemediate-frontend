@@ -383,3 +383,45 @@ export function selectEstateFlowEdges(opts: {
 
   return mergeTrafficEdges(visibleTopo, depMapped)
 }
+
+/**
+ * The chips an outbound edge is drawn THROUGH, in path order, as `data-flow-id`
+ * values. Structural facts only — nothing here infers a hop.
+ *
+ *   egress_hops present      → those ids (nat → igw, or a gateway VPCE)
+ *   via_vpce_id              → the endpoint chip (S3 / DDB private path)
+ *   via_nat_id               → the NAT chip, then the IGW (via_igw_id, else the
+ *                              primary-IGW anchor "__igw__")
+ *   via_igw / egress_path    → the IGW alone (the pre-hop contract)
+ *
+ * A hop equal to the edge's own target is dropped: an `egress` edge already
+ * terminates at "__igw__", so its IGW hop IS the destination. The renderer
+ * resolves each id against the DOM and skips a chip it cannot find, so the
+ * worst case is a shorter line, never an invented one.
+ */
+export function egressHopFlowIds(
+  e: Pick<TrafficEdge, "target_id"> &
+    Partial<Pick<TrafficEdge, "egress_hops" | "via_vpce_id" | "via_nat_id" | "via_igw_id" | "via_igw" | "egress_path">>,
+): string[] {
+  const ids: string[] = []
+  const push = (id: string | null | undefined) => {
+    if (id && id !== e.target_id && !ids.includes(id)) ids.push(id)
+  }
+  if (e.egress_hops && e.egress_hops.length > 0) {
+    for (const hop of e.egress_hops) push(hop?.id)
+    return ids
+  }
+  if (e.via_vpce_id) {
+    push(e.via_vpce_id)
+    return ids
+  }
+  if (e.via_nat_id) {
+    push(e.via_nat_id)
+    push(e.via_igw_id ?? "__igw__")
+    return ids
+  }
+  if (e.via_igw || e.egress_path === "public") {
+    push(e.via_igw_id ?? "__igw__")
+  }
+  return ids
+}
