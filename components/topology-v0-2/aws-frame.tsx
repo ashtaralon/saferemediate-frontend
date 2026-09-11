@@ -4413,8 +4413,12 @@ function FlowOverlay({
               const hw = badgeHalfWidth(word)
               const towardBus = leg.pts[1].x >= leg.pts[0].x ? 1 : -1
               const job = group.jobs[i]
+              // On the leg just short of the bus, i.e. inside the corridor: the
+              // bus sits RAIL_FEEDER_BADGE_INSET in, so the mark clears the lane
+              // however wide its chips render (a mark measured from the chip's
+              // edge painted over a rail chip, fixture-e2e 2026-09-11).
               return {
-                x: leg.pts[0].x + towardBus * (hw + 10),
+                x: leg.pts[1].x - towardBus * (hw + 4),
                 y: leg.pts[0].y,
                 label: word,
                 title: [

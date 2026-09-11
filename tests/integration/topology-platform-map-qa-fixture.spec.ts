@@ -54,35 +54,40 @@ test("fullscreen platform map shows named Lambda, protected AZ labels, direction
 
   // The INLINE map, before fullscreen: this is the surface in the operator's own
   // screenshot, and it is the tight one — the Lambda and Regional lanes take the
-  // right third, so the VPC frame is ~950px and the boundary strip's five edge
-  // devices genuinely do not fit on one line. Fullscreen is ~1490px and fits, so
-  // asserting only there would never exercise the overflow path.
+  // right third, so the VPC frame is ~950px. It is a single-frame canvas like
+  // the fullscreen one, so its IGW and endpoints are in the VPC BOUNDARY column
+  // beside the frame, not on the header line, and the VPC id — which used to
+  // lose that line to five pills and render as "VPC…" — has it to itself.
   // Document-wide is unambiguous here and only here: the fullscreen overlay is
   // not mounted yet, so exactly one map exists. Every query AFTER the enlarge
   // click has to scope to the overlay.
   await expect(page.getByTestId("topology-estate-map-fullscreen")).toHaveCount(0)
   const inlineGeom = await page.evaluate(() => {
-    const strip = document.querySelector('[data-testid="topology-vpc-boundary-strip"]')
+    const column = document.querySelector('[data-testid="topology-vpc-boundary-column"]')
+    const frame = document.querySelector('[data-testid="topology-vpc-frame"]')
     const id = document.querySelector('[data-testid="topology-vpc-frame-id"]') as HTMLElement | null
-    if (!strip || !id) return null
-    const s = strip.getBoundingClientRect()
+    if (!column || !frame || !id) return null
+    const c = column.getBoundingClientRect()
+    const f = frame.getBoundingClientRect()
     return {
       idVisibleFraction: id.clientWidth / id.scrollWidth,
-      stripHeight: Math.round(s.height),
+      headerStrip: document.querySelector('[data-testid="topology-vpc-boundary-strip"]') !== null,
+      rightOfFrame: c.left >= f.right - 1,
       clippedPills: [
         ...document.querySelectorAll(
           '[data-testid="topology-igw-rail-chip"],[data-testid="topology-vpce-rail-chip"]',
         ),
       ].filter(el => {
         const r = el.getBoundingClientRect()
-        return r.width < 40 || r.left < s.left - 1 || r.right > s.right + 1
+        return r.width < 40 || r.left < c.left - 1 || r.right > c.right + 1
       }).length,
     }
   })
   expect(inlineGeom).not.toBeNull()
-  // Wraps to a second row rather than clipping a device or eating the VPC's id.
+  expect(inlineGeom!.headerStrip).toBe(false)
+  expect(inlineGeom!.rightOfFrame).toBe(true)
+  // Every device fits the column: none clipped, none narrower than a pill.
   expect(inlineGeom!.clippedPills).toBe(0)
-  expect(inlineGeom!.stripHeight).toBeLessThanOrEqual(56)
   expect(inlineGeom!.idVisibleFraction).toBeGreaterThan(0.6)
 
   await page.getByTestId("topology-estate-map-enlarge").click()

@@ -194,7 +194,9 @@ test("fullscreen: each off-VPC rail lane scrolls in its track, both lanes stay o
     const railChips = Array.from(rail.querySelectorAll<HTMLElement>("[data-flow-id], [data-flow-ids]")).filter(
       chip => chip.getBoundingClientRect().height > 0,
     )
-    const labelsOverChips: string[] = []
+    // Named with the chip and both boxes, so a failure says WHAT was painted
+    // over WHICH chip rather than just the word.
+    const labelsOverChips: Array<{ label: string; chip: string | null; badge: number[]; chipBox: number[] }> = []
     for (const badge of Array.from(root.querySelectorAll<SVGGElement>('[data-testid="topology-flow-badge"]'))) {
       const box = badge.querySelector("rect")
       if (!box) continue
@@ -203,7 +205,12 @@ test("fullscreen: each off-VPC rail lane scrolls in its track, both lanes stay o
       for (const chip of railChips) {
         const c = chip.getBoundingClientRect()
         if (r.left < c.right && r.right > c.left && r.top < c.bottom && r.bottom > c.top) {
-          labelsOverChips.push(badge.querySelector("text")?.textContent ?? "")
+          labelsOverChips.push({
+            label: badge.querySelector("text")?.textContent ?? "",
+            chip: chip.getAttribute("data-flow-id") ?? chip.getAttribute("data-flow-ids"),
+            badge: [r.left, r.top, r.right, r.bottom].map(Math.round),
+            chipBox: [c.left, c.top, c.right, c.bottom].map(Math.round),
+          })
         }
       }
     }
