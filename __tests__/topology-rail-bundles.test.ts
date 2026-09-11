@@ -471,6 +471,22 @@ describe("busCenteredBadgeX", () => {
   it("has nowhere to put it without a corridor", () => {
     expect(busCenteredBadgeX(feederBus, null, 20)).toBeNull()
   })
+
+  it("decides where a trunk's word goes: on its bus in the inter-lane gap, the gutter column beside a 48px gutter", () => {
+    // The Lambda lane's trunk runs the 48px gutter, which cannot hold
+    // "TRIGGERS ×6" — the word stays in the column left of the bus.
+    const gutterBus = trunkBusX(serverlessLane2, corridors2)
+    expect(busCenteredBadgeX(gutterBus, { l: leftGutter2.l, r: leftGutter2.r }, badgeHalfWidth("TRIGGERS ×6"))).toBeNull()
+    // The Regional lane's trunk runs the 112px gap, which holds "KMS ×3" — the
+    // word sits on the line it names. It used to join the gutter column with
+    // the Lambda lane's words, ~250px from its trunk (C1, 2026-09-11).
+    const gapBus = trunkBusX(regionalLane2, corridors2)
+    const hw = badgeHalfWidth("KMS ×3")
+    const x = busCenteredBadgeX(gapBus, { l: interlane2.l, r: interlane2.r }, hw)
+    expect(x).not.toBeNull()
+    expect(Math.abs(x! - gapBus)).toBeLessThanOrEqual(hw + 2)
+    expect(x! + hw).toBeLessThanOrEqual(interlane2.r - 2)
+  })
 })
 
 describe("trunkBusX", () => {

@@ -720,6 +720,8 @@ interface FullscreenMeasure {
   rail_feeder_legs: number
   rail_feeder_marks: number
   rail_bundle_words: string[]
+  /** Per trunk word: how far its badge's centre sits from the trunk's bus (px). */
+  rail_trunk_badge_offsets: Array<{ label: string; offset_px: number }>
   rail_chip_captions: string[]
   users_internet_strip: boolean
   subnet_cells: number
@@ -856,6 +858,25 @@ async function measureFullscreen(page: Page): Promise<FullscreenMeasure> {
       rail_bundle_words: Array.from(
         root.querySelectorAll('[data-testid="topology-flow-badge"]:not([data-flow-feeder]) text'),
       ).map(el => text(el)),
+      rail_trunk_badge_offsets: Array.from(root.querySelectorAll<SVGGElement>('g[data-flow-target^="trunk:"]')).flatMap(group => {
+        const path = group.querySelector("path") as SVGPathElement | null
+        const badge = group.querySelector('[data-testid="topology-flow-badge"]:not([data-flow-feeder]) rect')
+        const ctm = path?.getScreenCTM()
+        if (!path || !badge || !ctm) return []
+        const len = path.getTotalLength()
+        if (!len) return []
+        // The trunk polyline ends on its bus (busX, farthest chip), so the end
+        // point's x IS the bus.
+        const tail = path.getPointAtLength(len)
+        const end = new DOMPoint(tail.x, tail.y).matrixTransform(ctm)
+        const r = badge.getBoundingClientRect()
+        return [
+          {
+            label: text(group.querySelector('[data-testid="topology-flow-badge"]:not([data-flow-feeder]) text')),
+            offset_px: Math.round(Math.abs((r.left + r.right) / 2 - end.x)),
+          },
+        ]
+      }),
       rail_chip_captions: Array.from(root.querySelectorAll('[data-testid="topology-chip-caption"]')).map(el => text(el)),
       users_internet_strip: Boolean(root.querySelector('[data-testid="topology-users-internet-strip"]')),
       subnet_cells: count('[data-testid="topology-subnet-cell-chrome"]'),
