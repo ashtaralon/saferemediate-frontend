@@ -504,3 +504,81 @@ describe("AwsFrame — an operator-placed chip stays tellable from evidence", ()
     expect(within(area).getByText(NO_SUBNET.name!)).toBeTruthy()
   })
 })
+
+// ---------------------------------------------------------------------------
+// Logical groups. A target group binds instances, an ASG spans subnets, a DB
+// cluster owns its instances: none has a subnet of its own, so "no subnet in
+// the graph — run a full sync" was the wrong diagnosis and the wrong remedy for
+// all six unplaced resources on C1 (2026-09-11 network-topology review).
+// ---------------------------------------------------------------------------
+
+describe("computeCanvasGrid — a logical group is a group, not a collector gap", () => {
+  const TG = nd({ id: "PROBE-tg", type: "TargetGroup", vpc_id: VPC, subnet_id: null })
+  const ASG = nd({ id: "PROBE-asg", type: "AutoScalingGroup", vpc_id: VPC, subnet_id: null })
+  const CLUSTER = nd({ id: "PROBE-aurora-cluster", type: "RDS", resource_label: "RDSCluster", vpc_id: VPC, subnet_id: null })
+  const INSTANCE = nd({ id: "PROBE-aurora-instance", type: "RDS", resource_label: "RDSInstance", vpc_id: VPC, subnet_id: null })
+
+  it("reports target groups, ASGs and DB clusters as groups, never as a missing subnet", () => {
+    const g = computeCanvasGrid(VPC, SUBNETS, [CONTROL, TG, ASG, CLUSTER], [])
+    for (const n of [TG, ASG, CLUSTER]) {
+      expect(cellNodeIds(g).has(n.id)).toBe(false)
+      expect(reasonFor(g, n.id)).toBe("logical-group")
+    }
+  })
+
+  it("tells a cluster from its instance by the graph label, not the canvas type", () => {
+    // Both project as `type: "RDS"`; only `resource_label` separates them.
+    const g = computeCanvasGrid(VPC, SUBNETS, [CONTROL, CLUSTER, INSTANCE], [])
+    expect(reasonFor(g, CLUSTER.id)).toBe("logical-group")
+    expect(reasonFor(g, INSTANCE.id)).toBe("no-subnet-in-graph")
+  })
+
+  it("still places a group whose subnets the graph resolves — an ASG spans real subnets", () => {
+    const spanning = nd({
+      id: "PROBE-asg-placed",
+      type: "AutoScalingGroup",
+      vpc_id: VPC,
+      subnet_id: "subnet-web-a",
+      subnet_ids: ["subnet-web-a", "subnet-web-b"],
+    })
+    const g = computeCanvasGrid(VPC, SUBNETS, [CONTROL, spanning], [])
+    expect(cellNodeIds(g).has(spanning.id)).toBe(true)
+    expect(reasonFor(g, spanning.id)).toBeUndefined()
+  })
+
+  it("classifies a cluster that resolved to no VPC the same way", () => {
+    const orphanCluster = nd({
+      id: "PROBE-neptune-cluster",
+      type: "Neptune",
+      resource_label: "NeptuneCluster",
+      vpc_id: null,
+      subnet_id: null,
+    })
+    const { unplacedNodes } = buildVpcFrames(SUBNETS, [CONTROL, orphanCluster], VPC, [], [], true)
+    expect(unplacedNodes.find(u => u.node.id === orphanCluster.id)?.reason).toBe("logical-group")
+  })
+})
+
+describe("AwsFrame — a group is explained as a group and offered no cell", () => {
+  const TG = nd({ id: "PROBE-tg", name: "cyntro-tb-prod-tg-web", type: "TargetGroup", vpc_id: VPC, subnet_id: null })
+
+  it("lists the group after the real gaps, with a remedy that does not send the operator to a sync", () => {
+    renderFrame({ nodes: [CONTROL, NO_SUBNET, TG] })
+    const groups = screen.getAllByTestId("topology-unplaced-group")
+    expect(groups.map(g => g.getAttribute("data-unplaced-reason"))).toEqual([
+      "no-subnet-in-graph",
+      "logical-group",
+    ])
+    const group = groups[1]
+    expect(group).toHaveTextContent("A group, not a placeable resource (1)")
+    expect(group).toHaveTextContent("Not a collector gap")
+    expect(group.textContent).not.toMatch(/run a full sync/)
+    expect(within(group).getByText(TG.name!)).toBeTruthy()
+  })
+
+  it("offers the engineer no picker for a group, while a real gap keeps its picker", () => {
+    renderFrame({ nodes: [CONTROL, NO_SUBNET, TG], onPlaceNode: () => {} })
+    const pickers = screen.getAllByTestId("topology-placement-picker")
+    expect(pickers.map(p => p.getAttribute("data-node-id"))).toEqual([NO_SUBNET.id])
+  })
+})

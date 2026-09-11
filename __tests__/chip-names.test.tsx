@@ -326,4 +326,52 @@ describe("lane headers state only what the payload supports", () => {
     ).toMatch(/\+1$/)
     expect(regionalFamilies([])).toBe("services")
   })
+
+  function headerFor(lambdas: TopologyNode[]) {
+    render(
+      <AwsFrame
+        vpcTopology={vpcTopology}
+        nodes={[nodes[0], ...lambdas]}
+        mergedVpcView={false}
+        presentationMode={true}
+        viewDensity="inventory"
+        selectedNodeId={null}
+        onSelect={() => {}}
+      />,
+    )
+    const header = screen
+      .getByTestId("topology-serverless-tier")
+      .querySelector('[data-flow-obstacle="serverless-tier-header"]')
+    expect(header).not.toBeNull()
+    return header!
+  }
+
+  it("says 'outside VPC (verified)' for a function the backend checked and found detached", () => {
+    // The coverage warning on the same screen says these functions run outside
+    // the VPC; the header used to call the very same functions "attachment
+    // unverified" because a verified NOT-attached function has no vpc / subnet
+    // / SG fields either (2026-09-11 network-topology review).
+    const header = headerFor([
+      nd({ id: "fn-a", name: "cyntro-tb-prod-consumer-a", type: "Lambda", vpc_attachment_state: "NOT_VPC_ATTACHED", vpc_attachment_verified_at: "2026-09-11T12:00:00Z" }),
+      nd({ id: "fn-b", name: "cyntro-tb-prod-consumer-b", type: "Lambda", vpc_attachment_state: "NOT_VPC_ATTACHED", vpc_attachment_verified_at: "2026-09-11T12:00:00Z" }),
+      nd({ id: "fn-c", name: "cyntro-tb-prod-checkout", type: "Lambda", vpc_attachment_state: "NOT_VPC_ATTACHED", vpc_attachment_verified_at: "2026-09-11T12:00:00Z" }),
+    ])
+    expect(header).toHaveTextContent("3 outside VPC (verified)")
+    expect(header.textContent).not.toContain("attachment unverified")
+    expect(header.textContent).not.toContain("not VPC-attached")
+  })
+
+  it("keeps UNKNOWN as 'attachment unverified' and trusts a verified attachment without fields", () => {
+    const header = headerFor([
+      // The index had no row: a missing reading, never a verdict.
+      nd({ id: "fn-a", name: "cyntro-tb-prod-consumer-a", type: "Lambda", vpc_attachment_state: "UNKNOWN" }),
+      // Verified attached by the SSOT even though this payload carries no
+      // vpc_id / subnet / SG fields for it.
+      nd({ id: "fn-b", name: "cyntro-tb-prod-consumer-b", type: "Lambda", vpc_attachment_state: "VPC_ATTACHED" }),
+      nd({ id: "fn-c", name: "cyntro-tb-prod-checkout", type: "Lambda", vpc_attachment_state: "NOT_VPC_ATTACHED" }),
+    ])
+    expect(header).toHaveTextContent("1 VPC-attached")
+    expect(header).toHaveTextContent("1 outside VPC (verified)")
+    expect(header).toHaveTextContent("1 attachment unverified")
+  })
 })

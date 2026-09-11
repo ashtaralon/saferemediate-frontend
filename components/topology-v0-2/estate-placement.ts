@@ -397,6 +397,39 @@ export const SYNTHETIC_TIER_TYPES: Readonly<Record<string, SubnetTier>> = (() =>
 })()
 
 /**
+ * Types that name a GROUP of members rather than one placeable resource: a
+ * target group binds instances, an auto-scaling group spans subnets, a DB
+ * cluster owns its instances. None has a subnet of its own — the members do —
+ * so "no subnet in the graph" is the wrong diagnosis and "run a full sync" the
+ * wrong remedy (2026-09-11 review: all six unplaced C1 resources were these).
+ * Reported as groups until the map draws them as brackets around their
+ * members; never pinned into one cell, which would be a false structural claim.
+ *
+ * Matched on `resource_label` first (the graph label — a cluster and its
+ * instances both project as `type: "RDS"`), then on `type` for the group types
+ * that keep their own canvas type.
+ */
+export const LOGICAL_GROUP_TYPES: ReadonlySet<string> = new Set([
+  "AutoScalingGroup",
+  "ASG",
+  "TargetGroup",
+  "RDSCluster",
+  "NeptuneCluster",
+  "NeptuneDBCluster",
+  "DocumentDBCluster",
+  "DocDBCluster",
+  "DBCluster",
+])
+
+export function isLogicalGroupNode(node: {
+  type: string | null
+  resource_label?: string | null
+}): boolean {
+  if (node.resource_label && LOGICAL_GROUP_TYPES.has(node.resource_label)) return true
+  return !!node.type && LOGICAL_GROUP_TYPES.has(node.type)
+}
+
+/**
  * Resolve canvas placement for a live node.
  *
  * Order (AWS-honest, no fabrication):

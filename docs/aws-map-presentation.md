@@ -431,7 +431,7 @@ was invisible no matter what the grid did, and an override on it would have been
 recorded and then silently ignored. Overridden no-VPC nodes are now routed into
 the frame the engineer named; the rest are reported.
 
-Four reasons, because the remedy differs and "unplaced" teaches an operator
+Five reasons, because the remedy differs and "unplaced" teaches an operator
 nothing:
 
 | Reason | Means | Remedy |
@@ -440,6 +440,14 @@ nothing:
 | `subnet-not-in-graph` | names a subnet absent from the payload | dangling reference; re-sync |
 | `az-unknown-for-subnet` | subnet resolved, carries no AZ | the subnet row is incomplete |
 | `type-unrecognized` | no placement rule knows the type | add it to `estate-placement.ts` |
+| `logical-group` | a target group, ASG or DB cluster: its members carry the subnets | none — not a gap; drawn as a group until the map brackets members |
+
+`logical-group` is classified first, by `resource_label` (the graph label — a
+cluster and its instances both project as `type: "RDS"`) and then by `type`
+(`LOGICAL_GROUP_TYPES` in `estate-placement.ts`). It is listed last, gets no
+placement picker (pinning a group into one cell would assert a placement its
+members may not share), and its remedy never says "run a full sync": all six
+unplaced resources on C1 were groups (2026-09-11 network-topology review).
 
 `az-unknown-for-subnet` was unreachable when first written, and reachability was
 the bug. `subnetInCanvasScope` drops an AZ-less subnet — correctly, since it has

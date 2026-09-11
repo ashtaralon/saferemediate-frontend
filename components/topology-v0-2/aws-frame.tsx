@@ -74,6 +74,7 @@ import {
   SERVERLESS_TYPES,
   SYNTHETIC_TIER_TYPES,
   isDeclaredOffCanvas,
+  isLogicalGroupNode,
   mapSlotForType,
   resolveNodePlacement,
 } from "./estate-placement"
@@ -2481,20 +2482,32 @@ function ServerlessComputeTier({
   const remainingNodes = nodes.filter(node => !namedIds.has(node.id))
   const useStacks = glance && shouldGlanceStackRail(remainingNodes)
   const groups = useStacks ? groupNodesByType(remainingNodes) : null
-  // A missing vpc_id is a missing READING, not a verified "not attached":
-  // the backend's coverage contract calls these Lambdas unknown, and the
-  // header used to call the same functions "not VPC-attached" on the same
-  // screen (C1 production QA, 2026-09-02). It also printed "attachment
-  // unresolved" for exactly the nodes whose attachment WAS resolved.
-  const vpcAttached = nodes.filter(node =>
+  // One attachment fact, read the way the coverage contract reads it. The
+  // backend now carries `vpc_attachment_state` on each function from the
+  // workload_network SSOT: NOT_VPC_ATTACHED is a checked AWS VpcConfig with a
+  // timestamp, so the header says "outside VPC (verified)" — the same words as
+  // the coverage warning below it. Before this the header inferred
+  // "attachment unverified" from missing vpc/subnet/SG fields, which is exactly
+  // what a verified NOT-attached function looks like, and the two contradicted
+  // each other on one screen (2026-09-11 review). UNKNOWN, or an older payload
+  // without the field, still falls back to the fields: a missing vpc_id is a
+  // missing READING, never a verdict (C1 production QA, 2026-09-02).
+  const hasVpcFields = (node: TopologyNode): boolean =>
     Boolean(
       node.vpc_id ||
       node.subnet_id ||
       node.subnet_ids?.length ||
       node.security_group_ids?.length,
-    ),
-  ).length
-  const attachmentUnverified = nodes.length - vpcAttached
+    )
+  let vpcAttached = 0
+  let outsideVpcVerified = 0
+  let attachmentUnverified = 0
+  for (const node of nodes) {
+    const state = node.vpc_attachment_state
+    if (state === "NOT_VPC_ATTACHED") outsideVpcVerified += 1
+    else if (state === "VPC_ATTACHED" || hasVpcFields(node)) vpcAttached += 1
+    else attachmentUnverified += 1
+  }
   // Six "cyntro-tb-prod-c…" chips are six copies of nothing: drop the prefix
   // the lane's names share and say it once in the header (chip-names.ts).
   // Over the WHOLE lane, triggers included: C1's six EventBridge rules are named
@@ -2529,6 +2542,7 @@ function ServerlessComputeTier({
         <div className="mt-0.5 text-[9px]" style={{ color: "#6366F1" }}>
           {"outside subnet grid"}
           {vpcAttached > 0 ? ` · ${vpcAttached} VPC-attached` : null}
+          {outsideVpcVerified > 0 ? ` · ${outsideVpcVerified} outside VPC (verified)` : null}
           {attachmentUnverified > 0 ? ` · ${attachmentUnverified} attachment unverified` : null}
           {elided.prefix ? (
             <span
@@ -4973,6 +4987,8 @@ export type UnplacedReason =
   | "az-unknown-for-subnet"
   /** Nothing in the placement tables knows this type, so no tier is defensible. */
   | "type-unrecognized"
+  /** A group (target group, ASG, DB cluster): its members carry the subnets. Not a gap. */
+  | "logical-group"
 
 export interface UnplacedNode {
   node: TopologyNode
@@ -4992,6 +5008,9 @@ export function unplacedSubnetReason(
   n: TopologyNode,
   hasSubnet: (id: string) => SubnetMeta | undefined,
 ): UnplacedReason {
+  // A group never had a subnet to lose; asking the collector for one would
+  // send the operator after a gap that does not exist (2026-09-11 review).
+  if (isLogicalGroupNode(n)) return "logical-group"
   const ids = workloadSubnetIds(n)
   if (ids.length === 0) return "no-subnet-in-graph"
   const resolved = ids.map(id => hasSubnet(id)).filter((s): s is SubnetMeta => !!s)
@@ -7058,6 +7077,11 @@ const UNPLACED_REASON_COPY: Record<
     remedy:
       "Neither the placement rules nor the AWS service catalog knows this type, so no tier is defensible. Add it to estate-placement.ts.",
   },
+  "logical-group": {
+    label: "A group, not a placeable resource",
+    remedy:
+      "Target groups, auto-scaling groups and database clusters have no subnet of their own — their members carry the placement. Not a collector gap: a full sync will not move it.",
+  },
 }
 
 /**
@@ -7114,6 +7138,8 @@ function UnplacedNodesArea({
     "subnet-not-in-graph",
     "az-unknown-for-subnet",
     "type-unrecognized",
+    // Last: not a gap, so it never reads as the first thing to fix.
+    "logical-group",
   ]
   const canPlace = !!onPlaceNode && placeableCells.length > 0
   const multiVpc = new Set(placeableCells.map(c => c.vpc_id)).size > 1
@@ -7161,7 +7187,9 @@ function UnplacedNodesArea({
                     onSelect={onSelect}
                     dense
                   />
-                  {canPlace ? (
+                  {/* Pinning a group into one AZ x tier cell would assert a
+                      placement its members may not share. */}
+                  {canPlace && !isLogicalGroupNode(n) ? (
                     <PlacementPicker
                       nodeId={n.id}
                       cells={placeableCells}
