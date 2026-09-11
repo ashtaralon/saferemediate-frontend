@@ -1655,8 +1655,8 @@ function NatGatewayChip({
       data-nat-placement={placement}
       title={
         placement === "subnet"
-          ? `NAT gateway · ${nat.name} · subnet ${nat.subnet_id} (from vpc_topology.edges)`
-          : `NAT gateway · ${nat.name} · subnet ${nat.subnet_id ?? "unknown"} is not in this grid (from vpc_topology.edges)`
+          ? `NAT gateway · ${nat.name}${nat.public_ip ? ` · public ${nat.public_ip}` : ""} · subnet ${nat.subnet_id} (from vpc_topology.edges)`
+          : `NAT gateway · ${nat.name}${nat.public_ip ? ` · public ${nat.public_ip}` : ""} · subnet ${nat.subnet_id ?? "unknown"} is not in this grid (from vpc_topology.edges)`
       }
     >
       <span

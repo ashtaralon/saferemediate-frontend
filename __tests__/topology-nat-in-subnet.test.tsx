@@ -57,7 +57,7 @@ function topology(natGws: EdgeNatGw[]): VpcTopology {
   }
 }
 
-const placedNat: EdgeNatGw = { id: "nat-0a1b2c3d4e5f6a7b8", name: "cyntro-tb-nat-1a", subnet_id: "subnet-web-1a", vpc_id: VPC }
+const placedNat: EdgeNatGw = { id: "nat-0a1b2c3d4e5f6a7b8", name: "cyntro-tb-nat-1a", subnet_id: "subnet-web-1a", vpc_id: VPC, public_ip: "54.229.208.150" }
 const strayNat: EdgeNatGw = { id: "nat-0ffffffffffffffff", name: "cyntro-tb-nat-stray", subnet_id: "subnet-not-in-grid", vpc_id: VPC }
 
 const nodes: TopologyNode[] = [
@@ -122,6 +122,8 @@ describe("NAT gateway placement on the estate map", () => {
     expect(chips[0]).toHaveAttribute("data-nat-placement", "subnet")
     // The chip is a flow anchor: a NAT-routed egress line is drawn through it.
     expect(chips[0].getAttribute("data-flow-id")).toBe(chips[0].getAttribute("data-nat-id"))
+    // The address the internet sees a NAT-routed workload as, when the BE sent it.
+    expect(chips[0].getAttribute("title")).toContain("public 54.229.208.150")
     expect(chips[0]).toHaveTextContent("NAT GW · cyntro-tb-nat-1a")
     const webCell = document.querySelector('[data-testid^="topology-subnet-cell"][title*="subnet-web-1a"]')
     expect(webCell).not.toBeNull()

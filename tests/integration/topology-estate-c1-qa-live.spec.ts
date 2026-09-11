@@ -77,6 +77,7 @@ interface NatGateway {
   name?: string
   subnet_id?: string | null
   vpc_id?: string | null
+  public_ip?: string | null
 }
 interface LaneCounts {
   eligible: number
@@ -227,6 +228,9 @@ function summarizeTopology(body: TopologyRisk) {
       external_destinations?: number | null; egress_breakdown?: unknown
       destinations?: Array<{ address?: string; kind?: string; observation_count?: number }> | null
       via_igw?: boolean | null; egress_path?: string | null
+      structural_route?: string | null; via_nat_id?: string | null; via_igw_id?: string | null
+      egress_hops?: Array<{ kind?: string; id?: string; subnet_id?: string | null }> | null
+      route_basis?: string | null
     })
     .filter(edge => edge.edge_class === "egress" || edge.edge_class === "edge_service")
     .slice(0, 16)
@@ -240,6 +244,11 @@ function summarizeTopology(body: TopologyRisk) {
       })),
       via_igw: edge.via_igw ?? null,
       egress_path: edge.egress_path ?? null,
+      structural_route: edge.structural_route ?? null,
+      via_nat_id: edge.via_nat_id ?? null,
+      via_igw_id: edge.via_igw_id ?? null,
+      egress_hops: edge.egress_hops ?? null,
+      route_basis: edge.route_basis ?? null,
     }))
   const natGws = body.vpc_topology?.edges?.nat_gws ?? []
   const subnetIds = new Set((body.vpc_topology?.subnets ?? []).map(subnet => subnet.id))
@@ -265,6 +274,7 @@ function summarizeTopology(body: TopologyRisk) {
       name: nat.name ?? null,
       subnet_id: nat.subnet_id ?? null,
       subnet_in_grid: nat.subnet_id ? subnetIds.has(nat.subnet_id) : false,
+      public_ip: nat.public_ip ?? null,
     })),
     igws: (body.vpc_topology?.edges?.igws ?? []).length,
     vpces: (body.vpc_topology?.edges?.vpces ?? []).length,
