@@ -27,12 +27,24 @@ import {
  *   4. flow edges into rail chips end inside the chip, and edges into
  *      scrolled-out chips pin to their lane's edge — never dangle,
  *   5. the lane's chips are one per row, each spanning the lane, and the lane
- *      body is never shorter than one row (RAIL_LANE_MIN_PX): the coverage
- *      pill above the grid took the slack the 96px floor had been living on,
+ *      BODY is never shorter than one row — its own min-height, on a content
+ *      flex basis. A floor on the lane cannot protect the body inside it: on C1
+ *      the Lambda lane measured 402px, far above RAIL_LANE_MIN_PX, while its
+ *      body measured 1.75px and showed no chip (2026-09-11),
  *   6. an edge with both ends in the rail is carried by exactly one bundle
- *      path through the corridor between the lanes, and neither the label nor
- *      the path itself lands on a rail chip (C1 production, 2026-09-02: 22
- *      labels piled on the column).
+ *      path through the corridor between the lanes, neither the label nor the
+ *      path itself lands on a rail chip (C1 production, 2026-09-02: 22 labels
+ *      piled on the column), and its word is printed exactly once.
+ *
+ * Two things this payload cannot reach, pinned elsewhere rather than left to a
+ * vacuous pass here. It carries no EventBridge / SQS / Step Functions node, so
+ * the triggers band never renders and its own floor is pinned in
+ * __tests__/topology-fullscreen-rail-scroll.test.tsx. And its two
+ * ACTUAL_S3_ACCESS edges hit the same bucket, so it holds exactly ONE rail
+ * bundle — the lane-pair label collapse (C1, 2026-09-11: twelve badges reading
+ * TARGETS / TRIGGERS stacked in the gutter column) has nothing to collapse here
+ * and is pinned on the real twelve-bundle shape in
+ * __tests__/topology-rail-bundles.test.ts.
  */
 test("fullscreen: each off-VPC rail lane scrolls in its track, both lanes stay on screen, edges stay anchored", async ({
   context,
@@ -195,6 +207,62 @@ test("fullscreen: each off-VPC rail lane scrolls in its track, both lanes stay o
   expect(bundling.labelsOverChips, "no flow label paints over a rail chip").toEqual([])
   expect(bundling.pathsOverChips, "no bundle path is drawn across a rail chip").toEqual([])
 
+  // 6b: one label per LANE PAIR, not one per receiving chip. Grouping by target
+  // chip is right for a fan-IN — four Lambdas writing one bucket read as a
+  // single `S3 access ×4` — but a 1:1 pairing across the same two lanes makes
+  // one bundle per edge and every one of them shows the same word. C1's six
+  // EventBridge rules firing six Lambdas measured TWELVE badges stacked in the
+  // gutter column, reading TARGETS / TRIGGERS over and over (2026-09-11), which
+  // is the opposite of seeing the traffic between the services. Every arrow
+  // stays — each still lands on the service it names, asserted above — and the
+  // count moves into the one badge that speaks for them.
+  const labelling = await page.evaluate(() => {
+    const root = document.querySelector('[data-testid="topology-estate-map-fullscreen"]')!
+    const laneOf = (el: Element | null) =>
+      el?.closest('[data-testid="topology-serverless-tier"]')
+        ? "lane:serverless"
+        : el?.closest('[data-testid="topology-regional-data-tier"]')
+          ? "lane:regional"
+          : "lane:?"
+    const pairs = new Map<string, { words: string[]; arrows: number }>()
+    for (const group of Array.from(root.querySelectorAll<SVGGElement>("g[data-flow-bundle]"))) {
+      const source = group.getAttribute("data-flow-source") ?? "?"
+      const targetId = group.getAttribute("data-flow-target")
+      const target = targetId ? root.querySelector(`[data-flow-id="${CSS.escape(targetId)}"]`) : null
+      const key = `${source}→${laneOf(target)}`
+      const entry = pairs.get(key) ?? { words: [], arrows: 0 }
+      entry.arrows += 1
+      // The count is the part that legitimately differs; the repeated WORD is
+      // the defect, so compare the label with its `×N` stripped.
+      const label = group.querySelector('[data-testid="topology-flow-badge"] text')?.textContent ?? ""
+      const word = label.replace(/\s*×\s*\d+\s*$/, "").trim()
+      if (word) entry.words.push(word)
+      pairs.set(key, entry)
+    }
+    const badges = Array.from(root.querySelectorAll('[data-testid="topology-flow-badge"] text')).map(
+      t => (t.textContent ?? "").trim(),
+    )
+    return { pairs: [...pairs.entries()].map(([key, v]) => ({ key, ...v })), badges }
+  })
+  console.log(`RAIL LABELLING ${JSON.stringify(labelling)}`)
+  for (const pair of labelling.pairs) {
+    const dupes = pair.words.filter((word, i) => pair.words.indexOf(word) !== i)
+    expect(dupes, `${pair.key} repeats a label across ${pair.arrows} arrows`).toEqual([])
+  }
+  // Coverage, stated rather than implied: THIS payload cannot exercise the
+  // collapse. Its two ACTUAL_S3_ACCESS edges hit the same bucket, so per-chip
+  // grouping already yields one bundle with one word — measured 2026-09-11,
+  // pairs = [{"key":"lane:serverless→lane:regional","words":["S3 access"],
+  // "arrows":1}]. The duplicate check above would therefore pass on the
+  // pre-collapse renderer too; the collapse itself is pinned on the C1 twelve-
+  // bundle shape in __tests__/topology-rail-bundles.test.ts
+  // (collapseRailBundleBadges). What this assertion is worth is the browser
+  // half: a rail bundle exists at all, and it labels its word exactly once.
+  expect(
+    labelling.pairs,
+    `one rail lane pair, one word — pairs ${JSON.stringify(labelling.pairs)}`,
+  ).toEqual([{ key: "lane:serverless→lane:regional", words: ["S3 access"], arrows: 1 }])
+
   // 3: the last Lambda chip is below the lane's fold until the LANE scrolls.
   const chips = laneBody.locator("[data-flow-id]")
   const chipCount = await chips.count()
@@ -227,6 +295,46 @@ test("fullscreen: each off-VPC rail lane scrolls in its track, both lanes stay o
   expect(after!.y + after!.height).toBeLessThanOrEqual(720)
   // 5b: the lane body is at least one chip tall even with both fold pills up.
   expect(bodyAfter!.height).toBeGreaterThanOrEqual(after!.height)
+  // 5c: the floor this spec's header has always claimed, now read off the DOM.
+  // It belongs to the BODY, not to the lane: on C1 the Lambda lane measured
+  // 402px — far above RAIL_LANE_MIN_PX, so the lane floor never bound — while
+  // its body measured 1.75px and showed no Lambda chip at all, because the body
+  // was the lane's only `flex: 1 1 0%` child and a 0% basis absorbs the whole
+  // overrun of everything beside it (the triggers band, 291.5px of the 402).
+  // A content basis shares the deficit; the body's own min-height keeps one row.
+  const laneFloors = await fullscreen.evaluate(root => {
+    const out: Record<string, { minH: number; h: number; chip: number; basis: string; grow: string }> = {}
+    for (const lane of ["serverless", "regional"]) {
+      const body = root.querySelector<HTMLElement>(`[data-testid="topology-${lane}-lane-body"]`)
+      if (!body) continue
+      const cs = getComputedStyle(body)
+      const chip = body.querySelector<HTMLElement>("[data-flow-id]")
+      out[lane] = {
+        minH: Number.parseFloat(cs.minHeight) || 0,
+        h: +body.getBoundingClientRect().height.toFixed(2),
+        chip: chip ? +chip.getBoundingClientRect().height.toFixed(2) : 0,
+        basis: cs.flexBasis,
+        grow: cs.flexGrow,
+      }
+    }
+    return out
+  })
+  console.log(`RAIL LANE FLOORS ${JSON.stringify(laneFloors)}`)
+  expect(Object.keys(laneFloors).sort()).toEqual(["regional", "serverless"])
+  for (const [lane, m] of Object.entries(laneFloors)) {
+    expect(m.chip, `${lane} lane renders a chip to size its floor against`).toBeGreaterThan(0)
+    expect(
+      m.minH,
+      `${lane} body's floor (${m.minH}px) holds a whole chip (${m.chip}px)`,
+    ).toBeGreaterThanOrEqual(m.chip - 1)
+    expect(m.h, `${lane} body (${m.h}px) is at least its own floor (${m.minH}px)`).toBeGreaterThanOrEqual(
+      m.minH - 1,
+    )
+    // The mechanism, not just the outcome: a 0% basis puts the whole deficit on
+    // the chips no matter how generous the floor above them is.
+    expect(m.basis, `${lane} body has a content flex basis, not 0%`).not.toBe("0%")
+    expect(m.grow, `${lane} body still grows into the lane`).not.toBe("0")
+  }
   // The LANE scrolled — not the page, not the Regional lane.
   expect(await page.evaluate(() => window.scrollY)).toBe(pageScrollBefore)
   expect(await laneBody.evaluate(el => el.scrollTop)).toBeGreaterThan(0)

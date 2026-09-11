@@ -16,12 +16,14 @@ import {
   badgeHalfWidth,
   busFanOffset,
   busSideBadgeX,
+  collapseRailBundleBadges,
   edgeBadgeLabel,
   railBundleLabel,
   railBundleLeadEdge,
   railBundleRoute,
   stackBundleBadges,
 } from "@/components/topology-v0-2/aws-frame"
+import type { RailBundleBadgeInput } from "@/components/topology-v0-2/aws-frame"
 import { ALL_ACCESS_EDGE_TYPES } from "@/components/topology-v0-2/estate-flow-edges"
 import type { TrafficEdge } from "@/components/topology-v0-2/types"
 
@@ -225,6 +227,125 @@ describe("railBundleLabel", () => {
   it("carries the real count and stays bare for a single edge", () => {
     expect(railBundleLabel("TRIGGERS", 6)).toBe("TRIGGERS ×6")
     expect(railBundleLabel("S3 access", 1)).toBe("S3 access")
+  })
+})
+
+describe("collapseRailBundleBadges", () => {
+  const bundle = (p: Partial<RailBundleBadgeInput>): RailBundleBadgeInput => ({
+    srcKey: "lane:serverless",
+    dstLaneKey: "lane:regional",
+    label: "TRIGGERS",
+    members: ["fn-a→rule-1"],
+    count: 1,
+    ...p,
+  })
+
+  // The C1 shape that forced this, verbatim: six EventBridge rules firing six
+  // Lambdas 1:1 across one lane pair, and every pair carries BOTH edge types —
+  // so the per-chip bundler produced twelve bundles and painted twelve badges,
+  // TARGETS / TRIGGERS alternating down the gutter column (2026-09-11).
+  const c1RuleFanout: RailBundleBadgeInput[] = [
+    "daily",
+    "every_6h",
+    "frequent",
+    "monthly",
+    "nightly_burst",
+    "weekly",
+  ].flatMap(rule =>
+    ["TARGETS", "TRIGGERS"].map(label =>
+      bundle({
+        srcKey: "lane:triggers",
+        dstLaneKey: "lane:serverless",
+        label,
+        members: [`rule-${rule}→fn-${rule}`],
+      }),
+    ),
+  )
+
+  it("the C1 rule fan-out: twelve identical-word bundles become two badges", () => {
+    const collapse = collapseRailBundleBadges(c1RuleFanout)
+    // Every bundle is accounted for — nothing is left to print its own word by
+    // being absent from the map.
+    expect(collapse.size).toBe(12)
+    const owners = [...collapse.entries()].filter(([, v]) => v !== null)
+    expect(owners).toHaveLength(2)
+    for (const [, carried] of owners) {
+      expect(carried!.count).toBe(6)
+      // The title has to list every pair the count claims, or the chip says ×6
+      // over a tooltip naming one edge.
+      expect(carried!.members).toHaveLength(6)
+      expect(new Set(carried!.members).size).toBe(6)
+    }
+    // What the two chips actually read, which is the point of the whole change.
+    expect(owners.map(([i, v]) => railBundleLabel(c1RuleFanout[i].label, v!.count)).sort()).toEqual([
+      "TARGETS ×6",
+      "TRIGGERS ×6",
+    ])
+    // TARGETS and TRIGGERS are different words, so they collapse separately:
+    // merging them would be the renderer asserting two graph edge types mean
+    // the same thing. Interleaved input, so the two owners are the middles of
+    // their own fans — 6 and 7 — not 0 and 1.
+    expect([...collapse.keys()].filter(k => collapse.get(k) !== null).sort((a, b) => a - b)).toEqual([
+      6, 7,
+    ])
+  })
+
+  it("leaves a fan-IN alone: one bundle on its lane pair keeps its own count", () => {
+    // Four Lambdas writing one bucket already bundled per chip into a single
+    // `S3 access ×4` — the case the per-chip grouping gets right, and the case
+    // the captured browser fixture holds (measured 2026-09-11: one rail bundle,
+    // one label). Absent from the map, so the caller's own count stands.
+    const collapse = collapseRailBundleBadges([
+      bundle({ label: "S3 access", count: 4, members: ["a→b", "c→b", "d→b", "e→b"] }),
+    ])
+    expect(collapse.size).toBe(0)
+    expect(collapse.has(0)).toBe(false)
+  })
+
+  it("keys on the LANE pair, not the receiving chip, and not across source lanes", () => {
+    // Same word, same two lanes, different receiving chips → one badge. This is
+    // the whole change: per-chip keying is what produced twelve.
+    const sameLanes = collapseRailBundleBadges([
+      bundle({ members: ["fn-a→rule-1"] }),
+      bundle({ members: ["fn-b→rule-2"] }),
+    ])
+    expect([...sameLanes.values()].filter(v => v !== null)).toHaveLength(1)
+    // Same word, different source lane → two badges. A Lambda→Regional flow and
+    // a triggers→Lambda flow cross different corridors; one word cannot speak
+    // for both.
+    const differentSource = collapseRailBundleBadges([
+      bundle({ srcKey: "lane:serverless" }),
+      bundle({ srcKey: "lane:triggers" }),
+    ])
+    expect(differentSource.size).toBe(0)
+  })
+
+  it("sums the aggregated counts, not the number of bundles", () => {
+    // A bundle may already stand for several edges, so the collapsed count is a
+    // sum of counts. Counting bundles would print ×2 over five real edges.
+    const collapse = collapseRailBundleBadges([
+      bundle({ count: 2, members: ["a→x", "b→x"] }),
+      bundle({ count: 3, members: ["c→y", "d→y", "e→y"] }),
+    ])
+    const carried = [...collapse.values()].find(v => v !== null)
+    expect(carried).toEqual({ count: 5, members: ["a→x", "b→x", "c→y", "d→y", "e→y"] })
+  })
+
+  it("picks the middle bundle by bus order as the one that speaks", () => {
+    // Bus order is input order, and the badge should sit inside its own fan
+    // rather than at the top or bottom edge of it.
+    const three = collapseRailBundleBadges([bundle({}), bundle({}), bundle({})])
+    expect([...three.entries()].map(([i, v]) => [i, v === null ? null : v.count])).toEqual([
+      [0, null],
+      [1, 3],
+      [2, null],
+    ])
+    const four = collapseRailBundleBadges([bundle({}), bundle({}), bundle({}), bundle({})])
+    expect([...four.keys()].filter(i => four.get(i) !== null)).toEqual([2])
+  })
+
+  it("no bundles at all is an empty map, not a throw", () => {
+    expect(collapseRailBundleBadges([]).size).toBe(0)
   })
 })
 
