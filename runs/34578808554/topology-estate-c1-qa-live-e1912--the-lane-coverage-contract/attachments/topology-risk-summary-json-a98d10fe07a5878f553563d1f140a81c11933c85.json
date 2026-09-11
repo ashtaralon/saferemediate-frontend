@@ -1,0 +1,142 @@
+{
+  "system": "testbed-webshop",
+  "account_id": "416651950952",
+  "region": "eu-west-1",
+  "vpc_id": "vpc-0c39cde96f29f8f4e",
+  "available_vpcs": [
+    {
+      "vpc_id": "vpc-0c39cde96f29f8f4e",
+      "workload_count": 7
+    }
+  ],
+  "nodes": 30,
+  "by_type": {
+    "S3": 3,
+    "DynamoDB": 1,
+    "LoadBalancer": 2,
+    "RDS": 3,
+    "Lambda": 6,
+    "EventBridge": 6,
+    "TargetGroup": 2,
+    "Neptune": 2,
+    "EC2": 5
+  },
+  "no_subnet_by_type": {
+    "S3": 3,
+    "DynamoDB": 1,
+    "RDS": 1,
+    "Lambda": 6,
+    "EventBridge": 6,
+    "Neptune": 1
+  },
+  "vpc_but_no_subnet_by_type": {},
+  "traffic_edges": 25,
+  "subnets": 6,
+  "nat_gateways": [
+    {
+      "id": "nat-0fd7cf8524e62aea9",
+      "name": "nat-0fd7cf8524e62aea9",
+      "subnet_id": "subnet-05472c7cd0d3a7b90",
+      "subnet_in_grid": true
+    }
+  ],
+  "igws": 1,
+  "vpces": 1,
+  "traffic_authority": {
+    "state": "legacy_unverified",
+    "mode": "legacy",
+    "active_generation": null,
+    "authoritative_endpoint_count": 0,
+    "endpoint_count": 30,
+    "projected_edge_count": 0,
+    "lane_coverage": {
+      "basis": "vpc_flow_logs",
+      "mode": "legacy",
+      "active_generation": null,
+      "state": "none",
+      "eligible": 14,
+      "authoritative": 0,
+      "unknown": 0,
+      "not_applicable": 16,
+      "by_lane": {
+        "vpc": {
+          "eligible": 9,
+          "authoritative": 0,
+          "unknown": 0,
+          "not_applicable": 0,
+          "state": "none"
+        },
+        "serverless": {
+          "eligible": 0,
+          "authoritative": 0,
+          "unknown": 0,
+          "not_applicable": 6,
+          "state": "not_applicable"
+        },
+        "database": {
+          "eligible": 5,
+          "authoritative": 0,
+          "unknown": 0,
+          "not_applicable": 0,
+          "state": "none"
+        },
+        "regional": {
+          "eligible": 0,
+          "authoritative": 0,
+          "unknown": 0,
+          "not_applicable": 10,
+          "state": "not_applicable"
+        }
+      },
+      "projection": {
+        "unclassified_external_targets": 0,
+        "unclassified_external_sources": 0,
+        "igw_to_database_rejected": 0,
+        "unresolved_pairs": 0
+      },
+      "rejected_edges": {
+        "non_vpc_lambda_edges": 0
+      },
+      "warnings": [
+        {
+          "code": "lambda_to_database_not_collected",
+          "lane": "serverless",
+          "count": 6,
+          "message": "Lambda → database: not collected. 6 function(s) run outside the VPC, so no flow log or CloudTrail data event observes their connections to the 5 database(s) in scope."
+        },
+        {
+          "code": "regional_services_outside_flow_logs",
+          "lane": "regional",
+          "count": 10,
+          "message": "10 regional service(s) have no VPC network interface; VPC flow logs cannot observe them. Access to them is evidenced by CloudTrail data events, a separate lane."
+        },
+        {
+          "code": "canonical_projection_inactive",
+          "lane": "vpc",
+          "count": 14,
+          "message": "The canonical flow-log projection is not active for this scope (mode legacy); none of the 14 eligible endpoint(s) is covered yet."
+        }
+      ],
+      "coverage_gaps": [
+        {
+          "code": "lambda_to_database_not_collected",
+          "lane": "serverless",
+          "count": 6,
+          "message": "Lambda → database: not collected. 6 function(s) run outside the VPC, so no flow log or CloudTrail data event observes their connections to the 5 database(s) in scope."
+        },
+        {
+          "code": "regional_services_outside_flow_logs",
+          "lane": "regional",
+          "count": 10,
+          "message": "10 regional service(s) have no VPC network interface; VPC flow logs cannot observe them. Access to them is evidenced by CloudTrail data events, a separate lane."
+        },
+        {
+          "code": "canonical_projection_inactive",
+          "lane": "vpc",
+          "count": 14,
+          "message": "The canonical flow-log projection is not active for this scope (mode legacy); none of the 14 eligible endpoint(s) is covered yet."
+        }
+      ]
+    }
+  }
+}
