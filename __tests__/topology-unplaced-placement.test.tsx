@@ -121,7 +121,9 @@ function cellsWithoutEvidence(grid: Grid, subnets: SubnetMeta[]): string[] {
         const backed = workloadSubnetIds(n).some(sid => {
           const s = byId.get(sid)
           if (!s || s.az !== az) return false
-          const effective = n.placement_tier ?? s.tier
+          // A classified subnet tier is the row; the backend hint fills only
+          // an unknown one (2026-09-11 review).
+          const effective = s.tier !== "unknown" ? s.tier : (n.placement_tier ?? s.tier)
           return effective === tier
         })
         if (!backed) bad.push(`${n.id} @ ${az}::${tier}`)
@@ -580,5 +582,38 @@ describe("AwsFrame — a group is explained as a group and offered no cell", () 
     renderFrame({ nodes: [CONTROL, NO_SUBNET, TG], onPlaceNode: () => {} })
     const pickers = screen.getAllByTestId("topology-placement-picker")
     expect(pickers.map(p => p.getAttribute("data-node-id"))).toEqual([NO_SUBNET.id])
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// The subnet's tier is the row. A Neptune writer in a PUBLIC subnet used to be
+// drawn in the private database row because its TYPE said "data"; the review
+// of 2026-09-11 called that out, and it hides the very finding a security map
+// exists to show.
+// ---------------------------------------------------------------------------
+
+describe("computeCanvasGrid — the subnet's tier is the row, the type is not", () => {
+  it("draws a database in a public subnet in that subnet's row, not the data row", () => {
+    const db = nd({ id: "PROBE-db-public", type: "RDS", vpc_id: VPC, subnet_id: "subnet-web-a", placement_tier: "data" })
+    const g = computeCanvasGrid(VPC, SUBNETS, [CONTROL, db], [])
+    expect(g.byAzAndTier.get(AZ_A)?.get("web")?.map(n => n.id)).toContain(db.id)
+    expect(g.byAzAndTier.get(AZ_A)?.get("data")?.map(n => n.id) ?? []).not.toContain(db.id)
+  })
+
+  it("uses the backend hint only for a subnet the graph could not classify", () => {
+    const subnets = [...SUBNETS, sn({ id: "subnet-untiered-a", tier: "unknown", az: AZ_A, cidr: "10.42.40.0/24" })]
+    const db = nd({ id: "PROBE-db-untiered", type: "RDS", vpc_id: VPC, subnet_id: "subnet-untiered-a", placement_tier: "data" })
+    const g = computeCanvasGrid(VPC, subnets, [CONTROL, db], [])
+    expect(g.byAzAndTier.get(AZ_A)?.get("data")?.map(n => n.id)).toContain(db.id)
+  })
+
+  it("places a single-subnet instance in exactly one cell", () => {
+    const db = nd({ id: "PROBE-db-one", type: "RDS", vpc_id: VPC, subnet_id: "subnet-data-a", subnet_ids: ["subnet-data-a"] })
+    const g = computeCanvasGrid(VPC, SUBNETS, [CONTROL, db], [])
+    const cells: string[] = []
+    for (const [az, azMap] of g.byAzAndTier)
+      for (const [tier, cell] of azMap) if (cell.some(n => n.id === db.id)) cells.push(`${az}::${tier}`)
+    expect(cells).toEqual([`${AZ_A}::data`])
   })
 })
