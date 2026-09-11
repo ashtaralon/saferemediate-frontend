@@ -95,6 +95,23 @@ export interface TopologyNode {
   region?: string | null
   /** Canvas row override from BE — beats subnet.tier when subnets are misclassified. */
   placement_tier?: SubnetTier | null
+  /**
+   * The graph label behind `type` (BE >= 2026-09-11 deploy): `RDSCluster` vs
+   * `RDSInstance`, `TargetGroup`, `AutoScalingGroup`. `type` alone cannot tell a
+   * cluster from its instances (both project as "RDS"), and a logical group is
+   * not a placeable instance — see `isLogicalGroupNode`.
+   */
+  resource_label?: string | null
+  /**
+   * Verified VPC attachment for optionally-attached types (Lambda), carried
+   * from the same workload_network SSOT the coverage contract classifies by
+   * (BE >= 2026-09-11 deploy). `NOT_VPC_ATTACHED` is a checked AWS VpcConfig
+   * with a timestamp — the function runs outside the VPC. `UNKNOWN` is a
+   * missing reading, never a verdict. Absent on older payloads and on types
+   * that are always in a VPC.
+   */
+  vpc_attachment_state?: "VPC_ATTACHED" | "NOT_VPC_ATTACHED" | "UNKNOWN" | null
+  vpc_attachment_verified_at?: string | null
   score: NodeScore | null
   stale: { since: string | null; reason: string } | null
   is_jewel: boolean
