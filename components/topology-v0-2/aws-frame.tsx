@@ -4297,6 +4297,14 @@ function FlowOverlay({
         const jobsAll = t.groups.flatMap(g => g.jobs)
         const lead = railBundleLeadEdge(jobsAll.map(j => j.e))
         const laneId = `lane:${laneKey(t.lane)}`
+        // The corridor the trunk runs in decides where its word goes: ON the
+        // bus when the corridor can hold the label (the 112px gap between the
+        // lanes holds "KMS ×3"), else the gutter column left of the bus (the
+        // 48px gutter cannot hold "TRIGGERS ×6"). Every trunk's word used to
+        // join one column at the LEFTMOST bus, so the Regional lane's KMS
+        // trunk was labelled beside the Lambda lane's badges, ~250px from the
+        // line it named (C1, 2026-09-11 13:08Z).
+        const trunkCorridor = corridors.find(c => busX >= c.l && busX <= c.r) ?? null
         // One badge per WORD the trunk carries — TRIGGERS ×6 over TARGETS ×6
         // when the graph holds both edge types for the same pairs. Merging them
         // into one word would assert two edge types mean the same thing;
@@ -4314,7 +4322,8 @@ function FlowOverlay({
           const label = railBundleLabel(word, acc.count)
           const hw = badgeHalfWidth(label)
           const y = route.exit.y + wordIndex * 16
-          railBadgeSlots.push({ index: next.length, y, hw, busX })
+          const onLineX = busCenteredBadgeX(busX, trunkCorridor, hw)
+          if (onLineX === null) railBadgeSlots.push({ index: next.length, y, hw, busX })
           next.push({
             d: wordIndex === 0 ? trunkD : "",
             cls: jobsAll[0].cls,
@@ -4323,7 +4332,7 @@ function FlowOverlay({
             protocol: lead.protocol ?? null,
             port: lead.port ?? null,
             externalDestinations: null,
-            badgeX: busX - hw - 6,
+            badgeX: onLineX ?? busX - hw - 6,
             badgeY: y,
             badgeLabel: label,
             badgeTitle: [label, ...acc.members].join("\n"),
