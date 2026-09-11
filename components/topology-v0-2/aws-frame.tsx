@@ -73,7 +73,9 @@ import {
   TRIGGER_TYPES,
   SERVERLESS_TYPES,
   SYNTHETIC_TIER_TYPES,
+  isDeclaredOffCanvas,
   mapSlotForType,
+  resolveNodePlacement,
 } from "./estate-placement"
 import {
   NO_PLACEMENT_OVERRIDES,
@@ -94,7 +96,6 @@ import {
   awsIconUrl,
   awsServiceFullName,
   awsServiceLabel,
-  awsServiceScope,
 } from "./aws-architecture-icons"
 import { elideSharedPrefix } from "./chip-names"
 
@@ -441,7 +442,14 @@ export function visibleTopologyAzs(allAzs: string[], hiddenAzs: Iterable<string>
 }
 
 /** Lambdas outside the subnet grid. Most are not VPC-attached; payloads with
- * incomplete subnet metadata remain visible as attachment-unresolved. */
+ * incomplete subnet metadata remain visible as attachment-unresolved.
+ *
+ * Whether a function is in a subnet is the placement authority's call
+ * (`resolveNodePlacement`, the `vpc-conditional` rule), not this extractor's:
+ * a function with a resolved subnet resolves to that subnet's tier and is
+ * drawn by the grid, so only a function the authority still calls
+ * `serverless` belongs in the lane. This used to inspect the subnet itself,
+ * which made two places answer one question. */
 export function extractServerlessOutsideVpc(
   source: TopologyNode[],
   subnets: SubnetMeta[],
@@ -452,7 +460,12 @@ export function extractServerlessOutsideVpc(
     if (n.stale) continue
     if (!n.type || !SERVERLESS_TYPES.has(n.type)) continue
     const sub = n.subnet_id ? subnetById.get(n.subnet_id) : null
-    if (sub?.az) continue
+    const placement = resolveNodePlacement({
+      type: n.type,
+      subnetTier: sub?.tier ?? null,
+      subnetResolved: Boolean(sub?.az),
+    })
+    if (placement.slot !== "serverless") continue
     out.push(n)
   }
   out.sort((a, b) => (a.score?.rank ?? 999) - (b.score?.rank ?? 999))
@@ -4504,17 +4517,20 @@ export function unplacedSubnetReason(
  *
  * `mapSlotForType` returns `"hidden"` as its default, so that value alone
  * cannot tell "no rule knows this type" from "an identity/config artifact we
- * deliberately keep off the map" — no rule in `PLACEMENT_RULES` declares slot
- * `"hidden"`. The catalog's scope column answers the second question, which is
- * exactly why it records what a service IS separately from where it is drawn
- * (see `aws-architecture-icons.ts` and docs §2).
+ * deliberately keep off the map". The placement authority now DECLARES the
+ * second case — `hidden`, `container`, `external`, `global` and `boundary`
+ * are written-down rules in `PLACEMENT_RULES` — so this reads the authority
+ * (`isDeclaredOffCanvas`) instead of the catalog's scope, and the two tables
+ * are held in agreement by `__tests__/topology-aws-presentation-catalog.test.ts`
+ * rather than consulted in parallel here. Before Map v3 this read the catalog
+ * scope, which meant the authority and the renderer could disagree about a
+ * type and nothing would say so.
  *
  * Listing an IAM role or a VPC as an unplaced gap would bury the real gaps
  * under every identity in the account.
  */
 export function isOffCanvasByDesign(type: string | null | undefined): boolean {
-  const scope = type ? awsServiceScope(type) : null
-  return scope === "global" || scope === "container" || scope === "external"
+  return isDeclaredOffCanvas(type)
 }
 
 interface CanvasGrid {
@@ -4606,6 +4622,12 @@ export function computeCanvasGrid(
     // just not here. Reporting it as this frame's gap would put a chip in the
     // unplaced area that is already on screen a few pixels away.
     if (n.type && RAIL_PLACED_TYPES.has(n.type)) return ELSEWHERE
+    // Declared off-grid: a boundary device (drawn on the VPC edge from
+    // `vpc_topology.edges`), a container (drawn as a frame), a global or
+    // off-estate node (its band's), or an artifact hidden by decision. Asked
+    // BEFORE the subnet read on purpose: a NAT gateway names a public subnet,
+    // and placing it here as a chip would draw it twice.
+    if (isOffCanvasByDesign(n.type)) return ELSEWHERE
     // Another frame's node. `buildVpcFrames` partitions by resolved VPC before
     // calling us, so this is only reachable through a direct call — but if it
     // were reported as unplaced, a cross-VPC node would appear in EVERY frame's

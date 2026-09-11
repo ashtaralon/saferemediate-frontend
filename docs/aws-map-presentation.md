@@ -121,7 +121,33 @@ Two real defects came out of it, both in the catalog rather than the authority:
   `ECSTask` and `GatewayLoadBalancer` now carry their own official icons (all
   four slugs CDN-verified with controls before use).
 
-### The scope vocabulary
+### The scope vocabulary — and the slot each scope is drawn in (Map v3)
+
+Since Map v3 every type the catalog can name resolves to a **declared** rule
+in `estate-placement.ts` — `hidden` is still the default for an unknown type,
+but for a known type it is a written-down decision, and
+`placementRuleForType` / `isDeclaredOffCanvas` tell the two apart. The seam
+test asserts it: no catalog key or alias may fall through to the default. The
+slot vocabulary is the taxonomy on the Platform Map v3 spec:
+
+| slot | mirrors | drawn | holds |
+|---|---|---|---|
+| `external` | outside the AWS Cloud frame | payload sentinels | Internet, customer gateway |
+| `global` | inside AWS Cloud, above the Region | a band, only with content (renderer: task T5) | Route 53 |
+| `ingress` | regional, spans the AZs at VPC level | the band above the AZ grid | ALB / NLB / GWLB, target groups, API Gateway (accepted divergence) |
+| `web` / `app` / `data` | public / private / DB subnet | the AZ × tier cell the graph resolves | EC2, ECS/EKS/K8s pods, a Lambda **with** a subnet, RDS/Neptune/DocumentDB/Redshift, ElastiCache, EFS |
+| `boundary` | straddles the VPC edge | the frame's boundary strip, from `vpc_topology.edges` | IGW, NAT, VPC endpoints, EIP, VPN GW, peering, EIC endpoint |
+| `serverless` | column 1 body | the runtime lane | a Lambda **without** a subnet |
+| `triggers` | column 1 band | the triggers band | EventBridge, SQS, SNS, Step Functions |
+| `regional` | column 2 | the regional lane | S3, DynamoDB, KMS, Secrets Manager, CloudTrail, CloudWatch Logs, Athena |
+| `container` | frames, never nodes | a boundary with a label | VPC, Subnet, Security Group, NACL, route table, account |
+| `hidden` | Inventory and panels only | nothing | IAM family, STS sessions, launch templates, task definitions, config rules, ENIs |
+
+`vpc-conditional` is resolved in the authority now: `resolveNodePlacement`
+takes `subnetResolved` and answers the subnet's tier for a function the graph
+places, and `serverless` for one it does not. `extractServerlessOutsideVpc`
+asks it rather than inspecting the subnet itself, so one question has one
+answer.
 
 Every catalog entry carries a `scope`:
 

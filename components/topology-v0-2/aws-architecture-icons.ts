@@ -236,6 +236,16 @@ const CATALOG: Record<string, AwsServicePresentation> = {
     name: "EKS Cluster",
     short: "EKS",
   },
+  K8sPod: {
+    // AWS ships no pod icon — a pod is a Kubernetes object, not an AWS
+    // resource — so the cluster's service icon stands in and is marked so.
+    slug: "aws-amazon-elastic-kubernetes-service",
+    precision: "family",
+    category: "containers",
+    scope: "in-subnet",
+    name: "Kubernetes Pod",
+    short: "K8s Pod",
+  },
 
   // ---------------------------------------------------------------- storage
   S3: {
@@ -255,6 +265,17 @@ const CATALOG: Record<string, AwsServicePresentation> = {
     scope: "regional",
     name: "S3 Prefix",
     short: "S3 Prefix",
+  },
+  EFS: {
+    slug: "aws-amazon-efs",
+    precision: "exact",
+    category: "storage",
+    // A file system is regional, but what a workload reaches is a MOUNT
+    // TARGET — an ENI in a subnet — and that is the network position the map
+    // draws. Same ENI-owner-stub caveat as ElastiCache above.
+    scope: "in-subnet",
+    name: "EFS File System",
+    short: "EFS",
   },
 
   // --------------------------------------------------------------- database
@@ -304,6 +325,19 @@ const CATALOG: Record<string, AwsServicePresentation> = {
     scope: "regional",
     name: "DynamoDB Table",
     short: "DynamoDB",
+  },
+  ElastiCache: {
+    slug: "aws-amazon-elasticache",
+    precision: "exact",
+    category: "database",
+    // Cache nodes are ENIs in the subnets of a cache subnet group — subnet-
+    // bound like RDS, and drawn in the data tier. Today the graph carries an
+    // ElastiCache cluster only as an ENI-owner stub (no name, no subnet); the
+    // entry is declared ahead of the collector so the first real node lands
+    // in its tier instead of rendering "type unresolved".
+    scope: "in-subnet",
+    name: "ElastiCache Cluster",
+    short: "ElastiCache",
   },
 
   // ------------------------------------------------------------- networking
@@ -704,6 +738,10 @@ const ALIASES: Record<string, string> = {
   DocDBInstance: "DocumentDB",
   RedshiftCluster: "Redshift",
   DynamoDBTable: "DynamoDB",
+  ElastiCacheCluster: "ElastiCache",
+
+  // storage (mount targets)
+  EFSFileSystem: "EFS",
 
   // networking
   ALB: "LoadBalancer",

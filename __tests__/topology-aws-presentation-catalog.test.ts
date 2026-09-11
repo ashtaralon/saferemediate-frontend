@@ -28,7 +28,7 @@ import {
   awsServiceScope,
 } from "@/components/topology-v0-2/aws-architecture-icons"
 import type { AwsServiceScope } from "@/components/topology-v0-2/aws-architecture-icons"
-import { PLACEMENT_RULES, mapSlotForType } from "@/components/topology-v0-2/estate-placement"
+import { PLACEMENT_RULES, mapSlotForType, placementRuleForType } from "@/components/topology-v0-2/estate-placement"
 import type { MapSlot } from "@/components/topology-v0-2/estate-placement"
 
 const { CATALOG, ALIASES } = __catalogForTest
@@ -48,7 +48,9 @@ const VERIFIED_SLUGS = new Set([
   "aws-amazon-dynamodb",
   "aws-amazon-ec2",
   "aws-amazon-ec2-auto-scaling",
+  "aws-amazon-efs",
   "aws-amazon-elastic-container-service",
+  "aws-amazon-elasticache",
   "aws-amazon-elastic-kubernetes-service",
   "aws-amazon-eventbridge",
   "aws-amazon-neptune",
@@ -138,7 +140,7 @@ const BACKEND_EMITTED_TYPES = [
   "VPC", "VPCEndpoint", "InternetGateway", "EICEndpoint", "NACL",
   "NetworkACL", "RouteTable", "EIP", "IAMRole", "IAMPolicy", "IAMUser",
   "InstanceProfile", "Account", "AWSAccount", "Organization", "SCP",
-  "CloudTrailTrail", "CloudWatchLogGroup", "ConfigRule", "AthenaWorkgroup",
+  "CloudTrailTrail", "CloudTrail", "CloudWatchLogGroup", "ConfigRule", "AthenaWorkgroup",
   "SSMStateManagerAssociation", "Internet", "Domain",
 ] as const
 
@@ -319,6 +321,9 @@ describe("the two placement contracts stay reconciled", () => {
     triggers: ["regional"],
     regional: ["regional"],
     boundary: ["vpc-boundary"],
+    global: ["global"],
+    container: ["container"],
+    external: ["external"],
     // `hidden` draws nothing, so it makes no structural claim to contradict.
   }
 
@@ -342,6 +347,19 @@ describe("the two placement contracts stay reconciled", () => {
     // Without this, a broken derivation turns every assertion below into a
     // sweep over nothing that passes by vacuum.
     expect(ALL_KNOWN_TYPES.length).toBeGreaterThan(90)
+  })
+
+  it("declares a placement rule for every type the catalog can name", () => {
+    // Map v3: `hidden` is still the DEFAULT for a type nobody knows, but for
+    // a known type it must be a decision written into PLACEMENT_RULES — the
+    // renderer reads `isDeclaredOffCanvas`, which tells the two apart by
+    // whether a rule exists at all. A catalog type with no rule is exactly the
+    // fall-through that let SNS, CloudTrail, CloudWatch Logs and Athena render
+    // as "type unresolved" while being fully described one table over.
+    const undeclared = [...new Set([...Object.keys(CATALOG), ...Object.keys(ALIASES)])]
+      .filter((t) => placementRuleForType(t) === null)
+      .sort()
+    expect(undeclared).toEqual([])
   })
 
   it("never draws a chip in a subnet cell for a service that is not subnet-bound", () => {

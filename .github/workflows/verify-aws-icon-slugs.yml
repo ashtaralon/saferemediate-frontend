@@ -1,0 +1,21 @@
+# On-demand CDN check for the AWS icon catalog.
+#
+# `scripts/verify-aws-icon-slugs.sh` is deliberately NOT a PR test: a CI test
+# that reaches a third-party CDN fails the build on a network blip for a reason
+# unrelated to the change (docs/aws-map-presentation.md §4). It is the script
+# an engineer runs before freezing a new slug into VERIFIED_SLUGS. This
+# workflow is that run, for engineers on a machine that cannot reach the CDN —
+# a sandboxed agent, a locked-down laptop. Dispatch it on the branch that adds
+# the slug; the log is the evidence, one line per slug, and the job fails if
+# any slug does not resolve.
+name: verify-aws-icon-slugs
+on:
+  workflow_dispatch: {}
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify every catalog slug against the CDN (with positive and negative controls)
+        run: ./scripts/verify-aws-icon-slugs.sh
