@@ -77,6 +77,7 @@ interface NatGateway {
   name?: string
   subnet_id?: string | null
   vpc_id?: string | null
+  public_ip?: string | null
 }
 interface LaneCounts {
   eligible: number
