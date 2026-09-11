@@ -1731,6 +1731,8 @@ function SubnetCell({
         opacity: empty ? 0.72 : isForeignCell ? 0.82 : 1,
       }}
       data-testid={hasWorkloads ? "topology-subnet-cell-workloads" : "topology-subnet-cell"}
+      data-az={az}
+      data-tier={tier}
       data-is-foreign={isForeignCell ? "true" : undefined}
       title={[TIER_LABEL[tier], subnetTitle, cidrHint, ownerHint].filter(Boolean).join(" · ")}
     >
@@ -5152,7 +5154,13 @@ export function computeCanvasGrid(
     for (const sid of workloadSubnetIds(n)) {
       const sub = subnetById.get(sid)
       if (!sub?.az) continue
-      const tier = overrideTier ?? sub.tier
+      // The subnet is where the resource IS, and its tier is the row. The
+      // backend hint fills only a subnet whose tier the graph could not
+      // classify. It used to win outright, which drew a Neptune writer that
+      // sits in a PUBLIC subnet in the private database row (2026-09-11
+      // review). A database in a public subnet is the finding; the map shows
+      // it where it sits.
+      const tier = sub.tier !== "unknown" ? sub.tier : (overrideTier ?? sub.tier)
       const key = `${sub.az}::${tier}`
       if (placedCells.has(key)) continue
       placedCells.add(key)

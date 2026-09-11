@@ -93,8 +93,20 @@ export interface TopologyNode {
   vpc_id?: string | null
   account_id?: string | null
   region?: string | null
-  /** Canvas row override from BE — beats subnet.tier when subnets are misclassified. */
+  /**
+   * Canvas row HINT from BE. A classified subnet tier wins on the canvas — the
+   * subnet is where the resource sits, so a database in a public subnet is
+   * drawn in the public row; the hint fills only a subnet whose tier the graph
+   * could not classify, and labels an unplaced chip (2026-09-11 review).
+   */
   placement_tier?: SubnetTier | null
+  /**
+   * Which reading placed the node (BE >= 2026-09-11): `actual` — an inventory
+   * placement edge or an IN_SUBNET edge in the node's own availability zone;
+   * `edges` — every IN_SUBNET / ENI subnet, the pre-existing reading, right
+   * for a Lambda or an ECS service that spans zones; null — no subnet at all.
+   */
+  placement_basis?: "actual" | "edges" | null
   /**
    * The graph label behind `type` (BE >= 2026-09-11 deploy): `RDSCluster` vs
    * `RDSInstance`, `TargetGroup`, `AutoScalingGroup`. `type` alone cannot tell a

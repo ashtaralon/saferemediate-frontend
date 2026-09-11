@@ -757,6 +757,9 @@ interface FullscreenMeasure {
   rail_chip_captions: string[]
   users_internet_strip: boolean
   subnet_cells: number
+  /** Every AZ x tier cell with the chips drawn in it (2026-09-11: an Aurora
+   *  instance or the Neptune writer must appear in ONE zone, its own). */
+  cells: Array<{ az: string | null; tier: string | null; chips: string[] }>
   labels_over_rail_chips: Array<{ label: string; chip: string | null }>
   unknown_glyph_nodes: Array<{ name: string; title: string | null }>
   service_icons: number
@@ -912,6 +915,15 @@ async function measureFullscreen(page: Page): Promise<FullscreenMeasure> {
       rail_chip_captions: Array.from(root.querySelectorAll('[data-testid="topology-chip-caption"]')).map(el => text(el)),
       users_internet_strip: Boolean(root.querySelector('[data-testid="topology-users-internet-strip"]')),
       subnet_cells: count('[data-testid="topology-subnet-cell-chrome"]'),
+      cells: Array.from(
+        root.querySelectorAll<HTMLElement>('[data-testid="topology-subnet-cell-workloads"], [data-testid="topology-subnet-cell"]'),
+      ).map(cell => ({
+        az: cell.getAttribute("data-az"),
+        tier: cell.getAttribute("data-tier"),
+        chips: Array.from(
+          cell.querySelectorAll<HTMLElement>('[data-testid="topology-service-node-icon"], [data-testid="topology-service-stack"]'),
+        ).map(chip => (chip.getAttribute("title") ?? text(chip)).split(" · ")[0]),
+      })),
       // Labels painted over rail chips and nodes drawn with the unknown glyph:
       // both are legibility defects an operator sees before anything else.
       labels_over_rail_chips: labelsOverChips(root.querySelector('[data-testid="topology-edge-services-rail"]')),

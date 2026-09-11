@@ -433,8 +433,8 @@ export function isLogicalGroupNode(node: {
  * Resolve canvas placement for a live node.
  *
  * Order (AWS-honest, no fabrication):
- * 1. BE `placement_tier` when web|app|data
- * 2. Subnet tier from IN_SUBNET (caller supplies)
+ * 1. Subnet tier from IN_SUBNET (caller supplies) when the graph classified it
+ * 2. BE `placement_tier` when web|app|data — fills an unknown subnet tier only
  * 3. Type registry default for VPC-grid types
  * 4. Slot from registry (ingress / serverless / regional / hidden / …)
  *
@@ -472,13 +472,16 @@ export function resolveNodePlacement(input: {
     return { slot, gridTier: null }
   }
 
-  const explicit = input.placementTier
-  if (explicit === "web" || explicit === "app" || explicit === "data") {
-    return { slot, gridTier: explicit }
-  }
+  // A classified subnet tier is where the resource sits; the backend hint
+  // fills only a subnet the graph could not classify (2026-09-11 review: the
+  // hint used to relocate a database in a public subnet to the data row).
   const fromSubnet = input.subnetTier
   if (fromSubnet === "web" || fromSubnet === "app" || fromSubnet === "data") {
     return { slot, gridTier: fromSubnet }
+  }
+  const explicit = input.placementTier
+  if (explicit === "web" || explicit === "app" || explicit === "data") {
+    return { slot, gridTier: explicit }
   }
   if (slot === "web" || slot === "app" || slot === "data") {
     return { slot, gridTier: slot }

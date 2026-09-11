@@ -63,13 +63,15 @@ describe("estate-placement registry", () => {
     for (const t of SERVERLESS_TYPES) expect(RAIL_PLACED_TYPES.has(t)).toBe(false)
   })
 
-  it("prefers BE placement_tier over type default", () => {
-    const r = resolveNodePlacement({
-      type: "EC2",
-      placementTier: "web",
-      subnetTier: "app",
-    })
-    expect(r.gridTier).toBe("web")
+  it("lets a classified subnet tier beat the BE hint, which fills only an unknown one", () => {
+    // The subnet is where the resource sits (2026-09-11 review: the hint used
+    // to relocate a database in a public subnet to the data row).
+    expect(resolveNodePlacement({ type: "EC2", placementTier: "web", subnetTier: "app" }).gridTier).toBe("app")
+    expect(resolveNodePlacement({ type: "RDS", placementTier: "data", subnetTier: "web" }).gridTier).toBe("web")
+    expect(resolveNodePlacement({ type: "EC2", placementTier: "web", subnetTier: "unknown" }).gridTier).toBe("web")
+    expect(resolveNodePlacement({ type: "EC2", placementTier: "web" }).gridTier).toBe("web")
+    // No subnet and no hint: the registry default still answers.
+    expect(resolveNodePlacement({ type: "EC2" }).gridTier).toBe("app")
   })
 
   it("hides unknown types instead of inventing a slot", () => {
