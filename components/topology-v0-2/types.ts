@@ -330,11 +330,25 @@ export type TrafficPathBasis =
   | "inferred_correlation"
   | "synthetic_expansion"
 
-/** Destination kind rollup on egress / public-path S3 edges (Phase 1 full-path). */
+/** Destination kind rollup on egress / public-path S3 edges (Phase 1 full-path).
+ *  `unclassified` is a peer the projection could not label: drawn to the
+ *  unclassified endpoint and counted, never folded into `external`. */
 export interface EgressBreakdownBucket {
-  kind: "s3" | "ntp" | "other_aws" | "external" | string
+  kind: "s3" | "ntp" | "other_aws" | "external" | "unclassified" | string
   count: number
   sample_hosts?: string[]
+}
+
+/** One destination behind a projected outbound edge (2026-09-11 review,
+ *  finding 2). `address` is what the NetworkEndpoint evidence carries — the
+ *  backend invents no hostname for it. Sampled to the busiest five; the
+ *  edge's `external_destinations` is the full distinct count. */
+export interface EgressDestination {
+  address: string
+  kind: EgressBreakdownBucket["kind"]
+  port?: number | null
+  observation_count: number
+  last_seen?: string | null
 }
 
 export interface TrafficEdge {
@@ -395,6 +409,9 @@ export interface TrafficEdge {
   via_igw?: boolean | null
   /** Kind rollup for IGW / public-path edges (s3, ntp, …). */
   egress_breakdown?: EgressBreakdownBucket[] | null
+  /** The busiest destinations behind an outbound edge; `external_destinations`
+   *  is the full count. Absent on internal / database edges and on older BE. */
+  destinations?: EgressDestination[] | null
   /** Lane 3 — attack-path overlay uses IAP PathEdgeDetail rows. */
   flow_highlight?: "attack_path" | null
 }

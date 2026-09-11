@@ -218,6 +218,29 @@ function summarizeTopology(body: TopologyRisk) {
       target_id: edge.target_id ?? null,
       observed_actions: edge.observed_actions ?? null,
     }))
+  // Outbound edges and where they go (2026-09-11 review, finding 2). Every
+  // egress / edge_service edge with a destination count, so a run can say
+  // whether the served projection names destinations at all.
+  const egressEdges = (body.traffic_edges ?? [])
+    .map(edge => edge as {
+      edge_class?: string; source_id?: string; target_id?: string
+      external_destinations?: number | null; egress_breakdown?: unknown
+      destinations?: Array<{ address?: string; kind?: string; observation_count?: number }> | null
+      via_igw?: boolean | null; egress_path?: string | null
+    })
+    .filter(edge => edge.edge_class === "egress" || edge.edge_class === "edge_service")
+    .slice(0, 16)
+    .map(edge => ({
+      source_id: edge.source_id ?? null,
+      target_id: edge.target_id ?? null,
+      external_destinations: edge.external_destinations ?? null,
+      egress_breakdown: edge.egress_breakdown ?? null,
+      destinations: (edge.destinations ?? []).slice(0, 3).map(d => ({
+        address: d.address ?? null, kind: d.kind ?? null, observation_count: d.observation_count ?? null,
+      })),
+      via_igw: edge.via_igw ?? null,
+      egress_path: edge.egress_path ?? null,
+    }))
   const natGws = body.vpc_topology?.edges?.nat_gws ?? []
   const subnetIds = new Set((body.vpc_topology?.subnets ?? []).map(subnet => subnet.id))
   const authority = body.traffic_authority ?? null
@@ -235,6 +258,7 @@ function summarizeTopology(body: TopologyRisk) {
     lambda_attachment_states: lambdaAttachmentStates,
     unplaced_labels: unplacedLabels,
     s3_edge_actions: s3EdgeActions,
+    egress_edges: egressEdges,
     subnets: subnetIds.size,
     nat_gateways: natGws.map(nat => ({
       id: nat.id ?? null,

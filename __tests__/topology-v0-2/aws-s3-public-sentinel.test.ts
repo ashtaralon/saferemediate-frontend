@@ -4,6 +4,7 @@ import {
   ensureAwsS3PublicSentinel,
   ensureAwsPublicServiceSentinels,
   formatEgressBreakdownBadge,
+  formatEgressDestinationsTitle,
 } from "@/components/topology-v0-2/aws-frame"
 import type { TopologyNode, TrafficEdge } from "@/components/topology-v0-2/types"
 
@@ -89,6 +90,41 @@ describe("formatEgressBreakdownBadge", () => {
 
   it("falls back to dest count", () => {
     expect(formatEgressBreakdownBadge(532, null)).toBe("egress · 532 dest")
+  })
+
+  it("names an unclassified peer as unclassified, never as ext", () => {
+    expect(
+      formatEgressBreakdownBadge(3, [
+        { kind: "external", count: 2 },
+        { kind: "unclassified", count: 1 },
+      ]),
+    ).toBe("egress · 3 (ext 2 · unclassified 1)")
+  })
+})
+
+describe("formatEgressDestinationsTitle", () => {
+  it("lists the sampled destinations under the badge and counts the rest", () => {
+    const title = formatEgressDestinationsTitle(
+      {
+        external_destinations: 7,
+        destinations: [
+          { address: "52.95.1.11", kind: "external", port: 443, observation_count: 42 },
+          { address: "129.6.15.28", kind: "ntp", port: 123, observation_count: 3 },
+        ],
+      },
+      "egress · 7 (NTP 1 · ext 6)",
+    )
+    expect(title.split("\n")).toEqual([
+      "egress · 7 (NTP 1 · ext 6)",
+      "52.95.1.11 · external · :443 · 42 obs",
+      "129.6.15.28 · ntp · :123 · 3 obs",
+      "+5 more",
+    ])
+  })
+
+  it("is just the badge when the backend sent no destinations", () => {
+    expect(formatEgressDestinationsTitle({ destinations: null }, "egress")).toBe("egress")
+    expect(formatEgressDestinationsTitle({ external_destinations: 4 }, "egress · 4 dest")).toBe("egress · 4 dest")
   })
 })
 
