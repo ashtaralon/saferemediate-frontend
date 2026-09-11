@@ -5094,11 +5094,20 @@ export const COMPARE_TIER_MIN_PX: Record<"web" | "app" | "data" | "iam", number>
   iam: 64,
 }
 
-/** Fullscreen floors — Web/App own the viewport; Data stays shorter.
- *  Raised so the map reads larger after reclaiming Users/Internet chrome. */
+/** Fullscreen floors — one compact chip row per tier (subnet header, a 40px
+ *  chip, cell and tier padding: 72px measured on C1), Web and App a little
+ *  above it so Data stays shorter. They were 120 / 108 / 72, "raised so the
+ *  map reads larger", back when the tier rows hugged their content and a
+ *  floor was the only way to give a tier height. Since the tier rows took
+ *  `auto` maxes (Alon, 2026-09-10) they share the column's leftover height,
+ *  so on a tall viewport the floors never bind and the map reads exactly as
+ *  large; on a short one they ARE the budget, and 300px of floors plus the
+ *  load-balancer band did not fit the ~396px a 1600×900 viewport leaves the
+ *  frame. A floor above one chip row protects nothing a chip needs — it only
+ *  decides which row is starved once the sum exceeds the column. */
 export const PRESENTATION_TIER_MIN_PX: Record<"web" | "app" | "data" | "iam", number> = {
-  web: 120,
-  app: 108,
+  web: 84,
+  app: 78,
   data: 72,
   iam: 48,
 }
@@ -6134,8 +6143,11 @@ function VpcCanvasFrame({
         ) : (
           <>
             {/* Row 2 (subgrid): ALB + NAT fallback + AZ headers — height = max across
-                VPCs so every Web tier starts on the same Y. */}
-            <div style={{ gridRow: 2, minHeight: 0 }} className="min-h-0">
+                VPCs so every Web tier starts on the same Y. Its track is
+                `max-content` (see the single-VPC grid template), so this row is
+                never sized below what it holds: a starved band paints over the
+                Web tier instead of pushing it down. */}
+            <div style={{ gridRow: 2 }} data-testid="topology-vpc-band-row">
               {albBand}
               {natBand}
               <div className="mt-1">{azHeaderRow}</div>
@@ -7113,13 +7125,32 @@ export function AwsFrame({
                   // across rows 3-5 with no `fr` weights to guess wrong: every
                   // tier gets vertical room, and the gap between one tier's
                   // chips and the next grows, which is what makes a traffic edge
-                  // between two services followable. `minmax(auto, max-content)`
-                  // on the header and the ALB/AZ band keeps them hugging their
+                  // between two services followable. `max-content` on the
+                  // header and the ALB/AZ band keeps them hugging their
                   // content — a `max-content` max is NOT in the stretch set, so
                   // the chrome cannot eat a fifth of the band. The floors stay:
                   // stretch only ever ADDS, and an `auto` max is never below
                   // max-content, so no chip is clipped to pay for this.
-                  gridTemplateRows: `minmax(auto, max-content) minmax(auto, max-content) minmax(${tierMin.web}px, auto) minmax(${tierMin.app}px, auto) minmax(${tierMin.data}px, auto)`,
+                  //
+                  // The two chrome rows are `max-content`, not
+                  // `minmax(auto, max-content)`. An `auto` MINIMUM is the item's
+                  // minimum contribution, and the band row's wrapper had
+                  // min-height 0, so that minimum resolved to ZERO. Whenever
+                  // the column could not hold every row at its preferred size
+                  // — a 1600×900 viewport leaves this frame ~396px, and the
+                  // load-balancer band plus 300px of tier floors wanted more —
+                  // "maximize tracks" (CSS Grid §12.6) shared the free space
+                  // equally across every growable track, the band got ~24px
+                  // for ~108px of load balancers and AZ headers, and the rest
+                  // painted over the Web tier: measured on C1 by c1-ui-qa run
+                  // 34576457683 (band 362–445, AZ headers 455–470, the public
+                  // subnet cells starting at 388). Chrome is not negotiable: a
+                  // `max-content` MIN sizes the track to what it holds before
+                  // any tier gets a pixel, and a `max-content` MAX still keeps
+                  // it out of the stretch set. The tiers absorb the shortage
+                  // and scroll inside their cells, which is what the floors
+                  // below are sized for.
+                  gridTemplateRows: `max-content max-content minmax(${tierMin.web}px, auto) minmax(${tierMin.app}px, auto) minmax(${tierMin.data}px, auto)`,
                   gap: "6px",
                   width: "100%",
                   height: "100%",

@@ -96,6 +96,48 @@ test("fullscreen: each off-VPC rail lane scrolls in its track, both lanes stay o
     expect(box!.y + box!.height, header).toBeLessThanOrEqual(720)
   }
 
+  // 1b: the VPC chrome rows are sized to what they hold. At this height the
+  // column cannot give every row its preferred size, and the band row (load
+  // balancers · NAT fallback · AZ headers) was the one row whose wrapper had
+  // no intrinsic minimum: with `minmax(auto, max-content)` its track resolved
+  // to ~24px for ~108px of content on C1 (c1-ui-qa run 34576457683, 1600×900)
+  // and the band painted over the Web tier. Used track sizes, not the authored
+  // template — the question is what the layout engine did with the shortage.
+  const chrome = await page.evaluate(() => {
+    const root = document.querySelector('[data-testid="topology-estate-map-fullscreen"]')!
+    const grid = root.querySelector<HTMLElement>('[data-testid="topology-single-vpc-grid"]')
+    const band = root.querySelector<HTMLElement>('[data-testid="topology-vpc-band-row"]')
+    const azRow = root.querySelector<HTMLElement>('[data-flow-obstacle="az-header-row"]')
+    const firstTier = root.querySelector<HTMLElement>('[data-testid="topology-tier-stack"]')
+    if (!grid || !band || !azRow || !firstTier) return null
+    const tracks = getComputedStyle(grid)
+      .gridTemplateRows.split(" ")
+      .map(v => Math.round(parseFloat(v)))
+    const cells = Array.from(root.querySelectorAll<HTMLElement>('[data-testid="topology-subnet-cell-chrome"]'))
+    const azBottom = azRow.getBoundingClientRect().bottom
+    return {
+      tracks,
+      band_track: tracks[1],
+      band_content: band.scrollHeight,
+      band_bottom: Math.round(band.getBoundingClientRect().bottom),
+      first_tier_top: Math.round(firstTier.getBoundingClientRect().top),
+      cells: cells.length,
+      cells_under_az_headers: cells.filter(cell => cell.getBoundingClientRect().top < azBottom - 1).length,
+    }
+  })
+  expect(chrome, "single-VPC grid, band row, AZ header row and Web tier are rendered").not.toBeNull()
+  expect(chrome!.tracks.length, "chrome, band, three tiers").toBe(5)
+  expect(chrome!.cells, "subnet cells are drawn, so the overlap count below is not vacuous").toBeGreaterThan(0)
+  expect(
+    chrome!.band_track,
+    `the band row's track is ${chrome!.band_track}px for ${chrome!.band_content}px of content — the chrome row was starved`,
+  ).toBeGreaterThanOrEqual(chrome!.band_content - 1)
+  expect(
+    chrome!.first_tier_top,
+    `the Web tier starts at ${chrome!.first_tier_top}px, above the band row's bottom at ${chrome!.band_bottom}px`,
+  ).toBeGreaterThanOrEqual(chrome!.band_bottom - 1)
+  expect(chrome!.cells_under_az_headers, "no subnet cell starts above the AZ header row's bottom edge").toBe(0)
+
   // 2: real overflow in the Lambda lane, one scroll owner, honest fold count.
   const laneBody = fullscreen.getByTestId("topology-serverless-lane-body")
   const lane = await laneBody.evaluate(el => {

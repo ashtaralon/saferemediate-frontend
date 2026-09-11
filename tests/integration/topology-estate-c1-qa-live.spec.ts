@@ -473,6 +473,13 @@ test.describe("C1 live QA — estate map against the deployed graph", () => {
     if (inventory.alb_band && inventory.az_headers) {
       expect.soft(inventory.alb_band.b, "load balancer band above the AZ headers").toBeLessThanOrEqual(inventory.az_headers.t + 1)
     }
+    if (inventory.band_row && inventory.first_tier) {
+      expect.soft(
+        inventory.first_tier.t,
+        "the Web tier starts below the band row (load balancers · NAT fallback · AZ headers)",
+      ).toBeGreaterThanOrEqual(inventory.band_row.b - 1)
+    }
+    expect.soft(inventory.cells_under_az_headers, "no subnet cell starts above the AZ header row's bottom edge").toBe(0)
     for (const nat of inventory.nat) {
       if (nat.placement === "subnet") expect.soft(nat.in_subnet_cell, `NAT ${nat.id} pinned inside a subnet cell`).toBe(true)
       else expect.soft(nat.in_fallback, `NAT ${nat.id} on the labelled fallback strip`).toBe(true)
@@ -671,6 +678,9 @@ interface FullscreenMeasure {
   nat_fallback_text: string | null
   alb_band: Box | null
   az_headers: Box | null
+  band_row: Box | null
+  first_tier: Box | null
+  cells_under_az_headers: number
   igw_chips: number
   vpce_chips: number
   users_internet_strip: boolean
@@ -774,6 +784,20 @@ async function measureFullscreen(page: Page): Promise<FullscreenMeasure> {
       az_headers: rect(
         root.querySelector('[data-testid="topology-vpc-az-headers"], [data-testid="topology-az-column-headers"]'),
       ),
+      // The band row (load balancers · NAT fallback · AZ headers) must end
+      // before the Web tier starts. Its grid track used to be starved on a
+      // short viewport and the band painted over the public subnet cells
+      // (run 34576457683 at 1600×900).
+      band_row: rect(root.querySelector('[data-testid="topology-vpc-band-row"]')),
+      first_tier: rect(root.querySelector('[data-testid="topology-tier-stack"]')),
+      cells_under_az_headers: (() => {
+        const azRow = root.querySelector('[data-flow-obstacle="az-header-row"]')
+        if (!azRow) return 0
+        const azBottom = azRow.getBoundingClientRect().bottom
+        return Array.from(root.querySelectorAll('[data-testid="topology-subnet-cell-chrome"]')).filter(
+          cell => cell.getBoundingClientRect().top < azBottom - 1,
+        ).length
+      })(),
       igw_chips: count('[data-testid="topology-igw-rail-chip"]'),
       vpce_chips: count('[data-testid="topology-vpce-rail-chip"]'),
       users_internet_strip: Boolean(root.querySelector('[data-testid="topology-users-internet-strip"]')),
