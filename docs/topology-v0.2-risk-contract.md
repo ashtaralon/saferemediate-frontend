@@ -315,7 +315,7 @@ The contract does *not* include the escalation threshold itself — that's a UI 
 | Field | Type | Semantics |
 |---|---|---|
 | `workloads_total` | `int` | Distinct workload count after `:Service` legacy-stub dedup. Use `count(DISTINCT id)` not `count(*)`. |
-| `workloads_by_type` | map | Per-type breakdown of the above. |
+| `workloads_by_type` | map | Per-type breakdown of the above. Keys are the canonical short names from `api/topology_risk._label_to_type`; since Map v3 T3 (2026-09-11) the admitted set also includes `SNSTopic` and `CloudTrail` (regional platform services), so a consumer must treat the key set as open, never as the six above. |
 | `flagged_count` | `int` | Workloads with `posture_verdict_priority <= 3` (worst tier). Aggregate using `MIN` not `MAX` — priority is reverse-ordered, lower = worse. The original draft used `MAX` and reported 7 instead of the real 4. |
 | `stale_workloads_count` | `int` | Workloads with `aws_exists = false` OR carrying `:StaleResource` label. Cyntro's zombie count. Independent of posture state. |
 | `posture_coverage.scored` | `int` | Workloads where `posture_correlated_at IS NOT NULL` after dedup. |

@@ -1,0 +1,35 @@
+# On-demand CDN check for the AWS icon catalog.
+#
+# `scripts/verify-aws-icon-slugs.sh` is deliberately NOT a PR test: a CI test
+# that reaches a third-party CDN fails the build on a network blip for a reason
+# unrelated to the change (docs/aws-map-presentation.md §4). It is the script
+# an engineer runs before freezing a new slug into VERIFIED_SLUGS. This
+# workflow is that run, for engineers on a machine that cannot reach the CDN —
+# a sandboxed agent, a locked-down laptop.
+#
+# Two triggers, one contract:
+#   - workflow_dispatch: run it by hand on any branch that carries this file
+#     (GitHub only indexes a workflow once it exists on the default branch, so
+#     a brand-new file cannot be dispatched from the branch that adds it).
+#   - pull_request, only when the catalog itself changes: the run is
+#     INFORMATIONAL — `continue-on-error` keeps a CDN blip from failing the
+#     PR, which is the doc's reason this is not a test — but its log is the
+#     one place a reviewer can see "200" beside each slug the PR froze.
+name: verify-aws-icon-slugs
+on:
+  workflow_dispatch: {}
+  pull_request:
+    paths:
+      - components/topology-v0-2/aws-architecture-icons.ts
+      - scripts/verify-aws-icon-slugs.sh
+      - .github/workflows/verify-aws-icon-slugs.yml
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify every catalog slug against the CDN (with positive and negative controls)
+        # Informational on a PR: the evidence is the log, not the check.
+        continue-on-error: ${{ github.event_name == 'pull_request' }}
+        run: ./scripts/verify-aws-icon-slugs.sh
