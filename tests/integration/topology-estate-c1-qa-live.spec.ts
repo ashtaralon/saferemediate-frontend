@@ -67,6 +67,7 @@ interface TopologyNode {
   type?: string
   vpc_id?: string | null
   subnet_id?: string | null
+  subnet_ids?: string[] | null
 }
 interface NatGateway {
   id?: string
@@ -173,6 +174,21 @@ function summarizeTopology(body: TopologyRisk) {
   const nodes = body.nodes ?? []
   const byType: Record<string, number> = {}
   for (const node of nodes) byType[node.type ?? "?"] = (byType[node.type ?? "?"] ?? 0) + 1
+  // Nodes the payload places nowhere: no subnet_id and no IN_SUBNET-derived
+  // subnet_ids. Before backend #1996 a node with a VPC but no subnet evidence
+  // was handed head() of every subnet in its VPC and drawn in that cell; it now
+  // arrives like this and lands in the unplaced area. Regional and serverless
+  // types belong in the first count by nature, so both are reported by type
+  // rather than asserted; the second is the population the guess used to place.
+  const noSubnetByType: Record<string, number> = {}
+  const vpcNoSubnetByType: Record<string, number> = {}
+  for (const node of nodes) {
+    const hasSubnet = Boolean(node.subnet_id) || (node.subnet_ids ?? []).length > 0
+    if (hasSubnet) continue
+    const type = node.type ?? "?"
+    noSubnetByType[type] = (noSubnetByType[type] ?? 0) + 1
+    if (node.vpc_id) vpcNoSubnetByType[type] = (vpcNoSubnetByType[type] ?? 0) + 1
+  }
   const natGws = body.vpc_topology?.edges?.nat_gws ?? []
   const subnetIds = new Set((body.vpc_topology?.subnets ?? []).map(subnet => subnet.id))
   const authority = body.traffic_authority ?? null
@@ -184,6 +200,8 @@ function summarizeTopology(body: TopologyRisk) {
     available_vpcs: (body.available_vpcs ?? []).map(vpc => ({ vpc_id: vpc.vpc_id, workload_count: vpc.workload_count ?? null })),
     nodes: nodes.length,
     by_type: byType,
+    no_subnet_by_type: noSubnetByType,
+    vpc_but_no_subnet_by_type: vpcNoSubnetByType,
     traffic_edges: (body.traffic_edges ?? []).length,
     subnets: subnetIds.size,
     nat_gateways: natGws.map(nat => ({
@@ -486,6 +504,16 @@ test.describe("C1 live QA — estate map against the deployed graph", () => {
     }
     const payload = captured.payload
     const payloadNats = payload?.vpc_topology?.edges?.nat_gws ?? []
+    // Placement honesty, both sides of the proxy: what the payload leaves
+    // without a subnet and what the map put in the unplaced area. Reported,
+    // not asserted — the renderer decides per type which of the former belong
+    // in the latter (a regional service has no subnet and is not unplaced).
+    const placement = payload ? summarizeTopology(payload) : null
+    report("unplaced", {
+      ui: inventory.unplaced,
+      payload_no_subnet_by_type: placement?.no_subnet_by_type ?? null,
+      payload_vpc_but_no_subnet_by_type: placement?.vpc_but_no_subnet_by_type ?? null,
+    })
     if (payload) {
       expect.soft(inventory.nat.length, "every NAT gateway of the payload is drawn once").toBe(payloadNats.length)
     }
@@ -691,6 +719,12 @@ interface FullscreenMeasure {
   stack_tiles: number
   flow_badges: number
   authority_banner: string | null
+  unplaced: {
+    header: string | null
+    total: number
+    by_reason: Record<string, number>
+    names: string[]
+  }
 }
 
 async function measureFullscreen(page: Page): Promise<FullscreenMeasure> {
@@ -810,6 +844,26 @@ async function measureFullscreen(page: Page): Promise<FullscreenMeasure> {
       stack_tiles: count('[data-testid="topology-density-stack-tile"], [data-testid="topology-service-stack"]'),
       flow_badges: count('[data-testid="topology-flow-badge"]'),
       authority_banner: text(root.querySelector('[data-testid="topology-traffic-authority-state"]')) || null,
+      // The unplaced area: what the graph does not place, by the renderer's
+      // own reason code. After backend #1996 a node with a VPC but no subnet
+      // evidence is no longer guessed into a cell, so `no-subnet-in-graph` is
+      // where such a node shows up. Names are bounded; the counts are not.
+      unplaced: (() => {
+        const area = root.querySelector('[data-testid="topology-unplaced-area"]')
+        if (!area) return { header: null, total: 0, by_reason: {}, names: [] }
+        const chips = Array.from(area.querySelectorAll<HTMLElement>('[data-testid="topology-service-node-icon"]'))
+        const byReason: Record<string, number> = {}
+        for (const group of Array.from(area.querySelectorAll<HTMLElement>('[data-testid="topology-unplaced-group"]'))) {
+          const reason = group.getAttribute("data-unplaced-reason") ?? "?"
+          byReason[reason] = group.querySelectorAll('[data-testid="topology-service-node-icon"]').length
+        }
+        return {
+          header: text(area.querySelector("span")) || null,
+          total: chips.length,
+          by_reason: byReason,
+          names: chips.slice(0, 12).map(chip => chip.getAttribute("title") || text(chip)),
+        }
+      })(),
     }
   })
 }
