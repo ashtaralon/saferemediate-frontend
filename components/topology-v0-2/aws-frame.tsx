@@ -566,11 +566,33 @@ export function formatEgressBreakdownBadge(
         b.kind === "s3" ? "S3"
         : b.kind === "ntp" ? "NTP"
         : b.kind === "other_aws" ? "AWS"
+        : b.kind === "unclassified" ? "unclassified"
         : "ext"
       return `${label} ${b.count}`
     })
   const head = total ? `egress · ${total}` : "egress"
   return parts.length ? `${head} (${parts.join(" · ")})` : head
+}
+
+/** Tooltip for an outbound edge: the badge line, then one line per sampled
+ *  destination — address, kind, port, observations — so hovering the egress
+ *  badge names where the traffic went instead of only how much. Falls back to
+ *  the badge alone when the BE sent no destinations (older deploy, or an edge
+ *  that is not outbound). Addresses only: the BE invents no hostname. */
+export function formatEgressDestinationsTitle(
+  e: Pick<TrafficEdge, "destinations" | "external_destinations">,
+  badgeLabel: string,
+): string {
+  const dests = (e.destinations ?? []).filter(d => d && d.address)
+  if (dests.length === 0) return badgeLabel
+  const total = e.external_destinations ?? dests.length
+  const lines = dests.map(d => {
+    const port = d.port != null ? ` · :${d.port}` : ""
+    const obs = d.observation_count != null ? ` · ${d.observation_count} obs` : ""
+    return `${d.address} · ${d.kind}${port}${obs}`
+  })
+  const more = total > dests.length ? [`+${total - dests.length} more`] : []
+  return [badgeLabel, ...lines, ...more].join("\n")
 }
 
 // Friendly metadata for the VPCE boundary chips. The AWS service-name
@@ -4190,7 +4212,7 @@ function FlowOverlay({
           badgeX: badge.x,
           badgeY: badge.y - 6,
           badgeLabel,
-          badgeTitle: badgeLabel,
+          badgeTitle: formatEgressDestinationsTitle(e, badgeLabel),
           isExposed: Boolean(e.is_exposed),
           highlight: j.highlight,
           focused: j.focused,
