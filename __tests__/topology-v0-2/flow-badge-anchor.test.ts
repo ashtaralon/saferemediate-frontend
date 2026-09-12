@@ -40,16 +40,20 @@ describe("flowBadgeAnchor", () => {
   })
 
   it("takes the midpoint of the FIRST leg only for a plain hopped edge, never a boundary leg", () => {
+    // A vertical hop chip right of the source: the first leg is a short
+    // rightward stub, a 116px vertical run, and a 20px entry; the boundary
+    // leg that follows (hop -> IGW) would be a 470px run, so a helper that
+    // measured the whole path would answer up in the header band.
+    const hop = rect(380, 500, 60, 32)
     const firstLeg = [
       { x: app.r, y: app.cy },
       { x: 400, y: app.cy },
-      { x: 400, y: nat.cy },
-      { x: nat.l, y: nat.cy },
+      { x: 400, y: hop.cy },
+      { x: hop.l, y: hop.cy },
     ]
-    const p = flowBadgeAnchor({ cls: "internal", src: app, legTarget: nat, laneX: null, firstLegPts: firstLeg })
-    // Longest segment of the first leg is the vertical run at x=400.
-    expect(p).toEqual({ x: 400, y: (app.cy + nat.cy) / 2 })
-    expect(inside(p, nat)).toBe(false)
+    const p = flowBadgeAnchor({ cls: "internal", src: app, legTarget: hop, laneX: null, firstLegPts: firstLeg })
+    expect(p).toEqual({ x: 400, y: (app.cy + hop.cy) / 2 })
+    expect(inside(p, hop)).toBe(false)
     expect(inside(p, igw)).toBe(false)
   })
 })
