@@ -3209,6 +3209,39 @@ function orthoPath(pts: Pt[], radius = 8): string {
 }
 
 /** Midpoint of the longest segment — where the badge reads as "on the line". */
+/** Where an edge's on-line badge is anchored, hops or not.
+ *
+ *  An egress badge sits above its SOURCE chip (in-tier). The alternative --
+ *  the longest-segment midpoint -- lands in the IGW / subnet-header band
+ *  where every egress line converges and the tags pile up, and a badge on
+ *  the first hop chip lands on the NAT itself: the NAT sits at the top of a
+ *  public subnet cell with a workload chip right under it, so the de-overlap
+ *  pass, which knows the workload but not the hop, could only slide the tag
+ *  up onto the NAT's label (C1 production QA run 34661856217, 2026-09-12).
+ *
+ *  A corridor leg (non-null `laneX`) shares a vertical bus with its siblings,
+ *  so every one of them has the SAME longest segment and every badge would
+ *  resolve to the same column; the source stub is the one part of the path
+ *  unique per edge, so the badge sits beside the source, on the side the leg
+ *  leaves from. Anything else takes the midpoint of the FIRST leg -- never a
+ *  boundary leg, which runs through the header band. */
+export function flowBadgeAnchor(args: {
+  cls: string
+  src: NatRect
+  legTarget: NatRect
+  laneX: number | null
+  firstLegPts: Pt[]
+}): Pt {
+  if (args.cls === "egress") return { x: args.src.cx, y: args.src.t - 16 }
+  if (args.laneX !== null) {
+    return {
+      x: args.legTarget.cx >= args.src.cx ? args.src.r + 16 : args.src.l - 16,
+      y: args.src.cy,
+    }
+  }
+  return longestSegmentMid(args.firstLegPts)
+}
+
 function longestSegmentMid(pts: Pt[]): Pt {
   let best: Pt = { x: (pts[0].x + pts[pts.length - 1].x) / 2, y: (pts[0].y + pts[pts.length - 1].y) / 2 }
   let bestLen = -1
@@ -4253,39 +4286,23 @@ function FlowOverlay({
           // first, out of the subnet grid, before it goes across (see
           // orthoLegToBoundary); the last leg lands on the destination.
           const first = j.hops[0]
-          pts = orthoLeg(j.src, first, laneX, spread)
+          const firstLeg = orthoLeg(j.src, first, laneX, spread)
+          pts = firstLeg
           let prev = first
           for (const hop of j.hops.slice(1)) {
             pts = [...pts, ...orthoLegToBoundary(prev, hop)]
             prev = hop
           }
           pts = [...pts, ...orthoLegToBoundary(prev, j.dst)]
-          badge = { x: first.cx, y: first.cy + 18 }
+          // The badge stays where a hopless edge would put it (see
+          // flowBadgeAnchor): never on the hop chip the line passes through.
+          badge = flowBadgeAnchor({ cls: j.cls, src: j.src, legTarget: first, laneX, firstLegPts: firstLeg })
           routedViaVpce = j.viaKinds.has("vpce")
           routedViaIgw = j.viaKinds.has("igw")
           routedViaNat = j.viaKinds.has("nat")
         } else {
           pts = orthoLeg(j.src, j.dst, laneX, spread)
-          // Anchor the egress label to its source chip (in-tier) instead of the
-          // longest-segment midpoint, which lands up in the IGW / subnet-header
-          // band where every egress line converges and the tags pile up.
-          //
-          // Corridor legs have the same disease for a different reason: a
-          // non-null laneX means the leg shares a vertical bus with its
-          // siblings, so every one of them has the SAME longest segment and
-          // every badge resolves to the same column -- four Lambda->S3 tags
-          // stacked on one point. The source stub is the one part of the path
-          // that is unique per edge, and source chips occupy distinct rows, so
-          // badging there gives each leg its own slot for free. Sign follows
-          // the leg direction, matching how orthoLeg picks the exit edge.
-          badge = j.cls === "egress"
-            ? { x: j.src.cx, y: j.src.t - 16 }
-            : laneX !== null
-              ? {
-                  x: j.dst.cx >= j.src.cx ? j.src.r + 16 : j.src.l - 16,
-                  y: j.src.cy,
-                }
-              : longestSegmentMid(pts)
+          badge = flowBadgeAnchor({ cls: j.cls, src: j.src, legTarget: j.dst, laneX, firstLegPts: pts })
         }
         const d = orthoPath(pts)
         if (!d) continue
@@ -4641,7 +4658,9 @@ function FlowOverlay({
       const chipObstacles: NatRect[] = []
       const seenObstacle = new Set<string>()
       for (const j of jobs) {
-        for (const r of [j.src, j.dst]) {
+        // A hop chip (NAT / IGW / VPCE the line legs through) is as much a
+        // chip as either end: a tag laid over it hides the hop's own label.
+        for (const r of [j.src, j.dst, ...j.hops]) {
           const k = `${Math.round(r.l)}:${Math.round(r.t)}`
           if (seenObstacle.has(k)) continue
           seenObstacle.add(k)

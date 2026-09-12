@@ -582,6 +582,7 @@ test.describe("C1 live QA — estate map against the deployed graph", () => {
     })
     if (payload) {
       expect.soft(inventory.nat.length, "every NAT gateway of the payload is drawn once").toBe(payloadNats.length)
+      expect.soft(inventory.labels_over_nat_chips, "no flow badge is painted over a NAT gateway chip").toEqual([])
     }
 
     // Coverage pill: exactly the payload's numbers, or absent when the payload has none.
@@ -795,6 +796,7 @@ interface FullscreenMeasure {
    *  instance or the Neptune writer must appear in ONE zone, its own). */
   cells: Array<{ az: string | null; tier: string | null; chips: string[] }>
   labels_over_rail_chips: Array<{ label: string; chip: string | null }>
+  labels_over_nat_chips: Array<{ label: string; chip: string | null }>
   unknown_glyph_nodes: Array<{ name: string; title: string | null }>
   service_icons: number
   stack_tiles: number
@@ -821,10 +823,10 @@ async function measureFullscreen(page: Page): Promise<FullscreenMeasure> {
     const count = (selector: string) => root.querySelectorAll(selector).length
     const intersects = (a: DOMRect, b: DOMRect) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top
     /** Flow labels whose box paints over a chip of the given container. */
-    const labelsOverChips = (container: Element | null) => {
+    const labelsOverChips = (container: Element | null, chipSelector = "[data-flow-id], [data-flow-ids]") => {
       const out: Array<{ label: string; chip: string | null }> = []
       if (!container) return out
-      const chips = Array.from(container.querySelectorAll<HTMLElement>("[data-flow-id], [data-flow-ids]")).filter(
+      const chips = Array.from(container.querySelectorAll<HTMLElement>(chipSelector)).filter(
         chip => chip.getBoundingClientRect().height > 0,
       )
       for (const badge of Array.from(root.querySelectorAll<SVGGElement>('[data-testid="topology-flow-badge"]'))) {
@@ -961,6 +963,10 @@ async function measureFullscreen(page: Page): Promise<FullscreenMeasure> {
       // Labels painted over rail chips and nodes drawn with the unknown glyph:
       // both are legibility defects an operator sees before anything else.
       labels_over_rail_chips: labelsOverChips(root.querySelector('[data-testid="topology-edge-services-rail"]')),
+      // A NAT chip is a hop an egress line legs through (2026-09-11 review
+      // finding 2); a badge laid over it hides the gateway's own label (QA run
+      // 34661856217 had the egress bundle tag on the NAT's top edge).
+      labels_over_nat_chips: labelsOverChips(root, '[data-testid="topology-nat-gateway-chip"]'),
       unknown_glyph_nodes: unknownGlyphNodes(root),
       service_icons: count('[data-testid="topology-service-node-icon"]'),
       stack_tiles: count('[data-testid="topology-density-stack-tile"], [data-testid="topology-service-stack"]'),
