@@ -6,6 +6,7 @@ import {
   STALE_REASON_VALUES,
   isRefreshState,
   refreshIsStalled,
+  refreshWasSubmitted,
 } from "@/lib/types/snapshot"
 import {
   formatLastSuccessfulUpdate,
@@ -33,16 +34,32 @@ describe("refresh status is reported honestly", () => {
     const note = staleNote("unavailable", "refresh_unavailable")
     expect(note).toBe(REFRESH_STATE_MESSAGE.unavailable)
     expect(note).not.toContain("timeout")
-    expect(note).toMatch(/not running|could not be started/i)
+    expect(note).toMatch(/could not be submitted/i)
+  })
+
+  it("does not claim an operator is the only way back", () => {
+    // An enqueue failure proves THIS submission failed. It cannot prove no
+    // scheduled or previously started job exists, so the copy must not send
+    // the reader looking for a human.
+    const note = staleNote("unavailable", "refresh_unavailable") ?? ""
+    expect(note).not.toMatch(/operator|manual|until someone/i)
+  })
+
+  it("does not claim a worker is running just because a request exists", () => {
+    // A dedupe key outlives a worker that died: a stalled job and a live one
+    // look identical from here.
+    const note = staleNote("duplicate", "refresh_requested") ?? ""
+    expect(note).toMatch(/not confirmed/i)
+    expect(note).not.toMatch(/in progress|is running/i)
   })
 
   it("distinguishes queued from in-progress", () => {
     expect(staleNote("queued", "refresh_queued")).not.toBe(
-      staleNote("duplicate", "snapshot_recomputing"),
+      staleNote("duplicate", "refresh_requested"),
     )
     expect(staleNote("queued", "refresh_queued")).toMatch(/not started/i)
-    expect(staleNote("duplicate", "snapshot_recomputing")).toMatch(
-      /in progress/i,
+    expect(staleNote("duplicate", "refresh_requested")).toMatch(
+      /previously requested/i,
     )
   })
 
@@ -90,6 +107,19 @@ describe("refresh status is reported honestly", () => {
     expect(refreshIsStalled("queued")).toBe(false)
     expect(refreshIsStalled("duplicate")).toBe(false)
     expect(refreshIsStalled(null)).toBe(false)
+  })
+
+  it("treats only queued as a submission this request made", () => {
+    expect(refreshWasSubmitted("queued")).toBe(true)
+    for (const s of ["duplicate", "unavailable", "cached", "unknown"] as const) {
+      expect(refreshWasSubmitted(s)).toBe(false)
+    }
+  })
+
+  it("has a distinct message for the cached-within-TTL serve", () => {
+    // "fresh" over a 29-minute-old body was the UI half of the age defect.
+    expect(REFRESH_STATE_MESSAGE.cached).not.toBe(REFRESH_STATE_MESSAGE.fresh)
+    expect(REFRESH_STATE_MESSAGE.cached).toMatch(/cache/i)
   })
 
   it("rejects a state that is not in the closed set", () => {

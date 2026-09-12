@@ -72,9 +72,13 @@ export function staleNote(
       return REFRESH_STATE_MESSAGE.unavailable
     case "refresh_queued":
       return REFRESH_STATE_MESSAGE.queued
+    case "refresh_requested":
+      return REFRESH_STATE_MESSAGE.duplicate
     case "snapshot_recomputing":
     case "peer_computing":
-      return REFRESH_STATE_MESSAGE.duplicate
+      // Positive evidence: a compute lease is held, or this request's own
+      // enqueue was accepted. Not the same as a bare dedupe key.
+      return "A refresh is running."
     case "post_sync_invalidation":
       return "A sync invalidated this view; it is being rebuilt."
     case "deadline_exceeded":

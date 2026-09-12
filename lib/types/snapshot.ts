@@ -13,6 +13,7 @@ export type StaleReason =
   | "fresh_snapshot_older_than_window"
   | "refresh_unavailable"
   | "refresh_queued"
+  | "refresh_requested"
   | "refresh_unknown"
 
 export const STALE_REASON_VALUES: readonly StaleReason[] = [
@@ -23,6 +24,7 @@ export const STALE_REASON_VALUES: readonly StaleReason[] = [
   "fresh_snapshot_older_than_window",
   "refresh_unavailable",
   "refresh_queued",
+  "refresh_requested",
   "refresh_unknown",
 ] as const
 
@@ -35,6 +37,7 @@ export const STALE_REASON_VALUES: readonly StaleReason[] = [
  */
 export type RefreshState =
   | "fresh"
+  | "cached"
   | "queued"
   | "duplicate"
   | "unavailable"
@@ -43,6 +46,7 @@ export type RefreshState =
 
 export const REFRESH_STATE_VALUES: readonly RefreshState[] = [
   "fresh",
+  "cached",
   "queued",
   "duplicate",
   "unavailable",
@@ -65,10 +69,15 @@ export function isRefreshState(value: unknown): value is RefreshState {
  */
 export const REFRESH_STATE_MESSAGE: Record<RefreshState, string> = {
   fresh: "Computed just now.",
-  queued: "A refresh is queued and has not started yet.",
-  duplicate: "A refresh for this view is already in progress.",
-  unavailable:
-    "No refresh is running — the refresh could not be started. This view will not update until an operator runs one.",
+  cached: "Served from cache; not recomputed for this request.",
+  queued: "Refresh request submitted; not started yet.",
+  // A dedupe key proves a prior REQUEST, not a running worker — it outlives a
+  // worker that died, so "already in progress" would be a guess.
+  duplicate: "Refresh previously requested; worker status not confirmed.",
+  // Says only what is provable: THIS submission failed. It cannot prove no
+  // scheduled or earlier job exists, and must not imply an operator is the
+  // only way back.
+  unavailable: "This refresh request could not be submitted.",
   not_requested: "Showing the last stored view; no refresh was requested.",
   unknown: "Refresh status is unknown.",
 }
@@ -76,6 +85,13 @@ export const REFRESH_STATE_MESSAGE: Record<RefreshState, string> = {
 /** Reasons that mean nothing is coming, so the UI must not promise an update. */
 export function refreshIsStalled(state: RefreshState | null | undefined): boolean {
   return state === "unavailable" || state === "not_requested"
+}
+
+/** Only "queued" proves THIS request's submission was accepted. */
+export function refreshWasSubmitted(
+  state: RefreshState | null | undefined,
+): boolean {
+  return state === "queued"
 }
 
 export function isStaleReason(value: unknown): value is StaleReason {
