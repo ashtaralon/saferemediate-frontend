@@ -189,7 +189,13 @@ describe("DetailPanel — the inspector asks about the gateway, never the anchor
     renderPanel(anchorNode(GATEWAY_ID))
 
     expect(screen.getByTestId("inventory-config")).toHaveTextContent(GATEWAY_ID)
-    expect(captured.inspectorIds).toEqual([GATEWAY_ID])
+    // The mock is re-invoked on every DetailPanel re-render (the dossier fetch
+    // flips loading state), so assert the property that matters, not a render
+    // count: every id the inspector was handed is the gateway, and the anchor
+    // is never one of them.
+    expect(captured.inspectorIds.length).toBeGreaterThan(0)
+    expect(captured.inspectorIds.every(id => id === GATEWAY_ID)).toBe(true)
+    expect(captured.inspectorIds).not.toContain(IGW_CANVAS_ANCHOR_ID)
     expect(screen.getByTestId("estate-operations-resource-id")).toHaveTextContent(GATEWAY_ID)
     expect(screen.queryByTestId("estate-anchor-identity-unresolved")).toBeNull()
 
