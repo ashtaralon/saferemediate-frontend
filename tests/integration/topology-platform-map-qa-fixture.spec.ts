@@ -681,3 +681,132 @@ test("the IGW inspector asks Inventory about the gateway's AWS id, never the __i
   }
   expect(everyProxyRequest.filter(url => url.includes("__igw__"))).toEqual([])
 })
+
+// ---------------------------------------------------------------------------
+// Logical groups (2026-09-12 review, defect B). The captured payload carries no
+// target group, ASG or DB cluster, so this fixture adds ONE target group to the
+// drawn VPC, bound by TARGETS edges to two of the payload's own EC2 instances in
+// two zones, and asserts the band it lands in: neutral, beside the amber
+// placement-gap area, linked to those members, spanning their zones, and never
+// drawn inside an AZ x tier cell. Fixture data in a test file; the product code
+// renders only what the payload it was handed says.
+// ---------------------------------------------------------------------------
+test("a logical group is drawn in its own band beside the placement-gap area, linked to its members and never in a cell", async ({
+  context,
+  page,
+}) => {
+  test.setTimeout(120_000)
+  await seedAuthCookie(context)
+
+  const frameVpc = SNAPSHOT.vpc_topology.vpc_id as string
+  const subnetsById = new Map(
+    (SNAPSHOT.vpc_topology.subnets as Array<{ id: string; az: string | null }>).map(subnet => [subnet.id, subnet]),
+  )
+  type PayloadNode = { id: string; name: string; type: string; vpc_id: string | null; subnet_id: string | null }
+  const instances = (SNAPSHOT.nodes as PayloadNode[]).filter(
+    node => node.type === "EC2" && node.vpc_id === frameVpc && node.subnet_id && subnetsById.get(node.subnet_id)?.az,
+  )
+  // One member per zone, so the span the band claims is two zones wide.
+  const byZone = new Map<string, PayloadNode>()
+  for (const instance of instances) {
+    const az = subnetsById.get(instance.subnet_id!)!.az!
+    if (!byZone.has(az)) byZone.set(az, instance)
+  }
+  const members = [...byZone.values()]
+  expect(members.length, "the captured payload has EC2 instances in at least two zones of the drawn VPC").toBeGreaterThanOrEqual(2)
+  const expectedAzs = [...byZone.keys()].sort()
+
+  const targetGroup = {
+    id: "arn:aws:elasticloadbalancing:eu-west-1:745783559495:targetgroup/fixture-tg-web/0123456789abcdef",
+    name: "fixture-tg-web",
+    type: "TargetGroup",
+    resource_label: "TargetGroup",
+    subnet_id: null,
+    subnet_ids: [],
+    vpc_id: frameVpc,
+    account_id: SNAPSHOT.account_id,
+    region: SNAPSHOT.region,
+    placement_tier: null,
+    score: null,
+    stale: null,
+    is_jewel: false,
+    security_group_ids: [],
+  }
+  const snapshot = {
+    ...SNAPSHOT,
+    nodes: [...SNAPSHOT.nodes, targetGroup],
+    traffic_edges: [
+      ...SNAPSHOT.traffic_edges,
+      ...members.map(member => ({
+        edge_class: "internal",
+        source_id: targetGroup.id,
+        target_id: member.id,
+        port: null,
+        protocol: "TARGETS",
+        last_seen: null,
+        external_destinations: null,
+        evidence_type: "configured",
+        evidence_source: "aws_configuration",
+        authority_state: "configured",
+        path_basis: "configured_route",
+      })),
+    ],
+  }
+  await routeSnapshot(page, snapshot)
+  await page.setViewportSize({ width: 2048, height: 1100 })
+  await page.goto(ESTATE_URL, { waitUntil: "domcontentloaded" })
+  await expect(page.getByTestId("topology-estate-view-map")).toBeVisible({ timeout: 60_000 })
+  await page.getByRole("tab", { name: "Network topology" }).click()
+
+  const band = page.getByTestId("topology-logical-group-band").first()
+  await expect(band).toBeVisible()
+  await expect(band.getByTestId("topology-logical-group-band-header")).toHaveText(
+    "Logical groups · members carry the placement (1)",
+  )
+  await expect(band).toContainText("Not a collector gap")
+  await expect(band).not.toContainText("does not say where")
+  const entry = band.getByTestId("topology-logical-group")
+  await expect(entry).toHaveAttribute("data-node-id", targetGroup.id)
+  await expect(entry).toHaveAttribute("data-member-ids", members.map(member => member.id).join("|"))
+  await expect(entry).toHaveAttribute("data-scope-azs", expectedAzs.join("|"))
+  await expect(entry.getByTestId("topology-logical-group-member")).toHaveCount(members.length)
+  await expect(entry.getByTestId("topology-logical-group-scope")).toContainText(`spans ${expectedAzs.join(", ")}`)
+  await expect(entry.getByTestId("topology-placement-picker")).toHaveCount(0)
+
+  // Never counted as a placement gap: whatever else this payload leaves
+  // unplaced, the amber area does not list the group and its count is its own
+  // chips, not the groups.
+  const area = page.getByTestId("topology-unplaced-area").first()
+  if (await area.count()) {
+    await expect(area.locator(`[data-flow-id="${targetGroup.id}"]`)).toHaveCount(0)
+    await expect(area).not.toContainText(targetGroup.name)
+    const header = (await area.getByTestId("topology-unplaced-area-header").textContent()) ?? ""
+    const counted = Number(/\((\d+)\)/.exec(header)?.[1] ?? Number.NaN)
+    expect(counted).toBe(await area.getByTestId("topology-service-node-icon").count())
+  }
+
+  // Geometry: inside the region frame, below every AZ x tier cell — the group
+  // chip is in the band and in no cell.
+  const geom = await page.evaluate(({ groupId }) => {
+    const bandEl = document.querySelector('[data-testid="topology-logical-group-band"]')
+    const region = document.querySelector('[data-testid="topology-region-frame"]')
+    const cells = Array.from(
+      document.querySelectorAll('[data-testid="topology-cell-glance"], [data-testid="topology-cell-inventory"]'),
+    )
+    if (!bandEl || !region) return null
+    const b = bandEl.getBoundingClientRect()
+    return {
+      cells: cells.length,
+      insideRegion: region.contains(bandEl),
+      belowEveryCell: cells.every(cell => cell.getBoundingClientRect().bottom <= b.top + 1),
+      chipInCell: cells.some(cell => cell.querySelector(`[data-flow-id="${groupId}"]`) !== null),
+      chipInBand: bandEl.querySelector(`[data-flow-id="${groupId}"]`) !== null,
+    }
+  }, { groupId: targetGroup.id })
+  expect(geom).not.toBeNull()
+  expect(geom!.cells).toBeGreaterThan(0)
+  expect(geom!.insideRegion).toBe(true)
+  expect(geom!.belowEveryCell).toBe(true)
+  expect(geom!.chipInCell).toBe(false)
+  expect(geom!.chipInBand).toBe(true)
+})

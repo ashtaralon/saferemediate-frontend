@@ -166,19 +166,25 @@ async function routeProductScope(page: Page) {
   })
 }
 
-export async function routeSnapshot(page: Page) {
+/**
+ * `snapshot` defaults to the captured payload; a spec may hand in a variant
+ * (the captured payload plus a node shape it does not carry, e.g. a target
+ * group) so the product code renders what THAT payload says. Fixture data in a
+ * test file — the product never sees it outside the spec.
+ */
+export async function routeSnapshot(page: Page, snapshot: typeof SNAPSHOT = SNAPSHOT) {
   await routeProductScope(page)
   await page.route(`**/api/proxy/topology-risk/${SYSTEM}**`, async route => {
-    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(SNAPSHOT) })
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(snapshot) })
   })
   await page.route("**/api/proxy/dependency-map/full**", async route => {
-    const nodes = SNAPSHOT.nodes.map((node: { id: string; name: string; type: string }) => ({
+    const nodes = snapshot.nodes.map((node: { id: string; name: string; type: string }) => ({
       id: node.id,
       name: node.name,
       type: node.type,
       properties: { arn: node.id },
     }))
-    const edges = SNAPSHOT.traffic_edges.map(
+    const edges = snapshot.traffic_edges.map(
       (edge: {
         source_id: string
         target_id: string
