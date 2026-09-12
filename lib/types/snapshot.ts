@@ -70,7 +70,10 @@ export function isRefreshState(value: unknown): value is RefreshState {
 export const REFRESH_STATE_MESSAGE: Record<RefreshState, string> = {
   fresh: "Computed just now.",
   cached: "Served from cache; not recomputed for this request.",
-  queued: "Refresh request submitted; not started yet.",
+  // "not started yet" asserts it has NOT begun, which is as unverified as
+  // claiming it has. The enqueue returning "queued" proves the push
+  // succeeded; nothing here sees a worker either way.
+  queued: "Refresh request submitted; worker status not confirmed.",
   // A dedupe key proves a prior REQUEST, not a running worker — it outlives a
   // worker that died, so "already in progress" would be a guess.
   duplicate: "Refresh previously requested; worker status not confirmed.",
@@ -98,6 +101,28 @@ export function isStaleReason(value: unknown): value is StaleReason {
   return (
     typeof value === "string" &&
     (STALE_REASON_VALUES as readonly string[]).includes(value)
+  )
+}
+
+/** HTTP 200 when there is nothing to serve and no worker is confirmed.
+ *
+ *  Distinct from ComputingEnvelope, which carries computing_started_at and
+ *  compute_deadline_at — a start and an end for work that may never have
+ *  begun. This one carries only when the REQUEST was made.
+ */
+export type WaitingEnvelope = {
+  status: "waiting"
+  system_name: string
+  refresh_requested_at: string
+  refresh_state: RefreshState
+  staleReason: StaleReason
+}
+
+export function isWaitingEnvelope(value: unknown): value is WaitingEnvelope {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    (value as { status?: unknown }).status === "waiting"
   )
 }
 

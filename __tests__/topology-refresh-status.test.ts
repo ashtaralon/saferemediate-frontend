@@ -57,10 +57,18 @@ describe("refresh status is reported honestly", () => {
     expect(staleNote("queued", "refresh_queued")).not.toBe(
       staleNote("duplicate", "refresh_requested"),
     )
-    expect(staleNote("queued", "refresh_queued")).toMatch(/not started/i)
+    expect(staleNote("queued", "refresh_queued")).toMatch(/submitted/i)
     expect(staleNote("duplicate", "refresh_requested")).toMatch(
       /previously requested/i,
     )
+  })
+
+  it("does not claim a queued refresh has NOT started either", () => {
+    // Symmetry with the duplicate case: the serving process sees no worker,
+    // so neither "is running" nor "has not started" is supportable.
+    const note = staleNote("queued", "refresh_queued") ?? ""
+    expect(note).toMatch(/not confirmed/i)
+    expect(note).not.toMatch(/not started/i)
   })
 
   it("says unknown rather than promising a rebuild", () => {
