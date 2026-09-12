@@ -582,10 +582,15 @@ test.describe("C1 live QA — estate map against the deployed graph", () => {
     })
     if (payload) {
       expect.soft(inventory.nat.length, "every NAT gateway of the payload is drawn once").toBe(payloadNats.length)
-      // labels_over_nat_chips is reported, not asserted, until the deployed
-      // frontend carries the anchor fix (this spec's own push-time self-test
-      // runs against production, run 34681693594 measured the defect it was
-      // written for); the assertion follows once production reads clean.
+      // Asserted since production read clean (run 34682112619 after #867):
+      // the same 1px touch tolerance the rail-header check uses, so two
+      // neighbours sharing an edge are reported, not failed.
+      expect
+        .soft(
+          inventory.labels_over_nat_chips.filter(o => o.overlap_px > 1),
+          "no flow badge is painted over a NAT gateway chip (touches ≤ 1px are reported, not failed)",
+        )
+        .toEqual([])
     }
 
     // Coverage pill: exactly the payload's numbers, or absent when the payload has none.
