@@ -7194,6 +7194,63 @@ export interface PlacementTarget {
   tier: "web" | "app" | "data"
 }
 
+/**
+ * Structural edge types that bind a logical group to the resources it groups,
+ * as the topology payload carries them (backend topology_platform_enrichment):
+ * a target group TARGETS instances, an auto-scaling group LAUNCHES them.
+ * `MEMBER_OF_CLUSTER` is the graph's instance→cluster edge, accepted for the
+ * day the payload projects it. Read only — nothing here infers a member.
+ */
+export const LOGICAL_GROUP_MEMBER_EDGE_TYPES: ReadonlySet<string> = new Set([
+  "TARGETS",
+  "LAUNCHES",
+  "MEMBER_OF_CLUSTER",
+])
+
+/** What the logical-group band says about one group: the members the payload
+ *  links to it and the zones those members' own subnets resolve to. Both empty
+ *  is the honest answer when the payload carries no membership edge. */
+export interface LogicalGroupScope {
+  memberIds: string[]
+  azs: string[]
+}
+
+/**
+ * Members and zone span of a logical group, from the payload only. A member is
+ * the far end of a membership edge in either direction (`MEMBER_OF_CLUSTER`
+ * points instance→cluster); its zones are the AZs of ITS OWN subnets, so the
+ * span is exactly what the grid draws for the members and never a cell the
+ * group was guessed into. A member the frame was not handed as a node still
+ * counts (the edge names it) but contributes no zone.
+ */
+export function logicalGroupScope(
+  group: Pick<TopologyNode, "id">,
+  edges: readonly Pick<TrafficEdge, "source_id" | "target_id" | "protocol" | "kind">[],
+  nodes: readonly TopologyNode[],
+  subnets: readonly SubnetMeta[],
+): LogicalGroupScope {
+  const memberIds: string[] = []
+  for (const e of edges) {
+    const rel = (e.protocol ?? e.kind ?? "").toUpperCase()
+    if (!LOGICAL_GROUP_MEMBER_EDGE_TYPES.has(rel)) continue
+    const other =
+      e.source_id === group.id ? e.target_id : e.target_id === group.id ? e.source_id : null
+    if (other && other !== group.id && !memberIds.includes(other)) memberIds.push(other)
+  }
+  const nodeById = new Map(nodes.map(n => [n.id, n]))
+  const subnetById = new Map(subnets.map(sn => [sn.id, sn]))
+  const azs = new Set<string>()
+  for (const id of memberIds) {
+    const member = nodeById.get(id)
+    if (!member) continue
+    for (const sid of workloadSubnetIds(member)) {
+      const az = subnetById.get(sid)?.az
+      if (az) azs.add(az)
+    }
+  }
+  return { memberIds, azs: [...azs].sort() }
+}
+
 const UNPLACED_REASON_COPY: Record<
   UnplacedReason,
   { label: string; remedy: string }
@@ -7236,6 +7293,17 @@ const UNPLACED_REASON_COPY: Record<
  *
  * Always rendered when non-empty — never behind an accordion or a density
  * toggle. A gap you have to go looking for is a gap nobody finds.
+ *
+ * Two bands, one classifier. `unplacedSubnetReason` already tells a group
+ * (`logical-group`) from a placement gap, and the two verdicts say different
+ * things: "the graph does not say where" versus "a group whose members carry
+ * the placement". The amber area is reserved for the gaps — missing,
+ * dangling or unsupported placement facts — and heads and counts only those;
+ * a logical group is drawn in a neutral band beside it, linked to the members
+ * the payload's TARGETS / LAUNCHES edges name and spanning the zones those
+ * members' own subnets resolve to. It is never counted as a placement failure
+ * and never offered a cell (2026-09-12 review: all six items under the amber
+ * heading were groups, while the copy beneath said none of them was a gap).
  */
 function UnplacedNodesArea({
   unplacedNodes,
@@ -7245,6 +7313,9 @@ function UnplacedNodesArea({
   selectedNodeId,
   onSelect,
   compact = false,
+  edges = [],
+  nodes = [],
+  subnets = [],
 }: {
   unplacedNodes: UnplacedNode[]
   overrides: PlacementOverrideMap
@@ -7254,6 +7325,12 @@ function UnplacedNodesArea({
   selectedNodeId: string | null
   onSelect: (id: string) => void
   compact?: boolean
+  /** The payload's edges: a group's members are read off its TARGETS / LAUNCHES edges. */
+  edges?: readonly TrafficEdge[]
+  /** Every node the frame was handed, to name a member and read its subnets. */
+  nodes?: readonly TopologyNode[]
+  /** The frame's subnets, to resolve a member's subnet to its zone. */
+  subnets?: readonly SubnetMeta[]
 }) {
   // List only the overrides that are actually drawn. A stale one — its AZ or
   // whole VPC gone from the estate, or its AZ collapsed by the operator — is
@@ -7265,10 +7342,13 @@ function UnplacedNodesArea({
   const overrideEntries = Object.values(overrides).filter(ov =>
     liveCells.has(`${ov.vpc_id}::${ov.az}`),
   )
-  if (unplacedNodes.length === 0 && overrideEntries.length === 0) return null
+  // The classifier's verdict decides the band; nothing is re-classified here.
+  const gaps = unplacedNodes.filter(u => u.reason !== "logical-group")
+  const groups = unplacedNodes.filter(u => u.reason === "logical-group")
+  if (gaps.length === 0 && groups.length === 0 && overrideEntries.length === 0) return null
 
   const byReason = new Map<UnplacedReason, TopologyNode[]>()
-  for (const u of unplacedNodes) {
+  for (const u of gaps) {
     const list = byReason.get(u.reason) ?? []
     list.push(u.node)
     byReason.set(u.reason, list)
@@ -7279,112 +7359,217 @@ function UnplacedNodesArea({
     "subnet-not-in-graph",
     "az-unknown-for-subnet",
     "type-unrecognized",
-    // Last: not a gap, so it never reads as the first thing to fix.
-    "logical-group",
   ]
   const canPlace = !!onPlaceNode && placeableCells.length > 0
   const multiVpc = new Set(placeableCells.map(c => c.vpc_id)).size > 1
+  const nodeById = new Map(nodes.map(n => [n.id, n]))
+  const groupCopy = UNPLACED_REASON_COPY["logical-group"]
 
   return (
-    <div
-      className={compact ? "mt-1.5 rounded-md px-2 py-1.5" : "mt-2.5 rounded-md px-3 py-2"}
-      style={{ background: "#FFFBEB", border: "1.5px dashed #F59E0B" }}
-      data-testid="topology-unplaced-area"
-    >
-      <div className="flex items-baseline gap-2 flex-wrap">
-        <span
-          className="text-[10px] uppercase tracking-[0.14em] font-semibold"
-          style={{ color: "#92400E" }}
+    <>
+      {gaps.length > 0 || overrideEntries.length > 0 ? (
+        <div
+          className={compact ? "mt-1.5 rounded-md px-2 py-1.5" : "mt-2.5 rounded-md px-3 py-2"}
+          style={{ background: "#FFFBEB", border: "1.5px dashed #F59E0B" }}
+          data-testid="topology-unplaced-area"
         >
-          Not placed · the graph does not say where ({unplacedNodes.length})
-        </span>
-        <span className="text-[9px] leading-snug" style={{ color: "#B45309" }}>
-          In this region, zone and subnet unknown. Never guessed into a cell.
-        </span>
-      </div>
+          <div className="flex items-baseline gap-2 flex-wrap">
+            <span
+              className="text-[10px] uppercase tracking-[0.14em] font-semibold"
+              style={{ color: "#92400E" }}
+              data-testid="topology-unplaced-area-header"
+            >
+              Not placed · the graph does not say where ({gaps.length})
+            </span>
+            <span className="text-[9px] leading-snug" style={{ color: "#B45309" }}>
+              In this region, zone and subnet unknown. Never guessed into a cell.
+            </span>
+          </div>
 
-      {REASON_ORDER.filter(r => byReason.has(r)).map(reason => {
-        const group = byReason.get(reason)!
-        const copy = UNPLACED_REASON_COPY[reason]
-        return (
-          <div
-            key={reason}
-            className="mt-1.5"
-            data-testid="topology-unplaced-group"
-            data-unplaced-reason={reason}
-          >
-            <div className="text-[9px] font-semibold" style={{ color: "#92400E" }}>
-              {copy.label} ({group.length})
+          {REASON_ORDER.filter(r => byReason.has(r)).map(reason => {
+            const group = byReason.get(reason)!
+            const copy = UNPLACED_REASON_COPY[reason]
+            return (
+              <div
+                key={reason}
+                className="mt-1.5"
+                data-testid="topology-unplaced-group"
+                data-unplaced-reason={reason}
+              >
+                <div className="text-[9px] font-semibold" style={{ color: "#92400E" }}>
+                  {copy.label} ({group.length})
+                </div>
+                <div className="text-[8px] leading-snug mb-1" style={{ color: "#B45309" }}>
+                  {copy.remedy}
+                </div>
+                <div className="flex flex-wrap gap-1.5 items-start">
+                  {group.map(n => (
+                    <div key={n.id} className="flex flex-col items-center gap-0.5">
+                      <ServiceNodeIcon
+                        node={n}
+                        selected={n.id === selectedNodeId}
+                        onSelect={onSelect}
+                        dense
+                      />
+                      {/* Pinning a group into one AZ x tier cell would assert a
+                          placement its members may not share. */}
+                      {canPlace && !isLogicalGroupNode(n) ? (
+                        <PlacementPicker
+                          nodeId={n.id}
+                          cells={placeableCells}
+                          showVpc={multiVpc}
+                          onPlaceNode={onPlaceNode!}
+                        />
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )
+          })}
+
+          {overrideEntries.length > 0 ? (
+            <div
+              className="mt-2 pt-1.5 border-t border-dashed"
+              style={{ borderColor: "#FCD34D" }}
+              data-testid="topology-operator-placed-list"
+            >
+              <div className="text-[9px] font-semibold mb-1" style={{ color: "#92400E" }}>
+                Placed by an engineer ({overrideEntries.length}) — operator provenance, not evidence
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {overrideEntries.map(ov => (
+                  <span
+                    key={ov.node_id}
+                    className="inline-flex items-center gap-1 text-[9px] font-semibold px-1.5 py-0.5 rounded"
+                    style={{ background: "#FEF3C7", color: "#92400E", border: "1px solid #F59E0B" }}
+                    title={`${ov.node_id} → ${ov.vpc_id} · ${ov.az} · ${ov.tier} tier · asserted ${ov.placed_at}`}
+                    data-testid="topology-operator-placed-entry"
+                    data-node-id={ov.node_id}
+                  >
+                    <span className="truncate max-w-[160px]">{ov.node_id}</span>
+                    <span style={{ opacity: 0.75 }}>
+                      {ov.az} · {ov.tier}
+                    </span>
+                    {onPlaceNode ? (
+                      <button
+                        type="button"
+                        onClick={() => onPlaceNode(ov.node_id, null)}
+                        className="font-bold px-0.5 leading-none hover:underline"
+                        aria-label={`Clear engineer placement for ${ov.node_id}`}
+                        data-testid="topology-clear-placement"
+                      >
+                        ×
+                      </button>
+                    ) : null}
+                  </span>
+                ))}
+              </div>
             </div>
-            <div className="text-[8px] leading-snug mb-1" style={{ color: "#B45309" }}>
-              {copy.remedy}
-            </div>
-            <div className="flex flex-wrap gap-1.5 items-start">
-              {group.map(n => (
-                <div key={n.id} className="flex flex-col items-center gap-0.5">
+          ) : null}
+        </div>
+      ) : null}
+
+      {groups.length > 0 ? (
+        <div
+          className={compact ? "mt-1.5 rounded-md px-2 py-1.5" : "mt-2.5 rounded-md px-3 py-2"}
+          style={{ background: "#F8FAFC", border: "1.5px solid #CBD5E1" }}
+          data-testid="topology-logical-group-band"
+        >
+          <div className="flex items-baseline gap-2 flex-wrap">
+            <span
+              className="text-[10px] uppercase tracking-[0.14em] font-semibold"
+              style={{ color: PAL.ink }}
+              data-testid="topology-logical-group-band-header"
+            >
+              Logical groups · members carry the placement ({groups.length})
+            </span>
+            <span className="text-[9px] leading-snug" style={{ color: PAL.slate }}>
+              {groupCopy.remedy}
+            </span>
+          </div>
+          <div className="mt-1.5 flex flex-wrap gap-3 items-start">
+            {groups.map(({ node: n }) => {
+              const scope = logicalGroupScope(n, edges, nodes, subnets)
+              return (
+                <div
+                  key={n.id}
+                  className="flex flex-col items-center gap-0.5 max-w-[240px]"
+                  data-testid="topology-logical-group"
+                  data-node-id={n.id}
+                  data-member-ids={scope.memberIds.join("|")}
+                  data-scope-azs={scope.azs.join("|")}
+                  data-vpc-id={n.vpc_id ?? undefined}
+                >
+                  {/* No PlacementPicker here, ever: pinning a group into one
+                      AZ x tier cell would assert a placement its members may
+                      not share. Its scope is read off the members instead. */}
                   <ServiceNodeIcon
                     node={n}
                     selected={n.id === selectedNodeId}
                     onSelect={onSelect}
                     dense
                   />
-                  {/* Pinning a group into one AZ x tier cell would assert a
-                      placement its members may not share. */}
-                  {canPlace && !isLogicalGroupNode(n) ? (
-                    <PlacementPicker
-                      nodeId={n.id}
-                      cells={placeableCells}
-                      showVpc={multiVpc}
-                      onPlaceNode={onPlaceNode!}
-                    />
-                  ) : null}
-                </div>
-              ))}
-            </div>
-          </div>
-        )
-      })}
-
-      {overrideEntries.length > 0 ? (
-        <div
-          className="mt-2 pt-1.5 border-t border-dashed"
-          style={{ borderColor: "#FCD34D" }}
-          data-testid="topology-operator-placed-list"
-        >
-          <div className="text-[9px] font-semibold mb-1" style={{ color: "#92400E" }}>
-            Placed by an engineer ({overrideEntries.length}) — operator provenance, not evidence
-          </div>
-          <div className="flex flex-wrap gap-1.5">
-            {overrideEntries.map(ov => (
-              <span
-                key={ov.node_id}
-                className="inline-flex items-center gap-1 text-[9px] font-semibold px-1.5 py-0.5 rounded"
-                style={{ background: "#FEF3C7", color: "#92400E", border: "1px solid #F59E0B" }}
-                title={`${ov.node_id} → ${ov.vpc_id} · ${ov.az} · ${ov.tier} tier · asserted ${ov.placed_at}`}
-                data-testid="topology-operator-placed-entry"
-                data-node-id={ov.node_id}
-              >
-                <span className="truncate max-w-[160px]">{ov.node_id}</span>
-                <span style={{ opacity: 0.75 }}>
-                  {ov.az} · {ov.tier}
-                </span>
-                {onPlaceNode ? (
-                  <button
-                    type="button"
-                    onClick={() => onPlaceNode(ov.node_id, null)}
-                    className="font-bold px-0.5 leading-none hover:underline"
-                    aria-label={`Clear engineer placement for ${ov.node_id}`}
-                    data-testid="topology-clear-placement"
+                  <div
+                    className="text-[8px] leading-tight text-center"
+                    style={{ color: PAL.slate }}
+                    data-testid="topology-logical-group-scope"
                   >
-                    ×
-                  </button>
-                ) : null}
-              </span>
-            ))}
+                    {n.vpc_id ? `VPC ${n.vpc_id}` : "VPC not reported"}
+                    {scope.azs.length > 0 ? ` · spans ${scope.azs.join(", ")}` : ""}
+                  </div>
+                  {scope.memberIds.length > 0 ? (
+                    <div
+                      className="flex flex-wrap justify-center gap-1"
+                      data-testid="topology-logical-group-members"
+                    >
+                      {scope.memberIds.map(id => {
+                        const member = nodeById.get(id)
+                        return member ? (
+                          <button
+                            key={id}
+                            type="button"
+                            onClick={() => onSelect(id)}
+                            className="text-[8px] leading-tight px-1 rounded border hover:underline"
+                            style={{ borderColor: "#CBD5E1", color: PAL.ink, background: PAL.cardBg }}
+                            title={`${member.name} · ${id}`}
+                            data-testid="topology-logical-group-member"
+                            data-member-id={id}
+                          >
+                            {member.name}
+                          </button>
+                        ) : (
+                          // The edge names a member the frame was not handed
+                          // (filtered out, or in another VPC): named, not linked.
+                          <span
+                            key={id}
+                            className="text-[8px] leading-tight px-1 rounded border font-mono"
+                            style={{ borderColor: "#E2E8F0", color: PAL.slate }}
+                            title={id}
+                            data-testid="topology-logical-group-member"
+                            data-member-id={id}
+                          >
+                            {id}
+                          </span>
+                        )
+                      })}
+                    </div>
+                  ) : (
+                    <div
+                      className="text-[8px] leading-tight italic"
+                      style={{ color: PAL.slate }}
+                      data-testid="topology-logical-group-members-unlinked"
+                    >
+                      members not linked in this payload
+                    </div>
+                  )}
+                </div>
+              )
+            })}
           </div>
         </div>
       ) : null}
-    </div>
+    </>
   )
 }
 
@@ -8237,7 +8422,9 @@ export function AwsFrame({
               grid, because that is exactly what the graph supports: the resource
               is in this region and we cannot say which zone or subnet. Rendered
               in presentation mode too: a gap the fullscreen map hides is a gap
-              the person presenting never mentions. */}
+              the person presenting never mentions. Logical groups get their own
+              neutral band beside it, linked to the members the payload's edges
+              name — the same edges the map draws. */}
           <UnplacedNodesArea
             unplacedNodes={unplacedNodes}
             overrides={placementOverrides}
@@ -8246,6 +8433,9 @@ export function AwsFrame({
             selectedNodeId={selectedNodeId}
             onSelect={onSelect}
             compact={presentationMode}
+            edges={trafficEdgesList}
+            nodes={nodes}
+            subnets={topo.subnets}
           />
         </div>
       </div>

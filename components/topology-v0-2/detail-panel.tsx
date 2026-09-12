@@ -29,6 +29,7 @@ import type {
 } from "./types"
 import {
   buildFocusedServicePaths,
+  inspectableResourceId,
   type FocusedServicePath,
 } from "./service-paths"
 import { FLOW_COLOR_BY_CLASS } from "./flow-visuals"
@@ -356,6 +357,13 @@ export function DetailPanel({
   const [rollbackConfirmation, setRollbackConfirmation] = useState("")
   const [action, setAction] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
+  // The id every resource request below carries. `node.id` is the CANVAS
+  // identity (selection, focus, flow routing — `ServicePathMap` keeps it); a
+  // canvas anchor such as the `__igw__` chip resolves here to the gateway id
+  // the payload names, or to null — and null means the unresolved state is
+  // rendered and NOTHING is requested (2026-09-12 review: the anchor reached
+  // Inventory as a resource id and read "InternetGateway __igw__ not found").
+  const requestId = node ? inspectableResourceId(node) : null
 
   useEffect(() => {
     setTab("resource")
@@ -377,11 +385,18 @@ export function DetailPanel({
 
   useEffect(() => {
     if (!node) return
+    if (!requestId) {
+      // Unresolved anchor: no dossier read, and no error — nothing failed.
+      setLoading(false)
+      setError(null)
+      setDossier(null)
+      return
+    }
     let cancelled = false
     const load = async () => {
       setLoading(true)
       setError(null)
-      const query = new URLSearchParams({ resource_id: node.id, window_days: "90" })
+      const query = new URLSearchParams({ resource_id: requestId, window_days: "90" })
       if (accountId) query.set("account_id", accountId)
       if (region) query.set("region", region)
       if (vpcId) query.set("vpc_id", vpcId)
@@ -396,7 +411,7 @@ export function DetailPanel({
     }
     void load()
     return () => { cancelled = true }
-  }, [node, systemName, accountId, region, vpcId])
+  }, [node, requestId, systemName, accountId, region, vpcId])
 
   useEffect(() => {
     const operationId = plan?.operation_id
@@ -440,11 +455,17 @@ export function DetailPanel({
 
   useEffect(() => {
     if (!node) return
+    if (!requestId) {
+      setNarrationLoading(false)
+      setNarrationError(false)
+      setNarration(null)
+      return
+    }
     let cancelled = false
     const loadNarration = async () => {
       setNarrationLoading(true)
       setNarrationError(false)
-      const query = new URLSearchParams({ resource_id: node.id, window_days: "90" })
+      const query = new URLSearchParams({ resource_id: requestId, window_days: "90" })
       if (accountId) query.set("account_id", accountId)
       if (region) query.set("region", region)
       if (vpcId) query.set("vpc_id", vpcId)
@@ -462,11 +483,11 @@ export function DetailPanel({
     }
     void loadNarration()
     return () => { cancelled = true }
-  }, [node, systemName, accountId, region, vpcId])
+  }, [node, requestId, systemName, accountId, region, vpcId])
 
   if (!node) return null
 
-  const isS3 = node.type === "S3" || node.type === "S3Bucket"
+  const isS3 = requestId != null && (node.type === "S3" || node.type === "S3Bucket")
   const post = async <T,>(path: string, body: Record<string, unknown>): Promise<T> =>
     operationalRequest<T>(systemName, path, {
       method: "POST",
@@ -491,7 +512,7 @@ export function DetailPanel({
     setExecution(null)
     setVerification(null)
     const body = await post<S3VpcePlan>("s3-vpce/plan", {
-      resource_id: node.id,
+      resource_id: requestId,
       vpc_id: vpcId || undefined,
       account_id: accountId || undefined,
       region: region || undefined,
@@ -666,7 +687,9 @@ export function DetailPanel({
             </div>
             <h2 className="mt-1 truncate text-lg font-bold">{node.name}</h2>
             <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] font-mono" style={{ color: "#5A6B7A" }}>
-              <span>{node.id}</span>
+              <span data-testid="estate-operations-resource-id">
+                {requestId ?? "resource id · unresolved in this payload"}
+              </span>
               {node.vpc_id ? <span>{node.vpc_id}</span> : null}
               {node.subnet_id ? <span>{node.subnet_id}</span> : null}
             </div>
@@ -801,12 +824,37 @@ export function DetailPanel({
                 </div>
               </div>
             ) : null}
-            <ResourceConfigTab resourceId={node.id} resourceType={node.type ?? "Resource"} systemName={systemName} />
+            {requestId ? (
+              <ResourceConfigTab resourceId={requestId} resourceType={node.type ?? "Resource"} systemName={systemName} />
+            ) : (
+              <div
+                className="rounded-xl border p-4 text-xs"
+                style={{ borderColor: "#DDE3E8", background: "#FFFFFF", color: "#5A6B7A" }}
+                data-testid="estate-anchor-identity-unresolved"
+              >
+                <p className="text-sm font-semibold" style={{ color: "#1A2330" }}>
+                  {node.type === "InternetGateway" ? "Gateway identity unresolved" : "Resource identity unresolved"}
+                </p>
+                <p className="mt-1 leading-5">
+                  This chip is the map&apos;s canvas anchor for the {node.type ?? "resource"}, not a graph resource, and the
+                  topology payload names no AWS id for it
+                  {node.type === "InternetGateway"
+                    ? " — no gateway id in vpc_topology.edges.igws and no IGW hop on any egress edge"
+                    : ""}
+                  . Nothing was requested from Inventory: the map does not invent an id to ask about.
+                </p>
+              </div>
+            )}
           </div>
         ) : null}
 
         {tab === "dependencies" ? (
           <div className="space-y-5" data-testid="estate-operations-dependencies">
+            {!requestId ? (
+              <p className="text-sm text-slate-500" data-testid="estate-anchor-dependencies-unresolved">
+                No dependency read: this canvas anchor has no resolved AWS resource id in the payload.
+              </p>
+            ) : null}
             {loading ? <div className="flex items-center gap-2 text-sm text-slate-500"><Loader2 className="h-4 w-4 animate-spin" /> Correlating behavioral dependencies…</div> : null}
             {error ? <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div> : null}
             {dossier ? (

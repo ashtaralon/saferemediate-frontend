@@ -577,6 +577,7 @@ test.describe("C1 live QA — estate map against the deployed graph", () => {
     const placement = payload ? summarizeTopology(payload) : null
     report("unplaced", {
       ui: inventory.unplaced,
+      logical_groups: inventory.logical_groups,
       payload_no_subnet_by_type: placement?.no_subnet_by_type ?? null,
       payload_vpc_but_no_subnet_by_type: placement?.vpc_but_no_subnet_by_type ?? null,
     })
@@ -816,6 +817,15 @@ interface FullscreenMeasure {
     by_reason: Record<string, number>
     names: string[]
   }
+  /** The logical-group band beside the unplaced area: the classifier's
+   *  `logical-group` verdict, drawn as groups and never counted above. */
+  logical_groups: {
+    header: string | null
+    total: number
+    names: string[]
+    /** Members the payload's TARGETS / LAUNCHES edges link to each group. */
+    member_counts: number[]
+  }
 }
 
 async function measureFullscreen(page: Page): Promise<FullscreenMeasure> {
@@ -1005,6 +1015,25 @@ async function measureFullscreen(page: Page): Promise<FullscreenMeasure> {
           total: chips.length,
           by_reason: byReason,
           names: chips.slice(0, 12).map(chip => chip.getAttribute("title") || text(chip)),
+        }
+      })(),
+      // Logical groups are the classifier's own verdict and are no longer
+      // counted or headed as placement gaps (2026-09-12 review): reported from
+      // their own band, with the members the payload links to each.
+      logical_groups: (() => {
+        const band = root.querySelector('[data-testid="topology-logical-group-band"]')
+        if (!band) return { header: null, total: 0, names: [], member_counts: [] }
+        const groups = Array.from(band.querySelectorAll<HTMLElement>('[data-testid="topology-logical-group"]'))
+        return {
+          header: text(band.querySelector('[data-testid="topology-logical-group-band-header"]')) || null,
+          total: groups.length,
+          names: groups.map(group => {
+            const chip = group.querySelector<HTMLElement>('[data-testid="topology-service-node-icon"]')
+            return chip?.getAttribute("title") || text(chip) || group.getAttribute("data-node-id") || ""
+          }),
+          member_counts: groups.map(
+            group => (group.getAttribute("data-member-ids") ?? "").split("|").filter(Boolean).length,
+          ),
         }
       })(),
     }

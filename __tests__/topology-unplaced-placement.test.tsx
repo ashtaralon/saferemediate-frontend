@@ -31,6 +31,7 @@ import {
   buildVpcFrames,
   computeCanvasGrid,
   isOffCanvasByDesign,
+  logicalGroupScope,
   workloadSubnetIds,
 } from "@/components/topology-v0-2/aws-frame"
 import {
@@ -42,7 +43,7 @@ import {
   withPlacementOverride,
   type PlacementOverrideMap,
 } from "@/components/topology-v0-2/placement-overrides"
-import type { SubnetMeta, TopologyNode, VpcTopology } from "@/components/topology-v0-2/types"
+import type { SubnetMeta, TopologyNode, TrafficEdge, VpcTopology } from "@/components/topology-v0-2/types"
 
 beforeAll(() => {
   if (!("ResizeObserver" in globalThis)) {
@@ -561,27 +562,133 @@ describe("computeCanvasGrid — a logical group is a group, not a collector gap"
   })
 })
 
-describe("AwsFrame — a group is explained as a group and offered no cell", () => {
-  const TG = nd({ id: "PROBE-tg", name: "cyntro-tb-prod-tg-web", type: "TargetGroup", vpc_id: VPC, subnet_id: null })
+// The band a group is drawn in. The classifier's `logical-group` verdict says
+// "a group whose members carry the placement", not "the graph does not say
+// where" — yet both readings stood on one amber area headed as a placement gap
+// (2026-09-12 review: all six items under "Not placed · the graph does not say
+// where" were groups, while the copy beneath said none of them was a gap). The
+// amber area is now the gaps alone; a group has a neutral band of its own,
+// linked to the members the payload's edges name.
 
-  it("lists the group after the real gaps, with a remedy that does not send the operator to a sync", () => {
+describe("AwsFrame — a group is drawn in its own band, never counted as a placement gap", () => {
+  const TG = nd({ id: "PROBE-tg", name: "cyntro-tb-prod-tg-web", type: "TargetGroup", vpc_id: VPC, subnet_id: null })
+  const WEB_B = nd({ id: "PROBE-web-b", name: "web-b", type: "EC2", vpc_id: VPC, subnet_id: "subnet-web-b" })
+  const targets = (memberId: string): TrafficEdge => ({ source_id: TG.id, target_id: memberId, protocol: "TARGETS" })
+
+  it("heads and counts the amber area by the real gaps alone, and the band by the groups", () => {
     renderFrame({ nodes: [CONTROL, NO_SUBNET, TG] })
-    const groups = screen.getAllByTestId("topology-unplaced-group")
-    expect(groups.map(g => g.getAttribute("data-unplaced-reason"))).toEqual([
-      "no-subnet-in-graph",
-      "logical-group",
-    ])
-    const group = groups[1]
-    expect(group).toHaveTextContent("A group, not a placeable resource (1)")
-    expect(group).toHaveTextContent("Not a collector gap")
-    expect(group.textContent).not.toMatch(/run a full sync/)
-    expect(within(group).getByText(TG.name!)).toBeTruthy()
+    const area = screen.getByTestId("topology-unplaced-area")
+    expect(screen.getByTestId("topology-unplaced-area-header")).toHaveTextContent(
+      "Not placed · the graph does not say where (1)",
+    )
+    expect(
+      screen.getAllByTestId("topology-unplaced-group").map(g => g.getAttribute("data-unplaced-reason")),
+    ).toEqual(["no-subnet-in-graph"])
+    expect(within(area).queryByText(TG.name!)).toBeNull()
+
+    const band = screen.getByTestId("topology-logical-group-band")
+    expect(screen.getByTestId("topology-logical-group-band-header")).toHaveTextContent(
+      "Logical groups · members carry the placement (1)",
+    )
+    expect(band).toHaveTextContent("Not a collector gap")
+    expect(band.textContent).not.toMatch(/run a full sync/)
+    expect(band.textContent).not.toMatch(/does not say where/)
+    expect(within(band).getByText(TG.name!)).toBeTruthy()
+    const entry = screen.getByTestId("topology-logical-group")
+    expect(entry.getAttribute("data-node-id")).toBe(TG.id)
+    expect(entry.getAttribute("data-vpc-id")).toBe(VPC)
+  })
+
+  it("renders no placement-gap area at all when only groups are unplaced", () => {
+    renderFrame({ nodes: [CONTROL, TG] })
+    expect(screen.queryByTestId("topology-unplaced-area")).toBeNull()
+    expect(screen.getByTestId("topology-logical-group-band")).toBeTruthy()
+  })
+
+  it("links the group to the members the payload's TARGETS edges name and spans their zones", () => {
+    const onSelect = vi.fn()
+    renderFrame({
+      nodes: [CONTROL, WEB_B, TG],
+      trafficEdges: [targets(CONTROL.id), targets(WEB_B.id)],
+      onSelect,
+    })
+    const entry = screen.getByTestId("topology-logical-group")
+    expect(entry.getAttribute("data-member-ids")).toBe(`${CONTROL.id}|${WEB_B.id}`)
+    // CONTROL sits in subnet-app-a (eu-west-1a), WEB_B in subnet-web-b (eu-west-1b):
+    // the span is the members' own zones, not a cell for the group.
+    expect(entry.getAttribute("data-scope-azs")).toBe(`${AZ_A}|${AZ_B}`)
+    expect(screen.getByTestId("topology-logical-group-scope")).toHaveTextContent(
+      `VPC ${VPC} · spans ${AZ_A}, ${AZ_B}`,
+    )
+    const members = screen.getAllByTestId("topology-logical-group-member")
+    expect(members.map(m => m.textContent)).toEqual([CONTROL.name, WEB_B.name])
+    fireEvent.click(members[1])
+    expect(onSelect).toHaveBeenCalledWith(WEB_B.id)
+    expect(screen.queryByTestId("topology-logical-group-members-unlinked")).toBeNull()
+  })
+
+  it("says so when the payload links no member, rather than inventing one", () => {
+    renderFrame({
+      nodes: [CONTROL, TG],
+      // Traffic INTO the group is not membership.
+      trafficEdges: [{ source_id: CONTROL.id, target_id: TG.id, protocol: "ACTUAL_TRAFFIC" }],
+    })
+    const entry = screen.getByTestId("topology-logical-group")
+    expect(entry.getAttribute("data-member-ids")).toBe("")
+    expect(entry.getAttribute("data-scope-azs")).toBe("")
+    expect(screen.getByTestId("topology-logical-group-members-unlinked")).toHaveTextContent(
+      "members not linked in this payload",
+    )
+    expect(screen.getByTestId("topology-logical-group-scope")).toHaveTextContent(`VPC ${VPC}`)
+    expect(screen.queryAllByTestId("topology-logical-group-member")).toEqual([])
   })
 
   it("offers the engineer no picker for a group, while a real gap keeps its picker", () => {
     renderFrame({ nodes: [CONTROL, NO_SUBNET, TG], onPlaceNode: () => {} })
     const pickers = screen.getAllByTestId("topology-placement-picker")
     expect(pickers.map(p => p.getAttribute("data-node-id"))).toEqual([NO_SUBNET.id])
+    expect(
+      within(screen.getByTestId("topology-logical-group-band")).queryByTestId("topology-placement-picker"),
+    ).toBeNull()
+  })
+})
+
+describe("logicalGroupScope — members and zones from the payload only", () => {
+  const TG = nd({ id: "PROBE-tg", type: "TargetGroup", vpc_id: VPC, subnet_id: null })
+  const CLUSTER = nd({ id: "PROBE-cluster", type: "RDS", resource_label: "RDSCluster", vpc_id: VPC, subnet_id: null })
+  const A = nd({ id: "PROBE-a", type: "EC2", vpc_id: VPC, subnet_id: "subnet-web-a" })
+  const B = nd({
+    id: "PROBE-b",
+    type: "RDS",
+    vpc_id: VPC,
+    subnet_id: "subnet-data-a",
+    subnet_ids: ["subnet-data-a", "subnet-web-b"],
+  })
+  const e = (source_id: string, target_id: string, protocol: string): TrafficEdge => ({ source_id, target_id, protocol })
+
+  it("reads TARGETS and LAUNCHES from the group, MEMBER_OF_CLUSTER into it, and nothing else", () => {
+    const edges = [
+      e(TG.id, A.id, "TARGETS"),
+      e("asg-1", A.id, "LAUNCHES"),
+      e(B.id, CLUSTER.id, "MEMBER_OF_CLUSTER"),
+      e(A.id, TG.id, "ACTUAL_TRAFFIC"),
+      e("alb-1", TG.id, "HAS_TARGET_GROUP"),
+    ]
+    expect(logicalGroupScope(TG, edges, [A, B], SUBNETS).memberIds).toEqual([A.id])
+    expect(logicalGroupScope(CLUSTER, edges, [A, B], SUBNETS).memberIds).toEqual([B.id])
+    expect(logicalGroupScope({ id: "asg-1" }, edges, [A, B], SUBNETS).memberIds).toEqual([A.id])
+  })
+
+  it("spans exactly the zones the members' own subnets resolve to — every subnet of a Multi-AZ member, none for a member the frame was not handed", () => {
+    const edges = [e(B.id, CLUSTER.id, "MEMBER_OF_CLUSTER"), e("PROBE-not-handed", CLUSTER.id, "MEMBER_OF_CLUSTER")]
+    const scope = logicalGroupScope(CLUSTER, edges, [A, B], SUBNETS)
+    expect(scope.memberIds).toEqual([B.id, "PROBE-not-handed"])
+    expect(scope.azs).toEqual([AZ_A, AZ_B])
+  })
+
+  it("accepts the legacy `kind` spelling and dedupes a member named twice", () => {
+    const edges: TrafficEdge[] = [{ source_id: TG.id, target_id: A.id, kind: "TARGETS" }, e(TG.id, A.id, "TARGETS")]
+    expect(logicalGroupScope(TG, edges, [A], SUBNETS)).toEqual({ memberIds: [A.id], azs: [AZ_A] })
   })
 })
 

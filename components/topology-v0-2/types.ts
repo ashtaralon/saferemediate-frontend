@@ -115,6 +115,19 @@ export interface TopologyNode {
    */
   resource_label?: string | null
   /**
+   * The AWS resource an inspector must ask about when `id` is a CANVAS ANCHOR
+   * rather than a resource id (FE-synthesized inspector nodes only). The
+   * primary internet gateway chip is keyed `__igw__` so egress edges have one
+   * stable anchor whatever the gateway is called; that sentinel is not in the
+   * graph, and sending it to Inventory read "InternetGateway __igw__ not found
+   * in graph" (2026-09-12 review). The gateway's own id (`igw-…`) lives here,
+   * read from the payload — never derived from the anchor. `null` on an anchor
+   * node the payload names no gateway id for: the identity is unresolved and
+   * no request is made. Absent on graph nodes, whose `id` IS the resource id.
+   * Resolve through `inspectableResourceId` (service-paths.ts), never by hand.
+   */
+  resource_id?: string | null
+  /**
    * Verified VPC attachment for optionally-attached types (Lambda), carried
    * from the same workload_network SSOT the coverage contract classifies by
    * (BE >= 2026-09-11 deploy). `NOT_VPC_ATTACHED` is a checked AWS VpcConfig

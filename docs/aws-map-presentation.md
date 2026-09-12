@@ -440,13 +440,20 @@ nothing:
 | `subnet-not-in-graph` | names a subnet absent from the payload | dangling reference; re-sync |
 | `az-unknown-for-subnet` | subnet resolved, carries no AZ | the subnet row is incomplete |
 | `type-unrecognized` | no placement rule knows the type | add it to `estate-placement.ts` |
-| `logical-group` | a target group, ASG or DB cluster: its members carry the subnets | none — not a gap; drawn as a group until the map brackets members |
+| `logical-group` | a target group, ASG or DB cluster: its members carry the subnets | none — not a gap; drawn in the neutral logical-group band beside the amber area, linked to the members the payload's `TARGETS` / `LAUNCHES` edges name |
 
 `logical-group` is classified first, by `resource_label` (the graph label — a
 cluster and its instances both project as `type: "RDS"`) and then by `type`
-(`LOGICAL_GROUP_TYPES` in `estate-placement.ts`). It is listed last, gets no
+(`LOGICAL_GROUP_TYPES` in `estate-placement.ts`). It is drawn in its own
+neutral band (`topology-logical-group-band`), not in the amber placement-gap
+area, which heads and counts the four gap reasons alone — until the
+2026-09-12 review the same six groups sat under "Not placed · the graph does
+not say where" while the copy beneath said none was a gap. The band gets no
 placement picker (pinning a group into one cell would assert a placement its
-members may not share), and its remedy never says "run a full sync": all six
+members may not share); its scope line names the VPC and the zones its linked
+members' own subnets resolve to (`logicalGroupScope`, read off the payload's
+`TARGETS` / `LAUNCHES` / `MEMBER_OF_CLUSTER` edges), or says "members not
+linked in this payload"; and its remedy never says "run a full sync": all six
 unplaced resources on C1 were groups (2026-09-11 network-topology review).
 
 `az-unknown-for-subnet` was unreachable when first written, and reachability was
