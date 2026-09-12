@@ -607,3 +607,77 @@ test("fullscreen platform map shows named Lambda, protected AZ labels, direction
     fullPage: false,
   })
 })
+
+// ---------------------------------------------------------------------------
+// Inspector identity (2026-09-12 review, defect A). The IGW chip is keyed by the
+// `__igw__` canvas anchor so egress edges have one stable target; the chip
+// itself carries the gateway's AWS id (data-igw-id). Selecting it used to send
+// the ANCHOR to Inventory as a resource id — "InternetGateway __igw__ not found
+// in graph" — although the payload named the gateway. This drives the real
+// click path and reads the ids off the requests the page actually makes.
+// ---------------------------------------------------------------------------
+test("the IGW inspector asks Inventory about the gateway's AWS id, never the __igw__ anchor", async ({
+  context,
+  page,
+}) => {
+  test.setTimeout(120_000)
+  await seedAuthCookie(context)
+  await routeSnapshot(page)
+  // Every resource read the panel can make, answered "not in this fixture":
+  // the assertion is the id in the URL, not the dossier a backend would render.
+  const resourceReads: string[] = []
+  for (const pattern of [
+    "**/api/proxy/inspector/**",
+    "**/api/proxy/operational-map/**",
+    "**/api/proxy/decision-coverage/**",
+  ]) {
+    await page.route(pattern, async route => {
+      resourceReads.push(route.request().url())
+      await route.fulfill({
+        status: 404,
+        contentType: "application/json",
+        body: JSON.stringify({ detail: "not in this fixture" }),
+      })
+    })
+  }
+  const everyProxyRequest: string[] = []
+  page.on("request", request => {
+    if (request.url().includes("/api/proxy/")) everyProxyRequest.push(request.url())
+  })
+
+  await page.setViewportSize({ width: 2048, height: 1100 })
+  await page.goto(ESTATE_URL, { waitUntil: "domcontentloaded" })
+  await expect(page.getByTestId("topology-estate-view-map")).toBeVisible({ timeout: 60_000 })
+  await page.getByRole("tab", { name: "Network topology" }).click()
+
+  const igwChip = page.getByTestId("topology-igw-rail-chip").first()
+  await expect(igwChip).toBeVisible()
+  // Canvas identity and AWS identity, side by side on the chip.
+  await expect(igwChip).toHaveAttribute("data-flow-id", "__igw__")
+  const gatewayId = await igwChip.getAttribute("data-igw-id")
+  expect(gatewayId).toMatch(/^igw-[0-9a-f]+$/)
+  const payloadIgwIds = (SNAPSHOT.vpc_topology.edges.igws as Array<{ id: string }>).map(igw => igw.id)
+  expect(payloadIgwIds).toContain(gatewayId)
+
+  await igwChip.click()
+  const panel = page.getByTestId("topology-service-detail-panel")
+  await expect(panel).toBeVisible()
+  await expect(panel.getByTestId("estate-operations-resource-id")).toHaveText(gatewayId!)
+  await expect(panel.getByTestId("estate-anchor-identity-unresolved")).toHaveCount(0)
+
+  // Inventory was asked about the gateway by its own id…
+  await expect
+    .poll(() => resourceReads.filter(url => url.includes("/api/proxy/inspector/")).length)
+    .toBeGreaterThan(0)
+  for (const url of resourceReads.filter(url => url.includes("/api/proxy/inspector/"))) {
+    expect(new URL(url).pathname).toBe(`/api/proxy/inspector/${encodeURIComponent(gatewayId!)}`)
+  }
+  // …and so were the operational reads. The anchor reached no request at all.
+  await expect
+    .poll(() => resourceReads.filter(url => url.includes("/api/proxy/operational-map/")).length)
+    .toBeGreaterThan(0)
+  for (const url of resourceReads.filter(url => url.includes("/api/proxy/operational-map/"))) {
+    expect(url).toContain(`resource_id=${gatewayId}`)
+  }
+  expect(everyProxyRequest.filter(url => url.includes("__igw__"))).toEqual([])
+})

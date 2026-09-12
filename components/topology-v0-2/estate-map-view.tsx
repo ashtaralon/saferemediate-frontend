@@ -67,6 +67,7 @@ import {
 import { normalizeVpcTopology } from "@/components/topology-v0-2/normalize-topology"
 import { useAccountScope } from "@/lib/account-scope-context"
 import {
+  buildIgwInspectorNode,
   buildInspectorServiceEdges,
   buildVpceInspectorNodes,
 } from "@/components/topology-v0-2/service-paths"
@@ -947,24 +948,19 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
       byId.set(node.id, node)
     }
 
-    const igw = topology.edges.igws?.[0]
-    if (igw) {
-      byId.set("__igw__", {
-        id: "__igw__",
-        name: igw.name || "Internet gateway",
-        type: "InternetGateway",
-        subnet_id: null,
-        vpc_id: igw.vpc_id ?? topology.vpc_id ?? null,
-        account_id: topology.account_id ?? data?.account_id ?? null,
-        region: topology.region ?? data?.region ?? null,
-        score: null,
-        stale: null,
-        is_jewel: false,
-      })
-    }
+    // The chip is keyed by the `__igw__` canvas anchor; the inspector node
+    // carries the gateway's own id beside it (`resource_id`), read from the
+    // payload's gateway list and its structural egress hops, so the panel
+    // never asks Inventory about the anchor (2026-09-12 review).
+    const igwNode = buildIgwInspectorNode(topology.edges.igws, scopedTrafficEdges, {
+      account_id: topology.account_id ?? data?.account_id ?? null,
+      region: topology.region ?? data?.region ?? null,
+      vpc_id: topology.vpc_id ?? null,
+    })
+    if (igwNode) byId.set(igwNode.id, igwNode)
 
     return [...byId.values()]
-  }, [detailNodes, scopedVpcTopology, data])
+  }, [detailNodes, scopedVpcTopology, scopedTrafficEdges, data])
 
   useEffect(() => {
     if (process.env.NODE_ENV !== "development") return
