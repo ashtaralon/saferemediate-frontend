@@ -3,6 +3,13 @@
 /**
  * Topology v0.2 — Estate headline strip (narrative + compact provenance).
  */
+import {
+  REFRESH_STATE_MESSAGE,
+  isRefreshState,
+  type RefreshState,
+  type StaleReason,
+} from "@/lib/types/snapshot"
+
 import type { HeadlineNarrative } from "./headline-narrative"
 import type { SystemKpis } from "./types"
 
@@ -15,6 +22,12 @@ interface Props {
   fromStaleCache?: boolean
   fromSnapshot?: boolean
   snapshotAgeSeconds?: number
+  /** What the REFRESH JOB is doing, straight from the payload. */
+  refreshState?: string | null
+  /** Why this serve is stale, from the backend's closed set. */
+  staleReason?: StaleReason | string | null
+  /** When the served payload was actually produced. */
+  lastSuccessfulUpdateAt?: string | null
   scoredAt?: string
   refreshing?: boolean
   statsExpanded?: boolean
@@ -38,6 +51,52 @@ function formatSnapshotAge(seconds?: number): string {
   return `Snapshot ${Math.round(seconds / 3600)}h old`
 }
 
+
+/** The stale note, in the refresh's own words.
+ *
+ *  This used to read " · backend timeout — serving stale" for EVERY stale
+ *  serve: a refused enqueue, a peer recompute, a proxy timeout and a
+ *  post-sync invalidation all printed the same sentence, and only one of
+ *  them was a timeout. The backend now sends what actually happened, so say
+ *  that. Unknown stays unknown -- never upgraded to a reassuring message.
+ */
+export function staleNote(
+  refreshState?: string | null,
+  staleReason?: string | null,
+): string | null {
+  if (isRefreshState(refreshState)) {
+    return REFRESH_STATE_MESSAGE[refreshState as RefreshState]
+  }
+  switch (staleReason) {
+    case "refresh_unavailable":
+      return REFRESH_STATE_MESSAGE.unavailable
+    case "refresh_queued":
+      return REFRESH_STATE_MESSAGE.queued
+    case "snapshot_recomputing":
+    case "peer_computing":
+      return REFRESH_STATE_MESSAGE.duplicate
+    case "post_sync_invalidation":
+      return "A sync invalidated this view; it is being rebuilt."
+    case "deadline_exceeded":
+      return "The last refresh ran past its deadline without producing a view."
+    case "refresh_unknown":
+      return REFRESH_STATE_MESSAGE.unknown
+    default:
+      return staleReason ? REFRESH_STATE_MESSAGE.unknown : null
+  }
+}
+
+/** "Last updated" in absolute terms, so age and refresh status stay separate. */
+export function formatLastSuccessfulUpdate(value?: string | null): string | null {
+  if (!value) return null
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return null
+  return `Last updated ${parsed.toLocaleString(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  })}`
+}
+
 function StatPill({ label, value }: { label: string; value: string | number }) {
   return (
     <span
@@ -59,6 +118,9 @@ export function HeadlineStrip({
   fromStaleCache,
   fromSnapshot,
   snapshotAgeSeconds,
+  refreshState,
+  staleReason,
+  lastSuccessfulUpdateAt,
   scoredAt,
   refreshing,
   statsExpanded = false,
@@ -91,8 +153,21 @@ export function HeadlineStrip({
             {narrative.provenance}
             {vpcId ? ` · VPC ${vpcId}` : ""}
             {isStale ? " · cached locally" : ""}
-            {fromStaleCache ? " · backend timeout — serving stale" : ""}
           </div>
+          {fromStaleCache || refreshState || staleReason ? (
+            <div
+              className="text-[11px] mt-1 leading-relaxed"
+              style={{ color: "#5A6B7A" }}
+              data-testid="topology-refresh-status"
+              data-refresh-state={refreshState ?? "absent"}
+              data-stale-reason={staleReason ?? "absent"}
+            >
+              {staleNote(refreshState, staleReason)}
+              {formatLastSuccessfulUpdate(lastSuccessfulUpdateAt)
+                ? ` · ${formatLastSuccessfulUpdate(lastSuccessfulUpdateAt)}`
+                : ""}
+            </div>
+          ) : null}
         </div>
         <div className="flex w-full shrink-0 flex-col items-start gap-2 md:w-auto md:items-end">
           <div className="text-left text-[10px] md:text-right" style={{ color: "#5A6B7A" }}>

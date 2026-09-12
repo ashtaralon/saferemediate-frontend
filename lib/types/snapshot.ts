@@ -11,6 +11,9 @@ export type StaleReason =
   | "peer_computing"
   | "post_sync_invalidation"
   | "fresh_snapshot_older_than_window"
+  | "refresh_unavailable"
+  | "refresh_queued"
+  | "refresh_unknown"
 
 export const STALE_REASON_VALUES: readonly StaleReason[] = [
   "snapshot_recomputing",
@@ -18,7 +21,62 @@ export const STALE_REASON_VALUES: readonly StaleReason[] = [
   "peer_computing",
   "post_sync_invalidation",
   "fresh_snapshot_older_than_window",
+  "refresh_unavailable",
+  "refresh_queued",
+  "refresh_unknown",
 ] as const
+
+/** What the REFRESH JOB is doing. Mirror of backend ``RefreshState``.
+ *
+ *  Separate from staleness on purpose: how old the payload is and whether
+ *  anything is being done about it are two different facts. There is no
+ *  "running" member because the serving process cannot prove a worker picked
+ *  the job up — "unknown" is the honest answer, not a guess.
+ */
+export type RefreshState =
+  | "fresh"
+  | "queued"
+  | "duplicate"
+  | "unavailable"
+  | "not_requested"
+  | "unknown"
+
+export const REFRESH_STATE_VALUES: readonly RefreshState[] = [
+  "fresh",
+  "queued",
+  "duplicate",
+  "unavailable",
+  "not_requested",
+  "unknown",
+] as const
+
+export function isRefreshState(value: unknown): value is RefreshState {
+  return (
+    typeof value === "string" &&
+    (REFRESH_STATE_VALUES as readonly string[]).includes(value)
+  )
+}
+
+/** One sentence per state, for the stale banner.
+ *
+ *  Every string says what is true of the REFRESH, never "backend timeout" —
+ *  that was the single hardcoded reason the banner used to print for all of
+ *  a refused enqueue, a peer recompute, a proxy timeout and an invalidation.
+ */
+export const REFRESH_STATE_MESSAGE: Record<RefreshState, string> = {
+  fresh: "Computed just now.",
+  queued: "A refresh is queued and has not started yet.",
+  duplicate: "A refresh for this view is already in progress.",
+  unavailable:
+    "No refresh is running — the refresh could not be started. This view will not update until an operator runs one.",
+  not_requested: "Showing the last stored view; no refresh was requested.",
+  unknown: "Refresh status is unknown.",
+}
+
+/** Reasons that mean nothing is coming, so the UI must not promise an update. */
+export function refreshIsStalled(state: RefreshState | null | undefined): boolean {
+  return state === "unavailable" || state === "not_requested"
+}
 
 export function isStaleReason(value: unknown): value is StaleReason {
   return (

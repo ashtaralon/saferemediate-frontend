@@ -551,6 +551,11 @@ export interface TopologyRiskResponse {
   fromStaleCache?: boolean
   from_snapshot?: boolean
   snapshot_age_seconds?: number
+  /** What the REFRESH JOB is doing — separate fact from how old this is.
+   *  Closed set mirrored in lib/types/snapshot.ts (RefreshState). */
+  refresh_state?: string
+  /** When the served payload was actually produced (ISO-Z). */
+  last_successful_update_at?: string
   /** Wave D proxy computing envelope — not a finished topology-risk payload. */
   status?: "computing" | string
   staleReason?: string
