@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
-import { getCached, getStaleCached, setCached, TTL_SLOW } from "@/lib/server/proxy-cache"
+import { clearCached, getCached, getStaleCached, setCached, TTL_SLOW } from "@/lib/server/proxy-cache"
 import { isPoisonousProxyPayload } from "@/lib/server/proxy-cache-hygiene"
 import { buildTopologyRiskServerCacheKey } from "@/components/topology-v0-2/topology-scope-url"
 import { TOPOLOGY_RISK_PROXY_TIMEOUT_MS } from "@/lib/server/snapshot-proxy"
@@ -59,6 +59,24 @@ function isTimeoutError(err: unknown): boolean {
     err.name === "AbortError" ||
     err.message.includes("timeout")
   )
+}
+
+/**
+ * Stale is a cover for a backend that is TEMPORARILY unreachable. It is not a
+ * cover for a backend that answered.
+ *
+ * The route used to call serveStale() for every backend status, so a 403 came
+ * back as HTTP 200 carrying the map from before access was denied -- the
+ * reader could not tell an authorized view from a revoked one. An
+ * authorization, scope or invalidation answer is the backend saying something
+ * on purpose, and it has to reach the reader.
+ *
+ * 5xx and 429 are the only "ask again in a moment" answers. Everything else
+ * the backend MEANT, including 401/403 (authorization), 404 (this scope has no
+ * such system) and 409/410 (invalidated).
+ */
+function isTransientAvailability(status: number): boolean {
+  return status >= 500 || status === 429
 }
 
 function serveStale(cacheKey: string, reason: string): NextResponse | null {
@@ -200,8 +218,16 @@ export async function GET(
     console.error(
       `[topology-risk] backend ${result.status}: ${result.body.slice(0, 200)}`,
     )
-    const stale = serveStale(cacheKey, `backend_${result.status}`)
-    if (stale) return stale
+    if (isTransientAvailability(result.status)) {
+      const stale = serveStale(cacheKey, `backend_${result.status}`)
+      if (stale) return stale
+    } else {
+      // The backend answered on purpose. Drop what we were holding for this
+      // key: leaving it warm would let the very next request serve an X-Cache
+      // HIT of a view the backend has just refused, which is the same
+      // concealment one TTL later.
+      clearCached(cacheKey)
+    }
     return NextResponse.json(
       {
         error: `backend_${result.status}`,

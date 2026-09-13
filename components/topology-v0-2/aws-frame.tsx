@@ -3793,9 +3793,18 @@ export function railInboundCaption(
   return `${who} · ${plane}`
 }
 
-/** Captions for the VPC boundary column, from the edges the map draws. Neither
- *  claims a route table the payload does not carry: the IGW is reported with
- *  the workloads whose egress the map routes through it, an endpoint with the
+/** Captions for the VPC boundary column, computed from the payload's EVIDENCE
+ *  edges -- never from the subset currently drawn.
+ *
+ *  Both are pure functions of whatever list they are handed, so the contract
+ *  lives at the call site: pass `trafficEdgesList`, not `visibleEdges`. Passing
+ *  the drawn subset is what made this column report "egress: not observed"
+ *  whenever a lens hid the egress lines, while Dependencies -- reading the same
+ *  payload -- said "egress: 3 workloads". A visibility filter must never change
+ *  an evidence claim.
+ *
+ *  Neither claims a route table the payload does not carry: the IGW is reported
+ *  with the workloads whose egress routes through it, an endpoint with the
  *  workloads that reach it, and "not observed" is the honest word for zero. */
 export function boundaryIgwCaption(
   edges: readonly TrafficEdge[],
@@ -6536,13 +6545,18 @@ function VpceBoundaryChip({
 function VpcBoundaryColumn({
   igws,
   vpces,
-  edges,
+  // EVIDENCE, not what is currently drawn. These captions are claims about
+  // what was observed, and a visibility filter must never change a claim:
+  // hiding egress lines used to flip this column to "egress: not observed"
+  // while the Dependencies view, reading the same payload, said "egress: 3
+  // workloads". Two numbers for one fact, and the quieter one was the lie.
+  evidenceEdges,
   selectedNodeId,
   onSelect,
 }: {
   igws: VpcTopology["edges"]["igws"]
   vpces: VpcTopology["edges"]["vpces"]
-  edges: TrafficEdge[]
+  evidenceEdges: TrafficEdge[]
   selectedNodeId: string | null
   onSelect: (id: string) => void
 }) {
@@ -6587,9 +6601,9 @@ function VpcBoundaryColumn({
                   className="text-[8px] leading-tight truncate"
                   style={{ color: PAL.slate }}
                   data-testid="topology-boundary-caption"
-                  title="Workloads whose egress the map routes through this gateway — counted from the drawn edges."
+                  title="Workloads whose egress routes through this gateway, counted from the payload's edges. Hiding lines does not change this count."
                 >
-                  {boundaryIgwCaption(edges, { id: igw.id, primary: idx === 0 })}
+                  {boundaryIgwCaption(evidenceEdges, { id: igw.id, primary: idx === 0 })}
                 </div>
               </div>
             )
@@ -6619,9 +6633,9 @@ function VpcBoundaryColumn({
                 className="text-[8px] leading-tight truncate"
                 style={{ color: PAL.slate }}
                 data-testid="topology-boundary-caption"
-                title="Workloads the map draws reaching this endpoint — counted from the drawn edges, not from a route table."
+                title="Workloads reaching this endpoint, counted from the payload's edges rather than a route table. Hiding lines does not change this count."
               >
-                {boundaryVpceCaption(edges, v.id)}
+                {boundaryVpceCaption(evidenceEdges, v.id)}
               </div>
             </div>
           ))}
@@ -8241,7 +8255,7 @@ export function AwsFrame({
               <VpcBoundaryColumn
                 igws={boundaryFrame.igws}
                 vpces={boundaryFrame.vpces}
-                edges={visibleEdges}
+                evidenceEdges={trafficEdgesList}
                 selectedNodeId={selectedNodeId}
                 onSelect={onSelect}
               />

@@ -5,10 +5,10 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react"
 import dynamic from "next/dynamic"
-import { Check, ChevronDown, ChevronUp, LoaderCircle, Maximize2, Minimize2, ZoomIn, ZoomOut, Scan, SlidersHorizontal } from "lucide-react"
+import { ChevronDown, ChevronUp, LoaderCircle, Maximize2, Minimize2, ZoomIn, ZoomOut, Scan, SlidersHorizontal } from "lucide-react"
 import { isTrustEnvelope } from "@/components/trust/trust-envelope-badge"
 import { clearCachedFetch, useCachedFetch } from "@/lib/use-cached-fetch"
-import { HeadlineStrip } from "@/components/topology-v0-2/headline-strip"
+import { HeadlineStrip, staleNote } from "@/components/topology-v0-2/headline-strip"
 import { AwsFrame, dedupeLambdaServiceTwins, listTopologyAzs } from "@/components/topology-v0-2/aws-frame"
 import { CanvasPane } from "@/components/topology-v0-2/canvas-pane"
 import {
@@ -1183,7 +1183,15 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
   const waitingSeconds = waitingStartedAt == null
     ? 0
     : Math.max(0, Math.floor((nowTick - waitingStartedAt) / 1000))
-  const loadingStage = waitingSeconds >= 12 ? 2 : waitingSeconds >= 3 ? 1 : 0
+  // NO elapsed-time stage completion. `loadingStage` used to derive three
+  // green checkmarks from waitingSeconds alone; see the pending panel below.
+  // The only honest thing the client knows while waiting is what the payload
+  // said about the refresh, so reuse the banner's own helper rather than
+  // inventing a second vocabulary for it.
+  const refreshStatusLine = staleNote(
+    (data as { refresh_state?: string | null } | null)?.refresh_state ?? null,
+    (data as { staleReason?: string | null } | null)?.staleReason ?? null,
+  )
 
   const computingTimedOut =
     computingDeadlineMs != null && nowTick >= computingDeadlineMs
@@ -1296,33 +1304,35 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
               </div>
             </div>
           </div>
-          <div className="mt-6 space-y-3" aria-live="polite">
-            {[
-              "Check last-good estate snapshot",
-              "Read behavioral resources and relationships",
-              "Score and assemble the operator view",
-            ].map((label, index) => {
-              const complete = index < loadingStage
-              const active = index === loadingStage
-              return (
-                <div key={label} className="flex items-center gap-3 text-sm">
-                  <span
-                    className="flex h-6 w-6 items-center justify-center rounded-full border"
-                    style={{
-                      borderColor: complete || active ? "#00A991" : "#CBD5E1",
-                      background: complete ? "#E6FBF7" : "#FFFFFF",
-                      color: complete || active ? "#0E8B7A" : "#94A3B8",
-                    }}
-                  >
-                    {complete ? <Check className="h-3.5 w-3.5" /> : active ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : index + 1}
-                  </span>
-                  <span style={{ color: complete || active ? "#1A2330" : "#7A8895" }}>{label}</span>
-                </div>
-              )
-            })}
+          {/* This panel used to tick three stages green off a CLOCK:
+              `loadingStage = waitingSeconds >= 12 ? 2 : >= 3 ? 1 : 0`. After
+              three seconds of waiting it showed a ✓ on "Check last-good estate
+              snapshot", and after twelve a ✓ on "Read behavioral resources and
+              relationships" — with no evidence either had happened. The client
+              cannot see backend stages; it can only see that it is still
+              waiting, so a request into a queue nothing drains rendered as
+              steady progress.
+
+              Elapsed time describes WAITING. It is reported here as waiting,
+              and nothing is marked complete that was not observed. */}
+          <div className="mt-6 space-y-2" aria-live="polite" data-testid="topology-estate-pending">
+            <div className="flex items-center gap-3 text-sm">
+              <LoaderCircle className="h-4 w-4 animate-spin" style={{ color: "#00A991" }} />
+              <span style={{ color: "#1A2330" }}>
+                Waiting for the estate map
+                {waitingSeconds > 0 ? ` · ${waitingSeconds}s elapsed` : ""}
+              </span>
+            </div>
+            {/* The backend's own words about the refresh, when it said any. */}
+            {refreshStatusLine ? (
+              <div className="text-xs" style={{ color: "#5A6B7A" }} data-testid="topology-estate-pending-refresh">
+                {refreshStatusLine}
+              </div>
+            ) : null}
           </div>
           <div className="mt-6 border-t pt-3 text-[11px]" style={{ borderColor: "#E7EBEF", color: "#5A6B7A" }}>
-            Cold refreshes normally complete in under 30 seconds. Cyntro never replaces a last-good map with an incomplete response.
+            Cyntro never replaces a last-good map with an incomplete response. How
+            long this takes depends on the worker, which this view cannot observe.
           </div>
         </div>
       </div>
