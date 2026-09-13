@@ -664,6 +664,297 @@ test.describe("C1 live QA — estate map against the deployed graph", () => {
     report("page-errors", pageErrors)
     expect.soft(pageErrors, "no uncaught page errors").toEqual([])
   })
+
+  // ------------------------------------------------------------------
+  // Probe 3 — the surfaces THIS release changed, which the two probes
+  // above never touch (they carry no reference to inspector, stale,
+  // headline, last_success or drawer):
+  //   * the refresh banner's own words, instead of the one hardcoded
+  //     " · backend timeout" printed for all four producers of
+  //     fromStaleCache;
+  //   * the IGW inspector's AWS identity — the gateway's own id, never
+  //     the `__igw__` canvas anchor the egress edges terminate at;
+  //   * drawer open, close and reselect;
+  //   * the logical-group band's membership, and that a group is never
+  //     counted as a placement gap;
+  //   * every one of those again after a reload, because a reading that
+  //     only holds on a warm first paint is not a working map.
+  // ------------------------------------------------------------------
+  test("inspector identity, refresh status, and the logical-group band across a reload", async ({ context, page }) => {
+    test.setTimeout(300_000)
+    await seedAuthCookie(context)
+    await page.setViewportSize({ width: 1600, height: 900 })
+    const pageErrors: string[] = []
+    page.on("pageerror", error => pageErrors.push(String(error.message ?? error)))
+    const captured: { payload: TopologyRisk | null } = { payload: null }
+    page.on("response", async response => {
+      const url = new URL(response.url())
+      if (
+        !url.pathname.startsWith("/api/proxy/topology-risk/") ||
+        response.request().method() !== "GET" ||
+        response.status() !== 200
+      ) {
+        return
+      }
+      try {
+        captured.payload = (await response.json()) as TopologyRisk
+      } catch {
+        // a non-JSON body is reported below as a missing payload
+      }
+    })
+
+    const mapTab = page.getByTestId("topology-estate-view-map")
+    const blocked = page.getByText(
+      /Topology risk unavailable|No systems available yet|Estate map temporarily unavailable/i,
+    )
+
+    // A page that will not mount FAILS the probe. Reporting empty readings
+    // instead would render a transport failure as "no resources", which is
+    // the one thing this QA must never do.
+    async function openEstate(label: string): Promise<void> {
+      const loads: Array<{ attempt: number; mounted: boolean; ms: number; reason: string | null }> = []
+      let mounted = false
+      for (let attempt = 1; attempt <= 3 && !mounted; attempt += 1) {
+        const t0 = Date.now()
+        await page.goto(ESTATE_URL, { waitUntil: "domcontentloaded" })
+        await expect(mapTab.or(blocked).first()).toBeVisible({ timeout: 90_000 })
+        mounted = await mapTab.isVisible().catch(() => false)
+        const reason = mounted
+          ? null
+          : ((await blocked.first().textContent().catch(() => null)) ?? "").replace(/\s+/g, " ").trim()
+        loads.push({ attempt, mounted, ms: Date.now() - t0, reason })
+        if (!mounted && attempt < 3) await page.waitForTimeout(8_000)
+      }
+      report(`${label}-loads`, loads)
+      if (!mounted) {
+        await shot(page, `c1-${label}-blocked`)
+        throw new Error(`estate map did not mount for ${label}: ${loads[loads.length - 1]?.reason}`)
+      }
+    }
+
+    interface RefreshReading {
+      banner: string | null
+      payload_status: string | null
+      refresh_state: string | null
+      stale_reason: string | null
+      last_successful_update_at: string | null
+      snapshot_age_seconds: number | null
+      from_snapshot: boolean | null
+      from_stale_cache: boolean | null
+    }
+
+    /** The headline strip's refresh sentence beside what the payload claims.
+     *  An absent banner is a legitimate reading — a fresh serve makes no
+     *  claim — but an invented one is not, and neither is silence over a
+     *  payload that says it is stale. */
+    async function readRefresh(label: string): Promise<RefreshReading> {
+      const raw = await page
+        .getByTestId("topology-refresh-status")
+        .first()
+        .textContent()
+        .catch(() => null)
+      const banner = (raw ?? "").replace(/\s+/g, " ").trim() || null
+      const payload = captured.payload as
+        | (TopologyRisk & {
+            staleReason?: string | null
+            last_successful_update_at?: string | null
+            snapshot_age_seconds?: number | null
+            fromStaleCache?: boolean | null
+          })
+        | null
+      const reading: RefreshReading = {
+        banner,
+        payload_status: payload?.status ?? null,
+        refresh_state: payload?.refresh_state ?? null,
+        stale_reason: payload?.staleReason ?? null,
+        last_successful_update_at: payload?.last_successful_update_at ?? null,
+        snapshot_age_seconds: payload?.snapshot_age_seconds ?? null,
+        from_snapshot: payload?.from_snapshot ?? null,
+        from_stale_cache: payload?.fromStaleCache ?? null,
+      }
+      report(`${label}-refresh-status`, reading)
+      // THE defect this release removed.
+      expect(
+        banner ?? "",
+        `${label}: the refresh banner must not print the old hardcoded timeout sentence`,
+      ).not.toContain("backend timeout")
+      // The other half of it: a stale serve that says nothing at all.
+      if (reading.stale_reason) {
+        expect(
+          banner,
+          `${label}: payload carries staleReason=${reading.stale_reason}, so the banner must say something`,
+        ).toBeTruthy()
+      }
+      // "running" is deliberately absent from the closed set: the serving
+      // process cannot prove a worker picked the job up.
+      expect(reading.refresh_state ?? "", `${label}: refresh_state must not claim a running worker`).not.toBe(
+        "running",
+      )
+      return reading
+    }
+
+    async function enterFullscreen(): Promise<ReturnType<typeof page.getByTestId>> {
+      const fullscreen = page.getByTestId("topology-estate-map-fullscreen")
+      if (!(await fullscreen.isVisible().catch(() => false))) {
+        await page.getByTestId("topology-estate-map-enlarge").click()
+        await expect(fullscreen).toBeVisible({ timeout: 60_000 })
+        await page.waitForTimeout(1500)
+      }
+      return fullscreen
+    }
+
+    /** Select the IGW chip and read the id the inspector actually asks about.
+     *  `__igw__` is the CANVAS anchor every egress edge terminates at; it is
+     *  not an AWS resource, and a dossier request carrying it answers
+     *  "InternetGateway __igw__ not found in graph". */
+    async function inspectIgw(label: string) {
+      const fullscreen = await enterFullscreen()
+      const chip = fullscreen.getByTestId("topology-igw-rail-chip").first()
+      const payloadIgws = ((captured.payload?.vpc_topology?.edges?.igws ?? []) as Array<{ id?: string }>)
+        .map(igw => igw?.id)
+        .filter((id): id is string => typeof id === "string" && id.length > 0)
+      const visible = await chip.isVisible().catch(() => false)
+      if (!visible) {
+        report(`${label}-igw-inspector`, { chip: false, payload_igws: payloadIgws })
+        // A payload that carries an IGW must render one to select.
+        expect(payloadIgws, `${label}: payload names IGWs but no chip is on the canvas`).toEqual([])
+        return null
+      }
+      await chip.click()
+      const panel = page.getByTestId("topology-service-detail-panel")
+      await expect(panel).toBeVisible({ timeout: 30_000 })
+      await page.waitForTimeout(1200)
+      const shown = ((await panel
+        .getByTestId("estate-operations-resource-id")
+        .first()
+        .textContent()
+        .catch(() => null)) ?? "")
+        .replace(/\s+/g, " ")
+        .trim()
+      const unresolved = await panel
+        .getByTestId("estate-anchor-identity-unresolved")
+        .first()
+        .isVisible()
+        .catch(() => false)
+      const notFound = await panel
+        .getByText(/not found in graph/i)
+        .first()
+        .isVisible()
+        .catch(() => false)
+      const reading = { chip: true, shown_resource_id: shown || null, unresolved, not_found: notFound, payload_igws: payloadIgws }
+      report(`${label}-igw-inspector`, reading)
+      await shot(page, `c1-${label}-igw-inspector`)
+
+      // The canvas anchor must never reach the inspector as a resource id.
+      expect(shown, `${label}: the inspector must not ask about the __igw__ canvas anchor`).not.toContain("__igw__")
+      expect(notFound, `${label}: the IGW inspector must not report the gateway as missing from the graph`).toBe(false)
+      if (payloadIgws.length > 0 && !unresolved) {
+        // Whatever it shows must be a gateway the payload actually names.
+        expect(
+          payloadIgws.some(id => shown.includes(id)),
+          `${label}: inspector shows ${shown || "<nothing>"}, payload names ${payloadIgws.join(", ")}`,
+        ).toBe(true)
+      }
+      return reading
+    }
+
+    /** Close the drawer, select a different chip, and prove the panel follows
+     *  the selection rather than keeping the previous resource. */
+    async function reselect(label: string, previous: string | null) {
+      const fullscreen = await enterFullscreen()
+      await page.keyboard.press("Escape")
+      await page.waitForTimeout(600)
+      const panel = page.getByTestId("topology-service-detail-panel")
+      const closed = !(await panel.isVisible().catch(() => false))
+      const other = fullscreen.getByTestId("topology-service-node-icon").first()
+      const haveOther = await other.isVisible().catch(() => false)
+      let shown: string | null = null
+      if (haveOther) {
+        await other.click()
+        await expect(panel).toBeVisible({ timeout: 30_000 })
+        await page.waitForTimeout(1200)
+        shown = ((await panel
+          .getByTestId("estate-operations-resource-id")
+          .first()
+          .textContent()
+          .catch(() => null)) ?? "")
+          .replace(/\s+/g, " ")
+          .trim() || null
+      }
+      const reading = { closed_on_escape: closed, reselected: haveOther, previous, shown_resource_id: shown }
+      report(`${label}-drawer-reselect`, reading)
+      expect(shown ?? "", `${label}: a reselected node must not show the __igw__ anchor`).not.toContain("__igw__")
+      return reading
+    }
+
+    /** Logical groups carry their own band and are never counted as gaps. */
+    async function readGroups(label: string) {
+      const fullscreen = await enterFullscreen()
+      const reading = await fullscreen.evaluate(root => {
+        const text = (el: Element | null | undefined) => (el?.textContent ?? "").replace(/\s+/g, " ").trim()
+        const band = root.querySelector('[data-testid="topology-logical-group-band"]')
+        const area = root.querySelector('[data-testid="topology-unplaced-area"]')
+        const groups = band
+          ? Array.from(band.querySelectorAll<HTMLElement>('[data-testid="topology-logical-group"]'))
+          : []
+        return {
+          band_header: text(band?.querySelector('[data-testid="topology-logical-group-band-header"]')) || null,
+          groups: groups.map(group => ({
+            node_id: group.getAttribute("data-node-id"),
+            scope: text(group.querySelector('[data-testid="topology-logical-group-scope"]')) || null,
+            members: group.querySelectorAll('[data-testid="topology-logical-group-member"]').length,
+            unlinked: Boolean(group.querySelector('[data-testid="topology-logical-group-members-unlinked"]')),
+          })),
+          unplaced_header: text(area?.querySelector("span")) || null,
+          unplaced_chips: area
+            ? area.querySelectorAll('[data-testid="topology-service-node-icon"]').length
+            : 0,
+          // A group drawn INSIDE the amber gap area is the misclassification
+          // this band exists to remove.
+          groups_inside_unplaced: area
+            ? area.querySelectorAll('[data-testid="topology-logical-group"]').length
+            : 0,
+        }
+      })
+      report(`${label}-logical-groups`, reading)
+      expect(
+        reading.groups_inside_unplaced,
+        `${label}: a logical group must never be drawn inside the placement-gap area`,
+      ).toBe(0)
+      return reading
+    }
+
+    // ---- round A: first navigation -------------------------------------
+    await openEstate("open")
+    const refreshA = await readRefresh("open")
+    const igwA = await inspectIgw("open")
+    await reselect("open", igwA?.shown_resource_id ?? null)
+    const groupsA = await readGroups("open")
+
+    // ---- round B: the same reads after a reload ------------------------
+    await openEstate("reload")
+    const refreshB = await readRefresh("reload")
+    const igwB = await inspectIgw("reload")
+    const groupsB = await readGroups("reload")
+
+    report("reload-stability", {
+      igw_identity_stable: (igwA?.shown_resource_id ?? null) === (igwB?.shown_resource_id ?? null),
+      group_count_stable: groupsA.groups.length === groupsB.groups.length,
+      refresh_state_before: refreshA.refresh_state,
+      refresh_state_after: refreshB.refresh_state,
+      banner_before: refreshA.banner,
+      banner_after: refreshB.banner,
+    })
+    // The gateway's identity is a property of the estate, not of one paint.
+    expect(
+      igwB?.shown_resource_id ?? null,
+      "the IGW inspector identity must survive a reload",
+    ).toBe(igwA?.shown_resource_id ?? null)
+    expect(groupsB.groups.length, "the logical-group count must survive a reload").toBe(groupsA.groups.length)
+
+    report("page-errors", pageErrors)
+    expect(pageErrors, "no uncaught page errors").toEqual([])
+  })
 })
 
 /** Embedded map: labels painted over off-VPC rail chips, and unknown-glyph nodes. */
