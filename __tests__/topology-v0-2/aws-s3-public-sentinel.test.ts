@@ -3,6 +3,8 @@ import {
   AWS_API_PUBLIC_SENTINEL_ID,
   ensureAwsS3PublicSentinel,
   ensureAwsPublicServiceSentinels,
+  egressInferenceNote,
+  egressKindLabel,
   formatEgressBreakdownBadge,
   formatEgressDestinationsTitle,
   formatEgressRouteLine,
@@ -80,13 +82,28 @@ describe("ensureAwsS3PublicSentinel", () => {
 })
 
 describe("formatEgressBreakdownBadge", () => {
-  it("shows kind rollup", () => {
+  it("shows kind rollup, naming the port for the bucket decided by port", () => {
+    // Was "NTP 80". The backend files a peer under `ntp` purely because the
+    // port is 123 (`_egress_destination_kind`); AWS never attributed those
+    // addresses. Naming a service there is a claim the evidence does not carry,
+    // so the badge states the port -- which IS observed -- and the tooltip
+    // carries the inference. `s3` and `other_aws` keep their service names
+    // because those come from the v5 flow-log field `pkt-dst-aws-service`.
     expect(
       formatEgressBreakdownBadge(400, [
         { kind: "ntp", count: 80 },
         { kind: "external", count: 320 },
       ]),
-    ).toBe("egress · 400 (NTP 80 · ext 320)")
+    ).toBe("egress · 400 (:123 80 · ext 320)")
+  })
+
+  it("keeps the service name where AWS is the one who said it", () => {
+    expect(
+      formatEgressBreakdownBadge(9, [
+        { kind: "s3", count: 5 },
+        { kind: "other_aws", count: 4 },
+      ]),
+    ).toBe("egress · 9 (S3 5 · AWS 4)")
   })
 
   it("falls back to dest count", () => {
@@ -218,5 +235,55 @@ describe("ensureAwsPublicServiceSentinels", () => {
     ]
     const out = ensureAwsPublicServiceSentinels(base, edges)
     expect(out.some(n => n.id === AWS_API_PUBLIC_SENTINEL_ID)).toBe(true)
+  })
+})
+
+describe("a service name is only ever AWS's own attribution", () => {
+  /**
+   * The rule: never label an address as S3 or any other service without
+   * evidence. Tracing the chain, the backend already honours it everywhere but
+   * one place -- `_egress_destination_kind` files any peer on :123 under `ntp`
+   * from the PORT alone, while `s3` / `other_aws` come from the v5 flow-log
+   * field `pkt-dst-aws-service` (and `normalize_pkt_aws_service` returns null
+   * for absent / "-" / "N/A", so it never invents one).
+   *
+   * So the split here is not cosmetic: it is which labels are testimony and
+   * which is a guess.
+   */
+  it("names AWS-attributed buckets by service", () => {
+    expect(egressKindLabel("s3")).toBe("S3")
+    expect(egressKindLabel("other_aws")).toBe("AWS")
+  })
+
+  it("names the port-decided bucket by its port, not by NTP", () => {
+    expect(egressKindLabel("ntp")).toBe(":123")
+  })
+
+  it("still refuses to fold an unclassified peer into ext", () => {
+    expect(egressKindLabel("unclassified")).toBe("unclassified")
+    expect(egressKindLabel("external")).toBe("ext")
+  })
+
+  it("marks the inference in the tooltip rather than dropping it", () => {
+    // Losing the NTP reading entirely would be its own dishonesty -- the
+    // operator wants to know. It is stated, and stated as inferred.
+    const note = egressInferenceNote([{ kind: "ntp", count: 4 }])
+    expect(note).toContain("port 123")
+    expect(note).toContain("Inferred from the port")
+    expect(note).toContain("AWS did not attribute")
+  })
+
+  it("says nothing when no bucket was inferred", () => {
+    expect(egressInferenceNote([{ kind: "s3", count: 2 }])).toBeNull()
+    expect(egressInferenceNote(null)).toBeNull()
+    expect(egressInferenceNote(undefined)).toBeNull()
+    // An empty bucket is not an observation.
+    expect(egressInferenceNote([{ kind: "ntp", count: 0 }])).toBeNull()
+  })
+
+  it("agrees in number with the badge it explains", () => {
+    const breakdown = [{ kind: "ntp", count: 1 }]
+    expect(formatEgressBreakdownBadge(1, breakdown)).toContain(":123 1")
+    expect(egressInferenceNote(breakdown)).toContain("1 destination on port 123")
   })
 })
