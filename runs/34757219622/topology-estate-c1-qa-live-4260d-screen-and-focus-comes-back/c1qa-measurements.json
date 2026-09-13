@@ -1,0 +1,21 @@
+{
+  "test": "keyboard: Escape closes the drawer, then fullscreen, and focus comes back",
+  "status": "passed",
+  "measurements": [
+    {
+      "name": "matrix-keyboard-drawer",
+      "data": {
+        "chips": 19,
+        "drawer_opened": true
+      }
+    },
+    {
+      "name": "matrix-keyboard-focus-after-escape",
+      "data": {
+        "testid": "topology-estate-map-enlarge",
+        "tag": "BUTTON",
+        "is_body": false
+      }
+    }
+  ]
+}
