@@ -620,8 +620,37 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
   // diagram remains unchanged and one click away under Network topology.
   const [view, setView] = useState<"map" | "inventory">("inventory")
 
-  const openSubnetMap = useCallback(() => setMapEnlarged(true), [])
+  // Fullscreen is a modal surface, so leaving it has to hand the keyboard back
+  // where it came from. Measured on C1 (run 34754792418): after Escape exited
+  // fullscreen, document.activeElement was BODY — a keyboard operator was
+  // dropped at the document root and had to Tab in from the top of the page to
+  // reach the map again. Escape itself worked; the return did not.
+  //
+  // The opener's own element is captured rather than assuming it was the
+  // enlarge button, because fullscreen is also reachable from the command
+  // view's "show network" action, and returning focus to a control the user
+  // never touched is its own small lie about where they were. The button is
+  // the fallback for when the opener has since unmounted.
+  const enlargeRef = useRef<HTMLButtonElement | null>(null)
+  const focusBeforeEnlargeRef = useRef<HTMLElement | null>(null)
+
+  const openSubnetMap = useCallback(() => {
+    focusBeforeEnlargeRef.current =
+      typeof document !== "undefined" ? (document.activeElement as HTMLElement | null) : null
+    setMapEnlarged(true)
+  }, [])
   const closeEnlarged = useCallback(() => setMapEnlarged(false), [])
+
+  useEffect(() => {
+    if (mapEnlarged) return
+    const opener = focusBeforeEnlargeRef.current
+    focusBeforeEnlargeRef.current = null
+    // No opener recorded means fullscreen was never entered this mount (this
+    // effect also runs on mount), so there is nothing to restore.
+    if (!opener) return
+    const target = opener.isConnected ? opener : enlargeRef.current
+    target?.focus?.()
+  }, [mapEnlarged])
 
   // The scroll lock is fullscreen's alone. The drawer is a side panel over a
   // page that stays scrollable behind it.
@@ -1863,8 +1892,9 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
                   {showSharedNeighbors ? "Shared neighbors" : "Just mine"}
                 </button>
                 <button
+                  ref={enlargeRef}
                   type="button"
-                  onClick={() => setMapEnlarged(true)}
+                  onClick={openSubnetMap}
                   className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide shadow-sm hover:bg-[#F8FAFC] transition-colors shrink-0"
                   style={{ borderColor: "#CBD5E1", background: "#FFFFFF", color: "#1A2330" }}
                   aria-label="Open map fullscreen"

@@ -53,7 +53,11 @@ describe("AccountScopeProvider", () => {
     const organization = await screen.findByRole("combobox", { name: "Organization" })
     await waitFor(() => expect(organization).toHaveValue("testbed-webshop"))
     expect(screen.getByRole("option", { name: "Testbed Webshop" })).toBeInTheDocument()
-    expect(screen.getByText("1 accounts in view")).toBeInTheDocument()
+    // Was "1 accounts in view". This assertion was the RECORD of that bug,
+    // so updating it is the change, not a workaround for it: with one account
+    // in view the count reads in the singular.
+    expect(screen.getByText("1 account in view")).toBeInTheDocument()
+    expect(screen.queryByText("1 accounts in view")).not.toBeInTheDocument()
     expect(replace).toHaveBeenCalledWith(
       "/systems?customer_id=testbed-webshop",
       { scroll: false },

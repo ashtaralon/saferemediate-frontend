@@ -1391,3 +1391,395 @@ async function measureFullscreen(page: Page): Promise<FullscreenMeasure> {
     }
   })
 }
+
+/**
+ * Step 5 acceptance matrix — the checks an operator would actually perform,
+ * run against the deployed site rather than a fixture.
+ *
+ * Deliberately split from the three probes above: those measure ONE load
+ * deeply, these measure the same page across viewports, repeated loads and
+ * input modes, which is where a different class of defect lives (a tier
+ * clipped at 1366 wide, a scope silently dropped on the fourth reload, a
+ * drawer that traps the keyboard).
+ *
+ * Two rules this block holds itself to:
+ *
+ *   1. FAIL CLOSED ON AN EMPTY MATCH. A selector that matches nothing makes an
+ *      iteration assertion vacuously true, which reads as a pass. Every loop
+ *      below asserts its population is non-empty BEFORE measuring it.
+ *   2. ASSERT ONLY WHAT IS UNAMBIGUOUS; REPORT THE REST. A map pane that
+ *      scrolls horizontally is a legitimate design; the PAGE BODY doing so is
+ *      not. So overflow is asserted at the document and reported per element,
+ *      and the report is the evidence for a human judgement rather than a
+ *      threshold invented here.
+ */
+test.describe("C1 live QA — Step 5 acceptance matrix", () => {
+  /** Viewports named the way the acceptance list names them. The narrow one is
+   *  a real desktop-narrow, not a phone: this map is a desktop surface and a
+   *  phone-width claim would be a check nobody asked for. */
+  const VIEWPORTS = [
+    { name: "1366x768", width: 1366, height: 768 },
+    { name: "1600x900", width: 1600, height: 900 },
+    { name: "narrow-1024x720", width: 1024, height: 720 },
+  ] as const
+
+  /** Open the estate map, SELECT the map view, and wait for the map surface —
+   *  the same retry an operator makes, since an uncached topology-risk on C1
+   *  runs close to the proxy ceiling and the first load can land on the
+   *  loading card. Returns how many loads it took, so a slow mount is
+   *  reported rather than hidden by the retry.
+   *
+   *  The click is not optional, and leaving it out is what made the first run
+   *  of this block fail. `topology-estate-view-map` is a view-switcher BUTTON
+   *  (`role="tab"`, estate-map-view.tsx:1789) and the tabs are
+   *  `[["inventory", "Command map"], ["map", "Network topology"]]` — so it is
+   *  visible the moment the page chrome renders, while the DEFAULT view is
+   *  Command map. Waiting for that button therefore proves the page loaded
+   *  and nothing about the canvas: the three viewport probes measured zero
+   *  tier stacks, zero subnet cells, zero rails and zero VPC frames, and the
+   *  keyboard probe spent its whole 300s budget waiting for an enlarge
+   *  control that only exists on the map. The fail-closed rule turned all of
+   *  that into a loud failure instead of "nothing is clipped", which is the
+   *  only reason it was one diagnosis rather than four.
+   *
+   *  Readiness is the enlarge control, not the tab: it belongs to the map
+   *  surface, so its presence is evidence the canvas rendered. Clicking by
+   *  TESTID rather than by the "Network topology" label keeps this off a
+   *  human-readable string that may be renamed or localized. */
+  async function openMap(page: Page, label: string): Promise<number> {
+    const mapTab = page.getByTestId("topology-estate-view-map")
+    const enlarge = page.getByTestId("topology-estate-map-enlarge")
+    const blocked = page.getByText(
+      /Topology risk unavailable|No systems available yet|Estate map temporarily unavailable/i,
+    )
+    let lastReason = "never mounted"
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      await page.goto(ESTATE_URL, { waitUntil: "domcontentloaded" })
+      await expect(mapTab.or(blocked).first()).toBeVisible({ timeout: 90_000 })
+      if (!(await mapTab.isVisible().catch(() => false))) {
+        lastReason =
+          ((await blocked.first().textContent().catch(() => null)) ?? "").replace(/\s+/g, " ").trim() ||
+          "blocked with no message"
+        continue
+      }
+      await mapTab.click()
+      // The map surface itself, not the tab that reveals it.
+      if (await enlarge.isVisible({ timeout: 90_000 }).catch(() => false)) {
+        await page.waitForTimeout(1500) // let the canvas settle before measuring
+        return attempt
+      }
+      lastReason = "map view selected but the map surface never rendered"
+    }
+    throw new Error(`${label}: estate map did not mount in 3 loads — ${lastReason}`)
+  }
+
+  for (const vp of VIEWPORTS) {
+    test(`viewport ${vp.name}: the page never scrolls sideways, and clipping is measured`, async ({
+      context,
+      page,
+    }) => {
+      test.setTimeout(300_000)
+      await seedAuthCookie(context)
+      await page.setViewportSize({ width: vp.width, height: vp.height })
+      const pageErrors: string[] = []
+      page.on("pageerror", error => pageErrors.push(String(error.message ?? error)))
+
+      const loads = await openMap(page, vp.name)
+
+      const geometry = await page.evaluate(() => {
+        const doc = document.documentElement
+        /** How far past its scroll container's visible right edge an element
+         *  sits. Positive means part of it cannot be reached without
+         *  scrolling that container. */
+        const clip = (selector: string) =>
+          Array.from(document.querySelectorAll<HTMLElement>(`[data-testid="${selector}"]`)).map(
+            el => {
+              let parent = el.parentElement
+              while (
+                parent &&
+                parent !== document.body &&
+                getComputedStyle(parent).overflowX === "visible"
+              ) {
+                parent = parent.parentElement
+              }
+              const box = el.getBoundingClientRect()
+              const host = (parent ?? document.body).getBoundingClientRect()
+              return {
+                width: Math.round(box.width),
+                overflow_right_px: Math.round(box.right - host.right),
+                clipped_by_viewport_px: Math.round(box.right - window.innerWidth),
+              }
+            },
+          )
+        return {
+          inner_width: window.innerWidth,
+          doc_scroll_width: doc.scrollWidth,
+          body_scroll_width: document.body.scrollWidth,
+          horizontal_page_scroll_px: Math.max(
+            0,
+            Math.max(doc.scrollWidth, document.body.scrollWidth) - window.innerWidth,
+          ),
+          tier_stacks: clip("topology-tier-stack"),
+          subnet_cells: clip("topology-subnet-cell-chrome"),
+          rails: clip("topology-edge-services-rail"),
+          vpc_frames: clip("topology-vpc-frame"),
+        }
+      })
+
+      report(`matrix-viewport-${vp.name}`, { loads, page_errors: pageErrors, ...geometry })
+      await shot(page, `c1-matrix-${vp.name}`)
+
+      // Fail closed: an empty population would make every clipping number
+      // below trivially absent, which would read as "nothing is clipped".
+      expect(
+        geometry.tier_stacks.length + geometry.subnet_cells.length,
+        `${vp.name}: no subnet tiers or cells rendered — the measurement would be vacuous`,
+      ).toBeGreaterThan(0)
+
+      // The one unambiguous rule. A pane may scroll; the page may not.
+      expect(
+        geometry.horizontal_page_scroll_px,
+        `${vp.name}: the page body scrolls horizontally by ${geometry.horizontal_page_scroll_px}px`,
+      ).toBeLessThanOrEqual(1)
+
+      expect(pageErrors, `${vp.name}: uncaught page errors`).toEqual([])
+    })
+  }
+
+  test("five reloads: the map mounts every time and the scope never silently drops", async ({
+    context,
+    page,
+  }) => {
+    test.setTimeout(600_000)
+    await seedAuthCookie(context)
+    await page.setViewportSize({ width: 1600, height: 900 })
+
+    const riskUrls: string[] = []
+    page.on("request", request => {
+      const href = request.url()
+      if (href.includes("/api/proxy/topology-risk/")) riskUrls.push(href)
+    })
+
+    const reloads: Array<{
+      reload: number
+      loads: number
+      url_scope: Record<string, string | null>
+      risk_requests: number
+    }> = []
+
+    for (let i = 1; i <= 5; i += 1) {
+      riskUrls.length = 0
+      const loads = await openMap(page, `reload-${i}`)
+      const url = new URL(page.url())
+      reloads.push({
+        reload: i,
+        loads,
+        url_scope: {
+          systemName: url.searchParams.get("systemName"),
+          customer_id: url.searchParams.get("customer_id"),
+          account_id: url.searchParams.get("account_id"),
+          region: url.searchParams.get("region"),
+        },
+        risk_requests: riskUrls.length,
+      })
+
+      // Scope retention: the address bar still describes the scope the
+      // operator asked for. A dropped param is how a tenant-scoped view
+      // silently becomes an unscoped one.
+      expect(url.searchParams.get("systemName"), `reload ${i}: systemName`).toBe(SYSTEM)
+      expect(url.searchParams.get("account_id"), `reload ${i}: account_id`).toBe(ACCOUNT)
+      expect(url.searchParams.get("region"), `reload ${i}: region`).toBe(REGION)
+
+      // And the read the page actually fired carried it too — the URL can be
+      // right while the fetch is not, which is the failure that matters.
+      const unscoped = riskUrls.filter(
+        href => !href.includes("account_id=") || !href.includes("region="),
+      )
+      expect(unscoped, `reload ${i}: unscoped topology-risk GET`).toEqual([])
+    }
+
+    report("matrix-five-reloads", reloads)
+    expect(reloads).toHaveLength(5)
+  })
+
+  test("keyboard: Escape closes the drawer, then fullscreen, and focus comes back", async ({
+    context,
+    page,
+  }) => {
+    test.setTimeout(300_000)
+    await seedAuthCookie(context)
+    await page.setViewportSize({ width: 1600, height: 900 })
+    await openMap(page, "keyboard")
+
+    const enlarge = page.getByTestId("topology-estate-map-enlarge")
+    await expect(enlarge).toBeVisible()
+    await enlarge.click()
+    const fullscreen = page.getByTestId("topology-estate-map-fullscreen")
+    await expect(fullscreen).toBeVisible({ timeout: 60_000 })
+
+    // A chip opens the detail drawer. Fail closed: if nothing is clickable the
+    // rest of this test proves nothing, so say so rather than skipping quietly.
+    const chips = fullscreen.getByTestId("topology-chip-label")
+    const chipCount = await chips.count()
+    expect(chipCount, "no chips rendered — the drawer path cannot be exercised").toBeGreaterThan(0)
+    await chips.first().click()
+
+    const drawer = page.getByTestId("topology-service-detail-panel")
+    const drawerOpened = await drawer.isVisible({ timeout: 15_000 }).catch(() => false)
+    report("matrix-keyboard-drawer", { chips: chipCount, drawer_opened: drawerOpened })
+
+    if (drawerOpened) {
+      // Escape dismisses the TOPMOST surface first. Before this shipped, the
+      // drawer swallowed the click and nothing dismissed it, which is what
+      // made probe 3 time out (run 34747728564) — the product defect, not a
+      // flaky probe.
+      await page.keyboard.press("Escape")
+      await expect(drawer).toBeHidden({ timeout: 15_000 })
+      await expect(fullscreen).toBeVisible()
+    }
+
+    // A second Escape leaves fullscreen, and focus returns to the control that
+    // opened it, so a keyboard operator is not stranded at the document root.
+    await page.keyboard.press("Escape")
+    await expect(fullscreen).toBeHidden({ timeout: 15_000 })
+    const focus = await page.evaluate(() => {
+      const el = document.activeElement as HTMLElement | null
+      return {
+        testid: el?.getAttribute("data-testid") ?? null,
+        tag: el?.tagName ?? null,
+        is_body: el === document.body,
+      }
+    })
+    report("matrix-keyboard-focus-after-escape", focus)
+
+    // Reported before it was asserted, on purpose: the first run measured
+    // {"tag":"BODY","is_body":true} on C1 (run 34754792418) — Escape worked and
+    // the RETURN did not, so a keyboard operator had to Tab in from the top of
+    // the page to reach the map again. Now that the opener's element is
+    // restored, this is a guard rather than an observation.
+    expect(
+      focus.is_body,
+      "focus was dropped to the document root when fullscreen closed",
+    ).toBe(false)
+    expect(focus.testid, "focus did not return to the control that opened fullscreen").toBe(
+      "topology-estate-map-enlarge",
+    )
+  })
+
+  test("the scope bar states the account id in full, and counts in the singular", async ({
+    context,
+    page,
+  }) => {
+    /** Seen at 1366x768 in run 34754792418: the account control rendered
+     *  "Testbed Webshop · 4166519509" with the last digits cut off, and the
+     *  counter read "1 accounts in view".
+     *
+     *  The first is not cosmetic. An AWS account id is 12 digits, and a
+     *  partly-shown one reads as a different, valid-looking account in a
+     *  product whose whole job is attributing a resource to the right one.
+     *  The label's own width cap was doing the cutting.
+     */
+    test.setTimeout(300_000)
+    await seedAuthCookie(context)
+    await page.setViewportSize({ width: 1366, height: 768 })
+    await openMap(page, "scope-bar")
+
+    const account = page.getByLabel("Account", { exact: true })
+    await expect(account).toBeVisible({ timeout: 30_000 })
+
+    const state = await account.evaluate(el => {
+      const select = el as HTMLSelectElement
+      const option = select.selectedOptions[0]
+      return {
+        selected_text: option?.textContent?.trim() ?? null,
+        title: select.getAttribute("title"),
+        // The rendered box versus the text the browser wants to draw in it.
+        client_width: Math.round(select.clientWidth),
+        scroll_width: Math.round(select.scrollWidth),
+      }
+    })
+    const counter = (await page.getByText(/account(s)? in view/).first().textContent()) ?? ""
+    report("matrix-scope-bar", { ...state, counter: counter.trim() })
+
+    // THE detector, and it had to be measured to be found. The DOM text always
+    // carries the full id -- run 34756120023 recorded
+    // selected_text "Testbed Webshop · 416651950952" while the control was
+    // visibly cut -- so asserting on the text can never catch the clipping.
+    // What catches it is the box: the same run measured client_width 208
+    // against scroll_width 218, i.e. ten pixels of the value the operator
+    // could not see.
+    expect(
+      state.scroll_width,
+      `the account control clips its value: it needs ${state.scroll_width}px and has ` +
+        `${state.client_width}px, so the id is cut where an operator reads it`,
+    ).toBeLessThanOrEqual(state.client_width)
+
+    // Then the belt and braces: the value is intact in the DOM, and reachable
+    // on hover for a display name long enough to outrun any cap.
+    expect(state.selected_text, "the selected account option").toContain(ACCOUNT)
+    expect(state.title, "the hover title must carry the full id").toContain(ACCOUNT)
+
+    // Singular when there is one. "1 accounts" is the tell that a count is
+    // being pasted into a fixed string.
+    expect(counter).not.toMatch(/\b1 accounts in view\b/)
+  })
+
+  test("reduced motion: the map still renders and reports its animation state", async ({
+    context,
+    page,
+  }) => {
+    test.setTimeout(300_000)
+    await seedAuthCookie(context)
+    await page.setViewportSize({ width: 1600, height: 900 })
+    const pageErrors: string[] = []
+    page.on("pageerror", error => pageErrors.push(String(error.message ?? error)))
+
+    /** Flow packets present, and how many are actually animating. */
+    const measure = () =>
+      page.evaluate(() => {
+        const packets = Array.from(
+          document.querySelectorAll<SVGElement>('[data-testid="topology-flow-packet"]'),
+        )
+        const animated = packets.filter(el => {
+          const style = getComputedStyle(el)
+          return style.animationName !== "none" && style.animationPlayState === "running"
+        })
+        return {
+          honours_query: window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+          packets: packets.length,
+          animating: animated.length,
+        }
+      })
+
+    // A CONTROLLED comparison. The first run of this probe reported
+    // `packets: 0, animating: 0` under reduced motion and concluded nothing:
+    // zero animating packets out of zero packets says only that the map drew
+    // no packets, which is equally consistent with reduced motion working, with
+    // no flow mode being active, and with the feature being broken outright.
+    // So the baseline is measured first, in the same browser, on the same page.
+    const normalLoads = await openMap(page, "reduced-motion-baseline")
+    const baseline = await measure()
+
+    await page.emulateMedia({ reducedMotion: "reduce" })
+    const loads = await openMap(page, "reduced-motion")
+    const state = await measure()
+
+    report("matrix-reduced-motion", {
+      baseline: { loads: normalLoads, ...baseline },
+      reduced: { loads, ...state },
+      page_errors: pageErrors,
+    })
+    await shot(page, "c1-matrix-reduced-motion")
+
+    expect(baseline.honours_query, "the baseline load already reported reduced motion").toBe(false)
+    expect(state.honours_query, "the browser did not report reduced motion").toBe(true)
+    // Reduced motion may legitimately render the packets and hold them still,
+    // or not render them at all. What it must never do is leave them running.
+    expect(
+      state.animating,
+      `reduced motion left ${state.animating} flow packets animating ` +
+        `(baseline drew ${baseline.packets}, of which ${baseline.animating} animated)`,
+    ).toBe(0)
+    expect(pageErrors, "reduced motion: uncaught page errors").toEqual([])
+  })
+})

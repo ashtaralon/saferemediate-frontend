@@ -12,6 +12,8 @@ function ScopeSelect({
   icon: Icon,
   disabled = false,
   narrowing = false,
+  widthClass = "max-w-52",
+  title,
 }: {
   label: string
   value: string
@@ -22,6 +24,14 @@ function ScopeSelect({
   // A narrowing value (anything but "all") silently filters every scoped view,
   // so it must be visibly different from the neutral state at a glance.
   narrowing?: boolean
+  /** Width cap for this control. The default suits a short label; a field
+   *  whose value ends in an IDENTIFIER needs more, because the identifier is
+   *  the half that gets cut and the half that must not be. */
+  widthClass?: string
+  /** Full selected value, surfaced on hover. Belt and braces: a longer display
+   *  name can still outrun any cap, and then the truth has to be reachable
+   *  somewhere. */
+  title?: string
 }) {
   return (
     <label className="flex shrink-0 items-center gap-2 border-r border-slate-200 px-4 last:border-r-0">
@@ -33,8 +43,9 @@ function ScopeSelect({
         aria-label={label}
         value={value}
         disabled={disabled}
+        title={title}
         onChange={(event) => onChange(event.target.value)}
-        className={`max-w-52 bg-transparent text-xs font-semibold outline-none disabled:text-slate-400 ${
+        className={`${widthClass} bg-transparent text-xs font-semibold outline-none disabled:text-slate-400 ${
           narrowing ? "text-indigo-700" : "text-slate-700"
         }`}
       >
@@ -106,12 +117,32 @@ export function GlobalScopeBar() {
             <option key={group.group_id} value={group.group_id}>{group.name}</option>
           ))}
         </ScopeSelect>
+        {/* An AWS account id is 12 digits and the id is what this control is
+            FOR, so it gets a wider cap than the rest. Measured on C1 at
+            1366x768 (run 34754792418): the default 208px cap rendered
+            "Testbed Webshop · 4166519509" with the last digits cut, and a
+            partly-shown account id is worse than none -- it reads as a
+            different, valid-looking account in a product whose whole job is
+            attributing a resource to the right one. */}
         <ScopeSelect
           label="Account"
           icon={Cloud}
           value={scope.accountId}
           onChange={scope.setAccountId}
           narrowing={scope.accountId !== "all"}
+          widthClass="max-w-[24rem]"
+          title={
+            scope.accountId === "all"
+              ? "All accounts"
+              : (() => {
+                  const selected = accountOptions.find(
+                    (account) => account.account_id === scope.accountId,
+                  )
+                  return selected
+                    ? `${selected.display_name} · ${selected.account_id}`
+                    : scope.accountId
+                })()
+          }
         >
           <option value="all">All accounts</option>
           {accountOptions.map((account) => (
@@ -133,8 +164,11 @@ export function GlobalScopeBar() {
         <div className="ml-auto flex shrink-0 items-center gap-2 px-4 text-xs text-slate-500">
           {scope.loading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
           {scope.error ? <span className="text-amber-700">Scope metadata unavailable</span> : null}
+          {/* One template literal, not three JSX expressions with text between
+              them: the latter renders several text nodes, and a reader (or a
+              test) asking for "1 account in view" then has to reassemble it. */}
           {!scope.loading && !scope.error ? (
-            <span>{accountOptions.length} accounts in view</span>
+            <span>{`${accountOptions.length} account${accountOptions.length === 1 ? "" : "s"} in view`}</span>
           ) : null}
         </div>
       </div>
