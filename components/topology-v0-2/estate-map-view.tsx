@@ -126,8 +126,14 @@ export interface EstateMapViewProps {
   embedded?: boolean
   /** Switch Topology tab to Traffic map (TFM graph). */
   onOpenTrafficMap?: () => void
-  /** Initial map lens. The system topology defaults to architecture; focused
-   *  security surfaces can open directly on attack paths. */
+  /** Initial map lens. The network view opens on Dependencies: the map's job
+   *  is to show what actually talks to what, and architecture-only hides every
+   *  edge behind a second click, so the first frame answered a question nobody
+   *  asked. Focused security surfaces (blast radius) still open directly on
+   *  attack paths by passing this prop.
+   *
+   *  This is the page default only. `AwsFrame` already defaulted to
+   *  `all_access`; the divergence lived here, in the state seed. */
   defaultFlowMode?: EstateFlowMode
   /** Collapse AZ columns that hold no workloads by default (the Business
    *  System view — keeps the map from wasting canvas on empty AZs). Applied
@@ -165,7 +171,7 @@ function topologyGridWouldBeEmpty(data: TopologyRiskResponse): boolean {
   return true
 }
 
-export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, defaultFlowMode = "architecture", collapseEmptyAzsByDefault = false, defaultToAllVpcs = false }: EstateMapViewProps) {
+export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, defaultFlowMode = "all_access", collapseEmptyAzsByDefault = false, defaultToAllVpcs = false }: EstateMapViewProps) {
   const productScope = useAccountScope()
   // useCachedFetch can synchronously recover a browser-local last-good map.
   // Hold the server and first client render on the same loading shell so a
