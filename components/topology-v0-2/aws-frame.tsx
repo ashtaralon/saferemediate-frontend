@@ -551,6 +551,40 @@ export function ensureAwsS3PublicSentinel(
   return ensureAwsPublicServiceSentinels(regional, edges)
 }
 
+/** How a destination bucket is named in a badge.
+ *
+ *  `s3` and `other_aws` are AWS's OWN attribution: the backend files a peer
+ *  under them only when the v5 flow-log field `pkt-dst-aws-service` names a
+ *  service (`normalize_pkt_aws_service` returns null for absent / "-" / "N/A"),
+ *  so "S3" here is something AWS said, not something we matched.
+ *
+ *  `ntp` is not. It is the one bucket the backend assigns from a PORT --
+ *  `_egress_destination_kind` files any peer on :123 there -- and rendering
+ *  that as "NTP" states a service identity for an address AWS never
+ *  attributed. So the badge names the port, which is the observed fact, and
+ *  the tooltip carries the inference, marked as one. `inferred` is this repo's
+ *  existing word for a claim of that grade (`authority_state`, the legend's
+ *  "Dashed = inferred / unverified").
+ */
+export function egressKindLabel(kind: string): string {
+  if (kind === "s3") return "S3"
+  if (kind === "other_aws") return "AWS"
+  if (kind === "ntp") return ":123"
+  if (kind === "unclassified") return "unclassified"
+  return "ext"
+}
+
+/** The tooltip note for any bucket whose name was inferred rather than
+ *  observed. Null when the breakdown carries none. */
+export function egressInferenceNote(
+  breakdown: TrafficEdge["egress_breakdown"],
+): string | null {
+  const ntp = (breakdown ?? []).find(b => b.kind === "ntp" && b.count > 0)
+  if (!ntp) return null
+  return `:123 — ${ntp.count} destination${ntp.count === 1 ? "" : "s"} on port 123, ` +
+    "commonly NTP. Inferred from the port; AWS did not attribute these addresses."
+}
+
 export function formatEgressBreakdownBadge(
   total: number | null | undefined,
   breakdown: TrafficEdge["egress_breakdown"],
@@ -561,15 +595,7 @@ export function formatEgressBreakdownBadge(
   const parts = breakdown
     .filter(b => b.count > 0)
     .slice(0, 3)
-    .map(b => {
-      const label =
-        b.kind === "s3" ? "S3"
-        : b.kind === "ntp" ? "NTP"
-        : b.kind === "other_aws" ? "AWS"
-        : b.kind === "unclassified" ? "unclassified"
-        : "ext"
-      return `${label} ${b.count}`
-    })
+    .map(b => `${egressKindLabel(b.kind)} ${b.count}`)
   const head = total ? `egress · ${total}` : "egress"
   return parts.length ? `${head} (${parts.join(" · ")})` : head
 }
@@ -605,7 +631,14 @@ export function formatEgressDestinationsTitle(
       })
     : sampled.map(d => `${d.address} · ${d.kind}`)
   const more = total > named ? [`+${total - named} more`] : []
-  return [badgeLabel, ...(route ? [route] : []), ...lines, ...more].join("\n")
+  const inferred = egressInferenceNote(e.egress_breakdown)
+  return [
+    badgeLabel,
+    ...(route ? [route] : []),
+    ...lines,
+    ...more,
+    ...(inferred ? [inferred] : []),
+  ].join("\n")
 }
 
 /** One line naming the route the BE established for an outbound edge —
@@ -2904,6 +2937,9 @@ function DiagnosticsAccordion({
 }: {
   serverlessCount: number
   staleCount: number
+  /** Rendered as "N flows", which is a claim about the estate -- so the caller
+   *  must count the payload's edges (`trafficEdgesList`), never `visibleEdges`,
+   *  which the lens and the selected-node cone have already filtered. */
   trafficCount: number
   children: ReactNode
 }) {
@@ -8501,8 +8537,6 @@ export function AwsFrame({
         <DiagnosticsAccordion
           serverlessCount={serverlessTierNodes.length}
           staleCount={staleNodes.length}
-          {/* "N flows" is an evidence claim, so it counts the payload's
-              edges. visibleEdges is lens- and selection-filtered. */}
           trafficCount={trafficEdgesList.length}
         >
           {serverlessTierNodes.length > 0 ? (
