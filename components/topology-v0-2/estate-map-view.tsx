@@ -623,19 +623,16 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
   const openSubnetMap = useCallback(() => setMapEnlarged(true), [])
   const closeEnlarged = useCallback(() => setMapEnlarged(false), [])
 
+  // The scroll lock is fullscreen's alone. The drawer is a side panel over a
+  // page that stays scrollable behind it.
   useEffect(() => {
     if (!mapEnlarged) return
     const prevOverflow = document.body.style.overflow
     document.body.style.overflow = "hidden"
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") closeEnlarged()
-    }
-    window.addEventListener("keydown", onKeyDown)
     return () => {
       document.body.style.overflow = prevOverflow
-      window.removeEventListener("keydown", onKeyDown)
     }
-  }, [mapEnlarged, closeEnlarged])
+  }, [mapEnlarged])
 
   // ── Fullscreen fit-to-viewport zoom + pan (P0-A) ──────────────────────────
   // The frame's height is data-driven; the viewport isn't. We wrap the frame in
@@ -1113,6 +1110,29 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
       null
     )
   }, [selectedNodeId, inspectorNodes, scopedEstate?.nodes, data?.nodes])
+
+  // Escape dismisses the TOPMOST surface, not whichever one happens to own a
+  // handler. The drawer (z-220) sits above the fullscreen map (z-200) and over
+  // the embedded map's own header controls, so while a node is selected Escape
+  // belongs to the drawer; fullscreen only takes it once nothing is selected.
+  //
+  // C1 production QA run 34747728564 measured `closed_on_escape: false` and
+  // then spent its whole 300s budget clicking at "Open map fullscreen"
+  // underneath an undismissable 720px drawer. The handler used to be installed
+  // only while `mapEnlarged` was true: embedded had no Escape at all, and in
+  // fullscreen Escape tore the map down from under the open drawer instead of
+  // closing it. Gated on `selectedNode`, not `selectedNodeId` -- an id that
+  // resolves to nothing renders no drawer, and must not swallow the key.
+  useEffect(() => {
+    if (!mapEnlarged && !selectedNode) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return
+      if (selectedNode) setSelectedNodeId(null)
+      else closeEnlarged()
+    }
+    window.addEventListener("keydown", onKeyDown)
+    return () => window.removeEventListener("keydown", onKeyDown)
+  }, [mapEnlarged, selectedNode, closeEnlarged])
 
   const narrative = useMemo(
     () => (data?.system_kpis ? buildHeadlineNarrative(data) : null),

@@ -810,3 +810,61 @@ test("a logical group is drawn in its own band beside the placement-gap area, li
   expect(geom!.chipInCell).toBe(false)
   expect(geom!.chipInBand).toBe(true)
 })
+
+// ---------------------------------------------------------------------------
+// Escape dismisses the TOPMOST surface (C1 production QA run 34747728564).
+//
+// The drawer is `fixed inset-y-0 right-0 z-[220] w-[720px]` with role="dialog",
+// and it covers the map header controls. The module's only Escape handler used
+// to be installed inside the `mapEnlarged` effect and called closeEnlarged():
+// embedded had no Escape at all, and in fullscreen Escape tore the map down
+// from under the still-open drawer. The live probe measured
+// `closed_on_escape: false` and then spent its entire 300s budget on click
+// retries the drawer was intercepting.
+//
+// Deterministic here on purpose: the contract is keyboard dismissal order, and
+// it must not depend on a production graph being reachable.
+// ---------------------------------------------------------------------------
+test("Escape closes the service drawer before it closes the fullscreen map", async ({
+  context,
+  page,
+}) => {
+  test.setTimeout(120_000)
+  await seedAuthCookie(context)
+  await routeSnapshot(page)
+  await page.setViewportSize({ width: 2048, height: 1100 })
+  await page.goto(ESTATE_URL, { waitUntil: "domcontentloaded" })
+  await expect(page.getByTestId("topology-estate-view-map")).toBeVisible({ timeout: 60_000 })
+  await page.getByRole("tab", { name: "Network topology" }).click()
+
+  const panel = page.getByTestId("topology-service-detail-panel")
+  const igwChip = page.getByTestId("topology-igw-rail-chip").first()
+  const enlarge = page.getByTestId("topology-estate-map-enlarge")
+  const fullscreen = page.getByTestId("topology-estate-map-fullscreen")
+
+  // 1. Embedded: the drawer owns Escape, and there is no fullscreen to confuse it.
+  await expect(igwChip).toBeVisible()
+  await igwChip.click()
+  await expect(panel).toBeVisible()
+  await page.keyboard.press("Escape")
+  await expect(panel).toBeHidden()
+
+  // The enlarge control is reachable again — the concrete thing the open
+  // drawer blocked in production.
+  await expect(enlarge).toBeVisible()
+  await enlarge.click()
+  await expect(fullscreen).toBeVisible({ timeout: 60_000 })
+
+  // 2. Fullscreen + drawer: Escape takes the drawer and LEAVES the map up.
+  const fsChip = fullscreen.getByTestId("topology-igw-rail-chip").first()
+  await expect(fsChip).toBeVisible()
+  await fsChip.click()
+  await expect(panel).toBeVisible()
+  await page.keyboard.press("Escape")
+  await expect(panel).toBeHidden()
+  await expect(fullscreen).toBeVisible()
+
+  // 3. Nothing selected: Escape now belongs to fullscreen.
+  await page.keyboard.press("Escape")
+  await expect(fullscreen).toBeHidden()
+})
