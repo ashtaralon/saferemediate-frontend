@@ -675,3 +675,39 @@ describe("boundary captions", () => {
     expect(boundaryVpceCaption(edges, "vpce-ec2messages")).toBe("use: not observed")
   })
 })
+
+describe("a visibility filter must not change an evidence claim", () => {
+  /**
+   * Reproduced: Dependencies reported "egress: 3 workloads" while the
+   * Architecture view's boundary column said "egress: not observed" — for the
+   * same payload, at the same moment. The column was being handed
+   * `visibleEdges` (what the lens currently draws) instead of
+   * `trafficEdgesList` (what the payload observed), so hiding lines silently
+   * rewrote the finding.
+   *
+   * These captions are pure functions of the list they are given, which is
+   * exactly why the contract lives at the CALL SITE. This pins the sensitivity
+   * that makes passing the wrong list dangerous: the same gateway, the same
+   * moment, two different answers depending only on which list was handed in.
+   */
+  const igw = { id: "igw-1", primary: true }
+  const evidence = [
+    edge({ source_id: "i-1", target_id: "__igw__", edge_class: "egress" }),
+    edge({ source_id: "i-2", target_id: "__igw__", edge_class: "egress" }),
+    edge({ source_id: "i-3", target_id: "__igw__", edge_class: "egress" }),
+  ]
+
+  it("the evidence list is what produces the real count", () => {
+    expect(boundaryIgwCaption(evidence, igw)).toBe("egress: 3 workloads")
+  })
+
+  it("a lens that hides every egress line would report 'not observed'", () => {
+    // This is the WRONG answer, and the test exists to show how cheaply it is
+    // reached: one filtered list, and a real finding becomes its opposite.
+    expect(boundaryIgwCaption([], igw)).toBe("egress: not observed")
+  })
+
+  it("a partly-hidden lens would under-report rather than fail loudly", () => {
+    expect(boundaryIgwCaption(evidence.slice(0, 1), igw)).toBe("egress: 1 workload")
+  })
+})
