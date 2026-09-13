@@ -8,6 +8,9 @@
  * names the service that receives the traffic; the Chromium fixture spec
  * proves the geometry, this pins the helpers.
  */
+import { readFileSync } from "node:fs"
+import { resolve } from "node:path"
+
 import { describe, expect, it } from "vitest"
 
 import {
@@ -709,5 +712,124 @@ describe("a visibility filter must not change an evidence claim", () => {
 
   it("a partly-hidden lens would under-report rather than fail loudly", () => {
     expect(boundaryIgwCaption(evidence.slice(0, 1), igw)).toBe("egress: 1 workload")
+  })
+})
+
+describe("every evidence claim on the map reads the payload, not the drawn subset", () => {
+  /**
+   * The block above pins the SENSITIVITY of the caption helpers. It cannot
+   * catch the actual defect, because these are pure functions of whatever list
+   * they are handed and the mistake is made at the CALL SITE -- which is how
+   * three more claim sites survived the first fix:
+   *
+   *   <TrafficFlowBand edges={visibleEdges}>   a panel headed "Observed
+   *                                            traffic" whose six per-class
+   *                                            counts came from the drawing
+   *   trafficCount={visibleEdges.length}       "N flows" in the Diagnostics
+   *                                            summary
+   *   railInboundCaption(id, visibleEdges, …)  "2 fn · 1 other · service-plane
+   *                                            access" per rail chip
+   *
+   * `visibleEdges` is filtered TWICE -- by the lens (flowMode ->
+   * selectEstateFlowEdges) and by the 3-hop cone around the selected node -- so
+   * every one of those numbers moved when a reader switched view or clicked a
+   * chip, with nothing about the estate having changed.
+   *
+   * So this is an allowlist rather than a list of the three known sites: a
+   * NEW reader of the drawn subset has to be added here deliberately, and the
+   * entry is where someone has to say out loud that it draws rather than
+   * claims. Drawing from the drawn subset is correct and stays permitted.
+   */
+  // __dirname, not process.cwd(): the same idiom as
+  // topology-unplaced-placement.test.tsx, which already reads a component this
+  // way in this CI. cwd is the runner's to choose.
+  const SOURCE = readFileSync(
+    resolve(__dirname, "../components/topology-v0-2/aws-frame.tsx"),
+    "utf8",
+  )
+
+  /** The only uses of the lens-and-selection-filtered list that are about
+   *  DRAWING. Anything else is a claim and must read the payload.
+   *
+   *  Matched as whole trimmed LINES, not substrings: `edges={visibleEdges}` is
+   *  a substring of `countEdges={visibleEdges}`, so a substring allowlist would
+   *  wave through the next claim-shaped prop that happens to end in "edges".
+   */
+  const DRAWING_ONLY = [
+    "const visibleEdges = useMemo(() => {",   // the definition itself
+    "drawnEdges={visibleEdges}",              // TrafficFlowBand's row list
+    "edges={visibleEdges}",                   // FlowOverlay: the arrows
+  ]
+
+  /** Block comments removed, so prose ABOUT this rule does not trip it -- the
+   *  comment explaining the Diagnostics count did exactly that on the first
+   *  run. Blanked rather than deleted so line numbers still point at the file.
+   */
+  const CODE = SOURCE.replace(/\/\*[\s\S]*?\*\//g, m => m.replace(/[^\n]/g, " "))
+
+  const trimmedLines = (src: string) =>
+    src.split("\n").map((line, i) => ({ line: line.trim(), n: i + 1 }))
+
+  it("stripping comments did not eat any code", () => {
+    // The stripper is checked, not trusted: a greedy match would swallow the
+    // real call sites and every assertion below would pass on an empty file.
+    const present = new Set(trimmedLines(CODE).map(t => t.line))
+    for (const allowed of DRAWING_ONLY) expect(present).toContain(allowed)
+  })
+
+  it("no claim site is wired to the lens- and selection-filtered edge list", () => {
+    const offenders = trimmedLines(CODE)
+      .filter(({ line }) => line.includes("visibleEdges"))
+      .filter(({ line }) => !line.startsWith("//"))
+      .filter(({ line }) => !DRAWING_ONLY.includes(line))
+
+    expect(
+      offenders.map(o => `aws-frame.tsx:${o.n}  ${o.line}`),
+      "a new reader of visibleEdges: if it DRAWS, add it to DRAWING_ONLY; if it " +
+        "states a number or a verdict, pass trafficEdgesList instead",
+    ).toEqual([])
+  })
+
+  it("the Observed traffic band counts the payload and lists what is drawn", () => {
+    expect(CODE).toContain("evidenceEdges={trafficEdgesList}")
+    expect(CODE).toContain("drawnEdges={visibleEdges}")
+    // The gap between the two is stated rather than silently shown smaller.
+    expect(CODE).toContain("traffic-band-hidden-note")
+  })
+
+  it("the Diagnostics flow count is the payload's", () => {
+    expect(CODE).toContain("trafficCount={trafficEdgesList.length}")
+    expect(CODE).not.toContain("trafficCount={visibleEdges.length}")
+  })
+
+  it("every railInboundCaption call is handed the payload's edges", () => {
+    // One level of nesting, because the third argument is itself a call:
+    // `id => functionIds.has(id)`. A [^)]* capture stops inside it, and the
+    // truncated tail is exactly where a wrong list could hide.
+    const calls = [...CODE.matchAll(/railInboundCaption\(((?:[^()]|\([^()]*\))*)\)/g)]
+      .map(m => m[1])
+      // the declaration itself takes named parameters, not arguments
+      .filter(args => !args.includes("targetId"))
+    expect(calls.length).toBeGreaterThan(0)
+    for (const args of calls) {
+      expect(args, `railInboundCaption(${args})`).toContain("trafficEdgesList")
+      expect(args, `railInboundCaption(${args})`).not.toContain("visibleEdges")
+    }
+  })
+
+  it("a caption drops a named caller the moment it is fed the drawn subset", () => {
+    // The behavioural half: why the wiring above matters. Same chip, same
+    // moment, one caller hidden by the lens.
+    const isFn = (id: string) => id.startsWith("fn-")
+    const evidence = [
+      edge({ source_id: "fn-a", target_id: "bucket", edge_class: "edge_service" }),
+      edge({ source_id: "fn-b", target_id: "bucket", edge_class: "edge_service" }),
+      edge({ source_id: "i-1", target_id: "bucket", edge_class: "edge_service" }),
+    ]
+    const drawn = evidence.slice(0, 1)
+    expect(railInboundCaption("bucket", evidence, isFn)).toBe(
+      "2 fn · 1 other · service-plane access",
+    )
+    expect(railInboundCaption("bucket", drawn, isFn)).toBe("1 fn · service-plane access")
   })
 })

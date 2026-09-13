@@ -2055,14 +2055,34 @@ function IamControlPlane({
   )
 }
 
+/** Observed traffic, counted from the EVIDENCE and listed from what is drawn.
+ *
+ *  This panel is titled "Observed traffic" and then states six per-class
+ *  counts, so every number in its header is a claim about what the estate
+ *  does -- not about what the canvas happens to be showing. It used to take
+ *  one `edges` list and use it for both, and that list was `visibleEdges`,
+ *  which is filtered TWICE: by the lens (`flowMode` -> `selectEstateFlowEdges`)
+ *  and by the 3-hop cone around the selected node. Switching to Architecture or
+ *  clicking a chip therefore rewrote "5 egress" to "0 egress" with nothing
+ *  about the estate having changed.
+ *
+ *  Splitting the prop is the fix rather than swapping it, because the ROW list
+ *  genuinely is about the drawing -- the header says "animated arrows above",
+ *  and listing flows whose arrows are not on screen would be a new
+ *  contradiction in place of the old one. So counts come from `evidenceEdges`,
+ *  rows from `drawnEdges`, and when the two differ the panel says so instead
+ *  of quietly showing fewer.
+ */
 function TrafficFlowBand({
-  edges, nodes,
-}: { edges: TrafficEdge[]; nodes: TopologyNode[] }) {
+  evidenceEdges, drawnEdges, nodes,
+}: { evidenceEdges: TrafficEdge[]; drawnEdges: TrafficEdge[]; nodes: TopologyNode[] }) {
   const nodeById = useMemo(() => {
     const m = new Map<string, TopologyNode>()
     for (const n of nodes) m.set(n.id, n)
     return m
   }, [nodes])
+  const edges = drawnEdges
+  const hidden = evidenceEdges.length - drawnEdges.length
   return (
     <div
       className="rounded-md p-4 relative"
@@ -2072,18 +2092,33 @@ function TrafficFlowBand({
         <div className="text-[10px] uppercase tracking-[0.14em] font-bold" style={{ color: PAL.ink }}>
           Observed traffic — animated arrows above
         </div>
-        <div className="text-[10px]" style={{ color: PAL.slate }}>
-          {edges.length} flow{edges.length === 1 ? "" : "s"} ·{" "}
-          {edges.filter(e => (e.edge_class ?? "internal") === "internal").length} internal ·{" "}
-          {edges.filter(e => e.edge_class === "edge_service").length} edge-service ·{" "}
-          {edges.filter(e => e.edge_class === "vpce").length} vpce ·{" "}
-          {edges.filter(e => e.edge_class === "database").length} database ·{" "}
-          {edges.filter(e => e.edge_class === "egress").length} egress
+        <div className="text-[10px]" style={{ color: PAL.slate }} data-testid="traffic-band-counts">
+          {evidenceEdges.length} flow{evidenceEdges.length === 1 ? "" : "s"} ·{" "}
+          {evidenceEdges.filter(e => (e.edge_class ?? "internal") === "internal").length} internal ·{" "}
+          {evidenceEdges.filter(e => e.edge_class === "edge_service").length} edge-service ·{" "}
+          {evidenceEdges.filter(e => e.edge_class === "vpce").length} vpce ·{" "}
+          {evidenceEdges.filter(e => e.edge_class === "database").length} database ·{" "}
+          {evidenceEdges.filter(e => e.edge_class === "egress").length} egress
         </div>
       </div>
-      {edges.length === 0 ? (
+      {hidden > 0 ? (
+        <div
+          className="text-[10px] mb-2"
+          style={{ color: PAL.slate }}
+          data-testid="traffic-band-hidden-note"
+        >
+          Listing {drawnEdges.length} of {evidenceEdges.length} — the current lens
+          and selection hide the rest. The counts above are the full evidence.
+        </div>
+      ) : null}
+      {evidenceEdges.length === 0 ? (
         <div className="text-[11px] italic" style={{ color: PAL.slate }}>
-          No observed traffic flows from any rendered workload.
+          No observed traffic flows in this scope.
+        </div>
+      ) : edges.length === 0 ? (
+        <div className="text-[11px] italic" style={{ color: PAL.slate }}>
+          {evidenceEdges.length} observed flow{evidenceEdges.length === 1 ? "" : "s"} in
+          this scope — none are drawn under the current lens and selection.
         </div>
       ) : (
         <div className="flex flex-col gap-1.5">
@@ -7825,11 +7860,16 @@ export function AwsFrame({
     const functionIds = new Set(serverlessTierNodes.map(node => node.id))
     const captions = new Map<string, string>()
     for (const node of regionalTierNodes) {
-      const caption = railInboundCaption(node.id, visibleEdges, id => functionIds.has(id))
+      // "2 fn · 1 other · service-plane access" is a claim about who reaches
+      // this resource, so it reads the payload's edges. The docstring two
+      // functions below railInboundCaption already states this contract for
+      // the boundary column; the rail captions were still passing the drawn
+      // subset, so hiding a line removed a named caller from the caption.
+      const caption = railInboundCaption(node.id, trafficEdgesList, id => functionIds.has(id))
       if (caption) captions.set(node.id, caption)
     }
     return captions
-  }, [regionalTierNodes, serverlessTierNodes, visibleEdges])
+  }, [regionalTierNodes, serverlessTierNodes, trafficEdgesList])
 
   const attackPathEdgeCount = attackPathFlowCount
 
@@ -8461,7 +8501,9 @@ export function AwsFrame({
         <DiagnosticsAccordion
           serverlessCount={serverlessTierNodes.length}
           staleCount={staleNodes.length}
-          trafficCount={visibleEdges.length}
+          {/* "N flows" is an evidence claim, so it counts the payload's
+              edges. visibleEdges is lens- and selection-filtered. */}
+          trafficCount={trafficEdgesList.length}
         >
           {serverlessTierNodes.length > 0 ? (
             <div
@@ -8505,7 +8547,11 @@ export function AwsFrame({
             </div>
           ) : null}
 
-          <TrafficFlowBand edges={visibleEdges} nodes={nodes} />
+          <TrafficFlowBand
+            evidenceEdges={trafficEdgesList}
+            drawnEdges={visibleEdges}
+            nodes={nodes}
+          />
           <EncodingLegend />
         </DiagnosticsAccordion>
       )}
