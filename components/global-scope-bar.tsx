@@ -164,10 +164,11 @@ export function GlobalScopeBar() {
         <div className="ml-auto flex shrink-0 items-center gap-2 px-4 text-xs text-slate-500">
           {scope.loading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
           {scope.error ? <span className="text-amber-700">Scope metadata unavailable</span> : null}
+          {/* One template literal, not three JSX expressions with text between
+              them: the latter renders several text nodes, and a reader (or a
+              test) asking for "1 account in view" then has to reassemble it. */}
           {!scope.loading && !scope.error ? (
-            <span>
-              {accountOptions.length} account{accountOptions.length === 1 ? "" : "s"} in view
-            </span>
+            <span>{`${accountOptions.length} account${accountOptions.length === 1 ? "" : "s"} in view`}</span>
           ) : null}
         </div>
       </div>
