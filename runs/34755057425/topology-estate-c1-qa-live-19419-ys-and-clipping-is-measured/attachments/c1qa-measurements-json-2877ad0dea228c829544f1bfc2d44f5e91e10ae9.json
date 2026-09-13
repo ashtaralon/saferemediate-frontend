@@ -1,0 +1,70 @@
+{
+  "test": "viewport narrow-1024x720: the page never scrolls sideways, and clipping is measured",
+  "status": "passed",
+  "measurements": [
+    {
+      "name": "matrix-viewport-narrow-1024x720",
+      "data": {
+        "loads": 1,
+        "page_errors": [],
+        "inner_width": 1024,
+        "doc_scroll_width": 1024,
+        "body_scroll_width": 1024,
+        "horizontal_page_scroll_px": 0,
+        "tier_stacks": [
+          {
+            "width": 268,
+            "overflow_right_px": -650,
+            "clipped_by_viewport_px": -698
+          }
+        ],
+        "subnet_cells": [
+          {
+            "width": 27,
+            "overflow_right_px": -73,
+            "clipped_by_viewport_px": -920
+          },
+          {
+            "width": 22,
+            "overflow_right_px": -78,
+            "clipped_by_viewport_px": -925
+          },
+          {
+            "width": 22,
+            "overflow_right_px": -78,
+            "clipped_by_viewport_px": -925
+          },
+          {
+            "width": 27,
+            "overflow_right_px": -73,
+            "clipped_by_viewport_px": -781
+          },
+          {
+            "width": 22,
+            "overflow_right_px": -78,
+            "clipped_by_viewport_px": -786
+          },
+          {
+            "width": 22,
+            "overflow_right_px": -78,
+            "clipped_by_viewport_px": -786
+          }
+        ],
+        "rails": [
+          {
+            "width": 512,
+            "overflow_right_px": 4,
+            "clipped_by_viewport_px": -44
+          }
+        ],
+        "vpc_frames": [
+          {
+            "width": 288,
+            "overflow_right_px": -640,
+            "clipped_by_viewport_px": -688
+          }
+        ]
+      }
+    }
+  ]
+}
