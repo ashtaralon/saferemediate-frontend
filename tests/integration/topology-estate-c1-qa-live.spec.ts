@@ -793,13 +793,22 @@ test.describe("C1 live QA — estate map against the deployed graph", () => {
       return reading
     }
 
+    // The enlarge control lives on the Network topology tab, not on the tab the
+    // estate URL opens. Probe 2 switches tabs before enlarging; going straight
+    // for the button spent the whole 300s test budget waiting for an element
+    // that was never going to appear on the default tab (run 34747387060).
     async function enterFullscreen(): Promise<ReturnType<typeof page.getByTestId>> {
       const fullscreen = page.getByTestId("topology-estate-map-fullscreen")
-      if (!(await fullscreen.isVisible().catch(() => false))) {
-        await page.getByTestId("topology-estate-map-enlarge").click()
-        await expect(fullscreen).toBeVisible({ timeout: 60_000 })
+      if (await fullscreen.isVisible().catch(() => false)) return fullscreen
+      const enlarge = page.getByTestId("topology-estate-map-enlarge")
+      if (!(await enlarge.isVisible().catch(() => false))) {
+        await page.getByRole("tab", { name: "Network topology" }).click()
+        await expect(enlarge).toBeVisible({ timeout: 60_000 })
         await page.waitForTimeout(1500)
       }
+      await enlarge.click()
+      await expect(fullscreen).toBeVisible({ timeout: 60_000 })
+      await page.waitForTimeout(1500)
       return fullscreen
     }
 
