@@ -1,0 +1,51 @@
+{
+  "test": "inspector identity, refresh status, and the logical-group band across a reload",
+  "status": "timedOut",
+  "measurements": [
+    {
+      "name": "open-loads",
+      "data": [
+        {
+          "attempt": 1,
+          "mounted": true,
+          "ms": 1544,
+          "reason": null
+        }
+      ]
+    },
+    {
+      "name": "open-refresh-status",
+      "data": {
+        "banner": "Refresh request submitted; worker status not confirmed.",
+        "payload_status": null,
+        "refresh_state": "queued",
+        "stale_reason": "snapshot_recomputing",
+        "last_successful_update_at": null,
+        "snapshot_age_seconds": 115256,
+        "from_snapshot": true,
+        "from_stale_cache": true
+      }
+    },
+    {
+      "name": "open-igw-inspector",
+      "data": {
+        "chip": true,
+        "shown_resource_id": "igw-01b6c643a5c856abe",
+        "unresolved": false,
+        "not_found": false,
+        "payload_igws": [
+          "igw-01b6c643a5c856abe"
+        ]
+      }
+    },
+    {
+      "name": "open-drawer-reselect",
+      "data": {
+        "closed_on_escape": false,
+        "reselected": false,
+        "previous": "igw-01b6c643a5c856abe",
+        "shown_resource_id": null
+      }
+    }
+  ]
+}
