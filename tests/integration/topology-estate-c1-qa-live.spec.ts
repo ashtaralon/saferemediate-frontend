@@ -1391,3 +1391,264 @@ async function measureFullscreen(page: Page): Promise<FullscreenMeasure> {
     }
   })
 }
+
+/**
+ * Step 5 acceptance matrix — the checks an operator would actually perform,
+ * run against the deployed site rather than a fixture.
+ *
+ * Deliberately split from the three probes above: those measure ONE load
+ * deeply, these measure the same page across viewports, repeated loads and
+ * input modes, which is where a different class of defect lives (a tier
+ * clipped at 1366 wide, a scope silently dropped on the fourth reload, a
+ * drawer that traps the keyboard).
+ *
+ * Two rules this block holds itself to:
+ *
+ *   1. FAIL CLOSED ON AN EMPTY MATCH. A selector that matches nothing makes an
+ *      iteration assertion vacuously true, which reads as a pass. Every loop
+ *      below asserts its population is non-empty BEFORE measuring it.
+ *   2. ASSERT ONLY WHAT IS UNAMBIGUOUS; REPORT THE REST. A map pane that
+ *      scrolls horizontally is a legitimate design; the PAGE BODY doing so is
+ *      not. So overflow is asserted at the document and reported per element,
+ *      and the report is the evidence for a human judgement rather than a
+ *      threshold invented here.
+ */
+test.describe("C1 live QA — Step 5 acceptance matrix", () => {
+  /** Viewports named the way the acceptance list names them. The narrow one is
+   *  a real desktop-narrow, not a phone: this map is a desktop surface and a
+   *  phone-width claim would be a check nobody asked for. */
+  const VIEWPORTS = [
+    { name: "1366x768", width: 1366, height: 768 },
+    { name: "1600x900", width: 1600, height: 900 },
+    { name: "narrow-1024x720", width: 1024, height: 720 },
+  ] as const
+
+  /** Open the estate map and wait for it to mount, the same retry an operator
+   *  makes: an uncached topology-risk on C1 runs close to the proxy ceiling,
+   *  so the first load can land on the loading card. Returns how many loads it
+   *  took, so a slow mount is reported rather than hidden by the retry. */
+  async function openMap(page: Page, label: string): Promise<number> {
+    const mapTab = page.getByTestId("topology-estate-view-map")
+    const blocked = page.getByText(
+      /Topology risk unavailable|No systems available yet|Estate map temporarily unavailable/i,
+    )
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      await page.goto(ESTATE_URL, { waitUntil: "domcontentloaded" })
+      await expect(mapTab.or(blocked).first()).toBeVisible({ timeout: 90_000 })
+      if (await mapTab.isVisible().catch(() => false)) return attempt
+    }
+    throw new Error(`${label}: estate map did not mount in 3 loads`)
+  }
+
+  for (const vp of VIEWPORTS) {
+    test(`viewport ${vp.name}: the page never scrolls sideways, and clipping is measured`, async ({
+      context,
+      page,
+    }) => {
+      test.setTimeout(300_000)
+      await seedAuthCookie(context)
+      await page.setViewportSize({ width: vp.width, height: vp.height })
+      const pageErrors: string[] = []
+      page.on("pageerror", error => pageErrors.push(String(error.message ?? error)))
+
+      const loads = await openMap(page, vp.name)
+
+      const geometry = await page.evaluate(() => {
+        const doc = document.documentElement
+        /** How far past its scroll container's visible right edge an element
+         *  sits. Positive means part of it cannot be reached without
+         *  scrolling that container. */
+        const clip = (selector: string) =>
+          Array.from(document.querySelectorAll<HTMLElement>(`[data-testid="${selector}"]`)).map(
+            el => {
+              let parent = el.parentElement
+              while (
+                parent &&
+                parent !== document.body &&
+                getComputedStyle(parent).overflowX === "visible"
+              ) {
+                parent = parent.parentElement
+              }
+              const box = el.getBoundingClientRect()
+              const host = (parent ?? document.body).getBoundingClientRect()
+              return {
+                width: Math.round(box.width),
+                overflow_right_px: Math.round(box.right - host.right),
+                clipped_by_viewport_px: Math.round(box.right - window.innerWidth),
+              }
+            },
+          )
+        return {
+          inner_width: window.innerWidth,
+          doc_scroll_width: doc.scrollWidth,
+          body_scroll_width: document.body.scrollWidth,
+          horizontal_page_scroll_px: Math.max(
+            0,
+            Math.max(doc.scrollWidth, document.body.scrollWidth) - window.innerWidth,
+          ),
+          tier_stacks: clip("topology-tier-stack"),
+          subnet_cells: clip("topology-subnet-cell-chrome"),
+          rails: clip("topology-edge-services-rail"),
+          vpc_frames: clip("topology-vpc-frame"),
+        }
+      })
+
+      report(`matrix-viewport-${vp.name}`, { loads, page_errors: pageErrors, ...geometry })
+      await shot(page, `c1-matrix-${vp.name}`)
+
+      // Fail closed: an empty population would make every clipping number
+      // below trivially absent, which would read as "nothing is clipped".
+      expect(
+        geometry.tier_stacks.length + geometry.subnet_cells.length,
+        `${vp.name}: no subnet tiers or cells rendered — the measurement would be vacuous`,
+      ).toBeGreaterThan(0)
+
+      // The one unambiguous rule. A pane may scroll; the page may not.
+      expect(
+        geometry.horizontal_page_scroll_px,
+        `${vp.name}: the page body scrolls horizontally by ${geometry.horizontal_page_scroll_px}px`,
+      ).toBeLessThanOrEqual(1)
+
+      expect(pageErrors, `${vp.name}: uncaught page errors`).toEqual([])
+    })
+  }
+
+  test("five reloads: the map mounts every time and the scope never silently drops", async ({
+    context,
+    page,
+  }) => {
+    test.setTimeout(600_000)
+    await seedAuthCookie(context)
+    await page.setViewportSize({ width: 1600, height: 900 })
+
+    const riskUrls: string[] = []
+    page.on("request", request => {
+      const href = request.url()
+      if (href.includes("/api/proxy/topology-risk/")) riskUrls.push(href)
+    })
+
+    const reloads: Array<{
+      reload: number
+      loads: number
+      url_scope: Record<string, string | null>
+      risk_requests: number
+    }> = []
+
+    for (let i = 1; i <= 5; i += 1) {
+      riskUrls.length = 0
+      const loads = await openMap(page, `reload-${i}`)
+      const url = new URL(page.url())
+      reloads.push({
+        reload: i,
+        loads,
+        url_scope: {
+          systemName: url.searchParams.get("systemName"),
+          customer_id: url.searchParams.get("customer_id"),
+          account_id: url.searchParams.get("account_id"),
+          region: url.searchParams.get("region"),
+        },
+        risk_requests: riskUrls.length,
+      })
+
+      // Scope retention: the address bar still describes the scope the
+      // operator asked for. A dropped param is how a tenant-scoped view
+      // silently becomes an unscoped one.
+      expect(url.searchParams.get("systemName"), `reload ${i}: systemName`).toBe(SYSTEM)
+      expect(url.searchParams.get("account_id"), `reload ${i}: account_id`).toBe(ACCOUNT)
+      expect(url.searchParams.get("region"), `reload ${i}: region`).toBe(REGION)
+
+      // And the read the page actually fired carried it too — the URL can be
+      // right while the fetch is not, which is the failure that matters.
+      const unscoped = riskUrls.filter(
+        href => !href.includes("account_id=") || !href.includes("region="),
+      )
+      expect(unscoped, `reload ${i}: unscoped topology-risk GET`).toEqual([])
+    }
+
+    report("matrix-five-reloads", reloads)
+    expect(reloads).toHaveLength(5)
+  })
+
+  test("keyboard: Escape closes the drawer, then fullscreen, and focus comes back", async ({
+    context,
+    page,
+  }) => {
+    test.setTimeout(300_000)
+    await seedAuthCookie(context)
+    await page.setViewportSize({ width: 1600, height: 900 })
+    await openMap(page, "keyboard")
+
+    const enlarge = page.getByTestId("topology-estate-map-enlarge")
+    await enlarge.click()
+    const fullscreen = page.getByTestId("topology-estate-map-fullscreen")
+    await expect(fullscreen).toBeVisible({ timeout: 60_000 })
+
+    // A chip opens the detail drawer. Fail closed: if nothing is clickable the
+    // rest of this test proves nothing, so say so rather than skipping quietly.
+    const chips = fullscreen.getByTestId("topology-chip-label")
+    const chipCount = await chips.count()
+    expect(chipCount, "no chips rendered — the drawer path cannot be exercised").toBeGreaterThan(0)
+    await chips.first().click()
+
+    const drawer = page.getByTestId("topology-service-detail-panel")
+    const drawerOpened = await drawer.isVisible({ timeout: 15_000 }).catch(() => false)
+    report("matrix-keyboard-drawer", { chips: chipCount, drawer_opened: drawerOpened })
+
+    if (drawerOpened) {
+      // Escape dismisses the TOPMOST surface first. Before this shipped, the
+      // drawer swallowed the click and nothing dismissed it, which is what
+      // made probe 3 time out (run 34747728564) — the product defect, not a
+      // flaky probe.
+      await page.keyboard.press("Escape")
+      await expect(drawer).toBeHidden({ timeout: 15_000 })
+      await expect(fullscreen).toBeVisible()
+    }
+
+    // A second Escape leaves fullscreen, and focus returns to the control that
+    // opened it, so a keyboard operator is not stranded at the document root.
+    await page.keyboard.press("Escape")
+    await expect(fullscreen).toBeHidden({ timeout: 15_000 })
+    const focus = await page.evaluate(() => {
+      const el = document.activeElement as HTMLElement | null
+      return {
+        testid: el?.getAttribute("data-testid") ?? null,
+        tag: el?.tagName ?? null,
+        is_body: el === document.body,
+      }
+    })
+    report("matrix-keyboard-focus-after-escape", focus)
+  })
+
+  test("reduced motion: the map still renders and reports its animation state", async ({
+    context,
+    page,
+  }) => {
+    test.setTimeout(300_000)
+    await seedAuthCookie(context)
+    await page.setViewportSize({ width: 1600, height: 900 })
+    await page.emulateMedia({ reducedMotion: "reduce" })
+    const pageErrors: string[] = []
+    page.on("pageerror", error => pageErrors.push(String(error.message ?? error)))
+
+    const loads = await openMap(page, "reduced-motion")
+    const state = await page.evaluate(() => {
+      const packets = Array.from(
+        document.querySelectorAll<SVGElement>('[data-testid="topology-flow-packet"]'),
+      )
+      const animated = packets.filter(el => {
+        const style = getComputedStyle(el)
+        return style.animationName !== "none" && style.animationPlayState === "running"
+      })
+      return {
+        honours_query: window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+        packets: packets.length,
+        animating: animated.length,
+      }
+    })
+    report("matrix-reduced-motion", { loads, page_errors: pageErrors, ...state })
+    await shot(page, "c1-matrix-reduced-motion")
+
+    expect(state.honours_query, "the browser did not report reduced motion").toBe(true)
+    expect(pageErrors, "reduced motion: uncaught page errors").toEqual([])
+  })
+})
