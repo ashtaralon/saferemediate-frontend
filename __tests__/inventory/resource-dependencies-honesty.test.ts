@@ -157,3 +157,33 @@ describe("no mock data anywhere in the new path", () => {
     expect(tab).not.toContain("grouped[basis]")
   })
 })
+
+describe("a cursor is only replayed against the list it was minted for", () => {
+  // The backend now binds a cursor to the projection generation, the anchor
+  // resource AND the filters, because an offset is only meaningful against the
+  // sequence it was computed from. Two consumer-side consequences follow, and
+  // both are honesty properties rather than conveniences.
+
+  it("drops the cursor when the resource, account or filters change", () => {
+    // Sending a cursor bound to the previous list earns a 409 for what is
+    // really just a new query, and before the binding existed it did something
+    // worse: the offset was applied to a list it never described, silently
+    // skipping or repeating rows.
+    expect(HOOK).toContain("const listKey")
+    expect(HOOK).toContain("pagedListKey")
+    expect(HOOK).toContain("setCursor(null)")
+  })
+
+  it("does not page a new list from the previous list's offset", () => {
+    // The guard has to run before the fetch, not after the response.
+    expect(HOOK).toContain("if (pagedListKey !== listKey) return")
+  })
+
+  it("claims the projection advanced only when the backend says it did", () => {
+    // 409 has more than one cause. Reporting every one of them as "the graph
+    // moved, reload" is a fabricated explanation the user would act on, and
+    // the honest fallback is the backend's own sentence.
+    expect(HOOK).toContain("/generation/i.test(detail)")
+    expect(HOOK).toContain('throw new Error(detail || "http_409")')
+  })
+})

@@ -6,11 +6,19 @@
 // page renders as "nothing was found within collected scope" rather than as a
 // claim that the resource has no dependencies.
 //
-// Paging is append-only and cursor-driven. The cursor encodes the generation it
-// was minted against, so a projection that advances mid-read makes the backend
-// answer 409 rather than silently stitching two generations into one list; that
-// case is surfaced as its own state so the tab can offer a reload instead of
-// showing a page that half belongs to a graph that no longer exists.
+// Paging is append-only and cursor-driven. A cursor is bound to the LIST it
+// indexes — the projection generation, the anchor resource, and the filters —
+// so the backend answers 409 rather than silently applying an offset to a
+// sequence it never described. Two consequences are handled here:
+//
+//   1. Changing the resource, the account or a filter starts a NEW list, so the
+//      cursor is dropped in the same render that changes them. Carrying it
+//      would send a cursor bound to the previous list and earn a 409 for what
+//      is really just a new query.
+//   2. A 409 is only reported as "the projection advanced" when the backend
+//      actually says so. It has more than one cause, and claiming the graph
+//      moved when the real reason was something else is a fabricated
+//      explanation — the honest fallback is the backend's own sentence.
 
 import { useCallback, useEffect, useState } from "react"
 
@@ -129,6 +137,16 @@ export function useResourceDependencies({
     setCursor(data?.page?.next_cursor ?? null)
   }, [data])
 
+  // The identity of the list being paged. When it changes the cursor is stale
+  // by construction, so it is cleared BEFORE the fetch effect runs rather than
+  // being sent and rejected.
+  const listKey = `${systemName}\u001f${resourceId ?? ""}\u001f${accountId ?? ""}\u001f${includeStale}\u001f${pageSize}`
+  const [pagedListKey, setPagedListKey] = useState(listKey)
+  if (pagedListKey !== listKey) {
+    setPagedListKey(listKey)
+    if (cursor !== null) setCursor(null)
+  }
+
   useEffect(() => {
     if (!resourceId || !systemName) {
       setData(null)
@@ -136,6 +154,9 @@ export function useResourceDependencies({
       setError(null)
       return
     }
+    // One render where the key has changed but the cursor has not yet been
+    // cleared would otherwise page the new list from the old offset.
+    if (pagedListKey !== listKey) return
     let cancelled = false
     const isFirstPage = cursor === null
     if (isFirstPage) setLoading(true)
@@ -157,12 +178,18 @@ export function useResourceDependencies({
       .then(async (response) => {
         const body = await response.json().catch(() => null)
         if (!response.ok) {
-          // 409 is the generation moving under the cursor, which is a different
-          // thing from a failure and gets its own affordance.
+          // 409 covers every way the request conflicts with server state, and
+          // the projection advancing is only one of them. Claim that one ONLY
+          // when the backend's own detail says so; otherwise surface what it
+          // actually said rather than inventing a cause the user would act on.
           if (response.status === 409) {
-            const conflict = new Error("generation_moved")
-            ;(conflict as any).generationMoved = true
-            throw conflict
+            const detail = String(body?.detail ?? body?.error ?? "")
+            if (/generation/i.test(detail)) {
+              const conflict = new Error("generation_moved")
+              ;(conflict as any).generationMoved = true
+              throw conflict
+            }
+            throw new Error(detail || "http_409")
           }
           throw new Error(body?.error ?? `http_${response.status}`)
         }
@@ -194,7 +221,7 @@ export function useResourceDependencies({
     return () => {
       cancelled = true
     }
-  }, [systemName, resourceId, accountId, includeStale, pageSize, cursor, nonce])
+  }, [systemName, resourceId, accountId, includeStale, pageSize, cursor, nonce, listKey, pagedListKey])
 
   return {
     data,
