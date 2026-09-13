@@ -162,6 +162,88 @@ describe('an authoritative empty estate is still allowed to be empty', () => {
   })
 })
 
+describe('cache behaviour, with the miss and the hit each actually established', () => {
+  it('an empty cache is a real MISS: the backend IS called, and the answer is labelled MISS', async () => {
+    // The miss is established, not assumed: getCached returns undefined AND
+    // fetch is observed being called. A test that only read the header would
+    // pass just as well against a route that never consulted a cache at all.
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      Response.json({ system: 'testbed-webshop', system_kpis: { workloads: 7 }, nodes: [{ id: 'i-abc' }] }),
+    )
+
+    const response = await GET(request(), context)
+
+    expect(cache.getCached).toHaveBeenCalled()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(response.status).toBe(200)
+    expect(response.headers.get('X-Cache')).toBe('MISS')
+    // A good answer IS cached — that is what makes the next read a hit.
+    expect(cache.setCached).toHaveBeenCalledOnce()
+  })
+
+  it('a warm cache is a real HIT: the backend is NOT called at all', async () => {
+    cache.getCached.mockReturnValue({
+      system: 'testbed-webshop',
+      system_kpis: { workloads: 7 },
+      nodes: [{ id: 'i-abc' }],
+    })
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+
+    const response = await GET(request(), context)
+    const body = await response.json()
+
+    // Not calling the backend is the whole point of the hit.
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(response.status).toBe(200)
+    expect(response.headers.get('X-Cache')).toBe('HIT')
+    expect(body.nodes).toHaveLength(1)
+  })
+
+  it('a poisoned cache entry is NOT served — it is re-fetched', async () => {
+    // isPoisonousProxyPayload exists because a "computing" envelope with null
+    // KPIs and no nodes was once cached for the full TTL, so every later visit
+    // HIT an empty map long after the backend had recovered. Serving that is
+    // indistinguishable, on screen, from an estate with nothing in it.
+    cache.getCached.mockReturnValue({
+      system: 'testbed-webshop',
+      status: 'computing',
+      system_kpis: null,
+      nodes: [],
+    })
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      Response.json({ system: 'testbed-webshop', system_kpis: { workloads: 7 }, nodes: [{ id: 'i-abc' }] }),
+    )
+
+    const response = await GET(request(), context)
+    const body = await response.json()
+
+    expect(fetchMock).toHaveBeenCalled()
+    expect(response.headers.get('X-Cache')).not.toBe('HIT')
+    expect(body.nodes).toHaveLength(1)
+    expect(body.status).toBeUndefined()
+  })
+
+  it('a poisoned STALE entry is not served as a fallback either', async () => {
+    cache.getStaleCached.mockReturnValue({
+      system: 'testbed-webshop',
+      status: 'computing',
+      system_kpis: null,
+      nodes: [],
+    })
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}', { status: 500 }))
+
+    const response = await GET(request(), context)
+    const body = await response.json()
+
+    // Falling back to poison would turn a backend outage into a blank map
+    // served with a 200. The honest answer is the failure status.
+    expect(response.status).toBe(500)
+    expect(response.ok).toBe(false)
+    expect(body.fromStaleCache).toBeUndefined()
+    expect(body.error).toBe('backend_500')
+  })
+})
+
 describe('a stale serve says so, and says why', () => {
   it('names the reason rather than reporting the failure as fresh', async () => {
     cache.getStaleCached.mockReturnValue({
