@@ -1,6 +1,12 @@
 /**
  * LIVE QA — Estate Map VPC scope picker + topology-risk vpc_id param.
  * Requires BE deploy with available_vpcs / ?vpc_id= support.
+ *
+ * NOT WIRED TO CI. Every Playwright workflow passes explicit spec paths and
+ * none of them names this file, so green CI says nothing about it. It also
+ * targets `alon-prod` and hardcodes that account's resource names, so it is not
+ * a guard for the testbed-webshop release scope. Treat it as unproven until it
+ * is either wired to a workflow or retired.
  */
 import { test, expect } from "@playwright/test"
 import { authedApi, liveGetWithRetry, seedAuthCookie } from "./live-auth"
@@ -179,14 +185,24 @@ test.describe("estate map VPC scope e2e", () => {
     })
   })
 
-  test("flow overlay toggle switches all access and attack paths", async ({ page }) => {
+  // The lens buttons are "Architecture" / "Dependencies" / "Attack paths".
+  // This test asked for "All access" and "Attack paths only", which the toggle
+  // has not rendered for some time -- it could only ever fail. It survived
+  // because no workflow names this file (they each pass explicit paths), so
+  // nothing ran it; the config's `*-live.spec.ts` glob still picks it up, which
+  // is what an unfiltered local `npx playwright test` trips over.
+  test("the network view opens on Dependencies, and the lens switches", async ({ page }) => {
     await page.goto(ESTATE_URL, { waitUntil: "domcontentloaded" })
     const toggle = page.getByTestId("topology-flow-mode-toggle")
     await expect(toggle).toBeVisible({ timeout: 120_000 })
-    await expect(toggle.getByRole("button", { name: /All access/i })).toHaveAttribute("aria-pressed", "true")
-    await toggle.getByRole("button", { name: /Attack paths only/i }).click()
-    await expect(toggle.getByRole("button", { name: /Attack paths only/i })).toHaveAttribute("aria-pressed", "true")
-    await toggle.getByRole("button", { name: /All access/i }).click()
-    await expect(toggle.getByRole("button", { name: /All access/i })).toHaveAttribute("aria-pressed", "true")
+    const dependencies = toggle.getByRole("button", { name: "Dependencies" })
+    // The map's first frame shows what talks to what, without a second click.
+    await expect(dependencies).toHaveAttribute("aria-pressed", "true")
+    const attackPaths = toggle.getByRole("button", { name: /Attack paths/i })
+    await attackPaths.click()
+    await expect(attackPaths).toHaveAttribute("aria-pressed", "true")
+    await expect(dependencies).toHaveAttribute("aria-pressed", "false")
+    await dependencies.click()
+    await expect(dependencies).toHaveAttribute("aria-pressed", "true")
   })
 })
