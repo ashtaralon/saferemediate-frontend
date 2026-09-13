@@ -1,0 +1,16 @@
+{
+  "test": "reduced motion: the map still renders and reports its animation state",
+  "status": "passed",
+  "measurements": [
+    {
+      "name": "matrix-reduced-motion",
+      "data": {
+        "loads": 1,
+        "page_errors": [],
+        "honours_query": true,
+        "packets": 0,
+        "animating": 0
+      }
+    }
+  ]
+}

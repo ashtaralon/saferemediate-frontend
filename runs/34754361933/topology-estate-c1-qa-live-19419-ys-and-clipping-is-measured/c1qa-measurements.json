@@ -1,0 +1,21 @@
+{
+  "test": "viewport narrow-1024x720: the page never scrolls sideways, and clipping is measured",
+  "status": "failed",
+  "measurements": [
+    {
+      "name": "matrix-viewport-narrow-1024x720",
+      "data": {
+        "loads": 1,
+        "page_errors": [],
+        "inner_width": 1024,
+        "doc_scroll_width": 1024,
+        "body_scroll_width": 1024,
+        "horizontal_page_scroll_px": 0,
+        "tier_stacks": [],
+        "subnet_cells": [],
+        "rails": [],
+        "vpc_frames": []
+      }
+    }
+  ]
+}
