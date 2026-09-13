@@ -1666,6 +1666,50 @@ test.describe("C1 live QA — Step 5 acceptance matrix", () => {
     )
   })
 
+  test("the scope bar states the account id in full, and counts in the singular", async ({
+    context,
+    page,
+  }) => {
+    /** Seen at 1366x768 in run 34754792418: the account control rendered
+     *  "Testbed Webshop · 4166519509" with the last digits cut off, and the
+     *  counter read "1 accounts in view".
+     *
+     *  The first is not cosmetic. An AWS account id is 12 digits, and a
+     *  partly-shown one reads as a different, valid-looking account in a
+     *  product whose whole job is attributing a resource to the right one.
+     *  The label's own width cap was doing the cutting.
+     */
+    test.setTimeout(300_000)
+    await seedAuthCookie(context)
+    await page.setViewportSize({ width: 1366, height: 768 })
+    await openMap(page, "scope-bar")
+
+    const account = page.getByLabel("Account", { exact: true })
+    await expect(account).toBeVisible({ timeout: 30_000 })
+
+    const state = await account.evaluate(el => {
+      const select = el as HTMLSelectElement
+      const option = select.selectedOptions[0]
+      return {
+        selected_text: option?.textContent?.trim() ?? null,
+        title: select.getAttribute("title"),
+        // The rendered box versus the text the browser wants to draw in it.
+        client_width: Math.round(select.clientWidth),
+        scroll_width: Math.round(select.scrollWidth),
+      }
+    })
+    const counter = (await page.getByText(/account(s)? in view/).first().textContent()) ?? ""
+    report("matrix-scope-bar", { ...state, counter: counter.trim() })
+
+    // The id must be present in full wherever the operator can read it.
+    expect(state.selected_text, "the selected account option").toContain(ACCOUNT)
+    expect(state.title, "the hover title must carry the full id").toContain(ACCOUNT)
+
+    // Singular when there is one. "1 accounts" is the tell that a count is
+    // being pasted into a fixed string.
+    expect(counter).not.toMatch(/\b1 accounts in view\b/)
+  })
+
   test("reduced motion: the map still renders and reports its animation state", async ({
     context,
     page,
