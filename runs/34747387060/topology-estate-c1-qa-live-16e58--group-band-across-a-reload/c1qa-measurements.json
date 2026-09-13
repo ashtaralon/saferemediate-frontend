@@ -1,0 +1,30 @@
+{
+  "test": "inspector identity, refresh status, and the logical-group band across a reload",
+  "status": "timedOut",
+  "measurements": [
+    {
+      "name": "open-loads",
+      "data": [
+        {
+          "attempt": 1,
+          "mounted": true,
+          "ms": 1232,
+          "reason": null
+        }
+      ]
+    },
+    {
+      "name": "open-refresh-status",
+      "data": {
+        "banner": "Refresh request submitted; worker status not confirmed.",
+        "payload_status": null,
+        "refresh_state": "queued",
+        "stale_reason": "snapshot_recomputing",
+        "last_successful_update_at": null,
+        "snapshot_age_seconds": 114771,
+        "from_snapshot": true,
+        "from_stale_cache": true
+      }
+    }
+  ]
+}
