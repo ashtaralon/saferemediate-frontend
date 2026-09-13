@@ -1651,6 +1651,19 @@ test.describe("C1 live QA — Step 5 acceptance matrix", () => {
       }
     })
     report("matrix-keyboard-focus-after-escape", focus)
+
+    // Reported before it was asserted, on purpose: the first run measured
+    // {"tag":"BODY","is_body":true} on C1 (run 34754792418) — Escape worked and
+    // the RETURN did not, so a keyboard operator had to Tab in from the top of
+    // the page to reach the map again. Now that the opener's element is
+    // restored, this is a guard rather than an observation.
+    expect(
+      focus.is_body,
+      "focus was dropped to the document root when fullscreen closed",
+    ).toBe(false)
+    expect(focus.testid, "focus did not return to the control that opened fullscreen").toBe(
+      "topology-estate-map-enlarge",
+    )
   })
 
   test("reduced motion: the map still renders and reports its animation state", async ({
@@ -1660,29 +1673,55 @@ test.describe("C1 live QA — Step 5 acceptance matrix", () => {
     test.setTimeout(300_000)
     await seedAuthCookie(context)
     await page.setViewportSize({ width: 1600, height: 900 })
-    await page.emulateMedia({ reducedMotion: "reduce" })
     const pageErrors: string[] = []
     page.on("pageerror", error => pageErrors.push(String(error.message ?? error)))
 
-    const loads = await openMap(page, "reduced-motion")
-    const state = await page.evaluate(() => {
-      const packets = Array.from(
-        document.querySelectorAll<SVGElement>('[data-testid="topology-flow-packet"]'),
-      )
-      const animated = packets.filter(el => {
-        const style = getComputedStyle(el)
-        return style.animationName !== "none" && style.animationPlayState === "running"
+    /** Flow packets present, and how many are actually animating. */
+    const measure = () =>
+      page.evaluate(() => {
+        const packets = Array.from(
+          document.querySelectorAll<SVGElement>('[data-testid="topology-flow-packet"]'),
+        )
+        const animated = packets.filter(el => {
+          const style = getComputedStyle(el)
+          return style.animationName !== "none" && style.animationPlayState === "running"
+        })
+        return {
+          honours_query: window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+          packets: packets.length,
+          animating: animated.length,
+        }
       })
-      return {
-        honours_query: window.matchMedia("(prefers-reduced-motion: reduce)").matches,
-        packets: packets.length,
-        animating: animated.length,
-      }
+
+    // A CONTROLLED comparison. The first run of this probe reported
+    // `packets: 0, animating: 0` under reduced motion and concluded nothing:
+    // zero animating packets out of zero packets says only that the map drew
+    // no packets, which is equally consistent with reduced motion working, with
+    // no flow mode being active, and with the feature being broken outright.
+    // So the baseline is measured first, in the same browser, on the same page.
+    const normalLoads = await openMap(page, "reduced-motion-baseline")
+    const baseline = await measure()
+
+    await page.emulateMedia({ reducedMotion: "reduce" })
+    const loads = await openMap(page, "reduced-motion")
+    const state = await measure()
+
+    report("matrix-reduced-motion", {
+      baseline: { loads: normalLoads, ...baseline },
+      reduced: { loads, ...state },
+      page_errors: pageErrors,
     })
-    report("matrix-reduced-motion", { loads, page_errors: pageErrors, ...state })
     await shot(page, "c1-matrix-reduced-motion")
 
+    expect(baseline.honours_query, "the baseline load already reported reduced motion").toBe(false)
     expect(state.honours_query, "the browser did not report reduced motion").toBe(true)
+    // Reduced motion may legitimately render the packets and hold them still,
+    // or not render them at all. What it must never do is leave them running.
+    expect(
+      state.animating,
+      `reduced motion left ${state.animating} flow packets animating ` +
+        `(baseline drew ${baseline.packets}, of which ${baseline.animating} animated)`,
+    ).toBe(0)
     expect(pageErrors, "reduced motion: uncaught page errors").toEqual([])
   })
 })
