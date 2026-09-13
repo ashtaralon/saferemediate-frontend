@@ -57,6 +57,16 @@ interface RankedResponse {
   note?: string
   error?: string
   computed_at?: string
+  // Response-level completeness. The ranking shows only systems whose
+  // ownership the graph can verify, so a shorter list is not evidence of a
+  // smaller estate. The excluded count is deliberately unknown rather than
+  // zero: counting it would mean reading outside the authorized account.
+  inventory_completeness?: {
+    state?: string
+    message?: string
+    systems_excluded_unverified_ownership?: number | null
+    excluded_count_reason?: string
+  }
 }
 
 function coveragePercent(ratio?: number): number {
@@ -165,6 +175,34 @@ export function BusinessSystemsRanking() {
           <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
             {data.note}
           </p>
+        )}
+        {/*
+          Sits in the header so it renders on BOTH the populated and the empty
+          list. The empty list is where it matters most: with no banner, "no
+          rankable business systems" reads as "this estate has none", when it
+          can equally mean every system's ownership was unverifiable.
+
+          The copy is the backend's own message, never a string hardcoded here,
+          so the UI cannot drift from what the API actually asserts. The count
+          renders as "unknown" unless the backend sends a real number — showing
+          0 for a missing value is precisely the false reassurance this exists
+          to remove.
+        */}
+        {data?.inventory_completeness?.message && (
+          <div
+            className="text-xs text-slate-700 bg-slate-50 border border-slate-200 rounded px-3 py-2 space-y-1"
+            data-testid="bsm-inventory-completeness"
+            title={data.inventory_completeness.excluded_count_reason || undefined}
+          >
+            <p>{data.inventory_completeness.message}</p>
+            <p className="text-slate-500">
+              Systems excluded for unverified ownership:{' '}
+              <span data-testid="bsm-excluded-count">
+                {data.inventory_completeness.systems_excluded_unverified_ownership ??
+                  'unknown'}
+              </span>
+            </p>
+          </div>
         )}
       </header>
 

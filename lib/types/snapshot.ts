@@ -11,6 +11,10 @@ export type StaleReason =
   | "peer_computing"
   | "post_sync_invalidation"
   | "fresh_snapshot_older_than_window"
+  | "refresh_unavailable"
+  | "refresh_queued"
+  | "refresh_requested"
+  | "refresh_unknown"
 
 export const STALE_REASON_VALUES: readonly StaleReason[] = [
   "snapshot_recomputing",
@@ -18,12 +22,107 @@ export const STALE_REASON_VALUES: readonly StaleReason[] = [
   "peer_computing",
   "post_sync_invalidation",
   "fresh_snapshot_older_than_window",
+  "refresh_unavailable",
+  "refresh_queued",
+  "refresh_requested",
+  "refresh_unknown",
 ] as const
+
+/** What the REFRESH JOB is doing. Mirror of backend ``RefreshState``.
+ *
+ *  Separate from staleness on purpose: how old the payload is and whether
+ *  anything is being done about it are two different facts. There is no
+ *  "running" member because the serving process cannot prove a worker picked
+ *  the job up — "unknown" is the honest answer, not a guess.
+ */
+export type RefreshState =
+  | "fresh"
+  | "cached"
+  | "queued"
+  | "duplicate"
+  | "unavailable"
+  | "not_requested"
+  | "unknown"
+
+export const REFRESH_STATE_VALUES: readonly RefreshState[] = [
+  "fresh",
+  "cached",
+  "queued",
+  "duplicate",
+  "unavailable",
+  "not_requested",
+  "unknown",
+] as const
+
+export function isRefreshState(value: unknown): value is RefreshState {
+  return (
+    typeof value === "string" &&
+    (REFRESH_STATE_VALUES as readonly string[]).includes(value)
+  )
+}
+
+/** One sentence per state, for the stale banner.
+ *
+ *  Every string says what is true of the REFRESH, never "backend timeout" —
+ *  that was the single hardcoded reason the banner used to print for all of
+ *  a refused enqueue, a peer recompute, a proxy timeout and an invalidation.
+ */
+export const REFRESH_STATE_MESSAGE: Record<RefreshState, string> = {
+  fresh: "Computed just now.",
+  cached: "Served from cache; not recomputed for this request.",
+  // "not started yet" asserts it has NOT begun, which is as unverified as
+  // claiming it has. The enqueue returning "queued" proves the push
+  // succeeded; nothing here sees a worker either way.
+  queued: "Refresh request submitted; worker status not confirmed.",
+  // A dedupe key proves a prior REQUEST, not a running worker — it outlives a
+  // worker that died, so "already in progress" would be a guess.
+  duplicate: "Refresh previously requested; worker status not confirmed.",
+  // Says only what is provable: THIS submission failed. It cannot prove no
+  // scheduled or earlier job exists, and must not imply an operator is the
+  // only way back.
+  unavailable: "This refresh request could not be submitted.",
+  not_requested: "Showing the last stored view; no refresh was requested.",
+  unknown: "Refresh status is unknown.",
+}
+
+/** Reasons that mean nothing is coming, so the UI must not promise an update. */
+export function refreshIsStalled(state: RefreshState | null | undefined): boolean {
+  return state === "unavailable" || state === "not_requested"
+}
+
+/** Only "queued" proves THIS request's submission was accepted. */
+export function refreshWasSubmitted(
+  state: RefreshState | null | undefined,
+): boolean {
+  return state === "queued"
+}
 
 export function isStaleReason(value: unknown): value is StaleReason {
   return (
     typeof value === "string" &&
     (STALE_REASON_VALUES as readonly string[]).includes(value)
+  )
+}
+
+/** HTTP 200 when there is nothing to serve and no worker is confirmed.
+ *
+ *  Distinct from ComputingEnvelope, which carries computing_started_at and
+ *  compute_deadline_at — a start and an end for work that may never have
+ *  begun. This one carries only when the REQUEST was made.
+ */
+export type WaitingEnvelope = {
+  status: "waiting"
+  system_name: string
+  refresh_requested_at: string
+  refresh_state: RefreshState
+  staleReason: StaleReason
+}
+
+export function isWaitingEnvelope(value: unknown): value is WaitingEnvelope {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    (value as { status?: unknown }).status === "waiting"
   )
 }
 
