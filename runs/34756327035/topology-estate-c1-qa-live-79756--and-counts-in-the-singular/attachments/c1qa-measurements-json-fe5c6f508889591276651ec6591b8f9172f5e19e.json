@@ -1,0 +1,16 @@
+{
+  "test": "the scope bar states the account id in full, and counts in the singular",
+  "status": "failed",
+  "measurements": [
+    {
+      "name": "matrix-scope-bar",
+      "data": {
+        "selected_text": "Testbed Webshop · 416651950952",
+        "title": null,
+        "client_width": 208,
+        "scroll_width": 218,
+        "counter": "1 accounts in view"
+      }
+    }
+  ]
+}

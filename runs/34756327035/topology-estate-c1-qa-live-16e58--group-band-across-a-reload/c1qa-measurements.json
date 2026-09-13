@@ -1,0 +1,197 @@
+{
+  "test": "inspector identity, refresh status, and the logical-group band across a reload",
+  "status": "passed",
+  "measurements": [
+    {
+      "name": "open-loads",
+      "data": [
+        {
+          "attempt": 1,
+          "mounted": true,
+          "ms": 1559,
+          "reason": null
+        }
+      ]
+    },
+    {
+      "name": "open-refresh-status",
+      "data": {
+        "banner": "Refresh request submitted; worker status not confirmed. · Last updated Sep 12, 2026, 12:27 AM",
+        "payload_status": null,
+        "refresh_state": "queued",
+        "stale_reason": "refresh_queued",
+        "last_successful_update_at": "2026-09-12T00:27:27Z",
+        "snapshot_age_seconds": 128584,
+        "from_snapshot": true,
+        "from_stale_cache": true
+      }
+    },
+    {
+      "name": "open-igw-inspector",
+      "data": {
+        "chip": true,
+        "shown_resource_id": "igw-01b6c643a5c856abe",
+        "unresolved": false,
+        "not_found": false,
+        "payload_igws": [
+          "igw-01b6c643a5c856abe"
+        ]
+      }
+    },
+    {
+      "name": "open-drawer-reselect",
+      "data": {
+        "drawer_was_open": true,
+        "closed_on_escape": true,
+        "reselected": true,
+        "previous": "igw-01b6c643a5c856abe",
+        "shown_resource_id": "arn:aws:events:eu-west-1:416651950952:rule/cyntro-tb-prod-consumer-daily"
+      }
+    },
+    {
+      "name": "open-logical-groups",
+      "data": {
+        "band_header": "Logical groups · members carry the placement (6)",
+        "groups": [
+          {
+            "node_id": "arn:aws:rds:eu-west-1:416651950952:cluster:cyntro-tb-prod-aurora",
+            "scope": "VPC not reported",
+            "members": 0,
+            "unlinked": true
+          },
+          {
+            "node_id": "arn:aws:elasticloadbalancing:eu-west-1:416651950952:targetgroup/cyntro-tb-prod-tg-app/6f96208f9ba33107",
+            "scope": "VPC vpc-0c39cde96f29f8f4e · spans eu-west-1a, eu-west-1b",
+            "members": 2,
+            "unlinked": false
+          },
+          {
+            "node_id": "arn:aws:elasticloadbalancing:eu-west-1:416651950952:targetgroup/cyntro-tb-prod-tg-web/2b416e3ac85616e7",
+            "scope": "VPC vpc-0c39cde96f29f8f4e · spans eu-west-1a, eu-west-1b",
+            "members": 2,
+            "unlinked": false
+          },
+          {
+            "node_id": "arn:aws:rds:eu-west-1:416651950952:cluster:cyntro-testbed-webshop",
+            "scope": "VPC not reported",
+            "members": 0,
+            "unlinked": true
+          },
+          {
+            "node_id": "arn:aws:autoscaling:eu-west-1:416651950952:autoScalingGroup:425377bc-55e6-4e8c-b308-1b49ea7d44ef:autoScalingGroupName/cyntro-tb-prod-asg-web",
+            "scope": "VPC vpc-0c39cde96f29f8f4e · spans eu-west-1a, eu-west-1b",
+            "members": 2,
+            "unlinked": false
+          },
+          {
+            "node_id": "arn:aws:autoscaling:eu-west-1:416651950952:autoScalingGroup:f1b63b2e-23ae-4e18-ae00-85aca0819ff4:autoScalingGroupName/cyntro-tb-prod-asg-app",
+            "scope": "VPC vpc-0c39cde96f29f8f4e · spans eu-west-1a, eu-west-1b",
+            "members": 2,
+            "unlinked": false
+          }
+        ],
+        "unplaced_header": null,
+        "unplaced_chips": 0,
+        "groups_inside_unplaced": 0
+      }
+    },
+    {
+      "name": "reload-loads",
+      "data": [
+        {
+          "attempt": 1,
+          "mounted": true,
+          "ms": 1402,
+          "reason": null
+        }
+      ]
+    },
+    {
+      "name": "reload-refresh-status",
+      "data": {
+        "banner": "Refresh request submitted; worker status not confirmed. · Last updated Sep 12, 2026, 12:27 AM",
+        "payload_status": null,
+        "refresh_state": "queued",
+        "stale_reason": "refresh_queued",
+        "last_successful_update_at": "2026-09-12T00:27:27Z",
+        "snapshot_age_seconds": 128584,
+        "from_snapshot": true,
+        "from_stale_cache": true
+      }
+    },
+    {
+      "name": "reload-igw-inspector",
+      "data": {
+        "chip": true,
+        "shown_resource_id": "igw-01b6c643a5c856abe",
+        "unresolved": false,
+        "not_found": false,
+        "payload_igws": [
+          "igw-01b6c643a5c856abe"
+        ]
+      }
+    },
+    {
+      "name": "reload-logical-groups",
+      "data": {
+        "band_header": "Logical groups · members carry the placement (6)",
+        "groups": [
+          {
+            "node_id": "arn:aws:rds:eu-west-1:416651950952:cluster:cyntro-tb-prod-aurora",
+            "scope": "VPC not reported",
+            "members": 0,
+            "unlinked": true
+          },
+          {
+            "node_id": "arn:aws:elasticloadbalancing:eu-west-1:416651950952:targetgroup/cyntro-tb-prod-tg-app/6f96208f9ba33107",
+            "scope": "VPC vpc-0c39cde96f29f8f4e · spans eu-west-1a, eu-west-1b",
+            "members": 2,
+            "unlinked": false
+          },
+          {
+            "node_id": "arn:aws:elasticloadbalancing:eu-west-1:416651950952:targetgroup/cyntro-tb-prod-tg-web/2b416e3ac85616e7",
+            "scope": "VPC vpc-0c39cde96f29f8f4e · spans eu-west-1a, eu-west-1b",
+            "members": 2,
+            "unlinked": false
+          },
+          {
+            "node_id": "arn:aws:rds:eu-west-1:416651950952:cluster:cyntro-testbed-webshop",
+            "scope": "VPC not reported",
+            "members": 0,
+            "unlinked": true
+          },
+          {
+            "node_id": "arn:aws:autoscaling:eu-west-1:416651950952:autoScalingGroup:425377bc-55e6-4e8c-b308-1b49ea7d44ef:autoScalingGroupName/cyntro-tb-prod-asg-web",
+            "scope": "VPC vpc-0c39cde96f29f8f4e · spans eu-west-1a, eu-west-1b",
+            "members": 2,
+            "unlinked": false
+          },
+          {
+            "node_id": "arn:aws:autoscaling:eu-west-1:416651950952:autoScalingGroup:f1b63b2e-23ae-4e18-ae00-85aca0819ff4:autoScalingGroupName/cyntro-tb-prod-asg-app",
+            "scope": "VPC vpc-0c39cde96f29f8f4e · spans eu-west-1a, eu-west-1b",
+            "members": 2,
+            "unlinked": false
+          }
+        ],
+        "unplaced_header": null,
+        "unplaced_chips": 0,
+        "groups_inside_unplaced": 0
+      }
+    },
+    {
+      "name": "reload-stability",
+      "data": {
+        "igw_identity_stable": true,
+        "group_count_stable": true,
+        "refresh_state_before": "queued",
+        "refresh_state_after": "queued",
+        "banner_before": "Refresh request submitted; worker status not confirmed. · Last updated Sep 12, 2026, 12:27 AM",
+        "banner_after": "Refresh request submitted; worker status not confirmed. · Last updated Sep 12, 2026, 12:27 AM"
+      }
+    },
+    {
+      "name": "page-errors",
+      "data": []
+    }
+  ]
+}
