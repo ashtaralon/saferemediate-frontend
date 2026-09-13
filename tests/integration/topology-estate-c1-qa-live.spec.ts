@@ -793,20 +793,44 @@ test.describe("C1 live QA — estate map against the deployed graph", () => {
       return reading
     }
 
+    /** Dismiss the service drawer if one is open. It is a fixed 720px panel at
+     *  z-220 covering the right edge INCLUDING the map header controls, so any
+     *  step that clicks something else has to get past it first. Escape is the
+     *  affordance under test in `reselect`; here we only need it gone, so the
+     *  close button is the fallback. */
+    async function dismissDrawer(): Promise<void> {
+      const panel = page.getByTestId("topology-service-detail-panel")
+      if (!(await panel.isVisible().catch(() => false))) return
+      await page.keyboard.press("Escape")
+      await page.waitForTimeout(400)
+      if (!(await panel.isVisible().catch(() => false))) return
+      await panel
+        .getByRole("button", { name: "Close service details" })
+        .click({ timeout: 10_000 })
+        .catch(() => {})
+      await page.waitForTimeout(400)
+    }
+
     // The enlarge control lives on the Network topology tab, not on the tab the
     // estate URL opens. Probe 2 switches tabs before enlarging; going straight
     // for the button spent the whole 300s test budget waiting for an element
     // that was never going to appear on the default tab (run 34747387060).
+    //
+    // Run 34747728564 then spent its whole budget on the opposite failure: the
+    // element WAS visible and enabled, and an open drawer intercepted all 140
+    // click retries. A helper that clicks blind cannot tell the two apart, so
+    // it clears the drawer first and reports what it had to clear.
     async function enterFullscreen(): Promise<ReturnType<typeof page.getByTestId>> {
       const fullscreen = page.getByTestId("topology-estate-map-fullscreen")
       if (await fullscreen.isVisible().catch(() => false)) return fullscreen
+      await dismissDrawer()
       const enlarge = page.getByTestId("topology-estate-map-enlarge")
       if (!(await enlarge.isVisible().catch(() => false))) {
         await page.getByRole("tab", { name: "Network topology" }).click()
         await expect(enlarge).toBeVisible({ timeout: 60_000 })
         await page.waitForTimeout(1500)
       }
-      await enlarge.click()
+      await enlarge.click({ timeout: 30_000 })
       await expect(fullscreen).toBeVisible({ timeout: 60_000 })
       await page.waitForTimeout(1500)
       return fullscreen
@@ -867,14 +891,29 @@ test.describe("C1 live QA — estate map against the deployed graph", () => {
       return reading
     }
 
-    /** Close the drawer, select a different chip, and prove the panel follows
-     *  the selection rather than keeping the previous resource. */
+    /** Escape dismisses the drawer; then a different chip proves the panel
+     *  follows the selection rather than keeping the previous resource.
+     *
+     *  Escape is pressed FIRST and asserted, because the drawer is a fixed
+     *  720px surface over the map header: one that will not dismiss blocks
+     *  every control behind it. Run 34747728564 measured `closed_on_escape:
+     *  false` and then burned its entire 300s budget retrying a click the
+     *  drawer was intercepting -- so the close button is used as a fallback
+     *  here. A probe must fail with a reading, never with a timeout. */
     async function reselect(label: string, previous: string | null) {
-      const fullscreen = await enterFullscreen()
+      const panel = page.getByTestId("topology-service-detail-panel")
+      const was_open = await panel.isVisible().catch(() => false)
       await page.keyboard.press("Escape")
       await page.waitForTimeout(600)
-      const panel = page.getByTestId("topology-service-detail-panel")
       const closed = !(await panel.isVisible().catch(() => false))
+      if (!closed) {
+        await panel
+          .getByRole("button", { name: "Close service details" })
+          .click({ timeout: 10_000 })
+          .catch(() => {})
+        await page.waitForTimeout(600)
+      }
+      const fullscreen = await enterFullscreen()
       const other = fullscreen.getByTestId("topology-service-node-icon").first()
       const haveOther = await other.isVisible().catch(() => false)
       let shown: string | null = null
@@ -890,9 +929,22 @@ test.describe("C1 live QA — estate map against the deployed graph", () => {
           .replace(/\s+/g, " ")
           .trim() || null
       }
-      const reading = { closed_on_escape: closed, reselected: haveOther, previous, shown_resource_id: shown }
+      const reading = {
+        drawer_was_open: was_open,
+        closed_on_escape: closed,
+        reselected: haveOther,
+        previous,
+        shown_resource_id: shown,
+      }
       report(`${label}-drawer-reselect`, reading)
       expect(shown ?? "", `${label}: a reselected node must not show the __igw__ anchor`).not.toContain("__igw__")
+      // Only meaningful when a drawer was actually open to dismiss.
+      if (was_open) {
+        expect(
+          closed,
+          `${label}: Escape must dismiss the service drawer -- it covers the map header controls`,
+        ).toBe(true)
+      }
       return reading
     }
 
