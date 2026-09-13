@@ -28,6 +28,7 @@ const cache = vi.hoisted(() => ({
   getCached: vi.fn(),
   getStaleCached: vi.fn(),
   setCached: vi.fn(),
+  clearCached: vi.fn(),
 }))
 
 vi.mock('@/lib/server/proxy-cache', () => ({
@@ -56,6 +57,7 @@ beforeEach(() => {
   cache.getCached.mockReset().mockReturnValue(undefined)
   cache.getStaleCached.mockReset().mockReturnValue(undefined)
   cache.setCached.mockReset()
+  cache.clearCached.mockReset()
   vi.spyOn(console, 'warn').mockImplementation(() => {})
   vi.spyOn(console, 'error').mockImplementation(() => {})
 })
@@ -265,5 +267,118 @@ describe('a stale serve says so, and says why', () => {
     expect(body.nodes).toHaveLength(1)
     expect(response.headers.get('X-Cache')).toBe('STALE')
     expect(response.headers.get('Cache-Control')).toBe('no-store')
+  })
+})
+
+describe('stale must never conceal an access denial', () => {
+  /**
+   * Reproduced: a synthetic backend 403 came back as HTTP 200 carrying the map
+   * from before access was denied. `serveStale` was called for EVERY backend
+   * status, so an authorization answer and a dead backend were handled alike.
+   *
+   * They are not alike. 5xx and 429 mean "ask again in a moment"; 401/403
+   * (authorization), 404 (this scope has no such system) and 409/410
+   * (invalidated) are the backend saying something ON PURPOSE, and the reader
+   * has to see it. A map the viewer is no longer entitled to, served under a
+   * 200, is the worst failure this proxy can produce.
+   */
+  const LAST_GOOD = {
+    system: 'testbed-webshop',
+    scored_at: '2026-09-12T00:27:27Z',
+    system_kpis: { workloads: 7 },
+    nodes: [{ id: 'i-abc' }, { id: 'i-def' }],
+  }
+
+  it.each([401, 403])('a backend %i is never covered by stale data', async (status) => {
+    cache.getStaleCached.mockReturnValue(LAST_GOOD)
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response('{"detail":"forbidden"}', { status }),
+    )
+
+    const response = await GET(request(), context)
+    const body = await response.json()
+
+    expect(response.status).toBe(status)
+    expect(response.ok).toBe(false)
+    expect(body.nodes).toEqual([])
+    expect(body.fromStaleCache).toBeUndefined()
+    expect(response.headers.get('X-Cache')).not.toBe('STALE')
+  })
+
+  it('a backend 404 is not covered either — the scope may simply not have it', async () => {
+    cache.getStaleCached.mockReturnValue(LAST_GOOD)
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}', { status: 404 }))
+
+    const response = await GET(request(), context)
+
+    expect(response.status).toBe(404)
+    expect((await response.json()).nodes).toEqual([])
+  })
+
+  it('a denial DROPS the warm entry, so the next request cannot HIT it', async () => {
+    // Without this, the concealment simply moves one request later: the warm
+    // cache would answer X-Cache HIT with the same forbidden map for a whole
+    // TTL, never consulting the backend again.
+    cache.getStaleCached.mockReturnValue(LAST_GOOD)
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}', { status: 403 }))
+
+    await GET(request(), context)
+
+    expect(cache.clearCached).toHaveBeenCalledOnce()
+    const [clearedKey] = cache.clearCached.mock.calls[0]
+    expect(clearedKey).toContain('testbed-webshop')
+  })
+
+  it('a transient 5xx STILL serves stale — the fix must not over-rotate', async () => {
+    cache.getStaleCached.mockReturnValue(LAST_GOOD)
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}', { status: 503 }))
+
+    const response = await GET(request(), context)
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.fromStaleCache).toBe(true)
+    expect(body.staleReason).toBe('backend_503')
+    expect(cache.clearCached).not.toHaveBeenCalled()
+  })
+
+  it('a 429 is transient too', async () => {
+    cache.getStaleCached.mockReturnValue(LAST_GOOD)
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}', { status: 429 }))
+
+    const response = await GET(request(), context)
+    expect(response.status).toBe(200)
+    expect((await response.json()).staleReason).toBe('backend_429')
+  })
+})
+
+describe('scope is part of identity, not a filter applied afterwards', () => {
+  it('last-good for one VPC is never served for another', async () => {
+    // The cache key carries customer/account/region/vpc. A stale entry stored
+    // under one scope must be unreachable from another -- otherwise switching
+    // VPC in the UI could show the previous VPC's map, labelled as this one's.
+    const vpcA = 'vpc-0c39cde96f29f8f4e'
+    const vpcB = 'vpc-00000000000000000'
+    const keysAsked: string[] = []
+    cache.getCached.mockImplementation((key: string) => {
+      keysAsked.push(key)
+      return undefined
+    })
+    cache.getStaleCached.mockImplementation((key: string) =>
+      key.includes(vpcA) ? { system: 'testbed-webshop', nodes: [{ id: 'only-in-vpc-a' }] } : undefined,
+    )
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}', { status: 503 }))
+
+    const scopedB = new NextRequest(
+      'https://app.example/api/proxy/topology-risk/testbed-webshop' +
+        `?customer_id=testbed-webshop&account_id=416651950952&region=eu-west-1&vpc_id=${vpcB}`,
+    )
+    const response = await GET(scopedB, context)
+    const body = await response.json()
+
+    expect(keysAsked.some((k) => k.includes(vpcB))).toBe(true)
+    expect(keysAsked.some((k) => k.includes(vpcA))).toBe(false)
+    expect(JSON.stringify(body)).not.toContain('only-in-vpc-a')
+    expect(response.status).toBe(503)   // nothing durable for THIS scope
   })
 })
