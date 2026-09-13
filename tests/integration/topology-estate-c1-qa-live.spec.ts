@@ -1701,7 +1701,21 @@ test.describe("C1 live QA — Step 5 acceptance matrix", () => {
     const counter = (await page.getByText(/account(s)? in view/).first().textContent()) ?? ""
     report("matrix-scope-bar", { ...state, counter: counter.trim() })
 
-    // The id must be present in full wherever the operator can read it.
+    // THE detector, and it had to be measured to be found. The DOM text always
+    // carries the full id -- run 34756120023 recorded
+    // selected_text "Testbed Webshop · 416651950952" while the control was
+    // visibly cut -- so asserting on the text can never catch the clipping.
+    // What catches it is the box: the same run measured client_width 208
+    // against scroll_width 218, i.e. ten pixels of the value the operator
+    // could not see.
+    expect(
+      state.scroll_width,
+      `the account control clips its value: it needs ${state.scroll_width}px and has ` +
+        `${state.client_width}px, so the id is cut where an operator reads it`,
+    ).toBeLessThanOrEqual(state.client_width)
+
+    // Then the belt and braces: the value is intact in the DOM, and reachable
+    // on hover for a display name long enough to outrun any cap.
     expect(state.selected_text, "the selected account option").toContain(ACCOUNT)
     expect(state.title, "the hover title must carry the full id").toContain(ACCOUNT)
 
