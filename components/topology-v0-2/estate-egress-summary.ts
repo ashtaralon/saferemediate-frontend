@@ -215,8 +215,16 @@ export interface ExternalDestinationRemainder {
 export interface ExternalDestinationMap {
   /** Bounded, in drawing order. Never longer than the caller's limit. */
   nodes: ExternalDestinationNode[]
+  /** The named destinations beyond the bound, KEPT rather than discarded, in
+   *  the same order they would have been drawn in.
+   *
+   *  They used to be counted and thrown away, so the "+N more" disclosure
+   *  promised "the rest" and then listed nothing — a control that offered
+   *  evidence it no longer had. Whatever the caller says is behind that
+   *  control has to be in here. */
+  hiddenNodes: ExternalDestinationNode[]
   /** Named destinations beyond the bound — the "+N" the caller offers on
-   *  demand. Zero means the drawn set IS every named destination. */
+   *  demand. Always equal to `hiddenNodes.length`. */
   hiddenCount: number
   /** Named destinations in total, drawn or not. */
   totalNamed: number
@@ -343,6 +351,7 @@ export function externalDestinationMap(
 
   const bound = Math.max(0, limit)
   const nodes = all.slice(0, bound)
+  const hiddenNodes = all.slice(bound)
 
   // Legs that named nothing: their traffic is real and its destinations are
   // unknown. Drawn as one group so the map never implies the named nodes are
@@ -363,7 +372,8 @@ export function externalDestinationMap(
 
   return {
     nodes,
-    hiddenCount: all.length - nodes.length,
+    hiddenNodes,
+    hiddenCount: hiddenNodes.length,
     totalNamed: all.length,
     attributedCount: all.filter(n => n.identity === "aws_service").length,
     remainder,

@@ -280,4 +280,45 @@ describe("externalDestinationMap — the bound", () => {
   it("reports hiddenCount 0 when the drawn set IS every named destination", () => {
     expect(mapOf(REAL_EGRESS, 50)!.hiddenCount).toBe(0)
   })
+
+  // The withheld destinations used to be counted and thrown away, so the
+  // "+N more" disclosure promised "the rest" and listed nothing. A control
+  // that offers evidence it no longer holds is worse than no control.
+  it("KEEPS the withheld destinations rather than only counting them", () => {
+    const m = mapOf(REAL_EGRESS, 3)!
+    expect(m.hiddenNodes).toHaveLength(m.hiddenCount)
+    expect(m.hiddenNodes.every(n => n.label.length > 0)).toBe(true)
+    expect(m.hiddenNodes.every(n => n.sources.length > 0)).toBe(true)
+  })
+
+  it("splits drawn and withheld without losing or duplicating one", () => {
+    const m = mapOf(REAL_EGRESS, 3)!
+    const keys = [...m.nodes, ...m.hiddenNodes].map(n => n.key)
+    expect(keys).toHaveLength(m.totalNamed)
+    expect(new Set(keys).size).toBe(m.totalNamed)
+  })
+
+  it("withholds in drawing order — the withheld set continues the drawn one", () => {
+    const all = mapOf(REAL_EGRESS, 50)!.nodes
+    const split = mapOf(REAL_EGRESS, 3)!
+    expect([...split.nodes, ...split.hiddenNodes]).toEqual(all)
+  })
+
+  it("carries an empty withheld set when nothing is withheld", () => {
+    expect(mapOf(REAL_EGRESS, 50)!.hiddenNodes).toEqual([])
+  })
+
+  it("keeps the attributed service DRAWN and pushes addresses into the withheld set", () => {
+    // Ordering is the contract the lane relies on: the strongest claim is the
+    // one a reader sees without opening anything.
+    const withService = [
+      ...REAL_EGRESS,
+      egress("i-svc", 1, [], {
+        egress_breakdown: [{ kind: "s3", count: 1, sample_hosts: ["x"], aws_service: "S3" }],
+      } as Partial<TrafficEdge>),
+    ]
+    const m = mapOf(withService, 1)!
+    expect(m.nodes[0].identity).toBe("aws_service")
+    expect(m.hiddenNodes.every(n => n.identity === "address")).toBe(true)
+  })
 })

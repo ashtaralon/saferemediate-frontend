@@ -63,7 +63,10 @@ const CONTINUATION_GEOMETRY = `(() => {
   for (const g of Array.from(svg.querySelectorAll('g[data-flow-source="__igw__"]'))) {
     const target = g.getAttribute('data-flow-target') || ''
     if (target.indexOf('extdst:') !== 0) continue
-    const path = g.querySelector('path[d]')
+    // The STROKE, not the halo behind it: both carry the same 'd', and the
+    // halo has no dash pattern, so reading the first path would report an
+    // inferred continuation as solid.
+    const path = g.querySelector('path[data-flow-line="stroke"]') || g.querySelector('path[d]')
     if (!path) continue
     const total = path.getTotalLength()
     if (!total) continue
@@ -71,7 +74,21 @@ const CONTINUATION_GEOMETRY = `(() => {
     if (!m) continue
     const a = path.getPointAtLength(0).matrixTransform(m)
     const b = path.getPointAtLength(total).matrixTransform(m)
-    out.paths.push({ target: target, start: { x: a.x, y: a.y }, end: { x: b.x, y: b.y }, length: total })
+    const dash = getComputedStyle(path).strokeDasharray
+    out.paths.push({
+      target: target,
+      start: { x: a.x, y: a.y },
+      end: { x: b.x, y: b.y },
+      length: total,
+      // How the renderer TREATED it, read off the DOM rather than off the
+      // payload we handed in: an edge can carry the right evidence fields and
+      // still be drawn as authoritative if the renderer ignores them.
+      authority: g.getAttribute('data-flow-authority'),
+      pathBasis: g.getAttribute('data-flow-path-basis'),
+      motion: g.getAttribute('data-flow-motion'),
+      dash: dash && dash !== 'none' ? dash : null,
+      animations: g.querySelectorAll('animate, animateMotion, animateTransform').length,
+    })
   }
   return out
 })()`
@@ -203,7 +220,17 @@ for (const density of DENSITIES) {
         hasOverlay: boolean
         hasIgw: boolean
         igwRect: Rect | null
-        paths: Array<{ target: string; start: { x: number; y: number }; end: { x: number; y: number }; length: number }>
+        paths: Array<{
+          target: string
+          start: { x: number; y: number }
+          end: { x: number; y: number }
+          length: number
+          authority: string | null
+          pathBasis: string | null
+          motion: string | null
+          dash: string | null
+          animations: number
+        }>
         destinations: Array<{ flowId: string; identity: string; rect: Rect }>
       }
       expect(geo.hasOverlay, "the flow overlay is drawn").toBe(true)
@@ -229,6 +256,38 @@ for (const density of DENSITIES) {
       // A zero-length or hairline path would satisfy "an edge exists" while
       // drawing nothing a reader can see.
       expect(Math.max(...landed.map(p => p.length)), "the drawn continuation is a hairline").toBeGreaterThan(8)
+
+      // --- and it must NOT be drawn as observed, authoritative traffic ------
+      //
+      // The evidence behind this continuation is ACTUAL_TRAFFIC to a
+      // NetworkEndpoint plus a ROUTES_VIA route. That is not proof that each
+      // packet crossed this gateway, so the line may not borrow the solid,
+      // animated treatment the renderer reserves for
+      // observed+authoritative+observed_segment flows. Asserted on what was
+      // RENDERED — a dash pattern and the absence of animation elements —
+      // because the payload fields being right does not prove the renderer
+      // honoured them.
+      for (const p of geo.paths) {
+        expect(p.authority, `continuation ${p.target} is not marked inferred at ${vp.name}·${density}`).toBe(
+          "inferred",
+        )
+        expect(
+          p.pathBasis,
+          `continuation ${p.target} is not marked synthetic at ${vp.name}·${density}`,
+        ).toBe("synthetic_expansion")
+        expect(
+          p.motion,
+          `continuation ${p.target} qualified for traffic motion at ${vp.name}·${density}`,
+        ).toBe("none")
+        expect(
+          p.dash,
+          `continuation ${p.target} is drawn SOLID — it reads as a measured path at ${vp.name}·${density}`,
+        ).not.toBeNull()
+        expect(
+          p.animations,
+          `continuation ${p.target} is animated as live traffic at ${vp.name}·${density}`,
+        ).toBe(0)
+      }
 
       // --- containment: past the boundary, clear of the tiers it must not hide
       // The canvas is a horizontal scroll region with a width floor, so at a
@@ -285,6 +344,37 @@ for (const density of DENSITIES) {
       await expect(more).toContainText(`+${hidden}`)
       await more.click()
       await waitTopmost(page, "topology-external-destinations-more-details", `${vp.name}·${density}`)
+
+      // The disclosure must CONTAIN the destinations it offers. It previously
+      // said "these are the rest" over an empty panel, because the map counted
+      // the withheld nodes and discarded them.
+      const moreDetails = page.getByTestId("topology-external-destinations-more-details")
+      const items = moreDetails.getByTestId("topology-external-destinations-more-item")
+      await expect(
+        items,
+        `the +${hidden} disclosure lists nothing at ${vp.name}·${density}`,
+      ).toHaveCount(hidden)
+      // Each carries what makes it a finding rather than a string: what it is,
+      // and which workloads were observed reaching it.
+      const evidence = await items.evaluateAll(els =>
+        els.map(el => ({
+          identity: el.getAttribute("data-identity"),
+          sources: (el.getAttribute("data-sources") ?? "").split(",").filter(Boolean),
+          text: (el.textContent ?? "").replace(/\s+/g, " ").trim(),
+        })),
+      )
+      for (const row of evidence) {
+        expect(["aws_service", "address"]).toContain(row.identity)
+        expect(row.sources.length, `a listed destination names no source: ${row.text}`).toBeGreaterThan(0)
+        expect(row.text, "a listed destination carries no source evidence").toContain("reached by")
+      }
+      // The payload is sample-only; the panel must not read as an inventory.
+      await expect(moreDetails).toContainText("not an inventory")
+
+      await page.screenshot({
+        path: `test-results/estate-egress-map-more-${density}-${vp.name}.png`,
+        fullPage: false,
+      })
       await page.keyboard.press("Escape")
 
       // The per-leg evidence detail, in the lane rather than the top strip.

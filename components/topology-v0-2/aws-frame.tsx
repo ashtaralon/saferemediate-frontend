@@ -3724,10 +3724,55 @@ function ExternalDestinationsLane({
               <p className="text-[12px] leading-snug font-semibold" style={{ color: PAL.ink }}>
                 {map.hiddenCount} further destination{map.hiddenCount === 1 ? "" : "s"}
               </p>
+              {/* The caveat belongs HERE, next to the list, not only on the
+                  lane's summary line. A reader who opens "+N more" is looking
+                  at what appears to be a complete enumeration; the payload is
+                  a SAMPLE (per-workload distinct counts with up to five
+                  addresses each), so the named set is smaller than the
+                  traffic it stands for and must never read as an inventory. */}
               <p className="mt-1 text-[11px] leading-snug" style={{ color: PAL.slate }}>
-                The lane draws {map.nodes.length} of {map.totalNamed} named destinations. These are
-                the rest, in the same order.
+                The lane draws {map.nodes.length} of {map.totalNamed} named destinations; these are
+                the rest, in the same order. Sampled addresses, not an inventory
+                {map.distinctUpperBound == null
+                  ? " — the payload records no distinct count"
+                  : ` — the payload counts up to ${map.distinctUpperBound} distinct across the legs`}
+                {map.legsWithUnknownDistinct > 0
+                  ? `, and ${map.legsWithUnknownDistinct} leg${
+                      map.legsWithUnknownDistinct === 1 ? "" : "s"
+                    } carry no count at all`
+                  : ""}
+                .
               </p>
+              <ul className="mt-2 space-y-1" data-testid="topology-external-destinations-more-list">
+                {map.hiddenNodes.map(node => (
+                  <li
+                    key={node.key}
+                    className="text-[11px] leading-snug"
+                    style={{ color: PAL.slate }}
+                    data-testid="topology-external-destinations-more-item"
+                    data-identity={node.identity}
+                    data-kind={node.kind ?? ""}
+                    data-sources={node.sources.join(",")}
+                  >
+                    <span
+                      className={node.identity === "aws_service" ? "font-semibold" : "font-mono"}
+                      style={{ color: PAL.ink }}
+                    >
+                      {node.label}
+                    </span>{" "}
+                    · {node.identity === "aws_service" ? "AWS service" : "address"}
+                    {/* The source evidence: which workloads were observed
+                        reaching it. A label with no attribution is a string;
+                        with its sources it is a finding an operator can act
+                        on. */}
+                    {" · reached by "}
+                    <span className="font-mono break-all">{node.sources.join(", ")}</span>
+                    {node.observationCount == null
+                      ? ""
+                      : ` · ${node.observationCount} observation${node.observationCount === 1 ? "" : "s"}`}
+                  </li>
+                ))}
+              </ul>
             </PopoverContent>
           </Popover>
         ) : null}
@@ -5709,14 +5754,24 @@ function FlowOverlay({
           key={i}
           data-flow-source={p.sourceId}
           data-flow-target={p.targetId}
+          // The evidence state the line was drawn from, on the line itself: a
+          // dash pattern is readable but not attributable, and a reviewer
+          // asking "why is this dashed" should not have to infer it.
+          data-flow-authority={p.authorityState ?? undefined}
+          data-flow-path-basis={p.pathBasis ?? undefined}
+          data-flow-motion={motionKind}
           data-flow-bundle={p.bundle ? String(p.bundle.count) : undefined}
           data-flow-members={p.bundle ? p.bundle.members.join("|") : undefined}
         >
           {/* A badge-only entry (a same-lane trunk's second word) draws no line. */}
           {p.d ? (
           <>
-          {/* Soft halo behind the line so it's visible over the busy chip grid */}
+          {/* Soft halo behind the line so it's visible over the busy chip grid.
+              Named, because it shares the halo's `d` with the real line and a
+              probe reading "the first path" gets this one — which carries no
+              dash pattern and would report an inferred edge as solid. */}
           <path
+            data-flow-line="halo"
             d={p.d}
             fill="none"
             stroke={stroke}
@@ -5725,6 +5780,7 @@ function FlowOverlay({
             strokeLinecap="round"
           />
           <path
+            data-flow-line="stroke"
             d={p.d}
             fill="none"
             stroke={stroke}
@@ -8652,25 +8708,41 @@ export function AwsFrame({
     // One edge per drawn destination, from the gateway chip the map already
     // draws to the chip the lane draws. This is what makes the continuation
     // VISIBLE rather than described: FlowOverlay resolves both ends by
-    // `data-flow-id` and routes a line between the two real rects. They carry
-    // `edge_class: "egress"` so they are drawn in the legend's own Internet
-    // egress language, and they are NOT evidence of their own — every one of
-    // them stands for an observed leg the summary already admitted.
+    // `data-flow-id` and routes a line between the two real rects.
+    //
+    // THEY ARE NOT OBSERVED SEGMENTS, and they say so. The evidence behind
+    // them is ACTUAL_TRAFFIC to a NetworkEndpoint plus a ROUTES_VIA route —
+    // which is NOT proof that each packet traversed this gateway. Drawing them
+    // with no evidence state gave them the solid, live-animated treatment the
+    // renderer reserves for observed+authoritative+observed_segment flows, so
+    // a synthesized join read as measured per-packet truth.
+    //
+    // `authority_state: "inferred"` + `path_basis: "synthetic_expansion"` are
+    // the vocabulary the renderer already understands: `inferredOrUnverified`
+    // dashes them (7 5) and `trafficMotionKind` returns "none", so they never
+    // animate. `evidence_type: "inferred"` keeps the third field from being
+    // read as observed by anything downstream.
     if (externalDestinations) {
       const gatewayFlowId = IGW_CANVAS_ANCHOR_ID
-      const continuation: TrafficEdge[] = externalDestinations.nodes.map(node => ({
-        source_id: gatewayFlowId,
-        target_id: `${EXTERNAL_DESTINATION_FLOW_PREFIX}${node.key}`,
-        edge_class: "egress",
-        protocol: null,
-      }) as unknown as TrafficEdge)
-      if (externalDestinations.remainder) {
-        continuation.push({
+      const synthetic = (targetId: string): TrafficEdge =>
+        ({
           source_id: gatewayFlowId,
-          target_id: `${EXTERNAL_DESTINATION_FLOW_PREFIX}__unknown__`,
+          target_id: targetId,
           edge_class: "egress",
           protocol: null,
-        } as unknown as TrafficEdge)
+          evidence_type: "inferred",
+          authority_state: "inferred",
+          path_basis: "synthetic_expansion",
+          // No last_seen: a timestamp would make this eligible for the
+          // "historical direction" animation, which is also a claim about
+          // observed packets.
+          last_seen: null,
+        }) as unknown as TrafficEdge
+      const continuation: TrafficEdge[] = externalDestinations.nodes.map(node =>
+        synthetic(`${EXTERNAL_DESTINATION_FLOW_PREFIX}${node.key}`),
+      )
+      if (externalDestinations.remainder) {
+        continuation.push(synthetic(`${EXTERNAL_DESTINATION_FLOW_PREFIX}__unknown__`))
       }
       edges = [...edges, ...continuation]
     }
