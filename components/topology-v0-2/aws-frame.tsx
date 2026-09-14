@@ -4521,6 +4521,29 @@ function FlowOverlay({
     if (!container) return
     let cancelled = false
 
+    /** The element a flow line may actually be anchored to: `el` when it is
+     *  laid out, else the nearest ancestor that is.
+     *
+     *  A chip inside a COLLAPSED disclosure is `display: none`, and a hidden
+     *  element's rect is 0x0 at the document origin — which `toNat` maps to a
+     *  point up and left of the overlay. That is how the six logical groups'
+     *  membership lines came to run out of the map's top-left corner and their
+     *  TARGETS / LAUNCHES / MEMBER_OF_CLUSTER words to sit on the "Platform
+     *  map" header: the band learned to collapse (this branch) and the overlay
+     *  kept anchoring to chips that were no longer laid out. Anchoring to the
+     *  collapsed band instead is the truthful reading — the group IS there,
+     *  the reader just has not opened it — and it keeps the edge visible
+     *  rather than dropping evidence because a disclosure is shut. */
+    const laidOutAnchor = (el: HTMLElement): HTMLElement | null => {
+      let cur: HTMLElement | null = el
+      while (cur && container.contains(cur)) {
+        const r = cur.getBoundingClientRect()
+        if (r.width > 0 || r.height > 0) return cur
+        cur = cur.parentElement
+      }
+      return null
+    }
+
     // Resolve an edge endpoint to a live element. Exact chip first; when the
     // LOD density collapse has replaced chips with stack tiles, fall back to
     // the tile that lists the id in data-flow-ids — the flow story must
@@ -4529,7 +4552,12 @@ function FlowOverlay({
       const exact = container.querySelector<HTMLElement>(
         `[data-flow-id="${CSS.escape(id)}"]`,
       )
-      if (exact) return { el: exact, grouped: false }
+      if (exact) {
+        const anchor = laidOutAnchor(exact)
+        // `grouped` when we climbed: the ancestor stands for more than this
+        // one id, which is exactly what a collapsed band does.
+        if (anchor) return { el: anchor, grouped: anchor !== exact }
+      }
       const tiles = container.querySelectorAll<HTMLElement>("[data-flow-ids]")
       for (const t of tiles) {
         const ids = (t.getAttribute("data-flow-ids") ?? "").split("|")
@@ -4557,7 +4585,10 @@ function FlowOverlay({
       const exact = container.querySelector<HTMLElement>(
         `[data-flow-id="${CSS.escape(id)}"]`,
       )
-      if (exact) return exact
+      if (exact) {
+        const anchor = laidOutAnchor(exact)
+        if (anchor) return anchor
+      }
       if (id === "__igw__" || id.startsWith("igw-")) {
         return (
           container.querySelector<HTMLElement>(`[data-flow-id="__igw__"]`) ??
