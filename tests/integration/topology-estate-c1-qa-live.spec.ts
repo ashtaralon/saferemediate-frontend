@@ -37,6 +37,7 @@ const SYSTEM = process.env.C1_SYSTEM || "testbed-webshop"
 const CUSTOMER = process.env.C1_CUSTOMER_ID || "testbed-webshop"
 const ACCOUNT = process.env.C1_ACCOUNT_ID || "416651950952"
 const REGION = process.env.C1_REGION || "eu-west-1"
+const EXPECTED_FRONTEND_SHA = process.env.EXPECTED_FRONTEND_SHA?.trim() || null
 const SCOPE = new URLSearchParams({
   customer_id: CUSTOMER,
   account_id: ACCOUNT,
@@ -290,6 +291,64 @@ function summarizeTopology(body: TopologyRisk) {
         }
       : null,
   }
+}
+
+/** MODULE SCOPE, deliberately.
+ *
+ *  This lived inside the Step 5 describe, so a sibling describe could not
+ *  see it: the release QA block called openMap and died with a
+ *  ReferenceError before opening a single page (run 34875231940, four
+ *  cases, no acceptance evidence). A helper two describes need belongs to
+ *  neither of them. Behaviour is unchanged — same retries, same readiness
+ *  signal, same message. */
+/** Open the estate map, SELECT the map view, and wait for the map surface —
+ *  the same retry an operator makes, since an uncached topology-risk on C1
+ *  runs close to the proxy ceiling and the first load can land on the
+ *  loading card. Returns how many loads it took, so a slow mount is
+ *  reported rather than hidden by the retry.
+ *
+ *  The click is not optional, and leaving it out is what made the first run
+ *  of this block fail. `topology-estate-view-map` is a view-switcher BUTTON
+ *  (`role="tab"`, estate-map-view.tsx:1789) and the tabs are
+ *  `[["inventory", "Command map"], ["map", "Network topology"]]` — so it is
+ *  visible the moment the page chrome renders, while the DEFAULT view is
+ *  Command map. Waiting for that button therefore proves the page loaded
+ *  and nothing about the canvas: the three viewport probes measured zero
+ *  tier stacks, zero subnet cells, zero rails and zero VPC frames, and the
+ *  keyboard probe spent its whole 300s budget waiting for an enlarge
+ *  control that only exists on the map. The fail-closed rule turned all of
+ *  that into a loud failure instead of "nothing is clipped", which is the
+ *  only reason it was one diagnosis rather than four.
+ *
+ *  Readiness is the enlarge control, not the tab: it belongs to the map
+ *  surface, so its presence is evidence the canvas rendered. Clicking by
+ *  TESTID rather than by the "Network topology" label keeps this off a
+ *  human-readable string that may be renamed or localized. */
+async function openMap(page: Page, label: string): Promise<number> {
+  const mapTab = page.getByTestId("topology-estate-view-map")
+  const enlarge = page.getByTestId("topology-estate-map-enlarge")
+  const blocked = page.getByText(
+    /Topology risk unavailable|No systems available yet|Estate map temporarily unavailable/i,
+  )
+  let lastReason = "never mounted"
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    await page.goto(ESTATE_URL, { waitUntil: "domcontentloaded" })
+    await expect(mapTab.or(blocked).first()).toBeVisible({ timeout: 90_000 })
+    if (!(await mapTab.isVisible().catch(() => false))) {
+      lastReason =
+        ((await blocked.first().textContent().catch(() => null)) ?? "").replace(/\s+/g, " ").trim() ||
+        "blocked with no message"
+      continue
+    }
+    await mapTab.click()
+    // The map surface itself, not the tab that reveals it.
+    if (await enlarge.isVisible({ timeout: 90_000 }).catch(() => false)) {
+      await page.waitForTimeout(1500) // let the canvas settle before measuring
+      return attempt
+    }
+    lastReason = "map view selected but the map surface never rendered"
+  }
+  throw new Error(`${label}: estate map did not mount in 3 loads — ${lastReason}`)
 }
 
 test.describe("C1 live QA — estate map against the deployed graph", () => {
@@ -1468,55 +1527,6 @@ test.describe("C1 live QA — Step 5 acceptance matrix", () => {
     { name: "narrow-1024x720", width: 1024, height: 720 },
   ] as const
 
-  /** Open the estate map, SELECT the map view, and wait for the map surface —
-   *  the same retry an operator makes, since an uncached topology-risk on C1
-   *  runs close to the proxy ceiling and the first load can land on the
-   *  loading card. Returns how many loads it took, so a slow mount is
-   *  reported rather than hidden by the retry.
-   *
-   *  The click is not optional, and leaving it out is what made the first run
-   *  of this block fail. `topology-estate-view-map` is a view-switcher BUTTON
-   *  (`role="tab"`, estate-map-view.tsx:1789) and the tabs are
-   *  `[["inventory", "Command map"], ["map", "Network topology"]]` — so it is
-   *  visible the moment the page chrome renders, while the DEFAULT view is
-   *  Command map. Waiting for that button therefore proves the page loaded
-   *  and nothing about the canvas: the three viewport probes measured zero
-   *  tier stacks, zero subnet cells, zero rails and zero VPC frames, and the
-   *  keyboard probe spent its whole 300s budget waiting for an enlarge
-   *  control that only exists on the map. The fail-closed rule turned all of
-   *  that into a loud failure instead of "nothing is clipped", which is the
-   *  only reason it was one diagnosis rather than four.
-   *
-   *  Readiness is the enlarge control, not the tab: it belongs to the map
-   *  surface, so its presence is evidence the canvas rendered. Clicking by
-   *  TESTID rather than by the "Network topology" label keeps this off a
-   *  human-readable string that may be renamed or localized. */
-  async function openMap(page: Page, label: string): Promise<number> {
-    const mapTab = page.getByTestId("topology-estate-view-map")
-    const enlarge = page.getByTestId("topology-estate-map-enlarge")
-    const blocked = page.getByText(
-      /Topology risk unavailable|No systems available yet|Estate map temporarily unavailable/i,
-    )
-    let lastReason = "never mounted"
-    for (let attempt = 1; attempt <= 3; attempt += 1) {
-      await page.goto(ESTATE_URL, { waitUntil: "domcontentloaded" })
-      await expect(mapTab.or(blocked).first()).toBeVisible({ timeout: 90_000 })
-      if (!(await mapTab.isVisible().catch(() => false))) {
-        lastReason =
-          ((await blocked.first().textContent().catch(() => null)) ?? "").replace(/\s+/g, " ").trim() ||
-          "blocked with no message"
-        continue
-      }
-      await mapTab.click()
-      // The map surface itself, not the tab that reveals it.
-      if (await enlarge.isVisible({ timeout: 90_000 }).catch(() => false)) {
-        await page.waitForTimeout(1500) // let the canvas settle before measuring
-        return attempt
-      }
-      lastReason = "map view selected but the map surface never rendered"
-    }
-    throw new Error(`${label}: estate map did not mount in 3 loads — ${lastReason}`)
-  }
 
   for (const vp of VIEWPORTS) {
     test(`viewport ${vp.name}: the page never scrolls sideways, and clipping is measured`, async ({
@@ -1827,4 +1837,477 @@ test.describe("C1 live QA — Step 5 acceptance matrix", () => {
     ).toBe(0)
     expect(pageErrors, "reduced motion: uncaught page errors").toEqual([])
   })
+})
+
+// ---------------------------------------------------------------------------
+// Release QA — the egress map on the DEPLOYED C1 build (merge 53549ead).
+//
+// Read-only. Everything here is measured against the payload THE SAME PAGE
+// fetched, so a screen that agrees with itself but not with the graph fails.
+//
+// The claims under test are the ones the review named: the IGW continues into
+// destination nodes; that continuation is drawn DASHED and never animated,
+// because ACTUAL_TRAFFIC to a NetworkEndpoint plus ROUTES_VIA is not proof a
+// packet crossed the gateway; the "+N more" disclosure holds the destinations
+// it offers; panels stack above the map; the Data tier stays clear; a mirrored
+// relationship is badged once; and the diagnostics stay collapsed by default.
+// ---------------------------------------------------------------------------
+test.describe("release QA — egress destinations beyond the IGW", () => {
+  const RELEASE_VIEWPORTS = [
+    { name: "1600x900", width: 1600, height: 900 },
+    { name: "1512x771", width: 1512, height: 771 },
+    { name: "1366x768", width: 1366, height: 768 },
+    { name: "1024x720", width: 1024, height: 720 },
+  ] as const
+
+  /** Every continuation path on the live page, with the treatment the renderer
+   *  gave it — read off the DOM, not off the payload. */
+  const LIVE_CONTINUATION = `(() => {
+    const svg = document.querySelector('[data-testid="topology-flow-overlay"]')
+    const igw = document.querySelector('[data-flow-id="__igw__"]')
+    const out = { hasOverlay: !!svg, hasIgw: !!igw, igwRect: null, paths: [], destinations: [] }
+    if (igw) { const r = igw.getBoundingClientRect(); out.igwRect = { left: r.left, top: r.top, right: r.right, bottom: r.bottom } }
+    for (const n of Array.from(document.querySelectorAll('[data-testid="topology-external-destination-node"], [data-testid="topology-external-destination-unknown"]'))) {
+      const r = n.getBoundingClientRect()
+      out.destinations.push({
+        flowId: n.getAttribute('data-flow-id'),
+        identity: n.getAttribute('data-identity') || 'unknown-group',
+        label: (n.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 60),
+        rect: { left: r.left, top: r.top, right: r.right, bottom: r.bottom },
+      })
+    }
+    if (!svg) return out
+    for (const g of Array.from(svg.querySelectorAll('g[data-flow-source="__igw__"]'))) {
+      const target = g.getAttribute('data-flow-target') || ''
+      if (target.indexOf('extdst:') !== 0) continue
+      const path = g.querySelector('path[data-flow-line="stroke"]') || g.querySelector('path[d]')
+      if (!path) continue
+      const total = path.getTotalLength(); if (!total) continue
+      const m = path.getScreenCTM(); if (!m) continue
+      const a = path.getPointAtLength(0).matrixTransform(m)
+      const b = path.getPointAtLength(total).matrixTransform(m)
+      const dash = getComputedStyle(path).strokeDasharray
+      out.paths.push({
+        target, length: total,
+        start: { x: a.x, y: a.y }, end: { x: b.x, y: b.y },
+        authority: g.getAttribute('data-flow-authority'),
+        pathBasis: g.getAttribute('data-flow-path-basis'),
+        motion: g.getAttribute('data-flow-motion'),
+        dash: dash && dash !== 'none' ? dash : null,
+        animations: g.querySelectorAll('animate, animateMotion, animateTransform').length,
+      })
+    }
+    return out
+  })()`
+
+  const TOPMOST = (testid: string): string => `(() => {
+    const el = document.querySelector('[data-testid="${testid}"]')
+    if (!el) return null
+    let n = el, o = 1
+    while (n && n !== document.documentElement) { o *= Number(getComputedStyle(n).opacity); n = n.parentElement }
+    const r = el.getBoundingClientRect()
+    const probes = [[r.left + r.width/2, r.top + 6], [r.left + r.width/2, r.top + r.height/2], [r.left + r.width/2, r.bottom - 6]]
+    const covered = []
+    for (const [x, y] of probes) {
+      const t = document.elementFromPoint(x, y)
+      if (!t || !(el === t || el.contains(t))) covered.push(t ? (t.getAttribute('data-testid') || t.tagName.toLowerCase()) : 'nothing')
+    }
+    return { effectiveOpacity: o, covered, rect: { x: r.left, y: r.top, w: r.width, h: r.height }, inViewport: r.left >= -1 && r.right <= innerWidth + 1 && r.top >= -1 && r.bottom <= innerHeight + 1 }
+  })()`
+
+  /** Client-space shapes the LIVE_CONTINUATION probe returns. Named rather
+   *  than inlined: the probe runs in the browser and its result crosses back
+   *  as `any`, so these are the only place the shape is written down. */
+  interface ProbePoint {
+    x: number
+    y: number
+  }
+  interface ProbeRect {
+    left: number
+    top: number
+    right: number
+    bottom: number
+  }
+
+  /** One drawn continuation path and the treatment the renderer gave it. */
+  interface ProbePath {
+    target: string
+    length: number
+    start: ProbePoint
+    end: ProbePoint
+    authority: string | null
+    pathBasis: string | null
+    motion: string | null
+    dash: string | null
+    animations: number
+  }
+  interface ProbeDestination {
+    flowId: string
+    identity: string
+    label: string
+    rect: ProbeRect
+  }
+  interface ContinuationProbe {
+    hasOverlay: boolean
+    hasIgw: boolean
+    igwRect: ProbeRect | null
+    paths: ProbePath[]
+    destinations: ProbeDestination[]
+  }
+
+  const near = (p: ProbePoint, r: ProbeRect, pad = 30): boolean =>
+    p.x >= r.left - pad && p.x <= r.right + pad && p.y >= r.top - pad && p.y <= r.bottom + pad
+
+  for (const vp of RELEASE_VIEWPORTS) {
+    test(`egress map on live C1 at ${vp.name}`, async ({ context, page }) => {
+      test.setTimeout(240_000)
+      // The same readiness every other live test establishes first. Without
+      // it the run reaches the login page and measures nothing — a second
+      // harness defect the ReferenceError was hiding behind.
+      await seedAuthCookie(context)
+      const consoleErrors: string[] = []
+      const failedRequests: string[] = []
+      const pageErrors: string[] = []
+      page.on("console", m => { if (m.type() === "error") consoleErrors.push(m.text().slice(0, 300)) })
+      page.on("requestfailed", r => failedRequests.push(`${r.method()} ${r.url().slice(0, 200)}`))
+      page.on("pageerror", e => pageErrors.push(String(e).slice(0, 300)))
+
+      await page.setViewportSize({ width: vp.width, height: vp.height })
+
+      // The deployed revision this QA is about.
+      const bv = await page.request.get("/api/build-version")
+      expect(bv.ok(), `${vp.name}: /api/build-version returned HTTP ${bv.status()}`).toBe(true)
+      const build = await bv.json()
+      report("release-build-version", build)
+      expect(
+        String(build?.deploymentVersion ?? ""),
+        `${vp.name}: deploymentVersion is not a full Git SHA`,
+      ).toMatch(/^[0-9a-f]{40}$/)
+      if (EXPECTED_FRONTEND_SHA) {
+        expect(
+          build?.deploymentVersion,
+          `${vp.name}: tested a different frontend revision than the release under review`,
+        ).toBe(EXPECTED_FRONTEND_SHA)
+      }
+
+      await openMap(page, `release-${vp.name}`)
+      const deps = page
+        .getByTestId("topology-flow-mode-toggle")
+        .getByRole("button", { name: "Dependencies" })
+        .first()
+      await expect(deps, `${vp.name}: Dependencies lens control is missing`).toBeVisible()
+      await deps.click()
+      await expect(deps, `${vp.name}: Dependencies lens did not become active`).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      )
+      await page.waitForTimeout(1200)
+
+      // --- the page's OWN payload, so the screen is checked against the graph
+      const res = await page.request.get(TOPOLOGY_RISK_PATH)
+      expect(res.ok(), `${vp.name}: topology-risk returned HTTP ${res.status()}`).toBe(true)
+      const payload = await res.json()
+      const edges = (payload?.traffic_edges ?? payload?.data?.traffic_edges ?? []) as Array<Record<string, unknown>>
+      const observedEgress = edges.filter(e => {
+        const t = String(e.target_id ?? "")
+        if (!(t === "__igw__" || t.startsWith("igw-"))) return false
+        if (e.evidence_type === "configured" || e.path_basis === "configured_route" || e.authority_state === "configured") return false
+        return e.evidence_type === "observed" || e.external_destinations != null || ((e.egress_breakdown as unknown[]) ?? []).length > 0
+      })
+      const gateways = [...new Set(observedEgress.flatMap(e => ((e.egress_hops as Array<{kind:string;id:string}>) ?? []).filter(h => h.kind === "igw").map(h => h.id)))]
+      report("release-payload", { observed_egress_legs: observedEgress.length, gateways })
+      expect(
+        observedEgress.length,
+        `${vp.name}: the release acceptance payload has no observed egress legs`,
+      ).toBeGreaterThan(0)
+      expect(gateways.length, `${vp.name}: observed egress names no IGW hop`).toBeGreaterThan(0)
+
+      // --- Glance (default) then Inventory, embedded -----------------------
+      for (const density of ["glance", "inventory"] as const) {
+        const toggle = page.getByTestId(`topology-estate-density-${density}`)
+        await expect(toggle, `${vp.name}: no embedded ${density} control`).toBeVisible()
+        await toggle.click()
+        await page.waitForTimeout(1200)
+
+        const lane = page.getByTestId("topology-external-destinations-lane")
+        const laneVisible = await lane.isVisible().catch(() => false)
+        report(`release-lane-${density}-${vp.name}`, {
+          visible: laneVisible,
+          nodes: laneVisible ? await lane.getAttribute("data-node-count") : null,
+          totalNamed: laneVisible ? await lane.getAttribute("data-total-named") : null,
+          hidden: laneVisible ? await lane.getAttribute("data-hidden-count") : null,
+          attributed: laneVisible ? await lane.getAttribute("data-attributed-count") : null,
+          gateway: laneVisible ? await lane.getAttribute("data-gateway-id") : null,
+        })
+
+        if (observedEgress.length > 0) {
+          expect(laneVisible, `${density}·${vp.name}: payload has ${observedEgress.length} observed egress legs and no lane is drawn`).toBe(true)
+          await lane.scrollIntoViewIfNeeded()
+          if (gateways.length > 0) {
+            expect(gateways, `${density}·${vp.name}: the lane names a gateway the payload does not`).toContain(
+              await lane.getAttribute("data-gateway-id"),
+            )
+          }
+
+          // The continuation, and how it was DRAWN.
+          const geo = (await page.evaluate(LIVE_CONTINUATION)) as ContinuationProbe
+          report(`release-continuation-${density}-${vp.name}`, {
+            paths: geo.paths.length,
+            destinations: geo.destinations.length,
+            treatments: geo.paths.map(p => ({ authority: p.authority, pathBasis: p.pathBasis, motion: p.motion, dash: p.dash, animations: p.animations })),
+          })
+          expect(geo.paths.length, `${density}·${vp.name}: no IGW → destination path is drawn`).toBeGreaterThan(0)
+          // Narrowed, not asserted: the probe returns null for igwRect when the
+          // gateway chip is absent, and a non-null assertion there would turn a
+          // missing IGW into a confusing geometry failure instead of this one.
+          expect(geo.igwRect, `${density}·${vp.name}: the in-map IGW chip has no rect to leave from`).not.toBeNull()
+          const igwRect = geo.igwRect as ProbeRect
+          const byId = new Map<string, ProbeRect>(geo.destinations.map(d => [d.flowId, d.rect]))
+          const landed = geo.paths.filter(p => {
+            const dst = byId.get(p.target); if (!dst) return false
+            return (near(p.start, igwRect) && near(p.end, dst)) || (near(p.end, igwRect) && near(p.start, dst))
+          })
+          expect(landed.length, `${density}·${vp.name}: a continuation path lands on neither chip`).toBeGreaterThan(0)
+          // Dashed, static, never live.
+          for (const p of geo.paths) {
+            expect(p.authority, `${density}·${vp.name}: continuation not marked inferred`).toBe("inferred")
+            expect(p.pathBasis, `${density}·${vp.name}: continuation not marked synthetic`).toBe("synthetic_expansion")
+            expect(p.motion, `${density}·${vp.name}: continuation qualified for traffic motion`).toBe("none")
+            expect(p.dash, `${density}·${vp.name}: continuation drawn SOLID — reads as a measured path`).not.toBeNull()
+            expect(p.animations, `${density}·${vp.name}: continuation animated as live traffic`).toBe(0)
+          }
+
+          // The Data tier stays clear of the lane.
+          const laneBox = await lane.boundingBox()
+          const cells = page.locator('[data-tier="data"]')
+          for (let i = 0; i < (await cells.count()); i++) {
+            const c = await cells.nth(i).boundingBox()
+            if (!c || !laneBox) continue
+            const w = Math.min(laneBox.x + laneBox.width, c.x + c.width) - Math.max(laneBox.x, c.x)
+            const h = Math.min(laneBox.y + laneBox.height, c.y + c.height) - Math.max(laneBox.y, c.y)
+            expect(w > 0 && h > 0 ? Math.round(w * h) : 0, `${density}·${vp.name}: lane overlaps data-tier cell ${i}`).toBe(0)
+          }
+
+          // "+N more" must HOLD what it offers.
+          const hidden = Number(await lane.getAttribute("data-hidden-count"))
+          if (hidden > 0) {
+            const more = page.getByTestId("topology-external-destinations-more")
+            await more.click()
+            const panel = page.getByTestId("topology-external-destinations-more-details")
+            await expect(panel).toBeVisible()
+            await page.waitForTimeout(400)
+            const items = panel.getByTestId("topology-external-destinations-more-item")
+            const listed = await items.count()
+            const stack = (await page.evaluate(TOPMOST("topology-external-destinations-more-details"))) as any
+            report(`release-more-${density}-${vp.name}`, { hidden, listed, stack })
+            expect(listed, `${density}·${vp.name}: +${hidden} disclosure lists ${listed}`).toBe(hidden)
+            expect(stack.covered, `${density}·${vp.name}: the +N panel is painted under the map`).toEqual([])
+            expect(stack.inViewport, `${density}·${vp.name}: the +N panel is outside the viewport`).toBe(true)
+            await expect(panel).toContainText("not an inventory")
+            await shot(page, `c1-release-more-${density}-${vp.name}`)
+            await page.keyboard.press("Escape")
+          }
+        }
+        await shot(page, `c1-release-${density}-${vp.name}`)
+      }
+
+      // --- collapsed-by-default diagnostics + trigger labels ---------------
+      const coverage = page.getByTestId("topology-lane-coverage").first()
+      const band = page.getByTestId("topology-logical-group-band").first()
+      const diagnostics = {
+        coverage_present: await coverage.count(),
+        coverage_details_open: (await coverage.count()) ? await coverage.getAttribute("data-details-open") : null,
+        band_present: await band.count(),
+        band_open: (await band.count()) ? await band.getAttribute("data-groups-open") : null,
+      }
+      report(`release-diagnostics-${vp.name}`, diagnostics)
+      expect(diagnostics.coverage_present, `${vp.name}: on-demand coverage disclosure is missing`).toBe(1)
+      expect(diagnostics.coverage_details_open, "coverage details open by default").toBe("false")
+      expect(diagnostics.band_present, `${vp.name}: on-demand logical-groups disclosure is missing`).toBe(1)
+      expect(diagnostics.band_open, "logical groups open by default").toBe("false")
+
+      // A mirrored relationship is ONE badge, counting unique pairs.
+      //
+      // Read the DRAWN word and the TITLE separately. A badge group's
+      // textContent concatenates its visible <text> with its <title>, and the
+      // title is exactly where the twin spelling and the edge-row count are
+      // SUPPOSED to live — so splitting the group's text on "×" counts the
+      // title's occurrence and fails on correct markup (run 34876831727, four
+      // viewport cases, before fullscreen). The fixture spec at
+      // topology-estate-semantics-fixture.spec.ts:241 already reads it the
+      // right way; this is the same assertion against the live page.
+      // Read per group through LOCATORS, exactly as the fixture spec does: no
+      // evaluateAll, so the drawn words and the title are never concatenated
+      // and every value here is typed rather than crossing back as `any`.
+      interface BundleGroup {
+        spellings: string[]
+        pairs: string | null
+        edges: string | null
+        drawn: string[]
+        title: string
+      }
+      const badges = await page
+        .locator('[data-testid="topology-flow-badge"][data-bundle-spellings]')
+        .all()
+      const bundleGroups: BundleGroup[] = []
+      for (const badge of badges) {
+        // Annotated, so the element type is the same here as it is under the
+        // project's real Playwright types rather than inferred from `any`.
+        const drawnTexts: string[] = await badge.locator("text").allTextContents()
+        bundleGroups.push({
+          spellings: ((await badge.getAttribute("data-bundle-spellings")) ?? "")
+            .split(",")
+            .filter(Boolean),
+          pairs: await badge.getAttribute("data-bundle-pairs"),
+          edges: await badge.getAttribute("data-bundle-edges"),
+          drawn: drawnTexts.map(t => t.trim()),
+          title: ((await badge.locator("title").first().textContent().catch(() => null)) ?? "").trim(),
+        })
+      }
+      report(`release-trigger-labels-${vp.name}`, bundleGroups)
+
+      const mirroredGroups = bundleGroups.filter(b => b.spellings.length > 1)
+      expect(
+        mirroredGroups,
+        `${vp.name}: TARGETS/TRIGGERS twin was not collapsed into exactly one visible relationship`,
+      ).toHaveLength(1)
+      expect([...mirroredGroups[0].spellings].sort()).toEqual(["TARGETS", "TRIGGERS"])
+      for (const g of mirroredGroups) {
+        const [printed, twin] = g.spellings
+        const pairs = Number(g.pairs)
+        const edges = Number(g.edges)
+        // One group per mirrored relationship, identified by its own counts.
+        const mirrored = page.locator(
+          `[data-testid="topology-flow-badge"][data-bundle-pairs="${g.pairs}"]` +
+            `[data-bundle-edges="${g.edges}"]`,
+        )
+        await expect(mirrored, `${vp.name}: more than one badge speaks for ${printed}/${twin}`).toHaveCount(1)
+        // The twin never earns a badge of its own.
+        await expect(
+          page.locator(`[data-testid="topology-flow-badge"][data-bundle-spellings="${twin}"]`),
+          `${vp.name}: ${twin} got a badge of its own alongside ${printed}`,
+        ).toHaveCount(0)
+        // The VISIBLE words: one count, the printed spelling, no twin on screen.
+        expect(
+          g.drawn.filter(t => t.includes(twin)),
+          `${vp.name}: the twin spelling is drawn on the map — badges read ${JSON.stringify(g.drawn)}`,
+        ).toHaveLength(0)
+        expect(
+          g.drawn.filter(t => t === `${printed} \u00d7${pairs}`),
+          `${vp.name}: expected exactly one visible "${printed} \u00d7${pairs}" — badges read ${JSON.stringify(g.drawn)}`,
+        ).toHaveLength(1)
+        // The twin spelling and the row count survive on demand, in the title.
+        expect(g.title, `${vp.name}: the title does not record the twin spelling`).toContain(
+          `also recorded as ${twin}`,
+        )
+        expect(
+          g.title,
+          `${vp.name}: the title does not record the edge rows behind the connections`,
+        ).toContain(`${edges} edge rows in the graph for ${pairs} connections`)
+        // Pairs are a count of connections, edge rows a count of graph rows.
+        expect(pairs, `${vp.name}: a collapsed bundle counts edge rows, not pairs`).toBeLessThanOrEqual(edges)
+      }
+
+      // --- fullscreen, both densities --------------------------------------
+      // Escape must never be used to dismiss anything in here. The map installs
+      // a WINDOW keydown handler while `mapEnlarged` is true
+      // (estate-map-view.tsx:1160-1169) that routes Escape to the node drawer
+      // when a node is selected and to closeEnlarged() when one is not. A Radix
+      // popover is not a selected node, so pressing Escape to close the
+      // destinations panel ALSO tore fullscreen down. The next density then
+      // measured an absent map and reported `lane_visible: false` without
+      // failing: run 34877652438 recorded {"glance": true, "inventory": false}
+      // at all four viewports, passed, and read as a product gap it was not.
+      // The product behaviour is correct and deliberate -- see
+      // topology-platform-map-qa-fixture.spec.ts:827-838, which pins exactly
+      // this: drawer open, Escape keeps fullscreen; nothing selected, Escape
+      // closes it. This block closes popovers through their own trigger.
+      await page.getByTestId("topology-estate-map-enlarge").click()
+      const fullscreen = page.getByTestId("topology-estate-map-fullscreen")
+      await expect(fullscreen).toBeVisible()
+      await page.waitForTimeout(1500)
+      for (const density of ["glance", "inventory"] as const) {
+        // Fullscreen has to still be up when this density's turn comes, or
+        // everything measured below describes a torn-down map.
+        await expect(
+          fullscreen,
+          `${density}·${vp.name}: fullscreen was gone before this density was measured`,
+        ).toBeVisible()
+        const fsToggle = fullscreen.getByTestId(`topology-estate-density-fs-${density}`)
+        // Both controls are rendered unconditionally in the fullscreen header
+        // (estate-map-view.tsx:2064-2080), so a missing one is a failure, not a
+        // reason to silently measure the density we were already in.
+        await expect(
+          fsToggle,
+          `${vp.name}: no ${density} control in the fullscreen header`,
+        ).toBeVisible()
+        await fsToggle.click()
+        await page.waitForTimeout(1200)
+        await expect(
+          fullscreen,
+          `${density}·${vp.name}: switching to ${density} closed fullscreen`,
+        ).toBeVisible()
+
+        const fsLane = fullscreen.getByTestId("topology-external-destinations-lane")
+        if (observedEgress.length > 0) {
+          // Egress was observed for this generation, so the lane is not
+          // optional in either density. This is the acceptance itself: it must
+          // FAIL, not report, when the lane is missing.
+          await expect(
+            fsLane,
+            `${density}·${vp.name}: ${observedEgress.length} observed egress legs but no external-destinations lane in fullscreen`,
+          ).toBeVisible()
+        }
+        const fsVisible = await fsLane.isVisible().catch(() => false)
+        report(`release-fullscreen-${density}-${vp.name}`, { lane_visible: fsVisible })
+
+        if (fsVisible && observedEgress.length > 0) {
+          const ext = fullscreen.getByTestId("topology-external-destinations").first()
+          await expect(
+            ext,
+            `${density}·${vp.name}: the lane draws no destinations node`,
+          ).toBeVisible()
+          const extToggle = ext.getByTestId("topology-external-destinations-toggle")
+          await extToggle.click()
+          const detail = page.getByTestId("topology-external-destinations-details")
+          await expect(detail).toBeVisible()
+          await page.waitForTimeout(400)
+          const stack = (await page.evaluate(TOPMOST("topology-external-destinations-details"))) as any
+          report(`release-fs-panel-${density}-${vp.name}`, stack)
+          expect(stack, `${density}·${vp.name}: no detail-panel geometry was measured`).not.toBeNull()
+          expect(stack.effectiveOpacity, `${density}·${vp.name}: detail panel is translucent`).toBe(1)
+          expect(stack.covered, `${density}·${vp.name}: the detail panel is painted under the fullscreen map`).toEqual([])
+          expect(stack.inViewport, `${density}·${vp.name}: detail panel is outside the viewport`).toBe(true)
+          await shot(page, `c1-release-fs-${density}-${vp.name}`)
+          // Close through the popover's OWN trigger -- no keyboard, so the map's
+          // window handler is never reached. Guarded rather than a bare click:
+          // a non-modal Radix layer can dismiss on the trigger's own
+          // pointerdown and then re-open on its click, and this loop reads the
+          // panel's state before each press instead of assuming which way it
+          // goes. Bounded at two, then asserted, so a popover that will not
+          // close is a red run rather than a silent one.
+          for (let attempt = 0; attempt < 2; attempt++) {
+            if (!(await detail.isVisible().catch(() => false))) break
+            await extToggle.click()
+            await page.waitForTimeout(400)
+          }
+          await expect(
+            detail,
+            `${density}·${vp.name}: the destinations panel would not close from its own trigger`,
+          ).toBeHidden()
+          await expect(
+            fullscreen,
+            `${density}·${vp.name}: closing the destinations panel also closed fullscreen`,
+          ).toBeVisible()
+        } else {
+          await shot(page, `c1-release-fs-${density}-${vp.name}`)
+        }
+      }
+
+      report(`release-console-${vp.name}`, { consoleErrors, failedRequests, pageErrors })
+      expect(consoleErrors, `${vp.name}: browser console errors`).toEqual([])
+      expect(pageErrors, `${vp.name}: uncaught page errors`).toEqual([])
+      expect(failedRequests, `${vp.name}: failed network requests`).toEqual([])
+    })
+  }
 })
