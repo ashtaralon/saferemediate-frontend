@@ -1838,8 +1838,10 @@ test.describe("C1 live QA — Step 5 acceptance matrix", () => {
 // is cross-checked against the payload THE SAME PAGE fetched, so a screen that
 // agrees with itself but not with the graph fails here.
 //
-// `trace: "on"` for this block only: the release evidence is the trace and the
-// screenshots, not the exit code.
+// Tracing is started on the CONTEXT rather than with test.use({ trace }):
+// Playwright refuses that inside a describe ("forces a new worker", run
+// 34860564193). Same artifact, written to the test's own output path, and
+// stopped in a finally so a failing run still carries its trace.
 // ---------------------------------------------------------------------------
 const RELEASE_VIEWPORTS = [
   { name: "1600x900", width: 1600, height: 900 },
@@ -1852,14 +1854,21 @@ const RELEASE_VIEWPORTS = [
 const C1_IGW = process.env.C1_IGW_ID || "igw-01b6c643a5c856abe"
 
 test.describe("estate map release QA on the deployed C1 frontend", () => {
-  test.use({ trace: "on" })
-
   test("five reported defects, four viewports, default and expanded", async ({
     playwright,
     context,
     page,
-  }) => {
+  }, testInfo) => {
     test.setTimeout(600_000)
+    await context.tracing.start({ screenshots: true, snapshots: true, sources: true })
+    let traced = false
+    const stopTracing = async () => {
+      if (traced) return
+      traced = true
+      await context.tracing
+        .stop({ path: testInfo.outputPath("c1-release-trace.zip") })
+        .catch(() => undefined)
+    }
     const pageErrors: string[] = []
     const failedRequests: Array<{ url: string; status: number | string }> = []
     const consoleErrors: string[] = []
@@ -2183,8 +2192,14 @@ test.describe("estate map release QA on the deployed C1 frontend", () => {
     report("release-console-errors", consoleErrors)
     report("release-failed-requests", failedRequests)
     report("release-page-errors", pageErrors)
+    await stopTracing()
     expect(pageErrors, "uncaught page errors").toEqual([])
     expect(consoleErrors, "console errors").toEqual([])
     expect(failedRequests, "failed network requests").toEqual([])
+  })
+
+  // A failing run is exactly the one whose trace is worth having.
+  test.afterEach(async ({ context }) => {
+    await context.tracing.stop().catch(() => undefined)
   })
 })
