@@ -22,6 +22,10 @@ on:
         description: System shown on the estate map
         required: true
         default: testbed-webshop
+      expected_frontend_sha:
+        description: Optional exact deployed frontend SHA to require
+        required: false
+        default: ""
   # The harness self-tests against C1 whenever it changes. That first run is
   # also what registers the workflow, so it can then be dispatched from the
   # branch it lives on (GitHub answers 404 to a dispatch of a workflow that
@@ -76,6 +80,7 @@ jobs:
           C1_CUSTOMER_ID: testbed-webshop
           C1_ACCOUNT_ID: "416651950952"
           C1_REGION: eu-west-1
+          EXPECTED_FRONTEND_SHA: ${{ inputs.expected_frontend_sha || '' }}
           PW_CHANNEL: chromium
           CI: "1"
       - name: Publish screenshots and measurements to the results branch

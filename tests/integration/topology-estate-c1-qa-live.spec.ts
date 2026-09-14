@@ -37,6 +37,7 @@ const SYSTEM = process.env.C1_SYSTEM || "testbed-webshop"
 const CUSTOMER = process.env.C1_CUSTOMER_ID || "testbed-webshop"
 const ACCOUNT = process.env.C1_ACCOUNT_ID || "416651950952"
 const REGION = process.env.C1_REGION || "eu-west-1"
+const EXPECTED_FRONTEND_SHA = process.env.EXPECTED_FRONTEND_SHA?.trim() || null
 const SCOPE = new URLSearchParams({
   customer_id: CUSTOMER,
   account_id: ACCOUNT,
@@ -1975,16 +1976,30 @@ test.describe("release QA — egress destinations beyond the IGW", () => {
 
       // The deployed revision this QA is about.
       const bv = await page.request.get("/api/build-version")
-      const build = bv.ok() ? await bv.json() : null
+      expect(bv.ok(), `${vp.name}: /api/build-version returned HTTP ${bv.status()}`).toBe(true)
+      const build = await bv.json()
       report("release-build-version", build)
+      expect(
+        String(build?.deploymentVersion ?? ""),
+        `${vp.name}: deploymentVersion is not a full Git SHA`,
+      ).toMatch(/^[0-9a-f]{40}$/)
+      if (EXPECTED_FRONTEND_SHA) {
+        expect(
+          build?.deploymentVersion,
+          `${vp.name}: tested a different frontend revision than the release under review`,
+        ).toBe(EXPECTED_FRONTEND_SHA)
+      }
 
       await openMap(page, `release-${vp.name}`)
       const deps = page.getByTestId("topology-estate-flow-mode-all_access").first()
-      if (await deps.count()) { await deps.click().catch(() => undefined); await page.waitForTimeout(1200) }
+      await expect(deps, `${vp.name}: Dependencies lens control is missing`).toBeVisible()
+      await deps.click()
+      await page.waitForTimeout(1200)
 
       // --- the page's OWN payload, so the screen is checked against the graph
       const res = await page.request.get(TOPOLOGY_RISK_PATH)
-      const payload = res.ok() ? await res.json() : null
+      expect(res.ok(), `${vp.name}: topology-risk returned HTTP ${res.status()}`).toBe(true)
+      const payload = await res.json()
       const edges = (payload?.traffic_edges ?? payload?.data?.traffic_edges ?? []) as Array<Record<string, unknown>>
       const observedEgress = edges.filter(e => {
         const t = String(e.target_id ?? "")
@@ -1994,11 +2009,18 @@ test.describe("release QA — egress destinations beyond the IGW", () => {
       })
       const gateways = [...new Set(observedEgress.flatMap(e => ((e.egress_hops as Array<{kind:string;id:string}>) ?? []).filter(h => h.kind === "igw").map(h => h.id)))]
       report("release-payload", { observed_egress_legs: observedEgress.length, gateways })
+      expect(
+        observedEgress.length,
+        `${vp.name}: the release acceptance payload has no observed egress legs`,
+      ).toBeGreaterThan(0)
+      expect(gateways.length, `${vp.name}: observed egress names no IGW hop`).toBeGreaterThan(0)
 
       // --- Glance (default) then Inventory, embedded -----------------------
       for (const density of ["glance", "inventory"] as const) {
         const toggle = page.getByTestId(`topology-estate-density-${density}`)
-        if (await toggle.count()) { await toggle.click(); await page.waitForTimeout(1200) }
+        await expect(toggle, `${vp.name}: no embedded ${density} control`).toBeVisible()
+        await toggle.click()
+        await page.waitForTimeout(1200)
 
         const lane = page.getByTestId("topology-external-destinations-lane")
         const laneVisible = await lane.isVisible().catch(() => false)
@@ -2092,8 +2114,10 @@ test.describe("release QA — egress destinations beyond the IGW", () => {
         band_open: (await band.count()) ? await band.getAttribute("data-groups-open") : null,
       }
       report(`release-diagnostics-${vp.name}`, diagnostics)
-      if (diagnostics.coverage_present) expect(diagnostics.coverage_details_open, "coverage details open by default").toBe("false")
-      if (diagnostics.band_present) expect(diagnostics.band_open, "logical groups open by default").toBe("false")
+      expect(diagnostics.coverage_present, `${vp.name}: on-demand coverage disclosure is missing`).toBe(1)
+      expect(diagnostics.coverage_details_open, "coverage details open by default").toBe("false")
+      expect(diagnostics.band_present, `${vp.name}: on-demand logical-groups disclosure is missing`).toBe(1)
+      expect(diagnostics.band_open, "logical groups open by default").toBe("false")
 
       // A mirrored relationship is ONE badge, counting unique pairs.
       //
@@ -2135,7 +2159,13 @@ test.describe("release QA — egress destinations beyond the IGW", () => {
       }
       report(`release-trigger-labels-${vp.name}`, bundleGroups)
 
-      for (const g of bundleGroups.filter(b => b.spellings.length > 1)) {
+      const mirroredGroups = bundleGroups.filter(b => b.spellings.length > 1)
+      expect(
+        mirroredGroups,
+        `${vp.name}: TARGETS/TRIGGERS twin was not collapsed into exactly one visible relationship`,
+      ).toHaveLength(1)
+      expect([...mirroredGroups[0].spellings].sort()).toEqual(["TARGETS", "TRIGGERS"])
+      for (const g of mirroredGroups) {
         const [printed, twin] = g.spellings
         const pairs = Number(g.pairs)
         const edges = Number(g.edges)
@@ -2237,7 +2267,10 @@ test.describe("release QA — egress destinations beyond the IGW", () => {
           await page.waitForTimeout(400)
           const stack = (await page.evaluate(TOPMOST("topology-external-destinations-details"))) as any
           report(`release-fs-panel-${density}-${vp.name}`, stack)
+          expect(stack, `${density}·${vp.name}: no detail-panel geometry was measured`).not.toBeNull()
+          expect(stack.effectiveOpacity, `${density}·${vp.name}: detail panel is translucent`).toBe(1)
           expect(stack.covered, `${density}·${vp.name}: the detail panel is painted under the fullscreen map`).toEqual([])
+          expect(stack.inViewport, `${density}·${vp.name}: detail panel is outside the viewport`).toBe(true)
           await shot(page, `c1-release-fs-${density}-${vp.name}`)
           // Close through the popover's OWN trigger -- no keyboard, so the map's
           // window handler is never reached. Guarded rather than a bare click:
@@ -2265,6 +2298,7 @@ test.describe("release QA — egress destinations beyond the IGW", () => {
       }
 
       report(`release-console-${vp.name}`, { consoleErrors, failedRequests, pageErrors })
+      expect(consoleErrors, `${vp.name}: browser console errors`).toEqual([])
       expect(pageErrors, `${vp.name}: uncaught page errors`).toEqual([])
       expect(failedRequests, `${vp.name}: failed network requests`).toEqual([])
     })
