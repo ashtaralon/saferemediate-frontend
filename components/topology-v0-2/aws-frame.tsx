@@ -3433,6 +3433,14 @@ function ExternalDestinationsNode({
             background: "#FFFFFF",
             border: "1px solid #CBD5E1",
             boxShadow: "0 10px 30px rgba(15,23,42,0.18)",
+            // `animation: none` is the load-bearing line. The primitive ships
+            // `data-[state=open]:animate-in fade-in-0 zoom-in-95`, and a
+            // running keyframe overrides an inline opacity, so the panel kept
+            // painting its text through to the map with a computed
+            // backgroundColor of opaque white — an inline `opacity: 1` alone
+            // did not move it (runs 34854788649 and 34855368765). No entrance
+            // animation is worth an unreadable panel.
+            animation: "none",
             opacity: 1,
           }}
           data-testid="topology-external-destinations-details"

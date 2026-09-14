@@ -235,7 +235,8 @@ for (const vp of VIEWPORTS) {
       if (!p) return null
       const legs = Array.from(p.querySelectorAll<HTMLElement>('[data-testid="topology-external-destination-leg"]'))
       const px = (el: Element) => parseFloat(getComputedStyle(el).fontSize)
-      const bg = getComputedStyle(p).backgroundColor
+      const cs = getComputedStyle(p)
+      const bg = cs.backgroundColor
       // rgb(...) is opaque; rgba(...) carries the alpha as the 4th component.
       const alpha = /rgba?\(([^)]+)\)/.exec(bg)?.[1].split(",").map(v => v.trim())[3]
       return {
@@ -245,6 +246,10 @@ for (const vp of VIEWPORTS) {
         clipped: legs.filter(el => el.scrollWidth > el.clientWidth + 1).length,
         background: bg,
         backgroundAlpha: alpha === undefined ? 1 : Number(alpha),
+        // An opaque background is not enough: a running entrance keyframe
+        // fades the whole element and its text paints through to the map.
+        opacity: Number(cs.opacity),
+        animationName: cs.animationName,
       }
     })
     expect(readable, "the panel is measurable").not.toBeNull()
@@ -257,6 +262,11 @@ for (const vp of VIEWPORTS) {
       readable!.backgroundAlpha,
       `panel ground is not opaque at ${vp.name} (${readable!.background})`,
     ).toBe(1)
+    expect(readable!.opacity, `panel is translucent at ${vp.name}`).toBe(1)
+    expect(
+      readable!.animationName,
+      `an entrance keyframe is still fading the panel at ${vp.name}`,
+    ).toBe("none")
 
     // Close by the control, not by Escape: the estate view installs its own
     // Escape handler for the topmost surface and this spec is not here to
