@@ -53,71 +53,79 @@ async function overlapArea(a: Locator, b: Locator): Promise<number> {
   return w > 0 && h > 0 ? w * h : 0
 }
 
-/** EFFECTIVE opacity of the detail panel: the product of every computed
- *  opacity from the panel up to the document element. The element's own value
- *  is not the whole story — the panel is portaled, and any ancestor (or a
- *  running entrance keyframe on the panel itself) fades the text with it. */
-const EFFECTIVE_PANEL_OPACITY = `(() => {
+/** Is the panel actually READABLE where it is drawn?
+ *
+ *  Three things can make a detail panel unreadable and only one of them is
+ *  opacity, which is why the first two rounds of this fix chased the wrong
+ *  property. Measured at 1512x771 (run 34856953477): the panel's own opacity
+ *  was 1, its background opaque, every ancestor opacity 1 — and the map still
+ *  showed through, because Radix positions its content inside a FIXED wrapper
+ *  that carries no z-index, and `z-50` does nothing on the statically
+ *  positioned content inside it. So the panel was painting UNDER the map.
+ *
+ *  The property that covers all three is a hit test: at points inside the
+ *  panel, the topmost element must be the panel or something inside it.
+ *  Effective opacity is reported alongside it so a future failure says which
+ *  of the two it is.
+ *
+ *  `animationPlayState` is deliberately NOT part of the predicate: it stays
+ *  "running" after a keyframe has finished, so a settle-wait built on it can
+ *  never become true (run 34856385832 timed out at every viewport on exactly
+ *  that). Opacity settling is what "the animation finished" actually means. */
+const PANEL_READABILITY = `(() => {
   const el = document.querySelector('[data-testid="topology-external-destinations-details"]')
   if (!el) return null
   let node = el
   let product = 1
-  let animating = false
   while (node && node !== document.documentElement) {
-    const cs = getComputedStyle(node)
-    product *= Number(cs.opacity)
-    if (cs.animationName !== 'none' && cs.animationPlayState === 'running') animating = true
+    product *= Number(getComputedStyle(node).opacity)
     node = node.parentElement
   }
-  return { product, animating }
+  const r = el.getBoundingClientRect()
+  const probes = [
+    [r.left + r.width * 0.5, r.top + 6],
+    [r.left + r.width * 0.5, r.top + r.height * 0.5],
+    [r.left + r.width * 0.5, r.bottom - 6],
+    [r.left + 6, r.top + r.height * 0.5],
+    [r.right - 6, r.top + r.height * 0.5],
+  ]
+  const covered = []
+  for (const [x, y] of probes) {
+    const top = document.elementFromPoint(x, y)
+    if (!top || !(el === top || el.contains(top))) {
+      covered.push({
+        x: Math.round(x),
+        y: Math.round(y),
+        hit: top ? (top.getAttribute('data-testid') || top.tagName.toLowerCase() + '.' + String(top.className).slice(0, 40)) : 'nothing',
+      })
+    }
+  }
+  return { effectiveOpacity: product, covered }
 })()`
 
-/** Wait until the panel has finished any entrance animation and its effective
- *  opacity has settled at 1. Measuring or screenshotting before this reads a
- *  mid-fade frame, which is how a translucent panel reached the published
- *  artifacts while every geometric assertion passed (independent review of
- *  a765faf9). */
+/** Wait until the panel has settled: opaque, and the topmost element at its
+ *  own probe points. Measuring or screenshotting before this reads a mid-fade
+ *  or mis-layered frame, which is how an unreadable panel reached the
+ *  published artifacts while every geometric assertion passed. */
 async function waitForSettledPanel(page: Page, where: string) {
   try {
     await page.waitForFunction(
-      `(${EFFECTIVE_PANEL_OPACITY} ?? {product: 0, animating: true}).animating === false &&
-       (${EFFECTIVE_PANEL_OPACITY} ?? {product: 0}).product >= 0.999`,
+      `(() => { const s = ${PANEL_READABILITY}; return !!s && s.effectiveOpacity >= 0.999 && s.covered.length === 0 })()`,
       undefined,
       { timeout: 10_000 },
     )
   } catch {
-    // Fail with the CHAIN, not with "it did not settle": the next question is
-    // always WHICH element is fading it, and a timeout that does not answer
-    // that costs a whole CI round-trip.
-    const chain = await page.evaluate(() => {
-      const el = document.querySelector('[data-testid="topology-external-destinations-details"]')
-      if (!el) return "panel not in the DOM"
-      const rows: string[] = []
-      let node: Element | null = el
-      while (node && node !== document.documentElement) {
-        const cs = getComputedStyle(node)
-        rows.push(
-          [
-            node.tagName.toLowerCase(),
-            (node.getAttribute("data-testid") || node.getAttribute("data-radix-popper-content-wrapper") !== null
-              ? node.getAttribute("data-testid") ?? "popper-wrapper"
-              : (node.className || "").toString().slice(0, 60)),
-            `opacity=${cs.opacity}`,
-            `animation=${cs.animationName}/${cs.animationPlayState}`,
-            `transition=${cs.transitionProperty}`,
-          ].join(" "),
-        )
-        node = node.parentElement
-      }
-      return rows.join(" | ")
-    })
+    // Fail with the measurement, not with "it did not settle": the next
+    // question is always WHAT is covering it or fading it, and a timeout that
+    // does not answer that costs a whole CI round-trip.
+    const state = await page.evaluate(`${PANEL_READABILITY}`)
     throw new Error(
-      `the external-destinations panel never settled at opacity 1 (${where}). Chain: ${chain}`,
+      `the external-destinations panel never settled opaque and on top (${where}): ${JSON.stringify(state)}`,
     )
   }
 }
 
-/** Every drawn flow badge, and the overlay it is supposed to stay inside. */
+/** Every drawn flow badge, and the overlay it is supposed to stay inside. *//** Every drawn flow badge, and the overlay it is supposed to stay inside. */
 async function badgesOutsideOverlay(page: Page) {
   return page.evaluate(() => {
     const svg = document.querySelector('[data-testid="topology-flow-overlay"]')
@@ -324,6 +332,20 @@ for (const vp of VIEWPORTS) {
           }
           return product
         })(),
+        // Nothing may paint over the panel's own box: an opaque panel drawn
+        // UNDER the map reads exactly like a translucent one.
+        coveredProbes: (() => {
+          const r = p.getBoundingClientRect()
+          const probes: Array<[number, number]> = [
+            [r.left + r.width * 0.5, r.top + 6],
+            [r.left + r.width * 0.5, r.top + r.height * 0.5],
+            [r.left + r.width * 0.5, r.bottom - 6],
+          ]
+          return probes.filter(([x, y]) => {
+            const top = document.elementFromPoint(x, y)
+            return !top || !(p === top || p.contains(top))
+          }).length
+        })(),
       }
     })
     expect(readable, "the panel is measurable").not.toBeNull()
@@ -343,9 +365,12 @@ for (const vp of VIEWPORTS) {
       `panel's EFFECTIVE opacity is below 1 at ${vp.name}`,
     ).toBeGreaterThanOrEqual(0.999)
     expect(
-      readable!.animationName,
-      `an entrance keyframe is still fading the panel at ${vp.name}`,
-    ).toBe("none")
+      readable!.coveredProbes,
+      `something paints over the panel at ${vp.name} — an opaque panel under the map reads as translucent`,
+    ).toBe(0)
+    // animationName is reported, not asserted: a FINISHED keyframe still reads
+    // back as `enter` with playState `running`, so asserting it fails forever
+    // on a panel that is already settled (run 34856385832).
 
     // Close by the control, not by Escape: the estate view installs its own
     // Escape handler for the topmost surface and this spec is not here to
