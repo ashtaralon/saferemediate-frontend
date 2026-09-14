@@ -2175,14 +2175,23 @@ test.describe("estate map release QA on the deployed C1 frontend", () => {
         ).toBeLessThanOrEqual(1)
         await shot(page, `c1-release-expanded-${vp.name}`)
         // Keyboard close, and focus returns to the control that opened it.
+        // POLLED, not sampled: the panel closes before focus moves, so reading
+        // activeElement in the same breath as the attribute caught the closing
+        // panel still holding it (run 34860819436).
         await page.keyboard.press("Escape")
         await expect(external).toHaveAttribute("data-open", "false")
-        const focused = await page.evaluate(
-          () => document.activeElement?.getAttribute("data-testid") ?? document.activeElement?.tagName ?? null,
-        )
-        expect(focused, `${vp.name}: focus did not return to the toggle`).toBe(
-          "topology-external-destinations-toggle",
-        )
+        await expect
+          .poll(
+            async () =>
+              page.evaluate(
+                () =>
+                  document.activeElement?.getAttribute("data-testid") ??
+                  document.activeElement?.tagName ??
+                  null,
+              ),
+            { timeout: 10_000, message: `${vp.name}: focus did not return to the toggle` },
+          )
+          .toBe("topology-external-destinations-toggle")
       }
       measurements.push({ ...defaults, ...geom, expanded })
     }
@@ -2198,8 +2207,12 @@ test.describe("estate map release QA on the deployed C1 frontend", () => {
     expect(failedRequests, "failed network requests").toEqual([])
   })
 
-  // A failing run is exactly the one whose trace is worth having.
-  test.afterEach(async ({ context }) => {
-    await context.tracing.stop().catch(() => undefined)
+  // A failing run is exactly the one whose trace is worth having, so the
+  // fallback stop WRITES it rather than discarding it. Stopping twice is a
+  // no-op on an already-stopped trace.
+  test.afterEach(async ({ context }, testInfo) => {
+    await context.tracing
+      .stop({ path: testInfo.outputPath("c1-release-trace.zip") })
+      .catch(() => undefined)
   })
 })
