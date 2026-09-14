@@ -1828,3 +1828,363 @@ test.describe("C1 live QA — Step 5 acceptance matrix", () => {
     expect(pageErrors, "reduced motion: uncaught page errors").toEqual([])
   })
 })
+
+// ---------------------------------------------------------------------------
+// RELEASE QA — the five user-reported Estate Map defects, on the deployed C1
+// frontend, at the four viewports they were reported at, in both the default
+// and the expanded state.
+//
+// Reads production and writes nothing. Every number it asserts about the map
+// is cross-checked against the payload THE SAME PAGE fetched, so a screen that
+// agrees with itself but not with the graph fails here.
+//
+// `trace: "on"` for this block only: the release evidence is the trace and the
+// screenshots, not the exit code.
+// ---------------------------------------------------------------------------
+const RELEASE_VIEWPORTS = [
+  { name: "1600x900", width: 1600, height: 900 },
+  { name: "1512x771", width: 1512, height: 771 },
+  { name: "1366x768", width: 1366, height: 768 },
+  { name: "1024x720", width: 1024, height: 720 },
+] as const
+
+/** The gateway the user reported the map stopping at. */
+const C1_IGW = process.env.C1_IGW_ID || "igw-01b6c643a5c856abe"
+
+test.describe("estate map release QA on the deployed C1 frontend", () => {
+  test.use({ trace: "on" })
+
+  test("five reported defects, four viewports, default and expanded", async ({
+    playwright,
+    context,
+    page,
+  }) => {
+    test.setTimeout(600_000)
+    const pageErrors: string[] = []
+    const failedRequests: Array<{ url: string; status: number | string }> = []
+    const consoleErrors: string[] = []
+    page.on("pageerror", e => pageErrors.push(String(e)))
+    page.on("console", msg => {
+      if (msg.type() === "error") consoleErrors.push(msg.text().slice(0, 300))
+    })
+    page.on("requestfailed", r =>
+      failedRequests.push({ url: r.url().slice(0, 200), status: r.failure()?.errorText ?? "failed" }),
+    )
+    page.on("response", r => {
+      if (r.status() >= 400) failedRequests.push({ url: r.url().slice(0, 200), status: r.status() })
+    })
+
+    // The deployed revision this QA is about, read from the app itself.
+    const api = await authedApi(playwright)
+    const buildRes = await api.get("/api/build-version")
+    const build = buildRes.ok() ? await buildRes.json() : null
+    report("release-build-version", build)
+
+    // The payload the map is drawing, so every claim below has something to be
+    // wrong against.
+    const riskRes = await api.get(TOPOLOGY_RISK_PATH)
+    expect(riskRes.status(), "topology-risk answers the scoped read").toBe(200)
+    const risk = await riskRes.json()
+    const edges: Array<Record<string, unknown>> = risk.traffic_edges ?? []
+    const nodes: Array<Record<string, unknown>> = risk.nodes ?? []
+    const lambdaIds = new Set(
+      nodes.filter(n => n.type === "Lambda").map(n => String(n.id)),
+    )
+    const configured = (e: Record<string, unknown>) =>
+      e.evidence_type === "configured" ||
+      e.path_basis === "configured_route" ||
+      e.authority_state === "configured"
+    const egressEdges = edges.filter(
+      e =>
+        (e.target_id === "__igw__" || String(e.target_id).startsWith("igw-")) &&
+        !configured(e) &&
+        (e.evidence_type === "observed" ||
+          e.external_destinations != null ||
+          ((e.egress_breakdown as unknown[] | null) ?? []).length > 0),
+    )
+    const s3Sources = new Set(
+      edges
+        .filter(e => e.protocol === "ACTUAL_S3_ACCESS" && lambdaIds.has(String(e.source_id)))
+        .map(e => String(e.source_id)),
+    )
+    const s3Actions = edges
+      .filter(e => e.protocol === "ACTUAL_S3_ACCESS")
+      .flatMap(e => ((e.observed_actions as unknown[] | null) ?? []) as unknown[])
+    const triggerPairs = new Set(
+      edges
+        .filter(e => e.protocol === "TARGETS" || e.protocol === "TRIGGERS")
+        .filter(e => lambdaIds.has(String(e.target_id)))
+        .map(e => `${e.source_id}->${e.target_id}`),
+    )
+    const payload = {
+      observed_egress_edges: egressEdges.length,
+      egress_gateways: [
+        ...new Set(
+          egressEdges.flatMap(e =>
+            (((e.egress_hops as Array<{ kind?: string; id?: string }> | null) ?? [])
+              .filter(h => h.kind === "igw")
+              .map(h => String(h.id))) as string[],
+          ),
+        ),
+      ],
+      egress_nats: [
+        ...new Set(
+          egressEdges.flatMap(e =>
+            (((e.egress_hops as Array<{ kind?: string; id?: string }> | null) ?? [])
+              .filter(h => h.kind === "nat")
+              .map(h => String(h.id))) as string[],
+          ),
+        ),
+      ],
+      lambda_total: lambdaIds.size,
+      lambda_with_s3: s3Sources.size,
+      s3_named_actions: s3Actions.length,
+      rule_to_lambda_pairs: triggerPairs.size,
+    }
+    report("release-payload-evidence", payload)
+    await attachJson("release-payload-evidence.json", payload)
+
+    await seedAuthCookie(context)
+    await page.setViewportSize({ width: 1600, height: 900 })
+    await page.goto(ESTATE_URL, { waitUntil: "domcontentloaded" })
+    await expect(page.getByTestId("topology-estate-view-map")).toBeVisible({ timeout: 90_000 })
+    const netTab = page.getByRole("tab", { name: "Network topology" })
+    if (await netTab.isVisible().catch(() => false)) await netTab.click()
+    await page.waitForTimeout(2500)
+
+    // --- (3) six trigger relationships, drawn once -------------------------
+    const collapsed = page.locator('[data-testid="topology-flow-badge"][data-bundle-spellings]')
+    const bundles = await collapsed.evaluateAll(els =>
+      els.map(el => ({
+        spellings: el.getAttribute("data-bundle-spellings"),
+        pairs: Number(el.getAttribute("data-bundle-pairs")),
+        edges: Number(el.getAttribute("data-bundle-edges")),
+        drawn: (el.querySelector("text")?.textContent ?? "").trim(),
+      })),
+    )
+    report("release-trunk-bundles", bundles)
+    const mirrored = bundles.filter(b => (b.spellings ?? "").split(",").length > 1)
+    if (payload.rule_to_lambda_pairs > 0) {
+      expect(mirrored.length, `one badge per mirrored relationship: ${JSON.stringify(bundles)}`).toBe(1)
+      expect(
+        mirrored[0].pairs,
+        "the badge counts unique rule -> function connections, not edge rows",
+      ).toBe(payload.rule_to_lambda_pairs)
+      const drawnWords = bundles.map(b => b.drawn)
+      const twin = (mirrored[0].spellings ?? "").split(",")[1]
+      expect(
+        drawnWords.filter(w => w.includes(twin)),
+        `the twin spelling is drawn again: ${JSON.stringify(drawnWords)}`,
+      ).toHaveLength(0)
+    }
+
+    // --- (3b) the Lambda -> S3 statement matches the evidence --------------
+    const s3Panel = page.getByTestId("topology-lambda-s3-coverage").first()
+    if (await s3Panel.count()) {
+      const withTraffic = Number(await s3Panel.getAttribute("data-with-traffic"))
+      const total = Number(await s3Panel.getAttribute("data-total"))
+      const noActions = await s3Panel.getAttribute("data-no-actions-recorded")
+      const sentence = (await s3Panel.getByTestId("topology-lambda-s3-coverage-toggle").textContent()) ?? ""
+      report("release-s3-coverage", { withTraffic, total, noActions, sentence })
+      expect(withTraffic, "the panel's numerator is the payload's").toBe(payload.lambda_with_s3)
+      expect(total, "the panel's denominator is the lane's own functions").toBe(payload.lambda_total)
+      expect(sentence).toContain(`${withTraffic} of ${total}`)
+      // Empty observed_actions on every edge must read as "none recorded",
+      // never as a named S3 operation.
+      expect(noActions).toBe(payload.s3_named_actions === 0 && withTraffic > 0 ? "true" : "false")
+      expect(sentence).not.toContain("GetObject")
+      expect(sentence).not.toContain("PutObject")
+    }
+
+    // --- (1) the continuation past the REAL C1 gateway ---------------------
+    const external = page.getByTestId("topology-external-destinations").first()
+    const chain = page.getByTestId("topology-external-egress-chain").first()
+    if (payload.observed_egress_edges > 0) {
+      await expect(external, "observed egress exists, so the node is drawn").toBeVisible()
+      await expect(chain).toBeVisible()
+      const chainIgws = (await chain.getAttribute("data-igw-ids")) ?? ""
+      const chainNats = (await chain.getAttribute("data-nat-ids")) ?? ""
+      const drawnIgwIds = await page
+        .locator('[data-testid="topology-igw-rail-chip"]')
+        .evaluateAll(els => els.map(el => el.getAttribute("data-igw-id") ?? ""))
+      report("release-egress-chain", {
+        legs: await external.getAttribute("data-leg-count"),
+        chainIgws,
+        chainNats,
+        drawnIgwIds,
+        upperBound: await external.getAttribute("data-max-distinct-upper-bound"),
+        uncountedLegs: await external.getAttribute("data-unknown-distinct-legs"),
+        summary: (await external.getByTestId("topology-external-destinations-summary").textContent())?.trim(),
+      })
+      expect(
+        external,
+        "the node stands for the payload's observed egress legs",
+      ).toHaveAttribute("data-leg-count", String(payload.observed_egress_edges))
+      if (payload.egress_gateways.length > 0) {
+        expect(chainIgws.split(","), "the chain names the payload's gateway").toEqual(
+          payload.egress_gateways,
+        )
+        expect(
+          chainIgws.split(","),
+          `the chain names the reported C1 gateway ${C1_IGW}`,
+        ).toContain(C1_IGW)
+        expect(
+          drawnIgwIds,
+          "the gateway the chain names is one the map itself draws",
+        ).toContain(payload.egress_gateways[0])
+      }
+      if (payload.egress_nats.length > 0) {
+        expect(chainNats.split(","), "the chain names the payload's NAT").toEqual(payload.egress_nats)
+      }
+      // Never invented: destinations[] is empty in production.
+      const summaryText =
+        (await external.getByTestId("topology-external-destinations-summary").textContent()) ?? ""
+      expect(summaryText).not.toContain("up to 0 distinct")
+    } else {
+      // Honest absence: no observed egress, no node.
+      await expect(page.getByTestId("topology-external-destinations")).toHaveCount(0)
+    }
+
+    // --- per viewport: default, then expanded ------------------------------
+    const measurements: Record<string, unknown>[] = []
+    for (const vp of RELEASE_VIEWPORTS) {
+      await page.setViewportSize({ width: vp.width, height: vp.height })
+      await page.waitForTimeout(1800)
+
+      // (5) closed by default
+      const coverage = page.getByTestId("topology-lane-coverage").first()
+      const band = page.getByTestId("topology-logical-group-band").first()
+      const defaults = {
+        viewport: vp.name,
+        coverage_present: await coverage.count(),
+        coverage_details_open: await coverage.count() ? await coverage.getAttribute("data-details-open") : null,
+        band_present: await band.count(),
+        band_open: await band.count() ? await band.getAttribute("data-groups-open") : null,
+        external_open: await external.count() ? await external.getAttribute("data-open") : null,
+      }
+      if (defaults.coverage_present) expect(defaults.coverage_details_open, `${vp.name}: coverage closed by default`).toBe("false")
+      if (defaults.band_present) expect(defaults.band_open, `${vp.name}: logical groups closed by default`).toBe("false")
+      if (await external.count()) expect(defaults.external_open, `${vp.name}: panel closed by default`).toBe("false")
+
+      // (2) + (4) nothing hides the data tier, nothing leaves the map
+      const geom = await page.evaluate(() => {
+        const rect = (sel: string) => {
+          const el = document.querySelector(sel)
+          return el ? el.getBoundingClientRect() : null
+        }
+        const cells = Array.from(document.querySelectorAll('[data-tier="data"]'))
+        const overlapWith = (r: DOMRect | null) =>
+          !r
+            ? 0
+            : cells.reduce((worst, c) => {
+                const b = c.getBoundingClientRect()
+                const w = Math.min(r.right, b.right) - Math.max(r.left, b.left)
+                const h = Math.min(r.bottom, b.bottom) - Math.max(r.top, b.top)
+                return Math.max(worst, w > 0 && h > 0 ? Math.round(w * h) : 0)
+              }, 0)
+        const svg = document.querySelector('[data-testid="topology-flow-overlay"]')
+        const o = svg?.getBoundingClientRect() ?? null
+        const escaped: string[] = []
+        if (o) {
+          for (const g of Array.from(document.querySelectorAll('[data-testid="topology-flow-badge"]'))) {
+            const r = g.getBoundingClientRect()
+            if (r.width === 0 && r.height === 0) continue
+            if (r.left < o.left - 1 || r.right > o.right + 1 || r.top < o.top - 1 || r.bottom > o.bottom + 1) {
+              escaped.push((g.querySelector("text")?.textContent ?? "").trim().slice(0, 30))
+            }
+          }
+        }
+        const users = rect('[data-testid="topology-users-node"]')
+        const strip = rect('[data-testid="topology-users-internet-strip"]')
+        return {
+          data_cells: cells.length,
+          band_over_data: overlapWith(rect('[data-testid="topology-logical-group-band"]')),
+          external_over_data: overlapWith(rect('[data-testid="topology-external-destinations"]')),
+          badges_outside_overlay: escaped,
+          users_clipped: users && strip ? users.left < strip.left - 1 || users.left < -1 : false,
+          strip_width: strip ? Math.round(strip.width) : null,
+        }
+      })
+      expect(geom.data_cells, `${vp.name}: the map draws a data tier`).toBeGreaterThan(0)
+      expect(geom.band_over_data, `${vp.name}: the logical-group band covers the data tier`).toBe(0)
+      expect(geom.external_over_data, `${vp.name}: the external node covers the data tier`).toBe(0)
+      expect(geom.badges_outside_overlay, `${vp.name}: flow badges outside the map`).toEqual([])
+      expect(geom.users_clipped, `${vp.name}: the Users block is clipped`).toBe(false)
+      await shot(page, `c1-release-default-${vp.name}`)
+
+      // expanded
+      let expanded: Record<string, unknown> | null = null
+      if (await external.count()) {
+        await external.getByTestId("topology-external-destinations-toggle").click()
+        const panel = page.getByTestId("topology-external-destinations-details")
+        await expect(panel).toBeVisible()
+        await page
+          .waitForFunction(
+            `(() => {
+              const el = document.querySelector('[data-testid="topology-external-destinations-details"]')
+              if (!el) return false
+              let n = el, p = 1
+              while (n && n !== document.documentElement) { p *= Number(getComputedStyle(n).opacity); n = n.parentElement }
+              const r = el.getBoundingClientRect()
+              const probes = [[r.left + r.width/2, r.top + 6], [r.left + r.width/2, r.top + r.height/2], [r.left + r.width/2, r.bottom - 6]]
+              const covered = probes.filter(([x,y]) => { const t = document.elementFromPoint(x,y); return !t || !(el === t || el.contains(t)) })
+              return p >= 0.999 && covered.length === 0
+            })()`,
+            undefined,
+            { timeout: 15_000 },
+          )
+          .catch(() => {
+            throw new Error(`${vp.name}: the detail panel never settled opaque and on top`)
+          })
+        expanded = await page.evaluate(vpArg => {
+          const p = document.querySelector('[data-testid="topology-external-destinations-details"]')!
+          const strip = document.querySelector('[data-testid="topology-users-internet-strip"]')
+          const r = p.getBoundingClientRect()
+          const legs = Array.from(p.querySelectorAll('[data-testid="topology-external-destination-leg"]'))
+          const px = (el: Element) => parseFloat(getComputedStyle(el).fontSize)
+          return {
+            inside_viewport:
+              r.left >= -1 && r.top >= -1 && r.right <= vpArg.width + 1 && r.bottom <= vpArg.height + 1,
+            width: Math.round(r.width),
+            caption_px: px(p.querySelector("p")!),
+            min_leg_px: legs.length ? Math.min(...legs.map(px)) : null,
+            clipped_legs: legs.filter(el => el.scrollWidth > el.clientWidth + 1).length,
+            legs: legs.length,
+            strip_width: strip ? Math.round(strip.getBoundingClientRect().width) : null,
+          }
+        }, { width: vp.width, height: vp.height })
+        expect(expanded!.inside_viewport, `${vp.name}: the panel leaves the viewport`).toBe(true)
+        expect(expanded!.width as number, `${vp.name}: the panel is too narrow to read`).toBeGreaterThanOrEqual(260)
+        expect(expanded!.caption_px as number, `${vp.name}: panel caption below 11px`).toBeGreaterThanOrEqual(11)
+        if (expanded!.min_leg_px != null) {
+          expect(expanded!.min_leg_px as number, `${vp.name}: panel leg text below 11px`).toBeGreaterThanOrEqual(11)
+        }
+        expect(expanded!.clipped_legs, `${vp.name}: clipped leg lines`).toBe(0)
+        expect(
+          Math.abs((expanded!.strip_width as number) - (geom.strip_width as number)),
+          `${vp.name}: opening the panel widened the top strip`,
+        ).toBeLessThanOrEqual(1)
+        await shot(page, `c1-release-expanded-${vp.name}`)
+        // Keyboard close, and focus returns to the control that opened it.
+        await page.keyboard.press("Escape")
+        await expect(external).toHaveAttribute("data-open", "false")
+        const focused = await page.evaluate(
+          () => document.activeElement?.getAttribute("data-testid") ?? document.activeElement?.tagName ?? null,
+        )
+        expect(focused, `${vp.name}: focus did not return to the toggle`).toBe(
+          "topology-external-destinations-toggle",
+        )
+      }
+      measurements.push({ ...defaults, ...geom, expanded })
+    }
+    report("release-viewport-matrix", measurements)
+    await attachJson("c1-release-matrix.json", measurements)
+
+    report("release-console-errors", consoleErrors)
+    report("release-failed-requests", failedRequests)
+    report("release-page-errors", pageErrors)
+    expect(pageErrors, "uncaught page errors").toEqual([])
+    expect(consoleErrors, "console errors").toEqual([])
+    expect(failedRequests, "failed network requests").toEqual([])
+  })
+})

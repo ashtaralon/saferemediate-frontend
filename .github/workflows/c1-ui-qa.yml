@@ -78,7 +78,7 @@ jobs:
           remote="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           rm -rf publish && mkdir -p "publish/${RUN_DIR}"
           if [ -d test-results ]; then
-            (cd test-results && find . -type f \( -name '*.png' -o -name '*.json' -o -name '*.md' \) \
+            (cd test-results && find . -type f \( -name '*.png' -o -name '*.json' -o -name '*.md' -o -name '*.zip' \) \
               -exec cp --parents {} "../publish/${RUN_DIR}/" \; 2>/dev/null || true)
           fi
           {
