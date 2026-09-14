@@ -598,7 +598,13 @@ export function externalEgressSnapshot(base: typeof SNAPSHOT = SNAPSHOT) {
   // (3 distinct, 3 shown — the whole inventory).
   const SAMPLED = ["3.5.73.1", "3.5.72.73", "3.5.72.119", "3.5.69.34", "3.5.67.254"]
   const COMPLETE = ["54.217.69.183", "54.217.245.46", "3.253.225.145"]
-  const ATTRIBUTED_HOST = "52.218.0.200"
+  // An address the leg ALREADY samples. The attributed bucket must add a
+  // SERVICE to the lane without adding an ADDRESS to the leg: a sixth sampled
+  // host turned "5 of 32 shown" into "6 of 32 shown" and dropped that leg out
+  // of the semantics spec's "5 of" filter, 8 legs becoming 7 (run
+  // 34866364811). De-duplication then leaves the summary layer untouched and
+  // the destination map still gains its one attributed node.
+  const ATTRIBUTED_HOST = SAMPLED[0]
   const ATTRIBUTED_SERVICE = "S3"
   type Edge = Record<string, unknown> & { target_id: string; external_destinations?: number | null }
   const edges = base.traffic_edges as Edge[]
