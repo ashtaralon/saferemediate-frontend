@@ -3429,7 +3429,22 @@ function ExternalDestinationsNode({
           // (measured in run 34857677137: the topmost element at the panel's
           // top probe was the scope bar's label).
           collisionPadding={{ top: 56, right: 12, bottom: 12, left: 12 }}
-          className="w-[min(92vw,460px)] max-h-[min(44vh,300px)] overflow-y-auto p-3"
+          // z-[250] is load-bearing and belongs HERE, not on the wrapper.
+          // Radix's PopperContent reads the CONTENT's own computed z-index in
+          // a layout effect and copies it onto the fixed
+          // [data-radix-popper-content-wrapper] as an INLINE style. So the
+          // wrapper's order is whatever this class says, and a stylesheet rule
+          // aimed at the wrapper loses to that inline value however high its
+          // number — which is why the `z-index: 60` rule this replaces never
+          // did anything. The primitive's base class is z-50, and the estate
+          // map stacks above it: fullscreen is z-200, its detail panel z-210,
+          // the embedded detail panel z-220. At 50 the wrapper sat UNDER the
+          // fullscreen layer, so the panel rendered with opacity 1 and an
+          // opaque ground and was still invisible (independent production QA
+          // on 5cc2507d at 1512x771: panel at x=943.5 y=224 460x202.625,
+          // elementFromPoint inside it returning the map beneath). 250 clears
+          // the map's whole stack and stays far below the modal band (9000+).
+          className="z-[250] w-[min(92vw,460px)] max-h-[min(44vh,300px)] overflow-y-auto p-3"
           // Inline, not a utility class: the primitive's own `bg-popover` is
           // in the same class slot, and a panel that inherits a transparent
           // ground paints its text straight onto the map. Measured at 1512x771
@@ -3443,11 +3458,10 @@ function ExternalDestinationsNode({
             // clears the inline value once it has positioned the content, so
             // an inline override there is silently dropped (measured in run
             // 34856953477: the panel reported animationName "enter" with this
-            // line present). The panel was never translucent anyway: opacity 1,
+            // line present). The panel was never translucent: opacity 1,
             // opaque background, every ancestor opacity 1. It was painting
-            // UNDER the map, because Radix's fixed wrapper carries no z-index
-            // and `z-50` is inert on the statically positioned content inside
-            // it. That is fixed once, for every popper, in globals.css.
+            // UNDER the map — a stacking-order defect, fixed by the z-[250]
+            // above, NOT by anything on this property.
             opacity: 1,
           }}
           data-testid="topology-external-destinations-details"
