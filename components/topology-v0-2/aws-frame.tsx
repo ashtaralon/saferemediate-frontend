@@ -31,6 +31,10 @@
  */
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import {
+  summarizeExternalEgress,
+  type ExternalEgressSummary,
+} from "./estate-egress-summary"
 import { Boxes, GitBranch, Globe2, ShieldAlert, Users } from "lucide-react"
 import {
   type EdgeNatGw,
@@ -3117,6 +3121,128 @@ function LaneCoveragePill({
           ))}
         </ul>
       ) : null}
+    </div>
+  )
+}
+
+/** The continuation past the IGW: where the traffic actually went.
+ *
+ *  Production QA, 2026-09-14: three egress records terminated at the synthetic
+ *  `__igw__` and the map stopped there, so a reader saw traffic reach the
+ *  perimeter and vanish, with "32 ext" and "10 ext" surviving only as badges.
+ *
+ *  Every claim here is the payload's. The chain is the payload's egress_hops,
+ *  so the NAT is named as the first hop and the IGW as the second — the "via
+ *  NAT" wording was always right, the TERMINAL was what lied. Two labels the
+ *  evidence forces and the eye does not:
+ *
+ *  - the route is STRUCTURAL (route tables), not an observed per-flow path,
+ *    so it is captioned as configured while the counts stay observed;
+ *  - the addresses are a SAMPLE unless a leg's sample equals its own count,
+ *    and the total is an upper bound because per-leg counts are distinct only
+ *    WITHIN a leg. Neither is softened into "destinations".
+ *
+ *  No identity is invented: destinations[] is empty in production, so this
+ *  never names an AWS service. Absent a summary it renders nothing — an
+ *  External node over zero legs would assert a crossing nobody observed. */
+function ExternalDestinationsNode({
+  summary,
+  compact,
+}: {
+  summary: ExternalEgressSummary | null
+  compact: boolean
+}) {
+  const [open, setOpen] = useState(false)
+  if (!summary) return null
+  const { legs, maxDistinctUpperBound, everySampleComplete, natIds, igwIds } = summary
+  const hops = [...natIds.map(id => `NAT ${id}`), ...igwIds.map(id => `IGW ${id}`)]
+  return (
+    <div
+      className="flex items-center gap-2 shrink-0"
+      style={{ color: PAL.ink }}
+      data-testid="topology-external-destinations"
+      data-leg-count={legs.length}
+      data-max-distinct-upper-bound={maxDistinctUpperBound}
+      data-sample-complete={everySampleComplete ? "true" : "false"}
+      data-open={open ? "true" : "false"}
+    >
+      <span
+        className="w-[min(10vw,72px)] shrink border-t-[3px] border-dashed"
+        style={{ borderColor: "#94A3B8" }}
+        aria-hidden
+      />
+      <span
+        className="inline-flex items-center justify-center rounded-lg"
+        style={{
+          width: compact ? 40 : 48,
+          height: compact ? 40 : 48,
+          background: "#FFFFFF",
+          border: "1.5px solid #FCA5A5",
+          color: "#B91C1C",
+        }}
+        aria-hidden
+      >
+        <Globe2 size={compact ? 20 : 24} strokeWidth={1.8} />
+      </span>
+      <div className="flex flex-col leading-tight min-w-0">
+        <button
+          type="button"
+          onClick={() => setOpen(o => !o)}
+          className="text-left"
+          aria-expanded={open}
+          data-testid="topology-external-destinations-toggle"
+        >
+          <span
+            className={
+              compact
+                ? "text-[12px] uppercase tracking-[0.12em] font-bold underline decoration-dotted underline-offset-2"
+                : "text-[13px] uppercase tracking-[0.12em] font-bold underline decoration-dotted underline-offset-2"
+            }
+            style={{ color: PAL.ink }}
+          >
+            External destinations
+          </span>
+        </button>
+        <span
+          className="text-[10px] font-medium"
+          style={{ color: PAL.slate }}
+          data-testid="topology-external-destinations-summary"
+        >
+          {/* "up to" is the whole point: per-leg counts are distinct within a
+              leg, so their sum bounds the truth rather than stating it. */}
+          {legs.length} workload{legs.length === 1 ? "" : "s"} · up to {maxDistinctUpperBound} distinct
+          {everySampleComplete ? " · addresses complete" : " · addresses sampled"}
+        </span>
+      </div>
+      <div
+        className="flex flex-col gap-1 min-w-0 max-w-[340px]"
+        hidden={!open}
+        data-testid="topology-external-destinations-details"
+      >
+        <span className="text-[9px] leading-snug" style={{ color: PAL.slate }}>
+          Route is configured (route tables){hops.length > 0 ? `: ${hops.join(" → ")}` : ""}. Counts are
+          observed. The payload names no destination identities, so these addresses are evidence, not an
+          inventory of services.
+        </span>
+        {legs.map(leg => (
+          <span
+            key={leg.sourceId}
+            className="text-[9px] leading-snug font-mono truncate"
+            style={{ color: PAL.slate }}
+            data-testid="topology-external-destination-leg"
+            data-source-id={leg.sourceId}
+            data-distinct={leg.distinctDestinations ?? ""}
+            data-sample-complete={leg.sampleIsComplete ? "true" : "false"}
+            title={leg.sampleHosts.join(", ")}
+          >
+            {leg.sourceId} → {leg.distinctDestinations ?? "?"} distinct ·{" "}
+            {leg.sampleIsComplete
+              ? `all ${leg.sampleHosts.length} shown`
+              : `${leg.sampleHosts.length} of ${leg.distinctDestinations ?? "?"} shown`}
+            {leg.sampleHosts.length > 0 ? `: ${leg.sampleHosts.join(", ")}` : ""}
+          </span>
+        ))}
+      </div>
     </div>
   )
 }
@@ -7912,6 +8038,8 @@ export function AwsFrame({
     [frames],
   )
   const hasIgw = topo.edges.igws.length > 0
+  // Null when nothing leaves the VPC, so the External node simply is not drawn.
+  const externalEgress = useMemo(() => summarizeExternalEgress(trafficEdgesList), [trafficEdgesList])
   // Story-strip caption only — the clickable / flow-anchor IGW chip lives on the
   // owning VPC frame's top border (see `boundaryStrip` in VpcCanvasFrame).
   const primaryIgw = topo.edges.igws[0]
@@ -8143,6 +8271,7 @@ export function AwsFrame({
             </span>
           </div>
         </div>
+        <ExternalDestinationsNode summary={externalEgress} compact={presentationMode} />
       </div>
 
       {/* AWS Cloud frame */}
