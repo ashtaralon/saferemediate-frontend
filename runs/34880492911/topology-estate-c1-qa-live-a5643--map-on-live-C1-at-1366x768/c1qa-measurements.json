@@ -1,0 +1,12 @@
+{
+  "test": "egress map on live C1 at 1366x768",
+  "status": "failed",
+  "measurements": [
+    {
+      "name": "release-build-version",
+      "data": {
+        "deploymentVersion": "53549ead72387570cfb77a02c468340871020548"
+      }
+    }
+  ]
+}
