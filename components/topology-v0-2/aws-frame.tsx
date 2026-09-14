@@ -3422,8 +3422,14 @@ function ExternalDestinationsNode({
         <PopoverContent
           align="end"
           sideOffset={8}
-          collisionPadding={12}
-          className="w-[min(92vw,460px)] max-h-[min(52vh,320px)] overflow-y-auto p-3"
+          // The top inset clears the app's own fixed scope bar. Radix's
+          // collision boundary is the VIEWPORT, so at 1024x720 a panel that
+          // flipped above its trigger was clamped to y=12 and its first line
+          // landed under the header, which paints above every popper
+          // (measured in run 34857677137: the topmost element at the panel's
+          // top probe was the scope bar's label).
+          collisionPadding={{ top: 56, right: 12, bottom: 12, left: 12 }}
+          className="w-[min(92vw,460px)] max-h-[min(44vh,300px)] overflow-y-auto p-3"
           // Inline, not a utility class: the primitive's own `bg-popover` is
           // in the same class slot, and a panel that inherits a transparent
           // ground paints its text straight onto the map. Measured at 1512x771
