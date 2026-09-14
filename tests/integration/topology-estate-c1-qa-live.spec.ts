@@ -2095,23 +2095,80 @@ test.describe("release QA — egress destinations beyond the IGW", () => {
       if (diagnostics.coverage_present) expect(diagnostics.coverage_details_open, "coverage details open by default").toBe("false")
       if (diagnostics.band_present) expect(diagnostics.band_open, "logical groups open by default").toBe("false")
 
-      const bundles = await page.locator('[data-testid="topology-flow-badge"]').evaluateAll(els =>
-        els.map(e => ({
-          text: (e.textContent ?? "").replace(/\s+/g, " ").trim(),
-          spellings: e.getAttribute("data-bundle-spellings"),
-          pairs: e.getAttribute("data-bundle-pairs"),
-          edges: e.getAttribute("data-bundle-edges"),
-        })).filter(b => b.spellings),
-      )
-      report(`release-trigger-labels-${vp.name}`, bundles)
-      for (const b of bundles) {
-        const spellings = (b.spellings ?? "").split(",").filter(Boolean)
-        if (spellings.length > 1) {
-          // A mirrored relationship is ONE badge counting unique pairs, not one
-          // badge per spelling counting edge rows.
-          expect(Number(b.pairs), `a collapsed bundle counts edge rows, not pairs: ${b.text}`).toBeLessThanOrEqual(Number(b.edges))
-          expect(b.text.split("×").length, `a collapsed bundle drew more than one count: ${b.text}`).toBeLessThanOrEqual(2)
-        }
+      // A mirrored relationship is ONE badge, counting unique pairs.
+      //
+      // Read the DRAWN word and the TITLE separately. A badge group's
+      // textContent concatenates its visible <text> with its <title>, and the
+      // title is exactly where the twin spelling and the edge-row count are
+      // SUPPOSED to live — so splitting the group's text on "×" counts the
+      // title's occurrence and fails on correct markup (run 34876831727, four
+      // viewport cases, before fullscreen). The fixture spec at
+      // topology-estate-semantics-fixture.spec.ts:241 already reads it the
+      // right way; this is the same assertion against the live page.
+      // Read per group through LOCATORS, exactly as the fixture spec does: no
+      // evaluateAll, so the drawn words and the title are never concatenated
+      // and every value here is typed rather than crossing back as `any`.
+      interface BundleGroup {
+        spellings: string[]
+        pairs: string | null
+        edges: string | null
+        drawn: string[]
+        title: string
+      }
+      const badges = await page
+        .locator('[data-testid="topology-flow-badge"][data-bundle-spellings]')
+        .all()
+      const bundleGroups: BundleGroup[] = []
+      for (const badge of badges) {
+        // Annotated, so the element type is the same here as it is under the
+        // project's real Playwright types rather than inferred from `any`.
+        const drawnTexts: string[] = await badge.locator("text").allTextContents()
+        bundleGroups.push({
+          spellings: ((await badge.getAttribute("data-bundle-spellings")) ?? "")
+            .split(",")
+            .filter(Boolean),
+          pairs: await badge.getAttribute("data-bundle-pairs"),
+          edges: await badge.getAttribute("data-bundle-edges"),
+          drawn: drawnTexts.map(t => t.trim()),
+          title: ((await badge.locator("title").first().textContent().catch(() => null)) ?? "").trim(),
+        })
+      }
+      report(`release-trigger-labels-${vp.name}`, bundleGroups)
+
+      for (const g of bundleGroups.filter(b => b.spellings.length > 1)) {
+        const [printed, twin] = g.spellings
+        const pairs = Number(g.pairs)
+        const edges = Number(g.edges)
+        // One group per mirrored relationship, identified by its own counts.
+        const mirrored = page.locator(
+          `[data-testid="topology-flow-badge"][data-bundle-pairs="${g.pairs}"]` +
+            `[data-bundle-edges="${g.edges}"]`,
+        )
+        await expect(mirrored, `${vp.name}: more than one badge speaks for ${printed}/${twin}`).toHaveCount(1)
+        // The twin never earns a badge of its own.
+        await expect(
+          page.locator(`[data-testid="topology-flow-badge"][data-bundle-spellings="${twin}"]`),
+          `${vp.name}: ${twin} got a badge of its own alongside ${printed}`,
+        ).toHaveCount(0)
+        // The VISIBLE words: one count, the printed spelling, no twin on screen.
+        expect(
+          g.drawn.filter(t => t.includes(twin)),
+          `${vp.name}: the twin spelling is drawn on the map — badges read ${JSON.stringify(g.drawn)}`,
+        ).toHaveLength(0)
+        expect(
+          g.drawn.filter(t => t === `${printed} \u00d7${pairs}`),
+          `${vp.name}: expected exactly one visible "${printed} \u00d7${pairs}" — badges read ${JSON.stringify(g.drawn)}`,
+        ).toHaveLength(1)
+        // The twin spelling and the row count survive on demand, in the title.
+        expect(g.title, `${vp.name}: the title does not record the twin spelling`).toContain(
+          `also recorded as ${twin}`,
+        )
+        expect(
+          g.title,
+          `${vp.name}: the title does not record the edge rows behind the connections`,
+        ).toContain(`${edges} edge rows in the graph for ${pairs} connections`)
+        // Pairs are a count of connections, edge rows a count of graph rows.
+        expect(pairs, `${vp.name}: a collapsed bundle counts edge rows, not pairs`).toBeLessThanOrEqual(edges)
       }
 
       // --- fullscreen, both densities --------------------------------------
