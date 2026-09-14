@@ -8602,6 +8602,16 @@ export function AwsFrame({
     if (selectedNodeId) ids.add(selectedNodeId)
     return ids
   }, [flowMode, trafficEdgesList, selectedNodeId])
+  // Declared BEFORE visibleEdges on purpose: that memo synthesizes the
+  // gateway -> destination edges from this map, and a const used above its own
+  // declaration is a TDZ error, not a hoist (tsc: TS2448, run 34865296106).
+  const externalEgress = useMemo(() => summarizeExternalEgress(trafficEdgesList), [trafficEdgesList])
+  // What the lane beyond the boundary may DRAW, bounded. Derived from the same
+  // edges the summary reads, so the lane and the summary can never disagree.
+  const externalDestinations = useMemo(
+    () => externalDestinationMap(externalEgress, trafficEdgesList),
+    [externalEgress, trafficEdgesList],
+  )
   const visibleEdges = useMemo(() => {
     const visible = new Set(nodes.map(n => n.id))
     for (const n of regionalTierNodes) visible.add(n.id)
@@ -8713,13 +8723,6 @@ export function AwsFrame({
   )
   const hasIgw = topo.edges.igws.length > 0
   // Null when nothing leaves the VPC, so the External node simply is not drawn.
-  const externalEgress = useMemo(() => summarizeExternalEgress(trafficEdgesList), [trafficEdgesList])
-  // What the lane beyond the boundary may DRAW, bounded. Derived from the same
-  // edges the summary reads, so the lane and the summary can never disagree.
-  const externalDestinations = useMemo(
-    () => externalDestinationMap(externalEgress, trafficEdgesList),
-    [externalEgress, trafficEdgesList],
-  )
   // "4 of 6", read off the same edges the rail draws. The id set is the lane's
   // own functions, so an S3 edge from an EC2 instance cannot count towards it.
   const serverlessS3Coverage = useMemo(
