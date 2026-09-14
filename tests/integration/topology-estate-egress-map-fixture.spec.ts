@@ -304,7 +304,7 @@ test("no lane, and no gateway continuation, when nothing leaves the VPC", async 
   // ever sees a payload WITH egress cannot tell "drew the evidence" from
   // "always draws a lane".
   test.setTimeout(120_000)
-  const empty = noEgressSnapshot(logicalGroupSnapshot().snapshot)
+  const empty = noEgressSnapshot()
   await seedAuthCookie(context)
   await routeSnapshot(page, empty.snapshot)
   await page.setViewportSize({ width: 1600, height: 900 })
