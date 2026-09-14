@@ -2172,29 +2172,93 @@ test.describe("release QA — egress destinations beyond the IGW", () => {
       }
 
       // --- fullscreen, both densities --------------------------------------
+      // Escape must never be used to dismiss anything in here. The map installs
+      // a WINDOW keydown handler while `mapEnlarged` is true
+      // (estate-map-view.tsx:1160-1169) that routes Escape to the node drawer
+      // when a node is selected and to closeEnlarged() when one is not. A Radix
+      // popover is not a selected node, so pressing Escape to close the
+      // destinations panel ALSO tore fullscreen down. The next density then
+      // measured an absent map and reported `lane_visible: false` without
+      // failing: run 34877652438 recorded {"glance": true, "inventory": false}
+      // at all four viewports, passed, and read as a product gap it was not.
+      // The product behaviour is correct and deliberate -- see
+      // topology-platform-map-qa-fixture.spec.ts:827-838, which pins exactly
+      // this: drawer open, Escape keeps fullscreen; nothing selected, Escape
+      // closes it. This block closes popovers through their own trigger.
       await page.getByTestId("topology-estate-map-enlarge").click()
       const fullscreen = page.getByTestId("topology-estate-map-fullscreen")
       await expect(fullscreen).toBeVisible()
       await page.waitForTimeout(1500)
       for (const density of ["glance", "inventory"] as const) {
+        // Fullscreen has to still be up when this density's turn comes, or
+        // everything measured below describes a torn-down map.
+        await expect(
+          fullscreen,
+          `${density}·${vp.name}: fullscreen was gone before this density was measured`,
+        ).toBeVisible()
         const fsToggle = fullscreen.getByTestId(`topology-estate-density-fs-${density}`)
-        if (await fsToggle.count()) { await fsToggle.click(); await page.waitForTimeout(1200) }
+        // Both controls are rendered unconditionally in the fullscreen header
+        // (estate-map-view.tsx:2064-2080), so a missing one is a failure, not a
+        // reason to silently measure the density we were already in.
+        await expect(
+          fsToggle,
+          `${vp.name}: no ${density} control in the fullscreen header`,
+        ).toBeVisible()
+        await fsToggle.click()
+        await page.waitForTimeout(1200)
+        await expect(
+          fullscreen,
+          `${density}·${vp.name}: switching to ${density} closed fullscreen`,
+        ).toBeVisible()
+
         const fsLane = fullscreen.getByTestId("topology-external-destinations-lane")
+        if (observedEgress.length > 0) {
+          // Egress was observed for this generation, so the lane is not
+          // optional in either density. This is the acceptance itself: it must
+          // FAIL, not report, when the lane is missing.
+          await expect(
+            fsLane,
+            `${density}·${vp.name}: ${observedEgress.length} observed egress legs but no external-destinations lane in fullscreen`,
+          ).toBeVisible()
+        }
         const fsVisible = await fsLane.isVisible().catch(() => false)
         report(`release-fullscreen-${density}-${vp.name}`, { lane_visible: fsVisible })
+
         if (fsVisible && observedEgress.length > 0) {
           const ext = fullscreen.getByTestId("topology-external-destinations").first()
-          if (await ext.count()) {
-            await ext.getByTestId("topology-external-destinations-toggle").click()
-            const detail = page.getByTestId("topology-external-destinations-details")
-            await expect(detail).toBeVisible()
+          await expect(
+            ext,
+            `${density}·${vp.name}: the lane draws no destinations node`,
+          ).toBeVisible()
+          const extToggle = ext.getByTestId("topology-external-destinations-toggle")
+          await extToggle.click()
+          const detail = page.getByTestId("topology-external-destinations-details")
+          await expect(detail).toBeVisible()
+          await page.waitForTimeout(400)
+          const stack = (await page.evaluate(TOPMOST("topology-external-destinations-details"))) as any
+          report(`release-fs-panel-${density}-${vp.name}`, stack)
+          expect(stack.covered, `${density}·${vp.name}: the detail panel is painted under the fullscreen map`).toEqual([])
+          await shot(page, `c1-release-fs-${density}-${vp.name}`)
+          // Close through the popover's OWN trigger -- no keyboard, so the map's
+          // window handler is never reached. Guarded rather than a bare click:
+          // a non-modal Radix layer can dismiss on the trigger's own
+          // pointerdown and then re-open on its click, and this loop reads the
+          // panel's state before each press instead of assuming which way it
+          // goes. Bounded at two, then asserted, so a popover that will not
+          // close is a red run rather than a silent one.
+          for (let attempt = 0; attempt < 2; attempt++) {
+            if (!(await detail.isVisible().catch(() => false))) break
+            await extToggle.click()
             await page.waitForTimeout(400)
-            const stack = (await page.evaluate(TOPMOST("topology-external-destinations-details"))) as any
-            report(`release-fs-panel-${density}-${vp.name}`, stack)
-            expect(stack.covered, `${density}·${vp.name}: the detail panel is painted under the fullscreen map`).toEqual([])
-            await shot(page, `c1-release-fs-${density}-${vp.name}`)
-            await page.keyboard.press("Escape")
           }
+          await expect(
+            detail,
+            `${density}·${vp.name}: the destinations panel would not close from its own trigger`,
+          ).toBeHidden()
+          await expect(
+            fullscreen,
+            `${density}·${vp.name}: closing the destinations panel also closed fullscreen`,
+          ).toBeVisible()
         } else {
           await shot(page, `c1-release-fs-${density}-${vp.name}`)
         }
