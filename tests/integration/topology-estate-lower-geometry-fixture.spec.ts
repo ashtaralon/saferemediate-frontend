@@ -91,6 +91,13 @@ for (const vp of VIEWPORTS) {
     await expect(s3).toHaveAttribute("data-total", String(triggers.lambdas.length))
     await expect(page.getByTestId("topology-lambda-s3-coverage-details")).toBeHidden()
 
+    // The DEFAULT canvas is what the finding was about, so it gets its own
+    // frame: everything closed, the data tier holding its rows.
+    await page.screenshot({
+      path: `test-results/estate-lower-default-${vp.name}.png`,
+      fullPage: false,
+    })
+
     // --- the assertion the defect is about ---------------------------------
     const dataCells = page.locator('[data-tier="data"]')
     const cellCount = await dataCells.count()
@@ -127,6 +134,15 @@ for (const vp of VIEWPORTS) {
       await expect(page.getByTestId("topology-lane-coverage-lanes")).toBeVisible()
     }
 
+    // Opening a disclosure scrolls it into view, and the map is a horizontally
+    // scrollable region, so the expanded frame is taken from the top-left
+    // rather than wherever the last click left the viewport.
+    await page.evaluate(() => {
+      window.scrollTo(0, 0)
+      for (const el of Array.from(document.querySelectorAll<HTMLElement>("[data-scroll-region]"))) {
+        el.scrollLeft = 0
+      }
+    })
     await page.screenshot({
       path: `test-results/estate-lower-geometry-${vp.name}.png`,
       fullPage: false,

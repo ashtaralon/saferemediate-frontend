@@ -699,11 +699,26 @@ export function triggerBundleSnapshot(base: typeof SNAPSHOT = SNAPSHOT) {
       !dropped.has(edge.source_id) &&
       !dropped.has(edge.target_id),
   )
+  const nodes = [...(base.nodes as PayloadNode[]).filter(node => !dropped.has(node.id)), ...rules]
+  const traffic_edges = [...keptEdges, ...ruleEdge("TARGETS"), ...ruleEdge("TRIGGERS"), ...s3Edges]
+  // Re-derive the coverage block from the NARROWED node list. Left alone it
+  // still described sixteen functions, so the pill read "Lambda 16 unknown"
+  // three inches from a lane header reading "LAMBDA RUNTIME (6)" — two numbers
+  // for one fact, on one screen, which is the defect class this whole change
+  // is about (measured in the fixture screenshots, run 34850178365).
+  const laneCoverage = laneCoverageFromSnapshot(nodes as Array<{ type: string }>)
   return {
     snapshot: {
       ...base,
-      nodes: [...(base.nodes as PayloadNode[]).filter(node => !dropped.has(node.id)), ...rules],
-      traffic_edges: [...keptEdges, ...ruleEdge("TARGETS"), ...ruleEdge("TRIGGERS"), ...s3Edges],
+      nodes,
+      traffic_edges,
+      traffic_authority: {
+        ...base.traffic_authority,
+        authoritative_endpoint_count: nodes.length,
+        endpoint_count: nodes.length,
+        projected_edge_count: traffic_edges.length,
+        lane_coverage: laneCoverage,
+      },
     },
     rules,
     lambdas,
