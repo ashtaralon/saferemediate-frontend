@@ -1991,9 +1991,16 @@ test.describe("release QA — egress destinations beyond the IGW", () => {
       }
 
       await openMap(page, `release-${vp.name}`)
-      const deps = page.getByTestId("topology-estate-flow-mode-all_access").first()
+      const deps = page
+        .getByTestId("topology-flow-mode-toggle")
+        .getByRole("button", { name: "Dependencies" })
+        .first()
       await expect(deps, `${vp.name}: Dependencies lens control is missing`).toBeVisible()
       await deps.click()
+      await expect(deps, `${vp.name}: Dependencies lens did not become active`).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      )
       await page.waitForTimeout(1200)
 
       // --- the page's OWN payload, so the screen is checked against the graph
