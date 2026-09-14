@@ -14,10 +14,12 @@ import { resolve } from "node:path"
 import { describe, expect, it } from "vitest"
 
 import {
+  BADGE_HALF_HEIGHT,
   RAIL_FEEDER_BADGE_INSET,
   RAIL_LANE_CORRIDOR_W_PX,
   RAIL_LANE_W_PX,
   badgeHalfWidth,
+  clampBadgeIntoBounds,
   boundaryIgwCaption,
   boundaryVpceCaption,
   busCenteredBadgeX,
@@ -831,5 +833,57 @@ describe("every evidence claim on the map reads the payload, not the drawn subse
       "2 fn · 1 other · service-plane access",
     )
     expect(railInboundCaption("bucket", drawn, isFn)).toBe("1 fn · service-plane access")
+  })
+})
+
+describe("clampBadgeIntoBounds — nothing paints outside the map card", () => {
+  // The overlay extent the geometry specs measure at 1512x771.
+  const W = 1180
+  const H = 520
+
+  it("leaves a badge that is already inside exactly where it was", () => {
+    expect(clampBadgeIntoBounds(600, 300, 38, BADGE_HALF_HEIGHT, W, H)).toEqual({ x: 600, y: 300 })
+  })
+
+  it("pulls back a gutter badge that marched off the left edge", () => {
+    // The measured defect: the gutter fallback is `min(srcLane.l, dstChip.l) -
+    // 24 - busFanOffset(...)`, which for a source in the logical-group band
+    // walked the MEMBER_OF_CLUSTER word to a negative x, over the map header.
+    const hw = badgeHalfWidth("MEMBER_OF_CLUSTER")
+    const { x } = clampBadgeIntoBounds(-40, 300, hw, BADGE_HALF_HEIGHT, W, H)
+    expect(x).toBe(hw + 2)
+    expect(x - hw).toBeGreaterThanOrEqual(0)
+  })
+
+  it("pulls back a badge that overshot the right edge", () => {
+    const hw = badgeHalfWidth("TARGETS ×6")
+    const { x } = clampBadgeIntoBounds(W + 80, 100, hw, BADGE_HALF_HEIGHT, W, H)
+    expect(x + hw).toBeLessThanOrEqual(W)
+  })
+
+  it("clamps the vertical too — pass 4 nudges up to 160px from the anchor", () => {
+    expect(clampBadgeIntoBounds(600, -30, 38, BADGE_HALF_HEIGHT, W, H).y).toBe(BADGE_HALF_HEIGHT + 2)
+    expect(clampBadgeIntoBounds(600, H + 30, 38, BADGE_HALF_HEIGHT, W, H).y).toBe(
+      H - BADGE_HALF_HEIGHT - 2,
+    )
+  })
+
+  it("touches the edge exactly, never past it, at the boundary", () => {
+    const hw = 38
+    expect(clampBadgeIntoBounds(hw + 2, 50, hw, BADGE_HALF_HEIGHT, W, H).x).toBe(hw + 2)
+    expect(clampBadgeIntoBounds(W - hw - 2, 50, hw, BADGE_HALF_HEIGHT, W, H).x).toBe(W - hw - 2)
+  })
+
+  it("centres a box wider than the card rather than picking a side to hang off", () => {
+    // There is no in-bounds position for it; centring keeps the overflow
+    // symmetric and still inside the card's own middle.
+    expect(clampBadgeIntoBounds(-500, 50, 400, BADGE_HALF_HEIGHT, 300, H).x).toBe(150)
+    expect(clampBadgeIntoBounds(50, -500, 20, 400, W, 300).y).toBe(150)
+  })
+
+  it("is a no-op on a zero-size overlay rather than producing NaN", () => {
+    const c = clampBadgeIntoBounds(10, 10, 20, BADGE_HALF_HEIGHT, 0, 0)
+    expect(Number.isFinite(c.x)).toBe(true)
+    expect(Number.isFinite(c.y)).toBe(true)
   })
 })

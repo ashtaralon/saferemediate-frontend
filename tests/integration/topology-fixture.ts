@@ -583,9 +583,17 @@ export function logicalGroupSnapshot(base: typeof SNAPSHOT = SNAPSHOT) {
  *  the no-addresses case; this builder is what exercises the hop chain and the
  *  complete-vs-sampled split. */
 export function externalEgressSnapshot(base: typeof SNAPSHOT = SNAPSHOT) {
-  const NAT = "nat-0fd7cf8524e62aea9"
-  const IGW = "igw-01b6c643a5c856abe"
-  const NAT_SUBNET = "subnet-05472c7cd0d3a7b90"
+  // The gateway the MAP draws for this frame, not C1's: the External
+  // destinations chain has to name the same igw- id as the in-map IGW chip or
+  // the "continuation past the IGW" claim is about some other gateway
+  // (independent review, 2026-09-14). The NAT is fixture-named because the
+  // captured payload carries no NAT gateway to borrow an id from, and
+  // inventing a realistic-looking one would read as real.
+  const frameVpc = base.vpc_topology.vpc_id as string
+  const igws = (base.vpc_topology.edges.igws ?? []) as Array<{ id: string; vpc_id: string }>
+  const IGW = (igws.find(gw => gw.vpc_id === frameVpc) ?? igws[0]).id
+  const NAT = "nat-fixture0a1b2c3d4"
+  const NAT_SUBNET = (base.vpc_topology.subnets as Array<{ id: string }>)[0].id
   // C1's i-0129135b4e4723d6d (32 distinct, 5 shown) and i-0b1a764c731dfc095
   // (3 distinct, 3 shown — the whole inventory).
   const SAMPLED = ["3.5.73.1", "3.5.72.73", "3.5.72.119", "3.5.69.34", "3.5.67.254"]
@@ -632,6 +640,7 @@ export function externalEgressSnapshot(base: typeof SNAPSHOT = SNAPSHOT) {
     completeLegs,
     expectedUpperBound,
     natId: NAT,
+    /** The frame's own gateway — the chain must name this exact id. */
     igwId: IGW,
     hopCaption: `NAT ${NAT} \u2192 IGW ${IGW}`,
   }

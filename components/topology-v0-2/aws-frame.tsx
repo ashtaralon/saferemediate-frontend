@@ -40,6 +40,7 @@ import {
   type S3TrafficCoverage,
 } from "./estate-egress-summary"
 import { Boxes, GitBranch, Globe2, ShieldAlert, Users } from "lucide-react"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import {
   type EdgeNatGw,
   type IamRoleRollup,
@@ -3222,14 +3223,52 @@ function LambdaS3CoveragePanel({
   )
 }
 
+/** One hop on the egress chain, named from the payload's own egress_hops.
+ *  The id is elided to keep the chain inside the strip; the full id is on the
+ *  chip's title, in its data attribute, and spelled out in the panel. */
+function EgressHopChip({ kind, id }: { kind: "NAT" | "IGW"; id: string | null }) {
+  return (
+    <span
+      className="inline-flex items-center gap-1 rounded px-1 py-0.5 text-[10px] font-semibold uppercase tracking-[0.06em] min-w-0"
+      style={{ background: "#FFF7ED", border: "1px solid #FDBA74", color: "#B45309" }}
+      data-testid="topology-egress-hop"
+      data-hop-kind={kind.toLowerCase()}
+      data-hop-id={id ?? ""}
+      title={id ? `${kind} ${id}` : `${kind} — this generation does not name the gateway`}
+    >
+      {kind}
+      {id ? (
+        <span className="font-mono normal-case tracking-normal truncate max-w-[90px]">{id}</span>
+      ) : null}
+    </span>
+  )
+}
+
+function EgressArrow() {
+  return (
+    <span className="inline-flex items-center shrink-0" aria-hidden style={{ color: "#FF9900" }}>
+      <span className="w-3 border-t-2" style={{ borderColor: "#FF9900" }} />
+      <span className="text-[11px] leading-none -ml-0.5">&#9656;</span>
+    </span>
+  )
+}
+
 /** The continuation past the IGW: where the traffic actually went.
  *
  *  Production QA, 2026-09-14: three egress records terminated at the synthetic
  *  `__igw__` and the map stopped there, so a reader saw traffic reach the
  *  perimeter and vanish, with "32 ext" and "10 ext" surviving only as badges.
  *
+ *  Independent review, 2026-09-14 (second pass): the node was drawn as one
+ *  more block after the static Internet chip, joined by the same neutral
+ *  dashed rule that joins Users to Internet, so it read as
+ *  `Users -> Internet -> another Internet`. The hops are now DRAWN — a
+ *  workload count, then each gateway the payload names, on egress-coloured
+ *  arrows — so the chain reads `N workloads -> NAT -> IGW -> External
+ *  destinations` and names the same gateway id the map's own IGW chip carries.
+ *
  *  Every claim here is the payload's. The chain is the payload's egress_hops,
- *  so the NAT is named as the first hop and the IGW as the second — the "via
+ *  so the NAT is named as the first hop and the IGW as the second -- the "via
  *  NAT" wording was always right, the TERMINAL was what lied. Two labels the
  *  evidence forces and the eye does not:
  *
@@ -3240,8 +3279,14 @@ function LambdaS3CoveragePanel({
  *    WITHIN a leg. Neither is softened into "destinations".
  *
  *  No identity is invented: destinations[] is empty in production, so this
- *  never names an AWS service. Absent a summary it renders nothing — an
- *  External node over zero legs would assert a crossing nobody observed. */
+ *  never names an AWS service. Absent a summary it renders nothing -- an
+ *  External node over zero legs would assert a crossing nobody observed.
+ *
+ *  The detail is a POPOVER, not a sibling column. Rendered beside the header
+ *  it widened the top strip until the text was unreadable and the Users block
+ *  was pushed off screen at 1024x720 (independent review, run 34851422905).
+ *  Radix portals the panel out of the strip and keeps it inside the viewport,
+ *  so opening it cannot change the strip's width at any viewport. */
 function ExternalDestinationsNode({
   summary,
   compact,
@@ -3251,106 +3296,189 @@ function ExternalDestinationsNode({
 }) {
   const [open, setOpen] = useState(false)
   if (!summary) return null
-  const { legs, maxDistinctUpperBound, everySampleComplete, natIds, igwIds } = summary
+  const {
+    legs,
+    maxDistinctUpperBound,
+    legsWithUnknownDistinct,
+    everySampleComplete,
+    anySample,
+    natIds,
+    igwIds,
+  } = summary
   const hops = [...natIds.map(id => `NAT ${id}`), ...igwIds.map(id => `IGW ${id}`)]
-  // Three states, not two. An older generation carries the distinct COUNTS and
-  // no sample_hosts at all (the captured payload the geometry specs replay:
-  // nine egress legs, zero addresses), and "addresses sampled" would promise a
-  // sample that is not there.
-  const anySample = legs.some(leg => leg.sampleHosts.length > 0)
+  // Three claims, three sentences. A null bound is a GAP (no leg carries a
+  // count); a zero bound is a measurement; a partial bound covers only the
+  // legs that were counted. "up to 0 distinct" said none of the three.
+  const distinctPhrase =
+    maxDistinctUpperBound === null
+      ? "distinct count not recorded"
+      : maxDistinctUpperBound === 0
+        ? "no distinct destinations recorded"
+        : `up to ${maxDistinctUpperBound} distinct`
+  const partialPhrase =
+    legsWithUnknownDistinct > 0 && maxDistinctUpperBound !== null
+      ? ` · ${legsWithUnknownDistinct} uncounted`
+      : ""
+  const samplePhrase = everySampleComplete
+    ? " · addresses complete"
+    : anySample
+      ? " · addresses sampled"
+      : " · no addresses recorded"
   return (
     <div
-      className="flex items-center gap-2 shrink-0"
+      className="flex items-center gap-1.5 min-w-0"
       style={{ color: PAL.ink }}
       data-testid="topology-external-destinations"
       data-leg-count={legs.length}
-      data-max-distinct-upper-bound={maxDistinctUpperBound}
+      data-max-distinct-upper-bound={maxDistinctUpperBound ?? ""}
+      data-unknown-distinct-legs={legsWithUnknownDistinct}
       data-sample-complete={everySampleComplete ? "true" : "false"}
       data-open={open ? "true" : "false"}
     >
-      <span
-        className="w-[min(10vw,72px)] shrink border-t-[3px] border-dashed"
-        style={{ borderColor: "#94A3B8" }}
-        aria-hidden
-      />
-      <span
-        className="inline-flex items-center justify-center rounded-lg"
-        style={{
-          width: compact ? 40 : 48,
-          height: compact ? 40 : 48,
-          background: "#FFFFFF",
-          border: "1.5px solid #FCA5A5",
-          color: "#B91C1C",
-        }}
-        aria-hidden
-      >
-        <Globe2 size={compact ? 20 : 24} strokeWidth={1.8} />
-      </span>
-      <div className="flex flex-col leading-tight min-w-0">
-        <button
-          type="button"
-          onClick={() => setOpen(o => !o)}
-          className="text-left"
-          aria-expanded={open}
-          data-testid="topology-external-destinations-toggle"
-        >
-          <span
-            className={
-              compact
-                ? "text-[12px] uppercase tracking-[0.12em] font-bold underline decoration-dotted underline-offset-2"
-                : "text-[13px] uppercase tracking-[0.12em] font-bold underline decoration-dotted underline-offset-2"
-            }
-            style={{ color: PAL.ink }}
-          >
-            External destinations
-          </span>
-        </button>
-        <span
-          className="text-[10px] font-medium"
-          style={{ color: PAL.slate }}
-          data-testid="topology-external-destinations-summary"
-        >
-          {/* "up to" is the whole point: per-leg counts are distinct within a
-              leg, so their sum bounds the truth rather than stating it. */}
-          {legs.length} workload{legs.length === 1 ? "" : "s"} · up to {maxDistinctUpperBound} distinct
-          {everySampleComplete
-            ? " · addresses complete"
-            : anySample
-              ? " · addresses sampled"
-              : " · no addresses recorded"}
-        </span>
-      </div>
+      {/* The chain, not a neutral rule: this is the egress path, drawn in the
+          legend's own "Internet egress" colour and naming its gateways. */}
       <div
-        className="flex flex-col gap-1 min-w-0 max-w-[340px]"
-        hidden={!open}
-        data-testid="topology-external-destinations-details"
+        className="flex items-center gap-1 min-w-0"
+        data-testid="topology-external-egress-chain"
+        data-workloads={legs.length}
+        data-nat-ids={natIds.join(",")}
+        data-igw-ids={igwIds.join(",")}
       >
-        <span className="text-[9px] leading-snug" style={{ color: PAL.slate }}>
-          Route is configured (route tables){hops.length > 0 ? `: ${hops.join(" → ")}` : ""}. Counts are
-          observed. The payload names no destination identities
-          {anySample
-            ? ", so these addresses are evidence, not an inventory of services."
-            : ", and this generation recorded no addresses at all."}
+        <span
+          className="text-[10px] font-semibold whitespace-nowrap"
+          style={{ color: "#B45309" }}
+          data-testid="topology-egress-chain-source"
+        >
+          {legs.length} workload{legs.length === 1 ? "" : "s"}
         </span>
-        {legs.map(leg => (
-          <span
-            key={leg.sourceId}
-            className="text-[9px] leading-snug font-mono truncate"
-            style={{ color: PAL.slate }}
-            data-testid="topology-external-destination-leg"
-            data-source-id={leg.sourceId}
-            data-distinct={leg.distinctDestinations ?? ""}
-            data-sample-complete={leg.sampleIsComplete ? "true" : "false"}
-            title={leg.sampleHosts.join(", ")}
-          >
-            {leg.sourceId} → {leg.distinctDestinations ?? "?"} distinct ·{" "}
-            {leg.sampleIsComplete
-              ? `all ${leg.sampleHosts.length} shown`
-              : `${leg.sampleHosts.length} of ${leg.distinctDestinations ?? "?"} shown`}
-            {leg.sampleHosts.length > 0 ? `: ${leg.sampleHosts.join(", ")}` : ""}
+        <EgressArrow />
+        {natIds.map(id => (
+          <span key={id} className="flex items-center gap-1 min-w-0">
+            <EgressHopChip kind="NAT" id={id} />
+            <EgressArrow />
           </span>
         ))}
+        {igwIds.length > 0 ? (
+          igwIds.map(id => (
+            <span key={id} className="flex items-center gap-1 min-w-0">
+              <EgressHopChip kind="IGW" id={id} />
+              <EgressArrow />
+            </span>
+          ))
+        ) : (
+          <span className="flex items-center gap-1 min-w-0">
+            <EgressHopChip kind="IGW" id={null} />
+            <EgressArrow />
+          </span>
+        )}
       </div>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            className="flex items-center gap-2 shrink-0 text-left"
+            aria-expanded={open}
+            data-testid="topology-external-destinations-toggle"
+          >
+            <span
+              className="inline-flex items-center justify-center rounded-lg shrink-0"
+              style={{
+                width: compact ? 40 : 48,
+                height: compact ? 40 : 48,
+                background: "#FFFFFF",
+                border: "1.5px solid #FCA5A5",
+                color: "#B91C1C",
+              }}
+              aria-hidden
+            >
+              <Globe2 size={compact ? 20 : 24} strokeWidth={1.8} />
+            </span>
+            <span className="flex flex-col leading-tight min-w-0">
+              <span
+                className={
+                  compact
+                    ? "text-[12px] uppercase tracking-[0.12em] font-bold underline decoration-dotted underline-offset-2"
+                    : "text-[13px] uppercase tracking-[0.12em] font-bold underline decoration-dotted underline-offset-2"
+                }
+                style={{ color: PAL.ink }}
+              >
+                External destinations
+              </span>
+              <span
+                className="text-[10px] font-medium"
+                style={{ color: PAL.slate }}
+                data-testid="topology-external-destinations-summary"
+              >
+                {/* "up to" is the whole point: per-leg counts are distinct
+                    within a leg, so their sum bounds the truth rather than
+                    stating it. */}
+                {legs.length} workload{legs.length === 1 ? "" : "s"} · {distinctPhrase}
+                {partialPhrase}
+                {samplePhrase}
+              </span>
+            </span>
+          </button>
+        </PopoverTrigger>
+        <PopoverContent
+          align="end"
+          sideOffset={8}
+          collisionPadding={12}
+          className="w-[min(92vw,460px)] max-h-[min(60vh,360px)] overflow-y-auto p-3 bg-white"
+          data-testid="topology-external-destinations-details"
+        >
+          <p className="text-[12px] leading-snug font-semibold" style={{ color: PAL.ink }}>
+            {legs.length} workload{legs.length === 1 ? "" : "s"} leaving the VPC
+          </p>
+          <p className="mt-1 text-[11px] leading-snug" style={{ color: PAL.slate }}>
+            Route is configured (route tables){hops.length > 0 ? `: ${hops.join(" → ")}` : ""}. Counts are
+            observed. The payload names no destination identities
+            {anySample
+              ? ", so these addresses are evidence, not an inventory of services."
+              : ", and this generation recorded no addresses at all."}
+          </p>
+          {legsWithUnknownDistinct > 0 ? (
+            <p
+              className="mt-1 text-[11px] leading-snug"
+              style={{ color: PAL.slate }}
+              data-testid="topology-external-destinations-uncounted"
+            >
+              {legsWithUnknownDistinct} of {legs.length} carry no distinct count, so the total above
+              covers only the rest.
+            </p>
+          ) : null}
+          <ul className="mt-2 flex flex-col gap-1.5">
+            {legs.map(leg => (
+              <li
+                key={leg.sourceId}
+                className="text-[11px] leading-snug"
+                style={{ color: PAL.slate }}
+                data-testid="topology-external-destination-leg"
+                data-source-id={leg.sourceId}
+                data-distinct={leg.distinctDestinations ?? ""}
+                data-sample-count={leg.sampleHosts.length}
+                data-sample-complete={leg.sampleIsComplete ? "true" : "false"}
+              >
+                <span className="font-mono break-all" style={{ color: PAL.ink }}>
+                  {leg.sourceId}
+                </span>{" "}
+                ·{" "}
+                {leg.distinctDestinations == null
+                  ? "distinct count not recorded"
+                  : `${leg.distinctDestinations} distinct`}{" "}
+                ·{" "}
+                {leg.sampleHosts.length === 0
+                  ? "no addresses recorded"
+                  : leg.sampleIsComplete
+                    ? `all ${leg.sampleHosts.length} shown`
+                    : `${leg.sampleHosts.length} of ${leg.distinctDestinations ?? "?"} shown`}
+                {leg.sampleHosts.length > 0 ? (
+                  <span className="font-mono break-all"> — {leg.sampleHosts.join(", ")}</span>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </PopoverContent>
+      </Popover>
     </div>
   )
 }
@@ -3767,6 +3895,40 @@ export function busFanOffset(index: number, total: number, usable: number): numb
  *  this so the three cannot drift apart. */
 export function badgeHalfWidth(label: string): number {
   return Math.max(14, label.length * 3.8)
+}
+
+/** Half-heights of the two badge boxes the renderer draws: the bundle badge is
+ *  `y={-7} height={14}`, the feeder stub `y={-6} height={12}`. Named so the
+ *  containment pass measures the same boxes the renderer paints. */
+export const BADGE_HALF_HEIGHT = 7
+export const STUB_BADGE_HALF_HEIGHT = 6
+
+/** Keep a badge box inside the overlay's own extent.
+ *
+ *  The ONE authority for "inside the map". Four placement rules each choose an
+ *  anchor (on the bus, beside it, in the gutter column, nudged clear of a
+ *  chip) and none of them knows how wide the card is, so a gutter fallback
+ *  that marches left walks straight off it. This runs last, over every badge,
+ *  and moves only the ones that would otherwise paint outside.
+ *
+ *  A box wider (or taller) than the bounds has no in-bounds position at all;
+ *  it is centred, which still never leaves the card. */
+export function clampBadgeIntoBounds(
+  x: number,
+  y: number,
+  halfWidth: number,
+  halfHeight: number,
+  width: number,
+  height: number,
+): { x: number; y: number } {
+  const xMin = halfWidth + 2
+  const xMax = width - halfWidth - 2
+  const yMin = halfHeight + 2
+  const yMax = height - halfHeight - 2
+  return {
+    x: xMax < xMin ? width / 2 : Math.min(Math.max(x, xMin), xMax),
+    y: yMax < yMin ? height / 2 : Math.min(Math.max(y, yMin), yMax),
+  }
 }
 
 /** Centre x for a bundle badge placed ON its line — just right of the bus,
@@ -4441,7 +4603,9 @@ function FlowOverlay({
       if (containerRect.width === 0) return
       // Natural (pre-scale) size: containerRect is the post-transform box, so
       // dividing recovers the SVG's own coordinate extent (viewBox === natural).
-      setSize({ w: containerRect.width / scale, h: containerRect.height / scale })
+      const natW = containerRect.width / scale
+      const natH = containerRect.height / scale
+      setSize({ w: natW, h: natH })
       const toNat = (rect: DOMRect): NatRect => {
         const l = (rect.left - containerRect.left) / scale
         const t = (rect.top - containerRect.top) / scale
@@ -5076,6 +5240,39 @@ function FlowOverlay({
         p.badgeY = y
         placed.push({ x: p.badgeX, y, hw })
       }
+
+      // Pass 5 — containment. Passes 1-4 choose an anchor and then nudge in Y
+      // ONLY, so a badge whose x came from a gutter fallback keeps that x
+      // however far outside the card it lands: the six logical groups' own
+      // membership words (TARGETS / LAUNCHES / MEMBER_OF_CLUSTER) painted over
+      // the "Platform map" header, clipped by the card's left edge
+      // (independent review of run 34851422905, 1512x771 and 1600x900). The
+      // gutter fallback marches LEFT from the leftmost lane — `Math.min(srcLane.l,
+      // dstChip.l) - 24 - busFanOffset(...)` — and nothing downstream had an
+      // opinion about the overlay's own extent. Clamping here rather than in
+      // each placement rule keeps ONE authority for "inside the map", which is
+      // what the four placement rules kept disagreeing about.
+      for (const p of next) {
+        if (p.badgeLabel) {
+          const hw = badgeHalfWidth(p.badgeLabel)
+          const c = clampBadgeIntoBounds(p.badgeX, p.badgeY, hw, BADGE_HALF_HEIGHT, natW, natH)
+          p.badgeX = c.x
+          p.badgeY = c.y
+        }
+        if (p.stubBadges && p.stubBadges.length > 0) {
+          p.stubBadges = p.stubBadges.map(b => {
+            const c = clampBadgeIntoBounds(
+              b.x,
+              b.y,
+              badgeHalfWidth(b.label),
+              STUB_BADGE_HALF_HEIGHT,
+              natW,
+              natH,
+            )
+            return { ...b, x: c.x, y: c.y }
+          })
+        }
+      }
       setPaths(next)
     }
     // Double-rAF scheduler: measuring in the same frame as a transform /
@@ -5137,6 +5334,10 @@ function FlowOverlay({
   return (
     <svg
       aria-hidden="true"
+      // The bound every badge is clamped into (FlowOverlay pass 5). Named so a
+      // containment spec measures the SAME box the clamp used, rather than a
+      // card the overlay only happens to sit inside.
+      data-testid="topology-flow-overlay"
       width={hasSize ? size.w : "100%"}
       height={hasSize ? size.h : "100%"}
       viewBox={hasSize ? `0 0 ${size.w} ${size.h}` : undefined}
@@ -5371,9 +5572,9 @@ function FlowOverlay({
                 <title>{p.badgeTitle || p.badgeLabel}</title>
                 <rect
                   x={-badgeHalfWidth(p.badgeLabel)}
-                  y={-7}
+                  y={-BADGE_HALF_HEIGHT}
                   width={badgeHalfWidth(p.badgeLabel) * 2}
-                  height={14}
+                  height={BADGE_HALF_HEIGHT * 2}
                   rx={3}
                   fill="white"
                   stroke={stroke}
@@ -5407,7 +5608,17 @@ function FlowOverlay({
                 data-flow-feeder="true"
               >
                 <title>{b.title}</title>
-                <rect x={-hw} y={-6} width={hw * 2} height={12} rx={6} fill="white" stroke={stroke} strokeWidth="0.75" opacity="0.94" />
+                <rect
+                  x={-hw}
+                  y={-STUB_BADGE_HALF_HEIGHT}
+                  width={hw * 2}
+                  height={STUB_BADGE_HALF_HEIGHT * 2}
+                  rx={6}
+                  fill="white"
+                  stroke={stroke}
+                  strokeWidth="0.75"
+                  opacity="0.94"
+                />
                 <circle cx={-hw + 5} cy={0} r={1.7} fill={stroke} />
                 <text
                   x={2.5}
@@ -8331,15 +8542,25 @@ export function AwsFrame({
       ) : null}
       {/* Users → Internet — clustered toward center (not pinned to corners).
           IGW chip lives on the VPCE rail. */}
+      {/* `flex-wrap`, and a connector that gives ground before the blocks do:
+          the row is centre-justified and its blocks were `shrink-0`, so once
+          the egress chain made it wider than the canvas the overflow was split
+          evenly and the USERS block was the half that went off screen
+          (independent review at 1024x720, run 34851422905). Wrapping costs one
+          row at the narrowest viewport and never clips an endpoint. */}
       <div
         className={
           presentationMode
-            ? "flex items-center justify-center gap-6 py-0.5 w-full min-w-0 shrink-0"
-            : "flex items-center justify-center gap-8 py-1 w-full min-w-0"
+            ? "flex flex-wrap items-center justify-center gap-x-6 gap-y-1 py-0.5 w-full min-w-0 shrink-0"
+            : "flex flex-wrap items-center justify-center gap-x-8 gap-y-1.5 py-1 w-full min-w-0"
         }
         data-testid="topology-users-internet-strip"
       >
-        <div className="flex items-center gap-2 shrink-0" style={{ color: PAL.ink }}>
+        <div
+          className="flex items-center gap-2 shrink-0"
+          style={{ color: PAL.ink }}
+          data-testid="topology-users-node"
+        >
           <span
             className="inline-flex items-center justify-center rounded-lg"
             style={{
@@ -8370,11 +8591,15 @@ export function AwsFrame({
           </div>
         </div>
         <div
-          className="w-[min(28vw,220px)] shrink border-t-[3px] border-dashed"
+          className="w-[min(18vw,150px)] shrink border-t-[3px] border-dashed"
           style={{ borderColor: "#94A3B8" }}
           aria-hidden
         />
-        <div className="flex items-center gap-2 shrink-0" style={{ color: PAL.ink }}>
+        <div
+          className="flex items-center gap-2 shrink-0"
+          style={{ color: PAL.ink }}
+          data-testid="topology-internet-node"
+        >
           <span
             className="inline-flex items-center justify-center rounded-lg"
             style={{

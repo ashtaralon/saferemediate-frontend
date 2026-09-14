@@ -304,3 +304,144 @@ describe("collapseTrunkWords — one badge per relationship, not per spelling", 
     expect(collapseTrunkWords([])).toEqual([])
   })
 })
+
+describe("summarizeExternalEgress — evidence boundaries (independent review, 2026-09-14)", () => {
+  const observedOnly = {
+    source_id: "i-observed",
+    target_id: "__igw__",
+    edge_class: "egress",
+    evidence_type: "observed",
+  } as unknown as TrafficEdge
+
+  it("admits an edge whose evidence_type says the traffic was observed", () => {
+    const summary = summarizeExternalEgress([observedOnly])!
+    expect(summary.legs).toHaveLength(1)
+    // No count on it, so the bound is a GAP rather than a number.
+    expect(summary.maxDistinctUpperBound).toBeNull()
+    expect(summary.legsWithUnknownDistinct).toBe(1)
+  })
+
+  it("refuses a CONFIGURED route to the gateway — a route is not traffic", () => {
+    // A route table entry points at the internet gateway too. Counted as
+    // egress it would let the node report a perimeter crossing on the evidence
+    // that a route exists, under a caption that says the counts are observed.
+    const routeTable = {
+      source_id: "rtb-0cd3",
+      target_id: "__igw__",
+      edge_class: "egress",
+      protocol: "ROUTES_TO",
+      evidence_type: "configured",
+      path_basis: "configured_route",
+      authority_state: "configured",
+      external_destinations: 12,
+    } as unknown as TrafficEdge
+    expect(summarizeExternalEgress([routeTable])).toBeNull()
+    // …and it does not inflate a real leg's company either.
+    const mixed = summarizeExternalEgress([routeTable, observedOnly])!
+    expect(mixed.legs.map(l => l.sourceId)).toEqual(["i-observed"])
+  })
+
+  it("refuses an edge that points at the gateway with no observation behind it", () => {
+    const bare = {
+      source_id: "i-bare",
+      target_id: "__igw__",
+      edge_class: "egress",
+    } as unknown as TrafficEdge
+    expect(summarizeExternalEgress([bare])).toBeNull()
+  })
+
+  it("admits on a distinct count or a breakdown even with no evidence_type", () => {
+    const counted = { source_id: "i-c", target_id: "__igw__", external_destinations: 4 } as unknown as TrafficEdge
+    const bucketed = {
+      source_id: "i-b",
+      target_id: "__igw__",
+      egress_breakdown: [{ kind: "external", count: 1, sample_hosts: ["1.1.1.1"] }],
+    } as unknown as TrafficEdge
+    expect(summarizeExternalEgress([counted, bucketed])!.legs).toHaveLength(2)
+  })
+
+  it("de-duplicates sample hosts before deciding the sample is complete", () => {
+    // Two buckets, three rows, TWO addresses. Counting rows called a
+    // three-destination leg completely enumerated.
+    const duped = {
+      source_id: "i-dupe",
+      target_id: "__igw__",
+      evidence_type: "observed",
+      external_destinations: 3,
+      egress_breakdown: [
+        { kind: "external", count: 2, sample_hosts: ["1.1.1.1", "2.2.2.2"] },
+        { kind: "s3", count: 1, sample_hosts: ["1.1.1.1"] },
+      ],
+    } as unknown as TrafficEdge
+    const leg = summarizeExternalEgress([duped])!.legs[0]
+    expect(leg.sampleHosts).toEqual(["1.1.1.1", "2.2.2.2"])
+    expect(leg.sampleIsComplete).toBe(false)
+  })
+
+  it("still calls a de-duplicated sample complete when it really covers the count", () => {
+    const exact = {
+      source_id: "i-exact",
+      target_id: "__igw__",
+      evidence_type: "observed",
+      external_destinations: 2,
+      egress_breakdown: [
+        { kind: "external", count: 2, sample_hosts: ["1.1.1.1", "2.2.2.2", "1.1.1.1"] },
+      ],
+    } as unknown as TrafficEdge
+    const summary = summarizeExternalEgress([exact])!
+    expect(summary.legs[0].sampleHosts).toHaveLength(2)
+    expect(summary.legs[0].sampleIsComplete).toBe(true)
+    expect(summary.everySampleComplete).toBe(true)
+    expect(summary.anySample).toBe(true)
+  })
+
+  it("sums only the legs it counted and says how many it did not", () => {
+    const counted = { source_id: "i-1", target_id: "__igw__", external_destinations: 20 } as unknown as TrafficEdge
+    const uncounted = { source_id: "i-2", target_id: "__igw__", evidence_type: "observed" } as unknown as TrafficEdge
+    const summary = summarizeExternalEgress([counted, uncounted])!
+    // 20, not 20 + 0: an unknown is not a zero.
+    expect(summary.maxDistinctUpperBound).toBe(20)
+    expect(summary.legsWithUnknownDistinct).toBe(1)
+  })
+
+  it("reports NO bound at all when no leg carries a count", () => {
+    const summary = summarizeExternalEgress([observedOnly, { ...observedOnly, source_id: "i-2" }])!
+    // Null, never 0 — "up to 0 distinct" is the string this prevents.
+    expect(summary.maxDistinctUpperBound).toBeNull()
+    expect(summary.legsWithUnknownDistinct).toBe(2)
+    expect(summary.anySample).toBe(false)
+  })
+
+  it("keeps a measured zero distinct from an unknown one", () => {
+    const measuredZero = {
+      source_id: "i-zero",
+      target_id: "__igw__",
+      evidence_type: "observed",
+      external_destinations: 0,
+    } as unknown as TrafficEdge
+    const summary = summarizeExternalEgress([measuredZero])!
+    expect(summary.maxDistinctUpperBound).toBe(0)
+    expect(summary.legsWithUnknownDistinct).toBe(0)
+    // A measured zero with an empty sample is a complete inventory of nothing.
+    expect(summary.legs[0].sampleIsComplete).toBe(true)
+  })
+
+  it("names the gateway from the edge's own target when no hop chain is carried", () => {
+    const noHops = {
+      source_id: "i-nohops",
+      target_id: "igw-03bb3f19b706abbc4",
+      evidence_type: "observed",
+      external_destinations: 2,
+    } as unknown as TrafficEdge
+    const summary = summarizeExternalEgress([noHops])!
+    expect(summary.igwIds).toEqual(["igw-03bb3f19b706abbc4"])
+    expect(summary.natIds).toEqual([])
+  })
+
+  it("does not name the sentinel as a gateway id", () => {
+    const summary = summarizeExternalEgress([
+      { source_id: "i-s", target_id: "__igw__", evidence_type: "observed" } as unknown as TrafficEdge,
+    ])!
+    expect(summary.igwIds).toEqual([])
+  })
+})

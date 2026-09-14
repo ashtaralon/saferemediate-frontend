@@ -28,40 +28,84 @@ const KEY_SEP = String.fromCharCode(31)
 /** One workload's path out through the perimeter. */
 export interface ExternalEgressLeg {
   sourceId: string
-  /** Distinct destinations behind THIS leg, as the backend counted them. */
+  /** Distinct destinations behind THIS leg, as the backend counted them, or
+   *  null when the payload carries no count. Null is UNKNOWN and is never
+   *  coerced to zero: "0 distinct" is a measurement, "no count" is a gap. */
   distinctDestinations: number | null
   /** Hops in path order — structural (route tables), never observed per-flow. */
   hops: { kind: string; id: string; subnetId?: string | null }[]
-  /** Sampled destination addresses. May be shorter than the distinct count. */
+  /** Sampled destination addresses, DE-DUPLICATED. The backend concatenates
+   *  one bucket per kind and the same address can appear in more than one, so
+   *  a raw length is a count of rows, not of addresses. */
   sampleHosts: string[]
-  /** The sample covers the whole count for this leg, so it IS the inventory. */
+  /** The sample covers the whole count for this leg, so it IS the inventory.
+   *  Requires a known count: a sample cannot be complete against an unknown. */
   sampleIsComplete: boolean
 }
 
 export interface ExternalEgressSummary {
   legs: ExternalEgressLeg[]
-  /** UPPER BOUND, not a distinct total: per-leg counts are distinct WITHIN a
-   *  leg, and nothing in the payload says whether two workloads reached the
-   *  same host. Summing them and calling it "45 destinations" would invent a
-   *  fact. Named so a caller cannot use it as a total by accident. */
-  maxDistinctUpperBound: number
-  /** Every leg's sample covers its own count — only then is the sampled list a
-   *  complete inventory rather than an example. */
+  /** Sum of the legs whose distinct count IS known — an UPPER BOUND, because
+   *  per-leg counts are distinct only WITHIN a leg. Null when no leg carries a
+   *  count at all, so the caller states the gap instead of printing a zero. */
+  maxDistinctUpperBound: number | null
+  /** Legs whose distinct count the payload does not carry. Non-zero means the
+   *  bound above covers only part of the traffic. */
+  legsWithUnknownDistinct: number
   everySampleComplete: boolean
-  /** Distinct hop ids by kind, across all legs. */
+  /** At least one leg has a sampled address after de-duplication. */
+  anySample: boolean
   natIds: string[]
   igwIds: string[]
   routeBases: string[]
 }
 
-function isExternalEgress(edge: TrafficEdge): boolean {
-  // The sentinel is what the projection actually emits for "left the VPC"; a
-  // real igw- id is accepted too so this does not silently stop working the
-  // day the backend stops minting the sentinel.
+/** The gateway this edge leaves through, or null when it does not leave.
+ *  The sentinel is what the projection emits for "left the VPC"; a real igw-
+ *  id is accepted too so this does not silently stop working the day the
+ *  backend stops minting the sentinel. */
+function egressGatewayId(edge: TrafficEdge): string | null {
+  if (edge.target_id === IGW_CANVAS_ANCHOR_ID) return null
+  if (edge.target_id.startsWith("igw-")) return edge.target_id
+  return null
+}
+
+function targetsGateway(edge: TrafficEdge): boolean {
   return edge.target_id === IGW_CANVAS_ANCHOR_ID || edge.target_id.startsWith("igw-")
 }
 
-/** The external continuation beyond the IGW, or null when nothing leaves.
+/** Whether this edge is OBSERVED traffic out through the gateway.
+ *
+ *  Pointing at the gateway is not enough. A route table entry also points at
+ *  the internet gateway and the payload carries it as a configured edge; count
+ *  it and the node reports a workload "reaching N external destinations" on
+ *  the evidence that a route exists. The node's own caption says the counts
+ *  are observed, so the admission has to match that claim:
+ *
+ *    - configured evidence is refused outright (evidence_type / path_basis /
+ *      authority_state all say so in their own vocabulary), and
+ *    - what remains must carry at least one OBSERVED artefact: an observed
+ *      evidence_type, a distinct-destination count, or an egress breakdown.
+ *
+ *  An edge that merely targets the gateway with no observation behind it is
+ *  not evidence of egress, and this returns false for it. */
+export function isObservedExternalEgress(edge: TrafficEdge): boolean {
+  if (!targetsGateway(edge)) return false
+  const configured =
+    edge.evidence_type === "configured" ||
+    edge.path_basis === "configured_route" ||
+    edge.authority_state === "configured"
+  if (configured) return false
+  const breakdown = edge.egress_breakdown ?? []
+  return (
+    edge.evidence_type === "observed" ||
+    edge.external_destinations != null ||
+    breakdown.length > 0
+  )
+}
+
+/** The external continuation beyond the gateway, or null when nothing
+ *  observably leaves.
  *
  *  Null rather than an empty summary: an "External destinations" node drawn
  *  over zero legs would assert a perimeter crossing the payload never
@@ -75,8 +119,16 @@ export function summarizeExternalEgress(
   const routeBases: string[] = []
 
   for (const edge of edges) {
-    if (!isExternalEgress(edge)) continue
-    const sampleHosts = (edge.egress_breakdown ?? []).flatMap(b => b.sample_hosts ?? [])
+    if (!isObservedExternalEgress(edge)) continue
+    // De-duplicate before measuring: the same address can appear in two
+    // buckets of one breakdown, and three rows for two addresses made a
+    // two-destination leg look completely enumerated.
+    const sampleHosts: string[] = []
+    for (const bucket of edge.egress_breakdown ?? []) {
+      for (const host of bucket.sample_hosts ?? []) {
+        if (!sampleHosts.includes(host)) sampleHosts.push(host)
+      }
+    }
     const distinct = edge.external_destinations ?? null
     legs.push({
       sourceId: edge.source_id,
@@ -95,14 +147,24 @@ export function summarizeExternalEgress(
       const into = hop.kind === "nat" ? natIds : hop.kind === "igw" ? igwIds : null
       if (into && hop.id && !into.includes(hop.id)) into.push(hop.id)
     }
+    // The edge's own target names the gateway when the projection stopped
+    // minting the sentinel, so the chain can name it without an egress_hops.
+    const gateway = egressGatewayId(edge)
+    if (gateway && !igwIds.includes(gateway)) igwIds.push(gateway)
     if (edge.route_basis && !routeBases.includes(edge.route_basis)) routeBases.push(edge.route_basis)
   }
 
   if (legs.length === 0) return null
+  const known = legs.filter(leg => leg.distinctDestinations != null)
   return {
     legs,
-    maxDistinctUpperBound: legs.reduce((sum, leg) => sum + (leg.distinctDestinations ?? 0), 0),
+    maxDistinctUpperBound:
+      known.length === 0
+        ? null
+        : known.reduce((sum, leg) => sum + (leg.distinctDestinations as number), 0),
+    legsWithUnknownDistinct: legs.length - known.length,
     everySampleComplete: legs.every(leg => leg.sampleIsComplete),
+    anySample: legs.some(leg => leg.sampleHosts.length > 0),
     natIds,
     igwIds,
     routeBases,
