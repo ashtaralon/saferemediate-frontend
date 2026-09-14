@@ -598,6 +598,8 @@ export function externalEgressSnapshot(base: typeof SNAPSHOT = SNAPSHOT) {
   // (3 distinct, 3 shown — the whole inventory).
   const SAMPLED = ["3.5.73.1", "3.5.72.73", "3.5.72.119", "3.5.69.34", "3.5.67.254"]
   const COMPLETE = ["54.217.69.183", "54.217.245.46", "3.253.225.145"]
+  const ATTRIBUTED_HOST = "52.218.0.200"
+  const ATTRIBUTED_SERVICE = "S3"
   type Edge = Record<string, unknown> & { target_id: string; external_destinations?: number | null }
   const edges = base.traffic_edges as Edge[]
   const isEgress = (edge: Edge) => edge.target_id === "__igw__"
@@ -625,7 +627,19 @@ export function externalEgressSnapshot(base: typeof SNAPSHOT = SNAPSHOT) {
       via_igw_id: IGW,
       route_basis: "structural_default_egress",
       destinations: [],
-      egress_breakdown: [{ kind: "external", count: distinct ?? 0, sample_hosts: sample }],
+      egress_breakdown: [
+        { kind: "external", count: distinct ?? 0, sample_hosts: sample },
+        // ONE authoritatively attributed destination, on the first leg only.
+        // C1 carries no attribution today, so without this the fixture could
+        // never exercise the branch that draws a service NAME — and the rule
+        // that an un-attributed address stays an address would be untested
+        // against a payload where attribution is possible at all.
+        // `aws_service` is the field VPC Flow Logs v5 `pkt-dst-aws-service`
+        // lands in; `kind` alone must never produce a service label.
+        ...(first
+          ? [{ kind: "s3", count: 2, sample_hosts: [ATTRIBUTED_HOST], aws_service: ATTRIBUTED_SERVICE }]
+          : []),
+      ],
     }
   })
   const expectedUpperBound = (traffic_edges as Edge[])
@@ -640,6 +654,12 @@ export function externalEgressSnapshot(base: typeof SNAPSHOT = SNAPSHOT) {
     completeLegs,
     expectedUpperBound,
     natId: NAT,
+    /** Distinct destination LABELS the lane may draw: the complete leg's three
+     *  addresses, the five sampled addresses every other leg repeats (one
+     *  node, not one per leg), and the attributed service. */
+    expectedNamed: COMPLETE.length + SAMPLED.length + 1,
+    /** The one destination the payload attributes a service to. */
+    attributedService: ATTRIBUTED_SERVICE,
     /** The frame's own gateway — the chain must name this exact id. */
     igwId: IGW,
     hopCaption: `NAT ${NAT} \u2192 IGW ${IGW}`,
