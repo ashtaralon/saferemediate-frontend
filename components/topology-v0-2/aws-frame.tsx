@@ -2991,7 +2991,18 @@ const COVERAGE_STATE_STYLE: Record<string, { bg: string; fg: string; border: str
 
 /** Flow-log coverage with an honest denominator (traffic_authority.lane_coverage).
  *  Renders nothing when the backend predates the contract — an absent number is
- *  honest, an invented one is not. Every count shown is the backend's. */
+ *  honest, an invented one is not. Every count shown is the backend's.
+ *
+ *  COLLAPSED BY DEFAULT (independent production UI QA, 2026-09-14). Expanded,
+ *  this block measured 71px at y=133.52..204.52 on a 1512x771 viewport — a
+ *  permanent tax on the map's vertical budget paid by every reader, to show a
+ *  per-lane breakdown most of them never read. What stays visible is the part
+ *  that is load-bearing for honesty: the state chip and the denominator
+ *  sentence, so a reader can never mistake "not measured" for "zero coverage".
+ *  The per-lane chips and the gap warnings move behind `Coverage details`.
+ *
+ *  The toggle is uncontrolled on purpose: this is a per-reader view preference,
+ *  not estate state, so it must not round-trip through the payload. */
 function LaneCoveragePill({
   coverage,
   gaps,
@@ -3001,6 +3012,7 @@ function LaneCoveragePill({
   gaps: LaneCoverageWarning[]
   compact: boolean
 }) {
+  const [detailsOpen, setDetailsOpen] = useState(false)
   const style = COVERAGE_STATE_STYLE[coverage.state] ?? COVERAGE_STATE_STYLE.unknown
   const lanes = (["vpc", "database", "serverless", "regional"] as const).flatMap(lane => {
     const counts = coverage.by_lane?.[lane]
@@ -3012,6 +3024,7 @@ function LaneCoveragePill({
       style={{ borderColor: style.border, background: style.bg, color: style.fg }}
       data-testid="topology-lane-coverage"
       data-coverage-state={coverage.state}
+      data-details-open={detailsOpen ? "true" : "false"}
     >
       <div className="flex items-center gap-2 min-w-0 flex-wrap">
         <span className="shrink-0 font-semibold">Flow-log coverage</span>
@@ -3032,7 +3045,24 @@ function LaneCoveragePill({
           {coverage.not_applicable > 0 ? ` · ${coverage.not_applicable} not applicable` : ""}
           {coverage.active_generation != null ? ` · generation ${coverage.active_generation}` : ""}
         </span>
-        <span className="flex items-center gap-1 flex-wrap" data-testid="topology-lane-coverage-lanes">
+        <button
+          type="button"
+          onClick={() => setDetailsOpen(open => !open)}
+          className="shrink-0 rounded px-1.5 py-0.5 font-semibold underline decoration-dotted underline-offset-2"
+          style={{ background: "rgba(255,255,255,0.7)", border: `1px solid ${style.border}`, color: style.fg }}
+          aria-expanded={detailsOpen}
+          aria-controls="topology-lane-coverage-details"
+          data-testid="topology-lane-coverage-details-toggle"
+        >
+          {detailsOpen ? "Hide coverage details" : "Coverage details"}
+          {!detailsOpen && gaps.length > 0 ? ` (${gaps.length})` : ""}
+        </button>
+        <span
+          id="topology-lane-coverage-details"
+          className="flex items-center gap-1 flex-wrap"
+          data-testid="topology-lane-coverage-lanes"
+          hidden={!detailsOpen}
+        >
           {lanes.map(([lane, counts]) => {
             const laneStyle = COVERAGE_STATE_STYLE[counts.state] ?? COVERAGE_STATE_STYLE.unknown
             const detail =
@@ -3064,7 +3094,7 @@ function LaneCoveragePill({
           })}
         </span>
       </div>
-      {gaps.length > 0 ? (
+      {gaps.length > 0 && detailsOpen ? (
         <ul
           className={compact ? "mt-0.5 space-y-0" : "mt-1 space-y-0.5"}
           data-testid="topology-coverage-gaps"
@@ -7417,6 +7447,7 @@ function UnplacedNodesArea({
   /** The frame's subnets, to resolve a member's subnet to its zone. */
   subnets?: readonly SubnetMeta[]
 }) {
+  const [groupsOpen, setGroupsOpen] = useState(false)
   // List only the overrides that are actually drawn. A stale one — its AZ or
   // whole VPC gone from the estate, or its AZ collapsed by the operator — is
   // already inert in `computeCanvasGrid`; listing it here would claim a chip
