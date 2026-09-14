@@ -292,6 +292,64 @@ function summarizeTopology(body: TopologyRisk) {
   }
 }
 
+/** MODULE SCOPE, deliberately.
+ *
+ *  This lived inside the Step 5 describe, so a sibling describe could not
+ *  see it: the release QA block called openMap and died with a
+ *  ReferenceError before opening a single page (run 34875231940, four
+ *  cases, no acceptance evidence). A helper two describes need belongs to
+ *  neither of them. Behaviour is unchanged — same retries, same readiness
+ *  signal, same message. */
+/** Open the estate map, SELECT the map view, and wait for the map surface —
+ *  the same retry an operator makes, since an uncached topology-risk on C1
+ *  runs close to the proxy ceiling and the first load can land on the
+ *  loading card. Returns how many loads it took, so a slow mount is
+ *  reported rather than hidden by the retry.
+ *
+ *  The click is not optional, and leaving it out is what made the first run
+ *  of this block fail. `topology-estate-view-map` is a view-switcher BUTTON
+ *  (`role="tab"`, estate-map-view.tsx:1789) and the tabs are
+ *  `[["inventory", "Command map"], ["map", "Network topology"]]` — so it is
+ *  visible the moment the page chrome renders, while the DEFAULT view is
+ *  Command map. Waiting for that button therefore proves the page loaded
+ *  and nothing about the canvas: the three viewport probes measured zero
+ *  tier stacks, zero subnet cells, zero rails and zero VPC frames, and the
+ *  keyboard probe spent its whole 300s budget waiting for an enlarge
+ *  control that only exists on the map. The fail-closed rule turned all of
+ *  that into a loud failure instead of "nothing is clipped", which is the
+ *  only reason it was one diagnosis rather than four.
+ *
+ *  Readiness is the enlarge control, not the tab: it belongs to the map
+ *  surface, so its presence is evidence the canvas rendered. Clicking by
+ *  TESTID rather than by the "Network topology" label keeps this off a
+ *  human-readable string that may be renamed or localized. */
+async function openMap(page: Page, label: string): Promise<number> {
+  const mapTab = page.getByTestId("topology-estate-view-map")
+  const enlarge = page.getByTestId("topology-estate-map-enlarge")
+  const blocked = page.getByText(
+    /Topology risk unavailable|No systems available yet|Estate map temporarily unavailable/i,
+  )
+  let lastReason = "never mounted"
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    await page.goto(ESTATE_URL, { waitUntil: "domcontentloaded" })
+    await expect(mapTab.or(blocked).first()).toBeVisible({ timeout: 90_000 })
+    if (!(await mapTab.isVisible().catch(() => false))) {
+      lastReason =
+        ((await blocked.first().textContent().catch(() => null)) ?? "").replace(/\s+/g, " ").trim() ||
+        "blocked with no message"
+      continue
+    }
+    await mapTab.click()
+    // The map surface itself, not the tab that reveals it.
+    if (await enlarge.isVisible({ timeout: 90_000 }).catch(() => false)) {
+      await page.waitForTimeout(1500) // let the canvas settle before measuring
+      return attempt
+    }
+    lastReason = "map view selected but the map surface never rendered"
+  }
+  throw new Error(`${label}: estate map did not mount in 3 loads — ${lastReason}`)
+}
+
 test.describe("C1 live QA — estate map against the deployed graph", () => {
   test("topology-risk on the deployed backend: inventory, edges, and the lane-coverage contract", async ({ playwright }) => {
     test.setTimeout(240_000)
@@ -1468,55 +1526,6 @@ test.describe("C1 live QA — Step 5 acceptance matrix", () => {
     { name: "narrow-1024x720", width: 1024, height: 720 },
   ] as const
 
-  /** Open the estate map, SELECT the map view, and wait for the map surface —
-   *  the same retry an operator makes, since an uncached topology-risk on C1
-   *  runs close to the proxy ceiling and the first load can land on the
-   *  loading card. Returns how many loads it took, so a slow mount is
-   *  reported rather than hidden by the retry.
-   *
-   *  The click is not optional, and leaving it out is what made the first run
-   *  of this block fail. `topology-estate-view-map` is a view-switcher BUTTON
-   *  (`role="tab"`, estate-map-view.tsx:1789) and the tabs are
-   *  `[["inventory", "Command map"], ["map", "Network topology"]]` — so it is
-   *  visible the moment the page chrome renders, while the DEFAULT view is
-   *  Command map. Waiting for that button therefore proves the page loaded
-   *  and nothing about the canvas: the three viewport probes measured zero
-   *  tier stacks, zero subnet cells, zero rails and zero VPC frames, and the
-   *  keyboard probe spent its whole 300s budget waiting for an enlarge
-   *  control that only exists on the map. The fail-closed rule turned all of
-   *  that into a loud failure instead of "nothing is clipped", which is the
-   *  only reason it was one diagnosis rather than four.
-   *
-   *  Readiness is the enlarge control, not the tab: it belongs to the map
-   *  surface, so its presence is evidence the canvas rendered. Clicking by
-   *  TESTID rather than by the "Network topology" label keeps this off a
-   *  human-readable string that may be renamed or localized. */
-  async function openMap(page: Page, label: string): Promise<number> {
-    const mapTab = page.getByTestId("topology-estate-view-map")
-    const enlarge = page.getByTestId("topology-estate-map-enlarge")
-    const blocked = page.getByText(
-      /Topology risk unavailable|No systems available yet|Estate map temporarily unavailable/i,
-    )
-    let lastReason = "never mounted"
-    for (let attempt = 1; attempt <= 3; attempt += 1) {
-      await page.goto(ESTATE_URL, { waitUntil: "domcontentloaded" })
-      await expect(mapTab.or(blocked).first()).toBeVisible({ timeout: 90_000 })
-      if (!(await mapTab.isVisible().catch(() => false))) {
-        lastReason =
-          ((await blocked.first().textContent().catch(() => null)) ?? "").replace(/\s+/g, " ").trim() ||
-          "blocked with no message"
-        continue
-      }
-      await mapTab.click()
-      // The map surface itself, not the tab that reveals it.
-      if (await enlarge.isVisible({ timeout: 90_000 }).catch(() => false)) {
-        await page.waitForTimeout(1500) // let the canvas settle before measuring
-        return attempt
-      }
-      lastReason = "map view selected but the map surface never rendered"
-    }
-    throw new Error(`${label}: estate map did not mount in 3 loads — ${lastReason}`)
-  }
 
   for (const vp of VIEWPORTS) {
     test(`viewport ${vp.name}: the page never scrolls sideways, and clipping is measured`, async ({
@@ -1909,8 +1918,12 @@ test.describe("release QA — egress destinations beyond the IGW", () => {
     p.x >= r.left - pad && p.x <= r.right + pad && p.y >= r.top - pad && p.y <= r.bottom + pad
 
   for (const vp of RELEASE_VIEWPORTS) {
-    test(`egress map on live C1 at ${vp.name}`, async ({ page }) => {
+    test(`egress map on live C1 at ${vp.name}`, async ({ context, page }) => {
       test.setTimeout(240_000)
+      // The same readiness every other live test establishes first. Without
+      // it the run reaches the login page and measures nothing — a second
+      // harness defect the ReferenceError was hiding behind.
+      await seedAuthCookie(context)
       const consoleErrors: string[] = []
       const failedRequests: string[] = []
       const pageErrors: string[] = []

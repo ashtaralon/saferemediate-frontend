@@ -49,6 +49,23 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
+      # PREFLIGHT, before a browser is even installed.
+      #
+      # Run 34875231940 spent its whole budget failing four release cases on a
+      # ReferenceError: the block called a helper defined inside a sibling
+      # describe, so it died before opening a page and produced no acceptance
+      # evidence at all. tsconfig covers **/*.ts, so the type gate sees this
+      # spec — it was simply never run on a QA-only branch, because the QA
+      # branch only ever dispatched THIS workflow.
+      #
+      # The ratchet is the repo's own contract (baseline 0), so it fails on a
+      # new error without tripping over pre-existing noise. --list then proves
+      # the spec still COLLECTS, which catches a syntax or fixture-wiring break
+      # in seconds rather than after a 30-minute live run.
+      - name: Typecheck the QA spec before running it
+        run: ./scripts/check_tsc_ratchet.sh
+      - name: Collection check
+        run: npx playwright test tests/integration/topology-estate-c1-qa-live.spec.ts --list
       - run: npx playwright install --with-deps chromium
       - name: Live QA against the deployed estate map
         run: npx playwright test tests/integration/topology-estate-c1-qa-live.spec.ts --reporter=list
