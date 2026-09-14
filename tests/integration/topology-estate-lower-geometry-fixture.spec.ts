@@ -53,6 +53,43 @@ async function overlapArea(a: Locator, b: Locator): Promise<number> {
   return w > 0 && h > 0 ? w * h : 0
 }
 
+/** EFFECTIVE opacity of the detail panel: the product of every computed
+ *  opacity from the panel up to the document element. The element's own value
+ *  is not the whole story — the panel is portaled, and any ancestor (or a
+ *  running entrance keyframe on the panel itself) fades the text with it. */
+const EFFECTIVE_PANEL_OPACITY = `(() => {
+  const el = document.querySelector('[data-testid="topology-external-destinations-details"]')
+  if (!el) return null
+  let node = el
+  let product = 1
+  let animating = false
+  while (node && node !== document.documentElement) {
+    const cs = getComputedStyle(node)
+    product *= Number(cs.opacity)
+    if (cs.animationName !== 'none' && cs.animationPlayState === 'running') animating = true
+    node = node.parentElement
+  }
+  return { product, animating }
+})()`
+
+/** Wait until the panel has finished any entrance animation and its effective
+ *  opacity has settled at 1. Measuring or screenshotting before this reads a
+ *  mid-fade frame, which is how a translucent panel reached the published
+ *  artifacts while every geometric assertion passed (independent review of
+ *  a765faf9). */
+async function waitForSettledPanel(page: Page, where: string) {
+  await page
+    .waitForFunction(
+      `(${EFFECTIVE_PANEL_OPACITY} ?? {product: 0, animating: true}).animating === false &&
+       (${EFFECTIVE_PANEL_OPACITY} ?? {product: 0}).product >= 0.999`,
+      undefined,
+      { timeout: 10_000 },
+    )
+    .catch(() => {
+      throw new Error(`the external-destinations panel never settled at opacity 1 (${where})`)
+    })
+}
+
 /** Every drawn flow badge, and the overlay it is supposed to stay inside. */
 async function badgesOutsideOverlay(page: Page) {
   return page.evaluate(() => {
@@ -210,6 +247,7 @@ for (const vp of VIEWPORTS) {
     await expect(external).toHaveAttribute("data-open", "true")
     const panel = page.getByTestId("topology-external-destinations-details")
     await expect(panel).toBeVisible()
+    await waitForSettledPanel(page, `${vp.name} · measurement`)
     await expect(panel.getByTestId("topology-external-destination-leg")).toHaveCount(egress.legCount)
 
     // Opening it may not change the strip's width by a single pixel: the panel
@@ -250,6 +288,15 @@ for (const vp of VIEWPORTS) {
         // fades the whole element and its text paints through to the map.
         opacity: Number(cs.opacity),
         animationName: cs.animationName,
+        effectiveOpacity: (() => {
+          let node: Element | null = p
+          let product = 1
+          while (node && node !== document.documentElement) {
+            product *= Number(getComputedStyle(node).opacity)
+            node = node.parentElement
+          }
+          return product
+        })(),
       }
     })
     expect(readable, "the panel is measurable").not.toBeNull()
@@ -263,6 +310,11 @@ for (const vp of VIEWPORTS) {
       `panel ground is not opaque at ${vp.name} (${readable!.background})`,
     ).toBe(1)
     expect(readable!.opacity, `panel is translucent at ${vp.name}`).toBe(1)
+    // The one that matters: an ancestor can fade the panel just as effectively.
+    expect(
+      readable!.effectiveOpacity,
+      `panel's EFFECTIVE opacity is below 1 at ${vp.name}`,
+    ).toBeGreaterThanOrEqual(0.999)
     expect(
       readable!.animationName,
       `an entrance keyframe is still fading the panel at ${vp.name}`,
@@ -304,6 +356,9 @@ for (const vp of VIEWPORTS) {
     // the state the assertions above measured.
     await external.getByTestId("topology-external-destinations-toggle").click()
     await expect(panel).toBeVisible()
+    // The published artifact is the evidence, so it waits for the same settled
+    // state the assertions measured rather than catching a mid-fade frame.
+    await waitForSettledPanel(page, `${vp.name} · expanded screenshot`)
     await page.screenshot({
       path: `test-results/estate-lower-geometry-${vp.name}.png`,
       fullPage: false,
