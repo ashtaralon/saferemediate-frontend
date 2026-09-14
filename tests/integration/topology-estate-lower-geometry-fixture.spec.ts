@@ -234,6 +234,7 @@ for (const vp of VIEWPORTS) {
     // so the USERS block is the half that leaves the screen first.
     const strip = page.getByTestId("topology-users-internet-strip").first()
     const stripBox = (await strip.boundingBox())!
+    const laneBefore = await page.getByTestId("topology-external-destinations-lane").boundingBox()
     const usersBox = (await page.getByTestId("topology-users-node").first().boundingBox())!
     expect(usersBox.x, `Users block clipped at the strip's left edge at ${vp.name}`).toBeGreaterThanOrEqual(
       stripBox.x - 1,
@@ -285,12 +286,19 @@ for (const vp of VIEWPORTS) {
     await waitForSettledPanel(page, `${vp.name} · measurement`)
     await expect(panel.getByTestId("topology-external-destination-leg")).toHaveCount(egress.legCount)
 
-    // Opening it may not change the strip's width by a single pixel: the panel
-    // is portaled, not a sibling column.
+    // Opening it may not change the width of what hosts it by a single pixel:
+    // the panel is portaled, not a sibling column. The node moved off the top
+    // strip and onto the canvas lane, so the lane is what this now measures —
+    // the strip's width became a vacuous check the moment the node left it.
     const stripAfter = (await strip.boundingBox())!
     expect(
       Math.abs(stripAfter.width - stripBox.width),
-      `opening the panel widened the top strip at ${vp.name}`,
+      `opening the panel changed the top strip's width at ${vp.name}`,
+    ).toBeLessThanOrEqual(1)
+    const laneAfter = await page.getByTestId("topology-external-destinations-lane").boundingBox()
+    expect(
+      Math.abs((laneAfter?.width ?? laneBefore?.width ?? 0) - (laneBefore?.width ?? 0)),
+      `opening the panel widened the external lane at ${vp.name}`,
     ).toBeLessThanOrEqual(1)
 
     // Inside the viewport, and big enough to read.

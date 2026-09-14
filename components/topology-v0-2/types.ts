@@ -355,6 +355,13 @@ export interface EgressBreakdownBucket {
   kind: "s3" | "ntp" | "other_aws" | "external" | "unclassified" | string
   count: number
   sample_hosts?: string[]
+  /** An AUTHORITATIVE destination service name, when the evidence carries one
+   *  — VPC Flow Logs v5 `pkt-dst-aws-service` is the source this exists for.
+   *  Absent means the map may not name a service: `kind` is the projection's
+   *  own CLASSIFICATION of an address, not an attribution, and rendering
+   *  "other_aws" as a service would put a label on the map that no evidence
+   *  supports. Absent → the address is drawn as an address. */
+  aws_service?: string | null
 }
 
 /** One destination behind a projected outbound edge (2026-09-11 review,
@@ -367,6 +374,9 @@ export interface EgressDestination {
   port?: number | null
   observation_count: number
   last_seen?: string | null
+  /** Same contract as the bucket's: authoritative service attribution only.
+   *  Absent → this destination is an address, and the map says so. */
+  aws_service?: string | null
 }
 
 /** One hop the source subnet's route table puts between a workload and the

@@ -171,6 +171,209 @@ export function summarizeExternalEgress(
   }
 }
 
+/** The flow-id prefix for a destination drawn outside the VPC boundary. The
+ *  overlay resolves edge endpoints by `data-flow-id`, so a synthesized
+ *  gateway -> destination edge lands on the node that carries this id. */
+export const EXTERNAL_DESTINATION_FLOW_PREFIX = "extdst:"
+
+export type ExternalDestinationIdentity = "aws_service" | "address"
+
+/** One destination the map may draw beyond the gateway. */
+export interface ExternalDestinationNode {
+  /** Stable, de-duplicated identity. `EXTERNAL_DESTINATION_FLOW_PREFIX + key`
+   *  is the flow id the overlay anchors the gateway edge to. */
+  key: string
+  label: string
+  /** What the label IS. "aws_service" only when the payload carried an
+   *  authoritative attribution; otherwise the label is an address and the map
+   *  must not imply it names a service. */
+  identity: ExternalDestinationIdentity
+  /** The projection's own classification of the address (s3 / ntp /
+   *  other_aws / external / ...). A category, never an attribution — a node
+   *  with kind "other_aws" and no `aws_service` is still an address. */
+  kind: string | null
+  /** Workloads observed reaching it, de-duplicated. */
+  sources: string[]
+  /** Summed observation counts where the payload carried them; null when no
+   *  contributor carried one. Never coerced to zero. */
+  observationCount: number | null
+}
+
+/** The part of the observed egress the payload does NOT name an address for.
+ *  Drawn as one honest group rather than omitted: leaving it out would make a
+ *  sampled map read as a complete inventory. */
+export interface ExternalDestinationRemainder {
+  /** Legs contributing traffic with no recorded address. */
+  legs: number
+  /** Upper bound on distinct destinations behind those legs, or null when the
+   *  payload carries no count for any of them. */
+  distinctUpperBound: number | null
+  /** Legs among them whose distinct count is unknown. */
+  unknownCountLegs: number
+}
+
+export interface ExternalDestinationMap {
+  /** Bounded, in drawing order. Never longer than the caller's limit. */
+  nodes: ExternalDestinationNode[]
+  /** Named destinations beyond the bound — the "+N" the caller offers on
+   *  demand. Zero means the drawn set IS every named destination. */
+  hiddenCount: number
+  /** Named destinations in total, drawn or not. */
+  totalNamed: number
+  /** Named destinations carrying an authoritative service attribution. */
+  attributedCount: number
+  remainder: ExternalDestinationRemainder | null
+  /** Distinct-destination upper bound across every observed leg. */
+  distinctUpperBound: number | null
+  legsWithUnknownDistinct: number
+  everySampleComplete: boolean
+  /** The gateway the drawn edges leave through, or null when the payload
+   *  names none. The caller anchors the edge to this chip. */
+  gatewayId: string | null
+}
+
+/** Normalized de-duplication key. The same address reaches the map through
+ *  more than one leg and more than one bucket, and a raw list would draw one
+ *  destination as several nodes with the gateway edge fanning out to each —
+ *  a picture of traffic that was never observed. */
+function destinationKey(label: string): string {
+  return label.trim().toLowerCase()
+}
+
+/** What the map may draw beyond the gateway, bounded and de-duplicated.
+ *
+ *  Identity is the whole point. Two sources can name a destination:
+ *
+ *    destinations[].address      per-destination evidence, with a count
+ *    egress_breakdown[].sample_hosts   a SAMPLE of addresses, no per-address count
+ *
+ *  Neither names a service. `aws_service` does, and only when the evidence
+ *  carried it — that field exists for VPC Flow Logs v5 `pkt-dst-aws-service`.
+ *  A bucket's `kind` is the projection classifying an address, so "other_aws"
+ *  becomes a category on an address node, never a service label. An address
+ *  with no attribution stays an address, which is the honest answer and the
+ *  one the operator can act on.
+ *
+ *  Returns null only when nothing observably leaves: with observed egress and
+ *  no addresses at all, the caller still gets a map whose `remainder` carries
+ *  the unnamed traffic, so the perimeter is drawn and its contents are
+ *  declared unknown rather than silently empty. */
+export function externalDestinationMap(
+  summary: ExternalEgressSummary | null,
+  edges: readonly TrafficEdge[],
+  limit = 6,
+): ExternalDestinationMap | null {
+  if (!summary || summary.legs.length === 0) return null
+
+  const byKey = new Map<string, ExternalDestinationNode>()
+  const namedSourceIds = new Set<string>()
+
+  const add = (
+    label: string,
+    identity: ExternalDestinationIdentity,
+    kind: string | null,
+    sourceId: string,
+    count: number | null,
+  ) => {
+    const trimmed = label.trim()
+    if (!trimmed) return
+    const key = destinationKey(trimmed)
+    const existing = byKey.get(key)
+    namedSourceIds.add(sourceId)
+    if (!existing) {
+      byKey.set(key, {
+        key,
+        label: trimmed,
+        identity,
+        kind,
+        sources: [sourceId],
+        observationCount: count,
+      })
+      return
+    }
+    // An authoritative attribution wins over an address spelling of the same
+    // destination: the service name is strictly more informative and is the
+    // only one of the two backed by an attribution.
+    if (identity === "aws_service" && existing.identity !== "aws_service") {
+      existing.identity = "aws_service"
+      existing.label = trimmed
+    }
+    if (!existing.kind && kind) existing.kind = kind
+    if (!existing.sources.includes(sourceId)) existing.sources.push(sourceId)
+    if (count != null) existing.observationCount = (existing.observationCount ?? 0) + count
+  }
+
+  for (const edge of edges) {
+    if (!isObservedExternalEgress(edge)) continue
+    // Per-destination evidence first: it carries a count and may carry an
+    // attribution. The sample is the fallback, not a second source of truth.
+    for (const dst of edge.destinations ?? []) {
+      const service = (dst.aws_service ?? "").trim()
+      add(
+        service || dst.address,
+        service ? "aws_service" : "address",
+        dst.kind ?? null,
+        edge.source_id,
+        typeof dst.observation_count === "number" ? dst.observation_count : null,
+      )
+    }
+    if ((edge.destinations ?? []).length > 0) continue
+    for (const bucket of edge.egress_breakdown ?? []) {
+      const service = (bucket.aws_service ?? "").trim()
+      for (const host of bucket.sample_hosts ?? []) {
+        // The bucket's count covers the whole bucket, not this address, so it
+        // is NOT attached to the node: summing it per sampled host would
+        // multiply one bucket's traffic by however many addresses it sampled.
+        add(service || host, service ? "aws_service" : "address", bucket.kind ?? null, edge.source_id, null)
+      }
+    }
+  }
+
+  // Deterministic order, and no clock or randomness anywhere in it: attributed
+  // services first (they are the strongest claim the map can make), then the
+  // busiest, then alphabetical so two runs of the same payload draw the same
+  // map and a screenshot diff means a data change.
+  const all = Array.from(byKey.values()).sort((a, b) => {
+    if (a.identity !== b.identity) return a.identity === "aws_service" ? -1 : 1
+    const ca = a.observationCount ?? -1
+    const cb = b.observationCount ?? -1
+    if (ca !== cb) return cb - ca
+    return a.label.localeCompare(b.label)
+  })
+
+  const bound = Math.max(0, limit)
+  const nodes = all.slice(0, bound)
+
+  // Legs that named nothing: their traffic is real and its destinations are
+  // unknown. Drawn as one group so the map never implies the named nodes are
+  // the whole story.
+  const unnamedLegs = summary.legs.filter(leg => !namedSourceIds.has(leg.sourceId))
+  const unnamedKnown = unnamedLegs.filter(leg => leg.distinctDestinations != null)
+  const remainder: ExternalDestinationRemainder | null =
+    unnamedLegs.length === 0
+      ? null
+      : {
+          legs: unnamedLegs.length,
+          distinctUpperBound:
+            unnamedKnown.length === 0
+              ? null
+              : unnamedKnown.reduce((sum, leg) => sum + (leg.distinctDestinations as number), 0),
+          unknownCountLegs: unnamedLegs.length - unnamedKnown.length,
+        }
+
+  return {
+    nodes,
+    hiddenCount: all.length - nodes.length,
+    totalNamed: all.length,
+    attributedCount: all.filter(n => n.identity === "aws_service").length,
+    remainder,
+    distinctUpperBound: summary.maxDistinctUpperBound,
+    legsWithUnknownDistinct: summary.legsWithUnknownDistinct,
+    everySampleComplete: summary.everySampleComplete,
+    gatewayId: summary.igwIds[0] ?? null,
+  }
+}
+
 /** One directional source -> target relationship, however many edges carry it. */
 export interface DirectedPair {
   sourceId: string
