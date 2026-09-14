@@ -13,6 +13,9 @@ name: fixture-e2e
 on:
   pull_request:
   workflow_dispatch: {}
+# contents: write is for the fixture-e2e-results branch below, nothing else.
+permissions:
+  contents: write
 jobs:
   playwright-fixture:
     runs-on: ubuntu-latest
@@ -46,11 +49,79 @@ jobs:
           done
           echo "::error::app did not start"; cat next-start.log; exit 1
       - name: Playwright fixture specs
-        run: npx playwright test tests/integration/topology-fullscreen-rail-fixture.spec.ts tests/integration/topology-platform-map-qa-fixture.spec.ts
+        # TWO filters must both admit a spec, and both bit me in sequence:
+        # this list, AND playwright.config.ts testMatch
+        # ["*-live.spec.ts", "*-fixture.spec.ts"]. A file named
+        # topology-estate-lower-geometry.spec.ts was on this line and STILL
+        # collected nothing (run 34843480384: "Running 6 tests" again), because
+        # the name matched neither glob. The suffix is the contract: a
+        # deterministic spec must end -fixture.spec.ts.
+        #
+        # Explicit list, not a glob: the live specs in this directory need a
+        # backend and must never run here. A file added to the directory is
+        # therefore NOT picked up automatically — topology-estate-lower-geometry
+        # was written, pushed, and reported green by a run that never collected
+        # it (run 34843099199: "Running 6 tests", the same six as before). Any
+        # new fixture spec has to be named here or it is dead weight.
+        run: npx playwright test tests/integration/topology-fullscreen-rail-fixture.spec.ts tests/integration/topology-platform-map-qa-fixture.spec.ts tests/integration/topology-estate-lower-geometry-fixture.spec.ts tests/integration/topology-estate-semantics-fixture.spec.ts
         env:
           FRONTEND_URL: http://localhost:3000
           PW_CHANNEL: chromium
           CI: "1"
+      - name: Publish screenshots to the results branch
+        # Same reason as c1-ui-qa.yml's step of this name: the artifact below
+        # lives on an Azure blob host that is not reachable from every
+        # reviewer's tooling, and a geometry spec whose whole point is what the
+        # page LOOKS like is worthless if nobody can open the screenshot. A
+        # results branch is a plain git ref -- `git fetch origin
+        # fixture-e2e-results` reads it anywhere the repository is reachable.
+        # One directory per run, never merged anywhere.
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RESULTS_BRANCH: fixture-e2e-results
+          RUN_DIR: runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          remote="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          rm -rf publish && mkdir -p "publish/${RUN_DIR}"
+          if [ -d test-results ]; then
+            (cd test-results && find . -type f \( -name '*.png' -o -name '*.json' -o -name '*.md' \) \
+              -exec cp --parents {} "../publish/${RUN_DIR}/" \; 2>/dev/null || true)
+          fi
+          {
+            echo "# fixture-e2e run ${GITHUB_RUN_ID}"
+            echo
+            echo "- head: ${GITHUB_SHA} (${GITHUB_REF_NAME})"
+            echo "- run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo "- published: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } > "publish/${RUN_DIR}/README.md"
+          find "publish/${RUN_DIR}" -type f | sort
+          cd publish
+          git init -q
+          git config user.name "fixture-e2e"
+          git config user.email "fixture-e2e@users.noreply.github.com"
+          if git fetch -q "$remote" "$RESULTS_BRANCH" 2>/dev/null; then
+            git checkout -q -b "$RESULTS_BRANCH" FETCH_HEAD
+          else
+            git checkout -q --orphan "$RESULTS_BRANCH"
+          fi
+          # After the checkout, never before it: an untracked vercel.json aborts
+          # the checkout once the branch carries one. Vercel tries to build every
+          # pushed branch and the results branch is not an app; an ignoreCommand
+          # that exits 0 makes it skip.
+          printf '{ "ignoreCommand": "exit 0" }\n' > vercel.json
+          git add -A
+          git commit -q -m "fixture-e2e run ${GITHUB_RUN_ID}: ${GITHUB_SHA}"
+          for i in 1 2 3; do
+            if git push -q "$remote" "HEAD:refs/heads/${RESULTS_BRANCH}"; then
+              echo "published to ${RESULTS_BRANCH}/${RUN_DIR}"; exit 0
+            fi
+            echo "push attempt ${i} failed; retrying"
+            sleep $((i * 5))
+            git fetch -q "$remote" "$RESULTS_BRANCH" && git rebase -q FETCH_HEAD || true
+          done
+          echo "::warning::results could not be pushed; the artifact still carries them"
       - name: Upload report and screenshots
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4

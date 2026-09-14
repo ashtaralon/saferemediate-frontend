@@ -10,7 +10,7 @@
  */
 import React from "react"
 import { afterEach, beforeAll, describe, expect, it } from "vitest"
-import { cleanup, render, screen, within } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react"
 
 import { AwsFrame } from "@/components/topology-v0-2/aws-frame"
 import { resolveCoverageGaps, unnamedCounters } from "@/components/topology-v0-2/coverage-gaps"
@@ -281,5 +281,52 @@ describe("flow-log coverage pill", () => {
   it("is a Dependencies-lens element only", () => {
     renderFrame({ flowMode: "architecture", laneCoverage: coverage })
     expect(screen.queryByTestId("topology-lane-coverage")).toBeNull()
+  })
+
+  /** Independent production UI QA, 2026-09-14: expanded, this block measured
+   *  71px at y=133.52..204.52 on a 1512x771 viewport, on every load. The
+   *  breakdown is now on demand; what a reader cannot lose is the state and
+   *  the denominator, because "not measured" read as "zero covered" is the
+   *  misreading this pill exists to prevent. */
+  describe("collapsed by default", () => {
+    it("hides the lane breakdown and the gap list until asked", () => {
+      renderFrame({ flowMode: "all_access", laneCoverage: coverage })
+      const pill = screen.getByTestId("topology-lane-coverage")
+      expect(pill).toHaveAttribute("data-details-open", "false")
+      // `hidden` rather than unmounted: it costs no layout either way, and the
+      // disclosure's aria-controls target stays a live node.
+      expect(within(pill).getByTestId("topology-lane-coverage-lanes")).toHaveAttribute("hidden")
+      expect(within(pill).getByTestId("topology-coverage-gaps")).toHaveAttribute("hidden")
+    })
+
+    it("keeps the state chip and the denominator visible while collapsed", () => {
+      renderFrame({ flowMode: "all_access", laneCoverage: coverage })
+      const pill = screen.getByTestId("topology-lane-coverage")
+      expect(within(pill).getByTestId("topology-lane-coverage-state")).not.toHaveAttribute("hidden")
+      expect(within(pill).getByTestId("topology-lane-coverage-totals")).not.toHaveAttribute("hidden")
+    })
+
+    it("names how many warnings are waiting behind the control", () => {
+      renderFrame({ flowMode: "all_access", laneCoverage: coverage })
+      const toggle = screen.getByTestId("topology-lane-coverage-details-toggle")
+      const warnings = resolveCoverageGaps(authority(coverage)).length
+      expect(warnings, "this fixture has warnings to count").toBeGreaterThan(0)
+      expect(toggle).toHaveTextContent(`Coverage details (${warnings})`)
+      expect(toggle).toHaveAttribute("aria-expanded", "false")
+    })
+
+    it("opens on demand and closes again", () => {
+      renderFrame({ flowMode: "all_access", laneCoverage: coverage })
+      const pill = screen.getByTestId("topology-lane-coverage")
+      const toggle = screen.getByTestId("topology-lane-coverage-details-toggle")
+      fireEvent.click(toggle)
+      expect(pill).toHaveAttribute("data-details-open", "true")
+      expect(within(pill).getByTestId("topology-lane-coverage-lanes")).not.toHaveAttribute("hidden")
+      expect(within(pill).getByTestId("topology-coverage-gaps")).not.toHaveAttribute("hidden")
+      expect(toggle).toHaveTextContent("Hide coverage details")
+      fireEvent.click(toggle)
+      expect(pill).toHaveAttribute("data-details-open", "false")
+      expect(within(pill).getByTestId("topology-lane-coverage-lanes")).toHaveAttribute("hidden")
+    })
   })
 })

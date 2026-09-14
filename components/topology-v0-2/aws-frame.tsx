@@ -31,7 +31,16 @@
  */
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import {
+  collapseTrunkWords,
+  summarizeExternalEgress,
+  summarizeS3Traffic,
+  trunkWordBadgeTitle,
+  type ExternalEgressSummary,
+  type S3TrafficCoverage,
+} from "./estate-egress-summary"
 import { Boxes, GitBranch, Globe2, ShieldAlert, Users } from "lucide-react"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import {
   type EdgeNatGw,
   type IamRoleRollup,
@@ -2584,6 +2593,7 @@ function ServerlessComputeTier({
   namedFlowNodeIds,
   laneMinHeight,
   triggerNodes,
+  s3Coverage,
 }: {
   nodes: TopologyNode[]
   selectedNodeId: string | null
@@ -2598,6 +2608,8 @@ function ServerlessComputeTier({
   laneMinHeight?: number
   /** Triggers band (EventBridge / SQS / Step Functions) above the chips. */
   triggerNodes?: TopologyNode[]
+  /** How many of this lane's functions have a recorded S3 edge (summarizeS3Traffic). */
+  s3Coverage?: S3TrafficCoverage | null
 }) {
   const triggers = triggerNodes ?? []
   // A triggers-only lane is still worth drawing: the band members left the
@@ -2685,6 +2697,13 @@ function ServerlessComputeTier({
             </span>
           ) : null}
         </div>
+        {/* The lane's S3 fact belongs on the lane, not on a 48px badge: the
+            trunk badge can hold "S3 access ×4" and nothing more, and "×4" of
+            six is the half of it that matters. */}
+        <LambdaS3CoveragePanel
+          coverage={s3Coverage ?? null}
+          nameFor={id => displayName.get(id) ?? id}
+        />
       </div>
       {/* The band is a GUEST in the Lambda lane, so in a lane it scrolls on its
           own share rather than pushing the chips out: six EventBridge triggers
@@ -2991,7 +3010,18 @@ const COVERAGE_STATE_STYLE: Record<string, { bg: string; fg: string; border: str
 
 /** Flow-log coverage with an honest denominator (traffic_authority.lane_coverage).
  *  Renders nothing when the backend predates the contract — an absent number is
- *  honest, an invented one is not. Every count shown is the backend's. */
+ *  honest, an invented one is not. Every count shown is the backend's.
+ *
+ *  COLLAPSED BY DEFAULT (independent production UI QA, 2026-09-14). Expanded,
+ *  this block measured 71px at y=133.52..204.52 on a 1512x771 viewport — a
+ *  permanent tax on the map's vertical budget paid by every reader, to show a
+ *  per-lane breakdown most of them never read. What stays visible is the part
+ *  that is load-bearing for honesty: the state chip and the denominator
+ *  sentence, so a reader can never mistake "not measured" for "zero coverage".
+ *  The per-lane chips and the gap warnings move behind `Coverage details`.
+ *
+ *  The toggle is uncontrolled on purpose: this is a per-reader view preference,
+ *  not estate state, so it must not round-trip through the payload. */
 function LaneCoveragePill({
   coverage,
   gaps,
@@ -3001,6 +3031,7 @@ function LaneCoveragePill({
   gaps: LaneCoverageWarning[]
   compact: boolean
 }) {
+  const [detailsOpen, setDetailsOpen] = useState(false)
   const style = COVERAGE_STATE_STYLE[coverage.state] ?? COVERAGE_STATE_STYLE.unknown
   const lanes = (["vpc", "database", "serverless", "regional"] as const).flatMap(lane => {
     const counts = coverage.by_lane?.[lane]
@@ -3012,6 +3043,7 @@ function LaneCoveragePill({
       style={{ borderColor: style.border, background: style.bg, color: style.fg }}
       data-testid="topology-lane-coverage"
       data-coverage-state={coverage.state}
+      data-details-open={detailsOpen ? "true" : "false"}
     >
       <div className="flex items-center gap-2 min-w-0 flex-wrap">
         <span className="shrink-0 font-semibold">Flow-log coverage</span>
@@ -3032,7 +3064,24 @@ function LaneCoveragePill({
           {coverage.not_applicable > 0 ? ` · ${coverage.not_applicable} not applicable` : ""}
           {coverage.active_generation != null ? ` · generation ${coverage.active_generation}` : ""}
         </span>
-        <span className="flex items-center gap-1 flex-wrap" data-testid="topology-lane-coverage-lanes">
+        <button
+          type="button"
+          onClick={() => setDetailsOpen(open => !open)}
+          className="shrink-0 rounded px-1.5 py-0.5 font-semibold underline decoration-dotted underline-offset-2"
+          style={{ background: "rgba(255,255,255,0.7)", border: `1px solid ${style.border}`, color: style.fg }}
+          aria-expanded={detailsOpen}
+          aria-controls="topology-lane-coverage-details"
+          data-testid="topology-lane-coverage-details-toggle"
+        >
+          {detailsOpen ? "Hide coverage details" : "Coverage details"}
+          {!detailsOpen && gaps.length > 0 ? ` (${gaps.length})` : ""}
+        </button>
+        <span
+          id="topology-lane-coverage-details"
+          className="flex items-center gap-1 flex-wrap"
+          data-testid="topology-lane-coverage-lanes"
+          hidden={!detailsOpen}
+        >
           {lanes.map(([lane, counts]) => {
             const laneStyle = COVERAGE_STATE_STYLE[counts.state] ?? COVERAGE_STATE_STYLE.unknown
             const detail =
@@ -3064,10 +3113,14 @@ function LaneCoveragePill({
           })}
         </span>
       </div>
+      {/* Hidden, not unmounted: `hidden` costs no layout, so the collapsed
+          row is as short either way, and the disclosure's aria-controls target
+          plus every existing gap assertion keep pointing at a live node. */}
       {gaps.length > 0 ? (
         <ul
           className={compact ? "mt-0.5 space-y-0" : "mt-1 space-y-0.5"}
           data-testid="topology-coverage-gaps"
+          hidden={!detailsOpen}
         >
           {gaps.map(warning => (
             <li
@@ -3083,6 +3136,375 @@ function LaneCoveragePill({
           ))}
         </ul>
       ) : null}
+    </div>
+  )
+}
+
+/** The Lambda lane's own S3 fact: how many of its functions have a recorded
+ *  S3 edge, which ones, and the two things the payload does NOT say.
+ *
+ *  On C1 four of six functions carry an ACTUAL_S3_ACCESS edge and all four
+ *  carry `observed_actions: []` (production capture, generation 1789380108).
+ *  Three different claims live in that sentence and the panel keeps them
+ *  apart: the edge IS observed evidence (its protocol says so); no OPERATION
+ *  is named on it, so the map may not imply GetObject or PutObject; and the
+ *  remaining functions have no RECORDED edge, which is a statement about the
+ *  record and not a finding that they never touched the bucket.
+ *
+ *  Closed by default — the lane is 200px wide and the names are ARNs. */
+function LambdaS3CoveragePanel({
+  coverage,
+  nameFor,
+}: {
+  coverage: S3TrafficCoverage | null
+  nameFor: (id: string) => string
+}) {
+  const [open, setOpen] = useState(false)
+  if (!coverage || coverage.total === 0) return null
+  const { withTraffic, total, noActionsRecorded } = coverage
+  const summary =
+    withTraffic.length > 0
+      ? `S3 traffic from ${withTraffic.length} of ${total} function${total === 1 ? "" : "s"}`
+      : `No recorded S3 traffic from ${total} function${total === 1 ? "" : "s"}`
+  const withoutTraffic = total - withTraffic.length
+  return (
+    <div
+      className="mt-0.5"
+      data-testid="topology-lambda-s3-coverage"
+      data-with-traffic={withTraffic.length}
+      data-total={total}
+      data-no-actions-recorded={noActionsRecorded ? "true" : "false"}
+      data-open={open ? "true" : "false"}
+    >
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        aria-expanded={open}
+        className="text-[9px] font-semibold underline decoration-dotted underline-offset-2 text-left"
+        style={{ color: "#4338CA" }}
+        data-testid="topology-lambda-s3-coverage-toggle"
+      >
+        {summary}
+      </button>
+      <div
+        className="flex flex-col gap-0.5 mt-0.5"
+        hidden={!open}
+        data-testid="topology-lambda-s3-coverage-details"
+      >
+        {withTraffic.map(id => (
+          <span
+            key={id}
+            className="text-[9px] leading-snug font-mono truncate"
+            style={{ color: "#6366F1" }}
+            data-testid="topology-lambda-s3-coverage-function"
+            data-function-id={id}
+            title={id}
+          >
+            {nameFor(id)}
+          </span>
+        ))}
+        {withoutTraffic > 0 ? (
+          <span className="text-[9px] leading-snug" style={{ color: "#6366F1" }}>
+            {withoutTraffic} function{withoutTraffic === 1 ? " has" : "s have"} no recorded S3 edge in
+            this generation.
+          </span>
+        ) : null}
+        {noActionsRecorded ? (
+          <span
+            className="text-[9px] leading-snug"
+            style={{ color: "#6366F1" }}
+            data-testid="topology-lambda-s3-no-actions"
+          >
+            No specific S3 actions were recorded on these edges, so no operation is named.
+          </span>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
+/** One hop on the egress chain, named from the payload's own egress_hops.
+ *  The id is elided to keep the chain inside the strip; the full id is on the
+ *  chip's title, in its data attribute, and spelled out in the panel. */
+function EgressHopChip({ kind, id }: { kind: "NAT" | "IGW"; id: string | null }) {
+  return (
+    <span
+      className="inline-flex items-center gap-1 rounded px-1 py-0.5 text-[10px] font-semibold uppercase tracking-[0.06em] min-w-0"
+      style={{ background: "#FFF7ED", border: "1px solid #FDBA74", color: "#B45309" }}
+      data-testid="topology-egress-hop"
+      data-hop-kind={kind.toLowerCase()}
+      data-hop-id={id ?? ""}
+      title={id ? `${kind} ${id}` : `${kind} — this generation does not name the gateway`}
+    >
+      {kind}
+      {id ? (
+        <span className="font-mono normal-case tracking-normal truncate max-w-[90px]">{id}</span>
+      ) : null}
+    </span>
+  )
+}
+
+function EgressArrow() {
+  return (
+    <span className="inline-flex items-center shrink-0" aria-hidden style={{ color: "#FF9900" }}>
+      <span className="w-3 border-t-2" style={{ borderColor: "#FF9900" }} />
+      <span className="text-[11px] leading-none -ml-0.5">&#9656;</span>
+    </span>
+  )
+}
+
+/** The continuation past the IGW: where the traffic actually went.
+ *
+ *  Production QA, 2026-09-14: three egress records terminated at the synthetic
+ *  `__igw__` and the map stopped there, so a reader saw traffic reach the
+ *  perimeter and vanish, with "32 ext" and "10 ext" surviving only as badges.
+ *
+ *  Independent review, 2026-09-14 (second pass): the node was drawn as one
+ *  more block after the static Internet chip, joined by the same neutral
+ *  dashed rule that joins Users to Internet, so it read as
+ *  `Users -> Internet -> another Internet`. The hops are now DRAWN — a
+ *  workload count, then each gateway the payload names, on egress-coloured
+ *  arrows — so the chain reads `N workloads -> NAT -> IGW -> External
+ *  destinations` and names the same gateway id the map's own IGW chip carries.
+ *
+ *  Every claim here is the payload's. The chain is the payload's egress_hops,
+ *  so the NAT is named as the first hop and the IGW as the second -- the "via
+ *  NAT" wording was always right, the TERMINAL was what lied. Two labels the
+ *  evidence forces and the eye does not:
+ *
+ *  - the route is STRUCTURAL (route tables), not an observed per-flow path,
+ *    so it is captioned as configured while the counts stay observed;
+ *  - the addresses are a SAMPLE unless a leg's sample equals its own count,
+ *    and the total is an upper bound because per-leg counts are distinct only
+ *    WITHIN a leg. Neither is softened into "destinations".
+ *
+ *  No identity is invented: destinations[] is empty in production, so this
+ *  never names an AWS service. Absent a summary it renders nothing -- an
+ *  External node over zero legs would assert a crossing nobody observed.
+ *
+ *  The detail is a POPOVER, not a sibling column. Rendered beside the header
+ *  it widened the top strip until the text was unreadable and the Users block
+ *  was pushed off screen at 1024x720 (independent review, run 34851422905).
+ *  Radix portals the panel out of the strip and keeps it inside the viewport,
+ *  so opening it cannot change the strip's width at any viewport. */
+function ExternalDestinationsNode({
+  summary,
+  compact,
+}: {
+  summary: ExternalEgressSummary | null
+  compact: boolean
+}) {
+  const [open, setOpen] = useState(false)
+  if (!summary) return null
+  const {
+    legs,
+    maxDistinctUpperBound,
+    legsWithUnknownDistinct,
+    everySampleComplete,
+    anySample,
+    natIds,
+    igwIds,
+  } = summary
+  const hops = [...natIds.map(id => `NAT ${id}`), ...igwIds.map(id => `IGW ${id}`)]
+  // Three claims, three sentences. A null bound is a GAP (no leg carries a
+  // count); a zero bound is a measurement; a partial bound covers only the
+  // legs that were counted. "up to 0 distinct" said none of the three.
+  const distinctPhrase =
+    maxDistinctUpperBound === null
+      ? "distinct count not recorded"
+      : maxDistinctUpperBound === 0
+        ? "no distinct destinations recorded"
+        : `up to ${maxDistinctUpperBound} distinct`
+  const partialPhrase =
+    legsWithUnknownDistinct > 0 && maxDistinctUpperBound !== null
+      ? ` · ${legsWithUnknownDistinct} uncounted`
+      : ""
+  const samplePhrase = everySampleComplete
+    ? " · addresses complete"
+    : anySample
+      ? " · addresses sampled"
+      : " · no addresses recorded"
+  return (
+    <div
+      className="flex items-center gap-1.5 min-w-0"
+      style={{ color: PAL.ink }}
+      data-testid="topology-external-destinations"
+      data-leg-count={legs.length}
+      data-max-distinct-upper-bound={maxDistinctUpperBound ?? ""}
+      data-unknown-distinct-legs={legsWithUnknownDistinct}
+      data-sample-complete={everySampleComplete ? "true" : "false"}
+      data-open={open ? "true" : "false"}
+    >
+      {/* The chain, not a neutral rule: this is the egress path, drawn in the
+          legend's own "Internet egress" colour and naming its gateways. */}
+      <div
+        className="flex items-center gap-1 min-w-0"
+        data-testid="topology-external-egress-chain"
+        data-workloads={legs.length}
+        data-nat-ids={natIds.join(",")}
+        data-igw-ids={igwIds.join(",")}
+      >
+        <span
+          className="text-[10px] font-semibold whitespace-nowrap"
+          style={{ color: "#B45309" }}
+          data-testid="topology-egress-chain-source"
+        >
+          {legs.length} workload{legs.length === 1 ? "" : "s"}
+        </span>
+        <EgressArrow />
+        {natIds.map(id => (
+          <span key={id} className="flex items-center gap-1 min-w-0">
+            <EgressHopChip kind="NAT" id={id} />
+            <EgressArrow />
+          </span>
+        ))}
+        {igwIds.length > 0 ? (
+          igwIds.map(id => (
+            <span key={id} className="flex items-center gap-1 min-w-0">
+              <EgressHopChip kind="IGW" id={id} />
+              <EgressArrow />
+            </span>
+          ))
+        ) : (
+          <span className="flex items-center gap-1 min-w-0">
+            <EgressHopChip kind="IGW" id={null} />
+            <EgressArrow />
+          </span>
+        )}
+      </div>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            className="flex items-center gap-2 shrink-0 text-left"
+            aria-expanded={open}
+            data-testid="topology-external-destinations-toggle"
+          >
+            <span
+              className="inline-flex items-center justify-center rounded-lg shrink-0"
+              style={{
+                width: compact ? 40 : 48,
+                height: compact ? 40 : 48,
+                background: "#FFFFFF",
+                border: "1.5px solid #FCA5A5",
+                color: "#B91C1C",
+              }}
+              aria-hidden
+            >
+              <Globe2 size={compact ? 20 : 24} strokeWidth={1.8} />
+            </span>
+            <span className="flex flex-col leading-tight min-w-0">
+              <span
+                className={
+                  compact
+                    ? "text-[12px] uppercase tracking-[0.12em] font-bold underline decoration-dotted underline-offset-2"
+                    : "text-[13px] uppercase tracking-[0.12em] font-bold underline decoration-dotted underline-offset-2"
+                }
+                style={{ color: PAL.ink }}
+              >
+                External destinations
+              </span>
+              <span
+                className="text-[10px] font-medium"
+                style={{ color: PAL.slate }}
+                data-testid="topology-external-destinations-summary"
+              >
+                {/* "up to" is the whole point: per-leg counts are distinct
+                    within a leg, so their sum bounds the truth rather than
+                    stating it. */}
+                {legs.length} workload{legs.length === 1 ? "" : "s"} · {distinctPhrase}
+                {partialPhrase}
+                {samplePhrase}
+              </span>
+            </span>
+          </button>
+        </PopoverTrigger>
+        <PopoverContent
+          align="end"
+          sideOffset={8}
+          // The top inset clears the app's own fixed scope bar. Radix's
+          // collision boundary is the VIEWPORT, so at 1024x720 a panel that
+          // flipped above its trigger was clamped to y=12 and its first line
+          // landed under the header, which paints above every popper
+          // (measured in run 34857677137: the topmost element at the panel's
+          // top probe was the scope bar's label).
+          collisionPadding={{ top: 56, right: 12, bottom: 12, left: 12 }}
+          className="w-[min(92vw,460px)] max-h-[min(44vh,300px)] overflow-y-auto p-3"
+          // Inline, not a utility class: the primitive's own `bg-popover` is
+          // in the same class slot, and a panel that inherits a transparent
+          // ground paints its text straight onto the map. Measured at 1512x771
+          // and 1024x720 in run 34854788649 — every line legible in isolation
+          // and unreadable in place.
+          style={{
+            background: "#FFFFFF",
+            border: "1px solid #CBD5E1",
+            boxShadow: "0 10px 30px rgba(15,23,42,0.18)",
+            // Not `animation: none` — Radix's popper owns that property and
+            // clears the inline value once it has positioned the content, so
+            // an inline override there is silently dropped (measured in run
+            // 34856953477: the panel reported animationName "enter" with this
+            // line present). The panel was never translucent anyway: opacity 1,
+            // opaque background, every ancestor opacity 1. It was painting
+            // UNDER the map, because Radix's fixed wrapper carries no z-index
+            // and `z-50` is inert on the statically positioned content inside
+            // it. That is fixed once, for every popper, in globals.css.
+            opacity: 1,
+          }}
+          data-testid="topology-external-destinations-details"
+        >
+          <p className="text-[12px] leading-snug font-semibold" style={{ color: PAL.ink }}>
+            {legs.length} workload{legs.length === 1 ? "" : "s"} leaving the VPC
+          </p>
+          <p className="mt-1 text-[11px] leading-snug" style={{ color: PAL.slate }}>
+            Route is configured (route tables){hops.length > 0 ? `: ${hops.join(" → ")}` : ""}. Counts are
+            observed. The payload names no destination identities
+            {anySample
+              ? ", so these addresses are evidence, not an inventory of services."
+              : ", and this generation recorded no addresses at all."}
+          </p>
+          {legsWithUnknownDistinct > 0 ? (
+            <p
+              className="mt-1 text-[11px] leading-snug"
+              style={{ color: PAL.slate }}
+              data-testid="topology-external-destinations-uncounted"
+            >
+              {legsWithUnknownDistinct} of {legs.length} carry no distinct count, so the total above
+              covers only the rest.
+            </p>
+          ) : null}
+          <ul className="mt-2 flex flex-col gap-1.5">
+            {legs.map(leg => (
+              <li
+                key={leg.sourceId}
+                className="text-[11px] leading-snug"
+                style={{ color: PAL.slate }}
+                data-testid="topology-external-destination-leg"
+                data-source-id={leg.sourceId}
+                data-distinct={leg.distinctDestinations ?? ""}
+                data-sample-count={leg.sampleHosts.length}
+                data-sample-complete={leg.sampleIsComplete ? "true" : "false"}
+              >
+                <span className="font-mono break-all" style={{ color: PAL.ink }}>
+                  {leg.sourceId}
+                </span>{" "}
+                ·{" "}
+                {leg.distinctDestinations == null
+                  ? "distinct count not recorded"
+                  : `${leg.distinctDestinations} distinct`}{" "}
+                ·{" "}
+                {leg.sampleHosts.length === 0
+                  ? "no addresses recorded"
+                  : leg.sampleIsComplete
+                    ? `all ${leg.sampleHosts.length} shown`
+                    : `${leg.sampleHosts.length} of ${leg.distinctDestinations ?? "?"} shown`}
+                {leg.sampleHosts.length > 0 ? (
+                  <span className="font-mono break-all"> — {leg.sampleHosts.join(", ")}</span>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </PopoverContent>
+      </Popover>
     </div>
   )
 }
@@ -3185,6 +3607,12 @@ interface FlowPath {
   lastSeen?: TrafficEdge["last_seen"]
   /** No arrowhead: a trunk that feeds stubs rather than an edge ending at a chip. */
   arrow?: boolean
+  /** Collapsed trunk badge: every relationship spelling this one badge speaks
+   *  for (first = the printed word), the connections it counts, and the edge
+   *  rows behind them. Exposed as data attributes so the count is assertable. */
+  bundleSpellings?: string[]
+  bundlePairCount?: number
+  bundleEdgeCount?: number
   /** Dotted feeder legs from each member chip to the trunk in `d`, one subpath per member. */
   stubD?: string
   /** Fixed badges on the feeder legs ("API" at each function's edge); not moved by the de-overlap pass. */
@@ -3493,6 +3921,40 @@ export function busFanOffset(index: number, total: number, usable: number): numb
  *  this so the three cannot drift apart. */
 export function badgeHalfWidth(label: string): number {
   return Math.max(14, label.length * 3.8)
+}
+
+/** Half-heights of the two badge boxes the renderer draws: the bundle badge is
+ *  `y={-7} height={14}`, the feeder stub `y={-6} height={12}`. Named so the
+ *  containment pass measures the same boxes the renderer paints. */
+export const BADGE_HALF_HEIGHT = 7
+export const STUB_BADGE_HALF_HEIGHT = 6
+
+/** Keep a badge box inside the overlay's own extent.
+ *
+ *  The ONE authority for "inside the map". Four placement rules each choose an
+ *  anchor (on the bus, beside it, in the gutter column, nudged clear of a
+ *  chip) and none of them knows how wide the card is, so a gutter fallback
+ *  that marches left walks straight off it. This runs last, over every badge,
+ *  and moves only the ones that would otherwise paint outside.
+ *
+ *  A box wider (or taller) than the bounds has no in-bounds position at all;
+ *  it is centred, which still never leaves the card. */
+export function clampBadgeIntoBounds(
+  x: number,
+  y: number,
+  halfWidth: number,
+  halfHeight: number,
+  width: number,
+  height: number,
+): { x: number; y: number } {
+  const xMin = halfWidth + 2
+  const xMax = width - halfWidth - 2
+  const yMin = halfHeight + 2
+  const yMax = height - halfHeight - 2
+  return {
+    x: xMax < xMin ? width / 2 : Math.min(Math.max(x, xMin), xMax),
+    y: yMax < yMin ? height / 2 : Math.min(Math.max(y, yMin), yMax),
+  }
 }
 
 /** Centre x for a bundle badge placed ON its line — just right of the bus,
@@ -3979,6 +4441,7 @@ function FlowLegend({ compact = false }: { compact?: boolean }) {
       }`}
       style={{ borderColor: "#E2E8F0", background: "rgba(255,255,255,0.86)" }}
       data-testid="topology-flow-legend"
+      data-flow-obstacle="flow-legend"
       aria-label="Dependency line colors"
     >
       <span
@@ -4084,6 +4547,29 @@ function FlowOverlay({
     if (!container) return
     let cancelled = false
 
+    /** The element a flow line may actually be anchored to: `el` when it is
+     *  laid out, else the nearest ancestor that is.
+     *
+     *  A chip inside a COLLAPSED disclosure is `display: none`, and a hidden
+     *  element's rect is 0x0 at the document origin — which `toNat` maps to a
+     *  point up and left of the overlay. That is how the six logical groups'
+     *  membership lines came to run out of the map's top-left corner and their
+     *  TARGETS / LAUNCHES / MEMBER_OF_CLUSTER words to sit on the "Platform
+     *  map" header: the band learned to collapse (this branch) and the overlay
+     *  kept anchoring to chips that were no longer laid out. Anchoring to the
+     *  collapsed band instead is the truthful reading — the group IS there,
+     *  the reader just has not opened it — and it keeps the edge visible
+     *  rather than dropping evidence because a disclosure is shut. */
+    const laidOutAnchor = (el: HTMLElement): HTMLElement | null => {
+      let cur: HTMLElement | null = el
+      while (cur && container.contains(cur)) {
+        const r = cur.getBoundingClientRect()
+        if (r.width > 0 || r.height > 0) return cur
+        cur = cur.parentElement
+      }
+      return null
+    }
+
     // Resolve an edge endpoint to a live element. Exact chip first; when the
     // LOD density collapse has replaced chips with stack tiles, fall back to
     // the tile that lists the id in data-flow-ids — the flow story must
@@ -4092,7 +4578,12 @@ function FlowOverlay({
       const exact = container.querySelector<HTMLElement>(
         `[data-flow-id="${CSS.escape(id)}"]`,
       )
-      if (exact) return { el: exact, grouped: false }
+      if (exact) {
+        const anchor = laidOutAnchor(exact)
+        // `grouped` when we climbed: the ancestor stands for more than this
+        // one id, which is exactly what a collapsed band does.
+        if (anchor) return { el: anchor, grouped: anchor !== exact }
+      }
       const tiles = container.querySelectorAll<HTMLElement>("[data-flow-ids]")
       for (const t of tiles) {
         const ids = (t.getAttribute("data-flow-ids") ?? "").split("|")
@@ -4120,7 +4611,10 @@ function FlowOverlay({
       const exact = container.querySelector<HTMLElement>(
         `[data-flow-id="${CSS.escape(id)}"]`,
       )
-      if (exact) return exact
+      if (exact) {
+        const anchor = laidOutAnchor(exact)
+        if (anchor) return anchor
+      }
       if (id === "__igw__" || id.startsWith("igw-")) {
         return (
           container.querySelector<HTMLElement>(`[data-flow-id="__igw__"]`) ??
@@ -4167,7 +4661,9 @@ function FlowOverlay({
       if (containerRect.width === 0) return
       // Natural (pre-scale) size: containerRect is the post-transform box, so
       // dividing recovers the SVG's own coordinate extent (viewBox === natural).
-      setSize({ w: containerRect.width / scale, h: containerRect.height / scale })
+      const natW = containerRect.width / scale
+      const natH = containerRect.height / scale
+      setSize({ w: natW, h: natH })
       const toNat = (rect: DOMRect): NatRect => {
         const l = (rect.left - containerRect.left) / scale
         const t = (rect.top - containerRect.top) / scale
@@ -4532,11 +5028,17 @@ function FlowOverlay({
         // trunk was labelled beside the Lambda lane's badges, ~250px from the
         // line it named (C1, 2026-09-11 13:08Z).
         const trunkCorridor = corridors.find(c => busX >= c.l && busX <= c.r) ?? null
-        // One badge per WORD the trunk carries — TRIGGERS ×6 over TARGETS ×6
-        // when the graph holds both edge types for the same pairs. Merging them
-        // into one word would assert two edge types mean the same thing;
-        // printing one per receiving chip was the twelve. The first word rides
-        // the trunk path; further words are badge-only entries (empty `d`).
+        // One badge per RELATIONSHIP, not per spelling. C1 records the six
+        // EventBridge rules firing six Lambdas twice — TARGETS and TRIGGERS
+        // over the same six pairs — and a badge per word drew `TARGETS ×6`
+        // stacked on `TRIGGERS ×6`: one relationship, read as twelve
+        // (production inventory, run 34832847455). collapseTrunkWords merges
+        // two spellings only when their member sets are IDENTICAL, so a
+        // genuine second relationship over the same lane pair keeps its own
+        // badge, and the count it prints is unique connections rather than
+        // edge rows. Printing one per receiving chip was the original twelve.
+        // The first badge rides the trunk path; further badges are badge-only
+        // entries (empty `d`).
         const byWord = new Map<string, { count: number; members: string[] }>()
         for (const g of t.groups) {
           const acc = byWord.get(g.label) ?? { count: 0, members: [] }
@@ -4544,9 +5046,12 @@ function FlowOverlay({
           acc.members.push(...memberKeys(g))
           byWord.set(g.label, acc)
         }
+        const wordBadges = collapseTrunkWords(
+          [...byWord].map(([word, acc]) => ({ word, members: acc.members, count: acc.count })),
+        )
         let wordIndex = 0
-        for (const [word, acc] of byWord) {
-          const label = railBundleLabel(word, acc.count)
+        for (const acc of wordBadges) {
+          const label = railBundleLabel(acc.spellings[0], acc.pairCount)
           const hw = badgeHalfWidth(label)
           const y = route.exit.y + wordIndex * 16
           const onLineX = busCenteredBadgeX(busX, trunkCorridor, hw)
@@ -4562,7 +5067,10 @@ function FlowOverlay({
             badgeX: onLineX ?? busX - hw - 6,
             badgeY: y,
             badgeLabel: label,
-            badgeTitle: [label, ...acc.members].join("\n"),
+            badgeTitle: trunkWordBadgeTitle(label, acc),
+            bundleSpellings: acc.spellings,
+            bundlePairCount: acc.pairCount,
+            bundleEdgeCount: acc.edgeCount,
             isExposed: jobsAll.some(j => Boolean(j.e.is_exposed)),
             highlight: jobsAll.some(j => j.highlight === "attack_path") ? "attack_path" : null,
             focused: false,
@@ -4768,6 +5276,23 @@ function FlowOverlay({
         }
         return true
       }
+      // Containment, part one: bring a badge whose x came from a gutter
+      // fallback back inside the card BEFORE the nudge pass runs, so the nudge
+      // gets to move it clear of whatever it now sits on. Clamping only
+      // afterwards left five membership words stacked on the "Platform map"
+      // header — contained, and still unreadable (independent review of run
+      // 34853590525).
+      for (const p of next) {
+        if (!p.badgeLabel) continue
+        p.badgeX = clampBadgeIntoBounds(
+          p.badgeX,
+          p.badgeY,
+          badgeHalfWidth(p.badgeLabel),
+          BADGE_HALF_HEIGHT,
+          natW,
+          natH,
+        ).x
+      }
       for (const p of next) {
         if (!p.badgeLabel) continue
         // Same box the renderer draws; the earlier 6.4/char estimate let wide
@@ -4789,6 +5314,40 @@ function FlowOverlay({
         }
         p.badgeY = y
         placed.push({ x: p.badgeX, y, hw })
+      }
+
+      // Pass 5 — containment, part two. Passes 1-4 choose an anchor and then
+      // nudge in Y ONLY, so a badge whose x came from a gutter fallback keeps
+      // that x however far outside the card it lands: the six logical groups'
+      // own membership words (TARGETS / LAUNCHES / MEMBER_OF_CLUSTER) painted
+      // over the "Platform map" header, clipped by the card's left edge
+      // (independent review of run 34851422905, 1512x771 and 1600x900). The
+      // gutter fallback marches LEFT from the leftmost lane — `Math.min(srcLane.l,
+      // dstChip.l) - 24 - busFanOffset(...)` — and nothing downstream had an
+      // opinion about the overlay's own extent. Clamping here rather than in
+      // each placement rule keeps ONE authority for "inside the map", which is
+      // what the four placement rules kept disagreeing about. The nudge pass
+      // can also drive a badge off the bottom, so y is re-clamped here too.
+      for (const p of next) {
+        if (p.badgeLabel) {
+          const hw = badgeHalfWidth(p.badgeLabel)
+          const c = clampBadgeIntoBounds(p.badgeX, p.badgeY, hw, BADGE_HALF_HEIGHT, natW, natH)
+          p.badgeX = c.x
+          p.badgeY = c.y
+        }
+        if (p.stubBadges && p.stubBadges.length > 0) {
+          p.stubBadges = p.stubBadges.map(b => {
+            const c = clampBadgeIntoBounds(
+              b.x,
+              b.y,
+              badgeHalfWidth(b.label),
+              STUB_BADGE_HALF_HEIGHT,
+              natW,
+              natH,
+            )
+            return { ...b, x: c.x, y: c.y }
+          })
+        }
       }
       setPaths(next)
     }
@@ -4851,6 +5410,10 @@ function FlowOverlay({
   return (
     <svg
       aria-hidden="true"
+      // The bound every badge is clamped into (FlowOverlay pass 5). Named so a
+      // containment spec measures the SAME box the clamp used, rather than a
+      // card the overlay only happens to sit inside.
+      data-testid="topology-flow-overlay"
       width={hasSize ? size.w : "100%"}
       height={hasSize ? size.h : "100%"}
       viewBox={hasSize ? `0 0 ${size.w} ${size.h}` : undefined}
@@ -5076,15 +5639,18 @@ function FlowOverlay({
           <g
             transform={`translate(${p.badgeX}, ${p.badgeY})`}
             data-testid={p.badgeLabel ? "topology-flow-badge" : undefined}
+            data-bundle-spellings={p.bundleSpellings ? p.bundleSpellings.join(",") : undefined}
+            data-bundle-pairs={p.bundlePairCount != null ? String(p.bundlePairCount) : undefined}
+            data-bundle-edges={p.bundleEdgeCount != null ? String(p.bundleEdgeCount) : undefined}
           >
             {p.badgeLabel ? (
               <>
                 <title>{p.badgeTitle || p.badgeLabel}</title>
                 <rect
                   x={-badgeHalfWidth(p.badgeLabel)}
-                  y={-7}
+                  y={-BADGE_HALF_HEIGHT}
                   width={badgeHalfWidth(p.badgeLabel) * 2}
-                  height={14}
+                  height={BADGE_HALF_HEIGHT * 2}
                   rx={3}
                   fill="white"
                   stroke={stroke}
@@ -5118,7 +5684,17 @@ function FlowOverlay({
                 data-flow-feeder="true"
               >
                 <title>{b.title}</title>
-                <rect x={-hw} y={-6} width={hw * 2} height={12} rx={6} fill="white" stroke={stroke} strokeWidth="0.75" opacity="0.94" />
+                <rect
+                  x={-hw}
+                  y={-STUB_BADGE_HALF_HEIGHT}
+                  width={hw * 2}
+                  height={STUB_BADGE_HALF_HEIGHT * 2}
+                  rx={6}
+                  fill="white"
+                  stroke={stroke}
+                  strokeWidth="0.75"
+                  opacity="0.94"
+                />
                 <circle cx={-hw + 5} cy={0} r={1.7} fill={stroke} />
                 <text
                   x={2.5}
@@ -7417,6 +7993,7 @@ function UnplacedNodesArea({
   /** The frame's subnets, to resolve a member's subnet to its zone. */
   subnets?: readonly SubnetMeta[]
 }) {
+  const [groupsOpen, setGroupsOpen] = useState(false)
   // List only the overrides that are actually drawn. A stale one — its AZ or
   // whole VPC gone from the estate, or its AZ collapsed by the operator — is
   // already inert in `computeCanvasGrid`; listing it here would claim a chip
@@ -7560,20 +8137,39 @@ function UnplacedNodesArea({
           className={compact ? "mt-1.5 rounded-md px-2 py-1.5" : "mt-2.5 rounded-md px-3 py-2"}
           style={{ background: "#F8FAFC", border: "1.5px solid #CBD5E1" }}
           data-testid="topology-logical-group-band"
+          data-groups-open={groupsOpen ? "true" : "false"}
+          data-group-count={groups.length}
         >
-          <div className="flex items-baseline gap-2 flex-wrap">
+          {/* COLLAPSED BY DEFAULT (independent production UI QA, 2026-09-14).
+              Expanded, this band measured y=615.27..730.52 on a 1512x771
+              viewport while the data tier's own heading sat at y=655.02..664.02
+              — drawn across the layer it describes. A group here is never
+              placeable (its members carry the placement), so it has no claim on
+              the map's vertical budget by default.
+
+              The header IS the control, so there is no second affordance to
+              miss, and the count stays legible while collapsed: a reader must
+              be able to see that groups exist without opening anything. */}
+          <button
+            type="button"
+            onClick={() => setGroupsOpen(open => !open)}
+            className="flex items-baseline gap-2 flex-wrap w-full text-left"
+            aria-expanded={groupsOpen}
+            data-testid="topology-logical-group-band-toggle"
+          >
             <span
-              className="text-[10px] uppercase tracking-[0.14em] font-semibold"
+              className="text-[10px] uppercase tracking-[0.14em] font-semibold underline decoration-dotted underline-offset-2"
               style={{ color: PAL.ink }}
               data-testid="topology-logical-group-band-header"
             >
               Logical groups · members carry the placement ({groups.length})
             </span>
             <span className="text-[9px] leading-snug" style={{ color: PAL.slate }}>
-              {groupCopy.remedy}
+              {groupsOpen ? "Hide members" : "Show members"}
             </span>
-          </div>
-          <div className="mt-1.5 flex flex-wrap gap-3 items-start">
+          </button>
+          <div className="mt-1.5 flex flex-wrap gap-3 items-start" hidden={!groupsOpen}>
+            <span className="sr-only">{groupCopy.remedy}</span>
             {groups.map(({ node: n }) => {
               const scope = logicalGroupScope(n, edges, nodes, subnets)
               return (
@@ -7858,6 +8454,14 @@ export function AwsFrame({
     [frames],
   )
   const hasIgw = topo.edges.igws.length > 0
+  // Null when nothing leaves the VPC, so the External node simply is not drawn.
+  const externalEgress = useMemo(() => summarizeExternalEgress(trafficEdgesList), [trafficEdgesList])
+  // "4 of 6", read off the same edges the rail draws. The id set is the lane's
+  // own functions, so an S3 edge from an EC2 instance cannot count towards it.
+  const serverlessS3Coverage = useMemo(
+    () => summarizeS3Traffic(trafficEdgesList, serverlessTierNodes.map(node => node.id)),
+    [trafficEdgesList, serverlessTierNodes],
+  )
   // Story-strip caption only — the clickable / flow-anchor IGW chip lives on the
   // owning VPC frame's top border (see `boundaryStrip` in VpcCanvasFrame).
   const primaryIgw = topo.edges.igws[0]
@@ -7943,6 +8547,7 @@ export function AwsFrame({
               : "flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 pb-1"
           }
           data-testid="topology-platform-map-summary"
+          data-flow-obstacle="platform-map-summary"
         >
           <div className="flex items-center gap-2 min-w-0 overflow-hidden">
             <span className="text-[10px] font-semibold shrink-0" style={{ color: PAL.ink }}>
@@ -8014,15 +8619,25 @@ export function AwsFrame({
       ) : null}
       {/* Users → Internet — clustered toward center (not pinned to corners).
           IGW chip lives on the VPCE rail. */}
+      {/* `flex-wrap`, and a connector that gives ground before the blocks do:
+          the row is centre-justified and its blocks were `shrink-0`, so once
+          the egress chain made it wider than the canvas the overflow was split
+          evenly and the USERS block was the half that went off screen
+          (independent review at 1024x720, run 34851422905). Wrapping costs one
+          row at the narrowest viewport and never clips an endpoint. */}
       <div
         className={
           presentationMode
-            ? "flex items-center justify-center gap-6 py-0.5 w-full min-w-0 shrink-0"
-            : "flex items-center justify-center gap-8 py-1 w-full min-w-0"
+            ? "flex flex-wrap items-center justify-center gap-x-6 gap-y-1 py-0.5 w-full min-w-0 shrink-0"
+            : "flex flex-wrap items-center justify-center gap-x-8 gap-y-1.5 py-1 w-full min-w-0"
         }
         data-testid="topology-users-internet-strip"
       >
-        <div className="flex items-center gap-2 shrink-0" style={{ color: PAL.ink }}>
+        <div
+          className="flex items-center gap-2 shrink-0"
+          style={{ color: PAL.ink }}
+          data-testid="topology-users-node"
+        >
           <span
             className="inline-flex items-center justify-center rounded-lg"
             style={{
@@ -8053,11 +8668,15 @@ export function AwsFrame({
           </div>
         </div>
         <div
-          className="w-[min(28vw,220px)] shrink border-t-[3px] border-dashed"
+          className="w-[min(18vw,150px)] shrink border-t-[3px] border-dashed"
           style={{ borderColor: "#94A3B8" }}
           aria-hidden
         />
-        <div className="flex items-center gap-2 shrink-0" style={{ color: PAL.ink }}>
+        <div
+          className="flex items-center gap-2 shrink-0"
+          style={{ color: PAL.ink }}
+          data-testid="topology-internet-node"
+        >
           <span
             className="inline-flex items-center justify-center rounded-lg"
             style={{
@@ -8089,6 +8708,7 @@ export function AwsFrame({
             </span>
           </div>
         </div>
+        <ExternalDestinationsNode summary={externalEgress} compact={presentationMode} />
       </div>
 
       {/* AWS Cloud frame */}
@@ -8478,6 +9098,7 @@ export function AwsFrame({
                     densityCollapsed={densityCollapsed}
                     viewDensity={viewDensity}
                     namedFlowNodeIds={namedFlowNodeIds}
+                    s3Coverage={serverlessS3Coverage}
                   />
                   {showServerlessLane && showRegionalLane ? (
                     <div

@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test"
 import { seedAuthCookie } from "./live-auth"
-import { ESTATE_URL, SNAPSHOT, railHeaderBadgeOverlaps, routeSnapshot } from "./topology-fixture"
+import { ESTATE_URL, SNAPSHOT, logicalGroupSnapshot, railHeaderBadgeOverlaps, routeSnapshot } from "./topology-fixture"
 
 // Deterministic fixture spec (renamed from *-qa-live 2026-09-02): it never
 // reaches a backend — see tests/integration/topology-fixture.ts.
@@ -698,60 +698,12 @@ test("a logical group is drawn in its own band beside the placement-gap area, li
   test.setTimeout(120_000)
   await seedAuthCookie(context)
 
-  const frameVpc = SNAPSHOT.vpc_topology.vpc_id as string
-  const subnetsById = new Map(
-    (SNAPSHOT.vpc_topology.subnets as Array<{ id: string; az: string | null }>).map(subnet => [subnet.id, subnet]),
-  )
-  type PayloadNode = { id: string; name: string; type: string; vpc_id: string | null; subnet_id: string | null }
-  const instances = (SNAPSHOT.nodes as PayloadNode[]).filter(
-    node => node.type === "EC2" && node.vpc_id === frameVpc && node.subnet_id && subnetsById.get(node.subnet_id)?.az,
-  )
-  // One member per zone, so the span the band claims is two zones wide.
-  const byZone = new Map<string, PayloadNode>()
-  for (const instance of instances) {
-    const az = subnetsById.get(instance.subnet_id!)!.az!
-    if (!byZone.has(az)) byZone.set(az, instance)
-  }
-  const members = [...byZone.values()]
+  // Canonical builder in topology-fixture.ts — the geometry spec measures the
+  // same band, and two constructions of one shape is the twin fork this repo
+  // lints against.
+  const { snapshot, groups, targetGroup, members, expectedAzs } = logicalGroupSnapshot()
   expect(members.length, "the captured payload has EC2 instances in at least two zones of the drawn VPC").toBeGreaterThanOrEqual(2)
-  const expectedAzs = [...byZone.keys()].sort()
-
-  const targetGroup = {
-    id: "arn:aws:elasticloadbalancing:eu-west-1:745783559495:targetgroup/fixture-tg-web/0123456789abcdef",
-    name: "fixture-tg-web",
-    type: "TargetGroup",
-    resource_label: "TargetGroup",
-    subnet_id: null,
-    subnet_ids: [],
-    vpc_id: frameVpc,
-    account_id: SNAPSHOT.account_id,
-    region: SNAPSHOT.region,
-    placement_tier: null,
-    score: null,
-    stale: null,
-    is_jewel: false,
-    security_group_ids: [],
-  }
-  const snapshot = {
-    ...SNAPSHOT,
-    nodes: [...SNAPSHOT.nodes, targetGroup],
-    traffic_edges: [
-      ...SNAPSHOT.traffic_edges,
-      ...members.map(member => ({
-        edge_class: "internal",
-        source_id: targetGroup.id,
-        target_id: member.id,
-        port: null,
-        protocol: "TARGETS",
-        last_seen: null,
-        external_destinations: null,
-        evidence_type: "configured",
-        evidence_source: "aws_configuration",
-        authority_state: "configured",
-        path_basis: "configured_route",
-      })),
-    ],
-  }
+  expect(groups, "six production-style groups, as the C1 band draws").toHaveLength(6)
   await routeSnapshot(page, snapshot)
   await page.setViewportSize({ width: 2048, height: 1100 })
   await page.goto(ESTATE_URL, { waitUntil: "domcontentloaded" })
@@ -761,11 +713,28 @@ test("a logical group is drawn in its own band beside the placement-gap area, li
   const band = page.getByTestId("topology-logical-group-band").first()
   await expect(band).toBeVisible()
   await expect(band.getByTestId("topology-logical-group-band-header")).toHaveText(
-    "Logical groups · members carry the placement (1)",
+    `Logical groups · members carry the placement (${groups.length})`,
   )
   await expect(band).toContainText("Not a collector gap")
   await expect(band).not.toContainText("does not say where")
-  const entry = band.getByTestId("topology-logical-group")
+  // Every group the payload names is drawn, each linked to its own members and
+  // spanning its own zones — the band, not one row of it.
+  await expect(band.getByTestId("topology-logical-group")).toHaveCount(groups.length)
+  for (const group of groups) {
+    const row = band.locator(
+      `[data-testid="topology-logical-group"][data-node-id="${group.node.id}"]`,
+    )
+    await expect(row).toHaveCount(1)
+    await expect(row).toHaveAttribute(
+      "data-member-ids",
+      group.members.map(member => member.id).join("|"),
+    )
+    await expect(row).toHaveAttribute("data-scope-azs", group.expectedAzs.join("|"))
+    await expect(row.getByTestId("topology-logical-group-member")).toHaveCount(group.members.length)
+  }
+  const entry = band.locator(
+    `[data-testid="topology-logical-group"][data-node-id="${targetGroup.id}"]`,
+  )
   await expect(entry).toHaveAttribute("data-node-id", targetGroup.id)
   await expect(entry).toHaveAttribute("data-member-ids", members.map(member => member.id).join("|"))
   await expect(entry).toHaveAttribute("data-scope-azs", expectedAzs.join("|"))
