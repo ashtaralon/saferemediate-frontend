@@ -46,13 +46,21 @@ jobs:
           done
           echo "::error::app did not start"; cat next-start.log; exit 1
       - name: Playwright fixture specs
+        # TWO filters must both admit a spec, and both bit me in sequence:
+        # this list, AND playwright.config.ts testMatch
+        # ["*-live.spec.ts", "*-fixture.spec.ts"]. A file named
+        # topology-estate-lower-geometry.spec.ts was on this line and STILL
+        # collected nothing (run 34843480384: "Running 6 tests" again), because
+        # the name matched neither glob. The suffix is the contract: a
+        # deterministic spec must end -fixture.spec.ts.
+        #
         # Explicit list, not a glob: the live specs in this directory need a
         # backend and must never run here. A file added to the directory is
         # therefore NOT picked up automatically — topology-estate-lower-geometry
         # was written, pushed, and reported green by a run that never collected
         # it (run 34843099199: "Running 6 tests", the same six as before). Any
         # new fixture spec has to be named here or it is dead weight.
-        run: npx playwright test tests/integration/topology-fullscreen-rail-fixture.spec.ts tests/integration/topology-platform-map-qa-fixture.spec.ts tests/integration/topology-estate-lower-geometry.spec.ts
+        run: npx playwright test tests/integration/topology-fullscreen-rail-fixture.spec.ts tests/integration/topology-platform-map-qa-fixture.spec.ts tests/integration/topology-estate-lower-geometry-fixture.spec.ts
         env:
           FRONTEND_URL: http://localhost:3000
           PW_CHANNEL: chromium
