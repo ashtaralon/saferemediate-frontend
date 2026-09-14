@@ -1,0 +1,68 @@
+{
+  "test": "five reported defects, four viewports, default and expanded",
+  "status": "failed",
+  "measurements": [
+    {
+      "name": "release-build-version",
+      "data": {
+        "deploymentVersion": "5cc2507dc073783e374b0a23064475cec310f44e"
+      }
+    },
+    {
+      "name": "release-payload-evidence",
+      "data": {
+        "observed_egress_edges": 3,
+        "egress_gateways": [
+          "igw-01b6c643a5c856abe"
+        ],
+        "egress_nats": [
+          "nat-0fd7cf8524e62aea9"
+        ],
+        "lambda_total": 6,
+        "lambda_with_s3": 4,
+        "s3_named_actions": 0,
+        "rule_to_lambda_pairs": 6
+      }
+    },
+    {
+      "name": "release-trunk-bundles",
+      "data": [
+        {
+          "spellings": "TARGETS,TRIGGERS",
+          "pairs": 6,
+          "edges": 12,
+          "drawn": "TARGETS ×6"
+        },
+        {
+          "spellings": "KMS",
+          "pairs": 3,
+          "edges": 3,
+          "drawn": "KMS ×3"
+        }
+      ]
+    },
+    {
+      "name": "release-s3-coverage",
+      "data": {
+        "withTraffic": 4,
+        "total": 6,
+        "noActions": "true",
+        "sentence": "S3 traffic from 4 of 6 functions"
+      }
+    },
+    {
+      "name": "release-egress-chain",
+      "data": {
+        "legs": "3",
+        "chainIgws": "igw-01b6c643a5c856abe",
+        "chainNats": "nat-0fd7cf8524e62aea9",
+        "drawnIgwIds": [
+          "igw-01b6c643a5c856abe"
+        ],
+        "upperBound": "45",
+        "uncountedLegs": "0",
+        "summary": "3 workloads · up to 45 distinct · addresses sampled"
+      }
+    }
+  ]
+}

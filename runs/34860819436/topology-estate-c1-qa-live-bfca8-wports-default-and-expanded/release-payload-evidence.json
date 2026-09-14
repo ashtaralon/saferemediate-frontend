@@ -1,0 +1,13 @@
+{
+  "observed_egress_edges": 3,
+  "egress_gateways": [
+    "igw-01b6c643a5c856abe"
+  ],
+  "egress_nats": [
+    "nat-0fd7cf8524e62aea9"
+  ],
+  "lambda_total": 6,
+  "lambda_with_s3": 4,
+  "s3_named_actions": 0,
+  "rule_to_lambda_pairs": 6
+}
