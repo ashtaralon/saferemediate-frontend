@@ -1899,7 +1899,7 @@ test.describe("release QA — egress destinations beyond the IGW", () => {
     return out
   })()`
 
-  const TOPMOST = (testid) => `(() => {
+  const TOPMOST = (testid: string): string => `(() => {
     const el = document.querySelector('[data-testid="${testid}"]')
     if (!el) return null
     let n = el, o = 1
@@ -1914,7 +1914,47 @@ test.describe("release QA — egress destinations beyond the IGW", () => {
     return { effectiveOpacity: o, covered, rect: { x: r.left, y: r.top, w: r.width, h: r.height }, inViewport: r.left >= -1 && r.right <= innerWidth + 1 && r.top >= -1 && r.bottom <= innerHeight + 1 }
   })()`
 
-  const near = (p, r, pad = 30) =>
+  /** Client-space shapes the LIVE_CONTINUATION probe returns. Named rather
+   *  than inlined: the probe runs in the browser and its result crosses back
+   *  as `any`, so these are the only place the shape is written down. */
+  interface ProbePoint {
+    x: number
+    y: number
+  }
+  interface ProbeRect {
+    left: number
+    top: number
+    right: number
+    bottom: number
+  }
+
+  /** One drawn continuation path and the treatment the renderer gave it. */
+  interface ProbePath {
+    target: string
+    length: number
+    start: ProbePoint
+    end: ProbePoint
+    authority: string | null
+    pathBasis: string | null
+    motion: string | null
+    dash: string | null
+    animations: number
+  }
+  interface ProbeDestination {
+    flowId: string
+    identity: string
+    label: string
+    rect: ProbeRect
+  }
+  interface ContinuationProbe {
+    hasOverlay: boolean
+    hasIgw: boolean
+    igwRect: ProbeRect | null
+    paths: ProbePath[]
+    destinations: ProbeDestination[]
+  }
+
+  const near = (p: ProbePoint, r: ProbeRect, pad = 30): boolean =>
     p.x >= r.left - pad && p.x <= r.right + pad && p.y >= r.top - pad && p.y <= r.bottom + pad
 
   for (const vp of RELEASE_VIEWPORTS) {
@@ -1981,17 +2021,22 @@ test.describe("release QA — egress destinations beyond the IGW", () => {
           }
 
           // The continuation, and how it was DRAWN.
-          const geo = (await page.evaluate(LIVE_CONTINUATION)) as any
+          const geo = (await page.evaluate(LIVE_CONTINUATION)) as ContinuationProbe
           report(`release-continuation-${density}-${vp.name}`, {
             paths: geo.paths.length,
             destinations: geo.destinations.length,
-            treatments: geo.paths.map((p: any) => ({ authority: p.authority, pathBasis: p.pathBasis, motion: p.motion, dash: p.dash, animations: p.animations })),
+            treatments: geo.paths.map(p => ({ authority: p.authority, pathBasis: p.pathBasis, motion: p.motion, dash: p.dash, animations: p.animations })),
           })
           expect(geo.paths.length, `${density}·${vp.name}: no IGW → destination path is drawn`).toBeGreaterThan(0)
-          const byId = new Map(geo.destinations.map((d: any) => [d.flowId, d.rect]))
-          const landed = geo.paths.filter((p: any) => {
+          // Narrowed, not asserted: the probe returns null for igwRect when the
+          // gateway chip is absent, and a non-null assertion there would turn a
+          // missing IGW into a confusing geometry failure instead of this one.
+          expect(geo.igwRect, `${density}·${vp.name}: the in-map IGW chip has no rect to leave from`).not.toBeNull()
+          const igwRect = geo.igwRect as ProbeRect
+          const byId = new Map<string, ProbeRect>(geo.destinations.map(d => [d.flowId, d.rect]))
+          const landed = geo.paths.filter(p => {
             const dst = byId.get(p.target); if (!dst) return false
-            return (near(p.start, geo.igwRect) && near(p.end, dst)) || (near(p.end, geo.igwRect) && near(p.start, dst))
+            return (near(p.start, igwRect) && near(p.end, dst)) || (near(p.end, igwRect) && near(p.start, dst))
           })
           expect(landed.length, `${density}·${vp.name}: a continuation path lands on neither chip`).toBeGreaterThan(0)
           // Dashed, static, never live.
