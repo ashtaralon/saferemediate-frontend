@@ -350,39 +350,111 @@ export async function chromeTextDefects(page: Page, selector: string): Promise<C
   }, selector)
 }
 
-/** A snapshot whose VPC frame also contains one LOGICAL GROUP (a target group)
- *  wired to real members by TARGETS edges, one per zone.
+type PayloadNode = {
+  id: string
+  name: string
+  type: string
+  vpc_id: string | null
+  subnet_id: string | null
+}
+
+/** A group node shaped like the ones topology_platform_enrichment projects.
  *
- *  Canonical builder, deliberately shared: two specs need a band to measure and
- *  a second inline construction of the same shape is the twin-fork this repo
- *  lints against elsewhere. The members are read off the captured payload
- *  rather than invented, so the zones the band claims to span are zones the
- *  fixture actually draws. */
+ *  `resource_label` is the GRAPH label and is what isLogicalGroupNode matches
+ *  on first: a cluster and its instances both project as `type: "RDS"`, so a
+ *  group whose label repeated its type would be read as an unplaced instance
+ *  and land in the amber gap area instead of the band. */
+function fixtureGroupNode(
+  base: typeof SNAPSHOT,
+  id: string,
+  name: string,
+  type: string,
+  resourceLabel: string,
+): PayloadNode & Record<string, unknown> {
+  return {
+    id,
+    name,
+    type,
+    resource_label: resourceLabel,
+    subnet_id: null,
+    subnet_ids: [],
+    vpc_id: base.vpc_topology.vpc_id as string,
+    account_id: base.account_id,
+    region: base.region,
+    placement_tier: null,
+    score: null,
+    stale: null,
+    is_jewel: false,
+    security_group_ids: [],
+  }
+}
+
+function membershipEdge(groupId: string, memberId: string, protocol: string) {
+  return {
+    edge_class: "internal",
+    source_id: groupId,
+    target_id: memberId,
+    port: null,
+    protocol,
+    last_seen: null,
+    external_destinations: null,
+    evidence_type: "configured",
+    evidence_source: "aws_configuration",
+    authority_state: "configured",
+    path_basis: "configured_route",
+  }
+}
+
+/** A snapshot whose VPC frame also contains SIX logical groups, shaped like the
+ *  band C1 production draws.
+ *
+ *  The production band (run 34832847455) reads
+ *  "Logical groups · members carry the placement (6)" over an RDS cluster, two
+ *  target groups, a Neptune cluster and two auto-scaling groups — bound to
+ *  their members by MEMBER_OF_CLUSTER / TARGETS / LAUNCHES respectively. One
+ *  group exercised one row and one relationship type; six exercise the band's
+ *  height, its disclosure, and every membership spelling the reader accepts.
+ *
+ *  Canonical builder, deliberately shared: three specs need a band to measure
+ *  and a second inline construction of the same shape is the twin fork this
+ *  repo lints against.
+ *
+ *  Members are the captured payload's OWN nodes wherever the payload has one of
+ *  that type in the drawn VPC, so the zones a band claims are zones the fixture
+ *  actually draws; the captured VPC holds no Neptune instance, so that one
+ *  group gets a `fixture-`-named member placed in a real data subnet. Groups
+ *  share members on purpose — production's tg-web and asg-web cover the same
+ *  instances — and the helper returns each group's ACTUAL member ids so a spec
+ *  asserts what the fixture supplies rather than a hardcoded count. */
 export function logicalGroupSnapshot(base: typeof SNAPSHOT = SNAPSHOT) {
   const frameVpc = base.vpc_topology.vpc_id as string
   const subnetsById = new Map(
-    (base.vpc_topology.subnets as Array<{ id: string; az: string | null }>).map(subnet => [subnet.id, subnet]),
+    (base.vpc_topology.subnets as Array<{ id: string; az: string | null; tier?: string | null }>).map(
+      subnet => [subnet.id, subnet],
+    ),
   )
-  type PayloadNode = { id: string; name: string; type: string; vpc_id: string | null; subnet_id: string | null }
-  const instances = (base.nodes as PayloadNode[]).filter(
-    node => node.type === "EC2" && node.vpc_id === frameVpc && node.subnet_id && subnetsById.get(node.subnet_id)?.az,
-  )
-  // One member per zone, so the span the band claims is two zones wide.
-  const byZone = new Map<string, PayloadNode>()
-  for (const instance of instances) {
-    const az = subnetsById.get(instance.subnet_id!)!.az!
-    if (!byZone.has(az)) byZone.set(az, instance)
-  }
-  const members = [...byZone.values()]
-  const expectedAzs = [...byZone.keys()].sort()
+  const placed = (type: string) =>
+    (base.nodes as PayloadNode[]).filter(
+      node =>
+        node.type === type &&
+        node.vpc_id === frameVpc &&
+        node.subnet_id &&
+        subnetsById.get(node.subnet_id)?.az,
+    )
+  const ec2 = placed("EC2")
+  const rds = placed("RDS")
+  const dataSubnet = (base.vpc_topology.subnets as Array<{ id: string; az: string | null; tier?: string | null }>)
+    .find(subnet => subnet.tier === "data" && subnet.az)
 
-  const targetGroup = {
-    id: "arn:aws:elasticloadbalancing:eu-west-1:745783559495:targetgroup/fixture-tg-web/0123456789abcdef",
-    name: "fixture-tg-web",
-    type: "TargetGroup",
-    resource_label: "TargetGroup",
-    subnet_id: null,
-    subnet_ids: [],
+  // The captured VPC draws no Neptune instance, so the one group whose member
+  // type the payload lacks brings its own, in a subnet the frame really draws.
+  const neptuneMember: PayloadNode & Record<string, unknown> = {
+    id: "arn:aws:neptune:eu-west-1:745783559495:db:fixture-neptune-1",
+    name: "fixture-neptune-1",
+    type: "Neptune",
+    resource_label: "Neptune",
+    subnet_id: dataSubnet?.id ?? null,
+    subnet_ids: dataSubnet ? [dataSubnet.id] : [],
     vpc_id: frameVpc,
     account_id: base.account_id,
     region: base.region,
@@ -392,25 +464,254 @@ export function logicalGroupSnapshot(base: typeof SNAPSHOT = SNAPSHOT) {
     is_jewel: false,
     security_group_ids: [],
   }
+
+  // Rotate through the instance pool so two groups of the same type do not
+  // list the identical pair, exactly as production's tg-web / asg-web differ.
+  const rotate = (pool: PayloadNode[], offset: number, size: number) =>
+    pool.length === 0
+      ? []
+      : Array.from({ length: Math.min(size, pool.length) }, (_, i) => pool[(offset + i) % pool.length])
+
+  const specs: Array<{
+    id: string
+    name: string
+    type: string
+    label: string
+    protocol: string
+    members: PayloadNode[]
+  }> = [
+    { id: "tg-web", name: "fixture-tg-web", type: "TargetGroup", label: "TargetGroup", protocol: "TARGETS", members: rotate(ec2, 0, 2) },
+    { id: "tg-app", name: "fixture-tg-app", type: "TargetGroup", label: "TargetGroup", protocol: "TARGETS", members: rotate(ec2, 1, 2) },
+    { id: "asg-web", name: "fixture-asg-web", type: "AutoScalingGroup", label: "AutoScalingGroup", protocol: "LAUNCHES", members: rotate(ec2, 2, 2) },
+    { id: "asg-app", name: "fixture-asg-app", type: "AutoScalingGroup", label: "AutoScalingGroup", protocol: "LAUNCHES", members: rotate(ec2, 0, 2) },
+    { id: "aurora", name: "fixture-aurora", type: "RDS", label: "RDSCluster", protocol: "MEMBER_OF_CLUSTER", members: rotate(rds, 0, 2) },
+    { id: "graph", name: "fixture-graph", type: "Neptune", label: "NeptuneCluster", protocol: "MEMBER_OF_CLUSTER", members: [neptuneMember] },
+  ]
+
+  const azsOf = (members: PayloadNode[]) =>
+    [
+      ...new Set(
+        members
+          .map(member => (member.subnet_id ? subnetsById.get(member.subnet_id)?.az : null))
+          .filter((az): az is string => Boolean(az)),
+      ),
+    ].sort()
+
+  const groupNodes = specs.map(spec =>
+    fixtureGroupNode(
+      base,
+      `arn:aws:fixture:eu-west-1:745783559495:group/${spec.id}`,
+      spec.name,
+      spec.type,
+      spec.label,
+    ),
+  )
+  const groups = specs.map((spec, i) => ({
+    node: groupNodes[i],
+    protocol: spec.protocol,
+    members: spec.members,
+    expectedAzs: azsOf(spec.members),
+  }))
+
   const snapshot = {
     ...base,
-    nodes: [...base.nodes, targetGroup],
+    nodes: [...base.nodes, neptuneMember, ...groupNodes],
     traffic_edges: [
       ...base.traffic_edges,
-      ...members.map(member => ({
-        edge_class: "internal",
-        source_id: targetGroup.id,
-        target_id: member.id,
-        port: null,
-        protocol: "TARGETS",
-        last_seen: null,
-        external_destinations: null,
-        evidence_type: "configured",
-        evidence_source: "aws_configuration",
-        authority_state: "configured",
-        path_basis: "configured_route",
-      })),
+      ...groups.flatMap(group =>
+        group.members.map(member => membershipEdge(group.node.id, member.id, group.protocol)),
+      ),
     ],
   }
-  return { snapshot, targetGroup, members, expectedAzs }
+
+  // Back-compatible handles: the first target group is the one the existing
+  // specs measure.
+  const primary = groups[0]
+  return {
+    snapshot,
+    groups,
+    targetGroup: primary.node,
+    members: primary.members,
+    expectedAzs: primary.expectedAzs,
+  }
+}
+
+/** The production egress contract laid over the captured payload's own egress
+ *  legs: a NAT hop, then the IGW, a structural route basis, and a sampled set
+ *  of addresses that is COMPLETE on exactly one leg and short on the rest.
+ *
+ *  Shapes, identifiers, counts and addresses are the C1 capture's (generation
+ *  1789380108, run 34832847455): `structural_route: "NAT"`,
+ *  `route_basis: "structural_default_egress"`, `destinations: []`, five sample
+ *  hosts against a large distinct count, and the one leg whose whole count is
+ *  three and whose three addresses therefore ARE the inventory. That leg's
+ *  count is transcribed onto the first captured leg, because the captured
+ *  alon-prod payload's own smallest count is 20 and a sample of 20 would have
+ *  to be invented.
+ *
+ *  The base snapshot carries the distinct COUNTS and no hops at all, so it is
+ *  the no-addresses case; this builder is what exercises the hop chain and the
+ *  complete-vs-sampled split. */
+export function externalEgressSnapshot(base: typeof SNAPSHOT = SNAPSHOT) {
+  const NAT = "nat-0fd7cf8524e62aea9"
+  const IGW = "igw-01b6c643a5c856abe"
+  const NAT_SUBNET = "subnet-05472c7cd0d3a7b90"
+  // C1's i-0129135b4e4723d6d (32 distinct, 5 shown) and i-0b1a764c731dfc095
+  // (3 distinct, 3 shown — the whole inventory).
+  const SAMPLED = ["3.5.73.1", "3.5.72.73", "3.5.72.119", "3.5.69.34", "3.5.67.254"]
+  const COMPLETE = ["54.217.69.183", "54.217.245.46", "3.253.225.145"]
+  type Edge = Record<string, unknown> & { target_id: string; external_destinations?: number | null }
+  const edges = base.traffic_edges as Edge[]
+  const isEgress = (edge: Edge) => edge.target_id === "__igw__"
+  const legs = edges.filter(isEgress)
+  let completeLegs = 0
+  const traffic_edges = edges.map(edge => {
+    if (!isEgress(edge)) return edge
+    const first = legs.indexOf(edge) === 0
+    const distinct = first
+      ? COMPLETE.length
+      : typeof edge.external_destinations === "number"
+        ? edge.external_destinations
+        : null
+    const sample = first ? COMPLETE : SAMPLED
+    if (first) completeLegs += 1
+    return {
+      ...edge,
+      external_destinations: distinct,
+      egress_hops: [
+        { kind: "nat", id: NAT, subnet_id: NAT_SUBNET },
+        { kind: "igw", id: IGW },
+      ],
+      structural_route: "NAT",
+      via_nat_id: NAT,
+      via_igw_id: IGW,
+      route_basis: "structural_default_egress",
+      destinations: [],
+      egress_breakdown: [{ kind: "external", count: distinct ?? 0, sample_hosts: sample }],
+    }
+  })
+  const expectedUpperBound = (traffic_edges as Edge[])
+    .filter(isEgress)
+    .reduce(
+      (sum, leg) => sum + (typeof leg.external_destinations === "number" ? leg.external_destinations : 0),
+      0,
+    )
+  return {
+    snapshot: { ...base, traffic_edges },
+    legCount: legs.length,
+    completeLegs,
+    expectedUpperBound,
+    natId: NAT,
+    igwId: IGW,
+    hopCaption: `NAT ${NAT} \u2192 IGW ${IGW}`,
+  }
+}
+
+/** The negative case: a payload in which nothing leaves the VPC, so the map
+ *  must draw no External destinations node at all. Every other edge stays, so
+ *  a spec that finds no node cannot be passing because the map failed to
+ *  render. */
+export function noEgressSnapshot(base: typeof SNAPSHOT = SNAPSHOT) {
+  type Edge = { target_id: string; edge_class?: string | null }
+  const traffic_edges = (base.traffic_edges as Edge[]).filter(
+    edge => edge.target_id !== "__igw__" && !String(edge.target_id).startsWith("igw-"),
+  )
+  return {
+    snapshot: { ...base, traffic_edges },
+    remainingEdges: traffic_edges.length,
+  }
+}
+
+/** Six EventBridge rules firing six Lambdas, recorded under BOTH spellings —
+ *  the C1 shape that drew `TARGETS ×6` stacked on `TRIGGERS ×6` over one set
+ *  of endpoints (production inventory, run 34832847455).
+ *
+ *  Also narrows the payload's S3 access to FOUR of those six functions, with
+ *  `observed_actions: []` on each, which is what the C1 capture holds: the
+ *  edge is observed evidence, no operation is named on it, and the other two
+ *  functions have no recorded S3 edge. The rules are named for the functions
+ *  they fire, as C1's are. */
+export function triggerBundleSnapshot(base: typeof SNAPSHOT = SNAPSHOT) {
+  const schedules = ["frequent", "every_6h", "daily", "nightly_burst", "weekly", "monthly"]
+  const allLambdas = (base.nodes as PayloadNode[]).filter(node => node.type === "Lambda")
+  // Only functions the placement authority leaves in the lane: one of the
+  // captured payload's sixteen resolves into a subnet and is therefore drawn
+  // in the grid, so counting it as a lane function would make "of 6" wrong by
+  // one in a way nothing on screen explains.
+  const lambdas = allLambdas.filter(node => !node.subnet_id).slice(0, schedules.length)
+  // The lane must hold SIX functions for "4 of 6" to be the fixture's own
+  // truth: a panel reading "4 of 16" would exercise the code while asserting a
+  // shape C1 does not have. The surplus functions and every edge that names
+  // one leave with them, so the payload keeps no edge pointing at a node the
+  // map was not handed.
+  const keptLambdas = new Set(lambdas.map(node => node.id))
+  const dropped = new Set(
+    allLambdas.filter(node => !keptLambdas.has(node.id)).map(node => node.id),
+  )
+  const buckets = (base.nodes as PayloadNode[]).filter(node => node.type === "S3")
+  const bucket = buckets[0]
+  const rules = lambdas.map((lambda, i) => ({
+    id: `arn:aws:events:eu-west-1:745783559495:rule/fixture-${schedules[i]}`,
+    name: `fixture-${schedules[i]}`,
+    type: "EventBridge",
+    resource_label: "EventBridge",
+    subnet_id: null,
+    subnet_ids: [],
+    vpc_id: null,
+    account_id: base.account_id,
+    region: base.region,
+    placement_tier: null,
+    score: null,
+    stale: null,
+    is_jewel: false,
+    security_group_ids: [],
+  }))
+  const ruleEdge = (protocol: string) =>
+    rules.map((rule, i) => ({
+      edge_class: "internal",
+      source_id: rule.id,
+      target_id: lambdas[i].id,
+      port: null,
+      protocol,
+      last_seen: null,
+      external_destinations: null,
+      evidence_type: "configured",
+      evidence_source: "aws_configuration",
+      authority_state: "configured",
+      path_basis: "configured_route",
+    }))
+  // Four of six, with no action named on any of them.
+  const s3Functions = lambdas.slice(0, 4)
+  const s3Edges = s3Functions.map(lambda => ({
+    edge_class: "edge_service",
+    source_id: lambda.id,
+    target_id: bucket.id,
+    port: null,
+    protocol: "ACTUAL_S3_ACCESS",
+    last_seen: "2026-09-12T04:00:00Z",
+    external_destinations: null,
+    observed_actions: [],
+  }))
+  type Edge = { source_id: string; target_id: string; protocol?: string | null }
+  const keptEdges = (base.traffic_edges as Edge[]).filter(
+    edge =>
+      (edge.protocol ?? "") !== "ACTUAL_S3_ACCESS" &&
+      !dropped.has(edge.source_id) &&
+      !dropped.has(edge.target_id),
+  )
+  return {
+    snapshot: {
+      ...base,
+      nodes: [...(base.nodes as PayloadNode[]).filter(node => !dropped.has(node.id)), ...rules],
+      traffic_edges: [...keptEdges, ...ruleEdge("TARGETS"), ...ruleEdge("TRIGGERS"), ...s3Edges],
+    },
+    rules,
+    lambdas,
+    s3Functions,
+    bucket,
+    /** Unique directed rule → function connections: the number one badge may print. */
+    expectedPairs: rules.length,
+    /** Edge rows behind them, which is what the two spellings sum to. */
+    expectedEdgeRows: rules.length * 2,
+  }
 }

@@ -32,8 +32,12 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import {
+  collapseTrunkWords,
   summarizeExternalEgress,
+  summarizeS3Traffic,
+  trunkWordBadgeTitle,
   type ExternalEgressSummary,
+  type S3TrafficCoverage,
 } from "./estate-egress-summary"
 import { Boxes, GitBranch, Globe2, ShieldAlert, Users } from "lucide-react"
 import {
@@ -2602,6 +2606,8 @@ function ServerlessComputeTier({
   laneMinHeight?: number
   /** Triggers band (EventBridge / SQS / Step Functions) above the chips. */
   triggerNodes?: TopologyNode[]
+  /** How many of this lane's functions have a recorded S3 edge (summarizeS3Traffic). */
+  s3Coverage?: S3TrafficCoverage | null
 }) {
   const triggers = triggerNodes ?? []
   // A triggers-only lane is still worth drawing: the band members left the
@@ -2689,6 +2695,13 @@ function ServerlessComputeTier({
             </span>
           ) : null}
         </div>
+        {/* The lane's S3 fact belongs on the lane, not on a 48px badge: the
+            trunk badge can hold "S3 access ×4" and nothing more, and "×4" of
+            six is the half of it that matters. */}
+        <LambdaS3CoveragePanel
+          coverage={s3Coverage ?? null}
+          nameFor={id => displayName.get(id) ?? id}
+        />
       </div>
       {/* The band is a GUEST in the Lambda lane, so in a lane it scrolls on its
           own share rather than pushing the chips out: six EventBridge triggers
@@ -3125,6 +3138,89 @@ function LaneCoveragePill({
   )
 }
 
+/** The Lambda lane's own S3 fact: how many of its functions have a recorded
+ *  S3 edge, which ones, and the two things the payload does NOT say.
+ *
+ *  On C1 four of six functions carry an ACTUAL_S3_ACCESS edge and all four
+ *  carry `observed_actions: []` (production capture, generation 1789380108).
+ *  Three different claims live in that sentence and the panel keeps them
+ *  apart: the edge IS observed evidence (its protocol says so); no OPERATION
+ *  is named on it, so the map may not imply GetObject or PutObject; and the
+ *  remaining functions have no RECORDED edge, which is a statement about the
+ *  record and not a finding that they never touched the bucket.
+ *
+ *  Closed by default — the lane is 200px wide and the names are ARNs. */
+function LambdaS3CoveragePanel({
+  coverage,
+  nameFor,
+}: {
+  coverage: S3TrafficCoverage | null
+  nameFor: (id: string) => string
+}) {
+  const [open, setOpen] = useState(false)
+  if (!coverage || coverage.total === 0) return null
+  const { withTraffic, total, noActionsRecorded } = coverage
+  const summary =
+    withTraffic.length > 0
+      ? `S3 traffic from ${withTraffic.length} of ${total} function${total === 1 ? "" : "s"}`
+      : `No recorded S3 traffic from ${total} function${total === 1 ? "" : "s"}`
+  const withoutTraffic = total - withTraffic.length
+  return (
+    <div
+      className="mt-0.5"
+      data-testid="topology-lambda-s3-coverage"
+      data-with-traffic={withTraffic.length}
+      data-total={total}
+      data-no-actions-recorded={noActionsRecorded ? "true" : "false"}
+      data-open={open ? "true" : "false"}
+    >
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        aria-expanded={open}
+        className="text-[9px] font-semibold underline decoration-dotted underline-offset-2 text-left"
+        style={{ color: "#4338CA" }}
+        data-testid="topology-lambda-s3-coverage-toggle"
+      >
+        {summary}
+      </button>
+      <div
+        className="flex flex-col gap-0.5 mt-0.5"
+        hidden={!open}
+        data-testid="topology-lambda-s3-coverage-details"
+      >
+        {withTraffic.map(id => (
+          <span
+            key={id}
+            className="text-[9px] leading-snug font-mono truncate"
+            style={{ color: "#6366F1" }}
+            data-testid="topology-lambda-s3-coverage-function"
+            data-function-id={id}
+            title={id}
+          >
+            {nameFor(id)}
+          </span>
+        ))}
+        {withoutTraffic > 0 ? (
+          <span className="text-[9px] leading-snug" style={{ color: "#6366F1" }}>
+            {withoutTraffic} function{withoutTraffic === 1 ? " has" : "s have"} no recorded S3 edge in
+            this generation.
+          </span>
+        ) : null}
+        {noActionsRecorded ? (
+          <span
+            className="text-[9px] leading-snug"
+            style={{ color: "#6366F1" }}
+            data-testid="topology-lambda-s3-no-actions"
+          >
+            No specific S3 actions were recorded on these edges, so no operation is named.
+          </span>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
 /** The continuation past the IGW: where the traffic actually went.
  *
  *  Production QA, 2026-09-14: three egress records terminated at the synthetic
@@ -3156,6 +3252,11 @@ function ExternalDestinationsNode({
   if (!summary) return null
   const { legs, maxDistinctUpperBound, everySampleComplete, natIds, igwIds } = summary
   const hops = [...natIds.map(id => `NAT ${id}`), ...igwIds.map(id => `IGW ${id}`)]
+  // Three states, not two. An older generation carries the distinct COUNTS and
+  // no sample_hosts at all (the captured alon-prod payload: nine egress legs,
+  // zero addresses), and "addresses sampled" would promise a sample that is
+  // not there.
+  const anySample = legs.some(leg => leg.sampleHosts.length > 0)
   return (
     <div
       className="flex items-center gap-2 shrink-0"
@@ -3211,7 +3312,11 @@ function ExternalDestinationsNode({
           {/* "up to" is the whole point: per-leg counts are distinct within a
               leg, so their sum bounds the truth rather than stating it. */}
           {legs.length} workload{legs.length === 1 ? "" : "s"} · up to {maxDistinctUpperBound} distinct
-          {everySampleComplete ? " · addresses complete" : " · addresses sampled"}
+          {everySampleComplete
+            ? " · addresses complete"
+            : anySample
+              ? " · addresses sampled"
+              : " · no addresses recorded"}
         </span>
       </div>
       <div
@@ -3221,8 +3326,10 @@ function ExternalDestinationsNode({
       >
         <span className="text-[9px] leading-snug" style={{ color: PAL.slate }}>
           Route is configured (route tables){hops.length > 0 ? `: ${hops.join(" → ")}` : ""}. Counts are
-          observed. The payload names no destination identities, so these addresses are evidence, not an
-          inventory of services.
+          observed. The payload names no destination identities
+          {anySample
+            ? ", so these addresses are evidence, not an inventory of services."
+            : ", and this generation recorded no addresses at all."}
         </span>
         {legs.map(leg => (
           <span
@@ -3345,6 +3452,12 @@ interface FlowPath {
   lastSeen?: TrafficEdge["last_seen"]
   /** No arrowhead: a trunk that feeds stubs rather than an edge ending at a chip. */
   arrow?: boolean
+  /** Collapsed trunk badge: every relationship spelling this one badge speaks
+   *  for (first = the printed word), the connections it counts, and the edge
+   *  rows behind them. Exposed as data attributes so the count is assertable. */
+  bundleSpellings?: string[]
+  bundlePairCount?: number
+  bundleEdgeCount?: number
   /** Dotted feeder legs from each member chip to the trunk in `d`, one subpath per member. */
   stubD?: string
   /** Fixed badges on the feeder legs ("API" at each function's edge); not moved by the de-overlap pass. */
@@ -4692,11 +4805,17 @@ function FlowOverlay({
         // trunk was labelled beside the Lambda lane's badges, ~250px from the
         // line it named (C1, 2026-09-11 13:08Z).
         const trunkCorridor = corridors.find(c => busX >= c.l && busX <= c.r) ?? null
-        // One badge per WORD the trunk carries — TRIGGERS ×6 over TARGETS ×6
-        // when the graph holds both edge types for the same pairs. Merging them
-        // into one word would assert two edge types mean the same thing;
-        // printing one per receiving chip was the twelve. The first word rides
-        // the trunk path; further words are badge-only entries (empty `d`).
+        // One badge per RELATIONSHIP, not per spelling. C1 records the six
+        // EventBridge rules firing six Lambdas twice — TARGETS and TRIGGERS
+        // over the same six pairs — and a badge per word drew `TARGETS ×6`
+        // stacked on `TRIGGERS ×6`: one relationship, read as twelve
+        // (production inventory, run 34832847455). collapseTrunkWords merges
+        // two spellings only when their member sets are IDENTICAL, so a
+        // genuine second relationship over the same lane pair keeps its own
+        // badge, and the count it prints is unique connections rather than
+        // edge rows. Printing one per receiving chip was the original twelve.
+        // The first badge rides the trunk path; further badges are badge-only
+        // entries (empty `d`).
         const byWord = new Map<string, { count: number; members: string[] }>()
         for (const g of t.groups) {
           const acc = byWord.get(g.label) ?? { count: 0, members: [] }
@@ -4704,9 +4823,12 @@ function FlowOverlay({
           acc.members.push(...memberKeys(g))
           byWord.set(g.label, acc)
         }
+        const wordBadges = collapseTrunkWords(
+          [...byWord].map(([word, acc]) => ({ word, members: acc.members, count: acc.count })),
+        )
         let wordIndex = 0
-        for (const [word, acc] of byWord) {
-          const label = railBundleLabel(word, acc.count)
+        for (const acc of wordBadges) {
+          const label = railBundleLabel(acc.spellings[0], acc.pairCount)
           const hw = badgeHalfWidth(label)
           const y = route.exit.y + wordIndex * 16
           const onLineX = busCenteredBadgeX(busX, trunkCorridor, hw)
@@ -4722,7 +4844,10 @@ function FlowOverlay({
             badgeX: onLineX ?? busX - hw - 6,
             badgeY: y,
             badgeLabel: label,
-            badgeTitle: [label, ...acc.members].join("\n"),
+            badgeTitle: trunkWordBadgeTitle(label, acc),
+            bundleSpellings: acc.spellings,
+            bundlePairCount: acc.pairCount,
+            bundleEdgeCount: acc.edgeCount,
             isExposed: jobsAll.some(j => Boolean(j.e.is_exposed)),
             highlight: jobsAll.some(j => j.highlight === "attack_path") ? "attack_path" : null,
             focused: false,
@@ -5236,6 +5361,9 @@ function FlowOverlay({
           <g
             transform={`translate(${p.badgeX}, ${p.badgeY})`}
             data-testid={p.badgeLabel ? "topology-flow-badge" : undefined}
+            data-bundle-spellings={p.bundleSpellings ? p.bundleSpellings.join(",") : undefined}
+            data-bundle-pairs={p.bundlePairCount != null ? String(p.bundlePairCount) : undefined}
+            data-bundle-edges={p.bundleEdgeCount != null ? String(p.bundleEdgeCount) : undefined}
           >
             {p.badgeLabel ? (
               <>
@@ -8040,6 +8168,12 @@ export function AwsFrame({
   const hasIgw = topo.edges.igws.length > 0
   // Null when nothing leaves the VPC, so the External node simply is not drawn.
   const externalEgress = useMemo(() => summarizeExternalEgress(trafficEdgesList), [trafficEdgesList])
+  // "4 of 6", read off the same edges the rail draws. The id set is the lane's
+  // own functions, so an S3 edge from an EC2 instance cannot count towards it.
+  const serverlessS3Coverage = useMemo(
+    () => summarizeS3Traffic(trafficEdgesList, serverlessTierNodes.map(node => node.id)),
+    [trafficEdgesList, serverlessTierNodes],
+  )
   // Story-strip caption only — the clickable / flow-anchor IGW chip lives on the
   // owning VPC frame's top border (see `boundaryStrip` in VpcCanvasFrame).
   const primaryIgw = topo.edges.igws[0]
@@ -8661,6 +8795,7 @@ export function AwsFrame({
                     densityCollapsed={densityCollapsed}
                     viewDensity={viewDensity}
                     namedFlowNodeIds={namedFlowNodeIds}
+                    s3Coverage={serverlessS3Coverage}
                   />
                   {showServerlessLane && showRegionalLane ? (
                     <div

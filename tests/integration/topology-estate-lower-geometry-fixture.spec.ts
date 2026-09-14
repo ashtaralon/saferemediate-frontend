@@ -1,10 +1,16 @@
 import { expect, test, type Locator } from "@playwright/test"
 import { seedAuthCookie } from "./live-auth"
-import { ESTATE_URL, logicalGroupSnapshot, routeSnapshot } from "./topology-fixture"
+import {
+  ESTATE_URL,
+  externalEgressSnapshot,
+  logicalGroupSnapshot,
+  routeSnapshot,
+  triggerBundleSnapshot,
+} from "./topology-fixture"
 
-/** Lower-section geometry: the two blocks that independent production UI QA
- *  found spending the map's vertical budget, measured at the viewports a real
- *  reader uses.
+/** Lower-section geometry: the blocks that independent production UI QA found
+ *  spending the map's vertical budget, measured at the viewports a real reader
+ *  uses.
  *
  *  WHY GEOMETRY AND NOT A SNAPSHOT. The reported defect was not "the wrong
  *  element rendered" — every element was correct and the functional pass was
@@ -15,7 +21,11 @@ import { ESTATE_URL, logicalGroupSnapshot, routeSnapshot } from "./topology-fixt
  *
  *  1512x771 is the reported failure viewport (the user screenshot is DPR 2, so
  *  its 3024x1542 pixels are 1512x771 CSS px — the CSS number is what layout
- *  sees and therefore what a regression test must use). */
+ *  sees and therefore what a regression test must use).
+ *
+ *  The payload is all three builders chained, so one screenshot per viewport
+ *  carries the six-group band, the external-destinations node and the Lambda
+ *  S3 panel at once — the state a reader actually meets. */
 const VIEWPORTS = [
   { name: "1600x900", width: 1600, height: 900 },
   { name: "1512x771", width: 1512, height: 771 },
@@ -35,15 +45,17 @@ async function overlapArea(a: Locator, b: Locator): Promise<number> {
 for (const vp of VIEWPORTS) {
   test(`lower estate sections stay clear of the data tier at ${vp.name}`, async ({ context, page }) => {
     test.setTimeout(120_000)
-    const { snapshot } = logicalGroupSnapshot()
+    const groups = logicalGroupSnapshot()
+    const triggers = triggerBundleSnapshot(groups.snapshot)
+    const egress = externalEgressSnapshot(triggers.snapshot)
     await seedAuthCookie(context)
-    await routeSnapshot(page, snapshot)
+    await routeSnapshot(page, egress.snapshot)
     await page.setViewportSize({ width: vp.width, height: vp.height })
     await page.goto(ESTATE_URL, { waitUntil: "domcontentloaded" })
     await expect(page.getByTestId("topology-estate-view-map")).toBeVisible({ timeout: 60_000 })
     await page.getByRole("tab", { name: "Network topology" }).click()
 
-    // --- default state: both sections closed -------------------------------
+    // --- default state: every on-demand section closed ---------------------
     const coverage = page.getByTestId("topology-lane-coverage").first()
     if (await coverage.count()) {
       await expect(coverage).toHaveAttribute("data-details-open", "false")
@@ -60,23 +72,54 @@ for (const vp of VIEWPORTS) {
     await expect(band).toHaveAttribute("data-groups-open", "false")
     // The count must survive collapsing: a reader has to see that groups exist
     // without opening anything.
-    await expect(band.getByTestId("topology-logical-group-band-header")).toContainText("Logical groups")
-    await expect(band.getByTestId("topology-logical-group-band-header")).toContainText("(1)")
+    const bandHeader = band.getByTestId("topology-logical-group-band-header")
+    await expect(bandHeader).toContainText("Logical groups")
+    await expect(bandHeader).toContainText(`(${groups.groups.length})`)
+
+    // The two sections F3/F4 added are on-demand for the same reason: closed,
+    // their summary line still states the fact.
+    const external = page.getByTestId("topology-external-destinations").first()
+    await expect(external).toBeVisible()
+    await expect(external).toHaveAttribute("data-open", "false")
+    await expect(external).toHaveAttribute("data-leg-count", String(egress.legCount))
+    await expect(page.getByTestId("topology-external-destinations-details")).toBeHidden()
+
+    const s3 = page.getByTestId("topology-lambda-s3-coverage").first()
+    await expect(s3).toBeVisible()
+    await expect(s3).toHaveAttribute("data-open", "false")
+    await expect(s3).toHaveAttribute("data-with-traffic", String(triggers.s3Functions.length))
+    await expect(s3).toHaveAttribute("data-total", String(triggers.lambdas.length))
+    await expect(page.getByTestId("topology-lambda-s3-coverage-details")).toBeHidden()
 
     // --- the assertion the defect is about ---------------------------------
     const dataCells = page.locator('[data-tier="data"]')
     const cellCount = await dataCells.count()
     expect(cellCount, "the fixture draws a data tier to overlap with").toBeGreaterThan(0)
     for (let i = 0; i < cellCount; i++) {
-      const area = await overlapArea(band, dataCells.nth(i))
-      expect(area, `logical-group band overlaps data-tier cell ${i} by ${area}px^2 at ${vp.name}`).toBe(0)
+      for (const [name, block] of [
+        ["logical-group band", band],
+        ["external-destinations node", external],
+      ] as const) {
+        const area = await overlapArea(block, dataCells.nth(i))
+        expect(area, `${name} overlaps data-tier cell ${i} by ${area}px^2 at ${vp.name}`).toBe(0)
+      }
     }
 
     // --- on demand, the content is still reachable -------------------------
     await band.getByTestId("topology-logical-group-band-toggle").click()
     await expect(band).toHaveAttribute("data-groups-open", "true")
-    await expect(band.getByTestId("topology-logical-group")).toHaveCount(1)
+    await expect(band.getByTestId("topology-logical-group")).toHaveCount(groups.groups.length)
     await expect(band.getByTestId("topology-logical-group-member").first()).toBeVisible()
+
+    await external.getByTestId("topology-external-destinations-toggle").click()
+    await expect(external).toHaveAttribute("data-open", "true")
+    await expect(external.getByTestId("topology-external-destination-leg")).toHaveCount(egress.legCount)
+
+    await s3.getByTestId("topology-lambda-s3-coverage-toggle").click()
+    await expect(s3).toHaveAttribute("data-open", "true")
+    await expect(s3.getByTestId("topology-lambda-s3-coverage-function")).toHaveCount(
+      triggers.s3Functions.length,
+    )
 
     if (await coverage.count()) {
       await page.getByTestId("topology-lane-coverage-details-toggle").click()

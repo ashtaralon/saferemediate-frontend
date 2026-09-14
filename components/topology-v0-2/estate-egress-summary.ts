@@ -174,3 +174,92 @@ export function summarizeS3Traffic(
     noActionsRecorded: withTraffic.length > 0 && !sawAction,
   }
 }
+
+/** One relationship spelling a rail trunk carries, reduced to what deciding
+ *  its badge needs. `members` are the overlay's own `source→target` keys. */
+export interface TrunkWordBundle {
+  word: string
+  members: readonly string[]
+  /** Edges the spelling stands for, before pair de-duplication. */
+  count: number
+}
+
+/** One badge: the spellings it speaks for, and what it may print. */
+export interface TrunkWordBadge {
+  /** Every spelling this badge now covers, in payload order. The first is the
+   *  word the badge prints; the rest belong in its title. */
+  spellings: string[]
+  /** Unique directed connections — the number the badge prints. */
+  pairCount: number
+  /** Those connections, de-duplicated, in payload order. */
+  members: string[]
+  /** Edge rows behind them. Higher than `pairCount` exactly when the graph
+   *  recorded one connection more than once (a twin spelling, or a repeat). */
+  edgeCount: number
+}
+
+/** Collapse the spellings a trunk carries to one badge per RELATIONSHIP.
+ *
+ *  C1 records the six EventBridge rules firing six Lambdas twice — once as
+ *  TARGETS, once as TRIGGERS — and the trunk printed one badge per spelling,
+ *  so one relationship read as `TARGETS ×6` stacked over `TRIGGERS ×6`
+ *  (production inventory, run 34832847455: both words on one trunk). Twelve
+ *  edge rows, six connections, and nothing on screen said which.
+ *
+ *  Two spellings merge ONLY when their de-duplicated member sets are
+ *  identical, which is the evidence that they name the same connections. That
+ *  is a claim about the RECORDING, not about meaning: the badge still prints
+ *  one spelling and the caller's title names the others. Sets that differ by
+ *  even one member keep their own badges, so a genuine second relationship
+ *  over the same lane pair is never absorbed into the first.
+ *
+ *  The printed count is unique pairs, never edge rows — a badge may not say
+ *  six connections exist when the graph holds six rows for three. A bundle
+ *  with no members merges with nothing: an empty set is not evidence. */
+export function collapseTrunkWords(bundles: readonly TrunkWordBundle[]): TrunkWordBadge[] {
+  const order: string[] = []
+  const groups = new Map<string, TrunkWordBadge>()
+  bundles.forEach((bundle, i) => {
+    const members: string[] = []
+    for (const member of bundle.members) if (!members.includes(member)) members.push(member)
+    // Index in the signature when there is nothing to compare, so a
+    // member-less bundle can only ever group with itself.
+    const signature =
+      members.length === 0
+        ? `${KEY_SEP}empty${KEY_SEP}${i}`
+        : [...members].sort().join(KEY_SEP)
+    const existing = groups.get(signature)
+    if (existing) {
+      existing.spellings.push(bundle.word)
+      existing.edgeCount += bundle.count
+      return
+    }
+    order.push(signature)
+    groups.set(signature, {
+      spellings: [bundle.word],
+      pairCount: members.length,
+      members,
+      edgeCount: bundle.count,
+    })
+  })
+  return order.map(signature => groups.get(signature)!)
+}
+
+/** The title lines for a collapsed badge: what it prints, then what the badge
+ *  itself cannot show — the other spellings, and the row count when the graph
+ *  holds more rows than connections. Members follow, one per line. */
+export function trunkWordBadgeTitle(label: string, badge: TrunkWordBadge): string {
+  const lines = [label]
+  const [, ...alsoRecorded] = badge.spellings
+  if (alsoRecorded.length > 0) {
+    lines.push(
+      `Same ${badge.pairCount} connection${badge.pairCount === 1 ? "" : "s"}, also recorded as ${alsoRecorded.join(", ")}`,
+    )
+  }
+  if (badge.edgeCount > badge.pairCount) {
+    const connections = `${badge.pairCount} connection${badge.pairCount === 1 ? "" : "s"}`
+    lines.push(`${badge.edgeCount} edge rows in the graph for ${connections}`)
+  }
+  lines.push(...badge.members)
+  return lines.join("\n")
+}

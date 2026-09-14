@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest"
 import {
+  collapseTrunkWords,
   summarizeExternalEgress,
   summarizeS3Traffic,
+  trunkWordBadgeTitle,
   uniqueDirectedPairs,
 } from "@/components/topology-v0-2/estate-egress-summary"
 import type { TrafficEdge } from "@/components/topology-v0-2/types"
@@ -194,5 +196,111 @@ describe("summarizeS3Traffic — F4, four of six and not one action named", () =
       { source_id: "i-999", target_id: bucket, protocol: "ACTUAL_S3_ACCESS", observed_actions: [] },
     ] as unknown as TrafficEdge[]
     expect(summarizeS3Traffic(stranger, fns).withTraffic).toHaveLength(4)
+  })
+})
+
+describe("collapseTrunkWords — one badge per relationship, not per spelling", () => {
+  /** The six EventBridge rules firing six Lambdas, recorded under both
+   *  spellings. Production inventory (run 34832847455) drew `TARGETS ×6` and
+   *  `TRIGGERS ×6` on the same trunk: one relationship, read as twelve. */
+  const RULES = ["frequent", "every_6h", "daily", "nightly_burst", "weekly", "monthly"]
+  const pairs = RULES.map(
+    name =>
+      `arn:aws:events:eu-west-1:416651950952:rule/cyntro-tb-prod-${name}` +
+      `→arn:aws:lambda:eu-west-1:416651950952:function:cyntro-tb-prod-consumer-${name}`,
+  )
+  const mirrored = [
+    { word: "TARGETS", members: pairs, count: 6 },
+    { word: "TRIGGERS", members: pairs, count: 6 },
+  ]
+
+  it("draws one badge for six connections, not two badges for twelve edges", () => {
+    const badges = collapseTrunkWords(mirrored)
+    expect(badges).toHaveLength(1)
+    expect(badges[0].pairCount).toBe(6)
+    expect(badges[0].edgeCount).toBe(12)
+    expect(badges[0].spellings).toEqual(["TARGETS", "TRIGGERS"])
+  })
+
+  it("keeps the printed word first and the twin spelling for the title", () => {
+    const badge = collapseTrunkWords(mirrored)[0]
+    const title = trunkWordBadgeTitle("TARGETS ×6", badge)
+    expect(title.split("\n")[0]).toBe("TARGETS ×6")
+    expect(title).toContain("also recorded as TRIGGERS")
+    expect(title).toContain("12 edge rows in the graph for 6 connections")
+    for (const pair of pairs) expect(title).toContain(pair)
+  })
+
+  it("refuses to merge when the two spellings cover different connections", () => {
+    // One rule fires a seventh function under TRIGGERS only. That is a second
+    // relationship, not a twin recording, and absorbing it would delete an edge
+    // from the reader's count.
+    const badges = collapseTrunkWords([
+      { word: "TARGETS", members: pairs, count: 6 },
+      { word: "TRIGGERS", members: [...pairs, "rule/extra→fn/extra"], count: 7 },
+    ])
+    expect(badges).toHaveLength(2)
+    expect(badges.map(b => b.pairCount)).toEqual([6, 7])
+    expect(badges.map(b => b.spellings)).toEqual([["TARGETS"], ["TRIGGERS"]])
+  })
+
+  it("merges regardless of the order the two spellings list their members", () => {
+    const badges = collapseTrunkWords([
+      { word: "TARGETS", members: pairs, count: 6 },
+      { word: "TRIGGERS", members: [...pairs].reverse(), count: 6 },
+    ])
+    expect(badges).toHaveLength(1)
+    // Payload order of the FIRST spelling is what the title lists.
+    expect(badges[0].members).toEqual(pairs)
+  })
+
+  it("counts connections, never edge rows, when one pair is recorded twice", () => {
+    // A single spelling with a duplicate member is one connection, not two.
+    const badges = collapseTrunkWords([{ word: "KMS", members: ["a→b", "a→b", "c→d"], count: 3 }])
+    expect(badges[0].pairCount).toBe(2)
+    expect(badges[0].edgeCount).toBe(3)
+    expect(trunkWordBadgeTitle("KMS ×2", badges[0])).toContain(
+      "3 edge rows in the graph for 2 connections",
+    )
+  })
+
+  it("leaves an unmirrored trunk exactly as it found it", () => {
+    // C1's `KMS ×3` and `S3 access ×4`: three and four distinct pairs, one
+    // spelling each. Nothing about this change may move those numbers.
+    const badges = collapseTrunkWords([
+      { word: "KMS", members: ["k1→r1", "k1→r2", "k1→r3"], count: 3 },
+      { word: "S3 access", members: ["f1→b", "f2→b", "f3→b", "f4→b"], count: 4 },
+    ])
+    expect(badges.map(b => [b.spellings[0], b.pairCount, b.edgeCount])).toEqual([
+      ["KMS", 3, 3],
+      ["S3 access", 4, 4],
+    ])
+    expect(trunkWordBadgeTitle("KMS ×3", badges[0])).not.toContain("also recorded as")
+    expect(trunkWordBadgeTitle("KMS ×3", badges[0])).not.toContain("edge rows")
+  })
+
+  it("never merges two member-less spellings, which share no evidence", () => {
+    const badges = collapseTrunkWords([
+      { word: "TARGETS", members: [], count: 0 },
+      { word: "TRIGGERS", members: [], count: 0 },
+    ])
+    expect(badges).toHaveLength(2)
+    expect(badges.map(b => b.pairCount)).toEqual([0, 0])
+  })
+
+  it("says 'connection' in the singular when a twin covers exactly one", () => {
+    const badge = collapseTrunkWords([
+      { word: "TARGETS", members: ["r→f"], count: 1 },
+      { word: "TRIGGERS", members: ["r→f"], count: 1 },
+    ])[0]
+    expect(badge.pairCount).toBe(1)
+    const title = trunkWordBadgeTitle("TARGETS", badge)
+    expect(title).toContain("Same 1 connection, also recorded as")
+    expect(title).toContain("2 edge rows in the graph for 1 connection")
+    expect(title).not.toContain("1 connections")
+  })
+
+  it("returns nothing for a trunk that carries no words", () => {
+    expect(collapseTrunkWords([])).toEqual([])
   })
 })

@@ -701,8 +701,9 @@ test("a logical group is drawn in its own band beside the placement-gap area, li
   // Canonical builder in topology-fixture.ts — the geometry spec measures the
   // same band, and two constructions of one shape is the twin fork this repo
   // lints against.
-  const { snapshot, targetGroup, members, expectedAzs } = logicalGroupSnapshot()
+  const { snapshot, groups, targetGroup, members, expectedAzs } = logicalGroupSnapshot()
   expect(members.length, "the captured payload has EC2 instances in at least two zones of the drawn VPC").toBeGreaterThanOrEqual(2)
+  expect(groups, "six production-style groups, as the C1 band draws").toHaveLength(6)
   await routeSnapshot(page, snapshot)
   await page.setViewportSize({ width: 2048, height: 1100 })
   await page.goto(ESTATE_URL, { waitUntil: "domcontentloaded" })
@@ -712,11 +713,28 @@ test("a logical group is drawn in its own band beside the placement-gap area, li
   const band = page.getByTestId("topology-logical-group-band").first()
   await expect(band).toBeVisible()
   await expect(band.getByTestId("topology-logical-group-band-header")).toHaveText(
-    "Logical groups · members carry the placement (1)",
+    `Logical groups · members carry the placement (${groups.length})`,
   )
   await expect(band).toContainText("Not a collector gap")
   await expect(band).not.toContainText("does not say where")
-  const entry = band.getByTestId("topology-logical-group")
+  // Every group the payload names is drawn, each linked to its own members and
+  // spanning its own zones — the band, not one row of it.
+  await expect(band.getByTestId("topology-logical-group")).toHaveCount(groups.length)
+  for (const group of groups) {
+    const row = band.locator(
+      `[data-testid="topology-logical-group"][data-node-id="${group.node.id}"]`,
+    )
+    await expect(row).toHaveCount(1)
+    await expect(row).toHaveAttribute(
+      "data-member-ids",
+      group.members.map(member => member.id).join("|"),
+    )
+    await expect(row).toHaveAttribute("data-scope-azs", group.expectedAzs.join("|"))
+    await expect(row.getByTestId("topology-logical-group-member")).toHaveCount(group.members.length)
+  }
+  const entry = band.locator(
+    `[data-testid="topology-logical-group"][data-node-id="${targetGroup.id}"]`,
+  )
   await expect(entry).toHaveAttribute("data-node-id", targetGroup.id)
   await expect(entry).toHaveAttribute("data-member-ids", members.map(member => member.id).join("|"))
   await expect(entry).toHaveAttribute("data-scope-azs", expectedAzs.join("|"))

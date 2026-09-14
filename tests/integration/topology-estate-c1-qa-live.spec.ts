@@ -951,6 +951,10 @@ test.describe("C1 live QA — estate map against the deployed graph", () => {
     /** Logical groups carry their own band and are never counted as gaps. */
     async function readGroups(label: string) {
       const fullscreen = await enterFullscreen()
+      // The band collapses by default (it was spending the data tier's rows on
+      // C1 at 1512x771). Open it first: a reading of a closed band would count
+      // its members as zero and read as a regression in the projection.
+      const opened = await openDisclosure(page, "fullscreen", "topology-logical-group-band-toggle")
       const reading = await fullscreen.evaluate(root => {
         const text = (el: Element | null | undefined) => (el?.textContent ?? "").replace(/\s+/g, " ").trim()
         const band = root.querySelector('[data-testid="topology-logical-group-band"]')
@@ -960,6 +964,7 @@ test.describe("C1 live QA — estate map against the deployed graph", () => {
           : []
         return {
           band_header: text(band?.querySelector('[data-testid="topology-logical-group-band-header"]')) || null,
+          band_open: band?.getAttribute("data-groups-open") ?? null,
           groups: groups.map(group => ({
             node_id: group.getAttribute("data-node-id"),
             scope: text(group.querySelector('[data-testid="topology-logical-group-scope"]')) || null,
@@ -982,6 +987,12 @@ test.describe("C1 live QA — estate map against the deployed graph", () => {
         reading.groups_inside_unplaced,
         `${label}: a logical group must never be drawn inside the placement-gap area`,
       ).toBe(0)
+      // Only meaningful when the band exists at all; when it does, the members
+      // this reading counts must be the OPEN band's, not a hidden zero.
+      if (reading.band_header) {
+        expect(opened, `${label}: the logical-group band's disclosure must open`).toBe(true)
+        expect(reading.band_open, `${label}: the band must report itself open once toggled`).toBe("true")
+      }
       return reading
     }
 
@@ -1079,7 +1090,35 @@ interface PillReading {
   warnings: Array<{ code: string | null; text: string }>
 }
 
+/** Open a disclosure by testid within one scope, and report whether it opened.
+ *  The lane breakdown and the logical-group members moved behind a toggle so
+ *  the default canvas gives the data tier its space back; a reading taken with
+ *  them closed would report an empty breakdown and call it a contract change. */
+async function openDisclosure(
+  page: Page,
+  scope: "page" | "fullscreen",
+  toggleTestId: string,
+): Promise<boolean> {
+  const root =
+    scope === "fullscreen"
+      ? page.getByTestId("topology-estate-map-fullscreen")
+      : page.locator("body")
+  const toggle = root.locator(`[data-testid="${toggleTestId}"]`).first()
+  if ((await toggle.count()) === 0) return false
+  if ((await toggle.getAttribute("aria-expanded")) === "true") return true
+  await toggle.click({ timeout: 15_000 })
+  // React re-renders on its own schedule, so the attribute is asserted rather
+  // than read back in the same breath as the click.
+  try {
+    await expect(toggle).toHaveAttribute("aria-expanded", "true", { timeout: 10_000 })
+    return true
+  } catch {
+    return false
+  }
+}
+
 async function readPill(page: Page, scope: "page" | "fullscreen"): Promise<PillReading | null> {
+  await openDisclosure(page, scope, "topology-lane-coverage-details-toggle")
   return page.evaluate(scopeArg => {
     const root =
       scopeArg === "fullscreen"
@@ -1181,6 +1220,12 @@ interface FullscreenMeasure {
 }
 
 async function measureFullscreen(page: Page): Promise<FullscreenMeasure> {
+  // The band's members and the coverage lanes sit behind disclosures now, so
+  // the inventory opens them before measuring. Closed, this reading would
+  // report zero members and zero lanes — a projection regression that is not
+  // one. Idempotent: an already-open disclosure is left alone.
+  await openDisclosure(page, "fullscreen", "topology-logical-group-band-toggle")
+  await openDisclosure(page, "fullscreen", "topology-lane-coverage-details-toggle")
   return page.evaluate(() => {
     const root = document.querySelector('[data-testid="topology-estate-map-fullscreen"]')
     if (!root) throw new Error("fullscreen map is not open")
