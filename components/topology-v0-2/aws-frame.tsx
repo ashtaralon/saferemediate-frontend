@@ -2592,6 +2592,7 @@ function ServerlessComputeTier({
   namedFlowNodeIds,
   laneMinHeight,
   triggerNodes,
+  s3Coverage,
 }: {
   nodes: TopologyNode[]
   selectedNodeId: string | null
@@ -3253,9 +3254,9 @@ function ExternalDestinationsNode({
   const { legs, maxDistinctUpperBound, everySampleComplete, natIds, igwIds } = summary
   const hops = [...natIds.map(id => `NAT ${id}`), ...igwIds.map(id => `IGW ${id}`)]
   // Three states, not two. An older generation carries the distinct COUNTS and
-  // no sample_hosts at all (the captured alon-prod payload: nine egress legs,
-  // zero addresses), and "addresses sampled" would promise a sample that is
-  // not there.
+  // no sample_hosts at all (the captured payload the geometry specs replay:
+  // nine egress legs, zero addresses), and "addresses sampled" would promise a
+  // sample that is not there.
   const anySample = legs.some(leg => leg.sampleHosts.length > 0)
   return (
     <div
