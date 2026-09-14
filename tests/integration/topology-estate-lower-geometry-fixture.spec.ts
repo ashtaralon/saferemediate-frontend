@@ -78,16 +78,43 @@ const EFFECTIVE_PANEL_OPACITY = `(() => {
  *  artifacts while every geometric assertion passed (independent review of
  *  a765faf9). */
 async function waitForSettledPanel(page: Page, where: string) {
-  await page
-    .waitForFunction(
+  try {
+    await page.waitForFunction(
       `(${EFFECTIVE_PANEL_OPACITY} ?? {product: 0, animating: true}).animating === false &&
        (${EFFECTIVE_PANEL_OPACITY} ?? {product: 0}).product >= 0.999`,
       undefined,
       { timeout: 10_000 },
     )
-    .catch(() => {
-      throw new Error(`the external-destinations panel never settled at opacity 1 (${where})`)
+  } catch {
+    // Fail with the CHAIN, not with "it did not settle": the next question is
+    // always WHICH element is fading it, and a timeout that does not answer
+    // that costs a whole CI round-trip.
+    const chain = await page.evaluate(() => {
+      const el = document.querySelector('[data-testid="topology-external-destinations-details"]')
+      if (!el) return "panel not in the DOM"
+      const rows: string[] = []
+      let node: Element | null = el
+      while (node && node !== document.documentElement) {
+        const cs = getComputedStyle(node)
+        rows.push(
+          [
+            node.tagName.toLowerCase(),
+            (node.getAttribute("data-testid") || node.getAttribute("data-radix-popper-content-wrapper") !== null
+              ? node.getAttribute("data-testid") ?? "popper-wrapper"
+              : (node.className || "").toString().slice(0, 60)),
+            `opacity=${cs.opacity}`,
+            `animation=${cs.animationName}/${cs.animationPlayState}`,
+            `transition=${cs.transitionProperty}`,
+          ].join(" "),
+        )
+        node = node.parentElement
+      }
+      return rows.join(" | ")
     })
+    throw new Error(
+      `the external-destinations panel never settled at opacity 1 (${where}). Chain: ${chain}`,
+    )
+  }
 }
 
 /** Every drawn flow badge, and the overlay it is supposed to stay inside. */
