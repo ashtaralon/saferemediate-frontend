@@ -270,14 +270,3 @@
     display: none !important;
   }
 }
-
-/* Radix positions a popover/dropdown inside a FIXED wrapper it owns, and that
-   wrapper carries no z-index. The content's own `z-50` is inert there, because
-   z-index does nothing on a statically positioned element — so a panel opened
-   over the estate map painted UNDERNEATH the map's own layers and its text read
-   as if the panel were translucent (measured 2026-09-14: panel opacity 1,
-   background opaque, every ancestor opacity 1). The wrapper is the element that
-   has to carry the order. */
-[data-radix-popper-content-wrapper] {
-  z-index: 60;
-}
