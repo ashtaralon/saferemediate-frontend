@@ -2402,6 +2402,12 @@ export const RAIL_LANE_MIN_PX = 154
  *  this VPC" column because nothing here spells out a VPC id. */
 export const VPC_BOUNDARY_COL_W_PX = 132
 
+/** The narrowest the VPC card's own track may get before the canvas scrolls
+ *  instead. Two AZ columns of subnet cells do not fit below this, and a track
+ *  narrower than its content does not clip — the content overflows to the
+ *  right, over whatever column comes next. */
+export const VPC_MIN_TRACK_W_PX = 560
+
 /** Floor one lane may claim. Side by side each lane owns the column's whole
  *  height, so it is the full floor unless the column itself is shorter — while
  *  the lanes were stacked this had to halve the column so BOTH floors fit, and
@@ -9043,6 +9049,36 @@ export function AwsFrame({
             }
             style={{
               width: "100%",
+              // A FLOOR, not a preference. The VPC track is minmax(0, 1fr), so
+              // it shrinks below its content's intrinsic width and the card's
+              // cells then overflow to the RIGHT — under the boundary column
+              // and under the external lane, which is how the lane came to
+              // cover a data-tier cell by 8601px^2 at 1366 and 1024 while
+              // 1600 was clean (run 34866364811). The canvas is already an
+              // overflow-x: auto scroll region, so giving it a minimum lets it
+              // SCROLL instead of compressing columns into one another. Only
+              // the scrollable branch: fullscreen fits by zoom and clips, so a
+              // minimum there would cut the map off instead.
+              ...(presentationMode
+                ? null
+                : {
+                    minWidth: [
+                      VPC_MIN_TRACK_W_PX,
+                      showBoundaryColumn ? VPC_BOUNDARY_COL_W_PX : 0,
+                      showExternalLane ? EXTERNAL_LANE_W_PX : 0,
+                      showNetworkRail ? 136 : 0,
+                      showEdgeRail ? 48 + railColumnW : 0,
+                      // gap-x-3 between every pair of tracks that exists.
+                      12 *
+                        [
+                          showBoundaryColumn,
+                          showExternalLane,
+                          showNetworkRail,
+                          showEdgeRail,
+                          showEdgeRail,
+                        ].filter(Boolean).length,
+                    ].reduce((a, b) => a + b, 0),
+                  }),
               gridTemplateColumns: [
                 "minmax(0, 1fr)",
                 showBoundaryColumn ? `${VPC_BOUNDARY_COL_W_PX}px` : null,

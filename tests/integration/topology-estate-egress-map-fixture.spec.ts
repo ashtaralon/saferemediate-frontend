@@ -231,6 +231,12 @@ for (const density of DENSITIES) {
       expect(Math.max(...landed.map(p => p.length)), "the drawn continuation is a hairline").toBeGreaterThan(8)
 
       // --- containment: past the boundary, clear of the tiers it must not hide
+      // The canvas is a horizontal scroll region with a width floor, so at a
+      // narrow viewport the lane can sit to the right of the fold. Bring it
+      // into view before measuring and before the frame: "visible by default"
+      // means no disclosure to open, not that every viewport is wide enough to
+      // hold the whole estate at once.
+      await lane.scrollIntoViewIfNeeded()
       const laneRect = (await rectOf(lane))!
       const boundaryRect = await rectOf(page.getByTestId("topology-vpc-boundary-column"))
       if (boundaryRect) {
@@ -239,10 +245,13 @@ for (const density of DENSITIES) {
           `the external lane is not outside the VPC boundary at ${vp.name}·${density}`,
         ).toBeGreaterThanOrEqual(boundaryRect.right - 1)
       }
-      const canvas = (await rectOf(page.getByTestId("topology-region-fill-grid")))!
-      expect(laneRect.right, `lane spills out of the canvas at ${vp.name}·${density}`).toBeLessThanOrEqual(
-        canvas.right + 1,
-      )
+      // Inside the VIEWPORT once scrolled to, which is the claim that matters:
+      // a lane drawn off the right edge of the window is not on the map.
+      expect(laneRect.left, `lane off the left at ${vp.name}·${density}`).toBeGreaterThanOrEqual(-1)
+      expect(
+        laneRect.right,
+        `lane not brought fully into view at ${vp.name}·${density}`,
+      ).toBeLessThanOrEqual(vp.width + 1)
       const dataCells = page.locator('[data-tier="data"]')
       const cells = await dataCells.count()
       for (let i = 0; i < cells; i++) {
