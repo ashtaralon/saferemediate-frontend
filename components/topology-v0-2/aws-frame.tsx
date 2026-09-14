@@ -33,12 +33,17 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import {
   collapseTrunkWords,
+  externalDestinationMap,
   summarizeExternalEgress,
   summarizeS3Traffic,
   trunkWordBadgeTitle,
+  EXTERNAL_DESTINATION_FLOW_PREFIX,
+  type ExternalDestinationMap,
+  type ExternalDestinationNode,
   type ExternalEgressSummary,
   type S3TrafficCoverage,
 } from "./estate-egress-summary"
+import { IGW_CANVAS_ANCHOR_ID } from "./service-paths"
 import { Boxes, GitBranch, Globe2, ShieldAlert, Users } from "lucide-react"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import {
@@ -2397,6 +2402,12 @@ export const RAIL_LANE_MIN_PX = 154
  *  this VPC" column because nothing here spells out a VPC id. */
 export const VPC_BOUNDARY_COL_W_PX = 132
 
+/** The narrowest the VPC card's own track may get before the canvas scrolls
+ *  instead. Two AZ columns of subnet cells do not fit below this, and a track
+ *  narrower than its content does not clip — the content overflows to the
+ *  right, over whatever column comes next. */
+export const VPC_MIN_TRACK_W_PX = 560
+
 /** Floor one lane may claim. Side by side each lane owns the column's whole
  *  height, so it is the full floor unless the column itself is shorter — while
  *  the lanes were stacked this had to halve the column so BOTH floors fit, and
@@ -3290,9 +3301,15 @@ function EgressArrow() {
 function ExternalDestinationsNode({
   summary,
   compact,
+  lane = false,
 }: {
   summary: ExternalEgressSummary | null
   compact: boolean
+  /** Stack for the map's external lane instead of running inline along the
+   *  top strip. Same component, same claims, same testids — only the axis
+   *  changes, because a lane column is ~170px wide and the inline row was
+   *  built for a full-width strip. */
+  lane?: boolean
 }) {
   const [open, setOpen] = useState(false)
   if (!summary) return null
@@ -3326,7 +3343,11 @@ function ExternalDestinationsNode({
       : " · no addresses recorded"
   return (
     <div
-      className="flex items-center gap-1.5 min-w-0"
+      className={
+        lane
+          ? "flex flex-col items-start gap-1 min-w-0 w-full"
+          : "flex items-center gap-1.5 min-w-0"
+      }
       style={{ color: PAL.ink }}
       data-testid="topology-external-destinations"
       data-leg-count={legs.length}
@@ -3338,7 +3359,9 @@ function ExternalDestinationsNode({
       {/* The chain, not a neutral rule: this is the egress path, drawn in the
           legend's own "Internet egress" colour and naming its gateways. */}
       <div
-        className="flex items-center gap-1 min-w-0"
+        className={
+          lane ? "flex flex-wrap items-center gap-1 min-w-0 w-full" : "flex items-center gap-1 min-w-0"
+        }
         data-testid="topology-external-egress-chain"
         data-workloads={legs.length}
         data-nat-ids={natIds.join(",")}
@@ -3429,7 +3452,22 @@ function ExternalDestinationsNode({
           // (measured in run 34857677137: the topmost element at the panel's
           // top probe was the scope bar's label).
           collisionPadding={{ top: 56, right: 12, bottom: 12, left: 12 }}
-          className="w-[min(92vw,460px)] max-h-[min(44vh,300px)] overflow-y-auto p-3"
+          // z-[250] is load-bearing and belongs HERE, not on the wrapper.
+          // Radix's PopperContent reads the CONTENT's own computed z-index in
+          // a layout effect and copies it onto the fixed
+          // [data-radix-popper-content-wrapper] as an INLINE style. So the
+          // wrapper's order is whatever this class says, and a stylesheet rule
+          // aimed at the wrapper loses to that inline value however high its
+          // number — which is why the `z-index: 60` rule this replaces never
+          // did anything. The primitive's base class is z-50, and the estate
+          // map stacks above it: fullscreen is z-200, its detail panel z-210,
+          // the embedded detail panel z-220. At 50 the wrapper sat UNDER the
+          // fullscreen layer, so the panel rendered with opacity 1 and an
+          // opaque ground and was still invisible (independent production QA
+          // on 5cc2507d at 1512x771: panel at x=943.5 y=224 460x202.625,
+          // elementFromPoint inside it returning the map beneath). 250 clears
+          // the map's whole stack and stays far below the modal band (9000+).
+          className="z-[250] w-[min(92vw,460px)] max-h-[min(44vh,300px)] overflow-y-auto p-3"
           // Inline, not a utility class: the primitive's own `bg-popover` is
           // in the same class slot, and a panel that inherits a transparent
           // ground paints its text straight onto the map. Measured at 1512x771
@@ -3443,11 +3481,10 @@ function ExternalDestinationsNode({
             // clears the inline value once it has positioned the content, so
             // an inline override there is silently dropped (measured in run
             // 34856953477: the panel reported animationName "enter" with this
-            // line present). The panel was never translucent anyway: opacity 1,
+            // line present). The panel was never translucent: opacity 1,
             // opaque background, every ancestor opacity 1. It was painting
-            // UNDER the map, because Radix's fixed wrapper carries no z-index
-            // and `z-50` is inert on the statically positioned content inside
-            // it. That is fixed once, for every popper, in globals.css.
+            // UNDER the map — a stacking-order defect, fixed by the z-[250]
+            // above, NOT by anything on this property.
             opacity: 1,
           }}
           data-testid="topology-external-destinations-details"
@@ -3505,6 +3542,246 @@ function ExternalDestinationsNode({
           </ul>
         </PopoverContent>
       </Popover>
+    </div>
+  )
+}
+
+/** Width of the external-destinations lane, in px. Narrow on purpose: it
+ *  carries short labels (an IPv4 address, or a service name) and the VPC card
+ *  must keep the width it has. */
+export const EXTERNAL_LANE_W_PX = 176
+
+/** One destination drawn beyond the gateway.
+ *
+ *  `data-flow-id` is the whole point: FlowOverlay resolves an edge's endpoints
+ *  by that attribute, so a synthesized gateway -> destination edge lands on
+ *  this chip and the reader SEES the continuation instead of reading about it
+ *  in a header. The chip states what it is — an attributed service, or an
+ *  address — because those are different claims and only one of them is an
+ *  identity. */
+function ExternalDestinationChip({ node }: { node: ExternalDestinationNode }) {
+  const attributed = node.identity === "aws_service"
+  return (
+    <div
+      className="rounded-md px-1.5 py-1 min-w-0 w-full"
+      style={{
+        background: "#FFFFFF",
+        border: `1px solid ${attributed ? "#FCD34D" : "#FCA5A5"}`,
+      }}
+      data-flow-id={`${EXTERNAL_DESTINATION_FLOW_PREFIX}${node.key}`}
+      data-testid="topology-external-destination-node"
+      data-identity={node.identity}
+      data-kind={node.kind ?? ""}
+      data-sources={node.sources.join(",")}
+      data-observations={node.observationCount ?? ""}
+      title={
+        attributed
+          ? `${node.label} — attributed by the flow-log evidence`
+          : `${node.label} — an address; the evidence names no service`
+      }
+    >
+      <div
+        className={`text-[10px] leading-tight break-all ${attributed ? "font-semibold" : "font-mono"}`}
+        style={{ color: PAL.ink }}
+      >
+        {node.label}
+      </div>
+      <div className="text-[9px] leading-tight" style={{ color: PAL.slate }}>
+        {attributed ? "AWS service" : "address"}
+        {node.sources.length > 1 ? ` · ${node.sources.length} workloads` : ""}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * The external-destination lane — what the observed egress actually reached,
+ * drawn on the canvas beyond the VPC boundary.
+ *
+ * WHY THIS EXISTS. The continuation past the gateway used to live only in the
+ * top strip's summary and its detail popover. A header sentence and a popover
+ * are not a map: the reader could not see WHERE the traffic went from the IGW
+ * the map itself draws (Alon's primary acceptance, unmet by the header chain).
+ * The lane puts the destinations on the canvas and lets FlowOverlay draw the
+ * real edge from the real IGW chip to them.
+ *
+ * WHAT IT MAY CLAIM, and what it may not:
+ *   - the DESTINATIONS are observed for the active generation — evidence, and
+ *     labelled as such;
+ *   - the NAT -> IGW hop is CONFIGURED ROUTING from route tables, never a
+ *     per-packet proven path, and the caption says so;
+ *   - a label is a service name ONLY when the payload attributed one. An
+ *     address stays an address, and unnamed traffic is drawn as an explicit
+ *     unknown group rather than omitted — omitting it would make a sample read
+ *     as an inventory.
+ *
+ * Bounded by construction: `externalDestinationMap` caps the drawn set and
+ * reports the rest as `hiddenCount`, offered on demand. An unbounded lane on a
+ * system with hundreds of addresses is a wall, not a map.
+ */
+function ExternalDestinationsLane({
+  map,
+  summary,
+  compact,
+}: {
+  map: ExternalDestinationMap
+  summary: ExternalEgressSummary | null
+  compact: boolean
+}) {
+  const [moreOpen, setMoreOpen] = useState(false)
+  const hiddenNodes = map.hiddenCount > 0
+  return (
+    <div
+      className="flex flex-col self-stretch min-h-0 gap-1 z-10"
+      style={{ width: `${EXTERNAL_LANE_W_PX}px` }}
+      data-testid="topology-external-destinations-lane"
+      data-scroll-region="external-destinations"
+      data-node-count={map.nodes.length}
+      data-total-named={map.totalNamed}
+      data-hidden-count={map.hiddenCount}
+      data-attributed-count={map.attributedCount}
+      data-gateway-id={map.gatewayId ?? ""}
+      data-remainder-legs={map.remainder?.legs ?? 0}
+    >
+      <div
+        className="text-[10px] uppercase tracking-[0.12em] font-semibold shrink-0"
+        style={{ color: "#B45309" }}
+        data-flow-obstacle="external-lane-header"
+        data-testid="topology-external-destinations-lane-header"
+      >
+        Outside the VPC
+      </div>
+      {/* Two provenances in one line, kept apart on purpose. Merging them into
+          "traffic to X" would let configured routing borrow the destinations'
+          evidence and read as a proven per-packet path. */}
+      <div
+        className="text-[9px] leading-tight shrink-0"
+        style={{ color: PAL.slate }}
+        data-flow-obstacle="external-lane-caption"
+        data-testid="topology-external-destinations-provenance"
+      >
+        Destinations observed this generation · NAT → IGW is configured routing
+      </div>
+      <div className="flex flex-col gap-1 min-w-0">
+        {map.nodes.map(node => (
+          <ExternalDestinationChip key={node.key} node={node} />
+        ))}
+        {/* Traffic whose destination the payload never named. Drawn, never
+            dropped: a lane showing only the named addresses would read as the
+            complete set. */}
+        {map.remainder ? (
+          <div
+            className="rounded-md px-1.5 py-1 min-w-0 w-full"
+            style={{ background: "#FFFFFF", border: "1px dashed #CBD5E1" }}
+            data-flow-id={`${EXTERNAL_DESTINATION_FLOW_PREFIX}__unknown__`}
+            data-testid="topology-external-destination-unknown"
+            data-legs={map.remainder.legs}
+            data-distinct-upper-bound={map.remainder.distinctUpperBound ?? ""}
+            data-unknown-count-legs={map.remainder.unknownCountLegs}
+          >
+            <div className="text-[10px] leading-tight font-semibold" style={{ color: PAL.ink }}>
+              Unknown destinations
+            </div>
+            <div className="text-[9px] leading-tight" style={{ color: PAL.slate }}>
+              {map.remainder.legs} workload{map.remainder.legs === 1 ? "" : "s"} ·{" "}
+              {map.remainder.distinctUpperBound == null
+                ? "count not recorded"
+                : `up to ${map.remainder.distinctUpperBound} distinct`}
+              {" · no addresses recorded"}
+            </div>
+          </div>
+        ) : null}
+        {hiddenNodes ? (
+          <Popover open={moreOpen} onOpenChange={setMoreOpen}>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className="rounded-md px-1.5 py-1 text-[10px] font-semibold text-left w-full"
+                style={{ background: "#FFF7ED", border: "1px solid #FCD34D", color: "#B45309" }}
+                aria-expanded={moreOpen}
+                data-testid="topology-external-destinations-more"
+                data-hidden-count={map.hiddenCount}
+              >
+                +{map.hiddenCount} more
+              </button>
+            </PopoverTrigger>
+            <PopoverContent
+              align="start"
+              sideOffset={8}
+              collisionPadding={{ top: 56, right: 12, bottom: 12, left: 12 }}
+              // Same stacking contract as the details panel below: Radix copies
+              // the CONTENT's z-index onto its fixed wrapper, and the map's
+              // fullscreen layer is z-200.
+              className="z-[250] w-[min(92vw,420px)] max-h-[min(44vh,300px)] overflow-y-auto p-3"
+              style={{
+                background: "#FFFFFF",
+                border: "1px solid #CBD5E1",
+                boxShadow: "0 10px 30px rgba(15,23,42,0.18)",
+                opacity: 1,
+              }}
+              data-testid="topology-external-destinations-more-details"
+            >
+              <p className="text-[12px] leading-snug font-semibold" style={{ color: PAL.ink }}>
+                {map.hiddenCount} further destination{map.hiddenCount === 1 ? "" : "s"}
+              </p>
+              {/* The caveat belongs HERE, next to the list, not only on the
+                  lane's summary line. A reader who opens "+N more" is looking
+                  at what appears to be a complete enumeration; the payload is
+                  a SAMPLE (per-workload distinct counts with up to five
+                  addresses each), so the named set is smaller than the
+                  traffic it stands for and must never read as an inventory. */}
+              <p className="mt-1 text-[11px] leading-snug" style={{ color: PAL.slate }}>
+                The lane draws {map.nodes.length} of {map.totalNamed} named destinations; these are
+                the rest, in the same order. Sampled addresses, not an inventory
+                {map.distinctUpperBound == null
+                  ? " — the payload records no distinct count"
+                  : ` — the payload counts up to ${map.distinctUpperBound} distinct across the legs`}
+                {map.legsWithUnknownDistinct > 0
+                  ? `, and ${map.legsWithUnknownDistinct} leg${
+                      map.legsWithUnknownDistinct === 1 ? "" : "s"
+                    } carry no count at all`
+                  : ""}
+                .
+              </p>
+              <ul className="mt-2 space-y-1" data-testid="topology-external-destinations-more-list">
+                {map.hiddenNodes.map(node => (
+                  <li
+                    key={node.key}
+                    className="text-[11px] leading-snug"
+                    style={{ color: PAL.slate }}
+                    data-testid="topology-external-destinations-more-item"
+                    data-identity={node.identity}
+                    data-kind={node.kind ?? ""}
+                    data-sources={node.sources.join(",")}
+                  >
+                    <span
+                      className={node.identity === "aws_service" ? "font-semibold" : "font-mono"}
+                      style={{ color: PAL.ink }}
+                    >
+                      {node.label}
+                    </span>{" "}
+                    · {node.identity === "aws_service" ? "AWS service" : "address"}
+                    {/* The source evidence: which workloads were observed
+                        reaching it. A label with no attribution is a string;
+                        with its sources it is a finding an operator can act
+                        on. */}
+                    {" · reached by "}
+                    <span className="font-mono break-all">{node.sources.join(", ")}</span>
+                    {node.observationCount == null
+                      ? ""
+                      : ` · ${node.observationCount} observation${node.observationCount === 1 ? "" : "s"}`}
+                  </li>
+                ))}
+              </ul>
+            </PopoverContent>
+          </Popover>
+        ) : null}
+      </div>
+      {/* The evidence summary and its per-leg detail, moved off the top strip:
+          one place for this fact, on the canvas where the traffic is drawn. */}
+      <div className="mt-1 min-w-0">
+        <ExternalDestinationsNode summary={summary} compact={compact} lane />
+      </div>
     </div>
   )
 }
@@ -5477,14 +5754,24 @@ function FlowOverlay({
           key={i}
           data-flow-source={p.sourceId}
           data-flow-target={p.targetId}
+          // The evidence state the line was drawn from, on the line itself: a
+          // dash pattern is readable but not attributable, and a reviewer
+          // asking "why is this dashed" should not have to infer it.
+          data-flow-authority={p.authorityState ?? undefined}
+          data-flow-path-basis={p.pathBasis ?? undefined}
+          data-flow-motion={motionKind}
           data-flow-bundle={p.bundle ? String(p.bundle.count) : undefined}
           data-flow-members={p.bundle ? p.bundle.members.join("|") : undefined}
         >
           {/* A badge-only entry (a same-lane trunk's second word) draws no line. */}
           {p.d ? (
           <>
-          {/* Soft halo behind the line so it's visible over the busy chip grid */}
+          {/* Soft halo behind the line so it's visible over the busy chip grid.
+              Named, because it shares the halo's `d` with the real line and a
+              probe reading "the first path" gets this one — which carries no
+              dash pattern and would report an inferred edge as solid. */}
           <path
+            data-flow-line="halo"
             d={p.d}
             fill="none"
             stroke={stroke}
@@ -5493,6 +5780,7 @@ function FlowOverlay({
             strokeLinecap="round"
           />
           <path
+            data-flow-line="stroke"
             d={p.d}
             fill="none"
             stroke={stroke}
@@ -8376,6 +8664,16 @@ export function AwsFrame({
     if (selectedNodeId) ids.add(selectedNodeId)
     return ids
   }, [flowMode, trafficEdgesList, selectedNodeId])
+  // Declared BEFORE visibleEdges on purpose: that memo synthesizes the
+  // gateway -> destination edges from this map, and a const used above its own
+  // declaration is a TDZ error, not a hoist (tsc: TS2448, run 34865296106).
+  const externalEgress = useMemo(() => summarizeExternalEgress(trafficEdgesList), [trafficEdgesList])
+  // What the lane beyond the boundary may DRAW, bounded. Derived from the same
+  // edges the summary reads, so the lane and the summary can never disagree.
+  const externalDestinations = useMemo(
+    () => externalDestinationMap(externalEgress, trafficEdgesList),
+    [externalEgress, trafficEdgesList],
+  )
   const visibleEdges = useMemo(() => {
     const visible = new Set(nodes.map(n => n.id))
     for (const n of regionalTierNodes) visible.add(n.id)
@@ -8401,6 +8699,53 @@ export function AwsFrame({
     if (mergedVpcView) {
       edges = filterMergedVpcOverlayEdges(edges, nodes, { railIds, vpceIds })
     }
+    // The continuation past the perimeter, as REAL overlay edges.
+    //
+    // Appended after the visibility filter on purpose: their source is the
+    // IGW anchor, which is a boundary chip rather than a workload, so the
+    // `visible.has(source_id)` test above would drop every one of them.
+    //
+    // One edge per drawn destination, from the gateway chip the map already
+    // draws to the chip the lane draws. This is what makes the continuation
+    // VISIBLE rather than described: FlowOverlay resolves both ends by
+    // `data-flow-id` and routes a line between the two real rects.
+    //
+    // THEY ARE NOT OBSERVED SEGMENTS, and they say so. The evidence behind
+    // them is ACTUAL_TRAFFIC to a NetworkEndpoint plus a ROUTES_VIA route —
+    // which is NOT proof that each packet traversed this gateway. Drawing them
+    // with no evidence state gave them the solid, live-animated treatment the
+    // renderer reserves for observed+authoritative+observed_segment flows, so
+    // a synthesized join read as measured per-packet truth.
+    //
+    // `authority_state: "inferred"` + `path_basis: "synthetic_expansion"` are
+    // the vocabulary the renderer already understands: `inferredOrUnverified`
+    // dashes them (7 5) and `trafficMotionKind` returns "none", so they never
+    // animate. `evidence_type: "inferred"` keeps the third field from being
+    // read as observed by anything downstream.
+    if (externalDestinations) {
+      const gatewayFlowId = IGW_CANVAS_ANCHOR_ID
+      const synthetic = (targetId: string): TrafficEdge =>
+        ({
+          source_id: gatewayFlowId,
+          target_id: targetId,
+          edge_class: "egress",
+          protocol: null,
+          evidence_type: "inferred",
+          authority_state: "inferred",
+          path_basis: "synthetic_expansion",
+          // No last_seen: a timestamp would make this eligible for the
+          // "historical direction" animation, which is also a claim about
+          // observed packets.
+          last_seen: null,
+        }) as unknown as TrafficEdge
+      const continuation: TrafficEdge[] = externalDestinations.nodes.map(node =>
+        synthetic(`${EXTERNAL_DESTINATION_FLOW_PREFIX}${node.key}`),
+      )
+      if (externalDestinations.remainder) {
+        continuation.push(synthetic(`${EXTERNAL_DESTINATION_FLOW_PREFIX}__unknown__`))
+      }
+      edges = [...edges, ...continuation]
+    }
     return edges
   }, [
     overlayEdgeList,
@@ -8410,6 +8755,7 @@ export function AwsFrame({
     triggerTierNodes,
     vpceIds,
     mergedVpcView,
+    externalDestinations,
   ])
   // One frame PER VPC. Merged mode renders every VPC that owns a subnet in the
   // payload (primary first); scoped mode renders just the selected VPC. Each
@@ -8455,7 +8801,6 @@ export function AwsFrame({
   )
   const hasIgw = topo.edges.igws.length > 0
   // Null when nothing leaves the VPC, so the External node simply is not drawn.
-  const externalEgress = useMemo(() => summarizeExternalEgress(trafficEdgesList), [trafficEdgesList])
   // "4 of 6", read off the same edges the rail draws. The id set is the lane's
   // own functions, so an S3 edge from an EC2 instance cannot count towards it.
   const serverlessS3Coverage = useMemo(
@@ -8470,6 +8815,9 @@ export function AwsFrame({
   // `scope: "vpc-boundary"` always said they go, so the only thing left that has
   // no frame to sit on is a device in a VPC this view does not draw.
   const showNetworkRail = foreignIngress.length > 0
+  // Visible by DEFAULT whenever anything observably left the VPC. Behind a
+  // disclosure it would be exactly the header-and-popover the map already had.
+  const showExternalLane = Boolean(externalDestinations)
   // The VPC BOUNDARY column: this frame's IGW and endpoints drawn beside the
   // frame, between it and the rail — IGW at the top, endpoints at the bottom
   // level with the data tier — instead of side by side on the frame's header
@@ -8708,7 +9056,11 @@ export function AwsFrame({
             </span>
           </div>
         </div>
-        <ExternalDestinationsNode summary={externalEgress} compact={presentationMode} />
+        {/* The External destinations node moved onto the CANVAS, into the lane
+            beyond the VPC boundary, where the traffic it describes is drawn.
+            Keeping a copy here would state one fact in two places and spend a
+            row of map height doing it — and the strip's copy was the one a
+            reader could not connect to the IGW. */}
       </div>
 
       {/* AWS Cloud frame */}
@@ -8769,9 +9121,43 @@ export function AwsFrame({
             }
             style={{
               width: "100%",
+              // A FLOOR, not a preference. The VPC track is minmax(0, 1fr), so
+              // it shrinks below its content's intrinsic width and the card's
+              // cells then overflow to the RIGHT — under the boundary column
+              // and under the external lane, which is how the lane came to
+              // cover a data-tier cell by 8601px^2 at 1366 and 1024 while
+              // 1600 was clean (run 34866364811). The canvas is already an
+              // overflow-x: auto scroll region, so giving it a minimum lets it
+              // SCROLL instead of compressing columns into one another. Only
+              // the scrollable branch: fullscreen fits by zoom and clips, so a
+              // minimum there would cut the map off instead.
+              ...(presentationMode
+                ? null
+                : {
+                    minWidth: [
+                      VPC_MIN_TRACK_W_PX,
+                      showBoundaryColumn ? VPC_BOUNDARY_COL_W_PX : 0,
+                      showExternalLane ? EXTERNAL_LANE_W_PX : 0,
+                      showNetworkRail ? 136 : 0,
+                      showEdgeRail ? 48 + railColumnW : 0,
+                      // gap-x-3 between every pair of tracks that exists.
+                      12 *
+                        [
+                          showBoundaryColumn,
+                          showExternalLane,
+                          showNetworkRail,
+                          showEdgeRail,
+                          showEdgeRail,
+                        ].filter(Boolean).length,
+                    ].reduce((a, b) => a + b, 0),
+                  }),
               gridTemplateColumns: [
                 "minmax(0, 1fr)",
                 showBoundaryColumn ? `${VPC_BOUNDARY_COL_W_PX}px` : null,
+                // Immediately past the boundary, because that is where it is:
+                // the first thing outside the VPC, between the perimeter and
+                // the AWS services on the rail.
+                showExternalLane ? `${EXTERNAL_LANE_W_PX}px` : null,
                 showNetworkRail ? "136px" : null,
                 showEdgeRail ? "48px" : null,
                 showEdgeRail ? `${railColumnW}px` : null,
@@ -8954,6 +9340,15 @@ export function AwsFrame({
                 evidenceEdges={trafficEdgesList}
                 selectedNodeId={selectedNodeId}
                 onSelect={onSelect}
+              />
+            ) : null}
+
+            {/* What the egress reached, on the canvas rather than in a caption. */}
+            {showExternalLane && externalDestinations ? (
+              <ExternalDestinationsLane
+                map={externalDestinations}
+                summary={externalEgress}
+                compact={presentationMode}
               />
             ) : null}
 
