@@ -3423,7 +3423,18 @@ function ExternalDestinationsNode({
           align="end"
           sideOffset={8}
           collisionPadding={12}
-          className="w-[min(92vw,460px)] max-h-[min(60vh,360px)] overflow-y-auto p-3 bg-white"
+          className="w-[min(92vw,460px)] max-h-[min(52vh,320px)] overflow-y-auto p-3"
+          // Inline, not a utility class: the primitive's own `bg-popover` is
+          // in the same class slot, and a panel that inherits a transparent
+          // ground paints its text straight onto the map. Measured at 1512x771
+          // and 1024x720 in run 34854788649 — every line legible in isolation
+          // and unreadable in place.
+          style={{
+            background: "#FFFFFF",
+            border: "1px solid #CBD5E1",
+            boxShadow: "0 10px 30px rgba(15,23,42,0.18)",
+            opacity: 1,
+          }}
           data-testid="topology-external-destinations-details"
         >
           <p className="text-[12px] leading-snug font-semibold" style={{ color: PAL.ink }}>

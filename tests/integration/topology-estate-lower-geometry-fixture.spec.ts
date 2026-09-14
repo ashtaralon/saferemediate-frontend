@@ -235,17 +235,28 @@ for (const vp of VIEWPORTS) {
       if (!p) return null
       const legs = Array.from(p.querySelectorAll<HTMLElement>('[data-testid="topology-external-destination-leg"]'))
       const px = (el: Element) => parseFloat(getComputedStyle(el).fontSize)
+      const bg = getComputedStyle(p).backgroundColor
+      // rgb(...) is opaque; rgba(...) carries the alpha as the 4th component.
+      const alpha = /rgba?\(([^)]+)\)/.exec(bg)?.[1].split(",").map(v => v.trim())[3]
       return {
         captionPx: px(p.querySelector("p")!),
         minLegPx: Math.min(...legs.map(px)),
         // A wrapped line is fine; a line wider than its own box is clipped text.
         clipped: legs.filter(el => el.scrollWidth > el.clientWidth + 1).length,
+        background: bg,
+        backgroundAlpha: alpha === undefined ? 1 : Number(alpha),
       }
     })
     expect(readable, "the panel is measurable").not.toBeNull()
     expect(readable!.captionPx, `panel caption below 11px at ${vp.name}`).toBeGreaterThanOrEqual(11)
     expect(readable!.minLegPx, `panel leg text below 11px at ${vp.name}`).toBeGreaterThanOrEqual(11)
     expect(readable!.clipped, `clipped leg lines at ${vp.name}`).toBe(0)
+    // A panel with a transparent ground paints its text onto the map and is
+    // unreadable however large the type is.
+    expect(
+      readable!.backgroundAlpha,
+      `panel ground is not opaque at ${vp.name} (${readable!.background})`,
+    ).toBe(1)
 
     // Close by the control, not by Escape: the estate view installs its own
     // Escape handler for the topmost surface and this spec is not here to
