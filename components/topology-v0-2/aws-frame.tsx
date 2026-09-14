@@ -7595,20 +7595,39 @@ function UnplacedNodesArea({
           className={compact ? "mt-1.5 rounded-md px-2 py-1.5" : "mt-2.5 rounded-md px-3 py-2"}
           style={{ background: "#F8FAFC", border: "1.5px solid #CBD5E1" }}
           data-testid="topology-logical-group-band"
+          data-groups-open={groupsOpen ? "true" : "false"}
+          data-group-count={groups.length}
         >
-          <div className="flex items-baseline gap-2 flex-wrap">
+          {/* COLLAPSED BY DEFAULT (independent production UI QA, 2026-09-14).
+              Expanded, this band measured y=615.27..730.52 on a 1512x771
+              viewport while the data tier's own heading sat at y=655.02..664.02
+              — drawn across the layer it describes. A group here is never
+              placeable (its members carry the placement), so it has no claim on
+              the map's vertical budget by default.
+
+              The header IS the control, so there is no second affordance to
+              miss, and the count stays legible while collapsed: a reader must
+              be able to see that groups exist without opening anything. */}
+          <button
+            type="button"
+            onClick={() => setGroupsOpen(open => !open)}
+            className="flex items-baseline gap-2 flex-wrap w-full text-left"
+            aria-expanded={groupsOpen}
+            data-testid="topology-logical-group-band-toggle"
+          >
             <span
-              className="text-[10px] uppercase tracking-[0.14em] font-semibold"
+              className="text-[10px] uppercase tracking-[0.14em] font-semibold underline decoration-dotted underline-offset-2"
               style={{ color: PAL.ink }}
               data-testid="topology-logical-group-band-header"
             >
               Logical groups · members carry the placement ({groups.length})
             </span>
             <span className="text-[9px] leading-snug" style={{ color: PAL.slate }}>
-              {groupCopy.remedy}
+              {groupsOpen ? "Hide members" : "Show members"}
             </span>
-          </div>
-          <div className="mt-1.5 flex flex-wrap gap-3 items-start">
+          </button>
+          <div className="mt-1.5 flex flex-wrap gap-3 items-start" hidden={!groupsOpen}>
+            <span className="sr-only">{groupCopy.remedy}</span>
             {groups.map(({ node: n }) => {
               const scope = logicalGroupScope(n, edges, nodes, subnets)
               return (
