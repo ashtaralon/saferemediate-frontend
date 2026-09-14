@@ -349,3 +349,68 @@ export async function chromeTextDefects(page: Page, selector: string): Promise<C
     return { overlaps, collapsed }
   }, selector)
 }
+
+/** A snapshot whose VPC frame also contains one LOGICAL GROUP (a target group)
+ *  wired to real members by TARGETS edges, one per zone.
+ *
+ *  Canonical builder, deliberately shared: two specs need a band to measure and
+ *  a second inline construction of the same shape is the twin-fork this repo
+ *  lints against elsewhere. The members are read off the captured payload
+ *  rather than invented, so the zones the band claims to span are zones the
+ *  fixture actually draws. */
+export function logicalGroupSnapshot(base: typeof SNAPSHOT = SNAPSHOT) {
+  const frameVpc = base.vpc_topology.vpc_id as string
+  const subnetsById = new Map(
+    (base.vpc_topology.subnets as Array<{ id: string; az: string | null }>).map(subnet => [subnet.id, subnet]),
+  )
+  type PayloadNode = { id: string; name: string; type: string; vpc_id: string | null; subnet_id: string | null }
+  const instances = (base.nodes as PayloadNode[]).filter(
+    node => node.type === "EC2" && node.vpc_id === frameVpc && node.subnet_id && subnetsById.get(node.subnet_id)?.az,
+  )
+  // One member per zone, so the span the band claims is two zones wide.
+  const byZone = new Map<string, PayloadNode>()
+  for (const instance of instances) {
+    const az = subnetsById.get(instance.subnet_id!)!.az!
+    if (!byZone.has(az)) byZone.set(az, instance)
+  }
+  const members = [...byZone.values()]
+  const expectedAzs = [...byZone.keys()].sort()
+
+  const targetGroup = {
+    id: "arn:aws:elasticloadbalancing:eu-west-1:745783559495:targetgroup/fixture-tg-web/0123456789abcdef",
+    name: "fixture-tg-web",
+    type: "TargetGroup",
+    resource_label: "TargetGroup",
+    subnet_id: null,
+    subnet_ids: [],
+    vpc_id: frameVpc,
+    account_id: base.account_id,
+    region: base.region,
+    placement_tier: null,
+    score: null,
+    stale: null,
+    is_jewel: false,
+    security_group_ids: [],
+  }
+  const snapshot = {
+    ...base,
+    nodes: [...base.nodes, targetGroup],
+    traffic_edges: [
+      ...base.traffic_edges,
+      ...members.map(member => ({
+        edge_class: "internal",
+        source_id: targetGroup.id,
+        target_id: member.id,
+        port: null,
+        protocol: "TARGETS",
+        last_seen: null,
+        external_destinations: null,
+        evidence_type: "configured",
+        evidence_source: "aws_configuration",
+        authority_state: "configured",
+        path_basis: "configured_route",
+      })),
+    ],
+  }
+  return { snapshot, targetGroup, members, expectedAzs }
+}

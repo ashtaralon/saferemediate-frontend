@@ -3094,10 +3094,14 @@ function LaneCoveragePill({
           })}
         </span>
       </div>
-      {gaps.length > 0 && detailsOpen ? (
+      {/* Hidden, not unmounted: `hidden` costs no layout, so the collapsed
+          row is as short either way, and the disclosure's aria-controls target
+          plus every existing gap assertion keep pointing at a live node. */}
+      {gaps.length > 0 ? (
         <ul
           className={compact ? "mt-0.5 space-y-0" : "mt-1 space-y-0.5"}
           data-testid="topology-coverage-gaps"
+          hidden={!detailsOpen}
         >
           {gaps.map(warning => (
             <li
