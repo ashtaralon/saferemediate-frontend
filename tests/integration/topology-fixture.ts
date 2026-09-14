@@ -40,8 +40,27 @@ const RAW_SNAPSHOT = JSON.parse(
  * are `not_applicable`; EC2, RDS and the load balancer are eligible and, to
  * match the synthesized active generation above, covered.
  */
-function laneCoverageFromSnapshot(nodes: Array<{ type: string }>) {
-  const count = (types: string[]) => nodes.filter(node => types.includes(node.type)).length
+function laneCoverageFromSnapshot(nodes: Array<{ type: string; resource_label?: string | null }>) {
+  // A logical group is not an ENDPOINT. A DB cluster projects as type "RDS"
+  // with resource_label "RDSCluster", so counting it made the coverage pill
+  // read "Database 3/3" beside a filter chip reading "RDS (2)" — two numbers
+  // for one fact, which is the defect class this fixture exists to catch.
+  // Mirrors isLogicalGroupNode's own resource_label-first rule.
+  const GROUP_LABELS = new Set([
+    "AutoScalingGroup",
+    "ASG",
+    "TargetGroup",
+    "RDSCluster",
+    "NeptuneCluster",
+    "NeptuneDBCluster",
+    "DocumentDBCluster",
+    "DocDBCluster",
+    "DBCluster",
+  ])
+  const endpoints = nodes.filter(
+    node => !(node.resource_label && GROUP_LABELS.has(node.resource_label)),
+  )
+  const count = (types: string[]) => endpoints.filter(node => types.includes(node.type)).length
   const vpc = count(["EC2", "LoadBalancer"])
   const database = count(["RDS"])
   const lambdas = count(["Lambda"])
@@ -513,15 +532,26 @@ export function logicalGroupSnapshot(base: typeof SNAPSHOT = SNAPSHOT) {
     expectedAzs: azsOf(spec.members),
   }))
 
+  const nodes = [...base.nodes, neptuneMember, ...groupNodes]
+  const traffic_edges = [
+    ...base.traffic_edges,
+    ...groups.flatMap(group =>
+      group.members.map(member => membershipEdge(group.node.id, member.id, group.protocol)),
+    ),
+  ]
   const snapshot = {
     ...base,
-    nodes: [...base.nodes, neptuneMember, ...groupNodes],
-    traffic_edges: [
-      ...base.traffic_edges,
-      ...groups.flatMap(group =>
-        group.members.map(member => membershipEdge(group.node.id, member.id, group.protocol)),
+    nodes,
+    traffic_edges,
+    traffic_authority: {
+      ...base.traffic_authority,
+      authoritative_endpoint_count: nodes.length,
+      endpoint_count: nodes.length,
+      projected_edge_count: traffic_edges.length,
+      lane_coverage: laneCoverageFromSnapshot(
+        nodes as Array<{ type: string; resource_label?: string | null }>,
       ),
-    ],
+    },
   }
 
   // Back-compatible handles: the first target group is the one the existing
@@ -706,7 +736,9 @@ export function triggerBundleSnapshot(base: typeof SNAPSHOT = SNAPSHOT) {
   // three inches from a lane header reading "LAMBDA RUNTIME (6)" — two numbers
   // for one fact, on one screen, which is the defect class this whole change
   // is about (measured in the fixture screenshots, run 34850178365).
-  const laneCoverage = laneCoverageFromSnapshot(nodes as Array<{ type: string }>)
+  const laneCoverage = laneCoverageFromSnapshot(
+    nodes as Array<{ type: string; resource_label?: string | null }>,
+  )
   return {
     snapshot: {
       ...base,

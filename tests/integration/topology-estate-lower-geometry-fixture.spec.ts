@@ -135,13 +135,18 @@ for (const vp of VIEWPORTS) {
     }
 
     // Opening a disclosure scrolls it into view, and the map is a horizontally
-    // scrollable region, so the expanded frame is taken from the top-left
-    // rather than wherever the last click left the viewport.
+    // scrollable region, so the expanded frame would otherwise be taken from
+    // wherever the last click left it. Reset the HORIZONTAL scroll only and
+    // bring the map back into frame: scrolling the window to 0 as well pushed
+    // the map itself below the fold at 1024x720 and the frame showed nothing
+    // it was taken for (run 34850735271).
     await page.evaluate(() => {
-      window.scrollTo(0, 0)
       for (const el of Array.from(document.querySelectorAll<HTMLElement>("[data-scroll-region]"))) {
         el.scrollLeft = 0
       }
+      document
+        .querySelector('[data-testid="topology-estate-view-map"]')
+        ?.scrollIntoView({ block: "start" })
     })
     await page.screenshot({
       path: `test-results/estate-lower-geometry-${vp.name}.png`,
