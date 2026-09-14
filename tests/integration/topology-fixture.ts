@@ -605,9 +605,16 @@ export function externalEgressSnapshot(base: typeof SNAPSHOT = SNAPSHOT) {
   const isEgress = (edge: Edge) => edge.target_id === "__igw__"
   const legs = edges.filter(isEgress)
   let completeLegs = 0
+  // The attributed destination goes on a leg that is ALREADY sampled, never on
+  // the complete one. Putting it on the complete leg added a sixth address to a
+  // three-of-three inventory, flipped sampleIsComplete false, and broke the
+  // semantics spec's "addresses complete" claim — a fixture change silently
+  // rewriting an unrelated assertion (proof run 34865304377).
+  const attributedLeg = legs.length > 1 ? 1 : -1
   const traffic_edges = edges.map(edge => {
     if (!isEgress(edge)) return edge
-    const first = legs.indexOf(edge) === 0
+    const legIndex = legs.indexOf(edge)
+    const first = legIndex === 0
     const distinct = first
       ? COMPLETE.length
       : typeof edge.external_destinations === "number"
@@ -636,7 +643,7 @@ export function externalEgressSnapshot(base: typeof SNAPSHOT = SNAPSHOT) {
         // against a payload where attribution is possible at all.
         // `aws_service` is the field VPC Flow Logs v5 `pkt-dst-aws-service`
         // lands in; `kind` alone must never produce a service label.
-        ...(first
+        ...(legIndex === attributedLeg
           ? [{ kind: "s3", count: 2, sample_hosts: [ATTRIBUTED_HOST], aws_service: ATTRIBUTED_SERVICE }]
           : []),
       ],
@@ -657,7 +664,7 @@ export function externalEgressSnapshot(base: typeof SNAPSHOT = SNAPSHOT) {
     /** Distinct destination LABELS the lane may draw: the complete leg's three
      *  addresses, the five sampled addresses every other leg repeats (one
      *  node, not one per leg), and the attributed service. */
-    expectedNamed: COMPLETE.length + SAMPLED.length + 1,
+    expectedNamed: COMPLETE.length + SAMPLED.length + (attributedLeg >= 0 ? 1 : 0),
     /** The one destination the payload attributes a service to. */
     attributedService: ATTRIBUTED_SERVICE,
     /** The frame's own gateway — the chain must name this exact id. */
