@@ -74,9 +74,38 @@ async function badgesOutsideOverlay(page: Page) {
         })
       }
     }
+    // The map's own chrome. A badge clamped back inside the card is contained
+    // and can still be unreadable, stacked on the summary row or the colour
+    // legend; both carry data-flow-obstacle so the nudge pass has to clear
+    // them, and this measures whether it did.
+    const chrome: Array<{ name: string; r: DOMRect }> = []
+    for (const [name, sel] of [
+      ["platform-map summary", '[data-testid="topology-platform-map-summary"]'],
+      ["flow legend", '[data-testid="topology-flow-legend"]'],
+    ] as const) {
+      const el = document.querySelector(sel)
+      if (el) chrome.push({ name, r: el.getBoundingClientRect() })
+    }
+    const overChrome: Array<Record<string, unknown>> = []
+    for (const g of Array.from(document.querySelectorAll('[data-testid="topology-flow-badge"]'))) {
+      const r = g.getBoundingClientRect()
+      if (r.width === 0 && r.height === 0) continue
+      for (const c of chrome) {
+        const w = Math.min(r.right, c.r.right) - Math.max(r.left, c.r.left)
+        const h = Math.min(r.bottom, c.r.bottom) - Math.max(r.top, c.r.top)
+        if (w > 1 && h > 1) {
+          overChrome.push({
+            text: (g.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 40),
+            over: c.name,
+            area: Math.round(w * h),
+          })
+        }
+      }
+    }
     return {
       overlay: { left: Math.round(o.left), right: Math.round(o.right), width: Math.round(o.width) },
       escaped,
+      overChrome,
       total: document.querySelectorAll('[data-testid="topology-flow-badge"]').length,
     }
   })
@@ -151,6 +180,10 @@ for (const vp of VIEWPORTS) {
     expect(
       contained.escaped,
       `flow badges outside the overlay at ${vp.name}: ${JSON.stringify(contained.escaped)}`,
+    ).toEqual([])
+    expect(
+      contained.overChrome,
+      `flow badges painted over the map's own chrome at ${vp.name}: ${JSON.stringify(contained.overChrome)}`,
     ).toEqual([])
 
     // --- the assertion the first defect was about --------------------------

@@ -4415,6 +4415,7 @@ function FlowLegend({ compact = false }: { compact?: boolean }) {
       }`}
       style={{ borderColor: "#E2E8F0", background: "rgba(255,255,255,0.86)" }}
       data-testid="topology-flow-legend"
+      data-flow-obstacle="flow-legend"
       aria-label="Dependency line colors"
     >
       <span
@@ -5218,6 +5219,23 @@ function FlowOverlay({
         }
         return true
       }
+      // Containment, part one: bring a badge whose x came from a gutter
+      // fallback back inside the card BEFORE the nudge pass runs, so the nudge
+      // gets to move it clear of whatever it now sits on. Clamping only
+      // afterwards left five membership words stacked on the "Platform map"
+      // header — contained, and still unreadable (independent review of run
+      // 34853590525).
+      for (const p of next) {
+        if (!p.badgeLabel) continue
+        p.badgeX = clampBadgeIntoBounds(
+          p.badgeX,
+          p.badgeY,
+          badgeHalfWidth(p.badgeLabel),
+          BADGE_HALF_HEIGHT,
+          natW,
+          natH,
+        ).x
+      }
       for (const p of next) {
         if (!p.badgeLabel) continue
         // Same box the renderer draws; the earlier 6.4/char estimate let wide
@@ -5241,17 +5259,18 @@ function FlowOverlay({
         placed.push({ x: p.badgeX, y, hw })
       }
 
-      // Pass 5 — containment. Passes 1-4 choose an anchor and then nudge in Y
-      // ONLY, so a badge whose x came from a gutter fallback keeps that x
-      // however far outside the card it lands: the six logical groups' own
-      // membership words (TARGETS / LAUNCHES / MEMBER_OF_CLUSTER) painted over
-      // the "Platform map" header, clipped by the card's left edge
+      // Pass 5 — containment, part two. Passes 1-4 choose an anchor and then
+      // nudge in Y ONLY, so a badge whose x came from a gutter fallback keeps
+      // that x however far outside the card it lands: the six logical groups'
+      // own membership words (TARGETS / LAUNCHES / MEMBER_OF_CLUSTER) painted
+      // over the "Platform map" header, clipped by the card's left edge
       // (independent review of run 34851422905, 1512x771 and 1600x900). The
       // gutter fallback marches LEFT from the leftmost lane — `Math.min(srcLane.l,
       // dstChip.l) - 24 - busFanOffset(...)` — and nothing downstream had an
       // opinion about the overlay's own extent. Clamping here rather than in
       // each placement rule keeps ONE authority for "inside the map", which is
-      // what the four placement rules kept disagreeing about.
+      // what the four placement rules kept disagreeing about. The nudge pass
+      // can also drive a badge off the bottom, so y is re-clamped here too.
       for (const p of next) {
         if (p.badgeLabel) {
           const hw = badgeHalfWidth(p.badgeLabel)
@@ -8471,6 +8490,7 @@ export function AwsFrame({
               : "flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 pb-1"
           }
           data-testid="topology-platform-map-summary"
+          data-flow-obstacle="platform-map-summary"
         >
           <div className="flex items-center gap-2 min-w-0 overflow-hidden">
             <span className="text-[10px] font-semibold shrink-0" style={{ color: PAL.ink }}>
