@@ -372,11 +372,81 @@ export interface EgressDestination {
   address: string
   kind: EgressBreakdownBucket["kind"]
   port?: number | null
+  ports?: number[]
+  protocol?: string | null
+  protocols?: string[]
   observation_count: number
+  total_bytes?: number | null
+  first_seen?: string | null
   last_seen?: string | null
+  endpoint_class?: "external" | "aws_service" | string | null
   /** Same contract as the bucket's: authoritative service attribution only.
    *  Absent → this destination is an address, and the map says so. */
   aws_service?: string | null
+  classification_authority?: string | null
+  evidence_type?: "observed" | "configured" | "inferred" | "legacy_unverified" | string | null
+  evidence_source?: string | null
+  evidence_ids?: string[]
+  projection_generation?: number | null
+}
+
+/** A destination node explicitly projected for the Estate canvas (topology-risk/v11).
+ *  Unlike `destinations[]` on a workload edge, this carries a stable id and
+ *  can be joined to an exact gateway only through the projection's own edge. */
+export interface ExternalDestinationProjectionNode {
+  id: string
+  address: string
+  endpoint_class: "external" | "aws_service" | string
+  aws_service?: string | null
+  classification_authority?: string | null
+  source_workload_ids: string[]
+  ports?: number[]
+  protocols?: string[]
+  observation_count?: number | null
+  total_bytes?: number | null
+  first_seen?: string | null
+  last_seen?: string | null
+  evidence_ids?: string[]
+  projection_generation?: number | null
+  evidence_type?: "observed" | "legacy_unverified" | "mixed" | string | null
+  evidence_source?: string | null
+}
+
+export interface ExternalDestinationProjectionEdge {
+  /** The exact Internet Gateway id from configured route evidence. */
+  source_id: string
+  /** The canvas anchor for that gateway; v11 emits `__igw__`. */
+  source_anchor_id: string
+  target_id: string
+  relationship: "VISUAL_CONTINUATION" | string
+  source_workload_ids: string[]
+  destination_evidence: "observed" | "legacy_unverified" | "mixed" | string
+  gateway_evidence: "configured" | string
+  gateway_traversal_observed: boolean
+  path_basis:
+    | "observed_destination_with_configured_route"
+    | "legacy_destination_with_configured_route"
+    | "mixed_destination_with_configured_route"
+    | string
+  route_basis?: string | null
+  route_last_seen?: string | null
+}
+
+export interface ExternalDestinationProjection {
+  version: "estate-egress-destinations/v1" | string
+  nodes: ExternalDestinationProjectionNode[]
+  edges: ExternalDestinationProjectionEdge[]
+  counts: {
+    returned_destination_nodes: number
+    named_destination_nodes_before_bound: number
+    /** Sum of per-workload distinct counts: an upper bound, not a global total. */
+    per_workload_distinct_upper_bound: number | null
+    unidentified_peer_upper_bound: number | null
+    unlinked_returned_destination_nodes: number
+  }
+  detail_complete: boolean
+  truncated: boolean
+  unidentified_peer_samples: string[]
 }
 
 /** One hop the source subnet's route table puts between a workload and the
@@ -421,6 +491,10 @@ export interface TrafficEdge {
   // Phase B-2 additions — older BE deploys may omit these.
   edge_class?: TrafficEdgeClass
   external_destinations?: number | null
+  /** topology-risk/v11 detail-cardinality fields. */
+  unidentified_destinations?: number | null
+  destination_details_returned?: number | null
+  destination_details_truncated?: boolean | null
   /** DB flow-edge contract (Alon, 2026-07-10) — older BE may omit. */
   engine?: string | null
   internal_hits?: number | null
@@ -464,6 +538,19 @@ export interface TrafficEdge {
   egress_hops?: EgressHop[] | null
   route_basis?: string | null
   route_last_seen?: string | null
+  /** v11 visual-continuation provenance carried into the render overlay.
+   *  These describe the independently evidenced facts joined by the canvas
+   *  edge and never make the combined edge authoritative. */
+  visual_relationship?: "VISUAL_CONTINUATION" | string | null
+  destination_evidence?: "observed" | "legacy_unverified" | "mixed" | string | null
+  gateway_evidence?: "configured" | string | null
+  gateway_traversal_observed?: boolean | null
+  projection_path_basis?:
+    | "observed_destination_with_configured_route"
+    | "legacy_destination_with_configured_route"
+    | "mixed_destination_with_configured_route"
+    | string
+    | null
   /** Lane 3 — attack-path overlay uses IAP PathEdgeDetail rows. */
   flow_highlight?: "attack_path" | null
 }
@@ -518,7 +605,132 @@ export interface OutOfScopeWorkloads {
   sample_names: string[]
 }
 
+export type IdentityAccessStatus = "ready" | "partial" | "unavailable"
+export type IdentityAccessEvidenceState = "ready" | "unavailable"
+export type IdentityUsageState =
+  | "SUCCESS_OBSERVED"
+  | "DENIED_ONLY"
+  | "NOT_OBSERVED"
+  | "UNKNOWN"
+export type IdentityCoverageState = "COMPLETE" | "PARTIAL" | "UNKNOWN"
+export type IdentityCorroborationState = "NOT_EVALUATED" | "CONSISTENT" | "CONFLICT"
+export type IdentityAuthorizationLayer =
+  | "IDENTITY_POLICY"
+  | "RESOURCE_POLICY"
+  | "PERMISSIONS_BOUNDARY"
+  | "SCP_RCP"
+  | "SESSION_POLICY"
+  | "SERVICE_SPECIFIC"
+export type IdentityAuthorizationLayerVerdict =
+  | "GRANT"
+  | "DENY"
+  | "NO_MATCH"
+  | "UNKNOWN"
+  | "NOT_APPLICABLE"
+
+export interface IdentityAccessGap {
+  code: string
+  detail: string
+  [key: string]: unknown
+}
+
+export interface IdentityAccessAuthority {
+  projection_scope: string
+  generation: number
+  staging_run_id: string
+  source_vector_hash: string
+  projected_through: string
+  projection_receipt_hash?: string | null
+  [key: string]: unknown
+}
+
+export interface IdentityEffectiveAuthorization {
+  availability: "unavailable"
+  decision: null
+  granularity: "action_resource_context"
+  reason_codes: string[]
+}
+
+export interface IdentityActionDetail {
+  action: string
+  configured_grant: boolean
+  usage_state: IdentityUsageState
+  coverage_state: IdentityCoverageState
+  corroboration_state: IdentityCorroborationState
+  eligibility_state: string
+  purity: string
+  window_requirement_satisfied: boolean
+  hold_reason: string | null
+  denial_layer: IdentityAuthorizationLayer | null
+  denied_hold_expires_at: string | null
+  reevaluation_basis: string | null
+  policy_configuration_generation: number
+  evidence_generation: number
+  authorization_control_generation: number
+  observation_window_start: string | null
+  observation_window_end: string | null
+  first_success_at: string | null
+  last_success_at: string | null
+  authorization_layers: Record<IdentityAuthorizationLayer, IdentityAuthorizationLayerVerdict>
+  decision_as_of: string
+  effective_authorization: IdentityEffectiveAuthorization
+}
+
+export interface IdentityAccessRole {
+  role_id: string
+  role_arn: string
+  name: string
+  lifecycle_state: string
+  workload_ids: string[]
+  attachment_modes: string[]
+  configured_grants: {
+    state: IdentityAccessEvidenceState
+    exact_action_count: number | null
+  }
+  observed_use: {
+    state: IdentityAccessEvidenceState
+    successful_action_count: number | null
+    denied_only_action_count: number | null
+    not_observed_action_count: number | null
+    unknown_action_count: number | null
+    coverage_counts: {
+      complete: number
+      partial: number
+      unknown: number
+    } | null
+    last_success_at: string | null
+  }
+  effective_authorization: IdentityEffectiveAuthorization
+  action_details_total: number | null
+  action_details_returned: number
+  action_details_truncated: boolean
+  action_details: IdentityActionDetail[]
+  gaps: IdentityAccessGap[]
+}
+
+export interface IdentityAccessProjection {
+  contract_version: "estate-identity-access/v1"
+  status: IdentityAccessStatus
+  scope: {
+    customer_id: string
+    account_id: string
+    region: string
+    system_name: string
+    vpc_id: string
+  }
+  inventory_authority: IdentityAccessAuthority | null
+  decision_authority: IdentityAccessAuthority | null
+  roles_total: number | null
+  roles_returned: number
+  roles_truncated: boolean
+  roles_omitted_unresolved: number | null
+  roles: IdentityAccessRole[]
+  gaps: IdentityAccessGap[]
+}
+
 export interface TopologyRiskResponse {
+  /** Durable response/snapshot namespace. Present from topology-risk/v11. */
+  response_contract_version?: string
   system: string
   scored_at: string
   scoring_window_days: number
@@ -536,6 +748,10 @@ export interface TopologyRiskResponse {
   vpc_topology?: VpcTopology | null
   // Phase B addition — present on responses from BE >= phase-b deploy.
   traffic_edges?: TrafficEdge[]
+  /** Explicit IGW → observed destination canvas projection (v11+). */
+  external_destination_projection?: ExternalDestinationProjection | null
+  /** Worker-built canonical IAM attachment/decision projection (v11+). */
+  identity_access?: IdentityAccessProjection | null
   traffic_authority?: {
     state: "authoritative" | "authoritative_positive_only" | "rebuilding" | "legacy_unverified" | string
     mode: "legacy" | "shadow" | "incremental" | "unavailable" | "unknown" | string

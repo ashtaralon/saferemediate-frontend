@@ -125,14 +125,48 @@ async function waitForSettledPanel(page: Page, where: string) {
   }
 }
 
+async function expectPanelBoundedAndTopmost(
+  page: Page,
+  testId: string,
+  viewport: { name: string; width: number; height: number },
+) {
+  await page.waitForFunction((id) => {
+    const panel = document.querySelector<HTMLElement>(`[data-testid="${id}"]`)
+    if (!panel) return false
+    let opacity = 1
+    for (let node: Element | null = panel; node && node !== document.documentElement; node = node.parentElement) {
+      opacity *= Number(getComputedStyle(node).opacity)
+    }
+    const rect = panel.getBoundingClientRect()
+    const probes: Array<[number, number]> = [
+      [rect.left + rect.width * 0.5, rect.top + 6],
+      [rect.left + rect.width * 0.5, rect.top + rect.height * 0.5],
+      [rect.left + rect.width * 0.5, rect.bottom - 6],
+    ]
+    return opacity >= 0.999 && probes.every(([x, y]) => {
+      const top = document.elementFromPoint(x, y)
+      return Boolean(top && (top === panel || panel.contains(top)))
+    })
+  }, testId)
+  const panel = page.getByTestId(testId)
+  const rect = await panel.boundingBox()
+  expect(rect, `${testId} is measurable at ${viewport.name}`).not.toBeNull()
+  expect(rect!.x, `${testId} is off the left at ${viewport.name}`).toBeGreaterThanOrEqual(-1)
+  expect(rect!.y, `${testId} is off the top at ${viewport.name}`).toBeGreaterThanOrEqual(-1)
+  expect(rect!.x + rect!.width, `${testId} is off the right at ${viewport.name}`).toBeLessThanOrEqual(viewport.width + 1)
+  expect(rect!.y + rect!.height, `${testId} is off the bottom at ${viewport.name}`).toBeLessThanOrEqual(viewport.height + 1)
+}
+
 /** Every drawn flow badge, and the overlay it is supposed to stay inside. *//** Every drawn flow badge, and the overlay it is supposed to stay inside. */
 async function badgesOutsideOverlay(page: Page) {
   return page.evaluate(() => {
-    const svg = document.querySelector('[data-testid="topology-flow-overlay"]')
+    const root = document.querySelector('[data-testid="topology-estate-map-fullscreen"]')
+    if (!root) return { overlay: null, escaped: [] as Array<Record<string, unknown>> }
+    const svg = root.querySelector('[data-testid="topology-flow-overlay"]')
     if (!svg) return { overlay: null, escaped: [] as Array<Record<string, unknown>> }
     const o = svg.getBoundingClientRect()
     const escaped: Array<Record<string, unknown>> = []
-    for (const g of Array.from(document.querySelectorAll('[data-testid="topology-flow-badge"]'))) {
+    for (const g of Array.from(root.querySelectorAll('[data-testid="topology-flow-badge"]'))) {
       const r = g.getBoundingClientRect()
       if (r.width === 0 && r.height === 0) continue
       // 1px of tolerance for the stroke the renderer draws on the box edge.
@@ -155,11 +189,11 @@ async function badgesOutsideOverlay(page: Page) {
       ["platform-map summary", '[data-testid="topology-platform-map-summary"]'],
       ["flow legend", '[data-testid="topology-flow-legend"]'],
     ] as const) {
-      const el = document.querySelector(sel)
+      const el = root.querySelector(sel)
       if (el) chrome.push({ name, r: el.getBoundingClientRect() })
     }
     const overChrome: Array<Record<string, unknown>> = []
-    for (const g of Array.from(document.querySelectorAll('[data-testid="topology-flow-badge"]'))) {
+    for (const g of Array.from(root.querySelectorAll('[data-testid="topology-flow-badge"]'))) {
       const r = g.getBoundingClientRect()
       if (r.width === 0 && r.height === 0) continue
       for (const c of chrome) {
@@ -178,7 +212,7 @@ async function badgesOutsideOverlay(page: Page) {
       overlay: { left: Math.round(o.left), right: Math.round(o.right), width: Math.round(o.width) },
       escaped,
       overChrome,
-      total: document.querySelectorAll('[data-testid="topology-flow-badge"]').length,
+      total: root.querySelectorAll('[data-testid="topology-flow-badge"]').length,
     }
   })
 }
@@ -192,50 +226,74 @@ for (const vp of VIEWPORTS) {
     await seedAuthCookie(context)
     await routeSnapshot(page, egress.snapshot)
     await page.setViewportSize({ width: vp.width, height: vp.height })
+    await page.emulateMedia({ reducedMotion: "reduce" })
     await page.goto(ESTATE_URL, { waitUntil: "domcontentloaded" })
     await expect(page.getByTestId("topology-estate-view-map")).toBeVisible({ timeout: 60_000 })
     await page.getByRole("tab", { name: "Network topology" }).click()
+    await page.getByTestId("topology-estate-map-enlarge").click()
+    const map = page.getByTestId("topology-estate-map-fullscreen")
+    await expect(map).toBeVisible()
 
     // --- default state: every on-demand section closed ---------------------
-    const coverage = page.getByTestId("topology-lane-coverage").first()
-    if (await coverage.count()) {
-      await expect(coverage).toHaveAttribute("data-details-open", "false")
-      const box = await coverage.boundingBox()
-      // It measured 71px expanded. The collapsed row is one line of 10px text
-      // in a py-1.5 box; 44px leaves room for a wrapped totals sentence at
-      // 1024 wide without ever re-admitting the lane grid.
-      expect(box!.height, "collapsed coverage row is not the 71px block").toBeLessThanOrEqual(44)
-      await expect(page.getByTestId("topology-lane-coverage-lanes")).toBeHidden()
-    }
+    const coverageTrigger = map.getByTestId("topology-lane-coverage-trigger")
+    await expect(coverageTrigger).toBeVisible()
+    await expect(coverageTrigger).toHaveAttribute("aria-label", "Flow-log coverage")
+    await expect(coverageTrigger).toHaveAttribute("aria-expanded", "false")
+    // Coverage no longer taxes the map's vertical budget. Its detailed row is
+    // not mounted until the operator asks for it from the toolbar.
+    await expect(map.getByTestId("topology-lane-coverage")).toHaveCount(0)
+    await expect(page.getByTestId("topology-lane-coverage-panel")).toHaveCount(0)
 
-    const band = page.getByTestId("topology-logical-group-band").first()
-    await expect(band).toBeVisible()
-    await expect(band).toHaveAttribute("data-groups-open", "false")
-    // The count must survive collapsing: a reader has to see that groups exist
-    // without opening anything.
-    const bandHeader = band.getByTestId("topology-logical-group-band-header")
-    await expect(bandHeader).toContainText("Logical groups")
-    await expect(bandHeader).toContainText(`(${groups.groups.length})`)
+    const groupsTrigger = map.getByTestId("topology-logical-group-band-toggle")
+    await expect(groupsTrigger).toBeVisible()
+    await expect(groupsTrigger).toHaveAttribute("aria-label", `Logical groups, ${groups.groups.length}`)
+    await expect(groupsTrigger).toHaveAttribute("aria-expanded", "false")
+    await expect(groupsTrigger).toContainText(`Groups (${groups.groups.length})`)
+    // Group detail is portaled on demand and consumes no Data-tier height.
+    await expect(page.getByTestId("topology-logical-group-band")).toHaveCount(0)
+    await expect(
+      map.getByTestId("topology-region-frame").getByTestId("topology-logical-group-band"),
+    ).toHaveCount(0)
 
-    const external = page.getByTestId("topology-external-destinations").first()
+    const groupsBox = (await groupsTrigger.boundingBox())!
+    expect(groupsBox.x, `Groups control off the left at ${vp.name}`).toBeGreaterThanOrEqual(-1)
+    expect(groupsBox.y, `Groups control off the top at ${vp.name}`).toBeGreaterThanOrEqual(-1)
+    expect(groupsBox.x + groupsBox.width, `Groups control off the right at ${vp.name}`).toBeLessThanOrEqual(vp.width + 1)
+    expect(groupsBox.y + groupsBox.height, `Groups control off the bottom at ${vp.name}`).toBeLessThanOrEqual(vp.height + 1)
+    expect(
+      await overlapArea(groupsTrigger, coverageTrigger),
+      `Groups and Coverage controls overlap at ${vp.name}`,
+    ).toBe(0)
+    const lensToggle = map.getByTestId("topology-flow-mode-toggle")
+    await expect(lensToggle).toBeVisible()
+    expect(
+      await overlapArea(groupsTrigger, lensToggle),
+      `Groups and Map lens controls overlap at ${vp.name}`,
+    ).toBe(0)
+
+    const external = map.getByTestId("topology-external-destinations")
     await expect(external).toBeVisible()
     await expect(external).toHaveAttribute("data-open", "false")
     await expect(external).toHaveAttribute("data-leg-count", String(egress.legCount))
     await expect(page.getByTestId("topology-external-destinations-details")).toBeHidden()
 
-    const s3 = page.getByTestId("topology-lambda-s3-coverage").first()
+    const s3 = map.getByTestId("topology-lambda-s3-coverage")
     await expect(s3).toBeVisible()
     await expect(s3).toHaveAttribute("data-open", "false")
     await expect(s3).toHaveAttribute("data-with-traffic", String(triggers.s3Functions.length))
     await expect(s3).toHaveAttribute("data-total", String(triggers.lambdas.length))
     await expect(page.getByTestId("topology-lambda-s3-coverage-details")).toBeHidden()
+    const triggerDetails = map.getByTestId("topology-triggers-detail-trigger")
+    await expect(triggerDetails).toBeVisible()
+    await expect(triggerDetails).toHaveAttribute("aria-expanded", "false")
+    await expect(page.getByTestId("topology-triggers-detail-panel")).toHaveCount(0)
 
     // The strip is centre-justified: an overflow is split between both ends,
     // so the USERS block is the half that leaves the screen first.
-    const strip = page.getByTestId("topology-users-internet-strip").first()
+    const strip = map.getByTestId("topology-users-internet-strip")
     const stripBox = (await strip.boundingBox())!
-    const laneBefore = await page.getByTestId("topology-external-destinations-lane").boundingBox()
-    const usersBox = (await page.getByTestId("topology-users-node").first().boundingBox())!
+    const laneBefore = await map.getByTestId("topology-external-destinations-lane").boundingBox()
+    const usersBox = (await map.getByTestId("topology-users-node").boundingBox())!
     expect(usersBox.x, `Users block clipped at the strip's left edge at ${vp.name}`).toBeGreaterThanOrEqual(
       stripBox.x - 1,
     )
@@ -260,24 +318,91 @@ for (const vp of VIEWPORTS) {
     ).toEqual([])
 
     // --- the assertion the first defect was about --------------------------
-    const dataCells = page.locator('[data-tier="data"]')
+    const dataCells = map.locator('[data-tier="data"]')
     const cellCount = await dataCells.count()
     expect(cellCount, "the fixture draws a data tier to overlap with").toBeGreaterThan(0)
     for (let i = 0; i < cellCount; i++) {
-      for (const [name, block] of [
-        ["logical-group band", band],
-        ["external-destinations node", external],
-      ] as const) {
+      for (const [name, block] of [["external-destinations node", external]] as const) {
         const area = await overlapArea(block, dataCells.nth(i))
         expect(area, `${name} overlaps data-tier cell ${i} by ${area}px^2 at ${vp.name}`).toBe(0)
       }
     }
 
+    // Physical database instances remain in their evidence-backed Data cells.
+    // The group/member panel is a second view over those members, never their
+    // replacement on the canvas.
+    const physicalDataMemberIds = groups.groups
+      .filter(group => group.protocol === "MEMBER_OF_CLUSTER")
+      .flatMap(group => group.members)
+      .filter(member => member.subnet_id)
+      .map(member => member.id)
+    const dataPlacement = await map.evaluate((root, ids) => ids.map(id => {
+      const node = Array.from(root.querySelectorAll<HTMLElement>("[data-flow-id]"))
+        .find(element => element.dataset.flowId === id)
+      const cell = node?.closest<HTMLElement>('[data-tier="data"]') ?? null
+      const nodeRect = node?.getBoundingClientRect()
+      const cellRect = cell?.getBoundingClientRect()
+      return {
+        id,
+        rendered: Boolean(node && nodeRect && nodeRect.width > 0 && nodeRect.height > 0),
+        inDataCell: Boolean(cell),
+        contained: Boolean(
+          nodeRect && cellRect &&
+          nodeRect.left >= cellRect.left - 1 && nodeRect.right <= cellRect.right + 1 &&
+          nodeRect.top >= cellRect.top - 1 && nodeRect.bottom <= cellRect.bottom + 1
+        ),
+        topmost: Boolean(node && nodeRect && (() => {
+          const hit = document.elementFromPoint(
+            nodeRect.left + nodeRect.width / 2,
+            nodeRect.top + nodeRect.height / 2,
+          )
+          return hit && (hit === node || node.contains(hit))
+        })()),
+      }
+    }), physicalDataMemberIds)
+    expect(physicalDataMemberIds.length, "the fixture has physical Data members").toBeGreaterThan(0)
+    expect(
+      dataPlacement.filter(item => !item.rendered || !item.inDataCell || !item.contained || !item.topmost),
+      `physical Data nodes hidden or covered at ${vp.name}`,
+    ).toEqual([])
+
+    const dataTopBefore = await map.evaluate(root => {
+      const region = root.querySelector('[data-testid="topology-region-frame"]')
+      const cells = Array.from(root.querySelectorAll<HTMLElement>('[data-tier="data"]'))
+      if (!region || cells.length === 0) return null
+      const regionTop = region.getBoundingClientRect().top
+      return Math.min(...cells.map(cell => cell.getBoundingClientRect().top)) - regionTop
+    })
+    expect(dataTopBefore, `Data tier has a measurable top at ${vp.name}`).not.toBeNull()
+
     // --- on demand, the content is still reachable AND contained -----------
-    await band.getByTestId("topology-logical-group-band-toggle").click()
-    await expect(band).toHaveAttribute("data-groups-open", "true")
-    await expect(band.getByTestId("topology-logical-group")).toHaveCount(groups.groups.length)
-    await expect(band.getByTestId("topology-logical-group-member").first()).toBeVisible()
+    await groupsTrigger.focus()
+    if (vp.name === "1512x771") await groupsTrigger.click()
+    else await page.keyboard.press("Enter")
+    await expect(groupsTrigger).toHaveAttribute("aria-expanded", "true")
+    const groupsPanel = page.getByTestId("topology-logical-group-band")
+    await expect(groupsPanel).toHaveAttribute("role", "dialog")
+    await expect(groupsPanel.getByTestId("topology-logical-group")).toHaveCount(groups.groups.length)
+    await expect(groupsPanel.getByTestId("topology-logical-group-member").first()).toBeVisible()
+    await expectPanelBoundedAndTopmost(page, "topology-logical-group-band", vp)
+    await expect(
+      map.getByTestId("topology-region-frame").getByTestId("topology-logical-group-band"),
+    ).toHaveCount(0)
+    const dataTopWhileOpen = await map.evaluate(root => {
+      const region = root.querySelector('[data-testid="topology-region-frame"]')
+      const cells = Array.from(root.querySelectorAll<HTMLElement>('[data-tier="data"]'))
+      if (!region || cells.length === 0) return null
+      const regionTop = region.getBoundingClientRect().top
+      return Math.min(...cells.map(cell => cell.getBoundingClientRect().top)) - regionTop
+    })
+    expect(
+      Math.abs((dataTopWhileOpen ?? Number.NaN) - dataTopBefore!),
+      `opening Groups shifted the Data tier at ${vp.name}`,
+    ).toBeLessThanOrEqual(1)
+    await groupsPanel.getByTestId("topology-logical-group-member").first().focus()
+    await page.keyboard.press("Escape")
+    await expect(groupsPanel).toHaveCount(0)
+    await expect(groupsTrigger).toBeFocused()
 
     await external.getByTestId("topology-external-destinations-toggle").click()
     await expect(external).toHaveAttribute("data-open", "true")
@@ -295,7 +420,7 @@ for (const vp of VIEWPORTS) {
       Math.abs(stripAfter.width - stripBox.width),
       `opening the panel changed the top strip's width at ${vp.name}`,
     ).toBeLessThanOrEqual(1)
-    const laneAfter = await page.getByTestId("topology-external-destinations-lane").boundingBox()
+    const laneAfter = await map.getByTestId("topology-external-destinations-lane").boundingBox()
     expect(
       Math.abs((laneAfter?.width ?? laneBefore?.width ?? 0) - (laneBefore?.width ?? 0)),
       `opening the panel widened the external lane at ${vp.name}`,
@@ -392,11 +517,109 @@ for (const vp of VIEWPORTS) {
       triggers.s3Functions.length,
     )
 
-    if (await coverage.count()) {
-      await page.getByTestId("topology-lane-coverage-details-toggle").click()
-      await expect(coverage).toHaveAttribute("data-details-open", "true")
-      await expect(page.getByTestId("topology-lane-coverage-lanes")).toBeVisible()
-    }
+    await coverageTrigger.focus()
+    await coverageTrigger.click()
+    await expect(coverageTrigger).toHaveAttribute("aria-expanded", "true")
+    const coveragePanel = page.getByTestId("topology-lane-coverage-panel")
+    await expect(coveragePanel).toBeVisible()
+    await expect(coveragePanel).toHaveAttribute("role", "dialog")
+    await expect(coveragePanel.getByTestId("topology-lane-coverage-lanes")).toBeVisible()
+    await page.waitForFunction(() => {
+      const panel = document.querySelector<HTMLElement>('[data-testid="topology-lane-coverage-panel"]')
+      if (!panel) return false
+      let node: Element | null = panel
+      let opacity = 1
+      while (node && node !== document.documentElement) {
+        opacity *= Number(getComputedStyle(node).opacity)
+        node = node.parentElement
+      }
+      if (opacity < 0.999) return false
+      const rect = panel.getBoundingClientRect()
+      return [
+        [rect.left + rect.width * 0.5, rect.top + 6],
+        [rect.left + rect.width * 0.5, rect.top + rect.height * 0.5],
+        [rect.left + rect.width * 0.5, rect.bottom - 6],
+      ].every(([x, y]) => {
+        const top = document.elementFromPoint(x, y)
+        return Boolean(top && (top === panel || panel.contains(top)))
+      })
+    })
+    const coverageReadability = await coveragePanel.evaluate(panel => {
+      const rect = panel.getBoundingClientRect()
+      const style = getComputedStyle(panel)
+      const alpha = /rgba?\(([^)]+)\)/.exec(style.backgroundColor)?.[1]
+        .split(",")
+        .map(value => value.trim())[3]
+      const probes: Array<[number, number]> = [
+        [rect.left + rect.width * 0.5, rect.top + 6],
+        [rect.left + rect.width * 0.5, rect.top + rect.height * 0.5],
+        [rect.left + rect.width * 0.5, rect.bottom - 6],
+      ]
+      let ancestor: Element | null = panel
+      let effectiveOpacity = 1
+      while (ancestor && ancestor !== document.documentElement) {
+        effectiveOpacity *= Number(getComputedStyle(ancestor).opacity)
+        ancestor = ancestor.parentElement
+      }
+      return {
+        rect: { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom },
+        backgroundAlpha: alpha === undefined ? 1 : Number(alpha),
+        effectiveOpacity,
+        coveredProbes: probes.filter(([x, y]) => {
+          const top = document.elementFromPoint(x, y)
+          return !top || !(top === panel || panel.contains(top))
+        }).length,
+      }
+    })
+    expect(coverageReadability.rect.left).toBeGreaterThanOrEqual(-1)
+    expect(coverageReadability.rect.top).toBeGreaterThanOrEqual(-1)
+    expect(coverageReadability.rect.right).toBeLessThanOrEqual(vp.width + 1)
+    expect(coverageReadability.rect.bottom).toBeLessThanOrEqual(vp.height + 1)
+    expect(coverageReadability.backgroundAlpha).toBe(1)
+    expect(coverageReadability.effectiveOpacity).toBeGreaterThanOrEqual(0.999)
+    expect(coverageReadability.coveredProbes).toBe(0)
+    await page.keyboard.press("Escape")
+    await expect(coveragePanel).toHaveCount(0)
+    await expect(coverageTrigger).toBeFocused()
+
+    // Narrow screens keep the topology honest instead of compressing the VPC
+    // under its off-VPC lanes. Prove the final regional rail can be reached by
+    // the region's own horizontal canvas and is neither clipped nor covered at
+    // the end of that scroll range.
+    const railAccess = await map.evaluate(async root => {
+      const region = root.querySelector<HTMLElement>('[data-testid="topology-region-frame"]')
+      const rail = root.querySelector<HTMLElement>('[data-testid="topology-edge-services-rail"]')
+      if (!region || !rail) return null
+      const previousScrollLeft = region.scrollLeft
+      const maxScroll = Math.max(0, region.scrollWidth - region.clientWidth)
+      region.scrollLeft = maxScroll
+      await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+      const regionRect = region.getBoundingClientRect()
+      const railRect = rail.getBoundingClientRect()
+      const hit = document.elementFromPoint(
+        railRect.left + railRect.width / 2,
+        railRect.top + Math.min(railRect.height / 2, 80),
+      )
+      const result = {
+        maxScroll,
+        railLeft: railRect.left,
+        railRight: railRect.right,
+        regionLeft: regionRect.left,
+        regionRight: regionRect.right,
+        topmost: Boolean(hit && (hit === rail || rail.contains(hit))),
+      }
+      region.scrollLeft = previousScrollLeft
+      return result
+    })
+    expect(railAccess, `regional rail is measurable at ${vp.name}`).not.toBeNull()
+    expect(railAccess!.maxScroll, `region has a horizontal access range at ${vp.name}`).toBeGreaterThan(0)
+    expect(railAccess!.railLeft, `regional rail clipped left at max scroll at ${vp.name}`).toBeGreaterThanOrEqual(
+      railAccess!.regionLeft - 1,
+    )
+    expect(railAccess!.railRight, `regional rail clipped right at max scroll at ${vp.name}`).toBeLessThanOrEqual(
+      railAccess!.regionRight + 1,
+    )
+    expect(railAccess!.topmost, `regional rail covered at max scroll at ${vp.name}`).toBe(true)
 
     // Opening a disclosure scrolls it into view, and the map is a horizontally
     // scrollable region, so the expanded frame would otherwise be taken from
@@ -425,3 +648,34 @@ for (const vp of VIEWPORTS) {
     })
   })
 }
+
+test("logical-group detail remains keyboard reachable at a 375px viewport", async ({ context, page }) => {
+  test.setTimeout(120_000)
+  const groups = logicalGroupSnapshot()
+  await seedAuthCookie(context)
+  await routeSnapshot(page, groups.snapshot)
+  const viewport = { name: "375x812", width: 375, height: 812 }
+  await page.setViewportSize({ width: viewport.width, height: viewport.height })
+  await page.emulateMedia({ reducedMotion: "reduce" })
+  await page.goto(ESTATE_URL, { waitUntil: "domcontentloaded" })
+  await expect(page.getByTestId("topology-estate-view-map")).toBeVisible({ timeout: 60_000 })
+  await page.getByRole("tab", { name: "Network topology" }).click()
+  await page.getByTestId("topology-estate-map-enlarge").click()
+  const map = page.getByTestId("topology-estate-map-fullscreen")
+  const trigger = map.getByTestId("topology-logical-group-band-toggle")
+  await expect(trigger).toBeVisible()
+  const triggerBox = (await trigger.boundingBox())!
+  expect(triggerBox.x).toBeGreaterThanOrEqual(-1)
+  expect(triggerBox.x + triggerBox.width).toBeLessThanOrEqual(viewport.width + 1)
+  await expect(page.getByTestId("topology-logical-group-band")).toHaveCount(0)
+
+  await trigger.focus()
+  await page.keyboard.press("Enter")
+  const panel = page.getByTestId("topology-logical-group-band")
+  await expect(panel.getByTestId("topology-logical-group")).toHaveCount(groups.groups.length)
+  await expectPanelBoundedAndTopmost(page, "topology-logical-group-band", viewport)
+  await page.keyboard.press("Escape")
+  await expect(panel).toHaveCount(0)
+  await expect(trigger).toBeFocused()
+  await expect(map).toBeVisible()
+})
