@@ -3033,7 +3033,7 @@ const COVERAGE_STATE_STYLE: Record<string, { bg: string; fg: string; border: str
  *
  *  The toggle is uncontrolled on purpose: this is a per-reader view preference,
  *  not estate state, so it must not round-trip through the payload. */
-function LaneCoveragePill({
+function LaneCoverageDetails({
   coverage,
   gaps,
   compact,
@@ -3042,7 +3042,6 @@ function LaneCoveragePill({
   gaps: LaneCoverageWarning[]
   compact: boolean
 }) {
-  const [detailsOpen, setDetailsOpen] = useState(false)
   const style = COVERAGE_STATE_STYLE[coverage.state] ?? COVERAGE_STATE_STYLE.unknown
   const lanes = (["vpc", "database", "serverless", "regional"] as const).flatMap(lane => {
     const counts = coverage.by_lane?.[lane]
@@ -3054,7 +3053,7 @@ function LaneCoveragePill({
       style={{ borderColor: style.border, background: style.bg, color: style.fg }}
       data-testid="topology-lane-coverage"
       data-coverage-state={coverage.state}
-      data-details-open={detailsOpen ? "true" : "false"}
+      data-details-open="true"
     >
       <div className="flex items-center gap-2 min-w-0 flex-wrap">
         <span className="shrink-0 font-semibold">Flow-log coverage</span>
@@ -3075,23 +3074,10 @@ function LaneCoveragePill({
           {coverage.not_applicable > 0 ? ` · ${coverage.not_applicable} not applicable` : ""}
           {coverage.active_generation != null ? ` · generation ${coverage.active_generation}` : ""}
         </span>
-        <button
-          type="button"
-          onClick={() => setDetailsOpen(open => !open)}
-          className="shrink-0 rounded px-1.5 py-0.5 font-semibold underline decoration-dotted underline-offset-2"
-          style={{ background: "rgba(255,255,255,0.7)", border: `1px solid ${style.border}`, color: style.fg }}
-          aria-expanded={detailsOpen}
-          aria-controls="topology-lane-coverage-details"
-          data-testid="topology-lane-coverage-details-toggle"
-        >
-          {detailsOpen ? "Hide coverage details" : "Coverage details"}
-          {!detailsOpen && gaps.length > 0 ? ` (${gaps.length})` : ""}
-        </button>
         <span
           id="topology-lane-coverage-details"
           className="flex items-center gap-1 flex-wrap"
           data-testid="topology-lane-coverage-lanes"
-          hidden={!detailsOpen}
         >
           {lanes.map(([lane, counts]) => {
             const laneStyle = COVERAGE_STATE_STYLE[counts.state] ?? COVERAGE_STATE_STYLE.unknown
@@ -3124,14 +3110,10 @@ function LaneCoveragePill({
           })}
         </span>
       </div>
-      {/* Hidden, not unmounted: `hidden` costs no layout, so the collapsed
-          row is as short either way, and the disclosure's aria-controls target
-          plus every existing gap assertion keep pointing at a live node. */}
       {gaps.length > 0 ? (
         <ul
           className={compact ? "mt-0.5 space-y-0" : "mt-1 space-y-0.5"}
           data-testid="topology-coverage-gaps"
-          hidden={!detailsOpen}
         >
           {gaps.map(warning => (
             <li
@@ -3148,6 +3130,58 @@ function LaneCoveragePill({
         </ul>
       ) : null}
     </div>
+  )
+}
+
+/** Coverage belongs to the operator's inspection chrome, not to the map's
+ * vertical layout. The trigger keeps the authority state visible without
+ * consuming a full-width row; Radix owns Escape, focus trapping and restoring
+ * focus to this exact trigger when the panel closes. */
+function LaneCoverageControl({
+  coverage,
+  gaps,
+  compact,
+}: {
+  coverage: LaneCoverage
+  gaps: LaneCoverageWarning[]
+  compact: boolean
+}) {
+  const style = COVERAGE_STATE_STYLE[coverage.state] ?? COVERAGE_STATE_STYLE.unknown
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          aria-label="Flow-log coverage"
+          className={
+            compact
+              ? "inline-flex h-7 items-center gap-1 rounded-md px-2 text-[9px] font-semibold"
+              : "inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-[10px] font-semibold"
+          }
+          style={{ background: style.bg, color: style.fg, border: `1px solid ${style.border}` }}
+          data-testid="topology-lane-coverage-trigger"
+          data-coverage-state={coverage.state}
+        >
+          <span
+            className="h-1.5 w-1.5 shrink-0 rounded-full"
+            style={{ background: style.fg }}
+            aria-hidden
+          />
+          Coverage · {style.label}
+          {gaps.length > 0 ? ` (${gaps.length})` : ""}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        sideOffset={8}
+        className="z-[120] w-[min(92vw,620px)] max-h-[min(70vh,560px)] overflow-y-auto p-0 shadow-2xl"
+        data-testid="topology-lane-coverage-panel"
+        role="dialog"
+        aria-label="Flow-log coverage details"
+      >
+        <LaneCoverageDetails coverage={coverage} gaps={gaps} compact={compact} />
+      </PopoverContent>
+    </Popover>
   )
 }
 
@@ -8906,6 +8940,13 @@ export function AwsFrame({
             </span>
           </div>
           <div className="flex items-center gap-2 shrink-0">
+            {flowMode === "all_access" && trafficAuthority?.lane_coverage ? (
+              <LaneCoverageControl
+                coverage={trafficAuthority.lane_coverage}
+                gaps={resolveCoverageGaps(trafficAuthority)}
+                compact={presentationMode}
+              />
+            ) : null}
             <span
               className={
                 presentationMode
@@ -8957,13 +8998,6 @@ export function AwsFrame({
               : (trafficAuthority?.limitation ?? "Only generation-backed observed segments animate.")}
           </span>
         </div>
-      ) : null}
-      {flowMode === "all_access" && trafficAuthority?.lane_coverage ? (
-        <LaneCoveragePill
-          coverage={trafficAuthority.lane_coverage}
-          gaps={resolveCoverageGaps(trafficAuthority)}
-          compact={presentationMode}
-        />
       ) : null}
       {/* Users → Internet — clustered toward center (not pinned to corners).
           IGW chip lives on the VPCE rail. */}

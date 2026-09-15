@@ -197,16 +197,14 @@ for (const vp of VIEWPORTS) {
     await page.getByRole("tab", { name: "Network topology" }).click()
 
     // --- default state: every on-demand section closed ---------------------
-    const coverage = page.getByTestId("topology-lane-coverage").first()
-    if (await coverage.count()) {
-      await expect(coverage).toHaveAttribute("data-details-open", "false")
-      const box = await coverage.boundingBox()
-      // It measured 71px expanded. The collapsed row is one line of 10px text
-      // in a py-1.5 box; 44px leaves room for a wrapped totals sentence at
-      // 1024 wide without ever re-admitting the lane grid.
-      expect(box!.height, "collapsed coverage row is not the 71px block").toBeLessThanOrEqual(44)
-      await expect(page.getByTestId("topology-lane-coverage-lanes")).toBeHidden()
-    }
+    const coverageTrigger = page.getByTestId("topology-lane-coverage-trigger").first()
+    await expect(coverageTrigger).toBeVisible()
+    await expect(coverageTrigger).toHaveAttribute("aria-label", "Flow-log coverage")
+    await expect(coverageTrigger).toHaveAttribute("aria-expanded", "false")
+    // Coverage no longer taxes the map's vertical budget. Its detailed row is
+    // not mounted until the operator asks for it from the toolbar.
+    await expect(page.getByTestId("topology-lane-coverage")).toHaveCount(0)
+    await expect(page.getByTestId("topology-lane-coverage-panel")).toHaveCount(0)
 
     const band = page.getByTestId("topology-logical-group-band").first()
     await expect(band).toBeVisible()
@@ -392,11 +390,16 @@ for (const vp of VIEWPORTS) {
       triggers.s3Functions.length,
     )
 
-    if (await coverage.count()) {
-      await page.getByTestId("topology-lane-coverage-details-toggle").click()
-      await expect(coverage).toHaveAttribute("data-details-open", "true")
-      await expect(page.getByTestId("topology-lane-coverage-lanes")).toBeVisible()
-    }
+    await coverageTrigger.focus()
+    await coverageTrigger.click()
+    await expect(coverageTrigger).toHaveAttribute("aria-expanded", "true")
+    const coveragePanel = page.getByTestId("topology-lane-coverage-panel")
+    await expect(coveragePanel).toBeVisible()
+    await expect(coveragePanel).toHaveAttribute("role", "dialog")
+    await expect(coveragePanel.getByTestId("topology-lane-coverage-lanes")).toBeVisible()
+    await page.keyboard.press("Escape")
+    await expect(coveragePanel).toHaveCount(0)
+    await expect(coverageTrigger).toBeFocused()
 
     // Opening a disclosure scrolls it into view, and the map is a horizontally
     // scrollable region, so the expanded frame would otherwise be taken from
