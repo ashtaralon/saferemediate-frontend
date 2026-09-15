@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
+import { SITE_SESSION_COOKIE, siteSessionValid } from "@/lib/server/site-session"
 
 // Sidebar sections the SPA renders via ?section=<id>. When a user types
 // /issues directly (or shares a deep link), we transparently rewrite to
@@ -24,7 +25,7 @@ const SIDEBAR_ONLY_SECTIONS = new Set([
   "copilot",
 ])
 
-export function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   const { pathname, searchParams } = request.nextUrl
 
   // Allow the login page and login API
@@ -85,10 +86,14 @@ export function middleware(request: NextRequest) {
   // Customer-resident builds are authenticated by the private ALB's OIDC
   // action. The task security group accepts UI traffic only from that ALB.
   if (process.env.CYNTRO_DEPLOYMENT_MODE !== "CUSTOMER_RESIDENT") {
-    const authCookie = request.cookies.get("cyntro_auth")
-    if (authCookie?.value !== "authenticated") {
-      const loginUrl = new URL("/login", request.url)
-      return NextResponse.redirect(loginUrl)
+    // The site cookie must be a sealed session this server issued at
+    // /api/auth/login. The former constant value "authenticated", or any
+    // hand-set or tampered value, is refused and cleared.
+    const authCookie = request.cookies.get(SITE_SESSION_COOKIE)
+    if (!(await siteSessionValid(authCookie?.value))) {
+      const response = NextResponse.redirect(new URL("/login", request.url))
+      if (authCookie) response.cookies.delete(SITE_SESSION_COOKIE)
+      return response
     }
   }
 
