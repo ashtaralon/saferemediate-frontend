@@ -8,7 +8,11 @@
 import { useCachedFetch } from "@/lib/use-cached-fetch"
 import { BlastRadiusKpiStrip } from "./blast-radius-kpi-strip"
 import { BlastRadiusPlaneCuts } from "./blast-radius-plane-cuts"
-import { buildBlastRadiusUrl, type BlastRadiusScope } from "./blast-radius-scope"
+import {
+  buildBlastRadiusCacheKey,
+  buildBlastRadiusUrl,
+  type BlastRadiusScope,
+} from "./blast-radius-scope"
 
 interface ZoneNode {
   id: string
@@ -145,7 +149,9 @@ export function BlastRadiusMap({
   scope?: BlastRadiusScope
 }) {
   const url = buildBlastRadiusUrl(systemName, scope)
-  const { data } = useCachedFetch<ZonesPayload>(url, { cacheKey: `blast-radius:${url}` })
+  const { data } = useCachedFetch<ZonesPayload>(url, {
+    cacheKey: buildBlastRadiusCacheKey(systemName, scope),
+  })
   const zones = data?.zones ?? []
 
   if (!systemName) return null
