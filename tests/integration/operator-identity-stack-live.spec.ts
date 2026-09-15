@@ -106,11 +106,22 @@ test.describe.serial("hosted operator identity in Chromium", () => {
       attacker.evaluate(() => (document.getElementById("f") as HTMLFormElement).submit()),
     ])
     const sentHeaders = await response.request().allHeaders()
-    const body = await response.json()
-    expect(response.status()).toBe(403)
-    expect(body.error).toBe("CROSS_SITE_REQUEST_REFUSED")
-    expect(sentHeaders.cookie || "").not.toContain("cyntro_operator_session")
-    record("cross_site_form", { status: response.status(), error: body.error, origin: sentHeaders.origin, session_cookie_sent: (sentHeaders.cookie || "").includes("cyntro_operator_session") })
+    const cookieHeader = sentHeaders.cookie || ""
+    // Two independent layers can stop it: the SameSite=Strict site cookie is not
+    // sent, so the site gate redirects to /login; were it present, the BFF
+    // refuses the foreign Origin. Either way the request never reaches the API,
+    // which the runner proves from the backend's own request log.
+    const redirectedToLogin = [302, 307].includes(response.status()) && (response.headers().location || "").includes("/login")
+    const refusedByBff = response.status() === 403 && (await response.json()).error === "CROSS_SITE_REQUEST_REFUSED"
+    expect(redirectedToLogin || refusedByBff).toBe(true)
+    expect(cookieHeader).not.toContain("cyntro_operator_session")
+    record("cross_site_form", {
+      status: response.status(),
+      stopped_by: redirectedToLogin ? "site gate (SameSite=Strict site cookie withheld)" : "BFF same-origin refusal",
+      origin: sentHeaders.origin,
+      session_cookie_sent: cookieHeader.includes("cyntro_operator_session"),
+      site_cookie_sent: cookieHeader.includes("cyntro_auth"),
+    })
   })
 
   test("sign-out clears the session and hands over the provider end-session URL", async ({ page, context }) => {
