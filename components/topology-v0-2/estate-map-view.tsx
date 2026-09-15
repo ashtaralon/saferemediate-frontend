@@ -1162,6 +1162,11 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     if (!mapEnlarged && !selectedNode) return
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return
+      // A portaled map popover is above the fullscreen canvas. Its native
+      // Escape event still reaches this window listener after Radix closes
+      // the popover; the original target remains the detached content node,
+      // so use it to keep this lower layer from closing in the same keypress.
+      if (e.target instanceof Element && e.target.closest('[data-slot="popover-content"]')) return
       if (selectedNode) setSelectedNodeId(null)
       else closeEnlarged()
     }

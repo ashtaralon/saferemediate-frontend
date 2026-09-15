@@ -8542,8 +8542,162 @@ const UNPLACED_REASON_COPY: Record<
   "logical-group": {
     label: "A group, not a placeable resource",
     remedy:
-      "Target groups, auto-scaling groups and database clusters have no subnet of their own — their members carry the placement. Not a collector gap: a full sync will not move it.",
+      "Target groups, auto-scaling groups and database clusters have no subnet of their own. Their linked members carry placement; missing membership links are an evidence gap.",
   },
+}
+
+/** Logical groups describe membership, not physical placement. Keep their
+ * detail out of the map's vertical layout and open it from one counted toolbar
+ * control. The portaled panel can scroll independently, so six target/ASG/DB
+ * groups never cover the Data tier or disappear under the chat widget. */
+function LogicalGroupsControl({
+  groups,
+  edges,
+  nodes,
+  subnets,
+  selectedNodeId,
+  onSelect,
+  compact,
+}: {
+  groups: UnplacedNode[]
+  edges: readonly TrafficEdge[]
+  nodes: readonly TopologyNode[]
+  subnets: readonly SubnetMeta[]
+  selectedNodeId: string | null
+  onSelect: (id: string) => void
+  compact: boolean
+}) {
+  const [open, setOpen] = useState(false)
+  if (groups.length === 0) return null
+  const nodeById = new Map(nodes.map(node => [node.id, node]))
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className={
+            compact
+              ? "inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[9px] font-semibold"
+              : "inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[10px] font-semibold"
+          }
+          style={{ background: "#F8FAFC", border: "1px solid #CBD5E1", color: PAL.ink }}
+          aria-label={`Logical groups, ${groups.length}`}
+          aria-expanded={open}
+          title="Target groups, scaling groups and database clusters; members carry physical placement"
+          data-testid="topology-logical-group-band-toggle"
+          data-group-count={groups.length}
+        >
+          <GitBranch className={compact ? "h-3 w-3" : "h-3.5 w-3.5"} aria-hidden />
+          Groups ({groups.length})
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        sideOffset={8}
+        collisionPadding={{ top: 56, right: 12, bottom: 12, left: 12 }}
+        className="z-[250] w-[min(94vw,620px)] max-h-[min(70vh,560px)] overflow-y-auto p-3"
+        style={{
+          background: "#FFFFFF",
+          border: "1px solid #CBD5E1",
+          boxShadow: "0 10px 30px rgba(15,23,42,0.18)",
+          opacity: 1,
+        }}
+        role="dialog"
+        aria-label="Logical groups and members"
+        data-testid="topology-logical-group-band"
+        data-groups-open="true"
+        data-group-count={groups.length}
+      >
+        <div
+          className="text-[11px] uppercase tracking-[0.14em] font-semibold"
+          style={{ color: PAL.ink }}
+          data-testid="topology-logical-group-band-header"
+        >
+          Logical groups · members carry the placement ({groups.length})
+        </div>
+        <p className="mt-1 text-[10px] leading-snug" style={{ color: PAL.slate }}>
+          A group has no physical subnet of its own. Linked members show its scope; a missing
+          membership link is an evidence gap in this snapshot.
+        </p>
+        <ul className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3 items-start" role="list">
+          {groups.map(({ node: group }) => {
+            const scope = logicalGroupScope(group, edges, nodes, subnets)
+            return (
+              <li
+                key={group.id}
+                className="flex flex-col items-center gap-1 rounded-md border p-2 min-w-0"
+                style={{ borderColor: "#E2E8F0", background: "#F8FAFC" }}
+                data-testid="topology-logical-group"
+                data-node-id={group.id}
+                data-member-ids={scope.memberIds.join("|")}
+                data-scope-azs={scope.azs.join("|")}
+                data-vpc-id={group.vpc_id ?? undefined}
+              >
+                <ServiceNodeIcon
+                  node={group}
+                  selected={group.id === selectedNodeId}
+                  onSelect={onSelect}
+                  dense
+                />
+                <div
+                  className="text-[9px] leading-tight text-center"
+                  style={{ color: PAL.slate }}
+                  data-testid="topology-logical-group-scope"
+                >
+                  {group.vpc_id ? `VPC ${group.vpc_id}` : "VPC not reported"}
+                  {scope.azs.length > 0 ? ` · spans ${scope.azs.join(", ")}` : ""}
+                </div>
+                {scope.memberIds.length > 0 ? (
+                  <div
+                    className="flex flex-wrap justify-center gap-1"
+                    data-testid="topology-logical-group-members"
+                  >
+                    {scope.memberIds.map(id => {
+                      const member = nodeById.get(id)
+                      return member ? (
+                        <button
+                          key={id}
+                          type="button"
+                          onClick={() => onSelect(id)}
+                          className="text-[9px] leading-tight px-1 rounded border hover:underline"
+                          style={{ borderColor: "#CBD5E1", color: PAL.ink, background: PAL.cardBg }}
+                          title={`${member.name} · ${id}`}
+                          data-testid="topology-logical-group-member"
+                          data-member-id={id}
+                        >
+                          {member.name}
+                        </button>
+                      ) : (
+                        <span
+                          key={id}
+                          className="text-[9px] leading-tight px-1 rounded border font-mono"
+                          style={{ borderColor: "#E2E8F0", color: PAL.slate }}
+                          title={id}
+                          data-testid="topology-logical-group-member"
+                          data-member-id={id}
+                        >
+                          {id}
+                        </span>
+                      )
+                    })}
+                  </div>
+                ) : (
+                  <div
+                    className="text-[9px] leading-tight italic text-center"
+                    style={{ color: "#92400E" }}
+                    data-testid="topology-logical-group-members-unlinked"
+                  >
+                    Membership links unavailable in this snapshot
+                  </div>
+                )}
+              </li>
+            )
+          })}
+        </ul>
+      </PopoverContent>
+    </Popover>
+  )
 }
 
 /**
@@ -8558,16 +8712,10 @@ const UNPLACED_REASON_COPY: Record<
  * Always rendered when non-empty — never behind an accordion or a density
  * toggle. A gap you have to go looking for is a gap nobody finds.
  *
- * Two bands, one classifier. `unplacedSubnetReason` already tells a group
- * (`logical-group`) from a placement gap, and the two verdicts say different
- * things: "the graph does not say where" versus "a group whose members carry
- * the placement". The amber area is reserved for the gaps — missing,
- * dangling or unsupported placement facts — and heads and counts only those;
- * a logical group is drawn in a neutral band beside it, linked to the members
- * the payload's TARGETS / LAUNCHES edges name and spanning the zones those
- * members' own subnets resolve to. It is never counted as a placement failure
- * and never offered a cell (2026-09-12 review: all six items under the amber
- * heading were groups, while the copy beneath said none of them was a gap).
+ * `unplacedSubnetReason` distinguishes groups from placement gaps. The amber
+ * area owns only missing, dangling or unsupported placement facts. Logical
+ * groups live in the toolbar's on-demand member panel, so they are never
+ * counted as placement failures and never take space from the Data tier.
  */
 function UnplacedNodesArea({
   unplacedNodes,
@@ -8577,9 +8725,6 @@ function UnplacedNodesArea({
   selectedNodeId,
   onSelect,
   compact = false,
-  edges = [],
-  nodes = [],
-  subnets = [],
 }: {
   unplacedNodes: UnplacedNode[]
   overrides: PlacementOverrideMap
@@ -8589,14 +8734,7 @@ function UnplacedNodesArea({
   selectedNodeId: string | null
   onSelect: (id: string) => void
   compact?: boolean
-  /** The payload's edges: a group's members are read off its TARGETS / LAUNCHES edges. */
-  edges?: readonly TrafficEdge[]
-  /** Every node the frame was handed, to name a member and read its subnets. */
-  nodes?: readonly TopologyNode[]
-  /** The frame's subnets, to resolve a member's subnet to its zone. */
-  subnets?: readonly SubnetMeta[]
 }) {
-  const [groupsOpen, setGroupsOpen] = useState(false)
   // List only the overrides that are actually drawn. A stale one — its AZ or
   // whole VPC gone from the estate, or its AZ collapsed by the operator — is
   // already inert in `computeCanvasGrid`; listing it here would claim a chip
@@ -8609,8 +8747,7 @@ function UnplacedNodesArea({
   )
   // The classifier's verdict decides the band; nothing is re-classified here.
   const gaps = unplacedNodes.filter(u => u.reason !== "logical-group")
-  const groups = unplacedNodes.filter(u => u.reason === "logical-group")
-  if (gaps.length === 0 && groups.length === 0 && overrideEntries.length === 0) return null
+  if (gaps.length === 0 && overrideEntries.length === 0) return null
 
   const byReason = new Map<UnplacedReason, TopologyNode[]>()
   for (const u of gaps) {
@@ -8627,8 +8764,6 @@ function UnplacedNodesArea({
   ]
   const canPlace = !!onPlaceNode && placeableCells.length > 0
   const multiVpc = new Set(placeableCells.map(c => c.vpc_id)).size > 1
-  const nodeById = new Map(nodes.map(n => [n.id, n]))
-  const groupCopy = UNPLACED_REASON_COPY["logical-group"]
 
   return (
     <>
@@ -8735,124 +8870,6 @@ function UnplacedNodesArea({
         </div>
       ) : null}
 
-      {groups.length > 0 ? (
-        <div
-          className={compact ? "mt-1.5 rounded-md px-2 py-1.5" : "mt-2.5 rounded-md px-3 py-2"}
-          style={{ background: "#F8FAFC", border: "1.5px solid #CBD5E1" }}
-          data-testid="topology-logical-group-band"
-          data-groups-open={groupsOpen ? "true" : "false"}
-          data-group-count={groups.length}
-        >
-          {/* COLLAPSED BY DEFAULT (independent production UI QA, 2026-09-14).
-              Expanded, this band measured y=615.27..730.52 on a 1512x771
-              viewport while the data tier's own heading sat at y=655.02..664.02
-              — drawn across the layer it describes. A group here is never
-              placeable (its members carry the placement), so it has no claim on
-              the map's vertical budget by default.
-
-              The header IS the control, so there is no second affordance to
-              miss, and the count stays legible while collapsed: a reader must
-              be able to see that groups exist without opening anything. */}
-          <button
-            type="button"
-            onClick={() => setGroupsOpen(open => !open)}
-            className="flex items-baseline gap-2 flex-wrap w-full text-left"
-            aria-expanded={groupsOpen}
-            data-testid="topology-logical-group-band-toggle"
-          >
-            <span
-              className="text-[10px] uppercase tracking-[0.14em] font-semibold underline decoration-dotted underline-offset-2"
-              style={{ color: PAL.ink }}
-              data-testid="topology-logical-group-band-header"
-            >
-              Logical groups · members carry the placement ({groups.length})
-            </span>
-            <span className="text-[9px] leading-snug" style={{ color: PAL.slate }}>
-              {groupsOpen ? "Hide members" : "Show members"}
-            </span>
-          </button>
-          <div className="mt-1.5 flex flex-wrap gap-3 items-start" hidden={!groupsOpen}>
-            <span className="sr-only">{groupCopy.remedy}</span>
-            {groups.map(({ node: n }) => {
-              const scope = logicalGroupScope(n, edges, nodes, subnets)
-              return (
-                <div
-                  key={n.id}
-                  className="flex flex-col items-center gap-0.5 max-w-[240px]"
-                  data-testid="topology-logical-group"
-                  data-node-id={n.id}
-                  data-member-ids={scope.memberIds.join("|")}
-                  data-scope-azs={scope.azs.join("|")}
-                  data-vpc-id={n.vpc_id ?? undefined}
-                >
-                  {/* No PlacementPicker here, ever: pinning a group into one
-                      AZ x tier cell would assert a placement its members may
-                      not share. Its scope is read off the members instead. */}
-                  <ServiceNodeIcon
-                    node={n}
-                    selected={n.id === selectedNodeId}
-                    onSelect={onSelect}
-                    dense
-                  />
-                  <div
-                    className="text-[8px] leading-tight text-center"
-                    style={{ color: PAL.slate }}
-                    data-testid="topology-logical-group-scope"
-                  >
-                    {n.vpc_id ? `VPC ${n.vpc_id}` : "VPC not reported"}
-                    {scope.azs.length > 0 ? ` · spans ${scope.azs.join(", ")}` : ""}
-                  </div>
-                  {scope.memberIds.length > 0 ? (
-                    <div
-                      className="flex flex-wrap justify-center gap-1"
-                      data-testid="topology-logical-group-members"
-                    >
-                      {scope.memberIds.map(id => {
-                        const member = nodeById.get(id)
-                        return member ? (
-                          <button
-                            key={id}
-                            type="button"
-                            onClick={() => onSelect(id)}
-                            className="text-[8px] leading-tight px-1 rounded border hover:underline"
-                            style={{ borderColor: "#CBD5E1", color: PAL.ink, background: PAL.cardBg }}
-                            title={`${member.name} · ${id}`}
-                            data-testid="topology-logical-group-member"
-                            data-member-id={id}
-                          >
-                            {member.name}
-                          </button>
-                        ) : (
-                          // The edge names a member the frame was not handed
-                          // (filtered out, or in another VPC): named, not linked.
-                          <span
-                            key={id}
-                            className="text-[8px] leading-tight px-1 rounded border font-mono"
-                            style={{ borderColor: "#E2E8F0", color: PAL.slate }}
-                            title={id}
-                            data-testid="topology-logical-group-member"
-                            data-member-id={id}
-                          >
-                            {id}
-                          </span>
-                        )
-                      })}
-                    </div>
-                  ) : (
-                    <div
-                      className="text-[8px] leading-tight italic"
-                      style={{ color: PAL.slate }}
-                      data-testid="topology-logical-group-members-unlinked"
-                    >
-                      members not linked in this payload
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      ) : null}
     </>
   )
 }
@@ -9130,6 +9147,10 @@ export function AwsFrame({
       crossVpc,
     ],
   )
+  const logicalGroups = useMemo(
+    () => unplacedNodes.filter(item => item.reason === "logical-group"),
+    [unplacedNodes],
+  )
   // Cells the frames ACTUALLY draw, so the picker can never offer a column that
   // does not exist. `f.grid.azs` is already hidden-AZ filtered, which is the
   // behaviour we want: an operator who hid a zone is not offered it.
@@ -9228,7 +9249,7 @@ export function AwsFrame({
           could not hold the summary and the lens toggle at once: "Platform map"
           wrapped onto two lines and the counts line truncated to ZERO width, so
           the estate summary silently disappeared instead of being shortened. */}
-      {onFlowModeChange ? (
+      {onFlowModeChange || logicalGroups.length > 0 || (flowMode === "all_access" && trafficAuthority?.lane_coverage) ? (
         <div
           className={
             presentationMode
@@ -9247,6 +9268,15 @@ export function AwsFrame({
             </span>
           </div>
           <div className="flex items-center gap-2 shrink-0">
+            <LogicalGroupsControl
+              groups={logicalGroups}
+              edges={trafficEdgesList}
+              nodes={nodes}
+              subnets={topo.subnets}
+              selectedNodeId={selectedNodeId}
+              onSelect={onSelect}
+              compact={presentationMode}
+            />
             {flowMode === "all_access" && trafficAuthority?.lane_coverage ? (
               <LaneCoverageControl
                 coverage={trafficAuthority.lane_coverage}
@@ -9254,21 +9284,25 @@ export function AwsFrame({
                 compact={presentationMode}
               />
             ) : null}
-            <span
-              className={
-                presentationMode
-                  ? "text-[9px] uppercase tracking-wider font-semibold"
-                  : "text-[10px] uppercase tracking-wider font-semibold"
-              }
-              style={{ color: PAL.slate }}
-            >
-              Map lens
-            </span>
-            <FlowModeToggle
-              mode={flowMode}
-              onChange={onFlowModeChange}
-              attackPathCount={attackPathEdgeCount}
-            />
+            {onFlowModeChange ? (
+              <>
+                <span
+                  className={
+                    presentationMode
+                      ? "text-[9px] uppercase tracking-wider font-semibold"
+                      : "text-[10px] uppercase tracking-wider font-semibold"
+                  }
+                  style={{ color: PAL.slate }}
+                >
+                  Map lens
+                </span>
+                <FlowModeToggle
+                  mode={flowMode}
+                  onChange={onFlowModeChange}
+                  attackPathCount={attackPathEdgeCount}
+                />
+              </>
+            ) : null}
           </div>
         </div>
       ) : null}
@@ -9433,11 +9467,12 @@ export function AwsFrame({
         <div
           className={
             presentationMode
-              ? "rounded-md p-1.5 relative overflow-hidden w-full min-w-0 flex-1 min-h-0 flex flex-col"
+              ? "rounded-md p-1.5 relative overflow-x-auto overflow-y-hidden w-full min-w-0 flex-1 min-h-0 flex flex-col"
               : "rounded-md p-2.5 mt-1.5 relative overflow-visible w-full min-w-0"
           }
           style={{ background: PAL.cardBg, border: `1.5px dashed ${PAL.teal}` }}
           data-testid="topology-region-frame"
+          data-scroll-region={presentationMode ? "region-canvas" : undefined}
         >
           <div
             className={
@@ -9468,30 +9503,28 @@ export function AwsFrame({
               // and under the external lane, which is how the lane came to
               // cover a data-tier cell by 8601px^2 at 1366 and 1024 while
               // 1600 was clean (run 34866364811). The canvas is already an
-              // overflow-x: auto scroll region, so giving it a minimum lets it
-              // SCROLL instead of compressing columns into one another. Only
-              // the scrollable branch: fullscreen fits by zoom and clips, so a
-              // minimum there would cut the map off instead.
-              ...(presentationMode
-                ? null
-                : {
-                    minWidth: [
-                      VPC_MIN_TRACK_W_PX,
-                      showBoundaryColumn ? VPC_BOUNDARY_COL_W_PX : 0,
-                      showExternalLane ? EXTERNAL_LANE_W_PX : 0,
-                      showNetworkRail ? 136 : 0,
-                      showEdgeRail ? 48 + railColumnW : 0,
-                      // gap-x-3 between every pair of tracks that exists.
-                      12 *
-                        [
-                          showBoundaryColumn,
-                          showExternalLane,
-                          showNetworkRail,
-                          showEdgeRail,
-                          showEdgeRail,
-                        ].filter(Boolean).length,
-                    ].reduce((a, b) => a + b, 0),
-                  }),
+              // overflow-x scroll region, so giving it a minimum lets it
+              // SCROLL instead of compressing columns into one another. This
+              // applies in fullscreen too: at 1024px the six fixed off-VPC
+              // tracks leave less than 100px for the VPC, which made the
+              // external lane paint over the Data cells. The region owns the
+              // horizontal scroll, so the frame and lanes keep honest widths.
+              minWidth: [
+                VPC_MIN_TRACK_W_PX,
+                showBoundaryColumn ? VPC_BOUNDARY_COL_W_PX : 0,
+                showExternalLane ? EXTERNAL_LANE_W_PX : 0,
+                showNetworkRail ? 136 : 0,
+                showEdgeRail ? 48 + railColumnW : 0,
+                // gap-x-3 between every pair of tracks that exists.
+                12 *
+                  [
+                    showBoundaryColumn,
+                    showExternalLane,
+                    showNetworkRail,
+                    showEdgeRail,
+                    showEdgeRail,
+                  ].filter(Boolean).length,
+              ].reduce((a, b) => a + b, 0),
               gridTemplateColumns: [
                 "minmax(0, 1fr)",
                 showBoundaryColumn ? `${VPC_BOUNDARY_COL_W_PX}px` : null,
@@ -9866,13 +9899,10 @@ export function AwsFrame({
             ) : null}
           </div>
 
-          {/* Explicit unplaced area — INSIDE the region frame, OUTSIDE every AZ
-              grid, because that is exactly what the graph supports: the resource
-              is in this region and we cannot say which zone or subnet. Rendered
-              in presentation mode too: a gap the fullscreen map hides is a gap
-              the person presenting never mentions. Logical groups get their own
-              neutral band beside it, linked to the members the payload's edges
-              name — the same edges the map draws. */}
+          {/* Explicit placement gaps — INSIDE the region frame, OUTSIDE every
+              AZ grid, because that is exactly what the graph supports. Logical
+              groups moved to the counted toolbar panel above; membership
+              detail no longer consumes the map's Data-tier height. */}
           <UnplacedNodesArea
             unplacedNodes={unplacedNodes}
             overrides={placementOverrides}
@@ -9881,9 +9911,6 @@ export function AwsFrame({
             selectedNodeId={selectedNodeId}
             onSelect={onSelect}
             compact={presentationMode}
-            edges={trafficEdgesList}
-            nodes={nodes}
-            subnets={topo.subnets}
           />
         </div>
       </div>

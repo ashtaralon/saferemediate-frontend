@@ -39,18 +39,27 @@ test("fullscreen platform map shows named Lambda, protected AZ labels, direction
   await expect(authorityState).toContainText("Confirmed TCP paths")
   await expect(authorityState).toContainText("missing segment is not evidence of no traffic")
 
-  // Flow-log coverage pill: every number is the payload's lane_coverage block.
+  // Flow-log coverage is available from one counted control without taking a
+  // permanent row from the map. Every number still comes from lane_coverage.
   const coverage = SNAPSHOT.traffic_authority.lane_coverage
-  const pill = page.getByTestId("topology-lane-coverage").first()
-  await expect(pill).toBeVisible()
-  await expect(pill.getByTestId("topology-lane-coverage-totals")).toHaveText(
+  const coverageTrigger = page.getByTestId("topology-lane-coverage-trigger").first()
+  await expect(coverageTrigger).toBeVisible()
+  await expect(coverageTrigger).toHaveAttribute("aria-expanded", "false")
+  await expect(page.getByTestId("topology-lane-coverage")).toHaveCount(0)
+  await coverageTrigger.click()
+  const coveragePanel = page.getByTestId("topology-lane-coverage-panel")
+  await expect(coveragePanel).toBeVisible()
+  await expect(coveragePanel.getByTestId("topology-lane-coverage-totals")).toHaveText(
     `${coverage.authoritative} of ${coverage.eligible} eligible endpoints covered · ${coverage.unknown} unknown · ${coverage.not_applicable} not applicable · generation 7`,
   )
-  await expect(pill.getByTestId("topology-lane-coverage-serverless")).toHaveAttribute("data-lane-state", "unknown")
-  await expect(pill.getByTestId("topology-lane-coverage-regional")).toHaveAttribute("data-lane-state", "not_applicable")
-  await expect(pill.getByTestId("topology-coverage-gap")).toHaveCount(
+  await expect(coveragePanel.getByTestId("topology-lane-coverage-serverless")).toHaveAttribute("data-lane-state", "unknown")
+  await expect(coveragePanel.getByTestId("topology-lane-coverage-regional")).toHaveAttribute("data-lane-state", "not_applicable")
+  await expect(coveragePanel.getByTestId("topology-coverage-gap")).toHaveCount(
     (SNAPSHOT.traffic_authority.coverage_gaps ?? coverage.warnings).length,
   )
+  await page.keyboard.press("Escape")
+  await expect(coveragePanel).toHaveCount(0)
+  await expect(coverageTrigger).toBeFocused()
 
   // The INLINE map, before fullscreen: this is the surface in the operator's own
   // screenshot, and it is the tight one — the Lambda and Regional lanes take the
@@ -686,12 +695,12 @@ test("the IGW inspector asks Inventory about the gateway's AWS id, never the __i
 // Logical groups (2026-09-12 review, defect B). The captured payload carries no
 // target group, ASG or DB cluster, so this fixture adds ONE target group to the
 // drawn VPC, bound by TARGETS edges to two of the payload's own EC2 instances in
-// two zones, and asserts the band it lands in: neutral, beside the amber
-// placement-gap area, linked to those members, spanning their zones, and never
-// drawn inside an AZ x tier cell. Fixture data in a test file; the product code
-// renders only what the payload it was handed says.
+// two zones, and asserts the on-demand panel it lands in: linked to those
+// members, spanning their zones, and never drawn inside an AZ x tier cell or
+// charged against the Data tier's height. Fixture data in a test file; the
+// product code renders only what the payload it was handed says.
 // ---------------------------------------------------------------------------
-test("a logical group is drawn in its own band beside the placement-gap area, linked to its members and never in a cell", async ({
+test("logical groups open from a counted control, stay separate from placement gaps, and never replace physical members", async ({
   context,
   page,
 }) => {
@@ -710,12 +719,21 @@ test("a logical group is drawn in its own band beside the placement-gap area, li
   await expect(page.getByTestId("topology-estate-view-map")).toBeVisible({ timeout: 60_000 })
   await page.getByRole("tab", { name: "Network topology" }).click()
 
-  const band = page.getByTestId("topology-logical-group-band").first()
+  const trigger = page.getByTestId("topology-logical-group-band-toggle").first()
+  await expect(trigger).toBeVisible()
+  await expect(trigger).toHaveAttribute("aria-label", `Logical groups, ${groups.length}`)
+  await expect(trigger).toHaveAttribute("aria-expanded", "false")
+  await expect(page.getByTestId("topology-logical-group-band")).toHaveCount(0)
+  await trigger.focus()
+  await page.keyboard.press("Enter")
+  const band = page.getByTestId("topology-logical-group-band")
   await expect(band).toBeVisible()
+  await expect(band).toHaveAttribute("role", "dialog")
+  await expect(trigger).toHaveAttribute("aria-expanded", "true")
   await expect(band.getByTestId("topology-logical-group-band-header")).toHaveText(
     `Logical groups · members carry the placement (${groups.length})`,
   )
-  await expect(band).toContainText("Not a collector gap")
+  await expect(band).toContainText("missing membership link is an evidence gap")
   await expect(band).not.toContainText("does not say where")
   // Every group the payload names is drawn, each linked to its own members and
   // spanning its own zones — the band, not one row of it.
@@ -754,8 +772,8 @@ test("a logical group is drawn in its own band beside the placement-gap area, li
     expect(counted).toBe(await area.getByTestId("topology-service-node-icon").count())
   }
 
-  // Geometry: inside the region frame, below every AZ x tier cell — the group
-  // chip is in the band and in no cell.
+  // Geometry: the detail panel is portaled above the map and the group chip is
+  // in no AZ cell. Physical member chips remain in their evidence-backed cells.
   const geom = await page.evaluate(({ groupId }) => {
     const bandEl = document.querySelector('[data-testid="topology-logical-group-band"]')
     const region = document.querySelector('[data-testid="topology-region-frame"]')
@@ -764,20 +782,34 @@ test("a logical group is drawn in its own band beside the placement-gap area, li
     )
     if (!bandEl || !region) return null
     const b = bandEl.getBoundingClientRect()
+    const top = document.elementFromPoint(b.left + b.width / 2, b.top + 8)
     return {
       cells: cells.length,
       insideRegion: region.contains(bandEl),
-      belowEveryCell: cells.every(cell => cell.getBoundingClientRect().bottom <= b.top + 1),
+      inViewport: b.left >= -1 && b.top >= -1 && b.right <= innerWidth + 1 && b.bottom <= innerHeight + 1,
+      topmost: Boolean(top && (top === bandEl || bandEl.contains(top))),
       chipInCell: cells.some(cell => cell.querySelector(`[data-flow-id="${groupId}"]`) !== null),
       chipInBand: bandEl.querySelector(`[data-flow-id="${groupId}"]`) !== null,
     }
   }, { groupId: targetGroup.id })
   expect(geom).not.toBeNull()
   expect(geom!.cells).toBeGreaterThan(0)
-  expect(geom!.insideRegion).toBe(true)
-  expect(geom!.belowEveryCell).toBe(true)
+  expect(geom!.insideRegion).toBe(false)
+  expect(geom!.inViewport).toBe(true)
+  expect(geom!.topmost).toBe(true)
   expect(geom!.chipInCell).toBe(false)
   expect(geom!.chipInBand).toBe(true)
+
+  for (const member of members) {
+    const physical = page.locator(`[data-flow-id="${member.id}"]`).first()
+    await expect(physical).toBeVisible()
+    await expect(physical.locator('xpath=ancestor::*[@data-tier][1]')).toHaveCount(1)
+  }
+
+  await band.getByTestId("topology-logical-group-member").first().focus()
+  await page.keyboard.press("Escape")
+  await expect(band).toHaveCount(0)
+  await expect(trigger).toBeFocused()
 })
 
 // ---------------------------------------------------------------------------
