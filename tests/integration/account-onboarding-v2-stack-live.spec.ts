@@ -130,7 +130,9 @@ test.describe.serial("account onboarding v2 in Chromium", () => {
     await flow.getByLabel("Management account ID").fill(management)
     await flow.getByRole("button", { name: "Create organization bindings" }).click()
     await expect(flow.getByTestId("external-id-once")).toHaveCount(2)
-    for (const button of await flow.getByRole("button", { name: /I stored it/ }).all()) await button.click()
+    // Each confirmation removes its ExternalId panel, so click the first until none remain.
+    const stored = flow.getByRole("button", { name: /I stored it/ })
+    while (await stored.count()) await stored.first().click()
     await expect(flow.getByTestId("installation-plan")).toBeVisible()
     await flow.getByLabel(/Discovery role ARN/).fill(`arn:aws:iam::${management}:role/CyntroOrganizationsDiscovery-${tenant}`)
     await flow.getByRole("button", { name: "Attach roles" }).click()
