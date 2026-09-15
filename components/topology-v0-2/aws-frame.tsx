@@ -66,6 +66,7 @@ import {
   type VpcTopology,
 } from "./types"
 import { resolveCoverageGaps } from "./coverage-gaps"
+import { IdentityAccessControl } from "./identity-access-panel"
 import { normalizeVpcTopology } from "./normalize-topology"
 import { createMap } from "./native-map"
 import type { EstateFlowMode } from "./estate-flow-edges"
@@ -142,6 +143,8 @@ interface Props {
   trafficAuthority?: TopologyRiskResponse["traffic_authority"]
   responseContractVersion?: TopologyRiskResponse["response_contract_version"]
   externalDestinationProjection?: TopologyRiskResponse["external_destination_projection"]
+  identityAccess?: TopologyRiskResponse["identity_access"]
+  identityAccessSnapshotStale?: boolean
   selectedNodeId: string | null
   highlightedRoleName?: string | null
   onSelect: (id: string) => void
@@ -8939,6 +8942,8 @@ export function AwsFrame({
   trafficAuthority,
   responseContractVersion,
   externalDestinationProjection,
+  identityAccess,
+  identityAccessSnapshotStale = false,
   selectedNodeId,
   highlightedRoleName = null,
   onSelect,
@@ -9249,7 +9254,7 @@ export function AwsFrame({
           could not hold the summary and the lens toggle at once: "Platform map"
           wrapped onto two lines and the counts line truncated to ZERO width, so
           the estate summary silently disappeared instead of being shortened. */}
-      {onFlowModeChange || logicalGroups.length > 0 || (flowMode === "all_access" && trafficAuthority?.lane_coverage) ? (
+      {onFlowModeChange || logicalGroups.length > 0 || responseContractVersion === "topology-risk/v11" || (flowMode === "all_access" && trafficAuthority?.lane_coverage) ? (
         <div
           className={
             presentationMode
@@ -9277,6 +9282,22 @@ export function AwsFrame({
               onSelect={onSelect}
               compact={presentationMode}
             />
+            {responseContractVersion === "topology-risk/v11" ? (
+              <IdentityAccessControl
+                responseContractVersion={responseContractVersion}
+                identityAccess={identityAccess}
+                snapshotStale={identityAccessSnapshotStale}
+                nodes={nodes}
+                onSelect={onSelect}
+                compact={presentationMode}
+                expectedScope={{
+                  account_id: topo.account_id,
+                  region: topo.region,
+                  system_name: systemLabel,
+                  vpc_id: topo.vpc_id,
+                }}
+              />
+            ) : null}
             {flowMode === "all_access" && trafficAuthority?.lane_coverage ? (
               <LaneCoverageControl
                 coverage={trafficAuthority.lane_coverage}

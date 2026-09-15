@@ -11,7 +11,9 @@
       "type": "RDS",
       "resource_label": "RDSInstance",
       "subnet_id": "subnet-data-a",
-      "subnet_ids": ["subnet-data-a"],
+      "subnet_ids": [
+        "subnet-data-a"
+      ],
       "placement_basis": "actual",
       "placement_tier": "data",
       "vpc_id": "vpc-0c39cde96f29f8f4e"
@@ -31,11 +33,24 @@
   "vpc_topology": {
     "vpc_id": "vpc-0c39cde96f29f8f4e",
     "subnets": [
-      {"id": "subnet-data-a", "availability_zone": "eu-west-1a", "tier": "data"},
-      {"id": "subnet-data-b", "availability_zone": "eu-west-1b", "tier": "data"}
+      {
+        "id": "subnet-data-a",
+        "availability_zone": "eu-west-1a",
+        "tier": "data"
+      },
+      {
+        "id": "subnet-data-b",
+        "availability_zone": "eu-west-1b",
+        "tier": "data"
+      }
     ],
     "edges": {
-      "igws": [{"id": "igw-01b6c643a5c856abe", "vpc_id": "vpc-0c39cde96f29f8f4e"}],
+      "igws": [
+        {
+          "id": "igw-01b6c643a5c856abe",
+          "vpc_id": "vpc-0c39cde96f29f8f4e"
+        }
+      ],
       "nat_gws": [],
       "vpces": []
     }
@@ -63,9 +78,13 @@
           "address": "18.202.1.10",
           "kind": "external",
           "port": 443,
-          "ports": [443],
+          "ports": [
+            443
+          ],
           "protocol": "TCP",
-          "protocols": ["TCP"],
+          "protocols": [
+            "TCP"
+          ],
           "observation_count": 31,
           "total_bytes": 8192,
           "first_seen": "2026-09-14T00:00:00Z",
@@ -75,12 +94,20 @@
           "classification_authority": "endpoint_classifier",
           "evidence_type": "observed",
           "evidence_source": "behavioral_summary",
-          "evidence_ids": ["netedge:external-1"],
+          "evidence_ids": [
+            "netedge:external-1"
+          ],
           "projection_generation": 164
         }
       ],
       "egress_breakdown": [
-        {"kind": "external", "count": 1, "sample_hosts": ["18.202.1.10"]}
+        {
+          "kind": "external",
+          "count": 1,
+          "sample_hosts": [
+            "18.202.1.10"
+          ]
+        }
       ]
     },
     {
@@ -104,9 +131,13 @@
           "address": "10.42.99.17",
           "kind": "unclassified",
           "port": 8443,
-          "ports": [8443],
+          "ports": [
+            8443
+          ],
           "protocol": "TCP",
-          "protocols": ["TCP"],
+          "protocols": [
+            "TCP"
+          ],
           "observation_count": 4,
           "total_bytes": 1024,
           "first_seen": "2026-09-14T01:00:00Z",
@@ -116,12 +147,20 @@
           "classification_authority": "unidentified",
           "evidence_type": "observed",
           "evidence_source": "behavioral_summary",
-          "evidence_ids": ["netedge:unknown-1"],
+          "evidence_ids": [
+            "netedge:unknown-1"
+          ],
           "projection_generation": 164
         }
       ],
       "egress_breakdown": [
-        {"kind": "unclassified", "count": 1, "sample_hosts": ["10.42.99.17"]}
+        {
+          "kind": "unclassified",
+          "count": 1,
+          "sample_hosts": [
+            "10.42.99.17"
+          ]
+        }
       ]
     }
   ],
@@ -134,16 +173,24 @@
         "endpoint_class": "external",
         "aws_service": null,
         "classification_authority": "endpoint_classifier",
-        "source_workload_ids": ["i-web"],
-        "ports": [443],
-        "protocols": ["TCP"],
+        "source_workload_ids": [
+          "i-web"
+        ],
+        "ports": [
+          443
+        ],
+        "protocols": [
+          "TCP"
+        ],
         "observation_count": 31,
         "total_bytes": 8192,
         "first_seen": "2026-09-14T00:00:00Z",
         "last_seen": "2026-09-14T06:00:00Z",
         "evidence_type": "observed",
         "evidence_source": "behavioral_summary",
-        "evidence_ids": ["netedge:external-1"],
+        "evidence_ids": [
+          "netedge:external-1"
+        ],
         "projection_generation": 164
       }
     ],
@@ -153,7 +200,9 @@
         "source_anchor_id": "__igw__",
         "target_id": "external-destination:8f3617f4e83477da",
         "relationship": "VISUAL_CONTINUATION",
-        "source_workload_ids": ["i-web"],
+        "source_workload_ids": [
+          "i-web"
+        ],
         "destination_evidence": "observed",
         "gateway_evidence": "configured",
         "gateway_traversal_observed": false,
@@ -171,6 +220,139 @@
     },
     "detail_complete": true,
     "truncated": false,
-    "unidentified_peer_samples": ["10.42.99.17"]
+    "unidentified_peer_samples": [
+      "10.42.99.17"
+    ]
+  },
+  "identity_access": {
+    "contract_version": "estate-identity-access/v1",
+    "status": "ready",
+    "scope": {
+      "customer_id": "testbed-webshop",
+      "account_id": "416651950952",
+      "region": "eu-west-1",
+      "system_name": "testbed-webshop",
+      "vpc_id": "vpc-0c39cde96f29f8f4e"
+    },
+    "inventory_authority": {
+      "projection_scope": "inventory.resource_state.v1",
+      "generation": 31,
+      "staging_run_id": "inventory-stage-31",
+      "source_vector_hash": "v1:1111111111111111111111111111111111111111111111111111111111111111",
+      "projected_through": "2026-09-15T06:45:00Z",
+      "projection_receipt_hash": "v1:2222222222222222222222222222222222222222222222222222222222222222",
+      "workload_binding_completeness": "COMPLETE",
+      "workload_binding_count": 6,
+      "workload_binding_set_hash": "v1:3333333333333333333333333333333333333333333333333333333333333333",
+      "workload_binding_supported_types": [
+        "ec2:instance",
+        "lambda:function"
+      ]
+    },
+    "decision_authority": {
+      "projection_scope": "iam.role_action_decision.v1",
+      "generation": 12,
+      "staging_run_id": "decision-stage-12",
+      "source_vector_hash": "v1:4444444444444444444444444444444444444444444444444444444444444444",
+      "projected_through": "2026-09-15T06:50:00Z",
+      "projection_receipt_hash": "v1:5555555555555555555555555555555555555555555555555555555555555555",
+      "record_contract_version": "1.1.0",
+      "expected_count": 19,
+      "expected_set_hash": "v1:6666666666666666666666666666666666666666666666666666666666666666",
+      "expected_gap_count": 0,
+      "expected_gap_set_hash": "v1:7777777777777777777777777777777777777777777777777777777777777777"
+    },
+    "roles_total": 1,
+    "roles_returned": 1,
+    "roles_truncated": false,
+    "roles_omitted_unresolved": 0,
+    "roles": [
+      {
+        "role_id": "AROAEXAMPLECYNTRO01",
+        "role_arn": "arn:aws:iam::416651950952:role/cyntro-testbed-webshop-web",
+        "name": "cyntro-testbed-webshop-web",
+        "lifecycle_state": "ACTIVE",
+        "workload_ids": [
+          "i-web"
+        ],
+        "attachment_modes": [
+          "instance_profile"
+        ],
+        "configured_grants": {
+          "state": "ready",
+          "exact_action_count": 1
+        },
+        "observed_use": {
+          "state": "ready",
+          "successful_action_count": 1,
+          "denied_only_action_count": 0,
+          "not_observed_action_count": 0,
+          "unknown_action_count": 0,
+          "coverage_counts": {
+            "complete": 1,
+            "partial": 0,
+            "unknown": 0
+          },
+          "last_success_at": "2026-09-14T06:00:00Z"
+        },
+        "effective_authorization": {
+          "availability": "unavailable",
+          "decision": null,
+          "granularity": "action_resource_context",
+          "reason_codes": [
+            "ACTION_AND_RESOURCE_SCOPE_REQUIRED",
+            "NO_PROJECTED_EFFECTIVE_DECISION",
+            "AUTHORIZATION_LAYERS_INCOMPLETE"
+          ]
+        },
+        "action_details_total": 1,
+        "action_details_returned": 1,
+        "action_details_truncated": false,
+        "action_details": [
+          {
+            "action": "s3:GetObject",
+            "configured_grant": true,
+            "usage_state": "SUCCESS_OBSERVED",
+            "coverage_state": "COMPLETE",
+            "corroboration_state": "CONSISTENT",
+            "eligibility_state": "PROTECTED",
+            "purity": "PURE_PRODUCTION",
+            "window_requirement_satisfied": true,
+            "hold_reason": null,
+            "denial_layer": null,
+            "denied_hold_expires_at": null,
+            "reevaluation_basis": null,
+            "policy_configuration_generation": 21,
+            "evidence_generation": 164,
+            "authorization_control_generation": 9,
+            "observation_window_start": "2026-08-15T07:00:00Z",
+            "observation_window_end": "2026-09-15T07:00:00Z",
+            "first_success_at": "2026-09-14T00:00:00Z",
+            "last_success_at": "2026-09-14T06:00:00Z",
+            "authorization_layers": {
+              "IDENTITY_POLICY": "GRANT",
+              "PERMISSIONS_BOUNDARY": "UNKNOWN",
+              "RESOURCE_POLICY": "UNKNOWN",
+              "SCP_RCP": "UNKNOWN",
+              "SERVICE_SPECIFIC": "UNKNOWN",
+              "SESSION_POLICY": "UNKNOWN"
+            },
+            "decision_as_of": "2026-09-15T07:00:00Z",
+            "effective_authorization": {
+              "availability": "unavailable",
+              "decision": null,
+              "granularity": "action_resource_context",
+              "reason_codes": [
+                "ACTION_AND_RESOURCE_SCOPE_REQUIRED",
+                "NO_PROJECTED_EFFECTIVE_DECISION",
+                "AUTHORIZATION_LAYERS_INCOMPLETE"
+              ]
+            }
+          }
+        ],
+        "gaps": []
+      }
+    ],
+    "gaps": []
   }
 }

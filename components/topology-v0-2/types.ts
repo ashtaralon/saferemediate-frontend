@@ -605,6 +605,129 @@ export interface OutOfScopeWorkloads {
   sample_names: string[]
 }
 
+export type IdentityAccessStatus = "ready" | "partial" | "unavailable"
+export type IdentityAccessEvidenceState = "ready" | "unavailable"
+export type IdentityUsageState =
+  | "SUCCESS_OBSERVED"
+  | "DENIED_ONLY"
+  | "NOT_OBSERVED"
+  | "UNKNOWN"
+export type IdentityCoverageState = "COMPLETE" | "PARTIAL" | "UNKNOWN"
+export type IdentityCorroborationState = "NOT_EVALUATED" | "CONSISTENT" | "CONFLICT"
+export type IdentityAuthorizationLayer =
+  | "IDENTITY_POLICY"
+  | "RESOURCE_POLICY"
+  | "PERMISSIONS_BOUNDARY"
+  | "SCP_RCP"
+  | "SESSION_POLICY"
+  | "SERVICE_SPECIFIC"
+export type IdentityAuthorizationLayerVerdict =
+  | "GRANT"
+  | "DENY"
+  | "NO_MATCH"
+  | "UNKNOWN"
+  | "NOT_APPLICABLE"
+
+export interface IdentityAccessGap {
+  code: string
+  detail: string
+  [key: string]: unknown
+}
+
+export interface IdentityAccessAuthority {
+  projection_scope: string
+  generation: number
+  staging_run_id: string
+  source_vector_hash: string
+  projected_through: string
+  projection_receipt_hash?: string | null
+  [key: string]: unknown
+}
+
+export interface IdentityEffectiveAuthorization {
+  availability: "unavailable"
+  decision: null
+  granularity: "action_resource_context"
+  reason_codes: string[]
+}
+
+export interface IdentityActionDetail {
+  action: string
+  configured_grant: boolean
+  usage_state: IdentityUsageState
+  coverage_state: IdentityCoverageState
+  corroboration_state: IdentityCorroborationState
+  eligibility_state: string
+  purity: string
+  window_requirement_satisfied: boolean
+  hold_reason: string | null
+  denial_layer: IdentityAuthorizationLayer | null
+  denied_hold_expires_at: string | null
+  reevaluation_basis: string | null
+  policy_configuration_generation: number
+  evidence_generation: number
+  authorization_control_generation: number
+  observation_window_start: string | null
+  observation_window_end: string | null
+  first_success_at: string | null
+  last_success_at: string | null
+  authorization_layers: Record<IdentityAuthorizationLayer, IdentityAuthorizationLayerVerdict>
+  decision_as_of: string
+  effective_authorization: IdentityEffectiveAuthorization
+}
+
+export interface IdentityAccessRole {
+  role_id: string
+  role_arn: string
+  name: string
+  lifecycle_state: string
+  workload_ids: string[]
+  attachment_modes: string[]
+  configured_grants: {
+    state: IdentityAccessEvidenceState
+    exact_action_count: number | null
+  }
+  observed_use: {
+    state: IdentityAccessEvidenceState
+    successful_action_count: number | null
+    denied_only_action_count: number | null
+    not_observed_action_count: number | null
+    unknown_action_count: number | null
+    coverage_counts: {
+      complete: number
+      partial: number
+      unknown: number
+    } | null
+    last_success_at: string | null
+  }
+  effective_authorization: IdentityEffectiveAuthorization
+  action_details_total: number | null
+  action_details_returned: number
+  action_details_truncated: boolean
+  action_details: IdentityActionDetail[]
+  gaps: IdentityAccessGap[]
+}
+
+export interface IdentityAccessProjection {
+  contract_version: "estate-identity-access/v1"
+  status: IdentityAccessStatus
+  scope: {
+    customer_id: string
+    account_id: string
+    region: string
+    system_name: string
+    vpc_id: string
+  }
+  inventory_authority: IdentityAccessAuthority | null
+  decision_authority: IdentityAccessAuthority | null
+  roles_total: number | null
+  roles_returned: number
+  roles_truncated: boolean
+  roles_omitted_unresolved: number | null
+  roles: IdentityAccessRole[]
+  gaps: IdentityAccessGap[]
+}
+
 export interface TopologyRiskResponse {
   /** Durable response/snapshot namespace. Present from topology-risk/v11. */
   response_contract_version?: string
@@ -627,6 +750,8 @@ export interface TopologyRiskResponse {
   traffic_edges?: TrafficEdge[]
   /** Explicit IGW → observed destination canvas projection (v11+). */
   external_destination_projection?: ExternalDestinationProjection | null
+  /** Worker-built canonical IAM attachment/decision projection (v11+). */
+  identity_access?: IdentityAccessProjection | null
   traffic_authority?: {
     state: "authoritative" | "authoritative_positive_only" | "rebuilding" | "legacy_unverified" | string
     mode: "legacy" | "shadow" | "incremental" | "unavailable" | "unknown" | string

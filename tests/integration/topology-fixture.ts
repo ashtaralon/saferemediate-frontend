@@ -737,6 +737,36 @@ export function v11ExternalDestinationSnapshot(base: typeof SNAPSHOT = SNAPSHOT)
   }
 }
 
+/** Backend 4eb3fd22's exact estate-identity-access/v1 fixture layered over the
+ * captured browser topology. Only scope and the fixture workload placeholder
+ * are adapted to the captured Estate page; RoleId, action evidence, authority
+ * generations, exact counts, truncation flags and effective-authorization
+ * gaps remain the backend contract's bytes. */
+export function v11IdentityAccessSnapshot(base: typeof SNAPSHOT = SNAPSHOT) {
+  const destination = v11ExternalDestinationSnapshot(base)
+  const identityAccess = JSON.parse(JSON.stringify(destination.contract.identity_access))
+  identityAccess.scope = {
+    customer_id: ORGANIZATION.customer_id,
+    account_id: base.account_id,
+    region: base.region,
+    system_name: base.system,
+    vpc_id: base.vpc_topology.vpc_id,
+  }
+  for (const role of identityAccess.roles as Array<{ workload_ids: string[] }>) {
+    role.workload_ids = role.workload_ids.map(id =>
+      id === "i-web" ? destination.browserSourceId : id,
+    )
+  }
+  return {
+    ...destination,
+    identityAccess,
+    snapshot: {
+      ...destination.snapshot,
+      identity_access: identityAccess,
+    },
+  }
+}
+
 /** The negative case: a payload in which nothing leaves the VPC, so the map
  *  must draw no External destinations node at all. Every other edge stays, so
  *  a spec that finds no node cannot be passing because the map failed to
