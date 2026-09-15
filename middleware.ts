@@ -25,6 +25,14 @@ const SIDEBAR_ONLY_SECTIONS = new Set([
   "copilot",
 ])
 
+const PUBLIC_FILE = /^\/[^/]+\.(png|svg|ico|jpg)$/
+
+export function isPublicStaticRead(method: string, pathname: string): boolean {
+  if (method !== "GET" && method !== "HEAD") return false
+  if (pathname === "/api" || pathname.startsWith("/api/")) return false
+  return pathname.startsWith("/_next/") || PUBLIC_FILE.test(pathname)
+}
+
 export async function middleware(request: NextRequest) {
   const { pathname, searchParams } = request.nextUrl
 
@@ -65,16 +73,12 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
-  // Allow static files and Next.js internals
-  if (
-    pathname.startsWith("/_next") ||
-    pathname.startsWith("/favicon") ||
-    pathname.startsWith("/icon") ||
-    pathname.startsWith("/apple-icon") ||
-    pathname.endsWith(".png") ||
-    pathname.endsWith(".svg") ||
-    pathname.endsWith(".ico")
-  ) {
+  // Allow public static files and Next.js internals, and nothing that merely
+  // looks like one. A suffix alone is not an asset: `/api/proxy/s3-buckets/x.png`
+  // is a dynamic proxy route and `/inspector/x.png` a dynamic page, and both
+  // used to skip the gate. Only reads of top-level files (everything in public/
+  // is top-level) and Next internals pass; never anything under /api/.
+  if (isPublicStaticRead(request.method, pathname)) {
     return NextResponse.next()
   }
 
