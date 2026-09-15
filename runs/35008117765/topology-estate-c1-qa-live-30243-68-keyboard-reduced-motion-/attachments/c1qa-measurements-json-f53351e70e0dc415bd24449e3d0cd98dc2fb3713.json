@@ -1,0 +1,31 @@
+{
+  "test": "Identity & access on live C1 at 1366x768 (keyboard, reduced motion)",
+  "status": "skipped",
+  "measurements": [
+    {
+      "name": "identity-build-version-1366x768",
+      "data": {
+        "deploymentVersion": "c5235ad7d45aa982163f535296955f90fb4879db"
+      }
+    },
+    {
+      "name": "identity-payload-1366x768",
+      "data": {
+        "contract": null,
+        "identity_contract": null,
+        "status": null,
+        "expected_ui_status": "unavailable",
+        "roles_total": null,
+        "roles_returned": null,
+        "gaps": [],
+        "require_identity_access": false
+      }
+    },
+    {
+      "name": "identity-control-1366x768",
+      "data": {
+        "present": false
+      }
+    }
+  ]
+}
