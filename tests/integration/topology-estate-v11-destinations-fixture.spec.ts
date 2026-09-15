@@ -48,11 +48,15 @@ for (const viewport of VIEWPORTS) {
     await expect(lane).toHaveAttribute("data-detail-state", "complete")
     await expect(lane).toHaveAttribute("data-unlinked-count", "0")
     await expect(lane).toHaveAttribute("data-unidentified-upper-bound", "1")
+    await expect(lane).toHaveAttribute("data-evidence-state", "observed")
+    await expect(lane).toHaveAttribute("data-rejected-node-count", "0")
+    await expect(lane).toHaveAttribute("data-rejected-edge-count", "0")
 
     const destination = lane.getByTestId("topology-external-destination-node")
     await expect(destination).toHaveCount(1)
     await expect(destination).toContainText("18.202.1.10")
     await expect(destination).toHaveAttribute("data-identity", "address")
+    await expect(destination).toHaveAttribute("data-evidence-type", "observed")
     await expect(destination).not.toContainText("S3")
     await expect(lane.getByTestId("topology-external-destinations-unidentified")).toContainText(
       "kept separate · no IGW line inferred",
@@ -67,6 +71,14 @@ for (const viewport of VIEWPORTS) {
     await expect(continuation).toHaveAttribute("data-flow-authority", "inferred")
     await expect(continuation).toHaveAttribute("data-flow-path-basis", "synthetic_expansion")
     await expect(continuation).toHaveAttribute("data-flow-motion", "none")
+    await expect(continuation).toHaveAttribute("data-flow-relationship", "VISUAL_CONTINUATION")
+    await expect(continuation).toHaveAttribute("data-flow-destination-evidence", "observed")
+    await expect(continuation).toHaveAttribute("data-flow-gateway-evidence", "configured")
+    await expect(continuation).toHaveAttribute("data-flow-gateway-traversal-observed", "false")
+    await expect(continuation).toHaveAttribute(
+      "data-flow-projection-path-basis",
+      "observed_destination_with_configured_route",
+    )
     await expect(continuation.locator("animate, animateMotion, animateTransform")).toHaveCount(0)
 
     const toggle = lane.getByTestId("topology-external-destinations-toggle")
@@ -82,8 +94,10 @@ for (const viewport of VIEWPORTS) {
     await expect(panel).toContainText("does not claim the gateway hop was observed per packet")
     const item = panel.getByTestId("topology-external-destination-projection-item")
     await expect(item).toHaveAttribute("data-gateway-linked", "true")
+    await expect(item).toHaveAttribute("data-evidence-type", "observed")
     await expect(item).toContainText("ports 443")
     await expect(item).toContainText("31 observations")
+    await expect(item).toContainText("observed evidence")
     await expect(panel.getByTestId("topology-unidentified-external-peers")).toContainText(
       "No IGW path is drawn without an exact classified destination and configured gateway",
     )
@@ -94,6 +108,134 @@ for (const viewport of VIEWPORTS) {
     await expect(toggle).toBeFocused()
   })
 }
+
+test("v11 keeps observed and legacy-unverified destination evidence distinct", async ({ context, page }) => {
+  test.setTimeout(120_000)
+  const fixture = v11ExternalDestinationSnapshot()
+  await seedAuthCookie(context)
+  await page.setViewportSize({ width: 1366, height: 768 })
+  const snapshot = structuredClone(fixture.snapshot)
+  const projection = snapshot.external_destination_projection
+  const observedNode = projection.nodes[0]
+  projection.nodes.push({
+    ...observedNode,
+    id: "external-destination:legacy-browser",
+    address: "18.202.1.11",
+    observation_count: null,
+    total_bytes: null,
+    first_seen: null,
+    last_seen: null,
+    evidence_type: "legacy_unverified",
+    evidence_source: "legacy_behavioral_graph",
+    evidence_ids: [],
+    projection_generation: null,
+  })
+  projection.edges.push({
+    ...projection.edges[0],
+    target_id: "external-destination:legacy-browser",
+    destination_evidence: "legacy_unverified",
+    path_basis: "legacy_destination_with_configured_route",
+  })
+  projection.nodes.push({
+    ...observedNode,
+    id: "external-destination:mixed-browser",
+    address: "18.202.1.12",
+    evidence_type: "mixed",
+    evidence_source: "mixed",
+    projection_generation: null,
+  })
+  projection.edges.push({
+    ...projection.edges[0],
+    target_id: "external-destination:mixed-browser",
+    destination_evidence: "mixed",
+    path_basis: "mixed_destination_with_configured_route",
+  })
+  projection.counts.returned_destination_nodes = 3
+  projection.counts.named_destination_nodes_before_bound = 3
+  projection.counts.per_workload_distinct_upper_bound = 3
+  await openMap(page, snapshot)
+
+  const lane = page.getByTestId("topology-external-destinations-lane")
+  await expect(lane).toHaveAttribute("data-evidence-state", "mixed")
+  await expect(lane.getByTestId("topology-external-destinations-provenance")).toContainText(
+    "Observed + legacy/unverified identities",
+  )
+  await expect(lane.locator('[data-testid="topology-external-destination-node"][data-evidence-type="observed"]')).toHaveCount(1)
+  await expect(lane.locator('[data-testid="topology-external-destination-node"][data-evidence-type="legacy_unverified"]')).toHaveCount(1)
+  await expect(lane.locator('[data-testid="topology-external-destination-node"][data-evidence-type="mixed"]')).toHaveCount(1)
+  const observedContinuation = page.locator('g[data-flow-target^="extdst:"][data-flow-destination-evidence="observed"]')
+  const legacyContinuation = page.locator('g[data-flow-target^="extdst:"][data-flow-destination-evidence="legacy_unverified"]')
+  const mixedContinuation = page.locator('g[data-flow-target^="extdst:"][data-flow-destination-evidence="mixed"]')
+  await expect(observedContinuation).toHaveAttribute(
+    "data-flow-projection-path-basis",
+    "observed_destination_with_configured_route",
+  )
+  await expect(legacyContinuation).toHaveAttribute(
+    "data-flow-projection-path-basis",
+    "legacy_destination_with_configured_route",
+  )
+  await expect(mixedContinuation).toHaveAttribute(
+    "data-flow-projection-path-basis",
+    "mixed_destination_with_configured_route",
+  )
+  for (const continuation of [observedContinuation, legacyContinuation, mixedContinuation]) {
+    await expect(continuation).toHaveAttribute("data-flow-gateway-evidence", "configured")
+    await expect(continuation).toHaveAttribute("data-flow-gateway-traversal-observed", "false")
+  }
+
+  await lane.getByTestId("topology-external-destinations-toggle").click()
+  const panel = page.getByTestId("topology-external-destinations-details")
+  await expectPanelOnTop(page, "topology-external-destinations-details")
+  await expect(panel).toContainText("mix observed and legacy, unverified evidence")
+  await expect(panel.locator('[data-testid="topology-external-destination-projection-item"][data-evidence-type="observed"]')).toContainText("observed evidence")
+  await expect(panel.locator('[data-testid="topology-external-destination-projection-item"][data-evidence-type="legacy_unverified"]')).toContainText("legacy/unverified evidence")
+  await expect(panel.locator('[data-testid="topology-external-destination-projection-item"][data-evidence-type="mixed"]')).toContainText("mixed observed + legacy/unverified evidence")
+})
+
+test("v11 rejects malformed continuation evidence and draws no destination line", async ({ context, page }) => {
+  test.setTimeout(120_000)
+  const fixture = v11ExternalDestinationSnapshot()
+  await seedAuthCookie(context)
+  await page.setViewportSize({ width: 1366, height: 768 })
+  const snapshot = structuredClone(fixture.snapshot)
+  snapshot.external_destination_projection.edges[0].destination_evidence = "legacy_unverified"
+  await openMap(page, snapshot)
+
+  const lane = page.getByTestId("topology-external-destinations-lane")
+  await expect(lane).toHaveAttribute("data-detail-state", "partial")
+  await expect(lane).toHaveAttribute("data-unlinked-count", "1")
+  await expect(lane).toHaveAttribute("data-rejected-edge-count", "1")
+  await expect(lane.getByTestId("topology-external-destination-projection-unavailable")).toContainText(
+    "1 continuation edge was rejected",
+  )
+  await expect(page.getByTestId("topology-external-destination-node")).toHaveCount(0)
+  await expect(page.locator('g[data-flow-target^="extdst:"]')).toHaveCount(0)
+})
+
+test("v11 treats a missing projection as unavailable and never uses legacy destination fallback", async ({ context, page }) => {
+  test.setTimeout(120_000)
+  const fixture = v11ExternalDestinationSnapshot()
+  await seedAuthCookie(context)
+  await page.setViewportSize({ width: 1366, height: 768 })
+  const snapshot = structuredClone(fixture.snapshot)
+  snapshot.external_destination_projection = null
+  await openMap(page, snapshot)
+
+  const lane = page.getByTestId("topology-external-destinations-lane")
+  await expect(lane).toHaveAttribute("data-detail-state", "unavailable")
+  await expect(lane).toHaveAttribute("data-evidence-state", "unavailable")
+  await expect(lane.getByTestId("topology-external-destination-projection-unavailable")).toContainText(
+    "Destination projection is unavailable",
+  )
+  await expect(page.getByTestId("topology-external-destination-node")).toHaveCount(0)
+  await expect(page.locator('g[data-flow-target^="extdst:"]')).toHaveCount(0)
+
+  await lane.getByTestId("topology-external-destinations-toggle").click()
+  const panel = page.getByTestId("topology-external-destinations-details")
+  await expectPanelOnTop(page, "topology-external-destinations-details")
+  await expect(panel).toContainText("Destination projection evidence is unavailable")
+  await expect(panel).toContainText("No gateway continuation is drawn")
+})
 
 test("v11 leaves a destination unlinked when the projection names a different gateway", async ({ context, page }) => {
   test.setTimeout(120_000)

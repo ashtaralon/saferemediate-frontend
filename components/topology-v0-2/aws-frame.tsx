@@ -3485,6 +3485,7 @@ function ExternalDestinationsNode({
         : anySample
           ? " · addresses sampled"
           : " · no addresses recorded"
+  const showGatewayChain = !map || map.detailState === "legacy" || map.continuations.length > 0
   return (
     <div
       className={
@@ -3503,7 +3504,7 @@ function ExternalDestinationsNode({
     >
       {/* The chain, not a neutral rule: this is the egress path, drawn in the
           legend's own "Internet egress" colour and naming its gateways. */}
-      <div
+      {showGatewayChain ? <div
         className={
           lane ? "flex flex-wrap items-center gap-1 min-w-0 w-full" : "flex items-center gap-1 min-w-0"
         }
@@ -3539,7 +3540,7 @@ function ExternalDestinationsNode({
             <EgressArrow />
           </span>
         )}
-      </div>
+      </div> : null}
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <button
@@ -3640,9 +3641,20 @@ function ExternalDestinationsNode({
           <p className="mt-1 text-[11px] leading-snug" style={{ color: PAL.slate }}>
             {map && map.detailState !== "legacy" ? (
               <>
-                Destinations are observed. Gateway continuation is configured routing
-                {hops.length > 0 ? `: ${hops.join(" → ")}` : ""}; it does not claim the
-                gateway hop was observed per packet.
+                {map.evidenceState === "observed"
+                  ? "Destination identities are observed evidence. "
+                  : map.evidenceState === "legacy_unverified"
+                    ? "Destination identities come from legacy, unverified evidence. "
+                    : map.evidenceState === "mixed"
+                      ? "Destination identities mix observed and legacy, unverified evidence. "
+                      : map.evidenceState === "unidentified"
+                        ? "Only unidentified peer evidence is available. "
+                        : "Destination projection evidence is unavailable. "}
+                {map.continuations.length > 0 ? (
+                  <>Gateway continuation is configured routing
+                    {hops.length > 0 ? `: ${hops.join(" → ")}` : ""}; it does not claim the
+                    gateway hop was observed per packet.</>
+                ) : "No gateway continuation is drawn because the response carries no valid exact join."}
               </>
             ) : (
               <>
@@ -3727,6 +3739,7 @@ function ExternalDestinationsNode({
                     data-testid="topology-external-destination-projection-item"
                     data-projection-id={node.projectionId ?? ""}
                     data-gateway-linked={unlinked ? "false" : "true"}
+                    data-evidence-type={node.evidenceType ?? ""}
                   >
                     <span className={node.identity === "aws_service" ? "font-semibold" : "font-mono"} style={{ color: PAL.ink }}>
                       {node.label}
@@ -3736,6 +3749,13 @@ function ExternalDestinationsNode({
                     {node.protocols.length > 0 ? ` · ${node.protocols.join(", ")}` : ""}
                     {node.observationCount == null ? " · observations unavailable" : ` · ${node.observationCount} observations`}
                     {node.totalBytes == null ? "" : ` · ${node.totalBytes} bytes`}
+                    {node.evidenceType === "observed"
+                      ? " · observed evidence"
+                      : node.evidenceType === "legacy_unverified"
+                        ? " · legacy/unverified evidence"
+                        : node.evidenceType === "mixed"
+                          ? " · mixed observed + legacy/unverified evidence"
+                          : " · evidence unavailable"}
                     {unlinked ? " · exact configured IGW link unavailable; no line drawn" : ""}
                   </li>
                 )
@@ -3775,6 +3795,13 @@ export const EXTERNAL_LANE_W_PX = 176
  *  identity. */
 function ExternalDestinationChip({ node }: { node: ExternalDestinationNode }) {
   const attributed = node.identity === "aws_service"
+  const legacy = node.evidenceType === "legacy_unverified"
+  const mixed = node.evidenceType === "mixed"
+  const evidenceLabel = legacy
+    ? "legacy/unverified"
+    : mixed
+      ? "mixed observed + legacy/unverified"
+      : "observed"
   return (
     <div
       className="rounded-md px-1.5 py-1 min-w-0 w-full"
@@ -3788,10 +3815,11 @@ function ExternalDestinationChip({ node }: { node: ExternalDestinationNode }) {
       data-kind={node.kind ?? ""}
       data-sources={node.sources.join(",")}
       data-observations={node.observationCount ?? ""}
+      data-evidence-type={node.evidenceType ?? ""}
       title={
         attributed
-          ? `${node.label} — attributed by the flow-log evidence${node.address !== node.label ? ` (${node.address})` : ""}`
-          : `${node.label} — an address; the evidence names no service${node.ports.length > 0 ? `; ports ${node.ports.join(", ")}` : ""}`
+          ? `${node.label} — attributed by ${evidenceLabel} evidence${node.address !== node.label ? ` (${node.address})` : ""}`
+          : `${node.label} — an address from ${evidenceLabel} evidence; no service is named${node.ports.length > 0 ? `; ports ${node.ports.join(", ")}` : ""}`
       }
     >
       <div
@@ -3801,7 +3829,7 @@ function ExternalDestinationChip({ node }: { node: ExternalDestinationNode }) {
         {node.label}
       </div>
       <div className="text-[9px] leading-tight" style={{ color: PAL.slate }}>
-        {attributed ? "AWS service" : "address"}
+        {attributed ? "AWS service" : "address"} · {evidenceLabel}
         {node.sources.length > 1 ? ` · ${node.sources.length} workloads` : ""}
       </div>
     </div>
@@ -3860,6 +3888,9 @@ function ExternalDestinationsLane({
       data-unreturned-count={map.unreturnedCount}
       data-unlinked-count={map.unlinkedNodes.length}
       data-unidentified-upper-bound={map.unidentifiedPeerUpperBound ?? ""}
+      data-evidence-state={map.evidenceState}
+      data-rejected-node-count={map.rejectedNodeCount}
+      data-rejected-edge-count={map.rejectedEdgeCount}
     >
       <div
         className="text-[10px] uppercase tracking-[0.12em] font-semibold shrink-0"
@@ -3878,7 +3909,18 @@ function ExternalDestinationsLane({
         data-flow-obstacle="external-lane-caption"
         data-testid="topology-external-destinations-provenance"
       >
-        Destinations observed this generation · NAT → IGW is configured routing
+        {map.evidenceState === "observed"
+          ? "Destination identities observed"
+          : map.evidenceState === "legacy_unverified"
+            ? "Destination identities legacy/unverified"
+            : map.evidenceState === "mixed"
+              ? "Observed + legacy/unverified identities"
+              : map.evidenceState === "unidentified"
+                ? "Only unidentified peer evidence"
+                : "Destination projection unavailable"}
+        {map.continuations.length > 0
+          ? " · IGW continuation uses configured routing; traversal is not observed"
+          : " · no exact IGW continuation drawn"}
       </div>
       <div className="flex flex-col gap-1 min-w-0">
         {map.nodes.map(node => (
@@ -4021,6 +4063,17 @@ function ExternalDestinationsLane({
             Up to {map.unidentifiedPeerUpperBound} unidentified peer{map.unidentifiedPeerUpperBound === 1 ? "" : "s"} · kept separate · no IGW line inferred
           </div>
         ) : null}
+        {map.availabilityReason ? (
+          <div
+            className="rounded-md border border-dashed px-1.5 py-1 text-[9px] leading-tight"
+            style={{ background: "#FFF7ED", borderColor: "#F59E0B", color: "#92400E" }}
+            data-testid="topology-external-destination-projection-unavailable"
+            data-rejected-nodes={map.rejectedNodeCount}
+            data-rejected-edges={map.rejectedEdgeCount}
+          >
+            {map.availabilityReason} No destination line was inferred from rejected data.
+          </div>
+        ) : null}
       </div>
       {/* The evidence summary and its per-leg detail, moved off the top strip:
           one place for this fact, on the canvas where the traffic is drawn. */}
@@ -4127,6 +4180,11 @@ interface FlowPath {
   evidenceType?: TrafficEdge["evidence_type"]
   pathBasis?: TrafficEdge["path_basis"]
   lastSeen?: TrafficEdge["last_seen"]
+  visualRelationship?: TrafficEdge["visual_relationship"]
+  destinationEvidence?: TrafficEdge["destination_evidence"]
+  gatewayEvidence?: TrafficEdge["gateway_evidence"]
+  gatewayTraversalObserved?: TrafficEdge["gateway_traversal_observed"]
+  projectionPathBasis?: TrafficEdge["projection_path_basis"]
   /** No arrowhead: a trunk that feeds stubs rather than an edge ending at a chip. */
   arrow?: boolean
   /** Collapsed trunk badge: every relationship spelling this one badge speaks
@@ -5427,6 +5485,11 @@ function FlowOverlay({
           evidenceType: e.evidence_type,
           pathBasis: e.path_basis,
           lastSeen: e.last_seen,
+          visualRelationship: e.visual_relationship,
+          destinationEvidence: e.destination_evidence,
+          gatewayEvidence: e.gateway_evidence,
+          gatewayTraversalObserved: e.gateway_traversal_observed,
+          projectionPathBasis: e.projection_path_basis,
           _edge: e,
           _routedViaIgw: routedViaIgw,
           _routedViaVpce: routedViaVpce,
@@ -6005,6 +6068,13 @@ function FlowOverlay({
           data-flow-authority={p.authorityState ?? undefined}
           data-flow-path-basis={p.pathBasis ?? undefined}
           data-flow-motion={motionKind}
+          data-flow-relationship={p.visualRelationship ?? undefined}
+          data-flow-destination-evidence={p.destinationEvidence ?? undefined}
+          data-flow-gateway-evidence={p.gatewayEvidence ?? undefined}
+          data-flow-gateway-traversal-observed={
+            p.gatewayTraversalObserved == null ? undefined : String(p.gatewayTraversalObserved)
+          }
+          data-flow-projection-path-basis={p.projectionPathBasis ?? undefined}
           data-flow-bundle={p.bundle ? String(p.bundle.count) : undefined}
           data-flow-members={p.bundle ? p.bundle.members.join("|") : undefined}
         >
@@ -8923,7 +8993,7 @@ export function AwsFrame({
     // per-edge fallback as well would duplicate nodes and could reconnect an
     // unlinked destination to the first IGW. Older responses keep the honest
     // sampled-address fallback below.
-    if (responseContractVersion === "topology-risk/v11" && externalDestinationProjection) {
+    if (responseContractVersion === "topology-risk/v11") {
       const allowedSourceIds = new Set(trafficEdgesList.map(edge => edge.source_id))
       const gatewayByAnchor = new Map<string, string>()
       topo.edges.igws.forEach((igw, index) => {
@@ -8992,34 +9062,29 @@ export function AwsFrame({
     // read as observed by anything downstream.
     if (externalDestinations) {
       const synthetic = (
-        sourceAnchorId: string,
-        targetId: string,
-        exactGatewayId: string,
-        routeBasis: string | null,
+        edge: ExternalDestinationMap["continuations"][number],
       ): TrafficEdge =>
         ({
-          source_id: sourceAnchorId,
-          target_id: targetId,
+          source_id: edge.sourceAnchorId,
+          target_id: `${EXTERNAL_DESTINATION_FLOW_PREFIX}${edge.targetKey}`,
           edge_class: "egress",
           protocol: null,
           evidence_type: "inferred",
           authority_state: "inferred",
           path_basis: "synthetic_expansion",
-          via_igw_id: exactGatewayId,
-          route_basis: routeBasis,
+          via_igw_id: edge.sourceId,
+          route_basis: edge.routeBasis,
+          visual_relationship: "VISUAL_CONTINUATION",
+          destination_evidence: edge.destinationEvidence,
+          gateway_evidence: edge.gatewayEvidence,
+          gateway_traversal_observed: edge.gatewayTraversalObserved,
+          projection_path_basis: edge.pathBasis,
           // No last_seen: a timestamp would make this eligible for the
           // "historical direction" animation, which is also a claim about
           // observed packets.
           last_seen: null,
         }) as unknown as TrafficEdge
-      const continuation: TrafficEdge[] = externalDestinations.continuations.map(edge =>
-        synthetic(
-          edge.sourceAnchorId,
-          `${EXTERNAL_DESTINATION_FLOW_PREFIX}${edge.targetKey}`,
-          edge.sourceId,
-          edge.routeBasis,
-        ),
-      )
+      const continuation: TrafficEdge[] = externalDestinations.continuations.map(synthetic)
       edges = [...edges, ...continuation]
     }
     return edges

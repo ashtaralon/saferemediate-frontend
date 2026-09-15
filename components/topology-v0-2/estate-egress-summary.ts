@@ -272,6 +272,10 @@ export interface ExternalDestinationMap {
   unreturnedCount: number
   unidentifiedPeerUpperBound: number | null
   unidentifiedPeerSamples: string[]
+  evidenceState: "observed" | "legacy_unverified" | "mixed" | "unidentified" | "unavailable"
+  rejectedNodeCount: number
+  rejectedEdgeCount: number
+  availabilityReason: string | null
 }
 
 /** Normalized de-duplication key. The same address reaches the map through
@@ -465,6 +469,37 @@ export function externalDestinationMap(
     unreturnedCount: 0,
     unidentifiedPeerUpperBound: null,
     unidentifiedPeerSamples: [],
+    evidenceState: "legacy_unverified",
+    rejectedNodeCount: 0,
+    rejectedEdgeCount: 0,
+    availabilityReason: null,
+  }
+}
+
+function unavailableProjectionMap(reason: string): ExternalDestinationMap {
+  return {
+    nodes: [],
+    hiddenNodes: [],
+    hiddenCount: 0,
+    totalNamed: 0,
+    attributedCount: 0,
+    remainder: null,
+    distinctUpperBound: null,
+    legsWithUnknownDistinct: 0,
+    everySampleComplete: false,
+    gatewayId: null,
+    continuations: [],
+    unlinkedNodes: [],
+    detailState: "unavailable",
+    detailsReturned: 0,
+    detailsBeforeBound: null,
+    unreturnedCount: 0,
+    unidentifiedPeerUpperBound: null,
+    unidentifiedPeerSamples: [],
+    evidenceState: "unavailable",
+    rejectedNodeCount: 0,
+    rejectedEdgeCount: 0,
+    availabilityReason: reason,
   }
 }
 
@@ -477,7 +512,7 @@ export function externalDestinationMap(
  * peers are reported beside the lane and never converted into Internet nodes.
  */
 export function externalDestinationProjectionMap(
-  projection: ExternalDestinationProjection,
+  projection: ExternalDestinationProjection | null | undefined,
   options: {
     allowedSourceIds?: ReadonlySet<string>
     /** Canvas anchor → exact gateway id. Supplying this makes a mismatched
@@ -487,20 +522,116 @@ export function externalDestinationProjectionMap(
   } = {},
 ): ExternalDestinationMap | null {
   const { allowedSourceIds, gatewayByAnchor, limit = 6 } = options
+  if (!projection) {
+    return unavailableProjectionMap("Destination projection is unavailable in this topology-risk/v11 response.")
+  }
+  if (
+    projection.version !== "estate-egress-destinations/v1" ||
+    !Array.isArray(projection.nodes) ||
+    !Array.isArray(projection.edges) ||
+    !projection.counts ||
+    typeof projection.counts !== "object" ||
+    !Array.isArray(projection.unidentified_peer_samples) ||
+    typeof projection.detail_complete !== "boolean" ||
+    typeof projection.truncated !== "boolean" ||
+    ![
+      projection.counts.returned_destination_nodes,
+      projection.counts.named_destination_nodes_before_bound,
+      projection.counts.unlinked_returned_destination_nodes,
+    ].every(value => typeof value === "number" && Number.isFinite(value) && value >= 0) ||
+    ![
+      projection.counts.per_workload_distinct_upper_bound,
+      projection.counts.unidentified_peer_upper_bound,
+    ].every(value => value == null || (typeof value === "number" && Number.isFinite(value) && value >= 0))
+  ) {
+    return unavailableProjectionMap("Destination projection is malformed or uses an unsupported contract version.")
+  }
   const inScope = (sourceIds: readonly string[]) =>
     !allowedSourceIds || sourceIds.some(sourceId => allowedSourceIds.has(sourceId))
-  const projectedNodes = projection.nodes.filter(node => inScope(node.source_workload_ids ?? []))
-  const projectedNodeIds = new Set(projectedNodes.map(node => node.id))
-  const projectedEdges = projection.edges.filter(
-    edge =>
-      projectedNodeIds.has(edge.target_id) &&
-      inScope(edge.source_workload_ids ?? []) &&
-      (!gatewayByAnchor || gatewayByAnchor.get(edge.source_anchor_id) === edge.source_id),
+  const isRecord = (value: unknown): value is Record<string, unknown> =>
+    Boolean(value) && typeof value === "object" && !Array.isArray(value)
+  const rawNodes = projection.nodes as unknown[]
+  const rawEdges = projection.edges as unknown[]
+  const shapedNodes = rawNodes.filter(
+    (value): value is ExternalDestinationProjection["nodes"][number] =>
+      isRecord(value) &&
+      Array.isArray(value.source_workload_ids) &&
+      value.source_workload_ids.every(sourceId => typeof sourceId === "string"),
   )
+  const scopedNodes = shapedNodes.filter(node => inScope(node.source_workload_ids))
+  const supportedNode = (node: ExternalDestinationProjection["nodes"][number]) => {
+    if (typeof node.id !== "string" || !node.id) return false
+    if (typeof node.address !== "string" || !node.address.trim()) return false
+    if (!["external", "aws_service"].includes(node.endpoint_class)) return false
+    if (!Array.isArray(node.source_workload_ids) || node.source_workload_ids.length === 0) return false
+    if (node.evidence_type === "observed") {
+      return typeof node.projection_generation === "number" && Number.isFinite(node.projection_generation)
+    }
+    if (node.evidence_type === "legacy_unverified") {
+      return (
+        node.evidence_source === "legacy_behavioral_graph" &&
+        node.projection_generation == null &&
+        node.observation_count == null &&
+        node.total_bytes == null
+      )
+    }
+    if (node.evidence_type === "mixed") {
+      return node.evidence_source === "mixed" && node.projection_generation == null
+    }
+    return false
+  }
+  const generations = new Set(
+    scopedNodes
+      .filter(node => node.evidence_type === "observed" && typeof node.projection_generation === "number")
+      .map(node => node.projection_generation),
+  )
+  if (generations.size > 1) {
+    return unavailableProjectionMap("Destination projection mixes active generations and cannot be rendered safely.")
+  }
+  const projectedNodes = scopedNodes.filter(supportedNode)
+  const rejectedNodeCount = rawNodes.length - shapedNodes.length + scopedNodes.length - projectedNodes.length
+  const projectedNodeIds = new Set(projectedNodes.map(node => node.id))
+  const nodeById = new Map(projectedNodes.map(node => [node.id, node]))
+  const shapedEdges = rawEdges.filter(
+    (value): value is ExternalDestinationProjection["edges"][number] =>
+      isRecord(value) &&
+      Array.isArray(value.source_workload_ids) &&
+      value.source_workload_ids.every(sourceId => typeof sourceId === "string"),
+  )
+  const scopedEdges = shapedEdges.filter(edge => inScope(edge.source_workload_ids))
+  const supportedEdge = (edge: ExternalDestinationProjection["edges"][number]) => {
+    const node = nodeById.get(edge.target_id)
+    if (!node || !projectedNodeIds.has(edge.target_id)) return false
+    if (edge.relationship !== "VISUAL_CONTINUATION") return false
+    if (
+      edge.source_anchor_id !== IGW_CANVAS_ANCHOR_ID ||
+      typeof edge.source_id !== "string" ||
+      !edge.source_id.startsWith("igw-")
+    ) return false
+    if (edge.gateway_evidence !== "configured" || edge.gateway_traversal_observed !== false) return false
+    const evidencePathPairs: Record<string, string> = {
+      observed: "observed_destination_with_configured_route",
+      legacy_unverified: "legacy_destination_with_configured_route",
+      mixed: "mixed_destination_with_configured_route",
+    }
+    if (evidencePathPairs[edge.destination_evidence] !== edge.path_basis) return false
+    if (edge.destination_evidence !== node.evidence_type) return false
+    if (!edge.source_workload_ids.some(id => node.source_workload_ids.includes(id))) return false
+    if (gatewayByAnchor && gatewayByAnchor.get(edge.source_anchor_id) !== edge.source_id) return false
+    return true
+  }
+  // One visual join per destination. Duplicate accepted edges would paint the
+  // same line twice and turn row count into apparent traffic weight.
+  const byTarget = new Map<string, ExternalDestinationProjection["edges"][number]>()
+  for (const edge of scopedEdges.filter(supportedEdge)) {
+    if (!byTarget.has(edge.target_id)) byTarget.set(edge.target_id, edge)
+  }
+  const projectedEdges = [...byTarget.values()]
+  const rejectedEdgeCount = rawEdges.length - shapedEdges.length + scopedEdges.length - projectedEdges.length
   const linkedIds = new Set(projectedEdges.map(edge => edge.target_id))
 
   const adaptNode = (node: ExternalDestinationProjection["nodes"][number]): ExternalDestinationNode => {
-    const service = (node.aws_service ?? "").trim()
+    const service = typeof node.aws_service === "string" ? node.aws_service.trim() : ""
     return {
       key: node.id,
       label: service || node.address,
@@ -511,12 +642,12 @@ export function externalDestinationProjectionMap(
         typeof node.observation_count === "number" ? node.observation_count : null,
       projectionId: node.id,
       address: node.address,
-      ports: [...new Set(node.ports ?? [])],
-      protocols: [...new Set(node.protocols ?? [])],
+      ports: [...new Set(Array.isArray(node.ports) ? node.ports : [])],
+      protocols: [...new Set(Array.isArray(node.protocols) ? node.protocols : [])],
       totalBytes: typeof node.total_bytes === "number" ? node.total_bytes : null,
       firstSeen: node.first_seen ?? null,
       lastSeen: node.last_seen ?? null,
-      evidenceIds: [...new Set(node.evidence_ids ?? [])],
+      evidenceIds: [...new Set(Array.isArray(node.evidence_ids) ? node.evidence_ids : [])],
       projectionGeneration: node.projection_generation ?? null,
       evidenceType: node.evidence_type ?? null,
       evidenceSource: node.evidence_source ?? null,
@@ -546,7 +677,7 @@ export function externalDestinationProjectionMap(
     declaredReturned,
     projection.counts.named_destination_nodes_before_bound ?? declaredReturned,
   )
-  const scopeFiltered = projectedNodes.length !== projection.nodes.length
+  const scopeFiltered = scopedNodes.length !== projection.nodes.length
   const detailsReturned = scopeFiltered ? projectedNodes.length : declaredReturned
   const detailsBeforeBound = scopeFiltered ? null : declaredBeforeBound
   const unreturnedCount = detailsBeforeBound == null ? 0 : Math.max(0, detailsBeforeBound - detailsReturned)
@@ -556,23 +687,49 @@ export function externalDestinationProjectionMap(
       ? "unavailable"
       : projection.truncated || unreturnedCount > 0
         ? "truncated"
-        : scopeFiltered || !projection.detail_complete || declaredUnlinked > 0 || unlinkedNodes.length > 0
+        : scopeFiltered || !projection.detail_complete || declaredUnlinked > 0 || unlinkedNodes.length > 0 || rejectedNodeCount > 0 || rejectedEdgeCount > 0
           ? "partial"
           : "complete"
 
   const unidentifiedPeerUpperBound = scopeFiltered
     ? null
     : projection.counts.unidentified_peer_upper_bound ?? null
-  const unidentifiedPeerSamples = scopeFiltered ? [] : [...new Set(projection.unidentified_peer_samples ?? [])]
+  const unidentifiedPeerSamples = scopeFiltered
+    ? []
+    : [...new Set(projection.unidentified_peer_samples.filter(sample => typeof sample === "string"))]
+
+  const evidenceKinds = new Set(projectedNodes.map(node => node.evidence_type))
+  const evidenceState: ExternalDestinationMap["evidenceState"] =
+    evidenceKinds.has("mixed") || evidenceKinds.size > 1
+      ? "mixed"
+      : evidenceKinds.has("observed")
+        ? "observed"
+        : evidenceKinds.has("legacy_unverified")
+          ? "legacy_unverified"
+          : (unidentifiedPeerUpperBound ?? 0) > 0
+            ? "unidentified"
+            : "unavailable"
 
   if (
     nodes.length === 0 &&
     hiddenNodes.length === 0 &&
     unlinkedNodes.length === 0 &&
-    (unidentifiedPeerUpperBound ?? 0) === 0
+    (unidentifiedPeerUpperBound ?? 0) === 0 &&
+    rejectedNodeCount === 0 &&
+    rejectedEdgeCount === 0
   ) {
     return null
   }
+
+  const rejectedParts = [
+    rejectedNodeCount > 0
+      ? `${rejectedNodeCount} destination node${rejectedNodeCount === 1 ? "" : "s"}`
+      : null,
+    rejectedEdgeCount > 0
+      ? `${rejectedEdgeCount} continuation edge${rejectedEdgeCount === 1 ? "" : "s"}`
+      : null,
+  ].filter((part): part is string => Boolean(part))
+  const rejectedTotal = rejectedNodeCount + rejectedEdgeCount
 
   return {
     nodes,
@@ -595,6 +752,12 @@ export function externalDestinationProjectionMap(
     unreturnedCount,
     unidentifiedPeerUpperBound,
     unidentifiedPeerSamples,
+    evidenceState,
+    rejectedNodeCount,
+    rejectedEdgeCount,
+    availabilityReason: rejectedParts.length > 0
+      ? `${rejectedParts.join(" and ")} ${rejectedTotal === 1 ? "was" : "were"} rejected because ${rejectedTotal === 1 ? "its" : "their"} evidence contract was unsupported.`
+      : null,
   }
 }
 

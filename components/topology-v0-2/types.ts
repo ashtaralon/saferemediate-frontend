@@ -408,7 +408,7 @@ export interface ExternalDestinationProjectionNode {
   last_seen?: string | null
   evidence_ids?: string[]
   projection_generation?: number | null
-  evidence_type?: "observed" | "legacy_unverified" | string | null
+  evidence_type?: "observed" | "legacy_unverified" | "mixed" | string | null
   evidence_source?: string | null
 }
 
@@ -420,10 +420,14 @@ export interface ExternalDestinationProjectionEdge {
   target_id: string
   relationship: "VISUAL_CONTINUATION" | string
   source_workload_ids: string[]
-  destination_evidence: "observed" | string
+  destination_evidence: "observed" | "legacy_unverified" | "mixed" | string
   gateway_evidence: "configured" | string
   gateway_traversal_observed: boolean
-  path_basis: "observed_destination_with_configured_route" | string
+  path_basis:
+    | "observed_destination_with_configured_route"
+    | "legacy_destination_with_configured_route"
+    | "mixed_destination_with_configured_route"
+    | string
   route_basis?: string | null
   route_last_seen?: string | null
 }
@@ -534,6 +538,19 @@ export interface TrafficEdge {
   egress_hops?: EgressHop[] | null
   route_basis?: string | null
   route_last_seen?: string | null
+  /** v11 visual-continuation provenance carried into the render overlay.
+   *  These describe the independently evidenced facts joined by the canvas
+   *  edge and never make the combined edge authoritative. */
+  visual_relationship?: "VISUAL_CONTINUATION" | string | null
+  destination_evidence?: "observed" | "legacy_unverified" | "mixed" | string | null
+  gateway_evidence?: "configured" | string | null
+  gateway_traversal_observed?: boolean | null
+  projection_path_basis?:
+    | "observed_destination_with_configured_route"
+    | "legacy_destination_with_configured_route"
+    | "mixed_destination_with_configured_route"
+    | string
+    | null
   /** Lane 3 — attack-path overlay uses IAP PathEdgeDetail rows. */
   flow_highlight?: "attack_path" | null
 }

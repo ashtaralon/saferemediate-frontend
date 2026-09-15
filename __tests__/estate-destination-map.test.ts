@@ -385,6 +385,132 @@ describe("externalDestinationProjectionMap — topology-risk/v11", () => {
     expect(m.unidentifiedPeerSamples).toEqual(["10.42.99.17"])
   })
 
+  it("keeps observed and legacy-unverified destination evidence distinct", () => {
+    const mixed = structuredClone(projection)
+    const observed = mixed.nodes[0]
+    mixed.nodes.push({
+      ...observed,
+      id: "external-destination:legacy",
+      address: "18.202.1.11",
+      observation_count: null,
+      total_bytes: null,
+      first_seen: null,
+      last_seen: null,
+      evidence_type: "legacy_unverified",
+      evidence_source: "legacy_behavioral_graph",
+      evidence_ids: [],
+      projection_generation: null,
+    })
+    mixed.edges.push({
+      ...mixed.edges[0],
+      target_id: "external-destination:legacy",
+      destination_evidence: "legacy_unverified",
+      path_basis: "legacy_destination_with_configured_route",
+    })
+    mixed.counts.returned_destination_nodes = 2
+    mixed.counts.named_destination_nodes_before_bound = 2
+
+    const m = externalDestinationProjectionMap(mixed)!
+    expect(m.evidenceState).toBe("mixed")
+    expect(m.nodes.map(node => node.evidenceType)).toEqual(["observed", "legacy_unverified"])
+    expect(m.continuations.map(edge => edge.destinationEvidence)).toEqual([
+      "observed",
+      "legacy_unverified",
+    ])
+    expect(m.continuations.map(edge => edge.pathBasis)).toEqual([
+      "observed_destination_with_configured_route",
+      "legacy_destination_with_configured_route",
+    ])
+  })
+
+  it("accepts the backend's exact legacy node and continuation pair", () => {
+    const legacy = structuredClone(projection)
+    legacy.nodes[0] = {
+      ...legacy.nodes[0],
+      observation_count: null,
+      total_bytes: null,
+      first_seen: null,
+      last_seen: "2026-09-14T06:00:00Z",
+      evidence_type: "legacy_unverified",
+      evidence_source: "legacy_behavioral_graph",
+      evidence_ids: [],
+      projection_generation: null,
+    }
+    legacy.edges[0] = {
+      ...legacy.edges[0],
+      destination_evidence: "legacy_unverified",
+      path_basis: "legacy_destination_with_configured_route",
+    }
+
+    const m = externalDestinationProjectionMap(legacy)!
+    expect(m.evidenceState).toBe("legacy_unverified")
+    expect(m.nodes[0].observationCount).toBeNull()
+    expect(m.continuations[0]).toMatchObject({
+      destinationEvidence: "legacy_unverified",
+      gatewayEvidence: "configured",
+      gatewayTraversalObserved: false,
+      pathBasis: "legacy_destination_with_configured_route",
+    })
+  })
+
+  it("renders the backend's aggregate mixed evidence only with its matched mixed path", () => {
+    const mixed = structuredClone(projection)
+    mixed.nodes[0] = {
+      ...mixed.nodes[0],
+      evidence_type: "mixed",
+      evidence_source: "mixed",
+      projection_generation: null,
+    }
+    mixed.edges[0] = {
+      ...mixed.edges[0],
+      destination_evidence: "mixed",
+      path_basis: "mixed_destination_with_configured_route",
+    }
+
+    const m = externalDestinationProjectionMap(mixed)!
+    expect(m.evidenceState).toBe("mixed")
+    expect(m.nodes[0].evidenceType).toBe("mixed")
+    expect(m.continuations[0]).toMatchObject({
+      destinationEvidence: "mixed",
+      pathBasis: "mixed_destination_with_configured_route",
+    })
+  })
+
+  it("rejects malformed evidence rather than turning it into an observed line", () => {
+    const malformed = structuredClone(projection)
+    malformed.edges[0].destination_evidence = "legacy_unverified"
+    const m = externalDestinationProjectionMap(malformed)!
+    expect(m.nodes).toEqual([])
+    expect(m.unlinkedNodes).toHaveLength(1)
+    expect(m.continuations).toEqual([])
+    expect(m.rejectedEdgeCount).toBe(1)
+    expect(m.detailState).toBe("partial")
+    expect(m.availabilityReason).toContain("1 continuation edge")
+  })
+
+  it("makes a missing or unsupported v11 projection explicitly unavailable", () => {
+    const missing = externalDestinationProjectionMap(null)!
+    expect(missing.detailState).toBe("unavailable")
+    expect(missing.evidenceState).toBe("unavailable")
+    expect(missing.continuations).toEqual([])
+    expect(missing.availabilityReason).toContain("unavailable")
+
+    const unsupported = externalDestinationProjectionMap({
+      ...projection,
+      version: "estate-egress-destinations/v99",
+    })!
+    expect(unsupported.detailState).toBe("unavailable")
+    expect(unsupported.availabilityReason).toContain("unsupported")
+
+    const malformed = externalDestinationProjectionMap({
+      ...projection,
+      nodes: [null] as unknown as ExternalDestinationProjection["nodes"],
+    })!
+    expect(malformed.detailState).toBe("partial")
+    expect(malformed.rejectedNodeCount).toBe(1)
+    expect(malformed.continuations).toEqual([])
+  })
+
   it("does not fabricate a gateway link for a returned but unlinked destination", () => {
     const unlinked: ExternalDestinationProjection = {
       ...projection,
