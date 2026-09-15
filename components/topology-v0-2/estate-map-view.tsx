@@ -25,6 +25,7 @@ import { DetailPanel } from "@/components/topology-v0-2/detail-panel"
 import { IdentityAccessSurface } from "@/components/topology-v0-2/identity-access-panel"
 import { OutOfScopeOverflowLine } from "@/components/topology-v0-2/estate-out-of-scope"
 import { buildHeadlineNarrative } from "@/components/topology-v0-2/headline-narrative"
+import { resolveIdentityClaimAuthority } from "@/components/topology-v0-2/identity-claim-authority"
 import { RankedRail } from "@/components/topology-v0-2/ranked-rail"
 import type {
   DecisionRoutingSummary,
@@ -1234,9 +1235,26 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     return () => window.removeEventListener("keydown", onKeyDown)
   }, [mapEnlarged, selectedNode, closeEnlarged])
 
+  // The Identity & access surface, the headline and the system view resolve
+  // identity claims from one scope and one resolution, so a headline can never
+  // assert what the panel refuses.
+  const identityExpectedScope = useMemo(() => {
+    const topology = scopedVpcTopology ?? data?.vpc_topology
+    return {
+      account_id: topology?.account_id ?? data?.account_id,
+      region: topology?.region ?? data?.region,
+      system_name: systemName,
+      vpc_id: topology?.vpc_id ?? data?.vpc_id,
+    }
+  }, [scopedVpcTopology, data, systemName])
+  const identityClaims = useMemo(
+    () => resolveIdentityClaimAuthority(data?.response_contract_version, data?.identity_access, identityExpectedScope),
+    [data, identityExpectedScope],
+  )
+
   const narrative = useMemo(
-    () => (data?.system_kpis ? buildHeadlineNarrative(data) : null),
-    [data],
+    () => (data?.system_kpis ? buildHeadlineNarrative(data, identityClaims) : null),
+    [data, identityClaims],
   )
 
   // Only a real Wave D computing envelope (or hook flag while last-good is
@@ -2031,16 +2049,12 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
                   snapshotStale={Boolean(data.fromStaleCache || (isStale && cachedAt))}
                   nodes={chipCountNodes}
                   onSelect={focusIdentityWorkload}
-                  expectedScope={{
-                    account_id: mapVpcTopology?.account_id ?? data.account_id,
-                    region: mapVpcTopology?.region ?? data.region,
-                    system_name: systemName,
-                    vpc_id: mapVpcTopology?.vpc_id ?? data.vpc_id,
-                  }}
+                  expectedScope={identityExpectedScope}
                 />
               ) : (
                 <EstateSystemView
                   data={data}
+                  identityClaims={identityClaims}
                   selectedNodeId={selectedNodeId}
                   onSelectNode={id => {
                     setSelectedNodeId(id === selectedNodeId ? null : id)

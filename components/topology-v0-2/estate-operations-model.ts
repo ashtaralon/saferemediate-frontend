@@ -1,3 +1,11 @@
+import {
+  formatObservationClaim,
+  isMaterialObservation,
+  notObservedRatio,
+  observationForRole,
+  resolveIdentityClaimAuthority,
+  type IdentityClaimAuthority,
+} from "./identity-claim-authority"
 import type {
   IamRoleRollup,
   TopologyNode,
@@ -43,7 +51,8 @@ export interface EstatePosture {
   singleAzStateful: number
   sharedResources: number
   sharedConsumerSystems: number
-  riskyRoles: number
+  /** Roles whose configured actions are at least half not observed; null when identity cannot conclude. */
+  riskyRoles: number | null
   evidenceCoveragePct: number | null
   evidenceFresh: boolean | null
 }
@@ -54,6 +63,8 @@ export interface EstateCommandModel {
   priorities: EstatePriority[]
   connectionsByNode: Map<string, number>
   azCountByNode: Map<string, number>
+  /** The Identity & access resolution every identity claim in this model came from. */
+  identity: IdentityClaimAuthority
   roles: IamRoleRollup[]
 }
 
@@ -163,7 +174,7 @@ function uniqueValues(values: Array<string | null | undefined>): number {
 function buildPriorities(
   posture: EstatePosture,
   active: TopologyNode[],
-  roles: IamRoleRollup[],
+  identity: IdentityClaimAuthority,
   azCountByNode: Map<string, number>,
 ): EstatePriority[] {
   const priorities: EstatePriority[] = []
@@ -207,17 +218,20 @@ function buildPriorities(
     })
   }
 
-  const riskyRole = [...roles]
-    .filter(role => role.gap_percentage != null && role.gap_percentage >= 50)
-    .sort((left, right) => (right.gap_percentage ?? 0) - (left.gap_percentage ?? 0))[0]
-  if (riskyRole) {
+  // Identity priorities come from the Identity & access authority, never from
+  // the legacy rollup counters the panel refuses to conclude from.
+  const riskyObservation = identity.state === "ready"
+    ? [...identity.observations].filter(isMaterialObservation)
+      .sort((left, right) => notObservedRatio(right) - notObservedRatio(left))[0]
+    : undefined
+  if (riskyObservation) {
     priorities.push({
-      id: `role:${riskyRole.name}`,
+      id: `role:${riskyObservation.name}`,
       tone: "warning",
       lenses: ["operations", "security", "ownership"],
-      title: `${riskyRole.name} has a ${Math.round(riskyRole.gap_percentage ?? 0)}% permission gap`,
-      detail: `${riskyRole.unused_actions}/${riskyRole.allowed_actions} allowed actions are unused.`,
-      roleName: riskyRole.name,
+      title: `${riskyObservation.name} has ${formatObservationClaim(riskyObservation)}`,
+      detail: "Complete coverage in the verified decision generation; effective authorization remains unknown.",
+      roleName: riskyObservation.name,
     })
   }
 
@@ -263,10 +277,24 @@ function buildPriorities(
   return priorities
 }
 
-export function buildEstateCommandModel(data: TopologyRiskResponse): EstateCommandModel {
+export function buildEstateCommandModel(
+  data: TopologyRiskResponse,
+  identityClaims?: IdentityClaimAuthority,
+): EstateCommandModel {
   const nodes = data.nodes ?? []
   const active = nodes.filter(node => !node.stale)
   const roles = data.vpc_topology?.iam_roles ?? []
+  // Same resolution, and the same expected scope, as the Identity & access panel.
+  const identity = identityClaims ?? resolveIdentityClaimAuthority(
+    data.response_contract_version,
+    data.identity_access,
+    {
+      account_id: data.vpc_topology?.account_id ?? data.account_id,
+      region: data.vpc_topology?.region ?? data.region,
+      system_name: data.system,
+      vpc_id: data.vpc_topology?.vpc_id ?? data.vpc_id,
+    },
+  )
   const trafficEdges = data.traffic_edges ?? []
   const connectionsByNode = countConnections(trafficEdges)
   const azCountByNode = countNodeAzs(data)
@@ -321,7 +349,11 @@ export function buildEstateCommandModel(data: TopologyRiskResponse): EstateComma
       (node.foreign_consumer_system_count ?? 0) > 0,
     ).length,
     sharedConsumerSystems: sharedConsumerSystems.size,
-    riskyRoles: roles.filter(role => role.gap_percentage != null && role.gap_percentage >= 50).length,
+    // null when the identity authority cannot conclude: never a zero, and
+    // never a legacy rollup count.
+    riskyRoles: identity.state === "ready"
+      ? identity.observations.filter(isMaterialObservation).length
+      : null,
     evidenceCoveragePct: coveragePct,
     evidenceFresh: data.system_kpis?.posture_freshness?.is_fresh ?? null,
   }
@@ -339,11 +371,19 @@ export function buildEstateCommandModel(data: TopologyRiskResponse): EstateComma
   return {
     planes,
     posture,
-    priorities: buildPriorities(posture, active, roles, azCountByNode),
+    priorities: buildPriorities(posture, active, identity, azCountByNode),
     connectionsByNode,
     azCountByNode,
-    roles: [...roles].sort((left, right) =>
-      (right.gap_percentage ?? -1) - (left.gap_percentage ?? -1),
-    ),
+    identity,
+    // Attachment rows stay; their ranking follows the identity authority when
+    // it has one, and is alphabetical when it does not.
+    roles: [...roles].sort((left, right) => {
+      const leftClaim = observationForRole(identity, left)
+      const rightClaim = observationForRole(identity, right)
+      if (leftClaim && rightClaim) return notObservedRatio(rightClaim) - notObservedRatio(leftClaim)
+      if (leftClaim) return -1
+      if (rightClaim) return 1
+      return left.name.localeCompare(right.name)
+    }),
   }
 }

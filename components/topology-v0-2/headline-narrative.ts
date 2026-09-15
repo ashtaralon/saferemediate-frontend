@@ -1,7 +1,19 @@
 /**
  * Estate Map headline + ranked-rail copy — pure helpers over TopologyRiskResponse.
  * No fabricated numbers; reads only fields the risk contract already returns.
+ *
+ * An identity claim in the headline comes only from the Identity & access
+ * authority (`resolveIdentityClaimAuthority`), the same resolution the panel
+ * renders. The legacy `vpc_topology.iam_roles` counters never produce one.
  */
+import {
+  formatObservationClaim,
+  identityUnavailableNote,
+  isMaterialObservation,
+  notObservedRatio,
+  type IdentityClaimAuthority,
+  type IdentityRoleObservation,
+} from "./identity-claim-authority"
 import type {
   IamRoleRollup,
   SystemKpis,
@@ -14,6 +26,8 @@ export interface HeadlineNarrative {
   provenance: string
   spotlightNodeId: string | null
   spotlightRoleName: string | null
+  /** Why no identity claim can be made, when the identity authority is unavailable. */
+  identityNote: string | null
 }
 
 export type RankedEntry =
@@ -141,32 +155,39 @@ function iamHeadline(role: IamRoleRollup, workloads: TopologyNode[]): { title: s
   }
 }
 
-export function buildHeadlineNarrative(data: TopologyRiskResponse): HeadlineNarrative {
+function identityHeadline(observation: IdentityRoleObservation, workloads: TopologyNode[]): string {
+  const consumers = workloads
+    .filter(w => observation.workloadIds.includes(w.id))
+    .map(w => w.name)
+    .slice(0, 2)
+  const consumerText = consumers.length > 0 ? consumers.join(", ") : "no exact workload attachment returned"
+  return `${observation.name} has ${formatObservationClaim(observation)} (complete coverage) — attached to ${consumerText}`
+}
+
+export function buildHeadlineNarrative(
+  data: TopologyRiskResponse,
+  identity: IdentityClaimAuthority,
+): HeadlineNarrative {
   const nodes = (data.nodes ?? []).filter(n => !n.stale)
-  const roles = data.vpc_topology?.iam_roles ?? []
+  const provenance = buildProvenance(data.system_kpis, data.scored_at)
+  const identityNote = identityUnavailableNote(identity)
 
   const scored = [...nodes]
     .filter(n => n.score?.rank != null)
     .sort((a, b) => (a.score!.rank! - b.score!.rank!))
 
   const worstWorkload = scored.find(n => n.score && TIER_ORDER[n.score.tier] <= 1)
-  const correlatedRoles = roles
-    .filter(r => r.correlation_state === "correlated" && r.gap_percentage != null)
-    .sort((a, b) => (b.gap_percentage ?? 0) - (a.gap_percentage ?? 0))
-  const worstRole = correlatedRoles[0]
+  const worstObservation = identity.state === "ready"
+    ? [...identity.observations].sort((a, b) => notObservedRatio(b) - notObservedRatio(a))[0]
+    : undefined
 
-  const useIam =
-    !worstWorkload &&
-    worstRole &&
-    (worstRole.gap_percentage ?? 0) >= 50
-
-  if (useIam && worstRole) {
-    const h = iamHeadline(worstRole, nodes)
+  if (!worstWorkload && worstObservation && isMaterialObservation(worstObservation)) {
     return {
-      title: h.title,
-      provenance: buildProvenance(data.system_kpis, data.scored_at),
+      title: identityHeadline(worstObservation, nodes),
+      provenance,
       spotlightNodeId: null,
-      spotlightRoleName: worstRole.name,
+      spotlightRoleName: worstObservation.name,
+      identityNote,
     }
   }
 
@@ -174,27 +195,19 @@ export function buildHeadlineNarrative(data: TopologyRiskResponse): HeadlineNarr
     const h = workloadHeadline(worstWorkload)
     return {
       title: h.title,
-      provenance: buildProvenance(data.system_kpis, data.scored_at),
+      provenance,
       spotlightNodeId: worstWorkload.id,
       spotlightRoleName: null,
-    }
-  }
-
-  if (worstRole) {
-    const h = iamHeadline(worstRole, nodes)
-    return {
-      title: h.title,
-      provenance: buildProvenance(data.system_kpis, data.scored_at),
-      spotlightNodeId: null,
-      spotlightRoleName: worstRole.name,
+      identityNote,
     }
   }
 
   return {
     title: `${data.system} · ${nodes.length} workloads in scope`,
-    provenance: buildProvenance(data.system_kpis, data.scored_at),
+    provenance,
     spotlightNodeId: null,
     spotlightRoleName: null,
+    identityNote,
   }
 }
 

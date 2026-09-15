@@ -34,6 +34,13 @@ import {
   type EstatePlane,
   type EstatePriority,
 } from "./estate-operations-model"
+import {
+  formatObservationClaim,
+  identityUnavailableNote,
+  isMaterialObservation,
+  observationForRole,
+  type IdentityClaimAuthority,
+} from "./identity-claim-authority"
 import type { IamRoleRollup, TopologyNode, TopologyRiskResponse } from "./types"
 
 const COLORS = {
@@ -227,8 +234,20 @@ function Stat({ label, value, detail, tone = COLORS.ink }: { label: string; valu
   )
 }
 
-function IdentityRow({ role, onSelect }: { role: IamRoleRollup; onSelect?: (name: string) => void }) {
-  const risky = (role.gap_percentage ?? 0) >= 50
+function IdentityRow({
+  role,
+  identity,
+  onSelect,
+}: {
+  role: IamRoleRollup
+  identity: IdentityClaimAuthority
+  onSelect?: (name: string) => void
+}) {
+  // The claim line states only what the Identity & access authority states.
+  // A missing, older or partial contract shows unavailable, never a legacy
+  // count and never a zero.
+  const observation = observationForRole(identity, role)
+  const risky = observation != null && isMaterialObservation(observation)
   return (
     <button
       type="button"
@@ -242,10 +261,12 @@ function IdentityRow({ role, onSelect }: { role: IamRoleRollup; onSelect?: (name
         <Fingerprint className="h-3.5 w-3.5" style={{ color: risky ? COLORS.red : COLORS.teal }} />
         <span className="text-[11px] font-semibold truncate" style={{ color: COLORS.ink }}>{role.name}</span>
       </div>
-      <div className="text-[10px] mt-1 font-mono" style={{ color: COLORS.muted }}>
-        {role.gap_percentage != null
-          ? `${Math.round(role.gap_percentage)}% gap · ${role.unused_actions}/${role.allowed_actions} unused`
-          : role.correlation_state === "stale_rollup" ? "usage rollup recomputing" : "correlation pending"}
+      <div className="text-[10px] mt-1 font-mono" style={{ color: COLORS.muted }} data-testid={`estate-command-role-claim-${role.name}`}>
+        {observation
+          ? formatObservationClaim(observation)
+          : identity.state === "ready"
+            ? "no complete observation for this role"
+            : "identity & access unavailable"}
       </div>
     </button>
   )
@@ -253,6 +274,8 @@ function IdentityRow({ role, onSelect }: { role: IamRoleRollup; onSelect?: (name
 
 export interface EstateSystemViewProps {
   data: TopologyRiskResponse
+  /** The map view's Identity & access resolution, so every surface shares one scope. */
+  identityClaims?: IdentityClaimAuthority
   selectedNodeId: string | null
   onSelectNode: (id: string) => void
   onSelectRole?: (name: string) => void
@@ -265,6 +288,7 @@ export interface EstateSystemViewProps {
 
 export function EstateSystemView({
   data,
+  identityClaims,
   selectedNodeId,
   onSelectNode,
   onSelectRole,
@@ -274,8 +298,9 @@ export function EstateSystemView({
   decisionRouting = null,
 }: EstateSystemViewProps) {
   const [lens, setLens] = useState<EstateLens>("operations")
-  const model = useMemo(() => buildEstateCommandModel(data), [data])
+  const model = useMemo(() => buildEstateCommandModel(data, identityClaims), [data, identityClaims])
   const posture = model.posture
+  const identityNote = identityUnavailableNote(model.identity)
   const activeLens = LENSES.find(item => item.id === lens) ?? LENSES[0]
   const priorities = model.priorities.filter(priority => priority.lenses.includes(lens)).slice(0, 4)
   const readyCuts = decisionRouting?.by_decision_total
@@ -407,13 +432,24 @@ export function EstateSystemView({
                 <div className="text-[10px] mt-0.5" style={{ color: COLORS.muted }}>Roles attached to workloads in this estate scope</div>
               </div>
             </div>
-            <span className="text-[10px] font-mono" style={{ color: posture.riskyRoles ? COLORS.red : COLORS.teal }}>{posture.riskyRoles} material gaps</span>
+            <span
+              className="text-[10px] font-mono"
+              style={{ color: posture.riskyRoles ? COLORS.red : COLORS.teal }}
+              data-testid="estate-command-material-gaps"
+            >
+              {posture.riskyRoles === null ? "material gaps unavailable" : `${posture.riskyRoles} material gaps`}
+            </span>
           </div>
+          {identityNote ? (
+            <div className="text-[10px] mb-2" style={{ color: COLORS.amber }} data-testid="estate-command-identity-unavailable">
+              {identityNote}
+            </div>
+          ) : null}
           <div className="flex gap-2 overflow-x-auto pb-1">
             {model.roles.length ? model.roles.slice(0, 6).map(role => (
-              <IdentityRow key={role.role_arn ?? role.name} role={role} onSelect={onSelectRole} />
+              <IdentityRow key={role.role_arn ?? role.name} role={role} identity={model.identity} onSelect={onSelectRole} />
             )) : (
-              <div className="text-[11px] py-2" style={{ color: COLORS.muted }}>No correlated IAM roles in scope.</div>
+              <div className="text-[11px] py-2" style={{ color: COLORS.muted }}>No IAM roles attached in scope.</div>
             )}
           </div>
         </section>

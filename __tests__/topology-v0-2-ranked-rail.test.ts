@@ -4,7 +4,14 @@ import {
   buildHeadlineNarrative,
   buildRankedEntries,
 } from "@/components/topology-v0-2/headline-narrative"
+import type { IdentityClaimAuthority } from "@/components/topology-v0-2/identity-claim-authority"
 import type { IamRoleRollup, TopologyNode, TopologyRiskResponse } from "@/components/topology-v0-2/types"
+
+/** What the Identity & access panel resolves for a pre-v11 snapshot. */
+const IDENTITY_UNAVAILABLE: IdentityClaimAuthority = {
+  state: "unavailable",
+  reason: "Topology snapshot does not carry the v11 identity contract.",
+}
 
 function node(partial: Partial<TopologyNode> & { id: string; name: string }): TopologyNode {
   return {
@@ -86,7 +93,7 @@ describe("buildHeadlineNarrative", () => {
       ],
       vpc_topology: { region: "eu-west-1", account_id: "1", vpc_id: "vpc-1", azs: [], subnets: [], edges: { igws: [], nat_gws: [], vpces: [] }, unknown_subnet_count: 0, iam_roles: [] },
     }
-    const h = buildHeadlineNarrative(data)
+    const h = buildHeadlineNarrative(data, IDENTITY_UNAVAILABLE)
     expect(h.title).toContain("frontend-1")
     expect(h.title).toContain("LATENT_EXPOSURE")
     expect(h.title).toContain("inbound path open, unused")
@@ -95,7 +102,7 @@ describe("buildHeadlineNarrative", () => {
     expect(h.spotlightNodeId).toBe("a")
   })
 
-  test("falls back to IAM role when no high-tier workloads", () => {
+  test("never states an identity claim from legacy rollups when the panel has no authority", () => {
     const data: TopologyRiskResponse = {
       system: "alon-prod",
       scored_at: "2026-06-01T00:00:00Z",
@@ -114,9 +121,73 @@ describe("buildHeadlineNarrative", () => {
         iam_roles: [role({ name: "demo-ec2-s3-role", gap_percentage: 100, unused_actions: 7, allowed_actions: 7 })],
       },
     }
-    const h = buildHeadlineNarrative(data)
-    expect(h.title).toContain("demo-ec2-s3-role")
-    expect(h.spotlightRoleName).toBe("demo-ec2-s3-role")
+    const h = buildHeadlineNarrative(data, IDENTITY_UNAVAILABLE)
+    expect(h.title).not.toContain("demo-ec2-s3-role")
+    expect(h.title).not.toMatch(/unused|% gap/)
+    expect(h.title).toBe("alon-prod · 0 workloads in scope")
+    expect(h.spotlightRoleName).toBeNull()
+    expect(h.identityNote).toBe(
+      "Identity & access unavailable — Topology snapshot does not carry the v11 identity contract.",
+    )
+  })
+
+  test("states the identity claim the authority carries, in the panel's own vocabulary", () => {
+    const data: TopologyRiskResponse = {
+      system: "alon-prod",
+      scored_at: "2026-06-01T00:00:00Z",
+      scoring_window_days: 365,
+      vpc_id: "vpc-1",
+      system_kpis: null,
+      nodes: [node({ id: "w1", name: "payments-api" })],
+      vpc_topology: {
+        region: "eu-west-1", account_id: "1", vpc_id: "vpc-1", azs: [], subnets: [],
+        edges: { igws: [], nat_gws: [], vpces: [] }, unknown_subnet_count: 0,
+        iam_roles: [role({ name: "demo-ec2-s3-role", gap_percentage: 100, unused_actions: 7, allowed_actions: 7 })],
+      },
+    }
+    const ready: IdentityClaimAuthority = {
+      state: "ready",
+      observations: [{
+        roleId: "AROAEXAMPLE1",
+        roleArn: "arn:aws:iam::1:role/payments-api-role",
+        name: "payments-api-role",
+        workloadIds: ["w1"],
+        configuredActions: 4,
+        notObservedActions: 3,
+      }],
+    }
+    const h = buildHeadlineNarrative(data, ready)
+    expect(h.title).toBe(
+      "payments-api-role has 3/4 configured actions not observed (complete coverage) — attached to payments-api",
+    )
+    expect(h.title).not.toMatch(/unused|% gap/)
+    expect(h.spotlightRoleName).toBe("payments-api-role")
+    expect(h.identityNote).toBeNull()
+  })
+
+  test("an immaterial or absent observation leaves the neutral headline", () => {
+    const data: TopologyRiskResponse = {
+      system: "alon-prod",
+      scored_at: "2026-06-01T00:00:00Z",
+      scoring_window_days: 365,
+      vpc_id: "vpc-1",
+      system_kpis: null,
+      nodes: [],
+      vpc_topology: {
+        region: "eu-west-1", account_id: "1", vpc_id: "vpc-1", azs: [], subnets: [],
+        edges: { igws: [], nat_gws: [], vpces: [] }, unknown_subnet_count: 0,
+        iam_roles: [role({ name: "demo-ec2-s3-role" })],
+      },
+    }
+    const barely: IdentityClaimAuthority = {
+      state: "ready",
+      observations: [{
+        roleId: "AROAEXAMPLE1", roleArn: "arn:aws:iam::1:role/quiet", name: "quiet-role",
+        workloadIds: [], configuredActions: 10, notObservedActions: 1,
+      }],
+    }
+    expect(buildHeadlineNarrative(data, barely).title).toBe("alon-prod · 0 workloads in scope")
+    expect(buildHeadlineNarrative(data, { state: "ready", observations: [] }).identityNote).toBeNull()
   })
 })
 
