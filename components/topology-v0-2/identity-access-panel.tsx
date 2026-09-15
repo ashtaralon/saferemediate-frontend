@@ -288,6 +288,242 @@ function AuthorityLine({ projection }: { projection: IdentityAccessProjection })
   )
 }
 
+type IdentityAccessResolution = ReturnType<typeof resolveIdentityAccess>
+
+interface IdentityAccessRenderProps {
+  resolution: IdentityAccessResolution
+  snapshotStale: boolean
+  nodeNames: Map<string, string>
+  onFocusWorkload: (id: string) => void
+  showRelationships?: boolean
+  stickyHeader?: boolean
+}
+
+function IdentityRelationshipMap({
+  projection,
+  nodeNames,
+  onFocusWorkload,
+}: {
+  projection: IdentityAccessProjection
+  nodeNames: Map<string, string>
+  onFocusWorkload: (id: string) => void
+}) {
+  if (projection.roles.length === 0) return null
+  const relationshipCount = projection.roles.reduce((total, role) => total + role.workload_ids.length, 0)
+
+  return (
+    <section
+      className="mt-3 rounded-lg border border-indigo-100 bg-indigo-50/40 p-3"
+      aria-labelledby="topology-identity-relationship-heading"
+      data-testid="topology-identity-relationship-map"
+      data-relationship-count={relationshipCount}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <h3 id="topology-identity-relationship-heading" className="text-[11px] font-semibold text-slate-950">
+            Role → workload relationships
+          </h3>
+          <p className="mt-0.5 text-[9px] text-slate-600">
+            Exact RoleId attachments from the active inventory generation.
+          </p>
+        </div>
+        <span className="rounded border border-indigo-200 bg-white px-1.5 py-0.5 text-[9px] font-semibold text-indigo-800">
+          {relationshipCount} exact link{relationshipCount === 1 ? "" : "s"}
+        </span>
+      </div>
+      <ul className="mt-3 space-y-2" role="list">
+        {projection.roles.map(role => (
+          <li
+            key={role.role_id}
+            className="grid grid-cols-1 items-stretch gap-2 rounded-md border border-slate-200 bg-white p-2 md:grid-cols-[minmax(180px,0.8fr)_80px_minmax(220px,1.2fr)]"
+            data-testid="topology-identity-relationship-row"
+            data-role-id={role.role_id}
+          >
+            <div className="min-w-0 rounded border border-indigo-200 bg-indigo-50 px-2 py-1.5">
+              <div className="truncate text-[10px] font-semibold text-indigo-950" title={role.name}>{role.name}</div>
+              <div className="mt-0.5 truncate font-mono text-[8px] text-indigo-700" title={role.role_id}>{role.role_id}</div>
+            </div>
+            <div className="flex items-center justify-center gap-1 text-[9px] font-semibold text-slate-500" aria-hidden>
+              <span className="h-px min-w-3 flex-1 bg-indigo-300" />
+              <span>attached to</span>
+              <span>→</span>
+            </div>
+            <div className="flex min-w-0 flex-wrap items-center gap-1" data-testid="topology-identity-relationship-workloads">
+              {role.workload_ids.map(workloadId => (
+                <button
+                  key={workloadId}
+                  type="button"
+                  onClick={() => onFocusWorkload(workloadId)}
+                  className="max-w-full truncate rounded border border-teal-200 bg-teal-50 px-2 py-1.5 text-left text-[9px] font-semibold text-teal-900 hover:bg-teal-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
+                  title={`${nodeNames.get(workloadId) ?? workloadId} · ${workloadId}`}
+                  data-testid="topology-identity-relationship-workload"
+                  data-workload-id={workloadId}
+                >
+                  {nodeNames.get(workloadId) ?? workloadId}
+                </button>
+              ))}
+              {role.workload_ids.length === 0 ? (
+                <span className="text-[9px] text-slate-500">No exact workload attachment returned</span>
+              ) : null}
+            </div>
+            <div className="text-[8px] text-slate-500 md:col-span-3">
+              Reported attachment modes · {role.attachment_modes.join(", ") || "unavailable"}
+            </div>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
+function IdentityAccessContent({
+  resolution,
+  snapshotStale,
+  nodeNames,
+  onFocusWorkload,
+  showRelationships = false,
+  stickyHeader = false,
+}: IdentityAccessRenderProps) {
+  const projection = resolution.projection
+  return (
+    <>
+      <div className={`${stickyHeader ? "sticky top-0 z-10 " : ""}border-b border-slate-200 bg-white px-4 py-3`}>
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <div className="flex items-center gap-1.5 text-[13px] font-semibold text-slate-950">
+              <Fingerprint className="h-4 w-4 text-indigo-600" aria-hidden />
+              Identity &amp; access
+            </div>
+            <div className="mt-0.5 text-[10px] text-slate-600">
+              Configured grants, historical use, and effective authorization are separate facts.
+            </div>
+          </div>
+          <div className="flex gap-1">
+            <span className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-slate-700">
+              {resolution.state}
+            </span>
+            {snapshotStale ? (
+              <span className="rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-amber-800" data-testid="topology-identity-access-stale">
+                Stale snapshot
+              </span>
+            ) : null}
+          </div>
+        </div>
+      </div>
+
+      <div className="p-4">
+        {resolution.state === "unavailable" || !projection ? (
+          <div className="rounded-md border border-amber-200 bg-amber-50 p-3" data-testid="topology-identity-access-unavailable">
+            <div className="text-[11px] font-semibold text-amber-950">Identity &amp; access unavailable</div>
+            <div className="mt-1 text-[10px] leading-snug text-amber-900">{resolution.reason}</div>
+            <div className="mt-1 text-[10px] text-amber-900">No zero-role, unused, allow, or deny conclusion is available.</div>
+            {projection ? <GapList gaps={projection.gaps} testId="topology-identity-access-gaps" /> : null}
+            {projection ? <AuthorityLine projection={projection} /> : null}
+          </div>
+        ) : (
+          <>
+            <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] text-slate-600">
+              <span data-testid="topology-identity-role-totals">
+                {projection.roles_total} exact role{projection.roles_total === 1 ? "" : "s"} · {projection.roles_returned} returned
+              </span>
+              <span className="font-mono">{projection.scope.account_id} · {projection.scope.region}</span>
+            </div>
+
+            {projection.status === "partial" ? (
+              <div className="mt-2 rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-[10px] text-amber-950" data-testid="topology-identity-access-partial">
+                Identity evidence is partial. Available configured attachments remain visible; unavailable decision totals stay unknown.
+              </div>
+            ) : null}
+            {projection.roles_omitted_unresolved && projection.roles_omitted_unresolved > 0 ? (
+              <div className="mt-2 text-[10px] text-amber-900" data-testid="topology-identity-roles-unresolved">
+                {projection.roles_omitted_unresolved} attached role{projection.roles_omitted_unresolved === 1 ? " is" : "s are"} omitted because stable RoleId could not be resolved.
+              </div>
+            ) : null}
+            {projection.roles_truncated ? (
+              <div className="mt-2 rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-[10px] text-amber-950" data-testid="topology-identity-roles-truncated">
+                Showing {projection.roles_returned} of {projection.roles_total} exact roles. Counts include omitted details.
+              </div>
+            ) : null}
+            <GapList gaps={projection.gaps} testId="topology-identity-access-gaps" />
+
+            {showRelationships ? (
+              <IdentityRelationshipMap
+                projection={projection}
+                nodeNames={nodeNames}
+                onFocusWorkload={onFocusWorkload}
+              />
+            ) : null}
+
+            {projection.status === "ready" && projection.roles_total === 0 ? (
+              <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 p-3 text-[10px] text-slate-700" data-testid="topology-identity-access-empty">
+                No IAM roles are attached to resources in this Estate scope.
+              </div>
+            ) : (
+              <ul className="mt-3 space-y-3" role="list" data-testid="topology-identity-role-list">
+                {projection.roles.map(role => (
+                  <RoleCard
+                    key={role.role_id}
+                    role={role}
+                    systemName={projection.scope.system_name}
+                    workloadName={id => nodeNames.get(id) ?? id}
+                    onFocusWorkload={onFocusWorkload}
+                  />
+                ))}
+              </ul>
+            )}
+            {projection.status === "partial" && projection.roles.length === 0 ? (
+              <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-[10px] text-amber-950" data-testid="topology-identity-role-details-unavailable">
+                No exact role details are available in the returned projection. The reported totals and gaps remain authoritative.
+              </div>
+            ) : null}
+            <AuthorityLine projection={projection} />
+          </>
+        )}
+      </div>
+    </>
+  )
+}
+
+export function IdentityAccessSurface({
+  responseContractVersion,
+  identityAccess,
+  snapshotStale,
+  nodes,
+  onSelect,
+  expectedScope,
+}: {
+  responseContractVersion: unknown
+  identityAccess: unknown
+  snapshotStale: boolean
+  nodes: TopologyNode[]
+  onSelect: (id: string) => void
+  expectedScope?: IdentityAccessExpectedScope
+}) {
+  const resolution = useMemo(
+    () => resolveIdentityAccess(responseContractVersion, identityAccess, expectedScope),
+    [responseContractVersion, identityAccess, expectedScope],
+  )
+  const nodeNames = useMemo(() => new Map(nodes.map(node => [node.id, node.name])), [nodes])
+
+  return (
+    <section
+      className="h-full min-h-0 overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-sm"
+      aria-label="Identity and access"
+      data-testid="topology-identity-access-surface"
+      data-identity-status={resolution.state}
+      data-snapshot-stale={snapshotStale ? "true" : "false"}
+    >
+      <IdentityAccessContent
+        resolution={resolution}
+        snapshotStale={snapshotStale}
+        nodeNames={nodeNames}
+        onFocusWorkload={onSelect}
+        showRelationships
+      />
+    </section>
+  )
+}
+
 export function IdentityAccessControl({
   responseContractVersion,
   identityAccess,
@@ -368,91 +604,13 @@ export function IdentityAccessControl({
           target?.focus()
         }}
       >
-        <div className="sticky top-0 z-10 border-b border-slate-200 bg-white px-4 py-3">
-          <div className="flex flex-wrap items-start justify-between gap-2">
-            <div>
-              <div className="flex items-center gap-1.5 text-[13px] font-semibold text-slate-950">
-                <Fingerprint className="h-4 w-4 text-indigo-600" aria-hidden />
-                Identity &amp; access
-              </div>
-              <div className="mt-0.5 text-[10px] text-slate-600">
-                Configured grants, historical use, and effective authorization are separate facts.
-              </div>
-            </div>
-            <div className="flex gap-1">
-              <span className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-slate-700">
-                {resolution.state}
-              </span>
-              {snapshotStale ? (
-                <span className="rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-amber-800" data-testid="topology-identity-access-stale">
-                  Stale snapshot
-                </span>
-              ) : null}
-            </div>
-          </div>
-        </div>
-
-        <div className="p-4">
-          {resolution.state === "unavailable" || !projection ? (
-            <div className="rounded-md border border-amber-200 bg-amber-50 p-3" data-testid="topology-identity-access-unavailable">
-              <div className="text-[11px] font-semibold text-amber-950">Identity &amp; access unavailable</div>
-              <div className="mt-1 text-[10px] leading-snug text-amber-900">{resolution.reason}</div>
-              <div className="mt-1 text-[10px] text-amber-900">No zero-role, unused, allow, or deny conclusion is available.</div>
-              {projection ? <GapList gaps={projection.gaps} testId="topology-identity-access-gaps" /> : null}
-              {projection ? <AuthorityLine projection={projection} /> : null}
-            </div>
-          ) : (
-            <>
-              <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] text-slate-600">
-                <span data-testid="topology-identity-role-totals">
-                  {projection.roles_total} exact role{projection.roles_total === 1 ? "" : "s"} · {projection.roles_returned} returned
-                </span>
-                <span className="font-mono">{projection.scope.account_id} · {projection.scope.region}</span>
-              </div>
-
-              {projection.status === "partial" ? (
-                <div className="mt-2 rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-[10px] text-amber-950" data-testid="topology-identity-access-partial">
-                  Identity evidence is partial. Available configured attachments remain visible; unavailable decision totals stay unknown.
-                </div>
-              ) : null}
-              {projection.roles_omitted_unresolved && projection.roles_omitted_unresolved > 0 ? (
-                <div className="mt-2 text-[10px] text-amber-900" data-testid="topology-identity-roles-unresolved">
-                  {projection.roles_omitted_unresolved} attached role{projection.roles_omitted_unresolved === 1 ? " is" : "s are"} omitted because stable RoleId could not be resolved.
-                </div>
-              ) : null}
-              {projection.roles_truncated ? (
-                <div className="mt-2 rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-[10px] text-amber-950" data-testid="topology-identity-roles-truncated">
-                  Showing {projection.roles_returned} of {projection.roles_total} exact roles. Counts include omitted details.
-                </div>
-              ) : null}
-              <GapList gaps={projection.gaps} testId="topology-identity-access-gaps" />
-
-              {projection.status === "ready" && projection.roles_total === 0 ? (
-                <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 p-3 text-[10px] text-slate-700" data-testid="topology-identity-access-empty">
-                  No IAM roles are attached to resources in this Estate scope.
-                </div>
-              ) : (
-                <ul className="mt-3 space-y-3" role="list" data-testid="topology-identity-role-list">
-                  {projection.roles.map(role => (
-                    <RoleCard
-                      key={role.role_id}
-                      role={role}
-                      systemName={projection.scope.system_name}
-                      workloadName={id => nodeNames.get(id) ?? id}
-                      onFocusWorkload={focusWorkload}
-                    />
-                  ))}
-                </ul>
-              )}
-              {projection.status === "partial" && projection.roles.length === 0 ? (
-                <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-[10px] text-amber-950" data-testid="topology-identity-role-details-unavailable">
-                  No exact role details are available in the returned projection. The reported totals and gaps remain authoritative.
-                </div>
-              ) : null}
-              <AuthorityLine projection={projection} />
-            </>
-          )}
-        </div>
+        <IdentityAccessContent
+          resolution={resolution}
+          snapshotStale={snapshotStale}
+          nodeNames={nodeNames}
+          onFocusWorkload={focusWorkload}
+          stickyHeader
+        />
       </PopoverContent>
     </Popover>
   )

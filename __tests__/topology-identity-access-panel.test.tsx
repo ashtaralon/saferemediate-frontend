@@ -3,7 +3,7 @@ import React from "react"
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest"
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 
-import { IdentityAccessControl } from "@/components/topology-v0-2/identity-access-panel"
+import { IdentityAccessControl, IdentityAccessSurface } from "@/components/topology-v0-2/identity-access-panel"
 import { resolveIdentityAccess } from "@/components/topology-v0-2/identity-access-contract"
 import type { IdentityAccessProjection, TopologyNode } from "@/components/topology-v0-2/types"
 import fixture from "./fixtures/topology-risk/estate-map-v11-contract.json"
@@ -38,6 +38,22 @@ function renderControl(
       nodes={nodes}
       onSelect={options.onSelect ?? (() => {})}
       compact={false}
+    />,
+  )
+}
+
+function renderSurface(
+  identityAccess: unknown = clone(),
+  options: { stale?: boolean; onSelect?: (id: string) => void; version?: unknown } = {},
+) {
+  return render(
+    <IdentityAccessSurface
+      responseContractVersion={options.version ?? "topology-risk/v11"}
+      identityAccess={identityAccess}
+      snapshotStale={options.stale ?? false}
+      nodes={nodes}
+      onSelect={options.onSelect ?? (() => {})}
+      expectedScope={ready.scope}
     />,
   )
 }
@@ -278,5 +294,52 @@ describe("Identity & access on-demand panel", () => {
     fireEvent.keyDown(panel, { key: "Escape" })
     expect(screen.queryByTestId("topology-identity-access-panel")).toBeNull()
     await waitFor(() => expect(document.activeElement).toBe(trigger))
+  })
+})
+
+describe("Identity & access sibling surface", () => {
+  it("renders every exact RoleId-to-workload relationship without changing authority semantics", () => {
+    const onSelect = vi.fn()
+    const value = clone()
+    value.roles[0].workload_ids = [nodes[0].id, nodes[1].id]
+    const secondRole = structuredClone(value.roles[0])
+    secondRole.role_id = "AROAEXAMPLECYNTRO02"
+    secondRole.role_arn = "arn:aws:iam::416651950952:role/cyntro-testbed-webshop-worker"
+    secondRole.name = "cyntro-testbed-webshop-worker"
+    secondRole.workload_ids = [nodes[0].id]
+    value.roles.push(secondRole)
+    value.roles_total = 2
+    value.roles_returned = 2
+    renderSurface(value, { onSelect })
+
+    const surface = screen.getByTestId("topology-identity-access-surface")
+    expect(surface).toHaveAttribute("data-identity-status", "ready")
+    const relationshipMap = within(surface).getByTestId("topology-identity-relationship-map")
+    expect(relationshipMap).toHaveAttribute("data-relationship-count", "3")
+    expect(within(relationshipMap).getAllByTestId("topology-identity-relationship-row")[0]).toHaveAttribute(
+      "data-role-id",
+      value.roles[0].role_id,
+    )
+    expect(within(relationshipMap).getAllByTestId("topology-identity-relationship-row")[1]).toHaveAttribute(
+      "data-role-id",
+      secondRole.role_id,
+    )
+    const workloadLinks = within(relationshipMap).getAllByTestId("topology-identity-relationship-workload")
+    expect(workloadLinks).toHaveLength(3)
+    fireEvent.click(workloadLinks[1])
+    expect(onSelect).toHaveBeenCalledWith(nodes[1].id)
+    expect(within(surface).getAllByTestId("topology-identity-effective-authorization")[0]).toHaveTextContent(
+      "Effective authorization · Unknown",
+    )
+  })
+
+  it("keeps missing authority unavailable and does not render a relationship map", () => {
+    renderSurface(null)
+    const surface = screen.getByTestId("topology-identity-access-surface")
+    expect(within(surface).getByTestId("topology-identity-access-unavailable")).toHaveTextContent(
+      "was not projected",
+    )
+    expect(within(surface).queryByTestId("topology-identity-relationship-map")).toBeNull()
+    expect(within(surface).queryByTestId("topology-identity-access-empty")).toBeNull()
   })
 })

@@ -31,6 +31,16 @@ async function openFullscreenMap(page: Page, snapshot: Record<string, unknown>) 
   await expect(page.getByTestId("topology-estate-map-fullscreen")).toBeVisible()
 }
 
+async function openIdentitySurface(page: Page, snapshot: Record<string, unknown>) {
+  await routeSnapshot(page, snapshot as never)
+  await page.route("**/api/proxy/inspector/**", route => route.fulfill({ status: 404, contentType: "application/json", body: '{"detail":"fixture only"}' }))
+  await page.route("**/api/proxy/operational-map/**", route => route.fulfill({ status: 404, contentType: "application/json", body: '{"detail":"fixture only"}' }))
+  await page.route("**/api/proxy/decision-coverage/**", route => route.fulfill({ status: 404, contentType: "application/json", body: '{"detail":"fixture only"}' }))
+  await page.goto(`${ESTATE_URL}&surface=identity`, { waitUntil: "domcontentloaded" })
+  await expect(page.getByTestId("topology-estate-view-identity")).toHaveAttribute("aria-selected", "true", { timeout: 60_000 })
+  return page.getByTestId("topology-identity-access-surface")
+}
+
 async function expectViewportContained(locator: Locator, page: Page) {
   const box = await locator.boundingBox()
   expect(box).not.toBeNull()
@@ -39,6 +49,17 @@ async function expectViewportContained(locator: Locator, page: Page) {
   expect(box!.y).toBeGreaterThanOrEqual(0)
   expect(box!.x + box!.width).toBeLessThanOrEqual(viewport.width + 0.5)
   expect(box!.y + box!.height).toBeLessThanOrEqual(viewport.height + 0.5)
+}
+
+async function expectSurfaceViewportAligned(locator: Locator, page: Page) {
+  const box = await locator.boundingBox()
+  expect(box).not.toBeNull()
+  const viewport = page.viewportSize()!
+  expect(box!.x).toBeGreaterThanOrEqual(0)
+  expect(box!.x + box!.width).toBeLessThanOrEqual(viewport.width + 0.5)
+  expect(box!.y).toBeGreaterThanOrEqual(0)
+  expect(box!.y).toBeLessThan(viewport.height)
+  expect(box!.height).toBeGreaterThan(180)
 }
 
 async function expectPanelTopmost(page: Page) {
@@ -286,4 +307,81 @@ test("large exact role sets scroll inside the bounded panel", async ({ context, 
   await lastRole.scrollIntoViewIfNeeded()
   await expect(lastRole).toBeVisible()
   await expectViewportContained(panel, page)
+})
+
+for (const viewport of VIEWPORTS) {
+  test(`Identity & access is a permanent sibling surface at ${viewport.name}`, async ({ context, page }) => {
+    test.setTimeout(120_000)
+    const fixture = v11IdentityAccessSnapshot()
+    const unexpectedRequests: string[] = []
+    page.on("request", request => {
+      if (
+        request.url().includes("/api/proxy/identities/data-access/")
+        || request.url().includes("/api/proxy/iam-roles/")
+        || request.url().includes("/api/proxy/least-privilege/roles/")
+      ) unexpectedRequests.push(request.url())
+    })
+    await seedAuthCookie(context)
+    await page.setViewportSize({ width: viewport.width, height: viewport.height })
+    await page.emulateMedia({ reducedMotion: "reduce" })
+    const surface = await openIdentitySurface(page, fixture.snapshot)
+
+    await expect(surface).toBeVisible()
+    await expect(surface).toHaveAttribute("data-identity-status", "ready")
+    await expect(surface.getByTestId("topology-identity-relationship-map")).toHaveAttribute("data-relationship-count", "1")
+    await expect(surface.getByTestId("topology-identity-relationship-row")).toHaveAttribute(
+      "data-role-id",
+      fixture.identityAccess.roles[0].role_id,
+    )
+    await expect(surface.getByTestId("topology-identity-effective-authorization").first()).toContainText(
+      "Effective authorization · Unknown",
+    )
+    await expect(page).toHaveURL(/(?:\?|&)surface=identity(?:&|$)/)
+    await expectSurfaceViewportAligned(surface, page)
+    await expect(page.getByTestId("topology-az-scope")).toHaveCount(0)
+    await expect(page.getByTestId("topology-service-scope")).toHaveCount(0)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true)
+    expect(unexpectedRequests).toEqual([])
+
+    if (viewport.name === "1512x771" || viewport.name === "1366x768") {
+      await page.screenshot({
+        path: path.join(ARTIFACT_DIR, `frontend-identity-surface-${viewport.name}.png`),
+        fullPage: false,
+      })
+    }
+
+    if (viewport.name === "1600x900") {
+      const identityTab = page.getByTestId("topology-estate-view-identity")
+      await identityTab.focus()
+      await page.keyboard.press("Home")
+      await expect(page.getByTestId("topology-estate-view-inventory")).toHaveAttribute("aria-selected", "true")
+      await page.keyboard.press("End")
+      await expect(identityTab).toHaveAttribute("aria-selected", "true")
+      await expect(identityTab).toBeFocused()
+
+      const workload = surface.getByTestId("topology-identity-relationship-workload")
+      await expect(workload).toHaveAttribute("data-workload-id", fixture.browserSourceId)
+      await workload.click()
+      await expect(page.getByTestId("topology-estate-view-map")).toHaveAttribute("aria-selected", "true")
+      await expect(page.getByTestId("topology-az-scope")).toBeVisible()
+      await expect(page.getByTestId("topology-service-scope")).toBeVisible()
+      await expect(page).not.toHaveURL(/(?:\?|&)surface=identity(?:&|$)/)
+      await expect.poll(() => page.evaluate(() => (document.activeElement as HTMLElement | null)?.dataset.flowId ?? null)).toBe(fixture.browserSourceId)
+      await page.goBack()
+      await expect(identityTab).toHaveAttribute("aria-selected", "true")
+      await expect(page).toHaveURL(/(?:\?|&)surface=identity(?:&|$)/)
+    }
+  })
+}
+
+test("direct Identity surface keeps missing v1 authority unavailable", async ({ context, page }) => {
+  const fixture = v11IdentityAccessSnapshot()
+  const snapshot = structuredClone(fixture.snapshot) as Record<string, unknown>
+  delete snapshot.identity_access
+  await seedAuthCookie(context)
+  await page.setViewportSize({ width: 1024, height: 720 })
+  const surface = await openIdentitySurface(page, snapshot)
+  await expect(surface.getByTestId("topology-identity-access-unavailable")).toContainText("was not projected")
+  await expect(surface.getByTestId("topology-identity-relationship-map")).toHaveCount(0)
+  await expect(surface.getByTestId("topology-identity-access-empty")).toHaveCount(0)
 })
