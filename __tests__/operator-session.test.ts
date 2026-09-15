@@ -235,14 +235,45 @@ describe("server-derived identity on the account admin proxy", () => {
     expect(headers.has("authorization")).toBe(false)
   })
 
-  it("never returns the token from the session endpoint", async () => {
+  it("reports backend-verified roles and permissions without any token material", async () => {
     const token = await idToken(claims())
     const session = await sealJson({ v: 1, idToken: token, subject: "operator-42", issuer: ISSUER, name: "Operator", email: "op@example.test", expiresAt: Math.floor(Date.now() / 1000) + 600 }, process.env.CYNTRO_OPERATOR_SESSION_SECRET!, OPERATOR_SESSION_COOKIE)
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input instanceof Request ? input.url : input)
+      upstreamCalls.push({ url, init })
+      if (url.startsWith("http://backend.internal:8000/api/admin/accounts/onboarding/operator")) {
+        return Response.json({ operator: { identity_source: "bearer_verified", actor: `${ISSUER}#operator-42`, display_name: "Operator", email: "op@example.test", tenant_id: "acme", roles: ["OPERATOR"], account_scope: [], tenant_wide: true, permissions: { read: true, submit: true, cancel: true }, session: { revocable: true, expires_at: "2026-09-15T11:00:00+00:00" } } })
+      }
+      return Response.json({})
+    }))
     const { GET } = await import("@/app/api/auth/operator/session/route")
-    const response = await GET(new NextRequest(`${ORIGIN}/api/auth/operator/session`, { headers: { cookie: `${OPERATOR_SESSION_COOKIE}=${session}` } }))
+    const response = await GET(new NextRequest(`${ORIGIN}/api/auth/operator/session?customer_id=acme`, { headers: { cookie: `${OPERATOR_SESSION_COOKIE}=${session}` } }))
     const text = await response.text()
-    expect(JSON.parse(text)).toMatchObject({ mode: "HOSTED_OIDC", configured: true, signed_in: true, operator: { name: "Operator" } })
+    expect(JSON.parse(text)).toMatchObject({ mode: "HOSTED_OIDC", signed_in: true, verified: "VERIFIED", operator: { tenant_id: "acme", roles: ["OPERATOR"], permissions: { submit: true } } })
     expect(text).not.toContain(token.split(".")[1])
+    expect(text).not.toContain("actor")
+    const backendCall = upstreamCalls.find((call) => call.url.startsWith("http://backend.internal:8000"))
+    expect(backendCall?.url).toBe("http://backend.internal:8000/api/admin/accounts/onboarding/operator?customer_id=acme")
+    expect(new Headers(backendCall?.init?.headers).get("authorization")).toBe(`Bearer ${token}`)
+  })
+
+  it("clears a session the backend refuses and fails closed when it cannot verify", async () => {
+    const token = await idToken(claims())
+    const session = await sealJson({ v: 1, idToken: token, subject: "operator-42", issuer: ISSUER, name: "", email: "", expiresAt: Math.floor(Date.now() / 1000) + 600 }, process.env.CYNTRO_OPERATOR_SESSION_SECRET!, OPERATOR_SESSION_COOKIE)
+    const { GET } = await import("@/app/api/auth/operator/session/route")
+    const request = () => new NextRequest(`${ORIGIN}/api/auth/operator/session`, { headers: { cookie: `${OPERATOR_SESSION_COOKIE}=${session}` } })
+
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ detail: { error: "OPERATOR_SESSION_REVOKED" } }, { status: 401 })))
+    const revoked = await GET(request())
+    expect(await revoked.json()).toMatchObject({ signed_in: false, verified: "REFUSED", reason: "OPERATOR_SESSION_REVOKED", operator: null })
+    expect(revoked.cookies.get(OPERATOR_SESSION_COOKIE)?.maxAge).toBe(0)
+
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("fetch failed") }))
+    const unavailable = await GET(request())
+    expect(await unavailable.json()).toMatchObject({ signed_in: true, verified: "UNAVAILABLE", operator: null })
+
+    const anonymous = await GET(new NextRequest(`${ORIGIN}/api/auth/operator/session`))
+    expect(await anonymous.json()).toMatchObject({ signed_in: false, verified: "NOT_SIGNED_IN" })
   })
 })
 
@@ -259,6 +290,39 @@ describe("sign-out and response hygiene", () => {
     expect(cleared?.value).toBe("")
     expect(cleared?.maxAge).toBe(0)
     expect((await response.json()).end_session_url).toBeNull()
+  })
+
+  it("records the sign-out with the backend before clearing, and says when it could not", async () => {
+    const token = await idToken(claims())
+    const session = await sealJson({ v: 1, idToken: token, subject: "operator-42", issuer: ISSUER, name: "", email: "", expiresAt: Math.floor(Date.now() / 1000) + 600 }, process.env.CYNTRO_OPERATOR_SESSION_SECRET!, OPERATOR_SESSION_COOKIE)
+    const { POST } = await import("@/app/api/auth/operator/logout/route")
+    const request = () => new NextRequest(`${ORIGIN}/api/auth/operator/logout`, { method: "POST", headers: { origin: ORIGIN, cookie: `${OPERATOR_SESSION_COOKIE}=${session}` } })
+    let signOutCalls = 0
+    const stub = (status: number) => vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input instanceof Request ? input.url : input)
+      if (url.startsWith("http://backend.internal:8000/api/admin/accounts/onboarding/operator/sign-out")) {
+        signOutCalls += 1
+        expect(init?.method).toBe("POST")
+        expect(new Headers(init?.headers).get("authorization")).toBe(`Bearer ${token}`)
+        return Response.json(status === 200 ? { revoked: true } : { detail: { error: "OPERATOR_SIGN_OUT_NOT_RECORDED" } }, { status })
+      }
+      if (url === `${ISSUER}/.well-known/openid-configuration`) return Response.json({ issuer: ISSUER, authorization_endpoint: `${ISSUER}/authorize`, token_endpoint: `${ISSUER}/token`, jwks_uri: `${ISSUER}/keys` })
+      return Response.json({})
+    }))
+
+    stub(200)
+    const recorded = await POST(request())
+    expect(recorded.status).toBe(200)
+    expect(await recorded.json()).toMatchObject({ signed_in: false, revocation: "RECORDED" })
+    expect(recorded.cookies.get(OPERATOR_SESSION_COOKIE)?.maxAge).toBe(0)
+
+    resetOperatorOidcCaches()
+    stub(503)
+    const notRecorded = await POST(request())
+    expect(notRecorded.status).toBe(503)
+    expect(await notRecorded.json()).toMatchObject({ signed_in: false, revocation: "NOT_RECORDED" })
+    expect(notRecorded.cookies.get(OPERATOR_SESSION_COOKIE)?.maxAge).toBe(0)
+    expect(signOutCalls).toBe(2)
   })
 
   it("hands the UI the identity provider's end-session endpoint without an id_token_hint", async () => {

@@ -397,3 +397,40 @@ export async function serverDerivedOperatorHeaders(request: Pick<NextRequest, "c
   const session = await readOperatorSession(request)
   return session ? { Authorization: `Bearer ${session.idToken}` } : {}
 }
+
+// ── verified operator state from the backend ────────────────────────────
+
+export type BackendOperatorCall =
+  | { kind: "OK"; status: number; body: Record<string, unknown> }
+  | { kind: "REFUSED"; status: number; code: string }
+  | { kind: "UNAVAILABLE"; status: number | null; code: string }
+
+/**
+ * Call a backend onboarding operator route with the server-derived identity.
+ * The backend verifies the credential, maps role and tenant from its own trust
+ * configuration and checks shared revocation; this server only relays.
+ */
+export async function callBackendOperatorRoute(
+  request: Pick<NextRequest, "cookies" | "headers">,
+  backendBaseUrl: string,
+  path: "/operator" | "/operator/sign-out",
+  { method = "GET", customerId }: { method?: "GET" | "POST"; customerId?: string | null } = {},
+): Promise<BackendOperatorCall> {
+  const target = new URL(`${backendBaseUrl}/api/admin/accounts/onboarding${path}`)
+  if (customerId) target.searchParams.set("customer_id", customerId)
+  try {
+    const response = await fetch(target, {
+      method,
+      headers: { Accept: "application/json", ...(await serverDerivedOperatorHeaders(request)) },
+      cache: "no-store",
+    })
+    const payload = (await response.json().catch(() => null)) as Record<string, unknown> | null
+    const detail = payload && typeof payload.detail === "object" && payload.detail ? payload.detail as Record<string, unknown> : {}
+    const code = typeof detail.error === "string" ? detail.error : `HTTP_${response.status}`
+    if (response.ok && payload) return { kind: "OK", status: response.status, body: payload }
+    if (response.status === 401 || response.status === 403 || response.status === 409) return { kind: "REFUSED", status: response.status, code }
+    return { kind: "UNAVAILABLE", status: response.status, code }
+  } catch {
+    return { kind: "UNAVAILABLE", status: null, code: "BACKEND_UNREACHABLE" }
+  }
+}
