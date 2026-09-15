@@ -19,6 +19,32 @@ export const accountOnboardingStatuses = [
 export type AccountOnboardingOperationType = typeof accountOnboardingOperationTypes[number]
 export type AccountOnboardingStatus = typeof accountOnboardingStatuses[number]
 
+export interface SavedOnboardingIntentIdentity {
+  signature: string
+  requestId: string
+  idempotencyKey: string
+}
+
+function correlationId(prefix: string): string {
+  const value = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(16).slice(2)}`
+  return `${prefix}-${value}`
+}
+
+export function reuseOnboardingIntentIdentity(
+  current: SavedOnboardingIntentIdentity | undefined,
+  signature: string,
+  operationType: AccountOnboardingOperationType,
+): SavedOnboardingIntentIdentity {
+  if (current?.signature === signature) return current
+  return {
+    signature,
+    requestId: correlationId("request"),
+    idempotencyKey: correlationId(operationType === "REGISTER_METADATA" ? "register" : "validate"),
+  }
+}
+
 const lifecycleStates = [
   "INSTALLING",
   "PROVISIONING",

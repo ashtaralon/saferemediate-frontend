@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("@/components/left-sidebar-nav", () => ({ LeftSidebarNav: () => null }))
 
-import { AddAccountDialog } from "@/app/settings/accounts/page"
+import { AddAccountDialog } from "@/components/settings/account-onboarding-dialog"
 
 function operation(status: "QUEUED" | "RUNNING" | "SUCCEEDED" | "BLOCKED" | "FAILED", operationType: "REGISTER_METADATA" | "VALIDATE_ACCESS" = "REGISTER_METADATA") {
   const terminal = ["SUCCEEDED", "BLOCKED", "FAILED"].includes(status)

@@ -111,7 +111,10 @@ async function routeSettings(page: Page, setupUnavailable = false, stayQueued = 
 
 async function openDialog(page: Page) {
   await page.goto(SETTINGS_URL, { waitUntil: "domcontentloaded" })
-  await page.getByRole("button", { name: "Add AWS account" }).click()
+  const addAccount = page.getByRole("button", { name: "Add AWS account" })
+  await expect(addAccount).toHaveAttribute("data-hydrated", "true")
+  await expect(addAccount).toBeEnabled()
+  await addAccount.click()
   const dialog = page.getByRole("dialog", { name: "Add an AWS account" })
   await expect(dialog).toBeVisible()
   await expect(page.getByLabel("Account name")).toBeFocused()
