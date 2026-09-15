@@ -55,7 +55,7 @@ export function BlastRadiusView({ systemName }: { systemName: string }) {
   // SWR cache key to the operator's active Estate scope.
   const scope = normalizeBlastRadiusScope(useAccountScope())
   const url = buildBlastRadiusUrl(systemName, scope)
-  const cacheKey = `bs-${buildBlastRadiusCacheKey(systemName, scope)}`
+  const cacheKey = buildBlastRadiusCacheKey(systemName, scope)
   const { data, loading, error, isStale, retry } = useCachedFetch<BlastRadiusResponse>(url, {
     cacheKey,
     maxStaleMs: 10 * 60 * 1000,

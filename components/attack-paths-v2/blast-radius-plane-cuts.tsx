@@ -6,7 +6,11 @@
  */
 
 import { useCachedFetch } from "@/lib/use-cached-fetch"
-import { buildBlastRadiusUrl, type BlastRadiusScope } from "./blast-radius-scope"
+import {
+  buildBlastRadiusCacheKey,
+  buildBlastRadiusUrl,
+  type BlastRadiusScope,
+} from "./blast-radius-scope"
 
 interface DependencyItem {
   jewel_type: string
@@ -107,7 +111,7 @@ export function BlastRadiusPlaneCuts({
 }) {
   const url = buildBlastRadiusUrl(systemName, scope)
   const { data, loading, error, retry } = useCachedFetch<PlaneCutsPayload>(url, {
-    cacheKey: `blast-radius:${url}`,
+    cacheKey: buildBlastRadiusCacheKey(systemName, scope),
   })
 
   if (loading && !data) {

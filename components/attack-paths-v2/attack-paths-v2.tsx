@@ -1303,11 +1303,7 @@ export function AttackPathsV2({
             />
             <ZoomMinus1Landing
               systemName={systemName}
-              scope={{
-                customerId: searchParams?.get("customer_id"),
-                accountId: searchParams?.get("account_id"),
-                region: searchParams?.get("region"),
-              }}
+              scope={blastRadiusScope}
             />
           </>
         ) : (

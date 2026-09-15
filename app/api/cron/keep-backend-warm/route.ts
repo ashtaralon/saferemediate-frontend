@@ -281,16 +281,24 @@ export async function GET() {
     }
     try {
       const body = await res.json()
+      // The /api/systems envelope stamps the authoritative tenant scope at
+      // body.scope.customer_id (the request scope resolved server-side);
+      // individual rows carry per-system account_id / region. Reading
+      // customer_id from each row instead would come back undefined and
+      // silently skip every blast-radius prewarm — see the P0.3 follow-up
+      // review 2026-09-15.
+      const customerId =
+        typeof body?.scope?.customer_id === "string" && body.scope.customer_id
+          ? body.scope.customer_id
+          : null
       systems = (body?.systems ?? [])
         .map((s: {
           name?: string
-          customer_id?: string
           account_id?: string
           region?: string
         }): SystemTarget | null => {
           const name = typeof s?.name === "string" ? s.name : ""
           if (!name) return null
-          const customerId = typeof s.customer_id === "string" && s.customer_id ? s.customer_id : null
           const accountId =
             typeof s.account_id === "string" && ACCOUNT_ID_RE.test(s.account_id) ? s.account_id : null
           const region = typeof s.region === "string" && REGION_RE.test(s.region) ? s.region : null
@@ -328,7 +336,11 @@ export async function GET() {
         // Legacy 503 compute_in_progress may linger until backends roll.
         // "skipped_missing_scope" = the /api/systems response didn't include
         //   enough scope to prewarm honestly; not a failure to alert on.
-        if (r.status === 200 || r.status === 503) return false
+        if (r.status === 200) return false
+        // A scoped blast-radius 503 is now a real failure. The only expected
+        // missing-scope state is the explicit skip below; accepting 503 here
+        // would recreate the production bug as a green prewarm log.
+        if (r.status === 503 && r.kind !== "blast_radius") return false
         if (r.status === "skipped_missing_scope") return false
         return true
       },
@@ -336,6 +348,11 @@ export async function GET() {
     if (failures.length > 0) {
       console.warn(
         `[keep-warm] prewarm sweep failures: ${JSON.stringify(failures)}`,
+      )
+    } else if (sweep.some((r) => r.status === "skipped_missing_scope")) {
+      const skipped = sweep.filter((r) => r.status === "skipped_missing_scope").length
+      console.warn(
+        `[keep-warm] prewarm sweep partial — ${skipped}/${sweep.length} probes skipped for missing scope`,
       )
     } else if (sweep.length > 0) {
       console.log(

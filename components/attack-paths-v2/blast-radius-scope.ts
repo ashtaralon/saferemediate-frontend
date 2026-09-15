@@ -6,10 +6,11 @@ export interface BlastRadiusScope {
 
 /**
  * Serving-graph blast-radius reads require an explicit Estate scope
- * (customer / account / region). The backend fails closed on graph inference
- * — an unscoped GET returns 503 rather than a cross-tenant answer. Both the
- * proxy URL and the client cache key must carry the same scope so a switch
- * across accounts/regions cannot serve another tenant's cached compose.
+ * (customer / account / region). The backend fails closed on graph
+ * inference — an unscoped or partial GET returns 503, and cached responses
+ * across scope are cross-tenant paints. Both the proxy URL and the client
+ * cache key must carry the same normalized scope so a switch across
+ * accounts/regions cannot serve another tenant's cached compose.
  */
 
 const ACCOUNT_ID_RE = /^\d{12}$/
@@ -43,22 +44,44 @@ export function normalizeBlastRadiusScope(
   }
 }
 
-export function buildBlastRadiusUrl(systemName: string, scope: BlastRadiusScope): string | null {
+/** True only when every part the backend contract requires is present. */
+export function isBlastRadiusScopeComplete(scope: BlastRadiusScope): scope is {
+  customerId: string
+  accountId: string
+  region: string
+} {
+  if (!scope.customerId || scope.customerId === "all") return false
+  if (!scope.accountId || !ACCOUNT_ID_RE.test(scope.accountId)) return false
+  if (!scope.region || !REGION_RE.test(scope.region)) return false
+  return true
+}
+
+/**
+ * Build the scoped proxy URL, or null when the operator's scope is not yet
+ * complete enough to hit the backend safely. The composer refuses to infer
+ * scope — sending a partial GET just guarantees a 503 and wastes the round
+ * trip. Callers pass `null` to `useCachedFetch` to wait honestly instead
+ * of painting an error over an empty scope-bar.
+ */
+export function buildBlastRadiusUrl(
+  systemName: string,
+  scope: BlastRadiusScope,
+): string | null {
   if (!systemName) return null
-  const params = new URLSearchParams()
-  if (scope.customerId) params.set("customer_id", scope.customerId)
-  if (scope.accountId) params.set("account_id", scope.accountId)
-  if (scope.region) params.set("region", scope.region)
-  const query = params.toString()
-  const base = `/api/proxy/business-system/${encodeURIComponent(systemName)}/blast-radius`
-  return query ? `${base}?${query}` : base
+  if (!isBlastRadiusScopeComplete(scope)) return null
+  const params = new URLSearchParams({
+    customer_id: scope.customerId,
+    account_id: scope.accountId,
+    region: scope.region,
+  })
+  return `/api/proxy/business-system/${encodeURIComponent(systemName)}/blast-radius?${params.toString()}`
 }
 
 /**
  * SWR/localStorage cache key that is distinct across tenant, account and
- * region. Without this the browser would paint a cached testbed compose on
- * an alon-prod session (or vice-versa) whenever the operator switched scope
- * within the same tab — see the P0.3 incident 2026-09-15.
+ * region so a switch across accounts/regions cannot paint another tenant's
+ * cached compose. Callers may pass any (possibly incomplete) scope: the key
+ * still varies, which is what SWR needs to segregate cached entries.
  */
 export function buildBlastRadiusCacheKey(
   systemName: string,
