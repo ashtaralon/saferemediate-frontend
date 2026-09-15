@@ -111,11 +111,12 @@ test.describe.serial("account onboarding v2 in Chromium", () => {
     const dialog = await openDialog(page)
     const { flow } = await connectSingle(dialog, SINGLE_DENIED, "Wrong trust")
     expect(await operationStatus(flow, ["SUCCEEDED", "BLOCKED", "FAILED"])).toBe("BLOCKED")
-    await expect(flow.getByText(/could not assume the role/i)).toBeVisible()
-    await expect(flow.getByText("ASSUME_ROLE_DENIED", { exact: false })).toBeVisible()
+    const card = flow.getByTestId("onboarding-operation").last()
+    await expect(card.getByRole("paragraph").filter({ hasText: /could not assume the role/i }).first()).toBeVisible()
+    await expect(card.getByText("ASSUME_ROLE_DENIED", { exact: false }).first()).toBeVisible()
     const firstId = await flow.getByTestId("onboarding-operation").locator(".font-mono").first().textContent()
     await flow.getByRole("button", { name: "Retry" }).click()
-    await expect(flow.getByText(/retry of/)).toBeVisible({ timeout: 30_000 })
+    await expect(flow.getByText(/retry of/).first()).toBeVisible({ timeout: 30_000 })
     expect(await operationStatus(flow, ["BLOCKED", "FAILED", "SUCCEEDED"])).toBe("BLOCKED")
     await shoot(page, "single-account-denied-retried")
     record("single_account_denied", { account: SINGLE_DENIED, first_operation: firstId, retried: true })
@@ -153,7 +154,7 @@ test.describe.serial("account onboarding v2 in Chromium", () => {
     await expect(flow.getByTestId("organization-counts")).toHaveText(/^2 connected · 1 need attention · 0 pending/)
     await shoot(page, "organization-partially-succeeded")
     await row(members.checkout).getByRole("button", { name: "Retry" }).click()
-    await expect(flow.getByTestId("organization-connect").getByText(/retry of/)).toBeVisible({ timeout: 30_000 })
+    await expect(flow.getByTestId("organization-connect").getByText(/retry of/).first()).toBeVisible({ timeout: 30_000 })
     record("organization_partial_failure", {
       management_account: management,
       children: { payments: "SUCCEEDED", ledger: "SUCCEEDED", checkout: "BLOCKED", sandbox_out_of_scope: true },
