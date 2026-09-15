@@ -10,9 +10,14 @@ import { sealJson, unsealJson } from "@/lib/server/operator-session"
  *
  * Key: `CYNTRO_SITE_SESSION_SECRET` (32+ characters) when set. Otherwise a key is
  * derived from `SITE_PASSWORD` with PBKDF2, so a deployment keeps working without
- * a new variable, and rotating the password ends every site session. The
- * derivation is deliberately slow so a captured cookie is a poor oracle for
- * guessing the password.
+ * a new variable. The derivation is deliberately slow so a captured cookie is a
+ * poor oracle for guessing the password.
+ *
+ * Ending every site session:
+ * - derived-key mode (no CYNTRO_SITE_SESSION_SECRET): rotate SITE_PASSWORD;
+ * - explicit-key mode: rotate CYNTRO_SITE_SESSION_SECRET. Rotating SITE_PASSWORD
+ *   alone then only stops new sign-ins; cookies already issued stay valid until
+ *   their 30-day expiry.
  */
 export const SITE_SESSION_COOKIE = "cyntro_auth"
 export const SITE_SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30
