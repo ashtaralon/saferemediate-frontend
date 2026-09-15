@@ -67,6 +67,7 @@ import {
 } from "./types"
 import { resolveCoverageGaps } from "./coverage-gaps"
 import { IdentityAccessControl } from "./identity-access-panel"
+import { usePrefersReducedMotion } from "./use-prefers-reduced-motion"
 import { normalizeVpcTopology } from "./normalize-topology"
 import { createMap } from "./native-map"
 import type { EstateFlowMode } from "./estate-flow-edges"
@@ -5017,6 +5018,7 @@ function FlowModeToggle({
 }
 
 function FlowLegend({ compact = false }: { compact?: boolean }) {
+  const reducedMotion = usePrefersReducedMotion()
   return (
     <div
       className={`flex flex-wrap items-center gap-x-3 gap-y-1 border-y ${
@@ -5055,11 +5057,11 @@ function FlowLegend({ compact = false }: { compact?: boolean }) {
             style={{
               background: "#0E8B7A",
               clipPath: "polygon(0 0, 100% 50%, 0 100%)",
-              animation: "topology-flow-legend 2.2s linear infinite",
+              animation: reducedMotion ? "none" : "topology-flow-legend 2.2s linear infinite",
             }}
           />
         </span>
-        Moving = authoritative observed
+        {reducedMotion ? "Filled arrow = authoritative observed" : "Moving = authoritative observed"}
         <style>{`
           @keyframes topology-flow-legend {
             from { transform: translateX(0); }
@@ -5073,7 +5075,7 @@ function FlowLegend({ compact = false }: { compact?: boolean }) {
           <circle cx="15" cy="5" r="4" fill="white" stroke="#64748B" strokeWidth="1" strokeDasharray="2 1" />
           <path d="M13 3 L17 5 L13 7" fill="none" stroke="#64748B" strokeWidth="1.2" />
         </svg>
-        Outlined motion = historical direction
+        {reducedMotion ? "Outlined arrow = historical direction" : "Outlined motion = historical direction"}
       </span>
       <span className="inline-flex items-center gap-1.5 text-[9px] font-medium" style={{ color: "#475569" }}>
         <svg width="28" height="8" viewBox="0 0 28 8" aria-hidden>
@@ -5089,6 +5091,39 @@ function FlowLegend({ compact = false }: { compact?: boolean }) {
       </span>
     </div>
   )
+}
+
+/** Moves a flow marker along its path, or under reduced motion places it
+ *  once at a fixed fraction of the path (an instant, frozen positioning with
+ *  no repeat) so direction stays readable without motion. */
+function FlowMarkerPosition({
+  path,
+  reducedMotion,
+  dur,
+  begin,
+  restAt,
+}: {
+  path: string | undefined
+  reducedMotion: boolean
+  dur: string
+  begin: string
+  restAt: number
+}) {
+  if (reducedMotion) {
+    return (
+      <animateMotion
+        path={path}
+        dur="0.001s"
+        keyPoints={`${restAt};${restAt}`}
+        keyTimes="0;1"
+        calcMode="linear"
+        fill="freeze"
+        rotate="auto"
+        data-flow-marker-static="true"
+      />
+    )
+  }
+  return <animateMotion path={path} dur={dur} begin={begin} repeatCount="indefinite" rotate="auto" />
 }
 
 function FlowOverlay({
@@ -5116,6 +5151,9 @@ function FlowOverlay({
   flowMode?: EstateFlowMode
 }) {
   const [paths, setPaths] = useState<FlowPath[]>([])
+  // Reduced motion keeps every evidence marker but freezes it: tracks stay
+  // dotted, direction arrows sit still on their path, attack-path dashes stop.
+  const reducedMotion = usePrefersReducedMotion()
   const [size, setSize] = useState({ w: 0, h: 0 })
 
   // useEffect (not useLayoutEffect) + retry-until-chips-found pattern.
@@ -6002,6 +6040,7 @@ function FlowOverlay({
       // containment spec measures the SAME box the clamp used, rather than a
       // card the overlay only happens to sit inside.
       data-testid="topology-flow-overlay"
+      data-reduced-motion={reducedMotion ? "true" : "false"}
       width={hasSize ? size.w : "100%"}
       height={hasSize ? size.h : "100%"}
       viewBox={hasSize ? `0 0 ${size.w} ${size.h}` : undefined}
@@ -6126,7 +6165,7 @@ function FlowOverlay({
             strokeLinecap="round"
             markerEnd={p.arrow === false ? undefined : `url(#flow-arrow-${markerCls})`}
           >
-            {p.highlight === "attack_path" ? (
+            {p.highlight === "attack_path" && !reducedMotion ? (
               <animate
                 attributeName="stroke-dashoffset"
                 from="18"
@@ -6165,13 +6204,15 @@ function FlowOverlay({
                 strokeLinecap="round"
                 data-testid="topology-flow-running-track"
               >
-                <animate
-                  attributeName="stroke-dashoffset"
-                  from={focusedDependency ? "14" : "16"}
-                  to="0"
-                  dur={focusedDependency ? "3.8s" : "5.2s"}
-                  repeatCount="indefinite"
-                />
+                {reducedMotion ? null : (
+                  <animate
+                    attributeName="stroke-dashoffset"
+                    from={focusedDependency ? "14" : "16"}
+                    to="0"
+                    dur={focusedDependency ? "3.8s" : "5.2s"}
+                    repeatCount="indefinite"
+                  />
+                )}
               </path>
               <g
                 data-testid="topology-flow-packet"
@@ -6188,24 +6229,24 @@ function FlowOverlay({
                   d={focusedDependency ? "M -4 -4 L 5 0 L -4 4 Z" : "M -3 -3 L 4 0 L -3 3 Z"}
                   fill={stroke}
                 />
-                <animateMotion
-                  path={p.d}
-                  dur={focusedDependency ? "4.8s" : "6.4s"}
-                  begin={`-${(i % 6) * 0.4}s`}
-                  repeatCount="indefinite"
-                  rotate="auto"
-                />
+                <FlowMarkerPosition
+                path={p.d}
+                reducedMotion={reducedMotion}
+                dur={focusedDependency ? "4.8s" : "6.4s"}
+                begin={`-${(i % 6) * 0.4}s`}
+                restAt={0.3}
+              />
               </g>
               {focusedDependency ? (
                 <g opacity="0.78">
                   <circle r="5.5" fill="white" stroke={stroke} strokeWidth="1" />
                   <path d="M -3 -3 L 4 0 L -3 3 Z" fill={stroke} />
-                  <animateMotion
+                  <FlowMarkerPosition
                     path={p.d}
+                    reducedMotion={reducedMotion}
                     dur="4.8s"
                     begin="-2.4s"
-                    repeatCount="indefinite"
-                    rotate="auto"
+                    restAt={0.7}
                   />
                 </g>
               ) : null}
@@ -6233,12 +6274,12 @@ function FlowOverlay({
                 strokeLinecap="round"
                 strokeLinejoin="round"
               />
-              <animateMotion
+              <FlowMarkerPosition
                 path={p.d}
+                reducedMotion={reducedMotion}
                 dur="8.8s"
                 begin={`-${(i % 7) * 0.55}s`}
-                repeatCount="indefinite"
-                rotate="auto"
+                restAt={0.3}
               />
             </g>
           ) : null}

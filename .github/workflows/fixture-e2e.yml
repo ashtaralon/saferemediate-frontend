@@ -63,7 +63,7 @@ jobs:
         # was written, pushed, and reported green by a run that never collected
         # it (run 34843099199: "Running 6 tests", the same six as before). Any
         # new fixture spec has to be named here or it is dead weight.
-        run: npx playwright test tests/integration/topology-fullscreen-rail-fixture.spec.ts tests/integration/topology-platform-map-qa-fixture.spec.ts tests/integration/topology-estate-lower-geometry-fixture.spec.ts tests/integration/topology-estate-semantics-fixture.spec.ts tests/integration/topology-estate-fullscreen-stacking-fixture.spec.ts tests/integration/topology-estate-egress-map-fixture.spec.ts
+        run: npx playwright test tests/integration/topology-fullscreen-rail-fixture.spec.ts tests/integration/topology-platform-map-qa-fixture.spec.ts tests/integration/topology-estate-lower-geometry-fixture.spec.ts tests/integration/topology-estate-semantics-fixture.spec.ts tests/integration/topology-estate-fullscreen-stacking-fixture.spec.ts tests/integration/topology-estate-egress-map-fixture.spec.ts tests/integration/topology-estate-v11-destinations-fixture.spec.ts tests/integration/topology-estate-identity-access-fixture.spec.ts tests/integration/topology-estate-reduced-motion-fixture.spec.ts
         env:
           FRONTEND_URL: http://localhost:3000
           PW_CHANNEL: chromium

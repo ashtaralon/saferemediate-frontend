@@ -14,7 +14,9 @@ const VIEWPORTS = [
   { name: "1024x720", width: 1024, height: 720, input: "mouse" },
 ] as const
 
-const ARTIFACT_DIR = "/Users/admin/Documents/Eltro/Platfrom/.qa-artifacts/estate-full-plan"
+// Screenshots land under the Playwright output tree unless a reviewer points
+// ESTATE_QA_ARTIFACT_DIR at a local evidence directory; CI has no /Users.
+const ARTIFACT_DIR = process.env.ESTATE_QA_ARTIFACT_DIR || path.join("test-results", "estate-full-plan")
 
 async function openFullscreenMap(page: Page, snapshot: Record<string, unknown>) {
   await routeSnapshot(page, snapshot as never)
