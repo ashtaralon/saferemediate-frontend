@@ -32,6 +32,15 @@ const RAW_SNAPSHOT = JSON.parse(
     "utf8",
   ),
 )
+/** Frozen copy of backend a41a2646's executable topology-risk/v11 contract.
+ *  Browser fixtures layer it over the full captured topology so the real Estate
+ *  page can render it; unit tests consume the same bytes without adaptation. */
+const RAW_V11_ESTATE_CONTRACT = JSON.parse(
+  fs.readFileSync(
+    path.join(process.cwd(), "__tests__/fixtures/topology-risk/estate-map-v11-contract.json"),
+    "utf8",
+  ),
+)
 /**
  * Lane coverage the way the backend derives it (traffic_authority.lane_coverage,
  * topology-risk/v8), from the captured payload's own node types. The payload
@@ -676,6 +685,55 @@ export function externalEgressSnapshot(base: typeof SNAPSHOT = SNAPSHOT) {
     /** The frame's own gateway — the chain must name this exact id. */
     igwId: IGW,
     hopCaption: `NAT ${NAT} \u2192 IGW ${IGW}`,
+  }
+}
+
+/** Backend a41a2646's exact v11 external-destination projection, layered over
+ *  the full captured topology needed by the Estate browser page. The primary
+ *  IGW id is replaced with the contract's exact gateway so the test proves the
+ *  frontend joins only matching identities. Existing legacy egress legs are
+ *  removed: v11 must be the only destination authority in this response. */
+export function v11ExternalDestinationSnapshot(base: typeof SNAPSHOT = SNAPSHOT) {
+  const contract = JSON.parse(JSON.stringify(RAW_V11_ESTATE_CONTRACT))
+  const exactIgwId = contract.external_destination_projection.edges[0].source_id as string
+  // The executable contract is intentionally a minimal slice and does not
+  // include its i-web workload node. Browser scoping correctly drops edges
+  // whose source node is absent, so map that one fixture placeholder onto a
+  // real captured EC2 id. Destination ids, evidence and exact gateway identity
+  // remain byte-for-byte the backend contract; the unit suite covers the raw
+  // i-web shape directly.
+  const browserSourceId = (base.nodes as Array<{ id: string; type: string }>).find(
+    node => node.type === "EC2",
+  )!.id
+  for (const edge of contract.traffic_edges as Array<Record<string, unknown>>) {
+    if (edge.source_id === "i-web") edge.source_id = browserSourceId
+  }
+  for (const node of contract.external_destination_projection.nodes as Array<{ source_workload_ids: string[] }>) {
+    node.source_workload_ids = node.source_workload_ids.map(id => id === "i-web" ? browserSourceId : id)
+  }
+  for (const edge of contract.external_destination_projection.edges as Array<{ source_workload_ids: string[] }>) {
+    edge.source_workload_ids = edge.source_workload_ids.map(id => id === "i-web" ? browserSourceId : id)
+  }
+  const nonEgressEdges = (base.traffic_edges as Array<Record<string, unknown>>).filter(
+    edge => edge.target_id !== "__igw__" && !String(edge.target_id ?? "").startsWith("igw-"),
+  )
+  const igws = (base.vpc_topology.edges.igws as Array<Record<string, unknown>>).map((igw, index) =>
+    index === 0 ? { ...igw, id: exactIgwId, name: exactIgwId } : igw,
+  )
+  return {
+    snapshot: {
+      ...base,
+      response_contract_version: contract.response_contract_version,
+      traffic_edges: [...nonEgressEdges, ...contract.traffic_edges],
+      external_destination_projection: contract.external_destination_projection,
+      vpc_topology: {
+        ...base.vpc_topology,
+        edges: { ...base.vpc_topology.edges, igws },
+      },
+    },
+    contract,
+    exactIgwId,
+    browserSourceId,
   }
 }
 

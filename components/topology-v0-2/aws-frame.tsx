@@ -34,6 +34,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode }
 import {
   collapseTrunkWords,
   externalDestinationMap,
+  externalDestinationProjectionMap,
   summarizeExternalEgress,
   summarizeS3Traffic,
   summarizeTriggerRelationships,
@@ -139,6 +140,8 @@ interface Props {
   attackPathFlowCount?: number
   trafficEdges?: TrafficEdge[]
   trafficAuthority?: TopologyRiskResponse["traffic_authority"]
+  responseContractVersion?: TopologyRiskResponse["response_contract_version"]
+  externalDestinationProjection?: TopologyRiskResponse["external_destination_projection"]
   selectedNodeId: string | null
   highlightedRoleName?: string | null
   onSelect: (id: string) => void
@@ -3421,10 +3424,12 @@ function EgressArrow() {
  *  so opening it cannot change the strip's width at any viewport. */
 function ExternalDestinationsNode({
   summary,
+  map,
   compact,
   lane = false,
 }: {
   summary: ExternalEgressSummary | null
+  map?: ExternalDestinationMap | null
   compact: boolean
   /** Stack for the map's external lane instead of running inline along the
    *  top strip. Same component, same claims, same testids — only the axis
@@ -3433,7 +3438,7 @@ function ExternalDestinationsNode({
   lane?: boolean
 }) {
   const [open, setOpen] = useState(false)
-  if (!summary) return null
+  if (!summary && !map) return null
   const {
     legs,
     maxDistinctUpperBound,
@@ -3442,7 +3447,16 @@ function ExternalDestinationsNode({
     anySample,
     natIds,
     igwIds,
-  } = summary
+  } = summary ?? {
+    legs: [],
+    maxDistinctUpperBound: map?.distinctUpperBound ?? null,
+    legsWithUnknownDistinct: map?.legsWithUnknownDistinct ?? 0,
+    everySampleComplete: map?.everySampleComplete ?? false,
+    anySample: (map?.detailsReturned ?? 0) > 0,
+    natIds: [],
+    igwIds: map?.gatewayId ? [map.gatewayId] : [],
+    routeBases: [],
+  }
   const hops = [...natIds.map(id => `NAT ${id}`), ...igwIds.map(id => `IGW ${id}`)]
   // Three claims, three sentences. A null bound is a GAP (no leg carries a
   // count); a zero bound is a measurement; a partial bound covers only the
@@ -3457,11 +3471,20 @@ function ExternalDestinationsNode({
     legsWithUnknownDistinct > 0 && maxDistinctUpperBound !== null
       ? ` · ${legsWithUnknownDistinct} uncounted`
       : ""
-  const samplePhrase = everySampleComplete
-    ? " · addresses complete"
-    : anySample
-      ? " · addresses sampled"
-      : " · no addresses recorded"
+  const samplePhrase =
+    map && map.detailState !== "legacy"
+      ? map.detailState === "complete"
+        ? " · details complete"
+        : map.detailState === "truncated"
+          ? ` · ${map.detailsReturned} details returned · truncated`
+          : map.detailState === "unavailable"
+            ? " · identities unavailable"
+            : " · details partial"
+      : everySampleComplete
+        ? " · addresses complete"
+        : anySample
+          ? " · addresses sampled"
+          : " · no addresses recorded"
   return (
     <div
       className={
@@ -3475,6 +3498,7 @@ function ExternalDestinationsNode({
       data-max-distinct-upper-bound={maxDistinctUpperBound ?? ""}
       data-unknown-distinct-legs={legsWithUnknownDistinct}
       data-sample-complete={everySampleComplete ? "true" : "false"}
+      data-detail-state={map?.detailState ?? "legacy"}
       data-open={open ? "true" : "false"}
     >
       {/* The chain, not a neutral rule: this is the egress path, drawn in the
@@ -3614,12 +3638,38 @@ function ExternalDestinationsNode({
             {legs.length} workload{legs.length === 1 ? "" : "s"} leaving the VPC
           </p>
           <p className="mt-1 text-[11px] leading-snug" style={{ color: PAL.slate }}>
-            Route is configured (route tables){hops.length > 0 ? `: ${hops.join(" → ")}` : ""}. Counts are
-            observed. The payload names no destination identities
-            {anySample
-              ? ", so these addresses are evidence, not an inventory of services."
-              : ", and this generation recorded no addresses at all."}
+            {map && map.detailState !== "legacy" ? (
+              <>
+                Destinations are observed. Gateway continuation is configured routing
+                {hops.length > 0 ? `: ${hops.join(" → ")}` : ""}; it does not claim the
+                gateway hop was observed per packet.
+              </>
+            ) : (
+              <>
+                Route is configured (route tables){hops.length > 0 ? `: ${hops.join(" → ")}` : ""}. Counts are
+                observed. The legacy payload names no destination identities
+                {anySample
+                  ? ", so these addresses are evidence, not an inventory of services."
+                  : ", and this generation recorded no addresses at all."}
+              </>
+            )}
           </p>
+          {map && map.detailState !== "legacy" ? (
+            <p
+              className="mt-1 text-[11px] leading-snug"
+              style={{ color: PAL.slate }}
+              data-testid="topology-external-destination-detail-state"
+              data-detail-state={map.detailState}
+            >
+              {map.detailState === "complete"
+                ? `Destination details complete: ${map.detailsReturned} of ${map.detailsBeforeBound ?? map.detailsReturned} returned.`
+                : map.detailState === "truncated"
+                  ? `Destination details truncated: ${map.detailsReturned} returned; ${map.unreturnedCount} not returned by this bounded response.`
+                  : map.detailState === "unavailable"
+                    ? `Destination identities unavailable: ${map.detailsBeforeBound ?? "some"} were counted, but no detail was returned.`
+                    : `Destination details partial: ${map.detailsReturned} returned; not every returned destination has an exact gateway link.`}
+            </p>
+          ) : null}
           {legsWithUnknownDistinct > 0 ? (
             <p
               className="mt-1 text-[11px] leading-snug"
@@ -3661,6 +3711,49 @@ function ExternalDestinationsNode({
               </li>
             ))}
           </ul>
+          {map && [...map.nodes, ...map.hiddenNodes, ...map.unlinkedNodes].length > 0 ? (
+            <ul
+              className="mt-2 flex flex-col gap-1.5 border-t pt-2"
+              style={{ borderColor: "#E2E8F0" }}
+              data-testid="topology-external-destination-projection-list"
+            >
+              {[...map.nodes, ...map.hiddenNodes, ...map.unlinkedNodes].map(node => {
+                const unlinked = map.unlinkedNodes.some(candidate => candidate.key === node.key)
+                return (
+                  <li
+                    key={node.key}
+                    className="text-[11px] leading-snug"
+                    style={{ color: PAL.slate }}
+                    data-testid="topology-external-destination-projection-item"
+                    data-projection-id={node.projectionId ?? ""}
+                    data-gateway-linked={unlinked ? "false" : "true"}
+                  >
+                    <span className={node.identity === "aws_service" ? "font-semibold" : "font-mono"} style={{ color: PAL.ink }}>
+                      {node.label}
+                    </span>
+                    {node.identity === "aws_service" && node.address !== node.label ? ` · ${node.address}` : ""}
+                    {node.ports.length > 0 ? ` · ports ${node.ports.join(", ")}` : ""}
+                    {node.protocols.length > 0 ? ` · ${node.protocols.join(", ")}` : ""}
+                    {node.observationCount == null ? " · observations unavailable" : ` · ${node.observationCount} observations`}
+                    {node.totalBytes == null ? "" : ` · ${node.totalBytes} bytes`}
+                    {unlinked ? " · exact configured IGW link unavailable; no line drawn" : ""}
+                  </li>
+                )
+              })}
+            </ul>
+          ) : null}
+          {map && (map.unidentifiedPeerUpperBound ?? 0) > 0 ? (
+            <p
+              className="mt-2 text-[11px] leading-snug rounded border border-dashed px-2 py-1.5"
+              style={{ color: PAL.slate, borderColor: "#CBD5E1", background: "#F8FAFC" }}
+              data-testid="topology-unidentified-external-peers"
+              data-upper-bound={map.unidentifiedPeerUpperBound ?? ""}
+            >
+              Up to {map.unidentifiedPeerUpperBound} unidentified peer{map.unidentifiedPeerUpperBound === 1 ? "" : "s"} kept separate.
+              {map.unidentifiedPeerSamples.length > 0 ? ` Samples: ${map.unidentifiedPeerSamples.join(", ")}.` : ""}
+              {" "}No IGW path is drawn without an exact classified destination and configured gateway.
+            </p>
+          ) : null}
         </PopoverContent>
       </Popover>
     </div>
@@ -3697,8 +3790,8 @@ function ExternalDestinationChip({ node }: { node: ExternalDestinationNode }) {
       data-observations={node.observationCount ?? ""}
       title={
         attributed
-          ? `${node.label} — attributed by the flow-log evidence`
-          : `${node.label} — an address; the evidence names no service`
+          ? `${node.label} — attributed by the flow-log evidence${node.address !== node.label ? ` (${node.address})` : ""}`
+          : `${node.label} — an address; the evidence names no service${node.ports.length > 0 ? `; ports ${node.ports.join(", ")}` : ""}`
       }
     >
       <div
@@ -3763,6 +3856,10 @@ function ExternalDestinationsLane({
       data-attributed-count={map.attributedCount}
       data-gateway-id={map.gatewayId ?? ""}
       data-remainder-legs={map.remainder?.legs ?? 0}
+      data-detail-state={map.detailState}
+      data-unreturned-count={map.unreturnedCount}
+      data-unlinked-count={map.unlinkedNodes.length}
+      data-unidentified-upper-bound={map.unidentifiedPeerUpperBound ?? ""}
     >
       <div
         className="text-[10px] uppercase tracking-[0.12em] font-semibold shrink-0"
@@ -3897,11 +3994,38 @@ function ExternalDestinationsLane({
             </PopoverContent>
           </Popover>
         ) : null}
+        {map.unreturnedCount > 0 ? (
+          <div
+            className="rounded-md border border-dashed px-1.5 py-1 text-[9px] leading-tight"
+            style={{ background: "#FFF7ED", borderColor: "#F59E0B", color: "#92400E" }}
+            data-testid="topology-external-destinations-truncated"
+          >
+            {map.unreturnedCount} destination detail{map.unreturnedCount === 1 ? "" : "s"} not returned
+          </div>
+        ) : null}
+        {map.unlinkedNodes.length > 0 ? (
+          <div
+            className="rounded-md border border-dashed px-1.5 py-1 text-[9px] leading-tight"
+            style={{ background: "#F8FAFC", borderColor: "#94A3B8", color: PAL.slate }}
+            data-testid="topology-external-destinations-unlinked"
+          >
+            {map.unlinkedNodes.length} observed destination{map.unlinkedNodes.length === 1 ? "" : "s"} · exact IGW link unavailable · no line drawn
+          </div>
+        ) : null}
+        {(map.unidentifiedPeerUpperBound ?? 0) > 0 ? (
+          <div
+            className="rounded-md border border-dashed px-1.5 py-1 text-[9px] leading-tight"
+            style={{ background: "#F8FAFC", borderColor: "#CBD5E1", color: PAL.slate }}
+            data-testid="topology-external-destinations-unidentified"
+          >
+            Up to {map.unidentifiedPeerUpperBound} unidentified peer{map.unidentifiedPeerUpperBound === 1 ? "" : "s"} · kept separate · no IGW line inferred
+          </div>
+        ) : null}
       </div>
       {/* The evidence summary and its per-leg detail, moved off the top strip:
           one place for this fact, on the canvas where the traffic is drawn. */}
       <div className="mt-1 min-w-0">
-        <ExternalDestinationsNode summary={summary} compact={compact} lane />
+        <ExternalDestinationsNode summary={summary} map={map} compact={compact} lane />
       </div>
     </div>
   )
@@ -8726,6 +8850,8 @@ export function AwsFrame({
   attackPathFlowCount = 0,
   trafficEdges,
   trafficAuthority,
+  responseContractVersion,
+  externalDestinationProjection,
   selectedNodeId,
   highlightedRoleName = null,
   onSelect,
@@ -8791,10 +8917,31 @@ export function AwsFrame({
   const externalEgress = useMemo(() => summarizeExternalEgress(trafficEdgesList), [trafficEdgesList])
   // What the lane beyond the boundary may DRAW, bounded. Derived from the same
   // edges the summary reads, so the lane and the summary can never disagree.
-  const externalDestinations = useMemo(
-    () => externalDestinationMap(externalEgress, trafficEdgesList),
-    [externalEgress, trafficEdgesList],
-  )
+  const externalDestinations = useMemo(() => {
+    // v11 gives the canvas an explicit bounded projection. It is the authority
+    // for both destination identity and the exact gateway join; using the old
+    // per-edge fallback as well would duplicate nodes and could reconnect an
+    // unlinked destination to the first IGW. Older responses keep the honest
+    // sampled-address fallback below.
+    if (responseContractVersion === "topology-risk/v11" && externalDestinationProjection) {
+      const allowedSourceIds = new Set(trafficEdgesList.map(edge => edge.source_id))
+      const gatewayByAnchor = new Map<string, string>()
+      topo.edges.igws.forEach((igw, index) => {
+        gatewayByAnchor.set(index === 0 ? IGW_CANVAS_ANCHOR_ID : igw.id, igw.id)
+      })
+      return externalDestinationProjectionMap(externalDestinationProjection, {
+        allowedSourceIds,
+        gatewayByAnchor,
+      })
+    }
+    return externalDestinationMap(externalEgress, trafficEdgesList)
+  }, [
+    responseContractVersion,
+    externalDestinationProjection,
+    externalEgress,
+    trafficEdgesList,
+    topo.edges.igws,
+  ])
   const visibleEdges = useMemo(() => {
     const visible = new Set(nodes.map(n => n.id))
     for (const n of regionalTierNodes) visible.add(n.id)
@@ -8844,27 +8991,35 @@ export function AwsFrame({
     // animate. `evidence_type: "inferred"` keeps the third field from being
     // read as observed by anything downstream.
     if (externalDestinations) {
-      const gatewayFlowId = IGW_CANVAS_ANCHOR_ID
-      const synthetic = (targetId: string): TrafficEdge =>
+      const synthetic = (
+        sourceAnchorId: string,
+        targetId: string,
+        exactGatewayId: string,
+        routeBasis: string | null,
+      ): TrafficEdge =>
         ({
-          source_id: gatewayFlowId,
+          source_id: sourceAnchorId,
           target_id: targetId,
           edge_class: "egress",
           protocol: null,
           evidence_type: "inferred",
           authority_state: "inferred",
           path_basis: "synthetic_expansion",
+          via_igw_id: exactGatewayId,
+          route_basis: routeBasis,
           // No last_seen: a timestamp would make this eligible for the
           // "historical direction" animation, which is also a claim about
           // observed packets.
           last_seen: null,
         }) as unknown as TrafficEdge
-      const continuation: TrafficEdge[] = externalDestinations.nodes.map(node =>
-        synthetic(`${EXTERNAL_DESTINATION_FLOW_PREFIX}${node.key}`),
+      const continuation: TrafficEdge[] = externalDestinations.continuations.map(edge =>
+        synthetic(
+          edge.sourceAnchorId,
+          `${EXTERNAL_DESTINATION_FLOW_PREFIX}${edge.targetKey}`,
+          edge.sourceId,
+          edge.routeBasis,
+        ),
       )
-      if (externalDestinations.remainder) {
-        continuation.push(synthetic(`${EXTERNAL_DESTINATION_FLOW_PREFIX}__unknown__`))
-      }
       edges = [...edges, ...continuation]
     }
     return edges

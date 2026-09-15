@@ -372,11 +372,77 @@ export interface EgressDestination {
   address: string
   kind: EgressBreakdownBucket["kind"]
   port?: number | null
+  ports?: number[]
+  protocol?: string | null
+  protocols?: string[]
   observation_count: number
+  total_bytes?: number | null
+  first_seen?: string | null
   last_seen?: string | null
+  endpoint_class?: "external" | "aws_service" | string | null
   /** Same contract as the bucket's: authoritative service attribution only.
    *  Absent → this destination is an address, and the map says so. */
   aws_service?: string | null
+  classification_authority?: string | null
+  evidence_type?: "observed" | "configured" | "inferred" | "legacy_unverified" | string | null
+  evidence_source?: string | null
+  evidence_ids?: string[]
+  projection_generation?: number | null
+}
+
+/** A destination node explicitly projected for the Estate canvas (topology-risk/v11).
+ *  Unlike `destinations[]` on a workload edge, this carries a stable id and
+ *  can be joined to an exact gateway only through the projection's own edge. */
+export interface ExternalDestinationProjectionNode {
+  id: string
+  address: string
+  endpoint_class: "external" | "aws_service" | string
+  aws_service?: string | null
+  classification_authority?: string | null
+  source_workload_ids: string[]
+  ports?: number[]
+  protocols?: string[]
+  observation_count?: number | null
+  total_bytes?: number | null
+  first_seen?: string | null
+  last_seen?: string | null
+  evidence_ids?: string[]
+  projection_generation?: number | null
+  evidence_type?: "observed" | "legacy_unverified" | string | null
+  evidence_source?: string | null
+}
+
+export interface ExternalDestinationProjectionEdge {
+  /** The exact Internet Gateway id from configured route evidence. */
+  source_id: string
+  /** The canvas anchor for that gateway; v11 emits `__igw__`. */
+  source_anchor_id: string
+  target_id: string
+  relationship: "VISUAL_CONTINUATION" | string
+  source_workload_ids: string[]
+  destination_evidence: "observed" | string
+  gateway_evidence: "configured" | string
+  gateway_traversal_observed: boolean
+  path_basis: "observed_destination_with_configured_route" | string
+  route_basis?: string | null
+  route_last_seen?: string | null
+}
+
+export interface ExternalDestinationProjection {
+  version: "estate-egress-destinations/v1" | string
+  nodes: ExternalDestinationProjectionNode[]
+  edges: ExternalDestinationProjectionEdge[]
+  counts: {
+    returned_destination_nodes: number
+    named_destination_nodes_before_bound: number
+    /** Sum of per-workload distinct counts: an upper bound, not a global total. */
+    per_workload_distinct_upper_bound: number | null
+    unidentified_peer_upper_bound: number | null
+    unlinked_returned_destination_nodes: number
+  }
+  detail_complete: boolean
+  truncated: boolean
+  unidentified_peer_samples: string[]
 }
 
 /** One hop the source subnet's route table puts between a workload and the
@@ -421,6 +487,10 @@ export interface TrafficEdge {
   // Phase B-2 additions — older BE deploys may omit these.
   edge_class?: TrafficEdgeClass
   external_destinations?: number | null
+  /** topology-risk/v11 detail-cardinality fields. */
+  unidentified_destinations?: number | null
+  destination_details_returned?: number | null
+  destination_details_truncated?: boolean | null
   /** DB flow-edge contract (Alon, 2026-07-10) — older BE may omit. */
   engine?: string | null
   internal_hits?: number | null
@@ -519,6 +589,8 @@ export interface OutOfScopeWorkloads {
 }
 
 export interface TopologyRiskResponse {
+  /** Durable response/snapshot namespace. Present from topology-risk/v11. */
+  response_contract_version?: string
   system: string
   scored_at: string
   scoring_window_days: number
@@ -536,6 +608,8 @@ export interface TopologyRiskResponse {
   vpc_topology?: VpcTopology | null
   // Phase B addition — present on responses from BE >= phase-b deploy.
   traffic_edges?: TrafficEdge[]
+  /** Explicit IGW → observed destination canvas projection (v11+). */
+  external_destination_projection?: ExternalDestinationProjection | null
   traffic_authority?: {
     state: "authoritative" | "authoritative_positive_only" | "rebuilding" | "legacy_unverified" | string
     mode: "legacy" | "shadow" | "incremental" | "unavailable" | "unknown" | string
