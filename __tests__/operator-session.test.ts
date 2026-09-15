@@ -278,6 +278,20 @@ describe("sign-out and response hygiene", () => {
     expect(target.searchParams.has("id_token_hint")).toBe(false)
   })
 
+  it("judges same-origin by what the browser addressed, not the server's internal URL", async () => {
+    const { isSameOriginMutation } = await import("@/lib/server/operator-session")
+    const internal = "http://127.0.0.1:3000/api/proxy/admin/accounts/onboarding/operations"
+    const post = (headers: Record<string, string>) => isSameOriginMutation(new NextRequest(internal, { method: "POST", headers }))
+    expect(post({ origin: "https://console.customer.test", host: "console.customer.test" })).toBe(true)
+    expect(post({ origin: "https://console.customer.test", host: "10.0.1.5:3000", "x-forwarded-host": "console.customer.test" })).toBe(true)
+    expect(post({ origin: "https://evil.customer.test", host: "console.customer.test" })).toBe(false)
+    expect(post({ origin: "null", host: "console.customer.test" })).toBe(false)
+    expect(post({ "sec-fetch-site": "same-origin", host: "console.customer.test" })).toBe(true)
+    expect(post({ "sec-fetch-site": "cross-site", origin: "https://console.customer.test", host: "console.customer.test" })).toBe(false)
+    expect(post({ host: "console.customer.test" })).toBe(false)
+    expect(isSameOriginMutation(new NextRequest(internal, { method: "GET" }))).toBe(true)
+  })
+
   it("marks every account administration response no-store", async () => {
     const { proxyAccountAdmin } = await import("@/lib/server/account-admin-proxy")
     const response = await proxyAccountAdmin(new NextRequest(`${ORIGIN}/api/proxy/admin/accounts/onboarding/access-bindings`, { method: "POST", body: "{}", headers: { origin: ORIGIN } }), ["onboarding", "access-bindings"])

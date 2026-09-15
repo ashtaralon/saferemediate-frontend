@@ -80,7 +80,8 @@ test.describe.serial("hosted operator identity in Chromium", () => {
       const body = await response.json()
       return { status: response.status, cacheControl: response.headers.get("cache-control"), display: body.external_id_display, hasExternalId: Boolean(body.external_id) }
     }, { bindingPath, tenant: stack.tenant_id, account: stack.account_id })
-    expect(created).toMatchObject({ status: 201, cacheControl: "no-store", display: "ONCE", hasExternalId: true })
+    expect(created).toMatchObject({ status: 201, display: "ONCE", hasExternalId: true })
+    expect(created.cacheControl).toContain("no-store")
     record("same_origin_binding", created)
 
     for (const [label, size] of Object.entries({ mobile: { width: 390, height: 844 }, tablet: { width: 768, height: 1024 }, laptop: { width: 1280, height: 800 }, desktop: { width: 1920, height: 1080 } })) {

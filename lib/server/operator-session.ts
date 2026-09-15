@@ -101,14 +101,32 @@ function isLoopbackDevRedirect(redirectUri: string, env: Env): boolean {
  *
  * The operator session cookie is SameSite=Lax, which already withholds it from
  * cross-site POSTs, but same-site subdomains are not cross-site. A state-changing
- * request must therefore prove it came from this origin: a matching Origin
- * header, or a browser-set Sec-Fetch-Site of same-origin.
+ * request must therefore prove it came from this origin.
+ *
+ * A browser's Sec-Fetch-Site is authoritative when present and must be
+ * same-origin. Otherwise the Origin header's host must equal the host the
+ * browser addressed (Host, or X-Forwarded-Host set by the load balancer). The
+ * server's own URL is not the reference: behind an ALB, Vercel or `next start`
+ * it is an internal address the browser never used. Neither header can be set
+ * by a page on another site, and a request carrying neither is refused.
  */
 export function isSameOriginMutation(request: Pick<NextRequest, "method" | "headers" | "nextUrl">): boolean {
   if (["GET", "HEAD", "OPTIONS"].includes(request.method.toUpperCase())) return true
+  const fetchSite = request.headers.get("sec-fetch-site")
+  if (fetchSite) return fetchSite === "same-origin"
   const origin = request.headers.get("origin")
-  if (origin) return origin === request.nextUrl.origin
-  return request.headers.get("sec-fetch-site") === "same-origin"
+  if (!origin || origin === "null") return false
+  let originHost: string
+  try {
+    originHost = new URL(origin).host.toLowerCase()
+  } catch {
+    return false
+  }
+  const addressed = [request.headers.get("x-forwarded-host"), request.headers.get("host"), request.nextUrl.host]
+    .flatMap((value) => String(value || "").split(","))
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean)
+  return addressed.includes(originHost)
 }
 
 // ── encoding ─────────────────────────────────────────────────────────────
