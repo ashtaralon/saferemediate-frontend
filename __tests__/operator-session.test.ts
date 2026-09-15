@@ -119,8 +119,11 @@ describe("hosted operator sign-in", () => {
     const token = await idToken(claims({ nonce: tx!.nonce }))
     tokenToIssue = async () => token
     const response = await callback({ code: "auth-code", state: location.searchParams.get("state")! }, txCookie!.value)
-    expect(response.status).toBe(302)
-    expect(response.headers.get("location")).toBe(`${ORIGIN}/settings/accounts?tab=onboarding`)
+    expect(response.status).toBe(200)
+    expect(response.headers.get("location")).toBeNull()
+    const landing = await response.text()
+    expect(landing).toContain('content="0;url=/settings/accounts?tab=onboarding"')
+    expect(response.headers.get("referrer-policy")).toBe("no-referrer")
     const session = response.cookies.get(OPERATOR_SESSION_COOKIE)
     expect(session?.httpOnly).toBe(true)
     expect(session?.sameSite).toBe("lax")
@@ -211,6 +214,20 @@ describe("server-derived identity on the account admin proxy", () => {
     expect(anonymous.has("authorization")).toBe(false)
   })
 
+  it("refuses state-changing calls that do not come from this origin", async () => {
+    const { proxyAccountAdmin } = await import("@/lib/server/account-admin-proxy")
+    const url = `${ORIGIN}/api/proxy/admin/accounts/onboarding/operations`
+    const crossSite = await proxyAccountAdmin(new NextRequest(url, { method: "POST", body: "{}", headers: { origin: "https://evil.example" } }), ["onboarding", "operations"])
+    const sameSiteSubdomain = await proxyAccountAdmin(new NextRequest(url, { method: "POST", body: "{}", headers: { "sec-fetch-site": "same-site" } }), ["onboarding", "operations"])
+    expect(crossSite.status).toBe(403)
+    expect(sameSiteSubdomain.status).toBe(403)
+    expect(upstreamCalls.some((call) => call.url.startsWith("http://backend.internal:8000"))).toBe(false)
+    const sameOrigin = await proxyAccountAdmin(new NextRequest(url, { method: "POST", body: "{}", headers: { origin: ORIGIN } }), ["onboarding", "operations"])
+    expect(sameOrigin.status).toBe(200)
+    const read = await proxyAccountAdmin(new NextRequest(`${url}?customer_id=acme`), ["onboarding", "operations"])
+    expect(read.status).toBe(200)
+  })
+
   it("forwards only the ALB-signed header in customer-resident installs", async () => {
     process.env.CYNTRO_DEPLOYMENT_MODE = "CUSTOMER_RESIDENT"
     const headers = await proxied({ "x-amzn-oidc-data": "alb.signed.jws", authorization: "Bearer attacker-token" })
@@ -226,5 +243,54 @@ describe("server-derived identity on the account admin proxy", () => {
     const text = await response.text()
     expect(JSON.parse(text)).toMatchObject({ mode: "HOSTED_OIDC", configured: true, signed_in: true, operator: { name: "Operator" } })
     expect(text).not.toContain(token.split(".")[1])
+  })
+})
+
+describe("sign-out and response hygiene", () => {
+  it("refuses a cross-site sign-out and clears the session for a same-origin one without exposing the token", async () => {
+    const { POST } = await import("@/app/api/auth/operator/logout/route")
+    const crossSite = await POST(new NextRequest(`${ORIGIN}/api/auth/operator/logout`, { method: "POST", headers: { origin: "https://evil.example" } }))
+    expect(crossSite.status).toBe(403)
+    expect(crossSite.cookies.get(OPERATOR_SESSION_COOKIE)).toBeUndefined()
+
+    const response = await POST(new NextRequest(`${ORIGIN}/api/auth/operator/logout`, { method: "POST", headers: { origin: ORIGIN } }))
+    expect(response.status).toBe(200)
+    const cleared = response.cookies.get(OPERATOR_SESSION_COOKIE)
+    expect(cleared?.value).toBe("")
+    expect(cleared?.maxAge).toBe(0)
+    expect((await response.json()).end_session_url).toBeNull()
+  })
+
+  it("hands the UI the identity provider's end-session endpoint without an id_token_hint", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input instanceof Request ? input.url : input)
+      if (url === `${ISSUER}/.well-known/openid-configuration`) {
+        return Response.json({ issuer: ISSUER, authorization_endpoint: `${ISSUER}/authorize`, token_endpoint: `${ISSUER}/token`, jwks_uri: `${ISSUER}/keys`, end_session_endpoint: `${ISSUER}/logout` })
+      }
+      return Response.json({})
+    }))
+    const { POST } = await import("@/app/api/auth/operator/logout/route")
+    const response = await POST(new NextRequest(`${ORIGIN}/api/auth/operator/logout`, { method: "POST", headers: { "sec-fetch-site": "same-origin" } }))
+    const target = new URL((await response.json()).end_session_url)
+    expect(target.origin + target.pathname).toBe(`${ISSUER}/logout`)
+    expect(target.searchParams.get("client_id")).toBe(CLIENT)
+    expect(target.searchParams.get("post_logout_redirect_uri")).toBe(`${ORIGIN}/settings/accounts`)
+    expect(target.searchParams.has("id_token_hint")).toBe(false)
+  })
+
+  it("marks every account administration response no-store", async () => {
+    const { proxyAccountAdmin } = await import("@/lib/server/account-admin-proxy")
+    const response = await proxyAccountAdmin(new NextRequest(`${ORIGIN}/api/proxy/admin/accounts/onboarding/access-bindings`, { method: "POST", body: "{}", headers: { origin: ORIGIN } }), ["onboarding", "access-bindings"])
+    expect(response.headers.get("cache-control")).toBe("no-store")
+  })
+
+  it("accepts a loopback http redirect only outside production unless explicitly allowed", async () => {
+    const { operatorOidcConfig } = await import("@/lib/server/operator-session")
+    const base = { CYNTRO_OPERATOR_OIDC_ISSUER: ISSUER, CYNTRO_OPERATOR_OIDC_CLIENT_ID: CLIENT, CYNTRO_OPERATOR_SESSION_SECRET: "a-session-secret-that-is-long-enough-000000" }
+    const loopback = { ...base, CYNTRO_OPERATOR_OIDC_REDIRECT_URI: "http://127.0.0.1:3100/api/auth/operator/callback" }
+    expect(operatorOidcConfig({ ...loopback, NODE_ENV: "development" })).not.toBeNull()
+    expect(operatorOidcConfig({ ...loopback, NODE_ENV: "production" })).toBeNull()
+    expect(operatorOidcConfig({ ...loopback, NODE_ENV: "production", CYNTRO_OPERATOR_OIDC_ALLOW_LOOPBACK_REDIRECT: "true" })).not.toBeNull()
+    expect(operatorOidcConfig({ ...base, NODE_ENV: "development", CYNTRO_OPERATOR_OIDC_REDIRECT_URI: "http://console.example.test/api/auth/operator/callback" })).toBeNull()
   })
 })

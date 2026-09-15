@@ -72,7 +72,8 @@ export function operatorOidcConfig(env: Env = process.env): OperatorOidcConfig |
   const redirectUri = env.CYNTRO_OPERATOR_OIDC_REDIRECT_URI?.trim()
   const sessionSecret = env.CYNTRO_OPERATOR_SESSION_SECRET?.trim()
   if (!issuer || !clientId || !redirectUri || !sessionSecret) return null
-  if (!issuer.startsWith("https://") || !redirectUri.startsWith("https://")) return null
+  if (!issuer.startsWith("https://")) return null
+  if (!redirectUri.startsWith("https://") && !isLoopbackDevRedirect(redirectUri, env)) return null
   if (sessionSecret.length < 32) return null
   return {
     issuer,
@@ -82,6 +83,32 @@ export function operatorOidcConfig(env: Env = process.env): OperatorOidcConfig |
     scopes: env.CYNTRO_OPERATOR_OIDC_SCOPES?.trim() || "openid email profile",
     sessionSecret,
   }
+}
+
+/** Local verification only: a non-production build may redirect to loopback http. */
+function isLoopbackDevRedirect(redirectUri: string, env: Env): boolean {
+  if (env.NODE_ENV === "production" && env.CYNTRO_OPERATOR_OIDC_ALLOW_LOOPBACK_REDIRECT !== "true") return false
+  try {
+    const url = new URL(redirectUri)
+    return url.protocol === "http:" && (url.hostname === "127.0.0.1" || url.hostname === "localhost")
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Cross-site request refusal for state-changing proxy calls.
+ *
+ * The operator session cookie is SameSite=Lax, which already withholds it from
+ * cross-site POSTs, but same-site subdomains are not cross-site. A state-changing
+ * request must therefore prove it came from this origin: a matching Origin
+ * header, or a browser-set Sec-Fetch-Site of same-origin.
+ */
+export function isSameOriginMutation(request: Pick<NextRequest, "method" | "headers" | "nextUrl">): boolean {
+  if (["GET", "HEAD", "OPTIONS"].includes(request.method.toUpperCase())) return true
+  const origin = request.headers.get("origin")
+  if (origin) return origin === request.nextUrl.origin
+  return request.headers.get("sec-fetch-site") === "same-origin"
 }
 
 // ── encoding ─────────────────────────────────────────────────────────────

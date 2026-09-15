@@ -31,6 +31,11 @@ export function middleware(request: NextRequest) {
   if (
     pathname === "/login" ||
     pathname === "/api/auth/login" ||
+    // The identity provider returns the operator here with a cross-site
+    // navigation, on which the SameSite=Strict site cookie is never sent. The
+    // callback is bound to a sign-in this browser started through the gated
+    // /api/auth/operator/start by its sealed transaction cookie.
+    pathname === "/api/auth/operator/callback" ||
     pathname === "/api/build-version" ||
     pathname === "/api/healthz"
   ) {

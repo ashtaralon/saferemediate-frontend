@@ -22,6 +22,33 @@ function refuse(code: string, message: string, status = 400) {
   return response
 }
 
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (character) => `&#${character.charCodeAt(0)};`)
+}
+
+/**
+ * Finish sign-in with a same-origin navigation rather than a redirect.
+ *
+ * This response answers a navigation the identity provider started, so the
+ * browser treats it and any redirect it issues as cross-site: the console's
+ * SameSite=Strict site cookie is withheld and the landing page would bounce to
+ * /login. A document served from this origin that then navigates is a
+ * same-site navigation, so the next request carries every console cookie.
+ */
+function landingPage(target: URL): NextResponse {
+  const href = escapeHtml(`${target.pathname}${target.search}`)
+  const html = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=${href}"><title>Signing in</title></head><body><p>Signed in. <a href="${href}">Continue</a></p></body></html>`
+  return new NextResponse(html, {
+    status: 200,
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": "no-store",
+      "Referrer-Policy": "no-referrer",
+      "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+    },
+  })
+}
+
 export async function GET(request: NextRequest) {
   const config = operatorOidcConfig()
   if (!config) return refuse("OPERATOR_SIGN_IN_NOT_CONFIGURED", "Operator sign-in is not configured for this deployment.", 503)
@@ -66,8 +93,7 @@ export async function GET(request: NextRequest) {
       jwksUri: discovery.jwks_uri,
     })
     const session = await sealSession(claims, tokens.id_token, config)
-    const response = NextResponse.redirect(new URL(transaction.returnTo, request.nextUrl.origin), { status: 302 })
-    response.headers.set("Cache-Control", "no-store")
+    const response = landingPage(new URL(transaction.returnTo, request.nextUrl.origin))
     response.cookies.set(OPERATOR_SESSION_COOKIE, session.value, sessionCookieOptions(session.maxAge))
     response.cookies.set(OIDC_TRANSACTION_COOKIE, "", sessionCookieOptions(0, "/api/auth/operator"))
     return response
