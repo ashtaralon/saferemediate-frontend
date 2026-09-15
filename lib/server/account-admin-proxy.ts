@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
+import { serverDerivedOperatorHeaders } from "@/lib/server/operator-session"
 
 export async function proxyAccountAdmin(
   request: NextRequest,
@@ -12,8 +13,11 @@ export async function proxyAccountAdmin(
     const hasBody = !["GET", "HEAD"].includes(request.method)
     const headers: Record<string, string> = { Accept: "application/json" }
     if (hasBody) headers["Content-Type"] = request.headers.get("content-type") || "application/json"
-    const authorization = request.headers.get("authorization")
-    if (authorization) headers.Authorization = authorization
+    // Operator identity is derived on this server only: the ALB-signed header
+    // in customer-resident installs, or the sealed operator session on the
+    // hosted console. A browser-supplied Authorization or x-amzn-oidc-data
+    // header is never forwarded.
+    Object.assign(headers, await serverDerivedOperatorHeaders(request))
     const response = await fetch(target, {
       method: request.method,
       headers,
