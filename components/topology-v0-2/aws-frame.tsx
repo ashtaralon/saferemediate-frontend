@@ -3023,16 +3023,11 @@ const COVERAGE_STATE_STYLE: Record<string, { bg: string; fg: string; border: str
  *  Renders nothing when the backend predates the contract — an absent number is
  *  honest, an invented one is not. Every count shown is the backend's.
  *
- *  COLLAPSED BY DEFAULT (independent production UI QA, 2026-09-14). Expanded,
- *  this block measured 71px at y=133.52..204.52 on a 1512x771 viewport — a
- *  permanent tax on the map's vertical budget paid by every reader, to show a
- *  per-lane breakdown most of them never read. What stays visible is the part
- *  that is load-bearing for honesty: the state chip and the denominator
- *  sentence, so a reader can never mistake "not measured" for "zero coverage".
- *  The per-lane chips and the gap warnings move behind `Coverage details`.
- *
- *  The toggle is uncontrolled on purpose: this is a per-reader view preference,
- *  not estate state, so it must not round-trip through the payload. */
+ *  ON DEMAND (independent production UI QA, 2026-09-15). The old in-flow block
+ *  measured up to 71px at a 1512x771 viewport and permanently reduced the
+ *  map's vertical budget. The toolbar trigger now carries the load-bearing
+ *  state; this full denominator, lane and warning detail mounts in an overlay
+ *  only when requested. */
 function LaneCoverageDetails({
   coverage,
   gaps,
@@ -3135,8 +3130,8 @@ function LaneCoverageDetails({
 
 /** Coverage belongs to the operator's inspection chrome, not to the map's
  * vertical layout. The trigger keeps the authority state visible without
- * consuming a full-width row; Radix owns Escape, focus trapping and restoring
- * focus to this exact trigger when the panel closes. */
+ * consuming a full-width row; Radix owns Escape and restores focus to this
+ * exact trigger when the panel closes. */
 function LaneCoverageControl({
   coverage,
   gaps,
@@ -3174,7 +3169,8 @@ function LaneCoverageControl({
       <PopoverContent
         align="end"
         sideOffset={8}
-        className="z-[120] w-[min(92vw,620px)] max-h-[min(70vh,560px)] overflow-y-auto p-0 shadow-2xl"
+        className="z-[250] w-[min(92vw,620px)] max-h-[min(70vh,560px)] overflow-y-auto bg-white p-0 opacity-100 shadow-2xl"
+        style={{ backgroundColor: "#FFFFFF", opacity: 1 }}
         data-testid="topology-lane-coverage-panel"
         role="dialog"
         aria-label="Flow-log coverage details"

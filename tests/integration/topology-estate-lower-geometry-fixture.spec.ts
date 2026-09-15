@@ -397,6 +397,60 @@ for (const vp of VIEWPORTS) {
     await expect(coveragePanel).toBeVisible()
     await expect(coveragePanel).toHaveAttribute("role", "dialog")
     await expect(coveragePanel.getByTestId("topology-lane-coverage-lanes")).toBeVisible()
+    await page.waitForFunction(() => {
+      const panel = document.querySelector<HTMLElement>('[data-testid="topology-lane-coverage-panel"]')
+      if (!panel) return false
+      let node: Element | null = panel
+      let opacity = 1
+      while (node && node !== document.documentElement) {
+        opacity *= Number(getComputedStyle(node).opacity)
+        node = node.parentElement
+      }
+      if (opacity < 0.999) return false
+      const rect = panel.getBoundingClientRect()
+      return [
+        [rect.left + rect.width * 0.5, rect.top + 6],
+        [rect.left + rect.width * 0.5, rect.top + rect.height * 0.5],
+        [rect.left + rect.width * 0.5, rect.bottom - 6],
+      ].every(([x, y]) => {
+        const top = document.elementFromPoint(x, y)
+        return Boolean(top && (top === panel || panel.contains(top)))
+      })
+    })
+    const coverageReadability = await coveragePanel.evaluate(panel => {
+      const rect = panel.getBoundingClientRect()
+      const style = getComputedStyle(panel)
+      const alpha = /rgba?\(([^)]+)\)/.exec(style.backgroundColor)?.[1]
+        .split(",")
+        .map(value => value.trim())[3]
+      const probes: Array<[number, number]> = [
+        [rect.left + rect.width * 0.5, rect.top + 6],
+        [rect.left + rect.width * 0.5, rect.top + rect.height * 0.5],
+        [rect.left + rect.width * 0.5, rect.bottom - 6],
+      ]
+      let ancestor: Element | null = panel
+      let effectiveOpacity = 1
+      while (ancestor && ancestor !== document.documentElement) {
+        effectiveOpacity *= Number(getComputedStyle(ancestor).opacity)
+        ancestor = ancestor.parentElement
+      }
+      return {
+        rect: { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom },
+        backgroundAlpha: alpha === undefined ? 1 : Number(alpha),
+        effectiveOpacity,
+        coveredProbes: probes.filter(([x, y]) => {
+          const top = document.elementFromPoint(x, y)
+          return !top || !(top === panel || panel.contains(top))
+        }).length,
+      }
+    })
+    expect(coverageReadability.rect.left).toBeGreaterThanOrEqual(-1)
+    expect(coverageReadability.rect.top).toBeGreaterThanOrEqual(-1)
+    expect(coverageReadability.rect.right).toBeLessThanOrEqual(vp.width + 1)
+    expect(coverageReadability.rect.bottom).toBeLessThanOrEqual(vp.height + 1)
+    expect(coverageReadability.backgroundAlpha).toBe(1)
+    expect(coverageReadability.effectiveOpacity).toBeGreaterThanOrEqual(0.999)
+    expect(coverageReadability.coveredProbes).toBe(0)
     await page.keyboard.press("Escape")
     await expect(coveragePanel).toHaveCount(0)
     await expect(coverageTrigger).toBeFocused()
