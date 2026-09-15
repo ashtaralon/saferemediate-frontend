@@ -450,6 +450,61 @@ export function summarizeS3Traffic(
   }
 }
 
+export interface TriggerRelationship {
+  sourceId: string
+  targetId: string
+  /** Every graph spelling recorded for this one directed connection. */
+  spellings: string[]
+  edgeRows: number
+}
+
+export interface TriggerRelationshipSummary {
+  /** Unique directed trigger-to-function pairs. */
+  connectionCount: number
+  /** Raw rows behind the pairs; may be larger when a pair has twin spellings. */
+  edgeRowCount: number
+  relationships: TriggerRelationship[]
+}
+
+/** Collapse TARGETS/TRIGGERS twins into the connection an operator means.
+ * Other edge types and edges outside the supplied trigger/function sets are
+ * excluded so an S3 access edge can never inflate the trigger count. */
+export function summarizeTriggerRelationships(
+  edges: readonly TrafficEdge[],
+  triggerIds: readonly string[],
+  functionIds: readonly string[],
+): TriggerRelationshipSummary | null {
+  const triggers = new Set(triggerIds)
+  const functions = new Set(functionIds)
+  const pairs = new Map<string, TriggerRelationship>()
+  let edgeRowCount = 0
+  for (const edge of edges) {
+    const spelling = (edge.protocol ?? "").toUpperCase()
+    if (spelling !== "TRIGGERS" && spelling !== "TARGETS") continue
+    if (!triggers.has(edge.source_id) || !functions.has(edge.target_id)) continue
+    edgeRowCount += 1
+    const key = `${edge.source_id}${KEY_SEP}${edge.target_id}`
+    const existing = pairs.get(key)
+    if (existing) {
+      existing.edgeRows += 1
+      if (!existing.spellings.includes(spelling)) existing.spellings.push(spelling)
+      continue
+    }
+    pairs.set(key, {
+      sourceId: edge.source_id,
+      targetId: edge.target_id,
+      spellings: [spelling],
+      edgeRows: 1,
+    })
+  }
+  if (pairs.size === 0) return null
+  return {
+    connectionCount: pairs.size,
+    edgeRowCount,
+    relationships: [...pairs.values()],
+  }
+}
+
 /** One relationship spelling a rail trunk carries, reduced to what deciding
  *  its badge needs. `members` are the overlay's own `source→target` keys. */
 export interface TrunkWordBundle {

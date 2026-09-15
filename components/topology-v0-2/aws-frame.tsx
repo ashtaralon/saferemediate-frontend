@@ -36,12 +36,14 @@ import {
   externalDestinationMap,
   summarizeExternalEgress,
   summarizeS3Traffic,
+  summarizeTriggerRelationships,
   trunkWordBadgeTitle,
   EXTERNAL_DESTINATION_FLOW_PREFIX,
   type ExternalDestinationMap,
   type ExternalDestinationNode,
   type ExternalEgressSummary,
   type S3TrafficCoverage,
+  type TriggerRelationshipSummary,
 } from "./estate-egress-summary"
 import { IGW_CANVAS_ANCHOR_ID } from "./service-paths"
 import { Boxes, GitBranch, Globe2, ShieldAlert, Users } from "lucide-react"
@@ -2604,6 +2606,7 @@ function ServerlessComputeTier({
   namedFlowNodeIds,
   laneMinHeight,
   triggerNodes,
+  triggerEdges,
   s3Coverage,
 }: {
   nodes: TopologyNode[]
@@ -2619,6 +2622,8 @@ function ServerlessComputeTier({
   laneMinHeight?: number
   /** Triggers band (EventBridge / SQS / Step Functions) above the chips. */
   triggerNodes?: TopologyNode[]
+  /** Full payload edges used to derive exact unique trigger relationships. */
+  triggerEdges?: TrafficEdge[]
   /** How many of this lane's functions have a recorded S3 edge (summarizeS3Traffic). */
   s3Coverage?: S3TrafficCoverage | null
 }) {
@@ -2671,6 +2676,11 @@ function ServerlessComputeTier({
   const laneNodes = [...nodes, ...triggers]
   const elided = elideSharedPrefix(laneNodes.map(node => node.name))
   const displayName = new Map(laneNodes.map((node, i) => [node.id, elided.labels[i]]))
+  const triggerSummary = summarizeTriggerRelationships(
+    triggerEdges ?? [],
+    triggers.map(node => node.id),
+    nodes.map(node => node.id),
+  )
   return (
     <div
       className={compact ? "rounded-md p-2 flex flex-col min-h-0" : "rounded-md p-2.5"}
@@ -2716,43 +2726,21 @@ function ServerlessComputeTier({
           nameFor={id => displayName.get(id) ?? id}
         />
       </div>
-      {/* The band is a GUEST in the Lambda lane, so in a lane it scrolls on its
-          own share rather than pushing the chips out: six EventBridge triggers
-          are one per row in a 200px lane (291.5px measured on C1), which is
-          more than the whole lane had to give. `flex-auto` + `min-h-0` lets it
-          shrink alongside the body in proportion to what each holds, and the
-          header keeps stating the true count of what is inside. */}
+      {/* Six trigger cards consumed most of this narrow lane and looked like
+          six observed data flows. Keep the exact resource/connection counts
+          here and move every pair behind an explicit inspection control. */}
       {triggers.length > 0 ? (
         <div
-          className={compact ? "rounded p-1.5 mb-1.5 flex flex-col min-h-0 flex-auto" : "rounded p-1.5 mb-1.5"}
-          style={{ background: "#FFFFFF", border: "1px solid #DDD6FE" }}
+          className="mb-1.5"
           data-testid="topology-triggers-band"
           data-flow-obstacle="triggers-band"
         >
-          <div
-            className="text-[9px] uppercase tracking-[0.12em] font-semibold mb-1 shrink-0"
-            style={{ color: "#5B3C9E" }}
-          >
-            Triggers ({triggers.length})
-          </div>
-          <div
-            className={compact ? "flex flex-col gap-1 min-h-0 flex-auto overflow-y-auto" : "flex flex-wrap gap-1.5"}
-            style={compact ? { minHeight: RAIL_LANE_ROW_PX } : undefined}
-            data-testid="topology-triggers-band-list"
-            data-scroll-region={compact ? "triggers-band" : undefined}
-          >
-            {triggers.map(node => (
-              <ServiceNodeIcon
-                key={node.id}
-                node={node}
-                selected={node.id === selectedNodeId}
-                onSelect={onSelect}
-                dense
-                railChip={compact}
-                displayName={displayName.get(node.id)}
-              />
-            ))}
-          </div>
+          <TriggerRelationshipsControl
+            triggerCount={triggers.length}
+            summary={triggerSummary}
+            nameFor={id => displayName.get(id) ?? id}
+            onSelect={onSelect}
+          />
         </div>
       ) : null}
       <RailLaneBody lane="serverless" compact={compact} revision={nodes.length}>
@@ -3261,6 +3249,109 @@ function LambdaS3CoveragePanel({
         ) : null}
       </div>
     </div>
+  )
+}
+
+function TriggerRelationshipsControl({
+  triggerCount,
+  summary,
+  nameFor,
+  onSelect,
+}: {
+  triggerCount: number
+  summary: TriggerRelationshipSummary | null
+  nameFor: (id: string) => string
+  onSelect: (id: string) => void
+}) {
+  const connectedSources = new Set(summary?.relationships.map(item => item.sourceId) ?? [])
+  const unboundResources = Math.max(0, triggerCount - connectedSources.size)
+  const connectionCount = summary?.connectionCount ?? 0
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-[9px] font-semibold"
+          style={{ background: "#FFFFFF", border: "1px solid #DDD6FE", color: "#5B3C9E" }}
+          aria-label={`Inspect ${connectionCount} trigger relationship${connectionCount === 1 ? "" : "s"}`}
+          data-testid="topology-triggers-detail-trigger"
+          data-trigger-resource-count={triggerCount}
+          data-connection-count={connectionCount}
+          data-edge-row-count={summary?.edgeRowCount ?? 0}
+        >
+          <span className="uppercase tracking-[0.12em]">Triggers ({triggerCount})</span>
+          <span className="font-normal normal-case tracking-normal">
+            {summary ? `${connectionCount} connection${connectionCount === 1 ? "" : "s"}` : "details unavailable"} ▾
+          </span>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        sideOffset={8}
+        className="z-[250] w-[min(92vw,560px)] max-h-[min(70vh,560px)] overflow-y-auto bg-white p-3 opacity-100 shadow-2xl"
+        style={{ backgroundColor: "#FFFFFF", opacity: 1 }}
+        role="dialog"
+        aria-label="Trigger relationship details"
+        data-testid="topology-triggers-detail-panel"
+      >
+        <div className="text-xs font-semibold" style={{ color: "#312E81" }}>
+          {triggerCount} trigger resource{triggerCount === 1 ? "" : "s"}
+          {summary ? ` · ${connectionCount} configured connection${connectionCount === 1 ? "" : "s"}` : ""}
+        </div>
+        <p className="mt-1 text-[11px] leading-snug" style={{ color: "#6366F1" }}>
+          These are trigger relationships. Observed Lambda data traffic is reported separately.
+        </p>
+        {summary ? (
+          <>
+            <ul className="mt-2 space-y-1.5" role="list" data-testid="topology-trigger-relationships">
+              {summary.relationships.map(item => (
+                <li
+                  key={`${item.sourceId}:${item.targetId}`}
+                  className="rounded border border-violet-100 bg-violet-50 px-2 py-1.5 text-[11px]"
+                  data-testid="topology-trigger-relationship"
+                  data-source-id={item.sourceId}
+                  data-target-id={item.targetId}
+                  data-edge-rows={item.edgeRows}
+                >
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <button
+                      type="button"
+                      className="min-w-0 truncate font-mono font-semibold underline decoration-dotted underline-offset-2"
+                      title={item.sourceId}
+                      onClick={() => onSelect(item.sourceId)}
+                    >
+                      {nameFor(item.sourceId)}
+                    </button>
+                    <span className="shrink-0" aria-hidden>→</span>
+                    <button
+                      type="button"
+                      className="min-w-0 truncate font-mono font-semibold underline decoration-dotted underline-offset-2"
+                      title={item.targetId}
+                      onClick={() => onSelect(item.targetId)}
+                    >
+                      {nameFor(item.targetId)}
+                    </button>
+                  </div>
+                  <div className="mt-0.5 text-[10px]" style={{ color: "#6D28D9" }}>
+                    Recorded as {item.spellings.join(" + ")}
+                    {item.edgeRows > 1 ? ` · ${item.edgeRows} graph rows for one connection` : ""}
+                  </div>
+                </li>
+              ))}
+            </ul>
+            {unboundResources > 0 ? (
+              <p className="mt-2 text-[11px]" data-testid="topology-trigger-relationships-partial">
+                {unboundResources} trigger resource{unboundResources === 1 ? " has" : "s have"} no relationship row in this snapshot.
+              </p>
+            ) : null}
+          </>
+        ) : (
+          <p className="mt-2 text-[11px]" data-testid="topology-trigger-relationships-unavailable">
+            This snapshot names trigger resources but contains no supported trigger relationship rows.
+          </p>
+        )}
+      </PopoverContent>
+    </Popover>
   )
 }
 
@@ -9515,6 +9606,7 @@ export function AwsFrame({
                   <ServerlessComputeTier
                     nodes={serverlessTierNodes}
                     triggerNodes={triggerTierNodes}
+                    triggerEdges={trafficEdgesList}
                     laneMinHeight={railLaneMinHeight}
                     selectedNodeId={selectedNodeId}
                     onSelect={onSelect}
