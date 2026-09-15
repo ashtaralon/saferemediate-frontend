@@ -143,6 +143,27 @@ describe("account-onboarding/v1 frontend boundary", () => {
     })
   })
 
+  it("surfaces operator identity refusals without an operation or success", async () => {
+    // The backend authenticates before it reports command availability, so an
+    // enforced-identity deployment answers 401/403 ahead of any 503.
+    for (const [status, detail] of [
+      [401, "A trusted operator identity token is required"],
+      [403, "operator-42 is scoped to tenant 'other' and cannot act on 'acme'"],
+    ] as const) {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ detail }, { status })))
+
+      await expect(submitOnboardingIntent({
+        ...expected,
+        command: { display_name: "Production" },
+      })).rejects.toMatchObject({
+        kind: "REQUEST_FAILED",
+        status,
+        message: detail,
+        operation: null,
+      })
+    }
+  })
+
   it("preserves a queue-unavailable FAILED operation and its exact identity", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({
       detail: {
