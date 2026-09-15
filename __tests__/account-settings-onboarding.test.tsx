@@ -168,6 +168,8 @@ describe("add AWS accounts dialog", () => {
 
     const scope = await screen.findByTestId("organization-scope")
     fireEvent.click(within(scope).getByLabelText("Organizational unit Production"))
+    expect(within(scope).getByLabelText("Organizational unit Apps")).toBeChecked()
+    expect(within(scope).getByLabelText("Organizational unit Apps")).toBeDisabled()
     expect(within(scope).getByTestId("scope-preview")).toHaveTextContent("2 accounts will be connected · 1 suspended skipped")
     expect(within(scope).getByLabelText("Account legacy 333333333333")).toBeDisabled()
     fireEvent.click(within(scope).getByRole("button", { name: /connect 2 accounts/i }))

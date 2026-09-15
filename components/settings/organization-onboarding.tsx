@@ -30,6 +30,7 @@ const ROLE_NAME = /^[A-Za-z0-9+=,.@_-]{1,64}$/
 function UnitNode({
   node,
   depth,
+  ancestorSelected = false,
   selectedUnits,
   selectedAccounts,
   excluded,
@@ -39,6 +40,7 @@ function UnitNode({
 }: {
   node: OrganizationTreeNode
   depth: number
+  ancestorSelected?: boolean
   selectedUnits: Set<string>
   selectedAccounts: Set<string>
   excluded: Set<string>
@@ -50,10 +52,18 @@ function UnitNode({
     <li>
       <label className="flex items-center gap-2 py-1 text-sm" style={{ paddingLeft: depth * 16 }}>
         {node.kind === "unit" ? (
-          <input type="checkbox" aria-label={`Organizational unit ${node.name}`} className="h-4 w-4 accent-teal-600" checked={selectedUnits.has(node.id)} onChange={() => onToggleUnit(node.id)} />
+          <input
+            type="checkbox"
+            aria-label={`Organizational unit ${node.name}`}
+            className="h-4 w-4 accent-teal-600"
+            checked={ancestorSelected || selectedUnits.has(node.id)}
+            disabled={ancestorSelected}
+            onChange={() => onToggleUnit(node.id)}
+          />
         ) : <Network className="h-4 w-4 text-slate-400" />}
         <span className="font-semibold">{node.name}</span>
         <span className="font-mono text-[10px] text-slate-400">{node.id}</span>
+        {ancestorSelected ? <span className="text-[10px] text-teal-700">included by parent OU</span> : null}
       </label>
       <ul>
         {node.accounts.map((account) => {
@@ -79,7 +89,7 @@ function UnitNode({
           )
         })}
         {node.children.map((child) => (
-          <UnitNode key={child.id} node={child} depth={depth + 1} selectedUnits={selectedUnits} selectedAccounts={selectedAccounts} excluded={excluded} coveredByUnit={coveredByUnit} onToggleUnit={onToggleUnit} onToggleAccount={onToggleAccount} />
+          <UnitNode key={child.id} node={child} depth={depth + 1} ancestorSelected={ancestorSelected || selectedUnits.has(node.id)} selectedUnits={selectedUnits} selectedAccounts={selectedAccounts} excluded={excluded} coveredByUnit={coveredByUnit} onToggleUnit={onToggleUnit} onToggleAccount={onToggleAccount} />
         ))}
       </ul>
     </li>

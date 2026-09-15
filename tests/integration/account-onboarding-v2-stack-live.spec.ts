@@ -35,11 +35,12 @@ function record(name: string, value: unknown) {
   writeFileSync(path.join(out, "v2-observations.json"), JSON.stringify(observations, null, 2))
 }
 
-async function shoot(page: Page, name: string) {
+async function shoot(page: Page, name: string, focus?: Locator) {
   mkdirSync(out, { recursive: true })
   for (const [label, size] of Object.entries(VIEWPORTS)) {
     await page.setViewportSize(size)
     await page.waitForTimeout(250)
+    if (focus) await focus.scrollIntoViewIfNeeded()
     await page.screenshot({ path: path.join(out, `${name}-${label}.png`), fullPage: false })
   }
   await page.setViewportSize(VIEWPORTS.laptop)
@@ -100,7 +101,7 @@ test.describe.serial("account onboarding v2 in Chromium", () => {
     const status = await operationStatus(flow, ["SUCCEEDED", "BLOCKED", "FAILED"])
     expect(status).toBe("SUCCEEDED")
     await expect(flow.getByText("Inventory bootstrap", { exact: false }).first()).toBeVisible()
-    await shoot(page, "single-account-succeeded")
+    await shoot(page, "single-account-succeeded", flow.getByTestId("onboarding-operation").last())
     record("single_account_success", { account: SINGLE_OK, status, external_id_length: externalIdLength, plan_contains_external_id: planContainsExternalId })
     expect(planContainsExternalId).toBe(false)
   })
@@ -118,7 +119,7 @@ test.describe.serial("account onboarding v2 in Chromium", () => {
     await flow.getByRole("button", { name: "Retry" }).click()
     await expect(flow.getByText(/retry of/).first()).toBeVisible({ timeout: 30_000 })
     expect(await operationStatus(flow, ["BLOCKED", "FAILED", "SUCCEEDED"])).toBe("BLOCKED")
-    await shoot(page, "single-account-denied-retried")
+    await shoot(page, "single-account-denied-retried", flow.getByTestId("onboarding-operation").last())
     record("single_account_denied", { account: SINGLE_DENIED, first_operation: firstId, retried: true })
   })
 
@@ -141,7 +142,9 @@ test.describe.serial("account onboarding v2 in Chromium", () => {
     await expect(scope).toBeVisible({ timeout: 60_000 })
     await scope.getByLabel("Organizational unit Production").check()
     await expect(scope.getByTestId("scope-preview")).toHaveText(/^3 accounts will be connected/)
-    await shoot(page, "organization-scope")
+    await expect(scope.getByLabel("Organizational unit Apps")).toBeChecked()
+    await expect(scope.getByLabel("Organizational unit Apps")).toBeDisabled()
+    await shoot(page, "organization-scope", scope)
     await scope.getByRole("button", { name: "Connect 3 accounts" }).click()
 
     const table = flow.getByTestId("organization-children")
@@ -154,7 +157,7 @@ test.describe.serial("account onboarding v2 in Chromium", () => {
     // The parent aggregates on the worker's next pass (120s).
     await expect(flow.getByTestId("organization-connect").getByTestId("onboarding-operation").first()).toHaveAttribute("data-operation-status", "PARTIALLY_SUCCEEDED", { timeout: 240_000 })
     await expect(flow.getByTestId("organization-counts")).toHaveText(/^2 connected · 1 need attention · 0 pending/)
-    await shoot(page, "organization-partially-succeeded")
+    await shoot(page, "organization-partially-succeeded", table)
     await row(members.checkout).getByRole("button", { name: "Retry" }).click()
     await expect(flow.getByTestId("organization-connect").getByText(/retry of/).first()).toBeVisible({ timeout: 30_000 })
     record("organization_partial_failure", {
@@ -183,7 +186,7 @@ test.describe.serial("account onboarding v2 in Chromium", () => {
     await parentCard.getByRole("button", { name: "Cancel" }).click()
     await expect(parentCard).toHaveAttribute("data-operation-status", /^(CANCEL_REQUESTED|CANCELLED)$/, { timeout: 30_000 })
     await expect(parentCard).toHaveAttribute("data-operation-status", "CANCELLED", { timeout: 240_000 })
-    await shoot(page, "organization-cancelled")
+    await shoot(page, "organization-cancelled", parentCard)
     record("organization_cancel", { scope: "Sandbox", parent: "CANCELLED" })
   })
 
@@ -197,7 +200,7 @@ test.describe.serial("account onboarding v2 in Chromium", () => {
     await dialog.getByLabel("Account name").fill("Read only")
     await dialog.getByLabel("AWS account ID").fill("555566667777")
     await expect(dialog.getByRole("button", { name: "Create access binding" })).toBeDisabled()
-    await shoot(auditorPage, "auditor-read-only")
+    await shoot(auditorPage, "auditor-read-only", dialog.getByTestId("operator-panel"))
     await auditor.close()
 
     const anonymous = await newContext(browser)
