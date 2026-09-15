@@ -1,16 +1,17 @@
 /// <reference types="vitest/globals" />
 /**
- * Flow-log coverage pill (traffic_authority.lane_coverage, BE >= topology-risk/v8).
+ * Flow-log coverage control (traffic_authority.lane_coverage, BE >= topology-risk/v8).
  *
- * The pill shows the backend's honest denominator — eligible / authoritative /
- * unknown / not applicable per lane — and its lane warnings verbatim. It must
- * render nothing when the backend predates the contract: an absent number is
- * honest, an invented one is not. Inputs here are test doubles for the
+ * The counted toolbar control opens the backend's honest denominator — eligible
+ * / authoritative / unknown / not applicable per lane — and its lane warnings
+ * verbatim. The old full-width map block must remain absent until activation.
+ * It renders nothing when the backend predates the contract: an absent number
+ * is honest, an invented one is not. Inputs here are test doubles for the
  * contract shape, not product data.
  */
 import React from "react"
 import { afterEach, beforeAll, describe, expect, it } from "vitest"
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 
 import { AwsFrame } from "@/components/topology-v0-2/aws-frame"
 import { resolveCoverageGaps, unnamedCounters } from "@/components/topology-v0-2/coverage-gaps"
@@ -136,21 +137,34 @@ function renderFrame(props: { flowMode: "all_access" | "architecture"; laneCover
   )
 }
 
-describe("flow-log coverage pill", () => {
+function openCoveragePanel() {
+  const trigger = screen.getByTestId("topology-lane-coverage-trigger")
+  expect(trigger).toHaveAttribute("aria-label", "Flow-log coverage")
+  expect(trigger).toHaveAttribute("aria-expanded", "false")
+  expect(screen.queryByTestId("topology-lane-coverage")).toBeNull()
+  expect(screen.queryByTestId("topology-lane-coverage-panel")).toBeNull()
+  fireEvent.click(trigger)
+  expect(trigger).toHaveAttribute("aria-expanded", "true")
+  const panel = screen.getByTestId("topology-lane-coverage-panel")
+  expect(panel).toHaveAttribute("role", "dialog")
+  return { trigger, panel, details: within(panel).getByTestId("topology-lane-coverage") }
+}
+
+describe("flow-log coverage control", () => {
   it("shows the backend's honest denominator, every lane, and the warnings verbatim", () => {
     renderFrame({ flowMode: "all_access", laneCoverage: coverage })
-    const pill = screen.getByTestId("topology-lane-coverage")
-    expect(pill).toHaveAttribute("data-coverage-state", "partial")
-    expect(within(pill).getByTestId("topology-lane-coverage-state")).toHaveTextContent("Partly covered")
-    expect(within(pill).getByTestId("topology-lane-coverage-totals")).toHaveTextContent(
+    const { details } = openCoveragePanel()
+    expect(details).toHaveAttribute("data-coverage-state", "partial")
+    expect(within(details).getByTestId("topology-lane-coverage-state")).toHaveTextContent("Partly covered")
+    expect(within(details).getByTestId("topology-lane-coverage-totals")).toHaveTextContent(
       "2 of 3 eligible endpoints covered · 1 unknown · 3 not applicable · generation 7",
     )
-    expect(within(pill).getByTestId("topology-lane-coverage-vpc")).toHaveTextContent("In-VPC 1/2")
-    expect(within(pill).getByTestId("topology-lane-coverage-database")).toHaveTextContent("Database 1/1")
-    expect(within(pill).getByTestId("topology-lane-coverage-serverless")).toHaveTextContent("Lambda 1 unknown")
-    expect(within(pill).getByTestId("topology-lane-coverage-regional")).toHaveTextContent("Regional 2 n/a")
-    const warnings = within(pill).getAllByTestId("topology-coverage-gap")
-    expect(within(pill).getByTestId("topology-coverage-gaps")).toBeTruthy()
+    expect(within(details).getByTestId("topology-lane-coverage-vpc")).toHaveTextContent("In-VPC 1/2")
+    expect(within(details).getByTestId("topology-lane-coverage-database")).toHaveTextContent("Database 1/1")
+    expect(within(details).getByTestId("topology-lane-coverage-serverless")).toHaveTextContent("Lambda 1 unknown")
+    expect(within(details).getByTestId("topology-lane-coverage-regional")).toHaveTextContent("Regional 2 n/a")
+    const warnings = within(details).getAllByTestId("topology-coverage-gap")
+    expect(within(details).getByTestId("topology-coverage-gaps")).toBeTruthy()
     expect(warnings).toHaveLength(3)
     expect(warnings[0]).toHaveAttribute("data-warning-code", "lambda_to_database_not_collected")
     expect(warnings[0]).toHaveTextContent("Lambda: Lambda → database: not collected.")
@@ -204,26 +218,26 @@ describe("flow-log coverage pill", () => {
 
     it("says not measured, never 'not covered', and shows no covered fraction", () => {
       renderFrame({ flowMode: "all_access", laneCoverage: dark })
-      const pill = screen.getByTestId("topology-lane-coverage")
-      expect(pill).toHaveAttribute("data-coverage-state", "not_computed")
-      expect(within(pill).getByTestId("topology-lane-coverage-state")).toHaveTextContent("Not measured")
-      const totals = within(pill).getByTestId("topology-lane-coverage-totals")
+      const { trigger, details } = openCoveragePanel()
+      expect(details).toHaveAttribute("data-coverage-state", "not_computed")
+      expect(within(details).getByTestId("topology-lane-coverage-state")).toHaveTextContent("Not measured")
+      const totals = within(details).getByTestId("topology-lane-coverage-totals")
       expect(totals).toHaveTextContent("14 eligible endpoints, coverage not measured · 16 not applicable")
       // The exact strings the red pill showed on C1 must be gone.
       expect(totals.textContent).not.toContain("0 of 14")
       expect(totals.textContent).not.toContain("covered")
-      expect(pill.textContent).not.toContain("Not covered")
-      // A neutral chip, not the red "none" palette. (Assert the hex the
+      expect(details.textContent).not.toContain("Not covered")
+      // A neutral control, not the red "none" palette. (Assert the hex the
       // component actually sets — an rgb() form here passes vacuously.)
-      expect(pill.getAttribute("style")).not.toContain("#FEF2F2")
-      expect(pill.getAttribute("style")).toContain("#F1F5F9")
+      expect(trigger.getAttribute("style")).not.toContain("#FEF2F2")
+      expect(trigger.getAttribute("style")).toContain("#F1F5F9")
     })
 
     it("states each lane's eligible count instead of a 0/N fraction", () => {
       renderFrame({ flowMode: "all_access", laneCoverage: dark })
-      const pill = screen.getByTestId("topology-lane-coverage")
-      const vpc = within(pill).getByTestId("topology-lane-coverage-vpc")
-      const db = within(pill).getByTestId("topology-lane-coverage-database")
+      const { details } = openCoveragePanel()
+      const vpc = within(details).getByTestId("topology-lane-coverage-vpc")
+      const db = within(details).getByTestId("topology-lane-coverage-database")
       expect(vpc).toHaveAttribute("data-lane-state", "not_computed")
       expect(vpc).toHaveTextContent("In-VPC 9 not measured")
       expect(vpc.textContent).not.toContain("0/9")
@@ -231,14 +245,14 @@ describe("flow-log coverage pill", () => {
       expect(db).toHaveTextContent("Database 5 not measured")
       expect(db.textContent).not.toContain("0/5")
       // Lanes classified before the instrument is consulted are untouched.
-      expect(within(pill).getByTestId("topology-lane-coverage-serverless")).toHaveTextContent("Lambda 6 n/a")
-      expect(within(pill).getByTestId("topology-lane-coverage-regional")).toHaveTextContent("Regional 10 n/a")
+      expect(within(details).getByTestId("topology-lane-coverage-serverless")).toHaveTextContent("Lambda 6 n/a")
+      expect(within(details).getByTestId("topology-lane-coverage-regional")).toHaveTextContent("Regional 10 n/a")
     })
 
     it("still names the reason as a gap the operator can read", () => {
       renderFrame({ flowMode: "all_access", laneCoverage: dark })
-      const pill = screen.getByTestId("topology-lane-coverage")
-      const gaps = within(pill).getAllByTestId("topology-coverage-gap")
+      const { details } = openCoveragePanel()
+      const gaps = within(details).getAllByTestId("topology-coverage-gap")
       expect(gaps).toHaveLength(1)
       expect(gaps[0]).toHaveAttribute("data-warning-code", "canonical_projection_inactive")
       expect(gaps[0]).toHaveTextContent("is not measured")
@@ -261,26 +275,30 @@ describe("flow-log coverage pill", () => {
         warnings: [],
       }
       renderFrame({ flowMode: "all_access", laneCoverage: measuredZero })
-      const pill = screen.getByTestId("topology-lane-coverage")
-      expect(pill).toHaveAttribute("data-coverage-state", "none")
-      expect(within(pill).getByTestId("topology-lane-coverage-state")).toHaveTextContent("Not covered")
-      expect(within(pill).getByTestId("topology-lane-coverage-totals")).toHaveTextContent(
+      const { trigger, details } = openCoveragePanel()
+      expect(details).toHaveAttribute("data-coverage-state", "none")
+      expect(within(details).getByTestId("topology-lane-coverage-state")).toHaveTextContent("Not covered")
+      expect(within(details).getByTestId("topology-lane-coverage-totals")).toHaveTextContent(
         "0 of 14 eligible endpoints covered",
       )
-      expect(within(pill).getByTestId("topology-lane-coverage-vpc")).toHaveTextContent("In-VPC 0/9")
+      expect(within(details).getByTestId("topology-lane-coverage-vpc")).toHaveTextContent("In-VPC 0/9")
       // Red palette retained for the case that earned it.
-      expect(pill.getAttribute("style")).toContain("#FEF2F2")
+      expect(trigger.getAttribute("style")).toContain("#FEF2F2")
     })
   })
 
   it("renders nothing when the backend predates the contract", () => {
     renderFrame({ flowMode: "all_access" })
     expect(screen.queryByTestId("topology-lane-coverage")).toBeNull()
+    expect(screen.queryByTestId("topology-lane-coverage-trigger")).toBeNull()
+    expect(screen.queryByTestId("topology-lane-coverage-panel")).toBeNull()
   })
 
   it("is a Dependencies-lens element only", () => {
     renderFrame({ flowMode: "architecture", laneCoverage: coverage })
     expect(screen.queryByTestId("topology-lane-coverage")).toBeNull()
+    expect(screen.queryByTestId("topology-lane-coverage-trigger")).toBeNull()
+    expect(screen.queryByTestId("topology-lane-coverage-panel")).toBeNull()
   })
 
   /** Independent production UI QA, 2026-09-14: expanded, this block measured
@@ -288,45 +306,43 @@ describe("flow-log coverage pill", () => {
    *  breakdown is now on demand; what a reader cannot lose is the state and
    *  the denominator, because "not measured" read as "zero covered" is the
    *  misreading this pill exists to prevent. */
-  describe("collapsed by default", () => {
-    it("hides the lane breakdown and the gap list until asked", () => {
+  describe("on demand", () => {
+    it("does not mount the old block or the portaled detail until asked", () => {
       renderFrame({ flowMode: "all_access", laneCoverage: coverage })
-      const pill = screen.getByTestId("topology-lane-coverage")
-      expect(pill).toHaveAttribute("data-details-open", "false")
-      // `hidden` rather than unmounted: it costs no layout either way, and the
-      // disclosure's aria-controls target stays a live node.
-      expect(within(pill).getByTestId("topology-lane-coverage-lanes")).toHaveAttribute("hidden")
-      expect(within(pill).getByTestId("topology-coverage-gaps")).toHaveAttribute("hidden")
+      const trigger = screen.getByTestId("topology-lane-coverage-trigger")
+      expect(trigger).toHaveAttribute("aria-expanded", "false")
+      expect(screen.queryByTestId("topology-lane-coverage")).toBeNull()
+      expect(screen.queryByTestId("topology-lane-coverage-panel")).toBeNull()
     })
 
-    it("keeps the state chip and the denominator visible while collapsed", () => {
+    it("keeps the state and warning count visible on the compact control", () => {
       renderFrame({ flowMode: "all_access", laneCoverage: coverage })
-      const pill = screen.getByTestId("topology-lane-coverage")
-      expect(within(pill).getByTestId("topology-lane-coverage-state")).not.toHaveAttribute("hidden")
-      expect(within(pill).getByTestId("topology-lane-coverage-totals")).not.toHaveAttribute("hidden")
+      const trigger = screen.getByTestId("topology-lane-coverage-trigger")
+      expect(trigger).toHaveAttribute("data-coverage-state", "partial")
+      expect(trigger).toHaveTextContent("Coverage · Partly covered (3)")
+      expect(screen.queryByTestId("topology-lane-coverage-totals")).toBeNull()
     })
 
     it("names how many warnings are waiting behind the control", () => {
       renderFrame({ flowMode: "all_access", laneCoverage: coverage })
-      const toggle = screen.getByTestId("topology-lane-coverage-details-toggle")
+      const trigger = screen.getByTestId("topology-lane-coverage-trigger")
       const warnings = resolveCoverageGaps(authority(coverage)).length
       expect(warnings, "this fixture has warnings to count").toBeGreaterThan(0)
-      expect(toggle).toHaveTextContent(`Coverage details (${warnings})`)
-      expect(toggle).toHaveAttribute("aria-expanded", "false")
+      expect(trigger).toHaveTextContent(`(${warnings})`)
+      expect(trigger).toHaveAttribute("aria-expanded", "false")
     })
 
-    it("opens on demand and closes again", () => {
+    it("opens on demand and Escape restores focus to the counted control", async () => {
       renderFrame({ flowMode: "all_access", laneCoverage: coverage })
-      const pill = screen.getByTestId("topology-lane-coverage")
-      const toggle = screen.getByTestId("topology-lane-coverage-details-toggle")
-      fireEvent.click(toggle)
-      expect(pill).toHaveAttribute("data-details-open", "true")
-      expect(within(pill).getByTestId("topology-lane-coverage-lanes")).not.toHaveAttribute("hidden")
-      expect(within(pill).getByTestId("topology-coverage-gaps")).not.toHaveAttribute("hidden")
-      expect(toggle).toHaveTextContent("Hide coverage details")
-      fireEvent.click(toggle)
-      expect(pill).toHaveAttribute("data-details-open", "false")
-      expect(within(pill).getByTestId("topology-lane-coverage-lanes")).toHaveAttribute("hidden")
+      const trigger = screen.getByTestId("topology-lane-coverage-trigger")
+      trigger.focus()
+      const { panel, details } = openCoveragePanel()
+      expect(within(details).getByTestId("topology-lane-coverage-lanes")).toBeTruthy()
+      expect(within(details).getByTestId("topology-coverage-gaps")).toBeTruthy()
+      fireEvent.keyDown(panel, { key: "Escape", code: "Escape" })
+      await waitFor(() => expect(screen.queryByTestId("topology-lane-coverage-panel")).toBeNull())
+      expect(trigger).toHaveAttribute("aria-expanded", "false")
+      expect(trigger).toHaveFocus()
     })
   })
 })

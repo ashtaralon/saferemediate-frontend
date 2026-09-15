@@ -10,14 +10,14 @@
  * its own scroll (RailLaneBody), so both lanes stay on screen together; the
  * nested Lambda-tier cap is gone. Each lane also keeps a floor sized for one
  * full row of dense, half-row chips (RAIL_LANE_MIN_PX): the 96px floor the
- * split shipped with could not hold a full-size chip once the coverage pill
- * took its share of the column. happy-dom has no layout, so the geometry
+ * split shipped with could not hold a full-size chip once persistent rail
+ * details took their share of the column. happy-dom has no layout, so the geometry
  * itself is covered by tests/integration/
  * topology-fullscreen-rail-fixture.spec.ts; this pins the structure.
  */
 import React from "react"
 import { afterEach, beforeAll, describe, expect, it } from "vitest"
-import { cleanup, render, screen, within } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react"
 
 import {
   AwsFrame,
@@ -27,7 +27,7 @@ import {
   RAIL_LANE_W_PX,
   railLaneFloorPx,
 } from "@/components/topology-v0-2/aws-frame"
-import type { SubnetMeta, TopologyNode, VpcTopology } from "@/components/topology-v0-2/types"
+import type { SubnetMeta, TopologyNode, TrafficEdge, VpcTopology } from "@/components/topology-v0-2/types"
 
 beforeAll(() => {
   if (!("ResizeObserver" in globalThis)) {
@@ -75,17 +75,28 @@ const nodes: TopologyNode[] = [
   nd({ id: "arn:aws:s3:::cyntro-tb-prod-logs", name: "cyntro-tb-prod-logs", type: "S3" }),
 ]
 
-// EventBridge rules named for the Lambdas they fire — the shape C1 runs, and
-// the one that broke the lane: the rules render in a BAND inside the Lambda
-// lane, so they compete with the Lambda chips for the lane's height and they
-// share the Lambdas' naming prefix.
+// EventBridge rules named for the Lambdas they fire — the shape C1 runs. Their
+// exact pairs are now portaled on demand so the counted control is the only
+// trigger content charged against the Lambda lane's height.
 const triggerNodes: TopologyNode[] = [
   nd({ id: "rule-a", name: "cyntro-tb-prod-consumer-a-schedule", type: "EventBridgeRule" }),
   nd({ id: "rule-b", name: "cyntro-tb-prod-consumer-b-schedule", type: "EventBridgeRule" }),
   nd({ id: "rule-c", name: "cyntro-tb-prod-consumer-c-schedule", type: "EventBridgeRule" }),
 ]
 
-function renderFrame(presentationMode: boolean, frameNodes: TopologyNode[] = nodes) {
+const triggerEdges: TrafficEdge[] = triggerNodes.flatMap((rule, index) => {
+  const target = nodes[index + 1]
+  return [
+    { source_id: rule.id, target_id: target.id, protocol: "TARGETS" },
+    { source_id: rule.id, target_id: target.id, protocol: "TRIGGERS" },
+  ]
+})
+
+function renderFrame(
+  presentationMode: boolean,
+  frameNodes: TopologyNode[] = nodes,
+  trafficEdges: TrafficEdge[] = [],
+) {
   return render(
     <AwsFrame
       vpcTopology={vpcTopology}
@@ -95,6 +106,7 @@ function renderFrame(presentationMode: boolean, frameNodes: TopologyNode[] = nod
       viewDensity="inventory"
       selectedNodeId={null}
       onSelect={() => {}}
+      trafficEdges={trafficEdges}
     />,
   )
 }
@@ -185,52 +197,65 @@ describe("fullscreen off-VPC rail: two lanes, each owning one bounded scroll", (
     expect(within(rail).getByTestId("topology-regional-data-tier").style.minHeight).toBe(`${RAIL_LANE_MIN_PX}px`)
   })
 
-  it("the triggers band is a bounded guest in the Lambda lane, not a squatter", () => {
-    renderFrame(true, [...nodes, ...triggerNodes])
+  it("the collapsed trigger control is a bounded guest; exact pairs open on demand", () => {
+    renderFrame(true, [...nodes, ...triggerNodes], triggerEdges)
     const rail = screen.getByTestId("topology-edge-services-rail")
     const serverless = within(rail).getByTestId("topology-serverless-tier")
     const band = within(serverless).getByTestId("topology-triggers-band")
-    const list = within(band).getByTestId("topology-triggers-band-list")
-    // The band shrinks with the lane instead of pushing the chips out. On C1 it
-    // was an unbounded `flex flex-col` block: six rules one per row in a 200px
-    // lane measured 291.5px of the lane's 402, and the Lambda body — the only
-    // 0%-basis child — was left 1.75px (2026-09-11). The header stays put while
-    // the list scrolls, which is why the count above it is still readable.
-    expect(band.className).toMatch(/\bflex-auto\b/)
-    expect(band.className).toMatch(/\bmin-h-0\b/)
-    expect(band.className).toMatch(/\bflex-col\b/)
-    expect(list.className).toMatch(/\boverflow-y-auto\b/)
-    expect(list.className).toMatch(/\bmin-h-0\b/)
-    expect(list.className).toMatch(/\bflex-auto\b/)
-    expect(list.style.minHeight).toBe(`${RAIL_LANE_ROW_PX}px`)
-    expect(list).toHaveAttribute("data-scroll-region", "triggers-band")
-    // Three scroll owners now, in DOM order — the band sits ABOVE the Lambda
-    // body inside its lane. Nothing else in the column scrolls or caps height.
+    const control = within(band).getByTestId("topology-triggers-detail-trigger")
+    // The former rule-card list was an unbounded `flex flex-col` block: six
+    // cards consumed 291.5px of a 402px lane and left its Lambda body at 1.75px.
+    // Closed now means one ordinary-height control and no mounted list/panel.
+    expect(band.className).not.toMatch(/\bflex-auto\b/)
+    expect(band.className).not.toMatch(/\bmin-h-0\b/)
+    expect(band.className).not.toMatch(/\boverflow-y-auto\b/)
+    expect(within(band).queryByTestId("topology-triggers-band-list")).toBeNull()
+    expect(screen.queryByTestId("topology-triggers-detail-panel")).toBeNull()
+    expect(control).toHaveAttribute("aria-expanded", "false")
+    expect(control).toHaveAttribute("data-trigger-resource-count", String(triggerNodes.length))
+    expect(control).toHaveAttribute("data-connection-count", String(triggerNodes.length))
+    expect(control).toHaveAttribute("data-edge-row-count", String(triggerEdges.length))
+    expect(control).toHaveTextContent(`Triggers (${triggerNodes.length})`)
+    expect(control).toHaveTextContent(`${triggerNodes.length} connections`)
+
+    // With the cards portaled, the Lambda and Regional bodies are again the
+    // only vertical scroll owners in the rail.
     const serverlessBody = within(serverless).getByTestId("topology-serverless-lane-body")
     const regionalBody = within(rail).getByTestId("topology-regional-lane-body")
     expect(Array.from(rail.querySelectorAll("[class*='overflow-y-auto']"))).toEqual([
-      list,
       serverlessBody,
       regionalBody,
     ])
     expect(rail.querySelectorAll("[class*='max-h-[']")).toHaveLength(0)
-    // Prefix elision is the LANE's, band included: eliding only the Lambdas left
-    // every trigger chip reading the whole shared prefix, which is the same "six
-    // copies of nothing" this elision exists to remove, one band higher.
-    const triggerChips = within(list).getAllByTestId("topology-service-node-icon")
-    expect(triggerChips).toHaveLength(triggerNodes.length)
-    for (const chip of triggerChips) {
-      expect(chip.textContent ?? "").toContain("…")
-      expect(chip.textContent ?? "").not.toContain("cyntro-tb-prod-")
-    }
-    // …and the header's claim covers every chip it speaks for, not just the
-    // Lambdas: 3 Lambdas + 3 rules.
+
+    // Prefix accounting still covers every named resource in the lane, even
+    // though trigger names are shown only in the inspector.
     expect(within(serverless).getByTestId("topology-serverless-name-prefix")).toHaveAttribute(
       "title",
       `${nodes.filter(n => n.type === "Lambda").length + triggerNodes.length} of ${
         nodes.filter(n => n.type === "Lambda").length + triggerNodes.length
       } chips omit this shared prefix`,
     )
+
+    fireEvent.click(control)
+    expect(control).toHaveAttribute("aria-expanded", "true")
+    const panel = screen.getByTestId("topology-triggers-detail-panel")
+    expect(panel).toHaveAttribute("role", "dialog")
+    expect(panel).toHaveTextContent(
+      `${triggerNodes.length} trigger resources · ${triggerNodes.length} configured connections`,
+    )
+    const relationships = within(panel).getAllByTestId("topology-trigger-relationship")
+    expect(relationships).toHaveLength(triggerNodes.length)
+    for (const relationship of relationships) {
+      expect(relationship).toHaveAttribute("data-edge-rows", "2")
+      expect(relationship).toHaveTextContent("Recorded as TARGETS + TRIGGERS")
+      expect(relationship).toHaveTextContent("2 graph rows for one connection")
+    }
+    // Portaling details must not add another scroll owner to normal rail flow.
+    expect(Array.from(rail.querySelectorAll("[class*='overflow-y-auto']"))).toEqual([
+      serverlessBody,
+      regionalBody,
+    ])
   })
 
   it("the lanes are side-by-side columns with a corridor between them", () => {
