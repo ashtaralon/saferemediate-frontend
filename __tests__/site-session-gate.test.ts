@@ -91,6 +91,25 @@ describe("middleware site gate", () => {
     }
   })
 
+  it("never lets an image-like suffix skip the gate for API routes, dynamic pages or non-read methods", async () => {
+    const { middleware, isPublicStaticRead } = await import("@/middleware")
+    const probe = async (method: string, path: string, cookie?: string) =>
+      middleware(new NextRequest(`${ORIGIN}${path}`, { method, headers: cookie ? { cookie } : undefined }))
+    for (const method of ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"]) {
+      for (const path of ["/api/proxy/s3-buckets/example.png", "/api/proxy/s3-buckets/example.svg", "/api/proxy/s3-buckets/example.ico", "/api/backend/probe.png", "/api/icon.png", "/inspector/sg-1.png", "/nhi-profile/x.svg"]) {
+        for (const cookie of [undefined, `${SITE_SESSION_COOKIE}=authenticated`]) {
+          expect(redirectedToLogin(await probe(method, path, cookie)), `${method} ${path} ${cookie ?? "anonymous"}`).toBe(true)
+        }
+      }
+    }
+    for (const path of ["/cyntro-logo.png", "/icon.svg", "/apple-icon.png", "/placeholder.jpg", "/favicon.ico", "/_next/webpack-hmr-probe.js"]) {
+      expect(passed(await probe("GET", path)), path).toBe(true)
+      expect(redirectedToLogin(await probe("POST", path)), `POST ${path}`).toBe(true)
+    }
+    expect(isPublicStaticRead("HEAD", "/icon-light-32x32.png")).toBe(true)
+    expect(isPublicStaticRead("GET", "/design/topology-v0.2.html")).toBe(false)
+  })
+
   it("keeps the public paths and the bound OIDC callback reachable without a session", async () => {
     for (const path of ["/login", "/api/auth/login", "/api/healthz", "/api/build-version", "/api/proxy/meta", "/api/cron/warm", "/api/auth/operator/callback"]) {
       expect(passed(await gate(path)), path).toBe(true)
