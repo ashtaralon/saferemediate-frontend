@@ -76,13 +76,28 @@ const SWEEP_DEADLINE_MS = 50_000
 type SweepResult = {
   system: string
   kind: "iap" | "blast_radius" | "topology_risk"
-  status: number | "timeout" | "error"
+  status: number | "timeout" | "error" | "skipped_missing_scope"
   elapsed_ms: number
   from_snapshot?: boolean
   stale?: boolean
 }
 
-async function prewarmIdentityAttackPaths(system: string): Promise<SweepResult> {
+/**
+ * A prewarm target carrying the scope the serving-graph endpoints demand.
+ * The blast-radius composer refuses to infer scope (returns 503) so the
+ * sweep must call it with the same customer/account/region an operator
+ * would send — an unscoped ping just wastes the cold-start budget and
+ * leaves the real per-scope cache key cold.
+ */
+type SystemTarget = {
+  name: string
+  customerId: string | null
+  accountId: string | null
+  region: string | null
+}
+
+async function prewarmIdentityAttackPaths(target: SystemTarget): Promise<SweepResult> {
+  const system = target.name
   const t0 = Date.now()
   const url =
     `${BACKEND_URL}/api/identity-attack-paths/${encodeURIComponent(system)}` +
@@ -133,9 +148,29 @@ async function prewarmIdentityAttackPaths(system: string): Promise<SweepResult> 
  * finishes server-side, so the next operator click lands warm. Symmetric with
  * the IAP prewarm above — same cold-cycle, same fix.
  */
-async function prewarmBlastRadius(system: string): Promise<SweepResult> {
+async function prewarmBlastRadius(target: SystemTarget): Promise<SweepResult> {
+  const system = target.name
   const t0 = Date.now()
-  const url = `${BACKEND_URL}/api/business-system/${encodeURIComponent(system)}/blast-radius`
+  // The compose is per-tenant + per-account/region; the backend fails closed
+  // when scope is absent. A prewarm without scope would 503 and leave the
+  // real per-scope cache cold. If we don't know the scope, skip cleanly
+  // rather than pretend to warm the cache the operator will actually hit.
+  if (!target.customerId || !target.accountId || !target.region) {
+    return {
+      system,
+      kind: "blast_radius",
+      status: "skipped_missing_scope",
+      elapsed_ms: 0,
+    }
+  }
+  const params = new URLSearchParams({
+    customer_id: target.customerId,
+    account_id: target.accountId,
+    region: target.region,
+  })
+  const url =
+    `${BACKEND_URL}/api/business-system/${encodeURIComponent(system)}/blast-radius` +
+    `?${params.toString()}`
   try {
     const res = await fetch(url, {
       cache: "no-store",
@@ -178,7 +213,8 @@ async function prewarmBlastRadius(system: string): Promise<SweepResult> {
  * endpoint (not the cheap /api/systems ping) also keeps the worker warm with
  * genuine work. Aborted recomputes still finish + put_snapshot server-side.
  */
-async function prewarmTopologyRisk(system: string): Promise<SweepResult> {
+async function prewarmTopologyRisk(target: SystemTarget): Promise<SweepResult> {
+  const system = target.name
   const t0 = Date.now()
   const url = `${BACKEND_URL}/api/topology-risk/${encodeURIComponent(system)}`
   try {
@@ -212,10 +248,13 @@ async function prewarmTopologyRisk(system: string): Promise<SweepResult> {
   }
 }
 
+const ACCOUNT_ID_RE = /^\d{12}$/
+const REGION_RE = /^[a-z]{2}(-gov)?-[a-z]+-\d+$/
+
 export async function GET() {
   const start = Date.now()
   let pingStatus = 0
-  let systems: string[] = []
+  let systems: SystemTarget[] = []
   try {
     const res = await fetch(`${BACKEND_URL}/api/systems`, {
       cache: "no-store",
@@ -243,8 +282,21 @@ export async function GET() {
     try {
       const body = await res.json()
       systems = (body?.systems ?? [])
-        .map((s: { name?: string }) => s?.name)
-        .filter((n: unknown): n is string => typeof n === "string" && n.length > 0)
+        .map((s: {
+          name?: string
+          customer_id?: string
+          account_id?: string
+          region?: string
+        }): SystemTarget | null => {
+          const name = typeof s?.name === "string" ? s.name : ""
+          if (!name) return null
+          const customerId = typeof s.customer_id === "string" && s.customer_id ? s.customer_id : null
+          const accountId =
+            typeof s.account_id === "string" && ACCOUNT_ID_RE.test(s.account_id) ? s.account_id : null
+          const region = typeof s.region === "string" && REGION_RE.test(s.region) ? s.region : null
+          return { name, customerId, accountId, region }
+        })
+        .filter((t: SystemTarget | null): t is SystemTarget => t !== null)
     } catch {
       // Non-JSON ping response — skip the sweep this run; the next cron
       // (10 min) hits a woken backend and gets the list.
@@ -274,7 +326,10 @@ export async function GET() {
       (r) => {
         // 200 = success (incl. Wave B computing / compute_failed envelopes).
         // Legacy 503 compute_in_progress may linger until backends roll.
+        // "skipped_missing_scope" = the /api/systems response didn't include
+        //   enough scope to prewarm honestly; not a failure to alert on.
         if (r.status === 200 || r.status === 503) return false
+        if (r.status === "skipped_missing_scope") return false
         return true
       },
     )

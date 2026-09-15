@@ -17,6 +17,12 @@
 import { useEffect, useState } from "react"
 import { AlertTriangle, Clock, RefreshCw, Scissors, ShieldAlert } from "lucide-react"
 import { useCachedFetch } from "@/lib/use-cached-fetch"
+import { useAccountScope } from "@/lib/account-scope-context"
+import {
+  buildBlastRadiusCacheKey,
+  buildBlastRadiusUrl,
+  normalizeBlastRadiusScope,
+} from "@/components/attack-paths-v2/blast-radius-scope"
 import { StatusChip } from "@/components/dashboard/v2/status-chip"
 import { EstateMapView } from "@/components/topology-v0-2/estate-map-view"
 import {
@@ -43,8 +49,13 @@ function relativeAge(seconds: number | null | undefined): string {
 }
 
 export function BlastRadiusView({ systemName }: { systemName: string }) {
-  const url = `/api/proxy/business-system/${encodeURIComponent(systemName)}/blast-radius`
-  const cacheKey = `bs-blast-radius:${systemName}`
+  // The composer runs against the serving graph and refuses to infer scope:
+  // an unscoped GET returns 503, and a cached response from a different
+  // account/region would be a cross-tenant paint. Bind both the URL and the
+  // SWR cache key to the operator's active Estate scope.
+  const scope = normalizeBlastRadiusScope(useAccountScope())
+  const url = buildBlastRadiusUrl(systemName, scope)
+  const cacheKey = `bs-${buildBlastRadiusCacheKey(systemName, scope)}`
   const { data, loading, error, isStale, retry } = useCachedFetch<BlastRadiusResponse>(url, {
     cacheKey,
     maxStaleMs: 10 * 60 * 1000,

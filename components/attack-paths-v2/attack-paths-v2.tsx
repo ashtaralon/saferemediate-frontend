@@ -91,6 +91,12 @@ import {
   scopedStorageKey,
   useScopedSystemCatalog,
 } from "@/lib/scoped-system-catalog"
+import { useAccountScope } from "@/lib/account-scope-context"
+import {
+  buildBlastRadiusCacheKey,
+  buildBlastRadiusUrl,
+  normalizeBlastRadiusScope,
+} from "./blast-radius-scope"
 
 function isTrustEnvelope(x: any): x is { provenance: any; result: any } {
   return x && typeof x === "object" && "result" in x && "provenance" in x
@@ -397,11 +403,15 @@ export function AttackPathsV2({
   // return an empty path array while the materialized blast-radius summary is
   // available. Use the same authoritative totals as Zoom -1 for the shell
   // header so operators never see "0 paths" beside a non-zero overview.
-  const blastRadiusUrl = systemName
-    ? `/api/proxy/business-system/${encodeURIComponent(systemName)}/blast-radius`
-    : null
+  //
+  // The compose is per-tenant and per-account/region: the serving graph
+  // refuses to infer scope and returns 503 on an unscoped GET. Bind the
+  // fetch (and its SWR cache key) to the active Estate scope so a cached
+  // response for one tenant/account can never paint another's session.
+  const blastRadiusScope = normalizeBlastRadiusScope(useAccountScope())
+  const blastRadiusUrl = buildBlastRadiusUrl(systemName ?? "", blastRadiusScope)
   const { data: blastRadiusData } = useCachedFetch<BlastRadiusPayload>(blastRadiusUrl, {
-    cacheKey: `blast-radius:${systemName}`,
+    cacheKey: buildBlastRadiusCacheKey(systemName ?? "", blastRadiusScope),
   })
   // Intentionally ignore _iapBackgroundError for the path rail UI.
 
