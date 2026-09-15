@@ -1,9 +1,10 @@
 # Browser QA walk of every C1 tab — Playwright on a GitHub-hosted runner.
 #
 # The driving sandbox can reach neither the Vercel app nor the Render
-# backend, so CI is the browser. Auth: middleware.ts admits any request
-# carrying the constant cookie cyntro_auth=authenticated (the login route
-# only gates SETTING that cookie), so the walker needs no secret.
+# backend, so CI is the browser. Auth: the site gate accepts only the sealed
+# session /api/auth/login issues, so the walker signs in with the site password
+# from the CYNTRO_C1_SITE_PASSWORD repository secret. Without it the walk stops
+# with a clear error instead of reporting every page as a login redirect.
 #
 # Per page it records: document HTTP status, console errors, page errors,
 # tenant-leak marker ("alon-prod" anywhere in the rendered text), obvious
@@ -33,6 +34,7 @@ jobs:
     timeout-minutes: 25
     env:
       BASE_URL: ${{ inputs.base_url }}
+      SITE_PASSWORD: ${{ secrets.CYNTRO_C1_SITE_PASSWORD }}
     steps:
       - name: Install Playwright
         run: |
@@ -97,11 +99,17 @@ jobs:
             const ctx = await browser.newContext({
               viewport: { width: 1440, height: 900 },
             });
-            await ctx.addCookies([{
-              name: "cyntro_auth", value: "authenticated",
-              domain: HOST, path: "/",
-              httpOnly: true, secure: true, sameSite: "Lax",
-            }]);
+            if (!process.env.SITE_PASSWORD) {
+              throw new Error("CYNTRO_C1_SITE_PASSWORD secret is not set; the site gate cannot be passed");
+            }
+            // The login route sets the sealed session cookie on this context.
+            const login = await ctx.request.post(`${BASE}/api/auth/login`, {
+              data: { password: process.env.SITE_PASSWORD },
+            });
+            if (!login.ok()) throw new Error(`site sign-in failed: HTTP ${login.status()}`);
+            if (!(await ctx.cookies(BASE)).some((c) => c.name === "cyntro_auth")) {
+              throw new Error("site sign-in returned no session cookie");
+            }
 
             const rows = [];
             for (const [name, path] of PAGES) {
