@@ -18,16 +18,12 @@ import {
 } from "lucide-react"
 import { LeftSidebarNav } from "@/components/left-sidebar-nav"
 import { AddAccountDialog } from "@/components/settings/account-onboarding-dialog"
+import { OnboardingActivity } from "@/components/settings/onboarding-activity"
+import { OperationCard } from "@/components/settings/onboarding-operation-card"
+import { OperatorSignInPanel, useOperatorState } from "@/components/settings/operator-sign-in-panel"
+import { useTrackedOperation } from "@/components/settings/use-tracked-operation"
 import { useAccountScope } from "@/lib/account-scope-context"
-import {
-  AccountOnboardingRequestError,
-  isOnboardingPending,
-  operationFailureText,
-  reuseOnboardingIntentIdentity,
-  submitAndTrackOnboarding,
-  type AccountOnboardingOperation,
-  type SavedOnboardingIntentIdentity,
-} from "@/lib/account-onboarding"
+import { intentIdentity, submitOperation, type IntentIdentity } from "@/lib/account-onboarding"
 
 interface ManagedAccount {
   customer_id: string
@@ -100,13 +96,16 @@ export default function AccountSettingsPage() {
   const [data, setData] = useState<AccountResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [validationErrorAccount, setValidationErrorAccount] = useState<string | null>(null)
   const [search, setSearch] = useState("")
   const [showAdd, setShowAdd] = useState(false)
   const [validating, setValidating] = useState<string | null>(null)
-  const [validationOperation, setValidationOperation] = useState<AccountOnboardingOperation | null>(null)
-  const validationIdentities = useRef(new Map<string, SavedOnboardingIntentIdentity>())
-  const validationAbortRef = useRef<AbortController | null>(null)
+  const validationIdentities = useRef(new Map<string, IntentIdentity>())
+  const validation = useTrackedOperation()
+  const operator = useOperatorState(scope.customerId)
+  const verifiedOperator = operator.state?.verified === "VERIFIED" ? operator.state.operator : null
+  const onboardingCustomer = verifiedOperator?.tenant_id || null
+  const registryCustomer = scope.customerId || onboardingCustomer
+  const [activityKey, setActivityKey] = useState(0)
   const [activeSection, setActiveSection] = useState<"accounts" | "groups">("accounts")
   const [groups, setGroups] = useState<AccountGroup[]>([])
   const [showAddGroup, setShowAddGroup] = useState(false)
@@ -114,7 +113,7 @@ export default function AccountSettingsPage() {
   useEffect(() => setHydrated(true), [])
 
   async function load() {
-    if (!scope.customerId) {
+    if (!registryCustomer) {
       setLoading(false)
       return
     }
@@ -122,14 +121,14 @@ export default function AccountSettingsPage() {
     setError(null)
     try {
       const response = await fetch(
-        `/api/proxy/admin/accounts?customer_id=${encodeURIComponent(scope.customerId)}`,
+        `/api/proxy/admin/accounts?customer_id=${encodeURIComponent(registryCustomer)}`,
         { cache: "no-store" },
       )
       if (!response.ok) throw new Error(`Account registry returned ${response.status}`)
       const accountData = await response.json()
       setData(accountData)
       const groupResponse = await fetch(
-        `/api/proxy/admin/accounts/groups/all?customer_id=${encodeURIComponent(scope.customerId)}`,
+        `/api/proxy/admin/accounts/groups/all?customer_id=${encodeURIComponent(registryCustomer)}`,
         { cache: "no-store" },
       )
       if (!groupResponse.ok) throw new Error(`Account groups returned ${groupResponse.status}`)
@@ -144,64 +143,26 @@ export default function AccountSettingsPage() {
 
   useEffect(() => {
     void load()
-  }, [scope.customerId])
-
-  useEffect(() => {
-    validationAbortRef.current?.abort()
-    setValidating(null)
-    setValidationOperation(null)
-    setValidationErrorAccount(null)
-    return () => validationAbortRef.current?.abort()
-  }, [scope.customerId])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [registryCustomer])
 
   async function validate(accountId: string) {
-    if (!scope.customerId) return
+    if (!onboardingCustomer || !verifiedOperator?.permissions.submit) return
     setValidating(accountId)
-    setValidationOperation(null)
-    setError(null)
-    setValidationErrorAccount(null)
-    const controller = new AbortController()
-    validationAbortRef.current?.abort()
-    validationAbortRef.current = controller
-    const signature = JSON.stringify({ customerId: scope.customerId, accountId, operationType: "VALIDATE_ACCESS" })
-    const identity = reuseOnboardingIntentIdentity(validationIdentities.current.get(accountId), signature, "VALIDATE_ACCESS")
+    const customerId = onboardingCustomer
+    const signature = JSON.stringify({ customerId, accountId, operationType: "VALIDATE_ACCESS" })
+    const identity = intentIdentity(validationIdentities.current.get(accountId), signature, "VALIDATE_ACCESS")
     validationIdentities.current.set(accountId, identity)
-    try {
-      const operation = await submitAndTrackOnboarding({
-        customerId: scope.customerId,
-        accountId,
-        operationType: "VALIDATE_ACCESS",
-        command: {},
-        requestId: identity.requestId,
-        idempotencyKey: identity.idempotencyKey,
-      }, setValidationOperation, { signal: controller.signal })
-      if (!isOnboardingPending(operation.status)) {
-        validationIdentities.current.delete(accountId)
-      }
-      if (operation.status === "SUCCEEDED") {
+    const finished = await validation.start(() => submitOperation({ customerId, accountId, operationType: "VALIDATE_ACCESS", command: {}, identity }))
+    if (finished) {
+      validationIdentities.current.delete(accountId)
+      setActivityKey((key) => key + 1)
+      if (finished.status === "SUCCEEDED") {
         await load()
         scope.refresh()
-      } else {
-        setValidationErrorAccount(accountId)
-        setError(`Access validation ${operation.status.toLowerCase()}: ${operationFailureText(operation)}`)
       }
-    } catch (reason) {
-      if (reason instanceof DOMException && reason.name === "AbortError") return
-      if (reason instanceof AccountOnboardingRequestError && reason.operation) {
-        setValidationOperation(reason.operation)
-        if (!isOnboardingPending(reason.operation.status)) {
-          validationIdentities.current.delete(accountId)
-        }
-      }
-      setValidationErrorAccount(accountId)
-      setError(reason instanceof AccountOnboardingRequestError && reason.kind === "SETUP_UNAVAILABLE"
-        ? "Account setup is unavailable. Validation was not marked successful."
-        : reason instanceof AccountOnboardingRequestError && reason.kind === "QUEUE_UNAVAILABLE"
-          ? "Validation was recorded as failed because the onboarding queue is unavailable."
-          : reason instanceof Error ? reason.message : String(reason))
-    } finally {
-      if (!controller.signal.aborted) setValidating(null)
     }
+    setValidating(null)
   }
 
   const accounts = (data?.accounts || []).filter((account) => {
@@ -227,7 +188,7 @@ export default function AccountSettingsPage() {
             </div>
             <button
               onClick={() => activeSection === "accounts" ? setShowAdd(true) : setShowAddGroup(true)}
-              disabled={!hydrated || !scope.customerId}
+              disabled={!hydrated || (activeSection === "groups" && !scope.customerId)}
               data-hydrated={hydrated ? "true" : "false"}
               className="inline-flex items-center gap-2 rounded-lg bg-[#008f7d] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#007c6d] disabled:cursor-not-allowed disabled:opacity-40"
             >
@@ -293,18 +254,22 @@ export default function AccountSettingsPage() {
               </div>
             ) : null}
 
+            <OperatorSignInPanel state={operator.state} loading={operator.loading} error={operator.error} onChanged={() => void operator.refresh()} />
+
             {error ? (
               <div role="alert" className="flex items-center justify-between rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
                 <span>{error}</span>
-                <button onClick={() => validationErrorAccount ? void validate(validationErrorAccount) : void load()} className="font-semibold">{validationErrorAccount ? "Retry validation" : "Retry"}</button>
+                <button onClick={() => void load()} className="font-semibold">Retry</button>
               </div>
             ) : null}
 
-            {validationOperation ? (
-              <div aria-live="polite" className="rounded-xl border border-slate-200 bg-white p-4 text-sm shadow-sm">
-                <span className="font-semibold">Access validation for {validationOperation.account_id}</span>
-                <span className="ml-2 text-slate-500">{validationOperation.status.toLowerCase()}</span>
-              </div>
+            {validation.operation ? (
+              <OperationCard operation={validation.operation} events={validation.events} canSubmit={Boolean(verifiedOperator?.permissions.submit)} busy={validation.busy} onCancel={(op) => void validation.cancel(op)} onRetry={(op) => void validation.retry(op)} />
+            ) : null}
+            {validation.error ? <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{validation.error}</div> : null}
+
+            {onboardingCustomer ? (
+              <OnboardingActivity customerId={onboardingCustomer} canRead={Boolean(verifiedOperator?.permissions.read)} canSubmit={Boolean(verifiedOperator?.permissions.submit)} refreshKey={activityKey} />
             ) : null}
 
             <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
@@ -359,14 +324,13 @@ export default function AccountSettingsPage() {
                     ) : (
                       <button
                         onClick={() => void validate(account.account_id)}
-                        disabled={validating !== null}
+                        disabled={validating !== null || !verifiedOperator?.permissions.submit}
+                        title={verifiedOperator?.permissions.submit ? undefined : "Sign in with an operator role to validate access"}
                         aria-label={`Validate access for ${account.display_name}`}
                         className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-white disabled:opacity-50"
                       >
                         {validating === account.account_id ? <Loader2 className="h-3 w-3 animate-spin" /> : <ShieldCheck className="h-3 w-3" />}
-                        {validating === account.account_id && validationOperation
-                          ? validationOperation.status === "QUEUED" ? "Queued" : "Running"
-                          : "Validate"}
+                        {validating === account.account_id ? "Validating" : "Validate"}
                       </button>
                     )}
                   </div>
@@ -379,11 +343,16 @@ export default function AccountSettingsPage() {
       </main>
       {showAdd ? (
         <AddAccountDialog
-          customerId={scope.customerId}
-          onClose={() => setShowAdd(false)}
-          onCreated={async () => {
+          operator={operator.state}
+          operatorLoading={operator.loading}
+          operatorError={operator.error}
+          onOperatorChanged={() => void operator.refresh()}
+          onClose={() => {
             setShowAdd(false)
-            await load()
+            void load()
+          }}
+          onChanged={() => {
+            setActivityKey((key) => key + 1)
             scope.refresh()
           }}
         />
