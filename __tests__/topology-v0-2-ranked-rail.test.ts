@@ -4,13 +4,32 @@ import {
   buildHeadlineNarrative,
   buildRankedEntries,
 } from "@/components/topology-v0-2/headline-narrative"
-import type { IdentityClaimAuthority } from "@/components/topology-v0-2/identity-claim-authority"
+import type {
+  IdentityClaimAuthority,
+  IdentityRoleObservation,
+} from "@/components/topology-v0-2/identity-claim-authority"
 import type { IamRoleRollup, TopologyNode, TopologyRiskResponse } from "@/components/topology-v0-2/types"
 
 /** What the Identity & access panel resolves for a pre-v11 snapshot. */
 const IDENTITY_UNAVAILABLE: IdentityClaimAuthority = {
   state: "unavailable",
   reason: "Topology snapshot does not carry the v11 identity contract.",
+}
+
+/** A fully assessed population: every in-scope role returned and complete. */
+function readyAuthority(observations: IdentityRoleObservation[]): IdentityClaimAuthority {
+  return {
+    state: "ready",
+    observations,
+    population: {
+      rolesTotal: observations.length,
+      rolesReturned: observations.length,
+      rolesAssessed: observations.length,
+      rolesOmittedUnresolved: 0,
+      rolesTruncated: false,
+      complete: true,
+    },
+  }
 }
 
 function node(partial: Partial<TopologyNode> & { id: string; name: string }): TopologyNode {
@@ -145,21 +164,22 @@ describe("buildHeadlineNarrative", () => {
         iam_roles: [role({ name: "demo-ec2-s3-role", gap_percentage: 100, unused_actions: 7, allowed_actions: 7 })],
       },
     }
-    const ready: IdentityClaimAuthority = {
-      state: "ready",
-      observations: [{
-        roleId: "AROAEXAMPLE1",
-        roleArn: "arn:aws:iam::1:role/payments-api-role",
-        name: "payments-api-role",
-        workloadIds: ["w1"],
-        configuredActions: 4,
-        notObservedActions: 3,
-      }],
-    }
+    const ready = readyAuthority([{
+      roleId: "AROAEXAMPLE1",
+      roleArn: "arn:aws:iam::1:role/payments-api-role",
+      name: "payments-api-role",
+      workloadIds: ["w1"],
+      // One configured grant among four evaluated actions: the claim must
+      // describe the evaluated population, which is what the counters cover.
+      evaluatedActions: 4,
+      notObservedActions: 3,
+      configuredGrants: 1,
+    }])
     const h = buildHeadlineNarrative(data, ready)
     expect(h.title).toBe(
-      "payments-api-role has 3/4 configured actions not observed (complete coverage) — attached to payments-api",
+      "payments-api-role has 3/4 evaluated actions not observed (complete coverage) — attached to payments-api",
     )
+    expect(h.title).not.toContain("configured actions")
     expect(h.title).not.toMatch(/unused|% gap/)
     expect(h.spotlightRoleName).toBe("payments-api-role")
     expect(h.identityNote).toBeNull()
@@ -179,15 +199,12 @@ describe("buildHeadlineNarrative", () => {
         iam_roles: [role({ name: "demo-ec2-s3-role" })],
       },
     }
-    const barely: IdentityClaimAuthority = {
-      state: "ready",
-      observations: [{
-        roleId: "AROAEXAMPLE1", roleArn: "arn:aws:iam::1:role/quiet", name: "quiet-role",
-        workloadIds: [], configuredActions: 10, notObservedActions: 1,
-      }],
-    }
+    const barely = readyAuthority([{
+      roleId: "AROAEXAMPLE1", roleArn: "arn:aws:iam::1:role/quiet", name: "quiet-role",
+      workloadIds: [], evaluatedActions: 10, notObservedActions: 1, configuredGrants: 10,
+    }])
     expect(buildHeadlineNarrative(data, barely).title).toBe("alon-prod · 0 workloads in scope")
-    expect(buildHeadlineNarrative(data, { state: "ready", observations: [] }).identityNote).toBeNull()
+    expect(buildHeadlineNarrative(data, readyAuthority([])).identityNote).toBeNull()
   })
 })
 

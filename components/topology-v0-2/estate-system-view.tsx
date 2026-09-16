@@ -32,6 +32,7 @@ import {
   isTopologyNodeExposed,
   type EstateLens,
   type EstatePlane,
+  type EstatePosture,
   type EstatePriority,
 } from "./estate-operations-model"
 import {
@@ -234,6 +235,20 @@ function Stat({ label, value, detail, tone = COLORS.ink }: { label: string; valu
   )
 }
 
+/**
+ * An exact count only when every in-scope role was assessed. A partial
+ * assessment is a lower bound with its coverage, and an unassessed population
+ * is unavailable — never "0 material gaps".
+ */
+function materialGapLabel(posture: EstatePosture): string {
+  if (posture.riskyRoles !== null) return `${posture.riskyRoles} material gaps`
+  const coverage = posture.identityRolesTotal === null
+    ? ""
+    : ` · ${posture.identityAssessedRoles ?? 0}/${posture.identityRolesTotal} roles assessed`
+  if (posture.riskyRolesAtLeast) return `at least ${posture.riskyRolesAtLeast} material gaps${coverage}`
+  return `material gaps unavailable${coverage}`
+}
+
 function IdentityRow({
   role,
   identity,
@@ -434,10 +449,10 @@ export function EstateSystemView({
             </div>
             <span
               className="text-[10px] font-mono"
-              style={{ color: posture.riskyRoles ? COLORS.red : COLORS.teal }}
+              style={{ color: (posture.riskyRoles ?? posture.riskyRolesAtLeast) ? COLORS.red : COLORS.teal }}
               data-testid="estate-command-material-gaps"
             >
-              {posture.riskyRoles === null ? "material gaps unavailable" : `${posture.riskyRoles} material gaps`}
+              {materialGapLabel(posture)}
             </span>
           </div>
           {identityNote ? (

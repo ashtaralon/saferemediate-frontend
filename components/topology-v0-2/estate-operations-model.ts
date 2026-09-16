@@ -1,6 +1,7 @@
 import {
   formatObservationClaim,
   isMaterialObservation,
+  materialGapAggregate,
   notObservedRatio,
   observationForRole,
   resolveIdentityClaimAuthority,
@@ -51,8 +52,16 @@ export interface EstatePosture {
   singleAzStateful: number
   sharedResources: number
   sharedConsumerSystems: number
-  /** Roles whose configured actions are at least half not observed; null when identity cannot conclude. */
+  /**
+   * Roles whose evaluated actions are at least half not observed. Exact only
+   * when the identity authority assessed every in-scope role; otherwise null,
+   * with `riskyRolesAtLeast` carrying the lower bound. Never an exact zero
+   * from an incomplete assessment.
+   */
   riskyRoles: number | null
+  riskyRolesAtLeast: number | null
+  identityAssessedRoles: number | null
+  identityRolesTotal: number | null
   evidenceCoveragePct: number | null
   evidenceFresh: boolean | null
 }
@@ -306,6 +315,7 @@ export function buildEstateCommandModel(
   const sharedConsumerSystems = new Set(
     (data.foreign_shared_access ?? []).map(edge => edge.foreign_system).filter(Boolean),
   )
+  const materialGaps = materialGapAggregate(identity)
 
   const posture: EstatePosture = {
     activeResources: active.length,
@@ -349,11 +359,12 @@ export function buildEstateCommandModel(
       (node.foreign_consumer_system_count ?? 0) > 0,
     ).length,
     sharedConsumerSystems: sharedConsumerSystems.size,
-    // null when the identity authority cannot conclude: never a zero, and
-    // never a legacy rollup count.
-    riskyRoles: identity.state === "ready"
-      ? identity.observations.filter(isMaterialObservation).length
-      : null,
+    // null when the identity authority cannot conclude or has not assessed
+    // the whole population: never a zero, never a legacy rollup count.
+    riskyRoles: materialGaps.exact,
+    riskyRolesAtLeast: materialGaps.atLeast,
+    identityAssessedRoles: materialGaps.assessed,
+    identityRolesTotal: materialGaps.total,
     evidenceCoveragePct: coveragePct,
     evidenceFresh: data.system_kpis?.posture_freshness?.is_fresh ?? null,
   }

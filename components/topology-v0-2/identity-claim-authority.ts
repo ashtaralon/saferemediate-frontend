@@ -18,14 +18,34 @@ export interface IdentityRoleObservation {
   roleArn: string
   name: string
   workloadIds: string[]
-  /** Configured actions in the role's decision detail (`action_details_total`). */
-  configuredActions: number
-  /** Configured actions with no observed use in the same decision generation. */
+  /**
+   * Every action evaluated for this role (`action_details_total`), which is
+   * the population the usage counters describe. The producer counts usage and
+   * coverage over all decision records, configured or not
+   * (`scripts/estate_identity_access.py::_ready_role`), so this is NOT the
+   * configured-grant count. Both numbers come from the projection's totals,
+   * never from the bounded `action_details` list, which may be truncated.
+   */
+  evaluatedActions: number
+  /** Evaluated actions with no observed use in the same decision generation. */
   notObservedActions: number
+  /** `configured_grants.exact_action_count`: a different, smaller population. */
+  configuredGrants: number
+}
+
+/** How much of the in-scope role population this projection actually assessed. */
+export interface IdentityPopulation {
+  rolesTotal: number
+  rolesReturned: number
+  rolesAssessed: number
+  rolesOmittedUnresolved: number
+  rolesTruncated: boolean
+  /** True only when every in-scope role produced a complete observation. */
+  complete: boolean
 }
 
 export type IdentityClaimAuthority =
-  | { state: "ready"; observations: IdentityRoleObservation[] }
+  | { state: "ready"; observations: IdentityRoleObservation[]; population: IdentityPopulation }
   | { state: "unavailable"; reason: string }
 
 /** Material when at least half of a role's configured actions were not observed. */
@@ -49,8 +69,9 @@ function completeObservation(role: IdentityAccessRole): IdentityRoleObservation 
     roleArn: role.role_arn,
     name: role.name,
     workloadIds: role.workload_ids,
-    configuredActions: total,
+    evaluatedActions: total,
     notObservedActions: observed.not_observed_action_count,
+    configuredGrants: role.configured_grants.exact_action_count ?? 0,
   }
 }
 
@@ -64,16 +85,34 @@ export function resolveIdentityClaimAuthority(
   if (resolution.state === "partial") {
     return { state: "unavailable", reason: "Identity evidence is partial; no role-level conclusion is available." }
   }
+  const projection = resolution.projection
+  const observations = projection.roles
+    .map(completeObservation)
+    .filter((item): item is IdentityRoleObservation => item !== null)
+  const rolesOmittedUnresolved = projection.roles_omitted_unresolved ?? 0
+  const rolesTotal = projection.roles_total ?? projection.roles_returned
   return {
     state: "ready",
-    observations: resolution.projection.roles
-      .map(completeObservation)
-      .filter((item): item is IdentityRoleObservation => item !== null),
+    observations,
+    population: {
+      rolesTotal,
+      rolesReturned: projection.roles_returned,
+      rolesAssessed: observations.length,
+      rolesOmittedUnresolved,
+      rolesTruncated: projection.roles_truncated,
+      // An estate-wide count is exact only when every in-scope role was
+      // returned AND assessed: a truncated list, an unresolved role or an
+      // incompletely covered role leaves part of the population unknown.
+      complete: !projection.roles_truncated
+        && rolesOmittedUnresolved === 0
+        && observations.length === projection.roles_returned
+        && rolesTotal === projection.roles_returned,
+    },
   }
 }
 
 export function notObservedRatio(observation: IdentityRoleObservation): number {
-  return observation.notObservedActions / observation.configuredActions
+  return observation.notObservedActions / observation.evaluatedActions
 }
 
 export function isMaterialObservation(observation: IdentityRoleObservation): boolean {
@@ -91,7 +130,25 @@ export function observationForRole(
 }
 
 export function formatObservationClaim(observation: IdentityRoleObservation): string {
-  return `${observation.notObservedActions}/${observation.configuredActions} configured actions not observed`
+  return `${observation.notObservedActions}/${observation.evaluatedActions} evaluated actions not observed`
+}
+
+/**
+ * What the estate-wide "material gaps" aggregate may claim. An incomplete
+ * assessment is a lower bound or unavailable, never an exact zero.
+ */
+export function materialGapAggregate(
+  authority: IdentityClaimAuthority,
+): { exact: number | null; atLeast: number | null; assessed: number | null; total: number | null } {
+  if (authority.state !== "ready") return { exact: null, atLeast: null, assessed: null, total: null }
+  const material = authority.observations.filter(isMaterialObservation).length
+  const { complete, rolesAssessed, rolesTotal } = authority.population
+  return {
+    exact: complete ? material : null,
+    atLeast: complete ? null : material,
+    assessed: rolesAssessed,
+    total: rolesTotal,
+  }
 }
 
 export function identityUnavailableNote(authority: IdentityClaimAuthority): string | null {

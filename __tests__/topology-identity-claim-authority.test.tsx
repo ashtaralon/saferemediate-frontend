@@ -13,6 +13,7 @@ import { afterEach, describe, expect, it } from "vitest"
 import { cleanup, render, screen } from "@testing-library/react"
 
 import { buildEstateCommandModel } from "@/components/topology-v0-2/estate-operations-model"
+import { EstateSystemView } from "@/components/topology-v0-2/estate-system-view"
 import { buildHeadlineNarrative } from "@/components/topology-v0-2/headline-narrative"
 import { HeadlineStrip } from "@/components/topology-v0-2/headline-strip"
 import { IdentityAccessSurface } from "@/components/topology-v0-2/identity-access-panel"
@@ -108,6 +109,42 @@ describe("header and panel share one identity authority", () => {
     expect(model.roles.map(role => role.name)).toEqual([LEGACY_ROLE.name])  // attachment rows stay
   })
 
+  it("describes the evaluated population, not the configured grants, and agrees with the panel", () => {
+    // The producer counts usage over EVERY decision record and counts
+    // configured grants separately (estate_identity_access._ready_role), so a
+    // valid role can have one configured grant among four evaluated actions.
+    const data = response()
+    const role = (data.identity_access as unknown as { roles: Array<Record<string, unknown>> }).roles[0]
+    Object.assign(role, {
+      action_details_total: 4,
+      action_details_returned: 1,
+      action_details_truncated: true,
+      configured_grants: { state: "ready", exact_action_count: 1 },
+      observed_use: {
+        state: "ready",
+        successful_action_count: 1,
+        denied_only_action_count: 0,
+        not_observed_action_count: 3,
+        unknown_action_count: 0,
+        coverage_counts: { complete: 4, partial: 0, unknown: 0 },
+        last_success_at: "2026-09-14T06:00:00Z",
+      },
+    })
+    const identity = resolveIdentityClaimAuthority(data.response_contract_version, data.identity_access, scopeOf(data))
+    const model = buildEstateCommandModel(data, identity)
+    const { narrative } = renderBoth(data)
+
+    expect(identity.state === "ready" && identity.observations[0]).toMatchObject({
+      evaluatedActions: 4, notObservedActions: 3, configuredGrants: 1,
+    })
+    expect(narrative.title).toContain("3/4 evaluated actions not observed")
+    expect(narrative.title).not.toContain("configured actions")
+    // The panel's own configured-grants figure stays 1; nothing claims 4 configured.
+    expect(screen.getByTestId("topology-identity-configured-grants")).toHaveTextContent("1")
+    expect(model.priorities.find(item => item.id === `role:${role.name}`)?.title)
+      .toBe(`${role.name} has 3/4 evaluated actions not observed`)
+  })
+
   it("states the authority's own counts when the panel is ready, in the panel's vocabulary", () => {
     const data = response()
     const role = (data.identity_access as unknown as { roles: Array<Record<string, unknown>> }).roles[0]
@@ -130,12 +167,86 @@ describe("header and panel share one identity authority", () => {
 
     expect(screen.getByTestId("topology-identity-access-surface")).toHaveAttribute("data-identity-status", "ready")
     expect(identity.state === "ready" && identity.observations).toEqual([
-      expect.objectContaining({ configuredActions: 4, notObservedActions: 3, name: String(role.name) }),
+      expect.objectContaining({ evaluatedActions: 4, notObservedActions: 3, name: String(role.name) }),
     ])
-    expect(narrative.title).toContain(`${role.name} has 3/4 configured actions not observed`)
+    expect(narrative.title).toContain(`${role.name} has 3/4 evaluated actions not observed`)
     expect(narrative.title).not.toMatch(/unused permissions|% gap/)
     expect(narrative.identityNote).toBeNull()
     expect(screen.queryByTestId("topology-headline-identity-unavailable")).toBeNull()
+  })
+
+  it("never turns an unassessed or partly assessed population into an exact zero", () => {
+    const roles = (data: TopologyRiskResponse) =>
+      (data.identity_access as unknown as { roles: Array<Record<string, unknown>> }).roles
+
+    const usage = (notObserved: number, coverage: { complete: number; partial: number; unknown: number }) => ({
+      state: "ready",
+      successful_action_count: 4 - notObserved,
+      denied_only_action_count: 0,
+      not_observed_action_count: notObserved,
+      unknown_action_count: 0,
+      coverage_counts: coverage,
+      last_success_at: "2026-09-14T06:00:00Z",
+    })
+    const roleShape = (name: string, notObserved: number, complete: boolean) => ({
+      action_details_total: 4,
+      action_details_returned: 1,
+      action_details_truncated: true,
+      configured_grants: { state: "ready", exact_action_count: 2 },
+      observed_use: usage(notObserved, complete
+        ? { complete: 4, partial: 0, unknown: 0 }
+        : { complete: 2, partial: 2, unknown: 0 }),
+      role_id: `AROA${name}`,
+      role_arn: `arn:aws:iam::416651950952:role/${name}`,
+      name,
+    })
+
+    // (a) every returned role incompletely covered: nothing was assessed.
+    const allIncomplete = response()
+    Object.assign(roles(allIncomplete)[0], roleShape("only-role", 3, false))
+    const noneModel = buildEstateCommandModel(allIncomplete)
+    expect([noneModel.posture.riskyRoles, noneModel.posture.riskyRolesAtLeast]).toEqual([null, 0])
+    render(<EstateSystemView data={allIncomplete} selectedNodeId={null} onSelectNode={() => {}} onShowNetwork={() => {}} />)
+    expect(screen.getByTestId("estate-command-material-gaps").textContent)
+      .toBe("material gaps unavailable · 0/1 roles assessed")
+    cleanup()
+
+    // (b) one complete material role and one incomplete role: a lower bound.
+    const mixed = response()
+    const first = roles(mixed)[0]
+    Object.assign(first, roleShape("assessed-role", 3, true))
+    roles(mixed).push({ ...structuredClone(first), ...roleShape("unassessed-role", 3, false) })
+    const mixedProjection = mixed.identity_access as unknown as Record<string, unknown>
+    mixedProjection.roles_total = 2
+    mixedProjection.roles_returned = 2
+    const mixedModel = buildEstateCommandModel(mixed)
+    expect([mixedModel.posture.riskyRoles, mixedModel.posture.riskyRolesAtLeast]).toEqual([null, 1])
+    render(<EstateSystemView data={mixed} selectedNodeId={null} onSelectNode={() => {}} onShowNetwork={() => {}} />)
+    expect(screen.getByTestId("estate-command-material-gaps").textContent)
+      .toBe("at least 1 material gaps · 1/2 roles assessed")
+    cleanup()
+
+    // (c) a truncated role list: the omitted roles are unassessed.
+    const truncated = response()
+    Object.assign(roles(truncated)[0], roleShape("returned-role", 3, true))
+    const truncatedProjection = truncated.identity_access as unknown as Record<string, unknown>
+    truncatedProjection.roles_total = 7
+    truncatedProjection.roles_returned = 1
+    truncatedProjection.roles_truncated = true
+    const truncatedModel = buildEstateCommandModel(truncated)
+    expect([truncatedModel.posture.riskyRoles, truncatedModel.posture.riskyRolesAtLeast]).toEqual([null, 1])
+    render(<EstateSystemView data={truncated} selectedNodeId={null} onSelectNode={() => {}} onShowNetwork={() => {}} />)
+    expect(screen.getByTestId("estate-command-material-gaps").textContent)
+      .toBe("at least 1 material gaps · 1/7 roles assessed")
+    cleanup()
+
+    // (d) the whole population assessed: an exact count, including zero.
+    const complete = response()
+    Object.assign(roles(complete)[0], roleShape("quiet-role", 0, true))
+    const completeModel = buildEstateCommandModel(complete)
+    expect([completeModel.posture.riskyRoles, completeModel.posture.riskyRolesAtLeast]).toEqual([0, null])
+    render(<EstateSystemView data={complete} selectedNodeId={null} onSelectNode={() => {}} onShowNetwork={() => {}} />)
+    expect(screen.getByTestId("estate-command-material-gaps").textContent).toBe("0 material gaps")
   })
 
   it("claims nothing for a role whose coverage is incomplete, without saying unavailable", () => {
@@ -157,7 +268,14 @@ describe("header and panel share one identity authority", () => {
       },
     })
     const identity = resolveIdentityClaimAuthority(data.response_contract_version, data.identity_access, scopeOf(data))
-    expect(identity).toEqual({ state: "ready", observations: [] })
+    expect(identity).toEqual({
+      state: "ready",
+      observations: [],
+      population: {
+        rolesTotal: 1, rolesReturned: 1, rolesAssessed: 0,
+        rolesOmittedUnresolved: 0, rolesTruncated: false, complete: false,
+      },
+    })
     const narrative = buildHeadlineNarrative(data, identity)
     expect(narrative.title).not.toMatch(/not observed|unused/)
     expect(narrative.identityNote).toBeNull()
