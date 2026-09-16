@@ -1,0 +1,122 @@
+{
+  "graph_calls": 2,
+  "lifecycle_reads": 3,
+  "raised": null,
+  "result": {
+    "breakage_outcome": null,
+    "change_readiness": null,
+    "claims": [
+      {
+        "absence_predicate": null,
+        "assertion_state": "OBSERVED",
+        "effective_as_of": null,
+        "evidence_refs": [
+          {
+            "digest": "recpt-abc",
+            "object_key": "cyntro/v1/tenant=tenant-a/projection-receipts/recpt-abc.json",
+            "version_id": "vid-recpt-abc"
+          }
+        ],
+        "name": "inventory.s3.list",
+        "reason_codes": [],
+        "schema_version": "decision-claim/v1",
+        "value": {
+          "filters": {},
+          "generation": "42",
+          "has_next": false,
+          "items": [
+            {
+              "account_id": "111122223333",
+              "arn": "arn:aws:s3:::alpha",
+              "created_at": "2026-08-01T00:00:00+00:00",
+              "name": "alpha",
+              "region": "eu-west-1",
+              "resource_id": "alpha",
+              "resource_type": "s3",
+              "stable_id": "sid-alpha",
+              "state": "ACTIVE"
+            },
+            {
+              "account_id": "111122223333",
+              "arn": "arn:aws:s3:::beta",
+              "created_at": "2026-08-01T00:00:00+00:00",
+              "name": "beta",
+              "region": "eu-west-1",
+              "resource_id": "beta",
+              "resource_type": "s3",
+              "stable_id": "sid-beta",
+              "state": "ACTIVE"
+            }
+          ],
+          "next_cursor": null,
+          "resource_type": "s3",
+          "schema_version": "inventory-list-result/v1",
+          "sort": "name",
+          "total": 2,
+          "truncated": false
+        }
+      }
+    ],
+    "coverage": {
+      "insufficient_for": [],
+      "missing_sources": [],
+      "present_sources": [],
+      "required_sources": [],
+      "state": "FULL",
+      "sufficient_for": []
+    },
+    "decision_state": null,
+    "failing_axes": [],
+    "freshness": {
+      "effective_as_of": "2026-09-15T00:00:00Z",
+      "evidence_generation": "42",
+      "oldest_required_source": "2026-09-15T00:00:00Z",
+      "snapshot_vector": [
+        {
+          "effective_as_of": "2026-09-15T00:00:00+00:00",
+          "source": "serving_graph",
+          "version": "42"
+        }
+      ]
+    },
+    "operation_id": "inventory.list",
+    "operation_version": 1,
+    "planner_outcome": null,
+    "reason_codes": [],
+    "receipt_id": null,
+    "required_conditions": [],
+    "schema_version": "decision-response/v1",
+    "scope": {
+      "account_ids": [
+        "111122223333"
+      ],
+      "authorization_fingerprint": "41c60a1af2e0dabc4b24dbe671d035293a29a7580ea663fdbe76cdad9ba53788",
+      "policy_version": "policy-v1",
+      "principal_id": "https://idp.example#operator-1",
+      "regions": [
+        "eu-west-1"
+      ],
+      "resource_classes": [
+        "s3"
+      ],
+      "roles": [
+        "ANALYST"
+      ],
+      "system_id": "payments",
+      "tenant_id": "tenant-a"
+    },
+    "serve_state": "ACTIVE",
+    "trace": {
+      "cache_used": false,
+      "correlation_id": "a435a00f-26b9-40cd-a7c9-9946163bce17",
+      "decision_engine_build_id": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff@dddddddddddddddddddddddddddddddddddddddd",
+      "decision_wire_schema_id": "decision-wire/a26ed76636b0d70c751d9ffa34a66c1052c98f29bc1a635577402df84429401c",
+      "executor_version": "inventory-list/v1",
+      "planner_fingerprint": null,
+      "policy_pack_release_id": null,
+      "projection_schema_release_id": "projection/inventory.resource_state.v1@inventory.resource_state@1.0.0",
+      "semantic_contract_id": "semantic-contract/965f80dc82dd635d326d1d588262634159ae5ca9fda957803204c0c0cd927963"
+    }
+  },
+  "result_type": "dict"
+}

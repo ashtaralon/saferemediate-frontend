@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { applyInventoryScopeParams } from "@/lib/inventory-proxy-scope"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
+import { proxyDecisionInventory } from "@/lib/server/inventory-decision-proxy"
 
 export const maxDuration = 30
 export const dynamic = "force-dynamic"
@@ -40,6 +41,10 @@ export async function GET(req: NextRequest) {
     const v = url.searchParams.get(key)
     if (v) params.set(key, v)
   }
+
+  // The copilot's envelope=true calls are Decision-backed and need the verified identity;
+  // the raw envelope=false path (All Services) is unchanged below.
+  if (envelope) return proxyDecisionInventory(req, "list", params)
 
   const backendBase = getBackendBaseUrl()
   const target = `${backendBase}/api/resource-inventory/list?${params.toString()}`

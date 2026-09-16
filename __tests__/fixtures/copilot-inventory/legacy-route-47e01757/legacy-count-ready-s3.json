@@ -1,0 +1,52 @@
+{
+  "body": {
+    "provenance": {
+      "completeness": {
+        "missing_sources": [],
+        "status": "complete"
+      },
+      "confidence": "high",
+      "confidence_caveats": [],
+      "evidence_sources": [
+        "Neptune Serving Graph"
+      ],
+      "freshness": {
+        "serving_graph": {
+          "age_seconds": null,
+          "generation": null,
+          "last_sync": null,
+          "scope": null,
+          "source_detail": null,
+          "status": "fresh",
+          "unknown_reason": null
+        }
+      },
+      "generated_at": "2026-09-16T15:57:51.394734+00:00",
+      "observation_coverage": null,
+      "observation_window_days": null,
+      "observed_vs_configured": {
+        "configured": [],
+        "inferred": [],
+        "observed": []
+      },
+      "scope": {
+        "resource_id": null,
+        "resource_type": "s3",
+        "system": "payments"
+      }
+    },
+    "result": {
+      "count": 3,
+      "display_name": "S3 buckets",
+      "label": "S3Bucket",
+      "resource_type": "s3",
+      "scope_applied": {
+        "account_id": "111111111111",
+        "customer_id": "customer-a"
+      },
+      "system": "payments"
+    }
+  },
+  "graph_calls": 1,
+  "status": 200
+}

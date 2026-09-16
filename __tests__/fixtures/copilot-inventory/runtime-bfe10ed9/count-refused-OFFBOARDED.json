@@ -1,0 +1,16 @@
+{
+  "graph_calls": 0,
+  "lifecycle_reads": 1,
+  "raised": null,
+  "result": {
+    "error_code": "TENANT_LIFECYCLE_OFFBOARDED",
+    "failing_axes": [
+      "tenant_lifecycle"
+    ],
+    "items": [],
+    "operation_id": "inventory.count",
+    "serve_state": "NOT_READY",
+    "total": null
+  },
+  "result_type": "dict"
+}

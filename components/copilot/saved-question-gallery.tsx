@@ -3,7 +3,9 @@
 import { useEffect, useRef, useState } from "react"
 import { Sparkles, Loader2, AlertCircle, Shield, Send, Bot } from "lucide-react"
 import { resolveIntent, type IntentRoute, type IntentContext } from "./intent-router"
-import { fetchWithEnvelope } from "@/components/trust/use-trust-envelope"
+import { classifyInventoryResult, inventoryProvenanceToShow, refusalExplanation } from "./inventory-answer"
+import { InventoryAnswerView } from "./inventory-answer-view"
+import { EnvelopeRequestError, fetchWithEnvelope } from "@/components/trust/use-trust-envelope"
 import { TrustEnvelopeBadge, type Provenance } from "@/components/trust/trust-envelope-badge"
 
 // Example prompts derive from the active system — never name a pinned one.
@@ -151,11 +153,23 @@ export function SavedQuestionGallery({ systemName }: SavedQuestionGalleryProps) 
         headline: route.resultHeadline,
         route,
         result: env.result,
-        provenance: env.provenance,
+        provenance: route.family === "inventory" ? inventoryProvenanceToShow(env.result, env.provenance) : env.provenance,
         decision,
       })
     } catch (err: any) {
       if (requestGenerationRef.current !== requestGeneration) return
+      if (err instanceof EnvelopeRequestError && err.reasonCode) {
+        // A named refusal from the service is a safe state with its code, not a crash.
+        setAnswer({
+          ...INITIAL_STATE,
+          loading: false,
+          headline: route.resultHeadline,
+          route,
+          decision,
+          abstention: { reasonCode: err.reasonCode, explanation: refusalExplanation(err.status) },
+        })
+        return
+      }
       setAnswer({
         ...INITIAL_STATE,
         loading: false,
@@ -403,7 +417,10 @@ export function SavedQuestionGallery({ systemName }: SavedQuestionGalleryProps) 
               data-reason-code={answer.abstention.reasonCode}
             >
               <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
-              <div>{answer.abstention.explanation}</div>
+              <div>
+                <div>{answer.abstention.explanation}</div>
+                <div className="mt-1 font-mono text-xs">{answer.abstention.reasonCode}</div>
+              </div>
             </div>
           )}
 
@@ -524,7 +541,7 @@ function AnalystAnswerRenderer({ response }: { response: Record<string, any> }) 
 }
 
 function AnswerRenderer({ route, result }: { route: any; result: any }) {
-  if (result?.status === "unavailable" || result?.error_code === "GRAPH_UNAVAILABLE") {
+  if (route.family !== "inventory" && (result?.status === "unavailable" || result?.error_code === "GRAPH_UNAVAILABLE")) {
     return (
       <div className="flex items-start gap-2 text-sm text-amber-700" data-copilot-data-unavailable>
         <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
@@ -590,78 +607,7 @@ function AnswerRenderer({ route, result }: { route: any; result: any }) {
     )
   }
   if (route.family === "inventory") {
-    const isCount = result.count !== undefined && result.items === undefined
-    if (isCount) {
-      return (
-        <div className="flex items-center gap-4">
-          <div className="text-4xl font-bold">{result.count}</div>
-          <div>
-            <div className="text-sm font-medium">{result.display_name}</div>
-            {result.system && (
-              <div className="text-xs text-[var(--muted-foreground,#6b7280)]">
-                in system <strong>{result.system}</strong>
-              </div>
-            )}
-          </div>
-        </div>
-      )
-    }
-    const items = result.items ?? []
-    const columns: string[] = result.columns ?? []
-    const filtersApplied: Record<string, string> = result.filters_applied ?? {}
-    const filterEntries = Object.entries(filtersApplied)
-    const activeSort = result.sort ?? result.default_sort
-    return (
-      <div>
-        {filterEntries.length > 0 && (
-          <div className="mb-3 flex flex-wrap items-center gap-1.5">
-            <span className="text-[10px] uppercase tracking-wider text-[var(--muted-foreground,#6b7280)]">
-              filters
-            </span>
-            {filterEntries.map(([k, v]) => (
-              <span
-                key={k}
-                className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-[#2D51DA]/10 text-[#2D51DA] border border-[#2D51DA]/20"
-              >
-                <code className="font-mono">{k}</code>=<code className="font-mono">{String(v)}</code>
-              </span>
-            ))}
-          </div>
-        )}
-        <div className="flex items-center justify-between mb-2 text-xs text-[var(--muted-foreground,#6b7280)]">
-          <span>
-            {items.length} {result.display_name}
-            {result.system ? ` in ${result.system}` : ""}
-            {result.next_cursor ? " (more available)" : ""}
-          </span>
-          <span>sorted by {activeSort}</span>
-        </div>
-        <div className="overflow-auto border rounded-lg"
-             style={{ borderColor: "var(--border-subtle, #e5e7eb)" }}>
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 text-[10px] uppercase tracking-wider text-[var(--muted-foreground,#6b7280)]">
-              <tr>
-                {columns.map((c) => (
-                  <th key={c} className="text-left px-3 py-2 font-semibold">{c}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {items.slice(0, 25).map((it: any, i: number) => (
-                <tr key={it._element_id || i} className="border-t"
-                    style={{ borderColor: "var(--border-subtle, #e5e7eb)" }}>
-                  {columns.map((c) => (
-                    <td key={c} className="px-3 py-2 font-mono text-xs truncate max-w-xs">
-                      {it[c] ?? <span className="text-gray-400">—</span>}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    )
+    return <InventoryAnswerView answer={classifyInventoryResult(result)} />
   }
   return (
     <pre className="text-xs bg-gray-50 p-3 rounded-lg overflow-auto max-h-64">

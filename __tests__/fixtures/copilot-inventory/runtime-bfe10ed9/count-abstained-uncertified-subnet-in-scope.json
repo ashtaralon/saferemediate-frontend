@@ -1,0 +1,17 @@
+{
+  "graph_calls": 0,
+  "lifecycle_reads": 2,
+  "raised": null,
+  "result": {
+    "error_code": "ANALYST_INVENTORY_AUTHORITY_UNSUPPORTED",
+    "failing_axes": [
+      "capability",
+      "serving_graph_freshness"
+    ],
+    "items": [],
+    "operation_id": "inventory.count",
+    "serve_state": "NOT_READY",
+    "total": null
+  },
+  "result_type": "dict"
+}

@@ -1,0 +1,22 @@
+{
+  "graph_calls": 1,
+  "lifecycle_reads": 3,
+  "raised": null,
+  "result": {
+    "count": 2,
+    "coverage": {
+      "complete": true,
+      "reason_code": null
+    },
+    "failing_axes": [],
+    "freshness": {
+      "effective_as_of": "2026-09-15T00:00:00+00:00",
+      "generation": "42"
+    },
+    "items": [],
+    "operation_id": "inventory.count",
+    "serve_state": "ACTIVE",
+    "total": 2
+  },
+  "result_type": "dict"
+}

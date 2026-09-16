@@ -1,0 +1,69 @@
+{
+  "graph_calls": 0,
+  "lifecycle_reads": 1,
+  "raised": null,
+  "result": {
+    "breakage_outcome": null,
+    "change_readiness": null,
+    "claims": [],
+    "coverage": {
+      "insufficient_for": [],
+      "missing_sources": [],
+      "present_sources": [],
+      "required_sources": [],
+      "state": "UNKNOWN",
+      "sufficient_for": []
+    },
+    "decision_state": null,
+    "failing_axes": [
+      "authorization"
+    ],
+    "freshness": {
+      "effective_as_of": null,
+      "evidence_generation": null,
+      "oldest_required_source": null,
+      "snapshot_vector": []
+    },
+    "operation_id": "inventory.list",
+    "operation_version": 1,
+    "planner_outcome": null,
+    "reason_codes": [
+      "ANALYST_RESOURCE_TYPE_FORBIDDEN"
+    ],
+    "receipt_id": null,
+    "required_conditions": [],
+    "schema_version": "decision-response/v1",
+    "scope": {
+      "account_ids": [
+        "111122223333"
+      ],
+      "authorization_fingerprint": "41c60a1af2e0dabc4b24dbe671d035293a29a7580ea663fdbe76cdad9ba53788",
+      "policy_version": "policy-v1",
+      "principal_id": "https://idp.example#operator-1",
+      "regions": [
+        "eu-west-1"
+      ],
+      "resource_classes": [
+        "s3"
+      ],
+      "roles": [
+        "ANALYST"
+      ],
+      "system_id": "payments",
+      "tenant_id": "tenant-a"
+    },
+    "serve_state": "NOT_READY",
+    "trace": {
+      "cache_used": false,
+      "correlation_id": "4ba1f7ed-fd5c-4d6b-9363-0d81bf5e3fb4",
+      "decision_engine_build_id": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff@dddddddddddddddddddddddddddddddddddddddd",
+      "decision_wire_schema_id": "decision-wire/a26ed76636b0d70c751d9ffa34a66c1052c98f29bc1a635577402df84429401c",
+      "executor_version": "inventory-list/v1",
+      "planner_fingerprint": null,
+      "policy_pack_release_id": null,
+      "projection_schema_release_id": null,
+      "semantic_contract_id": "semantic-contract/965f80dc82dd635d326d1d588262634159ae5ca9fda957803204c0c0cd927963"
+    }
+  },
+  "result_type": "dict"
+}
