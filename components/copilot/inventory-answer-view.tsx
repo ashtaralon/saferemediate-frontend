@@ -83,7 +83,9 @@ export function InventoryAnswerView({ answer }: { answer: InventoryAnswer }) {
       )}
       <div className="flex items-center justify-between mb-2 text-xs text-[var(--muted-foreground,#6b7280)]">
         <span>
-          {answer.items.length}
+          {answer.total !== null && answer.total > answer.items.length
+            ? `${answer.items.length} of ${answer.total}`
+            : answer.items.length}
           {answer.displayName ? ` ${answer.displayName}` : " resources"}
           {answer.system ? ` in ${answer.system}` : ""}
           {answer.hasMore ? " (more available)" : ""}

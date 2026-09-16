@@ -1,0 +1,18 @@
+{
+  "body": {
+    "count": 3,
+    "display_name": "S3 buckets",
+    "label": "S3Bucket",
+    "resource_type": "s3",
+    "scope_applied": {
+      "account_id": null,
+      "customer_id": null
+    },
+    "system": "payments"
+  },
+  "executes": [],
+  "graph_calls": 0,
+  "http": 200,
+  "legacy_runs": 1,
+  "lifecycle_reads": 0
+}

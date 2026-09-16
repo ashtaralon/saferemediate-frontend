@@ -10,9 +10,11 @@
  *     `items`, or an `items` array with no `count`.
  *  4. Anything else is named as unrecognized rather than rendered as zero.
  *
- * The shapes are the backend's: today's legacy envelope result, and the Decision mapping
- * Semantic proposed for the `envelope=true` route (status ready | refused | abstained |
- * unavailable, `reason_code`, `reason_category`, `failing_axes`).
+ * The shapes are the backend's: today's legacy envelope result, and the `envelope=true` route's
+ * actual Decision result (backend e05bad32): `status` ready | refused | abstained | unavailable;
+ * a failure carries `reason_code`, `reason_codes`, `reason_category`, `failing_axes` and never
+ * `count`, `items` or `total`; a ready list carries `items`, `total`, `has_next`, `next_cursor`,
+ * `sort`, `filters`, `truncated` and `columns`.
  */
 
 export type InventoryNotAnsweredStatus = "refused" | "abstained" | "unavailable" | "not_ready"
@@ -28,6 +30,8 @@ export type InventoryAnswer =
   | {
       kind: "list"
       items: Record<string, unknown>[]
+      /** The total the route counted, when it is an integer no smaller than the page. */
+      total: number | null
       columns: string[]
       displayName: string | null
       system: string | null
@@ -117,14 +121,19 @@ export function classifyInventoryResult(result: unknown): InventoryAnswer {
     if (items.length !== (result.items as unknown[]).length) return { kind: "unrecognized" }
     const named = Array.isArray(result.columns) ? result.columns.filter((column): column is string => typeof column === "string") : []
     const columns = named.length > 0 ? named : FALLBACK_COLUMNS.filter((column) => items.some((item) => column in item))
-    const filters = isRecord(result.filters_applied) ? result.filters_applied : {}
+    // The Decision list names its filters `filters`; the legacy list named them `filters_applied`.
+    const filters = isRecord(result.filters) ? result.filters : isRecord(result.filters_applied) ? result.filters_applied : {}
+    const total =
+      typeof result.total === "number" && Number.isInteger(result.total) && result.total >= items.length ? result.total : null
     return {
       kind: "list",
       items,
+      total,
       columns,
       displayName: stringOrNull(result.display_name),
       system: stringOrNull(result.system),
-      hasMore: Boolean(result.next_cursor) || result.has_next === true,
+      // A truncated page is not the whole list, whatever the cursor says.
+      hasMore: Boolean(result.next_cursor) || result.has_next === true || result.truncated === true,
       sort: stringOrNull(result.sort) ?? stringOrNull(result.default_sort),
       filtersApplied: Object.fromEntries(Object.entries(filters).map(([key, value]) => [key, String(value)])),
       decisionBacked,
@@ -134,16 +143,29 @@ export function classifyInventoryResult(result: unknown): InventoryAnswer {
 }
 
 /**
- * The envelope's provenance describes the legacy graph read. An inventory answer that is not
- * that read keeps no badge: a refusal, an abstention, anything unrecognized, or a
- * Decision-backed answer, whose freshness is the Decision runtime's. Measured on the real
- * decorator, a lifecycle refusal with zero graph reads was otherwise badged "Neptune
- * Serving Graph", completeness "complete".
+ * A badge only for an answer, and only when its provenance names the evidence it rests on.
+ *
+ * - A refusal, an abstention or anything unrecognized never gets one, whatever its body
+ *   carries. Measured on the old decorator, a lifecycle refusal with zero graph reads was
+ *   badged "Neptune Serving Graph", completeness "complete".
+ * - A legacy ready read keeps its envelope's provenance, which describes that read.
+ * - A Decision-backed ready answer (backend e05bad32) shows the route's provenance, which is
+ *   built from the answer: the graph generation it read. Without named evidence there is
+ *   nothing true to badge, so it gets none.
  */
 export function inventoryProvenanceToShow<P>(result: unknown, provenance: P | null): P | null {
   const answer = classifyInventoryResult(result)
-  if ((answer.kind === "count" || answer.kind === "list") && !answer.decisionBacked) return provenance
-  return null
+  if (answer.kind !== "count" && answer.kind !== "list") return null
+  if (!answer.decisionBacked) return provenance
+  return namesEvidence(provenance) ? provenance : null
+}
+
+function namesEvidence(provenance: unknown): boolean {
+  return (
+    isRecord(provenance) &&
+    Array.isArray(provenance.evidence_sources) &&
+    provenance.evidence_sources.some((source) => typeof source === "string" && source.length > 0)
+  )
 }
 
 export function refusalExplanation(status: number): string {
