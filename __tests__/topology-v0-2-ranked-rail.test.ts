@@ -1,9 +1,6 @@
 import { describe, expect, test } from "vitest"
 
-import {
-  buildHeadlineNarrative,
-  buildRankedEntries,
-} from "@/components/topology-v0-2/headline-narrative"
+import { buildHeadlineNarrative } from "@/components/topology-v0-2/headline-narrative"
 import type {
   IdentityClaimAuthority,
   IdentityRoleObservation,
@@ -205,43 +202,5 @@ describe("buildHeadlineNarrative", () => {
     }])
     expect(buildHeadlineNarrative(data, barely).title).toBe("alon-prod · 0 workloads in scope")
     expect(buildHeadlineNarrative(data, readyAuthority([])).identityNote).toBeNull()
-  })
-})
-
-describe("buildRankedEntries", () => {
-  test("interleaves workloads and IAM roles up to eight entries", () => {
-    const nodes = [
-      node({
-        id: "w1",
-        name: "app-2",
-        score: {
-          value: 70,
-          tier: "HIGH",
-          rank: 1,
-          confidence: { value: 1, tier: "FULL", reasons: [] },
-          contributors: [],
-        },
-      }),
-    ]
-    const roles = [role({ name: "lambda-role", gap_percentage: 100 })]
-    const entries = buildRankedEntries(nodes, roles)
-    expect(entries.length).toBeGreaterThan(0)
-    expect(entries.some(e => e.kind === "workload")).toBe(true)
-    expect(entries.some(e => e.kind === "iam_role")).toBe(true)
-  })
-
-  test("iam headline tolerates missing attachment_modes from API", () => {
-    const roles = [
-      role({
-        name: "lambda-role",
-        gap_percentage: 100,
-        workload_ids: ["w1"],
-        attachment_modes: undefined,
-      }),
-    ]
-    const nodes = [node({ id: "w1", name: "traffic-fn" })]
-    expect(() => buildRankedEntries(nodes, roles)).not.toThrow()
-    const entries = buildRankedEntries(nodes, roles)
-    expect(entries.some(e => e.kind === "iam_role" && e.name === "lambda-role")).toBe(true)
   })
 })

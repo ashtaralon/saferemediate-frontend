@@ -15,7 +15,6 @@ import {
   type IdentityRoleObservation,
 } from "./identity-claim-authority"
 import type {
-  IamRoleRollup,
   SystemKpis,
   TopologyNode,
   TopologyRiskResponse,
@@ -29,26 +28,6 @@ export interface HeadlineNarrative {
   /** Why no identity claim can be made, when the identity authority is unavailable. */
   identityNote: string | null
 }
-
-export type RankedEntry =
-  | {
-      kind: "workload"
-      id: string
-      name: string
-      layer: "Network" | "Stale"
-      reason: string
-      meta: string
-      rank: number
-    }
-  | {
-      kind: "iam_role"
-      id: string
-      name: string
-      layer: "IAM"
-      reason: string
-      meta: string
-      rank: number
-    }
 
 const TIER_ORDER: Record<string, number> = {
   WORST: 0,
@@ -127,34 +106,6 @@ function workloadHeadline(node: TopologyNode): { title: string; reason: string; 
   }
 }
 
-function iamHeadline(role: IamRoleRollup, workloads: TopologyNode[]): { title: string; reason: string; meta: string } {
-  const consumers = workloads
-    .filter(w => (Array.isArray(role.workload_ids) ? role.workload_ids : []).includes(w.id))
-    .map(w => w.name)
-    .slice(0, 2)
-  const consumerText = consumers.length > 0 ? consumers.join(", ") : "VPC-scoped attachment"
-  if (role.correlation_state === "stale_rollup") {
-    return {
-      title: `${role.name} — behavioral rollup recomputing (usage edges present)`,
-      reason: "scalar stale · edges prove usage",
-      meta: `attached to ${consumerText}`,
-    }
-  }
-  if (role.correlation_state === "not_correlated") {
-    return {
-      title: `${role.name} — not yet correlated`,
-      reason: "behavioral join pending",
-      meta: consumerText,
-    }
-  }
-  const gap = role.gap_percentage ?? 0
-  return {
-    title: `${role.name} has ${role.unused_actions}/${role.allowed_actions} unused permissions (${Math.round(gap)}% gap) — attached to ${consumerText}`,
-    reason: `${role.unused_actions}/${role.allowed_actions} unused · ${Math.round(gap)}% gap`,
-    meta: role.last_remediated_at ? `remediated ${role.last_remediated_at.slice(0, 10)}` : "never remediated",
-  }
-}
-
 function identityHeadline(observation: IdentityRoleObservation, workloads: TopologyNode[]): string {
   const consumers = workloads
     .filter(w => observation.workloadIds.includes(w.id))
@@ -219,69 +170,4 @@ function buildProvenance(kpis: SystemKpis | null, scoredAt: string): string {
     ? `posture fresh · threshold ${fresh.threshold_days}d`
     : fresh?.auto_resolves_when ?? "posture freshness degraded"
   return `scored ${scoredIso} · ${flagged} flagged · ${freshPart}`
-}
-
-export function buildRankedEntries(
-  nodes: TopologyNode[],
-  roles: IamRoleRollup[],
-): RankedEntry[] {
-  const active = nodes.filter(n => !n.stale)
-  const workloadEntries: RankedEntry[] = active
-    .filter(n => n.score?.rank != null)
-    .sort((a, b) => (a.score!.rank! - b.score!.rank!))
-    .slice(0, 6)
-    .map(n => {
-      const h = workloadHeadline(n)
-      return {
-        kind: "workload" as const,
-        id: n.id,
-        name: n.name,
-        layer: "Network" as const,
-        reason: h.reason,
-        meta: h.meta,
-        rank: n.score!.rank!,
-      }
-    })
-
-  const staleEntries: RankedEntry[] = nodes
-    .filter(n => n.stale)
-    .slice(0, 2)
-    .map(n => ({
-      kind: "workload" as const,
-      id: n.id,
-      name: n.name,
-      layer: "Stale" as const,
-      reason: n.stale?.reason ?? "aws_exists = false",
-      meta: "excluded from rank",
-      rank: 900 + workloadEntries.length,
-    }))
-
-  const iamEntries: RankedEntry[] = roles
-    .filter(r => r.correlation_state === "correlated" || r.correlation_state === "stale_rollup")
-    .sort((a, b) => {
-      if (a.correlation_state === "stale_rollup" && b.correlation_state !== "stale_rollup") return -1
-      if (b.correlation_state === "stale_rollup" && a.correlation_state !== "stale_rollup") return 1
-      return (b.gap_percentage ?? 0) - (a.gap_percentage ?? 0)
-    })
-    .slice(0, 4)
-    .map((r, i) => {
-      const h = iamHeadline(r, active)
-      return {
-        kind: "iam_role" as const,
-        id: `iam:${r.name}`,
-        name: r.name,
-        layer: "IAM" as const,
-        reason: h.reason,
-        meta: h.meta,
-        rank: 100 + i,
-      }
-    })
-
-  const merged = [...workloadEntries, ...iamEntries, ...staleEntries]
-  merged.sort((a, b) => {
-    const tierA = a.kind === "workload" && a.layer === "Network" ? a.rank : a.rank + 50
-    const tierB = b.kind === "workload" && b.layer === "Network" ? b.rank : b.rank + 50
-    return tierA - tierB
-  })
-  return merged.slice(0, 8)
 }
