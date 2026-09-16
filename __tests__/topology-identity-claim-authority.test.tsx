@@ -309,3 +309,83 @@ describe("header and panel share one identity authority", () => {
     })
   })
 })
+
+/**
+ * Independent Chrome QA of the positive v11 fixture (2026-09-16) found the
+ * header reading "attached to no exact workload attachment returned" while the
+ * same role's panel showed ATTACHED WORKLOADS (1) · i-web. The headline was
+ * resolving the authoritative attachment ids through the RETURNED topology
+ * nodes and reading an unresolved display name as an absent attachment.
+ */
+describe("headline attachment claims follow the authoritative id list", () => {
+  /** A role the claim authority accepts: ready, fully covered, material gap. */
+  function readyRole(data: TopologyRiskResponse, workloadIds: string[]) {
+    const role = (data.identity_access as unknown as { roles: Array<Record<string, unknown>> }).roles[0]
+    Object.assign(role, {
+      name: "fixture-payments-api-role",
+      workload_ids: workloadIds,
+      action_details_total: 4,
+      action_details_returned: 1,
+      action_details_truncated: true,
+      configured_grants: { state: "ready", exact_action_count: 1 },
+      observed_use: {
+        state: "ready",
+        successful_action_count: 1,
+        denied_only_action_count: 0,
+        not_observed_action_count: 3,
+        unknown_action_count: 0,
+        coverage_counts: { complete: 4, partial: 0, unknown: 0 },
+        last_success_at: "2026-09-14T06:00:00Z",
+      },
+    })
+    return data
+  }
+
+  function titleFor(data: TopologyRiskResponse) {
+    const identity = resolveIdentityClaimAuthority(
+      data.response_contract_version,
+      data.identity_access,
+      scopeOf(data),
+    )
+    return buildHeadlineNarrative(data, identity).title
+  }
+
+  it("keeps an exact attachment whose workload node was not returned in scope", () => {
+    // The reported case: the projection binds i-web exactly, the scoped node
+    // set carries only the two RDS workloads, so no display name resolves.
+    const data = readyRole(response(), ["i-web"])
+    expect((data.nodes ?? []).some(n => n.id === "i-web")).toBe(false)
+
+    const title = titleFor(data)
+    expect(title).toContain("attached to i-web")
+    expect(title).toContain("workload details unresolved in this scope")
+    expect(title).not.toContain("no exact workload attachment returned")
+  })
+
+  it("claims no attachment only when the authoritative list is actually empty", () => {
+    const title = titleFor(readyRole(response(), []))
+
+    expect(title).toContain("no exact workload attachment returned")
+    expect(title).not.toContain("attached to")
+    expect(title).not.toContain("unresolved")
+  })
+
+  it("still prefers the workload display name when the node is returned", () => {
+    const data = readyRole(response(), [])
+    const node = (data.nodes ?? [])[0]
+    readyRole(data, [node.id])
+
+    const title = titleFor(data)
+    expect(title).toContain(`attached to ${node.name}`)
+    expect(title).not.toContain(node.id)
+    expect(title).not.toContain("unresolved")
+  })
+
+  it("counts attachments beyond the two it names instead of implying there are none", () => {
+    const data = readyRole(response(), ["i-web", "i-api", "i-batch", "i-cron"])
+
+    const title = titleFor(data)
+    expect(title).toContain("attached to i-web, i-api +2 more")
+    expect(title).not.toContain("i-batch")
+  })
+})

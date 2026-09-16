@@ -106,13 +106,39 @@ function workloadHeadline(node: TopologyNode): { title: string; reason: string; 
   }
 }
 
+/**
+ * `observation.workloadIds` is the AUTHORITATIVE attachment list — exact
+ * RoleId bindings from the identity projection. The topology node list is only
+ * a display-name lookup, and it is scoped: it legitimately omits a workload the
+ * projection binds exactly (out-of-scope VPC, a truncated node set, a node from
+ * a later generation).
+ *
+ * So resolving zero names means the NAMES are unresolved, never that the role
+ * has no attachment. Conflating the two put "attached to no exact workload
+ * attachment returned" in the header directly above a panel showing
+ * ATTACHED WORKLOADS (1) · i-web. An absent display detail must not negate an
+ * exact attachment: fall back to the exact id and say the details are
+ * unresolved. Only an actually empty list claims no attachment.
+ */
 function identityHeadline(observation: IdentityRoleObservation, workloads: TopologyNode[]): string {
-  const consumers = workloads
-    .filter(w => observation.workloadIds.includes(w.id))
-    .map(w => w.name)
-    .slice(0, 2)
-  const consumerText = consumers.length > 0 ? consumers.join(", ") : "no exact workload attachment returned"
-  return `${observation.name} has ${formatObservationClaim(observation)} (complete coverage) — attached to ${consumerText}`
+  const claim = `${observation.name} has ${formatObservationClaim(observation)} (complete coverage)`
+  const attachedIds = observation.workloadIds ?? []
+  if (attachedIds.length === 0) {
+    return `${claim} — no exact workload attachment returned`
+  }
+
+  const nameById = new Map(workloads.map(w => [w.id, w.name]))
+  const shown = attachedIds.slice(0, 2)
+  // The exact id is the fallback label, so the attachment stays nameable.
+  const labels = shown.map(id => nameById.get(id) ?? id)
+  // The old `.slice(0, 2)` dropped the rest silently, so two names read as the
+  // whole list. Count what is not shown rather than implying there is nothing.
+  const remaining = attachedIds.length - shown.length
+  const more = remaining > 0 ? ` +${remaining} more` : ""
+  const unresolved = shown.some(id => !nameById.has(id))
+    ? " (workload details unresolved in this scope)"
+    : ""
+  return `${claim} — attached to ${labels.join(", ")}${more}${unresolved}`
 }
 
 export function buildHeadlineNarrative(
