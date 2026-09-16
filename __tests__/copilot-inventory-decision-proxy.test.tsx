@@ -74,6 +74,13 @@ describe("F1: envelope=true inventory calls carry the verified identity, or refu
     expect(init.headers).toEqual({ Accept: "application/json", "X-Amzn-Oidc-Data": "signed-alb-claims" })
   })
 
+  it("forwards the canonical allowlisted system, never the client's spelling of it", async () => {
+    enableCustomerScope()
+    const upstream = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(Response.json({ result: {}, provenance: null }))
+    await listRoute(request("list", "resource_type=s3&system=%20payments%20&envelope=true"))
+    expect(new URL((upstream.mock.calls[0] as [string])[0]).searchParams.get("system")).toBe("payments")
+  })
+
   it.each([
     ["top-level error_code (system_resources' body)", 401, { error_code: "ANALYST_IDENTITY_INVALID", detail: "invalid" }, "ANALYST_IDENTITY_INVALID"],
     ["nested detail.error_code", 403, { detail: { error_code: "DECISION_CONTEXT_SCOPE_MISMATCH" } }, "DECISION_CONTEXT_SCOPE_MISMATCH"],
