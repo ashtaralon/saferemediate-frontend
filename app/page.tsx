@@ -32,6 +32,7 @@ import { AttackPathsV2 } from "@/components/attack-paths-v2/attack-paths-v2"
 import { EmptyState } from "@/components/empty-state"
 import { SecurityFindingsList } from "@/components/issues/security-findings-list"
 import { SystemDetailDashboard } from "@/components/system-detail-dashboard"
+import { estateSurfaceInitialTab } from "@/lib/estate-surface-deep-link"
 import { DataLeakPathsPage } from "@/components/data-leak-paths/data-leak-paths-page"
 import { fetchInfrastructure, fetchSecurityFindings, type InfrastructureData } from "@/lib/api-client"
 import type { SecurityFinding } from "@/lib/types"
@@ -602,11 +603,22 @@ export default function HomePage() {
     const mode = searchParams.get("mode")
     const vulnerabilityDeepLink = searchParams.get("vulnerability_focus") === "1"
     const attackPathDeepLink = Boolean(jewel || path || mode)
+    // The Estate surface parameter is read inside EstateMapView, which only
+    // mounts under the Topology leaf. Without this the deep link opened
+    // Overview and the operator had to click Topology before the requested
+    // surface appeared.
+    const estateSurfaceTab = estateSurfaceInitialTab(searchParams.get("surface"))
     return (
       <ErrorBoundary componentName="System Dashboard">
         <SystemDetailDashboard
           systemName={selectedSystem}
-          initialTab={vulnerabilityDeepLink ? "vulnerabilities" : attackPathDeepLink ? "attack-paths" : undefined}
+          initialTab={
+            vulnerabilityDeepLink
+              ? "vulnerabilities"
+              : attackPathDeepLink
+                ? "attack-paths"
+                : estateSurfaceTab
+          }
           initialAttackPathMode={
             mode || (attackPathDeepLink ? "attack-path" : undefined)
           }
