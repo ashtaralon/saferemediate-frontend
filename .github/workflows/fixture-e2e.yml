@@ -32,6 +32,14 @@ jobs:
         run: npm run build
         env:
           NEXT_TELEMETRY_DISABLED: "1"
+      - name: Job-local site password
+        # The site gate accepts only the sealed session /api/auth/login issues,
+        # so the locally started app gets a per-job password and the specs
+        # sign in with it (tests/integration/live-auth.ts reads SITE_PASSWORD).
+        run: |
+          password="fixture-$(openssl rand -hex 24)"
+          echo "::add-mask::${password}"
+          echo "SITE_PASSWORD=${password}" >> "$GITHUB_ENV"
       - name: Start the app
         # No backend here on purpose: every route the specs need is answered
         # in the browser by tests/integration/topology-fixture.ts. Point the
