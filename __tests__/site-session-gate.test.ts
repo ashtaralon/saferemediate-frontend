@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { NextRequest } from "next/server"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { sealJson } from "@/lib/server/operator-session"
+import { sealJson } from "@/lib/server/sealed-json"
 import { SITE_SESSION_COOKIE, issueSiteSession, siteSessionValid } from "@/lib/server/site-session"
 
 const ORIGIN = "https://console.example.test"
@@ -110,11 +110,14 @@ describe("middleware site gate", () => {
     expect(isPublicStaticRead("GET", "/design/topology-v0.2.html")).toBe(false)
   })
 
-  it("keeps the public paths and the bound OIDC callback reachable without a session", async () => {
-    for (const path of ["/login", "/api/auth/login", "/api/healthz", "/api/build-version", "/api/proxy/meta", "/api/cron/warm", "/api/auth/operator/callback"]) {
+  it("keeps the public paths reachable without a session and publishes no operator route", async () => {
+    for (const path of ["/login", "/api/auth/login", "/api/healthz", "/api/build-version", "/api/proxy/meta", "/api/cron/warm"]) {
       expect(passed(await gate(path)), path).toBe(true)
     }
-    expect(redirectedToLogin(await gate("/api/auth/operator/start"))).toBe(true)
+    // Operator sign-in (a separate change) adds and publishes its own callback; this gate alone must not.
+    for (const path of ["/api/auth/operator/callback", "/api/auth/operator/start"]) {
+      expect(redirectedToLogin(await gate(path)), path).toBe(true)
+    }
   })
 
   it("leaves the customer-resident ALB mode unchanged", async () => {

@@ -1,4 +1,4 @@
-import { sealJson, unsealJson } from "@/lib/server/operator-session"
+import { sealJson, unsealJson } from "@/lib/server/sealed-json"
 
 /**
  * The hosted console's site gate, as a sealed session instead of a constant.
