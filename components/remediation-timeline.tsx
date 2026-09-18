@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect, useMemo, useRef } from "react"
 import {
   LineChart,
   Line,
@@ -33,17 +33,41 @@ import {
 } from "lucide-react"
 import { dispatchRemediationChanged } from "@/lib/remediation-events"
 import { ServiceTypeBadge } from "@/lib/service-type"
-import { fetchWithEnvelope } from "@/components/trust/use-trust-envelope"
-import { TrustEnvelopeBadge, Provenance } from "@/components/trust/trust-envelope-badge"
+import { TrustEnvelopeBadge, Provenance, isTrustEnvelope } from "@/components/trust/trust-envelope-badge"
 import { operationalRequest } from "@/components/topology-v0-2/estate-operations"
 import {
   DEFAULT_REMEDIATION_EVENT_FILTER,
   dedupeRemediationEvents,
   isActionableRestore,
+  ledgerRestorePath,
+  operationLedgerNotices,
+  operationLinkage,
   remediationTimelineUrl,
-  snapshotBelongsToSystem,
   summarizeRemediationEvents,
+  timelineApiEventSource,
+  ledgerScopeLabel,
+  ledgerScopeVerdict,
+  snapshotEnvelopeUnprovenReason,
+  snapshotListingNotices,
+  snapshotRowOffer,
+  type HistoryPageScope,
+  type LedgerScopeVerdict,
+  type OperationLedgerStatus,
+  type TimelineEventSource,
 } from "@/lib/remediation-timeline"
+import { useAccountScope } from "@/lib/account-scope-context"
+import { withAccountScope } from "@/lib/account-scope"
+import { SNAPSHOT_SCOPE_UNPROVEN, SNAPSHOT_SYSTEM_FAMILIES, snapshotsInView, systemSnapshotView } from "@/lib/snapshot-system-view"
+import { fetchDecisionFamilyAnswers, type DecisionFamily, type DecisionFamilyResult } from "@/lib/inventory-decision-families"
+import { mutationFailure, mutationFailureText } from "@/lib/iam-mutation-outcome"
+import { operatorAttributionQualifier } from "@/lib/lp-normalize"
+import {
+  checkpointStateReason,
+  describeCheckpointIntegrity,
+  describeCheckpointVersion,
+  fetchCheckpointStates,
+  type CheckpointStatesResult,
+} from "@/lib/checkpoint-states"
 
 // ============================================================================
 // TYPES
@@ -234,7 +258,9 @@ interface RemediationEvent {
   after_state: Record<string, any>
   summary: string
   // Source tracking
-  source?: "neo4j" | "snapshot"
+  source?: TimelineEventSource
+  // Who performed a durable operation record (see metadata.operator_verified)
+  performed_by?: string
   // Snapshot-specific fields for rollback
   sg_id?: string
   sg_name?: string
@@ -242,6 +268,14 @@ interface RemediationEvent {
   role_arn?: string
   bucket_name?: string
   system_name?: string | null
+  // The canonical scoped listing's exact identity and verdict for this change (Permissions C supplier), when a
+  // proven row for it was read: the offer is the supplier's, never derived here.
+  resource_arn?: string | null
+  operation_id?: string | null
+  current_code?: string | null
+  offer_withheld_reason?: string | null
+  scope_proof?: string | null
+  restoration?: Record<string, any> | null
 }
 
 interface ChartDataPoint {
@@ -255,9 +289,11 @@ interface ChartDataPoint {
 interface TimelineSummary {
   total_events: number
   total_permissions_removed: number
+  permissions_removed_unrecorded: number
   completed_events: number
   rollback_events: number
   avg_confidence: number
+  confidence_scores: number
   period_start?: string
   period_end?: string
 }
@@ -409,11 +445,34 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 // EVENT DETAIL MODAL
 // ============================================================================
 
+/**
+ * A restore control's offer: the read (attempt) that rendered it and the exact operation/resource it named. Dispatch
+ * re-resolves that identity in the CURRENT read's rows; a control from an earlier read is refused by name even when
+ * a later read of the same selection offers the same row again (Root187).
+ */
+interface RestoreOffer {
+  attempt: number
+  eventId: string
+  operationId: string | null
+  resourceArn: string | null
+}
+
+function restoreOfferOf(event: RemediationEvent, attempt: number): RestoreOffer {
+  return {
+    attempt,
+    eventId: event.event_id,
+    operationId: typeof event.operation_id === "string" && event.operation_id ? event.operation_id : null,
+    resourceArn: typeof event.resource_arn === "string" && event.resource_arn ? event.resource_arn : null,
+  }
+}
+
 interface EventDetailModalProps {
   event: RemediationEvent | null
   isOpen: boolean
   onClose: () => void
-  onRollback: (eventId: string, selectedItems?: string[]) => void
+  /** The read whose rows the open event belongs to (0 while no read offers anything). */
+  offeredByAttempt: number
+  onRollback: (offer: RestoreOffer, selectedItems?: string[]) => void
 }
 
 /**
@@ -528,10 +587,42 @@ function getRestorableItems(event: RemediationEvent): { id: string; label: strin
   return items
 }
 
-const EventDetailModal = ({ event, isOpen, onClose, onRollback }: EventDetailModalProps) => {
+const EventDetailModal = ({ event, isOpen, onClose, offeredByAttempt, onRollback }: EventDetailModalProps) => {
   const [showDiff, setShowDiff] = useState(false)
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set())
   const [showSelectiveRestore, setShowSelectiveRestore] = useState(false)
+  // Saved checkpoint states for a boundary change, keyed by the snapshot they
+  // describe: this modal is reused across events, and a late answer for one
+  // snapshot must never render under another.
+  const [savedStates, setSavedStates] = useState<{ snapshotId: string; result: CheckpointStatesResult | null } | null>(null)
+  const inspectableSnapshotId =
+    event?.source === "operation_ledger" && event.resource_type === "IAMRole" && event.snapshot_id
+      ? event.snapshot_id
+      : null
+  const currentSavedStates =
+    savedStates && savedStates.snapshotId === inspectableSnapshotId ? savedStates : null
+
+  const requestedSnapshotRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    // Closing forgets what was read: a restore may have changed the checkpoint.
+    if (!isOpen) {
+      requestedSnapshotRef.current = null
+      setSavedStates(null)
+    }
+  }, [isOpen])
+
+  useEffect(() => {
+    if (!isOpen || !showDiff || !inspectableSnapshotId) return
+    if (requestedSnapshotRef.current === inspectableSnapshotId) return
+    const requested = inspectableSnapshotId
+    requestedSnapshotRef.current = requested
+    setSavedStates({ snapshotId: requested, result: null })
+    fetchCheckpointStates(requested).then(result => {
+      // Only the snapshot still being shown may take this answer.
+      setSavedStates(current => (current && current.snapshotId === requested ? { snapshotId: requested, result } : current))
+    })
+  }, [isOpen, showDiff, inspectableSnapshotId])
 
   if (!isOpen || !event) return null
 
@@ -821,7 +912,7 @@ const EventDetailModal = ({ event, isOpen, onClose, onRollback }: EventDetailMod
                     .filter(([k]) => ![
                       'rules_count', 'removed_permissions', 'original_role', 'new_role',
                       'rules_removed', 'rules_failed', 'restore', 'checkpoint_detail',
-                      'canonical_operation', 'event_kind', 'parent_operation_id',
+                      'canonical_operation', 'event_kind', 'parent_operation_id', 'operation_ledger',
                     ].includes(k))
                     .map(([key, value]) => (
                     <div key={key} className="flex justify-between text-sm">
@@ -839,7 +930,7 @@ const EventDetailModal = ({ event, isOpen, onClose, onRollback }: EventDetailMod
           )}
 
           {/* Diff Toggle */}
-          {(Object.keys(event.before_state || {}).length > 0 || Object.keys(event.after_state || {}).length > 0) && <button
+          {(inspectableSnapshotId || Object.keys(event.before_state || {}).length > 0 || Object.keys(event.after_state || {}).length > 0) && <button
             onClick={() => setShowDiff(!showDiff)}
             className="flex items-center gap-2 text-sm font-medium transition-colors hover:opacity-80 text-purple-400"
           >
@@ -847,8 +938,67 @@ const EventDetailModal = ({ event, isOpen, onClose, onRollback }: EventDetailMod
             {showDiff ? "Hide" : "Show"} State Changes
           </button>}
 
+          {/* Saved checkpoint states for a boundary change (P8): verified before/after, never guessed */}
+          {showDiff && inspectableSnapshotId && (
+            <div className="space-y-2" data-testid="saved-state">
+              {!currentSavedStates?.result && (
+                <p className="text-xs text-[var(--muted-foreground,#9ca3af)]">Reading the saved checkpoint…</p>
+              )}
+              {currentSavedStates?.result && !currentSavedStates.result.ok && (
+                <p data-testid="saved-state-unavailable" className="text-xs text-amber-300">
+                  Saved state unavailable: {mutationFailureText(currentSavedStates.result.failure)}
+                </p>
+              )}
+              {currentSavedStates?.result?.ok && (() => {
+                const states = currentSavedStates.result.states
+                return (
+                  <>
+                    <p data-testid="saved-state-integrity" className={`text-xs ${states.integrity === "VERIFIED" ? "text-emerald-300" : "text-amber-300"}`}>
+                      {describeCheckpointIntegrity(states)}
+                    </p>
+                    <p data-testid="saved-state-version" className="text-xs text-[var(--muted-foreground,#9ca3af)]">
+                      Checkpoint {states.checkpoint.status}
+                      {" · "}{describeCheckpointVersion(states)}
+                      {" · "}operation {states.operation.operation_id ?? "unknown"} ({states.operation.state ?? "unknown"}, record v{String(states.operation.record_version ?? "?")})
+                      {" · "}{states.scope.resource_arn}
+                    </p>
+                    <p className="text-xs text-[var(--muted-foreground,#9ca3af)]">
+                      Removed actions: {states.operation.removed_actions.join(", ") || "not recorded"}
+                    </p>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="rounded-lg p-3 border" style={{ background: "#3d1f1f", borderColor: "#6b2c2c" }}>
+                        <p className="text-xs font-medium mb-2 text-red-400">
+                          Before{states.before.verified ? " (hash-verified)" : ` (not hash-verified: ${checkpointStateReason(states.before.reason)})`}
+                        </p>
+                        <pre data-testid="saved-state-before" className="text-xs overflow-auto max-h-60 text-gray-300">
+                          {JSON.stringify({ inline_policies: states.before.inline_policies, attached_managed_policy_arns: states.before.attached_managed_policy_arns }, null, 2)}
+                        </pre>
+                      </div>
+                      <div className="rounded-lg p-3 border" style={{ background: "#1f3d2a", borderColor: "#2c6b3d" }}>
+                        <p data-testid="saved-state-after-label" className="text-xs font-medium mb-2 text-emerald-400">
+                          {states.after.verified
+                            ? "After (derived from the saved before state and the recorded removal; hash-verified against the post-image; these bytes are not stored)"
+                            : "After"}
+                        </p>
+                        {states.after.verified ? (
+                          <pre data-testid="saved-state-after" className="text-xs overflow-auto max-h-60 text-gray-300">
+                            {JSON.stringify({ inline_policies: states.after.inline_policies, deleted_inline_policies: states.after.deleted_inline_policies }, null, 2)}
+                          </pre>
+                        ) : (
+                          <p data-testid="saved-state-after-withheld" className="text-xs text-amber-300">
+                            After state not shown: {checkpointStateReason(states.after.reason)}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </>
+                )
+              })()}
+            </div>
+          )}
+
           {/* Diff View */}
-          {showDiff && (
+          {showDiff && !inspectableSnapshotId && (
             <div className="grid grid-cols-2 gap-4">
               <div
                 className="rounded-lg p-3 border"
@@ -985,7 +1135,7 @@ const EventDetailModal = ({ event, isOpen, onClose, onRollback }: EventDetailMod
             {event.rollback_available && event.metadata?.event_kind !== "checkpoint" && (
               hasSelectableItems && showSelectiveRestore ? (
                 <button
-                  onClick={() => onRollback(event.event_id, Array.from(selectedItems))}
+                  onClick={() => onRollback(restoreOfferOf(event, offeredByAttempt), Array.from(selectedItems))}
                   disabled={selectedItems.size === 0}
                   className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white transition-all hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
                   style={{ background: "#F59E0B" }}
@@ -995,7 +1145,7 @@ const EventDetailModal = ({ event, isOpen, onClose, onRollback }: EventDetailMod
                 </button>
               ) : (
                 <button
-                  onClick={() => onRollback(event.event_id)}
+                  onClick={() => onRollback(restoreOfferOf(event, offeredByAttempt))}
                   className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white transition-all hover:opacity-90"
                   style={{ background: "#F59E0B" }}
                 >
@@ -1014,6 +1164,36 @@ const EventDetailModal = ({ event, isOpen, onClose, onRollback }: EventDetailMod
 // ============================================================================
 // MAIN COMPONENT
 // ============================================================================
+
+/** The page's own selection, or null outside the scope provider: nothing scoped can be proven without it. */
+function usePageScope(): HistoryPageScope | null {
+  try {
+    const scope = useAccountScope()
+    return { customerId: scope.customerId, groupId: scope.groupId, accountId: scope.accountId, region: scope.region }
+  } catch {
+    return null
+  }
+}
+
+interface TypedRefusal {
+  status: number
+  code: string
+  message: string
+}
+
+/** A non-2xx answer as the backend typed it (`detail.code`), never reduced to a bare status. */
+function typedRefusal(status: number, body: unknown): TypedRefusal {
+  const detail = body && typeof body === "object" ? (body as { detail?: unknown }).detail : undefined
+  const named = detail && typeof detail === "object" ? (detail as { code?: unknown; message?: unknown; claimed_group?: unknown }) : null
+  const code = named && typeof named.code === "string" ? named.code : typeof detail === "string" ? detail : `HTTP_${status}`
+  const message = named && typeof named.message === "string" ? named.message : ""
+  const group = named && typeof named.claimed_group === "string" ? ` (group ${named.claimed_group})` : ""
+  return { status, code, message: `${message}${group}` }
+}
+
+function appendEnvelope(url: string): string {
+  return `${url}${url.includes("?") ? "&" : "?"}envelope=true`
+}
 
 export function RemediationTimeline({
   systemId,
@@ -1042,7 +1222,42 @@ export function RemediationTimeline({
   const [selectedChartDate, setSelectedChartDate] = useState<string | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
   const [expandedOperations, setExpandedOperations] = useState<Set<string>>(new Set())
-  const [restoringEventId, setRestoringEventId] = useState<string | null>(null)
+  // An in-flight restore carries its own sequence, so only its own outcome clears the flag.
+  const [restoring, setRestoring] = useState<{ eventId: string; seq: number } | null>(null)
+  const restoringEventId = restoring?.eventId ?? null
+  // The read (attempt) whose rows are on screen and may be offered; 0 while a read is in flight or none succeeded.
+  // Every restore control is stamped with it, so a control minted under one read is refused after any later read.
+  const [offeredBy, setOfferedBy] = useState(0)
+  // What the History could not show: the timeline request itself failing, and
+  // operation records that were unreadable or carry no system.
+  const [timelineUnavailable, setTimelineUnavailable] = useState<string | null>(null)
+  const [ledgerStatus, setLedgerStatus] = useState<OperationLedgerStatus | null>(null)
+  // The page's own selection (customer, group, account, region), or null outside the scope provider.
+  const page = usePageScope()
+  const pageCustomer = page?.customerId ?? null
+  const pageGroup = page?.groupId ?? "all"
+  const pageAccount = page?.accountId ?? "all"
+  const pageRegion = page?.region ?? "all"
+  // What this History proves and what it withholds, by name (H-H4, H-H8).
+  const [ledgerScope, setLedgerScope] = useState<LedgerScopeVerdict | null>(null)
+  const [timelineRefusal, setTimelineRefusal] = useState<TypedRefusal | null>(null)
+  const [snapshotScope, setSnapshotScope] = useState<{ code: string; reasons: string[] } | null>(null)
+  const [snapshotNotices, setSnapshotNotices] = useState<string[]>([])
+  const [ledgerWithheld, setLedgerWithheld] = useState(false)
+  const [graphEventsPresent, setGraphEventsPresent] = useState(false)
+  // Every read is an attempt bound to the selection and this instance; a superseded attempt writes nothing, and a
+  // restore control belongs to the attempt that rendered it (H-H3, H-H6, H-H7).
+  const attemptRef = useRef(0)
+  const mountedRef = useRef(true)
+  const eventsRef = useRef<RemediationEvent[]>([])
+  const restoreSeqRef = useRef(0)
+
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
 
   // Filter events based on selected filter
   const filteredEvents = useMemo(() => {
@@ -1255,13 +1470,16 @@ export function RemediationTimeline({
       summary = `Remediation checkpoint for ${resourceId}`
     }
 
+    // H-H5: only the supplier's own offer on a CURRENT, scope-proven row; omitted or unknown is never an offer.
+    const offer = snapshotRowOffer(snapshot)
     return {
       event_id: snapshot.snapshot_id || [resourceType, resourceId, snapshot.timestamp || snapshot.created_at || 'undated'].join(':'),
-      timestamp: snapshot.timestamp || snapshot.created_at || new Date().toISOString(),
+      timestamp: snapshot.timestamp || snapshot.state_changed_at || snapshot.created_at || new Date().toISOString(),
       resource_type: resourceType,
       resource_id: resourceId,
       action_type: actionType,
-      status: (snapshot.rolled_back_at || snapshot.restored_at || snapshot.status === 'RESTORED' || snapshot.status === 'restored')
+      status: (snapshot.rolled_back_at || snapshot.restored_at || snapshot.status === 'RESTORED' || snapshot.status === 'restored'
+        || snapshot.current?.code === 'RESTORED')
         ? 'rolled_back'
         : 'completed',
       // Snapshot rows don't carry per-row confidence — only the originating
@@ -1271,7 +1489,13 @@ export function RemediationTimeline({
       confidence_score: null as number | null,
       approved_by: snapshot.triggered_by || 'system',
       snapshot_id: snapshot.snapshot_id,
-      rollback_available: snapshot.rollback_available !== false,
+      rollback_available: offer.offered,
+      offer_withheld_reason: offer.offered ? null : offer.reason,
+      resource_arn: typeof snapshot.resource_arn === 'string' ? snapshot.resource_arn : null,
+      operation_id: typeof snapshot.operation_id === 'string' ? snapshot.operation_id : null,
+      current_code: typeof snapshot.current?.code === 'string' ? snapshot.current.code : null,
+      scope_proof: typeof snapshot.scope_proof === 'string' ? snapshot.scope_proof : null,
+      restoration: snapshot.restoration && typeof snapshot.restoration === 'object' ? snapshot.restoration : null,
       metadata: {
         reason: snapshot.reason || 'Least-privilege remediation',
         rules_count: snapshot.rules_count,
@@ -1301,11 +1525,34 @@ export function RemediationTimeline({
     }
   }
 
-  // Fetch timeline data from both Neo4j API and snapshots
+  // Fetch the History: the canonical timeline (ledger + graph receipts, read for ONE validated scope) and the
+  // canonical scoped snapshot listing, whose rows carry the shared walk's verdict and the only restore offer.
   useEffect(() => {
+    const attempt = ++attemptRef.current
+    const owns = () => mountedRef.current && attemptRef.current === attempt
+    // Withdrawn before the first await (H-H7): the modal, the selection, any in-flight restore flag and the earlier
+    // proof of scope belong to the previous attempt; a callback saved from it dispatches nothing.
+    setSelectedEvent(null)
+    setShowModal(false)
+    setRestoring(null)
+    setOfferedBy(0)
+    eventsRef.current = []
+    setLedgerScope(null)
+    setTimelineRefusal(null)
+    setSnapshotScope(null)
+    setSnapshotNotices([])
+    setLedgerWithheld(false)
+    setGraphEventsPresent(false)
+    const selection: HistoryPageScope | null = page
+      ? { customerId: pageCustomer, groupId: pageGroup, accountId: pageAccount, region: pageRegion }
+      : null
+
     const fetchTimeline = async () => {
       setLoading(true)
       setError(null)
+      setTimelineUnavailable(null)
+      setLedgerStatus(null)
+      setProvenance(null)
 
       try {
         const periodDays = { "7d": 7, "30d": 30, "90d": 90, "1y": 365 }
@@ -1313,73 +1560,151 @@ export function RemediationTimeline({
         startDate.setDate(startDate.getDate() - periodDays[selectedPeriod])
         const today = new Date()
 
-        // Fetch from both sources in parallel
-        setProvenance(null)
-        const [neo4jEnvResult, sgRes, iamRes] = await Promise.all([
-          // 1. Neo4j Timeline API (primary source for recorded events) - use proxy to avoid CORS
-          fetchWithEnvelope<any>(
-            remediationTimelineUrl(startDate.toISOString(), today.toISOString(), systemId)
-          ).catch(() => null),
-          // 2. Snapshots (to include any checkpoints not yet in Neo4j)
-          fetch('/api/proxy/snapshots?force_refresh=true', { cache: 'no-store' }).catch(() => null),
-          fetch('/api/proxy/iam-snapshots?force_refresh=true', { cache: 'no-store' }).catch(() => null)
+        const groupSelected = pageGroup !== "all"
+        const accountSelected = pageAccount !== "all"
+        // H-H3: the ledger request carries the page's claims (a specific group is refused by the reader before any
+        // read); the canonical snapshot listing is requested only for one positively selected account with no
+        // group selected; the legacy account-wide readers are not requested at all.
+        const timelineUrl = remediationTimelineUrl(startDate.toISOString(), today.toISOString(), systemId, selection ?? undefined)
+        const snapshotsRequested = !!selection && !groupSelected && accountSelected
+        const snapshotRequest: Promise<Response | null> = snapshotsRequested && selection
+          ? fetch(withAccountScope(`/api/proxy/snapshots?limit=200${systemId ? `&system_name=${encodeURIComponent(systemId)}` : ""}`, selection), { cache: "no-store" }).catch(() => null)
+          : Promise.resolve(null)
+        const familiesRequest: Promise<DecisionFamilyResult<DecisionFamily>[] | null> = snapshotsRequested && selection && systemId
+          ? fetchDecisionFamilyAnswers(systemId, selection, SNAPSHOT_SYSTEM_FAMILIES).catch(() => null)
+          : Promise.resolve(null)
+        let transportFailure: string | null = null
+        const [timelineRes, snapshotRes, families] = await Promise.all([
+          fetch(appendEnvelope(timelineUrl), { cache: "no-store" }).catch((err: any) => {
+            transportFailure = err?.message || "the History request failed"
+            return null as Response | null
+          }),
+          snapshotRequest,
+          familiesRequest,
         ])
+        if (!owns()) return
+        if (transportFailure) {
+          // Unreadable is not empty: say so instead of rendering no events.
+          setTimelineUnavailable(transportFailure)
+        }
 
         let allEvents: RemediationEvent[] = []
         let neo4jChartData: ChartDataPoint[] = []
+        let ledgerEvents: RemediationEvent[] = []
 
-        // Process Neo4j timeline data (primary)
-        if (neo4jEnvResult) {
-          setProvenance(neo4jEnvResult.provenance)
-          const neo4jData = neo4jEnvResult.result
-          const neo4jEvents = (neo4jData?.events || []).map((e: any) => ({
-            ...e,
-            source: 'neo4j' as const
-          }))
-          allEvents.push(...neo4jEvents)
-          neo4jChartData = neo4jData?.chart_data || []
+        if (timelineRes) {
+          const rawBody = await timelineRes.json().catch(() => null)
+          if (!owns()) return
+          if (!timelineRes.ok) {
+            // A typed refusal keeps its status and code; nothing is served in its place, and nothing is re-requested
+            // under another scope.
+            setTimelineRefusal(typedRefusal(timelineRes.status, rawBody))
+            setTimelineUnavailable(`Request failed (${timelineRes.status})`)
+          } else {
+            const unwrapped = isTrustEnvelope(rawBody)
+              ? { result: rawBody.result as any, provenance: rawBody.provenance }
+              : { result: rawBody as any, provenance: null }
+            setProvenance(unwrapped.provenance)
+            const neo4jData = unwrapped.result
+            const verdict = ledgerScopeVerdict(neo4jData?.scope, selection)
+            setLedgerScope(verdict)
+            setLedgerStatus(neo4jData?.operation_ledger ?? null)
+            const rawEvents: RemediationEvent[] = (neo4jData?.events || []).map((e: any) => ({
+              ...e,
+              // Durable operation records restore through their own route.
+              source: timelineApiEventSource(e),
+            }))
+            // Ledger events render only under the reader's positive echo of the scope it read them for; graph
+            // receipts are this deployment's own inputs, never proven by that echo, and are shown with that named.
+            ledgerEvents = rawEvents.filter(e => e.source === "operation_ledger")
+            const graphEvents = rawEvents.filter(e => e.source !== "operation_ledger")
+            if (!verdict.ok) {
+              if (ledgerEvents.length > 0) setLedgerWithheld(true)
+              ledgerEvents = []
+            }
+            setGraphEventsPresent(graphEvents.length > 0)
+            allEvents.push(...graphEvents)
+            neo4jChartData = neo4jData?.chart_data || []
+          }
         }
 
-        // Process snapshots (secondary - fill in any missing)
-        let snapshotEvents: RemediationEvent[] = []
-
-        if (sgRes && sgRes.ok) {
-          const sgData = await sgRes.json()
-          const sgList = Array.isArray(sgData) ? sgData : (sgData.snapshots || [])
-          const typedSnapshots = sgList.map((s: any) => {
-            // Detect IAM Role snapshots - check multiple indicators including new format
-            if (s.snapshot_id?.startsWith('IAMRole-') || s.snapshot_id?.startsWith('iam-') ||
-                s.resource_type === 'IAMRole' || s.original_role || s.new_role) {
-              return { ...s, type: 'IAMRole' }
+        // H-H4: the positive envelope gate runs BEFORE the system view helper, and rows reach `snapshotsInView`
+        // only after it. Nothing is admitted by name.
+        let canonicalRows: any[] = []
+        let canonicalVerdictAvailable = false
+        let withheldReason = "SNAPSHOT_SCOPE_UNPROVEN"
+        if (!snapshotsRequested) {
+          const reason = snapshotEnvelopeUnprovenReason(null, selection) ?? "ENVELOPE_UNPROVEN"
+          withheldReason = reason
+          setSnapshotScope({ code: SNAPSHOT_SCOPE_UNPROVEN, reasons: [reason] })
+        } else if (!snapshotRes) {
+          withheldReason = "LISTING_UNREACHABLE"
+          setSnapshotScope({ code: SNAPSHOT_SCOPE_UNPROVEN, reasons: ["LISTING_UNREACHABLE"] })
+        } else {
+          const body = await snapshotRes.json().catch(() => null)
+          if (!owns()) return
+          if (!snapshotRes.ok) {
+            const refused = typedRefusal(snapshotRes.status, body)
+            withheldReason = `LISTING_REFUSED:${refused.code}`
+            setSnapshotScope({ code: SNAPSHOT_SCOPE_UNPROVEN, reasons: [`LISTING_REFUSED ${refused.code}${refused.message ? `: ${refused.message}` : ""}`] })
+          } else {
+            const envelope = body && typeof body === "object" ? (body as Record<string, any>) : {}
+            setSnapshotNotices(snapshotListingNotices(envelope))
+            const reason = snapshotEnvelopeUnprovenReason(envelope.scope, selection)
+            if (reason !== null) {
+              withheldReason = reason
+              setSnapshotScope({ code: SNAPSHOT_SCOPE_UNPROVEN, reasons: [reason] })
+            } else {
+              const view = systemSnapshotView(systemId, families, envelope.scope, selection as HistoryPageScope)
+              if (view.kind === "hidden") {
+                withheldReason = view.code
+                setSnapshotScope({ code: view.code, reasons: view.notices })
+              } else {
+                const rows = Array.isArray(envelope.snapshots) ? envelope.snapshots : []
+                canonicalRows = snapshotsInView(rows, view)
+                canonicalVerdictAvailable = true
+              }
             }
-            // Detect S3 Bucket snapshots
-            if (s.snapshot_id?.startsWith('S3Bucket-') || s.snapshot_id?.startsWith('s3-') ||
-                s.resource_type === 'S3Bucket') {
-              return { ...s, type: 'S3Bucket' }
-            }
-            // Detect Security Group snapshots
-            if (s.sg_id || s.sg_name || s.snapshot_id?.startsWith('sg-snap-') ||
-                s.resource_type === 'SecurityGroup') {
-              return { ...s, type: 'SecurityGroup' }
-            }
-            // Default: try to infer from snapshot_id prefix
-            return { ...s, type: 'Unknown' }
-          })
-          snapshotEvents.push(...typedSnapshots.map(convertSnapshotToEvent))
+          }
         }
 
-        if (iamRes && iamRes.ok) {
-          const iamData = await iamRes.json()
-          const iamList = Array.isArray(iamData) ? iamData : (iamData.snapshots || [])
-          snapshotEvents.push(...iamList.map((s: any) => convertSnapshotToEvent({ ...s, type: 'IAMRole' })))
+        // One row per change: a ledger event whose exact operation has a proven canonical row carries that row's
+        // verdict, identity and offer; without a proven verdict for it, a ledger event is not offered. Canonical
+        // rows with no ledger counterpart in this timeline are added as snapshot events.
+        const rowsByOperation = new Map<string, any>()
+        for (const row of canonicalRows) if (typeof row?.operation_id === "string") rowsByOperation.set(row.operation_id, row)
+        const matchedOperations = new Set<string>()
+        for (const event of ledgerEvents) {
+          const operationId = typeof (event as any).operation_id === "string" ? (event as any).operation_id : null
+          const row = operationId ? rowsByOperation.get(operationId) : undefined
+          if (row) {
+            matchedOperations.add(operationId as string)
+            const offer = snapshotRowOffer(row)
+            allEvents.push({
+              ...event,
+              rollback_available: offer.offered,
+              offer_withheld_reason: offer.offered ? null : offer.reason,
+              resource_arn: typeof row.resource_arn === "string" ? row.resource_arn : event.resource_id,
+              operation_id: operationId,
+              current_code: typeof row.current?.code === "string" ? row.current.code : null,
+              scope_proof: typeof row.scope_proof === "string" ? row.scope_proof : null,
+              restoration: row.restoration && typeof row.restoration === "object" ? row.restoration : null,
+              snapshot_id: event.snapshot_id || row.snapshot_id || undefined,
+            })
+          } else {
+            allEvents.push({
+              ...event,
+              rollback_available: false,
+              offer_withheld_reason: canonicalVerdictAvailable ? "CURRENT_VERDICT_NOT_LISTED" : withheldReason,
+              operation_id: operationId,
+              resource_arn: typeof event.resource_id === "string" && event.resource_id.startsWith("arn:") ? event.resource_id : null,
+            })
+          }
         }
-
-        // Snapshot endpoints are account-wide. Only merge snapshots whose
-        // system binding matches this timeline, then collapse duplicate feeds.
-        const scopedSnapshotEvents = snapshotEvents.filter(event =>
-          snapshotBelongsToSystem(event, systemId),
-        )
-        allEvents = dedupeRemediationEvents([...allEvents, ...scopedSnapshotEvents])
+        const snapshotEvents = canonicalRows
+          .filter(row => !(typeof row?.operation_id === "string" && matchedOperations.has(row.operation_id)))
+          .map(row => convertSnapshotToEvent({ ...row, type: "IAMRole" }))
+        allEvents = dedupeRemediationEvents([...allEvents, ...snapshotEvents])
 
         // Filter by date range
         allEvents = allEvents.filter(e => {
@@ -1421,7 +1746,7 @@ export function RemediationTimeline({
             const existing = chartDataMap.get(dateKey)
             if (existing) {
               existing.events += 1
-              existing.permissions_removed += event.metadata.permissions_removed || 0
+              existing.permissions_removed += event.metadata?.permissions_removed || 0
               existing.score_delta += 1
             }
           })
@@ -1436,30 +1761,66 @@ export function RemediationTimeline({
           today.toISOString().split('T')[0],
         )
 
+        if (!owns()) return
+        eventsRef.current = allEvents
         setEvents(allEvents)
+        setOfferedBy(attempt)
         setChartData(finalChartData)
         setSummary(finalSummary)
 
       } catch (err: any) {
+        if (!owns()) return
         console.error("Timeline fetch error:", err)
         setError(err.message)
+        eventsRef.current = []
         setEvents([])
+        setOfferedBy(0)
         setChartData([])
         setSummary(null)
       } finally {
-        setLoading(false)
+        if (owns()) setLoading(false)
       }
     }
 
     fetchTimeline()
-  }, [selectedPeriod, systemId, resourceId, refreshKey])
+  }, [selectedPeriod, systemId, resourceId, refreshKey, page !== null, pageCustomer, pageGroup, pageAccount, pageRegion])
 
   // Handle rollback - uses correct endpoint based on source and resource type
-  const handleRollback = async (eventId: string, selectedItems?: string[]) => {
-    const event = events.find(e => e.event_id === eventId)
-    if (!event) {
-      alert("Event not found")
+  const handleRollback = async (offer: RestoreOffer, selectedItems?: string[]) => {
+    // H-H6 / Root187: dispatch is bound to the read that offered the control and to the exact operation/resource it
+    // named, both re-resolved in the CURRENT read's rows before any confirmation or request. A control saved from an
+    // earlier read dispatches nothing, even when a later read of the same selection offers the same row again; a
+    // withdrawn row or a row without its exact identity dispatches nothing.
+    const attempt = attemptRef.current
+    if (!mountedRef.current || offer.attempt !== attempt) {
+      alert("RESTORE_NOT_OFFERED: RESTORE_OFFER_SUPERSEDED (the History was re-read since this control was offered; use the control shown now)")
       return
+    }
+    if (!offer.operationId || !offer.resourceArn) {
+      alert("RESTORE_NOT_OFFERED: IDENTITY_MISSING (no exact operation and resource identity in the current read)")
+      return
+    }
+    const live = eventsRef.current.filter(e => e.operation_id === offer.operationId && e.resource_arn === offer.resourceArn)
+    if (live.length !== 1) {
+      alert(`RESTORE_NOT_OFFERED: ${live.length === 0 ? "RESTORE_TARGET_NOT_IN_CURRENT_READ (refresh History)" : "RESTORE_TARGET_AMBIGUOUS (more than one current row names this operation and resource)"}`)
+      return
+    }
+    const event = live[0]
+    const eventId = event.event_id
+    if (!isActionableRestore(event)) {
+      alert(`RESTORE_NOT_OFFERED: ${event.offer_withheld_reason || "this change is not offered for restore in the current read"}`)
+      return
+    }
+    let seq = 0
+    const settle = (lateNotice: string) => {
+      if (mountedRef.current && attemptRef.current === attempt) {
+        setShowModal(false)
+        setSelectedEvent(null)
+        onRollback?.(eventId)
+        refreshTimeline()
+      } else {
+        alert(`${lateNotice} The History was re-read since this restore started; refresh to see it.`)
+      }
     }
 
     // Get the actual resource name - for IAM roles, use original_role or role_name
@@ -1481,6 +1842,40 @@ export function RemediationTimeline({
     }
 
     try {
+      if (event.source === 'operation_ledger') {
+        // A change applied through the mutation boundary is restored from its
+        // lifecycle checkpoint by the fenced restore route, never by the graph
+        // event route. Success is only what that route verified.
+        const path = ledgerRestorePath(event)
+        if (!path) {
+          throw new Error("This recorded change has no restore route.")
+        }
+        seq = ++restoreSeqRef.current
+        setRestoring({ eventId, seq })
+        const response = await fetch(path, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        })
+        const body = await response.json().catch(() => null)
+        if (!response.ok) {
+          throw new Error(mutationFailureText(mutationFailure(response.status, body)))
+        }
+        if (body?.success !== true || body?.code !== "RESTORE_VERIFIED") {
+          throw new Error("The restore response did not confirm a verified restore. Refresh History before retrying.")
+        }
+        alert(`Prior policies restored and verified at AWS for ${resourceName}.`)
+        dispatchRemediationChanged({
+          action: "rollback",
+          resource_type: resourceType,
+          resource_id: resourceName,
+          partial: false,
+          source_id: eventId,
+        })
+        settle(`Restore of ${resourceName} verified at AWS.`)
+        return
+      }
+
       const restore = event.metadata?.restore
       if (restore?.available) {
         if (
@@ -1489,7 +1884,8 @@ export function RemediationTimeline({
         ) {
           throw new Error("The verified restore contract is incomplete. Refresh History before retrying.")
         }
-        setRestoringEventId(eventId)
+        seq = ++restoreSeqRef.current
+        setRestoring({ eventId, seq })
         const requestedBy = window.localStorage.getItem("cyntro_operator_label") || "history-ui"
         const rearmed = await operationalRequest<{ lifecycle_token: string }>(
           restore.system_name,
@@ -1526,16 +1922,15 @@ export function RemediationTimeline({
           partial: false,
           source_id: eventId,
         })
-        setShowModal(false)
-        setSelectedEvent(null)
-        onRollback?.(eventId)
-        refreshTimeline()
+        settle(`Restore of ${resourceName} verified.`)
         return
       }
 
       let endpoint: string
       let bodyContent: any = undefined
       const snapshotId = event.snapshot_id || eventId
+      seq = ++restoreSeqRef.current
+      setRestoring({ eventId, seq })
 
       // If it's a Neo4j event, use the timeline rollback API (via proxy)
       if (event.source === 'neo4j') {
@@ -1618,14 +2013,12 @@ export function RemediationTimeline({
         throw new Error(result.error || 'Rollback failed')
       }
 
-      setShowModal(false)
-      setSelectedEvent(null)
-      onRollback?.(eventId)
-      refreshTimeline()
+      settle(`Restore of ${resourceName} reported success.`)
     } catch (err: any) {
       alert(`❌ Rollback failed: ${err.message}`)
     } finally {
-      setRestoringEventId(null)
+      // Only this restore's own outcome clears its flag: a late restore A cannot clear a later restore B.
+      setRestoring(prev => (prev && prev.seq === seq ? null : prev))
     }
   }
 
@@ -1675,6 +2068,51 @@ export function RemediationTimeline({
                 <TrustEnvelopeBadge provenance={provenance} />
               </div>
             )}
+            {timelineUnavailable && (
+              <p data-testid="history-timeline-unavailable" className="mt-3 text-xs text-amber-300">
+                Recorded History could not be loaded ({timelineUnavailable}). This is not a statement that no changes were made.
+              </p>
+            )}
+            {error && (
+              <p data-testid="history-render-error" className="mt-3 text-xs text-amber-300">
+                History could not be displayed ({error}). This is not a statement that no changes were made.
+              </p>
+            )}
+            {operationLedgerNotices(ledgerStatus).map(notice => (
+              <p key={notice} data-testid="history-ledger-notice" className="mt-2 text-xs text-amber-300">
+                {notice}
+              </p>
+            ))}
+            {timelineRefusal && (
+              <p data-testid="history-timeline-refusal" data-code={timelineRefusal.code} className="mt-2 text-xs text-amber-300">
+                The History reader refused this request ({timelineRefusal.code}{timelineRefusal.message ? `: ${timelineRefusal.message}` : ""}). Nothing is shown in its place.
+              </p>
+            )}
+            {ledgerScope && (
+              <p data-testid="history-ledger-scope" data-ok={ledgerScope.ok ? "true" : "false"} className="mt-2 text-xs" style={{ color: ledgerScope.ok ? "var(--text-secondary)" : "#fcd34d" }}>
+                {ledgerScopeLabel(ledgerScope)}
+              </p>
+            )}
+            {ledgerWithheld && (
+              <p data-testid="history-ledger-withheld" className="mt-2 text-xs text-amber-300">
+                Recorded changes were returned but are withheld: the reader's scope echo does not prove them for this page's selection.
+              </p>
+            )}
+            {graphEventsPresent && (
+              <p data-testid="history-graph-events-scope" className="mt-2 text-xs" style={{ color: "var(--text-secondary)" }}>
+                Graph-recorded receipts below are this deployment's own inputs; they are not filtered by, nor proven for, the selected scope.
+              </p>
+            )}
+            {snapshotScope && (
+              <p data-testid="history-snapshot-scope" data-code={snapshotScope.code} className="mt-2 text-xs text-amber-300">
+                Snapshots are not shown ({snapshotScope.code}{snapshotScope.reasons.length ? `: ${snapshotScope.reasons.join("; ")}` : ""}); no restore is offered.
+              </p>
+            )}
+            {snapshotNotices.map(notice => (
+              <p key={notice} data-testid="history-snapshot-notice" className="mt-2 text-xs text-amber-300">
+                {notice}
+              </p>
+            ))}
           </div>
 
           <div className="flex w-full flex-col gap-2 lg:w-auto lg:items-end">
@@ -1735,21 +2173,29 @@ export function RemediationTimeline({
             </div>
             <div className="rounded-lg p-3" style={{ background: "var(--bg-primary)" }}>
               <p className="text-xs" style={{ color: "var(--text-secondary)" }}>Permissions Removed</p>
-              <p className="text-xl font-bold text-emerald-400">
+              <p data-testid="history-tile-permissions-removed" className="text-xl font-bold text-emerald-400">
                 {summary.total_permissions_removed}
               </p>
+              {summary.permissions_removed_unrecorded > 0 && (
+                <p data-testid="history-tile-permissions-unrecorded" className="text-xs mt-0.5" style={{ color: "var(--text-secondary)" }}>
+                  not recorded for {summary.permissions_removed_unrecorded} {summary.permissions_removed_unrecorded === 1 ? "change" : "changes"}
+                </p>
+              )}
             </div>
             <div className="rounded-lg p-3" style={{ background: "var(--bg-primary)" }}>
               <p className="text-xs" style={{ color: "var(--text-secondary)" }}>Rollbacks</p>
-              <p className="text-xl font-bold text-orange-400">
+              <p data-testid="history-tile-rollbacks" className="text-xl font-bold text-orange-400">
                 {summary.rollback_events}
               </p>
             </div>
             <div className="rounded-lg p-3" style={{ background: "var(--bg-primary)" }}>
               <p className="text-xs" style={{ color: "var(--text-secondary)" }}>Avg Confidence</p>
-              <p className="text-xl font-bold" style={{ color: "var(--action-primary)" }}>
-                {summary.avg_confidence}%
+              <p data-testid="history-tile-confidence" className="text-xl font-bold" style={{ color: "var(--action-primary)" }}>
+                {summary.confidence_scores > 0 ? `${summary.avg_confidence}%` : "—"}
               </p>
+              {summary.confidence_scores === 0 && summary.total_events > 0 && (
+                <p className="text-xs mt-0.5" style={{ color: "var(--text-secondary)" }}>not recorded</p>
+              )}
             </div>
           </div>
         )}
@@ -1944,7 +2390,11 @@ export function RemediationTimeline({
             <div className="text-center py-8">
               <Calendar className="w-12 h-12 mx-auto mb-3" style={{ color: "var(--text-secondary)" }} />
               <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
-                {eventFilter === "actionable"
+                {error || timelineUnavailable
+                  ? "History could not be loaded"
+                  : ledgerWithheld || timelineRefusal
+                  ? "Recorded changes are withheld for this selection"
+                  : eventFilter === "actionable"
                   ? "No changes can be restored right now"
                   : "No remediation events in this period"}
               </p>
@@ -2015,10 +2465,40 @@ export function RemediationTimeline({
                           </span>
                         )}
                       </div>
+                      {event.source === 'operation_ledger' && (() => {
+                        const linkage = operationLinkage(event)
+                        if (!linkage.restores && linkage.restoredBy.length === 0) return null
+                        return (
+                          <p data-testid="history-linkage" className="text-xs mt-0.5 text-teal-300">
+                            {linkage.restores && <>Restores change {linkage.restores.slice(0, 8)}</>}
+                            {linkage.restoredBy.length > 0 && (
+                              <>Restored by {linkage.restoredBy.map(id => id.slice(0, 8)).join(", ")}</>
+                            )}
+                          </p>
+                        )
+                      })()}
                       <p className="text-xs mt-0.5" style={{ color: "var(--text-secondary)" }}>
-                        {formatDateTime(event.timestamp)} • {event.approved_by}
+                        {formatDateTime(event.timestamp)} • {event.approved_by ?? event.performed_by}
+                        {event.source === 'operation_ledger' && (() => {
+                          // Qualified by what was actually checked, never by a verified flag alone.
+                          const qualifier = operatorAttributionQualifier(
+                            event.metadata?.operator_attribution, event.metadata?.operator_verified,
+                          )
+                          return qualifier ? (
+                            <span
+                              className="ml-1"
+                              data-testid="history-operator-attribution"
+                              data-attribution={event.metadata?.operator_attribution ?? ''}
+                            >
+                              ({qualifier})
+                            </span>
+                          ) : null
+                        })()}
                         {event.source === 'neo4j' && (
                           <span className="text-purple-400 ml-2">● Neptune</span>
+                        )}
+                        {event.source === 'operation_ledger' && (
+                          <span className="text-teal-400 ml-2">● Recorded operation</span>
                         )}
                         <SafetyPipelineStrip
                           signals={event.metadata?.safety_signals}
@@ -2051,8 +2531,9 @@ export function RemediationTimeline({
                       <button
                         onClick={(e) => {
                           e.stopPropagation()
-                          handleRollback(event.event_id)
+                          handleRollback(restoreOfferOf(event, offeredBy))
                         }}
+                        data-offered-by-attempt={offeredBy}
                         disabled={restoringEventId === event.event_id}
                         className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors disabled:opacity-50"
                         style={{ color: "#F59E0B" }}
@@ -2103,6 +2584,7 @@ export function RemediationTimeline({
           setShowModal(false)
           setSelectedEvent(null)
         }}
+        offeredByAttempt={offeredBy}
         onRollback={handleRollback}
       />
     </div>

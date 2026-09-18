@@ -110,6 +110,14 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 }
 
 /**
+ * `string | null` exactly -- `undefined` is a MISSING required field, not an
+ * absent optional one, and is refused rather than defaulted.
+ */
+function isNullableString(value: unknown): value is string | null {
+  return value === null || typeof value === "string"
+}
+
+/**
  * Whether a 200 body carries every field the receipt consumers dereference, in
  * the shape they dereference it, AND an `integrity` consistent with the two
  * verified flags.
@@ -126,12 +134,40 @@ function isStatesObject(body: unknown): body is CheckpointStates {
   const operation = body.operation
   if (!isPlainObject(operation) || !Array.isArray(operation.removed_actions)) return false
   if (operation.removed_actions.some((action) => typeof action !== "string")) return false
+  // The History drilldown renders these: `operation {operation_id} ({state}, record
+  // v{record_version})`. The `??` fallbacks there cover null, not a wrong TYPE -- an
+  // object would reach React as a child and throw.
+  if (!isNullableString(operation.operation_id) || !isNullableString(operation.state)) return false
+  const recordVersion = operation.record_version
+  if (recordVersion !== null && typeof recordVersion !== "string" && typeof recordVersion !== "number") return false
+
+  // `scope.resource_arn` is rendered DIRECTLY as a React child, so a missing
+  // `scope` throws on property access and a non-string throws on render.
+  const scope = body.scope
+  if (!isPlainObject(scope) || typeof scope.resource_arn !== "string") return false
+
+  // `checkpoint.status` is likewise rendered directly, and
+  // describeCheckpointVersion destructures `states.checkpoint` unconditionally.
+  const checkpoint = body.checkpoint
+  if (!isPlainObject(checkpoint) || typeof checkpoint.status !== "string") return false
+  if (!isNullableString(checkpoint.s3_version_id_observed)) return false
+  if (
+    checkpoint.before_state_source !== null &&
+    checkpoint.before_state_source !== "s3_object" &&
+    checkpoint.before_state_source !== "checkpoint_row"
+  ) {
+    return false
+  }
 
   const before = body.before
   if (!isPlainObject(before) || typeof before.verified !== "boolean") return false
 
   const after = body.after
   if (!isPlainObject(after) || typeof after.verified !== "boolean") return false
+
+  // Both hashes reach short(), which slices them; a non-string would throw there.
+  if (!isNullableString(before.policy_set_hash_recomputed)) return false
+  if (!isNullableString(after.policy_set_hash_recomputed)) return false
   // consumers read this only when the after state did not verify, and read the
   // documents only when it did -- so each must be the right shape for its case
   if (after.verified) {

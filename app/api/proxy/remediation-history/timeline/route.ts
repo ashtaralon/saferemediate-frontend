@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server"
-import { getCached, getStaleCached, setCached, TTL_STD } from "@/lib/server/proxy-cache"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
 export const dynamic = "force-dynamic"
@@ -7,164 +6,95 @@ export const fetchCache = "force-no-store"
 
 const BACKEND_URL = getBackendBaseUrl()
 
-// This proxy feeds two surfaces: the "LIVE NOW" strip (limit=1) and the full
-// remediation-history page (limit=200). Under the home-page thundering herd
-// (~25 concurrent proxy calls saturating the single Render worker) the backend
-// can 500/502 or cold-start-hang. Previously a non-404 backend error was
-// propagated verbatim (status: response.status), so the strip rendered a raw
-// "Activity feed unavailable — HTTP 500" red alarm. A background activity feed
-// must NEVER be the loudest failure on the page. So: cache good responses, serve
-// last-good on ANY failure, and always return 200 with an honest empty envelope
-// when there's nothing to serve. (Matches the proxy contract in CLAUDE.md:
-// timeout + cache + stale fallback + honest error envelope.)
-const EMPTY_TIMELINE = {
-  events: [] as unknown[],
-  chart_data: [] as unknown[],
-  summary: {
-    total_events: 0,
-    permissions_removed: 0,
-    rollbacks: 0,
-    avg_confidence: 0,
-  },
+// One bounded, fresh backend read per request (H-P1, Root185). The History reader validates every scope claim
+// (customer, account, region, group) and its own reader binding BEFORE its 60 s cache may answer, so nothing here
+// may answer instead of it: no proxy cache, no last-good body served over a refusal or a failure, and no second
+// read that replaces a quiet answer with a different one. A typed backend refusal (403 / 422 / 503 with a
+// `detail`) travels with its status and body; a transport failure is a named unavailability, never an empty success.
+// The LIVE NOW strip and the History page both read this route; each already treats a non-2xx as "could not
+// refresh", never as "no changes recorded".
+const UPSTREAM_TIMEOUT_MS = 20_000
+
+/** Why a 2xx body is not a readable answer, or null when it is a JSON object (Root187). */
+function unreadableSuccess(text: string, body: unknown, parseFailed: boolean): "BODY_EMPTY" | "BODY_UNREADABLE" | "BODY_NOT_OBJECT" | null {
+  if (!text.trim()) return "BODY_EMPTY"
+  if (parseFailed) return "BODY_UNREADABLE"
+  if (body === null || typeof body !== "object" || Array.isArray(body)) return "BODY_NOT_OBJECT"
+  return null
 }
 
-// Same empty shape, but flagged so the consumer can tell "the backend genuinely
-// has no events" (honest idle) apart from "we failed to load and have no stale"
-// (a degraded refresh). Without this, the LIVE NOW strip would render an empty
-// error-fallback as "no remediations recorded yet" — a lie when events exist but
-// the herd-saturated backend just couldn't answer this one cold cache key.
-const DEGRADED_TIMELINE = { ...EMPTY_TIMELINE, degraded: true }
-
-// Cap the upstream fetch below the browser's 25s AbortSignal so a cold/hung
-// Render worker fails over to stale here instead of timing out in the component.
-const UPSTREAM_TIMEOUT_MS = 20_000
-const EMPTY_RETRY_TIMEOUT_MS = 5_000
+const FORWARDED_QUERY = [
+  "start_date", "end_date", "resource_id", "resource_type", "include_rollbacks", "envelope", "force_refresh",
+  "customer_id", "account_id", "region", "account_group",
+] as const
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
-  const startDate = searchParams.get("start_date")
-  const endDate = searchParams.get("end_date")
-  const limit = searchParams.get("limit") || "200"
-  const resourceId = searchParams.get("resource_id")
-  const resourceType = searchParams.get("resource_type")
-  // Accept either ?system_name= (the backend's canonical key) or ?system=
-  // (legacy frontend convention) and forward as system_name.
-  const systemName = searchParams.get("system_name") || searchParams.get("system")
-  const envelope = searchParams.get("envelope") === "true"
-  const forceRefresh = searchParams.get("force_refresh") === "true"
-
   const queryParams = new URLSearchParams()
-  if (startDate) queryParams.set("start_date", startDate)
-  if (endDate) queryParams.set("end_date", endDate)
-  if (resourceId) queryParams.set("resource_id", resourceId)
-  if (resourceType) queryParams.set("resource_type", resourceType)
+  // Accept either ?system_name= (the backend's canonical key) or ?system= (legacy frontend convention).
+  const systemName = searchParams.get("system_name") || searchParams.get("system")
   if (systemName) queryParams.set("system_name", systemName)
-  queryParams.set("limit", limit)
-  if (envelope) queryParams.set("envelope", "true")
-  if (forceRefresh) queryParams.set("force_refresh", "true")
-
-  const qs = queryParams.toString()
-  const canonicalParams = new URLSearchParams(queryParams)
-  canonicalParams.delete("force_refresh")
-  const canonicalQs = canonicalParams.toString()
-  // Cache/stale key is the full query — limit=1&system_name=X (the strip) is a
-  // distinct entry from limit=200 (the history page), so one never serves the
-  // other's shape.
-  const cacheKey = `remediation-timeline:${canonicalQs}`
-
-  const cached = forceRefresh ? null : getCached(cacheKey)
-  if (cached) {
-    return NextResponse.json(cached, { headers: { "X-Cache": "HIT" } })
+  queryParams.set("limit", searchParams.get("limit") || "200")
+  for (const name of FORWARDED_QUERY) {
+    const value = searchParams.get(name)
+    if (value !== null && value !== "") queryParams.set(name, value)
   }
+  const url = `${BACKEND_URL}/api/remediation-history/timeline?${queryParams.toString()}`
 
-  const url = `${BACKEND_URL}/api/remediation-history/timeline?${qs}`
-
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS)
   try {
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS)
-    let response: Response
+    const response = await fetch(url, {
+      method: "GET",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      signal: controller.signal,
+    })
+    // The body is read under the same signal, so the bound covers body consumption (a stalled body is aborted).
+    const text = await response.text()
+    let body: unknown = null
+    let parseFailed = false
     try {
-      response = await fetch(url, {
-        method: "GET",
-        headers: { "Content-Type": "application/json" },
-        cache: "no-store",
-        signal: controller.signal,
-      })
-    } finally {
-      clearTimeout(timer)
+      body = text ? JSON.parse(text) : null
+    } catch {
+      parseFailed = true
     }
-
     if (!response.ok) {
-      // 404 = endpoint genuinely absent → honest empty (nothing to serve stale).
-      if (response.status === 404) {
-        return NextResponse.json(EMPTY_TIMELINE, { headers: { "X-Cache": "EMPTY-404" } })
-      }
-      // Any other backend failure (500/502 under load): prefer last-good over a
-      // raw error status. NEVER propagate a 5xx to a nice-to-have activity feed.
-      console.error("[Remediation Timeline Proxy] backend", response.status)
-      const stale = getStaleCached(cacheKey)
-      if (stale) {
-        return NextResponse.json(stale, { headers: { "X-Cache": "STALE-ERROR" } })
-      }
-      return NextResponse.json(DEGRADED_TIMELINE, { headers: { "X-Cache": "ERROR-EMPTY" } })
+      const typed = body && typeof body === "object" && (body as Record<string, unknown>).detail !== undefined
+        ? (body as Record<string, unknown>).detail
+        : { code: "HISTORY_UPSTREAM_ERROR", status: response.status, message: text.slice(0, 500) }
+      return NextResponse.json({ detail: typed }, { status: response.status, headers: { "X-Cache": "BYPASS" } })
     }
-
-    let data = await response.json()
-    let freshCount = Array.isArray(data?.events) ? data.events.length : 0
-
-    // A freshly started backend worker can return an empty success before its
-    // operation-store read is warm. We observed that exact race in production:
-    // History opened at 0 records, then the same force-refresh returned 123.
-    // Retry one bounded read before showing an empty audit trail. A genuinely
-    // quiet timeline remains empty when both authoritative reads agree.
-    if (freshCount === 0) {
-      await new Promise(resolve => setTimeout(resolve, 250))
-      const retryController = new AbortController()
-      const retryTimer = setTimeout(() => retryController.abort(), EMPTY_RETRY_TIMEOUT_MS)
-      try {
-        const retryResponse = await fetch(url, {
-          method: "GET",
-          headers: { "Content-Type": "application/json" },
-          cache: "no-store",
-          signal: retryController.signal,
-        })
-        if (retryResponse.ok) {
-          const retryData = await retryResponse.json()
-          const retryCount = Array.isArray(retryData?.events) ? retryData.events.length : 0
-          if (retryCount > 0) {
-            data = retryData
-            freshCount = retryCount
-          }
-        }
-      } catch {
-        // The existing stale/empty fallback below remains authoritative.
-      } finally {
-        clearTimeout(retryTimer)
-      }
+    // An unreadable SUCCESS is a named unavailability (502), never an empty timeline served as the reader's answer.
+    const unreadable = unreadableSuccess(text, body, parseFailed)
+    if (unreadable) {
+      return NextResponse.json(
+        {
+          detail: {
+            code: "HISTORY_UPSTREAM_UNAVAILABLE",
+            reason: unreadable,
+            status: response.status,
+            message: "The History reader answered, but its body could not be read as a timeline; this is not a statement that no changes were made.",
+          },
+        },
+        { status: 502, headers: { "X-Cache": "BYPASS" } },
+      )
     }
-
-    if (freshCount > 0) {
-      setCached(cacheKey, data, TTL_STD)
-      return NextResponse.json(data, { headers: { "X-Cache": "MISS" } })
-    }
-    // Backend answered 200 but with zero events. That's legitimate for a quiet
-    // query, but a cold/degraded Render worker also returns empty-200 (observed
-    // live: limit=1 flips empty→1-event as the worker warms). Prefer a last-good
-    // response that HAD events over blanking the surface; otherwise cache+serve
-    // the honest empty so a truly-quiet query still reads idle.
-    const staleWithEvents = getStaleCached<{ events?: unknown[] }>(cacheKey)
-    if (staleWithEvents && Array.isArray(staleWithEvents.events) && staleWithEvents.events.length > 0) {
-      return NextResponse.json(staleWithEvents, { headers: { "X-Cache": "STALE-OVER-EMPTY" } })
-    }
-    setCached(cacheKey, data, TTL_STD)
-    return NextResponse.json(data, { headers: { "X-Cache": "MISS-EMPTY" } })
-  } catch (error: any) {
-    // Timeout / network / parse — same posture: last-good, else empty. Always 200.
-    console.error("[Remediation Timeline Proxy] error:", error?.message ?? String(error))
-    const stale = getStaleCached(cacheKey)
-    if (stale) {
-      return NextResponse.json(stale, { headers: { "X-Cache": "STALE-ERROR" } })
-    }
-    return NextResponse.json(EMPTY_TIMELINE, { headers: { "X-Cache": "ERROR-EMPTY" } })
+    return NextResponse.json(body as Record<string, unknown>, { status: 200, headers: { "X-Cache": "BYPASS" } })
+  } catch (error: unknown) {
+    const name = (error as { name?: string } | null)?.name
+    const reason = name === "AbortError" ? "TIMEOUT" : name || "FETCH_FAILED"
+    return NextResponse.json(
+      {
+        detail: {
+          code: "HISTORY_UPSTREAM_UNAVAILABLE",
+          reason,
+          message: "The History reader could not be reached; this is not a statement that no changes were made.",
+        },
+      },
+      { status: 503 },
+    )
+  } finally {
+    clearTimeout(timer)
   }
 }

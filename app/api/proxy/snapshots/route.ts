@@ -7,207 +7,98 @@ export const fetchCache = "force-no-store"
 const BACKEND_URL =
   getBackendBaseUrl()
 
-export async function GET(req: NextRequest) {
+// The one canonical, server-scoped snapshot listing (H-P1, Root185). The page's selection travels as claims the
+// backend validates before any read; its envelope (scope, completeness, named sources, rows with their verdicts and
+// offers) is forwarded verbatim. The unscoped aggregate this route used to build from three legacy readers is
+// retired: those readers carry no tenant or account and cannot be proven for a scoped operator. Their absence is
+// NAMED below rather than silently dropped: an empty canonical listing is not a statement that SG, S3 or legacy
+// history never existed. A typed backend refusal keeps its status and body; a transport failure is a named
+// unavailability, never an empty success.
+const RETIRED_SOURCES = [
+  { source: "remediation_snapshots_legacy", state: "not_requested", reason: "SNAPSHOT_SCOPE_UNPROVEN", route: "/api/remediation/snapshots" },
+  { source: "s3_remediation_checkpoints", state: "not_requested", reason: "SNAPSHOT_SCOPE_UNPROVEN", route: "/api/s3-remediation/checkpoints" },
+  { source: "sg_least_privilege_snapshots", state: "not_requested", reason: "SNAPSHOT_SCOPE_UNPROVEN", route: "/api/sg-least-privilege/snapshots/all" },
+] as const
+
+const FORWARDED_LISTING_QUERY = ["force_refresh", "resource_arn", "customer_id", "account_id", "region", "account_group"] as const
+const LISTING_TIMEOUT_MS = 30_000
+
+async function readJson(response: Response): Promise<{ text: string; body: unknown; parseFailed: boolean }> {
+  // Read under the request's signal, so the bound covers body consumption (a stalled body is aborted).
+  const text = await response.text()
   try {
-    const { searchParams } = new URL(req.url)
-    const sg_id = searchParams.get('sg_id')
-    const limit = searchParams.get('limit') || '50'
-    const forceRefresh = searchParams.get('force_refresh') === 'true'
+    return { text, body: text ? JSON.parse(text) : null, parseFailed: false }
+  } catch {
+    return { text, body: null, parseFailed: true }
+  }
+}
 
-    const params = new URLSearchParams()
-    if (sg_id) params.append('sg_id', sg_id)
-    params.append('limit', limit)
+/** Why a 2xx body is not a readable answer, or null when it is a JSON object (Root187). */
+function unreadableSuccess(text: string, body: unknown, parseFailed: boolean): "BODY_EMPTY" | "BODY_UNREADABLE" | "BODY_NOT_OBJECT" | null {
+  if (!text.trim()) return "BODY_EMPTY"
+  if (parseFailed) return "BODY_UNREADABLE"
+  if (body === null || typeof body !== "object" || Array.isArray(body)) return "BODY_NOT_OBJECT"
+  return null
+}
 
-    // Fetch all snapshot sources in parallel
-    const [sgResponse, checkpointsResponse, sgLpResponse, unifiedSnapshotsResponse] = await Promise.all([
-      // Security Group snapshots (old endpoint)
-      fetch(`${BACKEND_URL}/api/remediation/snapshots?${params.toString()}`, {
-        headers: { "Accept": "application/json" },
-        cache: "no-store",
-      }).catch(() => null),
+function typedDetail(body: unknown, status: number, text: string, fallbackCode: string): unknown {
+  return body && typeof body === "object" && (body as Record<string, unknown>).detail !== undefined
+    ? (body as Record<string, unknown>).detail
+    : { code: fallbackCode, status, message: text.slice(0, 500) }
+}
 
-      // S3 Bucket checkpoints
-      fetch(`${BACKEND_URL}/api/s3-remediation/checkpoints?limit=${limit}`, {
-        headers: { "Accept": "application/json" },
-        cache: "no-store",
-      }).catch(() => null),
-
-      // SG LP snapshots (new endpoint)
-      fetch(`${BACKEND_URL}/api/sg-least-privilege/snapshots/all?limit=${limit}`, {
-        headers: { "Accept": "application/json" },
-        cache: "no-store",
-      }).catch(() => null),
-
-      // Unified snapshots (IAM remediation with SNAP-* format)
-      fetch(`${BACKEND_URL}/api/snapshots?limit=${limit}${forceRefresh ? '&force_refresh=true' : ''}`, {
-        headers: { "Accept": "application/json" },
-        cache: "no-store",
-      }).catch(() => null)
-    ])
-
-    let allSnapshots: any[] = []
-
-    // Process IAM/SG snapshots from old endpoint (now includes rollback_available)
-    if (sgResponse?.ok) {
-      const sgData = await sgResponse.json()
-      const sgSnapshots = Array.isArray(sgData) ? sgData : (sgData.snapshots || [])
-      allSnapshots.push(...sgSnapshots)
-      console.log("[proxy] IAM/SG snapshots:", sgSnapshots.length)
-    }
-
-    // Process S3 checkpoints and transform to snapshot format
-    if (checkpointsResponse?.ok) {
-      const checkpointsData = await checkpointsResponse.json()
-      const checkpoints = checkpointsData.checkpoints || []
-
-      // Transform checkpoints to match snapshot format
-      const transformedCheckpoints = checkpoints.map((cp: any) => ({
-        snapshot_id: cp.checkpoint_id,
-        id: cp.checkpoint_id,
-        finding_id: cp.resource_id,
-        issue_id: cp.checkpoint_id,
-        resource_type: cp.resource_type,
-        created_at: cp.timestamp,
-        created_by: 'system',
-        reason: 'Pre-remediation checkpoint',
-        status: cp.status === 'ROLLED_BACK' ? 'RESTORED' : 'ACTIVE',
-        system_name: cp.resource_id,
-        current_state: {
-          resource_name: cp.resource_id,
-          role_name: cp.resource_type === 'IAMRole' ? cp.resource_id : undefined,
-          checkpoint_type: cp.resource_type || 'S3Bucket'
-        }
-      }))
-
-      allSnapshots.push(...transformedCheckpoints)
-      console.log("[proxy] S3 checkpoints:", transformedCheckpoints.length)
-    }
-
-    // Process SG LP snapshots (new system)
-    if (sgLpResponse?.ok) {
-      const sgLpData = await sgLpResponse.json()
-      const sgLpSnapshots = sgLpData.snapshots || []
-
-      // Transform to match snapshot format
-      const transformedSgLp = sgLpSnapshots.map((snap: any) => ({
-        snapshot_id: snap.snapshot_id,
-        id: snap.snapshot_id,
-        sg_id: snap.sg_id,
-        sg_name: snap.sg_name,
-        finding_id: snap.sg_id,
-        resource_type: 'SecurityGroup',
-        created_at: snap.created_at || snap.timestamp,
-        timestamp: snap.created_at || snap.timestamp,
-        created_by: snap.created_by || 'sg-lp-engine',
-        reason: snap.reason || 'Pre-remediation snapshot',
-        status: snap.status || 'ACTIVE',
-        rules_count: snap.rules_count,
-        current_state: {
-          sg_name: snap.sg_name,
-          checkpoint_type: 'SecurityGroup'
-        }
-      }))
-
-      allSnapshots.push(...transformedSgLp)
-      console.log("[proxy] SG LP snapshots:", transformedSgLp.length)
-    }
-
-    // Process unified snapshots (IAM remediation with SNAP-* format)
-    if (unifiedSnapshotsResponse?.ok) {
-      const unifiedData = await unifiedSnapshotsResponse.json()
-      const unifiedSnapshots = unifiedData.snapshots || []
-
-      // Transform to match snapshot format for all IAM/unified snapshots.
-      // Older/live IAM remediations can produce IAMRole-* IDs, not only SNAP-*.
-      const transformedUnified = unifiedSnapshots
-        .filter((snap: any) =>
-          snap.snapshot_id?.startsWith('SNAP-') ||
-          snap.snapshot_id?.startsWith('IAMRole-') ||
-          snap.resource_type === 'IAMRole' ||
-          !!snap.original_role
-        )
-        .map((snap: any) => ({
-          snapshot_id: snap.snapshot_id,
-          id: snap.snapshot_id,
-          finding_id: snap.original_role || snap.resource_id,
-          issue_id: snap.snapshot_id,
-          resource_type: snap.resource_type || 'IAM',
-          snapshot_type: snap.snapshot_type || 'IAM_REMEDIATION',
-          created_at: snap.created_at,
-          timestamp: snap.created_at,
-          created_by: 'iam-remediation-engine',
-          reason: 'IAM remediation snapshot',
-          status: snap.rollback_available === false ? 'RESTORED' : 'ACTIVE',
-          rollback_available: snap.rollback_available,
-          rolled_back_at: snap.rolled_back_at,
-          original_role: snap.original_role,
-          new_role: snap.new_role,
-          current_state: {
-            role_name: snap.original_role,
-            resource_name: snap.original_role,
-            checkpoint_type: 'IAMRole'
-          }
-        }))
-
-      allSnapshots.push(...transformedUnified)
-      console.log("[proxy] Unified IAM snapshots:", transformedUnified.length)
-    }
-
-    // Deduplicate by snapshot_id, keeping the most complete entry
-    // Prefer entries with rollback_available field (from unified snapshots) as they have more data
-    const snapshotMap = new Map<string, any>()
-    for (const snap of allSnapshots) {
-      const id = snap.snapshot_id || snap.id
-      if (!id) continue
-
-      const existing = snapshotMap.get(id)
-      if (!existing) {
-        snapshotMap.set(id, snap)
-      } else {
-        // Prefer entries with rollback_available field (indicates more complete data)
-        const existingHasRollback = existing.rollback_available !== undefined
-        const newHasRollback = snap.rollback_available !== undefined
-
-        if (newHasRollback && !existingHasRollback) {
-          // New entry has rollback info, prefer it
-          snapshotMap.set(id, snap)
-        } else if (!newHasRollback && !existingHasRollback) {
-          // Neither has rollback info - prefer the one with original_role or more complete data
-          const existingHasRole = existing.original_role || existing.current_state?.role_name
-          const newHasRole = snap.original_role || snap.current_state?.role_name
-
-          if (newHasRole && !existingHasRole) {
-            snapshotMap.set(id, snap)
-          }
-        }
-        // If existing has rollback info, keep it (don't replace)
-      }
-    }
-
-    const deduplicatedSnapshots = Array.from(snapshotMap.values())
-    console.log("[proxy] deduplicated:", allSnapshots.length, "->", deduplicatedSnapshots.length)
-
-    // Sort by created_at descending (newest first)
-    deduplicatedSnapshots.sort((a, b) => {
-      const dateA = new Date(a.created_at || 0).getTime()
-      const dateB = new Date(b.created_at || 0).getTime()
-      return dateB - dateA
+export async function GET(req: NextRequest) {
+  const { searchParams } = new URL(req.url)
+  const params = new URLSearchParams()
+  const systemName = searchParams.get("system_name") || searchParams.get("system")
+  if (systemName) params.set("system_name", systemName)
+  params.set("limit", searchParams.get("limit") || "50")
+  for (const name of FORWARDED_LISTING_QUERY) {
+    const value = searchParams.get(name)
+    if (value !== null && value !== "") params.set(name, value)
+  }
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), LISTING_TIMEOUT_MS)
+  try {
+    const response = await fetch(`${BACKEND_URL}/api/snapshots?${params.toString()}`, {
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+      signal: controller.signal,
     })
-
-    console.log("[proxy] total snapshots:", deduplicatedSnapshots.length)
-
-    return NextResponse.json({
-      snapshots: deduplicatedSnapshots,
-      total: deduplicatedSnapshots.length
-    }, {
-      status: 200,
-      headers: {
-        "Content-Type": "application/json",
+    const { text, body, parseFailed } = await readJson(response)
+    if (!response.ok) {
+      return NextResponse.json({ detail: typedDetail(body, response.status, text, "SNAPSHOT_LISTING_UPSTREAM_ERROR") }, { status: response.status })
+    }
+    // An unreadable SUCCESS is a named unavailability (502), never `{snapshots: []}` served as the listing's answer.
+    const unreadable = unreadableSuccess(text, body, parseFailed)
+    if (unreadable) {
+      return NextResponse.json(
+        {
+          detail: {
+            code: "SNAPSHOT_LISTING_PROXY_UNAVAILABLE",
+            reason: unreadable,
+            status: response.status,
+            message: "The scoped snapshot listing answered, but its body could not be read as a listing envelope; this is not a statement that no snapshots exist.",
+          },
+        },
+        { status: 502 },
+      )
+    }
+    return NextResponse.json({ ...(body as Record<string, unknown>), proxy_retired_sources: RETIRED_SOURCES }, { status: 200 })
+  } catch (error: unknown) {
+    const name = (error as { name?: string } | null)?.name
+    return NextResponse.json(
+      {
+        detail: {
+          code: "SNAPSHOT_LISTING_PROXY_UNAVAILABLE",
+          reason: name === "AbortError" ? "TIMEOUT" : name || "FETCH_FAILED",
+          message: "The scoped snapshot listing could not be reached; this is not a statement that no snapshots exist.",
+        },
       },
-    })
-  } catch (error: any) {
-    console.error("[proxy] snapshots error:", error)
-    return NextResponse.json({ snapshots: [], total: 0 }, { status: 200 })
+      { status: 503 },
+    )
+  } finally {
+    clearTimeout(timer)
   }
 }
 
