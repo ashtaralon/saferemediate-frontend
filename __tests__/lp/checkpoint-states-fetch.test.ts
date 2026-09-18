@@ -169,22 +169,31 @@ describe("fetchCheckpointStates at its public boundary", () => {
     expect("states" in answer).toBe(false)
   })
 
-  it("still accepts the producer's own nulls on every newly guarded nullable field", async () => {
-    // The guard must not have become stricter than the producer: api/snapshots.py emits null for
-    // an unrecorded operation id/state/version, for a checkpoint-row before state (no S3 version)
-    // and for a hash it did not recompute. Over-tightening here would show "unknown" on a body
-    // the producer considers complete, which is the opposite failure to the one above.
-    const producerNulls = {
+  it("still accepts a checkpoint-row before state, where the producer reports no S3 version", async () => {
+    // The guard must not have become stricter than the producer. This is the ONE nullable the
+    // producer can emit alongside a VERIFIED body: `get_snapshot_states` takes the
+    // `elif "before_state" in item` branch, sets before_state_source="checkpoint_row" and leaves
+    // version_id None, while the policy-set hashes still come from the stored state.
+    //
+    // An earlier version of this control also nulled BOTH policy_set_hash_recomputed values and
+    // the whole operation identity while keeping integrity VERIFIED and both verified flags true.
+    // That body is impossible: a verified before requires
+    // `recomputed_before == checkpoint_hash == pre_image_hash`, so a null recomputed hash and
+    // verified:true cannot co-occur, and a 200 is only reached once a forward operation resolved.
+    // Asserting the guard accepts it would have forced the guard to accept a self-contradictory
+    // body no producer emits. Removed rather than weakened; the null-hash case is genuine only
+    // with verified:false, which the BEFORE_ONLY control above already covers.
+    const checkpointRow = {
       ...(REAL as any),
       checkpoint: { ...(REAL as any).checkpoint, s3_version_id_observed: null, before_state_source: "checkpoint_row" },
-      operation: { ...(REAL as any).operation, operation_id: null, state: null, record_version: null },
-      before: { ...(REAL as any).before, policy_set_hash_recomputed: null },
-      after: { ...(REAL as any).after, policy_set_hash_recomputed: null },
     }
-    const answer = await fetchCheckpointStates(SNAPSHOT, transport(producerNulls))
+    const answer = await fetchCheckpointStates(SNAPSHOT, transport(checkpointRow))
     expect(answer.ok).toBe(true)
     if (!answer.ok) return
     expect(answer.states.checkpoint.before_state_source).toBe("checkpoint_row")
-    expect(answer.states.operation.operation_id).toBeNull()
+    expect(answer.states.checkpoint.s3_version_id_observed).toBeNull()
+    // the real captured values are untouched, so this stays a producer-shaped body
+    expect(answer.states.before.policy_set_hash_recomputed).toBe((REAL as any).before.policy_set_hash_recomputed)
+    expect(answer.states.integrity).toBe("VERIFIED")
   })
 })
