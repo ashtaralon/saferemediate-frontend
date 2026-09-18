@@ -10,10 +10,14 @@
  * gated on its own `after.verified`, not supplied as a number.
  *
  * WHAT IS FAKED. The external fetch boundary only. The `/snapshots/{id}/states`
- * body is the producer's own shape, carrying the values the independent named
- * MEMORY QA measured on the fixture pair: snapshot
+ * body is typed with the exported `CheckpointStates` and shaped by the backend
+ * handler's own return; its values are AUTHOR-measured (by this session, not
+ * independently verified) from the local fixture journey: snapshot
  * IAMRole-fixture-web-role-c35b9c6a, five removed actions, twelve-to-seven, and
  * four historically observed actions in the graph's evidence window.
+ *
+ * The receipt's "hash-verified" wording is the PRODUCER's claim, surfaced by the
+ * consumer; nothing here recomputes a hash in the frontend.
  *
  * THREE DISTINCT FACTS, deliberately not conflated:
  *   removed        5, recorded on the operation
@@ -24,6 +28,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import * as React from "react"
 
+import type { CheckpointStates } from "@/lib/checkpoint-states"
 import LeastPrivilegeTab from "@/components/LeastPrivilegeTab"
 import { AccountScopeProvider } from "@/lib/account-scope-context"
 import bundle from "./__fixtures__/lp-issues-readiness.json"
@@ -53,14 +58,34 @@ function json(body: unknown, status = 200) {
 }
 
 /**
- * The producer's own `/snapshots/{id}/states` shape, every declared field of
- * `CheckpointStates` (lib/checkpoint-states.ts) populated. The product refused
- * an approximation of it -- "The saved state response was not in the expected
- * form" -- which is why this is the full declared type and not a sketch.
+ * The `/snapshots/{id}/states` wire body, typed with the EXPORTED
+ * `CheckpointStates` so a producer field change breaks this test rather than
+ * drifting silently. The product already refused an approximation of it --
+ * "The saved state response was not in the expected form" -- which is how the
+ * missing `integrity` field was found.
+ *
+ * PROVENANCE, stated exactly, because it matters:
+ *  - the SHAPE is the backend handler's own return statement,
+ *    `api/snapshots.py::get_snapshot_states` (blob 0640162d…), field for field:
+ *    snapshot_id, source, grants_no_authority, scope, checkpoint{...},
+ *    operation{...}, integrity, before{...}, after{...};
+ *  - the two hashes were computed by the REAL backend helpers
+ *    `unified/iam/policy_hash.py::_policy_doc_hash` / `_policy_set_hash` over
+ *    these documents, with a positive control proving the twelve-action document
+ *    hashes to the recorded pre-image;
+ *  - the VALUES are AUTHOR-measured from the local fixture journey. They are
+ *    NOT a Root-independent measurement and NOT a captured live wire response.
+ *
+ * WHAT THIS TEST DOES AND DOES NOT PROVE. The frontend consumer TRUSTS the
+ * verified metadata the producer returns -- it reads `after.verified` and
+ * derives the action list from the returned documents. It does NOT compute or
+ * re-verify the policy hash; that happens in the backend at apply. So this is
+ * mounted FRONTEND acceptance of how the receipt presents producer-verified
+ * facts, not evidence of backend hash verification.
  */
-function statesBody() {
+function statesBody(): CheckpointStates {
   const verified = statesMode === "verified"
-  return {
+  const body = {
     snapshot_id: SNAPSHOT,
     source: "lifecycle_checkpoint",
     grants_no_authority: true,
@@ -105,7 +130,8 @@ function statesBody() {
           policy_set_hash_recomputed: "0".repeat(64),
           inline_policies: null, deleted_inline_policies: null,
         },
-  }
+  } satisfies CheckpointStates
+  return body
 }
 
 /** The Remediated row the tab needs, from the captured producer payload. */
