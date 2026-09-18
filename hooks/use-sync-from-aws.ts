@@ -3,6 +3,8 @@
 import { useState, useCallback, useRef, useEffect } from "react"
 import {
   DEFAULT_SYNC_TOTAL_STEPS,
+  MAX_CONSECUTIVE_POLL_FAILURES,
+  SyncJobGoneError,
   fetchSyncJobStatus,
   formatSyncSuccessMessage,
   startSyncAllJob,
@@ -37,6 +39,7 @@ export function useSyncFromAWS(options: UseSyncFromAWSOptions = {}) {
   )
   const [results, setResults] = useState<Record<string, unknown> | null>(null)
   const pollingRef = useRef<NodeJS.Timeout | null>(null)
+  const pollFailuresRef = useRef(0)
   const onCompleteRef = useRef(onComplete)
 
   useEffect(() => {
@@ -93,18 +96,50 @@ export function useSyncFromAWS(options: UseSyncFromAWSOptions = {}) {
     [handleTerminalMessage, stopPolling],
   )
 
+  /** Give up polling and surface why. Used for every non-recoverable end
+   *  that is not a status the backend reported. */
+  const abandonPolling = useCallback(
+    (text: string) => {
+      setSyncing(false)
+      setJobId(null)
+      stopPolling()
+      handleTerminalMessage({ type: "error", text })
+    },
+    [handleTerminalMessage, stopPolling],
+  )
+
   const pollOnce = useCallback(
     async (id: string) => {
       try {
         const data = await fetchSyncJobStatus(id)
         if (data) {
+          pollFailuresRef.current = 0
           handleStatus(data)
+          return
         }
-      } catch {
-        // Server may be busy; keep polling.
+        // Readable response, but not OK — backend busy, redeploying or down.
+        pollFailuresRef.current += 1
+      } catch (error) {
+        if (error instanceof SyncJobGoneError) {
+          // Terminal: no store holds this job any more. Polling forever
+          // cannot resurrect it.
+          abandonPolling(error.message)
+          return
+        }
+        // Network error or timeout — may recover.
+        pollFailuresRef.current += 1
+      }
+
+      if (pollFailuresRef.current >= MAX_CONSECUTIVE_POLL_FAILURES) {
+        abandonPolling(
+          `Lost contact with the backend while tracking sync ${id.slice(0, 8)} ` +
+            `(${pollFailuresRef.current} consecutive failed status checks). ` +
+            `The sync may still be running — reopen this page once the ` +
+            `backend is reachable to see its real state.`,
+        )
       }
     },
-    [handleStatus],
+    [abandonPolling, handleStatus],
   )
 
   const startSync = useCallback(
@@ -113,6 +148,7 @@ export function useSyncFromAWS(options: UseSyncFromAWSOptions = {}) {
       setSyncMessage(null)
       setProgress(null)
       setResults(null)
+      pollFailuresRef.current = 0
       stopPolling()
 
       try {

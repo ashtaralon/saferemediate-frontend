@@ -14,7 +14,9 @@ export interface DeferredSyncSource {
 
 export interface SyncJobStatus {
   job_id: string
-  status: "running" | "completed" | "failed" | "stale"
+  /** `queued` = accepted, waiting for a sync worker to claim it. It is NOT a
+   *  terminal state and NOT evidence that anything is running yet. */
+  status: "queued" | "running" | "completed" | "failed" | "stale"
   current_step: number
   current_step_name: string
   total_steps: number
@@ -65,6 +67,7 @@ export interface StartSyncOptions {
 
 export const SYNC_STEP_LABELS: Record<string, string> = {
   starting: "Starting...",
+  queued: "Queued — waiting for a sync worker to pick this up",
   collection_queued: "Queued for the dedicated projector",
   inspector_collection_and_projection: "Refreshing Inspector evidence in Neptune",
   neptune_projection_activated: "Neptune projection activated",
@@ -214,10 +217,45 @@ export async function startSyncAllJob(
   throw new Error(data.error || "Failed to start sync job")
 }
 
+/** Consecutive failed status polls tolerated before the UI stops and reports.
+ *  At the 3–5s poll intervals in use this is ~1 minute of a backend that is
+ *  down, redeploying, or cold-starting — long enough to ride out a Render
+ *  cold cycle, short enough that an operator is never left watching a
+ *  spinner that can no longer resolve. */
+export const MAX_CONSECUTIVE_POLL_FAILURES = 12
+
+/** The status endpoint 404s once no store (memory, Neo4j, DynamoDB) holds the
+ *  job. That is terminal — retrying cannot bring the record back. */
+export class SyncJobGoneError extends Error {
+  constructor(jobId: string) {
+    super(
+      `Sync job ${jobId} is no longer known to the backend. It was most ` +
+        `likely dropped by a restart before any progress was recorded.`,
+    )
+    this.name = "SyncJobGoneError"
+  }
+}
+
+/**
+ * Poll one status tick.
+ *
+ * Returns the status on success, `null` when the read failed in a way that
+ * may recover (backend redeploying, cold start, 5xx, timeout), and throws
+ * `SyncJobGoneError` when the backend no longer knows the job at all.
+ *
+ * The distinction matters: the caller must keep polling through a transient
+ * failure but must NOT keep polling forever. Swallowing every failure into
+ * `null` is what left the button spinning indefinitely against a backend
+ * that was never coming back.
+ */
 export async function fetchSyncJobStatus(jobId: string): Promise<SyncJobStatus | null> {
   const response = await fetch(`/api/proxy/sync/status/${encodeURIComponent(jobId)}`, {
     signal: AbortSignal.timeout(8000),
   })
+
+  if (response.status === 404) {
+    throw new SyncJobGoneError(jobId)
+  }
 
   if (!response.ok) {
     return null
