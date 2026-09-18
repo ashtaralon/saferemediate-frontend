@@ -1,25 +1,43 @@
 "use client"
 
-import { useState, useEffect, useMemo, useRef } from "react"
+import { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { createPortal } from "react-dom"
 import {
   X, Calendar, CheckCircle, AlertTriangle, Shield, ShieldCheck, Sparkles, Check,
   CheckSquare, Loader2, RefreshCw, XCircle, Activity, Lock
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
+import {
+  MutationRefusedBeforeWrite,
+  approvalListFailure,
+  dependentSystemsSentence,
+  refusedBeforeWrite,
+  type ApprovalListFailure,
+} from "@/lib/iam-mutation-outcome"
 import { dispatchRemediationChanged } from "@/lib/remediation-events"
 import {
   composeOverriddenBy,
   resolveOperatorIdentity,
 } from "@/lib/operator-identity"
+import type { SignedOverrideClassification } from '@/lib/lp-integrity'
 import {
   OverrideModalShared,
   type OverrideLineagePayload,
   type SharedOverrideState,
 } from "@/components/override-modal-shared"
 import { ConfidenceExplanationPanel } from "@/components/ConfidenceExplanationPanel"
-import { fetchWithEnvelope } from "@/components/trust/use-trust-envelope"
-import { TrustEnvelopeBadge, type Provenance } from "@/components/trust/trust-envelope-badge"
+import { TrustEnvelopeBadge, isTrustEnvelope, type Provenance } from "@/components/trust/trust-envelope-badge"
+import {
+  buildApprovalListUrl,
+  buildGapAnalysisUrl,
+  buildSimulateFixBody,
+  isRetryableReviewError,
+  newReviewRequestId,
+  readReviewError,
+  reviewErrorCopy,
+  type IamReviewScope,
+  type ReviewRequestError,
+} from "@/lib/iam-review-scope"
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert"
 import type {
   ConfidenceScore,
@@ -125,6 +143,71 @@ export interface CanonicalPermissionView {
  * Summary showing 27 protected while Permissions showed 2 removable/25
  * protected for the exact same role and modal session.
  */
+/**
+ * The final override confirmation's guard. Exported so its contract is testable against the REAL composition
+ * rather than a copy inside a test file, which would encode the expected behaviour and pass even when the
+ * product is wrong.
+ *
+ * Precedence is deliberate:
+ *  1. ENVIRONMENT / ACTIVATION hold (`applyDisabled`) wins unconditionally. It means the mutation boundary is
+ *     not shipped or not enabled here, so no rationale, acknowledgement or signed plan can satisfy it, and the
+ *     button must stay disabled WITH a named reason even on a fully completed form.
+ *  2. Otherwise the existing exact-plan `openRefusal` keeps its plan-binding/expiry behaviour for an active
+ *     break-glass plan.
+ *  3. Otherwise no guard: only the form's own name/rationale/acknowledgement validation applies.
+ */
+export function composeOverrideConfirmGuard(input: {
+  applyDisabled: boolean
+  authorityHoldReason?: string | null
+  breakGlassPlanActive: boolean
+  openRefusal?: { code: string; message: string } | null
+  /**
+   * The typed classification of the CURRENT canonical readiness for the
+   * explicit signed operator-override path. Absent means the caller did not
+   * classify, and the older unconditional `applyDisabled` behaviour applies
+   * unchanged -- this fails closed for every surface that does not opt in.
+   */
+  signedOverrideReadiness?: SignedOverrideClassification | null
+}): { disabled: boolean; reason?: string } | undefined {
+  // An EXACT signed operator-override plan is governed by the classification,
+  // not by `applyDisabled`. `applyDisabled` here is LP's evidence-derived veto
+  // (`integrity.mutationBlocked`), and the backend's own override branch
+  // deliberately passes evidence/generation and certification holds while
+  // refusing operational ones -- which the classifier reproduces per code. It
+  // keeps vetoing ordinary Apply and approval below, untouched.
+  if (input.breakGlassPlanActive) {
+    if (input.openRefusal) {
+      return { disabled: true, reason: `${input.openRefusal.code}: ${input.openRefusal.message}` }
+    }
+    const classification = input.signedOverrideReadiness
+    if (!classification) {
+      // No classification: refuse rather than assume, and keep the old reason.
+      return {
+        disabled: true,
+        reason: input.authorityHoldReason
+          ?? 'The current readiness facts for this change have not been established.',
+      }
+    }
+    if (classification.kind === 'refused') {
+      return { disabled: true, reason: classification.reason }
+    }
+    // A known evidence hold may be confirmed by this path; its named reason
+    // stays visible to the operator.
+    return {
+      disabled: false,
+      reason: classification.kind === 'evidence_hold' ? classification.reason : undefined,
+    }
+  }
+  if (input.applyDisabled) {
+    return {
+      disabled: true,
+      reason: input.authorityHoldReason
+        ?? 'Production changes are not enabled in this environment, so this plan cannot be confirmed here.',
+    }
+  }
+  return undefined
+}
+
 export function buildCanonicalPermissionView(
   legacyPermissions: PermissionAnalysis[],
   removalSafety: RemovalSafetyBundle | null,
@@ -482,7 +565,7 @@ interface GapAnalysisData {
   used_permissions: string[]
   unused_permissions: string[]
   high_risk_unused: string[]
-  confidence: string
+  confidence: string | null
   confidence_groups?: {
     groups: Array<{
       group_id: string
@@ -650,10 +733,35 @@ interface IAMPermissionAnalysisModalProps {
     removedCount?: number | null
   }) => void
   onRollbackSuccess?: (roleName: string) => void
-  /** When true, hide/disable all Apply mutation controls (mutation boundary not shipped). */
+  /**
+   * When true, hide/disable all Apply mutation controls (mutation boundary not shipped).
+   *
+   * This is an ENVIRONMENT / ACTIVATION hold, not a risk decision: it says execution is not available in this
+   * environment at all. It therefore refuses EVERY caller, break-glass included — see the unconditional guard in
+   * the apply handler and `composeOverrideConfirmGuard` below. Policy holds (`hardBlocked` = BLOCK/EXCLUDE) and
+   * evidence holds (`evidenceUnavailable`) are different: those remain overridable with recorded lineage.
+   */
   applyDisabled?: boolean
   /** Authoritative estate-level veto. Review remains available; approval/execution do not. */
   authorityHoldReason?: string | null
+  /**
+   * Operator scope for the Review reads: sent as claims the backend validates
+   * against the deployment's own tenant/account. Never widens scope.
+   */
+  reviewScope?: IamReviewScope | null
+  /**
+   * Classification of the readiness this render holds, for the explicit signed
+   * operator-override path only. Ordinary Apply/approval stay governed by
+   * `applyDisabled`.
+   */
+  signedOverrideReadiness?: SignedOverrideClassification | null
+  /**
+   * Read the CURRENT canonical readiness for this scope. Called at confirmation
+   * because the package carries a 30-second TTL, so the one this render holds
+   * cannot be what a confirmation relies on. Must be an ordinary scoped read;
+   * it never forces an analyzer sweep and never grants anything by itself.
+   */
+  onReprobeSignedOverrideReadiness?: () => Promise<SignedOverrideClassification>
 }
 
 export function shouldOfferIamSimulation(
@@ -884,6 +992,482 @@ function mapGapDataToIAMLp(gapData: GapAnalysisData | null): IamGapAnalysis | nu
   }
 }
 
+// ── The signed break-glass plan, shown exactly before the final confirm (Root157 B) ─────────────────────────────
+//
+// The plan response is the ONLY source: target, per-policy signed documents (inline_policy_ops are canonical JSON
+// STRINGS), put/delete intent and managed-policy detach. Nothing is re-derived from gapData or the selection, and
+// nothing here computes effective permissions: counts summarise the signed Allow action lists; Resource, Condition,
+// Deny, NotAction and wildcards are carried verbatim. A plan that is malformed, for another target, of another kind
+// or expired is refused by name. The server's signature, expiry, drift and fencing checks stay authoritative.
+
+export type ExactPlanTarget = {
+  roleArn: string
+  accountId: string | null
+  tenantId: string | null
+  systemName: string | null
+}
+
+export interface ExactPlanStatement {
+  sid: string | null
+  effect: string
+  actions: string[] | null
+  notActions: string[] | null
+  resource: unknown
+  notResource: unknown
+  condition: unknown
+}
+
+export interface ExactPlanOperation {
+  policyName: string
+  intent: "put" | "delete"
+  beforeHash: string
+  afterHash: string | null
+  beforeDocument: Record<string, unknown>
+  proposedDocument: Record<string, unknown> | null
+  beforeStatements: ExactPlanStatement[]
+  proposedStatements: ExactPlanStatement[]
+  removedFromAllowActionLists: string[]
+  notes: string[]
+}
+
+export interface ExactPlanDisplay {
+  planId: string
+  planToken: string
+  planKind: string
+  roleArn: string
+  roleName: string
+  accountId: string
+  tenantId: string
+  systemName: string
+  issuedAt: string
+  expiresAt: string
+  expiresAtMs: number
+  permissionsToRemove: string[]
+  operations: ExactPlanOperation[]
+  managedPolicyArnsToDetach: string[]
+  detachManagedPolicies: boolean
+  detachAllManagedPolicies: boolean
+  policySetHashAtPreview: string
+  policySetHashExpectedAfter: string
+  /** Signed removals no inline operation shows; they come from the signed managed-policy detach (not computed). */
+  removalsByDetach: string[]
+}
+
+export type ExactPlanParse =
+  | { ok: true; display: ExactPlanDisplay }
+  | { ok: false; code: string; message: string }
+
+const planRecord = (value: unknown): value is Record<string, unknown> =>
+  Boolean(value) && typeof value === "object" && !Array.isArray(value)
+const planText = (value: unknown): value is string => typeof value === "string" && value.trim().length > 0
+const planStringList = (value: unknown): string[] | null => {
+  if (typeof value === "string") return [value]
+  if (Array.isArray(value) && value.every((item) => typeof item === "string")) return value as string[]
+  return null
+}
+
+function readPlanStatements(document: Record<string, unknown>): ExactPlanStatement[] | null {
+  const raw = document.Statement
+  const list = Array.isArray(raw) ? raw : planRecord(raw) ? [raw] : null
+  if (!list) return null
+  const statements: ExactPlanStatement[] = []
+  for (const item of list) {
+    if (!planRecord(item) || !planText(item.Effect)) return null
+    const actions = item.Action === undefined ? null : planStringList(item.Action)
+    const notActions = item.NotAction === undefined ? null : planStringList(item.NotAction)
+    if ((item.Action !== undefined && actions === null) || (item.NotAction !== undefined && notActions === null)) return null
+    statements.push({
+      sid: typeof item.Sid === "string" ? item.Sid : null,
+      effect: String(item.Effect),
+      actions,
+      notActions,
+      resource: item.Resource ?? null,
+      notResource: item.NotResource ?? null,
+      condition: item.Condition ?? null,
+    })
+  }
+  return statements
+}
+
+function allowActionListCounts(statements: ExactPlanStatement[]): Map<string, { spelling: string; count: number }> {
+  const counts = new Map<string, { spelling: string; count: number }>()
+  for (const statement of statements) {
+    if (statement.effect !== "Allow" || !statement.actions) continue
+    for (const action of statement.actions) {
+      const key = action.toLowerCase()
+      const held = counts.get(key)
+      counts.set(key, { spelling: held?.spelling ?? action, count: (held?.count ?? 0) + 1 })
+    }
+  }
+  return counts
+}
+
+function planStatementNotes(statements: ExactPlanStatement[]): string[] {
+  const notes: string[] = []
+  if (statements.some((s) => s.effect !== "Allow")) notes.push("Contains a Deny statement (shown verbatim; not evaluated).")
+  if (statements.some((s) => s.notActions)) {
+    notes.push("Contains a NotAction statement: it allows every action it does not list; its effect is not computed.")
+  }
+  if (statements.some((s) => s.notResource !== null)) notes.push("Contains a NotResource statement (not evaluated).")
+  if (statements.some((s) => s.condition !== null)) notes.push("Contains conditional statements (Condition shown verbatim; not evaluated).")
+  if (statements.some((s) => s.resource !== null && s.resource !== "*")) notes.push("Contains resource-scoped statements (Resource shown verbatim).")
+  if (statements.some((s) => (s.actions ?? []).some((a) => a.includes("*") || a.includes("?")))) {
+    notes.push("Contains wildcard actions (shown verbatim; not expanded).")
+  }
+  return notes
+}
+
+export function parseSignedBreakGlassPlan(plan: unknown, target: ExactPlanTarget, nowMs: number): ExactPlanParse {
+  const refuse = (code: string, message: string): ExactPlanParse => ({ ok: false, code, message })
+  const malformed = (message: string) => refuse("PLAN_DISPLAY_MALFORMED", message)
+  if (!planRecord(plan)) return malformed("The plan response carried no signed plan.")
+  const required = [
+    "plan_token", "plan_id", "plan_kind", "role_arn", "role_name", "account_id", "tenant_id", "system_name",
+    "issued_at", "expires_at", "policy_set_hash_at_preview", "policy_set_hash_expected_after",
+  ] as const
+  for (const name of required) {
+    if (!planText(plan[name])) return malformed(`The signed plan has no ${name}, so its exact change cannot be shown.`)
+  }
+  if (plan.plan_kind !== "IAM_PERMISSION") {
+    return refuse("PLAN_KIND_UNSUPPORTED", `A ${String(plan.plan_kind)} plan cannot be confirmed from this Review.`)
+  }
+  const permissions = planStringList(plan.permissions_to_remove)
+  if (!permissions || permissions.length === 0 || !Array.isArray(plan.permissions_to_remove)) {
+    return malformed("The signed plan names no permissions to remove.")
+  }
+  const managed = Array.isArray(plan.managed_policy_arns_to_detach) ? planStringList(plan.managed_policy_arns_to_detach) : null
+  if (!managed || typeof plan.detach_managed_policies !== "boolean" || typeof plan.detach_all_managed_policies !== "boolean") {
+    return malformed("The signed plan's managed-policy intent is incomplete.")
+  }
+  if (!Array.isArray(plan.inline_policy_ops) || !plan.inline_policy_ops.every((op) => typeof op === "string")) {
+    return refuse("PLAN_OPERATIONS_MALFORMED", "The signed inline-policy operations are not the signed JSON strings.")
+  }
+  const operations: ExactPlanOperation[] = []
+  for (const encoded of plan.inline_policy_ops as string[]) {
+    let op: unknown
+    try {
+      op = JSON.parse(encoded)
+    } catch {
+      return refuse("PLAN_OPERATIONS_MALFORMED", "A signed inline-policy operation is not valid JSON.")
+    }
+    if (!planRecord(op) || (op.action !== "put" && op.action !== "delete") || !planText(op.policy_name)
+        || !planRecord(op.before_document) || !planText(op.before_hash)) {
+      return refuse("PLAN_OPERATIONS_MALFORMED", "A signed inline-policy operation is incomplete.")
+    }
+    const intent = op.action as "put" | "delete"
+    if (intent === "put" && (!planRecord(op.document) || !planText(op.after_hash))) {
+      return refuse("PLAN_OPERATIONS_MALFORMED", `The rewrite of ${op.policy_name} carries no proposed document.`)
+    }
+    if (intent === "delete" && (op.document != null || op.after_hash != null)) {
+      return refuse("PLAN_OPERATIONS_MALFORMED", `The deletion of ${op.policy_name} also carries a proposed document.`)
+    }
+    const beforeStatements = readPlanStatements(op.before_document)
+    const proposedStatements = intent === "put" ? readPlanStatements(op.document as Record<string, unknown>) : []
+    if (!beforeStatements || !proposedStatements) {
+      return refuse("PLAN_OPERATIONS_MALFORMED", `A statement in ${op.policy_name} cannot be read exactly.`)
+    }
+    const before = allowActionListCounts(beforeStatements)
+    const after = allowActionListCounts(proposedStatements)
+    const removed: string[] = []
+    for (const [key, held] of before) {
+      if (held.count > (after.get(key)?.count ?? 0)) removed.push(held.spelling)
+    }
+    operations.push({
+      policyName: op.policy_name as string,
+      intent,
+      beforeHash: op.before_hash as string,
+      afterHash: intent === "put" ? (op.after_hash as string) : null,
+      beforeDocument: op.before_document,
+      proposedDocument: intent === "put" ? (op.document as Record<string, unknown>) : null,
+      beforeStatements,
+      proposedStatements,
+      removedFromAllowActionLists: removed.sort((a, b) => a.localeCompare(b)),
+      notes: planStatementNotes([...beforeStatements, ...proposedStatements]),
+    })
+  }
+  const roleArn = plan.role_arn as string
+  const arnAccount = /^arn:aws[a-z-]*:iam::(\d{12}):role\//.exec(roleArn)?.[1] ?? null
+  if (arnAccount === null || arnAccount !== plan.account_id) {
+    return refuse("PLAN_TARGET_MISMATCH", "The signed plan's account does not match its own role ARN.")
+  }
+  if (roleArn !== target.roleArn) {
+    return refuse("PLAN_TARGET_MISMATCH", `The signed plan is for ${roleArn}, not the role under review.`)
+  }
+  if (target.accountId && plan.account_id !== target.accountId) {
+    return refuse("PLAN_TARGET_MISMATCH", "The signed plan is for another account than the one under review.")
+  }
+  if (target.tenantId && plan.tenant_id !== target.tenantId) {
+    return refuse("PLAN_TARGET_MISMATCH", "The signed plan is for another tenant than the one under review.")
+  }
+  if (target.systemName && plan.system_name !== target.systemName) {
+    return refuse("PLAN_TARGET_MISMATCH", "The signed plan is for another system than the one under review.")
+  }
+  const expiresAtMs = Date.parse(plan.expires_at as string)
+  if (Number.isNaN(expiresAtMs) || Number.isNaN(Date.parse(plan.issued_at as string))) {
+    return malformed("The signed plan's issue or expiry time cannot be read.")
+  }
+  if (expiresAtMs <= nowMs) return refuse("PLAN_EXPIRED", "The signed plan has expired. Prepare a new plan.")
+  const permissionKeys = new Set(permissions.map((p) => p.toLowerCase()))
+  const removedKeys = new Set(operations.flatMap((op) => op.removedFromAllowActionLists.map((a) => a.toLowerCase())))
+  const detaching = managed.length > 0 || plan.detach_managed_policies === true || plan.detach_all_managed_policies === true
+  const unsigned = [...removedKeys].filter((key) => !permissionKeys.has(key))
+  const removalsByDetach = permissions.filter((p) => !removedKeys.has(p.toLowerCase()))
+  if (unsigned.length > 0 || (!detaching && (removalsByDetach.length > 0 || operations.length === 0))) {
+    return refuse(
+      "PLAN_DISPLAY_MISMATCH",
+      "The signed documents do not remove exactly the permissions the plan names, so the change is not shown as confirmable.",
+    )
+  }
+  return {
+    ok: true,
+    display: {
+      planId: plan.plan_id as string,
+      planToken: plan.plan_token as string,
+      planKind: plan.plan_kind as string,
+      roleArn,
+      roleName: plan.role_name as string,
+      accountId: plan.account_id as string,
+      tenantId: plan.tenant_id as string,
+      systemName: plan.system_name as string,
+      issuedAt: plan.issued_at as string,
+      expiresAt: plan.expires_at as string,
+      expiresAtMs,
+      permissionsToRemove: [...permissions],
+      operations,
+      managedPolicyArnsToDetach: [...managed],
+      detachManagedPolicies: plan.detach_managed_policies as boolean,
+      detachAllManagedPolicies: plan.detach_all_managed_policies as boolean,
+      policySetHashAtPreview: plan.policy_set_hash_at_preview as string,
+      policySetHashExpectedAfter: plan.policy_set_hash_expected_after as string,
+      removalsByDetach: detaching ? removalsByDetach : [],
+    },
+  }
+}
+
+/** What the backend's own mutation boundary reported for a change it applied and verified, for ONE submitted target. */
+export interface VerifiedApply {
+  roleName: string
+  systemName: string | null
+  snapshotId: string
+  operationId: string
+  awsWrites: number
+  recoveryRequired: string[]
+}
+
+export type VerifiedApplyCheck = { ok: true; applied: VerifiedApply } | { ok: false; code: string; message: string }
+
+/**
+ * An apply is shown as applied only when the boundary result the remediate proxy forwards (`raw_response`) says so
+ * for the target that was submitted: the boundary permitted it, AWS writes were made, the operation record reads
+ * VERIFIED, and a restore point exists. `success: true` alone is not that -- the proxy defaults a missing `success`
+ * to true -- so a queued, no-op, partial, unrecorded or other-target answer is refused by name, never rendered as
+ * applied (Root164).
+ */
+export function verifiedApplyOutcome(
+  result: unknown,
+  submitted: { roleName: string; systemName?: string | null },
+): VerifiedApplyCheck {
+  const body = result && typeof result === "object" ? (result as Record<string, any>) : {}
+  const raw = body.raw_response && typeof body.raw_response === "object" ? (body.raw_response as Record<string, any>) : null
+  if (!raw || raw.success !== true || raw.blocked !== false || raw.mutation_boundary?.allowed !== true) {
+    return { ok: false, code: "APPLY_OUTCOME_UNCONFIRMED",
+             message: "The response carries no permitted mutation-boundary result, so this change is not shown as applied." }
+  }
+  const system = submitted.systemName ? submitted.systemName : null
+  if (raw.role_name !== submitted.roleName || (system !== null && raw.system_name !== system)) {
+    return { ok: false, code: "APPLY_RESULT_OTHER_TARGET",
+             message: `The result is for ${String(raw.role_name ?? "an unnamed role")} in ${String(raw.system_name ?? "an unnamed system")}, `
+               + `not ${submitted.roleName}${system ? ` in ${system}` : ""}. It is not shown as applied here.` }
+  }
+  if (typeof raw.aws_writes !== "number" || raw.aws_writes < 1) {
+    return { ok: false, code: "APPLY_NO_WRITE_REPORTED",
+             message: "No AWS write was reported (queued or no change), so nothing is shown as applied." }
+  }
+  if (raw.operation_recorded !== true || raw.operation_state !== "VERIFIED"
+      || typeof raw.operation_id !== "string" || !raw.operation_id) {
+    return { ok: false, code: "APPLY_OPERATION_NOT_VERIFIED",
+             message: `AWS reported ${raw.aws_writes} write(s), but the operation record reads `
+               + `${raw.operation_recorded === true ? String(raw.operation_state ?? "no state") : "not recorded"}, not VERIFIED. `
+               + "Do not apply again: establish the role's live state from History first." }
+  }
+  if (typeof raw.snapshot_id !== "string" || !raw.snapshot_id) {
+    return { ok: false, code: "APPLY_RESTORE_POINT_MISSING",
+             message: "The change reports no restore point, so it is not shown as applied. Establish the role's live state from History." }
+  }
+  return {
+    ok: true,
+    applied: {
+      roleName: raw.role_name, systemName: typeof raw.system_name === "string" ? raw.system_name : null,
+      snapshotId: raw.snapshot_id, operationId: raw.operation_id, awsWrites: raw.aws_writes,
+      recoveryRequired: Array.isArray(raw.recovery_required) ? raw.recovery_required.map((r: unknown) => String(r)) : [],
+    },
+  }
+}
+
+/** A response that did not prove the change applied. It is not a refusal: a write may have happened. */
+class ApplyOutcomeNotConfirmed extends Error {
+  constructor(code: string, message: string) {
+    super(`${code}: ${message}`)
+    this.name = "ApplyOutcomeNotConfirmed"
+  }
+}
+
+/** A response that returned after its review was closed, reopened or moved to another role, scope or system. */
+class ApplyResultForAnotherReview extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = "ApplyResultForAnotherReview"
+  }
+}
+
+const shortHash = (value: string | null) => (value ? value.slice(0, 12) : "none")
+
+function formatRemaining(seconds: number): string {
+  const minutes = Math.floor(seconds / 60)
+  return minutes > 0 ? `${minutes} min ${seconds % 60} s` : `${seconds} s`
+}
+
+export function ExactSignedChangePanel({ display, nowMs }: { display: ExactPlanDisplay; nowMs: number }) {
+  const [showDocuments, setShowDocuments] = useState(false)
+  const secondsLeft = Math.max(0, Math.floor((display.expiresAtMs - nowMs) / 1000))
+  const expired = display.expiresAtMs <= nowMs
+  return (
+    <section
+      data-testid="exact-plan-panel"
+      className="mb-3 rounded-md border border-slate-300 bg-slate-50 p-3 text-xs text-slate-900"
+    >
+      <div className="font-semibold">Exact signed change</div>
+      <dl data-testid="exact-plan-target" className="mt-1 grid grid-cols-[auto,1fr] gap-x-2 gap-y-0.5 break-all">
+        <dt className="text-slate-500">Role</dt><dd>{display.roleArn}</dd>
+        <dt className="text-slate-500">Account</dt><dd>{display.accountId}</dd>
+        <dt className="text-slate-500">Tenant</dt><dd>{display.tenantId}</dd>
+        <dt className="text-slate-500">System</dt><dd>{display.systemName}</dd>
+        <dt className="text-slate-500">Plan</dt>
+        <dd>{display.planId} · policy set {shortHash(display.policySetHashAtPreview)} → {shortHash(display.policySetHashExpectedAfter)}</dd>
+      </dl>
+      <p data-testid="exact-plan-expiry" data-expired={expired ? "true" : "false"} className={`mt-1 ${expired ? "font-semibold text-rose-700" : ""}`}>
+        {expired
+          ? `PLAN_EXPIRED: this signed plan expired at ${display.expiresAt}. Cancel and prepare a new plan.`
+          : `Signed plan expires at ${display.expiresAt} (in ${formatRemaining(secondsLeft)}).`}
+      </p>
+      {display.operations.map((op) => (
+        <div
+          key={`${op.intent}:${op.policyName}`}
+          data-testid="exact-plan-operation"
+          data-intent={op.intent}
+          data-policy={op.policyName}
+          className="mt-2 border-t border-slate-200 pt-2"
+        >
+          <div className="font-semibold">
+            {op.intent === "delete" ? `Delete inline policy ${op.policyName}` : `Rewrite inline policy ${op.policyName}`}
+          </div>
+          <div data-testid="exact-plan-removed-actions" className="break-words">
+            Removed from Allow action lists ({op.removedFromAllowActionLists.length}): {op.removedFromAllowActionLists.join(", ")}
+          </div>
+          <div className="text-slate-600">
+            Statements {op.beforeStatements.length} signed before → {op.proposedStatements.length} proposed · document
+            hash {shortHash(op.beforeHash)} → {op.afterHash ? shortHash(op.afterHash) : "deleted"}
+          </div>
+          {op.notes.length > 0 && (
+            <ul data-testid="exact-plan-notes" className="mt-0.5 list-disc pl-4 text-amber-900">
+              {op.notes.map((note) => <li key={note}>{note}</li>)}
+            </ul>
+          )}
+        </div>
+      ))}
+      {(display.managedPolicyArnsToDetach.length > 0 || display.detachManagedPolicies || display.detachAllManagedPolicies) && (
+        <div data-testid="exact-plan-managed-detach" className="mt-2 border-t border-slate-200 pt-2">
+          <div className="font-semibold">
+            {display.detachAllManagedPolicies ? "Detach ALL managed policies attached at apply time" : "Detach managed policies"}
+          </div>
+          {display.managedPolicyArnsToDetach.length > 0
+            ? <ul className="list-disc pl-4 break-all">{display.managedPolicyArnsToDetach.map((arn) => <li key={arn}>{arn}</li>)}</ul>
+            : <p>The signed plan lists no managed-policy ARNs.</p>}
+          {display.removalsByDetach.length > 0 && (
+            <p data-testid="exact-plan-removed-by-detach" className="break-words">
+              Named for removal but not shown in an inline document ({display.removalsByDetach.length}):{" "}
+              {display.removalsByDetach.join(", ")}. The net effect of detaching is not computed.
+            </p>
+          )}
+        </div>
+      )}
+      <p className="mt-2 text-[11px] text-slate-600">
+        Counts summarise the signed documents; they are not the role&apos;s effective permissions. Resource, Condition, Deny and
+        NotAction are carried verbatim in the documents and are not evaluated here.
+      </p>
+      <button
+        type="button"
+        data-testid="exact-plan-documents-toggle"
+        onClick={() => setShowDocuments((open) => !open)}
+        className="mt-1 rounded border border-slate-300 bg-white px-2 py-0.5 font-medium hover:bg-slate-100"
+      >
+        {showDocuments ? "Hide full signed documents" : "Show full signed before and proposed documents"}
+      </button>
+      {showDocuments && display.operations.map((op) => (
+        <div key={`doc:${op.policyName}`} className="mt-2 grid gap-2 md:grid-cols-2">
+          <pre data-testid="exact-plan-before-document" className="max-h-48 overflow-auto rounded bg-white p-2 text-[10px]">
+            {JSON.stringify(op.beforeDocument, null, 2)}
+          </pre>
+          <pre data-testid="exact-plan-proposed-document" className="max-h-48 overflow-auto rounded bg-white p-2 text-[10px]">
+            {op.proposedDocument ? JSON.stringify(op.proposedDocument, null, 2) : "(policy deleted)"}
+          </pre>
+        </div>
+      ))}
+    </section>
+  )
+}
+
+function SafetyUnavailableNotice({
+  roleName,
+  failure,
+  onRetry,
+}: {
+  roleName: string
+  failure: ReviewRequestError | null
+  onRetry: () => void
+}) {
+  const copy = failure
+    ? reviewErrorCopy(failure)
+    : { title: "No safety decision was returned", body: "The safety request returned no decision." }
+  return (
+    <div
+      className="rounded-lg border-2 border-red-300 bg-red-50 p-4"
+      data-testid="iam-review-safety-unavailable"
+      data-error-code={failure?.code ?? "NO_DECISION"}
+      data-upstream-code={failure?.upstreamCode ?? undefined}
+    >
+      <div className="flex items-start gap-3">
+        <XCircle className="w-6 h-6 text-[#ef4444] flex-shrink-0 mt-0.5" />
+        <div>
+          <p className="font-bold text-[#991b1b]">
+            Cyntro could not evaluate safety for <span className="font-semibold">{roleName}</span> — {copy.title}
+          </p>
+          <p className="text-sm text-[#7f1d1d] mt-1">
+            {copy.body} No change can be prepared or applied without a safety decision, and no
+            other score is shown in its place.
+          </p>
+          {failure && (
+            <p className="mt-1 text-[11px] text-[#7f1d1d]">
+              HTTP {failure.status || "network"} · {failure.code}
+              {failure.upstreamCode ? ` · ${failure.upstreamCode}` : ""}
+              {failure.requestId ? ` · request ${failure.requestId}` : ""}
+            </p>
+          )}
+          {(!failure || isRetryableReviewError(failure)) && (
+            <button
+              type="button"
+              onClick={onRetry}
+              className="mt-2 rounded-md border border-red-300 bg-white px-3 py-1 text-xs font-medium text-[#991b1b] hover:bg-red-100"
+            >
+              Retry safety evaluation
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function IAMPermissionAnalysisModal({
   isOpen,
   onClose,
@@ -898,28 +1482,36 @@ export function IAMPermissionAnalysisModal({
   onRollbackSuccess,
   applyDisabled = false,
   authorityHoldReason = null,
+  reviewScope = null,
+  signedOverrideReadiness = null,
+  onReprobeSignedOverrideReadiness,
 }: IAMPermissionAnalysisModalProps) {
-  // Fail-loud guard: refuse to render if system context is missing
-  if (!systemName) {
-    console.error('[IAMPermissionAnalysisModal] systemName prop missing — refusing safety check')
-    return (
-      <Alert variant="destructive">
-        <AlertTitle>Safety check unavailable</AlertTitle>
-        <AlertDescription>
-          Cyntro could not verify safety for this role because system
-          context is missing. Execution is blocked. Refresh the page,
-          or contact support if this persists.
-        </AlertDescription>
-      </Alert>
-    )
-  }
-
-  console.log('[IAMPermissionAnalysisModal] RENDER - isOpen:', isOpen, 'roleName:', roleName)
   const { toast } = useToast()
-  const [gapData, setGapData] = useState<GapAnalysisData | null>(null)
+  // The permission detail belongs to ONE role in ONE scope. Holding it in a
+  // bare state slot meant a role or scope change left the previous answer in
+  // place until something overwrote it -- and a rejected fetch or an
+  // unparseable body never does: those paths report the failure and return
+  // without touching it. Binding the data to the identity it was read for
+  // makes that impossible to get wrong at any single call site: detail that
+  // does not belong to what is on screen is not on screen.
+  const reviewScopeKey = `${reviewScope?.customerId ?? ""}|${reviewScope?.accountId ?? ""}|${reviewScope?.region ?? ""}`
+  const reviewIdentityKey = `${roleName}|${reviewScopeKey}`
+  const [heldGapData, setHeldGapData] = useState<{ key: string; data: GapAnalysisData } | null>(null)
+  const gapData = heldGapData && heldGapData.key === reviewIdentityKey ? heldGapData.data : null
+  const setGapData = useCallback(
+    (next: GapAnalysisData | null) => {
+      setHeldGapData(next ? { key: reviewIdentityKey, data: next } : null)
+    },
+    [reviewIdentityKey],
+  )
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [tfAdapter, setTfAdapter] = useState<string>("unregistered")
+  // Typed failure of the optional permission-detail read (gap-analysis) and of
+  // the canonical safety read (simulate-fix). Kept separate: one never masks
+  // or substitutes for the other.
+  const [detailError, setDetailError] = useState<ReviewRequestError | null>(null)
+  const [safetyError, setSafetyError] = useState<ReviewRequestError | null>(null)
+  const gapRequestVersion = useRef(0)
   const [showSimulation, setShowSimulation] = useState(false)
   const [analysisTab, setAnalysisTab] = useState<'summary' | 'permissions' | 'context'>('summary')
   const [simulating, setSimulating] = useState(false)
@@ -927,6 +1519,10 @@ export function IAMPermissionAnalysisModal({
   const [iamLpChangeSetExpanded, setIamLpChangeSetExpanded] = useState(false)
   const [approvalRequests, setApprovalRequests] = useState<ApprovalRequestSummary[]>([])
   const [approvalLoading, setApprovalLoading] = useState(false)
+  // A failed approval-list read is NOT an empty list. Rendered as one, it
+  // offered "Request approval" as if no request existed -- a duplicate request
+  // waiting to happen -- and the only trace was "[object Object]" in the console.
+  const [approvalListError, setApprovalListError] = useState<ApprovalListFailure | null>(null)
   const [approvalActionBusy, setApprovalActionBusy] = useState(false)
   const [approvalActionMode, setApprovalActionMode] = useState<ApprovalActionMode | null>(null)
   const [approvalActionRequestId, setApprovalActionRequestId] = useState<string | null>(null)
@@ -997,7 +1593,19 @@ export function IAMPermissionAnalysisModal({
   // Pipeline safety context from simulate-fix. When populated this is the
   // AUTHORITATIVE decision source — Agent 5 (confidenceScore) is merely
   // an explainer subordinate to it. See Layer 1/2 in backend.
-  const [safetyContext, setSafetyContext] = useState<SimulateFixSafety | null>(null)
+  const [heldSafetyContext, setHeldSafetyContext] = useState<{ key: string; data: SimulateFixSafety } | null>(null)
+  //  The canonical decision belongs to ONE role in ONE scope, exactly as the
+  //  permission detail does. Held in a bare slot, the previous role's decision
+  //  stayed behind a role switch and made planning look authorized.
+  const safetyContext = heldSafetyContext && heldSafetyContext.key === reviewIdentityKey
+    ? heldSafetyContext.data
+    : null
+  const setSafetyContext = useCallback(
+    (next: SimulateFixSafety | null) => {
+      setHeldSafetyContext(next ? { key: reviewIdentityKey, data: next } : null)
+    },
+    [reviewIdentityKey],
+  )
   const [removalSafety, setRemovalSafety] = useState<RemovalSafetyBundle | null>(null)
   // Counts from the same state-bound Preview response as SafetyVector. This
   // prevents the headline from disagreeing with the Resource Risk row when an
@@ -1015,6 +1623,117 @@ export function IAMPermissionAnalysisModal({
   const [planPermissions, setPlanPermissions] = useState<string[] | null>(null)
   const [breakGlassPlanActive, setBreakGlassPlanActive] = useState(false)
   const [breakGlassPreparing, setBreakGlassPreparing] = useState(false)
+  // Only the newest simulation request may update decision-bearing state.
+  // This prevents the background request fired on open from arriving after a
+  // user-triggered simulation and restoring an older decision/plan. It is
+  // declared here because the plan-outcome binding below reads it.
+  const simulateFixRequestVersion = useRef(0)
+  // Every exit from plan preparation lands here and is rendered in the modal.
+  // The handler used to `return` silently when gapData was absent, and its
+  // other refusals were page-level toasts -- so "Preparing exact plan…" could
+  // end back on the same screen with no plan and no reason (Codex QA, 3417).
+  //
+  // A plan outcome belongs to ONE role in ONE scope and ONE system, read
+  // against ONE evidence attempt -- the same rule the detail and the safety
+  // decision already follow above. Held in a bare slot it outlived all three:
+  // Codex reproduced a serving-only PLAN_PREPARATION_FAILED from fixture-web-role
+  // still on screen after Close → a 403 cross-account role → a 502 slow role
+  // (Chrome QA, 3423). Binding it to the identity and the attempt it was
+  // produced for makes the stale render unreachable rather than merely
+  // unlikely: an outcome that does not belong to what is on screen is not on
+  // screen, whatever a reset elsewhere forgets to clear.
+  const planIdentityKey = `${reviewIdentityKey}|${systemName ?? ""}`
+  const [heldPlanOutcome, setHeldPlanOutcome] = useState<
+    { key: string; evidenceVersion: number; state: 'refused' | 'prepared'; code: string; message: string } | null
+  >(null)
+  const planOutcome = heldPlanOutcome
+    && heldPlanOutcome.key === planIdentityKey
+    && heldPlanOutcome.evidenceVersion === simulateFixRequestVersion.current
+    ? heldPlanOutcome
+    : null
+  const setPlanOutcome = useCallback(
+    (next: { state: 'refused' | 'prepared'; code: string; message: string } | null) => {
+      setHeldPlanOutcome(next
+        ? { key: planIdentityKey, evidenceVersion: simulateFixRequestVersion.current, ...next }
+        : null)
+    },
+    [planIdentityKey],
+  )
+  // The signed break-glass plan as ONE state: the token forwarded on Apply and the exact change the operator was
+  // shown come from the same parsed response, bound to the same Review identity and evidence attempt as the outcome.
+  const [heldBreakGlassPlan, setHeldBreakGlassPlan] = useState<
+    { key: string; evidenceVersion: number; display: ExactPlanDisplay } | null
+  >(null)
+  const breakGlassPlan = heldBreakGlassPlan
+    && heldBreakGlassPlan.key === planIdentityKey
+    && heldBreakGlassPlan.evidenceVersion === simulateFixRequestVersion.current
+    ? heldBreakGlassPlan.display
+    : null
+  const [planClockMs, setPlanClockMs] = useState(() => Date.now())
+  useEffect(() => {
+    if (!overrideModal.open || !breakGlassPlan) return
+    setPlanClockMs(Date.now())
+    const tick = setInterval(() => setPlanClockMs(Date.now()), 1000)
+    return () => clearInterval(tick)
+  }, [overrideModal.open, breakGlassPlan])
+  // A closed review is not a review a late response may write into. `isOpen`
+  // is a prop captured by the awaiting closure, so inside it that value still
+  // reads true; this ref carries the current answer. handleClose clears it
+  // synchronously rather than waiting for the parent's re-render and effect.
+  const openReviewRef = useRef<string | null>(null)
+  /** One in-flight override submission per dialog; see onSharedSubmit. */
+  const submissionInFlightRef = useRef(false)
+  /**
+   * LIVE plan ownership. Comparing a captured `planToken` with itself across an
+   * await is a no-op -- both sides are the same render variable -- and
+   * `handlePrepareBreakGlass` can replace the token without changing
+   * `simulateFixRequestVersion`. This epoch is bumped synchronously at every
+   * install and every clear, so a completion can ask whether the plan it was
+   * read for is still the plan on screen.
+   */
+  const planEpochRef = useRef(0)
+  /**
+   * Synchronous read-attempt identity. `overrideReadingInFlight` is state and
+   * cannot order two refreshes started in the same render, nor stop an
+   * out-of-order response publishing over a newer one, nor stop a stale
+   * `finally` clearing a newer spinner.
+   */
+  const overrideReadEpochRef = useRef(0)
+  /**
+   * The CURRENT readiness the operator explicitly read, with the ownership it
+   * was read under. The confirmation uses THIS, never the package the page
+   * rendered with: that one is 30 seconds old by construction.
+   *
+   * `reviewKey`, `evidenceVersion` and `planToken` are captured BEFORE the read
+   * and re-checked after it resolves, so a read that completes into a reopened
+   * dialog, a replaced preview or a replaced token arms nothing.
+   */
+  const [currentOverrideReading, setCurrentOverrideReading] = useState<{
+    classification: SignedOverrideClassification
+    reviewKey: string
+    evidenceVersion: number
+    planEpoch: number
+    /**
+     * The read attempt this reading came from. Clearing the state is NOT a
+     * withdrawal: a submit handler captured while the reading was permitted
+     * still holds that render's value, and React has not re-rendered when a
+     * replacement read begins in the same tick. Comparing this against the LIVE
+     * `overrideReadEpochRef` is what makes the withdrawal reach that caller.
+     */
+    readEpoch: number
+  } | null>(null)
+  const [overrideReadingInFlight, setOverrideReadingInFlight] = useState(false)
+  /**
+   * `handleApplyFix` is declared above the render helper that owns the reading
+   * check, so it reaches it through this ref. Defaults to refusing: a build that
+   * never assigned it cannot traverse the evidence hold.
+   */
+  const currentReadingAuthorizesRef = useRef<(nowMs: number) => { ok: boolean }>(
+    () => ({ ok: false }),
+  )
+  useEffect(() => {
+    openReviewRef.current = isOpen ? planIdentityKey : null
+  }, [isOpen, planIdentityKey])
   // Default to `true` so the FIRST render shows the loading skeleton,
   // not the "Cyntro could not verify safety" red fallback below
   // (which only fires correctly once the fetch has actually completed
@@ -1023,88 +1742,58 @@ export function IAMPermissionAnalysisModal({
   // default, users see a brief red flash before the loading state
   // kicks in. Bug surfaced 2026-05-07 ("its appear and than gone").
   const [safetyLoading, setSafetyLoading] = useState(true)
-  // Only the newest simulation request may update decision-bearing state.
-  // This prevents the background request fired on open from arriving after a
-  // user-triggered simulation and restoring an older decision/plan.
-  const simulateFixRequestVersion = useRef(0)
 
-  // Fetch gap analysis + pipeline safety context when modal opens. The
-  // confidence call is CHAINED off the safety context so we can pass it
-  // as pipeline_decision — this is what makes Agent 5 subordinate to the
-  // pipeline verdict in the modal (not just in the backend).
-  useEffect(() => {
-    if (!isOpen || !roleName) return
-    fetchGapAnalysis()
-    let cancelled = false
-    ;(async () => {
-      const safety = await fetchSafetyContext()
-      if (cancelled) return
-      fetchConfidenceScore(safety)
-    })()
-    return () => { cancelled = true }
-  }, [isOpen, roleName, findingId])
 
+  // Fetch the optional permission detail and the canonical safety decision
+  // independently when the modal opens. There is deliberately no Agent-5
+  // confidence request: /api/confidence/check resolves roles by name outside
+  // the verified scope, and it must never stand in for a failed canonical
+  // safety evaluation.
   useEffect(() => {
-    if (!isOpen || !systemName) {
-      setTfAdapter("unregistered")
-      return
-    }
-    let cancelled = false
-    const params = new URLSearchParams({ tenant_id: systemName })
-    if (gapData?.role_arn) params.set("cloud_ref", gapData.role_arn)
-    void fetch(`/api/proxy/change-executions/ownership/terraform?${params.toString()}`, {
-      cache: "no-store",
-    })
-      .then((res) => res.json().catch(() => ({})))
-      .then((payload) => {
-        if (cancelled) return
-        if (payload?.execution_adapter) {
-          setTfAdapter(payload.execution_adapter)
-          return
-        }
-        const match = (Array.isArray(payload?.bindings) ? payload.bindings : []).find(
-          (row: { cloud_ref?: string; role_arn?: string }) =>
-            (row.cloud_ref || row.role_arn) === gapData?.role_arn,
-        )
-        setTfAdapter(match?.execution_adapter || "unregistered")
-      })
-      .catch(() => {
-        if (!cancelled) setTfAdapter("unregistered")
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [isOpen, systemName, gapData?.role_arn])
+    if (!isOpen || !roleName || !systemName) return
+    void fetchGapAnalysis()
+    void fetchSafetyContext()
+  }, [isOpen, roleName, systemName, findingId, reviewScopeKey])
+
+  // Execution ownership comes from the canonical safety response. The old
+  // request went to /api/change-executions/ownership/terraform, which has no
+  // backend route, and rendered its 404 as "unregistered".
+  const tfAdapter: string | null = safetyContext?.execution_adapter ?? null
 
   const fetchApprovalRequests = async () => {
     if (!roleName) return
     setApprovalLoading(true)
+    setApprovalListError(null)
     try {
-      const query = new URLSearchParams({
-        role_name: roleName,
-        limit: "10",
-      })
-      if (systemName) query.set("system_name", systemName)
-      const response = await fetch(`/api/proxy/iam-roles/approval-requests?${query.toString()}`, {
-        cache: "no-store",
-      })
+      const response = await fetch(
+        buildApprovalListUrl({ roleName, systemName, scope: reviewScope }),
+        { cache: "no-store" },
+      )
       const data = await response.json().catch(() => ({}))
       if (!response.ok) {
-        throw new Error(data.detail || data.error || `Approval requests failed: ${response.status}`)
+        const failure = approvalListFailure(response.status, data)
+        console.warn(
+          `[IAM-Modal] Approval requests unreadable: HTTP ${failure.status}${failure.code ? ` ${failure.code}` : ""} — ${failure.message}`,
+        )
+        setApprovalRequests([])
+        setApprovalListError(failure)
+        return
       }
       setApprovalRequests(Array.isArray(data.requests) ? data.requests : [])
-    } catch (error) {
-      console.warn("[IAM-Modal] Failed to fetch approval requests:", error)
+    } catch (error: any) {
+      const failure = approvalListFailure(null, { error: error?.message || String(error) })
+      console.warn(`[IAM-Modal] Approval requests unreadable: ${failure.message}`)
       setApprovalRequests([])
+      setApprovalListError(failure)
     } finally {
       setApprovalLoading(false)
     }
   }
 
   useEffect(() => {
-    if (!isOpen || !roleName) return
+    if (!isOpen || !roleName || !systemName) return
     void fetchApprovalRequests()
-  }, [isOpen, roleName, systemName])
+  }, [isOpen, roleName, systemName, reviewScopeKey])
 
   const openApprovalAction = (
     mode: ApprovalActionMode,
@@ -1176,34 +1865,70 @@ export function IAMPermissionAnalysisModal({
     setPreviewProblem(null)
     setPreviewObservationDays(null)
     setDecisionPersistence(null)
+    planEpochRef.current += 1
     setPlanToken(null)
     setPlanPermissions(null)
     setBreakGlassPlanActive(false)
+    setHeldBreakGlassPlan(null)
+    // The outcome describes a plan built against the evidence this call is
+    // about to replace; it does not survive the re-read that supersedes it.
+    setPlanOutcome(null)
+    // …and neither does the in-flight marker. A preparation still running for
+    // the role just left kept the reused control showing "Preparing exact
+    // plan…", disabled, for a role it had never been pressed on -- and the
+    // early `if (breakGlassPreparing) return` then swallowed the operator's
+    // next press. Found by the mounted role-switch control below.
+    setBreakGlassPreparing(false)
     setManagedPolicyRewriteRequired(false)
     setDetachManagedPolicies(false)
+    setSafetyError(null)
     try {
       const res = await fetch('/api/proxy/least-privilege/simulate-fix', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          resource_type: 'IAMRole',
-          resource_id: roleName,
-          system_name: systemName,
-          finding_id: findingId,
-        }),
+        body: JSON.stringify(buildSimulateFixBody({
+          roleName,
+          systemName: systemName || '',
+          findingId,
+          scope: reviewScope,
+        })),
       })
       if (!res.ok) {
-        console.warn('[IAM-Modal] simulate-fix fetch non-200:', res.status)
+        const failure = await readReviewError(res)
+        if (requestVersion === simulateFixRequestVersion.current) setSafetyError(failure)
         return null
       }
       const data = await res.json()
       if (requestVersion !== simulateFixRequestVersion.current) return null
-      return applySimulateFixSnapshot(data)
-    } catch (e) {
-      console.warn('[IAM-Modal] simulate-fix fetch failed:', e)
+      const snapshot = applySimulateFixSnapshot(data)
+      if (!snapshot || typeof snapshot.decision_canonical !== 'string' || !snapshot.decision_canonical) {
+        // A 200 that carries no canonical decision leaves neither an error nor
+        // an answer, and the modal used to read that silence as permission.
+        setSafetyError({
+          status: res.status,
+          code: 'REVIEW_SAFETY_DECISION_MISSING',
+          upstreamCode: null,
+          message: 'The safety response carried no canonical decision for this role.',
+          requestId: null,
+        })
+        return null
+      }
+      return snapshot
+    } catch (e: any) {
+      if (requestVersion === simulateFixRequestVersion.current) {
+        setSafetyError({
+          status: 0,
+          code: 'REVIEW_NETWORK_ERROR',
+          upstreamCode: null,
+          message: e?.message || 'The safety request could not be sent.',
+          requestId: null,
+        })
+      }
       return null
     } finally {
-      setSafetyLoading(false)
+      // Only the newest request may end the loading state; an older one
+      // finishing late must not reveal a stale or empty decision.
+      if (requestVersion === simulateFixRequestVersion.current) setSafetyLoading(false)
     }
   }
 
@@ -1235,11 +1960,13 @@ export function IAMPermissionAnalysisModal({
       setManagedPolicyRewriteRequired(requiresManagedPolicyRewrite)
       setDetachManagedPolicies(requiresManagedPolicyRewrite)
       if (plan?.plan_token && Array.isArray(plan?.permissions_to_remove)) {
+        planEpochRef.current += 1
         setPlanToken(String(plan.plan_token))
         setPlanPermissions((plan.permissions_to_remove as unknown[]).map((p) => String(p)))
       } else {
         // A newer blocked/no-plan response must revoke any older executable
         // token already held by the modal.
+        planEpochRef.current += 1
         setPlanToken(null)
         setPlanPermissions(null)
       }
@@ -1252,65 +1979,42 @@ export function IAMPermissionAnalysisModal({
       return null
   }
 
-  const fetchConfidenceScore = async (pipelineSafety: SimulateFixSafety | null) => {
-    setConfidenceLoading(true)
-    setConfidenceScore(null)
-    try {
-      // Agent 5 subordination: pass the pipeline decision context so the
-      // backend can floor the scorer's routing to the pipeline verdict.
-      // When pipelineSafety is null (simulate-fix unavailable) the call
-      // falls back to legacy behavior.
-      const body: Record<string, unknown> = {
-        role_name: roleName,
-        permissions_to_remove: [],
-      }
-      if (pipelineSafety) {
-        body.pipeline_decision = {
-          decision_canonical: pipelineSafety.decision_canonical,
-          decision: pipelineSafety.decision,
-          observation_days: pipelineSafety.observation_days,
-          telemetry_coverage: pipelineSafety.telemetry_coverage,
-          consumer_count: pipelineSafety.consumer_count,
-          shared: pipelineSafety.shared,
-          completeness: pipelineSafety.completeness,
-          unsafe_reasons: pipelineSafety.unsafe_reasons,
-        }
-      }
-      const res = await fetch('/api/proxy/confidence/check', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      })
-      if (!res.ok) return
-      const data = await res.json()
-      if (typeof data?.confidence === 'number') {
-        setConfidenceScore(data as ConfidenceScore)
-      }
-    } catch (e) {
-      console.warn('[IAM-Modal] confidence fetch failed:', e)
-    } finally {
-      setConfidenceLoading(false)
-    }
-  }
-
-  const fetchGapAnalysis = async (forceRefresh = false) => {
+  // The legacy argument used to append `refresh=true`, which no layer read:
+  // gap-analysis has no server-side response cache. It is accepted and ignored.
+  const fetchGapAnalysis = async (_legacyRefresh = false) => {
+    const requestVersion = ++gapRequestVersion.current
     setLoading(true)
     setError(null)
+    setDetailError(null)
+    // Release any answer read for a different role or scope, so it cannot be
+    // shown again if the operator returns before this request lands.
+    setHeldGapData((held) => (held && held.key === reviewIdentityKey ? held : null))
+    // The trust envelope describes the answer we are about to replace. Kept
+    // across a role switch or a refusal it labelled the NEW role with the OLD
+    // role's confidence and freshness.
+    setProvenance(null)
     try {
-      console.log('[IAM-Modal] Fetching gap analysis for:', roleName, forceRefresh ? '(force refresh)' : '')
-      const refreshParam = forceRefresh ? '&refresh=true' : ''
-      const env = await fetchWithEnvelope<any>(
-        `/api/proxy/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=365${refreshParam}`
-      )
+      const response = await fetch(buildGapAnalysisUrl(roleName, reviewScope), {
+        cache: 'no-store',
+        headers: { 'X-Cyntro-Request-Id': newReviewRequestId() },
+      })
+      if (!response.ok) {
+        const failure = await readReviewError(response)
+        if (requestVersion !== gapRequestVersion.current) return
+        setDetailError(failure)
+        setError(failure.message)
+        setGapData(null)
+        setProvenance(null)
+        return
+      }
+      const payload = await response.json()
+      // A response for a role the operator has already left must not paint.
+      if (requestVersion !== gapRequestVersion.current) return
+      const env = isTrustEnvelope(payload)
+        ? { result: (payload as any).result, provenance: (payload as any).provenance as Provenance }
+        : { result: payload, provenance: null }
       setProvenance(env.provenance)
       const rawData = env.result
-      console.log('[IAM-Modal] Raw API data:', rawData)
-      console.log('[IAM-Modal] Raw data keys:', Object.keys(rawData))
-      console.log('[IAM-Modal] Raw data summary:', rawData.summary)
-      console.log('[IAM-Modal] Raw data allowed_count:', rawData.allowed_count)
-      console.log('[IAM-Modal] Raw data used_count:', rawData.used_count)
-      console.log('[IAM-Modal] Raw data used_permissions:', rawData.used_permissions?.length || 0)
-      console.log('[IAM-Modal] Raw data unused_permissions:', rawData.unused_permissions?.length || 0)
       
       // Map API response (snake_case, flat) to expected format (nested summary)
       // API returns: allowed_count, used_count, unused_count, used_permissions[], unused_permissions[]
@@ -1378,7 +2082,7 @@ export function IAMPermissionAnalysisModal({
           used_count: finalUsedCount,
           unused_count: finalUnusedCount,
           lp_score: derivedLpScore,
-          overall_risk: rawData.summary?.overall_risk ?? rawData.overall_risk ?? 'MEDIUM',
+          overall_risk: rawData.summary?.overall_risk ?? rawData.overall_risk ?? 'UNKNOWN',
           data_confidence: rawData.summary?.data_confidence ?? rawData.data_confidence,
           // null stays null: an unmeasured count is not zero events (F6).
           cloudtrail_events: rawData.summary?.cloudtrail_events ?? null,
@@ -1408,22 +2112,14 @@ export function IAMPermissionAnalysisModal({
         used_permissions: actualUsedPerms,
         unused_permissions: actualUnusedPerms,
         high_risk_unused: rawData.high_risk_unused || [],
-        confidence: rawData.confidence?.level || rawData.confidence || 'HIGH',
+        // No default: a missing confidence is unknown, never HIGH.
+        confidence: rawData.confidence?.level ?? rawData.confidence ?? null,
         confidence_groups: rawData.confidence_groups || null,
         safety_vector: rawData.safety_vector || null,
         dependency_context: rawData.dependency_context,
         remediated_at: rawData.remediated_at || null,
         service_role_analysis: rawData.service_role_analysis || null
       }
-      
-      console.log('[IAM-Modal] Mapped data:', {
-        total: mappedData.summary.total_permissions,
-        used: mappedData.summary.used_count,
-        unused: mappedData.summary.unused_count,
-        permissions_analysis_count: mappedData.permissions_analysis.length,
-        used_perms_count: mappedData.used_permissions.length,
-        unused_perms_count: mappedData.unused_permissions.length
-      })
       
       setGapData(mappedData)
 
@@ -1437,10 +2133,20 @@ export function IAMPermissionAnalysisModal({
       // possible IAM mutation. Detaching managed policies is now always an
       // explicit operator choice via the checkboxes below.
     } catch (err: any) {
-      console.error('[IAM-Modal] Error:', err)
-      setError(err.message || 'Failed to fetch gap analysis')
+      if (requestVersion !== gapRequestVersion.current) return
+      const failure: ReviewRequestError = {
+        status: 0,
+        code: 'REVIEW_NETWORK_ERROR',
+        upstreamCode: null,
+        message: err?.message || 'Failed to fetch permission detail',
+        requestId: null,
+      }
+      setDetailError(failure)
+      setError(failure.message)
+      setGapData(null)
+      setProvenance(null)
     } finally {
-      setLoading(false)
+      if (requestVersion === gapRequestVersion.current) setLoading(false)
     }
   }
 
@@ -1533,23 +2239,65 @@ export function IAMPermissionAnalysisModal({
     setAnalysisTab('summary')
     setGapData(null)
     setError(null)
+    // Cleared here as well as bound above: the mounted modal is reused by
+    // LeastPrivilegeTab, so without this the next role inherits this one's
+    // plan message the moment the two share an identity key.
+    setPlanOutcome(null)
+    setBreakGlassPreparing(false)
+    // Synchronous, so a preparation still in flight cannot install a token,
+    // a permission set or an outcome into the review just closed.
+    openReviewRef.current = null
     setManagedPolicyRewriteRequired(false)
     setDetachManagedPolicies(false)
     onClose()
   }
 
   const handlePrepareBreakGlass = async () => {
-    if (!gapData || breakGlassPreparing) return
+    if (breakGlassPreparing) return
+    // The identity and the evidence attempt this preparation is FOR, captured
+    // before the first await. A response that arrives after the operator has
+    // closed the review, switched role or scope, or re-read the evidence is
+    // about a question no longer on screen: it installs nothing -- no token,
+    // no permission set, no outcome, no toast. Without this the plan_token of
+    // one role could land in another role's modal.
+    const attemptKey = planIdentityKey
+    const attemptEvidenceVersion = simulateFixRequestVersion.current
+    const attemptStillOwnsTheModal = () => (
+      openReviewRef.current === attemptKey
+      && simulateFixRequestVersion.current === attemptEvidenceVersion
+    )
+    const refusePlan = (code: string, message: string) => {
+      setPlanOutcome({ state: 'refused', code, message })
+      toast({ title: "Cannot prepare a change for this role", description: message,
+              variant: "destructive" })
+    }
+    setPlanOutcome(null)
+    if (breakGlassUnavailableReason) {
+      // Defence in depth: the control is disabled when this is set, so a call
+      // that arrives anyway is explained rather than dropped on the floor.
+      refusePlan('PLAN_PREREQUISITE_UNMET', breakGlassUnavailableReason)
+      return
+    }
+    if (!gapData) {
+      // Was a bare `return`: the button went back to its resting label with no
+      // plan and no reason shown anywhere.
+      refusePlan(
+        'PLAN_EVIDENCE_UNAVAILABLE',
+        'The permission detail for this role has not loaded, so an exact plan '
+        + 'cannot be built from it. Retry the detail, then try again.',
+      )
+      return
+    }
     const permissions = resolveBreakGlassPermissionSelection(
       removalSafety,
       gapData.unused_permissions,
     )
     if (permissions.length === 0) {
-      toast({
-        title: "No overpermission is available to remove",
-        description: "Used and protected permissions are intentionally excluded from break-glass remediation.",
-        variant: "destructive",
-      })
+      refusePlan(
+        'PLAN_NO_REMOVABLE_PERMISSION',
+        'No overpermission is available to remove. Used and protected '
+        + 'permissions are intentionally excluded from break-glass remediation.',
+      )
       return
     }
     setBreakGlassPreparing(true)
@@ -1565,6 +2313,7 @@ export function IAMPermissionAnalysisModal({
         }),
       })
       const payload = await response.json().catch(() => ({}))
+      if (!attemptStillOwnsTheModal()) return
       if (!response.ok || !payload?.plan?.plan_token) {
         const detail = payload?.detail
         const blockers = Array.isArray(detail?.blockers) ? detail.blockers.join(' ') : ''
@@ -1573,15 +2322,37 @@ export function IAMPermissionAnalysisModal({
           || `Could not prepare break-glass plan (${response.status})`,
         )
       }
-      const permissionsFromPlan = Array.isArray(payload.plan.permissions_to_remove)
-        ? payload.plan.permissions_to_remove.map((item: unknown) => String(item))
-        : permissions
-      setPlanToken(String(payload.plan.plan_token))
+      // The exact change comes from the signed response alone, bound to the Review on screen. A plan that cannot be
+      // shown exactly arms nothing: no token, no permission set, no confirmation.
+      const parsed = parseSignedBreakGlassPlan(payload.plan, {
+        roleArn: gapData.role_arn || '',
+        accountId: reviewScope?.accountId && /^\d{12}$/.test(reviewScope.accountId) ? reviewScope.accountId : null,
+        tenantId: reviewScope?.customerId || null,
+        systemName: systemName || null,
+      }, Date.now())
+      if (!parsed.ok) {
+        refusePlan(parsed.code, parsed.message)
+        return
+      }
+      const permissionsFromPlan = parsed.display.permissionsToRemove
+      setHeldBreakGlassPlan({
+        key: attemptKey, evidenceVersion: attemptEvidenceVersion, display: parsed.display,
+      })
+      setPlanClockMs(Date.now())
+      planEpochRef.current += 1
+      setPlanToken(parsed.display.planToken)
       setPlanPermissions(permissionsFromPlan)
       setSelectedPermissionsToRemove(new Set(permissionsFromPlan))
       setManagedPolicyRewriteRequired(false)
       setDetachManagedPolicies(false)
       setBreakGlassPlanActive(true)
+      setPlanOutcome({
+        state: 'prepared',
+        code: 'PLAN_PREPARED',
+        message: `Exact plan prepared for ${permissionsFromPlan.length} `
+          + `permission${permissionsFromPlan.length === 1 ? '' : 's'}. `
+          + 'Confirm the risk and audit details to apply it.',
+      })
       setOverrideModal({
         open: true,
         rationale: '',
@@ -1596,13 +2367,24 @@ export function IAMPermissionAnalysisModal({
         ],
       })
     } catch (err: any) {
+      // A rejected fetch reaches here without passing the check above, so the
+      // same rule is applied before a refusal is written into the modal.
+      if (!attemptStillOwnsTheModal()) return
+      setPlanOutcome({
+        state: 'refused',
+        code: 'PLAN_PREPARATION_FAILED',
+        message: err?.message || 'Break-glass planning failed.',
+      })
       toast({
         title: "Cannot prepare exact remediation",
         description: err?.message || 'Break-glass planning failed.',
         variant: "destructive",
       })
     } finally {
-      setBreakGlassPreparing(false)
+      // Only the attempt that still owns the modal may clear the marker: a
+      // late completion must not switch off a spinner that now belongs to a
+      // preparation someone started for another role.
+      if (attemptStillOwnsTheModal()) setBreakGlassPreparing(false)
     }
   }
 
@@ -1614,11 +2396,56 @@ export function IAMPermissionAnalysisModal({
   ): Promise<string | undefined> => {
     if (!gapData) return undefined
 
+    // The review this apply belongs to: its full identity (role, scope, system) and the evidence read it was
+    // submitted against -- the same pair a late plan preparation is held to. Opening a review re-reads its evidence,
+    // so Close and reopen of the identical role, account and system is a different review. A response that returns
+    // after the review changed publishes nothing into the view on screen: no toast of its outcome, no event, no list
+    // callback, no refresh, no dialog result. The operation stays in its own scope's History (Root166).
+    const submittedReview = planIdentityKey
+    const submittedEvidenceVersion = simulateFixRequestVersion.current
+    const reviewStillOwnsApply = () => (
+      openReviewRef.current === submittedReview
+      && simulateFixRequestVersion.current === submittedEvidenceVersion
+    )
+    const submittedTarget = `${roleName} (tenant ${reviewScope?.customerId || 'unknown'}, `
+      + `account ${reviewScope?.accountId || 'unknown'}, system ${systemName || 'unknown'})`
+
     const isBreakGlassSubmission = Boolean(
       force && prebuiltLineage && breakGlassPlanActive && planToken,
     )
 
-    if (applyDisabled && !isBreakGlassSubmission) {
+    // ENVIRONMENT / ACTIVATION hold — refuses EVERY caller, break-glass included.
+    //
+    // This is not a risk decision an operator may accept. `applyDisabled` means the mutation boundary is not
+    // shipped or not enabled in this environment, and no rationale, acknowledgement or signed plan makes an
+    // unshipped boundary safe. It previously carried `&& !isBreakGlassSubmission`, so a break-glass submission
+    // skipped it first: Root's independent QA filled the operator name and rationale and the final confirm
+    // became enabled while the environment still forbade execution.
+    //
+    // The policy and evidence holds below KEEP their break-glass exemption: `hardBlocked` is a BLOCK/EXCLUDE
+    // decision verdict and `evidenceUnavailable` is an evidence gap, and overriding those with recorded lineage
+    // is the authorized break-glass design. Only the environment hold is unconditional.
+    //
+    // OPTION A, APPLIED HERE TOO, AND NO WIDER. On this surface `applyDisabled`
+    // is LP's evidence-derived veto (`integrity.mutationBlocked`), and the
+    // backend's own override branch passes evidence/generation and
+    // certification holds while refusing operational ones. So ONE narrow
+    // traversal exists, and it is not "force" or "break-glass" -- those were
+    // removed for good reason above. It requires ALL of:
+    //   * this submission really is the exact signed break-glass one;
+    //   * a signed plan token is bound to this review;
+    //   * the operator explicitly read the CURRENT readiness, that reading
+    //     belongs to this review/evidence/token, has not expired, and was
+    //     classified as a known evidence hold rather than any operational,
+    //     integrity, unknown, stale or malformed refusal.
+    // Anything else -- every normal caller, and every hard hold -- still
+    // refuses here, before any HTTP request is built.
+    const signedOverrideTraversesEvidenceHold =
+      isBreakGlassSubmission
+      && breakGlassPlanActive
+      && Boolean(planToken)
+      && currentReadingAuthorizesRef.current(Date.now()).ok
+    if (applyDisabled && !signedOverrideTraversesEvidenceHold) {
       toast({
         title: authorityHoldReason ? 'Execution authority is not ready' : 'Preview-only environment',
         description: authorityHoldReason ??
@@ -1787,6 +2614,7 @@ export function IAMPermissionAnalysisModal({
 
       const result = await response.json()
       console.log('[IAM-Modal] Remediation response:', result)
+      if (!reviewStillOwnsApply()) throw new ApplyResultForAnotherReview(submittedTarget)
 
       // Check response from proxy - it returns summary.unused_removed and success
       const permissionsRemoved = result.permissions_removed || result.summary?.unused_removed || 0
@@ -1797,6 +2625,9 @@ export function IAMPermissionAnalysisModal({
       const inlinePoliciesModified = result.inline_policies_modified || []
 
       if (result.success) {
+        const verified = verifiedApplyOutcome(result, { roleName, systemName })
+        if (!verified.ok) throw new ApplyOutcomeNotConfirmed(verified.code, verified.message)
+
         // Build description with details about DIRECT MODIFICATION
         let desc = ''
 
@@ -1822,15 +2653,15 @@ export function IAMPermissionAnalysisModal({
           desc += `. Snapshot: ${snapshotId}`
         }
 
-        // Show success toast with details
-        toast({
-          title: "✅ Remediation Applied Successfully",
-          description: desc,
-          variant: "default"
-        })
-        
+        // What the boundary measured, stated as measured.
+        const { applied } = verified
+        desc += `. Operation ${applied.operationId}: VERIFIED at AWS (${applied.awsWrites} write${applied.awsWrites === 1 ? '' : 's'})`
+        if (applied.recoveryRequired.length > 0) {
+          desc += `. Recovery required: ${applied.recoveryRequired.join(', ')}`
+        }
+
         console.log('[IAM-Modal] Remediation successful, clearing caches...')
-        
+
         // 1. Clear frontend cache for this role (force refresh)
         try {
           await fetch(`/api/proxy/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=365&force_refresh=true`)
@@ -1838,7 +2669,7 @@ export function IAMPermissionAnalysisModal({
         } catch (e) {
           console.warn('[IAM-Modal] Failed to clear role cache:', e)
         }
-        
+
         // 2. Clear the LP issues cache (force refresh)
         try {
           await fetch(`/api/proxy/least-privilege/issues?force_refresh=true`)
@@ -1846,6 +2677,17 @@ export function IAMPermissionAnalysisModal({
         } catch (e) {
           console.warn('[IAM-Modal] Failed to clear LP cache:', e)
         }
+
+        // The cache calls above awaited: the review may have changed while they ran. Everything below publishes into
+        // the view, synchronously, so this is the last point at which ownership is checked.
+        if (!reviewStillOwnsApply()) throw new ApplyResultForAnotherReview(submittedTarget)
+
+        // Show success toast with details
+        toast({
+          title: "✅ Remediation Applied Successfully",
+          description: desc,
+          variant: "default"
+        })
 
         // Broadcast to cross-tree subscribers (Trust Boundary map,
         // dashboard counters, etc). LP Tab's own refresh is handled
@@ -1929,12 +2771,38 @@ export function IAMPermissionAnalysisModal({
           })
         }
       } else {
-        // If not success, show appropriate error
+        // Only when the backend states it wrote nothing may the operator be told
+        // so. A failure without that statement stays a failure: a write may have
+        // happened, and "try again" could apply twice.
+        const refusal = refusedBeforeWrite(result)
+        if (refusal) {
+          throw new MutationRefusedBeforeWrite(refusal)
+        }
         const errorMsg = result.error || result.message || 'Unknown error'
+        // The backend says the outcome at AWS is not known (or not safe to retry): that is not a failure to report as
+        // "nothing happened", and never an applied change.
+        if (result.detail?.error === 'APPLY_OUTCOME_UNKNOWN' || result.detail?.retry_safe === false) {
+          throw new ApplyOutcomeNotConfirmed(String(result.detail?.error || 'APPLY_OUTCOME_UNKNOWN'), errorMsg)
+        }
         throw new Error(`Remediation failed: ${errorMsg}`)
       }
     } catch (err: any) {
       clearTimeout(timeoutHandle)
+      if (err instanceof ApplyResultForAnotherReview || !reviewStillOwnsApply()) {
+        // Neither the outcome nor a refetch belongs to the review now on screen. One notice names the submitted
+        // target and scope, and says its outcome is not shown here.
+        console.warn('[IAM-Modal] Apply response returned after its review changed; not published:', submittedTarget)
+        toast({
+          title: 'A change from a previous review returned',
+          description: `The change submitted for ${submittedTarget} returned after that review was closed or changed. `
+            + 'Its outcome is not shown here; see History for that account and system.',
+          variant: 'default',
+        })
+        if (skipAutoClose) {
+          throw err instanceof ApplyResultForAnotherReview ? err : new ApplyResultForAnotherReview(submittedTarget)
+        }
+        return undefined
+      }
       const elapsedMs = Date.now() - reqStartedAt
       // AbortError from our REMEDIATE_TIMEOUT_MS: surface as a clear
       // timeout message instead of the cryptic "AbortError" the browser
@@ -1946,8 +2814,15 @@ export function IAMPermissionAnalysisModal({
         ? `Remediation request timed out after ${Math.round(elapsedMs / 1000)}s. The backend may still be processing — check the audit log before retrying.`
         : (err?.message || 'Failed to apply remediation')
       console.error('[IAM-Modal] Apply fix error after', elapsedMs, 'ms:', err?.name, err?.message)
+      const refusedBeforeAnyWrite = err instanceof MutationRefusedBeforeWrite
       toast({
-        title: isTimeout ? "⏱ Remediation Timed Out" : "❌ Remediation Failed",
+        title: isTimeout
+          ? "⏱ Remediation Timed Out"
+          : refusedBeforeAnyWrite
+            ? "Change refused — nothing was written"
+            : err instanceof ApplyOutcomeNotConfirmed
+              ? "Change not confirmed — check History before acting again"
+              : "❌ Remediation Failed",
         description: friendlyMsg,
         variant: "destructive"
       })
@@ -2665,26 +3540,243 @@ export function IAMPermissionAnalysisModal({
       })
     }
 
-    const onSharedSubmit = async (lineage: OverrideLineagePayload) => {
+    const exactPlanRefusal = (now: number): { code: string; message: string } | null => {
+      if (!breakGlassPlanActive) return null
+      if (!breakGlassPlan) {
+        return { code: 'PLAN_NOT_BOUND', message: 'No signed plan is bound to this Review, so nothing can be confirmed.' }
+      }
+      if (breakGlassPlan.planToken !== planToken) {
+        return { code: 'PLAN_TOKEN_MISMATCH', message: 'The armed plan is not the one whose change is shown. Prepare a new plan.' }
+      }
+      if (!gapData || breakGlassPlan.roleArn !== gapData.role_arn) {
+        return { code: 'PLAN_TARGET_MISMATCH', message: 'The signed plan is not for the role under review.' }
+      }
+      if (breakGlassPlan.expiresAtMs <= now) {
+        return { code: 'PLAN_EXPIRED', message: 'The signed plan expired while this dialog was open. Cancel and prepare a new plan.' }
+      }
+      return null
+    }
+    const openRefusal = exactPlanRefusal(planClockMs)
+
+    /**
+     * PHASE ONE: an explicit, scoped, READ-ONLY refresh of the current readiness.
+     *
+     * Reachable whenever a signed plan is active, INCLUDING when the package
+     * this render holds has already expired -- otherwise the expired
+     * classification would disable the only control that could renew it, which
+     * is the deadlock Root128 found. It performs no forward mutation and it
+     * does not submit when it resolves: the operator must then click confirm.
+     */
+    const onRefreshCurrentReadiness = async () => {
+      // SYNCHRONOUS attempt identity, taken before anything can await. Two
+      // refreshes started in the same render get different epochs, so only the
+      // latest may publish, and an out-of-order response cannot overwrite it.
+      const attempt = ++overrideReadEpochRef.current
+      const askedReview = openReviewRef.current
+      const askedEvidence = simulateFixRequestVersion.current
+      const askedPlanEpoch = planEpochRef.current
+      // WITHDRAW the old authority immediately. Keeping it would leave confirm
+      // enabled on a package the operator has just asked to replace.
+      setCurrentOverrideReading(null)
+      setOverrideReadingInFlight(true)
+      const isLatest = () => attempt === overrideReadEpochRef.current
       try {
-        // handleApplyFix already manages phase transitions internally
-        // (applying → success/error) via setOverrideModal. We don't
-        // need to wrap with try/catch transitions here — they'd race
-        // with the internal ones. Pass-through only.
-        await handleApplyFix(true, lineage as any, true)
+        if (!onReprobeSignedOverrideReadiness) {
+          if (isLatest()) {
+            setOverrideModal((prev) => ({
+              ...prev,
+              message: 'READINESS_REPROBE_UNAVAILABLE: current readiness facts cannot be read here.',
+            }))
+          }
+          return
+        }
+        const classification = await onReprobeSignedOverrideReadiness()
+        // A superseded attempt publishes NOTHING: not a reading, not a message.
+        if (!isLatest()) return
+        // LIVE ownership after resolution. The plan epoch is the check that a
+        // captured-token comparison could not make: `handlePrepareBreakGlass`
+        // can install a new token on the same preview without changing the
+        // evidence version.
+        if (
+          openReviewRef.current !== askedReview
+          || simulateFixRequestVersion.current !== askedEvidence
+          || planEpochRef.current !== askedPlanEpoch
+        ) {
+          return
+        }
+        setCurrentOverrideReading({
+          classification,
+          reviewKey: askedReview ?? '',
+          evidenceVersion: askedEvidence,
+          planEpoch: askedPlanEpoch,
+          readEpoch: attempt,
+        })
+      } finally {
+        // Only the latest attempt owns the spinner; a stale completion must not
+        // clear a newer one.
+        if (isLatest()) setOverrideReadingInFlight(false)
+      }
+    }
+
+    /**
+     * Whether the reading the operator holds still authorizes this exact signed
+     * override, checked at the moment of asking. Freshness is re-checked
+     * against the package's OWN expiry -- never extended -- and the reading must
+     * belong to this review, this evidence version and this plan token.
+     */
+    const currentReadingAuthorizes = (nowMs: number): { ok: true } | { ok: false; code: string; reason: string } => {
+      const reading = currentOverrideReading
+      if (!reading) {
+        return {
+          ok: false,
+          code: 'READINESS_NOT_READ',
+          reason: 'Read the current readiness facts before confirming this change.',
+        }
+      }
+      // SYNCHRONOUS WITHDRAWAL. `overrideReadEpochRef` moves at the START of a
+      // replacement read, before any state commits, so a submit captured while
+      // the previous reading was permitted stops authorizing immediately --
+      // including when it is invoked in that same tick. A pending read is the
+      // same answer for the same reason: nothing has been read for this attempt.
+      if (reading.readEpoch !== overrideReadEpochRef.current) {
+        return {
+          ok: false,
+          code: 'READINESS_READ_SUPERSEDED',
+          reason: 'A newer reading of the current facts was started, so those facts no longer authorize this change. '
+            + 'Wait for it and confirm again.',
+        }
+      }
+      if (
+        reading.reviewKey !== (openReviewRef.current ?? '')
+        || reading.evidenceVersion !== simulateFixRequestVersion.current
+        || reading.planEpoch !== planEpochRef.current
+      ) {
+        return {
+          ok: false,
+          code: 'READINESS_READING_SUPERSEDED',
+          reason: 'This review, its preview or its signed plan changed after those facts were read. Read them again.',
+        }
+      }
+      if (reading.classification.kind === 'refused') {
+        return { ok: false, code: reading.classification.code, reason: reading.classification.reason }
+      }
+      if (reading.classification.expiresAtMs <= nowMs) {
+        return {
+          ok: false,
+          code: 'READINESS_EXPIRED',
+          reason: 'Those readiness facts have since expired. Read the current facts again before confirming.',
+        }
+      }
+      return { ok: true }
+    }
+
+    currentReadingAuthorizesRef.current = currentReadingAuthorizes
+
+    const onSharedSubmit = async (lineage: OverrideLineagePayload) => {
+      const refusal = exactPlanRefusal(Date.now())
+      if (refusal) {
+        setPlanOutcome({ state: 'refused', ...refusal })
+        setOverrideModal((prev) => ({ ...prev, phase: 'error', message: `${refusal.code}: ${refusal.message}` }))
+        return
+      }
+      // DUPLICATE CLICKS CANNOT BECOME TWO FORWARD CALLS. The shared dialog
+      // moves to 'applying' before calling here, but a second click that
+      // arrives before that render commits would otherwise re-enter. One
+      // in-flight submission per dialog, released only by its own terminal
+      // state below.
+      if (submissionInFlightRef.current) return
+      submissionInFlightRef.current = true
+      try {
+      // PHASE TWO. This click does NOT read: it uses the reading the operator
+      // explicitly took, and refuses if that reading no longer authorizes this
+      // exact plan. Reading here would make a resolved background read submit
+      // by itself, which is what phase one exists to prevent.
+      if (breakGlassPlanActive) {
+        const authorized = currentReadingAuthorizes(Date.now())
+        if (!authorized.ok) {
+          setPlanOutcome({ state: 'refused', code: authorized.code, message: authorized.reason })
+          setOverrideModal((prev) => ({
+            ...prev, phase: 'error', message: `${authorized.code}: ${authorized.reason}`,
+          }))
+          return
+        }
+      }
+      // This dialog owns its terminal state. handleApplyFix sets no phase: it returns the verified outcome text, throws
+      // a typed refusal or an unconfirmed outcome, or returns nothing when it sent no request. The shared modal moved
+      // to 'applying' before calling here and leaves it only through what is set below (Root164: a verified apply
+      // stayed on "Applying remediation…" with no Done).
+      // The same ownership handleApplyFix holds its publications to. A result for a review that was closed, reopened
+      // or moved to another role, scope or system is no result of the dialog now on screen: it closes, and the
+      // operation stays in its own scope's History.
+      const submittedReview = planIdentityKey
+      const submittedEvidenceVersion = simulateFixRequestVersion.current
+      const submittedPlanToken = planToken
+      const dialogStillOwnsApply = () => (
+        openReviewRef.current === submittedReview
+        && simulateFixRequestVersion.current === submittedEvidenceVersion
+      )
+      const closeStaleDialog = () => setOverrideModal((prev) => ({ ...prev, open: false, phase: 'form', message: '' }))
+      let appliedText: string | undefined
+      try {
+        // Immediately before the forward call, once more: ownership and, for a
+        // signed override, the reading and the plan binding.
+        if (!dialogStillOwnsApply() || planToken !== submittedPlanToken) {
+          closeStaleDialog()
+          return
+        }
+        if (breakGlassPlanActive) {
+          const stillAuthorized = currentReadingAuthorizes(Date.now())
+          const stillBound = exactPlanRefusal(Date.now())
+          if (!stillAuthorized.ok || stillBound) {
+            const code = stillAuthorized.ok ? stillBound!.code : stillAuthorized.code
+            const reason = stillAuthorized.ok ? stillBound!.message : stillAuthorized.reason
+            setPlanOutcome({ state: 'refused', code, message: reason })
+            setOverrideModal((prev) => ({ ...prev, phase: 'error', message: `${code}: ${reason}` }))
+            return
+          }
+        }
+        appliedText = breakGlassPlanActive && breakGlassPlan
+          // Apply exactly the signed set that was shown -- never re-derived from the detail or a selection.
+          ? await handleApplyFix(true, lineage as any, true, breakGlassPlan.permissionsToRemove)
+          : await handleApplyFix(true, lineage as any, true)
       } catch (err: any) {
-        // Defensive — handleApplyFix doesn't throw in practice (it
-        // catches internally and sets phase='error'). Belt-and-
-        // suspenders for the unexpected case.
+        if (err instanceof ApplyResultForAnotherReview || !dialogStillOwnsApply()) {
+          closeStaleDialog()
+          return
+        }
         setOverrideModal((prev) => ({
           ...prev,
           phase: 'error',
           message: (err?.message || 'Apply failed').slice(0, 600),
         }))
+        return
+      }
+      if (!dialogStillOwnsApply()) {
+        closeStaleDialog()
+        return
+      }
+      if (appliedText === undefined) {
+        setOverrideModal((prev) => ({
+          ...prev,
+          phase: 'error',
+          message: 'APPLY_NOT_SUBMITTED: no change was sent, so nothing was applied. The reason is in the notification.',
+        }))
+        return
+      }
+      const verifiedText = appliedText
+      setOverrideModal((prev) => ({ ...prev, phase: 'success', message: verifiedText }))
+      } finally {
+        // Released on every exit, including the refusals above, so a refused
+        // confirmation can be corrected and retried -- while two clicks of the
+        // same confirmation can never both reach the backend.
+        submissionInFlightRef.current = false
       }
     }
 
-    const contextBlurb = `Cyntro paused this change because telemetry coverage is incomplete and ${safetyContext?.consumer_count ?? 'multiple'} system${(safetyContext?.consumer_count ?? 0) === 1 ? '' : 's'} depend on this role. You can override and proceed — Cyntro creates a verified restore point before changing AWS, and records the override in the audit log.`
+    // The dependent-systems clause is stated only as strongly as the consumer
+    // read supports: "0 systems depend" was printed when the graph merely held
+    // no consumer edges and runtime consumer attribution was missing (Codex, 3425).
+    const contextBlurb = `Cyntro paused this change because telemetry coverage is incomplete, and ${dependentSystemsSentence(safetyContext)}. You can override and proceed — Cyntro creates a verified restore point before changing AWS, and records the override in the audit log.`
 
     return (
       <OverrideModalShared
@@ -2692,6 +3784,88 @@ export function IAMPermissionAnalysisModal({
         setState={setSharedState}
         acknowledgedTags={Array.from(ackSet)}
         onSubmit={onSharedSubmit}
+        details={breakGlassPlanActive
+          ? (breakGlassPlan
+            ? <>
+                <ExactSignedChangePanel display={breakGlassPlan} nowMs={planClockMs} />
+                {/*
+                  The readiness facts carry a 30-second window, so the package
+                  this dialog opened with cannot be what a confirmation relies
+                  on. This control reads the current ones. It is deliberately
+                  NOT governed by the confirmation guard: when the old package
+                  has expired, the guard disables confirm, and gating this on the
+                  same classification would leave the operator with no way to
+                  renew it. It performs no mutation and submits nothing.
+                */}
+                <div className="mb-3 rounded-md border border-amber-200 bg-amber-50 p-2">
+                  <button
+                    type="button"
+                    data-testid="refresh-current-readiness"
+                    onClick={onRefreshCurrentReadiness}
+                    disabled={overrideReadingInFlight}
+                    className="rounded-md border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-900 disabled:opacity-50"
+                  >
+                    {overrideReadingInFlight ? 'Reading current readiness…' : 'Read current readiness'}
+                  </button>
+                  <p data-testid="current-readiness-state" className="mt-2 text-xs text-amber-900">
+                    {(() => {
+                      const reading = currentOverrideReading
+                      if (!reading) {
+                        return 'The readiness facts shown above are from when this view loaded. Read the current facts to confirm.'
+                      }
+                      if (reading.classification.kind === 'refused') {
+                        return `${reading.classification.code}: ${reading.classification.reason}`
+                      }
+                      if (reading.classification.expiresAtMs <= planClockMs) {
+                        return 'READINESS_EXPIRED: those facts have expired. Read the current facts again.'
+                      }
+                      return reading.classification.kind === 'evidence_hold'
+                        ? `Current facts read. Known evidence hold: ${reading.classification.codes.join(', ')}.`
+                        : 'Current facts read; no readiness hold stands.'
+                    })()}
+                  </p>
+                </div>
+              </>
+            : <p data-testid="exact-plan-refusal" className="mb-3 text-xs font-semibold text-rose-700">
+                PLAN_NOT_BOUND: no signed plan is bound to this Review, so nothing can be confirmed.
+              </p>)
+          : undefined}
+        confirmGuard={composeOverrideConfirmGuard({
+          applyDisabled,
+          authorityHoldReason,
+          breakGlassPlanActive,
+          openRefusal,
+          // The guard reflects the SAME decision the submit path makes:
+          // `currentReadingAuthorizes`, not the reading's bare classification.
+          // The bare classification ignored expiry and ownership, so a
+          // previously permitted package could keep confirm enabled while a
+          // replacement read was pending, or after the reading went stale or
+          // was superseded.
+          signedOverrideReadiness: (() => {
+            if (overrideReadingInFlight) {
+              return {
+                kind: 'refused' as const,
+                code: 'READINESS_READ_PENDING',
+                reason: 'Reading the current readiness facts. Nothing can be confirmed until that read returns.',
+                codes: [],
+              }
+            }
+            if (currentOverrideReading) {
+              const owned = currentReadingAuthorizes(planClockMs)
+              return owned.ok
+                ? currentOverrideReading.classification
+                : { kind: 'refused' as const, code: owned.code, reason: owned.reason, codes: [] }
+            }
+            // No reading yet: keep a genuine hard refusal from the opening
+            // package visible, but never let a merely-expired one stand in for
+            // one -- that is what disabled the control that renews it.
+            return signedOverrideReadiness
+              && signedOverrideReadiness.kind === 'refused'
+              && signedOverrideReadiness.code !== 'READINESS_EXPIRED'
+              ? signedOverrideReadiness
+              : null
+          })(),
+        })}
         contextBlurb={contextBlurb}
         rationalePlaceholder="e.g. Confirmed with @platform-team in #incidents that the 6 consumers don't use these permissions; ticket SECOPS-1842"
       />
@@ -2792,7 +3966,7 @@ export function IAMPermissionAnalysisModal({
                   <h3 className="text-lg font-bold text-[#b45309]">Override the safety hold?</h3>
                 </div>
                 <p className="text-sm text-[var(--foreground,#111827)] mb-4">
-                  Cyntro paused this change because telemetry coverage is incomplete and {safetyContext?.consumer_count ?? 'multiple'} system{(safetyContext?.consumer_count ?? 0) === 1 ? '' : 's'} depend on this role. You can override and proceed -- Cyntro creates a verified restore point before changing AWS, and records the override in the audit log.
+                  Cyntro paused this change because telemetry coverage is incomplete, and {dependentSystemsSentence(safetyContext)}. You can override and proceed -- Cyntro creates a verified restore point before changing AWS, and records the override in the audit log.
                 </p>
                 <label className="block text-xs font-semibold text-[#92400e] mb-1">
                   Why are you overriding? (Slack thread, ticket #, customer confirmation -- recorded in the audit trail)
@@ -2920,6 +4094,9 @@ export function IAMPermissionAnalysisModal({
   const totalPermissions = removalSafety
     ? permissionView.totalCount
     : gapData?.summary?.total_permissions ?? (usedCount + unusedCount)
+  // Counts are only KNOWN when one of the two reads returned them. With
+  // neither, zero is "unknown", never "fully remediated" or "0% LP score".
+  const permissionCountsKnown = Boolean(removalSafety) || Boolean(gapData)
   const lpScore = gapData?.summary?.lp_score ?? (totalPermissions > 0 ? Math.round((usedCount / totalPermissions) * 100) : 0)
   const hasPermissionLists = usedPermissions.length > 0 || unusedPermissions.length > 0
 
@@ -2964,6 +4141,31 @@ export function IAMPermissionAnalysisModal({
       ? `${warnPerms.length} not-observed permission${warnPerms.length === 1 ? '' : 's'} still ${warnPerms.length === 1 ? 'has' : 'have'} incomplete action-level usage evidence.`
       : null
   )
+  // Break-glass plans an EXACT change from the permission detail and the
+  // canonical safety decision. Without either there is nothing to plan from,
+  // and `handlePrepareBreakGlass` returned immediately -- so the button was
+  // enabled and did nothing. This is that missing precondition, stated once
+  // and used both to render the action and to refuse it.
+  //
+  // It is deliberately NOT "any hold blocks break-glass": an evidence or
+  // readiness hold is exactly when the operator override exists. Only a
+  // refusal that leaves no valid same-scope input blocks it.
+  const canonicalDecision =
+    safetyContext && typeof safetyContext.decision_canonical === 'string' && safetyContext.decision_canonical
+      ? safetyContext.decision_canonical
+      : null
+  const breakGlassUnavailableReason: string | null =
+    safetyError
+      ? `The safety decision for this role is unavailable (${safetyError.code}). No change can be prepared without it.`
+      : detailError
+        ? `Permission detail is unavailable (${detailError.code}), so there is no verified permission set to plan from.`
+        : safetyLoading
+          ? 'The canonical safety decision for this role is still loading.'
+          : !canonicalDecision
+            ? 'No canonical safety decision has been returned for this role and scope, so there is nothing authorized to plan against.'
+            : !gapData
+              ? 'Permission detail has not loaded, so there is no verified permission set to plan from.'
+              : null
 
   const renderChangeStatusCard = () => {
     if (!safetyContext) return null
@@ -3411,8 +4613,26 @@ export function IAMPermissionAnalysisModal({
 
   if (!isOpen) return null
 
-  // Loading state
-  if (loading) {
+  // Fail-loud guard: refuse the safety check when the caller supplies no
+  // system context. See the note above the fetch effects.
+  if (!systemName) {
+    console.error('[IAMPermissionAnalysisModal] systemName prop missing — refusing safety check')
+    return (
+      <Alert variant="destructive" data-testid="iam-review-system-context-missing">
+        <AlertTitle>Safety check unavailable</AlertTitle>
+        <AlertDescription>
+          Cyntro could not verify safety for this role because system
+          context is missing. Execution is blocked. Refresh the page,
+          or contact support if this persists.
+        </AlertDescription>
+      </Alert>
+    )
+  }
+
+  // Full-screen loading only until the FIRST of the two reads answers. Once
+  // the canonical safety decision (or the permission detail) is available the
+  // modal body renders and the other read loads inline.
+  if (loading && safetyLoading && !gapData && !safetyContext) {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={REMEDIATION_MODAL_BACKDROP_STYLE}>
         <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full p-8 text-center">
@@ -3430,35 +4650,6 @@ export function IAMPermissionAnalysisModal({
     )
   }
 
-  // Error state
-  if (error) {
-    return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={REMEDIATION_MODAL_BACKDROP_STYLE}>
-        <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full p-8 text-center">
-          <XCircle className="w-12 h-12 mx-auto mb-4 text-[#ef4444]" />
-          <h2 className="text-2xl font-bold mb-2 text-[var(--foreground,#111827)]">Failed to Load Data</h2>
-          <p className="mb-4" style={{ color: "var(--muted-foreground, #6b7280)" }}>{error}</p>
-          <div className="flex justify-center gap-3">
-            <button
-              onClick={() => fetchGapAnalysis()}
-              className="px-4 py-2 bg-[#8b5cf6] text-white rounded-md hover:bg-[#7c3aed] text-sm font-medium flex items-center gap-2"
-            >
-              <RefreshCw className="w-4 h-4" />
-              Retry
-            </button>
-            <button
-              onClick={handleClose}
-              className="px-4 py-2 border border-[var(--border,#d1d5db)] rounded-md text-[var(--foreground,#374151)] hover:bg-gray-50 text-sm font-medium"
-            >
-              Close
-            </button>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  // Simulation Loading
   if (simulating) {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={REMEDIATION_MODAL_BACKDROP_STYLE}>
@@ -4542,6 +5733,31 @@ export function IAMPermissionAnalysisModal({
                   const sharedHref = `${sharedPath}?system_name=${encodeURIComponent(systemName)}&role_ref=${encodeURIComponent(safetyContext?.shared_resource?.resource_id || roleName)}`
                   const selectedPermissions = Array.from(selectedPermissionsToRemove)
 
+                  if (approvalListError) {
+                    return (
+                      <div
+                        className="flex items-center gap-3"
+                        data-testid="iam-approval-list-unreadable"
+                        data-approval-status={approvalListError.status ?? 'network'}
+                        data-approval-code={approvalListError.code ?? ''}
+                      >
+                        <span className="text-sm text-amber-900">
+                          Approval requests could not be read{approvalListError.status ? ` (HTTP ${approvalListError.status}` : ' ('}
+                          {approvalListError.code ? ` ${approvalListError.code}` : ''}
+                          {approvalListError.status ? ')' : 'network)'}: {approvalListError.message}. A request may already exist, so a new one cannot be raised until they load.
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => void fetchApprovalRequests()}
+                          disabled={approvalLoading}
+                          className="rounded-lg border border-amber-400 px-4 py-2 text-sm font-semibold text-amber-900 disabled:opacity-50"
+                        >
+                          {approvalLoading ? 'Checking approvals…' : 'Retry'}
+                        </button>
+                      </div>
+                    )
+                  }
+
                   if (approval?.status === 'APPROVED') {
                     return (
                       <div className="flex items-center gap-3">
@@ -4717,7 +5933,7 @@ export function IAMPermissionAnalysisModal({
               <span className="truncate">
                 {roleName} <span className="font-normal" style={{ color: "var(--muted-foreground, #6b7280)" }}>· {identityType || 'IAMRole'}{systemName ? ` · ${systemName}` : ''}</span>
               </span>
-              <TerraformExecutionChip adapter={tfAdapter} />
+              {safetyContext && <TerraformExecutionChip adapter={tfAdapter} />}
             </div>
             {viaInstanceProfile && (
               <div className="mt-1 text-[11px]" style={{ color: "var(--muted-foreground, #6b7280)" }}>
@@ -4735,7 +5951,13 @@ export function IAMPermissionAnalysisModal({
             >
               <RefreshCw className="w-4 h-4" />
             </button>
-            <button onClick={handleClose} className="p-1.5 rounded-md hover:bg-slate-50" style={{ color: "var(--muted-foreground, #9ca3af)" }}>
+            <button
+              onClick={handleClose}
+              aria-label="Close review"
+              data-testid="iam-review-close"
+              className="p-1.5 rounded-md hover:bg-slate-50"
+              style={{ color: "var(--muted-foreground, #9ca3af)" }}
+            >
               <X className="w-4 h-4" />
             </button>
           </div>
@@ -4764,33 +5986,109 @@ export function IAMPermissionAnalysisModal({
               <div className="flex items-start gap-2">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-orange-300" />
                 <div>
-                  <div className="text-xs font-bold">Operator override is available</div>
+                  <div className="text-xs font-bold">
+                    {breakGlassUnavailableReason ? 'Operator override is unavailable' : 'Operator override is available'}
+                  </div>
                   <p className="mt-0.5 text-xs leading-relaxed text-orange-100">{overrideHoldReason}</p>
-                  <p className="mt-1 text-xs leading-relaxed text-orange-100">
-                    Cyntro will not silently approve the change, but it will not lock you out. Remediate Anyway prepares an exact, reversible plan and then asks you to confirm the risk and audit details.
+                  <p
+                    className="mt-1 text-xs leading-relaxed text-orange-100"
+                    data-testid="iam-break-glass-explanation"
+                  >
+                    {breakGlassUnavailableReason
+                      ? `${breakGlassUnavailableReason} This is a Cyntro-side refusal to plan from absent evidence, not an AWS permission decision.`
+                      : 'Cyntro will not silently approve the change, but it will not lock you out. Remediate Anyway prepares an exact, reversible plan and then asks you to confirm the risk and audit details.'}
                   </p>
                 </div>
               </div>
               <button
                 type="button"
                 onClick={handlePrepareBreakGlass}
-                disabled={breakGlassPreparing || applying}
+                disabled={breakGlassPreparing || applying || !!breakGlassUnavailableReason}
+                aria-disabled={breakGlassPreparing || applying || !!breakGlassUnavailableReason}
+                title={breakGlassUnavailableReason ?? undefined}
+                data-testid="iam-break-glass-action"
+                data-unavailable-reason={breakGlassUnavailableReason ? 'true' : undefined}
                 className="shrink-0 rounded-md border border-orange-200 bg-white px-3 py-1.5 text-xs font-bold text-orange-950 shadow-sm hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {breakGlassPreparing ? 'Preparing exact plan…' : 'Remediate Anyway'}
               </button>
             </div>
+            {planOutcome && (
+              <div
+                data-testid="iam-plan-outcome"
+                data-plan-state={planOutcome.state}
+                data-plan-code={planOutcome.code}
+                role="status"
+                className={`mt-2 rounded-md border px-3 py-2 text-xs ${
+                  planOutcome.state === 'prepared'
+                    ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+                    : 'border-orange-300 bg-orange-50 text-orange-950'
+                }`}
+              >
+                <span className="font-semibold">
+                  {planOutcome.state === 'prepared'
+                    ? 'Plan prepared'
+                    : 'Plan not prepared'}
+                </span>
+                {' — '}
+                {planOutcome.message}
+                <span className="ml-1 opacity-70">({planOutcome.code})</span>
+              </div>
+            )}
           </div>
         )}
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto space-y-3 p-4">
+          {loading && !gapData && (
+            <div
+              className="flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600"
+              data-testid="iam-review-detail-loading"
+            >
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              Loading permission detail…
+            </div>
+          )}
+          {detailError && !loading && (() => {
+            const copy = reviewErrorCopy(detailError)
+            return (
+              <div
+                className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-amber-950"
+                data-testid="iam-review-detail-unavailable"
+                data-error-code={detailError.code}
+                data-upstream-code={detailError.upstreamCode ?? undefined}
+              >
+                <div className="text-xs font-semibold">Permission detail unavailable — {copy.title}</div>
+                <p className="mt-0.5 text-xs leading-relaxed">
+                  {copy.body} This legacy detail is diagnostic only: counts it would show are unknown, not zero, and it
+                  never enables a change.
+                </p>
+                <div className="mt-1 flex items-center gap-3 text-[11px] text-amber-800">
+                  <span>HTTP {detailError.status || 'network'} · {detailError.code}{detailError.upstreamCode ? ` · ${detailError.upstreamCode}` : ''}</span>
+                  {detailError.requestId && <span>Request {detailError.requestId}</span>}
+                  {isRetryableReviewError(detailError) && (
+                    <button
+                      type="button"
+                      onClick={() => { void fetchGapAnalysis() }}
+                      className="rounded border border-amber-400 bg-white px-2 py-0.5 font-medium hover:bg-amber-100"
+                    >
+                      Retry detail
+                    </button>
+                  )}
+                </div>
+              </div>
+            )
+          })()}
           {/* Recording Period — compact single-row chip strip */}
           <div className="flex items-center justify-between gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
             <div className="flex items-center gap-2 text-xs" style={{ color: "var(--foreground, #111827)" }}>
               <Calendar className="w-3.5 h-3.5" style={{ color: "#2D51DA" }} />
               <span className="font-semibold" data-testid="observation-window-headline">
-                {gapData ? observationWindowCopy.headline : 'Observation window loading'}
+                {gapData
+                  ? observationWindowCopy.headline
+                  : detailError
+                    ? 'Observation window unavailable'
+                    : 'Observation window loading'}
               </span>
               <span className="text-slate-400">·</span>
               <span
@@ -4859,6 +6157,14 @@ export function IAMPermissionAnalysisModal({
                     Cyntro will not recommend or enable a permission change until the verified
                     permission snapshot loads.
                   </p>
+                  {safetyError && (
+                    <p className="mt-1 text-xs" data-testid="iam-review-safety-error-reason" data-error-code={safetyError.code}
+                      data-upstream-code={safetyError.upstreamCode ?? undefined}>
+                      {reviewErrorCopy(safetyError).title} · HTTP {safetyError.status || 'network'} · {safetyError.code}
+                      {safetyError.upstreamCode ? ` · ${safetyError.upstreamCode}` : ''}
+                      {safetyError.requestId ? ` · request ${safetyError.requestId}` : ''}
+                    </p>
+                  )}
                   <button
                     type="button"
                     onClick={() => { void fetchSafetyContext() }}
@@ -4885,20 +6191,18 @@ export function IAMPermissionAnalysisModal({
               Reading unified pipeline decision…
             </div>
           )}
-          {showLegacySummaryScaffolding && !safetyLoading && !safetyContext && (
-            <div className="rounded-lg border-2 border-red-300 bg-red-50 p-4">
-              <div className="flex items-start gap-3">
-                <XCircle className="w-6 h-6 text-[#ef4444] flex-shrink-0 mt-0.5" />
-                <div>
-                  <p className="font-bold text-[#991b1b]">Cyntro could not verify safety for this role</p>
-                  <p className="text-sm text-[#7f1d1d] mt-1">
-                    Required system context is missing or invalid for{' '}
-                    <span className="font-semibold">{roleName}</span>. Refresh the page
-                    or contact support if this persists.
-                  </p>
-                </div>
-              </div>
-            </div>
+          {/* Not gated on the legacy scaffolding: the permission-gap view is
+              DETAIL, and detail arriving is not a safety decision. Gated that
+              way, a canonical answer that never came (or a 200 carrying no
+              decision) showed the operator a full gap summary and no notice at
+              all -- the silence Codex's P2 review found behind the enabled
+              planning button. */}
+          {analysisTab === 'summary' && !safetyLoading && !safetyContext && (
+            <SafetyUnavailableNotice
+              roleName={roleName}
+              failure={safetyError}
+              onRetry={() => { void fetchSafetyContext() }}
+            />
           )}
           {showLegacySummaryScaffolding && safetyContext && renderSimpleDecisionSummary()}
           {showLegacySummaryScaffolding && safetyContext && (() => {
@@ -5170,7 +6474,7 @@ export function IAMPermissionAnalysisModal({
           })()}
 
           {/* Remediated State Banner - Show when role has 0 permissions */}
-          {showLegacySummaryScaffolding && totalPermissions === 0 && (
+          {showLegacySummaryScaffolding && permissionCountsKnown && totalPermissions === 0 && (
             <div className="rounded-md border border-[#86efac] bg-[#f0fdf4] p-3">
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 bg-[#10b98120] rounded-full flex items-center justify-center shrink-0">
@@ -5587,12 +6891,28 @@ export function IAMPermissionAnalysisModal({
             // below "22 of 27"), while also recreating the clutter this
             // summary was designed to remove.
             if (safetyContext) return null
+            // Nor from absent data: with no detail response the counts are
+            // unknown, and "Remove 0 unused permissions" is a recommendation
+            // manufactured from a refusal.
+            if (!gapData) return null
+            // Nor before the canonical decision exists. Detail arrives first,
+            // and this block briefly claimed "Remove 8 unused permissions ...
+            // while maintaining all current functionality" while the summary
+            // still said the verified snapshot was loading (Codex Chrome QA,
+            // 2026-09-16). Safe removal is a canonical claim; detail alone
+            // cannot make it. The remediated banner below is a FACT read from
+            // detail (remediated_at), not a removal recommendation, so it is
+            // allowed to render before the decision lands.
+            const canonicalMissing = safetyLoading || !!safetyError || !canonicalDecision
 
             const noUsageData = cloudtrailEvents === 0 && unusedCount > 0
             const isServiceRole = backendAnalysis?.is_service_role && backendAnalysis?.analysis?.severity === 'critical'
-            const isRemediated = totalPermissions === 0 || !!gapData?.remediated_at
+            // Never "remediated" from absent data: without a loaded detail
+            // response the counts are unknown, not zero.
+            const isRemediated = !!gapData && (totalPermissions === 0 || !!gapData.remediated_at)
 
             // Show success message for remediated roles
+            if (!isRemediated && canonicalMissing) return null
             if (isRemediated) {
               const remediatedDate = gapData?.remediated_at
                 ? new Date(gapData.remediated_at).toLocaleDateString()
@@ -5721,12 +7041,12 @@ export function IAMPermissionAnalysisModal({
                 const response = await fetch('/api/proxy/least-privilege/simulate-fix', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    resource_type: 'IAMRole',
-                    resource_id: roleName,
-                    system_name: systemName,
-                    finding_id: findingId,
-                  })
+                  body: JSON.stringify(buildSimulateFixBody({
+                    roleName,
+                    systemName: systemName || '',
+                    findingId,
+                    scope: reviewScope,
+                  })),
                 })
 
                 const result = await response.json()

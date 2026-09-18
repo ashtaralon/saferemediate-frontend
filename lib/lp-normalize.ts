@@ -45,6 +45,30 @@ export type HighRiskUnusedItem = {
  * GapResource-compatible shape with nullable evidence.
  * Kept local so LeastPrivilegeTab can adopt without a circular import.
  */
+/** Why the backend overlay cannot establish a row's CURRENT state, exactly as the API names it (Root168/170/174). */
+export interface RemediationUncertainty {
+  code: string
+  operationId: string | null
+  state: string | null
+}
+
+/** How the overlay settled a recorded change: RESTORED by a validated later restore, or NO_RESTORE_POINT. */
+export interface RemediationSettlement {
+  code: string
+  operationId: string | null
+  restoredByOperationId?: string | null
+}
+
+/** The issues body's ledger diagnostics (`remediationLedger`), kept for the operator -- never inferred. */
+export interface RemediationLedgerDiagnostics {
+  state: string
+  reason: string | null
+  examined: number | null
+  overlaid: number | null
+  uncertain: number | null
+  settled: number | null
+}
+
 export interface NormalizedGapResource {
   id: string
   findingId?: string
@@ -54,15 +78,36 @@ export interface NormalizedGapResource {
   resourceArn: string
   systemName?: string
   isRemediable?: boolean
+  /**
+   * Whether the backend declared this row's resource TYPE read-only preview-capable, from an explicit structured
+   * `capabilities[].preview_supported === true` entry only. Absent when the response carried no well-shaped
+   * capability for the type. Never apply authority — see `ResourceRiskDecisionInput.isPreviewCapable`.
+   */
+  isPreviewCapable?: boolean
   remediableReason?: string
   isServiceLinkedRole?: boolean
   /** Backend remediation receipt only — never a browser clock. */
   remediatedAt?: string | null
   remediatedBy?: string | null
+  /** How remediatedBy was established, as the operation recorded it (e.g. SELF_ATTESTED). */
+  remediatedByMethod?: string | null
+  /** Whether that identity was verified; null when nothing was recorded. */
+  remediatedByVerified?: boolean | null
+  /** What the recorded verification actually established (backend read-time `attribution_class`). */
+  remediatedByAttribution?: string | null
   snapshotId?: string | null
   eventId?: string | null
+  /** "operation_ledger" when the remediated marks come from a recorded boundary change, not the graph. */
+  remediationSource?: string | null
+  remediationOperationId?: string | null
   /** Backend-declared capability only — never inferred from snapshotId. */
   rollbackAvailable?: boolean
+  /** The overlay's named reason the current state is NOT established; null when it is. Never inferred. */
+  remediationUncertainty?: RemediationUncertainty | null
+  /** How the overlay settled the recorded change; null when it is current. */
+  remediationSettlement?: RemediationSettlement | null
+  /** What backs the overlay's offer: OUTCOME_VERIFIED, or LEDGER_STATE_ONLY for a record without a stored outcome. */
+  remediationEvidence?: string | null
   /** Optimistic post-apply UI state. Never invents clean scores. */
   verificationState?: LPVerificationState
   /**
@@ -175,6 +220,30 @@ export interface NormalizedLPResponse extends LPIntegrityFields {
   /** Snake_case alias — copied literally when present on the wire. */
   failed_analyzers?: string[]
   capabilities: ResourceRiskCapability[]
+  /** The overlay's ledger diagnostics, typed; null when the body carried none. */
+  remediationLedger: RemediationLedgerDiagnostics | null
+  /**
+   * The canonical readiness package, carried through EXACTLY as the wire had
+   * it, and `unknown` on purpose.
+   *
+   * Producer: `CanonicalReadinessPackage.to_wire()`
+   * (`unified/readiness/canonical_package.py`) — `asdict` of the frozen
+   * dataclass with `probed_at`/`expires_at` as ISO strings — attached as
+   * `"readiness"` by `unified/lp/endpoint.py` and forwarded verbatim by
+   * `app/api/proxy/least-privilege/issues/route.ts` (`{...data}`).
+   *
+   * It is NOT typed as the package here, and nothing in this module inspects
+   * it. The authority that decides whether a value is a usable package is
+   * `classifySignedOverrideReadiness`, which refuses an absent, null,
+   * foreign-schema or malformed one by name. Typing it here would invite a
+   * narrowing that quietly answers that question in the wrong place; the
+   * normalizer's whole job for this field is to not lose it.
+   *
+   * ABSENT IS A REAL ANSWER, and it must stay distinguishable: the proxy's own
+   * stale-fallback branch synthesises `serve_state: "NOT_READY"` with NO
+   * readiness at all, and the classifier must be able to see that.
+   */
+  readiness?: unknown
 }
 
 /**
@@ -342,7 +411,84 @@ function normalizeResourceType(raw: Record<string, unknown>): string {
   return ''
 }
 
-export function normalizeGapResource(raw: any): NormalizedGapResource {
+/**
+ * The set of resource types the BACKEND explicitly declared read-only preview-capable.
+ *
+ * Only a well-shaped capability entry grants membership: a non-array object whose `resource_type` is a string
+ * that is nonempty after trimming, and whose `preview_supported` is STRICTLY `true`. Everything else is a denial,
+ * deliberately:
+ *   - a missing, non-array or non-object entry grants nothing;
+ *   - `preview_supported` that is absent, `false`, `"true"`, `1` or any other truthy non-boolean grants nothing;
+ *   - a blank or non-string `resource_type` grants nothing;
+ *   - AMBIGUITY is a denial: if the same type appears more than once and any occurrence is not strictly
+ *     `true`, the type is withheld rather than resolved in favour of the permissive entry.
+ * Matching is exact on the trimmed string; no case-folding and no aliasing, so a mismatched spelling grants
+ * nothing. Row-level flags and `decisionReason` prose are never consulted.
+ */
+export function previewCapableResourceTypes(rawCapabilities: unknown): ReadonlySet<string> {
+  const granted = new Set<string>()
+  const denied = new Set<string>()
+  if (!Array.isArray(rawCapabilities)) return granted
+  for (const entry of rawCapabilities) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue
+    const record = entry as Record<string, unknown>
+    const type = typeof record.resource_type === 'string' ? record.resource_type.trim() : ''
+    if (!type) continue
+    if (record.preview_supported === true) granted.add(type)
+    else denied.add(type)
+  }
+  // A type named by both a strict grant and any non-grant is ambiguous: withhold it.
+  for (const type of denied) granted.delete(type)
+  return granted
+}
+
+const nonEmptyString = (value: unknown): string | null =>
+  typeof value === 'string' && value.length > 0 ? value : null
+
+const asObject = (value: unknown): Record<string, unknown> | null =>
+  value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null
+
+/** Only the overlay's typed shape; anything else is null, never a partial or guessed object. */
+export function normalizeRemediationUncertainty(raw: unknown): RemediationUncertainty | null {
+  const r = asObject(raw)
+  const code = r ? nonEmptyString(r.code) : null
+  if (!r || !code) return null
+  return { code, operationId: nonEmptyString(r.operationId), state: nonEmptyString(r.state) }
+}
+
+export function normalizeRemediationSettlement(raw: unknown): RemediationSettlement | null {
+  const r = asObject(raw)
+  const code = r ? nonEmptyString(r.code) : null
+  if (!r || !code) return null
+  return {
+    code,
+    operationId: nonEmptyString(r.operationId),
+    ...(r.restoredByOperationId !== undefined ? { restoredByOperationId: nonEmptyString(r.restoredByOperationId) } : {}),
+  }
+}
+
+export function normalizeRemediationLedger(raw: unknown): RemediationLedgerDiagnostics | null {
+  const r = asObject(raw)
+  const state = r ? nonEmptyString(r.state) : null
+  if (!r || !state) return null
+  const count = (value: unknown): number | null =>
+    typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : null
+  return {
+    state,
+    reason: nonEmptyString(r.reason),
+    examined: count(r.examined),
+    overlaid: count(r.overlaid),
+    uncertain: count(r.uncertain),
+    settled: count(r.settled),
+  }
+}
+
+export function normalizeGapResource(
+  raw: any,
+  // Optional: the strict preview-capable type set from the SAME response (see previewCapableResourceTypes).
+  // Omitted by existing callers, which keeps their output unchanged.
+  previewCapableTypes?: ReadonlySet<string>,
+): NormalizedGapResource {
   const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
   const evidenceIn =
     r.evidence && typeof r.evidence === 'object'
@@ -481,6 +627,12 @@ export function normalizeGapResource(raw: any): NormalizedGapResource {
           : typeof r.remediable === 'boolean'
             ? (r.remediable as boolean)
             : undefined,
+    // Only the response's own structured capability set may grant this, matched exactly on the normalized type.
+    // A row flag of any spelling is deliberately NOT consulted, so a payload cannot assert its own capability.
+    isPreviewCapable:
+      previewCapableTypes !== undefined && normalizeResourceType(r) !== ''
+        ? previewCapableTypes.has(normalizeResourceType(r))
+        : undefined,
     remediableReason:
       typeof r.remediableReason === 'string'
         ? r.remediableReason
@@ -490,14 +642,22 @@ export function normalizeGapResource(raw: any): NormalizedGapResource {
     isServiceLinkedRole: isServiceLinkedRole(r),
     remediatedAt: (r.remediatedAt ?? r.remediated_at ?? null) as string | null,
     remediatedBy: (r.remediatedBy ?? r.remediated_by ?? null) as string | null,
+    remediatedByMethod: typeof r.remediatedByMethod === 'string' ? r.remediatedByMethod : null,
+    remediatedByVerified: typeof r.remediatedByVerified === 'boolean' ? r.remediatedByVerified : null,
+    remediatedByAttribution: typeof r.remediatedByAttribution === 'string' ? r.remediatedByAttribution : null,
     snapshotId: (r.snapshotId ?? r.snapshot_id ?? null) as string | null,
     eventId: (r.eventId ?? r.event_id ?? null) as string | null,
+    remediationSource: typeof r.remediationSource === 'string' ? r.remediationSource : null,
+    remediationOperationId: typeof r.remediationOperationId === 'string' ? r.remediationOperationId : null,
     rollbackAvailable:
       typeof r.rollbackAvailable === 'boolean'
         ? r.rollbackAvailable
         : typeof r.rollback_available === 'boolean'
           ? (r.rollback_available as boolean)
           : undefined,
+    remediationUncertainty: normalizeRemediationUncertainty(r.remediationUncertainty),
+    remediationSettlement: normalizeRemediationSettlement(r.remediationSettlement),
+    remediationEvidence: typeof r.remediationEvidence === 'string' ? r.remediationEvidence : null,
     verificationState:
       r.verificationState === 'applied_verifying' ||
       r.verificationState === 'verify_failed'
@@ -530,8 +690,10 @@ export function normalizeLPResponse(result: any): NormalizedLPResponse {
       : undefined
 
   const rawResources: unknown[] = Array.isArray(input.resources) ? input.resources : []
+  // Derived from THIS response's own capabilities, strictly, before any row is normalized.
+  const previewCapableTypes = previewCapableResourceTypes(input.capabilities)
   const resources = rawResources
-    .map((r) => normalizeGapResource(r))
+    .map((r) => normalizeGapResource(r, previewCapableTypes))
     .filter((r) => !r.isServiceLinkedRole)
 
   const measured = rawResources.filter((row) => {
@@ -603,6 +765,7 @@ export function normalizeLPResponse(result: any): NormalizedLPResponse {
     fromCache: !!input.fromCache,
     cacheAge: asFiniteNumber(input.cacheAge) ?? undefined,
     fromStaleCache: !!input.fromStaleCache,
+    remediationLedger: normalizeRemediationLedger(input.remediationLedger),
     staleReason:
       typeof input.staleReason === 'string' ? input.staleReason : undefined,
   }
@@ -614,6 +777,13 @@ export function normalizeLPResponse(result: any): NormalizedLPResponse {
   if ('failed_analyzers' in input) normalized.failed_analyzers = input.failed_analyzers
   if ('integrityReason' in input) normalized.integrityReason = input.integrityReason
   if ('counts_are_partial' in input) normalized.counts_are_partial = input.counts_are_partial
+  // The canonical readiness package, copied LITERALLY and only when the wire
+  // carried the key. `in` rather than a truthiness test on purpose: a null or
+  // malformed value is evidence the classifier must see and refuse, and
+  // dropping it would be indistinguishable from a backend that never sent one.
+  // Omitting this line is the d7061e38 defect -- the opening classifier read
+  // `data.readiness` and could only ever answer READINESS_PACKAGE_ABSENT.
+  if ('readiness' in input) normalized.readiness = input.readiness
 
   return normalized
 }
@@ -715,4 +885,31 @@ export function mergeLpResourcesAfterFetch(
 
     return backend
   })
+}
+
+
+/** How a recorded operator is qualified, keyed by the backend's read-time attribution class (never rewritten). */
+export const OPERATOR_ATTRIBUTION_QUALIFIERS: Record<string, string> = {
+  VERIFIED_PERSON: "verified operator",
+  VERIFIED_SERVICE_CHANNEL: "deployment service; verified channel, no person identified",
+  SELF_ATTESTED_UNVERIFIED: "self-attested, not verified",
+  PROCESS_UNVERIFIED: "process attribution, not verified",
+  LEGACY_PROCESS_SESSION_UNVERIFIED: "process attribution recorded before proof was checked, not verified",
+  AUTOMATED_MONITOR: "automated rollback monitor",
+  UNKNOWN: "attribution unknown, not verified",
+}
+
+/**
+ * The qualifier for a recorded operator. A classified record is qualified by what was actually checked -- a verified
+ * flag alone never makes a process or a service read as a verified person. A response that predates the
+ * classification is qualified only when it recorded itself as unverified, exactly as before.
+ */
+export function operatorAttributionQualifier(
+  attribution: string | null | undefined,
+  verified: boolean | null | undefined,
+): string | null {
+  if (typeof attribution === "string" && attribution) {
+    return OPERATOR_ATTRIBUTION_QUALIFIERS[attribution] ?? OPERATOR_ATTRIBUTION_QUALIFIERS.UNKNOWN
+  }
+  return verified === false ? "self-attested, not verified" : null
 }
