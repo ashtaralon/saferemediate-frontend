@@ -690,6 +690,31 @@ describe("mounted signed-override confirmation", () => {
     expect(remediateCalls()).toHaveLength(0)
   })
 
+  // ── Root199: the finding travels on BOTH real simulate-fix requests ────────
+
+  it("sends the same finding_id on the initial safety read and the Preview", async () => {
+    // Captured at the external fetch boundary, from the ACTUAL requests the
+    // mounted modal makes through `buildSimulateFixBody`
+    // (lib/iam-review-scope.ts, which emits `body.finding_id` when findingId is
+    // populated). No helper response is faked and no source text is asserted.
+    await openPreviewAndPreparePlan()
+
+    const simulateCalls = recorded.filter(
+      r => r.url.includes("/least-privilege/simulate-fix") && r.method === "POST",
+    )
+    // the initial safety read on open, and the user-triggered Preview
+    expect(simulateCalls.length).toBeGreaterThanOrEqual(1)
+    const findingIds = simulateCalls.map(r => r.body?.finding_id)
+    // every one of them carries a finding, and they all name the SAME finding
+    expect(findingIds.every(id => typeof id === "string" && id.length > 0)).toBe(true)
+    expect(new Set(findingIds).size).toBe(1)
+    // and the scope the request carries is the review's own, not a default
+    for (const call of simulateCalls) {
+      expect(call.body.resource_id).toBe(ROLE)
+      expect(call.body.system_name).toBe(SYSTEM)
+    }
+  })
+
   // ── Root161/178 opening-page package propagation ───────────────────────────
 
   it("the OPENING dialog reflects the real package, without any read", async () => {

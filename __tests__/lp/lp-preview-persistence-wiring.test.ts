@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { buildSimulateFixBody } from '@/lib/iam-review-scope'
 
 const source = readFileSync(join(process.cwd(), 'components/LeastPrivilegeTab.tsx'), 'utf8')
 const analysisModalSource = readFileSync(
@@ -22,7 +23,21 @@ describe('Resource Risk Preview persistence wiring', () => {
 
   it('keeps the evidence-modal Preview bound to the same finding and preserves technical audit details', () => {
     expect(source).toContain('findingId={selectedIAMFindingId || undefined}')
-    expect(analysisModalSource).toContain('finding_id: findingId')
+    // The modal no longer spells the field inline: it calls the real request
+    // helper. Assert the CONTRACT at its real entry instead of a source string,
+    // so an implementation that still sends finding_id cannot read as a
+    // regression (and a source-only rename cannot read as a pass).
+    expect(analysisModalSource).toContain('buildSimulateFixBody(')
+    expect(buildSimulateFixBody({
+      roleName: 'fixture-web-role',
+      systemName: 'fixture-shop',
+      scope: {},
+      findingId: 'finding-abc123',
+    })).toMatchObject({ finding_id: 'finding-abc123' })
+    // and absence stays absence -- the key is not emitted when there is no finding
+    expect(buildSimulateFixBody({
+      roleName: 'fixture-web-role', systemName: 'fixture-shop', scope: {},
+    })).not.toHaveProperty('finding_id')
     expect(analysisModalSource).toContain('data-testid="safetyvector-decision"')
     expect(analysisModalSource).toContain('SafetyVector decision')
     expect(analysisModalSource).toContain("decisionPersistence?.persisted ? 'Decision saved' : 'Not saved'")
