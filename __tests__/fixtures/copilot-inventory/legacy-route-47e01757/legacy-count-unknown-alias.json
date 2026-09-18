@@ -1,0 +1,27 @@
+{
+  "body": {
+    "detail": {
+      "error": "unknown resource_type: 'not-an-alias'",
+      "valid_aliases": [
+        "attack-path",
+        "dynamodb",
+        "ec2",
+        "finding",
+        "iam-policy",
+        "iam-role",
+        "iam-user",
+        "kms",
+        "lambda",
+        "rds",
+        "s3",
+        "secret",
+        "sg",
+        "subnet",
+        "system",
+        "vpc"
+      ]
+    }
+  },
+  "graph_calls": 0,
+  "status": 400
+}

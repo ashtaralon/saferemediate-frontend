@@ -76,6 +76,8 @@ jobs:
         env:
           # A push carries no inputs: fall back to the C1 production defaults.
           FRONTEND_URL: ${{ inputs.frontend_url || 'https://cyntro-c1.vercel.app' }}
+          # Site gate sign-in for the deployed console (live-auth.ts).
+          CYNTRO_LIVE_SITE_PASSWORD: ${{ secrets.CYNTRO_C1_SITE_PASSWORD }}
           C1_SYSTEM: ${{ inputs.system || 'testbed-webshop' }}
           C1_CUSTOMER_ID: testbed-webshop
           C1_ACCOUNT_ID: "416651950952"
