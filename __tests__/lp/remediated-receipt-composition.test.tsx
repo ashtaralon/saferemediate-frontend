@@ -111,7 +111,11 @@ function statesBody(): CheckpointStates {
       post_image_hash: "8ce7d30f0a3a8c4b16287c913a434747f047494ce783d5c4d9df47fd5fab7c8c",
       removed_actions: REMOVED,
     },
-    integrity: verified ? "VERIFIED" : "UNVERIFIABLE",
+    // the producer's closed rule: VERIFIED when the after state verified,
+    // else BEFORE_ONLY when the before state did. This fixture kept
+    // before.verified true, so UNVERIFIABLE was self-inconsistent -- the new
+    // fetch-boundary validation refused it, correctly.
+    integrity: verified ? "VERIFIED" : "BEFORE_ONLY",
     before: {
       verified: true, reason: null,
       policy_set_hash_checkpoint: "4838dab19ec9c2b026aa1277be68115107e121d4835524962d578448180e5eee",

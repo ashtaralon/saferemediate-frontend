@@ -88,10 +88,65 @@ export async function fetchCheckpointStates(
   }
   const body = await response.json().catch(() => null)
   if (!response.ok) return { ok: false, failure: mutationFailure(response.status, body) }
-  if (!body || typeof body !== "object" || !("integrity" in body) || !("before" in body)) {
-    return { ok: false, failure: { status: response.status, code: null, message: "The saved state response was not in the expected form.", awsWrites: null } }
+  // A 200 is not a contract. The old guard accepted ANY object carrying
+  // `integrity` and `before`, then cast it, and both consumers go on to
+  // dereference `states.operation.removed_actions` and `states.after.verified` --
+  // so a partial body passed the guard and crashed the Remediated row instead of
+  // showing unknown. Validate what the consumers actually require, here, once.
+  const malformed = {
+    ok: false as const,
+    failure: {
+      status: response.status, code: null,
+      message: "The saved state response was not in the expected form.",
+      awsWrites: null,
+    },
   }
-  return { ok: true, states: body as CheckpointStates }
+  if (!isStatesObject(body) || !describesSnapshot(body, snapshotId)) return malformed
+  return { ok: true, states: body }
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+/**
+ * Whether a 200 body carries every field the receipt consumers dereference, in
+ * the shape they dereference it, AND an `integrity` consistent with the two
+ * verified flags.
+ *
+ * The consistency check is the producer's own closed rule
+ * (`api/snapshots.py`): VERIFIED when the after state verified, else
+ * BEFORE_ONLY when the before state verified, else UNVERIFIABLE. A body that
+ * disagrees with itself is refused rather than reconciled -- nothing here
+ * infers `verified` or supplies a missing field.
+ */
+function isStatesObject(body: unknown): body is CheckpointStates {
+  if (!isPlainObject(body)) return false
+
+  const operation = body.operation
+  if (!isPlainObject(operation) || !Array.isArray(operation.removed_actions)) return false
+  if (operation.removed_actions.some((action) => typeof action !== "string")) return false
+
+  const before = body.before
+  if (!isPlainObject(before) || typeof before.verified !== "boolean") return false
+
+  const after = body.after
+  if (!isPlainObject(after) || typeof after.verified !== "boolean") return false
+  // consumers read this only when the after state did not verify, and read the
+  // documents only when it did -- so each must be the right shape for its case
+  if (after.verified) {
+    if (!isPlainObject(after.inline_policies)) return false
+  } else if (after.inline_policies !== null && !isPlainObject(after.inline_policies)) {
+    return false
+  }
+
+  const expected = after.verified ? "VERIFIED" : before.verified ? "BEFORE_ONLY" : "UNVERIFIABLE"
+  return body.integrity === expected
+}
+
+/** Whether the body answers for the snapshot that was actually requested. */
+function describesSnapshot(body: CheckpointStates, snapshotId: string): boolean {
+  return typeof body.snapshot_id === "string" && body.snapshot_id === snapshotId
 }
 
 export { mutationFailureText }
