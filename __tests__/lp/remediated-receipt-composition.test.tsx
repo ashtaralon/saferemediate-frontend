@@ -32,6 +32,12 @@ import type { CheckpointStates } from "@/lib/checkpoint-states"
 import LeastPrivilegeTab from "@/components/LeastPrivilegeTab"
 import { AccountScopeProvider } from "@/lib/account-scope-context"
 import bundle from "./__fixtures__/lp-issues-readiness.json"
+// The ACTUAL /snapshots/{id}/states payload, produced by the real backend route
+// over the real writers and captured by
+// tests/e2e_permissions_review/test_saved_checkpoint_states.py (backend head
+// 67263a33). See its `_provenance`: a declared offline scenario, not a measured
+// AWS change and not the frozen journey's ids.
+import capturedStates from "./__fixtures__/saved-checkpoint-states.json"
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/least-privilege",
@@ -43,7 +49,7 @@ vi.mock("next/navigation", () => ({
 
 const ROLE = "fixture-web-role"
 const SYSTEM = "fixture-shop"
-const SNAPSHOT = "IAMRole-fixture-web-role-c35b9c6a"
+const SNAPSHOT = (capturedStates.states as CheckpointStates).snapshot_id
 const REMOVED = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:Query",
                  "sqs:ReceiveMessage", "sqs:SendMessage"]
 const KEPT = ["iam:PassRole", "kms:Decrypt", "kms:Encrypt",
@@ -85,6 +91,8 @@ function json(body: unknown, status = 200) {
  */
 function statesBody(): CheckpointStates {
   const verified = statesMode === "verified"
+  // the VERIFIED case is the producer's own captured payload, verbatim
+  if (verified) return capturedStates.states as CheckpointStates
   const body = {
     snapshot_id: SNAPSHOT,
     source: "lifecycle_checkpoint",

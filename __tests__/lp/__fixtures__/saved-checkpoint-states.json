@@ -1,0 +1,106 @@
+{
+  "_provenance": {
+    "produced_by": "api/snapshots.py::get_snapshot_states, the actual route",
+    "writers": [
+      "checkpoint.manager.CheckpointManager.create_checkpoint (checkpoint row + S3 object)",
+      "api._operation_record.record_operation_start / record_operation_outcome",
+      "unified.iam.policy_hash (before hash) and the route's compile_inline_permission_change (after)"
+    ],
+    "captured_by": "tests/e2e_permissions_review/test_saved_checkpoint_states.py, backend head 67263a33",
+    "doubles": "external Dynamo/S3 client factories only; handler, hashes, compiler, scope and view unpatched",
+    "status": "declared OFFLINE scenario, seeded by those writers. NOT a measured AWS change, and NOT the frozen 3521/8521 journey's ids or timestamps."
+  },
+  "states": {
+    "snapshot_id": "IAMRole-fixture-web-role-bc489f34",
+    "source": "lifecycle_checkpoint",
+    "grants_no_authority": true,
+    "scope": {
+      "tenant_id": "fixture-webshop",
+      "account_id": "111111111111",
+      "resource_arn": "arn:aws:iam::111111111111:role/fixture-web-role"
+    },
+    "checkpoint": {
+      "status": "CREATED",
+      "created_at": "2026-09-18T17:47:16.979369+00:00",
+      "s3_key": "checkpoints/IAMRole-fixture-web-role-bc489f34.json",
+      "s3_version_id_observed": "v1",
+      "s3_version_pinned": false,
+      "before_state_source": "s3_object"
+    },
+    "operation": {
+      "operation_id": "e733cd8b-4607-4894-8a6d-e7795db123f7",
+      "state": "VERIFIED",
+      "record_version": 2,
+      "pre_image_hash": "4838dab19ec9c2b026aa1277be68115107e121d4835524962d578448180e5eee",
+      "post_image_hash": "8ce7d30f0a3a8c4b16287c913a434747f047494ce783d5c4d9df47fd5fab7c8c",
+      "removed_actions": [
+        "dynamodb:GetItem",
+        "dynamodb:PutItem",
+        "dynamodb:Query",
+        "sqs:ReceiveMessage",
+        "sqs:SendMessage"
+      ]
+    },
+    "integrity": "VERIFIED",
+    "before": {
+      "verified": true,
+      "reason": null,
+      "policy_set_hash_checkpoint": "4838dab19ec9c2b026aa1277be68115107e121d4835524962d578448180e5eee",
+      "policy_set_hash_recomputed": "4838dab19ec9c2b026aa1277be68115107e121d4835524962d578448180e5eee",
+      "inline_policies": {
+        "fixture-web-app": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Resource": "*",
+              "Action": [
+                "dynamodb:GetItem",
+                "dynamodb:PutItem",
+                "dynamodb:Query",
+                "iam:PassRole",
+                "kms:Decrypt",
+                "kms:Encrypt",
+                "s3:DeleteObject",
+                "s3:GetObject",
+                "s3:ListBucket",
+                "s3:PutObject",
+                "sqs:ReceiveMessage",
+                "sqs:SendMessage"
+              ]
+            }
+          ]
+        }
+      },
+      "attached_managed_policy_arns": []
+    },
+    "after": {
+      "verified": true,
+      "reason": null,
+      "derivation": "compile_inline_permission_change(checkpoint before_state, recorded removal set)",
+      "policy_set_hash_recorded": "8ce7d30f0a3a8c4b16287c913a434747f047494ce783d5c4d9df47fd5fab7c8c",
+      "policy_set_hash_recomputed": "8ce7d30f0a3a8c4b16287c913a434747f047494ce783d5c4d9df47fd5fab7c8c",
+      "inline_policies": {
+        "fixture-web-app": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Resource": "*",
+              "Action": [
+                "iam:PassRole",
+                "kms:Decrypt",
+                "kms:Encrypt",
+                "s3:DeleteObject",
+                "s3:GetObject",
+                "s3:ListBucket",
+                "s3:PutObject"
+              ]
+            }
+          ]
+        }
+      },
+      "deleted_inline_policies": []
+    }
+  }
+}
