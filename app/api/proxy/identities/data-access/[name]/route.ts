@@ -48,8 +48,11 @@ export async function GET(
 
   let response: Response
   try {
+    // A bare identifier before /api/ keeps this call visible to the backend's route census; resolving it
+    // here, inside the try, keeps a backend-url validation failure a 502 like any other.
+    const backendBaseUrl = getBackendBaseUrl()
     response = await fetch(
-      `${getBackendBaseUrl()}/api/identity-data-access?${new URLSearchParams({ identity_arn: arn }).toString()}`,
+      `${backendBaseUrl}/api/identity-data-access?${new URLSearchParams({ identity_arn: arn }).toString()}`,
       { cache: "no-store", headers: { Accept: "application/json", ...proof.headers }, signal: AbortSignal.timeout(25000) },
     )
   } catch {

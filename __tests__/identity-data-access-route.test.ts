@@ -8,6 +8,7 @@ import { NextRequest } from "next/server"
 import {
   BACKEND,
   FIXTURE_DIR,
+  RESIDENT_HEADERS,
   ROLE_ARN,
   ROLE_NAME,
   SERVICE_TOKEN,
@@ -409,6 +410,25 @@ describe("customer-resident: requests it will not send, and failures", () => {
     const { status, body } = await callRoute({ headers: {} })
     expect(status).toBe(403)
     expect(body.answer).toEqual({ status: "failed", reasonCode: "ANALYST_AUTHENTICATED_PRINCIPAL_UNAVAILABLE", reasonCategory: null })
+    expect(sent).toHaveLength(0)
+  })
+
+  it("answers a backend-url validation failure as a 502, never an unhandled error", async () => {
+    // getBackendBaseUrl refuses, on its first call, a Vercel deploy pointed at localhost. On Vercel that first
+    // call happens when lib/server/backend-url.ts loads, so a real deploy fails at boot. The case is constructed
+    // here -- a fresh route module loaded off-Vercel, then the bad configuration -- to pin that the route
+    // resolves the base inside its try: the refusal is an answered 502 with no backend call.
+    delete process.env.VERCEL_ENV
+    vi.resetModules()
+    const { GET } = await import("@/app/api/proxy/identities/data-access/[name]/route")
+    process.env.VERCEL_ENV = "preview"
+    process.env.BACKEND_URL_OVERRIDE = "http://localhost:9"
+    use("01-ready-populated")
+    const url = new URL(`https://app.example/api/proxy/identities/data-access/${ROLE_NAME}`)
+    url.searchParams.set("arn", ROLE_ARN)
+    const res = await GET(new NextRequest(url, { headers: RESIDENT_HEADERS }), { params: Promise.resolve({ name: ROLE_NAME }) })
+    expect(res.status).toBe(502)
+    expect((await res.json()).answer).toEqual({ status: "failed", reasonCode: "IDENTITY_DATA_ACCESS_UNAVAILABLE", reasonCategory: null })
     expect(sent).toHaveLength(0)
   })
 
