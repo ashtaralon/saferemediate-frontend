@@ -9,13 +9,26 @@ import type { DecisionOutcomeCanonical, SimulateFixResponse } from '@/lib/types'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useToast } from '@/hooks/use-toast'
 import { dispatchRemediationChanged, onRemediationChanged } from '@/lib/remediation-events'
-import { deriveLPIntegrity, lpEvidenceGapCopy, lpIntegrityCopy } from '@/lib/lp-integrity'
+import { mutationFailure, mutationFailureText } from '@/lib/iam-mutation-outcome'
+import { RemediatedAllowedAfterCell, RemediationReceipt, remediationActorText } from '@/components/lp/remediated-permission-counts'
+import {
+  classifySignedOverrideReadiness,
+  deriveLPIntegrity,
+  lpEvidenceGapCopy,
+  lpIntegrityCopy,
+  type CanonicalReadinessWire,
+  type LPIntegrityFields,
+  type SignedOverrideClassification,
+} from '@/lib/lp-integrity'
 import { resolveLPReviewSurface } from '@/lib/lp-review-routing'
 import {
   mergeLpResourcesAfterFetch,
   markResourceVerifying,
   normalizeLPResponse,
   normalizeLPSeverityBucket,
+  type RemediationLedgerDiagnostics,
+  type RemediationSettlement,
+  type RemediationUncertainty,
 } from '@/lib/lp-normalize'
 import { AnalysisIntegrityBanner, PartialCountMarker } from '@/components/analysis-integrity-banner'
 import {
@@ -39,6 +52,7 @@ import {
 } from '@/lib/resource-risk-decision'
 import { useAccountScope } from '@/lib/account-scope-context'
 import { resourceAccountId, withAccountScope } from '@/lib/account-scope'
+import { reviewSystemName } from '@/lib/iam-review-scope'
 import { TerraformExecutionChip } from '@/components/terraform-execution-chip'
 import {
   resolveSecurityGroupReviewTarget,
@@ -69,9 +83,18 @@ interface GapResource {
   // Remediation metadata — backend receipt only (never browser clock / invented identity)
   remediatedAt?: string | null
   remediatedBy?: string | null
+  remediatedByMethod?: string | null
+  remediatedByVerified?: boolean | null
   snapshotId?: string | null
   eventId?: string | null
+  /** From lib/lp-normalize: "operation_ledger" when the remediated marks come from a recorded boundary change. */
+  remediationSource?: string | null
+  remediationOperationId?: string | null
   rollbackAvailable?: boolean
+  /** Root175: the overlay's named reason the current state is not established; settlement; evidence. Never inferred. */
+  remediationUncertainty?: RemediationUncertainty | null
+  remediationSettlement?: RemediationSettlement | null
+  remediationEvidence?: string | null
   /** Client-only VERIFYING TTL clock — never render as mutation evidence. */
   clientAppliedAt?: string | null
   // Orphan status for Security Groups
@@ -267,6 +290,8 @@ interface LeastPrivilegeSummary {
 interface LeastPrivilegeResponse {
   summary: LeastPrivilegeSummary
   resources: GapResource[]
+  /** The issues body's ledger diagnostics (Root175), shown to the operator, never inferred. */
+  remediationLedger?: RemediationLedgerDiagnostics | null
   timestamp: string | null
   fromCache?: boolean
   cacheAge?: number
@@ -289,6 +314,60 @@ interface LeastPrivilegeResponse {
   integrityReason?: string
   /** Counts in this payload are a subset of unknown size. */
   counts_are_partial?: boolean
+}
+
+/** Why a Remediated row is NOT offered a restore right now, or that it is (Root175). Visibility is not authority. */
+export type RestoreOffer = { ok: true } | { ok: false; code: string; message: string }
+
+/**
+ * A restore is offered only for a row of the CURRENT successful read of the CURRENT scope, whose current state the
+ * backend overlay established and for which it made the offer. Omitted authority is never true; a named uncertainty
+ * or settlement withholds it by that name.
+ */
+export function restoreOfferFor(
+  row:
+    | {
+        rollbackAvailable?: boolean
+        remediationUncertainty?: RemediationUncertainty | null
+        remediationSettlement?: RemediationSettlement | null
+      }
+    | undefined,
+  currentReadProven: boolean,
+): RestoreOffer {
+  if (!currentReadProven) {
+    return { ok: false, code: 'READ_PENDING', message: 'The current read of this scope has not completed successfully; no restore is offered until it does.' }
+  }
+  if (!row) {
+    return { ok: false, code: 'RESTORE_TARGET_NOT_IN_CURRENT_READ', message: 'This row is not part of the current read of this scope.' }
+  }
+  if (row.remediationUncertainty) {
+    return { ok: false, code: row.remediationUncertainty.code, message: `Current state not established (${row.remediationUncertainty.code}).` }
+  }
+  if (row.remediationSettlement) {
+    return {
+      ok: false,
+      code: row.remediationSettlement.code,
+      message: row.remediationSettlement.code === 'RESTORED'
+        ? 'This change was already restored by a later verified operation.'
+        : 'No restore point was recorded for this change.',
+    }
+  }
+  if (row.rollbackAvailable !== true) {
+    return { ok: false, code: 'RESTORE_NOT_OFFERED', message: 'The backend did not offer a restore for this change.' }
+  }
+  return { ok: true }
+}
+
+export function remediationLedgerNoticeText(ledger: RemediationLedgerDiagnostics): string {
+  const parts = [`Change ledger ${ledger.state}${ledger.reason ? ` (${ledger.reason})` : ''}`]
+  if ((ledger.uncertain ?? 0) > 0) {
+    parts.push(`${ledger.uncertain} change${ledger.uncertain === 1 ? '' : 's'} not established; restore withheld`)
+  }
+  if ((ledger.settled ?? 0) > 0) {
+    parts.push(`${ledger.settled} change${ledger.settled === 1 ? '' : 's'} settled (restored, or no restore point recorded)`)
+  }
+  if (ledger.state !== 'read') parts.push('recorded receipts are history, not current restore authority')
+  return parts.join(' · ')
 }
 
 export default function LeastPrivilegeTab({ systemName }: { systemName?: string }) {
@@ -322,6 +401,12 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
   const [iamModalOpen, setIamModalOpen] = useState(false)
   const [selectedIAMRole, setSelectedIAMRole] = useState<string | null>(null)
   const [selectedIAMFindingId, setSelectedIAMFindingId] = useState<string | null>(null)
+  // The clicked row's own account (from its record or ARN). With "All
+  // accounts" selected this is the only account claim the Review can make.
+  const [selectedIAMAccountId, setSelectedIAMAccountId] = useState<string | null>(null)
+  // The row's own system. Estate-wide, the page has none, and the modal used to
+  // refuse the safety read for "missing system context" with the system in hand.
+  const [selectedIAMSystemName, setSelectedIAMSystemName] = useState<string | null>(null)
   const [s3ModalOpen, setS3ModalOpen] = useState(false)
   const [selectedS3Bucket, setSelectedS3Bucket] = useState<string | null>(null)
   const [selectedS3Resource, setSelectedS3Resource] = useState<GapResource | null>(null)
@@ -338,7 +423,122 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
   const [syncingFlowLogs, setSyncingFlowLogs] = useState(false)
   const [expandedRow, setExpandedRow] = useState<string | null>(null)
   const [deletedResources, setDeletedResources] = useState<Set<string>>(new Set()) // Track manually deleted resources
-  const [rollingBack, setRollingBack] = useState<string | null>(null) // Track which resource is being rolled back
+  // Root175/176: an in-flight restore is identified by its own sequence number, not by the row key alone, so a late
+  // outcome of an earlier restore can never clear a later one on the same key.
+  const [rollingBack, setRollingBack] = useState<{ key: string; restore: number } | null>(null)
+  const restoreSeq = useRef(0)
+  // Root175: restore authority belongs to ONE successful read of ONE scope by THIS instance. The scope is the full
+  // customer/group/account/region/system selection; the attempt is a per-instance counter every read bumps.
+  const scopeKey = `${accountScope.customerId ?? ''}|${accountScope.groupId}|${accountScope.accountId}|${accountScope.region}|${systemName ?? ''}`
+  const readAttemptSeq = useRef(0)
+  const mountedRef = useRef(true)
+  const dataScopeRef = useRef<string | null>(null)
+  const [provenRead, setProvenRead] = useState<{ attempt: number; scopeKey: string } | null>(null)
+  const [remediationLedger, setRemediationLedger] = useState<RemediationLedgerDiagnostics | null>(null)
+  useEffect(() => () => { mountedRef.current = false }, [])
+  // Root176: the LIVE view of the same facts, read at dispatch time by whatever render created the callback. A saved
+  // callback carries its render's values; these refs carry the instance's current ones.
+  const provenReadRef = useRef<{ attempt: number; scopeKey: string } | null>(null)
+  const scopeKeyRef = useRef(scopeKey)
+  scopeKeyRef.current = scopeKey
+  const currentRowsRef = useRef<Map<string, GapResource>>(new Map())
+  const withdrawProvenRead = () => { provenReadRef.current = null; setProvenRead(null) }
+
+  /**
+   * Read the CURRENT canonical readiness for this scope, for the explicit signed
+   * operator-override confirmation only.
+   *
+   * WHY A SECOND READ EXISTS AT ALL. The canonical package carries a 30-second
+   * TTL (`_DEFAULT_TTL_SECONDS = 30`), so the package this page rendered with is
+   * stale long before an operator finishes typing a rationale. Confirming
+   * against it would be confirming against facts nobody currently holds.
+   *
+   * It is the ORDINARY scoped GET — no `force_refresh` — which was measured to
+   * re-stamp `probed_at`/`expires_at` while serving the analysis from cache
+   * (two consecutive reads: 06:30:56.865 then .931, the second in 4.5ms with
+   * `fromCache: true`). So this renews the authority package without launching
+   * an analyzer sweep, and it never replays an expired one.
+   *
+   * It writes NO page state and grants nothing. A read whose scope changed
+   * under it, or that resolves after unmount, is discarded and refuses: the
+   * caller may only act on a result still belonging to the scope it asked about.
+   */
+  const reprobeSignedOverrideReadiness = async (): Promise<SignedOverrideClassification> => {
+    const askedScope = scopeKeyRef.current
+    const refuse = (code: string, reason: string): SignedOverrideClassification =>
+      ({ kind: 'refused', code, reason, codes: [] })
+    let payload: unknown
+    try {
+      const url = withAccountScope(
+        `/api/proxy/least-privilege/issues?${systemName ? `systemName=${systemName}&` : ''}observationDays=365`,
+        accountScope,
+      )
+      const response = await fetch(url, { cache: 'no-store' })
+      if (!response.ok) {
+        return refuse(
+          'READINESS_REPROBE_FAILED',
+          `The current readiness facts could not be read (HTTP ${response.status}).`,
+        )
+      }
+      payload = await response.json()
+    } catch {
+      return refuse(
+        'READINESS_REPROBE_FAILED',
+        'The current readiness facts could not be read, so this change cannot be confirmed.',
+      )
+    }
+    if (!mountedRef.current) {
+      return refuse('READINESS_REPROBE_ABANDONED', 'This view closed before the current facts arrived.')
+    }
+    if (scopeKeyRef.current !== askedScope) {
+      return refuse(
+        'READINESS_REPROBE_SUPERSEDED',
+        'The selected scope changed while the current facts were being read.',
+      )
+    }
+    const fields = payload as LPIntegrityFields | null | undefined
+    return classifySignedOverrideReadiness({
+      readiness: (payload as { readiness?: CanonicalReadinessWire } | null)?.readiness,
+      integrity: deriveLPIntegrity(fields),
+      payload: fields,
+    })
+  }
+  const grantProvenRead = (value: { attempt: number; scopeKey: string }) => { provenReadRef.current = value; setProvenRead(value) }
+  const provenReadIsCurrent =
+    provenRead !== null && provenRead.scopeKey === scopeKey && provenRead.attempt === readAttemptSeq.current
+  const currentRowsByKey = new Map<string, GapResource>()
+  for (const row of data?.resources ?? []) {
+    const key = row.id || row.resourceName
+    if (key) currentRowsByKey.set(key, row)
+  }
+  currentRowsRef.current = currentRowsByKey
+  const exactCurrentRow = (rows: Map<string, GapResource>, resource: GapResource): GapResource | undefined => {
+    const key = resource.id || resource.resourceName
+    const current = key ? rows.get(key) : undefined
+    // The CURRENT read's row for this exact identity, not a saved object from an earlier scope or attempt.
+    return current && current.resourceArn === resource.resourceArn && current.resourceName === resource.resourceName
+      ? current
+      : undefined
+  }
+  /** Render-time authority: what the control shows. */
+  const restoreAuthorityFor = (resource: GapResource): RestoreOffer =>
+    restoreOfferFor(exactCurrentRow(currentRowsByKey, resource), provenReadIsCurrent)
+  /**
+   * Dispatch-time authority, from the LIVE refs: the instance is still mounted, the current scope's read is the
+   * proven one, the control was rendered under THAT read (a callback saved from an earlier read is superseded,
+   * whatever the row now says), and the row is the current read's exact row.
+   */
+  const liveRestoreAuthority = (resource: GapResource, offeredByAttempt: number | null): RestoreOffer => {
+    if (!mountedRef.current) return { ok: false, code: 'INSTANCE_UNMOUNTED', message: 'This view is no longer open.' }
+    const proven = provenReadRef.current
+    if (proven === null || proven.scopeKey !== scopeKeyRef.current || proven.attempt !== readAttemptSeq.current) {
+      return restoreOfferFor(undefined, false)
+    }
+    if (offeredByAttempt !== proven.attempt) {
+      return { ok: false, code: 'RESTORE_OFFER_SUPERSEDED', message: 'This control was offered by an earlier read of this scope; use the current one.' }
+    }
+    return restoreOfferFor(exactCurrentRow(currentRowsRef.current, resource), true)
+  }
   const [tfAdapters, setTfAdapters] = useState<Record<string, string>>({})
   const { toast } = useToast()
   const pendingResourceRiskOpen = useRef<ResourceRiskOpenDetail | null>(null)
@@ -409,6 +609,8 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
     if (reviewSurface === 'iam') {
       setSelectedIAMRole(match.resourceName)
       setSelectedIAMFindingId(match.findingId || null)
+      setSelectedIAMAccountId(resourceAccountId(match as unknown as Record<string, unknown>))
+      setSelectedIAMSystemName(reviewSystemName(match as unknown as Record<string, unknown>))
       setIamModalOpen(true)
     } else if (reviewSurface === 's3') {
       setSelectedS3Bucket(match.resourceName)
@@ -779,6 +981,12 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
     // with the loser's response still able to land in state. Abort the
     // superseded run on cleanup.
     const controller = new AbortController()
+    // Root175: a scope change withdraws what the previous scope established -- its expanded selection, its
+    // detail drawer, its in-flight rollback flag and its restore authority -- before the new read is issued.
+    setExpandedRow(null)
+    setDrawerOpen(false)
+    setRollingBack(null)
+    withdrawProvenRead()
     fetchGaps(false, false, controller.signal)
     // Cross-component refresh: when a remediation/rollback fires from
     // anywhere (Timeline, IAM modal, SG modal, Trust Boundary modal,
@@ -803,6 +1011,13 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
     forceRefresh = false,
     signal?: AbortSignal,
   ): Promise<FetchGapsResult> => {
+    // Root175: this read is one ATTEMPT of one scope by this instance. It withdraws restore authority before its
+    // first await; only its own result, while it is still the latest attempt of a mounted instance, may write
+    // state or grant authority back. A superseded attempt writes nothing: not rows, not an error, not a flag.
+    const attempt = ++readAttemptSeq.current
+    const attemptScope = scopeKey
+    const owns = () => mountedRef.current && attempt === readAttemptSeq.current
+    withdrawProvenRead()
     try {
       if (showRefreshing) {
         setRefreshing(true)
@@ -859,13 +1074,16 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         // dead copy: `loading` is still true, and its guard returns first, so
         // the operator saw an undifferentiated spinner through both retries.
         const retryDelayMs = response.status === 504 ? retryDelaysMs[attempt] : 1000
-        setLoadingNote(
+        if (owns()) setLoadingNote(
           response.status === 504
             ? 'Resource analysis is still completing — retrying shortly…'
             : 'Backend warming up — retrying…',
         )
         await new Promise((r) => setTimeout(r, retryDelayMs))
+        // A retry belongs to the attempt that scheduled it; a superseded attempt dispatches nothing more.
+        if (!owns()) return { status: 'aborted' }
       }
+      if (!owns()) return { status: 'aborted' }
       setLoadingNote(null)
       if (!response?.ok) {
         throw new Error(`Backend ${response?.status}: ${lastDetail}`)
@@ -886,17 +1104,23 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       // Honest normalize — preserve integrity fields; never invent evidence.
       const transformed = normalizeLPResponse(result) as LeastPrivilegeResponse
 
+      // A response that resolved after this attempt was superseded (scope change, refresh, unmount) writes
+      // nothing; the optimistic merge only runs against rows that were read for the SAME scope.
+      if (!owns()) return { status: 'aborted' }
+      const sameScopeAsHeldRows = dataScopeRef.current === attemptScope
       setData(prev => {
-        const mergedResources = mergeLpResourcesAfterFetch(
-          prev?.resources as any,
-          transformed.resources as any,
-        ) as GapResource[]
+        const mergedResources = (sameScopeAsHeldRows
+          ? mergeLpResourcesAfterFetch(prev?.resources as any, transformed.resources as any)
+          : transformed.resources) as GapResource[]
         return {
           ...transformed,
           resources: mergedResources,
           summary: recalculateSummary(mergedResources, transformed.summary),
         }
       })
+      dataScopeRef.current = attemptScope
+      setRemediationLedger(transformed.remediationLedger ?? null)
+      grantProvenRead({ attempt, scopeKey: attemptScope })
 
       // Log transformed data
       console.log('[LeastPrivilegeTab] Transformed resources:', {
@@ -916,13 +1140,15 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         return { status: 'aborted' }
       }
       if (signal?.aborted) return { status: 'aborted' }
+      if (!owns()) return { status: 'aborted' }
       const message = err instanceof Error ? err.message : 'Unknown error'
       setError(message)
       // Re-surface so callers (VERIFYING → verify_failed) are not swallowed
       // by an internal catch that resolves void.
       return { status: 'error', message }
     } finally {
-      if (!signal?.aborted) {
+      // Loading flags belong to the latest attempt; a superseded one leaves them to its successor.
+      if (owns() && !signal?.aborted) {
         setLoading(false)
         setRefreshing(false)
         setLoadingNote(null)
@@ -1355,9 +1581,22 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
   }
 
   // ---------- Rollback from remediated tab ----------
-  const handleRollbackFromRemediatedTab = async (resource: GapResource) => {
+  const handleRollbackFromRemediatedTab = async (resource: GapResource, offeredByAttempt: number | null) => {
     const resourceKey = resource.id || resource.resourceName
-    setRollingBack(resourceKey)
+    // Root175/176: authority is evaluated LIVE, here, before any request -- whatever render created this callback --
+    // so neither a direct invocation nor a saved earlier callback can act on authority that is gone.
+    const authority = liveRestoreAuthority(resource, offeredByAttempt)
+    if (!authority.ok) {
+      toast({ title: 'Restore not offered', description: `${authority.code}: ${authority.message}`, variant: 'destructive' })
+      return
+    }
+    const attemptAtStart = readAttemptSeq.current
+    const scopeAtStart = scopeKeyRef.current
+    const restore = ++restoreSeq.current
+    // The read that authorized this restore is still the current one: a scope change or refresh since then
+    // means its outcome belongs to that read's History, not to what is now on screen.
+    const stillOwned = () => mountedRef.current && readAttemptSeq.current === attemptAtStart
+    setRollingBack({ key: resourceKey, restore })
 
     try {
       const resourceName = resource.resourceName
@@ -1522,23 +1761,42 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
 
       if (response.ok && result.success !== false) {
         const restoredCount = result.items_restored || result.permissions_restored || result.rules_restored || result.restored_rules || 'all'
+        if (!stillOwned()) {
+          toast({
+            title: 'A restore from a previous read completed',
+            description: `${resourceName} (scope ${scopeAtStart}) was restored after that read was superseded; its outcome is not shown here. See History for that scope.`,
+          })
+          return
+        }
         toast({
           title: "Rollback Successful",
           description: `${resourceName}: Restored ${restoredCount} items to pre-remediation state.`,
         })
         handleRollbackSuccess(resourceName)
       } else {
-        throw new Error(result.error || result.detail || result.message || 'Rollback failed')
+        // The proxy forwards a typed refusal as {error: <detail>, success: false};
+        // an object there used to surface as "[object Object]".
+        throw new Error(mutationFailureText(mutationFailure(response.status, result)))
       }
     } catch (err: any) {
       console.error('[Rollback] Error:', err)
+      if (!stillOwned()) {
+        toast({
+          title: 'A restore from a previous read failed',
+          description: `${resource.resourceName} (scope ${scopeAtStart}): ${err.message || 'the restore request failed'}. See History for that scope.`,
+          variant: 'destructive',
+        })
+        return
+      }
       toast({
         title: "Rollback Failed",
         description: err.message || `Failed to rollback ${resource.resourceName}`,
         variant: "destructive"
       })
     } finally {
-      setRollingBack(null)
+      // Only THIS restore's flag is cleared: a later restore on the same key keeps its own (Root176). Clearing
+      // grants nothing (authority is gated above); a stuck spinner would.
+      setRollingBack(prev => (prev && prev.restore === restore ? null : prev))
     }
   }
 
@@ -1841,6 +2099,8 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
     if (reviewSurface === 'iam') {
       setSelectedIAMRole(resource.resourceName)
       setSelectedIAMFindingId(resource.findingId || null)
+      setSelectedIAMAccountId(resourceAccountId(resource as unknown as Record<string, unknown>))
+      setSelectedIAMSystemName(reviewSystemName(resource as unknown as Record<string, unknown>))
       setIamModalOpen(true)
     } else if (reviewSurface === 's3') {
       setSelectedS3Bucket(resource.resourceName)
@@ -1870,33 +2130,56 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
     new Set(openRiskResources.map((r) => resourceRiskDecision(r))),
   )
 
+  // The ONE selection predicate for this component: the account, type and search the operator chose.
+  // Both the summary counters and the table row list use it, so there is no second semantic matcher to
+  // drift apart. The decision filter is deliberately NOT part of it — see `scopedOpenRiskResources`.
+  const matchesSelection = (r: GapResource): boolean => {
+    if (
+      accountScope.accountId !== 'all'
+      && resourceAccountId(r as unknown as Record<string, unknown>) !== accountScope.accountId
+    ) return false
+    if (resourceTypeFilter !== 'all' && r.resourceType !== resourceTypeFilter) return false
+    if (searchTerm) {
+      const s = searchTerm.toLowerCase()
+      if (!(
+        r.resourceName?.toLowerCase().includes(s)
+        || r.resourceArn?.toLowerCase().includes(s)
+        || r.id?.toLowerCase().includes(s)
+      )) return false
+    }
+    return true
+  }
+
+  // The open-risk counters answer for the CURRENT SELECTION. Two properties matter:
+  //
+  //  * They are always derived from `openRiskResources`, never from `tabResources`. Switching to the
+  //    Remediated tab therefore cannot redefine what an open-risk count means — a remediated record is
+  //    not an open risk, whichever tab is in front.
+  //  * The DECISION filter is excluded on purpose. A decision-filtered counter set is self-referential:
+  //    choosing "Safety review pending" would drive the other three counters to 0 and the chosen one to
+  //    the row total, which tells the operator nothing. Account, type and search narrow the population;
+  //    the decision filter only chooses which of that population the table lists.
+  const scopedOpenRiskResources = openRiskResources.filter(matchesSelection)
+  const scopedRemediatedResources = remediatedResources.filter(matchesSelection)
+
   const filteredResources = tabResources
-    .filter(r => accountScope.accountId === 'all' || resourceAccountId(r as unknown as Record<string, unknown>) === accountScope.accountId)
-    .filter(r => {
-      if (resourceTypeFilter === 'all') return true
-      return r.resourceType === resourceTypeFilter
-    })
+    .filter(matchesSelection)
     .filter(r => {
       if (activeTab === 'remediated' || decisionFilter === 'all') return true
       return resourceRiskDecision(r) === decisionFilter
     })
-    .filter(r => {
-      if (!searchTerm) return true
-      const s = searchTerm.toLowerCase()
-      return r.resourceName?.toLowerCase().includes(s) || r.resourceArn?.toLowerCase().includes(s) || r.id?.toLowerCase().includes(s)
-    })
-  const criticalHighCount = openRiskResources.filter((r) => {
+  const criticalHighCount = scopedOpenRiskResources.filter((r) => {
     const severity = normalizeLpSeverity(r.severity)
     return severity === 'critical' || severity === 'high'
   }).length
-  const evidenceBlockedCount = openRiskResources.filter(
+  const evidenceBlockedCount = scopedOpenRiskResources.filter(
     (r) => resourceRiskDecision(r) === 'BLOCK',
   ).length
   const evidenceGapCopy = lpEvidenceGapCopy(integrity)
-  const manualReviewCount = openRiskResources.filter(
+  const manualReviewCount = scopedOpenRiskResources.filter(
     (r) => resourceRiskDecision(r) === 'MANUAL_REVIEW',
   ).length
-  const pendingSafetyCount = openRiskResources.filter(
+  const pendingSafetyCount = scopedOpenRiskResources.filter(
     (r) => resourceRiskDecision(r) === 'PENDING',
   ).length
 
@@ -2049,7 +2332,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
           <span className="flex items-center gap-2">
             <AlertTriangle className="w-4 h-4" />
             Open Risks
-            <span className="px-1.5 py-0.5 rounded-full text-xs font-semibold bg-[#ef444420] text-[#ef4444]">{openRiskResources.length}</span>
+            <span className="px-1.5 py-0.5 rounded-full text-xs font-semibold bg-[#ef444420] text-[#ef4444]">{scopedOpenRiskResources.length}</span>
           </span>
         </button>
         <button
@@ -2062,10 +2345,21 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
           <span className="flex items-center gap-2">
             <CheckCircle2 className="w-4 h-4" />
             Remediated
-            <span className="px-1.5 py-0.5 rounded-full text-xs font-semibold bg-[#10b98120] text-[#10b981]">{remediatedResources.length}</span>
+            <span className="px-1.5 py-0.5 rounded-full text-xs font-semibold bg-[#10b98120] text-[#10b981]">{scopedRemediatedResources.length}</span>
           </span>
         </button>
       </div>
+
+      {remediationLedger && (remediationLedger.state !== 'read' || (remediationLedger.uncertain ?? 0) > 0 || (remediationLedger.settled ?? 0) > 0) && (
+        <div data-testid="lp-remediation-ledger-notice" data-state={remediationLedger.state} className="rounded-lg border px-3 py-2 text-xs" style={{ borderColor: "#F59E0B40", background: "#F59E0B08", color: "var(--text-secondary)" }}>
+          {remediationLedgerNoticeText(remediationLedger)}
+        </div>
+      )}
+      {activeTab === 'remediated' && !provenReadIsCurrent && (
+        <div data-testid="lp-restore-authority-notice" className="rounded-lg border px-3 py-2 text-xs" style={{ borderColor: "#F59E0B40", background: "#F59E0B08", color: "var(--text-secondary)" }}>
+          Restore actions are withheld until the current read of this scope completes; the rows below are recorded history.
+        </div>
+      )}
 
       {/* Search & Filters */}
       <div className="rounded-lg border p-4" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
@@ -2195,7 +2489,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
             <span>Type</span>
             <span className="text-center">Status</span>
             <span className="text-center">Remediated</span>
-            <span className="text-center">Permissions</span>
+            <span className="text-center" title="Configured Allow actions after the change, derived from its saved checkpoint; unknown when that cannot be verified">Allowed after</span>
             <span className="text-center">Action</span>
           </div>
         ) : (
@@ -2237,9 +2531,16 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
               const sevColor = getSeverityColor(resource)
               const sevLabel = getSeverityLabel(resource)
               const metrics = getUsageMetricsForResource(resource)
-              const inventoryDescription = resource.resourceType === 'IAMRole' && activeTab !== 'remediated' && metrics.measured !== false
-                ? iamInventoryRowCopy(metrics.unusedCount ?? 0, metrics.total ?? 0).summary
-                : (resource.description || resource.title || 'Risk details available')
+              const inventoryDescription = activeTab === 'remediated'
+                // The backend description is written from graph gap metrics
+                // ("8 unused permissions out of 12 allowed (67% bloat)"), which
+                // can predate the change this row records.
+                ? (resource.remediationSource === 'operation_ledger'
+                    ? 'Recorded change — what it removed and left allowed is in the receipt'
+                    : 'Remediation recorded — after state unknown')
+                : resource.resourceType === 'IAMRole' && metrics.measured !== false
+                  ? iamInventoryRowCopy(metrics.unusedCount ?? 0, metrics.total ?? 0).summary
+                  : (resource.description || resource.title || 'Risk details available')
               const isExpanded = expandedRow === (resource.id || resource.resourceName)
               const rowKey = resource.id || resource.resourceArn || resource.resourceName
               const tfRoleArn = resource.resourceArn?.startsWith('arn:')
@@ -2250,6 +2551,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
               const tfChip = resource.resourceType === 'IAMRole'
                 ? <TerraformExecutionChip adapter={tfAdapters[tfRoleArn]} />
                 : null
+              const restoreAuthority = restoreAuthorityFor(resource)
 
               return (
                 <div key={rowKey}>
@@ -2294,9 +2596,11 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
 
                       {/* Status badge */}
                       <div className="text-center">
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold" style={{ background: "#10b98120", color: "#10b981" }}>
+                        {/* Not "Least Privilege"/"Partially Fixed": those were read off graph
+                            gap metrics that can predate the change. */}
+                        <span data-testid="lp-row-status" className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold" style={{ background: "#10b98120", color: "#10b981" }}>
                           <CheckCircle2 className="w-3 h-3" />
-                          {metrics.gapPct === 0 ? 'Least Privilege' : 'Partially Fixed'}
+                          Remediated
                         </span>
                       </div>
 
@@ -2307,9 +2611,10 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                           : 'N/A'}
                       </div>
 
-                      {/* Permissions (current count) */}
+                      {/* Allowed after the change: derived from the saved checkpoint, or unknown.
+                          It used to print the graph's observed-use count as "N active". */}
                       <div className="text-center text-sm font-medium" style={{ color: "#10b981" }}>
-                        {metrics.usedCount} active
+                        <RemediatedAllowedAfterCell snapshotId={resource.snapshotId} remediationSource={resource.remediationSource} />
                       </div>
 
                       {/* Action — Rollback */}
@@ -2514,30 +2819,15 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                             <CheckCircle2 className="w-3.5 h-3.5" />
                             Remediation Receipt
                           </h4>
-                          <div className="flex items-center gap-3 mb-2">
-                            <span className="text-3xl font-bold" style={{ color: "#10b981" }}>
-                              {metrics.gapPct === null ? '—' : metrics.gapPct === 0 ? '100%' : `${100 - metrics.gapPct}%`}
-                            </span>
-                            <span className="text-xs font-medium" style={{ color: "#10b981" }}>
-                              {metrics.gapPct === 0 ? 'Least privilege' : 'permissions in active use'}
-                            </span>
-                          </div>
-                          <p className="text-xs mb-3" style={{ color: "var(--text-secondary)" }}>
-                            {metrics.total === 0
-                              ? <>All excess permissions removed. Role has no inline/attached policies.</>
-                              : metrics.gapPct === 0
-                                ? <>Least privilege achieved. All {metrics.total} permissions are actively used.</>
-                                : <>{metrics.usedCount} of {metrics.total} permissions in use. {metrics.unusedCount} may need further review.</>
-                            }
-                          </p>
-                          {/* Current observed-use share; do not imply unresolved permissions were removed. */}
-                          <div className="h-3 rounded-full overflow-hidden" style={{ background: "var(--bg-primary)" }}>
-                            <div className="h-full rounded-full" style={{ width: metrics.gapPct === null ? '0%' : `${100 - metrics.gapPct}%`, background: '#10b981' }} />
-                          </div>
-                          <div className="flex justify-between mt-1.5 text-[10px]" style={{ color: "var(--text-muted)" }}>
-                            <span>{metrics.usedCount} active permissions</span>
-                            <span>{metrics.unusedCount} still need review</span>
-                          </div>
+                          {/* What this change did, then the graph's historical observations.
+                              The old headline percentage and its in-use and to-review counts
+                              read pre-change graph metrics as the role's current state. */}
+                          <RemediationReceipt
+                            snapshotId={resource.snapshotId}
+                            remediationSource={resource.remediationSource}
+                            observedInUse={metrics.usedCount}
+                            observedTotal={metrics.usedCount === null ? null : metrics.total}
+                          />
                         </div>
 
                         {/* Column 2: Timeline */}
@@ -2553,19 +2843,15 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                                 {resource.remediatedAt ? new Date(resource.remediatedAt).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : 'N/A'}
                               </span>
                             </div>
-                            {resource.remediatedBy && (
-                              <div className="flex justify-between text-xs" style={{ color: "var(--text-secondary)" }}>
-                                <span>Remediated By</span>
-                                <span className="font-medium" style={{ color: "var(--text-primary)" }}>{resource.remediatedBy}</span>
-                              </div>
-                            )}
+                            <div className="flex justify-between text-xs" style={{ color: "var(--text-secondary)" }}>
+                              <span>Remediated By</span>
+                              <span data-testid="lp-remediated-by" className="font-medium text-right" style={{ color: "var(--text-primary)" }}>
+                                {remediationActorText(resource)}
+                              </span>
+                            </div>
                             <div className="flex justify-between text-xs" style={{ color: "var(--text-secondary)" }}>
                               <span>Resource Type</span>
                               <span className="font-medium" style={{ color: "var(--text-primary)" }}>{getResourceTypeLabel(resource.resourceType)}</span>
-                            </div>
-                            <div className="flex justify-between text-xs" style={{ color: "var(--text-secondary)" }}>
-                              <span>Current Permissions</span>
-                              <span className="font-medium" style={{ color: "#10b981" }}>{metrics.usedCount}</span>
                             </div>
                             <div className="flex justify-between text-xs gap-3" style={{ color: "var(--text-secondary)" }}>
                               <span>Restore Point</span>
@@ -2573,6 +2859,38 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                                 {resource.snapshotId || resource.eventId || 'Not recorded — rollback unavailable'}
                               </span>
                             </div>
+                            {resource.remediationEvidence && (
+                              <div className="flex justify-between text-xs gap-3" style={{ color: "var(--text-secondary)" }}>
+                                <span>Evidence</span>
+                                <span data-testid="lp-remediation-evidence" data-evidence={resource.remediationEvidence} className="font-medium text-right" style={{ color: "var(--text-primary)" }}>
+                                  {resource.remediationEvidence === 'OUTCOME_VERIFIED'
+                                    ? 'recorded outcome verified at apply'
+                                    : resource.remediationEvidence === 'LEDGER_STATE_ONLY'
+                                      ? 'ledger state only; no recorded outcome'
+                                      : resource.remediationEvidence}
+                                </span>
+                              </div>
+                            )}
+                            {resource.remediationUncertainty && (
+                              <p data-testid="lp-remediation-uncertainty" data-code={resource.remediationUncertainty.code} className="text-xs" style={{ color: "#F59E0B" }}>
+                                Current state not established: {resource.remediationUncertainty.code}
+                                {resource.remediationUncertainty.operationId
+                                  ? ` (operation ${resource.remediationUncertainty.operationId}${resource.remediationUncertainty.state ? `, ${resource.remediationUncertainty.state}` : ''})`
+                                  : ''}
+                              </p>
+                            )}
+                            {resource.remediationSettlement && (
+                              <p data-testid="lp-remediation-settlement" data-code={resource.remediationSettlement.code} className="text-xs" style={{ color: "var(--text-secondary)" }}>
+                                {resource.remediationSettlement.code === 'RESTORED'
+                                  ? `Settled: restored by operation ${resource.remediationSettlement.restoredByOperationId ?? 'unknown'}`
+                                  : `Settled: ${resource.remediationSettlement.code}${resource.remediationSettlement.operationId ? ` (operation ${resource.remediationSettlement.operationId})` : ''}`}
+                              </p>
+                            )}
+                            {!restoreAuthority.ok && (resource.snapshotId || resource.eventId) && (
+                              <p data-testid="lp-restore-point-not-offered" data-code={restoreAuthority.code} className="text-xs" style={{ color: "#F59E0B" }}>
+                                Restore point recorded, not offered ({restoreAuthority.code})
+                              </p>
+                            )}
                             {resource.region && (
                               <div className="flex justify-between text-xs" style={{ color: "var(--text-secondary)" }}>
                                 <span>Region</span>
@@ -2620,12 +2938,16 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                             </button>
                             <div className="pt-1 mt-1 border-t" style={{ borderColor: "var(--border-subtle)" }}>
                               <button
-                                onClick={() => handleRollbackFromRemediatedTab(resource)}
-                                disabled={rollingBack === (resource.id || resource.resourceName)}
+                                data-testid="lp-rollback-control"
+                                data-disabled-reason={rollingBack?.key === (resource.id || resource.resourceName) ? 'IN_FLIGHT' : restoreAuthority.ok ? undefined : restoreAuthority.code}
+                                data-offered-by-attempt={provenReadIsCurrent && provenRead ? String(provenRead.attempt) : undefined}
+                                title={restoreAuthority.ok ? 'Restore the recorded pre-change state' : `${restoreAuthority.code}: ${restoreAuthority.message}`}
+                                onClick={() => handleRollbackFromRemediatedTab(resource, provenRead?.attempt ?? null)}
+                                disabled={rollingBack?.key === (resource.id || resource.resourceName) || !restoreAuthority.ok}
                                 className="w-full px-3 py-2 rounded-lg text-xs font-medium hover:opacity-90 transition-all border flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                                 style={{ color: "#F59E0B", borderColor: "#F59E0B40", background: "#F59E0B08" }}
                               >
-                                {rollingBack === (resource.id || resource.resourceName)
+                                {rollingBack?.key === (resource.id || resource.resourceName)
                                   ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Rolling Back...</>
                                   : <><RotateCcw className="w-3.5 h-3.5" /> Rollback to Pre-Remediation</>
                                 }
@@ -3091,7 +3413,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                         {resource.remediatedAt && (
                           <span className="text-xs" style={{ color: "var(--text-muted)" }}>
                             Remediated: {new Date(resource.remediatedAt).toLocaleDateString()}
-                            {resource.remediatedBy && ` by ${resource.remediatedBy}`}
+                            {resource.remediatedBy && ` by ${remediationActorText(resource)}`}
                           </span>
                         )}
                         <button
@@ -3608,16 +3930,40 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
           setIamModalOpen(false)
           setSelectedIAMRole(null)
           setSelectedIAMFindingId(null)
+          setSelectedIAMAccountId(null)
+          setSelectedIAMSystemName(null)
         }}
         roleName={selectedIAMRole || ''}
         findingId={selectedIAMFindingId || undefined}
-        systemName={systemName}
+        systemName={selectedIAMSystemName || systemName}
+        reviewScope={{
+          customerId: accountScope.customerId,
+          accountId:
+            selectedIAMAccountId
+            ?? (accountScope.accountId !== 'all' ? accountScope.accountId : null),
+          region: accountScope.region !== 'all' ? accountScope.region : null,
+        }}
         // IAM review stays on the canonical signed-plan Change Case even when
         // the estate generation is held. Authority is a separate veto.
         applyDisabled={integrity.mutationBlocked}
         authorityHoldReason={
           integrity.mutationBlocked ? lpIntegrityCopy(integrity).body : null
         }
+        // The explicit signed operator-override path is classified separately
+        // from `applyDisabled`, which keeps vetoing ordinary Apply and approval.
+        // `applyDisabled` folded an EVIDENCE hold into what the shared dialog
+        // treats as an unconditional environment/activation veto, so the UI
+        // offered "Remediate Anyway", prepared a real signed plan, and then
+        // could never confirm it. The classification below distinguishes the
+        // blocker classes the backend's own override branch distinguishes.
+        signedOverrideReadiness={classifySignedOverrideReadiness({
+          readiness: (data as { readiness?: CanonicalReadinessWire } | null)?.readiness,
+          integrity,
+          payload: data as LPIntegrityFields | null,
+        })}
+        // The 30-second package this render holds is not what the confirmation
+        // may rely on; the dialog re-reads current facts at confirm time.
+        onReprobeSignedOverrideReadiness={reprobeSignedOverrideReadiness}
         onApplyFix={(data) => {
           console.log('[IAM] Apply fix requested:', data)
         }}

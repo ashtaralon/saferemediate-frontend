@@ -1,7 +1,27 @@
 "use client"
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Shield, Calendar, User, ArrowDownToLine, ArrowUpFromLine, RotateCcw, RefreshCw, Trash2, MapPin, Server, Key, Lock, Database } from 'lucide-react'
+import { useAccountScope } from '@/lib/account-scope-context'
+import { fetchDecisionFamilyAnswers, type InventoryScope } from '@/lib/inventory-decision-families'
+import {
+  SNAPSHOT_SCOPE_UNPROVEN,
+  SNAPSHOT_SYSTEM_FAMILIES,
+  snapshotsInView,
+  systemSnapshotView,
+  type SnapshotListingScope,
+  type SystemSnapshotView,
+} from '@/lib/snapshot-system-view'
+
+// The view rule lives in `@/lib/snapshot-system-view`; these names stay exported here for existing callers and tests.
+export {
+  SNAPSHOT_SCOPE_UNPROVEN,
+  SNAPSHOT_SYSTEM_FAMILIES,
+  SYSTEM_FILTER_UNAVAILABLE,
+  snapshotsInView,
+  systemSnapshotView,
+} from '@/lib/snapshot-system-view'
+export type { SnapshotListingScope, SystemSnapshotView } from '@/lib/snapshot-system-view'
 
 interface Snapshot {
   snapshot_id: string
@@ -34,6 +54,8 @@ interface Snapshot {
   original_role?: string
   new_role?: string
   resource_id?: string
+  // Exact immutable identity a server-scoped listing row carries (Permissions C); absent from the legacy listing.
+  resource_arn?: string
 }
 
 interface RecoveryTabProps {
@@ -48,48 +70,68 @@ export default function RecoveryTab({ systemName }: RecoveryTabProps) {
   const [deletingAll, setDeletingAll] = useState(false)
   const [selectedSnapshots, setSelectedSnapshots] = useState<Set<string>>(new Set())
   const [deletingSnapshot, setDeletingSnapshot] = useState<string | null>(null)
+  const [systemView, setSystemView] = useState<SystemSnapshotView>({ kind: 'all' })
+  const { customerId, groupId, accountId, region } = useAccountScope()
+  // A load owns the page only while it is the latest: a response for an earlier system or account selection is
+  // dropped before it can touch state.
+  const loadSeq = useRef(0)
 
   useEffect(() => {
     loadSnapshots()
-  }, [systemName])
+  }, [systemName, customerId, groupId, accountId, region])
 
   async function loadSnapshots() {
+    const token = ++loadSeq.current
+    // A new attempt (a new system or account selection, a refresh, a retry) owns the page from its start: no row,
+    // count, checkbox or action of an earlier attempt may survive into its result or its failure.
+    setSnapshots([])
+    setSelectedSnapshots(new Set())
+    setSystemView({ kind: 'all' })
     try {
       setLoading(true)
       setError(null)
 
+      // If a system is selected, its snapshot families through the Decision list, in the page's account scope
+      const page: InventoryScope = { customerId, groupId, accountId, region }
+
+      // The canonical listing can only resolve a scope server-side if it is TOLD what the page
+      // claims; without these the backend has nothing to scope by and answers unscoped, which the
+      // view rule then (correctly) refuses. These are claims, not grants: the backend validates
+      // them before any read. Names match the route's FORWARDED_LISTING_QUERY exactly.
+      const listingQuery = new URLSearchParams()
+      if (customerId) listingQuery.set('customer_id', customerId)
+      if (accountId && accountId !== 'all') listingQuery.set('account_id', accountId)
+      if (region) listingQuery.set('region', region)
+      if (groupId) listingQuery.set('account_group', groupId)
+      const listingSuffix = listingQuery.toString() ? `?${listingQuery.toString()}` : ''
+
       // Fetch snapshots and system resources in parallel
       const fetches: Promise<Response | null>[] = [
-        fetch('/api/proxy/snapshots', { cache: 'no-store' }),
+        fetch(`/api/proxy/snapshots${listingSuffix}`, { cache: 'no-store' }),
         fetch('/api/proxy/iam-snapshots', { cache: 'no-store' }).catch(() => null)
       ]
-      // If a system is selected, also fetch its resources for filtering
-      if (systemName) {
-        fetches.push(
-          fetch(`/api/proxy/system-resources/${encodeURIComponent(systemName)}`, { cache: 'no-store' }).catch(() => null)
-        )
-      }
+      const familyAnswers = systemName
+        ? fetchDecisionFamilyAnswers(systemName, page, SNAPSHOT_SYSTEM_FAMILIES)
+        : Promise.resolve(null)
 
-      const [sgRes, iamRes, systemRes] = await Promise.all(fetches)
-
-      // Build set of resource names belonging to this system
-      let systemResourceNames: Set<string> | null = null
-      if (systemName && systemRes && systemRes.ok) {
-        const systemData = await systemRes.json()
-        const resources = systemData.resources || []
-        systemResourceNames = new Set<string>()
-        for (const r of resources) {
-          if (r.name) systemResourceNames.add(r.name.toLowerCase())
-          if (r.id) systemResourceNames.add(r.id.toLowerCase())
-          // Also add ARN for matching
-          if (r.arn) systemResourceNames.add(r.arn.toLowerCase())
-        }
-      }
+      const [sgRes, iamRes] = await Promise.all(fetches)
+      const families = await familyAnswers
 
       // Process SG snapshots (includes S3 bucket and IAM checkpoints)
       let sgSnapshots: Snapshot[] = []
+      // The scope the canonical listing states for ITSELF, forwarded verbatim by the proxy from
+      // the backend envelope (api/snapshots.py emits {tenant_id, account_id, region,
+      // resolved_by}). It is read, never constructed: an absent, non-object or legacy body leaves
+      // this null and the view rule withholds the collection, exactly as before.
+      let listingScope: SnapshotListingScope | null = null
       if (sgRes && sgRes.ok) {
         const sgData = await sgRes.json()
+        if (sgData && typeof sgData === 'object' && !Array.isArray(sgData)) {
+          const stated = (sgData as { scope?: unknown }).scope
+          if (stated && typeof stated === 'object' && !Array.isArray(stated)) {
+            listingScope = stated as SnapshotListingScope
+          }
+        }
         const sgList = Array.isArray(sgData) ? sgData : (sgData.snapshots || [])
         // Detect type - PRIORITIZE snapshot_id prefix as it's most reliable
         sgSnapshots = sgList.map((s: any) => {
@@ -134,24 +176,15 @@ export default function RecoveryTab({ systemName }: RecoveryTabProps) {
       // Combine all snapshots
       let allSnapshots = [...sgSnapshots, ...iamSnapshots]
 
-      // Filter by system if systemName is provided and resources were fetched
-      if (systemResourceNames && systemResourceNames.size > 0) {
-        allSnapshots = allSnapshots.filter((s: any) => {
-          // Match SG snapshots by sg_name
-          if (s.sg_name && systemResourceNames!.has(s.sg_name.toLowerCase())) return true
-          // Match IAM snapshots by role_name or original_role
-          if (s.role_name && systemResourceNames!.has(s.role_name.toLowerCase())) return true
-          if (s.original_role && systemResourceNames!.has(s.original_role.toLowerCase())) return true
-          // Match S3 snapshots by finding_id (bucket name) or resource_name
-          if (s.finding_id && systemResourceNames!.has(s.finding_id.toLowerCase())) return true
-          if (s.current_state?.resource_name && systemResourceNames!.has(s.current_state.resource_name.toLowerCase())) return true
-          // Match by sg_id (AWS SG ID like sg-xxx)
-          if (s.sg_id && systemResourceNames!.has(s.sg_id.toLowerCase())) return true
-          // Match by role_arn
-          if (s.role_arn && systemResourceNames!.has(s.role_arn.toLowerCase())) return true
-          return false
-        })
-      }
+      // A system's view shows only what its scope proves. The canonical listing states its own
+      // server-resolved scope, so pass that statement through UNCHANGED and let the existing
+      // positive rule judge it: it still requires resolved_by === 'server' and an exact match on
+      // both the page's tenant and its single account. A legacy or unscoped body leaves this null
+      // and the collection stays hidden. Nothing here forces a proven flag or matches by name, and
+      // unknown / missing / foreign / group / all-account pages remain withheld by that same rule.
+      if (token !== loadSeq.current) return
+      const view = systemSnapshotView(systemName, families, listingScope, page)
+      allSnapshots = snapshotsInView(allSnapshots, view)
 
       // Sort by timestamp (newest first)
       const sorted = allSnapshots.sort((a: Snapshot, b: Snapshot) => {
@@ -160,12 +193,16 @@ export default function RecoveryTab({ systemName }: RecoveryTabProps) {
         return dateB - dateA
       })
 
+      setSystemView(view)
       setSnapshots(sorted)
     } catch (err) {
+      if (token !== loadSeq.current) return
       console.error('Load error:', err)
+      setSnapshots([])
+      setSelectedSnapshots(new Set())
       setError(err instanceof Error ? err.message : 'Failed to load')
     } finally {
-      setLoading(false)
+      if (token === loadSeq.current) setLoading(false)
     }
   }
 
@@ -470,9 +507,11 @@ export default function RecoveryTab({ systemName }: RecoveryTabProps) {
           <p className="text-[var(--muted-foreground,#4b5563)] mt-1">Restore Security Groups, S3 Buckets, and IAM Roles to previous snapshots</p>
         </div>
         <div className="flex items-center gap-3">
-          <span className="text-sm text-[var(--muted-foreground,#6b7280)] bg-gray-100 px-3 py-1 rounded-full">
-            {snapshots.length} snapshot{snapshots.length !== 1 ? 's' : ''}
-          </span>
+          {systemView.kind !== 'hidden' && (
+            <span className="text-sm text-[var(--muted-foreground,#6b7280)] bg-gray-100 px-3 py-1 rounded-full">
+              {snapshots.length} snapshot{snapshots.length !== 1 ? 's' : ''}
+            </span>
+          )}
           <button
             onClick={loadSnapshots}
             disabled={loading || deletingAll}
@@ -529,7 +568,27 @@ export default function RecoveryTab({ systemName }: RecoveryTabProps) {
       )}
 
       {/* Empty State */}
-      {snapshots.length === 0 ? (
+      {systemView.kind === 'hidden' ? (
+        <div
+          className="bg-gray-50 border border-[var(--border,#e5e7eb)] rounded-lg p-6"
+          data-testid="recovery-system-scope-state"
+          data-code={systemView.code}
+        >
+          <h3 className="text-lg font-medium text-[var(--foreground,#111827)]">
+            Snapshots for {systemName} are not shown ({systemView.code})
+          </h3>
+          <p className="mt-2 text-[var(--muted-foreground,#4b5563)]">
+            {systemView.code === SNAPSHOT_SCOPE_UNPROVEN
+              ? 'The snapshot listing does not prove this tenant and account, so no snapshot or snapshot action is offered here.'
+              : 'The system filter is unavailable, so no snapshot or snapshot action is offered here.'}
+          </p>
+          {systemView.notices.length > 0 && (
+            <ul className="mt-2 text-sm text-[var(--muted-foreground,#4b5563)]" data-testid="recovery-system-filter-notices">
+              {systemView.notices.map((notice) => <li key={notice}>{notice}</li>)}
+            </ul>
+          )}
+        </div>
+      ) : snapshots.length === 0 ? (
         <div className="bg-gray-50 border border-[var(--border,#e5e7eb)] rounded-lg p-12 text-center">
           <Shield className="w-16 h-16 text-gray-300 mx-auto mb-4" />
           <h3 className="text-lg font-medium text-[var(--foreground,#111827)]">No snapshots yet</h3>

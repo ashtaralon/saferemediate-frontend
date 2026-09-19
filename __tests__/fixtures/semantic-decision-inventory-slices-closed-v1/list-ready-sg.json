@@ -1,0 +1,95 @@
+{
+  "body": {
+    "provenance": {
+      "completeness": {
+        "missing_sources": [],
+        "status": "complete"
+      },
+      "confidence": "high",
+      "confidence_caveats": [],
+      "evidence_sources": [
+        "Neptune Serving Graph"
+      ],
+      "freshness": {
+        "serving_graph": {
+          "age_seconds": "<wall-clock>",
+          "generation": 42,
+          "last_sync": "2026-09-15T00:00:00+00:00",
+          "scope": null,
+          "source_detail": "projection generation 42 read by inventory.list",
+          "status": "fresh",
+          "unknown_reason": null
+        }
+      },
+      "observation_coverage": null,
+      "observation_window_days": null,
+      "observed_vs_configured": {
+        "configured": [],
+        "inferred": [],
+        "observed": []
+      },
+      "scope": {
+        "resource_id": null,
+        "resource_type": "sg",
+        "system": "payments"
+      }
+    },
+    "result": {
+      "columns": [
+        "stable_id",
+        "name",
+        "arn",
+        "resource_id",
+        "resource_type",
+        "region",
+        "account_id",
+        "state",
+        "created_at"
+      ],
+      "display_name": "security groups",
+      "filters": {},
+      "has_next": false,
+      "items": [
+        {
+          "account_id": "111122223333",
+          "arn": "arn:aws:ec2:eu-west-1:111122223333:security-group/sg-0000000000000001",
+          "created_at": "2026-08-01T00:00:00+00:00",
+          "name": "fixture-substitute-sg-1",
+          "region": "eu-west-1",
+          "resource_id": "sg-0000000000000001",
+          "resource_type": "ec2:security-group",
+          "stable_id": "sid-sg-1",
+          "state": "ACTIVE"
+        },
+        {
+          "account_id": "111122223333",
+          "arn": "arn:aws:ec2:eu-west-1:111122223333:security-group/sg-0000000000000002",
+          "created_at": "2026-08-01T00:00:00+00:00",
+          "name": "fixture-substitute-sg-2",
+          "region": "eu-west-1",
+          "resource_id": "sg-0000000000000002",
+          "resource_type": "ec2:security-group",
+          "stable_id": "sid-sg-2",
+          "state": "ACTIVE"
+        }
+      ],
+      "next_cursor": null,
+      "resource_type": "sg",
+      "serve_state": "ACTIVE",
+      "sort": "name",
+      "status": "ready",
+      "system": "payments",
+      "total": 2,
+      "truncated": false
+    }
+  },
+  "executes": [
+    "inventory.list"
+  ],
+  "graph_calls": 2,
+  "http": 200,
+  "legacy_runs": 0,
+  "lifecycle_reads": 3,
+  "oidc_calls": [],
+  "substitute_rows": "family-shaped synthetic substitute rows"
+}

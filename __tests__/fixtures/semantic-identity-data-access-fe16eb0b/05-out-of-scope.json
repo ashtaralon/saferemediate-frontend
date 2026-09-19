@@ -1,0 +1,41 @@
+{
+  "body": {
+    "provenance": {
+      "completeness": {
+        "missing_sources": [],
+        "status": "unknown"
+      },
+      "confidence": "unknown",
+      "confidence_caveats": [
+        "No usable evidence is presented for this answer: DECISION_IDENTITY_DATA_ACCESS_SCOPE_MISMATCH"
+      ],
+      "evidence_sources": [],
+      "freshness": {},
+      "observation_coverage": null,
+      "observation_window_days": null,
+      "observed_vs_configured": {
+        "configured": [],
+        "inferred": [],
+        "observed": []
+      },
+      "scope": {
+        "resource_id": null,
+        "resource_type": "iam:role",
+        "system": null
+      }
+    },
+    "result": {
+      "failing_axes": [
+        "consistency"
+      ],
+      "reason_category": "consistency",
+      "reason_code": "DECISION_IDENTITY_DATA_ACCESS_SCOPE_MISMATCH",
+      "reason_codes": [
+        "DECISION_IDENTITY_DATA_ACCESS_SCOPE_MISMATCH"
+      ],
+      "serve_state": "NOT_READY",
+      "status": "refused"
+    }
+  },
+  "http_status": 200
+}

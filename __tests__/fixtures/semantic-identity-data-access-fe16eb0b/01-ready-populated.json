@@ -1,0 +1,168 @@
+{
+  "body": {
+    "provenance": {
+      "completeness": {
+        "missing_sources": [],
+        "status": "partial"
+      },
+      "confidence": "medium",
+      "confidence_caveats": [
+        "table_access: PARTIAL (DECISION_IDENTITY_DATA_ACCESS_TABLE_ATTRIBUTION_INCOMPLETE)",
+        "allowed_operations are not computed from the serving graph (DECISION_IDENTITY_DATA_ACCESS_ALLOWED_OPERATIONS_UNSUPPORTED)"
+      ],
+      "evidence_sources": [
+        "Neptune Serving Graph"
+      ],
+      "freshness": {
+        "serving_graph": {
+          "age_seconds": 7200,
+          "generation": 42,
+          "last_sync": "2026-09-18T06:00:00+00:00",
+          "scope": null,
+          "source_detail": "inventory generation 42 read by identity.data_access",
+          "status": "fresh",
+          "unknown_reason": null
+        }
+      },
+      "observation_coverage": null,
+      "observation_window_days": null,
+      "observed_vs_configured": {
+        "configured": [],
+        "inferred": [],
+        "observed": []
+      },
+      "scope": {
+        "resource_id": "arn:aws:iam::111122223333:role/fixture-web-role",
+        "resource_type": "iam:role",
+        "system": null
+      }
+    },
+    "result": {
+      "data_stores": [
+        {
+          "allowed_operations": null,
+          "allowed_operations_status": {
+            "reason_code": "DECISION_IDENTITY_DATA_ACCESS_ALLOWED_OPERATIONS_UNSUPPORTED",
+            "state": "NOT_COMPUTED"
+          },
+          "arn": "arn:aws:s3:::fixture-orders-archive",
+          "name": "fixture-orders-archive",
+          "observed_evidence": [
+            {
+              "action_type": "read",
+              "actions": [
+                "GetObject",
+                "ListBucket"
+              ],
+              "evidence_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "evidence_object_key": "synthetic-fixture/s3-access/read.json",
+              "evidence_version_id": "synthetic-fixture-version-1",
+              "first_seen": "2026-07-01T09:00:00+00:00",
+              "hit_count": 812,
+              "last_seen": "2026-09-17T21:00:00+00:00",
+              "s3_access_generation": 3,
+              "source_types": [
+                "cloudtrail_data_events",
+                "s3_access_logs"
+              ]
+            },
+            {
+              "action_type": "write",
+              "actions": [
+                "PutObject"
+              ],
+              "evidence_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "evidence_object_key": "synthetic-fixture/s3-access/write.json",
+              "evidence_version_id": "synthetic-fixture-version-1",
+              "first_seen": "2026-07-01T09:00:00+00:00",
+              "hit_count": 97,
+              "last_seen": "2026-09-17T21:00:00+00:00",
+              "s3_access_generation": 3,
+              "source_types": [
+                "cloudtrail_data_events",
+                "s3_access_logs"
+              ]
+            }
+          ],
+          "observed_operations": [
+            "GetObject",
+            "ListBucket",
+            "PutObject"
+          ],
+          "region": "eu-west-1",
+          "resource_type": "s3:bucket",
+          "stable_id": "arn:aws:s3:::fixture-orders-archive"
+        }
+      ],
+      "data_stores_status": {
+        "link_basis": null,
+        "missing_proofs": [],
+        "observation_window": {
+          "end": "2026-09-18T00:00:00+00:00",
+          "start": "2026-06-20T00:00:00+00:00"
+        },
+        "reason_code": null,
+        "services_covered": [
+          "S3"
+        ],
+        "state": "COMPUTED",
+        "truncated": false
+      },
+      "identity": {
+        "arn": "arn:aws:iam::111122223333:role/fixture-web-role",
+        "kind": "iam_role",
+        "name": "fixture-web-role",
+        "role_id": "AROAFIXTURE000000000001"
+      },
+      "scope": {
+        "account_id": "111122223333",
+        "resolved_by": "server",
+        "tenant_id": "tenant-a"
+      },
+      "sections": {
+        "data_stores": "READY",
+        "identity": "READY",
+        "serving_generation": "READY",
+        "table_access": "READY"
+      },
+      "serve_state": "PARTIAL",
+      "serving_generation": {
+        "age_seconds": 7200,
+        "freshness_status": "fresh",
+        "generation": 42,
+        "last_sync": "2026-09-18T06:00:00+00:00",
+        "max_age_seconds": 43200
+      },
+      "status": "ready",
+      "table_access": [
+        {
+          "access_count": 1200,
+          "daily_avg": 40.0,
+          "database": "shop",
+          "last_seen": "2026-09-17T20:00:00+00:00",
+          "link_basis": "INFERRED_FLOW_LOG_CORRELATION",
+          "operations": [
+            "INSERT",
+            "SELECT"
+          ],
+          "rds_instance": "fixture-db-1",
+          "schema": "public",
+          "table": "orders",
+          "via_db_user": "app_rw"
+        }
+      ],
+      "table_access_status": {
+        "link_basis": "INFERRED_FLOW_LOG_CORRELATION",
+        "missing_proofs": [],
+        "observation_window": null,
+        "reason_code": "DECISION_IDENTITY_DATA_ACCESS_TABLE_ATTRIBUTION_INCOMPLETE",
+        "services_covered": [
+          "RDS"
+        ],
+        "state": "PARTIAL",
+        "truncated": false
+      }
+    }
+  },
+  "http_status": 200
+}

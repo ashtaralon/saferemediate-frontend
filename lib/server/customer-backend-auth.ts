@@ -28,6 +28,11 @@ function hostedBackendOrigin(): string | null {
   }
 }
 
+/** True once this process attaches the service token to backend calls (see below). */
+export function customerBackendAuthInstalled(): boolean {
+  return (globalThis as MarkedGlobal)[INSTALL_MARKER] === true
+}
+
 /** Attach the service token to every backend call this server makes.
  *
  * The backend's global auth boundary (unified/auth_boundary.py) has three

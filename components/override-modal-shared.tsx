@@ -83,6 +83,16 @@ export interface OverrideModalSharedProps {
   contextBlurb?: string
   /** Placeholder for the rationale textarea — resource-specific copy. */
   rationalePlaceholder?: string
+  /**
+   * Optional content shown above the reasons, e.g. the exact signed change being confirmed. Absent (the SG/S3
+   * default): nothing extra renders.
+   */
+  details?: React.ReactNode
+  /**
+   * Optional guard on the final confirmation, re-evaluated on every render and again on submit. Absent (the SG/S3
+   * default): only the existing name/rationale/acknowledgement requirements apply.
+   */
+  confirmGuard?: { disabled: boolean; reason?: string }
 }
 
 /**
@@ -112,6 +122,8 @@ export function OverrideModalShared({
   onSubmit,
   contextBlurb,
   rationalePlaceholder,
+  details,
+  confirmGuard,
 }: OverrideModalSharedProps) {
   if (state.phase === "closed") return null
 
@@ -122,6 +134,7 @@ export function OverrideModalShared({
     const rationale = state.rationale.trim()
     const name = state.operatorName.trim()
     if (!rationale || !name) return
+    if (confirmGuard?.disabled) return
 
     // Persist identity for the next override across any card type.
     writeOperatorIdentity(
@@ -162,9 +175,10 @@ export function OverrideModalShared({
       role="dialog"
       aria-modal="true"
     >
-      <div className="bg-white rounded-xl max-w-lg w-full p-6 shadow-2xl">
+      <div className="bg-white rounded-xl max-w-lg w-full p-6 shadow-2xl max-h-[90vh] flex flex-col">
         {state.phase === "form" && (
           <>
+            <div className="min-h-0 flex-1 overflow-y-auto pr-1" data-testid="override-modal-scroll">
             <div className="flex items-center gap-3 mb-3">
               <span className="text-2xl">⚠</span>
               <h3 className="text-lg font-bold text-[#b45309]">
@@ -175,6 +189,7 @@ export function OverrideModalShared({
               {contextBlurb ||
                 "Cyntro paused this remediation. You can override and proceed — the change runs immediately with a rollback snapshot. The override is recorded in the audit log."}
             </p>
+            {details}
             <div className="mb-3 p-3 rounded-md bg-amber-50 border border-amber-200 text-xs text-amber-900">
               <div className="font-semibold mb-1">Reasons:</div>
               <ul className="list-disc ml-4 space-y-0.5">
@@ -245,7 +260,13 @@ export function OverrideModalShared({
                 dependent systems.
               </span>
             </label>
-            <div className="flex justify-end gap-2">
+            </div>
+            {confirmGuard?.disabled && confirmGuard.reason && (
+              <p data-testid="override-confirm-guard" className="mb-2 text-xs font-semibold text-rose-700 break-words">
+                {confirmGuard.reason}
+              </p>
+            )}
+            <div className="flex justify-end gap-2 pt-2">
               <button
                 onClick={close}
                 className="px-4 py-2 border-2 border-[var(--border,#e5e7eb)] rounded-lg font-semibold text-[var(--foreground,#111827)] hover:bg-[var(--muted,#f3f4f6)]"
@@ -257,11 +278,14 @@ export function OverrideModalShared({
                 disabled={
                   !state.rationale.trim() ||
                   !state.ackRollback ||
-                  !state.operatorName.trim()
+                  !state.operatorName.trim() ||
+                  Boolean(confirmGuard?.disabled)
                 }
                 className="px-5 py-2 bg-[#f59e0b] text-white rounded-lg font-bold hover:bg-[#d97706] shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
                 title={
-                  !state.operatorName.trim()
+                  confirmGuard?.disabled
+                    ? confirmGuard.reason || "This change cannot be confirmed"
+                    : !state.operatorName.trim()
                     ? "Your name is required for the audit log"
                     : !state.rationale.trim()
                       ? "Rationale required for the audit log"

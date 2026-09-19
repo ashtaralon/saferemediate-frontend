@@ -7,20 +7,40 @@ export const fetchCache = "force-no-store"
 const BACKEND_URL =
   getBackendBaseUrl()
 
+// The canonical, server-scoped snapshot detail (H-P1, Root185): read by key from the tenant's own lifecycle storage
+// and positively attributed to its operation; the page's claims travel with it. A typed backend answer (404 that
+// discloses only the id, 403/422 refusals, 409 attribution, 503 storage) keeps its status and body.
+const DETAIL_CLAIMS = ["customer_id", "account_id", "region"] as const
+const DETAIL_TIMEOUT_MS = 30000
+
+/** Why a 2xx body is not a readable answer, or null when it is a JSON object (Root187). */
+function unreadableSuccess(text: string, body: unknown, parseFailed: boolean): "BODY_EMPTY" | "BODY_UNREADABLE" | "BODY_NOT_OBJECT" | null {
+  if (!text.trim()) return "BODY_EMPTY"
+  if (parseFailed) return "BODY_UNREADABLE"
+  if (body === null || typeof body !== "object" || Array.isArray(body)) return "BODY_NOT_OBJECT"
+  return null
+}
+
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ snapshotId: string }> }
 ) {
   const { snapshotId } = await params
+  const { searchParams } = new URL(req.url)
+  const claims = new URLSearchParams()
+  for (const name of DETAIL_CLAIMS) {
+    const value = searchParams.get(name)
+    if (value !== null && value !== "") claims.set(name, value)
+  }
+  const query = claims.toString()
 
+  // One bound for the whole read, headers AND body, cleared on every outcome (Root187: the timer used to be cleared
+  // after the headers, leaving the body read unbounded, and stayed armed when the fetch itself threw).
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), DETAIL_TIMEOUT_MS)
   try {
-    console.log("[proxy] get snapshot:", snapshotId)
-
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 30000)
-
     const response = await fetch(
-      `${BACKEND_URL}/api/remediation/snapshots/${snapshotId}`,
+      `${BACKEND_URL}/api/snapshots/${encodeURIComponent(snapshotId)}${query ? `?${query}` : ""}`,
       {
         headers: { "Accept": "application/json" },
         cache: "no-store",
@@ -28,21 +48,39 @@ export async function GET(
       }
     )
 
-    clearTimeout(timeoutId)
-
+    const text = await response.text()
+    let body: unknown = null
+    let parseFailed = false
+    try {
+      body = text ? JSON.parse(text) : null
+    } catch {
+      parseFailed = true
+    }
     if (!response.ok) {
-      const errorText = await response.text()
-      console.error("[proxy] get snapshot error " + response.status + ": " + errorText)
-      return NextResponse.json({ error: "Snapshot not found" }, { status: response.status })
+      const detail = body && typeof body === "object" && (body as Record<string, unknown>).detail !== undefined
+        ? (body as Record<string, unknown>).detail
+        : { code: "SNAPSHOT_DETAIL_UPSTREAM_ERROR", status: response.status, message: text.slice(0, 500) }
+      return NextResponse.json({ detail }, { status: response.status })
+    }
+    // An unreadable SUCCESS is a named unavailability (502), never `{}` served as the snapshot.
+    const unreadable = unreadableSuccess(text, body, parseFailed)
+    if (unreadable) {
+      return NextResponse.json(
+        { detail: { code: "SNAPSHOT_DETAIL_PROXY_UNAVAILABLE", reason: unreadable, status: response.status,
+                    message: "The snapshot detail answered, but its body could not be read; this is not a statement about the snapshot." } },
+        { status: 502 },
+      )
     }
 
-    const data = await response.json()
-    console.log("[proxy] snapshot retrieved:", data.snapshot_id)
-
-    return NextResponse.json(data, { status: 200 })
-  } catch (error: any) {
-    console.error("[proxy] get snapshot error:", error)
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json(body as Record<string, unknown>, { status: 200 })
+  } catch (error: unknown) {
+    const name = (error as { name?: string } | null)?.name
+    return NextResponse.json(
+      { detail: { code: "SNAPSHOT_DETAIL_PROXY_UNAVAILABLE", reason: name === "AbortError" ? "TIMEOUT" : name || "FETCH_FAILED" } },
+      { status: 503 },
+    )
+  } finally {
+    clearTimeout(timeoutId)
   }
 }
 

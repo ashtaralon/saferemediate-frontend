@@ -1,25 +1,25 @@
 import { NextResponse } from "next/server"
+import {
+  SITE_SESSION_COOKIE,
+  SITE_SESSION_MAX_AGE_SECONDS,
+  issueSiteSession,
+  siteCookieOptions,
+  sitePasswordMatches,
+} from "@/lib/server/site-session"
 
 export async function POST(request: Request) {
-  const { password } = await request.json()
-  const sitePassword = process.env.SITE_PASSWORD
+  const payload = await request.json().catch(() => null)
+  const password = payload && typeof payload === "object" ? (payload as { password?: unknown }).password : undefined
 
-  if (!sitePassword) {
+  if (!process.env.SITE_PASSWORD) {
     return NextResponse.json({ error: "Password not configured" }, { status: 500 })
   }
 
-  if (password !== sitePassword) {
+  if (!(await sitePasswordMatches(password))) {
     return NextResponse.json({ error: "Wrong password" }, { status: 401 })
   }
 
   const response = NextResponse.json({ success: true })
-  response.cookies.set("cyntro_auth", "authenticated", {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "strict",
-    maxAge: 60 * 60 * 24 * 30, // 30 days
-    path: "/",
-  })
-
+  response.cookies.set(SITE_SESSION_COOKIE, await issueSiteSession(), siteCookieOptions(SITE_SESSION_MAX_AGE_SECONDS))
   return response
 }

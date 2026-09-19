@@ -18,7 +18,7 @@ const BACKEND_URL = getBackendBaseUrl().replace(/\/+$/, "").replace(/\/backend$/
 // body: { resource_type: string, resource_id: string, system_name: string }
 export async function POST(request: Request) {
   const body = await request.json().catch(() => ({}))
-  const { resource_type, resource_id, system_name } = body
+  const { resource_type, resource_id, system_name, finding_id, customer_id, account_id, region } = body
 
   if (!resource_type || !resource_id || !system_name) {
     return NextResponse.json(
@@ -34,7 +34,17 @@ export async function POST(request: Request) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       cache: "no-store",
-      body: JSON.stringify({ resource_type, resource_id, system_name }),
+      // finding_id binds the persisted preview decision to the clicked row;
+      // customer/account/region are scope claims the backend validates.
+      body: JSON.stringify({
+        resource_type,
+        resource_id,
+        system_name,
+        ...(typeof finding_id === "string" && finding_id ? { finding_id } : {}),
+        ...(typeof customer_id === "string" && customer_id ? { customer_id } : {}),
+        ...(typeof account_id === "string" && /^\d{12}$/.test(account_id) ? { account_id } : {}),
+        ...(typeof region === "string" && /^[a-z]{2}(?:-[a-z]+)+-\d{1,2}$/.test(region) ? { region } : {}),
+      }),
       // 25s — leaves 5s headroom under Vercel maxDuration (30s) so the
       // proxy can still serialize the response after fetch completes.
       // Backend simulate-fix p95 is ~2s in healthy state; 25s tolerates
@@ -45,8 +55,18 @@ export async function POST(request: Request) {
 
     if (!res.ok) {
       const errorData = await res.json().catch(() => ({}))
+      // Keep the typed backend detail ({code, message, request_id}) intact so
+      // the Review can say what failed instead of a generic sentence.
+      const detail = errorData?.detail
       return NextResponse.json(
-        { success: false, error: errorData.detail || `Backend simulate-fix failed: ${res.status}` },
+        {
+          success: false,
+          error:
+            (typeof detail === "string" && detail) ||
+            (detail && typeof detail.message === "string" && detail.message) ||
+            `Backend simulate-fix failed: ${res.status}`,
+          detail: detail ?? null,
+        },
         { status: res.status },
       )
     }

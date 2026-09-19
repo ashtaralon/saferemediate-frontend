@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { riskLabel } from "@/lib/utils"
+import { IdentityDataAccessPanel } from "@/components/identities/identity-data-access-panel"
+import { fetchIdentityDataAccess, type IdentityDataAccessBody } from "@/lib/identity-data-access"
 import {
   Bot,
   Search,
@@ -29,7 +31,6 @@ import {
   PenTool,
   Network,
   Target,
-  HardDrive,
   ArrowRightLeft,
   Wifi,
   BarChart3,
@@ -119,7 +120,7 @@ export function NHITab({ onRequestRemediation, systemName }: NHITabProps) {
   const [detailData, setDetailData] = useState<IdentityDetail | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
   const [detailTab, setDetailTab] = useState<'permissions' | 'data-access' | 'network' | 'behavioral'>('permissions')
-  const [dataAccess, setDataAccess] = useState<any>(null)
+  const [dataAccess, setDataAccess] = useState<IdentityDataAccessBody | null>(null)
   const [dataAccessLoading, setDataAccessLoading] = useState(false)
   const [trafficData, setTrafficData] = useState<any>(null)
   const [trafficLoading, setTrafficLoading] = useState(false)
@@ -165,13 +166,11 @@ export function NHITab({ onRequestRemediation, systemName }: NHITabProps) {
     }
   }, [])
 
-  const fetchDataAccess = useCallback(async (name: string) => {
+  const fetchDataAccess = useCallback(async (name: string, arn: string | undefined) => {
     setDataAccessLoading(true)
     try {
-      const res = await fetch(`/api/proxy/identities/data-access/${encodeURIComponent(name)}`)
-      if (res.ok) setDataAccess(await res.json())
-    } catch (err) {
-      console.error("Error fetching data access:", err)
+      // Asked by ARN: a bare name is not unique across accounts. Failures come back as bodies that say so.
+      setDataAccess(await fetchIdentityDataAccess(name, arn))
     } finally {
       setDataAccessLoading(false)
     }
@@ -527,7 +526,7 @@ export function NHITab({ onRequestRemediation, systemName }: NHITabProps) {
                                 onClick={(e) => {
                                   e.stopPropagation()
                                   setDetailTab(tab.id)
-                                  if (tab.id === 'data-access' && !dataAccess && !dataAccessLoading) fetchDataAccess(nhi.name)
+                                  if (tab.id === 'data-access' && !dataAccess && !dataAccessLoading) fetchDataAccess(nhi.name, nhi.arn)
                                   if (tab.id === 'network' && !connectionsData && !connectionsLoading) {
                                     fetchConnections(nhi.name)
                                     if (!trafficData && !trafficLoading) fetchTrafficData(nhi.name)
@@ -659,166 +658,7 @@ export function NHITab({ onRequestRemediation, systemName }: NHITabProps) {
 
                             {/* ===== DATA ACCESS TAB ===== */}
                             {detailTab === 'data-access' && (
-                              <div className="space-y-4">
-                                {dataAccessLoading ? (
-                                  <div className="flex items-center justify-center py-8">
-                                    <RefreshCw className="w-5 h-5 animate-spin" style={{ color: "#8b5cf6" }} />
-                                    <span className="ml-2 text-sm" style={{ color: "var(--text-secondary)" }}>Analyzing data access...</span>
-                                  </div>
-                                ) : dataAccess?.dataStores?.length > 0 ? (
-                                  <>
-                                    {/* Summary */}
-                                    <div className="flex items-center gap-4">
-                                      <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium" style={{ background: "var(--bg-secondary)" }}>
-                                        <Database className="w-3.5 h-3.5" style={{ color: "#8b5cf6" }} />
-                                        <span style={{ color: "var(--text-primary)" }}>{dataAccess.summary.totalDataStores} data store(s)</span>
-                                      </div>
-                                      <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium" style={{ background: "var(--bg-secondary)" }}>
-                                        <span style={{ color: "#22c55e" }}>{dataAccess.summary.totalObservedOps} observed</span>
-                                        <span style={{ color: "var(--text-muted)" }}>/</span>
-                                        <span style={{ color: "var(--text-primary)" }}>{dataAccess.summary.totalAllowedOps} allowed ops</span>
-                                      </div>
-                                      {dataAccess.summary.hasDestructiveAccess && (
-                                        <span className="px-2 py-1 rounded text-xs font-medium" style={{ background: "#ef444420", color: "#ef4444" }}>Has Destructive Access</span>
-                                      )}
-                                    </div>
-
-                                    {/* Data Store Cards */}
-                                    {dataAccess.dataStores.map((store: any, idx: number) => {
-                                      const ACCESS_LEVEL_COLORS: Record<string, string> = { FULL: '#ef4444', WRITE: '#f97316', READ: '#22c55e', NONE: '#6b7280' }
-                                      const OP_COLORS: Record<string, string> = { READ: '#22c55e', LIST: '#3b82f6', WRITE: '#f97316', DELETE: '#ef4444', EXECUTE: '#a855f7', MODIFY: '#ef4444', ENCRYPT: '#a855f7', DECRYPT: '#3b82f6', INVOKE: '#06b6d4', SNAPSHOT: '#3b82f6', READ_METADATA: '#6b7280', READ_POLICY: '#6b7280', WRITE_POLICY: '#f97316', START: '#22c55e', STOP: '#ef4444' }
-                                      const TYPE_ICONS: Record<string, any> = { S3: HardDrive, RDS: Database, DynamoDB: Database, Lambda: Workflow, KMS: Lock, SecretsManager: Key }
-                                      const StoreIcon = TYPE_ICONS[store.type] || Database
-                                      return (
-                                        <div key={idx} className="rounded-lg border p-4" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
-                                          <div className="flex items-center justify-between mb-3">
-                                            <div className="flex items-center gap-2">
-                                              <StoreIcon className="w-4 h-4" style={{ color: "#8b5cf6" }} />
-                                              <span className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>{store.name}</span>
-                                              <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: "var(--bg-primary)", color: "var(--text-muted)" }}>{store.type}</span>
-                                            </div>
-                                            <span className="text-xs font-semibold px-2 py-0.5 rounded" style={{
-                                              background: `${ACCESS_LEVEL_COLORS[store.accessLevel] || '#6b7280'}20`,
-                                              color: ACCESS_LEVEL_COLORS[store.accessLevel] || '#6b7280',
-                                            }}>{store.accessLevel} ACCESS</span>
-                                          </div>
-
-                                          {/* Operations Grid */}
-                                          <div className="grid grid-cols-2 gap-3 mb-3">
-                                            <div>
-                                              <span className="text-[10px] uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>Allowed Operations</span>
-                                              <div className="flex flex-wrap gap-1 mt-1">
-                                                {store.allowedOperations.length > 0 ? store.allowedOperations.map((op: string) => (
-                                                  <span key={op} className="text-[10px] px-1.5 py-0.5 rounded font-medium" style={{
-                                                    background: `${OP_COLORS[op] || '#6b7280'}15`,
-                                                    color: OP_COLORS[op] || '#6b7280',
-                                                  }}>{op}</span>
-                                                )) : <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>None</span>}
-                                              </div>
-                                            </div>
-                                            <div>
-                                              <span className="text-[10px] uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>Observed (Used)</span>
-                                              <div className="flex flex-wrap gap-1 mt-1">
-                                                {store.observedOperations.length > 0 ? store.observedOperations.map((op: string) => (
-                                                  <span key={op} className="text-[10px] px-1.5 py-0.5 rounded font-medium" style={{
-                                                    background: `${OP_COLORS[op] || '#6b7280'}15`,
-                                                    color: OP_COLORS[op] || '#6b7280',
-                                                    border: `1px solid ${OP_COLORS[op] || '#6b7280'}40`,
-                                                  }}>{op}</span>
-                                                )) : <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>No observed access</span>}
-                                              </div>
-                                            </div>
-                                          </div>
-
-                                          {/* Unused + Recommendation */}
-                                          {store.unusedOperations.length > 0 && (
-                                            <div className="flex flex-wrap gap-1 mb-2">
-                                              <span className="text-[10px]" style={{ color: "#ef4444" }}>Unused:</span>
-                                              {store.unusedOperations.map((op: string) => (
-                                                <span key={op} className="text-[10px] px-1.5 py-0.5 rounded font-medium line-through" style={{
-                                                  background: "#ef444410", color: "#ef4444",
-                                                }}>{op}</span>
-                                              ))}
-                                            </div>
-                                          )}
-                                          <div className="text-xs p-2 rounded" style={{ background: "#f59e0b08", color: "#f59e0b" }}>
-                                            {store.recommendation}
-                                          </div>
-                                        </div>
-                                      )
-                                    })}
-                                  </>
-                                ) : dataAccess?.tableAccess?.length > 0 ? (
-                                  /* Table-level access from RDS query logs */
-                                  <div className="space-y-3">
-                                    <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium" style={{ background: "var(--bg-secondary)" }}>
-                                      <Database className="w-3.5 h-3.5" style={{ color: "#8b5cf6" }} />
-                                      <span style={{ color: "var(--text-primary)" }}>{dataAccess.tableAccess.length} table(s) accessed</span>
-                                      <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: "#22c55e15", color: "#22c55e" }}>From RDS Query Logs</span>
-                                    </div>
-                                    {/* Group tables by RDS instance */}
-                                    {(() => {
-                                      const byInstance: Record<string, any[]> = {}
-                                      for (const t of dataAccess.tableAccess) {
-                                        const key = t.rdsInstance || 'Unknown'
-                                        if (!byInstance[key]) byInstance[key] = []
-                                        byInstance[key].push(t)
-                                      }
-                                      return Object.entries(byInstance).map(([instance, tables]) => (
-                                        <div key={instance} className="rounded-lg border p-4" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
-                                          <div className="flex items-center gap-2 mb-3">
-                                            <Database className="w-4 h-4" style={{ color: "#3b82f6" }} />
-                                            <span className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>{instance}</span>
-                                            <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: "var(--bg-primary)", color: "var(--text-muted)" }}>RDS</span>
-                                            {(tables as any[])[0]?.viaDbUser && (
-                                              <span className="text-[10px] px-1.5 py-0.5 rounded font-mono" style={{ background: "#3b82f610", color: "#3b82f6" }}>
-                                                via db_user: {(tables as any[])[0].viaDbUser}
-                                              </span>
-                                            )}
-                                          </div>
-                                          <div className="space-y-2">
-                                            {(tables as any[]).map((t: any, idx: number) => {
-                                              const OP_COLORS: Record<string, string> = { SELECT: '#22c55e', INSERT: '#3b82f6', UPDATE: '#f97316', DELETE: '#ef4444', CREATE: '#a855f7', DROP: '#ef4444', ALTER: '#f97316', TRUNCATE: '#ef4444' }
-                                              return (
-                                                <div key={idx} className="flex items-center justify-between py-1.5 px-2 rounded" style={{ background: "var(--bg-primary)" }}>
-                                                  <div className="flex items-center gap-2">
-                                                    <span className="text-xs font-mono font-medium" style={{ color: "var(--text-primary)" }}>
-                                                      {t.schema !== 'public' ? `${t.schema}.` : ''}{t.tableName}
-                                                    </span>
-                                                    <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>({t.database})</span>
-                                                  </div>
-                                                  <div className="flex items-center gap-2">
-                                                    <div className="flex gap-1">
-                                                      {(t.operations || []).map((op: string) => (
-                                                        <span key={op} className="text-[10px] px-1.5 py-0.5 rounded font-medium" style={{
-                                                          background: `${OP_COLORS[op] || '#6b7280'}15`,
-                                                          color: OP_COLORS[op] || '#6b7280',
-                                                        }}>{op}</span>
-                                                      ))}
-                                                    </div>
-                                                    {t.accessCount > 0 && (
-                                                      <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>{t.accessCount.toLocaleString()} calls</span>
-                                                    )}
-                                                    {t.dailyAvg > 0 && (
-                                                      <span className="text-[10px]" style={{ color: "var(--text-secondary)" }}>~{t.dailyAvg}/day</span>
-                                                    )}
-                                                  </div>
-                                                </div>
-                                              )
-                                            })}
-                                          </div>
-                                        </div>
-                                      ))
-                                    })()}
-                                  </div>
-                                ) : (
-                                  <div className="text-center py-8">
-                                    <Database className="w-8 h-8 mx-auto mb-2 opacity-30" style={{ color: "var(--text-muted)" }} />
-                                    <p className="text-sm" style={{ color: "var(--text-muted)" }}>No data store access detected for this identity</p>
-                                    <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>This identity may not have data-service permissions (S3, RDS, DynamoDB)</p>
-                                  </div>
-                                )}
-                              </div>
+                              <IdentityDataAccessPanel loading={dataAccessLoading} body={dataAccess} />
                             )}
 
                             {/* ===== NETWORK TAB ===== */}

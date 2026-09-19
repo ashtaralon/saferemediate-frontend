@@ -463,6 +463,9 @@ export type DecisionOutcomeCanonical =
   | "EXCLUDE"
 
 export interface SimulateFixSafety {
+  /** Execution ownership decided by simulate-fix (e.g. terraform_pr_only, aws_api, unknown). */
+  execution_adapter?: string | null
+  ownership_status?: string | null
   decision: SimulateFixSafetyDecision
   decision_canonical?: DecisionOutcomeCanonical | null
   rollback_available: boolean
