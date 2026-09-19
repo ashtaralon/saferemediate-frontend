@@ -15,6 +15,7 @@ import {
   ShieldCheck,
 } from 'lucide-react'
 import { ChangeImpactGraph } from '@/components/change-impact-graph'
+import { describeAdjacency, describeFamily, normalizeAffectedResources, normalizeBlastRadius } from '@/lib/change-assurance/baseline-contract'
 
 interface Evidence {
   kind: string
@@ -40,7 +41,8 @@ interface Finding {
   addresses: string[]
   failure_mode: string
   recommendation: string
-  affected_resources: Array<{ resource_id?: string; resource_name?: string; resource_type?: string; system_names?: string[] }>
+  affected_resources?: Array<{ resource_id?: string; resource_name?: string; resource_type?: string; system_names?: string[] }>
+  affected_resources_assessment?: { state?: string; items?: unknown[]; detail?: string }
   evidence: Evidence[]
 }
 
@@ -130,10 +132,13 @@ export interface IaCIntentDocument {
   risk_dossier: {
     analysis_kind: 'IAC_CHANGE_INTELLIGENCE' | 'TERRAFORM_BASELINE_ASSURANCE'
     baseline_phase?: string
-    readiness?: { state: string; failed_gate_count: number; required_gate_count: number; meaning: string }
+    readiness?: { state: string; failed_gate_count: number; required_gate_count?: number; required_gate_definition?: string; meaning: string }
     analysis_conclusion: { state: string; headline: string; safe_to_apply: null; safe_to_apply_reason: string }
     risk_band: string
-    risk_indicator: number
+    // The baseline lane emits null with risk_indicator_state NOT_COMPUTED:
+    // it returns deterministic conservation verdicts, not a risk score.
+    risk_indicator: number | null
+    risk_indicator_state?: string
     risk_indicator_explanation: string
     confidence: { level: string; meaning: string; gaps: string[]; proven_scope: string; graph_scope: string }
     source_artifact: { kind: string; fingerprint: string; semantic_fingerprint?: string; account_id: string; region: string; metadata: Record<string, unknown>; raw_artifact_persisted: false; retained_form: string }
@@ -143,7 +148,20 @@ export interface IaCIntentDocument {
     }
     findings: Finding[]
     finding_counts: { total: number; by_severity: Record<string, number>; by_category: Record<string, number>; by_disposition: Record<string, number> }
-    blast_radius: { systems: string[]; changed_resource_count: number; resolved_changed_resource_count: number; graph_relationship_count: number; periodic_dependencies: unknown[]; data_dependencies: unknown[] }
+    blast_radius: {
+      systems: string[]
+      changed_resource_count: number
+      resolved_changed_resource_count: number
+      graph_relationship_count: number
+      dependency_incidences?: number
+      direct_dependency_count?: number
+      direct_dependency_count_semantics?: string
+      distinct_affected_resources?: { state?: string; count?: number; detail?: string }
+      periodic_dependencies?: unknown[]
+      data_dependencies?: unknown[]
+      periodic_dependencies_assessment?: { state?: string; items?: unknown[]; detail?: string }
+      data_dependencies_assessment?: { state?: string; items?: unknown[]; detail?: string }
+    }
     impact_graph: {
       status: string
       targets_requested: number
@@ -251,10 +269,23 @@ export function IaCChangeDossier({ document, customerId }: { document: IaCIntent
             <Metric label="Findings" value={String(dossier.finding_counts.total)} />
             <Metric label="Systems" value={String(dossier.blast_radius.systems.length)} />
           </div>
+          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600" data-testid="blast-radius-contract">
+            {(() => {
+              const blast = normalizeBlastRadius(dossier.blast_radius)
+              return (
+                <>
+                  <span data-testid="adjacency">{describeAdjacency(blast.adjacency)}</span>
+                  <span data-testid="distinct-affected">{describeFamily(blast.distinctAffectedResources, "distinct affected resources")}</span>
+                  <span data-testid="periodic-dependencies">{describeFamily(blast.periodicDependencies, "periodic dependencies")}</span>
+                  <span data-testid="data-dependencies">{describeFamily(blast.dataDependencies, "data dependencies")}</span>
+                </>
+              )
+            })()}
+          </div>
         </header>
 
         {isBaseline && dossier.readiness && <section className="mt-5 rounded-2xl border border-amber-300 bg-amber-50 p-5 text-amber-950 shadow-sm">
-          <div className="flex flex-wrap items-start justify-between gap-4"><div><div className="text-xs font-black uppercase tracking-[.16em]">Baseline readiness · {humanize(dossier.readiness.state)}</div><p className="mt-2 max-w-3xl text-sm leading-6">{dossier.readiness.meaning}</p></div><div className="flex gap-2"><VerdictMetric label="Failed gates" value={String(dossier.readiness.failed_gate_count)} /><VerdictMetric label="Still required" value={String(dossier.readiness.required_gate_count)} /></div></div>
+          <div className="flex flex-wrap items-start justify-between gap-4"><div><div className="text-xs font-black uppercase tracking-[.16em]">Baseline readiness · {humanize(dossier.readiness.state)}</div><p className="mt-2 max-w-3xl text-sm leading-6">{dossier.readiness.meaning}</p></div><div className="flex gap-2"><VerdictMetric label="Failed gates" value={String(dossier.readiness.failed_gate_count)} /><VerdictMetric label="Still required" value={dossier.readiness.required_gate_count === undefined ? 'Unknown' : String(dossier.readiness.required_gate_count)} /></div></div>
         </section>}
 
         <div className="mt-5 grid gap-5 xl:grid-cols-[1.45fr_.75fr]">
@@ -336,7 +367,8 @@ function FindingCard({ finding }: { finding: Finding }) {
       <p className="mt-2 text-sm leading-6">{finding.summary}</p>
       <div className="mt-3 grid gap-3 md:grid-cols-2"><div className="rounded-xl bg-white/60 p-3"><div className="text-[10px] font-black uppercase tracking-wide opacity-60">Failure mode</div><p className="mt-1 text-xs leading-5">{finding.failure_mode}</p></div><div className="rounded-xl bg-white/60 p-3"><div className="text-[10px] font-black uppercase tracking-wide opacity-60">Operator action</div><p className="mt-1 text-xs leading-5">{finding.recommendation}</p></div></div>
       <div className="mt-3 flex flex-wrap gap-1.5">{finding.evidence.map((item, index) => <EvidenceChip key={`${item.kind}-${index}`} kind={item.kind} />)}</div>
-      <details className="mt-3 rounded-xl border border-black/10 bg-white/50 p-3"><summary className="cursor-pointer text-xs font-bold">Evidence and affected resources</summary><div className="mt-3 space-y-2">{finding.evidence.map((item, index) => <div key={`${item.statement}-${index}`} className="rounded-lg border border-slate-200 bg-white p-2.5 text-xs"><div className="flex flex-wrap items-center gap-2"><EvidenceChip kind={item.kind} />{item.plane && <span className="font-bold text-slate-500">Plane {item.plane}</span>}{item.edge_class && <span className="font-bold text-slate-500">{humanize(item.edge_class)}</span>}{item.source_system && <span className="font-mono text-[10px] text-slate-500">{item.source_system}</span>}{item.is_stale && <span className="rounded bg-amber-100 px-1.5 py-0.5 font-bold text-amber-800">STALE</span>}</div><p className="mt-2 text-slate-700">{item.statement}</p>{item.neighbor?.resource_name && <p className="mt-1 font-mono text-[10px] text-slate-500">{item.neighbor.resource_type} · {item.neighbor.resource_name}</p>}{item.freshness?.value && <p className="mt-1 text-[10px] text-slate-500">{item.freshness.field}: {item.freshness.value}</p>}{item.details && Object.keys(item.details).length > 0 && <pre className="mt-2 max-h-40 overflow-auto rounded bg-slate-950 p-2 font-mono text-[10px] leading-4 text-slate-200">{JSON.stringify(item.details, null, 2)}</pre>}</div>)}</div>{finding.affected_resources.length > 0 && <div className="mt-3"><div className="text-[10px] font-black uppercase text-slate-500">Affected graph resources</div><div className="mt-2 space-y-1">{finding.affected_resources.slice(0, 20).map((resource, index) => <div key={`${resource.resource_id || resource.resource_name}-${index}`} className="rounded-lg border border-slate-200 bg-white p-2 text-xs"><strong>{resource.resource_name || resource.resource_id || 'Unknown resource'}</strong><span className="ml-2 text-slate-500">{resource.resource_type || 'Resource'}{resource.system_names?.length ? ` · ${resource.system_names.join(', ')}` : ''}</span></div>)}</div></div>}</details>
+      <details className="mt-3 rounded-xl border border-black/10 bg-white/50 p-3"><summary className="cursor-pointer text-xs font-bold">Evidence and affected resources</summary><div className="mt-3 space-y-2">{finding.evidence.map((item, index) => <div key={`${item.statement}-${index}`} className="rounded-lg border border-slate-200 bg-white p-2.5 text-xs"><div className="flex flex-wrap items-center gap-2"><EvidenceChip kind={item.kind} />{item.plane && <span className="font-bold text-slate-500">Plane {item.plane}</span>}{item.edge_class && <span className="font-bold text-slate-500">{humanize(item.edge_class)}</span>}{item.source_system && <span className="font-mono text-[10px] text-slate-500">{item.source_system}</span>}{item.is_stale && <span className="rounded bg-amber-100 px-1.5 py-0.5 font-bold text-amber-800">STALE</span>}</div><p className="mt-2 text-slate-700">{item.statement}</p>{item.neighbor?.resource_name && <p className="mt-1 font-mono text-[10px] text-slate-500">{item.neighbor.resource_type} · {item.neighbor.resource_name}</p>}{item.freshness?.value && <p className="mt-1 text-[10px] text-slate-500">{item.freshness.field}: {item.freshness.value}</p>}{item.details && Object.keys(item.details).length > 0 && <pre className="mt-2 max-h-40 overflow-auto rounded bg-slate-950 p-2 font-mono text-[10px] leading-4 text-slate-200">{JSON.stringify(item.details, null, 2)}</pre>}</div>)}</div>{(() => { const af = normalizeAffectedResources(finding); return af.state === 'NOT_COMPUTED' || af.state === 'UNKNOWN' ? <div className="mt-3"><div className="text-[10px] font-black uppercase text-slate-500">Affected graph resources</div><p className="mt-1 text-xs text-slate-500" data-testid="affected-resources-state">{af.state === 'NOT_COMPUTED' ? 'Not computed' : 'Unknown'}{af.detail ? ` · ${af.detail}` : ''}</p></div> : null })()}
+      {(finding.affected_resources?.length ?? 0) > 0 && <div className="mt-3"><div className="text-[10px] font-black uppercase text-slate-500">Affected graph resources</div><div className="mt-2 space-y-1">{(finding.affected_resources ?? []).slice(0, 20).map((resource, index) => <div key={`${resource.resource_id || resource.resource_name}-${index}`} className="rounded-lg border border-slate-200 bg-white p-2 text-xs"><strong>{resource.resource_name || resource.resource_id || 'Unknown resource'}</strong><span className="ml-2 text-slate-500">{resource.resource_type || 'Resource'}{resource.system_names?.length ? ` · ${resource.system_names.join(', ')}` : ''}</span></div>)}</div></div>}</details>
       <div className="mt-3 flex flex-wrap gap-1.5 font-mono text-[10px] opacity-70">{finding.addresses.map(address => <span key={address} className="rounded bg-white/60 px-2 py-1">{address}</span>)}</div>
     </article>
   )
