@@ -120,6 +120,7 @@ export function NHITab({ onRequestRemediation, systemName }: NHITabProps) {
   const [detailLoading, setDetailLoading] = useState(false)
   const [detailTab, setDetailTab] = useState<'permissions' | 'data-access' | 'network' | 'behavioral'>('permissions')
   const [dataAccess, setDataAccess] = useState<any>(null)
+  const [dataAccessError, setDataAccessError] = useState(false)
   const [dataAccessLoading, setDataAccessLoading] = useState(false)
   const [trafficData, setTrafficData] = useState<any>(null)
   const [trafficLoading, setTrafficLoading] = useState(false)
@@ -149,6 +150,7 @@ export function NHITab({ onRequestRemediation, systemName }: NHITabProps) {
     setDetailLoading(true)
     setDetailData(null)
     setDataAccess(null)
+    setDataAccessError(false)
     setTrafficData(null)
     setConnectionsData(null)
     setDetailTab('permissions')
@@ -167,11 +169,15 @@ export function NHITab({ onRequestRemediation, systemName }: NHITabProps) {
 
   const fetchDataAccess = useCallback(async (name: string) => {
     setDataAccessLoading(true)
+    setDataAccessError(false)
     try {
       const res = await fetch(`/api/proxy/identities/data-access/${encodeURIComponent(name)}`)
+      // A failed load is not "no access": keep it distinct so it is never rendered as a negative.
       if (res.ok) setDataAccess(await res.json())
+      else setDataAccessError(true)
     } catch (err) {
       console.error("Error fetching data access:", err)
+      setDataAccessError(true)
     } finally {
       setDataAccessLoading(false)
     }
@@ -665,6 +671,15 @@ export function NHITab({ onRequestRemediation, systemName }: NHITabProps) {
                                     <RefreshCw className="w-5 h-5 animate-spin" style={{ color: "#8b5cf6" }} />
                                     <span className="ml-2 text-sm" style={{ color: "var(--text-secondary)" }}>Analyzing data access...</span>
                                   </div>
+                                ) : dataAccessError ? (
+                                  <div className="text-center py-8" data-testid="nhi-data-access-load-error">
+                                    <p className="text-sm" style={{ color: "var(--text-muted)" }}>Data access could not be loaded from the backend.</p>
+                                    <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>This is not a finding: nothing is known about this identity's data access.</p>
+                                  </div>
+                                ) : dataAccess?.dataStoresStatus?.available === false ? (
+                                  <div className="text-center py-8" data-testid="nhi-data-access-not-computed">
+                                    <p className="text-sm" style={{ color: "var(--text-muted)" }}>Permission analysis has not been computed for this identity.</p>
+                                  </div>
                                 ) : dataAccess?.dataStores?.length > 0 ? (
                                   <>
                                     {/* Summary */}
@@ -747,6 +762,11 @@ export function NHITab({ onRequestRemediation, systemName }: NHITabProps) {
                                         </div>
                                       )
                                     })}
+                                    {dataAccess.tableAccessStatus?.available === false && (
+                                      <p className="text-xs" data-testid="nhi-table-access-unavailable" style={{ color: "var(--text-muted)" }}>
+                                        Table-level access is not available: the backend does not serve it yet.
+                                      </p>
+                                    )}
                                   </>
                                 ) : dataAccess?.tableAccess?.length > 0 ? (
                                   /* Table-level access from RDS query logs */
@@ -814,8 +834,8 @@ export function NHITab({ onRequestRemediation, systemName }: NHITabProps) {
                                 ) : (
                                   <div className="text-center py-8">
                                     <Database className="w-8 h-8 mx-auto mb-2 opacity-30" style={{ color: "var(--text-muted)" }} />
-                                    <p className="text-sm" style={{ color: "var(--text-muted)" }}>No data store access detected for this identity</p>
-                                    <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>This identity may not have data-service permissions (S3, RDS, DynamoDB)</p>
+                                    <p className="text-sm" data-testid="nhi-no-data-permissions" style={{ color: "var(--text-muted)" }}>No data-service permissions found for this identity</p>
+                                    <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>From the backend's permission analysis: no S3, RDS, DynamoDB, KMS, Secrets Manager or Lambda actions are allowed</p>
                                   </div>
                                 )}
                               </div>

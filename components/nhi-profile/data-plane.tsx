@@ -27,6 +27,7 @@ const TYPE_ICONS: Record<string, any> = { S3: HardDrive, RDS: Database, DynamoDB
 
 export function DataPlane({ identityName, detail, identity, onRemediate }: DataPlaneProps) {
   const [dataAccess, setDataAccess] = useState<any>(null)
+  const [loadError, setLoadError] = useState(false)
   const [loading, setLoading] = useState(true)
   const [expanded, setExpanded] = useState(true)
   const [showS3Modal, setShowS3Modal] = useState(false)
@@ -38,11 +39,15 @@ export function DataPlane({ identityName, detail, identity, onRemediate }: DataP
 
   const fetchDataAccess = async () => {
     setLoading(true)
+    setLoadError(false)
     try {
       const res = await fetch(`/api/proxy/identities/data-access/${encodeURIComponent(identityName)}`)
+      // A failed load is not "no access": keep it distinct so it is never rendered as a negative.
       if (res.ok) setDataAccess(await res.json())
+      else setLoadError(true)
     } catch (err) {
       console.error("Error fetching data access:", err)
+      setLoadError(true)
     } finally {
       setLoading(false)
     }
@@ -52,6 +57,8 @@ export function DataPlane({ identityName, detail, identity, onRemediate }: DataP
   const tableAccess = dataAccess?.tableAccess || []
   const hasData = dataStores.length > 0 || tableAccess.length > 0
   const s3Stores = dataStores.filter((s: any) => s.type === 'S3')
+  const permissionsNotComputed = dataAccess?.dataStoresStatus?.available === false
+  const tableAccessUnavailable = dataAccess?.tableAccessStatus?.available === false
 
   return (
     <>
@@ -89,6 +96,15 @@ export function DataPlane({ identityName, detail, identity, onRemediate }: DataP
                 <RefreshCw className="w-5 h-5 animate-spin" style={{ color: "#22c55e" }} />
                 <span className="ml-2 text-sm" style={{ color: "var(--text-secondary, #64748b)" }}>Loading data access analysis...</span>
               </div>
+            ) : loadError ? (
+              <div className="text-center py-8" data-testid="data-plane-load-error">
+                <p className="text-sm" style={{ color: "var(--text-muted, #94a3b8)" }}>Data access could not be loaded from the backend.</p>
+                <p className="text-xs mt-1" style={{ color: "var(--text-muted, #94a3b8)" }}>This is not a finding: nothing is known about this identity's data access.</p>
+              </div>
+            ) : permissionsNotComputed ? (
+              <div className="text-center py-8" data-testid="data-plane-not-computed">
+                <p className="text-sm" style={{ color: "var(--text-muted, #94a3b8)" }}>Permission analysis has not been computed for this identity.</p>
+              </div>
             ) : hasData ? (
               <>
                 {/* Data Store Cards */}
@@ -107,9 +123,10 @@ export function DataPlane({ identityName, detail, identity, onRemediate }: DataP
                             background: `${ACCESS_LEVEL_COLORS[store.accessLevel] || '#6b7280'}20`,
                             color: ACCESS_LEVEL_COLORS[store.accessLevel] || '#6b7280',
                           }}>{store.accessLevel} ACCESS</span>
-                          {store.type === 'S3' && (
+                          {/* Per-bucket remediation needs a real bucket; a service-level store has none. */}
+                          {store.type === 'S3' && store.resourceName && (
                             <button
-                              onClick={() => { setSelectedBucket(store.name); setShowS3Modal(true) }}
+                              onClick={() => { setSelectedBucket(store.resourceName); setShowS3Modal(true) }}
                               className="text-[10px] px-2 py-1 rounded hover:opacity-80 flex items-center gap-1"
                               style={{ background: "#22c55e15", color: "#22c55e" }}
                             >
@@ -155,6 +172,12 @@ export function DataPlane({ identityName, detail, identity, onRemediate }: DataP
                   )
                 })}
 
+                {tableAccessUnavailable && (
+                  <p className="text-xs px-1" data-testid="data-plane-table-access-unavailable" style={{ color: "var(--text-muted, #94a3b8)" }}>
+                    Table-level access is not available: the backend does not serve it yet.
+                  </p>
+                )}
+
                 {/* Table-Level Access */}
                 {tableAccess.length > 0 && (
                   <div className="rounded-lg border overflow-hidden" style={{ borderColor: "var(--border, #e2e8f0)" }}>
@@ -188,8 +211,8 @@ export function DataPlane({ identityName, detail, identity, onRemediate }: DataP
             ) : (
               <div className="text-center py-8">
                 <Database className="w-8 h-8 mx-auto mb-2 opacity-30" style={{ color: "var(--text-muted, #94a3b8)" }} />
-                <p className="text-sm" style={{ color: "var(--text-muted, #94a3b8)" }}>No data store access detected</p>
-                <p className="text-xs mt-1" style={{ color: "var(--text-muted, #94a3b8)" }}>This identity may not have S3, RDS, or DynamoDB permissions</p>
+                <p className="text-sm" data-testid="data-plane-no-data-permissions" style={{ color: "var(--text-muted, #94a3b8)" }}>No data-service permissions found for this identity</p>
+                <p className="text-xs mt-1" style={{ color: "var(--text-muted, #94a3b8)" }}>From the backend's permission analysis: no S3, RDS, DynamoDB, KMS, Secrets Manager or Lambda actions are allowed</p>
               </div>
             )}
           </div>

@@ -1,79 +1,26 @@
-# ⚠️ Security Note: Neo4j Credentials
+# Security note: retired Neo4j credential (open item)
 
-## Important Security Issue
+**Status: the frontend no longer holds or uses any database credential. One action remains open.**
 
-The `aws-infrastructure-map.tsx` component contains **hardcoded Neo4j credentials** in the code.
+Earlier revisions of this file, and of the now-deleted `NEO4J_SETUP.md`, contained a
+Neo4j/Aura connection credential and endpoint in plain text. Both have been removed from the
+working tree, but **git history still contains them**. Removing a file does not revoke a
+credential.
 
-### Current Implementation
+## Open action — for someone with authority over that database account
 
-```typescript
-const NEO4J = {
-  uri: process.env.NEXT_PUBLIC_NEO4J_URI || 'https://4e9962b7.databases.neo4j.io',
-  user: process.env.NEXT_PUBLIC_NEO4J_USER || 'neo4j',
-  pass: process.env.NEXT_PUBLIC_NEO4J_PASS || 'zxr4y5USTynIAh9VD7wej1Zq6UkQenJSOKunANe3aew'
-};
-```
+- Confirm the Aura instance has been deleted, or rotate / revoke the credential.
+- Until someone confirms that, treat the credential as exposed. Its liveness has not been tested,
+  and must not be tested by using it.
 
-### ⚠️ Security Risk
+## What changed in the frontend
 
-- **Credentials are exposed** in the source code
-- **Anyone with access to the repository** can see the password
-- **Credentials are committed to Git history**
-- **Public repositories** expose credentials to everyone
-
----
-
-## ✅ Recommended Fix
-
-### Step 1: Move to Environment Variables
-
-1. **Add to `.env.local`** (for local development):
-   ```bash
-   NEXT_PUBLIC_NEO4J_URI=https://4e9962b7.databases.neo4j.io
-   NEXT_PUBLIC_NEO4J_USER=neo4j
-   NEXT_PUBLIC_NEO4J_PASS=your_password_here
-   ```
-
-2. **Add to Vercel Environment Variables**:
-   - Go to: Vercel Dashboard → Settings → Environment Variables
-   - Add all three variables
-   - Apply to: Production, Preview, Development
-
-3. **Update the component** to remove hardcoded fallback:
-   ```typescript
-   const NEO4J = {
-     uri: process.env.NEXT_PUBLIC_NEO4J_URI!,
-     user: process.env.NEXT_PUBLIC_NEO4J_USER!,
-     pass: process.env.NEXT_PUBLIC_NEO4J_PASS!
-   };
-   ```
-
-### Step 2: Rotate Credentials
-
-Since credentials are already exposed:
-1. **Change Neo4j password** immediately
-2. **Update in environment variables**
-3. **Remove from Git history** (if needed)
-
----
-
-## 🔒 Best Practices
-
-1. **Never commit credentials** to Git
-2. **Use environment variables** for all secrets
-3. **Use `.env.local`** for local development (gitignored)
-4. **Use Vercel environment variables** for production
-5. **Rotate credentials** if exposed
-
----
-
-## 📝 Next Steps
-
-1. ✅ Component is saved and committed
-2. ⏳ **URGENT:** Move credentials to environment variables
-3. ⏳ **URGENT:** Rotate Neo4j password
-4. ⏳ Update component to remove hardcoded fallback
-
----
-
-**Status:** Component deployed, but credentials need to be secured!
+- The graph is served by the backend (Amazon Neptune). The frontend connects to no graph database
+  directly — neither Neo4j nor Neptune — and reads graph data only through the backend API.
+- The two proxy routes that used to query Neo4j directly
+  (`app/api/proxy/identities/data-access/[name]`, `app/api/proxy/orphan-services/[systemName]`)
+  now use backend data only. Table-level data access, which only the direct query supplied, is
+  reported as unavailable rather than as empty.
+- No `NEO4J_*` or `NEXT_PUBLIC_NEO4J_*` variable is read anywhere. Do not set one, and never give a
+  secret a `NEXT_PUBLIC_` name: those values are shipped to the browser.
+- `__tests__/neptune-only-routes.test.ts` fails the build if direct-database access returns.

@@ -6,9 +6,37 @@ export const dynamic = "force-dynamic"
 const BACKEND_URL =
   getBackendBaseUrl()
 
-const NEO4J_URI = process.env.NEO4J_URI || process.env.NEXT_PUBLIC_NEO4J_URI || ''
-const NEO4J_USERNAME = process.env.NEO4J_USERNAME || process.env.NEXT_PUBLIC_NEO4J_USERNAME || 'neo4j'
-const NEO4J_PASSWORD = process.env.NEO4J_PASSWORD || process.env.NEXT_PUBLIC_NEO4J_PASSWORD || ''
+// The frontend reads graph data only through the backend API; it no longer queries a graph
+// database directly. Two things came only from that retired direct query and are not served by
+// any backend operation yet: the per-resource data stores an identity is connected to, and its
+// table-level access. Until a backend contract serves them, each is reported with an explicit
+// status instead of an empty list that would read as "this identity accesses nothing".
+// This is an INCOMPLETE migration, tracked as a backend dependency -- not a finished one.
+const TABLE_ACCESS_UNAVAILABLE = {
+  available: false,
+  reason: "TABLE_ACCESS_NOT_SERVED_BY_BACKEND",
+} as const
+
+type DataStoresStatus =
+  | { available: true; granularity: "service"; source: "backend:/api/identities/detail" }
+  | { available: false; reason: "IDENTITY_DETAIL_UNAVAILABLE" | "PERMISSIONS_NOT_COMPUTED" }
+
+function unavailableResponse(reason: "IDENTITY_DETAIL_UNAVAILABLE", httpStatus: number, backendStatus: number | null) {
+  const dataStoresStatus: DataStoresStatus = { available: false, reason }
+  return NextResponse.json(
+    {
+      error: reason,
+      backendStatus,
+      dataStores: [],
+      dataStoresStatus,
+      tableAccess: [],
+      tableAccessStatus: TABLE_ACCESS_UNAVAILABLE,
+      summary: {},
+      servicePermissions: {},
+    },
+    { status: httpStatus },
+  )
+}
 
 // Map IAM permissions to human-readable data operations
 const PERMISSION_OPERATION_MAP: Record<string, { operation: string; service: string }> = {
@@ -54,33 +82,15 @@ const DATA_SERVICES = new Set(['S3', 'RDS', 'DynamoDB', 'KMS', 'SecretsManager',
 interface DataStoreAccess {
   name: string
   type: string
+  // "service": derived from the identity's permissions, not a specific resource, so there is no
+  // resource to act on -- resourceName is null and per-resource actions must not be offered.
+  granularity: "service"
+  resourceName: null
   allowedOperations: string[]
   observedOperations: string[]
   unusedOperations: string[]
   accessLevel: 'FULL' | 'WRITE' | 'READ' | 'NONE'
   recommendation: string
-}
-
-async function runGraphQuery(cypher: string): Promise<any[]> {
-  if (!NEO4J_URI || !NEO4J_PASSWORD) return []
-  try {
-    let httpUri = NEO4J_URI
-    if (httpUri.startsWith('neo4j+s://')) httpUri = httpUri.replace('neo4j+s://', 'https://')
-    else if (httpUri.startsWith('neo4j://')) httpUri = httpUri.replace('neo4j://', 'http://')
-
-    const response = await fetch(`${httpUri}/db/neo4j/tx/commit`, {
-      method: 'POST',
-      headers: {
-        'Authorization': 'Basic ' + Buffer.from(`${NEO4J_USERNAME}:${NEO4J_PASSWORD}`).toString('base64'),
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ statements: [{ statement: cypher }] }),
-      signal: AbortSignal.timeout(15000),
-    })
-    if (!response.ok) return []
-    const data = await response.json()
-    return data.results?.[0]?.data || []
-  } catch { return [] }
 }
 
 function classifyAccessLevel(ops: string[]): 'FULL' | 'WRITE' | 'READ' | 'NONE' {
@@ -111,23 +121,36 @@ export async function GET(
   const { name } = await params
   try {
     // 1. Fetch identity detail (has permissions, damage classification, etc.)
-    const detailRes = await fetch(
-      `${BACKEND_URL}/api/identities/detail/${encodeURIComponent(name)}`,
-      { cache: "no-store", signal: AbortSignal.timeout(20000) }
-    )
-    let detail: any = {}
-    if (detailRes.ok) detail = await detailRes.json()
+    let detailRes: Response
+    try {
+      detailRes = await fetch(
+        `${BACKEND_URL}/api/identities/detail/${encodeURIComponent(name)}`,
+        { cache: "no-store", signal: AbortSignal.timeout(20000) }
+      )
+    } catch {
+      // Unreachable or timed out: never answer as if the identity had no data access.
+      return unavailableResponse("IDENTITY_DETAIL_UNAVAILABLE", 502, null)
+    }
+    if (!detailRes.ok) {
+      return unavailableResponse(
+        "IDENTITY_DETAIL_UNAVAILABLE",
+        detailRes.status === 404 ? 404 : 502,
+        detailRes.status,
+      )
+    }
+    const detail: any = await detailRes.json()
 
-    // 2. Get connected data stores from Neo4j
-    const connectedStores = await runGraphQuery(
-      `MATCH (n {name: '${name.replace(/'/g, "\\'")}'})-[r]-(m) WHERE m.type IN ['S3', 'RDS', 'DynamoDB', 'Lambda', 'LambdaFunction', 'KMS', 'Secret', 'SecretsManager'] RETURN m.name AS name, m.type AS type, labels(m) AS labels`
-    )
-
-    // 3. Extract permissions and classify by data service
+    // 2. Extract permissions and classify by data service
     // Backend returns allowed_actions, used_actions, unused_actions as string arrays
-    const allPermissions: string[] = detail.permission_analysis?.allowed_actions || []
-    const usedPerms: string[] = detail.permission_analysis?.used_actions || []
-    const unusedPerms: string[] = detail.permission_analysis?.unused_actions || []
+    const analysis = detail?.permission_analysis
+    const computed = Array.isArray(analysis?.allowed_actions)
+    const allPermissions: string[] = computed ? analysis.allowed_actions : []
+    const usedPerms: string[] = Array.isArray(analysis?.used_actions) ? analysis.used_actions : []
+    // Passed through only as the backend states them; nothing is inferred when they are absent.
+    const permissionEvidence = {
+      observationDays: typeof analysis?.observation_days === "number" ? analysis.observation_days : null,
+      dataSources: Array.isArray(analysis?.data_sources) ? analysis.data_sources : null,
+    }
 
     // Group permissions by service
     const servicePermissions: Record<string, { allowed: string[]; used: string[]; unused: string[] }> = {}
@@ -164,89 +187,27 @@ export async function GET(
       servicePermissions['DynamoDB'] = { allowed: ['READ', 'WRITE', 'DELETE'], used: [], unused: ['READ', 'WRITE', 'DELETE'] }
     }
 
-    // 3b. Query table-level DATA_ACCESS relationships from Neo4j (from RDS query log collector)
-    const tableAccessData = await runGraphQuery(
-      `MATCH (u)-[r:DATA_ACCESS]->(t:DatabaseTable) WHERE u.name = '${name.replace(/'/g, "\\'")}' OR u.name CONTAINS '${name.replace(/'/g, "\\'").split('/').pop()}' RETURN t.name AS table_name, t.database AS database, t.rds_instance AS rds_instance, t.schema AS schema, r.operations AS operations, r.access_count AS count, r.last_seen AS last_seen, r.daily_avg AS daily_avg, r.via_db_user AS via_db_user`
-    )
-
-    // Also try matching by database user linked to this identity via USES_DB_USER
-    const dbUserTableAccess = await runGraphQuery(
-      `MATCH (role:Resource {name: '${name.replace(/'/g, "\\'")}'})-[:USES_DB_USER]->(u:DatabaseUser)-[r:DATA_ACCESS]->(t:DatabaseTable) RETURN t.name AS table_name, t.database AS database, t.rds_instance AS rds_instance, t.schema AS schema, r.operations AS operations, r.access_count AS count, r.last_seen AS last_seen, r.daily_avg AS daily_avg, u.name AS via_db_user`
-    )
-
-    // Merge table access results
-    const allTableAccess = [...tableAccessData, ...dbUserTableAccess]
-    interface TableAccess {
-      tableName: string
-      database: string
-      rdsInstance: string
-      schema: string
-      operations: string[]
-      accessCount: number
-      lastSeen: string | null
-      dailyAvg: number
-      viaDbUser: string | null
-    }
-    const tableAccessMap = new Map<string, TableAccess>()
-    for (const row of allTableAccess) {
-      const key = `${row.row?.[2] || ''}:${row.row?.[1] || ''}:${row.row?.[0] || ''}`
-      if (!tableAccessMap.has(key)) {
-        tableAccessMap.set(key, {
-          tableName: row.row?.[0] || 'Unknown',
-          database: row.row?.[1] || 'Unknown',
-          rdsInstance: row.row?.[2] || 'Unknown',
-          schema: row.row?.[3] || 'public',
-          operations: row.row?.[4] || [],
-          accessCount: row.row?.[5] || 0,
-          lastSeen: row.row?.[6] || null,
-          dailyAvg: row.row?.[7] || 0,
-          viaDbUser: row.row?.[8] || null,
-        })
-      }
-    }
-    const tableAccess = Array.from(tableAccessMap.values())
-
-    // 4. Build data store access profiles
+    // 3. Build data store access profiles from the backend's permission analysis. Per-resource
+    // store names came only from the retired direct graph query, so each entry names the
+    // service and says where it came from.
     const dataStores: DataStoreAccess[] = []
-
-    // From Neo4j connected stores
-    for (const row of connectedStores) {
-      const storeName = row.row?.[0] || 'Unknown'
-      const storeType = row.row?.[1] || 'Unknown'
-      const serviceKey = storeType === 'LambdaFunction' ? 'Lambda' : storeType === 'Secret' ? 'SecretsManager' : storeType
-      const svcPerms = servicePermissions[serviceKey] || { allowed: [], used: [], unused: [] }
-
+    for (const [service, perms] of Object.entries(servicePermissions)) {
       const store: DataStoreAccess = {
-        name: storeName,
-        type: storeType,
-        allowedOperations: [...new Set(svcPerms.allowed)],
-        observedOperations: [...new Set(svcPerms.used)],
-        unusedOperations: [...new Set(svcPerms.unused)],
-        accessLevel: classifyAccessLevel([...new Set(svcPerms.allowed)]),
+        name: `${service} resources (from permissions)`,
+        type: service,
+        granularity: "service",
+        resourceName: null,
+        allowedOperations: [...new Set(perms.allowed)],
+        observedOperations: [...new Set(perms.used)],
+        unusedOperations: [...new Set(perms.unused)],
+        accessLevel: classifyAccessLevel([...new Set(perms.allowed)]),
         recommendation: '',
       }
       store.recommendation = generateRecommendation(store)
       dataStores.push(store)
     }
 
-    // If no connected stores from Neo4j, create virtual entries from permissions
-    if (dataStores.length === 0) {
-      for (const [service, perms] of Object.entries(servicePermissions)) {
-        const store: DataStoreAccess = {
-          name: `${service} resources (from permissions)`,
-          type: service,
-          allowedOperations: [...new Set(perms.allowed)],
-          observedOperations: [...new Set(perms.used)],
-          unusedOperations: [...new Set(perms.unused)],
-          accessLevel: classifyAccessLevel([...new Set(perms.allowed)]),
-          recommendation: '',
-        }
-        store.recommendation = generateRecommendation(store)
-        dataStores.push(store)
-      }
-    }
-
-    // 5. Summary
+    // 4. Summary
     const summary = {
       totalDataStores: dataStores.length,
       servicesAccessed: [...new Set(dataStores.map(d => d.type))],
@@ -257,12 +218,21 @@ export async function GET(
       overallAccessLevel: classifyAccessLevel(dataStores.flatMap(d => d.allowedOperations)),
     }
 
-    return NextResponse.json({ dataStores, tableAccess, summary, servicePermissions })
+    const dataStoresStatus: DataStoresStatus = computed
+      ? { available: true, granularity: "service", source: "backend:/api/identities/detail" }
+      : { available: false, reason: "PERMISSIONS_NOT_COMPUTED" }
+    return NextResponse.json({
+      dataStores,
+      dataStoresStatus,
+      tableAccess: [],
+      tableAccessStatus: TABLE_ACCESS_UNAVAILABLE,
+      permissionEvidence,
+      summary,
+      servicePermissions,
+    })
 
-  } catch (error: any) {
-    return NextResponse.json(
-      { error: "Failed to build data access profile", detail: error.message, dataStores: [], summary: {} },
-      { status: 500 }
-    )
+  } catch {
+    // e.g. a backend body that is not JSON: still an explicit unavailable, never an empty profile.
+    return unavailableResponse("IDENTITY_DETAIL_UNAVAILABLE", 500, null)
   }
 }

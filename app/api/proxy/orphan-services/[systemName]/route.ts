@@ -2,9 +2,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
 const BACKEND_URL = getBackendBaseUrl()
-const NEO4J_URI = process.env.NEO4J_URI || process.env.NEXT_PUBLIC_NEO4J_URI || ''
-const NEO4J_USERNAME = process.env.NEO4J_USERNAME || process.env.NEXT_PUBLIC_NEO4J_USERNAME || 'neo4j'
-const NEO4J_PASSWORD = process.env.NEO4J_PASSWORD || process.env.NEXT_PUBLIC_NEO4J_PASSWORD || ''
 
 const SEASONAL_LOOKBACK_DAYS = 365
 
@@ -218,39 +215,6 @@ interface NewResource {
     tempExceptionTtlHours: number
   }
   properties: Record<string, any>
-}
-
-async function runGraphQuery(cypher: string): Promise<any[]> {
-  if (!NEO4J_URI || !NEO4J_PASSWORD) return []
-
-  try {
-    let httpUri = NEO4J_URI
-    if (httpUri.startsWith('neo4j+s://')) {
-      httpUri = httpUri.replace('neo4j+s://', 'https://')
-    } else if (httpUri.startsWith('neo4j://')) {
-      httpUri = httpUri.replace('neo4j://', 'http://')
-    }
-
-    const endpoint = `${httpUri}/db/neo4j/tx/commit`
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Authorization': 'Basic ' + Buffer.from(`${NEO4J_USERNAME}:${NEO4J_PASSWORD}`).toString('base64'),
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ statements: [{ statement: cypher }] }),
-      signal: AbortSignal.timeout(25000),
-    })
-
-    if (!response.ok) return []
-
-    const data = await response.json()
-    if (data.errors?.length > 0) return []
-
-    return data.results?.[0]?.data || []
-  } catch {
-    return []
-  }
 }
 
 function detectSeasonalPattern(activityDates: string[]): { isSeasonal: boolean; pattern: string | null; nextRun: string | null } {
@@ -688,9 +652,8 @@ export async function GET(
       const advisorServices = ev?.access_advisor_services ?? 0
       const isAttached = ev?.is_attached ?? false
 
-      // For IAM policies/roles: skip if attached to other entities in Neo4j
-      // (the AWS attachment_count check above already handles the primary case,
-      // this is a safety net for graph-level attachments)
+      // For IAM policies/users: skip if the backend's activity evidence reports
+      // them attached (is_attached, from /activity-evidence)
       // For other resource types (EC2, SG, Lambda etc), structural relationships
       // don't prove the resource is actively used — idle time + relationship count
       // in the graduated criteria below are better indicators.

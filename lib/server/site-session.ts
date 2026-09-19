@@ -22,6 +22,8 @@ import { sealJson, unsealJson } from "@/lib/server/sealed-json"
 export const SITE_SESSION_COOKIE = "cyntro_auth"
 export const SITE_SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30
 const PURPOSE = "cyntro_site_session"
+/** Below this, an explicit CYNTRO_SITE_SESSION_SECRET is ignored in favour of the derived key. */
+const MIN_EXPLICIT_SECRET_LENGTH = 32
 const PBKDF2_ITERATIONS = 310_000
 const encoder = new TextEncoder()
 
@@ -49,7 +51,7 @@ async function passwordSecret(password: string): Promise<string> {
 /** The sealing secret, or null when the site gate is not configured (nothing can pass). */
 export async function siteSessionSecret(env: Env = process.env): Promise<string | null> {
   const explicit = env.CYNTRO_SITE_SESSION_SECRET?.trim()
-  if (explicit && explicit.length >= 32) return explicit
+  if (explicit && explicit.length >= MIN_EXPLICIT_SECRET_LENGTH) return explicit
   const password = env.SITE_PASSWORD
   if (!password) return null
   if (!derived.has(password)) derived.set(password, passwordSecret(password))
@@ -84,6 +86,26 @@ export async function sitePasswordMatches(candidate: unknown, env: Env = process
   let diff = 0
   for (let index = 0; index < left.length; index += 1) diff |= left[index] ^ right[index]
   return diff === 0
+}
+
+/**
+ * Configuration that would leave the hosted site gate silently unusable, as names and reasons only
+ * -- never values. Sign-in always checks SITE_PASSWORD (the explicit secret is only the sealing
+ * key), so without it nobody can sign in; and an explicit secret shorter than the minimum is
+ * ignored without a word, which quietly moves the deployment onto the password-derived key.
+ */
+export function siteSessionConfigProblems(env: Env = process.env): string[] {
+  const problems: string[] = []
+  if (!env.SITE_PASSWORD) {
+    problems.push("SITE_PASSWORD is not set: the hosted site gate cannot sign anyone in")
+  }
+  const explicit = env.CYNTRO_SITE_SESSION_SECRET?.trim()
+  if (explicit && explicit.length < MIN_EXPLICIT_SECRET_LENGTH) {
+    problems.push(
+      `CYNTRO_SITE_SESSION_SECRET is shorter than ${MIN_EXPLICIT_SECRET_LENGTH} characters and would be silently ignored`,
+    )
+  }
+  return problems
 }
 
 export function siteCookieOptions(maxAge: number) {
