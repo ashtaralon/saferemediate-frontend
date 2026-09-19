@@ -270,3 +270,12 @@
     display: none !important;
   }
 }
+
+/* Radix popovers open and close with tw-animate keyframes, which do not read
+   the viewer's motion preference. Under prefers-reduced-motion they appear and
+   disappear without animation (Estate map panels included). */
+@media (prefers-reduced-motion: reduce) {
+  [data-slot="popover-content"] {
+    animation: none !important;
+  }
+}

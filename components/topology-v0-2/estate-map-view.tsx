@@ -22,8 +22,10 @@ import {
   workloadTypeRowsFromNodes,
 } from "@/components/topology-v0-2/filter-rail"
 import { DetailPanel } from "@/components/topology-v0-2/detail-panel"
+import { IdentityAccessSurface } from "@/components/topology-v0-2/identity-access-panel"
 import { OutOfScopeOverflowLine } from "@/components/topology-v0-2/estate-out-of-scope"
 import { buildHeadlineNarrative } from "@/components/topology-v0-2/headline-narrative"
+import { resolveIdentityClaimAuthority } from "@/components/topology-v0-2/identity-claim-authority"
 import { RankedRail } from "@/components/topology-v0-2/ranked-rail"
 import type {
   DecisionRoutingSummary,
@@ -79,6 +81,12 @@ const AZ_STORAGE_PREFIX = "topology-hidden-az:"
 /** Full-width estate shell — no centered max-width cap stealing horizontal space. */
 const ESTATE_SHELL_X = "w-full px-3 lg:px-4"
 const subscribeHydration = () => () => {}
+const ESTATE_VIEWS = [
+  ["inventory", "Command map"],
+  ["map", "Network topology"],
+  ["identity", "Identity & access"],
+] as const
+type EstatePrimaryView = (typeof ESTATE_VIEWS)[number][0]
 
 // Regional services render on the right rail. Lambda inventory is also
 // account/system-wide, while placement still distinguishes VPC-attached
@@ -624,7 +632,63 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
   const [filtersOpen, setFiltersOpen] = useState(false)
   // Lead with the cross-discipline command view. The existing AWS placement
   // diagram remains unchanged and one click away under Network topology.
-  const [view, setView] = useState<"map" | "inventory">("inventory")
+  const [view, setView] = useState<EstatePrimaryView>("inventory")
+  /** Shared-VPC neighbors (is_foreign) — default ON, greyed; toggle for pure "just mine". */
+  const [showSharedNeighbors, setShowSharedNeighbors] = useState(true)
+
+  const selectEstateView = useCallback((nextView: EstatePrimaryView) => {
+    setView(nextView)
+    if (typeof window === "undefined") return
+    const url = new URL(window.location.href)
+    if (nextView === "identity") url.searchParams.set("surface", "identity")
+    else url.searchParams.delete("surface")
+    const nextLocation = `${url.pathname}${url.search}${url.hash}`
+    const currentLocation = `${window.location.pathname}${window.location.search}${window.location.hash}`
+    if (nextLocation !== currentLocation) {
+      window.history.pushState(window.history.state, "", nextLocation)
+    }
+  }, [])
+
+  // Identity is a durable sibling surface, so exact cross-navigation can open
+  // it directly and browser Back/Forward follows the URL rather than a hidden
+  // popover state. Unsupported values fail closed to the default command view.
+  useEffect(() => {
+    if (!hasHydrated) return
+    const syncSurfaceFromUrl = () => {
+      const surface = new URLSearchParams(window.location.search).get("surface")
+      setView(surface === "identity" ? "identity" : "inventory")
+    }
+    syncSurfaceFromUrl()
+    window.addEventListener("popstate", syncSurfaceFromUrl)
+    return () => window.removeEventListener("popstate", syncSurfaceFromUrl)
+  }, [hasHydrated])
+
+  const pendingIdentityWorkloadFocusRef = useRef<string | null>(null)
+
+  const focusIdentityWorkload = useCallback((workloadId: string) => {
+    pendingIdentityWorkloadFocusRef.current = workloadId
+    // An exact relationship must remain reachable even if the operator had
+    // hidden its type, foreign-neighbor status, or AZ in the network view.
+    setFilters(null)
+    setShowSharedNeighbors(true)
+    setHiddenAzs([])
+    setSelectedNodeId(workloadId)
+    setHighlightedRoleName(null)
+    selectEstateView("map")
+  }, [selectEstateView])
+
+  useEffect(() => {
+    if (view !== "map") return
+    const workloadId = pendingIdentityWorkloadFocusRef.current
+    if (!workloadId) return
+    pendingIdentityWorkloadFocusRef.current = null
+    const frame = window.requestAnimationFrame(() => {
+      const target = Array.from(document.querySelectorAll<HTMLElement>("[data-flow-id]"))
+        .find(element => element.dataset.flowId === workloadId)
+      target?.focus()
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [view, selectedNodeId])
 
   // Fullscreen is a modal surface, so leaving it has to hand the keyboard back
   // where it came from. Measured on C1 (run 34754792418): after Escape exited
@@ -702,9 +766,6 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
   const [densityCollapsed, setDensityCollapsed] = useState(false)
   /** Glance = stacked ×N icons. Inventory = one small icon per real node. Click → detail. */
   const [viewDensity, setViewDensity] = useState<"glance" | "inventory">("glance")
-  /** Shared-VPC neighbors (is_foreign) — default ON, greyed; toggle for pure "just mine". */
-  const [showSharedNeighbors, setShowSharedNeighbors] = useState(true)
-
   const computeFit = useCallback((apply: boolean) => {
     const vp = viewportRef.current
     const content = contentRef.current
@@ -1162,6 +1223,11 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     if (!mapEnlarged && !selectedNode) return
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return
+      // A portaled map popover is above the fullscreen canvas. Its native
+      // Escape event still reaches this window listener after Radix closes
+      // the popover; the original target remains the detached content node,
+      // so use it to keep this lower layer from closing in the same keypress.
+      if (e.target instanceof Element && e.target.closest('[data-slot="popover-content"]')) return
       if (selectedNode) setSelectedNodeId(null)
       else closeEnlarged()
     }
@@ -1169,9 +1235,26 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     return () => window.removeEventListener("keydown", onKeyDown)
   }, [mapEnlarged, selectedNode, closeEnlarged])
 
+  // The Identity & access surface, the headline and the system view resolve
+  // identity claims from one scope and one resolution, so a headline can never
+  // assert what the panel refuses.
+  const identityExpectedScope = useMemo(() => {
+    const topology = scopedVpcTopology ?? data?.vpc_topology
+    return {
+      account_id: topology?.account_id ?? data?.account_id,
+      region: topology?.region ?? data?.region,
+      system_name: systemName,
+      vpc_id: topology?.vpc_id ?? data?.vpc_id,
+    }
+  }, [scopedVpcTopology, data, systemName])
+  const identityClaims = useMemo(
+    () => resolveIdentityClaimAuthority(data?.response_contract_version, data?.identity_access, identityExpectedScope),
+    [data, identityExpectedScope],
+  )
+
   const narrative = useMemo(
-    () => (data?.system_kpis ? buildHeadlineNarrative(data) : null),
-    [data],
+    () => (data?.system_kpis ? buildHeadlineNarrative(data, identityClaims) : null),
+    [data, identityClaims],
   )
 
   // Only a real Wave D computing envelope (or hook flag while last-good is
@@ -1446,6 +1529,10 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
       regionalDataSourceNodes={filteredRegionalSource}
       trafficEdges={scopedTrafficEdges}
       trafficAuthority={data.traffic_authority}
+      responseContractVersion={data.response_contract_version}
+      externalDestinationProjection={data.external_destination_projection}
+      identityAccess={data.identity_access}
+      identityAccessSnapshotStale={Boolean(data.fromStaleCache || (isStale && cachedAt))}
       overlayEdges={focusedOverlayEdges}
       flowMode={flowMode}
       onFlowModeChange={setFlowMode}
@@ -1468,7 +1555,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     />
   ))
 
-  const renderScopeControls = (compact = false) => (
+  const renderScopeControls = (compact = false, includeMapFilters = true) => (
     <>
       {(data.available_accounts?.length ?? 0) > 1 ? (
         <div
@@ -1594,7 +1681,9 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
           </select>
           {!compact ? (
             <span className="text-[11px]" style={{ color: "#5A6B7A" }}>
-              {selectedVpcId === "all"
+              {!includeMapFilters
+                ? "Exact IAM role and workload attachments in the selected Estate scope."
+                : selectedVpcId === "all"
                 ? "Compare — own vs shared columns; overlay defaults to Attack Paths (cross-VPC chip edges hidden). Use a single VPC for full ALL ACCESS."
                 : "Subnet-linked compute in tier cells; regional/serverless on the right rail."}
             </span>
@@ -1602,7 +1691,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
         </div>
       ) : null}
 
-      {availableAzs.length > 0 ? (
+      {includeMapFilters && availableAzs.length > 0 ? (
         <div
           className={`${ESTATE_SHELL_X} ${compact ? "py-1" : "py-2"} border-b flex flex-wrap items-center gap-2`}
           style={{ borderColor: "#DDE3E8", background: "#FFFFFF" }}
@@ -1654,7 +1743,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
         </div>
       ) : null}
 
-      {workloadTypeRows.length > 0 ? (
+      {includeMapFilters && workloadTypeRows.length > 0 ? (
         <div
           className={`${ESTATE_SHELL_X} ${compact ? "py-1" : "py-2"} border-b flex flex-wrap items-center gap-2`}
           style={{ borderColor: "#DDE3E8", background: "#FFFFFF" }}
@@ -1797,16 +1886,13 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
         onToggleStats={() => setStatsExpanded(v => !v)}
       />
 
-      {renderScopeControls()}
+      {renderScopeControls(false, view !== "identity")}
 
       <div className={`flex flex-1 min-h-0 gap-2 ${ESTATE_SHELL_X} py-2`}>
         <main className="flex-1 min-w-0 min-h-0 flex flex-col">
           <div className="flex items-center justify-between gap-3 mb-1.5">
             <div className="flex items-center gap-1.5" role="tablist" aria-label="Estate view">
-              {([
-                ["inventory", "Command map"],
-                ["map", "Network topology"],
-              ] as const).map(([id, label]) => {
+              {ESTATE_VIEWS.map(([id, label], index) => {
                 const active = view === id
                 return (
                   <button
@@ -1814,7 +1900,22 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
                     type="button"
                     role="tab"
                     aria-selected={active}
-                    onClick={() => setView(id)}
+                    aria-controls={`topology-estate-panel-${id}`}
+                    id={`topology-estate-tab-${id}`}
+                    tabIndex={active ? 0 : -1}
+                    onClick={() => selectEstateView(id)}
+                    onKeyDown={event => {
+                      let nextIndex: number | null = null
+                      if (event.key === "ArrowRight") nextIndex = (index + 1) % ESTATE_VIEWS.length
+                      if (event.key === "ArrowLeft") nextIndex = (index - 1 + ESTATE_VIEWS.length) % ESTATE_VIEWS.length
+                      if (event.key === "Home") nextIndex = 0
+                      if (event.key === "End") nextIndex = ESTATE_VIEWS.length - 1
+                      if (nextIndex === null) return
+                      event.preventDefault()
+                      const next = ESTATE_VIEWS[nextIndex][0]
+                      selectEstateView(next)
+                      document.getElementById(`topology-estate-tab-${next}`)?.focus()
+                    }}
                     className="inline-flex items-center rounded-md border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide transition-colors"
                     style={{
                       borderColor: active ? "#00C2A8" : "#CBD5E1",
@@ -1927,16 +2028,33 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
               />
             </div>
           ) : null}
-          <div className="relative flex-1 min-h-0">
+          <div
+            className="relative flex-1 min-h-0"
+            id={`topology-estate-panel-${view}`}
+            role="tabpanel"
+            aria-labelledby={`topology-estate-tab-${view}`}
+            tabIndex={0}
+            data-testid={`topology-estate-panel-${view}`}
+          >
             <div
               className="h-full overflow-auto rounded-2xl"
               style={{ maxHeight: embedded ? "min(84vh, 1100px)" : "calc(100vh - 110px)" }}
             >
               {view === "map" ? (
                 !mapEnlarged ? renderMap(false) : null
+              ) : view === "identity" ? (
+                <IdentityAccessSurface
+                  responseContractVersion={data.response_contract_version}
+                  identityAccess={data.identity_access}
+                  snapshotStale={Boolean(data.fromStaleCache || (isStale && cachedAt))}
+                  nodes={chipCountNodes}
+                  onSelect={focusIdentityWorkload}
+                  expectedScope={identityExpectedScope}
+                />
               ) : (
                 <EstateSystemView
                   data={data}
+                  identityClaims={identityClaims}
                   selectedNodeId={selectedNodeId}
                   onSelectNode={id => {
                     setSelectedNodeId(id === selectedNodeId ? null : id)
@@ -1947,7 +2065,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
                   onSelectRole={name => {
                     setHighlightedRoleName(name)
                     setSelectedNodeId(null)
-                    setView("map")
+                    selectEstateView("map")
                   }}
                   iapJewels={iapJewels}
                   findingsSummary={findingsSummary}
@@ -1958,10 +2076,28 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
           </div>
         </main>
 
-        <aside
-          className="hidden xl:flex flex-col min-h-0 w-[244px] shrink-0 sticky top-4 self-start"
-          style={{ maxHeight: embedded ? "min(84vh, 1100px)" : "calc(100vh - 110px)" }}
-        >
+        {view !== "identity" ? (
+          <aside
+            className="hidden xl:flex flex-col min-h-0 w-[244px] shrink-0 sticky top-4 self-start"
+            style={{ maxHeight: embedded ? "min(84vh, 1100px)" : "calc(100vh - 110px)" }}
+          >
+            <RankedRail
+              nodes={detailNodes}
+              edges={operationalEdges}
+              subnets={mapVpcTopology?.subnets}
+              selectedId={selectedRailId}
+              onSelectWorkload={id => {
+                setSelectedNodeId(id)
+                setHighlightedRoleName(null)
+              }}
+              filtersSlot={filterDrawer}
+            />
+          </aside>
+        ) : null}
+      </div>
+
+      {view !== "identity" ? (
+        <div className={`xl:hidden pb-4 ${ESTATE_SHELL_X}`}>
           <RankedRail
             nodes={detailNodes}
             edges={operationalEdges}
@@ -1973,22 +2109,8 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
             }}
             filtersSlot={filterDrawer}
           />
-        </aside>
-      </div>
-
-      <div className={`xl:hidden pb-4 ${ESTATE_SHELL_X}`}>
-        <RankedRail
-          nodes={detailNodes}
-          edges={operationalEdges}
-          subnets={mapVpcTopology?.subnets}
-          selectedId={selectedRailId}
-          onSelectWorkload={id => {
-            setSelectedNodeId(id)
-            setHighlightedRoleName(null)
-          }}
-          filtersSlot={filterDrawer}
-        />
-      </div>
+        </div>
+      ) : null}
 
       <footer className={`${ESTATE_SHELL_X} pb-6 text-[10px] leading-relaxed`} style={{ color: "#5A6B7A" }}>
         Live read from <span className="font-mono">/api/topology-risk/{data.system}</span>.

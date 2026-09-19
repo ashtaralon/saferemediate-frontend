@@ -26,6 +26,14 @@ on:
         description: Optional exact deployed frontend SHA to require
         required: false
         default: ""
+      require_identity_access:
+        description: Release run — require a v11 Identity & access projection and the rendered control
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
   # The harness self-tests against C1 whenever it changes. That first run is
   # also what registers the workflow, so it can then be dispatched from the
   # branch it lives on (GitHub answers 404 to a dispatch of a workflow that
@@ -81,6 +89,7 @@ jobs:
           C1_ACCOUNT_ID: "416651950952"
           C1_REGION: eu-west-1
           EXPECTED_FRONTEND_SHA: ${{ inputs.expected_frontend_sha || '' }}
+          REQUIRE_IDENTITY_ACCESS: ${{ inputs.require_identity_access || 'false' }}
           PW_CHANNEL: chromium
           CI: "1"
       - name: Publish screenshots and measurements to the results branch

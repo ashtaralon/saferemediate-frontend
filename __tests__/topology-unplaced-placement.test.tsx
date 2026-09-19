@@ -44,6 +44,7 @@ import {
   type PlacementOverrideMap,
 } from "@/components/topology-v0-2/placement-overrides"
 import type { SubnetMeta, TopologyNode, TrafficEdge, VpcTopology } from "@/components/topology-v0-2/types"
+import v11Fixture from "./fixtures/topology-risk/estate-map-v11-contract.json"
 
 beforeAll(() => {
   if (!("ResizeObserver" in globalThis)) {
@@ -562,18 +563,64 @@ describe("computeCanvasGrid — a logical group is a group, not a collector gap"
   })
 })
 
-// The band a group is drawn in. The classifier's `logical-group` verdict says
+describe("computeCanvasGrid — topology-risk/v11 physical database placement", () => {
+  const fixtureSubnets: SubnetMeta[] = v11Fixture.vpc_topology.subnets.map(subnet => ({
+    id: subnet.id,
+    name: subnet.id,
+    az: subnet.availability_zone,
+    cidr: null,
+    tier: "data",
+    tier_source: "property",
+    vpc_id: v11Fixture.vpc_id,
+  }))
+  const fixtureNodes = v11Fixture.nodes.map(node => nd({
+    id: node.id,
+    name: node.name,
+    type: node.type,
+    resource_label: node.resource_label,
+    vpc_id: node.vpc_id,
+    subnet_id: node.subnet_id,
+    subnet_ids: node.subnet_ids,
+    placement_tier: node.placement_tier as TopologyNode["placement_tier"],
+  }))
+
+  it("puts the RDS instance only in its actual subnet and keeps the cluster as a group", () => {
+    const grid = computeCanvasGrid(
+      v11Fixture.vpc_id,
+      fixtureSubnets,
+      fixtureNodes,
+      [],
+    )
+    const writer = fixtureNodes.find(node => node.resource_label === "RDSInstance")!
+    const cluster = fixtureNodes.find(node => node.resource_label === "RDSCluster")!
+    expect(grid.byAzAndTier.get("eu-west-1a")?.get("data")?.map(node => node.id)).toContain(writer.id)
+    expect(grid.byAzAndTier.get("eu-west-1b")?.get("data")?.map(node => node.id) ?? []).not.toContain(writer.id)
+    expect(reasonFor(grid, writer.id)).toBeUndefined()
+    expect(reasonFor(grid, cluster.id)).toBe("logical-group")
+  })
+})
+
+// The on-demand panel a group is drawn in. The classifier's `logical-group` verdict says
 // "a group whose members carry the placement", not "the graph does not say
 // where" — yet both readings stood on one amber area headed as a placement gap
 // (2026-09-12 review: all six items under "Not placed · the graph does not say
 // where" were groups, while the copy beneath said none of them was a gap). The
-// amber area is now the gaps alone; a group has a neutral band of its own,
-// linked to the members the payload's edges name.
+// amber area is now the gaps alone; a counted toolbar control opens a neutral
+// panel linked to the members the payload's edges name.
 
-describe("AwsFrame — a group is drawn in its own band, never counted as a placement gap", () => {
+describe("AwsFrame — a group is available on demand, never counted as a placement gap", () => {
   const TG = nd({ id: "PROBE-tg", name: "cyntro-tb-prod-tg-web", type: "TargetGroup", vpc_id: VPC, subnet_id: null })
   const WEB_B = nd({ id: "PROBE-web-b", name: "web-b", type: "EC2", vpc_id: VPC, subnet_id: "subnet-web-b" })
   const targets = (memberId: string): TrafficEdge => ({ source_id: TG.id, target_id: memberId, protocol: "TARGETS" })
+  const openGroups = () => {
+    const trigger = screen.getByTestId("topology-logical-group-band-toggle")
+    expect(trigger).toHaveAttribute("aria-label", "Logical groups, 1")
+    expect(trigger).toHaveAttribute("aria-expanded", "false")
+    expect(screen.queryByTestId("topology-logical-group-band")).toBeNull()
+    fireEvent.click(trigger)
+    expect(trigger).toHaveAttribute("aria-expanded", "true")
+    return screen.getByTestId("topology-logical-group-band")
+  }
 
   it("heads and counts the amber area by the real gaps alone, and the band by the groups", () => {
     renderFrame({ nodes: [CONTROL, NO_SUBNET, TG] })
@@ -586,12 +633,11 @@ describe("AwsFrame — a group is drawn in its own band, never counted as a plac
     ).toEqual(["no-subnet-in-graph"])
     expect(within(area).queryByText(TG.name!)).toBeNull()
 
-    const band = screen.getByTestId("topology-logical-group-band")
+    const band = openGroups()
     expect(screen.getByTestId("topology-logical-group-band-header")).toHaveTextContent(
       "Logical groups · members carry the placement (1)",
     )
-    expect(band).toHaveTextContent("Not a collector gap")
-    expect(band.textContent).not.toMatch(/run a full sync/)
+    expect(band).toHaveTextContent("missing membership link is an evidence gap")
     expect(band.textContent).not.toMatch(/does not say where/)
     expect(within(band).getByText(TG.name!)).toBeTruthy()
     const entry = screen.getByTestId("topology-logical-group")
@@ -602,7 +648,8 @@ describe("AwsFrame — a group is drawn in its own band, never counted as a plac
   it("renders no placement-gap area at all when only groups are unplaced", () => {
     renderFrame({ nodes: [CONTROL, TG] })
     expect(screen.queryByTestId("topology-unplaced-area")).toBeNull()
-    expect(screen.getByTestId("topology-logical-group-band")).toBeTruthy()
+    expect(screen.getByTestId("topology-logical-group-band-toggle")).toHaveTextContent("Groups (1)")
+    expect(screen.queryByTestId("topology-logical-group-band")).toBeNull()
   })
 
   it("links the group to the members the payload's TARGETS edges name and spans their zones", () => {
@@ -612,6 +659,7 @@ describe("AwsFrame — a group is drawn in its own band, never counted as a plac
       trafficEdges: [targets(CONTROL.id), targets(WEB_B.id)],
       onSelect,
     })
+    openGroups()
     const entry = screen.getByTestId("topology-logical-group")
     expect(entry.getAttribute("data-member-ids")).toBe(`${CONTROL.id}|${WEB_B.id}`)
     // CONTROL sits in subnet-app-a (eu-west-1a), WEB_B in subnet-web-b (eu-west-1b):
@@ -633,11 +681,12 @@ describe("AwsFrame — a group is drawn in its own band, never counted as a plac
       // Traffic INTO the group is not membership.
       trafficEdges: [{ source_id: CONTROL.id, target_id: TG.id, protocol: "ACTUAL_TRAFFIC" }],
     })
+    openGroups()
     const entry = screen.getByTestId("topology-logical-group")
     expect(entry.getAttribute("data-member-ids")).toBe("")
     expect(entry.getAttribute("data-scope-azs")).toBe("")
     expect(screen.getByTestId("topology-logical-group-members-unlinked")).toHaveTextContent(
-      "members not linked in this payload",
+      "Membership links unavailable in this snapshot",
     )
     expect(screen.getByTestId("topology-logical-group-scope")).toHaveTextContent(`VPC ${VPC}`)
     expect(screen.queryAllByTestId("topology-logical-group-member")).toEqual([])
@@ -647,9 +696,8 @@ describe("AwsFrame — a group is drawn in its own band, never counted as a plac
     renderFrame({ nodes: [CONTROL, NO_SUBNET, TG], onPlaceNode: () => {} })
     const pickers = screen.getAllByTestId("topology-placement-picker")
     expect(pickers.map(p => p.getAttribute("data-node-id"))).toEqual([NO_SUBNET.id])
-    expect(
-      within(screen.getByTestId("topology-logical-group-band")).queryByTestId("topology-placement-picker"),
-    ).toBeNull()
+    const panel = openGroups()
+    expect(within(panel).queryByTestId("topology-placement-picker")).toBeNull()
   })
 })
 
