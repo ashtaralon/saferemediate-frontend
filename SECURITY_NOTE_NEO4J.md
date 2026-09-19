@@ -19,8 +19,8 @@ credential.
   directly — neither Neo4j nor Neptune — and reads graph data only through the backend API.
 - The two proxy routes that used to query Neo4j directly
   (`app/api/proxy/identities/data-access/[name]`, `app/api/proxy/orphan-services/[systemName]`)
-  now use backend data only. Table-level data access, which only the direct query supplied, is
-  reported as unavailable rather than as empty.
+  now use backend data only. An identity's data access comes from the backend operation
+  `identity.data_access`, which is account-scoped and states its own provenance and coverage.
 - No `NEO4J_*` or `NEXT_PUBLIC_NEO4J_*` variable is read anywhere. Do not set one, and never give a
   secret a `NEXT_PUBLIC_` name: those values are shipped to the browser.
 - `__tests__/neptune-only-routes.test.ts` fails the build if direct-database access returns.

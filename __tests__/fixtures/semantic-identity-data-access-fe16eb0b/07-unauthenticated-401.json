@@ -1,0 +1,6 @@
+{
+  "body": {
+    "detail": "service authentication required"
+  },
+  "http_status": 401
+}

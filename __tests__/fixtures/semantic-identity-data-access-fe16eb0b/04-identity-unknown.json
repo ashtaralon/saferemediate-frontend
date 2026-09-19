@@ -1,0 +1,41 @@
+{
+  "body": {
+    "provenance": {
+      "completeness": {
+        "missing_sources": [],
+        "status": "unknown"
+      },
+      "confidence": "unknown",
+      "confidence_caveats": [
+        "No usable evidence is presented for this answer: DECISION_IDENTITY_DATA_ACCESS_IDENTITY_NOT_FOUND"
+      ],
+      "evidence_sources": [],
+      "freshness": {},
+      "observation_coverage": null,
+      "observation_window_days": null,
+      "observed_vs_configured": {
+        "configured": [],
+        "inferred": [],
+        "observed": []
+      },
+      "scope": {
+        "resource_id": null,
+        "resource_type": "iam:role",
+        "system": null
+      }
+    },
+    "result": {
+      "failing_axes": [
+        "absence"
+      ],
+      "reason_category": "absence",
+      "reason_code": "DECISION_IDENTITY_DATA_ACCESS_IDENTITY_NOT_FOUND",
+      "reason_codes": [
+        "DECISION_IDENTITY_DATA_ACCESS_IDENTITY_NOT_FOUND"
+      ],
+      "serve_state": "NOT_READY",
+      "status": "refused"
+    }
+  },
+  "http_status": 200
+}

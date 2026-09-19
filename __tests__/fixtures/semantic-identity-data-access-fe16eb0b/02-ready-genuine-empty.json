@@ -1,0 +1,101 @@
+{
+  "body": {
+    "provenance": {
+      "completeness": {
+        "missing_sources": [
+          "rds_query_logs"
+        ],
+        "status": "partial"
+      },
+      "confidence": "medium",
+      "confidence_caveats": [
+        "table_access: NOT_COMPUTED (DECISION_IDENTITY_DATA_ACCESS_TABLE_COVERAGE_INCOMPLETE)",
+        "allowed_operations are not computed from the serving graph (DECISION_IDENTITY_DATA_ACCESS_ALLOWED_OPERATIONS_UNSUPPORTED)"
+      ],
+      "evidence_sources": [
+        "Neptune Serving Graph"
+      ],
+      "freshness": {
+        "serving_graph": {
+          "age_seconds": 7200,
+          "generation": 42,
+          "last_sync": "2026-09-18T06:00:00+00:00",
+          "scope": null,
+          "source_detail": "inventory generation 42 read by identity.data_access",
+          "status": "fresh",
+          "unknown_reason": null
+        }
+      },
+      "observation_coverage": null,
+      "observation_window_days": null,
+      "observed_vs_configured": {
+        "configured": [],
+        "inferred": [],
+        "observed": []
+      },
+      "scope": {
+        "resource_id": "arn:aws:iam::111122223333:role/fixture-web-role",
+        "resource_type": "iam:role",
+        "system": null
+      }
+    },
+    "result": {
+      "data_stores": [],
+      "data_stores_status": {
+        "link_basis": null,
+        "missing_proofs": [],
+        "observation_window": {
+          "end": "2026-09-18T00:00:00+00:00",
+          "start": "2026-06-20T00:00:00+00:00"
+        },
+        "reason_code": null,
+        "services_covered": [
+          "S3"
+        ],
+        "state": "COMPUTED",
+        "truncated": false
+      },
+      "identity": {
+        "arn": "arn:aws:iam::111122223333:role/fixture-web-role",
+        "kind": "iam_role",
+        "name": "fixture-web-role",
+        "role_id": "AROAFIXTURE000000000001"
+      },
+      "scope": {
+        "account_id": "111122223333",
+        "resolved_by": "server",
+        "tenant_id": "tenant-a"
+      },
+      "sections": {
+        "data_stores": "READY",
+        "identity": "READY",
+        "serving_generation": "READY",
+        "table_access": "READY"
+      },
+      "serve_state": "PARTIAL",
+      "serving_generation": {
+        "age_seconds": 7200,
+        "freshness_status": "fresh",
+        "generation": 42,
+        "last_sync": "2026-09-18T06:00:00+00:00",
+        "max_age_seconds": 43200
+      },
+      "status": "ready",
+      "table_access": [],
+      "table_access_status": {
+        "link_basis": null,
+        "missing_proofs": [
+          "rds_query_logs"
+        ],
+        "observation_window": null,
+        "reason_code": "DECISION_IDENTITY_DATA_ACCESS_TABLE_COVERAGE_INCOMPLETE",
+        "services_covered": [
+          "RDS"
+        ],
+        "state": "NOT_COMPUTED",
+        "truncated": false
+      }
+    }
+  },
+  "http_status": 200
+}
