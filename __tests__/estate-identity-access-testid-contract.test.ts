@@ -57,10 +57,189 @@ function probedIds(source: string): Set<string> {
   return ids
 }
 
-const MODEL = readFileSync(
-  resolve(COMPONENT_DIR, "estate-identity-access-model.ts"),
+const MODEL = readFileSync(resolve(COMPONENT_DIR, "estate-identity-access-model.ts"), "utf8")
+const TAB_ONLY = readFileSync(
+  resolve(COMPONENT_DIR, "estate-identity-access-tab.tsx"),
   "utf8",
 )
+
+/**
+ * Source with comments and quoted strings removed, spaced by token.
+ *
+ * These files EXPLAIN the fallbacks they no longer contain. Searching raw text
+ * finds the explanation and fails on it — prose about a defect is not the
+ * defect. Spacing by token also makes `a??b` and `a ?? b` match one pattern.
+ *
+ * Template literals are deliberately NOT blanked. An earlier version replaced
+ * each one wholesale, which swallowed its `${...}` expressions too — and that
+ * is exactly where two real fallbacks were hiding, in
+ * `${decision.configuredGrantCount ?? "—"} actions granted`. A guard that
+ * cannot see inside an interpolation cannot see the code that renders.
+ */
+function stripLiterals(source: string): string {
+  const withoutComments = source
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/\/\/[^\n]*/g, " ")
+  const withoutStrings = withoutComments
+    .replace(/"(?:[^"\\]|\\.)*"/g, '\"\"')
+    .replace(/'(?:[^'\\]|\\.)*'/g, "''")
+  return withoutStrings.replace(/([?][?]|[|][|]|[.,()[\]{}:;=<>])/g, " $1 ").replace(/\s+/g, " ")
+}
+
+/**
+ * No producer-required field may be read with a fallback.
+ *
+ * Validation decides whether a payload is readable; after that, every field the
+ * producer writes unconditionally is consumed through ValidBlock / ValidRole,
+ * where it is non-optional. A `?? []`, `?? {}` or `?? "unavailable"` on one of
+ * those fields substitutes a value this code invented, and on screen an
+ * invented value is indistinguishable from a reported one. That the validator
+ * makes such a line nominally unreachable is not the point: it is a default
+ * waiting to be reached again the moment a check is relaxed.
+ *
+ * This is a source guard, deliberately. The behaviour is covered by the model
+ * and rendered suites; what those cannot see is a fallback reintroduced behind
+ * a validator that happens to still reject the input today.
+ */
+describe("no required field is read with a fallback", () => {
+  /** Fields every v1 payload and every emitted role carries. */
+  const REQUIRED_FIELDS = [
+    "roles",
+    "gaps",
+    "roles_total",
+    "roles_returned",
+    "roles_truncated",
+    "roles_omitted_unresolved",
+    "workload_ids",
+    "attachment_modes",
+    "configured_grants",
+    "observed_use",
+    "effective_authorization",
+    "reason_codes",
+    "availability",
+    "granularity",
+    "exact_action_count",
+    "coverage_counts",
+    "projection_scope",
+    "generation",
+    "staging_run_id",
+    "source_vector_hash",
+    "projected_through",
+    "projection_receipt_hash",
+    // The same fields under their view-model names. Two of these hid behind
+    // the naming difference: the map read `configuredGrantCount ?? "—"` and
+    // `observed.successful ?? "—"` while the snake_case guard saw nothing.
+    "configuredGrantCount",
+    "successful",
+    "deniedOnly",
+    "notObserved",
+    "reasonCodes",
+    "attachmentModes",
+    "projectionScope",
+    "generation",
+    "sourceVectorHash",
+    "projectedThrough",
+    "stagingRunId",
+    "rolesReturned",
+    "rolesTruncated",
+  ]
+
+  /**
+   * Fields the producer may legitimately emit as null, where choosing what to
+   * show instead is presentation, not invention.
+   */
+  const OPTIONAL_DISPLAY_FIELDS = ["name", "role_arn", "lifecycle_state", "last_success_at"]
+
+  const SOURCES: [string, string][] = [
+    ["estate-identity-access-model.ts", MODEL],
+    ["estate-identity-map.tsx", MAP],
+    ["estate-identity-access-tab.tsx", TAB_ONLY],
+  ]
+
+  it.each(SOURCES)("%s reads no required field with ?? or ||", (_name, source) => {
+    const code = stripLiterals(source)
+    const offenders: string[] = []
+    for (const field of REQUIRED_FIELDS) {
+      // `x.field ?? …`, `x.field ||…`, and `(x.field ?? …)` after a cast.
+      const pattern = new RegExp(`\\b${field}\\s*(\\?\\?|\\|\\|)`, "g")
+      for (const match of code.matchAll(pattern)) offenders.push(`${field}${match[1]}`)
+    }
+    expect(offenders).toEqual([])
+  })
+
+  it("the refined types leave nothing to fall back to", () => {
+    // The structural reason the fallbacks above cannot be written: every
+    // producer-required field is declared non-optional, so `?? default` has no
+    // undefined case to answer.
+    const code = stripLiterals(MODEL)
+    for (const declaration of [
+      "workload_ids : string [ ]",
+      "attachment_modes : string [ ]",
+      "availability : string",
+      "granularity : string",
+      "reason_codes : string [ ]",
+      "roles_returned : number",
+      "roles_truncated : boolean",
+      "gaps : IdentityGap [ ]",
+      "generation : number",
+    ]) {
+      expect(code).toContain(declaration)
+    }
+  })
+
+  it("no refined type marks a required field optional", () => {
+    // Scoped to the Valid* family on purpose. The WIRE types above them are
+    // optional by design: they describe what might arrive before anything is
+    // checked, which is the whole reason the validators exist.
+    const refined = [
+      "ValidAuthority",
+      "ValidConfiguredGrants",
+      "ValidObservedUse",
+      "ValidEffectiveAuthorization",
+      "ValidRole",
+      "ValidBlock",
+    ]
+    for (const name of refined) {
+      const start = MODEL.indexOf(`export interface ${name} {`)
+      expect(start).toBeGreaterThan(-1)
+      const body = MODEL.slice(start, MODEL.indexOf("\n}", start))
+      const optional = [...body.matchAll(/^\s{2}(\w+)\?:/gm)].map(match => match[1])
+      expect(optional).toEqual([])
+    }
+  })
+
+  it("the guard is looking at something — it finds a planted fallback", () => {
+    // A guard that matches nothing would pass forever. This proves the pattern.
+    const planted = stripLiterals("const x = role.workload_ids ?? []")
+    expect(/\bworkload_ids\s*(\?\?|\|\|)/.test(planted)).toBe(true)
+  })
+
+  it("still allows a fallback on a genuinely optional display field", () => {
+    // role.name is nullable at the producer, so choosing the role id instead is
+    // a presentation decision. The guard must not forbid that.
+    for (const field of OPTIONAL_DISPLAY_FIELDS) {
+      expect(REQUIRED_FIELDS).not.toContain(field)
+    }
+    expect(stripLiterals(MODEL)).toContain("role . name ?? role . role_id")
+  })
+
+  it("the decision hop is a union, so a ready state has no nullable count", () => {
+    // One shape with nullable numbers is what invited `?? "—"` in the
+    // renderer. The union removes the nullable case from the ready branch
+    // entirely, so there is nothing to place a dash over.
+    const code = stripLiterals(MODEL)
+    expect(code).toContain("export interface GraphDecisionReady extends GraphDecisionBase { state : ")
+    expect(code).toContain("configuredGrantCount : number observed : GraphDecisionObserved | null")
+    expect(code).toContain("configuredGrantCount : null observed : null")
+    expect(code).toContain("export type GraphDecisionNode = GraphDecisionReady | GraphDecisionUnavailable")
+  })
+
+  it("the builder and the graph consume the refined types", () => {
+    const code = stripLiterals(MODEL)
+    expect(code).toContain("function buildGraph ( roles : ValidRole [ ]")
+    expect(code).toContain("const block = extractBlock ( raw , status as ValidStatus )")
+  })
+})
 
 describe("no interface declares the same member twice", () => {
   /**
