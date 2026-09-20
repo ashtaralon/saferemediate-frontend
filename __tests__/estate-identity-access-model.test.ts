@@ -16,6 +16,9 @@ import { describe, expect, it } from "vitest"
 import {
   CAPABILITY_REASON_CODES,
   IDENTITY_ACCESS_CONTRACT_VERSION,
+  REQUIRED_CAPABILITY_FAMILIES,
+  REQUIRED_SCOPE_FIELDS,
+  SUPPORTED_PLANES,
   VALID_STATUSES,
   bindScope,
   buildGraph,
@@ -146,6 +149,305 @@ describe("a malformed v1 payload is withheld, never thrown on", () => {
   })
 })
 
+describe("scope authority fails closed", () => {
+  it("the four fields the scope guard rests on are required", () => {
+    expect([...REQUIRED_SCOPE_FIELDS].sort()).toEqual([
+      "account_id",
+      "customer_id",
+      "region",
+      "system_name",
+    ])
+  })
+
+  it.each([
+    ["account_id as an empty array", "account_id", []],
+    ["account_id as an object", "account_id", {}],
+    ["account_id as a number", "account_id", 416651950952],
+    ["account_id as null", "account_id", null],
+    ["account_id blank", "account_id", "   "],
+    ["customer_id as an array", "customer_id", []],
+    ["system_name as an array", "system_name", []],
+    ["region as an array", "region", []],
+    ["region as false", "region", false],
+  ])("%s is invalid, and never renders tenant data", (_label, field, value) => {
+    const view = viewOf({ ...fixtures.ready, scope: { ...fixtures.ready.scope, [field]: value } })
+    expect(view.state).toBe("invalid")
+    expect(view.roles).toEqual([])
+    expect(view.graph.nodes).toEqual([])
+    expect(view.detail).toContain(field)
+  })
+
+  it("the exact bypass: {account_id: []} must not slip past the mismatch guard", () => {
+    // str([]) is null, so the old code treated this as an ABSENT account_id,
+    // skipped the comparison, found no mismatch, and rendered the roles.
+    const view = viewOf({
+      ...fixtures.ready,
+      scope: { ...fixtures.ready.scope, account_id: [] },
+    })
+    expect(view.state).not.toBe("ready")
+    expect(view.state).toBe("invalid")
+    expect(view.roles).toEqual([])
+  })
+
+  it.each([
+    ["a missing scope", undefined],
+    ["a null scope", null],
+    ["an array scope", []],
+    ["a string scope", "eu-west-1"],
+    ["an empty scope", {}],
+  ])("%s is invalid", (_label, scope) => {
+    expect(viewOf({ ...fixtures.ready, scope }).state).toBe("invalid")
+  })
+
+  it("accepts a null vpc_id, because an account-wide projection has none", () => {
+    const view = viewOf({ ...fixtures.ready, scope: { ...fixtures.ready.scope, vpc_id: null } })
+    expect(view.state).toBe("ready")
+    expect(view.scopeBinding!.verified.map(item => item.field)).not.toContain("vpc_id")
+  })
+
+  it("rejects a vpc_id that is neither text nor null", () => {
+    expect(
+      viewOf({ ...fixtures.ready, scope: { ...fixtures.ready.scope, vpc_id: [] } }).state,
+    ).toBe("invalid")
+  })
+})
+
+describe("authority receipts fail closed", () => {
+  it.each([
+    ["an empty inventory authority", { inventory_authority: {} }],
+    ["a null inventory authority", { inventory_authority: null }],
+    ["a missing inventory authority", { inventory_authority: undefined }],
+    ["an empty decision authority", { decision_authority: {} }],
+    ["a null decision authority on a ready payload", { decision_authority: null }],
+  ])("%s makes a ready payload invalid", (_label, override) => {
+    const view = viewOf({ ...fixtures.ready, ...override })
+    expect(view.state).toBe("invalid")
+    expect(view.roles).toEqual([])
+    expect(view.receipts).toEqual([])
+  })
+
+  it.each([
+    ["no projection_scope", { projection_scope: "" }],
+    ["a string generation", { generation: "31" }],
+    ["a negative generation", { generation: -1 }],
+    ["a fractional generation", { generation: 1.5 }],
+    ["a boolean generation", { generation: true }],
+    ["a null generation", { generation: null }],
+    ["no staging_run_id", { staging_run_id: "" }],
+    ["no source_vector_hash", { source_vector_hash: null }],
+    ["no projected_through", { projected_through: undefined }],
+    ["a receipt hash that is an array", { projection_receipt_hash: [] }],
+  ])("an inventory authority with %s is invalid", (_label, override) => {
+    const view = viewOf({
+      ...fixtures.ready,
+      inventory_authority: { ...fixtures.ready.inventory_authority, ...override },
+    })
+    expect(view.state).toBe("invalid")
+  })
+
+  it("a partial payload may legitimately carry no decision authority", () => {
+    const source = fixtures.partial_no_decision_authority
+    expect(source.status).toBe("partial")
+    expect(source.decision_authority).toBeNull()
+    expect(viewOf(source).state).toBe("ready")
+  })
+
+  it("but a partial payload with a MALFORMED decision authority is invalid", () => {
+    const view = viewOf({ ...fixtures.partial, decision_authority: { generation: 12 } })
+    expect(view.state).toBe("invalid")
+  })
+
+  it("an unavailable payload with a malformed authority is still invalid", () => {
+    const view = viewOf({ ...fixtures.unavailable, inventory_authority: {} })
+    expect(view.state).toBe("invalid")
+  })
+
+  it("accepts a null receipt hash — a pre-receipt generation stays readable", () => {
+    // ActiveProjection: "EMPTY on a pointer activated before this field
+    // existed -- those generations are readable and servable."
+    const view = viewOf({
+      ...fixtures.ready,
+      inventory_authority: {
+        ...fixtures.ready.inventory_authority,
+        projection_receipt_hash: null,
+      },
+    })
+    expect(view.state).toBe("ready")
+    expect(view.receipts[0].projectionReceiptHash).toBeNull()
+  })
+
+  it("never says hash-verified for a decision generation with no receipt", () => {
+    const view = viewOf({
+      ...fixtures.ready,
+      decision_authority: {
+        ...fixtures.ready.decision_authority,
+        projection_receipt_hash: null,
+      },
+    })
+    expect(view.state).toBe("ready")
+    expect(view.detail).not.toContain("hash-verified")
+    expect(view.detail).toContain("not certifiable")
+    expect(view.detail).toContain(`generation ${fixtures.ready.decision_authority.generation}`)
+  })
+
+  it("never says generation unknown", () => {
+    for (const source of [fixtures.ready, fixtures.partial]) {
+      expect(viewOf(source).detail).not.toContain("unknown")
+    }
+  })
+})
+
+describe("counters are typed and conserved", () => {
+  it.each([
+    ["roles_returned as a string", { roles_returned: "1" }],
+    ["roles_returned as a float", { roles_returned: 1.5 }],
+    ["roles_returned as a boolean", { roles_returned: true }],
+    ["roles_total as a string", { roles_total: "1" }],
+    ["roles_total negative", { roles_total: -1 }],
+    ["roles_omitted_unresolved as a string", { roles_omitted_unresolved: "0" }],
+    ["roles_truncated as a string", { roles_truncated: "false" }],
+    ["roles_truncated as a number", { roles_truncated: 0 }],
+  ])("%s is invalid, never coerced away", (_label, override) => {
+    const view = viewOf({ ...fixtures.ready, ...override })
+    expect(view.state).toBe("invalid")
+    // NOT: silently null/false and rendered as if sound.
+    expect(view.rolesTotal).toBeNull()
+    expect(view.rolesTruncated).toBe(false)
+    expect(view.roles).toEqual([])
+  })
+
+  it("roles_returned must equal the roles actually carried", () => {
+    const view = viewOf({ ...fixtures.ready, roles_returned: 5 })
+    expect(view.state).toBe("invalid")
+    expect(view.detail).toContain("reports 5 roles returned but carries 1")
+  })
+
+  it("returned plus omitted cannot exceed the total", () => {
+    const view = viewOf({
+      ...fixtures.ready,
+      roles_total: 1,
+      roles_returned: 1,
+      roles_omitted_unresolved: 3,
+    })
+    expect(view.state).toBe("invalid")
+    expect(view.detail).toContain("out of a total of 1")
+  })
+
+  it("a total that says rows were dropped cannot report no truncation", () => {
+    const view = viewOf({
+      ...fixtures.ready,
+      roles_total: 9,
+      roles_returned: 1,
+      roles_omitted_unresolved: 0,
+      roles_truncated: false,
+    })
+    expect(view.state).toBe("invalid")
+    expect(view.detail).toContain("no truncation")
+  })
+
+  it("truncation the totals contradict is invalid", () => {
+    const view = viewOf({
+      ...fixtures.ready,
+      roles_total: 1,
+      roles_returned: 1,
+      roles_omitted_unresolved: 0,
+      roles_truncated: true,
+    })
+    expect(view.state).toBe("invalid")
+    expect(view.detail).toContain("contradict")
+  })
+
+  it("a null total may not come with roles, omissions or truncation", () => {
+    for (const override of [
+      { roles_total: null, roles_omitted_unresolved: 2 },
+      { roles_total: null, roles_truncated: true },
+    ]) {
+      expect(viewOf({ ...fixtures.ready, ...override }).state).toBe("invalid")
+    }
+  })
+
+  it("every real producer payload satisfies the conservation law", () => {
+    for (const key of [
+      "ready",
+      "partial",
+      "empty_authoritative",
+      "partial_unresolved_role_id",
+      "partial_no_decision_authority",
+      "unavailable",
+    ] as const) {
+      expect(viewOf((fixtures as any)[key]).state).not.toBe("invalid")
+    }
+  })
+})
+
+describe("a ready state must have the counts it claims", () => {
+  const role = () => JSON.parse(JSON.stringify(fixtures.ready.roles[0]))
+
+  it.each([
+    ["a missing successful count", "successful_action_count", undefined],
+    ["a string successful count", "successful_action_count", "1"],
+    ["a negative denied count", "denied_only_action_count", -1],
+    ["a null not-observed count", "not_observed_action_count", null],
+    ["a float unknown count", "unknown_action_count", 0.5],
+  ])("observed_use ready with %s cannot become an observed edge", (_label, field, value) => {
+    const bad = role()
+    bad.observed_use[field] = value
+    const view = viewOf({ ...fixtures.ready, roles: [bad] })
+    expect(view.state).toBe("invalid")
+    // The thing this prevents: an animated edge over numbers never read.
+    expect(view.graph.edges.filter(edge => edge.animated)).toEqual([])
+    expect(view.graph.edges.filter(edge => edge.plane === "observed")).toEqual([])
+  })
+
+  it.each([
+    ["missing", undefined],
+    ["not an object", "complete"],
+    ["missing a bucket", { complete: 1, partial: 0 }],
+    ["a string bucket", { complete: "1", partial: 0, unknown: 0 }],
+  ])("observed_use ready with coverage counts %s is invalid", (_label, coverage) => {
+    const bad = role()
+    bad.observed_use.coverage_counts = coverage
+    expect(viewOf({ ...fixtures.ready, roles: [bad] }).state).toBe("invalid")
+  })
+
+  it.each([
+    ["missing", undefined],
+    ["a string", "3"],
+    ["negative", -2],
+    ["null", null],
+  ])("configured_grants ready with an exact_action_count %s is invalid", (_label, count) => {
+    const bad = role()
+    bad.configured_grants.exact_action_count = count
+    const view = viewOf({ ...fixtures.ready, roles: [bad] })
+    expect(view.state).toBe("invalid")
+    expect(view.graph.nodes).toEqual([])
+  })
+
+  it.each([
+    ["configured_grants", "configured_grants"],
+    ["observed_use", "observed_use"],
+  ])("an undefined state on %s is invalid", (_label, key) => {
+    const bad = role()
+    bad[key].state = "degraded"
+    expect(viewOf({ ...fixtures.ready, roles: [bad] }).state).toBe("invalid")
+  })
+
+  it("an unavailable state needs no counts at all", () => {
+    // The real withheld role: every count null, and that is correct.
+    const view = viewOf(fixtures.partial_no_decision_authority)
+    expect(view.state).toBe("ready")
+    const node: any = view.graph.nodes.find(item => item.kind === "decision")
+    expect(node.configuredGrantCount).toBeNull()
+    expect(node.observed).toBeNull()
+  })
+
+  it("a last_success_at that is neither text nor null is invalid", () => {
+    const bad = role()
+    bad.observed_use.last_success_at = 1758000000
+    expect(viewOf({ ...fixtures.ready, roles: [bad] }).state).toBe("invalid")
+  })
+})
+
 describe("the capability matrix is all-or-nothing", () => {
   it("carries a verdict for all fifteen requested families", () => {
     const view = viewOf(fixtures.ready)
@@ -225,6 +527,143 @@ describe("the capability matrix is all-or-nothing", () => {
     expect(view.capabilitiesUnavailableReason).toContain("1 of 16")
   })
 
+  it("the frontend's required family list matches the backend's, exactly", () => {
+    expect([...REQUIRED_CAPABILITY_FAMILIES].sort()).toEqual(
+      fixtures.ready.relationship_capabilities.map((row: any) => row.family).sort(),
+    )
+  })
+
+  it("the supported planes are the ones the producer asserts", () => {
+    const planes = new Set(
+      fixtures.ready.relationship_capabilities
+        .map((row: any) => row.plane)
+        .filter(Boolean),
+    )
+    for (const plane of planes) {
+      expect(SUPPORTED_PLANES as readonly string[]).toContain(plane as string)
+    }
+  })
+
+  it.each([
+    ["a reason code outside the closed set", {
+      family: "DATA_ACCESS", status: "unavailable", plane: null,
+      canonical_writer: null, bounded_read: null,
+      reason_codes: ["SOMETHING_ELSE"], detail: "a detail",
+    }],
+    ["an unavailable row asserting a plane", {
+      family: "DATA_ACCESS", status: "unavailable", plane: "observed",
+      canonical_writer: null, bounded_read: null,
+      reason_codes: ["NO_CANONICAL_PRODUCER"], detail: "a detail",
+    }],
+    ["an unavailable row naming a writer", {
+      family: "DATA_ACCESS", status: "unavailable", plane: null,
+      canonical_writer: "some.writer", bounded_read: null,
+      reason_codes: ["NO_CANONICAL_PRODUCER"], detail: "a detail",
+    }],
+    ["an unavailable row naming a bounded read", {
+      family: "DATA_ACCESS", status: "unavailable", plane: null,
+      canonical_writer: null, bounded_read: "some.read",
+      reason_codes: ["NO_CANONICAL_PRODUCER"], detail: "a detail",
+    }],
+    ["an unavailable row with no reason at all", {
+      family: "DATA_ACCESS", status: "unavailable", plane: null,
+      canonical_writer: null, bounded_read: null,
+      reason_codes: [], detail: "a detail",
+    }],
+    ["an available row on an unsupported plane", {
+      family: "WORKLOAD_USES_ROLE", status: "available", plane: "observed",
+      canonical_writer: "w", bounded_read: "r", reason_codes: [], detail: "a detail",
+    }],
+    ["an available row with a null plane", {
+      family: "WORKLOAD_USES_ROLE", status: "available", plane: null,
+      canonical_writer: "w", bounded_read: "r", reason_codes: [], detail: "a detail",
+    }],
+    ["an available row with no writer", {
+      family: "WORKLOAD_USES_ROLE", status: "available", plane: "configured",
+      canonical_writer: null, bounded_read: "r", reason_codes: [], detail: "a detail",
+    }],
+    ["an available row with no bounded read", {
+      family: "WORKLOAD_USES_ROLE", status: "available", plane: "configured",
+      canonical_writer: "w", bounded_read: "", reason_codes: [], detail: "a detail",
+    }],
+    ["an available row carrying a reason code", {
+      family: "WORKLOAD_USES_ROLE", status: "available", plane: "configured",
+      canonical_writer: "w", bounded_read: "r",
+      reason_codes: ["NO_CANONICAL_PRODUCER"], detail: "a detail",
+    }],
+  ])("%s withholds the whole matrix", (_label, row) => {
+    const rows = fixtures.ready.relationship_capabilities.map((item: any) =>
+      item.family === (row as any).family ? row : item,
+    )
+    const view = viewOf({ ...fixtures.ready, relationship_capabilities: rows })
+    expect(view.state).toBe("ready")
+    expect(view.capabilities).toEqual([])
+    expect(view.capabilitiesUnavailableReason).toContain("whole matrix is withheld")
+  })
+
+  it("a duplicated family is an incomplete matrix, not a complete one", () => {
+    const rows = [
+      ...fixtures.ready.relationship_capabilities,
+      fixtures.ready.relationship_capabilities.find((r: any) => r.family === "DATA_ACCESS"),
+    ]
+    const view = viewOf({ ...fixtures.ready, relationship_capabilities: rows })
+    expect(view.capabilities).toEqual([])
+    expect(view.capabilitiesUnavailableReason).toContain("incomplete")
+    expect(view.capabilitiesUnavailableReason).toContain("DATA_ACCESS ruled on more than once")
+  })
+
+  it("a missing family is an incomplete matrix, and is named", () => {
+    const rows = fixtures.ready.relationship_capabilities.filter(
+      (row: any) => row.family !== "TRUSTS",
+    )
+    expect(rows.length).toBe(14)
+    const view = viewOf({ ...fixtures.ready, relationship_capabilities: rows })
+    expect(view.capabilities).toEqual([])
+    expect(view.capabilitiesUnavailableReason).toContain("no verdict for TRUSTS")
+  })
+
+  it("a matrix missing several families names every one of them", () => {
+    const rows = fixtures.ready.relationship_capabilities.filter(
+      (row: any) => !["TRUSTS", "IN_ORG", "MEMBER_OF"].includes(row.family),
+    )
+    const reason = viewOf({
+      ...fixtures.ready,
+      relationship_capabilities: rows,
+    }).capabilitiesUnavailableReason!
+    for (const family of ["TRUSTS", "IN_ORG", "MEMBER_OF"]) {
+      expect(reason).toContain(family)
+    }
+  })
+
+  it("an EXTRA family is allowed — a backend may rule on more", () => {
+    const rows = [
+      ...fixtures.ready.relationship_capabilities,
+      {
+        family: "SOME_NEW_FAMILY",
+        status: "unavailable",
+        plane: null,
+        canonical_writer: null,
+        bounded_read: null,
+        reason_codes: ["NO_CANONICAL_PRODUCER"],
+        detail: "a family this frontend has never heard of",
+      },
+    ]
+    const view = viewOf({ ...fixtures.ready, relationship_capabilities: rows })
+    expect(view.capabilitiesUnavailableReason).toBeNull()
+    expect(view.capabilities.length).toBe(16)
+  })
+
+  it("a malformed row never leaves a family silently absent", () => {
+    // The 15-into-14 failure: drop one row's validity and the matrix must not
+    // present the remaining 14 as a complete account.
+    const rows = fixtures.ready.relationship_capabilities.map((row: any) =>
+      row.family === "TRUSTS" ? { ...row, reason_codes: ["MADE_UP_CODE"] } : row,
+    )
+    const view = viewOf({ ...fixtures.ready, relationship_capabilities: rows })
+    expect(view.capabilities.length).toBe(0)
+    expect(view.capabilities.length).not.toBe(14)
+  })
+
   it("a missing matrix is an explicit unknown, never a silent empty list", () => {
     const { relationship_capabilities, ...withoutMatrix } = fixtures.ready as any
     const view = viewOf(withoutMatrix)
@@ -271,12 +710,24 @@ describe("empty-authoritative is the strongest claim, so it is the narrowest", (
     expect(view.detail).toContain("NOT a statement that no workload is bound")
   })
 
+  // Each override below is INTERNALLY CONSISTENT: the counters obey the
+  // producer's conservation law, so what disqualifies the claim is the fact
+  // being reported, not a malformed payload.
   it.each([
-    ["a non-zero total", { roles_total: 3 }],
-    ["a truncated list", { roles_truncated: true }],
-    ["an unresolved omission", { roles_omitted_unresolved: 2 }],
+    ["a non-zero total with nothing returned", {
+      roles_total: 3, roles_returned: 0, roles_omitted_unresolved: 0, roles_truncated: true,
+    }],
+    ["a truncated list", {
+      roles_total: 1, roles_returned: 0, roles_omitted_unresolved: 0, roles_truncated: true,
+    }],
+    ["an unresolved omission", {
+      roles_total: 2, roles_returned: 0, roles_omitted_unresolved: 2, roles_truncated: false,
+    }],
     ["a reported gap", { gaps: [{ code: "X", detail: "something" }] }],
-    ["status partial", { status: "partial", roles_total: 1 }],
+    ["status partial", {
+      status: "partial",
+      roles_total: 1, roles_returned: 0, roles_omitted_unresolved: 1, roles_truncated: false,
+    }],
   ])("%s disqualifies the zero-roles claim", (_label, override) => {
     const view = viewOf({ ...fixtures.empty_authoritative, ...override })
     expect(view.emptyAuthoritative).toBe(false)

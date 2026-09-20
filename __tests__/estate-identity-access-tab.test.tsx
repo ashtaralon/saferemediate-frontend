@@ -373,6 +373,126 @@ describe("the tab never renders a blank panel", () => {
   })
 })
 
+describe("malformed authority never reaches the screen", () => {
+  it("a scope whose account_id is an empty array renders nothing of the tenant", () => {
+    // The exact bypass: str([]) reads as absent, so the old guard skipped the
+    // account comparison and drew one tenant's roles under another's estate.
+    renderTab({ ...fixtures.ready, scope: { ...fixtures.ready.scope, account_id: [] } })
+    expect(panel()).toHaveAttribute("data-state", "invalid")
+    expect(screen.queryByTestId("identity-map")).toBeNull()
+    expect(screen.queryByTestId("identity-scope-verified")).toBeNull()
+    expect(screen.getByTestId("identity-detail").textContent).toMatch(/account_id/)
+  })
+
+  it.each([
+    ["an empty inventory authority", { inventory_authority: {} }],
+    ["a null inventory authority", { inventory_authority: null }],
+    ["an empty decision authority", { decision_authority: {} }],
+    ["a generation that is a string", {
+      inventory_authority: { ...(fixtures.ready as any).inventory_authority, generation: "31" },
+    }],
+  ])("%s draws no map and shows no receipt card", (_label, override) => {
+    renderTab({ ...fixtures.ready, ...override })
+    expect(panel()).toHaveAttribute("data-state", "invalid")
+    expect(screen.queryByTestId("identity-map")).toBeNull()
+    expect(screen.queryAllByTestId("identity-receipt").length).toBe(0)
+    expect(screen.getByTestId("identity-receipts-none")).toBeInTheDocument()
+  })
+
+  it("never renders a receipt card of em-dashes", () => {
+    renderTab({ ...fixtures.ready, inventory_authority: {} })
+    expect(panel().textContent).not.toContain("generation —")
+  })
+
+  it("never claims hash-verified for a generation with no receipt", () => {
+    renderTab({
+      ...fixtures.ready,
+      decision_authority: {
+        ...(fixtures.ready as any).decision_authority,
+        projection_receipt_hash: null,
+      },
+    })
+    expect(panel()).toHaveAttribute("data-state", "ready")
+    const detail = screen.getByTestId("identity-detail").textContent!
+    expect(detail).not.toMatch(/hash-verified/)
+    expect(detail).toMatch(/not certifiable/)
+  })
+
+  it("never says generation unknown", () => {
+    renderTab(fixtures.ready)
+    expect(panel().textContent).not.toMatch(/generation unknown/)
+  })
+
+  it.each([
+    ["roles_returned that does not match the roles carried", { roles_returned: 5 }],
+    ["roles_truncated as a string", { roles_truncated: "false" }],
+    ["a total its own truncation contradicts", {
+      roles_total: 9, roles_returned: 1, roles_omitted_unresolved: 0, roles_truncated: false,
+    }],
+  ])("%s is withheld rather than coerced", (_label, override) => {
+    renderTab({ ...fixtures.ready, ...override })
+    expect(panel()).toHaveAttribute("data-state", "invalid")
+    expect(screen.queryByTestId("identity-map")).toBeNull()
+    expect(screen.queryByTestId("identity-roles-counts")).toBeNull()
+  })
+
+  it("an observed state with malformed counts draws no animated edge", () => {
+    const role = JSON.parse(JSON.stringify(fixtures.ready.roles[0]))
+    role.observed_use.successful_action_count = "1"
+    renderTab({ ...fixtures.ready, roles: [role] })
+    expect(panel()).toHaveAttribute("data-state", "invalid")
+    expect(screen.queryByTestId("identity-map-canvas")).toBeNull()
+    expect(document.querySelectorAll("animate").length).toBe(0)
+  })
+
+  it("a configured state with a malformed count claims no action universe", () => {
+    const role = JSON.parse(JSON.stringify(fixtures.ready.roles[0]))
+    role.configured_grants.exact_action_count = "3"
+    renderTab({ ...fixtures.ready, roles: [role] })
+    expect(panel()).toHaveAttribute("data-state", "invalid")
+    expect(panel().textContent).not.toMatch(/actions granted/)
+  })
+})
+
+describe("the capability matrix is withheld whole, or not at all", () => {
+  it.each([
+    ["a reason code outside the closed set", (rows: any[]) =>
+      rows.map(row => (row.family === "TRUSTS" ? { ...row, reason_codes: ["MADE_UP"] } : row))],
+    ["an unavailable family asserting a plane", (rows: any[]) =>
+      rows.map(row => (row.family === "TRUSTS" ? { ...row, plane: "observed" } : row))],
+    ["an available family with no bounded read", (rows: any[]) =>
+      rows.map(row =>
+        row.family === "WORKLOAD_USES_ROLE" ? { ...row, bounded_read: null } : row,
+      )],
+    ["a duplicated family", (rows: any[]) => [...rows, rows[0]]],
+    ["a missing family", (rows: any[]) => rows.filter(row => row.family !== "TRUSTS")],
+  ])("%s renders zero family rows and says why", (_label, mutate) => {
+    renderTab({
+      ...fixtures.ready,
+      relationship_capabilities: (mutate as any)(fixtures.ready.relationship_capabilities),
+    })
+    // The tenant's own map is unaffected: the matrix describes the data path.
+    expect(panel()).toHaveAttribute("data-state", "ready")
+    expect(screen.getByTestId("identity-map")).toBeInTheDocument()
+    expect(screen.queryAllByTestId("identity-capability-row").length).toBe(0)
+    expect(screen.getByTestId("identity-capability-unavailable")).toBeInTheDocument()
+  })
+
+  it("never shows fourteen rows as a complete account of fifteen families", () => {
+    renderTab({
+      ...fixtures.ready,
+      relationship_capabilities: fixtures.ready.relationship_capabilities.filter(
+        (row: any) => row.family !== "TRUSTS",
+      ),
+    })
+    expect(screen.queryAllByTestId("identity-capability-row").length).not.toBe(14)
+    expect(screen.queryAllByTestId("identity-capability-row").length).toBe(0)
+    expect(screen.getByTestId("identity-capability-unavailable").textContent).toMatch(
+      /no verdict for TRUSTS/,
+    )
+  })
+})
+
 describe("a partial projection with nothing to draw", () => {
   it("says the map is empty for a reason, and never that nothing is bound", () => {
     renderTab(fixtures.partial_unresolved_role_id)
