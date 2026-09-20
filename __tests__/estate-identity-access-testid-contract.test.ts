@@ -57,6 +57,38 @@ function probedIds(source: string): Set<string> {
   return ids
 }
 
+const MODEL = readFileSync(
+  resolve(COMPONENT_DIR, "estate-identity-access-model.ts"),
+  "utf8",
+)
+
+describe("no interface declares the same member twice", () => {
+  /**
+   * A duplicated member in an interface is a TS2300 the compiler catches, but
+   * it is also the kind of thing a copy-paste reintroduces and a reader skims
+   * past. This names it directly, at the one place it was reported.
+   */
+  function membersOf(source: string, name: string): string[] {
+    const start = source.indexOf(`export interface ${name} {`)
+    if (start < 0) return []
+    const body = source.slice(start, source.indexOf("\n}", start))
+    return [...body.matchAll(/^\s{2}(\w+)[?]?:/gm)].map(match => match[1])
+  }
+
+  it.each(["PlacedEdge", "PlacedNode", "MapLayout", "GraphEdge", "IdentityView"])(
+    "%s declares each member once",
+    name => {
+      const members = membersOf(MODEL, name)
+      expect(members.length).toBeGreaterThan(0)
+      expect(members.length).toBe(new Set(members).size)
+    },
+  )
+
+  it("PlacedEdge holds exactly one edge reference", () => {
+    expect(membersOf(MODEL, "PlacedEdge").filter(member => member === "edge").length).toBe(1)
+  })
+})
+
 describe("the rendered suite and the tab agree on their hooks", () => {
   it("queries at least a dozen ids, so this guard is checking something", () => {
     expect(requiredIds(SUITE).size).toBeGreaterThan(12)

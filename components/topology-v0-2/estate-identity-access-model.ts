@@ -300,9 +300,14 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
-/** An optional field that must be a plain object when present. */
-function optionalObject(value: unknown): boolean {
-  return value === undefined || value === null || isPlainObject(value)
+/** A non-empty string. `str()` returns null for everything else, including []. */
+function isText(value: unknown): value is string {
+  return typeof value === "string" && value.trim() !== ""
+}
+
+/** An integer at or above zero. Rejects booleans, floats, NaN and numeric strings. */
+function isCount(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0
 }
 
 /** An optional field that must be an array of strings when present. */
@@ -323,60 +328,350 @@ function validGapList(value: unknown): boolean {
 }
 
 /**
+ * The tenant, account, system and region this projection was built for.
+ *
+ * These four are the authority the scope guard rests on: `bindScope` compares
+ * them against the payload carrying the block. `str()` returns null for a
+ * non-string, so WITHOUT this check a scope of `{account_id: []}` reads as an
+ * absent account_id, skips the mismatch comparison entirely, and renders one
+ * tenant's roles under another's estate. Malformed authority fails closed.
+ *
+ * `vpc_id` follows the producer: _scope() copies work.vpc_id straight through,
+ * and that is null for an account- or region-wide projection. Null is fine; a
+ * non-string that is not null is not.
+ */
+export const REQUIRED_SCOPE_FIELDS = ["customer_id", "account_id", "system_name", "region"] as const
+
+function scopeViolation(value: unknown): string | null {
+  if (!isPlainObject(value)) return "its `scope` is not an object"
+  const missing = REQUIRED_SCOPE_FIELDS.filter(field => !isText(value[field]))
+  if (missing.length > 0) {
+    return `its scope does not carry ${missing.join(", ")} as text`
+  }
+  const vpc = value.vpc_id
+  if (vpc !== undefined && vpc !== null && !isText(vpc)) {
+    return "its scope carries a vpc_id that is neither text nor null"
+  }
+  return null
+}
+
+/**
+ * One projection authority receipt, as _authority() emits it.
+ *
+ * Every field but the receipt hash is unconditional at the source:
+ * ActiveProjection types generation, staging_run_id, source_vector_hash and
+ * projected_through as required, and _iso_z always returns a string. The
+ * receipt hash is `pointer.projection_receipt_hash or None`, and the pointer
+ * documents why: a generation activated before that field existed stays
+ * READABLE and merely uncertifiable. So null there is legitimate and is not a
+ * reason to withhold.
+ *
+ * Without this, `inventory_authority: {}` passes the old object check and
+ * renders a receipt card of em-dashes, while `decision_authority: {}` lets the
+ * detail line claim a hash-verified decision authority at "generation unknown".
+ */
+function authorityViolation(value: unknown, label: string): string | null {
+  if (!isPlainObject(value)) return `its ${label} is not an object`
+  if (!isText(value.projection_scope)) return `its ${label} names no projection scope`
+  if (!isCount(value.generation)) {
+    return `its ${label} carries no non-negative integer generation`
+  }
+  for (const field of ["staging_run_id", "source_vector_hash", "projected_through"] as const) {
+    if (!isText(value[field])) return `its ${label} carries no ${field}`
+  }
+  const receipt = value.projection_receipt_hash
+  if (receipt !== undefined && receipt !== null && !isText(receipt)) {
+    return `its ${label} carries a receipt hash that is neither text nor null`
+  }
+  return null
+}
+
+/** Did this authority come with a usable receipt hash, not merely a generation? */
+export function hasReceiptHash(authority: unknown): boolean {
+  return isPlainObject(authority) && isText(authority.projection_receipt_hash)
+}
+
+/**
+ * One role's decision states and the counts they promise.
+ *
+ * A state of "ready" is a claim that the numbers beside it were read. If those
+ * numbers are missing or malformed, the state is lying — and an observed_use
+ * state of "ready" is what lets buildGraph put an edge on the observed plane
+ * and animate it. Motion over numbers that were never read is exactly the
+ * false claim the whole surface is built to avoid, so a ready state without
+ * sound counts makes the payload invalid rather than quietly rendering.
+ */
+const DECISION_STATES = ["ready", "unavailable"] as const
+
+function roleStateViolation(role: Record<string, unknown>): string | null {
+  const configured = role.configured_grants
+  if (configured !== undefined && configured !== null) {
+    if (!isPlainObject(configured)) return "a role's configured_grants is not an object"
+    const state = configured.state
+    if (!(DECISION_STATES as readonly unknown[]).includes(state)) {
+      return "a role's configured_grants names a state this contract does not define"
+    }
+    if (state === "ready" && !isCount(configured.exact_action_count)) {
+      // "ready" here means the grant universe was enumerated exactly. Without a
+      // sound count it cannot have been.
+      return "a role claims a configured grant universe with no exact action count"
+    }
+  }
+
+  const observed = role.observed_use
+  if (observed !== undefined && observed !== null) {
+    if (!isPlainObject(observed)) return "a role's observed_use is not an object"
+    const state = observed.state
+    if (!(DECISION_STATES as readonly unknown[]).includes(state)) {
+      return "a role's observed_use names a state this contract does not define"
+    }
+    if (state === "ready") {
+      for (const field of [
+        "successful_action_count",
+        "denied_only_action_count",
+        "not_observed_action_count",
+        "unknown_action_count",
+      ] as const) {
+        if (!isCount(observed[field])) {
+          return `a role claims observed use with no ${field}`
+        }
+      }
+      const coverage = observed.coverage_counts
+      if (!isPlainObject(coverage)) return "a role claims observed use with no coverage counts"
+      for (const field of ["complete", "partial", "unknown"] as const) {
+        if (!isCount(coverage[field])) {
+          return `a role claims observed use with no ${field} coverage count`
+        }
+      }
+      const last = observed.last_success_at
+      if (last !== undefined && last !== null && !isText(last)) {
+        return "a role carries a last_success_at that is neither text nor null"
+      }
+    }
+  }
+  return null
+}
+
+/**
  * One role, to the depth this view reads it.
  *
  * `role_id` must be a usable string because it keys every graph node and edge;
  * a role without one cannot be drawn, and the backend omits such roles rather
  * than emitting them (see _read_bindings / ROLE_ID_UNRESOLVED).
  */
-function validRole(value: unknown): boolean {
-  if (!isPlainObject(value)) return false
-  if (str(value.role_id) === null) return false
-  if (!optionalStringArray(value.workload_ids)) return false
-  if (!optionalStringArray(value.attachment_modes)) return false
-  if (!optionalObject(value.configured_grants)) return false
-  if (!optionalObject(value.observed_use)) return false
-  if (!optionalObject(value.effective_authorization)) return false
-  if (!validGapList(value.gaps)) return false
+function roleViolation(value: unknown): string | null {
+  if (!isPlainObject(value)) return "a role is not an object"
+  if (!isText(value.role_id)) return "a role carries no role_id"
+  if (!optionalStringArray(value.workload_ids)) return "a role's workload_ids is not a list of text"
+  if (!optionalStringArray(value.attachment_modes)) {
+    return "a role's attachment_modes is not a list of text"
+  }
+  if (!validGapList(value.gaps)) return "a role's gaps is not a list of {code, detail}"
   const effective = value.effective_authorization
-  if (isPlainObject(effective) && !optionalStringArray(effective.reason_codes)) return false
-  const observed = value.observed_use
-  if (isPlainObject(observed) && !optionalObject(observed.coverage_counts)) return false
-  return true
+  if (effective !== undefined && effective !== null) {
+    if (!isPlainObject(effective)) return "a role's effective_authorization is not an object"
+    if (!optionalStringArray(effective.reason_codes)) {
+      return "a role's effective_authorization reason_codes is not a list of text"
+    }
+  }
+  return roleStateViolation(value)
 }
 
-/** One capability row, to the depth the matrix renders it. */
-function validCapabilityRow(value: unknown): boolean {
-  return (
-    isPlainObject(value) &&
-    typeof value.family === "string" &&
-    value.family.trim() !== "" &&
-    (value.status === "available" || value.status === "unavailable") &&
-    (value.plane === null || value.plane === undefined || typeof value.plane === "string") &&
-    Array.isArray(value.reason_codes) &&
-    value.reason_codes.every(item => typeof item === "string") &&
-    typeof value.detail === "string"
-  )
+/**
+ * The counters, and the conservation law between them.
+ *
+ * _read_bindings returns (resolved, len(entities), len(entities) - len(resolved),
+ * gaps), and the builder then renders resolved[:MAX_ROLES]. So for any readable
+ * projection:
+ *
+ *     roles_returned            == roles.length
+ *     roles_returned + omitted  <= roles_total
+ *     roles_truncated           == (roles_total - omitted > roles_returned)
+ *
+ * The last is an equivalence, not an implication: a payload claiming no
+ * truncation while its own totals say rows were dropped is contradicting
+ * itself, and that contradiction is what a silent coercion to false would hide.
+ * `_unavailable_projection` is the one shape with null counters, and it pins
+ * every other field to empty.
+ */
+function counterViolation(block: Record<string, unknown>): string | null {
+  const roles = Array.isArray(block.roles) ? block.roles : []
+  const total = block.roles_total
+  const returned = block.roles_returned
+  const omitted = block.roles_omitted_unresolved
+  const truncated = block.roles_truncated
+
+  if (truncated !== undefined && typeof truncated !== "boolean") {
+    return "its roles_truncated is not a boolean"
+  }
+  if (returned !== undefined && !isCount(returned)) {
+    return "its roles_returned is not a non-negative integer"
+  }
+  if (returned !== undefined && returned !== roles.length) {
+    return `it reports ${returned} roles returned but carries ${roles.length}`
+  }
+
+  if (total === null || total === undefined) {
+    // The unavailable shape: nothing counted, so nothing may be claimed.
+    if (omitted !== null && omitted !== undefined) {
+      return "it reports omitted roles without a total to omit them from"
+    }
+    if (roles.length > 0) return "it carries roles without a total"
+    if (truncated === true) return "it reports truncation without a total"
+    return null
+  }
+
+  if (!isCount(total)) return "its roles_total is not a non-negative integer"
+  if (omitted !== null && omitted !== undefined && !isCount(omitted)) {
+    return "its roles_omitted_unresolved is not a non-negative integer"
+  }
+  const omittedCount = isCount(omitted) ? omitted : 0
+  const returnedCount = isCount(returned) ? returned : roles.length
+  if (returnedCount + omittedCount > total) {
+    return `it returns ${returnedCount} and omits ${omittedCount} roles out of a total of ${total}`
+  }
+  const expectedTruncation = total - omittedCount > returnedCount
+  if (truncated !== undefined && truncated !== expectedTruncation) {
+    return expectedTruncation
+      ? "its totals say roles were dropped, but it reports no truncation"
+      : "it reports truncation that its own totals contradict"
+  }
+  return null
+}
+
+/**
+ * Which authorities a status obliges the payload to carry.
+ *
+ * ready    Both. The builder only reaches its ready return after reading the
+ *          inventory pointer AND verifying the decision generation.
+ * partial  Inventory always; decision legitimately null, because
+ *          _projection_with_unavailable_decisions is reached exactly when the
+ *          decision authority could not be read.
+ * unavailable  Neither is promised.
+ */
+function authorityObligationViolation(
+  block: Record<string, unknown>,
+  status: string,
+): string | null {
+  const inventory = block.inventory_authority
+  const decision = block.decision_authority
+
+  if (status === "ready" || status === "partial") {
+    const violation = authorityViolation(inventory, "inventory authority")
+    if (violation !== null) return violation
+  } else if (inventory !== undefined && inventory !== null) {
+    const violation = authorityViolation(inventory, "inventory authority")
+    if (violation !== null) return violation
+  }
+
+  if (status === "ready") {
+    const violation = authorityViolation(decision, "decision authority")
+    if (violation !== null) return violation
+  } else if (decision !== undefined && decision !== null) {
+    const violation = authorityViolation(decision, "decision authority")
+    if (violation !== null) return violation
+  }
+  return null
 }
 
 /** Why a v1 block was withheld. One sentence, shown to the reader. */
-function contractViolation(block: Record<string, unknown>): string | null {
-  if (!optionalObject(block.scope)) {
-    return "its `scope` is not an object, so the estate it describes cannot be checked"
-  }
-  if (!optionalObject(block.inventory_authority) || !optionalObject(block.decision_authority)) {
-    return "a projection authority is not an object, so no generation or receipt can be read"
-  }
+function contractViolation(block: Record<string, unknown>, status: string): string | null {
+  const scope = scopeViolation(block.scope)
+  if (scope !== null) return scope
+
+  const obligation = authorityObligationViolation(block, status)
+  if (obligation !== null) return obligation
+
   if (block.roles !== undefined && !Array.isArray(block.roles)) {
     return "its `roles` is not a list"
   }
-  if (Array.isArray(block.roles) && !block.roles.every(validRole)) {
-    return "at least one role is not the shape this contract promises"
+  if (Array.isArray(block.roles)) {
+    for (const role of block.roles) {
+      const violation = roleViolation(role)
+      if (violation !== null) return violation
+    }
   }
   if (!validGapList(block.gaps)) {
     return "its `gaps` is not a list of {code, detail}"
   }
-  return null
+  return counterViolation(block)
+}
+
+/** Planes the producer asserts. An available family must stand on one of them. */
+export const SUPPORTED_PLANES = ["configured", "configured_and_observed"] as const
+
+/**
+ * Every relationship family the matrix is required to have a verdict on.
+ *
+ * Mirrored from scripts/estate_relationship_capability.py, like the reason
+ * codes beside it. The matrix's whole value is the CLAIM that every requested
+ * family was ruled on; a family silently absent reads exactly like one nobody
+ * asked about. An unknown EXTRA family is fine — a backend may rule on more
+ * than this list — but a missing or duplicated one means the claim is false.
+ */
+export const REQUIRED_CAPABILITY_FAMILIES = [
+  "ASSUMED_ROLE_OBSERVED",
+  "ASSUMES_ROLE",
+  "ASSUMES_ROLE_ACTUAL",
+  "CAN_ASSUME",
+  "DATA_ACCESS",
+  "HAS_POLICY",
+  "IN_ORG",
+  "IN_ORG_UNIT",
+  "LIMITED_BY_SCP",
+  "MEMBER_OF",
+  "ROLE_ACTION_DECISION",
+  "TARGETS",
+  "TRUSTS",
+  "USES_KMS_KEY",
+  "WORKLOAD_USES_ROLE",
+] as const
+
+/**
+ * One capability row, against the producer's own invariants — not just shape.
+ *
+ * The two statuses are opposite claims and carry opposite obligations:
+ *
+ *   available    stands on a named plane, and names the writer that produces
+ *                it and the bounded read that serves it. It has NO reason
+ *                codes, because there is nothing to excuse.
+ *   unavailable  asserts NO plane, names no writer and no read — the producer
+ *                sets all three to null precisely so an unreadable family
+ *                cannot be mistaken for evidence — and carries at least one
+ *                reason from the closed set.
+ *
+ * A row that mixes these is not a row this view can render honestly: an
+ * "unavailable" row carrying a plane would paint a gap as observed evidence,
+ * and an "available" row with no bounded read claims a capability nothing
+ * serves.
+ */
+function validCapabilityRow(value: unknown): boolean {
+  if (!isPlainObject(value)) return false
+  if (!isText(value.family)) return false
+  if (typeof value.detail !== "string") return false
+  if (!Array.isArray(value.reason_codes)) return false
+  if (!value.reason_codes.every(item => typeof item === "string")) return false
+  if (!value.reason_codes.every(code => (CAPABILITY_REASON_CODES as readonly string[]).includes(code as string))) {
+    return false
+  }
+
+  if (value.status === "available") {
+    return (
+      (SUPPORTED_PLANES as readonly unknown[]).includes(value.plane) &&
+      isText(value.canonical_writer) &&
+      isText(value.bounded_read) &&
+      value.reason_codes.length === 0
+    )
+  }
+  if (value.status === "unavailable") {
+    return (
+      value.plane === null &&
+      value.canonical_writer === null &&
+      value.bounded_read === null &&
+      value.reason_codes.length > 0
+    )
+  }
+  return false
 }
 
 function num(value: unknown): number | null {
@@ -562,21 +857,47 @@ function capabilityRows(block: IdentityAccessBlock): {
         "statement that every family is servable.",
     }
   }
-  // All or nothing. Keeping the well-formed rows and dropping the rest would
-  // hand the reader a matrix that LOOKS complete while silently omitting the
-  // families it could not parse — and a family missing from the matrix reads
-  // exactly like one that was never requested.
+  // All or nothing. Keeping the well-formed rows would hand the reader a
+  // matrix that LOOKS complete while silently omitting the families it could
+  // not parse — and a family missing from the matrix reads exactly like one
+  // that was never requested.
   const malformed = raw.filter(row => !validCapabilityRow(row)).length
   if (malformed > 0) {
     return {
       capabilities: [],
       capabilitiesUnavailableReason:
-        `${malformed} of ${raw.length} capability rows are not the shape this ` +
-        "contract promises, so the whole matrix is withheld. Showing the rest " +
-        "would present a partial matrix as a complete one.",
+        `${malformed} of ${raw.length} capability rows do not hold to this ` +
+        "contract, so the whole matrix is withheld. Showing the rest would " +
+        "present a partial matrix as a complete one.",
     }
   }
   const rows = raw as RelationshipCapability[]
+
+  // Completeness is the matrix's actual claim, so it is checked rather than
+  // assumed. A duplicate makes the row count overstate how many families were
+  // ruled on; an absent family is indistinguishable from one nobody asked
+  // about. Extra families are allowed through: a backend may rule on more.
+  const seen = new Set<string>()
+  const duplicates = new Set<string>()
+  for (const row of rows) {
+    if (seen.has(row.family)) duplicates.add(row.family)
+    seen.add(row.family)
+  }
+  const missing = REQUIRED_CAPABILITY_FAMILIES.filter(family => !seen.has(family))
+  if (duplicates.size > 0 || missing.length > 0) {
+    const parts: string[] = []
+    if (missing.length > 0) parts.push(`no verdict for ${missing.sort().join(", ")}`)
+    if (duplicates.size > 0) {
+      parts.push(`${[...duplicates].sort().join(", ")} ruled on more than once`)
+    }
+    return {
+      capabilities: [],
+      capabilitiesUnavailableReason:
+        `The capability matrix is incomplete — ${parts.join("; ")}. It is ` +
+        "withheld rather than shown as a complete account of every family.",
+    }
+  }
+
   return {
     capabilities: [...rows].sort((a, b) => a.family.localeCompare(b.family)),
     capabilitiesUnavailableReason: null,
@@ -671,7 +992,22 @@ export function buildIdentityView(
   )
   const matrix = { capabilities, capabilitiesUnavailableReason }
 
-  const violation = contractViolation(raw)
+  // Closed set. An unrecognised or missing status is NOT readable: rendering it
+  // would let an unknown backend state reach a reader as authority. It is read
+  // before the rest of the contract because which authorities the payload OWES
+  // depends on which status it claims.
+  const status = str(raw.status)
+  if (status === null || !(VALID_STATUSES as readonly string[]).includes(status)) {
+    return shell(
+      "invalid",
+      "The identity block reports a status this contract does not define.",
+      `Expected one of ${VALID_STATUSES.join(", ")}; the payload says ` +
+        `${status ?? "nothing"}. It is withheld rather than assumed readable.`,
+      { ...matrix, contractVersion },
+    )
+  }
+
+  const violation = contractViolation(raw, status)
   if (violation !== null) {
     return shell(
       "invalid",
@@ -683,20 +1019,6 @@ export function buildIdentityView(
   }
 
   const block = raw as IdentityAccessBlock
-
-  // Closed set. An unrecognised or missing status is NOT readable: rendering it
-  // would let an unknown backend state reach a reader as authority.
-  const status = str(block.status)
-  if (status === null || !(VALID_STATUSES as readonly string[]).includes(status)) {
-    return shell(
-      "invalid",
-      "The identity block reports a status this contract does not define.",
-      `Expected one of ${VALID_STATUSES.join(", ")}; the payload says ` +
-        `${status ?? "nothing"}. It is withheld rather than assumed readable.`,
-      { ...matrix, contractVersion },
-    )
-  }
-
   const scope = block.scope ?? null
   const scopeBinding = bindScope(scope, payload)
   const common = { ...matrix, contractVersion, scope, scopeBinding }
@@ -809,20 +1131,31 @@ export function buildIdentityView(
 
   const decided = roles.filter(role => role.configured_grants?.state === "ready").length
   const withheld = roles.length - decided
+  /*
+   * "hash-verified" is a claim about a receipt, so it is said only when a
+   * receipt exists. A pointer activated before that field existed carries a
+   * generation and no receipt hash: it is readable and servable, and simply
+   * not certifiable — the pointer contract says so in those words. Calling it
+   * hash-verified would upgrade an uncertifiable generation to a certified one
+   * in the reader's mind.
+   */
+  const decisionCertified = hasReceiptHash(block.decision_authority)
+  const decisionNamed = decisionCertified
+    ? `hash-verified decision authority (generation ${decisionGeneration})`
+    : `decision authority at generation ${decisionGeneration} (no projection ` +
+      "receipt, so this generation is readable but not certifiable)"
   let detail: string
   if (decisionAuthority === undefined) {
     detail =
       "Read from the active canonical inventory generation. No decision authority " +
       "was read for this scope, so no role shows configured or observed action counts."
   } else if (withheld === 0) {
-    detail =
-      "Read from the active canonical inventory generation, joined to the " +
-      `hash-verified decision authority (generation ${decisionGeneration ?? "unknown"}).`
+    detail = `Read from the active canonical inventory generation, joined to the ${decisionNamed}.`
   } else {
     detail =
-      "Read from the active canonical inventory generation and joined to the " +
-      `hash-verified decision authority, which withheld decision evidence for ` +
-      `${withheld} of ${roles.length} role${roles.length === 1 ? "" : "s"}.`
+      `Read from the active canonical inventory generation and joined to the ${decisionNamed}, ` +
+      `which withheld decision evidence for ${withheld} of ${roles.length} ` +
+      `role${roles.length === 1 ? "" : "s"}.`
   }
 
   return shell(
