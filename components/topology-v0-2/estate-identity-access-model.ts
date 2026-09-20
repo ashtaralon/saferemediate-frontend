@@ -19,14 +19,25 @@
  *               set only by the estate projection worker, so a v11 snapshot
  *               written by ordinary request serving has none. Says nothing
  *               about how many roles the account has.
- *   invalid     A block is present but is not this contract. Never rendered as
- *               data.
+ *   invalid     A block is present but is not this contract, or its own fields
+ *               are not the shapes the contract promises. Never rendered as
+ *               data, and never guessed at.
  *   unavailable The projector reached the canonical path and refused: a pointer
  *               was missing, drifted, or failed verification. The gap codes say
  *               which.
- *   ready       The active canonical generation was read. `roles: []` here is
- *               an ANSWER — zero workload->role bindings in this scope — not a
- *               gap, and the tab says so in those words.
+ *   incomplete  The projection is readable but rendered NO roles while its own
+ *               counters say roles exist — omitted for an unresolved AWS
+ *               RoleId, truncated, or held back by a binding gap. This is the
+ *               state that must not be mistaken for "nothing is bound".
+ *   ready       The active canonical generation was read and every role it
+ *               counted is on screen. Only here can `roles: []` be an ANSWER,
+ *               and only when the projection also counted zero, truncated
+ *               nothing and omitted nothing.
+ *
+ * `status` is a CLOSED set: ready, partial, unavailable. Anything else —
+ * missing, misspelled, or from a contract this code does not know — is invalid.
+ * Treating an unrecognised status as readable would let an unknown backend
+ * state render as authority.
  */
 
 import type { TopologyRiskResponse } from "./types"
@@ -190,6 +201,15 @@ export interface GraphEdge {
   family: "WORKLOAD_USES_ROLE" | "ROLE_ACTION_DECISION"
   plane: Plane
   label: string
+  /**
+   * Whether the renderer may animate flow along this edge.
+   *
+   * Motion on an edge reads as "traffic is happening here", so it is allowed
+   * ONLY where observed evidence was actually read AND a decision generation
+   * stands behind it. A configured edge is a statement about policy, not about
+   * anything observed, and must never move.
+   */
+  animated: boolean
 }
 
 export interface IdentityGraph {
@@ -219,7 +239,17 @@ export interface AuthorityReceipt {
   stagingRunId: string | null
 }
 
-export type IdentityViewState = "absent" | "invalid" | "scope_mismatch" | "unavailable" | "ready"
+export type IdentityViewState =
+  | "absent"
+  | "invalid"
+  | "scope_mismatch"
+  | "unavailable"
+  | "incomplete"
+  | "ready"
+
+/** The only status values estate-identity-access/v1 emits. */
+export const READABLE_STATUSES = ["partial", "ready"] as const
+export const VALID_STATUSES = ["partial", "ready", "unavailable"] as const
 
 export interface IdentityView {
   state: IdentityViewState
@@ -253,6 +283,102 @@ function str(value: unknown): string | null {
   return typeof value === "string" && value.trim() !== "" ? value : null
 }
 
+/* ── bounded runtime validation ────────────────────────────────────────────
+ *
+ * The block arrives as JSON over the wire. TypeScript describes what it SHOULD
+ * be and checks nothing at runtime, so `roles: {}` or `gaps: "none"` would
+ * reach a spread or a sort and throw inside render — and a tab that throws
+ * tells a reader less than a blank one.
+ *
+ * These checks are bounded on purpose: one pass, fixed depth, no recursion
+ * into unknown structures. They verify the shapes this view actually touches
+ * and nothing else, so a backend that adds a field stays readable while a
+ * backend that changes one of these shapes is withheld rather than guessed at.
+ */
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+/** An optional field that must be a plain object when present. */
+function optionalObject(value: unknown): boolean {
+  return value === undefined || value === null || isPlainObject(value)
+}
+
+/** An optional field that must be an array of strings when present. */
+function optionalStringArray(value: unknown): boolean {
+  return (
+    value === undefined ||
+    value === null ||
+    (Array.isArray(value) && value.every(item => typeof item === "string"))
+  )
+}
+
+function validGap(value: unknown): boolean {
+  return isPlainObject(value) && typeof value.code === "string" && typeof value.detail === "string"
+}
+
+function validGapList(value: unknown): boolean {
+  return value === undefined || (Array.isArray(value) && value.every(validGap))
+}
+
+/**
+ * One role, to the depth this view reads it.
+ *
+ * `role_id` must be a usable string because it keys every graph node and edge;
+ * a role without one cannot be drawn, and the backend omits such roles rather
+ * than emitting them (see _read_bindings / ROLE_ID_UNRESOLVED).
+ */
+function validRole(value: unknown): boolean {
+  if (!isPlainObject(value)) return false
+  if (str(value.role_id) === null) return false
+  if (!optionalStringArray(value.workload_ids)) return false
+  if (!optionalStringArray(value.attachment_modes)) return false
+  if (!optionalObject(value.configured_grants)) return false
+  if (!optionalObject(value.observed_use)) return false
+  if (!optionalObject(value.effective_authorization)) return false
+  if (!validGapList(value.gaps)) return false
+  const effective = value.effective_authorization
+  if (isPlainObject(effective) && !optionalStringArray(effective.reason_codes)) return false
+  const observed = value.observed_use
+  if (isPlainObject(observed) && !optionalObject(observed.coverage_counts)) return false
+  return true
+}
+
+/** One capability row, to the depth the matrix renders it. */
+function validCapabilityRow(value: unknown): boolean {
+  return (
+    isPlainObject(value) &&
+    typeof value.family === "string" &&
+    value.family.trim() !== "" &&
+    (value.status === "available" || value.status === "unavailable") &&
+    (value.plane === null || value.plane === undefined || typeof value.plane === "string") &&
+    Array.isArray(value.reason_codes) &&
+    value.reason_codes.every(item => typeof item === "string") &&
+    typeof value.detail === "string"
+  )
+}
+
+/** Why a v1 block was withheld. One sentence, shown to the reader. */
+function contractViolation(block: Record<string, unknown>): string | null {
+  if (!optionalObject(block.scope)) {
+    return "its `scope` is not an object, so the estate it describes cannot be checked"
+  }
+  if (!optionalObject(block.inventory_authority) || !optionalObject(block.decision_authority)) {
+    return "a projection authority is not an object, so no generation or receipt can be read"
+  }
+  if (block.roles !== undefined && !Array.isArray(block.roles)) {
+    return "its `roles` is not a list"
+  }
+  if (Array.isArray(block.roles) && !block.roles.every(validRole)) {
+    return "at least one role is not the shape this contract promises"
+  }
+  if (!validGapList(block.gaps)) {
+    return "its `gaps` is not a list of {code, detail}"
+  }
+  return null
+}
+
 function num(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null
 }
@@ -270,11 +396,14 @@ function receipt(label: string, authority: IdentityAuthority | null | undefined)
   }
 }
 
+export const INVENTORY_AUTHORITY_LABEL = "Canonical inventory"
+export const DECISION_AUTHORITY_LABEL = "Role action decision"
+
 function receipts(block: IdentityAccessBlock): AuthorityReceipt[] {
   const out: AuthorityReceipt[] = []
-  const inventory = receipt("Canonical inventory", block.inventory_authority)
+  const inventory = receipt(INVENTORY_AUTHORITY_LABEL, block.inventory_authority)
   if (inventory) out.push(inventory)
-  const decision = receipt("Role action decision", block.decision_authority)
+  const decision = receipt(DECISION_AUTHORITY_LABEL, block.decision_authority)
   if (decision) out.push(decision)
   return out
 }
@@ -326,7 +455,11 @@ export function bindScope(
  * No traversal is performed and no other edge family is drawn. The two edges
  * here are exactly the two families the installed canonical path can serve.
  */
-export function buildGraph(roles: IdentityRole[]): IdentityGraph {
+export function buildGraph(
+  roles: IdentityRole[],
+  options: { decisionGeneration?: number | null } = {},
+): IdentityGraph {
+  const decisionGeneration = options.decisionGeneration ?? null
   const nodes: GraphNode[] = []
   const edges: GraphEdge[] = []
   const seenWorkloads = new Set<string>()
@@ -354,8 +487,11 @@ export function buildGraph(roles: IdentityRole[]): IdentityGraph {
         from: workloadNodeId,
         to: roleNodeId,
         family: "WORKLOAD_USES_ROLE",
+        // An attachment is a configured fact about the inventory generation.
+        // Nothing here was observed, so this edge never moves.
         plane: "configured",
         label: attachmentModes.join(", ") || "uses role",
+        animated: false,
       })
     }
 
@@ -395,6 +531,10 @@ export function buildGraph(roles: IdentityRole[]): IdentityGraph {
       // Calling it observed would assert evidence that was not read.
       plane: observedReady ? "observed" : "configured",
       label: decisionReady ? "decided" : "decision unavailable",
+      // Motion needs BOTH: evidence that was read, and the generation it was
+      // read from. Observed counts with no generation behind them are not
+      // something to animate as live flow.
+      animated: observedReady && decisionGeneration !== null,
     })
   }
   return { nodes, edges }
@@ -414,10 +554,7 @@ function capabilityRows(block: IdentityAccessBlock): {
         "are servable is unknown here — not empty.",
     }
   }
-  const rows = raw.filter(
-    (row): row is RelationshipCapability => Boolean(row) && typeof row === "object",
-  )
-  if (rows.length === 0) {
+  if (raw.length === 0) {
     return {
       capabilities: [],
       capabilitiesUnavailableReason:
@@ -425,8 +562,23 @@ function capabilityRows(block: IdentityAccessBlock): {
         "statement that every family is servable.",
     }
   }
+  // All or nothing. Keeping the well-formed rows and dropping the rest would
+  // hand the reader a matrix that LOOKS complete while silently omitting the
+  // families it could not parse — and a family missing from the matrix reads
+  // exactly like one that was never requested.
+  const malformed = raw.filter(row => !validCapabilityRow(row)).length
+  if (malformed > 0) {
+    return {
+      capabilities: [],
+      capabilitiesUnavailableReason:
+        `${malformed} of ${raw.length} capability rows are not the shape this ` +
+        "contract promises, so the whole matrix is withheld. Showing the rest " +
+        "would present a partial matrix as a complete one.",
+    }
+  }
+  const rows = raw as RelationshipCapability[]
   return {
-    capabilities: [...rows].sort((a, b) => String(a.family).localeCompare(String(b.family))),
+    capabilities: [...rows].sort((a, b) => a.family.localeCompare(b.family)),
     capabilitiesUnavailableReason: null,
   }
 }
@@ -489,8 +641,16 @@ export function buildIdentityView(
     )
   }
 
-  const block = raw as IdentityAccessBlock
-  const contractVersion = str(block.contract_version)
+  if (!isPlainObject(raw)) {
+    return shell(
+      "invalid",
+      "The identity block on this snapshot is not readable.",
+      "A value is present where the identity projection should be, but it is not an " +
+        "object. It is withheld rather than rendered as data.",
+    )
+  }
+
+  const contractVersion = str(raw.contract_version)
   if (contractVersion !== IDENTITY_ACCESS_CONTRACT_VERSION) {
     return shell(
       "invalid",
@@ -502,16 +662,44 @@ export function buildIdentityView(
     )
   }
 
-  const { capabilities, capabilitiesUnavailableReason } = capabilityRows(block)
+  // The capability matrix is validated and reported separately: it describes the
+  // installed data path, not this tenant's data, so a malformed matrix does not
+  // make the tenant's projection unreadable, and an unreadable projection does
+  // not make the matrix wrong.
+  const { capabilities, capabilitiesUnavailableReason } = capabilityRows(
+    raw as IdentityAccessBlock,
+  )
+  const matrix = { capabilities, capabilitiesUnavailableReason }
+
+  const violation = contractViolation(raw)
+  if (violation !== null) {
+    return shell(
+      "invalid",
+      "The identity block claims this contract but does not match it.",
+      `It is withheld because ${violation}. A field that is not the promised shape ` +
+        "cannot be rendered without guessing what it means.",
+      { ...matrix, contractVersion },
+    )
+  }
+
+  const block = raw as IdentityAccessBlock
+
+  // Closed set. An unrecognised or missing status is NOT readable: rendering it
+  // would let an unknown backend state reach a reader as authority.
+  const status = str(block.status)
+  if (status === null || !(VALID_STATUSES as readonly string[]).includes(status)) {
+    return shell(
+      "invalid",
+      "The identity block reports a status this contract does not define.",
+      `Expected one of ${VALID_STATUSES.join(", ")}; the payload says ` +
+        `${status ?? "nothing"}. It is withheld rather than assumed readable.`,
+      { ...matrix, contractVersion },
+    )
+  }
+
   const scope = block.scope ?? null
   const scopeBinding = bindScope(scope, payload)
-  const common = {
-    contractVersion,
-    scope,
-    scopeBinding,
-    capabilities,
-    capabilitiesUnavailableReason,
-  }
+  const common = { ...matrix, contractVersion, scope, scopeBinding }
 
   if (scopeBinding.mismatches.length > 0) {
     const named = scopeBinding.mismatches
@@ -528,7 +716,7 @@ export function buildIdentityView(
   }
 
   const gaps = [...(block.gaps ?? [])]
-  const status = str(block.status)
+  const authorities = receipts(block)
   if (status === "unavailable") {
     return shell(
       "unavailable",
@@ -536,35 +724,232 @@ export function buildIdentityView(
       gaps.length > 0
         ? "The projector reached the canonical path and refused. Each gap below names why."
         : "The projector reported the projection unavailable without naming a gap code.",
-      { ...common, projectionStatus: status, receipts: receipts(block), gaps },
+      { ...common, projectionStatus: status, receipts: authorities, gaps },
     )
   }
 
   const roles = [...(block.roles ?? [])]
-  const emptyAuthoritative = roles.length === 0
   const rolesTotal = num(block.roles_total)
+  const rolesTruncated = block.roles_truncated === true
+  const rolesOmittedUnresolved = num(block.roles_omitted_unresolved)
+  const decisionAuthority = authorities.find(
+    item => item.label === DECISION_AUTHORITY_LABEL,
+  )
+  const decisionGeneration = decisionAuthority?.generation ?? null
+
+  /*
+   * Empty-authoritative is the strongest claim this tab makes — "nothing is
+   * bound here" — so it is allowed only when the projection is complete in
+   * every dimension it reports. `roles.length === 0` alone is NOT enough:
+   * _read_bindings drops a role whose AWS RoleId is unresolved, counts it in
+   * roles_total and roles_omitted_unresolved, and raises a ROLE_ID_UNRESOLVED
+   * gap. That payload has zero roles and status "partial" while workloads ARE
+   * bound, and saying "no workload is bound" there is simply false.
+   */
+  const emptyAuthoritative =
+    status === "ready" &&
+    roles.length === 0 &&
+    rolesTotal === 0 &&
+    !rolesTruncated &&
+    rolesOmittedUnresolved === 0 &&
+    gaps.length === 0
+
+  const base = {
+    ...common,
+    projectionStatus: status,
+    receipts: authorities,
+    roles,
+    rolesTotal,
+    rolesReturned: num(block.roles_returned) ?? roles.length,
+    rolesTruncated,
+    rolesOmittedUnresolved,
+    gaps,
+  }
+
+  if (emptyAuthoritative) {
+    return shell(
+      "ready",
+      "No workload in this scope is bound to an IAM role.",
+      "The active canonical generation was read successfully and holds no " +
+        "workload-to-role binding here. That is an answer, not a missing read.",
+      { ...base, emptyAuthoritative: true },
+    )
+  }
+
+  if (roles.length === 0) {
+    // Readable, but nothing to draw and the projection's own counters say roles
+    // exist. Naming each reason keeps this apart from "nothing is bound".
+    const reasons: string[] = []
+    if (rolesOmittedUnresolved !== null && rolesOmittedUnresolved > 0) {
+      reasons.push(
+        `${rolesOmittedUnresolved} role${rolesOmittedUnresolved === 1 ? " was" : "s were"} ` +
+          "omitted because the canonical attachment carries no AWS RoleId",
+      )
+    }
+    if (rolesTruncated) reasons.push("the role list was truncated")
+    if (gaps.length > 0) {
+      reasons.push(`the projector reported ${gaps.length} gap${gaps.length === 1 ? "" : "s"}`)
+    }
+    if (rolesTotal !== null && rolesTotal > 0 && reasons.length === 0) {
+      reasons.push(`the projection counted ${rolesTotal} but returned none`)
+    }
+    return shell(
+      "incomplete",
+      rolesTotal !== null && rolesTotal > 0
+        ? `${rolesTotal} role${rolesTotal === 1 ? "" : "s"} in this scope could not be shown.`
+        : "This projection returned no roles, and it is not authoritative that none exist.",
+      (reasons.length > 0
+        ? `${reasons.join("; ")}. `
+        : "The projection did not report why. ") +
+        "This is NOT a statement that no workload is bound — the map is empty " +
+        "because the roles could not be rendered, not because there are none.",
+      { ...base, emptyAuthoritative: false },
+    )
+  }
+
+  const decided = roles.filter(role => role.configured_grants?.state === "ready").length
+  const withheld = roles.length - decided
+  let detail: string
+  if (decisionAuthority === undefined) {
+    detail =
+      "Read from the active canonical inventory generation. No decision authority " +
+      "was read for this scope, so no role shows configured or observed action counts."
+  } else if (withheld === 0) {
+    detail =
+      "Read from the active canonical inventory generation, joined to the " +
+      `hash-verified decision authority (generation ${decisionGeneration ?? "unknown"}).`
+  } else {
+    detail =
+      "Read from the active canonical inventory generation and joined to the " +
+      `hash-verified decision authority, which withheld decision evidence for ` +
+      `${withheld} of ${roles.length} role${roles.length === 1 ? "" : "s"}.`
+  }
+
   return shell(
     "ready",
-    emptyAuthoritative
-      ? "No workload in this scope is bound to an IAM role."
-      : `${roles.length} role${roles.length === 1 ? "" : "s"} bound to workloads in this scope.`,
-    emptyAuthoritative
-      ? "The active canonical generation was read successfully and holds no " +
-          "workload-to-role binding here. That is an answer, not a missing read."
-      : "Read from the active canonical inventory generation, joined to the " +
-          "hash-verified decision authority.",
+    `${roles.length} role${roles.length === 1 ? "" : "s"} bound to workloads in this scope.`,
+    detail,
     {
-      ...common,
-      projectionStatus: status,
-      receipts: receipts(block),
-      graph: buildGraph(roles),
-      roles,
-      rolesTotal,
-      rolesReturned: num(block.roles_returned) ?? roles.length,
-      rolesTruncated: block.roles_truncated === true,
-      rolesOmittedUnresolved: num(block.roles_omitted_unresolved),
-      emptyAuthoritative,
-      gaps,
+      ...base,
+      graph: buildGraph(roles, { decisionGeneration }),
+      emptyAuthoritative: false,
     },
   )
+}
+
+/* ── map layout ────────────────────────────────────────────────────────────
+ *
+ * Deterministic geometry for the identity map, computed here rather than in
+ * the component so the shape of the drawing is testable without a DOM.
+ *
+ * Three lanes, left to right, matching the direction authority actually flows:
+ * a workload runs AS a role, and that role's actions are decided BY the
+ * decision authority. Every edge points that way, and the renderer draws an
+ * arrowhead at the target end.
+ */
+
+/** Viewport-independent units. The SVG scales via viewBox, never fixed pixels. */
+export const LANE_X = { workload: 140, role: 430, decision: 760 } as const
+export const NODE_W = { workload: 210, role: 210, decision: 260 } as const
+export const NODE_H = 56
+export const NODE_GAP = 22
+export const CANVAS_W = 1020
+export const CANVAS_PAD_Y = 56
+
+export interface PlacedNode {
+  node: GraphNode
+  x: number
+  y: number
+  width: number
+  height: number
+  /** Which lane it sits in, so the renderer never infers a kind from geometry. */
+  lane: "workload" | "role" | "decision"
+}
+
+export interface PlacedEdge {
+  edge: GraphEdge
+  /** Cubic bezier, left node's right edge to right node's left edge. */
+  path: string
+  /** Midpoint, for the plane label. */
+  labelX: number
+  labelY: number
+}
+
+export interface MapLayout {
+  width: number
+  height: number
+  nodes: PlacedNode[]
+  edges: PlacedEdge[]
+}
+
+function laneOf(node: GraphNode): "workload" | "role" | "decision" {
+  return node.kind
+}
+
+/**
+ * Place every node and route every edge.
+ *
+ * Each lane is centred vertically against the tallest lane, so a role with two
+ * workloads sits between them instead of at the top — the branch reads as a
+ * branch. Order within a lane follows the order buildGraph emitted, which is
+ * the projector's own sort, so the drawing is stable across renders.
+ */
+export function layoutGraph(graph: IdentityGraph): MapLayout {
+  const lanes: Record<"workload" | "role" | "decision", GraphNode[]> = {
+    workload: [],
+    role: [],
+    decision: [],
+  }
+  for (const node of graph.nodes) lanes[laneOf(node)].push(node)
+
+  const tallest = Math.max(
+    lanes.workload.length,
+    lanes.role.length,
+    lanes.decision.length,
+    1,
+  )
+  const height = CANVAS_PAD_Y * 2 + tallest * NODE_H + (tallest - 1) * NODE_GAP
+
+  const placed: PlacedNode[] = []
+  const byId = new Map<string, PlacedNode>()
+  for (const lane of ["workload", "role", "decision"] as const) {
+    const items = lanes[lane]
+    const laneHeight = items.length * NODE_H + Math.max(0, items.length - 1) * NODE_GAP
+    const top = (height - laneHeight) / 2
+    items.forEach((node, index) => {
+      const item: PlacedNode = {
+        node,
+        x: LANE_X[lane] - NODE_W[lane] / 2,
+        y: top + index * (NODE_H + NODE_GAP),
+        width: NODE_W[lane],
+        height: NODE_H,
+        lane,
+      }
+      placed.push(item)
+      byId.set(node.id, item)
+    })
+  }
+
+  const edges: PlacedEdge[] = []
+  for (const edge of graph.edges) {
+    const from = byId.get(edge.from)
+    const to = byId.get(edge.to)
+    // An edge whose endpoints are not both placed is dropped rather than drawn
+    // to a guessed coordinate. buildGraph never emits one; this is a guard, not
+    // a behaviour.
+    if (!from || !to) continue
+    const x1 = from.x + from.width
+    const y1 = from.y + from.height / 2
+    const x2 = to.x
+    const y2 = to.y + to.height / 2
+    const bend = Math.max(28, (x2 - x1) / 2)
+    edges.push({
+      edge,
+      path: `M ${x1} ${y1} C ${x1 + bend} ${y1}, ${x2 - bend} ${y2}, ${x2} ${y2}`,
+      labelX: (x1 + x2) / 2,
+      labelY: (y1 + y2) / 2 - 8,
+    })
+  }
+
+  return { width: CANVAS_W, height, nodes: placed, edges }
 }

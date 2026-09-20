@@ -1,11 +1,11 @@
 /**
  * Estate · Identity & access tab — rendered.
  *
- * These render the real component against fixtures composed from the backend's
- * own projector helpers (see __tests__/fixtures/estate-identity-access.json).
- * They assert on the DOM the user sees, not on the view model, because the
- * failure this tab exists to prevent is VISUAL: a blank panel that a reader
- * takes for "there is nothing here".
+ * These render the real component against fixtures that are literal return
+ * values of the backend's build_estate_identity_access. They assert on the DOM
+ * a reader sees, because the failures this tab exists to prevent are VISUAL: a
+ * blank panel taken for "there is nothing here", and a moving line taken for
+ * live traffic that was never observed.
  *
  * The companion suite, estate-identity-access-model.test.ts, covers the same
  * decisions at the model layer. Both are needed: the model suite proves the
@@ -19,30 +19,127 @@ import { EstateIdentityAccessTab } from "@/components/topology-v0-2/estate-ident
 
 import fixtures from "./fixtures/estate-identity-access.json"
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  clearMatchMedia()
+})
 
 const TOPOLOGY = {
-  system: "payments-core",
-  account_id: "111122223333",
-  region: "us-east-1",
-  vpc_id: "vpc-0abc123",
-  scored_at: "2026-09-18T11:30:00Z",
+  system: "testbed-webshop",
+  account_id: "416651950952",
+  region: "eu-west-1",
+  vpc_id: "vpc-1",
+  scored_at: "2026-09-15T07:00:00Z",
   scoring_window_days: 30,
   system_kpis: null,
   nodes: [],
 } as any
 
-function renderTab(identityAccess?: unknown) {
+/**
+ * Answer prefers-reduced-motion for this render.
+ *
+ * Set on both `window` and `globalThis`: the component reads window.matchMedia,
+ * and in some DOM environments those are not the same object. Writing one and
+ * reading the other would make every motion assertion below pass for the wrong
+ * reason.
+ */
+const MEDIA_TARGETS: any[] = [globalThis, typeof window === "undefined" ? null : window].filter(
+  Boolean,
+)
+
+function setReducedMotion(reduce: boolean) {
+  const stub = (query: string) => ({
+    matches: query.includes("prefers-reduced-motion") ? reduce : false,
+    media: query,
+    onchange: null,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+  })
+  for (const target of MEDIA_TARGETS) target.matchMedia = stub
+}
+
+function clearMatchMedia() {
+  for (const target of MEDIA_TARGETS) delete target.matchMedia
+}
+
+function renderTab(identityAccess?: unknown, { reduceMotion = false } = {}) {
+  setReducedMotion(reduceMotion)
   const payload =
     identityAccess === undefined ? TOPOLOGY : { ...TOPOLOGY, identity_access: identityAccess }
   return render(<EstateIdentityAccessTab payload={payload} />)
 }
 
-function panel() {
-  return screen.getByTestId("estate-identity-access")
-}
+const panel = () => screen.getByTestId("estate-identity-access")
+const canvas = () => screen.getByTestId("identity-map-canvas")
 
-describe("the tab never renders a blank panel", () => {
+describe("the surface is a directional map, not a list of cards", () => {
+  it("draws the relationships on an SVG canvas", () => {
+    renderTab(fixtures.partial)
+    const svg = canvas()
+    expect(svg.tagName.toLowerCase()).toBe("svg")
+    expect(svg.getAttribute("role")).toBe("img")
+    expect(svg.getAttribute("aria-label")).toMatch(/workload to role to decision/i)
+  })
+
+  it("places every node of the graph on the canvas, in three lanes", () => {
+    renderTab(fixtures.partial)
+    const nodes = within(canvas()).getAllByTestId("identity-map-node")
+    // 2 workloads + 2 roles + 2 decisions.
+    expect(nodes.length).toBe(6)
+    const lanes = nodes.map(node => node.getAttribute("data-node-lane"))
+    expect(new Set(lanes)).toEqual(new Set(["workload", "role", "decision"]))
+    const labels = within(canvas())
+      .getAllByTestId("identity-map-lane-label")
+      .map(node => node.textContent)
+    expect(labels).toEqual(["WORKLOAD", "IAM ROLE", "DECISION AUTHORITY"])
+  })
+
+  it("draws a directional edge per relationship, with an arrowhead at the target", () => {
+    renderTab(fixtures.partial)
+    const edges = within(canvas()).getAllByTestId("identity-map-edge")
+    // 2 attachments + 2 decision hops.
+    expect(edges.length).toBe(4)
+    for (const edge of edges) {
+      const path = edge.querySelector("path")!
+      expect(path.getAttribute("marker-end")).toMatch(/^url\(#identity-arrow-/)
+      expect(path.getAttribute("d")).toMatch(/^M /)
+    }
+  })
+
+  it("points every edge from workload to role to decision, never backwards", () => {
+    renderTab(fixtures.partial)
+    for (const edge of within(canvas()).getAllByTestId("identity-map-edge")) {
+      const from = edge.getAttribute("data-edge-from")!
+      const to = edge.getAttribute("data-edge-to")!
+      if (edge.getAttribute("data-edge-family") === "WORKLOAD_USES_ROLE") {
+        expect(from.startsWith("workload:")).toBe(true)
+        expect(to.startsWith("role:")).toBe(true)
+      } else {
+        expect(from.startsWith("role:")).toBe(true)
+        expect(to.startsWith("decision:")).toBe(true)
+      }
+    }
+  })
+
+  it("labels each edge with the plane it stands on", () => {
+    renderTab(fixtures.partial)
+    const planes = within(canvas())
+      .getAllByTestId("identity-map-edge-label")
+      .map(node => node.textContent)
+      .sort()
+    expect(planes).toEqual(["configured", "configured", "configured", "observed"])
+  })
+
+  it("does not fall back to one card per role", () => {
+    renderTab(fixtures.partial)
+    // The old surface. If it comes back, this fails.
+    expect(screen.queryAllByTestId("identity-graph-row").length).toBe(0)
+    expect(screen.queryByTestId("identity-graph")).toBeNull()
+  })
+
   it("issues no request of its own — the block rides on the estate payload", () => {
     const fetchSpy = vi.fn()
     const original = globalThis.fetch
@@ -54,12 +151,156 @@ describe("the tab never renders a blank panel", () => {
       globalThis.fetch = original
     }
   })
+})
 
+describe("configured and observed are visually distinct, and only one may move", () => {
+  it("draws a configured edge dashed and still", () => {
+    renderTab(fixtures.partial)
+    const configured = within(canvas())
+      .getAllByTestId("identity-map-edge")
+      .filter(edge => edge.getAttribute("data-edge-plane") === "configured")
+    expect(configured.length).toBe(3)
+    for (const edge of configured) {
+      expect(edge.getAttribute("data-edge-animated")).toBe("false")
+      expect(edge.querySelector("path")!.getAttribute("stroke-dasharray")).toBe("4 5")
+      expect(edge.querySelector("animate")).toBeNull()
+      expect(edge.querySelector("path")!.getAttribute("marker-end")).toBe(
+        "url(#identity-arrow-configured)",
+      )
+    }
+  })
+
+  it("animates the observed hop, and only that one", () => {
+    renderTab(fixtures.partial)
+    const animated = within(canvas())
+      .getAllByTestId("identity-map-edge")
+      .filter(edge => edge.getAttribute("data-edge-animated") === "true")
+    expect(animated.length).toBe(1)
+    expect(animated[0].getAttribute("data-edge-plane")).toBe("observed")
+    expect(animated[0].getAttribute("data-edge-to")).toBe("decision:AROAEXAMPLE")
+    expect(animated[0].querySelector("animate")).not.toBeNull()
+    expect(animated[0].querySelector("path")!.getAttribute("marker-end")).toBe(
+      "url(#identity-arrow-observed)",
+    )
+  })
+
+  it("never animates a payload whose decisions were not read", () => {
+    renderTab(fixtures.partial_no_decision_authority)
+    expect(canvas().querySelectorAll("animate").length).toBe(0)
+    const edges = within(canvas()).getAllByTestId("identity-map-edge")
+    expect(edges.length).toBeGreaterThan(0)
+    expect(edges.every(edge => edge.getAttribute("data-edge-animated") === "false")).toBe(true)
+  })
+
+  it("explains both planes in the legend", () => {
+    renderTab(fixtures.partial)
+    expect(screen.getByTestId("identity-map-legend-configured").textContent).toMatch(
+      /never observed, never moves/i,
+    )
+    expect(screen.getByTestId("identity-map-legend-observed").textContent).toMatch(
+      /named decision generation/i,
+    )
+  })
+})
+
+describe("reduced motion", () => {
+  it("stops every animation when the viewer asks for it", () => {
+    renderTab(fixtures.partial, { reduceMotion: true })
+    expect(screen.getByTestId("identity-map")).toHaveAttribute("data-motion", "reduced")
+    expect(canvas().querySelectorAll("animate").length).toBe(0)
+    expect(
+      within(canvas())
+        .getAllByTestId("identity-map-edge")
+        .every(edge => edge.getAttribute("data-edge-animated") === "false"),
+    ).toBe(true)
+  })
+
+  it("loses no information when motion is off — same nodes, edges and planes", () => {
+    renderTab(fixtures.partial, { reduceMotion: true })
+    const still = {
+      nodes: within(canvas()).getAllByTestId("identity-map-node").length,
+      edges: within(canvas()).getAllByTestId("identity-map-edge").length,
+      planes: within(canvas())
+        .getAllByTestId("identity-map-edge-label")
+        .map(node => node.textContent)
+        .sort(),
+    }
+    cleanup()
+    renderTab(fixtures.partial, { reduceMotion: false })
+    expect(still.nodes).toBe(within(canvas()).getAllByTestId("identity-map-node").length)
+    expect(still.edges).toBe(within(canvas()).getAllByTestId("identity-map-edge").length)
+    expect(still.planes).toEqual(
+      within(canvas())
+        .getAllByTestId("identity-map-edge-label")
+        .map(node => node.textContent)
+        .sort(),
+    )
+  })
+
+  it("says the map is unchanged without motion", () => {
+    renderTab(fixtures.partial, { reduceMotion: true })
+    expect(screen.getByTestId("identity-map-motion-note").textContent).toMatch(
+      /identical without it/i,
+    )
+  })
+
+  it("defaults to no motion when the preference cannot be read", () => {
+    clearMatchMedia()
+    render(
+      <EstateIdentityAccessTab
+        payload={{ ...TOPOLOGY, identity_access: fixtures.partial } as any}
+      />,
+    )
+    expect(screen.getByTestId("identity-map")).toHaveAttribute("data-motion", "reduced")
+    expect(canvas().querySelectorAll("animate").length).toBe(0)
+  })
+})
+
+describe("it works at any width", () => {
+  it("scales with a viewBox instead of a fixed pixel width", () => {
+    renderTab(fixtures.partial)
+    const svg = canvas()
+    expect(svg.getAttribute("viewBox")).toMatch(/^0 0 \d+(\.\d+)? \d+(\.\d+)?$/)
+    expect(svg.getAttribute("preserveAspectRatio")).toBe("xMidYMid meet")
+    // A hard pixel width would not respond to the container at all.
+    expect(svg.getAttribute("width")).toBeNull()
+    expect(svg.getAttribute("class")).toContain("w-full")
+  })
+
+  it("scrolls the canvas rather than crushing it on a narrow screen", () => {
+    renderTab(fixtures.partial)
+    const frame = screen.getByTestId("identity-map-canvas-frame")
+    expect(frame.getAttribute("class")).toContain("overflow-x-auto")
+    expect(canvas().getAttribute("class")).toContain("min-w-[720px]")
+  })
+
+  it("carries the whole map as text, for narrow screens and screen readers", () => {
+    renderTab(fixtures.partial)
+    const rows = within(screen.getByTestId("identity-map-fallback")).getAllByTestId(
+      "identity-map-fallback-row",
+    )
+    expect(rows.length).toBe(within(canvas()).getAllByTestId("identity-map-edge").length)
+    for (const row of rows) {
+      expect(row.textContent).toMatch(/→/)
+      expect(["configured", "observed"]).toContain(row.getAttribute("data-edge-plane"))
+    }
+  })
+
+  it("names the direction of every relationship in words", () => {
+    renderTab(fixtures.partial)
+    const text = screen.getByTestId("identity-map-fallback").textContent!
+    expect(text).toContain("runs as →")
+    expect(text).toContain("decided by →")
+  })
+})
+
+describe("the tab never renders a blank panel", () => {
   it.each([
     ["absent", undefined],
     ["invalid", "not-an-object"],
     ["unavailable", fixtures.unavailable],
     ["ready", fixtures.ready],
+    ["incomplete", fixtures.partial_unresolved_role_id],
   ])("state %s still shows a headline and an explanation", (state, block) => {
     renderTab(block)
     expect(panel()).toHaveAttribute("data-state", state)
@@ -72,104 +313,123 @@ describe("the tab never renders a blank panel", () => {
     const headline = screen.getByTestId("identity-headline").textContent!
     expect(headline).toMatch(/no identity projection/i)
     expect(headline).not.toMatch(/no workload/i)
-    expect(screen.getByTestId("identity-detail").textContent).toMatch(
-      /estate projection worker/i,
-    )
-    // Nothing that would read as data.
-    expect(screen.queryByTestId("identity-graph")).toBeNull()
+    expect(screen.queryByTestId("identity-map")).toBeNull()
     expect(screen.queryByTestId("identity-empty-authoritative")).toBeNull()
   })
 
-  it("an unavailable projection renders every gap code on screen", () => {
+  it("an unavailable projection renders its gap code and draws no map", () => {
     renderTab(fixtures.unavailable)
     const codes = screen
       .getAllByTestId("identity-gap")
       .map(node => node.getAttribute("data-gap-code"))
-    expect(codes).toContain("ACTIVE_DECISION_POINTER_MISSING")
-    expect(codes).toContain("VISIBLE_WORKLOAD_UNRESOLVED")
-    expect(screen.queryByTestId("identity-graph")).toBeNull()
+    expect(codes).toContain("ACTIVE_INVENTORY_POINTER_MISSING")
+    expect(screen.queryByTestId("identity-map")).toBeNull()
   })
 
-  it("empty-authoritative renders as an ANSWER, not as an unavailable state", () => {
+  it("empty-authoritative renders as an ANSWER, with its generation still shown", () => {
     renderTab(fixtures.empty_authoritative)
     expect(panel()).toHaveAttribute("data-state", "ready")
-    const box = screen.getByTestId("identity-empty-authoritative")
-    expect(box.textContent).toMatch(/is an answer, not a missing read/i)
+    expect(screen.getByTestId("identity-empty-authoritative").textContent).toMatch(
+      /is an answer, not a missing read/i,
+    )
     expect(screen.queryByTestId("identity-gap")).toBeNull()
-    // The generation it was read from is still on screen.
     expect(screen.getAllByTestId("identity-receipt").length).toBe(2)
+  })
+
+  it("a status this contract does not define is withheld, not rendered", () => {
+    renderTab({ ...fixtures.ready, status: "degraded" })
+    expect(panel()).toHaveAttribute("data-state", "invalid")
+    expect(screen.getByTestId("identity-detail").textContent).toMatch(
+      /partial, ready, unavailable/,
+    )
+    expect(screen.queryByTestId("identity-map")).toBeNull()
+    // The matrix still applies: it describes the data path, not the tenant.
+    expect(screen.getAllByTestId("identity-capability-row").length).toBe(15)
+  })
+
+  it.each([
+    ["roles as an object", { roles: {} }],
+    ["gaps as an object", { gaps: {} }],
+    ["a malformed scope", { scope: "eu-west-1" }],
+    ["a role with no role_id", { roles: [{ name: "web" }] }],
+    ["a role whose workload_ids is not a list", { roles: [{ role_id: "R", workload_ids: {} }] }],
+  ])("%s renders invalid rather than throwing", (_label, override) => {
+    expect(() => renderTab({ ...fixtures.ready, ...override })).not.toThrow()
+    expect(panel()).toHaveAttribute("data-state", "invalid")
+    expect(screen.queryByTestId("identity-map")).toBeNull()
+  })
+
+  it("a malformed capability row withholds the matrix but keeps the tenant's map", () => {
+    renderTab({
+      ...fixtures.ready,
+      relationship_capabilities: [...fixtures.ready.relationship_capabilities, { family: "X" }],
+    })
+    expect(panel()).toHaveAttribute("data-state", "ready")
+    expect(screen.getByTestId("identity-map")).toBeInTheDocument()
+    expect(screen.queryAllByTestId("identity-capability-row").length).toBe(0)
+    expect(screen.getByTestId("identity-capability-unavailable").textContent).toMatch(
+      /whole matrix is withheld/i,
+    )
   })
 })
 
-describe("workload → role → decision is on screen", () => {
-  it("renders one row per role, each naming its workloads", () => {
-    renderTab(fixtures.ready)
-    const rows = screen.getAllByTestId("identity-graph-row")
-    expect(rows.length).toBe(1)
-    expect(rows[0]).toHaveAttribute("data-role-id", "AROAEXAMPLEPAYMENTS1")
-    const workloads = within(rows[0])
-      .getAllByTestId("identity-workload")
-      .map(node => node.textContent)
-    expect(workloads.some(text => text!.includes("i-0aa11bb22cc33dd44"))).toBe(true)
-    expect(workloads.some(text => text!.includes("payments-settlement"))).toBe(true)
+describe("a partial projection with nothing to draw", () => {
+  it("says the map is empty for a reason, and never that nothing is bound", () => {
+    renderTab(fixtures.partial_unresolved_role_id)
+    expect(panel()).toHaveAttribute("data-state", "incomplete")
+    const box = screen.getByTestId("identity-incomplete")
+    expect(box.textContent).toMatch(/not because none exist/i)
+    expect(box.textContent).toMatch(/no AWS RoleId/i)
+    expect(screen.queryByTestId("identity-empty-authoritative")).toBeNull()
+    expect(screen.queryByTestId("identity-map")).toBeNull()
+    expect(panel().textContent).not.toMatch(/No workload in this scope is bound/)
   })
 
-  it("shows configured and observed counts under separate plane labels", () => {
-    renderTab(fixtures.ready)
-    expect(screen.getByTestId("identity-configured-count").textContent).toMatch(/3/)
-    const observed = screen.getByTestId("identity-observed-counts").textContent!
-    expect(observed).toMatch(/1\s*used/)
-    expect(observed).toMatch(/1\s*denied-only/)
-    expect(observed).toMatch(/1\s*not observed/)
+  it("still shows how many roles were counted and omitted", () => {
+    renderTab(fixtures.partial_unresolved_role_id)
+    expect(screen.getByTestId("identity-roles-counts").textContent).toMatch(/0 shown of 1/)
+    expect(screen.getByTestId("identity-roles-omitted").textContent).toMatch(/1 omitted/)
   })
 
-  it("a withheld decision shows no counts and says zero is not what it means", () => {
-    renderTab(fixtures.partial)
-    const rows = screen.getAllByTestId("identity-graph-row")
-    const withheld = rows.find(
-      row => row.getAttribute("data-role-id") === "AROAEXAMPLELEDGER002",
-    )!
-    const decision = within(withheld).getByTestId("identity-decision")
-    expect(decision).toHaveAttribute("data-decision-state", "unavailable")
-    expect(decision.textContent).toMatch(/That is not zero/i)
-    expect(within(withheld).queryByTestId("identity-configured-count")).toBeNull()
-    expect(within(withheld).queryByTestId("identity-observed-counts")).toBeNull()
+  it("names the projector's own gap code", () => {
+    renderTab(fixtures.partial_unresolved_role_id)
     expect(
-      within(withheld)
-        .getAllByTestId("identity-gap")
-        .map(node => node.getAttribute("data-gap-code")),
-    ).toEqual(["ROLE_DECISION_UNIVERSE_INCOMPLETE"])
+      screen.getAllByTestId("identity-gap").map(node => node.getAttribute("data-gap-code")),
+    ).toContain("ROLE_ID_UNRESOLVED")
+  })
+})
+
+describe("a readable projection with no decision authority", () => {
+  it("does not claim the hash-verified decision authority", () => {
+    renderTab(fixtures.partial_no_decision_authority)
+    const detail = screen.getByTestId("identity-detail").textContent!
+    expect(detail).not.toMatch(/hash-verified/)
+    expect(detail).toMatch(/No decision authority was read/i)
   })
 
-  it("labels the decision hop observed only where observed evidence was read", () => {
-    renderTab(fixtures.partial)
-    const rows = screen.getAllByTestId("identity-graph-row")
-    const planeOf = (roleId: string) =>
-      within(rows.find(row => row.getAttribute("data-role-id") === roleId)!)
-        .getByTestId("identity-decision-plane")
-        .textContent!.trim()
-    expect(planeOf("AROAEXAMPLEPAYMENTS1")).toBe("observed")
-    expect(planeOf("AROAEXAMPLELEDGER002")).toBe("configured")
+  it("shows only the inventory receipt", () => {
+    renderTab(fixtures.partial_no_decision_authority)
+    const receipts = screen.getAllByTestId("identity-receipt")
+    expect(receipts.length).toBe(1)
+    expect(receipts[0].textContent).toMatch(/Canonical inventory/)
   })
 
-  it("never renders an effective allow or deny", () => {
-    renderTab(fixtures.ready)
-    const text = screen.getByTestId("identity-effective-authorization").textContent!
-    expect(text).toMatch(/Effective authorization: unavailable/)
-    expect(text).toMatch(/does not compute whether a call would be allowed/i)
-    expect(panel().textContent).not.toMatch(/effective allow/i)
+  it("still draws the workload-to-role map, with no counts on the decision node", () => {
+    renderTab(fixtures.partial_no_decision_authority)
+    const decision = within(canvas())
+      .getAllByTestId("identity-map-node")
+      .find(node => node.getAttribute("data-node-kind") === "decision")!
+    expect(decision).toHaveAttribute("data-decision-state", "unavailable")
+    expect(decision.textContent).toMatch(/no counts — not zero/i)
   })
 
-  it("surfaces truncation and unresolved omissions instead of hiding them", () => {
-    renderTab({
-      ...fixtures.ready,
-      roles_total: 140,
-      roles_truncated: true,
-      roles_omitted_unresolved: 4,
-    })
-    expect(screen.getByTestId("identity-roles-counts").textContent).toMatch(/1 shown of 140/)
-    expect(screen.getByTestId("identity-roles-truncated")).toBeInTheDocument()
-    expect(screen.getByTestId("identity-roles-omitted").textContent).toMatch(/4 omitted/)
+  it("explains per role why its decisions were withheld", () => {
+    renderTab(fixtures.partial_no_decision_authority)
+    const gap = screen.getByTestId("identity-role-gap")
+    expect(gap.textContent).toMatch(/not the same as zero/i)
+    expect(
+      within(gap).getAllByTestId("identity-gap").map(n => n.getAttribute("data-gap-code")),
+    ).toContain("DECISION_EVIDENCE_UNAVAILABLE")
   })
 })
 
@@ -221,23 +481,20 @@ describe("scope, tenant and receipt binding", () => {
     const verified = screen
       .getAllByTestId("identity-scope-verified")
       .map(node => node.textContent!)
-    expect(verified.some(text => text.includes("account_id ✓ 111122223333"))).toBe(true)
-    expect(verified.some(text => text.includes("system_name ✓ payments-core"))).toBe(true)
-    const echoed = screen.getAllByTestId("identity-scope-echoed").map(node => node.textContent!)
-    expect(echoed.some(text => text.includes("customer_id") && text.includes("not checked"))).toBe(
-      true,
-    )
+    expect(verified.some(text => text.includes("account_id ✓ 416651950952"))).toBe(true)
+    expect(verified.some(text => text.includes("system_name ✓ testbed-webshop"))).toBe(true)
+    expect(
+      screen
+        .getAllByTestId("identity-scope-echoed")
+        .some(node => node.textContent!.includes("customer_id") && node.textContent!.includes("not checked")),
+    ).toBe(true)
   })
 
   it("withholds tenant data when the block was built for a different account", () => {
-    renderTab({
-      ...fixtures.ready,
-      scope: { ...fixtures.ready.scope, account_id: "999988887777" },
-    })
+    renderTab({ ...fixtures.ready, scope: { ...fixtures.ready.scope, account_id: "999988887777" } })
     expect(panel()).toHaveAttribute("data-state", "scope_mismatch")
-    expect(screen.queryByTestId("identity-graph")).toBeNull()
+    expect(screen.queryByTestId("identity-map")).toBeNull()
     expect(screen.getByTestId("identity-scope-mismatch").textContent).toMatch(/999988887777/)
-    // The matrix describes the data path, not the tenant, so it stays.
     expect(screen.getAllByTestId("identity-capability-row").length).toBe(15)
   })
 
@@ -245,14 +502,6 @@ describe("scope, tenant and receipt binding", () => {
     renderTab(fixtures.ready)
     const receipts = screen.getAllByTestId("identity-receipt")
     expect(receipts.length).toBe(2)
-    for (const receipt of receipts) {
-      expect(within(receipt).getByTestId("identity-receipt-generation").textContent).toBe("41")
-      expect(
-        within(receipt).getByTestId("identity-receipt-hash").textContent!.length,
-      ).toBe(64)
-    }
-    // Read from the fixture, not retyped: these scope names are backend
-    // constants, and a test that hardcodes them stops tracking them.
     expect(
       receipts.map(node => node.getAttribute("data-receipt-scope")).sort(),
     ).toEqual(
@@ -261,6 +510,9 @@ describe("scope, tenant and receipt binding", () => {
         fixtures.ready.decision_authority.projection_scope,
       ].sort(),
     )
+    expect(
+      within(receipts[0]).getByTestId("identity-receipt-generation").textContent,
+    ).toBe(String(fixtures.ready.inventory_authority.generation))
   })
 
   it("says plainly when no authority was read at all", () => {

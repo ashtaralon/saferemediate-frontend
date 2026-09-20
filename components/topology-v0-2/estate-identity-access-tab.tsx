@@ -17,13 +17,12 @@
  * facts, and each gets its own words.
  */
 
-import { AlertTriangle, ArrowRight, Info, ShieldCheck } from "lucide-react"
+import { AlertTriangle, Info, ShieldCheck } from "lucide-react"
 
+import { EstateIdentityMap } from "./estate-identity-map"
 import {
   buildIdentityView,
   type AuthorityReceipt,
-  type GraphDecisionNode,
-  type GraphRoleNode,
   type IdentityGap,
   type IdentityView,
   type RelationshipCapability,
@@ -185,157 +184,36 @@ function Receipts({ receipts }: { receipts: AuthorityReceipt[] }) {
   )
 }
 
-function DecisionCell({ node }: { node: GraphDecisionNode }) {
-  if (node.state !== "ready") {
-    return (
-      <div
-        data-testid="identity-decision"
-        data-decision-state="unavailable"
-        className="rounded border px-2.5 py-2 text-[11px]"
-        style={{ borderColor: WARN_LINE, background: WARN_BG }}
-      >
-        <div className="font-semibold" style={{ color: WARN }}>
-          Decision evidence unavailable
-        </div>
-        <p className="mt-0.5" style={{ color: INK }}>
-          No configured or observed action counts are shown for this role, because none were
-          read. That is not zero.
-        </p>
-        <GapList gaps={node.gaps} testId="identity-decision-gaps" />
-      </div>
-    )
-  }
+/**
+ * Per-role gaps, for the roles that have one.
+ *
+ * The map carries the relationships; this carries the reasons a particular
+ * role's decisions were withheld. Only roles WITH a gap appear, so this never
+ * becomes a card per role standing in for the map.
+ */
+function RoleGaps({ view }: { view: IdentityView }) {
+  const withGaps = view.roles.filter(role => (role.gaps ?? []).length > 0)
+  if (withGaps.length === 0) return null
   return (
-    <div
-      data-testid="identity-decision"
-      data-decision-state="ready"
-      className="rounded border px-2.5 py-2 text-[11px]"
-      style={{ borderColor: LINE, background: "#FFFFFF" }}
-    >
-      <div className="flex items-center gap-1.5">
-        <Chip label="configured" tone="teal" />
-        <span data-testid="identity-configured-count" style={{ color: INK }}>
-          <span className="font-semibold tabular-nums">{node.configuredGrantCount ?? "—"}</span>{" "}
-          actions granted by policy
-        </span>
-      </div>
-      {node.observed ? (
-        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-          <Chip label="observed" tone="teal" />
-          <span data-testid="identity-observed-counts" style={{ color: INK }}>
-            <span className="font-semibold tabular-nums">{node.observed.successful ?? "—"}</span>{" "}
-            used ·{" "}
-            <span className="font-semibold tabular-nums">{node.observed.deniedOnly ?? "—"}</span>{" "}
-            denied-only ·{" "}
-            <span className="font-semibold tabular-nums">{node.observed.notObserved ?? "—"}</span>{" "}
-            not observed
+    <div data-testid="identity-role-gaps" className="mt-2 space-y-1.5">
+      {withGaps.map(role => (
+        <div
+          key={role.role_id}
+          data-testid="identity-role-gap"
+          data-role-id={role.role_id}
+          className="rounded border px-2.5 py-2 text-[11px]"
+          style={{ borderColor: WARN_LINE, background: WARN_BG }}
+        >
+          <span className="font-semibold" style={{ color: INK }}>
+            {role.name ?? role.role_id}
           </span>
-          {node.observed.lastSuccessAt ? (
-            <span className="font-mono text-[10px]" style={{ color: MUTED }}>
-              last success {node.observed.lastSuccessAt}
-            </span>
-          ) : null}
+          <span className="ml-1.5" style={{ color: WARN }}>
+            decision evidence withheld — no configured or observed counts are shown for
+            this role, which is not the same as zero.
+          </span>
+          <GapList gaps={role.gaps ?? []} testId="identity-role-gap-list" />
         </div>
-      ) : (
-        <p data-testid="identity-observed-absent" className="mt-1.5" style={{ color: MUTED }}>
-          Observed use was not read for this role, so no usage counts are shown.
-        </p>
-      )}
-      <p
-        data-testid="identity-effective-authorization"
-        className="mt-1.5 text-[10px]"
-        style={{ color: MUTED }}
-      >
-        Effective authorization: {node.effectiveAuthorization.availability}
-        {node.effectiveAuthorization.reasonCodes.length > 0
-          ? ` — ${node.effectiveAuthorization.reasonCodes.join(", ")}`
-          : ""}
-        . This view does not compute whether a call would be allowed.
-      </p>
-    </div>
-  )
-}
-
-function IdentityGraphView({ view }: { view: IdentityView }) {
-  const roles = view.graph.nodes.filter((node): node is GraphRoleNode => node.kind === "role")
-  const decisions = new Map(
-    view.graph.nodes
-      .filter((node): node is GraphDecisionNode => node.kind === "decision")
-      .map(node => [node.roleId, node] as const),
-  )
-  return (
-    <div data-testid="identity-graph" className="space-y-2">
-      {roles.map(role => {
-        const workloadEdges = view.graph.edges.filter(
-          edge => edge.family === "WORKLOAD_USES_ROLE" && edge.to === role.id,
-        )
-        const decisionEdge = view.graph.edges.find(
-          edge => edge.family === "ROLE_ACTION_DECISION" && edge.from === role.id,
-        )
-        const decision = decisions.get(role.roleId)
-        return (
-          <div
-            key={role.id}
-            data-testid="identity-graph-row"
-            data-role-id={role.roleId}
-            className="grid gap-2 rounded-lg border p-2.5 md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto_minmax(0,1.4fr)] md:items-center"
-            style={{ borderColor: LINE, background: "#F8FAFC" }}
-          >
-            <div className="min-w-0">
-              <div className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: MUTED }}>
-                Workload
-              </div>
-              <ul className="mt-0.5 space-y-0.5">
-                {workloadEdges.map(edge => (
-                  <li
-                    key={edge.from}
-                    data-testid="identity-workload"
-                    className="truncate font-mono text-[11px]"
-                    style={{ color: INK }}
-                    title={edge.from.replace(/^workload:/, "")}
-                  >
-                    {edge.from.replace(/^workload:/, "")}
-                    <span className="ml-1.5 not-italic" style={{ color: MUTED }}>
-                      {edge.label}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            <ArrowRight className="hidden h-3.5 w-3.5 md:block" style={{ color: MUTED }} aria-hidden />
-
-            <div className="min-w-0">
-              <div className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: MUTED }}>
-                Role
-              </div>
-              <div className="truncate text-[12px] font-semibold" style={{ color: INK }} title={role.roleArn ?? role.roleId}>
-                {role.label}
-              </div>
-              <div className="font-mono text-[10px]" style={{ color: MUTED }}>
-                {role.roleId}
-              </div>
-              {role.lifecycleState ? <Chip label={role.lifecycleState} /> : null}
-            </div>
-
-            <div className="hidden items-center gap-1 md:flex">
-              <ArrowRight className="h-3.5 w-3.5" style={{ color: MUTED }} aria-hidden />
-              <Chip
-                testId="identity-decision-plane"
-                label={decisionEdge?.plane ?? "configured"}
-                tone={decisionEdge?.plane === "observed" ? "teal" : "neutral"}
-              />
-            </div>
-
-            <div className="min-w-0">
-              <div className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: MUTED }}>
-                Decision
-              </div>
-              {decision ? <DecisionCell node={decision} /> : null}
-            </div>
-          </div>
-        )
-      })}
+      ))}
     </div>
   )
 }
@@ -463,7 +341,7 @@ export function EstateIdentityAccessTab({
         </div>
       </section>
 
-      {view.state === "ready" ? (
+      {view.state === "ready" || view.state === "incomplete" ? (
         <section className="mt-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h3 className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: MUTED }}>
@@ -487,7 +365,23 @@ export function EstateIdentityAccessTab({
             </div>
           </div>
           <div className="mt-1.5">
-            {view.emptyAuthoritative ? (
+            {view.state === "incomplete" ? (
+              // Readable, but nothing to draw AND not authoritative that nothing
+              // is bound. Drawing an empty canvas here would read as "no
+              // relationships exist", which is the claim this state exists to
+              // refuse.
+              <div
+                data-testid="identity-incomplete"
+                className="rounded-lg border px-3 py-2.5 text-[11px]"
+                style={{ borderColor: WARN_LINE, background: WARN_BG, color: INK }}
+              >
+                <span className="font-semibold" style={{ color: WARN }}>
+                  The map is empty because these roles could not be rendered, not because
+                  none exist.
+                </span>{" "}
+                {view.detail}
+              </div>
+            ) : view.emptyAuthoritative ? (
               <div
                 data-testid="identity-empty-authoritative"
                 className="rounded-lg border px-3 py-2.5 text-[11px]"
@@ -498,9 +392,10 @@ export function EstateIdentityAccessTab({
                 generation it was read from.
               </div>
             ) : (
-              <IdentityGraphView view={view} />
+              <EstateIdentityMap view={view} />
             )}
           </div>
+          <RoleGaps view={view} />
         </section>
       ) : null}
 
