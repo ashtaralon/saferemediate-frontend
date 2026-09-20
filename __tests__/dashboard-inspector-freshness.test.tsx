@@ -175,7 +175,10 @@ describe("a vulnerability refresh never claims whole-dashboard freshness", () =>
     await waitFor(() => expect(screen.getByRole("button")).not.toBeDisabled())
     screen.getByRole("button").click()
 
-    await waitFor(() => expect(document.body.textContent).toContain("AWS eu-west-1"))
+    // The run DID activate, so the control reaches its success message. Only
+    // then is "no timestamp" a statement about the receipt rather than about
+    // polling not having finished.
+    expect(await terminalOutcome()).toBe("success")
     expect(document.body.textContent).not.toMatch(/refreshed:/)
     expect(document.body.textContent).not.toMatch(/Last sync/i)
   })
