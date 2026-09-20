@@ -12,7 +12,7 @@
  *   4. no fabricated number reaches the screen.
  */
 
-import { cleanup, render, screen, waitFor } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { RefreshInspectorFindingsButton } from "@/components/RefreshInspectorFindingsButton"
@@ -22,6 +22,30 @@ afterEach(() => {
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
+
+/**
+ * Click the control and let the work the click starts settle INSIDE act().
+ *
+ * `element.click()` dispatches outside React's act scope, so every state
+ * update the real polling hook makes afterwards is reported as "An update to
+ * ... was not wrapped in act(...)". Those warnings are not cosmetic here:
+ * each one marks state that settled AFTER the assertion ran, which is exactly
+ * the unfinished async work the negative cases below must not race.
+ *
+ * `@testing-library/user-event` is not a dependency of this repo, so the
+ * repo-native form is `fireEvent` inside an async `act`, as
+ * __tests__/system-change-queue.test.tsx already does for the same reason.
+ *
+ * On a DISABLED control this is also the stricter interaction: `fireEvent`
+ * genuinely dispatches the event, so it is React's own dispatcher refusing to
+ * run `onClick` for a disabled button that the assertion observes. A bare
+ * `element.click()` is dropped by the DOM before React ever sees it.
+ */
+async function clickAndSettle(element: HTMLElement) {
+  await act(async () => {
+    fireEvent.click(element)
+  })
+}
 
 const RECEIPT = {
   activated: true,
@@ -80,7 +104,7 @@ describe("the control names the lane it runs", () => {
     const calls = stub({ capabilities: lanes("CONNECTED") })
     render(<RefreshInspectorFindingsButton />)
     await waitFor(() => expect(screen.getByRole("button")).not.toBeDisabled())
-    screen.getByRole("button").click()
+    await clickAndSettle(screen.getByRole("button"))
 
     await waitFor(() => expect(enqueued(calls)).toHaveLength(1))
     expect(enqueued(calls)[0]).toContain("sources=vulnerability_findings")
@@ -93,7 +117,7 @@ describe("it fails closed", () => {
     render(<RefreshInspectorFindingsButton />)
 
     await waitFor(() => expect(screen.getByRole("button")).toBeDisabled())
-    screen.getByRole("button").click()
+    await clickAndSettle(screen.getByRole("button"))
     // Spending a real AWS collection round to discover what /capabilities
     // already said is exactly what the disabled state prevents.
     expect(enqueued(calls)).toEqual([])
@@ -105,7 +129,7 @@ describe("it fails closed", () => {
     render(<RefreshInspectorFindingsButton />)
 
     await waitFor(() => expect(screen.getByRole("button")).toBeDisabled())
-    screen.getByRole("button").click()
+    await clickAndSettle(screen.getByRole("button"))
     expect(enqueued(calls)).toEqual([])
   })
 
@@ -121,7 +145,7 @@ describe("it fails closed", () => {
     render(<RefreshInspectorFindingsButton />)
 
     await waitFor(() => expect(screen.getByRole("button")).toBeDisabled())
-    screen.getByRole("button").click()
+    await clickAndSettle(screen.getByRole("button"))
     expect(enqueued(calls)).toEqual([])
   })
 })
@@ -144,7 +168,7 @@ describe("success requires an activation receipt for THIS run", () => {
     })
     render(<RefreshInspectorFindingsButton />)
     await waitFor(() => expect(screen.getByRole("button")).not.toBeDisabled())
-    screen.getByRole("button").click()
+    await clickAndSettle(screen.getByRole("button"))
 
     await waitFor(() =>
       expect(document.body.textContent).toContain(
@@ -167,7 +191,7 @@ describe("success requires an activation receipt for THIS run", () => {
     })
     render(<RefreshInspectorFindingsButton />)
     await waitFor(() => expect(screen.getByRole("button")).not.toBeDisabled())
-    screen.getByRole("button").click()
+    await clickAndSettle(screen.getByRole("button"))
 
     await waitFor(() => expect(document.body.textContent).toMatch(/no proof/i))
     expect(document.body.textContent).not.toContain("is active in Neptune")
@@ -187,7 +211,7 @@ describe("success requires an activation receipt for THIS run", () => {
     })
     render(<RefreshInspectorFindingsButton />)
     await waitFor(() => expect(screen.getByRole("button")).not.toBeDisabled())
-    screen.getByRole("button").click()
+    await clickAndSettle(screen.getByRole("button"))
 
     await waitFor(() => expect(document.body.textContent).not.toContain("is active in Neptune"))
   })
@@ -204,7 +228,7 @@ describe("success requires an activation receipt for THIS run", () => {
     })
     render(<RefreshInspectorFindingsButton />)
     await waitFor(() => expect(screen.getByRole("button")).not.toBeDisabled())
-    screen.getByRole("button").click()
+    await clickAndSettle(screen.getByRole("button"))
 
     await waitFor(() =>
       expect(document.body.textContent).toContain("Refreshing Inspector evidence in Neptune"),

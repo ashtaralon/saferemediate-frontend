@@ -19,7 +19,7 @@
  * text, because the previous guards were structural and missed exactly this.
  */
 
-import { cleanup, render, screen, waitFor } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { RefreshInspectorFindingsButton } from "@/components/RefreshInspectorFindingsButton"
@@ -100,6 +100,27 @@ function DashboardHeader() {
 
 
 /**
+ * Click the control and let the work the click starts settle INSIDE act().
+ *
+ * `element.click()` dispatches outside React's act scope, so every state
+ * update the real polling hook makes afterwards is reported as "An update to
+ * ... was not wrapped in act(...)". Those warnings are not cosmetic in this
+ * file: each one marks state that settled AFTER the assertion ran, and the
+ * whole point of the negative cases below is that `onRefreshed` must not
+ * mutate freshness state a tick later. A warning here is the same race
+ * `terminalOutcome` exists to close, reported by React instead of by a test.
+ *
+ * `@testing-library/user-event` is not a dependency of this repo, so the
+ * repo-native form is `fireEvent` inside an async `act`, as
+ * __tests__/system-change-queue.test.tsx already does for the same reason.
+ */
+async function clickAndSettle(element: HTMLElement) {
+  await act(async () => {
+    fireEvent.click(element)
+  })
+}
+
+/**
  * Wait for a TERMINAL outcome from the real hook before asserting absence.
  *
  * Every negative case below previously waited for the static "AWS eu-west-1"
@@ -144,7 +165,7 @@ describe("a vulnerability refresh never claims whole-dashboard freshness", () =>
     stub(COMPLETED_WITH_RECEIPT)
     render(<DashboardHeader />)
     await waitFor(() => expect(screen.getByRole("button")).not.toBeDisabled())
-    screen.getByRole("button").click()
+    await clickAndSettle(screen.getByRole("button"))
 
     await waitFor(() =>
       expect(document.body.textContent).toContain("Inspector findings refreshed:"),
@@ -157,7 +178,7 @@ describe("a vulnerability refresh never claims whole-dashboard freshness", () =>
     stub(COMPLETED_WITH_RECEIPT)
     render(<DashboardHeader />)
     await waitFor(() => expect(screen.getByRole("button")).not.toBeDisabled())
-    screen.getByRole("button").click()
+    await clickAndSettle(screen.getByRole("button"))
 
     await waitFor(() =>
       expect(document.body.textContent).toMatch(/Inspector findings refreshed: \d/),
@@ -173,7 +194,7 @@ describe("a vulnerability refresh never claims whole-dashboard freshness", () =>
     })
     render(<DashboardHeader />)
     await waitFor(() => expect(screen.getByRole("button")).not.toBeDisabled())
-    screen.getByRole("button").click()
+    await clickAndSettle(screen.getByRole("button"))
 
     // The run DID activate, so the control reaches its success message. Only
     // then is "no timestamp" a statement about the receipt rather than about
@@ -191,7 +212,7 @@ describe("a vulnerability refresh never claims whole-dashboard freshness", () =>
     stub(noStamp)
     render(<DashboardHeader />)
     await waitFor(() => expect(screen.getByRole("button")).not.toBeDisabled())
-    screen.getByRole("button").click()
+    await clickAndSettle(screen.getByRole("button"))
 
     expect(await terminalOutcome()).toBe("success")
     expect(document.body.textContent).not.toMatch(/refreshed: \d/)
@@ -207,7 +228,7 @@ describe("a vulnerability refresh never claims whole-dashboard freshness", () =>
     })
     render(<DashboardHeader />)
     await waitFor(() => expect(screen.getByRole("button")).not.toBeDisabled())
-    screen.getByRole("button").click()
+    await clickAndSettle(screen.getByRole("button"))
 
     await waitFor(() => expect(document.body.textContent).toMatch(/no proof/i))
     expect(document.body.textContent).not.toMatch(/refreshed: \d/)
@@ -223,7 +244,7 @@ describe("a vulnerability refresh never claims whole-dashboard freshness", () =>
     })
     render(<DashboardHeader />)
     await waitFor(() => expect(screen.getByRole("button")).not.toBeDisabled())
-    screen.getByRole("button").click()
+    await clickAndSettle(screen.getByRole("button"))
 
     const expected = new Date("2026-09-20T03:04:00+00:00").toLocaleTimeString("en-US", {
       hour: "2-digit",
@@ -242,7 +263,7 @@ describe("the tab remount key follows the same receipt", () => {
     render(<DashboardHeader />)
     expect(screen.getByTestId("refresh-key").textContent).toBe("0")
     await waitFor(() => expect(screen.getByRole("button")).not.toBeDisabled())
-    screen.getByRole("button").click()
+    await clickAndSettle(screen.getByRole("button"))
 
     await waitFor(() => expect(screen.getByTestId("refresh-key").textContent).toBe("1"))
   })
@@ -258,7 +279,7 @@ describe("the tab remount key follows the same receipt", () => {
     render(<DashboardHeader />)
     expect(screen.getByTestId("refresh-key").textContent).toBe("0")
     await waitFor(() => expect(screen.getByRole("button")).not.toBeDisabled())
-    screen.getByRole("button").click()
+    await clickAndSettle(screen.getByRole("button"))
 
     // Wait for the callback to have RUN before claiming it did not bump the
     // key. Asserting "still 0" mid-poll proves nothing.

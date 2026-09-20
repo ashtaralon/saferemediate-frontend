@@ -5766,10 +5766,19 @@ export function UnifiedArchitectureDiagram({
               regardless of actual data age — combined with cached data
               and slow backend sync windows it could read LIVE when the
               graph was 30+ minutes stale. The outer TrafficFlowMap
-              header already shows "Last sync: HH:MM:SS PM" and
-              MANUAL SYNC/AUTO SYNC state, which conveys refresh mode honestly.
+              header shows "View updated: HH:MM:SS PM" and MANUAL
+              SYNC/AUTO SYNC state, which conveys refresh mode honestly.
               Adding a separate inner "LIVE" badge with no freshness
-              gating was misleading visual noise. */}
+              gating was misleading visual noise.
+
+              That header label used to read "Last sync", and this comment
+              said so until the r277 Neptune pass corrected both. Do not
+              restore it: the timestamp is `setLastUpdated(new Date())` —
+              the CLIENT clock at the moment THIS VIEW finished fetching —
+              and it says nothing about when AWS was last collected. See
+              the note at its producer (search `setLastUpdated(new Date())`).
+              Anything claiming AWS freshness must come from a backend
+              activation receipt, per lib/sync-surfaces.ts. */}
         </div>
         <div className="flex items-center gap-4 text-sm">
           {/* Path-authority (Zoom0): hide Traffic/Connections/Live Traffic
