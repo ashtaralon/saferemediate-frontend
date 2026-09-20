@@ -149,7 +149,7 @@ function Receipts({ receipts }: { receipts: AuthorityReceipt[] }) {
         <div
           key={item.label}
           data-testid="identity-receipt"
-          data-receipt-scope={item.projectionScope ?? ""}
+          data-receipt-scope={item.projectionScope}
           className="rounded border px-2.5 py-2 text-[11px]"
           style={{ borderColor: LINE, background: "#FFFFFF" }}
         >
@@ -160,12 +160,12 @@ function Receipts({ receipts }: { receipts: AuthorityReceipt[] }) {
             <div>
               <dt className="inline">generation </dt>
               <dd className="inline" data-testid="identity-receipt-generation">
-                {item.generation ?? "—"}
+                {item.generation}
               </dd>
             </div>
             <div>
               <dt className="inline">source vector </dt>
-              <dd className="inline">{item.sourceVectorHash ?? "—"}</dd>
+              <dd className="inline">{item.sourceVectorHash}</dd>
             </div>
             <div>
               <dt className="inline">receipt </dt>
@@ -175,7 +175,7 @@ function Receipts({ receipts }: { receipts: AuthorityReceipt[] }) {
             </div>
             <div>
               <dt className="inline">projected through </dt>
-              <dd className="inline">{item.projectedThrough ?? "—"}</dd>
+              <dd className="inline">{item.projectedThrough}</dd>
             </div>
           </dl>
         </div>
@@ -192,7 +192,7 @@ function Receipts({ receipts }: { receipts: AuthorityReceipt[] }) {
  * becomes a card per role standing in for the map.
  */
 function RoleGaps({ view }: { view: IdentityView }) {
-  const withGaps = view.roles.filter(role => (role.gaps ?? []).length > 0)
+  const withGaps = view.roles.filter(role => role.gaps.length > 0)
   if (withGaps.length === 0) return null
   return (
     <div data-testid="identity-role-gaps" className="mt-2 space-y-1.5">
@@ -211,7 +211,7 @@ function RoleGaps({ view }: { view: IdentityView }) {
             decision evidence withheld — no configured or observed counts are shown for
             this role, which is not the same as zero.
           </span>
-          <GapList gaps={role.gaps ?? []} testId="identity-role-gap-list" />
+          <GapList gaps={role.gaps} testId="identity-role-gap-list" />
         </div>
       ))}
     </div>

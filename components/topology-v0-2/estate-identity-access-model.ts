@@ -69,6 +69,15 @@ export interface RelationshipCapability {
   detail: string
 }
 
+/* ── wire shapes ───────────────────────────────────────────────────────────
+ *
+ * What MIGHT arrive, before anything has been checked. Fields are optional
+ * here because the payload can genuinely lack them -- that is precisely what
+ * the validators below exist to catch. These types describe untrusted input
+ * and are never what the builder or the graph consume; the `Valid*` types
+ * further down are, and there every producer-required field is required.
+ */
+
 export interface IdentityAuthority {
   projection_scope?: string | null
   generation?: number | null
@@ -159,26 +168,29 @@ export interface GraphRoleNode {
   attachmentModes: string[]
 }
 
-export interface GraphDecisionNode {
+/**
+ * The decision hop, as a discriminated union on `state`.
+ *
+ * A union rather than one shape with nullable numbers, because the two states
+ * carry opposite obligations and the renderer must not have to guess. "ready"
+ * means the decision authority was read, so the configured count IS a number;
+ * "unavailable" means it was withheld, so every count is null and must stay
+ * visibly absent rather than becoming a zero or a dash. Encoding that here
+ * leaves no nullable field for a renderer to paper over.
+ */
+export interface GraphDecisionObserved {
+  successful: number
+  deniedOnly: number
+  notObserved: number
+  unknown: number
+  /** Legitimately null: a role may have been observed with no success yet. */
+  lastSuccessAt: string | null
+}
+
+interface GraphDecisionBase {
   kind: "decision"
   id: string
   roleId: string
-  /** "ready" when the decision authority was read for this role. */
-  state: "ready" | "unavailable"
-  /** Plane "configured": how many actions the policy universe grants. */
-  configuredGrantCount: number | null
-  /**
-   * Plane "observed", and present ONLY when observed_use.state is "ready".
-   * A role whose decisions were withheld has no observed counts to show, and
-   * zero is not the same as unknown.
-   */
-  observed: {
-    successful: number | null
-    deniedOnly: number | null
-    notObserved: number | null
-    unknown: number | null
-    lastSuccessAt: string | null
-  } | null
   /**
    * v1 never decides effective authorization; availability is "unavailable" on
    * every record. Carried verbatim with its reason codes so the tab states the
@@ -191,6 +203,26 @@ export interface GraphDecisionNode {
   }
   gaps: IdentityGap[]
 }
+
+export interface GraphDecisionReady extends GraphDecisionBase {
+  state: "ready"
+  /** Plane "configured": how many actions the policy universe grants. */
+  configuredGrantCount: number
+  /**
+   * Plane "observed", and present ONLY when observed_use.state is "ready".
+   * A role whose observed evidence was withheld has no counts to show, and
+   * zero is not the same as unknown.
+   */
+  observed: GraphDecisionObserved | null
+}
+
+export interface GraphDecisionUnavailable extends GraphDecisionBase {
+  state: "unavailable"
+  configuredGrantCount: null
+  observed: null
+}
+
+export type GraphDecisionNode = GraphDecisionReady | GraphDecisionUnavailable
 
 export type GraphNode = GraphWorkloadNode | GraphRoleNode | GraphDecisionNode
 
@@ -231,12 +263,19 @@ export interface ScopeBinding {
 
 export interface AuthorityReceipt {
   label: string
-  projectionScope: string | null
-  generation: number | null
-  sourceVectorHash: string | null
+  /**
+   * Every field but the receipt hash is unconditional on a validated
+   * authority, so none of them is nullable here and no renderer needs a
+   * placeholder for one. The receipt hash alone is legitimately null -- a
+   * generation activated before receipts existed is readable and uncertifiable
+   * -- and that is the one case a view has to show something for.
+   */
+  projectionScope: string
+  generation: number
+  sourceVectorHash: string
   projectionReceiptHash: string | null
-  projectedThrough: string | null
-  stagingRunId: string | null
+  projectedThrough: string
+  stagingRunId: string
 }
 
 export type IdentityViewState =
@@ -263,7 +302,7 @@ export interface IdentityView {
   scopeBinding: ScopeBinding | null
   receipts: AuthorityReceipt[]
   graph: IdentityGraph
-  roles: IdentityRole[]
+  roles: ValidRole[]
   rolesTotal: number | null
   rolesReturned: number
   rolesTruncated: boolean
@@ -413,11 +452,6 @@ function authorityViolation(
     return `its ${label} carries a receipt hash that is neither text nor null`
   }
   return null
-}
-
-/** Did this authority come with a usable receipt hash, not merely a generation? */
-export function hasReceiptHash(authority: unknown): boolean {
-  return isPlainObject(authority) && isText(authority.projection_receipt_hash)
 }
 
 /**
@@ -821,27 +855,197 @@ function validCapabilityRow(value: unknown): boolean {
   return false
 }
 
+/* ── the refined block ─────────────────────────────────────────────────────
+ *
+ * Validation above decides whether a payload may be read. Everything below
+ * consumes the result through these types, in which every producer-required
+ * field is NON-optional. That is the point: a `?? []` or `?? "unavailable"`
+ * downstream is a value this code invents, and on screen an invented value is
+ * indistinguishable from a reported one. Making the fields required means
+ * there is nothing to fall back TO, so the fallback cannot be written.
+ *
+ * Only genuinely optional fields keep a presentation fallback. `name`,
+ * `role_arn` and `lifecycle_state` are display text the producer may legitimately
+ * emit as null, so `str()` narrows them to `string | null` and the renderer
+ * chooses what to show instead.
+ */
+
+export type DecisionState = (typeof DECISION_STATES)[number]
+export type ValidStatus = (typeof VALID_STATUSES)[number]
+
+export interface ValidAuthority {
+  projection_scope: string
+  generation: number
+  staging_run_id: string
+  source_vector_hash: string
+  /** Canonical UTC timestamp. */
+  projected_through: string
+  /** Null on a pointer activated before receipts existed: readable, uncertifiable. */
+  projection_receipt_hash: string | null
+  /** Scope-specific metadata the projector adds; not read by this view. */
+  metadata: Record<string, unknown>
+}
+
+export interface ValidConfiguredGrants {
+  state: DecisionState
+  /** A count when state is "ready"; null when it is not. Never absent. */
+  exact_action_count: number | null
+}
+
+export interface ValidObservedUse {
+  state: DecisionState
+  successful_action_count: number | null
+  denied_only_action_count: number | null
+  not_observed_action_count: number | null
+  unknown_action_count: number | null
+  coverage_counts: { complete: number; partial: number; unknown: number } | null
+  last_success_at: string | null
+}
+
+export interface ValidEffectiveAuthorization {
+  availability: string
+  decision: string | null
+  granularity: string
+  reason_codes: string[]
+}
+
+export interface ValidRole {
+  role_id: string
+  /** Display only, and legitimately null. */
+  role_arn: string | null
+  name: string | null
+  lifecycle_state: string | null
+  workload_ids: string[]
+  attachment_modes: string[]
+  configured_grants: ValidConfiguredGrants
+  observed_use: ValidObservedUse
+  effective_authorization: ValidEffectiveAuthorization
+  gaps: IdentityGap[]
+}
+
+export interface ValidBlock {
+  contract_version: string
+  status: ValidStatus
+  scope: IdentityScope
+  inventory_authority: ValidAuthority | null
+  decision_authority: ValidAuthority | null
+  roles_total: number | null
+  roles_returned: number
+  roles_truncated: boolean
+  roles_omitted_unresolved: number | null
+  roles: ValidRole[]
+  gaps: IdentityGap[]
+}
+
+const AUTHORITY_FIELDS = new Set([
+  "projection_scope",
+  "generation",
+  "staging_run_id",
+  "source_vector_hash",
+  "projected_through",
+  "projection_receipt_hash",
+])
+
+function extractAuthority(value: unknown): ValidAuthority | null {
+  if (value === null || value === undefined) return null
+  const authority = value as Record<string, unknown>
+  const metadata: Record<string, unknown> = {}
+  for (const [key, item] of Object.entries(authority)) {
+    if (!AUTHORITY_FIELDS.has(key)) metadata[key] = item
+  }
+  return {
+    projection_scope: authority.projection_scope as string,
+    generation: authority.generation as number,
+    staging_run_id: authority.staging_run_id as string,
+    source_vector_hash: authority.source_vector_hash as string,
+    projected_through: authority.projected_through as string,
+    projection_receipt_hash: authority.projection_receipt_hash as string | null,
+    metadata,
+  }
+}
+
+function extractRole(value: unknown): ValidRole {
+  const role = value as Record<string, unknown>
+  const configured = role.configured_grants as Record<string, unknown>
+  const observed = role.observed_use as Record<string, unknown>
+  const effective = role.effective_authorization as Record<string, unknown>
+  return {
+    role_id: role.role_id as string,
+    role_arn: str(role.role_arn),
+    name: str(role.name),
+    lifecycle_state: str(role.lifecycle_state),
+    workload_ids: role.workload_ids as string[],
+    attachment_modes: role.attachment_modes as string[],
+    configured_grants: {
+      state: configured.state as DecisionState,
+      exact_action_count: configured.exact_action_count as number | null,
+    },
+    observed_use: {
+      state: observed.state as DecisionState,
+      successful_action_count: observed.successful_action_count as number | null,
+      denied_only_action_count: observed.denied_only_action_count as number | null,
+      not_observed_action_count: observed.not_observed_action_count as number | null,
+      unknown_action_count: observed.unknown_action_count as number | null,
+      coverage_counts: observed.coverage_counts as ValidObservedUse["coverage_counts"],
+      last_success_at: observed.last_success_at as string | null,
+    },
+    effective_authorization: {
+      availability: effective.availability as string,
+      decision: effective.decision as string | null,
+      granularity: effective.granularity as string,
+      reason_codes: effective.reason_codes as string[],
+    },
+    gaps: role.gaps as IdentityGap[],
+  }
+}
+
+/**
+ * Narrow a payload contractViolation() has already accepted.
+ *
+ * Every read here is unconditional and every cast is discharged by a check
+ * above: scopeViolation for scope, authorityViolation for both authorities,
+ * counterViolation for the six counters and arrays, roleViolation for each
+ * role. This is the ONLY place a v1 field is read without a guard, and it runs
+ * only after that guard has passed.
+ */
+function extractBlock(block: Record<string, unknown>, status: ValidStatus): ValidBlock {
+  return {
+    contract_version: block.contract_version as string,
+    status,
+    scope: block.scope as IdentityScope,
+    inventory_authority: extractAuthority(block.inventory_authority),
+    decision_authority: extractAuthority(block.decision_authority),
+    roles_total: block.roles_total as number | null,
+    roles_returned: block.roles_returned as number,
+    roles_truncated: block.roles_truncated as boolean,
+    roles_omitted_unresolved: block.roles_omitted_unresolved as number | null,
+    roles: (block.roles as unknown[]).map(extractRole),
+    gaps: block.gaps as IdentityGap[],
+  }
+}
+
 function num(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null
 }
 
-function receipt(label: string, authority: IdentityAuthority | null | undefined): AuthorityReceipt | null {
-  if (!authority || typeof authority !== "object") return null
+function receipt(label: string, authority: ValidAuthority | null): AuthorityReceipt | null {
+  if (authority === null) return null
+  // Every field is required on ValidAuthority, so nothing is defaulted here.
   return {
     label,
-    projectionScope: str(authority.projection_scope),
-    generation: num(authority.generation),
-    sourceVectorHash: str(authority.source_vector_hash),
-    projectionReceiptHash: str(authority.projection_receipt_hash),
-    projectedThrough: str(authority.projected_through),
-    stagingRunId: str(authority.staging_run_id),
+    projectionScope: authority.projection_scope,
+    generation: authority.generation,
+    sourceVectorHash: authority.source_vector_hash,
+    projectionReceiptHash: authority.projection_receipt_hash,
+    projectedThrough: authority.projected_through,
+    stagingRunId: authority.staging_run_id,
   }
 }
 
 export const INVENTORY_AUTHORITY_LABEL = "Canonical inventory"
 export const DECISION_AUTHORITY_LABEL = "Role action decision"
 
-function receipts(block: IdentityAccessBlock): AuthorityReceipt[] {
+function receipts(block: ValidBlock): AuthorityReceipt[] {
   const out: AuthorityReceipt[] = []
   const inventory = receipt(INVENTORY_AUTHORITY_LABEL, block.inventory_authority)
   if (inventory) out.push(inventory)
@@ -850,14 +1054,6 @@ function receipts(block: IdentityAccessBlock): AuthorityReceipt[] {
   return out
 }
 
-/**
- * Cross-check the identity block's scope against the payload carrying it.
- *
- * Only three fields exist on both. `customer_id` is echoed and NOT verified —
- * the topology payload does not carry a tenant id, so there is nothing here to
- * compare it to, and the view says which is which rather than implying a
- * tenant check this code cannot perform.
- */
 export function bindScope(
   scope: IdentityScope | null | undefined,
   payload: Pick<TopologyRiskResponse, "system" | "account_id" | "region" | "vpc_id"> | null | undefined,
@@ -898,7 +1094,7 @@ export function bindScope(
  * here are exactly the two families the installed canonical path can serve.
  */
 export function buildGraph(
-  roles: IdentityRole[],
+  roles: ValidRole[],
   options: { decisionGeneration?: number | null } = {},
 ): IdentityGraph {
   const decisionGeneration = options.decisionGeneration ?? null
@@ -908,18 +1104,23 @@ export function buildGraph(
 
   for (const role of roles) {
     const roleNodeId = `role:${role.role_id}`
-    const attachmentModes = [...(role.attachment_modes ?? [])].sort()
+    // No fallbacks below: ValidRole makes every field required, and
+    // roleViolation refused anything that did not carry it.
+    const attachmentModes = [...role.attachment_modes].sort()
     nodes.push({
       kind: "role",
       id: roleNodeId,
       roleId: role.role_id,
-      label: str(role.name) ?? role.role_id,
-      roleArn: str(role.role_arn),
-      lifecycleState: str(role.lifecycle_state),
+      // `name` is display text the producer may legitimately emit as null, so
+      // falling back to the role id here is a presentation choice, not an
+      // invented fact.
+      label: role.name ?? role.role_id,
+      roleArn: role.role_arn,
+      lifecycleState: role.lifecycle_state,
       attachmentModes,
     })
 
-    for (const workloadId of [...(role.workload_ids ?? [])].sort()) {
+    for (const workloadId of [...role.workload_ids].sort()) {
       const workloadNodeId = `workload:${workloadId}`
       if (!seenWorkloads.has(workloadNodeId)) {
         seenWorkloads.add(workloadNodeId)
@@ -937,34 +1138,41 @@ export function buildGraph(
       })
     }
 
-    const configured = role.configured_grants ?? {}
-    const observedUse = role.observed_use ?? {}
-    const decisionReady = configured.state === "ready"
-    const observedReady = observedUse.state === "ready"
-    const effective = role.effective_authorization ?? {}
+    const decisionReady = role.configured_grants.state === "ready"
+    const observedReady = role.observed_use.state === "ready"
     const decisionNodeId = `decision:${role.role_id}`
-    nodes.push({
+    const shared: GraphDecisionBase = {
       kind: "decision",
       id: decisionNodeId,
       roleId: role.role_id,
-      state: decisionReady ? "ready" : "unavailable",
-      configuredGrantCount: decisionReady ? num(configured.exact_action_count) : null,
-      observed: observedReady
-        ? {
-            successful: num(observedUse.successful_action_count),
-            deniedOnly: num(observedUse.denied_only_action_count),
-            notObserved: num(observedUse.not_observed_action_count),
-            unknown: num(observedUse.unknown_action_count),
-            lastSuccessAt: str(observedUse.last_success_at),
-          }
-        : null,
       effectiveAuthorization: {
-        availability: str(effective.availability) ?? "unavailable",
-        decision: str(effective.decision),
-        reasonCodes: [...(effective.reason_codes ?? [])],
+        availability: role.effective_authorization.availability,
+        decision: role.effective_authorization.decision,
+        reasonCodes: [...role.effective_authorization.reason_codes],
       },
-      gaps: [...(role.gaps ?? [])],
-    })
+      gaps: [...role.gaps],
+    }
+    if (decisionReady) {
+      // roleViolation refused a "ready" configured state without an exact
+      // count, and a "ready" observed state without all four counts and a
+      // coverage block, so every read below is unconditional.
+      nodes.push({
+        ...shared,
+        state: "ready",
+        configuredGrantCount: role.configured_grants.exact_action_count as number,
+        observed: observedReady
+          ? {
+              successful: role.observed_use.successful_action_count as number,
+              deniedOnly: role.observed_use.denied_only_action_count as number,
+              notObserved: role.observed_use.not_observed_action_count as number,
+              unknown: role.observed_use.unknown_action_count as number,
+              lastSuccessAt: role.observed_use.last_success_at,
+            }
+          : null,
+      })
+    } else {
+      nodes.push({ ...shared, state: "unavailable", configuredGrantCount: null, observed: null })
+    }
     edges.push({
       from: roleNodeId,
       to: decisionNodeId,
@@ -1165,10 +1373,11 @@ export function buildIdentityView(
     )
   }
 
-  const block = raw as IdentityAccessBlock
-  const scope = block.scope ?? null
-  const scopeBinding = bindScope(scope, payload)
-  const common = { ...matrix, contractVersion, scope, scopeBinding }
+  // Everything from here reads the REFINED block. Its producer-required fields
+  // are non-optional, so no branch below can substitute a value of its own.
+  const block = extractBlock(raw, status as ValidStatus)
+  const scopeBinding = bindScope(block.scope, payload)
+  const common = { ...matrix, contractVersion, scope: block.scope, scopeBinding }
 
   if (scopeBinding.mismatches.length > 0) {
     const named = scopeBinding.mismatches
@@ -1184,7 +1393,7 @@ export function buildIdentityView(
     )
   }
 
-  const gaps = [...(block.gaps ?? [])]
+  const gaps = [...block.gaps]
   const authorities = receipts(block)
   if (status === "unavailable") {
     return shell(
@@ -1197,14 +1406,17 @@ export function buildIdentityView(
     )
   }
 
-  const roles = [...(block.roles ?? [])]
-  const rolesTotal = num(block.roles_total)
-  const rolesTruncated = block.roles_truncated === true
-  const rolesOmittedUnresolved = num(block.roles_omitted_unresolved)
+  const roles = [...block.roles]
+  const rolesTotal = block.roles_total
+  const rolesTruncated = block.roles_truncated
+  const rolesOmittedUnresolved = block.roles_omitted_unresolved
   const decisionAuthority = authorities.find(
     item => item.label === DECISION_AUTHORITY_LABEL,
   )
-  const decisionGeneration = decisionAuthority?.generation ?? null
+  // Read from the refined block, with no fallback: the authority is either
+  // absent (explicitly null, which partial legitimately is) or complete.
+  const decisionGeneration =
+    block.decision_authority === null ? null : block.decision_authority.generation
 
   /*
    * Empty-authoritative is the strongest claim this tab makes — "nothing is
@@ -1229,9 +1441,7 @@ export function buildIdentityView(
     receipts: authorities,
     roles,
     rolesTotal,
-    // Validation guarantees this key and its type, so nothing is inferred
-    // here. The floor exists only to satisfy the type; it is unreachable.
-    rolesReturned: num(block.roles_returned) ?? 0,
+    rolesReturned: block.roles_returned,
     rolesTruncated,
     rolesOmittedUnresolved,
     gaps,
@@ -1288,7 +1498,7 @@ export function buildIdentityView(
    * hash-verified would upgrade an uncertifiable generation to a certified one
    * in the reader's mind.
    */
-  const decisionCertified = hasReceiptHash(block.decision_authority)
+  const decisionCertified = block.decision_authority?.projection_receipt_hash != null
   const decisionNamed = decisionCertified
     ? `hash-verified decision authority (generation ${decisionGeneration})`
     : `decision authority at generation ${decisionGeneration} (no projection ` +

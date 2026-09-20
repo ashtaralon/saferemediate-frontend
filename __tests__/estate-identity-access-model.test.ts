@@ -45,6 +45,19 @@ function payload(identityAccess: unknown) {
   return { ...TOPOLOGY, identity_access: identityAccess } as any
 }
 
+/**
+ * A complete, producer-shaped role for the tests that drive buildGraph directly.
+ *
+ * buildGraph consumes ValidRole, in which every producer-required field is
+ * non-optional and nothing is defaulted. Handing it a hand-trimmed object was
+ * only ever possible because those fallbacks existed; starting from a real
+ * fixture role keeps these tests on the shapes the producer actually emits.
+ */
+function validRole(overrides: Record<string, unknown> = {}): any {
+  const base = JSON.parse(JSON.stringify(fixtures.ready.roles[0]))
+  return { ...base, ...overrides }
+}
+
 function viewOf(identityAccess: unknown) {
   return buildIdentityView(payload(identityAccess))
 }
@@ -1361,14 +1374,8 @@ describe("workload → role → decision", () => {
 
   it("a role shared by two workloads yields one role node, not two", () => {
     const graph = buildGraph([
-      {
-        role_id: "AROASHARED",
-        workload_ids: ["i-a", "i-b"],
-        attachment_modes: ["instance_profile"],
-        configured_grants: { state: "ready", exact_action_count: 1 },
-        observed_use: { state: "ready" },
-      },
-    ] as any)
+      validRole({ role_id: "AROASHARED", workload_ids: ["i-a", "i-b"] }),
+    ])
     expect(graph.nodes.filter(node => node.kind === "role").length).toBe(1)
     expect(graph.nodes.filter(node => node.kind === "workload").length).toBe(2)
   })
@@ -1429,34 +1436,18 @@ describe("motion is a claim, so it is gated twice", () => {
   })
 
   it("an observed hop with NO decision generation behind it does not animate", () => {
-    const graph = buildGraph(
-      [
-        {
-          role_id: "R",
-          workload_ids: ["i-a"],
-          configured_grants: { state: "ready", exact_action_count: 1 },
-          observed_use: { state: "ready" },
-        },
-      ] as any,
-      { decisionGeneration: null },
-    )
+    const graph = buildGraph([validRole({ role_id: "R", workload_ids: ["i-a"] })], {
+      decisionGeneration: null,
+    })
     const hop = graph.edges.find(edge => edge.family === "ROLE_ACTION_DECISION")!
     expect(hop.plane).toBe("observed")
     expect(hop.animated).toBe(false)
   })
 
   it("the same hop animates once a generation stands behind it", () => {
-    const graph = buildGraph(
-      [
-        {
-          role_id: "R",
-          workload_ids: ["i-a"],
-          configured_grants: { state: "ready", exact_action_count: 1 },
-          observed_use: { state: "ready" },
-        },
-      ] as any,
-      { decisionGeneration: 12 },
-    )
+    const graph = buildGraph([validRole({ role_id: "R", workload_ids: ["i-a"] })], {
+      decisionGeneration: 12,
+    })
     expect(graph.edges.find(edge => edge.family === "ROLE_ACTION_DECISION")!.animated).toBe(true)
   })
 

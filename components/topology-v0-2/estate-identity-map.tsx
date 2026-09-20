@@ -104,9 +104,11 @@ function NodeBox({ placed }: { placed: PlacedNode }) {
   } else {
     const decision = node as GraphDecisionNode
     if (decision.state === "ready") {
-      title = `${decision.configuredGrantCount ?? "—"} actions granted`
+      // The union makes these numbers, not nullable ones: a "ready" decision
+      // carries its counts or it is not ready.
+      title = `${decision.configuredGrantCount} actions granted`
       subtitle = decision.observed
-        ? `${decision.observed.successful ?? "—"} used · ${decision.observed.deniedOnly ?? "—"} denied-only`
+        ? `${decision.observed.successful} used · ${decision.observed.deniedOnly} denied-only`
         : "observed use not read"
     } else {
       title = "Decision unavailable"
