@@ -13,7 +13,7 @@ import type { CrownJewelSummary } from './identity-attack-paths/types'
 import { useCrownJewelConvergence } from '@/lib/attack-paths/use-crown-jewel-convergence'
 import { toCrownJewelSummary } from '@/lib/attack-paths/crown-jewel-v2-navigation'
 import { ErrorBoundary } from '@/components/ui/error-boundary'
-import { SYNC_ACTION_LABEL } from "@/lib/sync-from-aws"
+import { RefreshEvidenceButton } from "@/components/RefreshEvidenceButton"
 
 // Lazy load SankeyView with SSR disabled (nivo uses browser APIs)
 const SankeyView = dynamic(
@@ -517,11 +517,16 @@ export default function DependencyMapTab({
     }
   }, [systemName, searchQuery])
 
-  const { syncing, progress: syncProgress, syncMessage, startSync } = useSyncFromAWS({
-    onComplete: () => {
-      setTimeout(() => fetchGraphData(), 1000)
-    },
-  })
+  // No bare useSyncFromAWS here. startSync() with no `sources` runs the
+  // backend's DEFAULT lane -- vulnerability_findings -- so this control
+  // refreshed Inspector evidence and then reported success as if THIS
+  // screen's evidence had been collected. RefreshEvidenceButton declares
+  // surface="dependencyMap", names that evidence, stays disabled until every
+  // required lane is CONNECTED, and only calls back when the backend
+  // receipt covers all of them.
+  const handleEvidenceRefreshed = useCallback(() => {
+    setTimeout(() => fetchGraphData(), 1000)
+  }, [fetchGraphData])
 
   // Fetch resources separately if not loaded from graph
   const fetchResources = useCallback(async () => {
@@ -698,47 +703,18 @@ export default function DependencyMapTab({
             )}
           </div>
 
-          {/* Sync from AWS button */}
+          {/* Per-surface refresh: dependencyMap needs inventory_reconcile
+              AND network_flow, and stays disabled until both are CONNECTED. */}
           <div className="flex items-center gap-3">
-            <button
-              onClick={() => void startSync()}
-              disabled={syncing}
-              className="flex items-center gap-2 px-4 py-2 bg-[#8b5cf6] text-white rounded-lg hover:bg-[#7c3aed] disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium"
-            >
-              {syncing ? (
-                <>
-                  <RefreshCw className="w-4 h-4 animate-spin" />
-                  Syncing...
-                </>
-              ) : (
-                <>
-                  <Cloud className="w-4 h-4" />
-                  {SYNC_ACTION_LABEL}
-                </>
-              )}
-            </button>
+            <RefreshEvidenceButton surface="dependencyMap" onRefreshed={handleEvidenceRefreshed} />
 
-            {/* Progress indicator */}
-            {syncing && syncProgress && (
-              <div className="flex items-center gap-2 bg-[#3b82f610] px-3 py-1.5 rounded-lg border border-[#3b82f640]">
-                <div className="w-24 bg-blue-200 rounded-full h-2">
-                  <div
-                    className="bg-blue-600 h-2 rounded-full transition-all duration-500"
-                    style={{ width: `${syncProgress.percent ?? 0}%` }}
-                  />
-                </div>
-                <span className="text-xs text-[#3b82f6] font-medium whitespace-nowrap">
-                  {syncProgress.label}
-                </span>
-              </div>
-            )}
-
-            {syncMessage && (
-              <div className={`flex items-center gap-1.5 text-sm ${syncMessage.type === 'success' ? 'text-[#22c55e]' : 'text-[#ef4444]'}`}>
-                {syncMessage.type === 'success' ? <CheckCircle className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
-                <span>{syncMessage.text}</span>
-              </div>
-            )}
+            {/* The progress bar and message are gone with the bare hook.
+                RefreshEvidenceButton owns its own pending state and, more
+                importantly, its own RESULT: it reports refreshed only when
+                the backend receipt covers inventory_reconcile AND
+                network_flow. The old indicator rendered the Inspector
+                round's progress next to a dependency map it never
+                refreshed. */}
           </div>
         </div>
       </div>

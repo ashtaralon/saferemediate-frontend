@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect, useMemo, useCallback} from "react"
 import {
   Search,
   ChevronDown,
@@ -24,7 +24,7 @@ import {
   CheckCircle,
 } from "lucide-react"
 import { Input } from "@/components/ui/input"
-import { useSyncFromAWS } from "@/hooks/use-sync-from-aws"
+import { RefreshEvidenceButton } from "@/components/RefreshEvidenceButton"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -32,7 +32,6 @@ import { ResourceConfigTab } from "@/components/inventory/resource-config-tab"
 import { ResourceDossier } from "@/components/inventory/resource-dossier"
 import { canonicalInventoryResourceId } from "@/lib/inventory-resource-identity"
 import { ServiceTypeBadge, getServiceMeta } from "@/lib/service-type"
-import { SYNC_ACTION_LABEL } from "@/lib/sync-from-aws"
 
 export interface ServiceNode {
   id: string
@@ -313,14 +312,17 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
     }
   }
 
-  const { syncing, syncMessage, startSync } = useSyncFromAWS({
-    onComplete: () => {
-      setTimeout(() => {
-        void fetchServices()
-        void fetchGapData()
-      }, 1000)
-    },
-  })
+  // No bare useSyncFromAWS here. This screen displays AWS resource inventory,
+  // and startSync() with no `sources` runs the backend's DEFAULT lane --
+  // vulnerability_findings -- so the control refreshed Inspector evidence and
+  // then reported success as if the inventory had been collected.
+  // RefreshEvidenceButton declares surface="inventory", names that evidence,
+  // stays disabled until inventory_reconcile is CONNECTED, and only calls
+  // back when the backend receipt covers it.
+  const handleInventoryRefreshed = useCallback(() => {
+    void fetchServices()
+    void fetchGapData()
+  }, [fetchServices, fetchGapData])
 
   const computeServices = useMemo(() => {
     return services.filter((s) => matchesTypeList(s.type, COMPUTE_DATA_TYPES))
@@ -741,29 +743,7 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
           <RefreshCw className="w-4 h-4" />
           Refresh
         </Button>
-        <Button
-          variant="default"
-          onClick={() => void startSync()}
-          disabled={syncing}
-          className="gap-2 bg-[#8b5cf6] hover:bg-[#7c3aed] text-white"
-        >
-          {syncing ? (
-            <>
-              <RefreshCw className="w-4 h-4 animate-spin" />
-              Syncing...
-            </>
-          ) : (
-            <>
-              <Cloud className="w-4 h-4" />
-              {SYNC_ACTION_LABEL}
-            </>
-          )}
-        </Button>
-        {syncMessage && (
-          <span className={`text-sm ${syncMessage.type === 'success' ? 'text-[#22c55e]' : 'text-[#ef4444]'}`}>
-            {syncMessage.text}
-          </span>
-        )}
+        <RefreshEvidenceButton surface="inventory" onRefreshed={handleInventoryRefreshed} />
       </div>
 
       {/* System-attributed services — one collapsible section PER TYPE (grouped, largest first) */}

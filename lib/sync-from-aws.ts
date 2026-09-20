@@ -219,17 +219,14 @@ export function isForRun(status: SyncJobStatus | null | undefined, jobId: string
   return Boolean(status && status.job_id && status.job_id === jobId)
 }
 
-/** The user-facing name of the action.
- *
- *  Deliberately NOT "Sync from AWS". Exactly one data-engine lane is
- *  provable today — `vulnerability_findings` is the only one with a receipt
- *  store; `inventory_reconcile`, `api_activity` and `network_flow` report
- *  NOT_CONNECTED and can be enqueued but never confirmed. A control labelled
- *  for the estate, completing on a vulnerability-only run, tells an operator
- *  their whole estate was refreshed on the strength of one lane. Rename the
- *  action when a second lane gains a receipt, not before. */
-export const SYNC_ACTION_LABEL = "Refresh vulnerability findings"
-export const SYNC_ACTION_PENDING_LABEL = "Refreshing vulnerability findings…"
+// There is deliberately NO module-level action label here.
+//
+// A single shared label is the wrong shape: it invites substituting one
+// name into every screen, which is exactly the mistake that put "Refresh
+// vulnerability findings" on the IAM, least-privilege, behavioral,
+// dependency and inventory controls while they still ran a bare
+// vulnerability_findings round. The label belongs to the SURFACE, beside
+// its requiredLanes: see SYNC_SURFACES in lib/sync-surfaces.ts.
 
 /** Completion text, scoped to what was actually proven.
  *

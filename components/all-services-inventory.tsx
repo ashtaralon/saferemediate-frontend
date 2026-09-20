@@ -33,6 +33,7 @@ import {
 } from '@/lib/inventory-honesty'
 import { useAccountScope } from '@/lib/account-scope-context'
 import { resourceAccountId, withAccountScope, type ProductScope } from '@/lib/account-scope'
+import { RefreshEvidenceButton } from "@/components/RefreshEvidenceButton"
 
 type InventoryScope = Pick<ProductScope, 'customerId' | 'groupId' | 'accountId' | 'region'>
 
@@ -455,11 +456,16 @@ export default function AllServicesInventory({ systemName }: Props) {
   ])
 
   // Manual sync — refresh inventory; do not stamp browser clock as last sync.
-  const { syncing, startSync } = useSyncFromAWS({
-    onComplete: () => {
-      void fetchServices()
-    },
-  })
+  // No bare useSyncFromAWS here. startSync() with no `sources` runs the
+  // backend's DEFAULT lane -- vulnerability_findings -- so this control
+  // refreshed Inspector evidence and then reported success as if THIS
+  // screen's evidence had been collected. RefreshEvidenceButton declares
+  // surface="inventory", names that evidence, stays disabled until every
+  // required lane is CONNECTED, and only calls back when the backend
+  // receipt covers all of them.
+  const handleInventoryRefreshed = useCallback(() => {
+    void fetchServices()
+  }, [fetchServices])
 
   useEffect(() => {
     fetchServices()
@@ -684,14 +690,7 @@ export default function AllServicesInventory({ systemName }: Props) {
           </div>
           
           {/* Sync button */}
-          <button
-            onClick={() => void startSync()}
-            disabled={syncing}
-            className="flex items-center gap-2 px-4 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 disabled:opacity-50"
-          >
-            <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
-            {syncing ? 'Syncing...' : 'Sync from AWS'}
-          </button>
+          <RefreshEvidenceButton surface="inventory" onRefreshed={handleInventoryRefreshed} />
           
           {/* View toggle */}
           <div className="flex bg-slate-100 rounded-lg p-1">

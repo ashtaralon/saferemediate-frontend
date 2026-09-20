@@ -2,7 +2,13 @@
 
 import { Zap, RefreshCw, CheckCircle, XCircle, AlertTriangle } from "lucide-react"
 import { useSyncFromAWS } from "@/hooks/use-sync-from-aws"
-import { SYNC_ACTION_LABEL, SYNC_ACTION_PENDING_LABEL } from "@/lib/sync-from-aws"
+import { useSyncCapabilities } from "@/hooks/use-sync-capabilities"
+import { isActivated } from "@/lib/sync-from-aws"
+import {
+  SYNC_SURFACES,
+  surfaceCapability,
+  unsupportedLanes,
+} from "@/lib/sync-surfaces"
 
 interface SyncFromAWSButtonProps {
   onSyncComplete?: () => void
@@ -10,11 +16,26 @@ interface SyncFromAWSButtonProps {
 }
 
 export function SyncFromAWSButton({ onSyncComplete, className = "" }: SyncFromAWSButtonProps) {
+  // This control runs the certified vulnerability_findings lane, so it is the
+  // `cve` surface and says so. It does NOT get a generic label: an earlier
+  // revision relabelled six screens to "Refresh vulnerability findings" while
+  // they still ran bare startSync(), which offered an Inspector action on
+  // screens displaying IAM, inventory and flow evidence.
+  const contract = SYNC_SURFACES.cve
+  const { capabilities, loadingCapabilities } = useSyncCapabilities()
+  const capability = surfaceCapability(contract, capabilities)
+  const unsupported = unsupportedLanes(contract, capabilities)
+
   const { syncing, progress, syncMessage, results, startSync } = useSyncFromAWS({
     onComplete: onSyncComplete,
     pollIntervalMs: 5000,
     autoClearMessageMs: 0,
   })
+
+  // Fail CLOSED, as RefreshEvidenceButton does. UNKNOWN keeps the control
+  // disabled: being wrongly disabled costs a retry, being wrongly enabled
+  // spends a real AWS collection round and invites a false freshness claim.
+  const blocked = capability !== "CONNECTED"
 
   // `null` means the producer sent no authoritative percentage. `|| 0` would
   // have turned that absence into a measured 0%, and an absent current_step
@@ -31,19 +52,28 @@ export function SyncFromAWSButton({ onSyncComplete, className = "" }: SyncFromAW
   return (
     <div className={`flex flex-col gap-2 ${className}`}>
       <button
-        onClick={() => void startSync()}
-        disabled={syncing}
+        onClick={() => void startSync({ sources: contract.requiredLanes })}
+        disabled={syncing || blocked || loadingCapabilities}
+        title={
+          blocked
+            ? `Cannot refresh ${contract.evidence}: ${
+                unsupported.length
+                  ? `${unsupported.join(", ")} not connected`
+                  : "capabilities unknown"
+              }`
+            : undefined
+        }
         className="flex items-center gap-2 px-4 py-2 bg-[#8b5cf6] text-white rounded-lg hover:bg-[#7c3aed] disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
       >
         {syncing ? (
           <>
             <RefreshCw className="w-4 h-4 animate-spin" />
-            {SYNC_ACTION_PENDING_LABEL}
+            {`${contract.action}…`}
           </>
         ) : (
           <>
             <Zap className="w-4 h-4" />
-            {SYNC_ACTION_LABEL}
+            {contract.action}
           </>
         )}
       </button>

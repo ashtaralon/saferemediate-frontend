@@ -64,7 +64,7 @@ export default function SankeyView({
         <p className="text-slate-500 text-sm mt-2 text-center max-w-md">
           Traffic flows will appear when ACTUAL_TRAFFIC edges are detected from VPC Flow Logs.
           <br />
-          Click "Sync from AWS" to fetch the latest traffic data.
+          Use "Refresh dependency evidence" to collect resource inventory and network flow evidence.
         </p>
         <button
           onClick={onRefresh}

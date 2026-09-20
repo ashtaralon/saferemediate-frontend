@@ -1,13 +1,15 @@
 /**
- * What the OPERATOR sees, rendered.
+ * What the OPERATOR sees, rendered, for the CVE surface control.
  *
  * An import chain never proves what reaches the screen, so these drive the
- * real component through the real hook against a stubbed fetch, and assert
- * on rendered text.
+ * real component through the real hooks against a stubbed fetch and assert on
+ * rendered text and on which requests were actually issued.
  *
- * Two claims are under test:
- *   1. the action is scoped to vulnerability findings, not the estate, and
- *   2. success is rendered only for a run that carries its activation receipt.
+ * Four claims are under test:
+ *   1. the control names the lane it runs, not the estate,
+ *   2. it fails CLOSED — an unconnected or unknown lane does not enqueue,
+ *   3. success renders only for a run carrying its activation receipt,
+ *   4. no fabricated number reaches the screen.
  */
 
 import { cleanup, render, screen, waitFor } from "@testing-library/react"
@@ -30,50 +32,118 @@ const RECEIPT = {
   projection_receipt_hash: "v1:abc",
 }
 
-/** Start returns a job; every status poll returns `status`. */
-function stubSync(status: Record<string, unknown>) {
+function lanes(vulnState: string) {
+  return {
+    lanes: [
+      { lane: "vulnerability_findings", label: "Amazon Inspector findings", state: vulnState },
+      { lane: "inventory_reconcile", label: "AWS inventory", state: "NOT_CONNECTED" },
+    ],
+  }
+}
+
+/** Stub capabilities + start + status, and record every request. */
+function stub({ capabilities, status }: { capabilities: unknown; status?: Record<string, unknown> }) {
+  const calls: string[] = []
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input)
-      if (url.includes("/api/proxy/sync/start")) {
-        return new Response(
-          JSON.stringify({ success: true, job_id: "job-1", accepted: true, activated: false }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        )
-      }
-      return new Response(JSON.stringify(status), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      })
+      calls.push(url)
+      const json = (body: unknown) =>
+        new Response(JSON.stringify(body), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      if (url.includes("/api/proxy/sync/capabilities")) return json(capabilities)
+      if (url.includes("/api/proxy/sync/start"))
+        return json({ success: true, job_id: "job-1", accepted: true, activated: false })
+      return json(status ?? {})
     }),
   )
+  return calls
 }
 
-describe("the rendered action is scoped to what is provable", () => {
-  it("does not offer an estate-wide Sync from AWS", () => {
-    render(<SyncFromAWSButton />)
-    const button = screen.getByRole("button")
+const enqueued = (calls: string[]) => calls.filter((u) => u.includes("/sync/start"))
 
-    // Only vulnerability_findings has a receipt store. A control labelled for
-    // the estate, completing on a vulnerability-only round, tells an operator
-    // their whole estate was refreshed on the strength of one lane.
-    expect(button.textContent).toContain("Refresh vulnerability findings")
-    expect(button.textContent).not.toMatch(/sync from aws/i)
+describe("the control names the lane it runs", () => {
+  it("offers the Inspector-findings action, never an estate-wide sync", async () => {
+    stub({ capabilities: lanes("CONNECTED") })
+    render(<SyncFromAWSButton />)
+
+    await waitFor(() =>
+      expect(screen.getByRole("button").textContent).toContain("Refresh Inspector findings"),
+    )
+    expect(screen.getByRole("button").textContent).not.toMatch(/sync from aws/i)
+  })
+
+  it("asks for its own lane by name, not a bare round", async () => {
+    const calls = stub({ capabilities: lanes("CONNECTED") })
+    render(<SyncFromAWSButton />)
+    await waitFor(() => expect(screen.getByRole("button")).not.toBeDisabled())
+    screen.getByRole("button").click()
+
+    await waitFor(() => expect(enqueued(calls)).toHaveLength(1))
+    expect(enqueued(calls)[0]).toContain("sources=vulnerability_findings")
   })
 })
 
-describe("the rendered result is gated on the activation receipt", () => {
+describe("it fails closed", () => {
+  it("does NOT enqueue when its lane is not connected", async () => {
+    const calls = stub({ capabilities: lanes("NOT_CONNECTED") })
+    render(<SyncFromAWSButton />)
+
+    await waitFor(() => expect(screen.getByRole("button")).toBeDisabled())
+    screen.getByRole("button").click()
+    // Spending a real AWS collection round to discover what /capabilities
+    // already said is exactly what the disabled state prevents.
+    expect(enqueued(calls)).toEqual([])
+  })
+
+  it("does NOT enqueue while capabilities are UNKNOWN", async () => {
+    // The lane is absent from the map entirely -> UNKNOWN -> disabled.
+    const calls = stub({ capabilities: { lanes: [] } })
+    render(<SyncFromAWSButton />)
+
+    await waitFor(() => expect(screen.getByRole("button")).toBeDisabled())
+    screen.getByRole("button").click()
+    expect(enqueued(calls)).toEqual([])
+  })
+
+  it("does NOT enqueue when the capabilities call itself failed", async () => {
+    const calls: string[] = []
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        calls.push(String(input))
+        return new Response("nope", { status: 500 })
+      }),
+    )
+    render(<SyncFromAWSButton />)
+
+    await waitFor(() => expect(screen.getByRole("button")).toBeDisabled())
+    screen.getByRole("button").click()
+    expect(enqueued(calls)).toEqual([])
+  })
+})
+
+describe("success requires an activation receipt for THIS run", () => {
   it("renders success naming the generation when the receipt is present", async () => {
-    stubSync({
-      job_id: "job-1",
-      status: "completed",
-      state: "neptune_generation_active",
-      message: "",
-      activation: RECEIPT,
-      results: { vulnerability_findings: { active_findings: 32, active_coverage: 17 } },
+    stub({
+      capabilities: lanes("CONNECTED"),
+      status: {
+        job_id: "job-1",
+        status: "completed",
+        state: "neptune_generation_active",
+        message: "",
+        activation: RECEIPT,
+        results: {
+          vulnerability_findings: { active_findings: 32, active_coverage: 17 },
+          refreshed_sources: ["vulnerability_findings"],
+        },
+      },
     })
     render(<SyncFromAWSButton />)
+    await waitFor(() => expect(screen.getByRole("button")).not.toBeDisabled())
     screen.getByRole("button").click()
 
     await waitFor(() =>
@@ -85,16 +155,18 @@ describe("the rendered result is gated on the activation receipt", () => {
   })
 
   it("does NOT render success for a completed run with no receipt", async () => {
-    // The pre-receipt row, and the run that lost the pointer to a concurrent
-    // projector. Both say "completed"; neither proves anything is served.
-    stubSync({
-      job_id: "job-1",
-      status: "completed",
-      state: "completed_without_activation_receipt",
-      message: "",
-      results: { vulnerability_findings: { active_findings: 32, active_coverage: 17 } },
+    stub({
+      capabilities: lanes("CONNECTED"),
+      status: {
+        job_id: "job-1",
+        status: "completed",
+        state: "completed_without_activation_receipt",
+        message: "",
+        results: { vulnerability_findings: { active_findings: 32, active_coverage: 17 } },
+      },
     })
     render(<SyncFromAWSButton />)
+    await waitFor(() => expect(screen.getByRole("button")).not.toBeDisabled())
     screen.getByRole("button").click()
 
     await waitFor(() => expect(document.body.textContent).toMatch(/no proof/i))
@@ -102,38 +174,43 @@ describe("the rendered result is gated on the activation receipt", () => {
     expect(document.body.textContent).not.toContain("32 active findings")
   })
 
-  it("renders no percentage while the backend reports none", async () => {
-    stubSync({
-      job_id: "job-1",
-      status: "running",
-      state: "inspector_collection_and_projection",
-      message: "Refreshing",
+  it("does NOT render success when the status belongs to another run", async () => {
+    stub({
+      capabilities: lanes("CONNECTED"),
+      status: {
+        job_id: "a-different-run",
+        status: "completed",
+        state: "neptune_generation_active",
+        message: "",
+        activation: RECEIPT,
+      },
     })
     render(<SyncFromAWSButton />)
+    await waitFor(() => expect(screen.getByRole("button")).not.toBeDisabled())
+    screen.getByRole("button").click()
+
+    await waitFor(() => expect(document.body.textContent).not.toContain("is active in Neptune"))
+  })
+
+  it("renders no percentage while the backend reports none", async () => {
+    stub({
+      capabilities: lanes("CONNECTED"),
+      status: {
+        job_id: "job-1",
+        status: "running",
+        state: "inspector_collection_and_projection",
+        message: "Refreshing",
+      },
+    })
+    render(<SyncFromAWSButton />)
+    await waitFor(() => expect(screen.getByRole("button")).not.toBeDisabled())
     screen.getByRole("button").click()
 
     await waitFor(() =>
       expect(document.body.textContent).toContain("Refreshing Inspector evidence in Neptune"),
     )
-    // The regression: Math.round(undefined / 2 * 100) reached the screen.
     expect(document.body.textContent).not.toMatch(/NaN/)
     expect(document.body.textContent).not.toMatch(/\d+%/)
     expect(document.body.textContent).not.toMatch(/Step \d+\//)
-  })
-
-  it("does NOT render success when the status belongs to another run", async () => {
-    stubSync({
-      job_id: "a-different-run",
-      status: "completed",
-      state: "neptune_generation_active",
-      message: "",
-      activation: RECEIPT,
-    })
-    render(<SyncFromAWSButton />)
-    screen.getByRole("button").click()
-
-    // Binding on the run id is what stops one surface reporting another's
-    // activation as its own. It reads as a transport failure, not success.
-    await waitFor(() => expect(document.body.textContent).not.toContain("is active in Neptune"))
   })
 })

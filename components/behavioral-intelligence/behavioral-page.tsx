@@ -16,7 +16,7 @@ import { DetectionsSection, Detection } from './detections-section'
 import { DataAccessSection, BucketAccess, DataPrincipal, FirstTimeAccessEvent } from './data-access-section'
 import { CryptoKeysSection, KmsKey, CryptoPrincipal, KeyLifecycleEvent } from './crypto-keys-section'
 import { ReconciliationLegend } from './reconciliation-badge'
-import { SYNC_ACTION_LABEL } from "@/lib/sync-from-aws"
+import { RefreshEvidenceButton } from "@/components/RefreshEvidenceButton"
 
 // ============================================================================
 // Types
@@ -285,11 +285,22 @@ export function BehavioralPage({ systemName }: BehavioralPageProps) {
     fetchData()
   }, [fetchData])
 
-  const { syncing, syncMessage, setSyncMessage, startSync } = useSyncFromAWS({
-    onComplete: () => {
-      void fetchData()
-    },
-  })
+  // No bare useSyncFromAWS here. startSync() with no `sources` runs the
+  // backend's DEFAULT lane -- vulnerability_findings -- so this control
+  // refreshed Inspector evidence and then reported success as if THIS
+  // screen's evidence had been collected. RefreshEvidenceButton declares
+  // surface="behavioral", names that evidence, stays disabled until every
+  // required lane is CONNECTED, and only calls back when the backend
+  // receipt covers all of them.
+  // The page's general toast; it outlived the sync hook it used to come
+  // from, and other handlers below still write to it.
+  const [syncMessage, setSyncMessage] = useState<
+    { type: "success" | "error"; text: string } | null
+  >(null)
+
+  const handleEvidenceRefreshed = useCallback(() => {
+    void fetchData()
+  }, [fetchData])
 
   const toggleSection = (section: string) => {
     const next = new Set(expandedSections)
@@ -378,27 +389,7 @@ export function BehavioralPage({ systemName }: BehavioralPageProps) {
           </select>
 
           {/* Sync button */}
-          <button
-            onClick={() => void startSync()}
-            disabled={syncing}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${
-              syncing
-                ? 'bg-blue-600/50 text-blue-200 cursor-not-allowed'
-                : 'bg-blue-600 hover:bg-[#3b82f610]0 text-white'
-            }`}
-          >
-            {syncing ? (
-              <>
-                <RefreshCw className="w-4 h-4 animate-spin" />
-                Syncing...
-              </>
-            ) : (
-              <>
-                <RefreshCw className="w-4 h-4" />
-                {SYNC_ACTION_LABEL}
-              </>
-            )}
-          </button>
+          <RefreshEvidenceButton surface="behavioral" onRefreshed={handleEvidenceRefreshed} />
 
           {/* Refresh button */}
           <button

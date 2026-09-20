@@ -1,11 +1,17 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { useSyncFromAWS } from '@/hooks/use-sync-from-aws';
+import { RefreshEvidenceButton } from '@/components/RefreshEvidenceButton';
 import { SGGapCard } from './sg-gap-card';
 import { SGRemediationCard } from './sg-remediation-card';
 import { IAMPermissionAnalysisModal } from './iam-permission-analysis-modal';
-import { SYNC_ACTION_LABEL } from "@/lib/sync-from-aws"
+
+/** Rendered when a role carries no data-quality reason. Names the evidence
+ *  this screen needs -- IAM configuration AND observed use -- rather than a
+ *  whole-cloud action that would not refresh either. */
+const LP_DATA_QUALITY_UNKNOWN =
+  "Data quality unknown — use \"Refresh least-privilege evidence\" above; it needs " +
+  "IAM configuration and observed-use evidence."
 
 // Feature flag: render the new IAM-modal-style SG remediation card by
 // default. Flip to false to fall back to the legacy SGGapCard inline
@@ -281,11 +287,23 @@ export const LeastPrivilegeTab: React.FC<LeastPrivilegeTabProps> = ({
     await Promise.all([fetchSecurityGroups(), fetchIAMRoles()]);
   };
 
-  const { syncing, syncMessage, setSyncMessage, startSync } = useSyncFromAWS({
-    onComplete: () => {
-      void handleRefresh();
-    },
-  });
+  // No bare useSyncFromAWS here. startSync() with no `sources` runs the
+  // backend's DEFAULT lane -- vulnerability_findings -- so this control
+  // refreshed Inspector evidence and then reported success as if THIS
+  // screen's evidence had been collected. RefreshEvidenceButton declares
+  // surface="leastPrivilege", names that evidence, stays disabled until every
+  // required lane is CONNECTED, and only calls back when the backend
+  // receipt covers all of them.
+  // A general-purpose toast, not the sync control's: the traffic simulator
+  // below writes to it too. It used to come from useSyncFromAWS, which is
+  // why removing that hook orphaned every simulator message.
+  const [syncMessage, setSyncMessage] = useState<
+    { type: 'success' | 'error'; text: string } | null
+  >(null);
+
+  const handleEvidenceRefreshed = useCallback(() => {
+    void handleRefresh();
+  }, [handleRefresh])
 
   // Fetch available services from Neo4j for simulator dropdowns
   const fetchAvailableServices = useCallback(async () => {
@@ -875,31 +893,9 @@ export const LeastPrivilegeTab: React.FC<LeastPrivilegeTabProps> = ({
               <span>Simulate Traffic</span>
             </button>
 
-            {/* Sync from AWS Button */}
-            <button
-              onClick={() => void startSync()}
-              disabled={syncing}
-              title="Queue a managed AWS evidence refresh through the dedicated Neptune projector"
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${
-                syncing
-                  ? 'bg-blue-600/50 text-blue-200 cursor-not-allowed'
-                  : 'bg-blue-600 hover:bg-blue-700 text-white'
-              }`}
-            >
-              {syncing ? (
-                <>
-                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  <span>Syncing...</span>
-                </>
-              ) : (
-                <>
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10" />
-                  </svg>
-                  <span>{SYNC_ACTION_LABEL}</span>
-                </>
-              )}
-            </button>
+            {/* Per-surface refresh: leastPrivilege needs inventory_reconcile
+                AND api_activity, and stays disabled until both are CONNECTED. */}
+            <RefreshEvidenceButton surface="leastPrivilege" onRefreshed={handleEvidenceRefreshed} />
             
             {/* Refresh Data Button */}
             <button
@@ -1015,7 +1011,7 @@ export const LeastPrivilegeTab: React.FC<LeastPrivilegeTabProps> = ({
                             role.dataQuality === 'none' ? 'bg-red-500/20 text-red-400' :
                             'bg-slate-500/20 text-slate-400'
                           }`}
-                          title={role.dataQualityReason || 'Data quality unknown — run Sync from AWS'}
+                          title={role.dataQualityReason || LP_DATA_QUALITY_UNKNOWN}
                         >
                           <span className={`w-1.5 h-1.5 rounded-full ${
                             role.dataQuality === 'high' ? 'bg-emerald-400' :

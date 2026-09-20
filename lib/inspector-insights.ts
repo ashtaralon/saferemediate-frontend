@@ -57,7 +57,7 @@ export function humanizeInspectorError(raw: string, resourceType?: string): Insi
         severity: "info",
         title: "Not in behavioral graph",
         detail:
-          "Collectors have not persisted this resource yet, or it was removed. Try Sync from AWS on the system page, then reopen.",
+          "Collectors have not persisted this resource yet, or it was removed. Try \"Refresh inventory\" on the system page, then reopen.",
       },
     ]
   }

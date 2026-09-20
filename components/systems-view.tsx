@@ -23,6 +23,7 @@ import { PageHeader } from "@/components/ui/page-header"
 import { BackToDashboard } from "@/components/back-to-dashboard"
 import { useAccountScope } from "@/lib/account-scope-context"
 import { withAccountScope } from "@/lib/account-scope"
+import { RefreshEvidenceButton } from "@/components/RefreshEvidenceButton"
 
 interface System {
   name: string
@@ -438,6 +439,10 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
     }
   }
 
+  const handleInventoryRefreshed = useCallback(() => {
+    void fetchSystemsData()
+  }, [fetchSystemsData])
+
   const handleAddSystemClick = async () => {
     setIsDropdownOpen(!isDropdownOpen)
     if (!isDropdownOpen) {
@@ -497,111 +502,6 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
     }
   }
 
-  const handleReingest = async (scope: "all" | "system" = "all", target?: string | null) => {
-    setIsReingesting(true)
-    const startTime = Date.now()
-
-    try {
-      const requestBody: { scope: string; target?: string | null } = { scope }
-      if (scope === "system" && target) {
-        requestBody.target = target
-      }
-
-      console.log("[systems-view] Starting re-ingestion:", { scope, target })
-
-      const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 60000) // 60s timeout for re-ingestion
-
-      const response = await fetch("/api/proxy/admin/reingest", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(requestBody),
-        signal: controller.signal,
-      })
-
-      clearTimeout(timeoutId)
-      const responseTime = Date.now() - startTime
-
-      console.log("[systems-view] Re-ingest response:", {
-        status: response.status,
-        ok: response.ok,
-        responseTimeMs: responseTime,
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({
-          error: response.statusText || `HTTP ${response.status}`,
-        }))
-
-        console.error("[systems-view] Re-ingestion failed:", {
-          status: response.status,
-          errorData,
-          responseTimeMs: responseTime,
-        })
-
-        // The backend's own sentence wins whenever it sent one. These canned
-        // strings are fallbacks for a silent failure, not overrides: a 503
-        // that says "this tier is read-only by design; the projector worker
-        // refreshes the graph" must not be replaced by a guess that Neptune
-        // "may not be configured" — that sends the operator to the wrong place.
-        const backendMessage = coerceProxyErrorMessage(errorData, "")
-
-        let errorMessage = backendMessage || `Re-ingestion failed (${response.status})`
-
-        if (!backendMessage) {
-          if (response.status === 404) {
-            errorMessage = "Backend endpoint not found. The re-ingest feature may not be deployed yet."
-          } else if (response.status === 503) {
-            errorMessage = "Backend service unavailable. Collectors or Neptune may not be configured."
-          } else if (response.status === 504) {
-            errorMessage = "Request timeout. Re-ingestion may still be running - check backend logs."
-          }
-        }
-
-        throw new Error(errorMessage)
-      }
-
-      const result = await response.json()
-      const totalTime = Date.now() - startTime
-
-      console.log("[systems-view] Re-ingestion success:", {
-        result,
-        totalTimeMs: totalTime,
-        jobId: result.job_id,
-        alreadyRunning: result.already_running,
-      })
-
-      const deferred = Array.isArray(result.deferred_sources) ? result.deferred_sources : []
-      toast({
-        title: result.deduplicated ? "AWS refresh already queued" : "Sync from AWS started",
-        description: deferred.length
-          ? `Inspector is queued for the dedicated Neptune projector. ${deferred.length} additional data source${deferred.length === 1 ? " is" : "s are"} not connected to on-demand refresh yet.`
-          : "AWS evidence refresh is queued for the dedicated Neptune projector.",
-      })
-
-      // Refresh systems data after a short delay so any IAM-tag changes surface.
-      // The full sync takes minutes — the Overview card's Blast Radius score
-      // will update on its next refresh cycle after the job completes.
-      setTimeout(() => {
-        fetchSystemsData()
-      }, 2000)
-    } catch (error: any) {
-      const totalTime = Date.now() - startTime
-      console.error("[systems-view] Re-ingestion error:", {
-        error: error.message,
-        name: error.name,
-        totalTimeMs: totalTime,
-      })
-
-      toast({
-        title: "Re-ingestion Failed",
-        description: error.message || "Failed to trigger re-ingestion. Please try again.",
-        variant: "destructive",
-      })
-    } finally {
-      setIsReingesting(false)
-    }
-  }
 
   const filteredSystems = localSystems.filter((system) => system.name.toLowerCase().includes(searchQuery.toLowerCase()))
 
@@ -841,15 +741,16 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
          absolute-positioned panel doesn't fight with header layout. */}
       <div className="flex items-center justify-end gap-2">
 
-          <button
-            onClick={() => handleReingest("all")}
-            disabled={isReingesting || isScanning}
-            className="inline-flex items-center gap-1.5 border border-[#8b5cf640] bg-[#8b5cf610] hover:bg-[#8b5cf620] text-[#8b5cf6] px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
-            title="Trigger manual resource discovery from AWS. Systems will emerge from tags."
-          >
-            <RotateCcw className={`w-3.5 h-3.5 ${isReingesting ? "animate-spin" : ""}`} />
-            {isReingesting ? "Re-ingesting..." : "Re-ingest Now"}
-          </button>
+          {/* "Re-ingest Now" is retired. It POSTed /api/proxy/admin/reingest,
+              which forwards to /api/v2/sync/start with NO `sources` -- so it
+              ran the Inspector lane -- and then reported "Sync from AWS
+              started" off the ENQUEUE response. No lane selection, no
+              polling, no run binding, no activation receipt: an operator was
+              told their estate was refreshing on the strength of a queue
+              acknowledgement. This screen displays system inventory, so it
+              gets the inventory surface, which stays disabled with a reason
+              until inventory_reconcile is CONNECTED. */}
+          <RefreshEvidenceButton surface="inventory" onRefreshed={handleInventoryRefreshed} />
 
           <div className="relative" ref={dropdownRef}>
             <button
@@ -1110,14 +1011,12 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
                         >
                           View
                         </button>
-                        <button
-                          onClick={() => handleReingest("system", system.name)}
-                          disabled={isReingesting}
-                          className="inline-flex items-center gap-1 border border-[#8b5cf640] bg-[#8b5cf610] hover:bg-[#8b5cf620] text-[#8b5cf6] px-2 py-1 rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
-                          title={`Re-ingest resources for ${system.name}. Resources with SystemName=${system.name} tag will be discovered.`}
-                        >
-                          <RotateCcw className={`w-3 h-3 ${isReingesting ? "animate-spin" : ""}`} />
-                        </button>
+                        {/* The per-system re-ingest is retired, not relocated.
+                            The proxy accepted `scope`/`target` and the backend
+                            ignored both: every click ran the same tenant-wide
+                            round. A control that cannot do what its tooltip
+                            says is worse than no control. Estate refresh lives
+                            in the header, scoped to the evidence it collects. */}
                       </div>
                     </td>
                   </tr>
