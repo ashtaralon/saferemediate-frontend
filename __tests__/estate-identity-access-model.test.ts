@@ -47,6 +47,144 @@ function viewOf(identityAccess: unknown) {
   return buildIdentityView(payload(identityAccess))
 }
 
+/**
+ * The fixture must be what the backend actually emits, not what an emitter
+ * environment happened to stringify.
+ *
+ * On 2026-09-20 it was not. The emitter's json.dumps carried default=str, so
+ * values that model_dump(mode="json") should already have serialised were
+ * coerced into Python reprs: layer keys and verdicts came out as
+ * "AuthorizationLayer.IDENTITY_POLICY" / "AuthorizationLayerVerdict.GRANT",
+ * timestamps as "2026-09-14 06:00:00+00:00", and because a verdict of
+ * "AuthorizationLayerVerdict.UNKNOWN" does not equal "UNKNOWN", the producer's
+ * own AUTHORIZATION_LAYERS_INCOMPLETE reason code was silently never raised.
+ *
+ * These run on the consumer side deliberately. A fixture is only evidence if
+ * the thing consuming it would notice when it stops matching the producer.
+ */
+describe("the fixture is canonically serialised", () => {
+  const PAYLOADS = [
+    "ready",
+    "partial",
+    "empty_authoritative",
+    "partial_unresolved_role_id",
+    "partial_no_decision_authority",
+    "unavailable",
+  ] as const
+
+  /** "ClassName.MEMBER" — a Python enum repr, which must appear nowhere. */
+  const ENUM_REPR = /^[A-Z][A-Za-z0-9_]*\.[A-Z][A-Z0-9_]*$/
+  const ISO_Z = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/
+  const TIMESTAMP_FIELDS = new Set([
+    "decision_as_of",
+    "denied_hold_expires_at",
+    "first_success_at",
+    "last_success_at",
+    "observation_window_end",
+    "observation_window_start",
+    "projected_through",
+  ])
+
+  function walk(node: unknown, visit: (key: string, value: unknown) => void): void {
+    if (Array.isArray(node)) {
+      for (const item of node) walk(item, visit)
+      return
+    }
+    if (node && typeof node === "object") {
+      for (const [key, value] of Object.entries(node)) {
+        visit(key, value)
+        walk(value, visit)
+      }
+    }
+  }
+
+  const details = () =>
+    PAYLOADS.flatMap(key =>
+      ((fixtures as any)[key].roles as any[]).flatMap(role => role.action_details as any[]),
+    )
+
+  it("carries no Python enum repr, in any key or value", () => {
+    let inspected = 0
+    for (const key of PAYLOADS) {
+      walk((fixtures as any)[key], (name, value) => {
+        inspected += 1
+        expect(ENUM_REPR.test(name)).toBe(false)
+        if (typeof value === "string") expect(ENUM_REPR.test(value)).toBe(false)
+      })
+    }
+    expect(inspected).toBeGreaterThan(100)
+  })
+
+  it("writes every timestamp as a canonical UTC string", () => {
+    let seen = 0
+    for (const key of PAYLOADS) {
+      walk((fixtures as any)[key], (name, value) => {
+        if (!TIMESTAMP_FIELDS.has(name) || value === null || value === undefined) return
+        seen += 1
+        expect(typeof value).toBe("string")
+        expect(ISO_Z.test(value as string)).toBe(true)
+      })
+    }
+    expect(seen).toBeGreaterThan(0)
+  })
+
+  it("keys authorization_layers by the enum's value", () => {
+    const rows = details()
+    expect(rows.length).toBeGreaterThan(0)
+    for (const detail of rows) {
+      const layers = Object.keys(detail.authorization_layers)
+      expect(layers.length).toBeGreaterThan(0)
+      expect(layers).toContain("IDENTITY_POLICY")
+      for (const layer of layers) expect(ENUM_REPR.test(layer)).toBe(false)
+    }
+  })
+
+  it("writes a layer verdict that still compares equal to UNKNOWN", () => {
+    const verdicts = new Set(
+      details().flatMap(detail => Object.values(detail.authorization_layers) as string[]),
+    )
+    // The comparison _effective_authorization performs. If no verdict is the
+    // bare string, the reason-code branch below can never fire.
+    expect(verdicts.has("UNKNOWN")).toBe(true)
+  })
+
+  it("raises AUTHORIZATION_LAYERS_INCOMPLETE exactly when a layer is unknown", () => {
+    for (const detail of details()) {
+      const incomplete = Object.values(detail.authorization_layers).some(
+        verdict => verdict === "UNKNOWN",
+      )
+      const codes = detail.effective_authorization.reason_codes as string[]
+      expect(codes.includes("AUTHORIZATION_LAYERS_INCOMPLETE")).toBe(incomplete)
+    }
+  })
+
+  it("agrees at the role level too", () => {
+    for (const key of PAYLOADS) {
+      for (const role of (fixtures as any)[key].roles as any[]) {
+        if (role.configured_grants.state !== "ready") continue
+        const incomplete = (role.action_details as any[]).some(detail =>
+          Object.values(detail.authorization_layers).some(verdict => verdict === "UNKNOWN"),
+        )
+        expect(
+          (role.effective_authorization.reason_codes as string[]).includes(
+            "AUTHORIZATION_LAYERS_INCOMPLETE",
+          ),
+        ).toBe(incomplete)
+      }
+    }
+  })
+
+  it("surfaces a canonical last-success timestamp through the view", () => {
+    const node: any = viewOf(fixtures.ready).graph.nodes.find(
+      item => item.kind === "decision",
+    )
+    expect(node.observed.lastSuccessAt).toMatch(ISO_Z)
+    // The shape the bad fixture carried.
+    expect(node.observed.lastSuccessAt).not.toContain(" ")
+    expect(node.observed.lastSuccessAt).not.toContain("+00:00")
+  })
+})
+
 describe("status is a closed set", () => {
   it("accepts exactly the three the backend emits", () => {
     expect([...VALID_STATUSES].sort()).toEqual(["partial", "ready", "unavailable"])
