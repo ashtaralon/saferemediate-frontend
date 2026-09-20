@@ -32,6 +32,22 @@ jobs:
         run: npm run build
         env:
           NEXT_TELEMETRY_DISABLED: "1"
+      - name: Generate ephemeral fixture sign-in credentials
+        # The site gate admits only a sealed session that /api/auth/login issues,
+        # so the specs are signed in for real. Both values are random per run,
+        # exist only on this runner, are masked BEFORE they are exported, and are
+        # never printed or uploaded. They open nothing beyond this job's own app,
+        # which dies with the runner.
+        run: |
+          set -euo pipefail
+          password="$(openssl rand -hex 24)"
+          secret="$(openssl rand -hex 32)"
+          echo "::add-mask::${password}"
+          echo "::add-mask::${secret}"
+          {
+            echo "SITE_PASSWORD=${password}"
+            echo "CYNTRO_SITE_SESSION_SECRET=${secret}"
+          } >> "$GITHUB_ENV"
       - name: Start the app
         # No backend here on purpose: every route the specs need is answered
         # in the browser by tests/integration/topology-fixture.ts. Point the
@@ -48,6 +64,18 @@ jobs:
             sleep 2
           done
           echo "::error::app did not start"; cat next-start.log; exit 1
+      - name: Sign in once, untraced
+        # The only sign-in the application specs rely on happens here, outside
+        # any Playwright test, so no trace can record the password. It stores
+        # just the issued session cookie, mode 600, under RUNNER_TEMP (never
+        # uploaded); the specs load it instead of signing in themselves.
+        env:
+          FRONTEND_URL: http://localhost:3000
+          SITE_SESSION_STATE: ${{ runner.temp }}/site-session.json
+        run: |
+          set -euo pipefail
+          node tests/integration/site-session-bootstrap.mjs
+          echo "PW_SITE_SESSION_STATE=${SITE_SESSION_STATE}" >> "$GITHUB_ENV"
       - name: Playwright fixture specs
         # TWO filters must both admit a spec, and both bit me in sequence:
         # this list, AND playwright.config.ts testMatch
@@ -63,11 +91,35 @@ jobs:
         # was written, pushed, and reported green by a run that never collected
         # it (run 34843099199: "Running 6 tests", the same six as before). Any
         # new fixture spec has to be named here or it is dead weight.
-        run: npx playwright test tests/integration/topology-fullscreen-rail-fixture.spec.ts tests/integration/topology-platform-map-qa-fixture.spec.ts tests/integration/topology-estate-lower-geometry-fixture.spec.ts tests/integration/topology-estate-semantics-fixture.spec.ts tests/integration/topology-estate-fullscreen-stacking-fixture.spec.ts tests/integration/topology-estate-egress-map-fixture.spec.ts
+        #
+        # Tracing keeps the suite's own setting. The one spec that sends the
+        # password (site-session-login-fixture) turns tracing off for itself.
+        run: npx playwright test tests/integration/site-session-login-fixture.spec.ts tests/integration/topology-fullscreen-rail-fixture.spec.ts tests/integration/topology-platform-map-qa-fixture.spec.ts tests/integration/topology-estate-lower-geometry-fixture.spec.ts tests/integration/topology-estate-semantics-fixture.spec.ts tests/integration/topology-estate-fullscreen-stacking-fixture.spec.ts tests/integration/topology-estate-egress-map-fixture.spec.ts
         env:
           FRONTEND_URL: http://localhost:3000
           PW_CHANNEL: chromium
           CI: "1"
+      - name: Scrub and verify the artifacts
+        # A trace of an authenticated page records the Cookie header, so the
+        # per-run session value is redacted from trace archives. The password
+        # and sealing secret must appear nowhere: finding either FAILS the job
+        # rather than being quietly redacted. Publish and upload run only if
+        # this passes.
+        id: scrub
+        if: ${{ !cancelled() }}
+        run: python3 scripts/scrub-fixture-artifacts.py playwright-report test-results next-start.log
+      - name: Drop the ephemeral credentials
+        # Every exit path, success or failure: clear both values from the job
+        # environment, delete the stored session, and stop the app.
+        if: ${{ always() }}
+        run: |
+          {
+            echo "SITE_PASSWORD="
+            echo "CYNTRO_SITE_SESSION_SECRET="
+            echo "PW_SITE_SESSION_STATE="
+          } >> "$GITHUB_ENV"
+          rm -f "${{ runner.temp }}/site-session.json"
+          pkill -f "next start" || true
       - name: Publish screenshots to the results branch
         # Same reason as c1-ui-qa.yml's step of this name: the artifact below
         # lives on an Azure blob host that is not reachable from every
@@ -76,7 +128,9 @@ jobs:
         # results branch is a plain git ref -- `git fetch origin
         # fixture-e2e-results` reads it anywhere the repository is reachable.
         # One directory per run, never merged anywhere.
-        if: ${{ !cancelled() }}
+        # Only after the scrub passed: `!cancelled()` alone is true even when
+        # the scrub failed, and would publish what it refused.
+        if: ${{ !cancelled() && steps.scrub.outcome == 'success' }}
         env:
           GH_TOKEN: ${{ github.token }}
           RESULTS_BRANCH: fixture-e2e-results
@@ -123,7 +177,7 @@ jobs:
           done
           echo "::warning::results could not be pushed; the artifact still carries them"
       - name: Upload report and screenshots
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.scrub.outcome == 'success' }}
         uses: actions/upload-artifact@v4
         with:
           name: playwright-fixture-report

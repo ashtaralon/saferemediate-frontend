@@ -11,10 +11,10 @@ export async function GET(
   _request: NextRequest,
   {
     params,
-  }: { params: Promise<{ neo4jLabel: string; resourceId: string }> },
+  }: { params: Promise<{ graphLabel: string; resourceId: string }> },
 ) {
-  const { neo4jLabel, resourceId } = await params
-  const backendUrl = `${BACKEND_URL}/api/decision-coverage/resource/${encodeURIComponent(neo4jLabel)}/${encodeURIComponent(resourceId)}`
+  const { graphLabel, resourceId } = await params
+  const backendUrl = `${BACKEND_URL}/api/decision-coverage/resource/${encodeURIComponent(graphLabel)}/${encodeURIComponent(resourceId)}`
 
   try {
     const controller = new AbortController()

@@ -10,7 +10,10 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { deriveLPIntegrity } from '@/lib/lp-integrity'
+import { classifySignedOverrideReadiness, deriveLPIntegrity } from '@/lib/lp-integrity'
+// The REAL producer body, captured from the isolated fixture preview; see its
+// `_provenance`. Nothing here hand-writes a readiness package.
+import capturedBundle from './__fixtures__/lp-issues-readiness.json'
 import {
   normalizeLPSeverityBucket,
   normalizeGapResource,
@@ -506,5 +509,104 @@ describe('mergeLpResourcesAfterFetch', () => {
     expect(merged[0].lpScore).toBe(80)
     // Backend won — do not keep applied_verifying over a confirmed receipt.
     expect(merged[0].verificationState).not.toBe('applied_verifying')
+  })
+})
+
+
+describe('normalizeLPResponse — canonical readiness package survives literally', () => {
+  /**
+   * Producer: `CanonicalReadinessPackage.to_wire()`
+   * (`unified/readiness/canonical_package.py`), attached as `"readiness"` by
+   * `unified/lp/endpoint.py`, forwarded verbatim by the LP proxy.
+   *
+   * At d7061e38 the passthrough block omitted this field, so the real page's
+   * opening classifier could only ever answer READINESS_PACKAGE_ABSENT for a
+   * package that was present and well formed.
+   */
+  const wireBody = (capturedBundle as any).issues
+
+  it('carries the real captured package through byte-for-byte', () => {
+    const out = normalizeLPResponse(wireBody)
+    // Identical CONTENT, and the same reference the wire gave us: the
+    // normalizer must not rebuild, reorder or re-type this object.
+    expect(out.readiness).toBe(wireBody.readiness)
+    expect(out.readiness).toEqual(wireBody.readiness)
+    expect((out.readiness as any).schema).toBe('canonical-readiness/v1')
+  })
+
+  it('the carried package still classifies as the real evidence hold', () => {
+    // The production classifier, on the normalizer's OWN output — not on the
+    // raw body. This is the composition the opening dialog actually uses.
+    const out = normalizeLPResponse(wireBody)
+    const classification = classifySignedOverrideReadiness({
+      readiness: out.readiness as any,
+      integrity: deriveLPIntegrity(out as any),
+      payload: out as any,
+      now: new Date(Date.parse((wireBody.readiness as any).probed_at) + 1_000),
+    })
+    expect(classification.kind).toBe('evidence_hold')
+    if (classification.kind === 'evidence_hold') {
+      expect(classification.codes).toContain('ACTIVE_GENERATION_UNKNOWN')
+      expect(classification.codes).toContain('ENGINE_NOT_CERTIFIED')
+    }
+  })
+
+  it('omits the key entirely when the wire carried none, and that still refuses', () => {
+    const { readiness, ...withoutPackage } = wireBody
+    const out = normalizeLPResponse(withoutPackage)
+    // ABSENT must stay absent — not null, not {}. The LP proxy's own
+    // stale-fallback branch really does answer NOT_READY with no package.
+    expect('readiness' in out).toBe(false)
+    const classification = classifySignedOverrideReadiness({
+      readiness: out.readiness as any,
+      integrity: deriveLPIntegrity(out as any),
+      payload: out as any,
+    })
+    expect(classification.kind).toBe('refused')
+    if (classification.kind === 'refused') {
+      expect(classification.code).toBe('READINESS_PACKAGE_ABSENT')
+    }
+  })
+
+  it('carries null through as null rather than inventing a package', () => {
+    const out = normalizeLPResponse({ ...wireBody, readiness: null })
+    expect('readiness' in out).toBe(true)
+    expect(out.readiness).toBeNull()
+    const classification = classifySignedOverrideReadiness({
+      readiness: out.readiness as any,
+      integrity: deriveLPIntegrity(out as any),
+      payload: out as any,
+    })
+    expect(classification.kind).toBe('refused')
+  })
+
+  it.each([
+    ['a foreign schema', { ...(capturedBundle as any).issues.readiness, schema: 'canonical-readiness/v2' }],
+    ['a non-object', 'canonical-readiness/v1'],
+    ['an array', []],
+    ['a package with no action section', (() => {
+      const { action, ...rest } = (capturedBundle as any).issues.readiness
+      return rest
+    })()],
+  ])('carries %s through unchanged, and the classifier refuses it', (_label, malformed) => {
+    const out = normalizeLPResponse({ ...wireBody, readiness: malformed })
+    // The normalizer neither repairs nor rejects: it has no authority here.
+    expect(out.readiness).toEqual(malformed)
+    const classification = classifySignedOverrideReadiness({
+      readiness: out.readiness as any,
+      integrity: deriveLPIntegrity(out as any),
+      payload: out as any,
+    })
+    expect(classification.kind).toBe('refused')
+  })
+
+  it('does not reach into another response for a package', () => {
+    // Two normalizations in a row; the one without a package must not inherit
+    // the one that had it (no module-level carry-over).
+    const withPackage = normalizeLPResponse(wireBody)
+    const { readiness, ...withoutPackage } = wireBody
+    const without = normalizeLPResponse(withoutPackage)
+    expect(withPackage.readiness).toBeDefined()
+    expect('readiness' in without).toBe(false)
   })
 })

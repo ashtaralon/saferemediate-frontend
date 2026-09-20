@@ -30,10 +30,15 @@ export function AnalysisIntegrityBanner({
   // NOT_READY (nothing ran) is red; INTEGRITY_HELD (some analyzers ran) amber.
   // Both block Apply — the colour distinguishes how much we know, not how
   // much is permitted.
+  // Light surface first, with the existing dark tones kept under `dark:`.
+  // The dark-only tones rendered pale text on a light page, and this is the one
+  // banner that states WHY a change is held -- refusal text has to be readable.
   const tone = notReady
-    ? "border-l-red-600 bg-red-950/30 text-red-100"
-    : "border-l-amber-500 bg-amber-950/30 text-amber-100"
-  const iconTone = notReady ? "text-red-400" : "text-amber-400"
+    ? "border-l-red-600 bg-red-50 text-red-900 dark:bg-red-950/30 dark:text-red-100"
+    : "border-l-amber-500 bg-amber-50 text-amber-900 dark:bg-amber-950/30 dark:text-amber-100"
+  const iconTone = notReady
+    ? "text-red-600 dark:text-red-400"
+    : "text-amber-600 dark:text-amber-400"
 
   return (
     <div
@@ -44,8 +49,10 @@ export function AnalysisIntegrityBanner({
       <Icon className={`mt-0.5 h-5 w-5 shrink-0 ${iconTone}`} aria-hidden="true" />
       <div className="min-w-0 space-y-1">
         <p className="text-sm font-semibold leading-tight">{title}</p>
-        <p className="text-sm leading-snug opacity-90">{body}</p>
-        {footer ? <p className="text-xs opacity-75">{footer}</p> : null}
+        {/* No opacity on evidence or refusal text: tone carries the
+            hierarchy, transparency was obscuring the reason a change is held. */}
+        <p className="text-sm leading-snug">{body}</p>
+        {footer ? <p className="text-xs">{footer}</p> : null}
       </div>
     </div>
   )

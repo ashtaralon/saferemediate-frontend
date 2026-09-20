@@ -23,7 +23,10 @@ import { NextResponse } from "next/server"
 
 export type ProxyErrorBody = {
   error: string
-  detail?: string
+  /** The backend's own error body. An object when it is typed (``{code, ...}``);
+   *  a truncated string only when the backend did not answer JSON. Truncating a
+   *  typed body cut the code out of it and every refusal read as a generic 502. */
+  detail?: string | Record<string, unknown>
   backendStatus?: number
   origin: "proxy"
 }
@@ -36,7 +39,7 @@ export type ProxyErrorBody = {
 export function backendError(opts: {
   status: number
   message: string
-  detail?: string
+  detail?: string | Record<string, unknown>
 }): NextResponse {
   const responseStatus = opts.status >= 500 ? 502 : opts.status
   const body: ProxyErrorBody = {
