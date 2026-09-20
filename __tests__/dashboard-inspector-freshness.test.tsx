@@ -98,6 +98,34 @@ function DashboardHeader() {
   )
 }
 
+
+/**
+ * Wait for a TERMINAL outcome from the real hook before asserting absence.
+ *
+ * Every negative case below previously waited for the static "AWS eu-west-1"
+ * header text, which is present before the click. `waitFor` resolved
+ * immediately, so "no timestamp" and "refresh key is 0" were asserted while
+ * polling was still in flight -- they would have passed even if `onRefreshed`
+ * mutated state a tick later. Asserting an absence is only meaningful once
+ * the thing that could have produced it has finished.
+ *
+ * The button renders one of two terminal strings for a completed run: the
+ * success message (activated, receipt accepted) or the "no proof" refusal.
+ * Both come from the real component, not from this test.
+ */
+async function terminalOutcome(): Promise<"success" | "refused"> {
+  await waitFor(
+    () => {
+      const text = document.body.textContent ?? ""
+      expect(/is active in Neptune|no proof/i.test(text)).toBe(true)
+    },
+    { timeout: 3000 },
+  )
+  return /is active in Neptune/.test(document.body.textContent ?? "")
+    ? "success"
+    : "refused"
+}
+
 const COMPLETED_WITH_RECEIPT = {
   job_id: "job-1",
   status: "completed",
@@ -162,7 +190,7 @@ describe("a vulnerability refresh never claims whole-dashboard freshness", () =>
     await waitFor(() => expect(screen.getByRole("button")).not.toBeDisabled())
     screen.getByRole("button").click()
 
-    await waitFor(() => expect(document.body.textContent).toContain("AWS eu-west-1"))
+    expect(await terminalOutcome()).toBe("success")
     expect(document.body.textContent).not.toMatch(/refreshed: \d/)
   })
 
@@ -225,10 +253,13 @@ describe("the tab remount key follows the same receipt", () => {
       results: { vulnerability_findings: {}, refreshed_sources: [] },
     })
     render(<DashboardHeader />)
+    expect(screen.getByTestId("refresh-key").textContent).toBe("0")
     await waitFor(() => expect(screen.getByRole("button")).not.toBeDisabled())
     screen.getByRole("button").click()
 
-    await waitFor(() => expect(document.body.textContent).toContain("AWS eu-west-1"))
+    // Wait for the callback to have RUN before claiming it did not bump the
+    // key. Asserting "still 0" mid-poll proves nothing.
+    expect(await terminalOutcome()).toBe("success")
     expect(screen.getByTestId("refresh-key").textContent).toBe("0")
     expect(document.body.textContent).not.toMatch(/refreshed:/)
   })
