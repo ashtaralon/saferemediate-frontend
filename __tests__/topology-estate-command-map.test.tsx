@@ -148,17 +148,24 @@ describe("estate command model", () => {
       multiAzResources: 1,
       singleAzStateful: 1,
       staleResources: 1,
-      riskyRoles: 1,
+      // This fixture carries legacy iam_roles but no v11 identity contract,
+      // so identity concludes nothing: null, never a legacy count or a zero.
+      riskyRoles: null,
       evidenceCoveragePct: 80,
     })
-    expect(model.priorities.map(item => item.id)).toEqual(expect.arrayContaining([
+    expect(model.identity).toEqual({
+      state: "unavailable",
+      reason: "Topology snapshot does not carry the v11 identity contract.",
+    })
+    const priorityIds = model.priorities.map(item => item.id)
+    expect(priorityIds).toEqual(expect.arrayContaining([
       "risk:alb",
       "public-exposure",
       "single-az:db",
-      "role:payments-api-role",
       "evidence-quality",
       "shared-boundary",
     ]))
+    expect(priorityIds).not.toContain("role:payments-api-role")
   })
 
   it("classifies unknown managed services into the control plane without guessing placement", () => {
@@ -191,6 +198,14 @@ describe("EstateSystemView", () => {
     fireEvent.click(screen.getByTestId("estate-command-resource-db"))
     expect(onSelectNode).toHaveBeenCalledWith("db")
 
+    // The attachment row stays actionable, but states no unused conclusion
+    // while the Identity & access authority has none.
+    expect(screen.getByTestId("estate-command-role-claim-payments-api-role").textContent)
+      .toBe("identity & access unavailable")
+    expect(screen.getByTestId("estate-command-material-gaps").textContent).toBe("material gaps unavailable")
+    expect(screen.getByTestId("estate-command-identity-unavailable").textContent).toBe(
+      "Identity & access unavailable — Topology snapshot does not carry the v11 identity contract.",
+    )
     fireEvent.click(screen.getByTestId("estate-command-role-payments-api-role"))
     expect(onSelectRole).toHaveBeenCalledWith("payments-api-role")
 

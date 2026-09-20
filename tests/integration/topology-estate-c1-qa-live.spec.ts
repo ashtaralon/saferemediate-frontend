@@ -1795,9 +1795,20 @@ test.describe("C1 live QA — Step 5 acceptance matrix", () => {
         const packets = Array.from(
           document.querySelectorAll<SVGElement>('[data-testid="topology-flow-packet"]'),
         )
+        // Packets move by SMIL <animateMotion>, which getComputedStyle never
+        // reports: this probe previously read CSS animation state only and so
+        // counted zero animating packets whether or not they moved. A packet
+        // animates when its motion repeats or takes measurable time; a frozen,
+        // instant positioning holds it still.
         const animated = packets.filter(el => {
           const style = getComputedStyle(el)
-          return style.animationName !== "none" && style.animationPlayState === "running"
+          const cssRunning = style.animationName !== "none" && style.animationPlayState === "running"
+          const smilRunning = Array.from(el.querySelectorAll("animateMotion, animate, animateTransform")).some(
+            motion =>
+              motion.getAttribute("repeatCount") === "indefinite" ||
+              parseFloat(motion.getAttribute("dur") || "0") > 0.01,
+          )
+          return cssRunning || smilRunning
         })
         return {
           honours_query: window.matchMedia("(prefers-reduced-motion: reduce)").matches,
@@ -2308,6 +2319,214 @@ test.describe("release QA — egress destinations beyond the IGW", () => {
       expect(consoleErrors, `${vp.name}: browser console errors`).toEqual([])
       expect(pageErrors, `${vp.name}: uncaught page errors`).toEqual([])
       expect(failedRequests, `${vp.name}: failed network requests`).toEqual([])
+    })
+  }
+})
+
+/**
+ * Release QA — Identity & access on the deployed estate map, at the four
+ * release viewports, driven by keyboard and mouse, under reduced motion.
+ *
+ * The expectation is read from the SAME deployed topology-risk payload the
+ * page renders: the control's status must equal what the payload's
+ * estate-identity-access/v1 block says (a partial projection must look
+ * partial, with its named gaps), never a friendlier state.
+ *
+ * REQUIRE_IDENTITY_ACCESS=true (the release run) additionally requires a
+ * topology-risk/v11 payload with a ready or partial projection and a frontend
+ * that renders the control. Without it, a deployed frontend that predates the
+ * control is reported and skipped rather than failed, so the push-triggered
+ * self-test against today's production stays meaningful.
+ */
+test.describe("release QA — Identity & access, keyboard and reduced motion", () => {
+  const REQUIRE_IDENTITY_ACCESS = process.env.REQUIRE_IDENTITY_ACCESS === "true"
+  const IDENTITY_VIEWPORTS = [
+    { name: "1600x900", width: 1600, height: 900, input: "keyboard" },
+    { name: "1512x771", width: 1512, height: 771, input: "mouse" },
+    { name: "1366x768", width: 1366, height: 768, input: "keyboard" },
+    { name: "1024x720", width: 1024, height: 720, input: "mouse" },
+  ] as const
+
+  interface IdentityBlock {
+    contract_version?: string
+    status?: string
+    roles_total?: number | null
+    roles_returned?: number
+    gaps?: Array<{ code?: string }>
+  }
+
+  /** Geometry, stacking and motion of one element, measured in the page. */
+  const PANEL_PROBE = (testid: string): string => `(() => {
+    const el = document.querySelector('[data-testid="${testid}"]')
+    if (!el) return null
+    let n = el, o = 1
+    while (n && n !== document.documentElement) { o *= Number(getComputedStyle(n).opacity); n = n.parentElement }
+    const r = el.getBoundingClientRect()
+    const probes = [[r.left + r.width/2, r.top + 8], [r.left + r.width/2, r.top + r.height/2], [r.left + r.width/2, r.bottom - 8]]
+    const covered = []
+    for (const [x, y] of probes) {
+      const t = document.elementFromPoint(x, y)
+      if (!t || !(el === t || el.contains(t))) covered.push(t ? (t.getAttribute('data-testid') || t.tagName.toLowerCase()) : 'nothing')
+    }
+    const MOVING = /^(transform|translate|scale|rotate|left|top|right|bottom|inset|width|height|margin|padding|offset)/
+    const moving = document.getAnimations()
+      .filter(a => a.playState === 'running')
+      .filter(a => a.constructor.name !== 'CSSTransition' || MOVING.test(a.transitionProperty || ''))
+      .map(a => { const t = a.effect && a.effect.target; const owner = t && t.closest ? t.closest('[data-testid]') : null; return (owner ? owner.getAttribute('data-testid') : 'unknown') + ':' + (a.animationName || a.transitionProperty || a.constructor.name) })
+    const overlay = document.querySelector('[data-testid="topology-flow-overlay"]')
+    const smilMotion = overlay ? Array.from(overlay.querySelectorAll('animate, animateMotion, animateTransform')).filter(s => s.getAttribute('repeatCount') === 'indefinite' || parseFloat(s.getAttribute('dur') || '0') > 0.01).length : null
+    return {
+      effectiveOpacity: o, covered,
+      rect: { x: r.left, y: r.top, w: r.width, h: r.height },
+      inViewport: r.left >= -1 && r.right <= innerWidth + 1 && r.top >= -1 && r.bottom <= innerHeight + 1,
+      reducedMotion: matchMedia('(prefers-reduced-motion: reduce)').matches,
+      overlayReducedMotion: overlay ? overlay.getAttribute('data-reduced-motion') : null,
+      smilMotion, moving,
+    }
+  })()`
+
+  interface PanelProbe {
+    effectiveOpacity: number
+    covered: string[]
+    rect: { x: number; y: number; w: number; h: number }
+    inViewport: boolean
+    reducedMotion: boolean
+    overlayReducedMotion: string | null
+    smilMotion: number | null
+    moving: string[]
+  }
+
+  for (const vp of IDENTITY_VIEWPORTS) {
+    test(`Identity & access on live C1 at ${vp.name} (${vp.input}, reduced motion)`, async ({ context, page }) => {
+      test.setTimeout(240_000)
+      await seedAuthCookie(context)
+      const consoleErrors: string[] = []
+      const pageErrors: string[] = []
+      page.on("console", m => { if (m.type() === "error") consoleErrors.push(m.text().slice(0, 300)) })
+      page.on("pageerror", e => pageErrors.push(String(e).slice(0, 300)))
+      await page.setViewportSize({ width: vp.width, height: vp.height })
+      await page.emulateMedia({ reducedMotion: "reduce" })
+
+      const bv = await page.request.get("/api/build-version")
+      expect(bv.ok(), `${vp.name}: /api/build-version returned HTTP ${bv.status()}`).toBe(true)
+      const build = await bv.json()
+      report(`identity-build-version-${vp.name}`, build)
+      if (EXPECTED_FRONTEND_SHA) {
+        expect(build?.deploymentVersion, `${vp.name}: tested a different frontend revision`).toBe(EXPECTED_FRONTEND_SHA)
+      }
+
+      // --- what the deployed backend says about identity access ------------
+      const res = await page.request.get(TOPOLOGY_RISK_PATH)
+      expect(res.ok(), `${vp.name}: topology-risk returned HTTP ${res.status()}`).toBe(true)
+      const payload = await res.json()
+      const contract = (payload?.response_contract_version ?? null) as string | null
+      const identity = (payload?.identity_access ?? null) as IdentityBlock | null
+      const wellFormed =
+        contract === "topology-risk/v11" &&
+        identity != null &&
+        identity.contract_version === "estate-identity-access/v1" &&
+        ["ready", "partial", "unavailable"].includes(String(identity.status))
+      const expectedStatus = wellFormed ? String(identity!.status) : "unavailable"
+      const gapCodes = (identity?.gaps ?? []).map(g => String(g.code ?? "")).filter(Boolean)
+      report(`identity-payload-${vp.name}`, {
+        contract,
+        identity_contract: identity?.contract_version ?? null,
+        status: identity?.status ?? null,
+        expected_ui_status: expectedStatus,
+        roles_total: identity?.roles_total ?? null,
+        roles_returned: identity?.roles_returned ?? null,
+        gaps: gapCodes,
+        require_identity_access: REQUIRE_IDENTITY_ACCESS,
+      })
+      if (REQUIRE_IDENTITY_ACCESS) {
+        expect(contract, `${vp.name}: release payload is not topology-risk/v11`).toBe("topology-risk/v11")
+        expect(identity?.contract_version, `${vp.name}: release payload has no estate-identity-access/v1 block`).toBe("estate-identity-access/v1")
+        expect(["ready", "partial"], `${vp.name}: release identity projection is ${identity?.status}`).toContain(identity?.status)
+      }
+
+      // --- the control on the deployed map ---------------------------------
+      await openMap(page, `identity-${vp.name}`)
+      const trigger = page.getByTestId("topology-identity-access-trigger").first()
+      const present = await trigger.isVisible({ timeout: 20_000 }).catch(() => false)
+      report(`identity-control-${vp.name}`, { present })
+      if (!present) {
+        expect(REQUIRE_IDENTITY_ACCESS, `${vp.name}: the deployed frontend renders no Identity & access control`).toBe(false)
+        test.skip(true, "the deployed frontend predates Identity & access (REQUIRE_IDENTITY_ACCESS is not set)")
+      }
+      await expect(trigger, `${vp.name}: control status differs from the payload`).toHaveAttribute("data-identity-status", expectedStatus)
+      await expect(trigger).toHaveAttribute(
+        "data-role-count",
+        typeof identity?.roles_total === "number" && wellFormed ? String(identity.roles_total) : "unavailable",
+      )
+      await expect(trigger).toHaveAttribute("aria-expanded", "false")
+
+      if (vp.input === "keyboard") {
+        await trigger.focus()
+        await page.keyboard.press("Enter")
+      } else {
+        await trigger.click()
+      }
+      await expect(trigger).toHaveAttribute("aria-expanded", "true")
+      const panel = page.getByTestId("topology-identity-access-panel")
+      await expect(panel, `${vp.name}: Identity & access panel did not open`).toBeVisible()
+      await expect(panel).toHaveAttribute("data-identity-status", expectedStatus)
+      if (expectedStatus === "partial") {
+        await expect(panel.getByTestId("topology-identity-access-partial"), `${vp.name}: a partial projection is not labelled partial`).toBeVisible()
+        for (const code of gapCodes) {
+          await expect(
+            panel.getByTestId("topology-identity-access-gap").filter({ hasText: code }).first(),
+            `${vp.name}: backend gap ${code} is not shown`,
+          ).toBeVisible()
+        }
+      } else if (expectedStatus === "unavailable") {
+        await expect(panel.getByTestId("topology-identity-access-unavailable")).toBeVisible()
+        await expect(panel.getByTestId("topology-identity-access-empty")).toHaveCount(0)
+      }
+      if (wellFormed && typeof identity?.roles_total === "number") {
+        await expect(panel.getByTestId("topology-identity-role-totals")).toContainText(String(identity.roles_total))
+      }
+      await page.waitForTimeout(300)
+      const measured = (await page.evaluate(PANEL_PROBE("topology-identity-access-panel"))) as PanelProbe | null
+      report(`identity-panel-${vp.name}`, measured)
+      expect(measured, `${vp.name}: no panel geometry was measured`).not.toBeNull()
+      expect(measured!.effectiveOpacity, `${vp.name}: panel is translucent`).toBe(1)
+      expect(measured!.covered, `${vp.name}: panel is painted under the map`).toEqual([])
+      expect(measured!.inViewport, `${vp.name}: panel is outside the viewport`).toBe(true)
+      expect(measured!.reducedMotion, `${vp.name}: the browser did not apply reduced motion`).toBe(true)
+      expect(measured!.overlayReducedMotion, `${vp.name}: the flow overlay ignored reduced motion`).toBe("true")
+      expect(measured!.smilMotion ?? 0, `${vp.name}: flow lines move under reduced motion`).toBe(0)
+      expect(measured!.moving, `${vp.name}: elements move under reduced motion`).toEqual([])
+      await shot(page, `c1-identity-panel-${vp.name}`)
+
+      // Keyboard: focus moves into the dialog and Escape returns it to the control.
+      if (vp.input === "keyboard") {
+        await page.keyboard.press("Tab")
+        const focusInside = await panel.evaluate(el => el.contains(document.activeElement))
+        report(`identity-panel-focus-${vp.name}`, { focusInside })
+        expect(focusInside, `${vp.name}: Tab did not move focus into the Identity & access panel`).toBe(true)
+      }
+      await page.keyboard.press("Escape")
+      await expect(panel, `${vp.name}: Escape did not close the panel`).toBeHidden()
+      await expect(trigger, `${vp.name}: focus did not return to the control`).toBeFocused()
+
+      // --- the Identity & access sibling surface, reached by keyboard -------
+      const surfaceTab = page.getByTestId("topology-estate-view-identity")
+      await surfaceTab.focus()
+      await page.keyboard.press("Enter")
+      await expect(surfaceTab, `${vp.name}: Identity & access surface tab did not activate by keyboard`).toHaveAttribute("aria-selected", "true")
+      const surface = page.getByTestId("topology-identity-access-surface")
+      await expect(surface).toBeVisible()
+      await expect(surface).toHaveAttribute("data-identity-status", expectedStatus)
+      const surfaceBox = await surface.boundingBox()
+      report(`identity-surface-${vp.name}`, surfaceBox)
+      expect(surfaceBox, `${vp.name}: surface has no geometry`).not.toBeNull()
+      expect(surfaceBox!.x, `${vp.name}: surface starts off-screen`).toBeGreaterThanOrEqual(0)
+      expect(surfaceBox!.x + surfaceBox!.width, `${vp.name}: surface overflows the viewport`).toBeLessThanOrEqual(vp.width + 0.5)
+      await shot(page, `c1-identity-surface-${vp.name}`)
+
+      report(`identity-console-${vp.name}`, { consoleErrors, pageErrors })
+      expect(pageErrors, `${vp.name}: uncaught page errors`).toEqual([])
+      expect(consoleErrors, `${vp.name}: browser console errors`).toEqual([])
     })
   }
 })

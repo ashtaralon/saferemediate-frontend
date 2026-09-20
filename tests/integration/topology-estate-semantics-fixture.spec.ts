@@ -204,7 +204,7 @@ test("a configured route to the gateway is not drawn as observed egress", async 
 // ---------------------------------------------------------------------------
 // F4 — one relationship, drawn once, counted in connections.
 // ---------------------------------------------------------------------------
-test("six rules firing six functions are one bundle of six, not two bundles of six", async ({
+test("six rules firing six functions are inspectable as six connections, not twelve rows", async ({
   context,
   page,
 }) => {
@@ -214,42 +214,51 @@ test("six rules firing six functions are one bundle of six, not two bundles of s
   expect(triggers.expectedEdgeRows).toBe(12)
   await openMap(context, page, triggers.snapshot)
 
-  // Every badge that stands for a collapsed trunk word.
-  const collapsed = page.locator('[data-testid="topology-flow-badge"][data-bundle-spellings]')
-  await expect(collapsed.first()).toBeVisible({ timeout: 30_000 })
-  // Matched on the COUNTS, not on a spelling order: which of the two the badge
-  // prints follows payload edge order, and pinning that order here would make
-  // this test assert the fixture's array literal instead of the collapse.
-  const mirrored = page.locator(
-    `[data-testid="topology-flow-badge"][data-bundle-pairs="${triggers.expectedPairs}"]` +
-      `[data-bundle-edges="${triggers.expectedEdgeRows}"]`,
-  )
-  await expect(mirrored, "one badge speaks for both spellings").toHaveCount(1)
-  const spellings = ((await mirrored.getAttribute("data-bundle-spellings")) ?? "").split(",")
-  expect([...spellings].sort()).toEqual(["TARGETS", "TRIGGERS"])
-  const [printed, twin] = spellings
+  const control = page.getByTestId("topology-triggers-detail-trigger").first()
+  await expect(control).toBeVisible()
+  await expect(control).toHaveAttribute("data-trigger-resource-count", "6")
+  await expect(control).toHaveAttribute("data-connection-count", String(triggers.expectedPairs))
+  await expect(control).toHaveAttribute("data-edge-row-count", String(triggers.expectedEdgeRows))
+  await expect(control).toContainText("Triggers (6)")
+  await expect(control).toContainText("6 connections")
+  await expect(control).toHaveAttribute("aria-expanded", "false")
+  await expect(page.getByTestId("topology-trigger-relationships")).toHaveCount(0)
 
-  // The duplication itself: no second badge repeats the same relationship.
-  await expect(
-    page.locator(`[data-testid="topology-flow-badge"][data-bundle-spellings="${twin}"]`),
-    `${twin} never gets a badge of its own once it is a twin of ${printed}`,
-  ).toHaveCount(0)
-  // The DRAWN words only: a badge group also contains its <title>, and the
-  // title is where the twin spelling is supposed to live, so reading the group
-  // would find it in exactly the place this change put it.
-  const drawn = await page
-    .locator('[data-testid="topology-flow-badge"][data-bundle-spellings] text')
-    .allTextContents()
-  expect(
-    drawn.filter(t => t.includes(twin)),
-    `trunk badges read ${JSON.stringify(drawn)}`,
-  ).toHaveLength(0)
-  expect(drawn.filter(t => t.trim() === `${printed} \u00d7${triggers.expectedPairs}`)).toHaveLength(1)
-
-  // The twin spelling and the row count survive, on demand, in the title.
-  const title = (await mirrored.locator("title").textContent()) ?? ""
-  expect(title).toContain(`also recorded as ${twin}`)
-  expect(title).toContain("12 edge rows in the graph for 6 connections")
+  await control.click()
+  const panel = page.getByTestId("topology-triggers-detail-panel")
+  await expect(panel).toBeVisible()
+  await expect(control).toHaveAttribute("aria-expanded", "true")
+  await expect(panel).toHaveAttribute("role", "dialog")
+  await page.waitForFunction(() => {
+    const el = document.querySelector<HTMLElement>('[data-testid="topology-triggers-detail-panel"]')
+    if (!el) return false
+    let node: Element | null = el
+    let opacity = 1
+    while (node && node !== document.documentElement) {
+      opacity *= Number(getComputedStyle(node).opacity)
+      node = node.parentElement
+    }
+    const rect = el.getBoundingClientRect()
+    const top = document.elementFromPoint(rect.left + rect.width / 2, rect.top + 8)
+    return opacity >= 0.999 && Boolean(top && (top === el || el.contains(top)))
+  })
+  await expect(panel).toContainText("6 trigger resources · 6 configured connections")
+  await expect(panel).toContainText("Observed Lambda data traffic is reported separately")
+  const rows = panel.getByTestId("topology-trigger-relationship")
+  await expect(rows).toHaveCount(triggers.expectedPairs)
+  for (let i = 0; i < triggers.expectedPairs; i += 1) {
+    const row = rows.nth(i)
+    await expect(row).toHaveAttribute("data-source-id", triggers.rules[i].id)
+    await expect(row).toHaveAttribute("data-target-id", triggers.lambdas[i].id)
+    await expect(row).toHaveAttribute("data-edge-rows", "2")
+    await expect(row).toContainText("Recorded as TARGETS + TRIGGERS")
+    await expect(row).toContainText("2 graph rows for one connection")
+  }
+  await rows.first().getByRole("button").first().focus()
+  await page.keyboard.press("Escape")
+  await expect(panel).toHaveCount(0)
+  await expect(control).toHaveAttribute("aria-expanded", "false")
+  await expect(control).toBeFocused()
 })
 
 test("the Lambda lane states S3 traffic from 4 of 6, names the four, and records no action", async ({

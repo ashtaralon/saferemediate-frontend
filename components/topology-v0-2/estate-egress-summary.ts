@@ -1,4 +1,4 @@
-import type { TrafficEdge } from "./types"
+import type { ExternalDestinationProjection, TrafficEdge } from "./types"
 import { IGW_CANVAS_ANCHOR_ID } from "./service-paths"
 
 /** What the map may say about traffic that leaves the VPC, and about the
@@ -65,6 +65,7 @@ export interface ExternalEgressSummary {
  *  id is accepted too so this does not silently stop working the day the
  *  backend stops minting the sentinel. */
 function egressGatewayId(edge: TrafficEdge): string | null {
+  if (edge.via_igw_id?.startsWith("igw-")) return edge.via_igw_id
   if (edge.target_id === IGW_CANVAS_ANCHOR_ID) return null
   if (edge.target_id.startsWith("igw-")) return edge.target_id
   return null
@@ -197,6 +198,18 @@ export interface ExternalDestinationNode {
   /** Summed observation counts where the payload carried them; null when no
    *  contributor carried one. Never coerced to zero. */
   observationCount: number | null
+  /** Stable backend projection id when topology-risk/v11 supplied this node. */
+  projectionId: string | null
+  address: string
+  ports: number[]
+  protocols: string[]
+  totalBytes: number | null
+  firstSeen: string | null
+  lastSeen: string | null
+  evidenceIds: string[]
+  projectionGeneration: number | null
+  evidenceType: string | null
+  evidenceSource: string | null
 }
 
 /** The part of the observed egress the payload does NOT name an address for.
@@ -238,6 +251,31 @@ export interface ExternalDestinationMap {
   /** The gateway the drawn edges leave through, or null when the payload
    *  names none. The caller anchors the edge to this chip. */
   gatewayId: string | null
+  /** Exact projection joins. Legacy payloads use a conservative synthetic
+   *  continuation and therefore mark these as inferred in the renderer. */
+  continuations: {
+    sourceId: string
+    sourceAnchorId: string
+    targetKey: string
+    destinationEvidence: string
+    gatewayEvidence: string
+    gatewayTraversalObserved: boolean
+    pathBasis: string
+    routeBasis: string | null
+  }[]
+  /** Returned destination details that lacked an exact configured IGW join.
+   *  They remain inspectable but are never connected to a guessed gateway. */
+  unlinkedNodes: ExternalDestinationNode[]
+  detailState: "complete" | "partial" | "truncated" | "unavailable" | "legacy"
+  detailsReturned: number
+  detailsBeforeBound: number | null
+  unreturnedCount: number
+  unidentifiedPeerUpperBound: number | null
+  unidentifiedPeerSamples: string[]
+  evidenceState: "observed" | "legacy_unverified" | "mixed" | "unidentified" | "unavailable"
+  rejectedNodeCount: number
+  rejectedEdgeCount: number
+  availabilityReason: string | null
 }
 
 /** Normalized de-duplication key. The same address reaches the map through
@@ -296,6 +334,17 @@ export function externalDestinationMap(
         kind,
         sources: [sourceId],
         observationCount: count,
+        projectionId: null,
+        address: trimmed,
+        ports: [],
+        protocols: [],
+        totalBytes: null,
+        firstSeen: null,
+        lastSeen: null,
+        evidenceIds: [],
+        projectionGeneration: null,
+        evidenceType: null,
+        evidenceSource: null,
       })
       return
     }
@@ -370,17 +419,345 @@ export function externalDestinationMap(
           unknownCountLegs: unnamedLegs.length - unnamedKnown.length,
         }
 
+  const gatewayId = summary.igwIds[0] ?? null
+  // Legacy destination detail may still be useful, but a `__igw__` sentinel
+  // is a canvas anchor rather than an exact infrastructure identity. Keep
+  // those details inspectable and draw no continuation until via_igw_id, an
+  // IGW hop, or an exact igw-* target names the gateway.
+  const linkedNodes = gatewayId ? nodes : []
+  const linkedHiddenNodes = gatewayId ? hiddenNodes : []
+  const unlinkedNodes = gatewayId ? [] : all
   return {
-    nodes,
-    hiddenNodes,
-    hiddenCount: hiddenNodes.length,
+    nodes: linkedNodes,
+    hiddenNodes: linkedHiddenNodes,
+    hiddenCount: linkedHiddenNodes.length,
     totalNamed: all.length,
     attributedCount: all.filter(n => n.identity === "aws_service").length,
     remainder,
     distinctUpperBound: summary.maxDistinctUpperBound,
     legsWithUnknownDistinct: summary.legsWithUnknownDistinct,
     everySampleComplete: summary.everySampleComplete,
-    gatewayId: summary.igwIds[0] ?? null,
+    gatewayId,
+    continuations: gatewayId ? [
+      ...linkedNodes.map(node => ({
+        sourceId: gatewayId,
+        sourceAnchorId: IGW_CANVAS_ANCHOR_ID,
+        targetKey: node.key,
+        destinationEvidence: "observed",
+        gatewayEvidence: "inferred_from_legacy_route",
+        gatewayTraversalObserved: false,
+        pathBasis: "synthetic_expansion",
+        routeBasis: summary.routeBases[0] ?? null,
+      })),
+      ...(remainder
+        ? [{
+            sourceId: gatewayId,
+            sourceAnchorId: IGW_CANVAS_ANCHOR_ID,
+            targetKey: "__unknown__",
+            destinationEvidence: "observed",
+            gatewayEvidence: "inferred_from_legacy_route",
+            gatewayTraversalObserved: false,
+            pathBasis: "synthetic_expansion",
+            routeBasis: summary.routeBases[0] ?? null,
+          }]
+        : []),
+    ] : [],
+    unlinkedNodes,
+    detailState: "legacy",
+    detailsReturned: all.length,
+    detailsBeforeBound: null,
+    unreturnedCount: 0,
+    unidentifiedPeerUpperBound: null,
+    unidentifiedPeerSamples: [],
+    evidenceState: "legacy_unverified",
+    rejectedNodeCount: 0,
+    rejectedEdgeCount: 0,
+    availabilityReason: null,
+  }
+}
+
+function unavailableProjectionMap(reason: string): ExternalDestinationMap {
+  return {
+    nodes: [],
+    hiddenNodes: [],
+    hiddenCount: 0,
+    totalNamed: 0,
+    attributedCount: 0,
+    remainder: null,
+    distinctUpperBound: null,
+    legsWithUnknownDistinct: 0,
+    everySampleComplete: false,
+    gatewayId: null,
+    continuations: [],
+    unlinkedNodes: [],
+    detailState: "unavailable",
+    detailsReturned: 0,
+    detailsBeforeBound: null,
+    unreturnedCount: 0,
+    unidentifiedPeerUpperBound: null,
+    unidentifiedPeerSamples: [],
+    evidenceState: "unavailable",
+    rejectedNodeCount: 0,
+    rejectedEdgeCount: 0,
+    availabilityReason: reason,
+  }
+}
+
+/** Adapt topology-risk/v11's explicit destination projection for the canvas.
+ *
+ * The backend owns both sides of the join. A destination becomes a map node
+ * only when a projection edge names its stable id and an exact configured IGW.
+ * Returned nodes without such an edge remain available as unlinked evidence;
+ * we never join them to the first IGW in the response. Likewise, unidentified
+ * peers are reported beside the lane and never converted into Internet nodes.
+ */
+export function externalDestinationProjectionMap(
+  projection: ExternalDestinationProjection | null | undefined,
+  options: {
+    allowedSourceIds?: ReadonlySet<string>
+    /** Canvas anchor → exact gateway id. Supplying this makes a mismatched
+     *  backend join unlinked instead of silently drawing it from another IGW. */
+    gatewayByAnchor?: ReadonlyMap<string, string>
+    limit?: number
+  } = {},
+): ExternalDestinationMap | null {
+  const { allowedSourceIds, gatewayByAnchor, limit = 6 } = options
+  if (!projection) {
+    return unavailableProjectionMap("Destination projection is unavailable in this topology-risk/v11 response.")
+  }
+  if (
+    projection.version !== "estate-egress-destinations/v1" ||
+    !Array.isArray(projection.nodes) ||
+    !Array.isArray(projection.edges) ||
+    !projection.counts ||
+    typeof projection.counts !== "object" ||
+    !Array.isArray(projection.unidentified_peer_samples) ||
+    typeof projection.detail_complete !== "boolean" ||
+    typeof projection.truncated !== "boolean" ||
+    ![
+      projection.counts.returned_destination_nodes,
+      projection.counts.named_destination_nodes_before_bound,
+      projection.counts.unlinked_returned_destination_nodes,
+    ].every(value => typeof value === "number" && Number.isFinite(value) && value >= 0) ||
+    ![
+      projection.counts.per_workload_distinct_upper_bound,
+      projection.counts.unidentified_peer_upper_bound,
+    ].every(value => value == null || (typeof value === "number" && Number.isFinite(value) && value >= 0))
+  ) {
+    return unavailableProjectionMap("Destination projection is malformed or uses an unsupported contract version.")
+  }
+  const inScope = (sourceIds: readonly string[]) =>
+    !allowedSourceIds || sourceIds.some(sourceId => allowedSourceIds.has(sourceId))
+  const isRecord = (value: unknown): value is Record<string, unknown> =>
+    Boolean(value) && typeof value === "object" && !Array.isArray(value)
+  const rawNodes = projection.nodes as unknown[]
+  const rawEdges = projection.edges as unknown[]
+  const shapedNodes = rawNodes.filter(
+    (value): value is ExternalDestinationProjection["nodes"][number] =>
+      isRecord(value) &&
+      Array.isArray(value.source_workload_ids) &&
+      value.source_workload_ids.every(sourceId => typeof sourceId === "string"),
+  )
+  const scopedNodes = shapedNodes.filter(node => inScope(node.source_workload_ids))
+  const supportedNode = (node: ExternalDestinationProjection["nodes"][number]) => {
+    if (typeof node.id !== "string" || !node.id) return false
+    if (typeof node.address !== "string" || !node.address.trim()) return false
+    if (!["external", "aws_service"].includes(node.endpoint_class)) return false
+    if (!Array.isArray(node.source_workload_ids) || node.source_workload_ids.length === 0) return false
+    if (node.evidence_type === "observed") {
+      return typeof node.projection_generation === "number" && Number.isFinite(node.projection_generation)
+    }
+    if (node.evidence_type === "legacy_unverified") {
+      return (
+        node.evidence_source === "legacy_behavioral_graph" &&
+        node.projection_generation == null &&
+        node.observation_count == null &&
+        node.total_bytes == null
+      )
+    }
+    if (node.evidence_type === "mixed") {
+      return node.evidence_source === "mixed" && node.projection_generation == null
+    }
+    return false
+  }
+  const generations = new Set(
+    scopedNodes
+      .filter(node => node.evidence_type === "observed" && typeof node.projection_generation === "number")
+      .map(node => node.projection_generation),
+  )
+  if (generations.size > 1) {
+    return unavailableProjectionMap("Destination projection mixes active generations and cannot be rendered safely.")
+  }
+  const projectedNodes = scopedNodes.filter(supportedNode)
+  const rejectedNodeCount = rawNodes.length - shapedNodes.length + scopedNodes.length - projectedNodes.length
+  const projectedNodeIds = new Set(projectedNodes.map(node => node.id))
+  const nodeById = new Map(projectedNodes.map(node => [node.id, node]))
+  const shapedEdges = rawEdges.filter(
+    (value): value is ExternalDestinationProjection["edges"][number] =>
+      isRecord(value) &&
+      Array.isArray(value.source_workload_ids) &&
+      value.source_workload_ids.every(sourceId => typeof sourceId === "string"),
+  )
+  const scopedEdges = shapedEdges.filter(edge => inScope(edge.source_workload_ids))
+  const supportedEdge = (edge: ExternalDestinationProjection["edges"][number]) => {
+    const node = nodeById.get(edge.target_id)
+    if (!node || !projectedNodeIds.has(edge.target_id)) return false
+    if (edge.relationship !== "VISUAL_CONTINUATION") return false
+    if (
+      edge.source_anchor_id !== IGW_CANVAS_ANCHOR_ID ||
+      typeof edge.source_id !== "string" ||
+      !edge.source_id.startsWith("igw-")
+    ) return false
+    if (edge.gateway_evidence !== "configured" || edge.gateway_traversal_observed !== false) return false
+    const evidencePathPairs: Record<string, string> = {
+      observed: "observed_destination_with_configured_route",
+      legacy_unverified: "legacy_destination_with_configured_route",
+      mixed: "mixed_destination_with_configured_route",
+    }
+    if (evidencePathPairs[edge.destination_evidence] !== edge.path_basis) return false
+    if (edge.destination_evidence !== node.evidence_type) return false
+    if (!edge.source_workload_ids.some(id => node.source_workload_ids.includes(id))) return false
+    if (gatewayByAnchor && gatewayByAnchor.get(edge.source_anchor_id) !== edge.source_id) return false
+    return true
+  }
+  // One visual join per destination. Duplicate accepted edges would paint the
+  // same line twice and turn row count into apparent traffic weight.
+  const byTarget = new Map<string, ExternalDestinationProjection["edges"][number]>()
+  for (const edge of scopedEdges.filter(supportedEdge)) {
+    if (!byTarget.has(edge.target_id)) byTarget.set(edge.target_id, edge)
+  }
+  const projectedEdges = [...byTarget.values()]
+  const rejectedEdgeCount = rawEdges.length - shapedEdges.length + scopedEdges.length - projectedEdges.length
+  const linkedIds = new Set(projectedEdges.map(edge => edge.target_id))
+
+  const adaptNode = (node: ExternalDestinationProjection["nodes"][number]): ExternalDestinationNode => {
+    const service = typeof node.aws_service === "string" ? node.aws_service.trim() : ""
+    return {
+      key: node.id,
+      label: service || node.address,
+      identity: service ? "aws_service" : "address",
+      kind: node.endpoint_class ?? null,
+      sources: [...new Set(node.source_workload_ids ?? [])],
+      observationCount:
+        typeof node.observation_count === "number" ? node.observation_count : null,
+      projectionId: node.id,
+      address: node.address,
+      ports: [...new Set(Array.isArray(node.ports) ? node.ports : [])],
+      protocols: [...new Set(Array.isArray(node.protocols) ? node.protocols : [])],
+      totalBytes: typeof node.total_bytes === "number" ? node.total_bytes : null,
+      firstSeen: node.first_seen ?? null,
+      lastSeen: node.last_seen ?? null,
+      evidenceIds: [...new Set(Array.isArray(node.evidence_ids) ? node.evidence_ids : [])],
+      projectionGeneration: node.projection_generation ?? null,
+      evidenceType: node.evidence_type ?? null,
+      evidenceSource: node.evidence_source ?? null,
+    }
+  }
+
+  const linkedAll = projectedNodes.filter(node => linkedIds.has(node.id)).map(adaptNode)
+  const unlinkedNodes = projectedNodes.filter(node => !linkedIds.has(node.id)).map(adaptNode)
+  const bound = Math.max(0, limit)
+  const nodes = linkedAll.slice(0, bound)
+  const hiddenNodes = linkedAll.slice(bound)
+  const continuations = projectedEdges
+    .filter(edge => nodes.some(node => node.projectionId === edge.target_id))
+    .map(edge => ({
+      sourceId: edge.source_id,
+      sourceAnchorId: edge.source_anchor_id,
+      targetKey: edge.target_id,
+      destinationEvidence: edge.destination_evidence,
+      gatewayEvidence: edge.gateway_evidence,
+      gatewayTraversalObserved: edge.gateway_traversal_observed,
+      pathBasis: edge.path_basis,
+      routeBasis: edge.route_basis ?? null,
+    }))
+
+  const declaredReturned = Math.max(0, projection.counts.returned_destination_nodes ?? projectedNodes.length)
+  const declaredBeforeBound = Math.max(
+    declaredReturned,
+    projection.counts.named_destination_nodes_before_bound ?? declaredReturned,
+  )
+  const scopeFiltered = scopedNodes.length !== projection.nodes.length
+  const detailsReturned = scopeFiltered ? projectedNodes.length : declaredReturned
+  const detailsBeforeBound = scopeFiltered ? null : declaredBeforeBound
+  const unreturnedCount = detailsBeforeBound == null ? 0 : Math.max(0, detailsBeforeBound - detailsReturned)
+  const declaredUnlinked = Math.max(0, projection.counts.unlinked_returned_destination_nodes ?? 0)
+  const detailState: ExternalDestinationMap["detailState"] =
+    detailsReturned === 0 && (detailsBeforeBound ?? 0) > 0
+      ? "unavailable"
+      : projection.truncated || unreturnedCount > 0
+        ? "truncated"
+        : scopeFiltered || !projection.detail_complete || declaredUnlinked > 0 || unlinkedNodes.length > 0 || rejectedNodeCount > 0 || rejectedEdgeCount > 0
+          ? "partial"
+          : "complete"
+
+  const unidentifiedPeerUpperBound = scopeFiltered
+    ? null
+    : projection.counts.unidentified_peer_upper_bound ?? null
+  const unidentifiedPeerSamples = scopeFiltered
+    ? []
+    : [...new Set(projection.unidentified_peer_samples.filter(sample => typeof sample === "string"))]
+
+  const evidenceKinds = new Set(projectedNodes.map(node => node.evidence_type))
+  const evidenceState: ExternalDestinationMap["evidenceState"] =
+    evidenceKinds.has("mixed") || evidenceKinds.size > 1
+      ? "mixed"
+      : evidenceKinds.has("observed")
+        ? "observed"
+        : evidenceKinds.has("legacy_unverified")
+          ? "legacy_unverified"
+          : (unidentifiedPeerUpperBound ?? 0) > 0
+            ? "unidentified"
+            : "unavailable"
+
+  if (
+    nodes.length === 0 &&
+    hiddenNodes.length === 0 &&
+    unlinkedNodes.length === 0 &&
+    (unidentifiedPeerUpperBound ?? 0) === 0 &&
+    rejectedNodeCount === 0 &&
+    rejectedEdgeCount === 0
+  ) {
+    return null
+  }
+
+  const rejectedParts = [
+    rejectedNodeCount > 0
+      ? `${rejectedNodeCount} destination node${rejectedNodeCount === 1 ? "" : "s"}`
+      : null,
+    rejectedEdgeCount > 0
+      ? `${rejectedEdgeCount} continuation edge${rejectedEdgeCount === 1 ? "" : "s"}`
+      : null,
+  ].filter((part): part is string => Boolean(part))
+  const rejectedTotal = rejectedNodeCount + rejectedEdgeCount
+
+  return {
+    nodes,
+    hiddenNodes,
+    hiddenCount: hiddenNodes.length,
+    totalNamed: linkedAll.length,
+    attributedCount: linkedAll.filter(node => node.identity === "aws_service").length,
+    remainder: null,
+    distinctUpperBound: scopeFiltered
+      ? null
+      : projection.counts.per_workload_distinct_upper_bound ?? null,
+    legsWithUnknownDistinct: 0,
+    everySampleComplete: detailState === "complete",
+    gatewayId: continuations[0]?.sourceId ?? null,
+    continuations,
+    unlinkedNodes,
+    detailState,
+    detailsReturned,
+    detailsBeforeBound,
+    unreturnedCount,
+    unidentifiedPeerUpperBound,
+    unidentifiedPeerSamples,
+    evidenceState,
+    rejectedNodeCount,
+    rejectedEdgeCount,
+    availabilityReason: rejectedParts.length > 0
+      ? `${rejectedParts.join(" and ")} ${rejectedTotal === 1 ? "was" : "were"} rejected because ${rejectedTotal === 1 ? "its" : "their"} evidence contract was unsupported.`
+      : null,
   }
 }
 
@@ -447,6 +824,61 @@ export function summarizeS3Traffic(
     withTraffic,
     total: functionIds.length,
     noActionsRecorded: withTraffic.length > 0 && !sawAction,
+  }
+}
+
+export interface TriggerRelationship {
+  sourceId: string
+  targetId: string
+  /** Every graph spelling recorded for this one directed connection. */
+  spellings: string[]
+  edgeRows: number
+}
+
+export interface TriggerRelationshipSummary {
+  /** Unique directed trigger-to-function pairs. */
+  connectionCount: number
+  /** Raw rows behind the pairs; may be larger when a pair has twin spellings. */
+  edgeRowCount: number
+  relationships: TriggerRelationship[]
+}
+
+/** Collapse TARGETS/TRIGGERS twins into the connection an operator means.
+ * Other edge types and edges outside the supplied trigger/function sets are
+ * excluded so an S3 access edge can never inflate the trigger count. */
+export function summarizeTriggerRelationships(
+  edges: readonly TrafficEdge[],
+  triggerIds: readonly string[],
+  functionIds: readonly string[],
+): TriggerRelationshipSummary | null {
+  const triggers = new Set(triggerIds)
+  const functions = new Set(functionIds)
+  const pairs = new Map<string, TriggerRelationship>()
+  let edgeRowCount = 0
+  for (const edge of edges) {
+    const spelling = (edge.protocol ?? "").toUpperCase()
+    if (spelling !== "TRIGGERS" && spelling !== "TARGETS") continue
+    if (!triggers.has(edge.source_id) || !functions.has(edge.target_id)) continue
+    edgeRowCount += 1
+    const key = `${edge.source_id}${KEY_SEP}${edge.target_id}`
+    const existing = pairs.get(key)
+    if (existing) {
+      existing.edgeRows += 1
+      if (!existing.spellings.includes(spelling)) existing.spellings.push(spelling)
+      continue
+    }
+    pairs.set(key, {
+      sourceId: edge.source_id,
+      targetId: edge.target_id,
+      spellings: [spelling],
+      edgeRows: 1,
+    })
+  }
+  if (pairs.size === 0) return null
+  return {
+    connectionCount: pairs.size,
+    edgeRowCount,
+    relationships: [...pairs.values()],
   }
 }
 

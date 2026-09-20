@@ -1,9 +1,20 @@
 /**
  * Estate Map headline + ranked-rail copy — pure helpers over TopologyRiskResponse.
  * No fabricated numbers; reads only fields the risk contract already returns.
+ *
+ * An identity claim in the headline comes only from the Identity & access
+ * authority (`resolveIdentityClaimAuthority`), the same resolution the panel
+ * renders. The legacy `vpc_topology.iam_roles` counters never produce one.
  */
+import {
+  formatObservationClaim,
+  identityUnavailableNote,
+  isMaterialObservation,
+  notObservedRatio,
+  type IdentityClaimAuthority,
+  type IdentityRoleObservation,
+} from "./identity-claim-authority"
 import type {
-  IamRoleRollup,
   SystemKpis,
   TopologyNode,
   TopologyRiskResponse,
@@ -14,27 +25,9 @@ export interface HeadlineNarrative {
   provenance: string
   spotlightNodeId: string | null
   spotlightRoleName: string | null
+  /** Why no identity claim can be made, when the identity authority is unavailable. */
+  identityNote: string | null
 }
-
-export type RankedEntry =
-  | {
-      kind: "workload"
-      id: string
-      name: string
-      layer: "Network" | "Stale"
-      reason: string
-      meta: string
-      rank: number
-    }
-  | {
-      kind: "iam_role"
-      id: string
-      name: string
-      layer: "IAM"
-      reason: string
-      meta: string
-      rank: number
-    }
 
 const TIER_ORDER: Record<string, number> = {
   WORST: 0,
@@ -113,60 +106,65 @@ function workloadHeadline(node: TopologyNode): { title: string; reason: string; 
   }
 }
 
-function iamHeadline(role: IamRoleRollup, workloads: TopologyNode[]): { title: string; reason: string; meta: string } {
-  const consumers = workloads
-    .filter(w => (Array.isArray(role.workload_ids) ? role.workload_ids : []).includes(w.id))
-    .map(w => w.name)
-    .slice(0, 2)
-  const consumerText = consumers.length > 0 ? consumers.join(", ") : "VPC-scoped attachment"
-  if (role.correlation_state === "stale_rollup") {
-    return {
-      title: `${role.name} — behavioral rollup recomputing (usage edges present)`,
-      reason: "scalar stale · edges prove usage",
-      meta: `attached to ${consumerText}`,
-    }
+/**
+ * `observation.workloadIds` is the AUTHORITATIVE attachment list — exact
+ * RoleId bindings from the identity projection. The topology node list is only
+ * a display-name lookup, and it is scoped: it legitimately omits a workload the
+ * projection binds exactly (out-of-scope VPC, a truncated node set, a node from
+ * a later generation).
+ *
+ * So resolving zero names means the NAMES are unresolved, never that the role
+ * has no attachment. Conflating the two put "attached to no exact workload
+ * attachment returned" in the header directly above a panel showing
+ * ATTACHED WORKLOADS (1) · i-web. An absent display detail must not negate an
+ * exact attachment: fall back to the exact id and say the details are
+ * unresolved. Only an actually empty list claims no attachment.
+ */
+function identityHeadline(observation: IdentityRoleObservation, workloads: TopologyNode[]): string {
+  const claim = `${observation.name} has ${formatObservationClaim(observation)} (complete coverage)`
+  const attachedIds = observation.workloadIds ?? []
+  if (attachedIds.length === 0) {
+    return `${claim} — no exact workload attachment returned`
   }
-  if (role.correlation_state === "not_correlated") {
-    return {
-      title: `${role.name} — not yet correlated`,
-      reason: "behavioral join pending",
-      meta: consumerText,
-    }
-  }
-  const gap = role.gap_percentage ?? 0
-  return {
-    title: `${role.name} has ${role.unused_actions}/${role.allowed_actions} unused permissions (${Math.round(gap)}% gap) — attached to ${consumerText}`,
-    reason: `${role.unused_actions}/${role.allowed_actions} unused · ${Math.round(gap)}% gap`,
-    meta: role.last_remediated_at ? `remediated ${role.last_remediated_at.slice(0, 10)}` : "never remediated",
-  }
+
+  const nameById = new Map(workloads.map(w => [w.id, w.name]))
+  const shown = attachedIds.slice(0, 2)
+  // The exact id is the fallback label, so the attachment stays nameable.
+  const labels = shown.map(id => nameById.get(id) ?? id)
+  // The old `.slice(0, 2)` dropped the rest silently, so two names read as the
+  // whole list. Count what is not shown rather than implying there is nothing.
+  const remaining = attachedIds.length - shown.length
+  const more = remaining > 0 ? ` +${remaining} more` : ""
+  const unresolved = shown.some(id => !nameById.has(id))
+    ? " (workload details unresolved in this scope)"
+    : ""
+  return `${claim} — attached to ${labels.join(", ")}${more}${unresolved}`
 }
 
-export function buildHeadlineNarrative(data: TopologyRiskResponse): HeadlineNarrative {
+export function buildHeadlineNarrative(
+  data: TopologyRiskResponse,
+  identity: IdentityClaimAuthority,
+): HeadlineNarrative {
   const nodes = (data.nodes ?? []).filter(n => !n.stale)
-  const roles = data.vpc_topology?.iam_roles ?? []
+  const provenance = buildProvenance(data.system_kpis, data.scored_at)
+  const identityNote = identityUnavailableNote(identity)
 
   const scored = [...nodes]
     .filter(n => n.score?.rank != null)
     .sort((a, b) => (a.score!.rank! - b.score!.rank!))
 
   const worstWorkload = scored.find(n => n.score && TIER_ORDER[n.score.tier] <= 1)
-  const correlatedRoles = roles
-    .filter(r => r.correlation_state === "correlated" && r.gap_percentage != null)
-    .sort((a, b) => (b.gap_percentage ?? 0) - (a.gap_percentage ?? 0))
-  const worstRole = correlatedRoles[0]
+  const worstObservation = identity.state === "ready"
+    ? [...identity.observations].sort((a, b) => notObservedRatio(b) - notObservedRatio(a))[0]
+    : undefined
 
-  const useIam =
-    !worstWorkload &&
-    worstRole &&
-    (worstRole.gap_percentage ?? 0) >= 50
-
-  if (useIam && worstRole) {
-    const h = iamHeadline(worstRole, nodes)
+  if (!worstWorkload && worstObservation && isMaterialObservation(worstObservation)) {
     return {
-      title: h.title,
-      provenance: buildProvenance(data.system_kpis, data.scored_at),
+      title: identityHeadline(worstObservation, nodes),
+      provenance,
       spotlightNodeId: null,
-      spotlightRoleName: worstRole.name,
+      spotlightRoleName: worstObservation.name,
+      identityNote,
     }
   }
 
@@ -174,27 +172,19 @@ export function buildHeadlineNarrative(data: TopologyRiskResponse): HeadlineNarr
     const h = workloadHeadline(worstWorkload)
     return {
       title: h.title,
-      provenance: buildProvenance(data.system_kpis, data.scored_at),
+      provenance,
       spotlightNodeId: worstWorkload.id,
       spotlightRoleName: null,
-    }
-  }
-
-  if (worstRole) {
-    const h = iamHeadline(worstRole, nodes)
-    return {
-      title: h.title,
-      provenance: buildProvenance(data.system_kpis, data.scored_at),
-      spotlightNodeId: null,
-      spotlightRoleName: worstRole.name,
+      identityNote,
     }
   }
 
   return {
     title: `${data.system} · ${nodes.length} workloads in scope`,
-    provenance: buildProvenance(data.system_kpis, data.scored_at),
+    provenance,
     spotlightNodeId: null,
     spotlightRoleName: null,
+    identityNote,
   }
 }
 
@@ -206,69 +196,4 @@ function buildProvenance(kpis: SystemKpis | null, scoredAt: string): string {
     ? `posture fresh · threshold ${fresh.threshold_days}d`
     : fresh?.auto_resolves_when ?? "posture freshness degraded"
   return `scored ${scoredIso} · ${flagged} flagged · ${freshPart}`
-}
-
-export function buildRankedEntries(
-  nodes: TopologyNode[],
-  roles: IamRoleRollup[],
-): RankedEntry[] {
-  const active = nodes.filter(n => !n.stale)
-  const workloadEntries: RankedEntry[] = active
-    .filter(n => n.score?.rank != null)
-    .sort((a, b) => (a.score!.rank! - b.score!.rank!))
-    .slice(0, 6)
-    .map(n => {
-      const h = workloadHeadline(n)
-      return {
-        kind: "workload" as const,
-        id: n.id,
-        name: n.name,
-        layer: "Network" as const,
-        reason: h.reason,
-        meta: h.meta,
-        rank: n.score!.rank!,
-      }
-    })
-
-  const staleEntries: RankedEntry[] = nodes
-    .filter(n => n.stale)
-    .slice(0, 2)
-    .map(n => ({
-      kind: "workload" as const,
-      id: n.id,
-      name: n.name,
-      layer: "Stale" as const,
-      reason: n.stale?.reason ?? "aws_exists = false",
-      meta: "excluded from rank",
-      rank: 900 + workloadEntries.length,
-    }))
-
-  const iamEntries: RankedEntry[] = roles
-    .filter(r => r.correlation_state === "correlated" || r.correlation_state === "stale_rollup")
-    .sort((a, b) => {
-      if (a.correlation_state === "stale_rollup" && b.correlation_state !== "stale_rollup") return -1
-      if (b.correlation_state === "stale_rollup" && a.correlation_state !== "stale_rollup") return 1
-      return (b.gap_percentage ?? 0) - (a.gap_percentage ?? 0)
-    })
-    .slice(0, 4)
-    .map((r, i) => {
-      const h = iamHeadline(r, active)
-      return {
-        kind: "iam_role" as const,
-        id: `iam:${r.name}`,
-        name: r.name,
-        layer: "IAM" as const,
-        reason: h.reason,
-        meta: h.meta,
-        rank: 100 + i,
-      }
-    })
-
-  const merged = [...workloadEntries, ...iamEntries, ...staleEntries]
-  merged.sort((a, b) => {
-    const tierA = a.kind === "workload" && a.layer === "Network" ? a.rank : a.rank + 50
-    const tierB = b.kind === "workload" && b.layer === "Network" ? b.rank : b.rank + 50
-    return tierA - tierB
-  })
-  return merged.slice(0, 8)
 }

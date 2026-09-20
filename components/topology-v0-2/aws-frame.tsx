@@ -34,14 +34,17 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode }
 import {
   collapseTrunkWords,
   externalDestinationMap,
+  externalDestinationProjectionMap,
   summarizeExternalEgress,
   summarizeS3Traffic,
+  summarizeTriggerRelationships,
   trunkWordBadgeTitle,
   EXTERNAL_DESTINATION_FLOW_PREFIX,
   type ExternalDestinationMap,
   type ExternalDestinationNode,
   type ExternalEgressSummary,
   type S3TrafficCoverage,
+  type TriggerRelationshipSummary,
 } from "./estate-egress-summary"
 import { IGW_CANVAS_ANCHOR_ID } from "./service-paths"
 import { Boxes, GitBranch, Globe2, ShieldAlert, Users } from "lucide-react"
@@ -63,6 +66,8 @@ import {
   type VpcTopology,
 } from "./types"
 import { resolveCoverageGaps } from "./coverage-gaps"
+import { IdentityAccessControl } from "./identity-access-panel"
+import { usePrefersReducedMotion } from "./use-prefers-reduced-motion"
 import { normalizeVpcTopology } from "./normalize-topology"
 import { createMap } from "./native-map"
 import type { EstateFlowMode } from "./estate-flow-edges"
@@ -137,6 +142,10 @@ interface Props {
   attackPathFlowCount?: number
   trafficEdges?: TrafficEdge[]
   trafficAuthority?: TopologyRiskResponse["traffic_authority"]
+  responseContractVersion?: TopologyRiskResponse["response_contract_version"]
+  externalDestinationProjection?: TopologyRiskResponse["external_destination_projection"]
+  identityAccess?: TopologyRiskResponse["identity_access"]
+  identityAccessSnapshotStale?: boolean
   selectedNodeId: string | null
   highlightedRoleName?: string | null
   onSelect: (id: string) => void
@@ -2604,6 +2613,7 @@ function ServerlessComputeTier({
   namedFlowNodeIds,
   laneMinHeight,
   triggerNodes,
+  triggerEdges,
   s3Coverage,
 }: {
   nodes: TopologyNode[]
@@ -2619,6 +2629,8 @@ function ServerlessComputeTier({
   laneMinHeight?: number
   /** Triggers band (EventBridge / SQS / Step Functions) above the chips. */
   triggerNodes?: TopologyNode[]
+  /** Full payload edges used to derive exact unique trigger relationships. */
+  triggerEdges?: TrafficEdge[]
   /** How many of this lane's functions have a recorded S3 edge (summarizeS3Traffic). */
   s3Coverage?: S3TrafficCoverage | null
 }) {
@@ -2671,6 +2683,11 @@ function ServerlessComputeTier({
   const laneNodes = [...nodes, ...triggers]
   const elided = elideSharedPrefix(laneNodes.map(node => node.name))
   const displayName = new Map(laneNodes.map((node, i) => [node.id, elided.labels[i]]))
+  const triggerSummary = summarizeTriggerRelationships(
+    triggerEdges ?? [],
+    triggers.map(node => node.id),
+    nodes.map(node => node.id),
+  )
   return (
     <div
       className={compact ? "rounded-md p-2 flex flex-col min-h-0" : "rounded-md p-2.5"}
@@ -2716,43 +2733,21 @@ function ServerlessComputeTier({
           nameFor={id => displayName.get(id) ?? id}
         />
       </div>
-      {/* The band is a GUEST in the Lambda lane, so in a lane it scrolls on its
-          own share rather than pushing the chips out: six EventBridge triggers
-          are one per row in a 200px lane (291.5px measured on C1), which is
-          more than the whole lane had to give. `flex-auto` + `min-h-0` lets it
-          shrink alongside the body in proportion to what each holds, and the
-          header keeps stating the true count of what is inside. */}
+      {/* Six trigger cards consumed most of this narrow lane and looked like
+          six observed data flows. Keep the exact resource/connection counts
+          here and move every pair behind an explicit inspection control. */}
       {triggers.length > 0 ? (
         <div
-          className={compact ? "rounded p-1.5 mb-1.5 flex flex-col min-h-0 flex-auto" : "rounded p-1.5 mb-1.5"}
-          style={{ background: "#FFFFFF", border: "1px solid #DDD6FE" }}
+          className="mb-1.5"
           data-testid="topology-triggers-band"
           data-flow-obstacle="triggers-band"
         >
-          <div
-            className="text-[9px] uppercase tracking-[0.12em] font-semibold mb-1 shrink-0"
-            style={{ color: "#5B3C9E" }}
-          >
-            Triggers ({triggers.length})
-          </div>
-          <div
-            className={compact ? "flex flex-col gap-1 min-h-0 flex-auto overflow-y-auto" : "flex flex-wrap gap-1.5"}
-            style={compact ? { minHeight: RAIL_LANE_ROW_PX } : undefined}
-            data-testid="topology-triggers-band-list"
-            data-scroll-region={compact ? "triggers-band" : undefined}
-          >
-            {triggers.map(node => (
-              <ServiceNodeIcon
-                key={node.id}
-                node={node}
-                selected={node.id === selectedNodeId}
-                onSelect={onSelect}
-                dense
-                railChip={compact}
-                displayName={displayName.get(node.id)}
-              />
-            ))}
-          </div>
+          <TriggerRelationshipsControl
+            triggerCount={triggers.length}
+            summary={triggerSummary}
+            nameFor={id => displayName.get(id) ?? id}
+            onSelect={onSelect}
+          />
         </div>
       ) : null}
       <RailLaneBody lane="serverless" compact={compact} revision={nodes.length}>
@@ -3023,17 +3018,12 @@ const COVERAGE_STATE_STYLE: Record<string, { bg: string; fg: string; border: str
  *  Renders nothing when the backend predates the contract — an absent number is
  *  honest, an invented one is not. Every count shown is the backend's.
  *
- *  COLLAPSED BY DEFAULT (independent production UI QA, 2026-09-14). Expanded,
- *  this block measured 71px at y=133.52..204.52 on a 1512x771 viewport — a
- *  permanent tax on the map's vertical budget paid by every reader, to show a
- *  per-lane breakdown most of them never read. What stays visible is the part
- *  that is load-bearing for honesty: the state chip and the denominator
- *  sentence, so a reader can never mistake "not measured" for "zero coverage".
- *  The per-lane chips and the gap warnings move behind `Coverage details`.
- *
- *  The toggle is uncontrolled on purpose: this is a per-reader view preference,
- *  not estate state, so it must not round-trip through the payload. */
-function LaneCoveragePill({
+ *  ON DEMAND (independent production UI QA, 2026-09-15). The old in-flow block
+ *  measured up to 71px at a 1512x771 viewport and permanently reduced the
+ *  map's vertical budget. The toolbar trigger now carries the load-bearing
+ *  state; this full denominator, lane and warning detail mounts in an overlay
+ *  only when requested. */
+function LaneCoverageDetails({
   coverage,
   gaps,
   compact,
@@ -3042,7 +3032,6 @@ function LaneCoveragePill({
   gaps: LaneCoverageWarning[]
   compact: boolean
 }) {
-  const [detailsOpen, setDetailsOpen] = useState(false)
   const style = COVERAGE_STATE_STYLE[coverage.state] ?? COVERAGE_STATE_STYLE.unknown
   const lanes = (["vpc", "database", "serverless", "regional"] as const).flatMap(lane => {
     const counts = coverage.by_lane?.[lane]
@@ -3054,7 +3043,7 @@ function LaneCoveragePill({
       style={{ borderColor: style.border, background: style.bg, color: style.fg }}
       data-testid="topology-lane-coverage"
       data-coverage-state={coverage.state}
-      data-details-open={detailsOpen ? "true" : "false"}
+      data-details-open="true"
     >
       <div className="flex items-center gap-2 min-w-0 flex-wrap">
         <span className="shrink-0 font-semibold">Flow-log coverage</span>
@@ -3075,23 +3064,10 @@ function LaneCoveragePill({
           {coverage.not_applicable > 0 ? ` · ${coverage.not_applicable} not applicable` : ""}
           {coverage.active_generation != null ? ` · generation ${coverage.active_generation}` : ""}
         </span>
-        <button
-          type="button"
-          onClick={() => setDetailsOpen(open => !open)}
-          className="shrink-0 rounded px-1.5 py-0.5 font-semibold underline decoration-dotted underline-offset-2"
-          style={{ background: "rgba(255,255,255,0.7)", border: `1px solid ${style.border}`, color: style.fg }}
-          aria-expanded={detailsOpen}
-          aria-controls="topology-lane-coverage-details"
-          data-testid="topology-lane-coverage-details-toggle"
-        >
-          {detailsOpen ? "Hide coverage details" : "Coverage details"}
-          {!detailsOpen && gaps.length > 0 ? ` (${gaps.length})` : ""}
-        </button>
         <span
           id="topology-lane-coverage-details"
           className="flex items-center gap-1 flex-wrap"
           data-testid="topology-lane-coverage-lanes"
-          hidden={!detailsOpen}
         >
           {lanes.map(([lane, counts]) => {
             const laneStyle = COVERAGE_STATE_STYLE[counts.state] ?? COVERAGE_STATE_STYLE.unknown
@@ -3124,14 +3100,10 @@ function LaneCoveragePill({
           })}
         </span>
       </div>
-      {/* Hidden, not unmounted: `hidden` costs no layout, so the collapsed
-          row is as short either way, and the disclosure's aria-controls target
-          plus every existing gap assertion keep pointing at a live node. */}
       {gaps.length > 0 ? (
         <ul
           className={compact ? "mt-0.5 space-y-0" : "mt-1 space-y-0.5"}
           data-testid="topology-coverage-gaps"
-          hidden={!detailsOpen}
         >
           {gaps.map(warning => (
             <li
@@ -3148,6 +3120,59 @@ function LaneCoveragePill({
         </ul>
       ) : null}
     </div>
+  )
+}
+
+/** Coverage belongs to the operator's inspection chrome, not to the map's
+ * vertical layout. The trigger keeps the authority state visible without
+ * consuming a full-width row; Radix owns Escape and restores focus to this
+ * exact trigger when the panel closes. */
+function LaneCoverageControl({
+  coverage,
+  gaps,
+  compact,
+}: {
+  coverage: LaneCoverage
+  gaps: LaneCoverageWarning[]
+  compact: boolean
+}) {
+  const style = COVERAGE_STATE_STYLE[coverage.state] ?? COVERAGE_STATE_STYLE.unknown
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          aria-label="Flow-log coverage"
+          className={
+            compact
+              ? "inline-flex h-7 items-center gap-1 rounded-md px-2 text-[9px] font-semibold"
+              : "inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-[10px] font-semibold"
+          }
+          style={{ background: style.bg, color: style.fg, border: `1px solid ${style.border}` }}
+          data-testid="topology-lane-coverage-trigger"
+          data-coverage-state={coverage.state}
+        >
+          <span
+            className="h-1.5 w-1.5 shrink-0 rounded-full"
+            style={{ background: style.fg }}
+            aria-hidden
+          />
+          Coverage · {style.label}
+          {gaps.length > 0 ? ` (${gaps.length})` : ""}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        sideOffset={8}
+        className="z-[250] w-[min(92vw,620px)] max-h-[min(70vh,560px)] overflow-y-auto bg-white p-0 opacity-100 shadow-2xl"
+        style={{ backgroundColor: "#FFFFFF", opacity: 1 }}
+        data-testid="topology-lane-coverage-panel"
+        role="dialog"
+        aria-label="Flow-log coverage details"
+      >
+        <LaneCoverageDetails coverage={coverage} gaps={gaps} compact={compact} />
+      </PopoverContent>
+    </Popover>
   )
 }
 
@@ -3234,6 +3259,109 @@ function LambdaS3CoveragePanel({
   )
 }
 
+function TriggerRelationshipsControl({
+  triggerCount,
+  summary,
+  nameFor,
+  onSelect,
+}: {
+  triggerCount: number
+  summary: TriggerRelationshipSummary | null
+  nameFor: (id: string) => string
+  onSelect: (id: string) => void
+}) {
+  const connectedSources = new Set(summary?.relationships.map(item => item.sourceId) ?? [])
+  const unboundResources = Math.max(0, triggerCount - connectedSources.size)
+  const connectionCount = summary?.connectionCount ?? 0
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-[9px] font-semibold"
+          style={{ background: "#FFFFFF", border: "1px solid #DDD6FE", color: "#5B3C9E" }}
+          aria-label={`Inspect ${connectionCount} trigger relationship${connectionCount === 1 ? "" : "s"}`}
+          data-testid="topology-triggers-detail-trigger"
+          data-trigger-resource-count={triggerCount}
+          data-connection-count={connectionCount}
+          data-edge-row-count={summary?.edgeRowCount ?? 0}
+        >
+          <span className="uppercase tracking-[0.12em]">Triggers ({triggerCount})</span>
+          <span className="font-normal normal-case tracking-normal">
+            {summary ? `${connectionCount} connection${connectionCount === 1 ? "" : "s"}` : "details unavailable"} ▾
+          </span>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        sideOffset={8}
+        className="z-[250] w-[min(92vw,560px)] max-h-[min(70vh,560px)] overflow-y-auto bg-white p-3 opacity-100 shadow-2xl"
+        style={{ backgroundColor: "#FFFFFF", opacity: 1 }}
+        role="dialog"
+        aria-label="Trigger relationship details"
+        data-testid="topology-triggers-detail-panel"
+      >
+        <div className="text-xs font-semibold" style={{ color: "#312E81" }}>
+          {triggerCount} trigger resource{triggerCount === 1 ? "" : "s"}
+          {summary ? ` · ${connectionCount} configured connection${connectionCount === 1 ? "" : "s"}` : ""}
+        </div>
+        <p className="mt-1 text-[11px] leading-snug" style={{ color: "#6366F1" }}>
+          These are trigger relationships. Observed Lambda data traffic is reported separately.
+        </p>
+        {summary ? (
+          <>
+            <ul className="mt-2 space-y-1.5" role="list" data-testid="topology-trigger-relationships">
+              {summary.relationships.map(item => (
+                <li
+                  key={`${item.sourceId}:${item.targetId}`}
+                  className="rounded border border-violet-100 bg-violet-50 px-2 py-1.5 text-[11px]"
+                  data-testid="topology-trigger-relationship"
+                  data-source-id={item.sourceId}
+                  data-target-id={item.targetId}
+                  data-edge-rows={item.edgeRows}
+                >
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <button
+                      type="button"
+                      className="min-w-0 truncate font-mono font-semibold underline decoration-dotted underline-offset-2"
+                      title={item.sourceId}
+                      onClick={() => onSelect(item.sourceId)}
+                    >
+                      {nameFor(item.sourceId)}
+                    </button>
+                    <span className="shrink-0" aria-hidden>→</span>
+                    <button
+                      type="button"
+                      className="min-w-0 truncate font-mono font-semibold underline decoration-dotted underline-offset-2"
+                      title={item.targetId}
+                      onClick={() => onSelect(item.targetId)}
+                    >
+                      {nameFor(item.targetId)}
+                    </button>
+                  </div>
+                  <div className="mt-0.5 text-[10px]" style={{ color: "#6D28D9" }}>
+                    Recorded as {item.spellings.join(" + ")}
+                    {item.edgeRows > 1 ? ` · ${item.edgeRows} graph rows for one connection` : ""}
+                  </div>
+                </li>
+              ))}
+            </ul>
+            {unboundResources > 0 ? (
+              <p className="mt-2 text-[11px]" data-testid="topology-trigger-relationships-partial">
+                {unboundResources} trigger resource{unboundResources === 1 ? " has" : "s have"} no relationship row in this snapshot.
+              </p>
+            ) : null}
+          </>
+        ) : (
+          <p className="mt-2 text-[11px]" data-testid="topology-trigger-relationships-unavailable">
+            This snapshot names trigger resources but contains no supported trigger relationship rows.
+          </p>
+        )}
+      </PopoverContent>
+    </Popover>
+  )
+}
+
 /** One hop on the egress chain, named from the payload's own egress_hops.
  *  The id is elided to keep the chain inside the strip; the full id is on the
  *  chip's title, in its data attribute, and spelled out in the panel. */
@@ -3300,10 +3428,12 @@ function EgressArrow() {
  *  so opening it cannot change the strip's width at any viewport. */
 function ExternalDestinationsNode({
   summary,
+  map,
   compact,
   lane = false,
 }: {
   summary: ExternalEgressSummary | null
+  map?: ExternalDestinationMap | null
   compact: boolean
   /** Stack for the map's external lane instead of running inline along the
    *  top strip. Same component, same claims, same testids — only the axis
@@ -3312,7 +3442,7 @@ function ExternalDestinationsNode({
   lane?: boolean
 }) {
   const [open, setOpen] = useState(false)
-  if (!summary) return null
+  if (!summary && !map) return null
   const {
     legs,
     maxDistinctUpperBound,
@@ -3321,7 +3451,16 @@ function ExternalDestinationsNode({
     anySample,
     natIds,
     igwIds,
-  } = summary
+  } = summary ?? {
+    legs: [],
+    maxDistinctUpperBound: map?.distinctUpperBound ?? null,
+    legsWithUnknownDistinct: map?.legsWithUnknownDistinct ?? 0,
+    everySampleComplete: map?.everySampleComplete ?? false,
+    anySample: (map?.detailsReturned ?? 0) > 0,
+    natIds: [],
+    igwIds: map?.gatewayId ? [map.gatewayId] : [],
+    routeBases: [],
+  }
   const hops = [...natIds.map(id => `NAT ${id}`), ...igwIds.map(id => `IGW ${id}`)]
   // Three claims, three sentences. A null bound is a GAP (no leg carries a
   // count); a zero bound is a measurement; a partial bound covers only the
@@ -3336,11 +3475,21 @@ function ExternalDestinationsNode({
     legsWithUnknownDistinct > 0 && maxDistinctUpperBound !== null
       ? ` · ${legsWithUnknownDistinct} uncounted`
       : ""
-  const samplePhrase = everySampleComplete
-    ? " · addresses complete"
-    : anySample
-      ? " · addresses sampled"
-      : " · no addresses recorded"
+  const samplePhrase =
+    map && map.detailState !== "legacy"
+      ? map.detailState === "complete"
+        ? " · details complete"
+        : map.detailState === "truncated"
+          ? ` · ${map.detailsReturned} details returned · truncated`
+          : map.detailState === "unavailable"
+            ? " · identities unavailable"
+            : " · details partial"
+      : everySampleComplete
+        ? " · addresses complete"
+        : anySample
+          ? " · addresses sampled"
+          : " · no addresses recorded"
+  const showGatewayChain = !map || map.detailState === "legacy" || map.continuations.length > 0
   return (
     <div
       className={
@@ -3354,11 +3503,12 @@ function ExternalDestinationsNode({
       data-max-distinct-upper-bound={maxDistinctUpperBound ?? ""}
       data-unknown-distinct-legs={legsWithUnknownDistinct}
       data-sample-complete={everySampleComplete ? "true" : "false"}
+      data-detail-state={map?.detailState ?? "legacy"}
       data-open={open ? "true" : "false"}
     >
       {/* The chain, not a neutral rule: this is the egress path, drawn in the
           legend's own "Internet egress" colour and naming its gateways. */}
-      <div
+      {showGatewayChain ? <div
         className={
           lane ? "flex flex-wrap items-center gap-1 min-w-0 w-full" : "flex items-center gap-1 min-w-0"
         }
@@ -3394,7 +3544,7 @@ function ExternalDestinationsNode({
             <EgressArrow />
           </span>
         )}
-      </div>
+      </div> : null}
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <button
@@ -3493,12 +3643,49 @@ function ExternalDestinationsNode({
             {legs.length} workload{legs.length === 1 ? "" : "s"} leaving the VPC
           </p>
           <p className="mt-1 text-[11px] leading-snug" style={{ color: PAL.slate }}>
-            Route is configured (route tables){hops.length > 0 ? `: ${hops.join(" → ")}` : ""}. Counts are
-            observed. The payload names no destination identities
-            {anySample
-              ? ", so these addresses are evidence, not an inventory of services."
-              : ", and this generation recorded no addresses at all."}
+            {map && map.detailState !== "legacy" ? (
+              <>
+                {map.evidenceState === "observed"
+                  ? "Destination identities are observed evidence. "
+                  : map.evidenceState === "legacy_unverified"
+                    ? "Destination identities come from legacy, unverified evidence. "
+                    : map.evidenceState === "mixed"
+                      ? "Destination identities mix observed and legacy, unverified evidence. "
+                      : map.evidenceState === "unidentified"
+                        ? "Only unidentified peer evidence is available. "
+                        : "Destination projection evidence is unavailable. "}
+                {map.continuations.length > 0 ? (
+                  <>Gateway continuation is configured routing
+                    {hops.length > 0 ? `: ${hops.join(" → ")}` : ""}; it does not claim the
+                    gateway hop was observed per packet.</>
+                ) : "No gateway continuation is drawn because the response carries no valid exact join."}
+              </>
+            ) : (
+              <>
+                Route is configured (route tables){hops.length > 0 ? `: ${hops.join(" → ")}` : ""}. Counts are
+                observed. The legacy payload names no destination identities
+                {anySample
+                  ? ", so these addresses are evidence, not an inventory of services."
+                  : ", and this generation recorded no addresses at all."}
+              </>
+            )}
           </p>
+          {map && map.detailState !== "legacy" ? (
+            <p
+              className="mt-1 text-[11px] leading-snug"
+              style={{ color: PAL.slate }}
+              data-testid="topology-external-destination-detail-state"
+              data-detail-state={map.detailState}
+            >
+              {map.detailState === "complete"
+                ? `Destination details complete: ${map.detailsReturned} of ${map.detailsBeforeBound ?? map.detailsReturned} returned.`
+                : map.detailState === "truncated"
+                  ? `Destination details truncated: ${map.detailsReturned} returned; ${map.unreturnedCount} not returned by this bounded response.`
+                  : map.detailState === "unavailable"
+                    ? `Destination identities unavailable: ${map.detailsBeforeBound ?? "some"} were counted, but no detail was returned.`
+                    : `Destination details partial: ${map.detailsReturned} returned; not every returned destination has an exact gateway link.`}
+            </p>
+          ) : null}
           {legsWithUnknownDistinct > 0 ? (
             <p
               className="mt-1 text-[11px] leading-snug"
@@ -3540,6 +3727,57 @@ function ExternalDestinationsNode({
               </li>
             ))}
           </ul>
+          {map && [...map.nodes, ...map.hiddenNodes, ...map.unlinkedNodes].length > 0 ? (
+            <ul
+              className="mt-2 flex flex-col gap-1.5 border-t pt-2"
+              style={{ borderColor: "#E2E8F0" }}
+              data-testid="topology-external-destination-projection-list"
+            >
+              {[...map.nodes, ...map.hiddenNodes, ...map.unlinkedNodes].map(node => {
+                const unlinked = map.unlinkedNodes.some(candidate => candidate.key === node.key)
+                return (
+                  <li
+                    key={node.key}
+                    className="text-[11px] leading-snug"
+                    style={{ color: PAL.slate }}
+                    data-testid="topology-external-destination-projection-item"
+                    data-projection-id={node.projectionId ?? ""}
+                    data-gateway-linked={unlinked ? "false" : "true"}
+                    data-evidence-type={node.evidenceType ?? ""}
+                  >
+                    <span className={node.identity === "aws_service" ? "font-semibold" : "font-mono"} style={{ color: PAL.ink }}>
+                      {node.label}
+                    </span>
+                    {node.identity === "aws_service" && node.address !== node.label ? ` · ${node.address}` : ""}
+                    {node.ports.length > 0 ? ` · ports ${node.ports.join(", ")}` : ""}
+                    {node.protocols.length > 0 ? ` · ${node.protocols.join(", ")}` : ""}
+                    {node.observationCount == null ? " · observations unavailable" : ` · ${node.observationCount} observations`}
+                    {node.totalBytes == null ? "" : ` · ${node.totalBytes} bytes`}
+                    {node.evidenceType === "observed"
+                      ? " · observed evidence"
+                      : node.evidenceType === "legacy_unverified"
+                        ? " · legacy/unverified evidence"
+                        : node.evidenceType === "mixed"
+                          ? " · mixed observed + legacy/unverified evidence"
+                          : " · evidence unavailable"}
+                    {unlinked ? " · exact configured IGW link unavailable; no line drawn" : ""}
+                  </li>
+                )
+              })}
+            </ul>
+          ) : null}
+          {map && (map.unidentifiedPeerUpperBound ?? 0) > 0 ? (
+            <p
+              className="mt-2 text-[11px] leading-snug rounded border border-dashed px-2 py-1.5"
+              style={{ color: PAL.slate, borderColor: "#CBD5E1", background: "#F8FAFC" }}
+              data-testid="topology-unidentified-external-peers"
+              data-upper-bound={map.unidentifiedPeerUpperBound ?? ""}
+            >
+              Up to {map.unidentifiedPeerUpperBound} unidentified peer{map.unidentifiedPeerUpperBound === 1 ? "" : "s"} kept separate.
+              {map.unidentifiedPeerSamples.length > 0 ? ` Samples: ${map.unidentifiedPeerSamples.join(", ")}.` : ""}
+              {" "}No IGW path is drawn without an exact classified destination and configured gateway.
+            </p>
+          ) : null}
         </PopoverContent>
       </Popover>
     </div>
@@ -3561,6 +3799,13 @@ export const EXTERNAL_LANE_W_PX = 176
  *  identity. */
 function ExternalDestinationChip({ node }: { node: ExternalDestinationNode }) {
   const attributed = node.identity === "aws_service"
+  const legacy = node.evidenceType === "legacy_unverified"
+  const mixed = node.evidenceType === "mixed"
+  const evidenceLabel = legacy
+    ? "legacy/unverified"
+    : mixed
+      ? "mixed observed + legacy/unverified"
+      : "observed"
   return (
     <div
       className="rounded-md px-1.5 py-1 min-w-0 w-full"
@@ -3574,10 +3819,11 @@ function ExternalDestinationChip({ node }: { node: ExternalDestinationNode }) {
       data-kind={node.kind ?? ""}
       data-sources={node.sources.join(",")}
       data-observations={node.observationCount ?? ""}
+      data-evidence-type={node.evidenceType ?? ""}
       title={
         attributed
-          ? `${node.label} — attributed by the flow-log evidence`
-          : `${node.label} — an address; the evidence names no service`
+          ? `${node.label} — attributed by ${evidenceLabel} evidence${node.address !== node.label ? ` (${node.address})` : ""}`
+          : `${node.label} — an address from ${evidenceLabel} evidence; no service is named${node.ports.length > 0 ? `; ports ${node.ports.join(", ")}` : ""}`
       }
     >
       <div
@@ -3587,7 +3833,7 @@ function ExternalDestinationChip({ node }: { node: ExternalDestinationNode }) {
         {node.label}
       </div>
       <div className="text-[9px] leading-tight" style={{ color: PAL.slate }}>
-        {attributed ? "AWS service" : "address"}
+        {attributed ? "AWS service" : "address"} · {evidenceLabel}
         {node.sources.length > 1 ? ` · ${node.sources.length} workloads` : ""}
       </div>
     </div>
@@ -3642,6 +3888,13 @@ function ExternalDestinationsLane({
       data-attributed-count={map.attributedCount}
       data-gateway-id={map.gatewayId ?? ""}
       data-remainder-legs={map.remainder?.legs ?? 0}
+      data-detail-state={map.detailState}
+      data-unreturned-count={map.unreturnedCount}
+      data-unlinked-count={map.unlinkedNodes.length}
+      data-unidentified-upper-bound={map.unidentifiedPeerUpperBound ?? ""}
+      data-evidence-state={map.evidenceState}
+      data-rejected-node-count={map.rejectedNodeCount}
+      data-rejected-edge-count={map.rejectedEdgeCount}
     >
       <div
         className="text-[10px] uppercase tracking-[0.12em] font-semibold shrink-0"
@@ -3660,7 +3913,18 @@ function ExternalDestinationsLane({
         data-flow-obstacle="external-lane-caption"
         data-testid="topology-external-destinations-provenance"
       >
-        Destinations observed this generation · NAT → IGW is configured routing
+        {map.evidenceState === "observed"
+          ? "Destination identities observed"
+          : map.evidenceState === "legacy_unverified"
+            ? "Destination identities legacy/unverified"
+            : map.evidenceState === "mixed"
+              ? "Observed + legacy/unverified identities"
+              : map.evidenceState === "unidentified"
+                ? "Only unidentified peer evidence"
+                : "Destination projection unavailable"}
+        {map.continuations.length > 0
+          ? " · IGW continuation uses configured routing; traversal is not observed"
+          : " · no exact IGW continuation drawn"}
       </div>
       <div className="flex flex-col gap-1 min-w-0">
         {map.nodes.map(node => (
@@ -3776,11 +4040,49 @@ function ExternalDestinationsLane({
             </PopoverContent>
           </Popover>
         ) : null}
+        {map.unreturnedCount > 0 ? (
+          <div
+            className="rounded-md border border-dashed px-1.5 py-1 text-[9px] leading-tight"
+            style={{ background: "#FFF7ED", borderColor: "#F59E0B", color: "#92400E" }}
+            data-testid="topology-external-destinations-truncated"
+          >
+            {map.unreturnedCount} destination detail{map.unreturnedCount === 1 ? "" : "s"} not returned
+          </div>
+        ) : null}
+        {map.unlinkedNodes.length > 0 ? (
+          <div
+            className="rounded-md border border-dashed px-1.5 py-1 text-[9px] leading-tight"
+            style={{ background: "#F8FAFC", borderColor: "#94A3B8", color: PAL.slate }}
+            data-testid="topology-external-destinations-unlinked"
+          >
+            {map.unlinkedNodes.length} observed destination{map.unlinkedNodes.length === 1 ? "" : "s"} · exact IGW link unavailable · no line drawn
+          </div>
+        ) : null}
+        {(map.unidentifiedPeerUpperBound ?? 0) > 0 ? (
+          <div
+            className="rounded-md border border-dashed px-1.5 py-1 text-[9px] leading-tight"
+            style={{ background: "#F8FAFC", borderColor: "#CBD5E1", color: PAL.slate }}
+            data-testid="topology-external-destinations-unidentified"
+          >
+            Up to {map.unidentifiedPeerUpperBound} unidentified peer{map.unidentifiedPeerUpperBound === 1 ? "" : "s"} · kept separate · no IGW line inferred
+          </div>
+        ) : null}
+        {map.availabilityReason ? (
+          <div
+            className="rounded-md border border-dashed px-1.5 py-1 text-[9px] leading-tight"
+            style={{ background: "#FFF7ED", borderColor: "#F59E0B", color: "#92400E" }}
+            data-testid="topology-external-destination-projection-unavailable"
+            data-rejected-nodes={map.rejectedNodeCount}
+            data-rejected-edges={map.rejectedEdgeCount}
+          >
+            {map.availabilityReason} No destination line was inferred from rejected data.
+          </div>
+        ) : null}
       </div>
       {/* The evidence summary and its per-leg detail, moved off the top strip:
           one place for this fact, on the canvas where the traffic is drawn. */}
       <div className="mt-1 min-w-0">
-        <ExternalDestinationsNode summary={summary} compact={compact} lane />
+        <ExternalDestinationsNode summary={summary} map={map} compact={compact} lane />
       </div>
     </div>
   )
@@ -3882,6 +4184,11 @@ interface FlowPath {
   evidenceType?: TrafficEdge["evidence_type"]
   pathBasis?: TrafficEdge["path_basis"]
   lastSeen?: TrafficEdge["last_seen"]
+  visualRelationship?: TrafficEdge["visual_relationship"]
+  destinationEvidence?: TrafficEdge["destination_evidence"]
+  gatewayEvidence?: TrafficEdge["gateway_evidence"]
+  gatewayTraversalObserved?: TrafficEdge["gateway_traversal_observed"]
+  projectionPathBasis?: TrafficEdge["projection_path_basis"]
   /** No arrowhead: a trunk that feeds stubs rather than an edge ending at a chip. */
   arrow?: boolean
   /** Collapsed trunk badge: every relationship spelling this one badge speaks
@@ -4711,6 +5018,7 @@ function FlowModeToggle({
 }
 
 function FlowLegend({ compact = false }: { compact?: boolean }) {
+  const reducedMotion = usePrefersReducedMotion()
   return (
     <div
       className={`flex flex-wrap items-center gap-x-3 gap-y-1 border-y ${
@@ -4749,11 +5057,11 @@ function FlowLegend({ compact = false }: { compact?: boolean }) {
             style={{
               background: "#0E8B7A",
               clipPath: "polygon(0 0, 100% 50%, 0 100%)",
-              animation: "topology-flow-legend 2.2s linear infinite",
+              animation: reducedMotion ? "none" : "topology-flow-legend 2.2s linear infinite",
             }}
           />
         </span>
-        Moving = authoritative observed
+        {reducedMotion ? "Filled arrow = authoritative observed" : "Moving = authoritative observed"}
         <style>{`
           @keyframes topology-flow-legend {
             from { transform: translateX(0); }
@@ -4767,7 +5075,7 @@ function FlowLegend({ compact = false }: { compact?: boolean }) {
           <circle cx="15" cy="5" r="4" fill="white" stroke="#64748B" strokeWidth="1" strokeDasharray="2 1" />
           <path d="M13 3 L17 5 L13 7" fill="none" stroke="#64748B" strokeWidth="1.2" />
         </svg>
-        Outlined motion = historical direction
+        {reducedMotion ? "Outlined arrow = historical direction" : "Outlined motion = historical direction"}
       </span>
       <span className="inline-flex items-center gap-1.5 text-[9px] font-medium" style={{ color: "#475569" }}>
         <svg width="28" height="8" viewBox="0 0 28 8" aria-hidden>
@@ -4783,6 +5091,39 @@ function FlowLegend({ compact = false }: { compact?: boolean }) {
       </span>
     </div>
   )
+}
+
+/** Moves a flow marker along its path, or under reduced motion places it
+ *  once at a fixed fraction of the path (an instant, frozen positioning with
+ *  no repeat) so direction stays readable without motion. */
+function FlowMarkerPosition({
+  path,
+  reducedMotion,
+  dur,
+  begin,
+  restAt,
+}: {
+  path: string | undefined
+  reducedMotion: boolean
+  dur: string
+  begin: string
+  restAt: number
+}) {
+  if (reducedMotion) {
+    return (
+      <animateMotion
+        path={path}
+        dur="0.001s"
+        keyPoints={`${restAt};${restAt}`}
+        keyTimes="0;1"
+        calcMode="linear"
+        fill="freeze"
+        rotate="auto"
+        data-flow-marker-static="true"
+      />
+    )
+  }
+  return <animateMotion path={path} dur={dur} begin={begin} repeatCount="indefinite" rotate="auto" />
 }
 
 function FlowOverlay({
@@ -4810,6 +5151,9 @@ function FlowOverlay({
   flowMode?: EstateFlowMode
 }) {
   const [paths, setPaths] = useState<FlowPath[]>([])
+  // Reduced motion keeps every evidence marker but freezes it: tracks stay
+  // dotted, direction arrows sit still on their path, attack-path dashes stop.
+  const reducedMotion = usePrefersReducedMotion()
   const [size, setSize] = useState({ w: 0, h: 0 })
 
   // useEffect (not useLayoutEffect) + retry-until-chips-found pattern.
@@ -5182,6 +5526,11 @@ function FlowOverlay({
           evidenceType: e.evidence_type,
           pathBasis: e.path_basis,
           lastSeen: e.last_seen,
+          visualRelationship: e.visual_relationship,
+          destinationEvidence: e.destination_evidence,
+          gatewayEvidence: e.gateway_evidence,
+          gatewayTraversalObserved: e.gateway_traversal_observed,
+          projectionPathBasis: e.projection_path_basis,
           _edge: e,
           _routedViaIgw: routedViaIgw,
           _routedViaVpce: routedViaVpce,
@@ -5691,6 +6040,7 @@ function FlowOverlay({
       // containment spec measures the SAME box the clamp used, rather than a
       // card the overlay only happens to sit inside.
       data-testid="topology-flow-overlay"
+      data-reduced-motion={reducedMotion ? "true" : "false"}
       width={hasSize ? size.w : "100%"}
       height={hasSize ? size.h : "100%"}
       viewBox={hasSize ? `0 0 ${size.w} ${size.h}` : undefined}
@@ -5760,6 +6110,13 @@ function FlowOverlay({
           data-flow-authority={p.authorityState ?? undefined}
           data-flow-path-basis={p.pathBasis ?? undefined}
           data-flow-motion={motionKind}
+          data-flow-relationship={p.visualRelationship ?? undefined}
+          data-flow-destination-evidence={p.destinationEvidence ?? undefined}
+          data-flow-gateway-evidence={p.gatewayEvidence ?? undefined}
+          data-flow-gateway-traversal-observed={
+            p.gatewayTraversalObserved == null ? undefined : String(p.gatewayTraversalObserved)
+          }
+          data-flow-projection-path-basis={p.projectionPathBasis ?? undefined}
           data-flow-bundle={p.bundle ? String(p.bundle.count) : undefined}
           data-flow-members={p.bundle ? p.bundle.members.join("|") : undefined}
         >
@@ -5808,7 +6165,7 @@ function FlowOverlay({
             strokeLinecap="round"
             markerEnd={p.arrow === false ? undefined : `url(#flow-arrow-${markerCls})`}
           >
-            {p.highlight === "attack_path" ? (
+            {p.highlight === "attack_path" && !reducedMotion ? (
               <animate
                 attributeName="stroke-dashoffset"
                 from="18"
@@ -5847,13 +6204,15 @@ function FlowOverlay({
                 strokeLinecap="round"
                 data-testid="topology-flow-running-track"
               >
-                <animate
-                  attributeName="stroke-dashoffset"
-                  from={focusedDependency ? "14" : "16"}
-                  to="0"
-                  dur={focusedDependency ? "3.8s" : "5.2s"}
-                  repeatCount="indefinite"
-                />
+                {reducedMotion ? null : (
+                  <animate
+                    attributeName="stroke-dashoffset"
+                    from={focusedDependency ? "14" : "16"}
+                    to="0"
+                    dur={focusedDependency ? "3.8s" : "5.2s"}
+                    repeatCount="indefinite"
+                  />
+                )}
               </path>
               <g
                 data-testid="topology-flow-packet"
@@ -5870,24 +6229,24 @@ function FlowOverlay({
                   d={focusedDependency ? "M -4 -4 L 5 0 L -4 4 Z" : "M -3 -3 L 4 0 L -3 3 Z"}
                   fill={stroke}
                 />
-                <animateMotion
-                  path={p.d}
-                  dur={focusedDependency ? "4.8s" : "6.4s"}
-                  begin={`-${(i % 6) * 0.4}s`}
-                  repeatCount="indefinite"
-                  rotate="auto"
-                />
+                <FlowMarkerPosition
+                path={p.d}
+                reducedMotion={reducedMotion}
+                dur={focusedDependency ? "4.8s" : "6.4s"}
+                begin={`-${(i % 6) * 0.4}s`}
+                restAt={0.3}
+              />
               </g>
               {focusedDependency ? (
                 <g opacity="0.78">
                   <circle r="5.5" fill="white" stroke={stroke} strokeWidth="1" />
                   <path d="M -3 -3 L 4 0 L -3 3 Z" fill={stroke} />
-                  <animateMotion
+                  <FlowMarkerPosition
                     path={p.d}
+                    reducedMotion={reducedMotion}
                     dur="4.8s"
                     begin="-2.4s"
-                    repeatCount="indefinite"
-                    rotate="auto"
+                    restAt={0.7}
                   />
                 </g>
               ) : null}
@@ -5915,12 +6274,12 @@ function FlowOverlay({
                 strokeLinecap="round"
                 strokeLinejoin="round"
               />
-              <animateMotion
+              <FlowMarkerPosition
                 path={p.d}
+                reducedMotion={reducedMotion}
                 dur="8.8s"
                 begin={`-${(i % 7) * 0.55}s`}
-                repeatCount="indefinite"
-                rotate="auto"
+                restAt={0.3}
               />
             </g>
           ) : null}
@@ -8227,8 +8586,162 @@ const UNPLACED_REASON_COPY: Record<
   "logical-group": {
     label: "A group, not a placeable resource",
     remedy:
-      "Target groups, auto-scaling groups and database clusters have no subnet of their own — their members carry the placement. Not a collector gap: a full sync will not move it.",
+      "Target groups, auto-scaling groups and database clusters have no subnet of their own. Their linked members carry placement; missing membership links are an evidence gap.",
   },
+}
+
+/** Logical groups describe membership, not physical placement. Keep their
+ * detail out of the map's vertical layout and open it from one counted toolbar
+ * control. The portaled panel can scroll independently, so six target/ASG/DB
+ * groups never cover the Data tier or disappear under the chat widget. */
+function LogicalGroupsControl({
+  groups,
+  edges,
+  nodes,
+  subnets,
+  selectedNodeId,
+  onSelect,
+  compact,
+}: {
+  groups: UnplacedNode[]
+  edges: readonly TrafficEdge[]
+  nodes: readonly TopologyNode[]
+  subnets: readonly SubnetMeta[]
+  selectedNodeId: string | null
+  onSelect: (id: string) => void
+  compact: boolean
+}) {
+  const [open, setOpen] = useState(false)
+  if (groups.length === 0) return null
+  const nodeById = new Map(nodes.map(node => [node.id, node]))
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className={
+            compact
+              ? "inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[9px] font-semibold"
+              : "inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[10px] font-semibold"
+          }
+          style={{ background: "#F8FAFC", border: "1px solid #CBD5E1", color: PAL.ink }}
+          aria-label={`Logical groups, ${groups.length}`}
+          aria-expanded={open}
+          title="Target groups, scaling groups and database clusters; members carry physical placement"
+          data-testid="topology-logical-group-band-toggle"
+          data-group-count={groups.length}
+        >
+          <GitBranch className={compact ? "h-3 w-3" : "h-3.5 w-3.5"} aria-hidden />
+          Groups ({groups.length})
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        sideOffset={8}
+        collisionPadding={{ top: 56, right: 12, bottom: 12, left: 12 }}
+        className="z-[250] w-[min(94vw,620px)] max-h-[min(70vh,560px)] overflow-y-auto p-3"
+        style={{
+          background: "#FFFFFF",
+          border: "1px solid #CBD5E1",
+          boxShadow: "0 10px 30px rgba(15,23,42,0.18)",
+          opacity: 1,
+        }}
+        role="dialog"
+        aria-label="Logical groups and members"
+        data-testid="topology-logical-group-band"
+        data-groups-open="true"
+        data-group-count={groups.length}
+      >
+        <div
+          className="text-[11px] uppercase tracking-[0.14em] font-semibold"
+          style={{ color: PAL.ink }}
+          data-testid="topology-logical-group-band-header"
+        >
+          Logical groups · members carry the placement ({groups.length})
+        </div>
+        <p className="mt-1 text-[10px] leading-snug" style={{ color: PAL.slate }}>
+          A group has no physical subnet of its own. Linked members show its scope; a missing
+          membership link is an evidence gap in this snapshot.
+        </p>
+        <ul className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3 items-start" role="list">
+          {groups.map(({ node: group }) => {
+            const scope = logicalGroupScope(group, edges, nodes, subnets)
+            return (
+              <li
+                key={group.id}
+                className="flex flex-col items-center gap-1 rounded-md border p-2 min-w-0"
+                style={{ borderColor: "#E2E8F0", background: "#F8FAFC" }}
+                data-testid="topology-logical-group"
+                data-node-id={group.id}
+                data-member-ids={scope.memberIds.join("|")}
+                data-scope-azs={scope.azs.join("|")}
+                data-vpc-id={group.vpc_id ?? undefined}
+              >
+                <ServiceNodeIcon
+                  node={group}
+                  selected={group.id === selectedNodeId}
+                  onSelect={onSelect}
+                  dense
+                />
+                <div
+                  className="text-[9px] leading-tight text-center"
+                  style={{ color: PAL.slate }}
+                  data-testid="topology-logical-group-scope"
+                >
+                  {group.vpc_id ? `VPC ${group.vpc_id}` : "VPC not reported"}
+                  {scope.azs.length > 0 ? ` · spans ${scope.azs.join(", ")}` : ""}
+                </div>
+                {scope.memberIds.length > 0 ? (
+                  <div
+                    className="flex flex-wrap justify-center gap-1"
+                    data-testid="topology-logical-group-members"
+                  >
+                    {scope.memberIds.map(id => {
+                      const member = nodeById.get(id)
+                      return member ? (
+                        <button
+                          key={id}
+                          type="button"
+                          onClick={() => onSelect(id)}
+                          className="text-[9px] leading-tight px-1 rounded border hover:underline"
+                          style={{ borderColor: "#CBD5E1", color: PAL.ink, background: PAL.cardBg }}
+                          title={`${member.name} · ${id}`}
+                          data-testid="topology-logical-group-member"
+                          data-member-id={id}
+                        >
+                          {member.name}
+                        </button>
+                      ) : (
+                        <span
+                          key={id}
+                          className="text-[9px] leading-tight px-1 rounded border font-mono"
+                          style={{ borderColor: "#E2E8F0", color: PAL.slate }}
+                          title={id}
+                          data-testid="topology-logical-group-member"
+                          data-member-id={id}
+                        >
+                          {id}
+                        </span>
+                      )
+                    })}
+                  </div>
+                ) : (
+                  <div
+                    className="text-[9px] leading-tight italic text-center"
+                    style={{ color: "#92400E" }}
+                    data-testid="topology-logical-group-members-unlinked"
+                  >
+                    Membership links unavailable in this snapshot
+                  </div>
+                )}
+              </li>
+            )
+          })}
+        </ul>
+      </PopoverContent>
+    </Popover>
+  )
 }
 
 /**
@@ -8243,16 +8756,10 @@ const UNPLACED_REASON_COPY: Record<
  * Always rendered when non-empty — never behind an accordion or a density
  * toggle. A gap you have to go looking for is a gap nobody finds.
  *
- * Two bands, one classifier. `unplacedSubnetReason` already tells a group
- * (`logical-group`) from a placement gap, and the two verdicts say different
- * things: "the graph does not say where" versus "a group whose members carry
- * the placement". The amber area is reserved for the gaps — missing,
- * dangling or unsupported placement facts — and heads and counts only those;
- * a logical group is drawn in a neutral band beside it, linked to the members
- * the payload's TARGETS / LAUNCHES edges name and spanning the zones those
- * members' own subnets resolve to. It is never counted as a placement failure
- * and never offered a cell (2026-09-12 review: all six items under the amber
- * heading were groups, while the copy beneath said none of them was a gap).
+ * `unplacedSubnetReason` distinguishes groups from placement gaps. The amber
+ * area owns only missing, dangling or unsupported placement facts. Logical
+ * groups live in the toolbar's on-demand member panel, so they are never
+ * counted as placement failures and never take space from the Data tier.
  */
 function UnplacedNodesArea({
   unplacedNodes,
@@ -8262,9 +8769,6 @@ function UnplacedNodesArea({
   selectedNodeId,
   onSelect,
   compact = false,
-  edges = [],
-  nodes = [],
-  subnets = [],
 }: {
   unplacedNodes: UnplacedNode[]
   overrides: PlacementOverrideMap
@@ -8274,14 +8778,7 @@ function UnplacedNodesArea({
   selectedNodeId: string | null
   onSelect: (id: string) => void
   compact?: boolean
-  /** The payload's edges: a group's members are read off its TARGETS / LAUNCHES edges. */
-  edges?: readonly TrafficEdge[]
-  /** Every node the frame was handed, to name a member and read its subnets. */
-  nodes?: readonly TopologyNode[]
-  /** The frame's subnets, to resolve a member's subnet to its zone. */
-  subnets?: readonly SubnetMeta[]
 }) {
-  const [groupsOpen, setGroupsOpen] = useState(false)
   // List only the overrides that are actually drawn. A stale one — its AZ or
   // whole VPC gone from the estate, or its AZ collapsed by the operator — is
   // already inert in `computeCanvasGrid`; listing it here would claim a chip
@@ -8294,8 +8791,7 @@ function UnplacedNodesArea({
   )
   // The classifier's verdict decides the band; nothing is re-classified here.
   const gaps = unplacedNodes.filter(u => u.reason !== "logical-group")
-  const groups = unplacedNodes.filter(u => u.reason === "logical-group")
-  if (gaps.length === 0 && groups.length === 0 && overrideEntries.length === 0) return null
+  if (gaps.length === 0 && overrideEntries.length === 0) return null
 
   const byReason = new Map<UnplacedReason, TopologyNode[]>()
   for (const u of gaps) {
@@ -8312,8 +8808,6 @@ function UnplacedNodesArea({
   ]
   const canPlace = !!onPlaceNode && placeableCells.length > 0
   const multiVpc = new Set(placeableCells.map(c => c.vpc_id)).size > 1
-  const nodeById = new Map(nodes.map(n => [n.id, n]))
-  const groupCopy = UNPLACED_REASON_COPY["logical-group"]
 
   return (
     <>
@@ -8420,124 +8914,6 @@ function UnplacedNodesArea({
         </div>
       ) : null}
 
-      {groups.length > 0 ? (
-        <div
-          className={compact ? "mt-1.5 rounded-md px-2 py-1.5" : "mt-2.5 rounded-md px-3 py-2"}
-          style={{ background: "#F8FAFC", border: "1.5px solid #CBD5E1" }}
-          data-testid="topology-logical-group-band"
-          data-groups-open={groupsOpen ? "true" : "false"}
-          data-group-count={groups.length}
-        >
-          {/* COLLAPSED BY DEFAULT (independent production UI QA, 2026-09-14).
-              Expanded, this band measured y=615.27..730.52 on a 1512x771
-              viewport while the data tier's own heading sat at y=655.02..664.02
-              — drawn across the layer it describes. A group here is never
-              placeable (its members carry the placement), so it has no claim on
-              the map's vertical budget by default.
-
-              The header IS the control, so there is no second affordance to
-              miss, and the count stays legible while collapsed: a reader must
-              be able to see that groups exist without opening anything. */}
-          <button
-            type="button"
-            onClick={() => setGroupsOpen(open => !open)}
-            className="flex items-baseline gap-2 flex-wrap w-full text-left"
-            aria-expanded={groupsOpen}
-            data-testid="topology-logical-group-band-toggle"
-          >
-            <span
-              className="text-[10px] uppercase tracking-[0.14em] font-semibold underline decoration-dotted underline-offset-2"
-              style={{ color: PAL.ink }}
-              data-testid="topology-logical-group-band-header"
-            >
-              Logical groups · members carry the placement ({groups.length})
-            </span>
-            <span className="text-[9px] leading-snug" style={{ color: PAL.slate }}>
-              {groupsOpen ? "Hide members" : "Show members"}
-            </span>
-          </button>
-          <div className="mt-1.5 flex flex-wrap gap-3 items-start" hidden={!groupsOpen}>
-            <span className="sr-only">{groupCopy.remedy}</span>
-            {groups.map(({ node: n }) => {
-              const scope = logicalGroupScope(n, edges, nodes, subnets)
-              return (
-                <div
-                  key={n.id}
-                  className="flex flex-col items-center gap-0.5 max-w-[240px]"
-                  data-testid="topology-logical-group"
-                  data-node-id={n.id}
-                  data-member-ids={scope.memberIds.join("|")}
-                  data-scope-azs={scope.azs.join("|")}
-                  data-vpc-id={n.vpc_id ?? undefined}
-                >
-                  {/* No PlacementPicker here, ever: pinning a group into one
-                      AZ x tier cell would assert a placement its members may
-                      not share. Its scope is read off the members instead. */}
-                  <ServiceNodeIcon
-                    node={n}
-                    selected={n.id === selectedNodeId}
-                    onSelect={onSelect}
-                    dense
-                  />
-                  <div
-                    className="text-[8px] leading-tight text-center"
-                    style={{ color: PAL.slate }}
-                    data-testid="topology-logical-group-scope"
-                  >
-                    {n.vpc_id ? `VPC ${n.vpc_id}` : "VPC not reported"}
-                    {scope.azs.length > 0 ? ` · spans ${scope.azs.join(", ")}` : ""}
-                  </div>
-                  {scope.memberIds.length > 0 ? (
-                    <div
-                      className="flex flex-wrap justify-center gap-1"
-                      data-testid="topology-logical-group-members"
-                    >
-                      {scope.memberIds.map(id => {
-                        const member = nodeById.get(id)
-                        return member ? (
-                          <button
-                            key={id}
-                            type="button"
-                            onClick={() => onSelect(id)}
-                            className="text-[8px] leading-tight px-1 rounded border hover:underline"
-                            style={{ borderColor: "#CBD5E1", color: PAL.ink, background: PAL.cardBg }}
-                            title={`${member.name} · ${id}`}
-                            data-testid="topology-logical-group-member"
-                            data-member-id={id}
-                          >
-                            {member.name}
-                          </button>
-                        ) : (
-                          // The edge names a member the frame was not handed
-                          // (filtered out, or in another VPC): named, not linked.
-                          <span
-                            key={id}
-                            className="text-[8px] leading-tight px-1 rounded border font-mono"
-                            style={{ borderColor: "#E2E8F0", color: PAL.slate }}
-                            title={id}
-                            data-testid="topology-logical-group-member"
-                            data-member-id={id}
-                          >
-                            {id}
-                          </span>
-                        )
-                      })}
-                    </div>
-                  ) : (
-                    <div
-                      className="text-[8px] leading-tight italic"
-                      style={{ color: PAL.slate }}
-                      data-testid="topology-logical-group-members-unlinked"
-                    >
-                      members not linked in this payload
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      ) : null}
     </>
   )
 }
@@ -8605,6 +8981,10 @@ export function AwsFrame({
   attackPathFlowCount = 0,
   trafficEdges,
   trafficAuthority,
+  responseContractVersion,
+  externalDestinationProjection,
+  identityAccess,
+  identityAccessSnapshotStale = false,
   selectedNodeId,
   highlightedRoleName = null,
   onSelect,
@@ -8670,10 +9050,31 @@ export function AwsFrame({
   const externalEgress = useMemo(() => summarizeExternalEgress(trafficEdgesList), [trafficEdgesList])
   // What the lane beyond the boundary may DRAW, bounded. Derived from the same
   // edges the summary reads, so the lane and the summary can never disagree.
-  const externalDestinations = useMemo(
-    () => externalDestinationMap(externalEgress, trafficEdgesList),
-    [externalEgress, trafficEdgesList],
-  )
+  const externalDestinations = useMemo(() => {
+    // v11 gives the canvas an explicit bounded projection. It is the authority
+    // for both destination identity and the exact gateway join; using the old
+    // per-edge fallback as well would duplicate nodes and could reconnect an
+    // unlinked destination to the first IGW. Older responses keep the honest
+    // sampled-address fallback below.
+    if (responseContractVersion === "topology-risk/v11") {
+      const allowedSourceIds = new Set(trafficEdgesList.map(edge => edge.source_id))
+      const gatewayByAnchor = new Map<string, string>()
+      topo.edges.igws.forEach((igw, index) => {
+        gatewayByAnchor.set(index === 0 ? IGW_CANVAS_ANCHOR_ID : igw.id, igw.id)
+      })
+      return externalDestinationProjectionMap(externalDestinationProjection, {
+        allowedSourceIds,
+        gatewayByAnchor,
+      })
+    }
+    return externalDestinationMap(externalEgress, trafficEdgesList)
+  }, [
+    responseContractVersion,
+    externalDestinationProjection,
+    externalEgress,
+    trafficEdgesList,
+    topo.edges.igws,
+  ])
   const visibleEdges = useMemo(() => {
     const visible = new Set(nodes.map(n => n.id))
     for (const n of regionalTierNodes) visible.add(n.id)
@@ -8723,27 +9124,30 @@ export function AwsFrame({
     // animate. `evidence_type: "inferred"` keeps the third field from being
     // read as observed by anything downstream.
     if (externalDestinations) {
-      const gatewayFlowId = IGW_CANVAS_ANCHOR_ID
-      const synthetic = (targetId: string): TrafficEdge =>
+      const synthetic = (
+        edge: ExternalDestinationMap["continuations"][number],
+      ): TrafficEdge =>
         ({
-          source_id: gatewayFlowId,
-          target_id: targetId,
+          source_id: edge.sourceAnchorId,
+          target_id: `${EXTERNAL_DESTINATION_FLOW_PREFIX}${edge.targetKey}`,
           edge_class: "egress",
           protocol: null,
           evidence_type: "inferred",
           authority_state: "inferred",
           path_basis: "synthetic_expansion",
+          via_igw_id: edge.sourceId,
+          route_basis: edge.routeBasis,
+          visual_relationship: "VISUAL_CONTINUATION",
+          destination_evidence: edge.destinationEvidence,
+          gateway_evidence: edge.gatewayEvidence,
+          gateway_traversal_observed: edge.gatewayTraversalObserved,
+          projection_path_basis: edge.pathBasis,
           // No last_seen: a timestamp would make this eligible for the
           // "historical direction" animation, which is also a claim about
           // observed packets.
           last_seen: null,
         }) as unknown as TrafficEdge
-      const continuation: TrafficEdge[] = externalDestinations.nodes.map(node =>
-        synthetic(`${EXTERNAL_DESTINATION_FLOW_PREFIX}${node.key}`),
-      )
-      if (externalDestinations.remainder) {
-        continuation.push(synthetic(`${EXTERNAL_DESTINATION_FLOW_PREFIX}__unknown__`))
-      }
+      const continuation: TrafficEdge[] = externalDestinations.continuations.map(synthetic)
       edges = [...edges, ...continuation]
     }
     return edges
@@ -8788,6 +9192,10 @@ export function AwsFrame({
       placementOverrides,
       crossVpc,
     ],
+  )
+  const logicalGroups = useMemo(
+    () => unplacedNodes.filter(item => item.reason === "logical-group"),
+    [unplacedNodes],
   )
   // Cells the frames ACTUALLY draw, so the picker can never offer a column that
   // does not exist. `f.grid.azs` is already hidden-AZ filtered, which is the
@@ -8887,7 +9295,7 @@ export function AwsFrame({
           could not hold the summary and the lens toggle at once: "Platform map"
           wrapped onto two lines and the counts line truncated to ZERO width, so
           the estate summary silently disappeared instead of being shortened. */}
-      {onFlowModeChange ? (
+      {onFlowModeChange || logicalGroups.length > 0 || responseContractVersion === "topology-risk/v11" || (flowMode === "all_access" && trafficAuthority?.lane_coverage) ? (
         <div
           className={
             presentationMode
@@ -8906,21 +9314,57 @@ export function AwsFrame({
             </span>
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            <span
-              className={
-                presentationMode
-                  ? "text-[9px] uppercase tracking-wider font-semibold"
-                  : "text-[10px] uppercase tracking-wider font-semibold"
-              }
-              style={{ color: PAL.slate }}
-            >
-              Map lens
-            </span>
-            <FlowModeToggle
-              mode={flowMode}
-              onChange={onFlowModeChange}
-              attackPathCount={attackPathEdgeCount}
+            <LogicalGroupsControl
+              groups={logicalGroups}
+              edges={trafficEdgesList}
+              nodes={nodes}
+              subnets={topo.subnets}
+              selectedNodeId={selectedNodeId}
+              onSelect={onSelect}
+              compact={presentationMode}
             />
+            {responseContractVersion === "topology-risk/v11" ? (
+              <IdentityAccessControl
+                responseContractVersion={responseContractVersion}
+                identityAccess={identityAccess}
+                snapshotStale={identityAccessSnapshotStale}
+                nodes={nodes}
+                onSelect={onSelect}
+                compact={presentationMode}
+                expectedScope={{
+                  account_id: topo.account_id,
+                  region: topo.region,
+                  system_name: systemLabel,
+                  vpc_id: topo.vpc_id,
+                }}
+              />
+            ) : null}
+            {flowMode === "all_access" && trafficAuthority?.lane_coverage ? (
+              <LaneCoverageControl
+                coverage={trafficAuthority.lane_coverage}
+                gaps={resolveCoverageGaps(trafficAuthority)}
+                compact={presentationMode}
+              />
+            ) : null}
+            {onFlowModeChange ? (
+              <>
+                <span
+                  className={
+                    presentationMode
+                      ? "text-[9px] uppercase tracking-wider font-semibold"
+                      : "text-[10px] uppercase tracking-wider font-semibold"
+                  }
+                  style={{ color: PAL.slate }}
+                >
+                  Map lens
+                </span>
+                <FlowModeToggle
+                  mode={flowMode}
+                  onChange={onFlowModeChange}
+                  attackPathCount={attackPathEdgeCount}
+                />
+              </>
+            ) : null}
           </div>
         </div>
       ) : null}
@@ -8957,13 +9401,6 @@ export function AwsFrame({
               : (trafficAuthority?.limitation ?? "Only generation-backed observed segments animate.")}
           </span>
         </div>
-      ) : null}
-      {flowMode === "all_access" && trafficAuthority?.lane_coverage ? (
-        <LaneCoveragePill
-          coverage={trafficAuthority.lane_coverage}
-          gaps={resolveCoverageGaps(trafficAuthority)}
-          compact={presentationMode}
-        />
       ) : null}
       {/* Users → Internet — clustered toward center (not pinned to corners).
           IGW chip lives on the VPCE rail. */}
@@ -9092,11 +9529,12 @@ export function AwsFrame({
         <div
           className={
             presentationMode
-              ? "rounded-md p-1.5 relative overflow-hidden w-full min-w-0 flex-1 min-h-0 flex flex-col"
+              ? "rounded-md p-1.5 relative overflow-x-auto overflow-y-hidden w-full min-w-0 flex-1 min-h-0 flex flex-col"
               : "rounded-md p-2.5 mt-1.5 relative overflow-visible w-full min-w-0"
           }
           style={{ background: PAL.cardBg, border: `1.5px dashed ${PAL.teal}` }}
           data-testid="topology-region-frame"
+          data-scroll-region={presentationMode ? "region-canvas" : undefined}
         >
           <div
             className={
@@ -9127,30 +9565,28 @@ export function AwsFrame({
               // and under the external lane, which is how the lane came to
               // cover a data-tier cell by 8601px^2 at 1366 and 1024 while
               // 1600 was clean (run 34866364811). The canvas is already an
-              // overflow-x: auto scroll region, so giving it a minimum lets it
-              // SCROLL instead of compressing columns into one another. Only
-              // the scrollable branch: fullscreen fits by zoom and clips, so a
-              // minimum there would cut the map off instead.
-              ...(presentationMode
-                ? null
-                : {
-                    minWidth: [
-                      VPC_MIN_TRACK_W_PX,
-                      showBoundaryColumn ? VPC_BOUNDARY_COL_W_PX : 0,
-                      showExternalLane ? EXTERNAL_LANE_W_PX : 0,
-                      showNetworkRail ? 136 : 0,
-                      showEdgeRail ? 48 + railColumnW : 0,
-                      // gap-x-3 between every pair of tracks that exists.
-                      12 *
-                        [
-                          showBoundaryColumn,
-                          showExternalLane,
-                          showNetworkRail,
-                          showEdgeRail,
-                          showEdgeRail,
-                        ].filter(Boolean).length,
-                    ].reduce((a, b) => a + b, 0),
-                  }),
+              // overflow-x scroll region, so giving it a minimum lets it
+              // SCROLL instead of compressing columns into one another. This
+              // applies in fullscreen too: at 1024px the six fixed off-VPC
+              // tracks leave less than 100px for the VPC, which made the
+              // external lane paint over the Data cells. The region owns the
+              // horizontal scroll, so the frame and lanes keep honest widths.
+              minWidth: [
+                VPC_MIN_TRACK_W_PX,
+                showBoundaryColumn ? VPC_BOUNDARY_COL_W_PX : 0,
+                showExternalLane ? EXTERNAL_LANE_W_PX : 0,
+                showNetworkRail ? 136 : 0,
+                showEdgeRail ? 48 + railColumnW : 0,
+                // gap-x-3 between every pair of tracks that exists.
+                12 *
+                  [
+                    showBoundaryColumn,
+                    showExternalLane,
+                    showNetworkRail,
+                    showEdgeRail,
+                    showEdgeRail,
+                  ].filter(Boolean).length,
+              ].reduce((a, b) => a + b, 0),
               gridTemplateColumns: [
                 "minmax(0, 1fr)",
                 showBoundaryColumn ? `${VPC_BOUNDARY_COL_W_PX}px` : null,
@@ -9485,6 +9921,7 @@ export function AwsFrame({
                   <ServerlessComputeTier
                     nodes={serverlessTierNodes}
                     triggerNodes={triggerTierNodes}
+                    triggerEdges={trafficEdgesList}
                     laneMinHeight={railLaneMinHeight}
                     selectedNodeId={selectedNodeId}
                     onSelect={onSelect}
@@ -9524,13 +9961,10 @@ export function AwsFrame({
             ) : null}
           </div>
 
-          {/* Explicit unplaced area — INSIDE the region frame, OUTSIDE every AZ
-              grid, because that is exactly what the graph supports: the resource
-              is in this region and we cannot say which zone or subnet. Rendered
-              in presentation mode too: a gap the fullscreen map hides is a gap
-              the person presenting never mentions. Logical groups get their own
-              neutral band beside it, linked to the members the payload's edges
-              name — the same edges the map draws. */}
+          {/* Explicit placement gaps — INSIDE the region frame, OUTSIDE every
+              AZ grid, because that is exactly what the graph supports. Logical
+              groups moved to the counted toolbar panel above; membership
+              detail no longer consumes the map's Data-tier height. */}
           <UnplacedNodesArea
             unplacedNodes={unplacedNodes}
             overrides={placementOverrides}
@@ -9539,9 +9973,6 @@ export function AwsFrame({
             selectedNodeId={selectedNodeId}
             onSelect={onSelect}
             compact={presentationMode}
-            edges={trafficEdgesList}
-            nodes={nodes}
-            subnets={topo.subnets}
           />
         </div>
       </div>

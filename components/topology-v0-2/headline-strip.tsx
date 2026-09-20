@@ -158,6 +158,15 @@ export function HeadlineStrip({
             {vpcId ? ` · VPC ${vpcId}` : ""}
             {isStale ? " · cached locally" : ""}
           </div>
+          {narrative.identityNote ? (
+            <div
+              className="text-[11px] mt-1 leading-relaxed"
+              style={{ color: "#92400E" }}
+              data-testid="topology-headline-identity-unavailable"
+            >
+              {narrative.identityNote}
+            </div>
+          ) : null}
           {fromStaleCache || refreshState || staleReason ? (
             <div
               className="text-[11px] mt-1 leading-relaxed"

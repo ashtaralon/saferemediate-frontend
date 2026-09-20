@@ -82,6 +82,9 @@ function isTransientAvailability(status: number): boolean {
 function serveStale(cacheKey: string, reason: string): NextResponse | null {
   const stale = getStaleCached(cacheKey)
   if (!stale || isPoisonousProxyPayload(stale)) return null
+  // Same rule as the hit path: a stale identity-bearing body would answer with
+  // decision evidence the tenant's current lifecycle was never asked about.
+  if (carriesIdentityProjection(stale)) return null
   console.warn(`[topology-risk] ${reason} — serving stale cache`)
   return NextResponse.json(
     { ...stale, fromStaleCache: true, staleReason: reason },
@@ -110,6 +113,31 @@ function stampSelectedScope(
   return out
 }
 
+/**
+ * Whether the body carries the per-tenant identity projection.
+ *
+ * `identity_access` is decided per REQUEST: the backend reads the tenant's
+ * lifecycle and either serves the decision evidence, demotes the block to
+ * inventory, or withholds it. Two things follow, and neither is optional.
+ *
+ * It must not be stored in a SHARED cache. `public` invites any CDN or
+ * intermediary to keep a tenant-scoped, identity-bearing body and hand it to
+ * the next reader whose request looks the same.
+ *
+ * It must not be replayed from this process's own cache either. A body cached
+ * while the tenant was permitted would keep answering with decision evidence
+ * after a demotion, for the whole TTL — the cache would outlive the verdict
+ * that authorized it, which is exactly what applying the verdict per request
+ * is for.
+ */
+function carriesIdentityProjection(payload: unknown): boolean {
+  return (
+    typeof payload === "object" &&
+    payload !== null &&
+    (payload as Record<string, unknown>).identity_access != null
+  )
+}
+
 function respondOk(
   cacheKey: string,
   data: unknown,
@@ -122,6 +150,11 @@ function respondOk(
     if (stale) return stale
     return NextResponse.json(stamped, {
       headers: { "X-Cache": "BYPASS", "Cache-Control": "no-store" },
+    })
+  }
+  if (carriesIdentityProjection(stamped)) {
+    return NextResponse.json(stamped, {
+      headers: { "X-Cache": "IDENTITY-NOSTORE", "Cache-Control": "no-store" },
     })
   }
   setCached(cacheKey, stamped, TTL_SLOW)
@@ -178,12 +211,18 @@ export async function GET(
 
   const cached = getCached(cacheKey)
   if (cached && !isPoisonousProxyPayload(cached)) {
-    return NextResponse.json(stampSelectedScope(cached, scope), {
-      headers: {
-        "X-Cache": "HIT",
-        "Cache-Control": "public, s-maxage=60, stale-while-revalidate=300",
-      },
-    })
+    // respondOk never stores an identity-bearing body, so a hit that carries
+    // one predates this rule (a process that cached it before a redeploy).
+    // Fall through to the backend rather than replay a verdict nobody read.
+    if (!carriesIdentityProjection(cached)) {
+      return NextResponse.json(stampSelectedScope(cached, scope), {
+        headers: {
+          "X-Cache": "HIT",
+          "Cache-Control": "public, s-maxage=60, stale-while-revalidate=300",
+        },
+      })
+    }
+    clearCached(cacheKey)
   }
 
   const qs = backendQueryString(scope)
