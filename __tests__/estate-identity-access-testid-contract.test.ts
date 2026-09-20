@@ -18,10 +18,11 @@ import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
 
 const HERE = dirname(fileURLToPath(import.meta.url))
-const TAB = readFileSync(
-  resolve(HERE, "../components/topology-v0-2/estate-identity-access-tab.tsx"),
-  "utf8",
-)
+const COMPONENT_DIR = resolve(HERE, "../components/topology-v0-2")
+const TAB =
+  readFileSync(resolve(COMPONENT_DIR, "estate-identity-access-tab.tsx"), "utf8") +
+  readFileSync(resolve(COMPONENT_DIR, "estate-identity-map.tsx"), "utf8")
+const MAP = readFileSync(resolve(COMPONENT_DIR, "estate-identity-map.tsx"), "utf8")
 const SUITE = readFileSync(resolve(HERE, "estate-identity-access-tab.test.tsx"), "utf8")
 
 /** Test ids the component declares, i.e. `data-testid="..."` or testId="...". */
@@ -32,23 +33,49 @@ function declaredIds(source: string): Set<string> {
   return ids
 }
 
-/** Test ids the suite looks up through a testing-library query. */
-function queriedIds(source: string): Set<string> {
+/**
+ * Ids the suite REQUIRES to exist.
+ *
+ * Only getBy/getAllBy/findBy count: those throw when the element is absent. A
+ * queryBy is how the suite asserts something is NOT rendered — the old card
+ * list, for one — so requiring those ids to exist would invert the test.
+ */
+function requiredIds(source: string): Set<string> {
   const ids = new Set<string>()
-  const query = /(?:get|query|find)(?:All)?ByTestId\(\s*"([^"]+)"\s*\)/g
-  for (const match of source.matchAll(query)) ids.add(match[1])
+  for (const match of source.matchAll(/(?:get|find)(?:All)?ByTestId\(\s*"([^"]+)"\s*\)/g)) {
+    ids.add(match[1])
+  }
+  return ids
+}
+
+/** Ids the suite only probes for absence. */
+function probedIds(source: string): Set<string> {
+  const ids = new Set<string>()
+  for (const match of source.matchAll(/query(?:All)?ByTestId\(\s*"([^"]+)"\s*\)/g)) {
+    ids.add(match[1])
+  }
   return ids
 }
 
 describe("the rendered suite and the tab agree on their hooks", () => {
   it("queries at least a dozen ids, so this guard is checking something", () => {
-    expect(queriedIds(SUITE).size).toBeGreaterThan(12)
+    expect(requiredIds(SUITE).size).toBeGreaterThan(12)
   })
 
-  it("every queried id is declared by the component", () => {
+  it("every id the suite requires is declared by the component", () => {
     const declared = declaredIds(TAB)
-    const missing = [...queriedIds(SUITE)].filter(id => !declared.has(id)).sort()
+    const missing = [...requiredIds(SUITE)].filter(id => !declared.has(id)).sort()
     expect(missing).toEqual([])
+  })
+
+  it("the card-list ids the suite checks are gone really are gone", () => {
+    const declared = declaredIds(TAB)
+    const probed = probedIds(SUITE)
+    // These were the stacked-card surface the map replaced.
+    for (const id of ["identity-graph", "identity-graph-row"]) {
+      expect(probed.has(id)).toBe(true)
+      expect(declared.has(id)).toBe(false)
+    }
   })
 
   it("the component declares the ids the honesty states depend on", () => {
@@ -58,13 +85,42 @@ describe("the rendered suite and the tab agree on their hooks", () => {
       "identity-headline",
       "identity-detail",
       "identity-empty-authoritative",
+      "identity-incomplete",
       "identity-capability-unavailable",
       "identity-receipts-none",
       "identity-scope-mismatch",
       "identity-plane-none",
+      "identity-map",
+      "identity-map-canvas",
+      "identity-map-edge",
+      "identity-map-node",
+      "identity-map-fallback",
     ]) {
       expect(declared.has(id)).toBe(true)
     }
+  })
+
+  it("the map is drawn as SVG, not assembled from divs", () => {
+    // The blocker this replaces was a stacked card list. A map that quietly
+    // became one again would still pass every id check above.
+    expect(MAP).toContain("<svg")
+    expect(MAP).toContain("<path")
+    expect(MAP).toContain("markerEnd")
+    expect(MAP).toContain("viewBox")
+  })
+
+  it("motion is reachable only through the model's animated flag", () => {
+    const code = MAP.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "")
+    // Every <animate> must sit behind `moving`, which is `animate && edge.animated`.
+    expect(code).toContain("const moving = animate && edge.animated")
+    expect(code).toContain("{moving ? (")
+    // And `animate` is the negation of the reduced-motion preference.
+    expect(code).toContain("const animate = !reducedMotion")
+  })
+
+  it("the reduced-motion default is no motion", () => {
+    // useState(true) means: unknown preference renders static.
+    expect(MAP).toContain("useState(true)")
   })
 
   it("the tab issues no request of its own", () => {
