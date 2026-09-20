@@ -8,7 +8,7 @@
     "unavailable": "no active canonical inventory pointer"
   },
   "_generated_by": "cyntro-backend scripts/emit_estate_identity_access_fixtures.py",
-  "_provenance": "Each payload is the literal return value of scripts.estate_identity_access.build_estate_identity_access, run over a real-shape in-memory graph. Decision rows are real RoleActionDecision instances and decision gaps are real RoleActionDecisionGap instances, validated by the real contracts. Every status difference comes from a difference in the INPUT rows; no output was edited to reach a state. read_active_projection, verify_generation and fetch_role_decisions are substituted for the run at the same seam the projection suite uses, because they would otherwise need a live Neptune generation -- see the module docstring for exactly what that does and does not cover.",
+  "_provenance": "Each payload is the literal return value of scripts.estate_identity_access.build_estate_identity_access, run over a real-shape in-memory graph. Decision rows are real RoleActionDecision instances and decision gaps are real RoleActionDecisionGap instances, validated by the real contracts. Every status difference comes from a difference in the INPUT rows; no output was edited to reach a state. read_active_projection, verify_generation and fetch_role_decisions are substituted for the run at the same seam the projection suite uses, because they would otherwise need a live Neptune generation -- see the module docstring for exactly what that does and does not cover. Serialisation is the pinned runtime's: pydantic 2.12.5 renders a (str, Enum) member as its value and a UTC datetime as RFC 3339 with a Z suffix. That is asserted on a real record before rendering and walked over the finished payload; json.dumps carries no default= fallback, so nothing is stringified in.",
   "capability_reason_codes": [
     "ASSET_ANCHORED_AUTHORITY_ONLY",
     "CANONICAL_PRODUCER_UNWIRED",
@@ -547,17 +547,17 @@
             "action": "s3:GetObject",
             "authorization_control_generation": 9,
             "authorization_layers": {
-              "AuthorizationLayer.IDENTITY_POLICY": "AuthorizationLayerVerdict.GRANT",
-              "AuthorizationLayer.PERMISSIONS_BOUNDARY": "AuthorizationLayerVerdict.UNKNOWN",
-              "AuthorizationLayer.RESOURCE_POLICY": "AuthorizationLayerVerdict.UNKNOWN",
-              "AuthorizationLayer.SCP_RCP": "AuthorizationLayerVerdict.UNKNOWN",
-              "AuthorizationLayer.SERVICE_SPECIFIC": "AuthorizationLayerVerdict.UNKNOWN",
-              "AuthorizationLayer.SESSION_POLICY": "AuthorizationLayerVerdict.UNKNOWN"
+              "IDENTITY_POLICY": "GRANT",
+              "PERMISSIONS_BOUNDARY": "UNKNOWN",
+              "RESOURCE_POLICY": "UNKNOWN",
+              "SCP_RCP": "UNKNOWN",
+              "SERVICE_SPECIFIC": "UNKNOWN",
+              "SESSION_POLICY": "UNKNOWN"
             },
             "configured_grant": true,
             "corroboration_state": "CONSISTENT",
             "coverage_state": "COMPLETE",
-            "decision_as_of": "2026-09-15 07:00:00+00:00",
+            "decision_as_of": "2026-09-15T07:00:00Z",
             "denial_layer": null,
             "denied_hold_expires_at": null,
             "effective_authorization": {
@@ -566,16 +566,17 @@
               "granularity": "action_resource_context",
               "reason_codes": [
                 "ACTION_AND_RESOURCE_SCOPE_REQUIRED",
-                "NO_PROJECTED_EFFECTIVE_DECISION"
+                "NO_PROJECTED_EFFECTIVE_DECISION",
+                "AUTHORIZATION_LAYERS_INCOMPLETE"
               ]
             },
             "eligibility_state": "PROTECTED",
             "evidence_generation": 164,
-            "first_success_at": "2026-09-14 01:00:00+00:00",
+            "first_success_at": "2026-09-14T01:00:00Z",
             "hold_reason": null,
-            "last_success_at": "2026-09-14 06:00:00+00:00",
-            "observation_window_end": "2026-09-15 07:00:00+00:00",
-            "observation_window_start": "2026-08-15 00:00:00+00:00",
+            "last_success_at": "2026-09-14T06:00:00Z",
+            "observation_window_end": "2026-09-15T07:00:00Z",
+            "observation_window_start": "2026-08-15T00:00:00Z",
             "policy_configuration_generation": 21,
             "purity": "PURE_PRODUCTION",
             "reevaluation_basis": null,
@@ -599,7 +600,8 @@
           "granularity": "action_resource_context",
           "reason_codes": [
             "ACTION_AND_RESOURCE_SCOPE_REQUIRED",
-            "NO_PROJECTED_EFFECTIVE_DECISION"
+            "NO_PROJECTED_EFFECTIVE_DECISION",
+            "AUTHORIZATION_LAYERS_INCOMPLETE"
           ]
         },
         "gaps": [],
@@ -612,7 +614,7 @@
             "unknown": 0
           },
           "denied_only_action_count": 0,
-          "last_success_at": "2026-09-14 06:00:00+00:00",
+          "last_success_at": "2026-09-14T06:00:00Z",
           "not_observed_action_count": 0,
           "state": "ready",
           "successful_action_count": 1,
@@ -1413,17 +1415,17 @@
             "action": "s3:GetObject",
             "authorization_control_generation": 9,
             "authorization_layers": {
-              "AuthorizationLayer.IDENTITY_POLICY": "AuthorizationLayerVerdict.GRANT",
-              "AuthorizationLayer.PERMISSIONS_BOUNDARY": "AuthorizationLayerVerdict.UNKNOWN",
-              "AuthorizationLayer.RESOURCE_POLICY": "AuthorizationLayerVerdict.UNKNOWN",
-              "AuthorizationLayer.SCP_RCP": "AuthorizationLayerVerdict.UNKNOWN",
-              "AuthorizationLayer.SERVICE_SPECIFIC": "AuthorizationLayerVerdict.UNKNOWN",
-              "AuthorizationLayer.SESSION_POLICY": "AuthorizationLayerVerdict.UNKNOWN"
+              "IDENTITY_POLICY": "GRANT",
+              "PERMISSIONS_BOUNDARY": "UNKNOWN",
+              "RESOURCE_POLICY": "UNKNOWN",
+              "SCP_RCP": "UNKNOWN",
+              "SERVICE_SPECIFIC": "UNKNOWN",
+              "SESSION_POLICY": "UNKNOWN"
             },
             "configured_grant": true,
             "corroboration_state": "CONSISTENT",
             "coverage_state": "COMPLETE",
-            "decision_as_of": "2026-09-15 07:00:00+00:00",
+            "decision_as_of": "2026-09-15T07:00:00Z",
             "denial_layer": null,
             "denied_hold_expires_at": null,
             "effective_authorization": {
@@ -1432,16 +1434,17 @@
               "granularity": "action_resource_context",
               "reason_codes": [
                 "ACTION_AND_RESOURCE_SCOPE_REQUIRED",
-                "NO_PROJECTED_EFFECTIVE_DECISION"
+                "NO_PROJECTED_EFFECTIVE_DECISION",
+                "AUTHORIZATION_LAYERS_INCOMPLETE"
               ]
             },
             "eligibility_state": "PROTECTED",
             "evidence_generation": 164,
-            "first_success_at": "2026-09-14 01:00:00+00:00",
+            "first_success_at": "2026-09-14T01:00:00Z",
             "hold_reason": null,
-            "last_success_at": "2026-09-14 06:00:00+00:00",
-            "observation_window_end": "2026-09-15 07:00:00+00:00",
-            "observation_window_start": "2026-08-15 00:00:00+00:00",
+            "last_success_at": "2026-09-14T06:00:00Z",
+            "observation_window_end": "2026-09-15T07:00:00Z",
+            "observation_window_start": "2026-08-15T00:00:00Z",
             "policy_configuration_generation": 21,
             "purity": "PURE_PRODUCTION",
             "reevaluation_basis": null,
@@ -1465,7 +1468,8 @@
           "granularity": "action_resource_context",
           "reason_codes": [
             "ACTION_AND_RESOURCE_SCOPE_REQUIRED",
-            "NO_PROJECTED_EFFECTIVE_DECISION"
+            "NO_PROJECTED_EFFECTIVE_DECISION",
+            "AUTHORIZATION_LAYERS_INCOMPLETE"
           ]
         },
         "gaps": [],
@@ -1478,7 +1482,7 @@
             "unknown": 0
           },
           "denied_only_action_count": 0,
-          "last_success_at": "2026-09-14 06:00:00+00:00",
+          "last_success_at": "2026-09-14T06:00:00Z",
           "not_observed_action_count": 0,
           "state": "ready",
           "successful_action_count": 1,
