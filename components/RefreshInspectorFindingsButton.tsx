@@ -3,19 +3,35 @@
 import { Zap, RefreshCw, CheckCircle, XCircle, AlertTriangle } from "lucide-react"
 import { useSyncFromAWS } from "@/hooks/use-sync-from-aws"
 import { useSyncCapabilities } from "@/hooks/use-sync-capabilities"
-import { isActivated } from "@/lib/sync-from-aws"
+import { isActivated, type SyncCompletionPayload } from "@/lib/sync-from-aws"
 import {
   SYNC_SURFACES,
   surfaceCapability,
   unsupportedLanes,
 } from "@/lib/sync-surfaces"
 
-interface SyncFromAWSButtonProps {
-  onSyncComplete?: () => void
+interface RefreshInspectorFindingsButtonProps {
+  /**
+   * Called ONLY when a run activated a validated generation, with the
+   * backend payload that proves it.
+   *
+   * Typed rather than `() => void` on purpose. The previous signature
+   * discarded the receipt, so its one call site had nothing to derive a
+   * timestamp FROM and reached for `new Date()` -- writing the browser clock
+   * into a generic "Last sync" on a whole system dashboard off a
+   * vulnerability-only round. A callback that hands over the receipt makes
+   * the honest thing the easy thing.
+   */
+  onRefreshed?: (payload: SyncCompletionPayload) => void
   className?: string
 }
 
-export function SyncFromAWSButton({ onSyncComplete, className = "" }: SyncFromAWSButtonProps) {
+
+
+export function RefreshInspectorFindingsButton({
+  onRefreshed,
+  className = "",
+}: RefreshInspectorFindingsButtonProps) {
   // This control runs the certified vulnerability_findings lane, so it is the
   // `cve` surface and says so. It does NOT get a generic label: an earlier
   // revision relabelled six screens to "Refresh vulnerability findings" while
@@ -27,7 +43,11 @@ export function SyncFromAWSButton({ onSyncComplete, className = "" }: SyncFromAW
   const unsupported = unsupportedLanes(contract, capabilities)
 
   const { syncing, progress, syncMessage, results, startSync } = useSyncFromAWS({
-    onComplete: onSyncComplete,
+    // The hook only calls onComplete for a run whose receipt this client
+    // accepted (see `isActivated`), so the payload handed on here is always
+    // a proven one. The caller still decides what it means for THEIR screen,
+    // via surfaceRefreshedAt against their own surface.
+    onComplete: (payload) => onRefreshed?.(payload),
     pollIntervalMs: 5000,
     autoClearMessageMs: 0,
   })

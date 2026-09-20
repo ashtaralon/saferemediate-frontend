@@ -94,6 +94,24 @@ export const SYNC_SURFACES = {
 
 export type SyncSurfaceKey = keyof typeof SYNC_SURFACES
 
+/**
+ * The minimum shape these readers actually touch.
+ *
+ * Declared instead of `Record<string, unknown>` so a precisely-typed payload
+ * (lib/sync-from-aws.ts::SyncCompletionPayload) satisfies it without an index
+ * signature and without a cast. Every field is `unknown` because that is the
+ * truth at this boundary -- the functions below shape-check at runtime
+ * (`Array.isArray`, `typeof === "string"`) rather than trusting a declaration
+ * about somebody else's JSON.
+ */
+export interface SyncFreshnessPayload {
+  refreshed_sources?: unknown
+  deferred_sources?: unknown
+  sources?: unknown
+  completed_at?: unknown
+  activated_at?: unknown
+}
+
 interface LaneEntry {
   lane?: string
   source?: string
@@ -135,7 +153,7 @@ export function laneCapability(
  */
 export function laneState(
   lane: SyncLane,
-  payload: Record<string, unknown> | null | undefined,
+  payload: SyncFreshnessPayload | null | undefined,
 ): LaneState {
   if (!payload) return "UNKNOWN"
 
@@ -164,7 +182,7 @@ export function laneState(
  */
 export function laneRefreshedAt(
   lane: SyncLane,
-  payload: Record<string, unknown> | null | undefined,
+  payload: SyncFreshnessPayload | null | undefined,
 ): string | null {
   if (laneState(lane, payload) !== "REFRESHED") return null
   const stamp = payload?.completed_at ?? payload?.activated_at
@@ -196,7 +214,7 @@ export function unsupportedLanes(
  */
 export function surfaceRefreshedAt(
   surface: SyncSurface,
-  payload: Record<string, unknown> | null | undefined,
+  payload: SyncFreshnessPayload | null | undefined,
 ): string | null {
   const stamps = surface.requiredLanes.map((l) => laneRefreshedAt(l, payload))
   if (stamps.some((s) => s === null)) return null
@@ -207,7 +225,7 @@ export function surfaceRefreshedAt(
 export function notRefreshedReason(
   surface: SyncSurface,
   capabilities: Record<string, unknown> | null | undefined,
-  payload?: Record<string, unknown> | null,
+  payload?: SyncFreshnessPayload | null,
 ): string | null {
   const missing = unsupportedLanes(surface, capabilities)
   if (missing.length > 0) {

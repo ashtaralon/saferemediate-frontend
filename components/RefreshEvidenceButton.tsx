@@ -5,6 +5,7 @@ import { useState } from "react"
 
 import { useSyncCapabilities } from "@/hooks/use-sync-capabilities"
 import { useSyncFromAWS } from "@/hooks/use-sync-from-aws"
+import type { SyncCompletionPayload } from "@/lib/sync-from-aws"
 import {
   SYNC_SURFACES,
   type SyncSurfaceKey,
@@ -18,7 +19,7 @@ interface RefreshEvidenceButtonProps {
   /** Which screen this is. Decides the label, the lanes and the enabled state. */
   surface: SyncSurfaceKey
   /** Called after a round completes, so the screen can refetch. */
-  onRefreshed?: (payload: Record<string, unknown>) => void
+  onRefreshed?: (payload: SyncCompletionPayload) => void
   className?: string
 }
 
@@ -45,10 +46,10 @@ export function RefreshEvidenceButton({
   const { capabilities, loadingCapabilities, capabilitiesError, reloadCapabilities } =
     useSyncCapabilities()
   const [refreshedAt, setRefreshedAt] = useState<string | null>(null)
-  const [lastPayload, setLastPayload] = useState<Record<string, unknown> | null>(null)
+  const [lastPayload, setLastPayload] = useState<SyncCompletionPayload | null>(null)
 
   const { syncing, startSync } = useSyncFromAWS({
-    onComplete: (payload: Record<string, unknown>) => {
+    onComplete: (payload: SyncCompletionPayload) => {
       setLastPayload(payload)
       const receipt = surfaceRefreshedAt(contract, payload)
       setRefreshedAt(receipt)

@@ -76,7 +76,7 @@ const code = (f: string) => withoutComments(read(f))
  *  per-surface button: the CVE control, which runs the lane it names. */
 const HOOK_ALLOWED = new Set([
   "components/RefreshEvidenceButton.tsx",
-  "components/SyncFromAWSButton.tsx",
+  "components/RefreshInspectorFindingsButton.tsx",
 ])
 
 describe("no screen may run a lane it does not name", () => {
@@ -102,7 +102,7 @@ describe("no screen may run a lane it does not name", () => {
   })
 
   it("every surface-bound control passes its own requiredLanes", () => {
-    const src = read("components/SyncFromAWSButton.tsx")
+    const src = read("components/RefreshInspectorFindingsButton.tsx")
     expect(src).toMatch(/startSync\(\s*\{\s*sources:\s*contract\.requiredLanes/)
     expect(src).toContain("SYNC_SURFACES.cve")
   })
@@ -110,7 +110,7 @@ describe("no screen may run a lane it does not name", () => {
   it("the shared button fails closed on anything but CONNECTED", () => {
     const src = read("components/RefreshEvidenceButton.tsx")
     expect(src).toContain('capability !== "CONNECTED"')
-    const cve = read("components/SyncFromAWSButton.tsx")
+    const cve = read("components/RefreshInspectorFindingsButton.tsx")
     expect(cve).toContain('capability !== "CONNECTED"')
   })
 })
@@ -151,5 +151,144 @@ describe("the reingest alias cannot bypass the contract", () => {
       /fetch\(\s*["'`]\/api\/proxy\/admin\/reingest/.test(code(f)),
     )
     expect(callers).toEqual([])
+  })
+})
+
+/**
+ * Transitive guards.
+ *
+ * The direct-hook census above is NOT a reachability census, and believing it
+ * was is what let a correctly single-lane CVE control sit on a broad system
+ * dashboard and stamp a generic "Last sync" from the browser clock. These
+ * scan every USAGE of a lane-specific control, not every caller of the hook.
+ */
+
+/** Controls that refresh exactly one declared set of lanes. */
+const LANE_SPECIFIC_CONTROLS = [
+  "RefreshEvidenceButton",
+  "RefreshInspectorFindingsButton",
+] as const
+
+function usages(control: string): Array<{ file: string; tag: string }> {
+  const found: Array<{ file: string; tag: string }> = []
+  for (const f of COMPONENTS) {
+    if (f.endsWith(`${control}.tsx`)) continue
+    const src = code(f)
+    const re = new RegExp(`<${control}\\b[\\s\\S]*?/>`, "g")
+    for (const m of src.match(re) ?? []) found.push({ file: f, tag: m })
+  }
+  return found
+}
+
+describe("every usage of a lane-specific control binds a surface", () => {
+  it("RefreshEvidenceButton is always given an explicit surface", () => {
+    const missing = usages("RefreshEvidenceButton").filter(
+      (u) => !/\bsurface=/.test(u.tag),
+    )
+    expect(missing.map((m) => m.file)).toEqual([])
+  })
+
+  it("every surface named is one the contract declares", () => {
+    const declared = new Set([
+      "cve", "inventory", "iam", "leastPrivilege", "behavioral", "dependencyMap", "network",
+    ])
+    const bad: string[] = []
+    for (const u of usages("RefreshEvidenceButton")) {
+      const m = /surface="([^"]+)"/.exec(u.tag)
+      if (!m || !declared.has(m[1])) bad.push(`${u.file}: ${m?.[1] ?? "<none>"}`)
+    }
+    expect(bad).toEqual([])
+  })
+
+  it("every CVE-control call site derives freshness from the cve receipt", () => {
+    // It is inherently vulnerability_findings. Wherever it appears, the call
+    // site must derive freshness from the receipt for the cve surface --
+    // never from a clock, and never as a whole-page claim. It may do that
+    // inline OR by delegating to the owner module that does; what it may not
+    // do is neither.
+    for (const u of usages("RefreshInspectorFindingsButton")) {
+      const src = code(u.file)
+      const derivesInline =
+        src.includes("SYNC_SURFACES.cve") && src.includes("surfaceRefreshedAt")
+      const delegates = src.includes("useInspectorFreshness")
+      expect(
+        derivesInline || delegates,
+        `${u.file} renders the CVE control without deriving cve freshness`,
+      ).toBe(true)
+    }
+  })
+})
+
+describe("no refresh callback writes a browser clock", () => {
+  it("no lane-specific control's handler constructs a Date", () => {
+    const offenders: string[] = []
+    for (const control of LANE_SPECIFIC_CONTROLS) {
+      for (const u of usages(control)) {
+        // The JSX tag carries the handler body for inline arrow callbacks,
+        // which is how the defect was written.
+        if (/new Date\(\s*\)/.test(u.tag)) offenders.push(`${u.file}: ${control}`)
+      }
+    }
+    expect(offenders).toEqual([])
+  })
+
+  /**
+   * One site renders "Last sync" honestly, and is allowed by name.
+   *
+   * `all-services-inventory` is a single-lane (inventory) screen and its
+   * value is BACKEND evidence -- `computed_at` / `synced_at` / `last_sync` /
+   * `syncStatus.lastSync` -- formatted by `formatLastSyncLabel`, which
+   * returns UNKNOWN for anything missing or unparseable. Nothing there comes
+   * from a clock, and the label is unambiguous on a screen showing one lane.
+   */
+  const HONEST_LAST_SYNC = new Set(["components/all-services-inventory.tsx"])
+
+  it("renders no generic 'Last sync' freshness label from a client clock", () => {
+    const offenders: string[] = []
+    for (const f of [...COMPONENTS, ...walk("lib")]) {
+      if (HONEST_LAST_SYNC.has(f.replace(/\\/g, "/"))) continue
+      code(f)
+        .split("\n")
+        .forEach((line, i) => {
+          // A freshness label must name its evidence. "Last sync" on a page
+          // aggregating several lanes is the claim that cannot be true, and
+          // a `new Date()` behind it is never AWS freshness.
+          // The LABEL form specifically -- "Last sync:" introducing a value.
+          // Prose like "last synced {backendStamp}" is a different, honest
+          // claim about one named thing, and shared-role-callout makes it
+          // from IAMRole.workload_count_synced_at.
+          if (/Last sync:/i.test(line)) offenders.push(`${f}:${i + 1}`)
+        })
+    }
+    expect(offenders).toEqual([])
+  })
+})
+
+describe("the system dashboard uses the real freshness owner", () => {
+  const dash = code("components/system-detail-dashboard.tsx")
+
+  it("imports the extracted owner rather than re-implementing it", () => {
+    expect(dash).toContain("useInspectorFreshness")
+    expect(dash).toContain("InspectorFreshnessNote")
+  })
+
+  it("owns no freshness state of its own", () => {
+    // A second copy of this state is how the wiring drifts from the module
+    // that documents why it must not use a clock.
+    expect(dash).not.toMatch(/setInspectorRefreshedAt/)
+    expect(dash).not.toMatch(/setLastSyncedAt/)
+    expect(dash).not.toMatch(/const \[refreshKey, setRefreshKey\]/)
+  })
+
+  it("passes the owner's handler straight to the CVE control", () => {
+    expect(dash).toMatch(/onRefreshed=\{onInspectorRefreshed\}/)
+  })
+
+  it("the owner derives its stamp from the receipt, never a clock", () => {
+    const owner = code("components/system-detail/inspector-freshness.tsx")
+    expect(owner).toContain("surfaceRefreshedAt(SYNC_SURFACES.cve, payload)")
+    // `new Date(at)` for FORMATTING a backend stamp is fine; `new Date()`
+    // with no argument is the clock, and is what must never appear.
+    expect(owner).not.toMatch(/new Date\(\s*\)/)
   })
 })

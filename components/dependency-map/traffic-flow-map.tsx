@@ -10927,6 +10927,10 @@ export default function TrafficFlowMap({
     // pathFilter changes never trigger a refetch and stale fetches
     // can't race-overwrite the wrong filter.
     setArchitecture(arch);
+    // When THIS VIEW finished fetching, from the client clock. It is not
+    // AWS freshness and must not be labelled "Last sync": the graph it
+    // renders was collected by a projector run this component knows
+    // nothing about. Rendered as "View updated".
     setLastUpdated(new Date());
     setRefreshStatus('success');
 
@@ -11511,7 +11515,7 @@ export default function TrafficFlowMap({
 
           {lastUpdated && (
             <span className="text-muted-foreground text-xs">
-              Last sync: {lastUpdated.toLocaleTimeString()}
+              View updated: {lastUpdated.toLocaleTimeString()}
             </span>
           )}
 
@@ -11519,7 +11523,7 @@ export default function TrafficFlowMap({
               IAM or SG batch couldn't load, so the operator doesn't
               read the chips' build-time seed values as live data.
               Tooltip names exactly which enrichment is missing. Lives
-              right after "Last sync" so it reads as a freshness signal
+              right after "View updated" so it reads as a freshness signal
               for the detail layer, not a hard error on the canvas
               (which is fine — it rendered). */}
           {(iamEnrichmentFailed || sgEnrichmentFailed) && (

@@ -1,6 +1,7 @@
 /** Shared client for the Neptune-safe managed AWS refresh plane. */
 
 import { coerceProxyErrorMessage } from "@/lib/proxy-error-message"
+import type { SyncLane } from "@/lib/sync-surfaces"
 
 export const SYNC_ALL_DAYS = 7
 export const DEFAULT_SYNC_TOTAL_STEPS = 2
@@ -62,6 +63,58 @@ export interface SyncJobStatus {
   total_steps?: number
   progress_percent?: number
 }
+
+/** One lane's per-round outcome, as the completed payload reports it. */
+export interface VulnerabilityRoundResult {
+  active_findings?: number
+  active_coverage?: number
+  coverage_records?: number
+  expected_coverage_records?: number
+  observed_at?: string
+  /** The receipt fields the backend also copies into `results`. */
+  activated?: boolean
+  projection_generation?: number
+  staging_run_id?: string
+  source_vector_hash?: string
+  projected_through?: string
+  projection_receipt_hash?: string
+  evidence_manifest_hash?: string
+}
+
+/** The `results` body of a completed round. Present ONLY when activated. */
+export interface SyncCompletedResults {
+  /** Lanes this round actually refreshed. The ONLY evidence of refresh --
+   *  `sources` means queued, which has changed nothing. */
+  refreshed_sources?: SyncLane[]
+  deferred_sources?: DeferredSyncSource[]
+  serving_store?: "neptune" | string
+  vulnerability_findings?: VulnerabilityRoundResult
+}
+
+/**
+ * What `useSyncFromAWS` hands to `onComplete`: the status envelope merged
+ * with its `results` body (`{...status, ...status.results}`).
+ *
+ * Typed against the real producer rather than `Record<string, unknown>`.
+ * A bag type here is not a small shortcut: `lib/sync-surfaces.ts` reads
+ * `refreshed_sources` and `completed_at` off this shape to decide whether a
+ * screen may claim freshness at all, and hiding that behind an index
+ * signature means a consumer can silently read a field the backend never
+ * sends and get `undefined` -- which is how a freshness check quietly
+ * degrades to "no receipt, so show nothing" or, worse, invites a clock.
+ */
+export type SyncCompletionPayload = Omit<SyncJobStatus, "results"> &
+  SyncCompletedResults & {
+    /** Backend completion stamp. `laneRefreshedAt` requires this or
+     *  `activated_at`; the browser clock is never a fallback. */
+    completed_at?: string
+    activated_at?: string
+    requested_at?: string
+    started_at?: string
+    /** Lanes the round QUEUED. Not freshness. */
+    sources?: SyncLane[]
+    results?: SyncCompletedResults
+  }
 
 export interface SyncStartResult {
   success: boolean

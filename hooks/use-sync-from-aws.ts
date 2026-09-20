@@ -15,6 +15,7 @@ import {
   type StartSyncOptions,
   type SyncJobStatus,
   type SyncProgress,
+  type SyncCompletionPayload,
 } from "@/lib/sync-from-aws"
 
 interface UseSyncFromAWSOptions {
@@ -26,7 +27,7 @@ interface UseSyncFromAWSOptions {
    * several stamped `new Date()` as an AWS freshness claim on data the round
    * never touched. Pass the receipt; let the screen read it.
    */
-  onComplete?: (payload: Record<string, unknown>) => void
+  onComplete?: (payload: SyncCompletionPayload) => void
   pollIntervalMs?: number
   autoClearMessageMs?: number
 }
@@ -94,9 +95,14 @@ export function useSyncFromAWS(options: UseSyncFromAWSOptions = {}) {
         // Merge the status envelope with its `results` body: lane membership
         // arrives on both depending on stage, and a screen must be able to see
         // either without knowing which.
+        // `{...status, ...status.results}` is the shape SyncCompletionPayload
+        // describes: lane membership arrives on the envelope or the body
+        // depending on stage, and a screen must see either without knowing
+        // which. Spread directly -- the double cast through Record was what
+        // erased the producer type at this boundary.
         onCompleteRef.current?.({
-          ...(data as unknown as Record<string, unknown>),
-          ...((data.results ?? {}) as Record<string, unknown>),
+          ...data,
+          ...(data.results ?? {}),
         })
       } else if (data.status === "failed" || data.status === "stale") {
         setSyncing(false)

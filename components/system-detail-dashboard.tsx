@@ -44,7 +44,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { SyncFromAWSButton } from "@/components/SyncFromAWSButton"
+import { RefreshInspectorFindingsButton } from "@/components/RefreshInspectorFindingsButton"
+import {
+  InspectorFreshnessNote,
+  useInspectorFreshness,
+} from "@/components/system-detail/inspector-freshness"
 import SimulationResultsModal from "@/components/SimulationResultsModal"
 import { LightRouteIsland } from "./attack-paths-v2/light-route-island"
 import { ErrorBoundary } from "@/components/ui/error-boundary"
@@ -637,7 +641,19 @@ interface AutoTagStatus {
   status: "running" | "stopped" | "error" | "not_wired"
   totalCycles: number
   actualTrafficCaptured: number
+  /** Backend-sourced (`data.last_sync`). Never written from a browser clock. */
   lastSync: string
+  /**
+   * When the operator last TRIGGERED auto-tag, from the local clock.
+   *
+   * Deliberately separate from `lastSync`. It is honestly the completion time
+   * of a local action -- it is set on a successful trigger, alongside
+   * `status: "running"`, so it says "the request was accepted", not "the data
+   * is fresh". Writing it into `lastSync`, whose other writers carry the
+   * BACKEND's value, put a browser clock into a data-freshness field. Nothing
+   * renders either today; this keeps the trap from being armed later.
+   */
+  lastTriggeredAt?: string
 }
 
 interface GapAnalysis {
@@ -852,8 +868,16 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
   const [autoTaggerDiagnostic, setAutoTaggerDiagnostic] = useState<any>(null)
 
   // Global sync / refresh state
-  const [refreshKey, setRefreshKey] = useState(0)
-  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null)
+  // Inspector freshness and the tab refresh key, owned by one real module
+  // so the wiring cannot be copied and drift. See
+  // components/system-detail/inspector-freshness.tsx for why a generic
+  // "Last sync" from `new Date()` is forbidden here.
+  const {
+    inspectorRefreshedAt,
+    refreshKey,
+    onRefreshed: onInspectorRefreshed,
+    remountTabs,
+  } = useInspectorFreshness()
 
   // =============================================================================
   // TAG ALL STATE
@@ -1626,7 +1650,9 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
           ...prev,
           status: "running",
           totalCycles: data.totalCycles || prev.totalCycles + 1,
-          lastSync: new Date().toLocaleTimeString(),
+          // The local action's time, NOT data freshness -- see lastTriggeredAt.
+          // `lastSync` keeps whatever the backend last reported.
+          lastTriggeredAt: new Date().toLocaleTimeString(),
         }))
       } else {
         // Handle API error for triggering
@@ -1914,7 +1940,7 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
                 </div>
                 <p className="text-sm text-[var(--muted-foreground,#6b7280)] mt-1">
                   {systemMeta.region ? `AWS ${systemMeta.region}` : "AWS region pending"}
-                  {lastSyncedAt ? ` • Last sync: ${new Date(lastSyncedAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}` : ""}
+                  <InspectorFreshnessNote at={inspectorRefreshedAt} />
                   {postureScore?.timestamp ? ` • Posture computed: ${new Date(postureScore.timestamp).toLocaleString("en-US", { dateStyle: "short", timeStyle: "short" })}` : ""}
                   {autoTagStatus.totalCycles > 0 ? ` • ${autoTagStatus.totalCycles} auto-tag cycles` : ""}
                 </p>
@@ -1922,7 +1948,9 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
             </div>
 
             {/* Header actions hierarchy:
-                  Primary  — Sync from AWS    (operator's daily action;
+                  Primary  — Refresh Inspector findings (the one
+                                               lane this deployment
+                                               can prove;
                                                the only large branded
                                                button)
                   Compact  — Refresh           (icon-only; daily but
@@ -1933,18 +1961,13 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
                 important. Operators reported scanning past Sync to
                 find the action they actually wanted. */}
             <div className="flex items-center gap-2">
-              <SyncFromAWSButton
-                onSyncComplete={() => {
-                  setLastSyncedAt(new Date().toISOString())
-                  setRefreshKey((k) => k + 1)
-                }}
+              <RefreshInspectorFindingsButton
+                onRefreshed={onInspectorRefreshed}
                 className="flex-shrink-0"
               />
 
               <button
-                onClick={() => {
-                  setRefreshKey((k) => k + 1)
-                }}
+                onClick={remountTabs}
                 title="Refresh from Neptune (re-read existing data)"
                 aria-label="Refresh"
                 className="flex items-center justify-center w-9 h-9 border border-[var(--border,#e5e7eb)] text-[var(--muted-foreground,#6b7280)] rounded-lg hover:bg-gray-50 hover:text-[var(--foreground,#374151)] transition-colors"

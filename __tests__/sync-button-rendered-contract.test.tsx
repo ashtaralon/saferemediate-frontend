@@ -15,7 +15,7 @@
 import { cleanup, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { SyncFromAWSButton } from "@/components/SyncFromAWSButton"
+import { RefreshInspectorFindingsButton } from "@/components/RefreshInspectorFindingsButton"
 
 afterEach(() => {
   cleanup()
@@ -68,7 +68,7 @@ const enqueued = (calls: string[]) => calls.filter((u) => u.includes("/sync/star
 describe("the control names the lane it runs", () => {
   it("offers the Inspector-findings action, never an estate-wide sync", async () => {
     stub({ capabilities: lanes("CONNECTED") })
-    render(<SyncFromAWSButton />)
+    render(<RefreshInspectorFindingsButton />)
 
     await waitFor(() =>
       expect(screen.getByRole("button").textContent).toContain("Refresh Inspector findings"),
@@ -78,7 +78,7 @@ describe("the control names the lane it runs", () => {
 
   it("asks for its own lane by name, not a bare round", async () => {
     const calls = stub({ capabilities: lanes("CONNECTED") })
-    render(<SyncFromAWSButton />)
+    render(<RefreshInspectorFindingsButton />)
     await waitFor(() => expect(screen.getByRole("button")).not.toBeDisabled())
     screen.getByRole("button").click()
 
@@ -90,7 +90,7 @@ describe("the control names the lane it runs", () => {
 describe("it fails closed", () => {
   it("does NOT enqueue when its lane is not connected", async () => {
     const calls = stub({ capabilities: lanes("NOT_CONNECTED") })
-    render(<SyncFromAWSButton />)
+    render(<RefreshInspectorFindingsButton />)
 
     await waitFor(() => expect(screen.getByRole("button")).toBeDisabled())
     screen.getByRole("button").click()
@@ -102,7 +102,7 @@ describe("it fails closed", () => {
   it("does NOT enqueue while capabilities are UNKNOWN", async () => {
     // The lane is absent from the map entirely -> UNKNOWN -> disabled.
     const calls = stub({ capabilities: { lanes: [] } })
-    render(<SyncFromAWSButton />)
+    render(<RefreshInspectorFindingsButton />)
 
     await waitFor(() => expect(screen.getByRole("button")).toBeDisabled())
     screen.getByRole("button").click()
@@ -118,7 +118,7 @@ describe("it fails closed", () => {
         return new Response("nope", { status: 500 })
       }),
     )
-    render(<SyncFromAWSButton />)
+    render(<RefreshInspectorFindingsButton />)
 
     await waitFor(() => expect(screen.getByRole("button")).toBeDisabled())
     screen.getByRole("button").click()
@@ -142,7 +142,7 @@ describe("success requires an activation receipt for THIS run", () => {
         },
       },
     })
-    render(<SyncFromAWSButton />)
+    render(<RefreshInspectorFindingsButton />)
     await waitFor(() => expect(screen.getByRole("button")).not.toBeDisabled())
     screen.getByRole("button").click()
 
@@ -165,7 +165,7 @@ describe("success requires an activation receipt for THIS run", () => {
         results: { vulnerability_findings: { active_findings: 32, active_coverage: 17 } },
       },
     })
-    render(<SyncFromAWSButton />)
+    render(<RefreshInspectorFindingsButton />)
     await waitFor(() => expect(screen.getByRole("button")).not.toBeDisabled())
     screen.getByRole("button").click()
 
@@ -185,7 +185,7 @@ describe("success requires an activation receipt for THIS run", () => {
         activation: RECEIPT,
       },
     })
-    render(<SyncFromAWSButton />)
+    render(<RefreshInspectorFindingsButton />)
     await waitFor(() => expect(screen.getByRole("button")).not.toBeDisabled())
     screen.getByRole("button").click()
 
@@ -202,7 +202,7 @@ describe("success requires an activation receipt for THIS run", () => {
         message: "Refreshing",
       },
     })
-    render(<SyncFromAWSButton />)
+    render(<RefreshInspectorFindingsButton />)
     await waitFor(() => expect(screen.getByRole("button")).not.toBeDisabled())
     screen.getByRole("button").click()
 
