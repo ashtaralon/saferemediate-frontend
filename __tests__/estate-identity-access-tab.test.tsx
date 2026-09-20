@@ -454,6 +454,113 @@ describe("malformed authority never reaches the screen", () => {
   })
 })
 
+describe("a field the producer always writes is never invented", () => {
+  function without(field: string, source: any) {
+    const { [field]: _dropped, ...rest } = source
+    return rest
+  }
+
+  it.each([
+    "roles",
+    "gaps",
+    "roles_total",
+    "roles_returned",
+    "roles_truncated",
+    "roles_omitted_unresolved",
+  ])("a payload missing %s draws nothing and shows no counts", field => {
+    renderTab(without(field, fixtures.ready))
+    expect(panel()).toHaveAttribute("data-state", "invalid")
+    expect(screen.queryByTestId("identity-map")).toBeNull()
+    expect(screen.queryByTestId("identity-roles-counts")).toBeNull()
+    expect(screen.queryByTestId("identity-empty-authoritative")).toBeNull()
+    expect(screen.getByTestId("identity-detail").textContent).toMatch(/producer always writes/)
+  })
+
+  it.each([
+    "workload_ids",
+    "attachment_modes",
+    "configured_grants",
+    "observed_use",
+    "effective_authorization",
+    "gaps",
+  ])("a role missing %s draws no node and no edge", field => {
+    renderTab({ ...fixtures.ready, roles: [without(field, fixtures.ready.roles[0])] })
+    expect(panel()).toHaveAttribute("data-state", "invalid")
+    expect(screen.queryByTestId("identity-map-canvas")).toBeNull()
+    expect(screen.queryAllByTestId("identity-map-node").length).toBe(0)
+    expect(screen.queryAllByTestId("identity-map-edge").length).toBe(0)
+  })
+
+  it("an authority missing its receipt-hash key shows no receipt card", () => {
+    renderTab({
+      ...fixtures.ready,
+      inventory_authority: without("projection_receipt_hash", fixtures.ready.inventory_authority),
+    })
+    expect(panel()).toHaveAttribute("data-state", "invalid")
+    expect(screen.queryAllByTestId("identity-receipt").length).toBe(0)
+    expect(screen.getByTestId("identity-receipts-none")).toBeInTheDocument()
+  })
+
+  it("swapped authorities are refused rather than mislabelled on screen", () => {
+    renderTab({
+      ...fixtures.ready,
+      inventory_authority: (fixtures.ready as any).decision_authority,
+      decision_authority: (fixtures.ready as any).inventory_authority,
+    })
+    expect(panel()).toHaveAttribute("data-state", "invalid")
+    expect(screen.getByTestId("identity-detail").textContent).toMatch(/swapped/)
+    // No receipt card can attribute a generation to the wrong projection.
+    expect(screen.queryAllByTestId("identity-receipt").length).toBe(0)
+    expect(panel().textContent).not.toMatch(/hash-verified/)
+  })
+
+  it("a withheld role reporting a fabricated zero is refused", () => {
+    const role = JSON.parse(
+      JSON.stringify(fixtures.partial_no_decision_authority.roles[0]),
+    )
+    role.observed_use.successful_action_count = 0
+    renderTab({ ...fixtures.partial_no_decision_authority, roles: [role] })
+    expect(panel()).toHaveAttribute("data-state", "invalid")
+    // Neither "0 used" nor the withheld wording gets to appear.
+    expect(panel().textContent).not.toMatch(/used/)
+    expect(panel().textContent).not.toMatch(/no counts — not zero/)
+  })
+
+  it("an absent availability never renders as a real refusal would", () => {
+    const { availability: _absent, ...rest } = (fixtures.ready as any).roles[0]
+      .effective_authorization
+    renderTab({
+      ...fixtures.ready,
+      roles: [
+        {
+          ...fixtures.ready.roles[0],
+          effective_authorization: { ...rest, decision: "ALLOW" },
+        },
+      ],
+    })
+    expect(panel()).toHaveAttribute("data-state", "invalid")
+    expect(panel().textContent).not.toMatch(/Effective authorization: unavailable/)
+  })
+
+  it("a partial payload with an explicitly null decision authority still renders", () => {
+    // The legitimate case, unchanged.
+    renderTab(fixtures.partial_no_decision_authority)
+    expect(panel()).toHaveAttribute("data-state", "ready")
+    expect(screen.getByTestId("identity-map")).toBeInTheDocument()
+    expect(screen.getAllByTestId("identity-receipt").length).toBe(1)
+  })
+
+  it.each([
+    ["a roles_total", { roles_total: 2 }],
+    ["returned roles", { roles_returned: 1 }],
+    ["truncation", { roles_truncated: true }],
+  ])("an unavailable projection reporting %s is refused", (_label, override) => {
+    renderTab({ ...fixtures.unavailable, ...override })
+    expect(panel()).toHaveAttribute("data-state", "invalid")
+    expect(screen.queryByTestId("identity-map")).toBeNull()
+  })
+})
+
 describe("the capability matrix is withheld whole, or not at all", () => {
   it.each([
     ["a reason code outside the closed set", (rows: any[]) =>

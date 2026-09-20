@@ -16,6 +16,8 @@ import { describe, expect, it } from "vitest"
 import {
   CAPABILITY_REASON_CODES,
   IDENTITY_ACCESS_CONTRACT_VERSION,
+  INVENTORY_PROJECTION_SCOPE,
+  ROLE_ACTION_DECISION_PROJECTION_SCOPE,
   REQUIRED_CAPABILITY_FAMILIES,
   REQUIRED_SCOPE_FIELDS,
   SUPPORTED_PLANES,
@@ -432,6 +434,340 @@ describe("authority receipts fail closed", () => {
     for (const source of [fixtures.ready, fixtures.partial]) {
       expect(viewOf(source).detail).not.toContain("unknown")
     }
+  })
+})
+
+describe("a required field is never silently defaulted", () => {
+  /** fixtures.ready minus one key, to prove absence is refused. */
+  function without(field: string, source: any = fixtures.ready) {
+    const { [field]: _dropped, ...rest } = source
+    return rest
+  }
+
+  it.each([
+    "roles",
+    "gaps",
+    "roles_total",
+    "roles_returned",
+    "roles_truncated",
+    "roles_omitted_unresolved",
+  ])("a payload missing %s is invalid, not defaulted", field => {
+    const view = viewOf(without(field))
+    expect(view.state).toBe("invalid")
+    expect(view.detail).toContain(field)
+    expect(view.detail).toContain("the producer always writes")
+    // The values the old code would have invented.
+    expect(view.roles).toEqual([])
+    expect(view.rolesReturned).toBe(0)
+    expect(view.rolesTruncated).toBe(false)
+    expect(view.rolesTotal).toBeNull()
+    expect(view.rolesOmittedUnresolved).toBeNull()
+  })
+
+  it("names every missing counter at once, not just the first", () => {
+    const view = viewOf(without("roles_truncated", without("roles_total")))
+    expect(view.state).toBe("invalid")
+    expect(view.detail).toContain("roles_total")
+    expect(view.detail).toContain("roles_truncated")
+  })
+
+  it.each([
+    "workload_ids",
+    "attachment_modes",
+    "configured_grants",
+    "observed_use",
+    "effective_authorization",
+    "gaps",
+  ])("a role missing %s is invalid, and buildGraph never sees it", field => {
+    const role = without(field, fixtures.ready.roles[0])
+    const view = viewOf({ ...fixtures.ready, roles: [role] })
+    expect(view.state).toBe("invalid")
+    expect(view.detail).toContain(field)
+    // The state buildGraph would have invented from the absence.
+    expect(view.graph.nodes).toEqual([])
+    expect(view.graph.edges).toEqual([])
+  })
+
+  it("an authority missing projection_receipt_hash is invalid", () => {
+    // _authority always writes the key; the VALUE may be null.
+    const view = viewOf({
+      ...fixtures.ready,
+      inventory_authority: without("projection_receipt_hash", fixtures.ready.inventory_authority),
+    })
+    expect(view.state).toBe("invalid")
+    expect(view.detail).toContain("omits projection_receipt_hash")
+  })
+
+  it("but a NULL projection_receipt_hash is still readable", () => {
+    const view = viewOf({
+      ...fixtures.ready,
+      inventory_authority: {
+        ...fixtures.ready.inventory_authority,
+        projection_receipt_hash: null,
+      },
+    })
+    expect(view.state).toBe("ready")
+  })
+
+  it.each(["exact_action_count", "state"])(
+    "configured_grants missing %s is invalid",
+    field => {
+      const role = {
+        ...fixtures.ready.roles[0],
+        configured_grants: without(field, fixtures.ready.roles[0].configured_grants),
+      }
+      expect(viewOf({ ...fixtures.ready, roles: [role] }).state).toBe("invalid")
+    },
+  )
+
+  it.each([
+    "state",
+    "successful_action_count",
+    "denied_only_action_count",
+    "not_observed_action_count",
+    "unknown_action_count",
+    "coverage_counts",
+    "last_success_at",
+  ])("observed_use missing %s is invalid", field => {
+    const role = {
+      ...fixtures.ready.roles[0],
+      observed_use: without(field, fixtures.ready.roles[0].observed_use),
+    }
+    const view = viewOf({ ...fixtures.ready, roles: [role] })
+    expect(view.state).toBe("invalid")
+    expect(view.graph.edges.filter(edge => edge.animated)).toEqual([])
+  })
+
+  it.each(["availability", "decision", "granularity", "reason_codes"])(
+    "effective_authorization missing %s is invalid, never defaulted to unavailable",
+    field => {
+      const role = {
+        ...fixtures.ready.roles[0],
+        effective_authorization: without(field, fixtures.ready.roles[0].effective_authorization),
+      }
+      const view = viewOf({ ...fixtures.ready, roles: [role] })
+      expect(view.state).toBe("invalid")
+      // The word the old default silently produced.
+      expect(view.graph.nodes).toEqual([])
+    },
+  )
+
+  it("a garbled effective_authorization cannot arrive at a real refusal's words", () => {
+    const role = { ...fixtures.ready.roles[0], effective_authorization: {} }
+    expect(viewOf({ ...fixtures.ready, roles: [role] }).state).toBe("invalid")
+  })
+
+  it("an absent availability is refused, not filled in as 'unavailable'", () => {
+    // The exact default path: every other field is sound, so nothing else
+    // catches this. The old code wrote availability = "unavailable" here,
+    // which is the word a REAL refusal produces -- an invented value wearing
+    // the producer's own language.
+    const { availability: _absent, ...rest } = fixtures.ready.roles[0]
+      .effective_authorization as any
+    const role = {
+      ...fixtures.ready.roles[0],
+      effective_authorization: { ...rest, decision: "ALLOW" },
+    }
+    const view = viewOf({ ...fixtures.ready, roles: [role] })
+    expect(view.state).toBe("invalid")
+    expect(view.detail).toContain("availability")
+    expect(view.graph.nodes).toEqual([])
+  })
+
+  it("an absent granularity is refused too", () => {
+    const { granularity: _absent, ...rest } = fixtures.ready.roles[0]
+      .effective_authorization as any
+    const role = { ...fixtures.ready.roles[0], effective_authorization: rest }
+    expect(viewOf({ ...fixtures.ready, roles: [role] }).state).toBe("invalid")
+  })
+
+  it("an availability other than unavailable must name its decision", () => {
+    const base = fixtures.ready.roles[0].effective_authorization
+    const allowed = {
+      ...fixtures.ready.roles[0],
+      effective_authorization: { ...base, availability: "available", decision: null },
+    }
+    expect(viewOf({ ...fixtures.ready, roles: [allowed] }).state).toBe("invalid")
+
+    const named = {
+      ...fixtures.ready.roles[0],
+      effective_authorization: { ...base, availability: "available", decision: "ALLOW" },
+    }
+    expect(viewOf({ ...fixtures.ready, roles: [named] }).state).toBe("ready")
+  })
+
+  it("an unavailable availability may not also report a decision", () => {
+    const role = {
+      ...fixtures.ready.roles[0],
+      effective_authorization: {
+        ...fixtures.ready.roles[0].effective_authorization,
+        decision: "ALLOW",
+      },
+    }
+    expect(viewOf({ ...fixtures.ready, roles: [role] }).state).toBe("invalid")
+  })
+})
+
+describe("an unavailable decision state may not carry numbers", () => {
+  const withheld = () =>
+    JSON.parse(JSON.stringify(fixtures.partial_no_decision_authority.roles[0]))
+
+  it("the real withheld role reports null for every count", () => {
+    const role = withheld()
+    expect(role.configured_grants.state).toBe("unavailable")
+    expect(role.configured_grants.exact_action_count).toBeNull()
+    expect(role.observed_use.state).toBe("unavailable")
+    for (const field of [
+      "successful_action_count",
+      "denied_only_action_count",
+      "not_observed_action_count",
+      "unknown_action_count",
+      "coverage_counts",
+      "last_success_at",
+    ]) {
+      expect(role.observed_use[field]).toBeNull()
+    }
+  })
+
+  it("an unavailable configured state with a count is invalid", () => {
+    const role = withheld()
+    role.configured_grants.exact_action_count = 0
+    const view = viewOf({ ...fixtures.partial_no_decision_authority, roles: [role] })
+    expect(view.state).toBe("invalid")
+    expect(view.detail).toContain("beside an unavailable configured state")
+  })
+
+  it.each([
+    ["successful_action_count", 0],
+    ["denied_only_action_count", 3],
+    ["not_observed_action_count", 0],
+    ["unknown_action_count", 1],
+  ])("an unavailable observed state reporting %s is invalid", (field, value) => {
+    const role = withheld()
+    role.observed_use[field] = value
+    const view = viewOf({ ...fixtures.partial_no_decision_authority, roles: [role] })
+    expect(view.state).toBe("invalid")
+    expect(view.detail).toContain("beside an unavailable observed state")
+  })
+
+  it("an unavailable observed state reporting coverage counts is invalid", () => {
+    const role = withheld()
+    role.observed_use.coverage_counts = { complete: 0, partial: 0, unknown: 0 }
+    expect(viewOf({ ...fixtures.partial_no_decision_authority, roles: [role] }).state).toBe(
+      "invalid",
+    )
+  })
+
+  it("an unavailable observed state reporting a last success is invalid", () => {
+    const role = withheld()
+    role.observed_use.last_success_at = "2026-09-14T06:00:00Z"
+    expect(viewOf({ ...fixtures.partial_no_decision_authority, roles: [role] }).state).toBe(
+      "invalid",
+    )
+  })
+
+  it("a fabricated zero never becomes a rendered count", () => {
+    const role = withheld()
+    role.observed_use.successful_action_count = 0
+    const view = viewOf({ ...fixtures.partial_no_decision_authority, roles: [role] })
+    expect(view.state).toBe("invalid")
+    expect(view.graph.nodes.filter(node => node.kind === "decision")).toEqual([])
+  })
+})
+
+describe("the two authorities cannot be swapped", () => {
+  it("the frontend's scope constants match the backend's", () => {
+    expect(INVENTORY_PROJECTION_SCOPE).toBe(
+      fixtures.ready.inventory_authority.projection_scope,
+    )
+    expect(ROLE_ACTION_DECISION_PROJECTION_SCOPE).toBe(
+      fixtures.ready.decision_authority.projection_scope,
+    )
+    expect(INVENTORY_PROJECTION_SCOPE).not.toBe(ROLE_ACTION_DECISION_PROJECTION_SCOPE)
+  })
+
+  it("swapping two complete authority objects is invalid", () => {
+    // Structurally identical; only the scope says which is which. Without the
+    // positional check both validate and every generation, receipt and
+    // hash-verified claim is attributed to the wrong projection.
+    const view = viewOf({
+      ...fixtures.ready,
+      inventory_authority: fixtures.ready.decision_authority,
+      decision_authority: fixtures.ready.inventory_authority,
+    })
+    expect(view.state).toBe("invalid")
+    expect(view.detail).toContain("swapped")
+    expect(view.receipts).toEqual([])
+  })
+
+  it.each([
+    ["inventory", "inventory_authority", ROLE_ACTION_DECISION_PROJECTION_SCOPE],
+    ["decision", "decision_authority", INVENTORY_PROJECTION_SCOPE],
+  ])("the %s authority naming the other scope is invalid", (_label, field, scope) => {
+    const view = viewOf({
+      ...fixtures.ready,
+      [field]: { ...(fixtures.ready as any)[field], projection_scope: scope },
+    })
+    expect(view.state).toBe("invalid")
+    expect(view.detail).toContain(scope)
+  })
+
+  it("an unknown projection scope is invalid too", () => {
+    const view = viewOf({
+      ...fixtures.ready,
+      inventory_authority: {
+        ...fixtures.ready.inventory_authority,
+        projection_scope: "inventory.resource_state.v2",
+      },
+    })
+    expect(view.state).toBe("invalid")
+  })
+
+  it("a partial payload with a null decision authority stays readable", () => {
+    // The legitimate case: _projection_with_unavailable_decisions is reached
+    // exactly when the decision authority could not be read.
+    const source = fixtures.partial_no_decision_authority
+    expect(source.status).toBe("partial")
+    expect(source.decision_authority).toBeNull()
+    const view = viewOf(source)
+    expect(view.state).toBe("ready")
+    expect(view.receipts.map(item => item.label)).toEqual(["Canonical inventory"])
+  })
+})
+
+describe("an unavailable projection may not claim it counted anything", () => {
+  it("the real unavailable payload pins every counter", () => {
+    const source = fixtures.unavailable
+    expect(source.roles_total).toBeNull()
+    expect(source.roles_omitted_unresolved).toBeNull()
+    expect(source.roles_returned).toBe(0)
+    expect(source.roles_truncated).toBe(false)
+    expect(source.roles).toEqual([])
+    expect(Array.isArray(source.gaps)).toBe(true)
+  })
+
+  it.each([
+    ["a roles_total", { roles_total: 2 }],
+    ["omitted roles", { roles_omitted_unresolved: 1 }],
+    ["returned roles", { roles_returned: 1 }],
+    ["truncation", { roles_truncated: true }],
+  ])("an unavailable projection reporting %s is invalid", (_label, override) => {
+    const view = viewOf({ ...fixtures.unavailable, ...override })
+    expect(view.state).toBe("invalid")
+  })
+
+  it("an unavailable projection carrying roles is invalid", () => {
+    const view = viewOf({
+      ...fixtures.unavailable,
+      roles: fixtures.ready.roles,
+      roles_returned: 0,
+    })
+    expect(view.state).toBe("invalid")
+    expect(view.detail).toContain("carries roles")
+  })
+
+  it("its gaps must still be a list — that is where the reason is", () => {
+    expect(viewOf({ ...fixtures.unavailable, gaps: {} }).state).toBe("invalid")
   })
 })
 
