@@ -1,0 +1,266 @@
+{
+  "test": "egress map on live C1 at 1600x900",
+  "status": "passed",
+  "measurements": [
+    {
+      "name": "release-build-version",
+      "data": {
+        "deploymentVersion": "fca7db67f604407ebed2718ab6f9cc37a0184354"
+      }
+    },
+    {
+      "name": "release-payload",
+      "data": {
+        "observed_egress_legs": 3,
+        "gateways": [
+          "igw-01b6c643a5c856abe"
+        ]
+      }
+    },
+    {
+      "name": "release-lane-glance-1600x900",
+      "data": {
+        "visible": true,
+        "nodes": "6",
+        "totalNamed": "13",
+        "hidden": "7",
+        "attributed": "0",
+        "gateway": "igw-01b6c643a5c856abe"
+      }
+    },
+    {
+      "name": "release-continuation-glance-1600x900",
+      "data": {
+        "paths": 6,
+        "destinations": 6,
+        "treatments": [
+          {
+            "authority": "inferred",
+            "pathBasis": "synthetic_expansion",
+            "motion": "none",
+            "dash": "7px, 5px",
+            "animations": 0
+          },
+          {
+            "authority": "inferred",
+            "pathBasis": "synthetic_expansion",
+            "motion": "none",
+            "dash": "7px, 5px",
+            "animations": 0
+          },
+          {
+            "authority": "inferred",
+            "pathBasis": "synthetic_expansion",
+            "motion": "none",
+            "dash": "7px, 5px",
+            "animations": 0
+          },
+          {
+            "authority": "inferred",
+            "pathBasis": "synthetic_expansion",
+            "motion": "none",
+            "dash": "7px, 5px",
+            "animations": 0
+          },
+          {
+            "authority": "inferred",
+            "pathBasis": "synthetic_expansion",
+            "motion": "none",
+            "dash": "7px, 5px",
+            "animations": 0
+          },
+          {
+            "authority": "inferred",
+            "pathBasis": "synthetic_expansion",
+            "motion": "none",
+            "dash": "7px, 5px",
+            "animations": 0
+          }
+        ]
+      }
+    },
+    {
+      "name": "release-more-glance-1600x900",
+      "data": {
+        "hidden": 7,
+        "listed": 7,
+        "stack": {
+          "effectiveOpacity": 1,
+          "covered": [],
+          "rect": {
+            "x": 764,
+            "y": 408,
+            "w": 420,
+            "h": 229.75
+          },
+          "inViewport": true
+        }
+      }
+    },
+    {
+      "name": "release-lane-inventory-1600x900",
+      "data": {
+        "visible": true,
+        "nodes": "6",
+        "totalNamed": "13",
+        "hidden": "7",
+        "attributed": "0",
+        "gateway": "igw-01b6c643a5c856abe"
+      }
+    },
+    {
+      "name": "release-continuation-inventory-1600x900",
+      "data": {
+        "paths": 6,
+        "destinations": 6,
+        "treatments": [
+          {
+            "authority": "inferred",
+            "pathBasis": "synthetic_expansion",
+            "motion": "none",
+            "dash": "7px, 5px",
+            "animations": 0
+          },
+          {
+            "authority": "inferred",
+            "pathBasis": "synthetic_expansion",
+            "motion": "none",
+            "dash": "7px, 5px",
+            "animations": 0
+          },
+          {
+            "authority": "inferred",
+            "pathBasis": "synthetic_expansion",
+            "motion": "none",
+            "dash": "7px, 5px",
+            "animations": 0
+          },
+          {
+            "authority": "inferred",
+            "pathBasis": "synthetic_expansion",
+            "motion": "none",
+            "dash": "7px, 5px",
+            "animations": 0
+          },
+          {
+            "authority": "inferred",
+            "pathBasis": "synthetic_expansion",
+            "motion": "none",
+            "dash": "7px, 5px",
+            "animations": 0
+          },
+          {
+            "authority": "inferred",
+            "pathBasis": "synthetic_expansion",
+            "motion": "none",
+            "dash": "7px, 5px",
+            "animations": 0
+          }
+        ]
+      }
+    },
+    {
+      "name": "release-more-inventory-1600x900",
+      "data": {
+        "hidden": 7,
+        "listed": 7,
+        "stack": {
+          "effectiveOpacity": 1,
+          "covered": [],
+          "rect": {
+            "x": 764,
+            "y": 415,
+            "w": 420,
+            "h": 229.75
+          },
+          "inViewport": true
+        }
+      }
+    },
+    {
+      "name": "release-diagnostics-1600x900",
+      "data": {
+        "coverage_present": 1,
+        "coverage_details_open": "false",
+        "band_present": 1,
+        "band_open": "false"
+      }
+    },
+    {
+      "name": "release-trigger-labels-1600x900",
+      "data": [
+        {
+          "spellings": [
+            "TARGETS",
+            "TRIGGERS"
+          ],
+          "pairs": "6",
+          "edges": "12",
+          "drawn": [
+            "TARGETS ×6"
+          ],
+          "title": "TARGETS ×6\nSame 6 connections, also recorded as TRIGGERS\n12 edge rows in the graph for 6 connections\narn:aws:events:eu-west-1:416651950952:rule/cyntro-tb-prod-consumer-every_6h→arn:aws:lambda:eu-west-1:416651950952:function:cyntro-tb-prod-consumer-every_6h\narn:aws:events:eu-west-1:416651950952:rule/cyntro-tb-prod-consumer-frequent→arn:aws:lambda:eu-west-1:416651950952:function:cyntro-tb-prod-consumer-frequent\narn:aws:events:eu-west-1:416651950952:rule/cyntro-tb-prod-consumer-daily→arn:aws:lambda:eu-west-1:416651950952:function:cyntro-tb-prod-consumer-daily\narn:aws:events:eu-west-1:416651950952:rule/cyntro-tb-prod-consumer-monthly→arn:aws:lambda:eu-west-1:416651950952:function:cyntro-tb-prod-consumer-monthly\narn:aws:events:eu-west-1:416651950952:rule/cyntro-tb-prod-consumer-weekly→arn:aws:lambda:eu-west-1:416651950952:function:cyntro-tb-prod-consumer-weekly\narn:aws:events:eu-west-1:416651950952:rule/cyntro-tb-prod-consumer-nightly_burst→arn:aws:lambda:eu-west-1:416651950952:function:cyntro-tb-prod-consumer-nightly_burst"
+        },
+        {
+          "spellings": [
+            "KMS"
+          ],
+          "pairs": "3",
+          "edges": "3",
+          "drawn": [
+            "KMS ×3"
+          ],
+          "title": "KMS ×3\narn:aws:s3:::cyntro-evidence-testbed-webshop-950952→arn:aws:kms:eu-west-1:416651950952:key/76bd5a63-602c-471e-b085-1df8b04128b2\narn:aws:dynamodb:eu-west-1:416651950952:table/cyntro-ingest-head-testbed-webshop→arn:aws:kms:eu-west-1:416651950952:key/76bd5a63-602c-471e-b085-1df8b04128b2\narn:aws:s3:::cyntro-tb-prod-appdata-1c8276f5→arn:aws:kms:eu-west-1:416651950952:key/d729e441-b319-4859-9974-9bd12d8e341a"
+        }
+      ]
+    },
+    {
+      "name": "release-fullscreen-glance-1600x900",
+      "data": {
+        "lane_visible": true
+      }
+    },
+    {
+      "name": "release-fs-panel-glance-1600x900",
+      "data": {
+        "effectiveOpacity": 1,
+        "covered": [],
+        "rect": {
+          "x": 528,
+          "y": 448,
+          "w": 460,
+          "h": 202.625
+        },
+        "inViewport": true
+      }
+    },
+    {
+      "name": "release-fullscreen-inventory-1600x900",
+      "data": {
+        "lane_visible": true
+      }
+    },
+    {
+      "name": "release-fs-panel-inventory-1600x900",
+      "data": {
+        "effectiveOpacity": 1,
+        "covered": [],
+        "rect": {
+          "x": 528,
+          "y": 448,
+          "w": 460,
+          "h": 202.625
+        },
+        "inViewport": true
+      }
+    },
+    {
+      "name": "release-console-1600x900",
+      "data": {
+        "consoleErrors": [],
+        "failedRequests": [],
+        "pageErrors": []
+      }
+    }
+  ]
+}
