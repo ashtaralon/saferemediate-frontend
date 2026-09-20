@@ -5,6 +5,7 @@ import { useSyncFromAWS } from '@/hooks/use-sync-from-aws';
 import { SGGapCard } from './sg-gap-card';
 import { SGRemediationCard } from './sg-remediation-card';
 import { IAMPermissionAnalysisModal } from './iam-permission-analysis-modal';
+import { SYNC_ACTION_LABEL } from "@/lib/sync-from-aws"
 
 // Feature flag: render the new IAM-modal-style SG remediation card by
 // default. Flip to false to fall back to the legacy SGGapCard inline
@@ -895,7 +896,7 @@ export const LeastPrivilegeTab: React.FC<LeastPrivilegeTabProps> = ({
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10" />
                   </svg>
-                  <span>Sync from AWS</span>
+                  <span>{SYNC_ACTION_LABEL}</span>
                 </>
               )}
             </button>

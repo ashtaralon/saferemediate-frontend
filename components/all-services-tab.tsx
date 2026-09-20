@@ -32,6 +32,7 @@ import { ResourceConfigTab } from "@/components/inventory/resource-config-tab"
 import { ResourceDossier } from "@/components/inventory/resource-dossier"
 import { canonicalInventoryResourceId } from "@/lib/inventory-resource-identity"
 import { ServiceTypeBadge, getServiceMeta } from "@/lib/service-type"
+import { SYNC_ACTION_LABEL } from "@/lib/sync-from-aws"
 
 export interface ServiceNode {
   id: string
@@ -754,7 +755,7 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
           ) : (
             <>
               <Cloud className="w-4 h-4" />
-              Sync from AWS
+              {SYNC_ACTION_LABEL}
             </>
           )}
         </Button>

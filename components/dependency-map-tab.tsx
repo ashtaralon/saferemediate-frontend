@@ -13,6 +13,7 @@ import type { CrownJewelSummary } from './identity-attack-paths/types'
 import { useCrownJewelConvergence } from '@/lib/attack-paths/use-crown-jewel-convergence'
 import { toCrownJewelSummary } from '@/lib/attack-paths/crown-jewel-v2-navigation'
 import { ErrorBoundary } from '@/components/ui/error-boundary'
+import { SYNC_ACTION_LABEL } from "@/lib/sync-from-aws"
 
 // Lazy load SankeyView with SSR disabled (nivo uses browser APIs)
 const SankeyView = dynamic(
@@ -712,7 +713,7 @@ export default function DependencyMapTab({
               ) : (
                 <>
                   <Cloud className="w-4 h-4" />
-                  Sync from AWS
+                  {SYNC_ACTION_LABEL}
                 </>
               )}
             </button>
@@ -723,11 +724,11 @@ export default function DependencyMapTab({
                 <div className="w-24 bg-blue-200 rounded-full h-2">
                   <div
                     className="bg-blue-600 h-2 rounded-full transition-all duration-500"
-                    style={{ width: `${syncProgress.percent}%` }}
+                    style={{ width: `${syncProgress.percent ?? 0}%` }}
                   />
                 </div>
                 <span className="text-xs text-[#3b82f6] font-medium whitespace-nowrap">
-                  {syncProgress.step}/{syncProgress.total}
+                  {syncProgress.label}
                 </span>
               </div>
             )}

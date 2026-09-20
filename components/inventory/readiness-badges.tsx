@@ -84,7 +84,7 @@ export function ReadinessBadges({
 
       {!readiness.config_collected && (
         <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-100 rounded px-2 py-1">
-          Configuration is present, but its AWS collection provenance is missing or stale. A successful <strong>Sync from AWS</strong> must complete before Cyntro can certify this view.
+          Configuration is present, but its AWS collection provenance is missing or stale. A successful <strong>Refresh vulnerability findings</strong> run must complete before Cyntro can certify this view.
         </p>
       )}
 

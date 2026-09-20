@@ -16,6 +16,7 @@ import { DetectionsSection, Detection } from './detections-section'
 import { DataAccessSection, BucketAccess, DataPrincipal, FirstTimeAccessEvent } from './data-access-section'
 import { CryptoKeysSection, KmsKey, CryptoPrincipal, KeyLifecycleEvent } from './crypto-keys-section'
 import { ReconciliationLegend } from './reconciliation-badge'
+import { SYNC_ACTION_LABEL } from "@/lib/sync-from-aws"
 
 // ============================================================================
 // Types
@@ -394,7 +395,7 @@ export function BehavioralPage({ systemName }: BehavioralPageProps) {
             ) : (
               <>
                 <RefreshCw className="w-4 h-4" />
-                Sync from AWS
+                {SYNC_ACTION_LABEL}
               </>
             )}
           </button>

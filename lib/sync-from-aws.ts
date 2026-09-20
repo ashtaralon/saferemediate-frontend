@@ -12,20 +12,55 @@ export interface DeferredSyncSource {
   missing_env?: string[]
 }
 
+/** Proof that a validated generation is ACTIVE for this scope.
+ *
+ *  Its presence is the only evidence of success this client accepts. A
+ *  `completed` status without it means a worker exited, which says nothing
+ *  about what the tenant is being served. */
+export interface SyncActivationReceipt {
+  activated?: boolean
+  projection_generation?: number
+  staging_run_id?: string
+  source_vector_hash?: string
+  projected_through?: string
+  projection_receipt_hash?: string
+  evidence_manifest_hash?: string
+}
+
 export interface SyncJobStatus {
   job_id: string
   /** `queued` = accepted, waiting for a sync worker to claim it. It is NOT a
    *  terminal state and NOT evidence that anything is running yet. */
   status: "queued" | "running" | "completed" | "failed" | "stale"
-  current_step: number
-  current_step_name: string
-  total_steps: number
+  /** Named state from the durable record — `collection_queued`,
+   *  `inspector_collection_and_projection`, `neptune_generation_active`,
+   *  `completed_without_activation_receipt`, … There is no ordering and no
+   *  total: these are states, not steps. */
+  state?: string
   message: string
-  progress_percent: number
+  /** Present only on a genuinely activated run. */
+  activation?: SyncActivationReceipt
   results?: Record<string, unknown>
   deferred_sources?: DeferredSyncSource[]
   serving_store?: "neptune" | string
   error?: string
+
+  /** Legacy progress triple. OPTIONAL, and never synthesised.
+   *
+   *  The backend stopped sending these: `current_step`, `total_steps: 2` and
+   *  `progress_percent` (5/50/100) were invented, not measured — queued work
+   *  has no step number, and a 50% is a claim about remaining work nothing
+   *  counted. They stay declared, and optional, so this client works against
+   *  a backend that still sends them while the two deploy in order.
+   *
+   *  `percent` is rendered ONLY when the producer actually sent one.
+   *  Computing it from an absent `current_step` yields
+   *  `Math.round(undefined / 2 * 100)` = NaN, which is how a fabricated
+   *  number becomes a visible one. */
+  current_step?: number
+  current_step_name?: string
+  total_steps?: number
+  progress_percent?: number
 }
 
 export interface SyncStartResult {
@@ -41,11 +76,11 @@ export interface SyncStartResult {
 }
 
 export interface SyncProgress {
-  step: number
-  total: number
   stepName: string
   label: string
-  percent: number
+  /** `null` when the producer sent no authoritative percentage. Consumers
+   *  must render nothing rather than substitute a number. */
+  percent: number | null
   message: string
 }
 
@@ -70,6 +105,12 @@ export const SYNC_STEP_LABELS: Record<string, string> = {
   queued: "Queued — waiting for a sync worker to pick this up",
   collection_queued: "Queued for the dedicated projector",
   inspector_collection_and_projection: "Refreshing Inspector evidence in Neptune",
+  neptune_generation_active: "Vulnerability generation active",
+  collection_unclaimed_overdue: "Queued — no projector claim observed yet",
+  lambda_collection_and_projection: "Refreshing Lambda estate in Neptune",
+  completed_without_activation_receipt:
+    "Finished without proof that a generation is being served",
+  // Retired backend spelling, kept while both deploy in order.
   neptune_projection_activated: "Neptune projection activated",
   neptune_projection_failed: "Neptune projection failed",
   resource_collectors: "Discovering AWS resources (EC2, ALB, Lambda, RDS, S3, IAM, EventBridge)",
@@ -140,42 +181,105 @@ export function getStepLabel(stepName: string | undefined, fallback?: string): s
 }
 
 export function toSyncProgress(status: SyncJobStatus): SyncProgress {
-  const total = status.total_steps || DEFAULT_SYNC_TOTAL_STEPS
+  const stepName = status.state ?? status.current_step_name ?? ""
   return {
-    step: status.current_step,
-    total,
-    stepName: status.current_step_name,
-    label: getStepLabel(status.current_step_name, status.message),
-    percent: status.progress_percent ?? Math.round((status.current_step / total) * 100),
+    stepName,
+    label: getStepLabel(stepName, status.message),
+    // Authoritative or absent. Never derived: deriving it from an absent
+    // current_step is exactly how NaN% reached the screen.
+    percent:
+      typeof status.progress_percent === "number" &&
+      Number.isFinite(status.progress_percent)
+        ? status.progress_percent
+        : null,
     message: status.message,
   }
 }
 
-export function formatSyncSuccessMessage(results?: Record<string, unknown>): string {
-  if (!results) {
-    return "AWS evidence refreshed in Neptune"
+/** The ONLY definition of success in this client.
+ *
+ *  Not `status === "completed"`: a completed job row says a worker exited.
+ *  Not a 200 from the proxy: that says the transport worked. Not an enqueue
+ *  acknowledgement: that says the request was accepted. Only a validated
+ *  generation that is ACTIVE for this scope, proven by its receipt hash. */
+export function isActivated(status: SyncJobStatus | null | undefined): boolean {
+  if (!status || status.status !== "completed") {
+    return false
   }
+  return Boolean(status.activation?.projection_receipt_hash)
+}
 
-  const vulnerability = results.vulnerability_findings as Record<string, unknown> | undefined
-  if (vulnerability) {
-    const findings = Number(vulnerability.active_findings || 0)
-    const coverage = Number(vulnerability.active_coverage || 0)
-    const deferred = Array.isArray(results.deferred_sources) ? results.deferred_sources.length : 0
-    const suffix = deferred
-      ? ` ${deferred} additional data ${deferred === 1 ? "source is" : "sources are"} not connected yet.`
+/** Reject a status that is not about the run we asked for.
+ *
+ *  A stale poll in flight across a restart, or a job id reused by another
+ *  surface, can deliver someone else's terminal state into this run's UI.
+ *  Binding on the run id is what stops one surface reporting another's
+ *  activation as its own. */
+export function isForRun(status: SyncJobStatus | null | undefined, jobId: string): boolean {
+  return Boolean(status && status.job_id && status.job_id === jobId)
+}
+
+/** The user-facing name of the action.
+ *
+ *  Deliberately NOT "Sync from AWS". Exactly one data-engine lane is
+ *  provable today — `vulnerability_findings` is the only one with a receipt
+ *  store; `inventory_reconcile`, `api_activity` and `network_flow` report
+ *  NOT_CONNECTED and can be enqueued but never confirmed. A control labelled
+ *  for the estate, completing on a vulnerability-only run, tells an operator
+ *  their whole estate was refreshed on the strength of one lane. Rename the
+ *  action when a second lane gains a receipt, not before. */
+export const SYNC_ACTION_LABEL = "Refresh vulnerability findings"
+export const SYNC_ACTION_PENDING_LABEL = "Refreshing vulnerability findings…"
+
+/** Completion text, scoped to what was actually proven.
+ *
+ *  Takes the whole status rather than just `results`, because the claim it
+ *  makes depends on the activation receipt and not on the counters. Counters
+ *  describe rows; the receipt is what says a generation is being served.
+ */
+export function formatSyncSuccessMessage(status: SyncJobStatus): string {
+  const generation = status.activation?.projection_generation
+  const vulnerability = status.results?.vulnerability_findings as
+    | Record<string, unknown>
+    | undefined
+
+  // Counted only when present. `Number(undefined || 0)` is 0, which reads as
+  // a measured zero — "no findings" — when nothing was measured at all.
+  const findings = vulnerability?.active_findings
+  const coverage = vulnerability?.active_coverage
+  const counts =
+    typeof findings === "number" && typeof coverage === "number"
+      ? ` ${findings} active findings across ${coverage} covered resources.`
       : ""
-    return `Inspector refreshed in Neptune: ${findings} active findings across ${coverage} covered resources.${suffix}`
-  }
 
-  const flowLogs = results.flow_logs as Record<string, number> | undefined
-  const cloudtrail = results.cloudtrail as Record<string, number> | undefined
-  const traffic = flowLogs?.relationships_created || 0
-  const events =
-    (cloudtrail?.advisor_relationships || 0) +
-    (cloudtrail?.api_call_relationships || 0) +
-    (cloudtrail?.events_processed || 0)
+  const deferred = Array.isArray(status.deferred_sources)
+    ? status.deferred_sources.length
+    : 0
+  const suffix = deferred
+    ? ` ${deferred} other data ${deferred === 1 ? "source was" : "sources were"} not refreshed by this run.`
+    : ""
 
-  return `Synced: ${traffic} traffic relationships, ${events} API events`
+  const scope =
+    generation === undefined
+      ? "Vulnerability findings are active in Neptune."
+      : `Vulnerability findings generation ${generation} is active in Neptune.`
+
+  return `${scope}${counts}${suffix}`
+}
+
+/** Why a run that reached `completed` is still not success.
+ *
+ *  The backend reports `completed_without_activation_receipt` for a job row
+ *  written before receipts were enforced, or by a run that activated and then
+ *  lost the pointer to a concurrent projector. Either way nothing can say
+ *  what the tenant is being served, so it must not render green. */
+export function formatUnprovenCompletionMessage(status: SyncJobStatus): string {
+  return (
+    status.error ||
+    status.message ||
+    "This refresh finished but carries no proof that a validated generation " +
+      "is being served, so it cannot be reported as successful. Re-run it."
+  )
 }
 
 export async function startSyncAllJob(

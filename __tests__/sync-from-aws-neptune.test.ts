@@ -78,17 +78,59 @@ describe("Sync from AWS uses the managed Neptune refresh plane", () => {
     )
   })
 
-  it("reports exactly what was refreshed and what was deferred", () => {
+  it("reports the activated generation, the counts, and what was NOT refreshed", () => {
+    // The whole status, not just `results`: the claim depends on the
+    // activation receipt, and the counters only describe rows.
     expect(
       formatSyncSuccessMessage({
-        vulnerability_findings: { active_findings: 32, active_coverage: 17 },
+        job_id: "job-1",
+        status: "completed",
+        message: "",
+        activation: {
+          activated: true,
+          projection_generation: 4,
+          projection_receipt_hash: "v1:abc",
+        },
+        results: {
+          vulnerability_findings: { active_findings: 32, active_coverage: 17 },
+        },
         deferred_sources: [
-          { source: "inventory_reconcile", label: "AWS inventory" },
-          { source: "api_activity", label: "CloudTrail API activity" },
+          { source: "inventory_reconcile", label: "AWS inventory", state: "NOT_CONNECTED" },
+          { source: "api_activity", label: "CloudTrail API activity", state: "NOT_CONNECTED" },
         ],
       }),
     ).toBe(
-      "Inspector refreshed in Neptune: 32 active findings across 17 covered resources. 2 additional data sources are not connected yet.",
+      "Vulnerability findings generation 4 is active in Neptune. 32 active " +
+        "findings across 17 covered resources. 2 other data sources were not " +
+        "refreshed by this run.",
     )
+  })
+
+  it("never claims an estate-wide sync", () => {
+    const text = formatSyncSuccessMessage({
+      job_id: "job-1",
+      status: "completed",
+      message: "",
+      activation: { activated: true, projection_generation: 9, projection_receipt_hash: "v1:x" },
+    })
+    // Only vulnerability_findings is provable. A control that says the estate
+    // was synced, on a vulnerability-only round, is the claim this removes.
+    expect(text).not.toMatch(/sync/i)
+    expect(text).not.toMatch(/AWS evidence refreshed/i)
+    expect(text).toContain("Vulnerability findings generation 9")
+  })
+
+  it("omits counters that were never measured rather than printing zero", () => {
+    const text = formatSyncSuccessMessage({
+      job_id: "job-1",
+      status: "completed",
+      message: "",
+      activation: { activated: true, projection_generation: 2, projection_receipt_hash: "v1:y" },
+      results: { vulnerability_findings: {} },
+    })
+    // `Number(undefined || 0)` would render "0 active findings", which reads
+    // as a measured zero -- a clean bill of health nothing established.
+    expect(text).not.toContain("0 active findings")
+    expect(text).toBe("Vulnerability findings generation 2 is active in Neptune.")
   })
 })

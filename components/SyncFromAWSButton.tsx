@@ -2,6 +2,7 @@
 
 import { Zap, RefreshCw, CheckCircle, XCircle, AlertTriangle } from "lucide-react"
 import { useSyncFromAWS } from "@/hooks/use-sync-from-aws"
+import { SYNC_ACTION_LABEL, SYNC_ACTION_PENDING_LABEL } from "@/lib/sync-from-aws"
 
 interface SyncFromAWSButtonProps {
   onSyncComplete?: () => void
@@ -15,7 +16,10 @@ export function SyncFromAWSButton({ onSyncComplete, className = "" }: SyncFromAW
     autoClearMessageMs: 0,
   })
 
-  const progressPercent = progress?.percent || 0
+  // `null` means the producer sent no authoritative percentage. `|| 0` would
+  // have turned that absence into a measured 0%, and an absent current_step
+  // into NaN% -- a fabricated number on screen.
+  const progressPercent = progress?.percent ?? null
   const currentStepLabel = progress?.label || "Starting..."
   const showResult = syncMessage && !syncing
   const vulnerability = results?.vulnerability_findings as Record<string, unknown> | undefined
@@ -34,12 +38,12 @@ export function SyncFromAWSButton({ onSyncComplete, className = "" }: SyncFromAW
         {syncing ? (
           <>
             <RefreshCw className="w-4 h-4 animate-spin" />
-            Syncing...
+            {SYNC_ACTION_PENDING_LABEL}
           </>
         ) : (
           <>
             <Zap className="w-4 h-4" />
-            Sync from AWS
+            {SYNC_ACTION_LABEL}
           </>
         )}
       </button>
@@ -48,16 +52,20 @@ export function SyncFromAWSButton({ onSyncComplete, className = "" }: SyncFromAW
         <div className="p-3 rounded-lg bg-[#3b82f610] border border-[#3b82f640]">
           <div className="flex items-center justify-between mb-2">
             <span className="text-sm font-medium text-[#3b82f6]">
-              Step {progress.step}/{progress.total}: {currentStepLabel}
+              {currentStepLabel}
             </span>
-            <span className="text-sm text-[#3b82f6]">{progressPercent}%</span>
+            {progressPercent !== null && (
+              <span className="text-sm text-[#3b82f6]">{progressPercent}%</span>
+            )}
           </div>
-          <div className="w-full bg-blue-200 rounded-full h-2">
-            <div
-              className="bg-blue-600 h-2 rounded-full transition-all duration-500"
-              style={{ width: `${progressPercent}%` }}
-            />
-          </div>
+          {progressPercent !== null && (
+            <div className="w-full bg-blue-200 rounded-full h-2">
+              <div
+                className="bg-blue-600 h-2 rounded-full transition-all duration-500"
+                style={{ width: `${progressPercent}%` }}
+              />
+            </div>
+          )}
           <p className="text-xs text-[#3b82f6] mt-2">
             The web tier only queues the request. Collection and graph writes run in the dedicated
             Neptune projector.
@@ -88,12 +96,13 @@ export function SyncFromAWSButton({ onSyncComplete, className = "" }: SyncFromAW
 
           {syncMessage.type === "success" && results && (
             <div className="mt-2 space-y-1 text-xs">
-              {vulnerability && (
-                <div>
-                  Activated in Neptune: {Number(vulnerability.active_findings || 0)} active findings,
-                  {" "}{Number(vulnerability.active_coverage || 0)} covered resources.
-                </div>
-              )}
+              {typeof vulnerability?.active_findings === "number" &&
+                typeof vulnerability?.active_coverage === "number" && (
+                  <div>
+                    Activated in Neptune: {vulnerability.active_findings} active findings,
+                    {" "}{vulnerability.active_coverage} covered resources.
+                  </div>
+                )}
               {deferredSources.length > 0 && (
                 <div>
                   Not refreshed by this run: {deferredSources.map((source) => source.label || source.source).join(", ")}.

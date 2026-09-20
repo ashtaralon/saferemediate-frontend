@@ -7,6 +7,9 @@ import {
   SyncJobGoneError,
   fetchSyncJobStatus,
   formatSyncSuccessMessage,
+  formatUnprovenCompletionMessage,
+  isActivated,
+  isForRun,
   startSyncAllJob,
   toSyncProgress,
   type StartSyncOptions,
@@ -67,14 +70,26 @@ export function useSyncFromAWS(options: UseSyncFromAWSOptions = {}) {
     (data: SyncJobStatus) => {
       setProgress(toSyncProgress(data))
 
-      if (data.status === "completed") {
+      if (data.status === "completed" && !isActivated(data)) {
+        // A completed JOB is not a completed REFRESH. The worker exited; that
+        // says nothing about whether a validated generation is active for
+        // this scope. Rendering it green is the fabricated success this lane
+        // exists to remove.
+        setSyncing(false)
+        setJobId(null)
+        stopPolling()
+        handleTerminalMessage({
+          type: "error",
+          text: formatUnprovenCompletionMessage(data),
+        })
+      } else if (data.status === "completed") {
         setSyncing(false)
         setJobId(null)
         stopPolling()
         setResults(data.results ?? null)
         handleTerminalMessage({
           type: "success",
-          text: formatSyncSuccessMessage(data.results),
+          text: formatSyncSuccessMessage(data),
         })
         // Merge the status envelope with its `results` body: lane membership
         // arrives on both depending on stage, and a screen must be able to see
@@ -113,9 +128,17 @@ export function useSyncFromAWS(options: UseSyncFromAWSOptions = {}) {
       try {
         const data = await fetchSyncJobStatus(id)
         if (data) {
-          pollFailuresRef.current = 0
-          handleStatus(data)
-          return
+          // Bind to the run we asked about. A poll in flight across a restart,
+          // or a job id reused by another surface, can otherwise deliver
+          // someone else's terminal state into this run's UI -- including
+          // someone else's activation, reported as ours.
+          if (!isForRun(data, id)) {
+            pollFailuresRef.current += 1
+          } else {
+            pollFailuresRef.current = 0
+            handleStatus(data)
+            return
+          }
         }
         // Readable response, but not OK — backend busy, redeploying or down.
         pollFailuresRef.current += 1
@@ -160,12 +183,12 @@ export function useSyncFromAWS(options: UseSyncFromAWSOptions = {}) {
 
         setJobId(id)
         setProgress({
-          step: result.current_step || 0,
-          total: result.total_steps || DEFAULT_SYNC_TOTAL_STEPS,
-          stepName: "starting",
-          label: "Starting...",
-          percent: 0,
-          message: result.message || "Starting sync...",
+          stepName: "collection_queued",
+          label: "Queued for the dedicated projector",
+          // null, not 0. The request has been accepted and nothing has been
+          // measured; a 0% is a claim that work has started and is 0% done.
+          percent: null,
+          message: result.message || "Queued for the dedicated projector",
         })
 
         pollingRef.current = setInterval(() => {
