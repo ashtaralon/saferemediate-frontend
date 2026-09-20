@@ -39,6 +39,7 @@ import {
   scopeFromSearch,
 } from "@/components/topology-v0-2/topology-scope-url"
 import { EVIDENCE_TIER_LABEL } from "@/lib/types/scope"
+import { EstateIdentityAccessTab } from "@/components/topology-v0-2/estate-identity-access-tab"
 import type { TopologyNode, TopologyRiskResponse } from "@/components/topology-v0-2/types"
 import { createMap } from "@/components/topology-v0-2/native-map"
 import {
@@ -624,7 +625,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
   const [filtersOpen, setFiltersOpen] = useState(false)
   // Lead with the cross-discipline command view. The existing AWS placement
   // diagram remains unchanged and one click away under Network topology.
-  const [view, setView] = useState<"map" | "inventory">("inventory")
+  const [view, setView] = useState<"map" | "inventory" | "identity">("inventory")
 
   // Fullscreen is a modal surface, so leaving it has to hand the keyboard back
   // where it came from. Measured on C1 (run 34754792418): after Escape exited
@@ -1806,6 +1807,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
               {([
                 ["inventory", "Command map"],
                 ["map", "Network topology"],
+                ["identity", "Identity & access"],
               ] as const).map(([id, label]) => {
                 const active = view === id
                 return (
@@ -1934,6 +1936,8 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
             >
               {view === "map" ? (
                 !mapEnlarged ? renderMap(false) : null
+              ) : view === "identity" ? (
+                <EstateIdentityAccessTab payload={data} />
               ) : (
                 <EstateSystemView
                   data={data}

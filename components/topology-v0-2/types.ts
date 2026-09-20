@@ -557,6 +557,15 @@ export interface TopologyRiskResponse {
   foreign_shared_access?: ForeignSharedAccessEdge[]
   /** This system's workloads outside the scoped VPC — drives the overflow line. */
   out_of_scope_workloads?: OutOfScopeWorkloads
+  /**
+   * Additive `estate-identity-access/v1` block (Identity & access tab).
+   *
+   * Attached only by the estate projection worker, so a v11 snapshot written by
+   * ordinary request serving carries none. Typed `unknown` on purpose: the tab
+   * validates the contract version before reading a field, and a typed optional
+   * here would invite call sites to dot into it without that check.
+   */
+  identity_access?: unknown
   error?: string
   fromStaleCache?: boolean
   from_snapshot?: boolean

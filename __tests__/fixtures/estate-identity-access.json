@@ -1,0 +1,1353 @@
+{
+  "_generated_by": "cyntro-backend scripts/emit_estate_identity_access_fixtures.py",
+  "_provenance": "Composed by calling the real projector helpers in cyntro-backend scripts/estate_identity_access.py (_scope, _authority, _ready_role, _unavailable_role, _action_detail, _unavailable_projection) and scripts/estate_relationship_capability.relationship_capabilities(). No field here was typed by hand, so a projector contract change the frontend has not followed appears as a diff in this file.",
+  "capability_reason_codes": [
+    "ASSET_ANCHORED_AUTHORITY_ONLY",
+    "CANONICAL_PRODUCER_UNWIRED",
+    "CLASSIFICATION_CONFLICT",
+    "NOT_ROLE_ANCHORED",
+    "NO_CANONICAL_PRODUCER"
+  ],
+  "contract_version": "estate-identity-access/v1",
+  "empty_authoritative": {
+    "contract_version": "estate-identity-access/v1",
+    "decision_authority": {
+      "expected_count": 2,
+      "expected_gap_count": 1,
+      "expected_gap_set_hash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "expected_set_hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "generation": 41,
+      "projected_through": "2026-09-18T11:30:00Z",
+      "projection_receipt_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "projection_scope": "iam.role_action_decision.v1",
+      "record_contract_version": "1.1.0",
+      "source_vector_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "staging_run_id": "run-dec-2026-09-18"
+    },
+    "gaps": [],
+    "inventory_authority": {
+      "generation": 41,
+      "projected_through": "2026-09-18T11:30:00Z",
+      "projection_receipt_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "projection_scope": "inventory.resource_state.v1",
+      "source_vector_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "staging_run_id": "run-inv-2026-09-18",
+      "workload_binding_completeness": "COMPLETE",
+      "workload_binding_count": 3,
+      "workload_binding_set_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "workload_binding_supported_types": [
+        "ec2:instance",
+        "lambda:function"
+      ]
+    },
+    "relationship_capabilities": [
+      {
+        "bounded_read": null,
+        "canonical_writer": null,
+        "detail": "cyntro_data.projection.neptune_graph.observations.RoleAssumptionProjector is generation-bound and declares plane OBSERVED, but nothing in the tree calls it -- only two re-export lines reference it. No edge of this type is ever written.",
+        "direction": "(:Principal) -> (:IAMRole)",
+        "edge_type": "ASSUMED_ROLE_OBSERVED",
+        "family": "ASSUMED_ROLE_OBSERVED",
+        "plane": null,
+        "reason_codes": [
+          "CANONICAL_PRODUCER_UNWIRED"
+        ],
+        "status": "unavailable"
+      },
+      {
+        "bounded_read": null,
+        "canonical_writer": null,
+        "detail": "Written only by non-generation-bound writers. It is also classified two incompatible ways by installed registries: TOPOLOGY_INVENTORY in unified/evidence/contract.py and Plane.OBSERVED in unified/quality/edge_registry.py. The canonical observed producer that would settle it is the unwired one above.",
+        "direction": "(principal|role) -> (role)",
+        "edge_type": "ASSUMES_ROLE",
+        "family": "ASSUMES_ROLE",
+        "plane": null,
+        "reason_codes": [
+          "NO_CANONICAL_PRODUCER",
+          "CLASSIFICATION_CONFLICT"
+        ],
+        "status": "unavailable"
+      },
+      {
+        "bounded_read": null,
+        "canonical_writer": null,
+        "detail": "Written only by non-generation-bound writers, one of them behind a feature flag. Role chaining is commonly source-role to target-role, so a target-anchored view would additionally need incoming traversal, which this contract does not offer.",
+        "direction": "(:IAMRole) -> (:IAMRole)",
+        "edge_type": "ASSUMES_ROLE_ACTUAL",
+        "family": "ASSUMES_ROLE_ACTUAL",
+        "plane": null,
+        "reason_codes": [
+          "NO_CANONICAL_PRODUCER"
+        ],
+        "status": "unavailable"
+      },
+      {
+        "bounded_read": null,
+        "canonical_writer": null,
+        "detail": "Written only by non-generation-bound writers. Not interchangeable with ASSUMES_ROLE or ASSUMES_ROLE_ACTUAL: different producers, different planes, different directions.",
+        "direction": "(principal|role) -> (role)",
+        "edge_type": "CAN_ASSUME",
+        "family": "CAN_ASSUME",
+        "plane": null,
+        "reason_codes": [
+          "NO_CANONICAL_PRODUCER"
+        ],
+        "status": "unavailable"
+      },
+      {
+        "bounded_read": null,
+        "canonical_writer": null,
+        "detail": "The active canonical path is not an edge: it is the versioned BehavioralSummary DATA_ACCESS grain, and its one bounded read (cyntro_data.projection.behavioral_reader.data_access_by_asset_cypher) is ASSET-anchored -- it UNWINDs a caller-supplied $asset_uids list and matches data_asset_uid, with no principal predicate. principal_uid appears only on the way out. Producing role-anchored output would require enumerating the tenant's whole data-asset universe first and filtering after the fact, which is the unbounded scan this contract forbids, and the 2000-row cap would truncate it silently. A principal-anchored bounded read must be added beside it before this family can be served here; it must not be inverted in the consumer.",
+        "direction": "(principal) -> (data asset)",
+        "edge_type": null,
+        "family": "DATA_ACCESS",
+        "plane": null,
+        "reason_codes": [
+          "ASSET_ANCHORED_AUTHORITY_ONLY"
+        ],
+        "status": "unavailable"
+      },
+      {
+        "bounded_read": null,
+        "canonical_writer": null,
+        "detail": "Written only by legacy collectors and demo seeding, none of them generation-bound. Configured grants for a role are served here from the decision authority instead, which is hash-verified.",
+        "direction": "(:IAMRole) -> (:IAMPolicy)",
+        "edge_type": "HAS_POLICY",
+        "family": "HAS_POLICY",
+        "plane": null,
+        "reason_codes": [
+          "NO_CANONICAL_PRODUCER"
+        ],
+        "status": "unavailable"
+      },
+      {
+        "bounded_read": null,
+        "canonical_writer": null,
+        "detail": "Account/OU placement, not role authority.",
+        "direction": "(:Account|:OU) -> (:Organization)",
+        "edge_type": "IN_ORG",
+        "family": "IN_ORG",
+        "plane": null,
+        "reason_codes": [
+          "NOT_ROLE_ANCHORED",
+          "NO_CANONICAL_PRODUCER"
+        ],
+        "status": "unavailable"
+      },
+      {
+        "bounded_read": null,
+        "canonical_writer": null,
+        "detail": "Account/OU placement, not role authority.",
+        "direction": "(:Account|:OU) -> (:OU)",
+        "edge_type": "IN_ORG_UNIT",
+        "family": "IN_ORG_UNIT",
+        "plane": null,
+        "reason_codes": [
+          "NOT_ROLE_ANCHORED",
+          "NO_CANONICAL_PRODUCER"
+        ],
+        "status": "unavailable"
+      },
+      {
+        "bounded_read": null,
+        "canonical_writer": null,
+        "detail": "Organisation-level control attachment. Reaching it needs a bounded account/org path, not a role edge, and its only writer is a non-generation-bound collector.",
+        "direction": "(:Organization|:OU|:Account) -> (:SCP)",
+        "edge_type": "LIMITED_BY_SCP",
+        "family": "LIMITED_BY_SCP",
+        "plane": null,
+        "reason_codes": [
+          "NOT_ROLE_ANCHORED",
+          "NO_CANONICAL_PRODUCER"
+        ],
+        "status": "unavailable"
+      },
+      {
+        "bounded_read": null,
+        "canonical_writer": null,
+        "detail": "Written only by the Identity Center collector, which is not generation-bound. Distinct from MEMBER_OF_CLUSTER, an RDS topology edge; the two must not be coalesced.",
+        "direction": "(:User) -> (:Group)",
+        "edge_type": "MEMBER_OF",
+        "family": "MEMBER_OF",
+        "plane": null,
+        "reason_codes": [
+          "NO_CANONICAL_PRODUCER"
+        ],
+        "status": "unavailable"
+      },
+      {
+        "bounded_read": "unified.change_assurance.decision_fetch.fetch_role_decisions",
+        "canonical_writer": "cyntro_data.projection.role_action_decision_project",
+        "detail": "Accepted only after decision_fetch.verify_generation proves the pinned generation's exact count and set hash, and the conserved role-level open-universe gaps are checked by count and hash.",
+        "direction": "(role) -> (action decision record)",
+        "edge_type": null,
+        "family": "ROLE_ACTION_DECISION",
+        "plane": "configured_and_observed",
+        "reason_codes": [],
+        "status": "available"
+      },
+      {
+        "bounded_read": null,
+        "canonical_writer": null,
+        "detail": "A workload/resource dependency edge written by event and scheduler collectors, not a role authority edge.",
+        "direction": "(rule|schedule|target-group) -> (workload|role)",
+        "edge_type": "TARGETS",
+        "family": "TARGETS",
+        "plane": null,
+        "reason_codes": [
+          "NOT_ROLE_ANCHORED",
+          "NO_CANONICAL_PRODUCER"
+        ],
+        "status": "unavailable"
+      },
+      {
+        "bounded_read": null,
+        "canonical_writer": null,
+        "detail": "Not a role-outgoing edge at all: it runs from an external principal to a resource-policy grant. Anchoring it on a role returns nothing regardless of generation.",
+        "direction": "(:ExternalPrincipal) -> (:ResourcePolicyGrant)",
+        "edge_type": "TRUSTS",
+        "family": "TRUSTS",
+        "plane": null,
+        "reason_codes": [
+          "NOT_ROLE_ANCHORED",
+          "NO_CANONICAL_PRODUCER"
+        ],
+        "status": "unavailable"
+      },
+      {
+        "bounded_read": null,
+        "canonical_writer": null,
+        "detail": "A resource dependency edge, not a role authority edge.",
+        "direction": "(resource) -> (:KMSKey)",
+        "edge_type": "USES_KMS_KEY",
+        "family": "USES_KMS_KEY",
+        "plane": null,
+        "reason_codes": [
+          "NOT_ROLE_ANCHORED",
+          "NO_CANONICAL_PRODUCER"
+        ],
+        "status": "unavailable"
+      },
+      {
+        "bounded_read": "scripts.estate_identity_access._READ_BINDINGS",
+        "canonical_writer": "cyntro_data.projection.inventory_authority_project",
+        "detail": "Generation-owned canonical binding. The active pointer must declare COMPLETE workload binding coverage with an exact count, an exact set hash and a validated projection receipt before this projection is built at all.",
+        "direction": "(workload:Resource) -> (role:Resource)",
+        "edge_type": "USES_ROLE_CANONICAL",
+        "family": "WORKLOAD_USES_ROLE",
+        "plane": "configured",
+        "reason_codes": [],
+        "status": "available"
+      }
+    ],
+    "roles": [],
+    "roles_omitted_unresolved": 0,
+    "roles_returned": 0,
+    "roles_total": 0,
+    "roles_truncated": false,
+    "scope": {
+      "account_id": "111122223333",
+      "customer_id": "cust-estate-1",
+      "region": "us-east-1",
+      "system_name": "payments-core",
+      "vpc_id": "vpc-0abc123"
+    },
+    "status": "ready"
+  },
+  "partial": {
+    "contract_version": "estate-identity-access/v1",
+    "decision_authority": {
+      "expected_count": 2,
+      "expected_gap_count": 1,
+      "expected_gap_set_hash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "expected_set_hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "generation": 41,
+      "projected_through": "2026-09-18T11:30:00Z",
+      "projection_receipt_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "projection_scope": "iam.role_action_decision.v1",
+      "record_contract_version": "1.1.0",
+      "source_vector_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "staging_run_id": "run-dec-2026-09-18"
+    },
+    "gaps": [],
+    "inventory_authority": {
+      "generation": 41,
+      "projected_through": "2026-09-18T11:30:00Z",
+      "projection_receipt_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "projection_scope": "inventory.resource_state.v1",
+      "source_vector_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "staging_run_id": "run-inv-2026-09-18",
+      "workload_binding_completeness": "COMPLETE",
+      "workload_binding_count": 3,
+      "workload_binding_set_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "workload_binding_supported_types": [
+        "ec2:instance",
+        "lambda:function"
+      ]
+    },
+    "relationship_capabilities": [
+      {
+        "bounded_read": null,
+        "canonical_writer": null,
+        "detail": "cyntro_data.projection.neptune_graph.observations.RoleAssumptionProjector is generation-bound and declares plane OBSERVED, but nothing in the tree calls it -- only two re-export lines reference it. No edge of this type is ever written.",
+        "direction": "(:Principal) -> (:IAMRole)",
+        "edge_type": "ASSUMED_ROLE_OBSERVED",
+        "family": "ASSUMED_ROLE_OBSERVED",
+        "plane": null,
+        "reason_codes": [
+          "CANONICAL_PRODUCER_UNWIRED"
+        ],
+        "status": "unavailable"
+      },
+      {
+        "bounded_read": null,
+        "canonical_writer": null,
+        "detail": "Written only by non-generation-bound writers. It is also classified two incompatible ways by installed registries: TOPOLOGY_INVENTORY in unified/evidence/contract.py and Plane.OBSERVED in unified/quality/edge_registry.py. The canonical observed producer that would settle it is the unwired one above.",
+        "direction": "(principal|role) -> (role)",
+        "edge_type": "ASSUMES_ROLE",
+        "family": "ASSUMES_ROLE",
+        "plane": null,
+        "reason_codes": [
+          "NO_CANONICAL_PRODUCER",
+          "CLASSIFICATION_CONFLICT"
+        ],
+        "status": "unavailable"
+      },
+      {
+        "bounded_read": null,
+        "canonical_writer": null,
+        "detail": "Written only by non-generation-bound writers, one of them behind a feature flag. Role chaining is commonly source-role to target-role, so a target-anchored view would additionally need incoming traversal, which this contract does not offer.",
+        "direction": "(:IAMRole) -> (:IAMRole)",
+        "edge_type": "ASSUMES_ROLE_ACTUAL",
+        "family": "ASSUMES_ROLE_ACTUAL",
+        "plane": null,
+        "reason_codes": [
+          "NO_CANONICAL_PRODUCER"
+        ],
+        "status": "unavailable"
+      },
+      {
+        "bounded_read": null,
+        "canonical_writer": null,
+        "detail": "Written only by non-generation-bound writers. Not interchangeable with ASSUMES_ROLE or ASSUMES_ROLE_ACTUAL: different producers, different planes, different directions.",
+        "direction": "(principal|role) -> (role)",
+        "edge_type": "CAN_ASSUME",
+        "family": "CAN_ASSUME",
+        "plane": null,
+        "reason_codes": [
+          "NO_CANONICAL_PRODUCER"
+        ],
+        "status": "unavailable"
+      },
+      {
+        "bounded_read": null,
+        "canonical_writer": null,
+        "detail": "The active canonical path is not an edge: it is the versioned BehavioralSummary DATA_ACCESS grain, and its one bounded read (cyntro_data.projection.behavioral_reader.data_access_by_asset_cypher) is ASSET-anchored -- it UNWINDs a caller-supplied $asset_uids list and matches data_asset_uid, with no principal predicate. principal_uid appears only on the way out. Producing role-anchored output would require enumerating the tenant's whole data-asset universe first and filtering after the fact, which is the unbounded scan this contract forbids, and the 2000-row cap would truncate it silently. A principal-anchored bounded read must be added beside it before this family can be served here; it must not be inverted in the consumer.",
+        "direction": "(principal) -> (data asset)",
+        "edge_type": null,
+        "family": "DATA_ACCESS",
+        "plane": null,
+        "reason_codes": [
+          "ASSET_ANCHORED_AUTHORITY_ONLY"
+        ],
+        "status": "unavailable"
+      },
+      {
+        "bounded_read": null,
+        "canonical_writer": null,
+        "detail": "Written only by legacy collectors and demo seeding, none of them generation-bound. Configured grants for a role are served here from the decision authority instead, which is hash-verified.",
+        "direction": "(:IAMRole) -> (:IAMPolicy)",
+        "edge_type": "HAS_POLICY",
+        "family": "HAS_POLICY",
+        "plane": null,
+        "reason_codes": [
+          "NO_CANONICAL_PRODUCER"
+        ],
+        "status": "unavailable"
+      },
+      {
+        "bounded_read": null,
+        "canonical_writer": null,
+        "detail": "Account/OU placement, not role authority.",
+        "direction": "(:Account|:OU) -> (:Organization)",
+        "edge_type": "IN_ORG",
+        "family": "IN_ORG",
+        "plane": null,
+        "reason_codes": [
+          "NOT_ROLE_ANCHORED",
+          "NO_CANONICAL_PRODUCER"
+        ],
+        "status": "unavailable"
+      },
+      {
+        "bounded_read": null,
+        "canonical_writer": null,
+        "detail": "Account/OU placement, not role authority.",
+        "direction": "(:Account|:OU) -> (:OU)",
+        "edge_type": "IN_ORG_UNIT",
+        "family": "IN_ORG_UNIT",
+        "plane": null,
+        "reason_codes": [
+          "NOT_ROLE_ANCHORED",
+          "NO_CANONICAL_PRODUCER"
+        ],
+        "status": "unavailable"
+      },
+      {
+        "bounded_read": null,
+        "canonical_writer": null,
+        "detail": "Organisation-level control attachment. Reaching it needs a bounded account/org path, not a role edge, and its only writer is a non-generation-bound collector.",
+        "direction": "(:Organization|:OU|:Account) -> (:SCP)",
+        "edge_type": "LIMITED_BY_SCP",
+        "family": "LIMITED_BY_SCP",
+        "plane": null,
+        "reason_codes": [
+          "NOT_ROLE_ANCHORED",
+          "NO_CANONICAL_PRODUCER"
+        ],
+        "status": "unavailable"
+      },
+      {
+        "bounded_read": null,
+        "canonical_writer": null,
+        "detail": "Written only by the Identity Center collector, which is not generation-bound. Distinct from MEMBER_OF_CLUSTER, an RDS topology edge; the two must not be coalesced.",
+        "direction": "(:User) -> (:Group)",
+        "edge_type": "MEMBER_OF",
+        "family": "MEMBER_OF",
+        "plane": null,
+        "reason_codes": [
+          "NO_CANONICAL_PRODUCER"
+        ],
+        "status": "unavailable"
+      },
+      {
+        "bounded_read": "unified.change_assurance.decision_fetch.fetch_role_decisions",
+        "canonical_writer": "cyntro_data.projection.role_action_decision_project",
+        "detail": "Accepted only after decision_fetch.verify_generation proves the pinned generation's exact count and set hash, and the conserved role-level open-universe gaps are checked by count and hash.",
+        "direction": "(role) -> (action decision record)",
+        "edge_type": null,
+        "family": "ROLE_ACTION_DECISION",
+        "plane": "configured_and_observed",
+        "reason_codes": [],
+        "status": "available"
+      },
+      {
+        "bounded_read": null,
+        "canonical_writer": null,
+        "detail": "A workload/resource dependency edge written by event and scheduler collectors, not a role authority edge.",
+        "direction": "(rule|schedule|target-group) -> (workload|role)",
+        "edge_type": "TARGETS",
+        "family": "TARGETS",
+        "plane": null,
+        "reason_codes": [
+          "NOT_ROLE_ANCHORED",
+          "NO_CANONICAL_PRODUCER"
+        ],
+        "status": "unavailable"
+      },
+      {
+        "bounded_read": null,
+        "canonical_writer": null,
+        "detail": "Not a role-outgoing edge at all: it runs from an external principal to a resource-policy grant. Anchoring it on a role returns nothing regardless of generation.",
+        "direction": "(:ExternalPrincipal) -> (:ResourcePolicyGrant)",
+        "edge_type": "TRUSTS",
+        "family": "TRUSTS",
+        "plane": null,
+        "reason_codes": [
+          "NOT_ROLE_ANCHORED",
+          "NO_CANONICAL_PRODUCER"
+        ],
+        "status": "unavailable"
+      },
+      {
+        "bounded_read": null,
+        "canonical_writer": null,
+        "detail": "A resource dependency edge, not a role authority edge.",
+        "direction": "(resource) -> (:KMSKey)",
+        "edge_type": "USES_KMS_KEY",
+        "family": "USES_KMS_KEY",
+        "plane": null,
+        "reason_codes": [
+          "NOT_ROLE_ANCHORED",
+          "NO_CANONICAL_PRODUCER"
+        ],
+        "status": "unavailable"
+      },
+      {
+        "bounded_read": "scripts.estate_identity_access._READ_BINDINGS",
+        "canonical_writer": "cyntro_data.projection.inventory_authority_project",
+        "detail": "Generation-owned canonical binding. The active pointer must declare COMPLETE workload binding coverage with an exact count, an exact set hash and a validated projection receipt before this projection is built at all.",
+        "direction": "(workload:Resource) -> (role:Resource)",
+        "edge_type": "USES_ROLE_CANONICAL",
+        "family": "WORKLOAD_USES_ROLE",
+        "plane": "configured",
+        "reason_codes": [],
+        "status": "available"
+      }
+    ],
+    "roles": [
+      {
+        "action_details": [
+          {
+            "action": "kms:Decrypt",
+            "authorization_control_generation": 41,
+            "authorization_layers": {
+              "IDENTITY_POLICY": "ALLOW",
+              "PERMISSIONS_BOUNDARY": "UNKNOWN",
+              "SERVICE_CONTROL_POLICY": "ALLOW"
+            },
+            "configured_grant": true,
+            "corroboration_state": "CORROBORATED",
+            "coverage_state": "PARTIAL",
+            "decision_as_of": "2026-09-18T11:00:00Z",
+            "denial_layer": null,
+            "denied_hold_expires_at": null,
+            "effective_authorization": {
+              "availability": "unavailable",
+              "decision": null,
+              "granularity": "action_resource_context",
+              "reason_codes": [
+                "ACTION_AND_RESOURCE_SCOPE_REQUIRED",
+                "NO_PROJECTED_EFFECTIVE_DECISION",
+                "AUTHORIZATION_LAYERS_INCOMPLETE"
+              ]
+            },
+            "eligibility_state": "ELIGIBLE",
+            "evidence_generation": 41,
+            "first_success_at": "2026-09-02T08:01:00Z",
+            "hold_reason": null,
+            "last_success_at": null,
+            "observation_window_end": "2026-09-18T00:00:00Z",
+            "observation_window_start": "2026-08-19T00:00:00Z",
+            "policy_configuration_generation": 41,
+            "purity": "PURE",
+            "reevaluation_basis": null,
+            "usage_state": "DENIED_ONLY",
+            "window_requirement_satisfied": true
+          },
+          {
+            "action": "s3:GetObject",
+            "authorization_control_generation": 41,
+            "authorization_layers": {
+              "IDENTITY_POLICY": "ALLOW",
+              "PERMISSIONS_BOUNDARY": "NOT_APPLICABLE",
+              "SERVICE_CONTROL_POLICY": "ALLOW"
+            },
+            "configured_grant": true,
+            "corroboration_state": "CORROBORATED",
+            "coverage_state": "COMPLETE",
+            "decision_as_of": "2026-09-18T11:00:00Z",
+            "denial_layer": null,
+            "denied_hold_expires_at": null,
+            "effective_authorization": {
+              "availability": "unavailable",
+              "decision": null,
+              "granularity": "action_resource_context",
+              "reason_codes": [
+                "ACTION_AND_RESOURCE_SCOPE_REQUIRED",
+                "NO_PROJECTED_EFFECTIVE_DECISION"
+              ]
+            },
+            "eligibility_state": "ELIGIBLE",
+            "evidence_generation": 41,
+            "first_success_at": "2026-09-02T08:01:00Z",
+            "hold_reason": null,
+            "last_success_at": "2026-09-17T22:14:05Z",
+            "observation_window_end": "2026-09-18T00:00:00Z",
+            "observation_window_start": "2026-08-19T00:00:00Z",
+            "policy_configuration_generation": 41,
+            "purity": "PURE",
+            "reevaluation_basis": null,
+            "usage_state": "SUCCESS_OBSERVED",
+            "window_requirement_satisfied": true
+          },
+          {
+            "action": "s3:PutObject",
+            "authorization_control_generation": 41,
+            "authorization_layers": {
+              "IDENTITY_POLICY": "ALLOW",
+              "PERMISSIONS_BOUNDARY": "NOT_APPLICABLE",
+              "SERVICE_CONTROL_POLICY": "ALLOW"
+            },
+            "configured_grant": true,
+            "corroboration_state": "CORROBORATED",
+            "coverage_state": "COMPLETE",
+            "decision_as_of": "2026-09-18T11:00:00Z",
+            "denial_layer": null,
+            "denied_hold_expires_at": null,
+            "effective_authorization": {
+              "availability": "unavailable",
+              "decision": null,
+              "granularity": "action_resource_context",
+              "reason_codes": [
+                "ACTION_AND_RESOURCE_SCOPE_REQUIRED",
+                "NO_PROJECTED_EFFECTIVE_DECISION"
+              ]
+            },
+            "eligibility_state": "ELIGIBLE",
+            "evidence_generation": 41,
+            "first_success_at": "2026-09-02T08:01:00Z",
+            "hold_reason": null,
+            "last_success_at": null,
+            "observation_window_end": "2026-09-18T00:00:00Z",
+            "observation_window_start": "2026-08-19T00:00:00Z",
+            "policy_configuration_generation": 41,
+            "purity": "PURE",
+            "reevaluation_basis": null,
+            "usage_state": "NOT_OBSERVED",
+            "window_requirement_satisfied": true
+          }
+        ],
+        "action_details_returned": 3,
+        "action_details_total": 3,
+        "action_details_truncated": false,
+        "attachment_modes": [
+          "direct",
+          "instance_profile"
+        ],
+        "configured_grants": {
+          "exact_action_count": 3,
+          "state": "ready"
+        },
+        "effective_authorization": {
+          "availability": "unavailable",
+          "decision": null,
+          "granularity": "action_resource_context",
+          "reason_codes": [
+            "ACTION_AND_RESOURCE_SCOPE_REQUIRED",
+            "NO_PROJECTED_EFFECTIVE_DECISION",
+            "AUTHORIZATION_LAYERS_INCOMPLETE"
+          ]
+        },
+        "gaps": [],
+        "lifecycle_state": "ACTIVE",
+        "name": "payments-api",
+        "observed_use": {
+          "coverage_counts": {
+            "complete": 2,
+            "partial": 1,
+            "unknown": 0
+          },
+          "denied_only_action_count": 1,
+          "last_success_at": "2026-09-17T22:14:05Z",
+          "not_observed_action_count": 1,
+          "state": "ready",
+          "successful_action_count": 1,
+          "unknown_action_count": 0
+        },
+        "role_arn": "arn:aws:iam::111122223333:role/payments-api",
+        "role_id": "AROAEXAMPLEPAYMENTS1",
+        "workload_ids": [
+          "i-0aa11bb22cc33dd44",
+          "payments-settlement"
+        ]
+      },
+      {
+        "action_details": [],
+        "action_details_returned": 0,
+        "action_details_total": null,
+        "action_details_truncated": false,
+        "attachment_modes": [
+          "instance_profile"
+        ],
+        "configured_grants": {
+          "exact_action_count": null,
+          "state": "unavailable"
+        },
+        "effective_authorization": {
+          "availability": "unavailable",
+          "decision": null,
+          "granularity": "action_resource_context",
+          "reason_codes": [
+            "ACTION_AND_RESOURCE_SCOPE_REQUIRED",
+            "NO_PROJECTED_EFFECTIVE_DECISION"
+          ]
+        },
+        "gaps": [
+          {
+            "code": "ROLE_DECISION_UNIVERSE_INCOMPLETE",
+            "detail": "Configured grant universe is open; per-action totals are unavailable.",
+            "reason_codes": [
+              "POLICY_PARSE_INCOMPLETE"
+            ]
+          }
+        ],
+        "lifecycle_state": "ACTIVE",
+        "name": "ledger-writer",
+        "observed_use": {
+          "coverage_counts": null,
+          "denied_only_action_count": null,
+          "last_success_at": null,
+          "not_observed_action_count": null,
+          "state": "unavailable",
+          "successful_action_count": null,
+          "unknown_action_count": null
+        },
+        "role_arn": "arn:aws:iam::111122223333:role/ledger-writer",
+        "role_id": "AROAEXAMPLELEDGER002",
+        "workload_ids": [
+          "i-0ee55ff66aa77bb88"
+        ]
+      }
+    ],
+    "roles_omitted_unresolved": 0,
+    "roles_returned": 2,
+    "roles_total": 2,
+    "roles_truncated": false,
+    "scope": {
+      "account_id": "111122223333",
+      "customer_id": "cust-estate-1",
+      "region": "us-east-1",
+      "system_name": "payments-core",
+      "vpc_id": "vpc-0abc123"
+    },
+    "status": "partial"
+  },
+  "ready": {
+    "contract_version": "estate-identity-access/v1",
+    "decision_authority": {
+      "expected_count": 2,
+      "expected_gap_count": 1,
+      "expected_gap_set_hash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "expected_set_hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "generation": 41,
+      "projected_through": "2026-09-18T11:30:00Z",
+      "projection_receipt_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "projection_scope": "iam.role_action_decision.v1",
+      "record_contract_version": "1.1.0",
+      "source_vector_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "staging_run_id": "run-dec-2026-09-18"
+    },
+    "gaps": [],
+    "inventory_authority": {
+      "generation": 41,
+      "projected_through": "2026-09-18T11:30:00Z",
+      "projection_receipt_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "projection_scope": "inventory.resource_state.v1",
+      "source_vector_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "staging_run_id": "run-inv-2026-09-18",
+      "workload_binding_completeness": "COMPLETE",
+      "workload_binding_count": 3,
+      "workload_binding_set_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "workload_binding_supported_types": [
+        "ec2:instance",
+        "lambda:function"
+      ]
+    },
+    "relationship_capabilities": [
+      {
+        "bounded_read": null,
+        "canonical_writer": null,
+        "detail": "cyntro_data.projection.neptune_graph.observations.RoleAssumptionProjector is generation-bound and declares plane OBSERVED, but nothing in the tree calls it -- only two re-export lines reference it. No edge of this type is ever written.",
+        "direction": "(:Principal) -> (:IAMRole)",
+        "edge_type": "ASSUMED_ROLE_OBSERVED",
+        "family": "ASSUMED_ROLE_OBSERVED",
+        "plane": null,
+        "reason_codes": [
+          "CANONICAL_PRODUCER_UNWIRED"
+        ],
+        "status": "unavailable"
+      },
+      {
+        "bounded_read": null,
+        "canonical_writer": null,
+        "detail": "Written only by non-generation-bound writers. It is also classified two incompatible ways by installed registries: TOPOLOGY_INVENTORY in unified/evidence/contract.py and Plane.OBSERVED in unified/quality/edge_registry.py. The canonical observed producer that would settle it is the unwired one above.",
+        "direction": "(principal|role) -> (role)",
+        "edge_type": "ASSUMES_ROLE",
+        "family": "ASSUMES_ROLE",
+        "plane": null,
+        "reason_codes": [
+          "NO_CANONICAL_PRODUCER",
+          "CLASSIFICATION_CONFLICT"
+        ],
+        "status": "unavailable"
+      },
+      {
+        "bounded_read": null,
+        "canonical_writer": null,
+        "detail": "Written only by non-generation-bound writers, one of them behind a feature flag. Role chaining is commonly source-role to target-role, so a target-anchored view would additionally need incoming traversal, which this contract does not offer.",
+        "direction": "(:IAMRole) -> (:IAMRole)",
+        "edge_type": "ASSUMES_ROLE_ACTUAL",
+        "family": "ASSUMES_ROLE_ACTUAL",
+        "plane": null,
+        "reason_codes": [
+          "NO_CANONICAL_PRODUCER"
+        ],
+        "status": "unavailable"
+      },
+      {
+        "bounded_read": null,
+        "canonical_writer": null,
+        "detail": "Written only by non-generation-bound writers. Not interchangeable with ASSUMES_ROLE or ASSUMES_ROLE_ACTUAL: different producers, different planes, different directions.",
+        "direction": "(principal|role) -> (role)",
+        "edge_type": "CAN_ASSUME",
+        "family": "CAN_ASSUME",
+        "plane": null,
+        "reason_codes": [
+          "NO_CANONICAL_PRODUCER"
+        ],
+        "status": "unavailable"
+      },
+      {
+        "bounded_read": null,
+        "canonical_writer": null,
+        "detail": "The active canonical path is not an edge: it is the versioned BehavioralSummary DATA_ACCESS grain, and its one bounded read (cyntro_data.projection.behavioral_reader.data_access_by_asset_cypher) is ASSET-anchored -- it UNWINDs a caller-supplied $asset_uids list and matches data_asset_uid, with no principal predicate. principal_uid appears only on the way out. Producing role-anchored output would require enumerating the tenant's whole data-asset universe first and filtering after the fact, which is the unbounded scan this contract forbids, and the 2000-row cap would truncate it silently. A principal-anchored bounded read must be added beside it before this family can be served here; it must not be inverted in the consumer.",
+        "direction": "(principal) -> (data asset)",
+        "edge_type": null,
+        "family": "DATA_ACCESS",
+        "plane": null,
+        "reason_codes": [
+          "ASSET_ANCHORED_AUTHORITY_ONLY"
+        ],
+        "status": "unavailable"
+      },
+      {
+        "bounded_read": null,
+        "canonical_writer": null,
+        "detail": "Written only by legacy collectors and demo seeding, none of them generation-bound. Configured grants for a role are served here from the decision authority instead, which is hash-verified.",
+        "direction": "(:IAMRole) -> (:IAMPolicy)",
+        "edge_type": "HAS_POLICY",
+        "family": "HAS_POLICY",
+        "plane": null,
+        "reason_codes": [
+          "NO_CANONICAL_PRODUCER"
+        ],
+        "status": "unavailable"
+      },
+      {
+        "bounded_read": null,
+        "canonical_writer": null,
+        "detail": "Account/OU placement, not role authority.",
+        "direction": "(:Account|:OU) -> (:Organization)",
+        "edge_type": "IN_ORG",
+        "family": "IN_ORG",
+        "plane": null,
+        "reason_codes": [
+          "NOT_ROLE_ANCHORED",
+          "NO_CANONICAL_PRODUCER"
+        ],
+        "status": "unavailable"
+      },
+      {
+        "bounded_read": null,
+        "canonical_writer": null,
+        "detail": "Account/OU placement, not role authority.",
+        "direction": "(:Account|:OU) -> (:OU)",
+        "edge_type": "IN_ORG_UNIT",
+        "family": "IN_ORG_UNIT",
+        "plane": null,
+        "reason_codes": [
+          "NOT_ROLE_ANCHORED",
+          "NO_CANONICAL_PRODUCER"
+        ],
+        "status": "unavailable"
+      },
+      {
+        "bounded_read": null,
+        "canonical_writer": null,
+        "detail": "Organisation-level control attachment. Reaching it needs a bounded account/org path, not a role edge, and its only writer is a non-generation-bound collector.",
+        "direction": "(:Organization|:OU|:Account) -> (:SCP)",
+        "edge_type": "LIMITED_BY_SCP",
+        "family": "LIMITED_BY_SCP",
+        "plane": null,
+        "reason_codes": [
+          "NOT_ROLE_ANCHORED",
+          "NO_CANONICAL_PRODUCER"
+        ],
+        "status": "unavailable"
+      },
+      {
+        "bounded_read": null,
+        "canonical_writer": null,
+        "detail": "Written only by the Identity Center collector, which is not generation-bound. Distinct from MEMBER_OF_CLUSTER, an RDS topology edge; the two must not be coalesced.",
+        "direction": "(:User) -> (:Group)",
+        "edge_type": "MEMBER_OF",
+        "family": "MEMBER_OF",
+        "plane": null,
+        "reason_codes": [
+          "NO_CANONICAL_PRODUCER"
+        ],
+        "status": "unavailable"
+      },
+      {
+        "bounded_read": "unified.change_assurance.decision_fetch.fetch_role_decisions",
+        "canonical_writer": "cyntro_data.projection.role_action_decision_project",
+        "detail": "Accepted only after decision_fetch.verify_generation proves the pinned generation's exact count and set hash, and the conserved role-level open-universe gaps are checked by count and hash.",
+        "direction": "(role) -> (action decision record)",
+        "edge_type": null,
+        "family": "ROLE_ACTION_DECISION",
+        "plane": "configured_and_observed",
+        "reason_codes": [],
+        "status": "available"
+      },
+      {
+        "bounded_read": null,
+        "canonical_writer": null,
+        "detail": "A workload/resource dependency edge written by event and scheduler collectors, not a role authority edge.",
+        "direction": "(rule|schedule|target-group) -> (workload|role)",
+        "edge_type": "TARGETS",
+        "family": "TARGETS",
+        "plane": null,
+        "reason_codes": [
+          "NOT_ROLE_ANCHORED",
+          "NO_CANONICAL_PRODUCER"
+        ],
+        "status": "unavailable"
+      },
+      {
+        "bounded_read": null,
+        "canonical_writer": null,
+        "detail": "Not a role-outgoing edge at all: it runs from an external principal to a resource-policy grant. Anchoring it on a role returns nothing regardless of generation.",
+        "direction": "(:ExternalPrincipal) -> (:ResourcePolicyGrant)",
+        "edge_type": "TRUSTS",
+        "family": "TRUSTS",
+        "plane": null,
+        "reason_codes": [
+          "NOT_ROLE_ANCHORED",
+          "NO_CANONICAL_PRODUCER"
+        ],
+        "status": "unavailable"
+      },
+      {
+        "bounded_read": null,
+        "canonical_writer": null,
+        "detail": "A resource dependency edge, not a role authority edge.",
+        "direction": "(resource) -> (:KMSKey)",
+        "edge_type": "USES_KMS_KEY",
+        "family": "USES_KMS_KEY",
+        "plane": null,
+        "reason_codes": [
+          "NOT_ROLE_ANCHORED",
+          "NO_CANONICAL_PRODUCER"
+        ],
+        "status": "unavailable"
+      },
+      {
+        "bounded_read": "scripts.estate_identity_access._READ_BINDINGS",
+        "canonical_writer": "cyntro_data.projection.inventory_authority_project",
+        "detail": "Generation-owned canonical binding. The active pointer must declare COMPLETE workload binding coverage with an exact count, an exact set hash and a validated projection receipt before this projection is built at all.",
+        "direction": "(workload:Resource) -> (role:Resource)",
+        "edge_type": "USES_ROLE_CANONICAL",
+        "family": "WORKLOAD_USES_ROLE",
+        "plane": "configured",
+        "reason_codes": [],
+        "status": "available"
+      }
+    ],
+    "roles": [
+      {
+        "action_details": [
+          {
+            "action": "kms:Decrypt",
+            "authorization_control_generation": 41,
+            "authorization_layers": {
+              "IDENTITY_POLICY": "ALLOW",
+              "PERMISSIONS_BOUNDARY": "UNKNOWN",
+              "SERVICE_CONTROL_POLICY": "ALLOW"
+            },
+            "configured_grant": true,
+            "corroboration_state": "CORROBORATED",
+            "coverage_state": "PARTIAL",
+            "decision_as_of": "2026-09-18T11:00:00Z",
+            "denial_layer": null,
+            "denied_hold_expires_at": null,
+            "effective_authorization": {
+              "availability": "unavailable",
+              "decision": null,
+              "granularity": "action_resource_context",
+              "reason_codes": [
+                "ACTION_AND_RESOURCE_SCOPE_REQUIRED",
+                "NO_PROJECTED_EFFECTIVE_DECISION",
+                "AUTHORIZATION_LAYERS_INCOMPLETE"
+              ]
+            },
+            "eligibility_state": "ELIGIBLE",
+            "evidence_generation": 41,
+            "first_success_at": "2026-09-02T08:01:00Z",
+            "hold_reason": null,
+            "last_success_at": null,
+            "observation_window_end": "2026-09-18T00:00:00Z",
+            "observation_window_start": "2026-08-19T00:00:00Z",
+            "policy_configuration_generation": 41,
+            "purity": "PURE",
+            "reevaluation_basis": null,
+            "usage_state": "DENIED_ONLY",
+            "window_requirement_satisfied": true
+          },
+          {
+            "action": "s3:GetObject",
+            "authorization_control_generation": 41,
+            "authorization_layers": {
+              "IDENTITY_POLICY": "ALLOW",
+              "PERMISSIONS_BOUNDARY": "NOT_APPLICABLE",
+              "SERVICE_CONTROL_POLICY": "ALLOW"
+            },
+            "configured_grant": true,
+            "corroboration_state": "CORROBORATED",
+            "coverage_state": "COMPLETE",
+            "decision_as_of": "2026-09-18T11:00:00Z",
+            "denial_layer": null,
+            "denied_hold_expires_at": null,
+            "effective_authorization": {
+              "availability": "unavailable",
+              "decision": null,
+              "granularity": "action_resource_context",
+              "reason_codes": [
+                "ACTION_AND_RESOURCE_SCOPE_REQUIRED",
+                "NO_PROJECTED_EFFECTIVE_DECISION"
+              ]
+            },
+            "eligibility_state": "ELIGIBLE",
+            "evidence_generation": 41,
+            "first_success_at": "2026-09-02T08:01:00Z",
+            "hold_reason": null,
+            "last_success_at": "2026-09-17T22:14:05Z",
+            "observation_window_end": "2026-09-18T00:00:00Z",
+            "observation_window_start": "2026-08-19T00:00:00Z",
+            "policy_configuration_generation": 41,
+            "purity": "PURE",
+            "reevaluation_basis": null,
+            "usage_state": "SUCCESS_OBSERVED",
+            "window_requirement_satisfied": true
+          },
+          {
+            "action": "s3:PutObject",
+            "authorization_control_generation": 41,
+            "authorization_layers": {
+              "IDENTITY_POLICY": "ALLOW",
+              "PERMISSIONS_BOUNDARY": "NOT_APPLICABLE",
+              "SERVICE_CONTROL_POLICY": "ALLOW"
+            },
+            "configured_grant": true,
+            "corroboration_state": "CORROBORATED",
+            "coverage_state": "COMPLETE",
+            "decision_as_of": "2026-09-18T11:00:00Z",
+            "denial_layer": null,
+            "denied_hold_expires_at": null,
+            "effective_authorization": {
+              "availability": "unavailable",
+              "decision": null,
+              "granularity": "action_resource_context",
+              "reason_codes": [
+                "ACTION_AND_RESOURCE_SCOPE_REQUIRED",
+                "NO_PROJECTED_EFFECTIVE_DECISION"
+              ]
+            },
+            "eligibility_state": "ELIGIBLE",
+            "evidence_generation": 41,
+            "first_success_at": "2026-09-02T08:01:00Z",
+            "hold_reason": null,
+            "last_success_at": null,
+            "observation_window_end": "2026-09-18T00:00:00Z",
+            "observation_window_start": "2026-08-19T00:00:00Z",
+            "policy_configuration_generation": 41,
+            "purity": "PURE",
+            "reevaluation_basis": null,
+            "usage_state": "NOT_OBSERVED",
+            "window_requirement_satisfied": true
+          }
+        ],
+        "action_details_returned": 3,
+        "action_details_total": 3,
+        "action_details_truncated": false,
+        "attachment_modes": [
+          "direct",
+          "instance_profile"
+        ],
+        "configured_grants": {
+          "exact_action_count": 3,
+          "state": "ready"
+        },
+        "effective_authorization": {
+          "availability": "unavailable",
+          "decision": null,
+          "granularity": "action_resource_context",
+          "reason_codes": [
+            "ACTION_AND_RESOURCE_SCOPE_REQUIRED",
+            "NO_PROJECTED_EFFECTIVE_DECISION",
+            "AUTHORIZATION_LAYERS_INCOMPLETE"
+          ]
+        },
+        "gaps": [],
+        "lifecycle_state": "ACTIVE",
+        "name": "payments-api",
+        "observed_use": {
+          "coverage_counts": {
+            "complete": 2,
+            "partial": 1,
+            "unknown": 0
+          },
+          "denied_only_action_count": 1,
+          "last_success_at": "2026-09-17T22:14:05Z",
+          "not_observed_action_count": 1,
+          "state": "ready",
+          "successful_action_count": 1,
+          "unknown_action_count": 0
+        },
+        "role_arn": "arn:aws:iam::111122223333:role/payments-api",
+        "role_id": "AROAEXAMPLEPAYMENTS1",
+        "workload_ids": [
+          "i-0aa11bb22cc33dd44",
+          "payments-settlement"
+        ]
+      }
+    ],
+    "roles_omitted_unresolved": 0,
+    "roles_returned": 1,
+    "roles_total": 1,
+    "roles_truncated": false,
+    "scope": {
+      "account_id": "111122223333",
+      "customer_id": "cust-estate-1",
+      "region": "us-east-1",
+      "system_name": "payments-core",
+      "vpc_id": "vpc-0abc123"
+    },
+    "status": "ready"
+  },
+  "unavailable": {
+    "contract_version": "estate-identity-access/v1",
+    "decision_authority": null,
+    "gaps": [
+      {
+        "code": "ACTIVE_DECISION_POINTER_MISSING",
+        "detail": "No active RoleActionDecision generation exists."
+      },
+      {
+        "code": "VISIBLE_WORKLOAD_UNRESOLVED",
+        "detail": "Visible workload did not resolve into the pinned active inventory generation.",
+        "identity_kind": "native_id",
+        "resource_type": "ec2:instance",
+        "workload_id": "i-0ee55ff66aa77bb88"
+      }
+    ],
+    "inventory_authority": {
+      "generation": 41,
+      "projected_through": "2026-09-18T11:30:00Z",
+      "projection_receipt_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "projection_scope": "inventory.resource_state.v1",
+      "source_vector_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "staging_run_id": "run-inv-2026-09-18",
+      "workload_binding_completeness": "COMPLETE",
+      "workload_binding_count": 3,
+      "workload_binding_set_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "workload_binding_supported_types": [
+        "ec2:instance",
+        "lambda:function"
+      ]
+    },
+    "relationship_capabilities": [
+      {
+        "bounded_read": null,
+        "canonical_writer": null,
+        "detail": "cyntro_data.projection.neptune_graph.observations.RoleAssumptionProjector is generation-bound and declares plane OBSERVED, but nothing in the tree calls it -- only two re-export lines reference it. No edge of this type is ever written.",
+        "direction": "(:Principal) -> (:IAMRole)",
+        "edge_type": "ASSUMED_ROLE_OBSERVED",
+        "family": "ASSUMED_ROLE_OBSERVED",
+        "plane": null,
+        "reason_codes": [
+          "CANONICAL_PRODUCER_UNWIRED"
+        ],
+        "status": "unavailable"
+      },
+      {
+        "bounded_read": null,
+        "canonical_writer": null,
+        "detail": "Written only by non-generation-bound writers. It is also classified two incompatible ways by installed registries: TOPOLOGY_INVENTORY in unified/evidence/contract.py and Plane.OBSERVED in unified/quality/edge_registry.py. The canonical observed producer that would settle it is the unwired one above.",
+        "direction": "(principal|role) -> (role)",
+        "edge_type": "ASSUMES_ROLE",
+        "family": "ASSUMES_ROLE",
+        "plane": null,
+        "reason_codes": [
+          "NO_CANONICAL_PRODUCER",
+          "CLASSIFICATION_CONFLICT"
+        ],
+        "status": "unavailable"
+      },
+      {
+        "bounded_read": null,
+        "canonical_writer": null,
+        "detail": "Written only by non-generation-bound writers, one of them behind a feature flag. Role chaining is commonly source-role to target-role, so a target-anchored view would additionally need incoming traversal, which this contract does not offer.",
+        "direction": "(:IAMRole) -> (:IAMRole)",
+        "edge_type": "ASSUMES_ROLE_ACTUAL",
+        "family": "ASSUMES_ROLE_ACTUAL",
+        "plane": null,
+        "reason_codes": [
+          "NO_CANONICAL_PRODUCER"
+        ],
+        "status": "unavailable"
+      },
+      {
+        "bounded_read": null,
+        "canonical_writer": null,
+        "detail": "Written only by non-generation-bound writers. Not interchangeable with ASSUMES_ROLE or ASSUMES_ROLE_ACTUAL: different producers, different planes, different directions.",
+        "direction": "(principal|role) -> (role)",
+        "edge_type": "CAN_ASSUME",
+        "family": "CAN_ASSUME",
+        "plane": null,
+        "reason_codes": [
+          "NO_CANONICAL_PRODUCER"
+        ],
+        "status": "unavailable"
+      },
+      {
+        "bounded_read": null,
+        "canonical_writer": null,
+        "detail": "The active canonical path is not an edge: it is the versioned BehavioralSummary DATA_ACCESS grain, and its one bounded read (cyntro_data.projection.behavioral_reader.data_access_by_asset_cypher) is ASSET-anchored -- it UNWINDs a caller-supplied $asset_uids list and matches data_asset_uid, with no principal predicate. principal_uid appears only on the way out. Producing role-anchored output would require enumerating the tenant's whole data-asset universe first and filtering after the fact, which is the unbounded scan this contract forbids, and the 2000-row cap would truncate it silently. A principal-anchored bounded read must be added beside it before this family can be served here; it must not be inverted in the consumer.",
+        "direction": "(principal) -> (data asset)",
+        "edge_type": null,
+        "family": "DATA_ACCESS",
+        "plane": null,
+        "reason_codes": [
+          "ASSET_ANCHORED_AUTHORITY_ONLY"
+        ],
+        "status": "unavailable"
+      },
+      {
+        "bounded_read": null,
+        "canonical_writer": null,
+        "detail": "Written only by legacy collectors and demo seeding, none of them generation-bound. Configured grants for a role are served here from the decision authority instead, which is hash-verified.",
+        "direction": "(:IAMRole) -> (:IAMPolicy)",
+        "edge_type": "HAS_POLICY",
+        "family": "HAS_POLICY",
+        "plane": null,
+        "reason_codes": [
+          "NO_CANONICAL_PRODUCER"
+        ],
+        "status": "unavailable"
+      },
+      {
+        "bounded_read": null,
+        "canonical_writer": null,
+        "detail": "Account/OU placement, not role authority.",
+        "direction": "(:Account|:OU) -> (:Organization)",
+        "edge_type": "IN_ORG",
+        "family": "IN_ORG",
+        "plane": null,
+        "reason_codes": [
+          "NOT_ROLE_ANCHORED",
+          "NO_CANONICAL_PRODUCER"
+        ],
+        "status": "unavailable"
+      },
+      {
+        "bounded_read": null,
+        "canonical_writer": null,
+        "detail": "Account/OU placement, not role authority.",
+        "direction": "(:Account|:OU) -> (:OU)",
+        "edge_type": "IN_ORG_UNIT",
+        "family": "IN_ORG_UNIT",
+        "plane": null,
+        "reason_codes": [
+          "NOT_ROLE_ANCHORED",
+          "NO_CANONICAL_PRODUCER"
+        ],
+        "status": "unavailable"
+      },
+      {
+        "bounded_read": null,
+        "canonical_writer": null,
+        "detail": "Organisation-level control attachment. Reaching it needs a bounded account/org path, not a role edge, and its only writer is a non-generation-bound collector.",
+        "direction": "(:Organization|:OU|:Account) -> (:SCP)",
+        "edge_type": "LIMITED_BY_SCP",
+        "family": "LIMITED_BY_SCP",
+        "plane": null,
+        "reason_codes": [
+          "NOT_ROLE_ANCHORED",
+          "NO_CANONICAL_PRODUCER"
+        ],
+        "status": "unavailable"
+      },
+      {
+        "bounded_read": null,
+        "canonical_writer": null,
+        "detail": "Written only by the Identity Center collector, which is not generation-bound. Distinct from MEMBER_OF_CLUSTER, an RDS topology edge; the two must not be coalesced.",
+        "direction": "(:User) -> (:Group)",
+        "edge_type": "MEMBER_OF",
+        "family": "MEMBER_OF",
+        "plane": null,
+        "reason_codes": [
+          "NO_CANONICAL_PRODUCER"
+        ],
+        "status": "unavailable"
+      },
+      {
+        "bounded_read": "unified.change_assurance.decision_fetch.fetch_role_decisions",
+        "canonical_writer": "cyntro_data.projection.role_action_decision_project",
+        "detail": "Accepted only after decision_fetch.verify_generation proves the pinned generation's exact count and set hash, and the conserved role-level open-universe gaps are checked by count and hash.",
+        "direction": "(role) -> (action decision record)",
+        "edge_type": null,
+        "family": "ROLE_ACTION_DECISION",
+        "plane": "configured_and_observed",
+        "reason_codes": [],
+        "status": "available"
+      },
+      {
+        "bounded_read": null,
+        "canonical_writer": null,
+        "detail": "A workload/resource dependency edge written by event and scheduler collectors, not a role authority edge.",
+        "direction": "(rule|schedule|target-group) -> (workload|role)",
+        "edge_type": "TARGETS",
+        "family": "TARGETS",
+        "plane": null,
+        "reason_codes": [
+          "NOT_ROLE_ANCHORED",
+          "NO_CANONICAL_PRODUCER"
+        ],
+        "status": "unavailable"
+      },
+      {
+        "bounded_read": null,
+        "canonical_writer": null,
+        "detail": "Not a role-outgoing edge at all: it runs from an external principal to a resource-policy grant. Anchoring it on a role returns nothing regardless of generation.",
+        "direction": "(:ExternalPrincipal) -> (:ResourcePolicyGrant)",
+        "edge_type": "TRUSTS",
+        "family": "TRUSTS",
+        "plane": null,
+        "reason_codes": [
+          "NOT_ROLE_ANCHORED",
+          "NO_CANONICAL_PRODUCER"
+        ],
+        "status": "unavailable"
+      },
+      {
+        "bounded_read": null,
+        "canonical_writer": null,
+        "detail": "A resource dependency edge, not a role authority edge.",
+        "direction": "(resource) -> (:KMSKey)",
+        "edge_type": "USES_KMS_KEY",
+        "family": "USES_KMS_KEY",
+        "plane": null,
+        "reason_codes": [
+          "NOT_ROLE_ANCHORED",
+          "NO_CANONICAL_PRODUCER"
+        ],
+        "status": "unavailable"
+      },
+      {
+        "bounded_read": "scripts.estate_identity_access._READ_BINDINGS",
+        "canonical_writer": "cyntro_data.projection.inventory_authority_project",
+        "detail": "Generation-owned canonical binding. The active pointer must declare COMPLETE workload binding coverage with an exact count, an exact set hash and a validated projection receipt before this projection is built at all.",
+        "direction": "(workload:Resource) -> (role:Resource)",
+        "edge_type": "USES_ROLE_CANONICAL",
+        "family": "WORKLOAD_USES_ROLE",
+        "plane": "configured",
+        "reason_codes": [],
+        "status": "available"
+      }
+    ],
+    "roles": [],
+    "roles_omitted_unresolved": null,
+    "roles_returned": 0,
+    "roles_total": null,
+    "roles_truncated": false,
+    "scope": {
+      "account_id": "111122223333",
+      "customer_id": "cust-estate-1",
+      "region": "us-east-1",
+      "system_name": "payments-core",
+      "vpc_id": "vpc-0abc123"
+    },
+    "status": "unavailable"
+  }
+}
