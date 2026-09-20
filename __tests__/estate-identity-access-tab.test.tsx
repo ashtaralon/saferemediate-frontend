@@ -75,6 +75,26 @@ function renderTab(identityAccess?: unknown, { reduceMotion = false } = {}) {
 const panel = () => screen.getByTestId("estate-identity-access")
 const canvas = () => screen.getByTestId("identity-map-canvas")
 
+/**
+ * What the tab says about THIS TENANT'S authority: the headline, the detail
+ * line beneath it, and the receipt cards.
+ *
+ * Deliberately not the whole panel. The capability matrix lives in the same
+ * panel and describes the installed DATA PATH, not this tenant's data, so it
+ * legitimately says things a withheld tenant projection must not — the
+ * HAS_POLICY row, for one, explains that configured grants come from the
+ * hash-verified decision authority rather than a legacy edge. That sentence is
+ * true whatever happens to one tenant's payload, and asserting over the whole
+ * panel reads it as a claim about the tenant.
+ */
+function tenantAuthorityText(): string {
+  return [
+    screen.getByTestId("identity-headline").textContent ?? "",
+    screen.getByTestId("identity-detail").textContent ?? "",
+    ...screen.queryAllByTestId("identity-receipt").map(node => node.textContent ?? ""),
+  ].join(" ")
+}
+
 describe("the surface is a directional map, not a list of cards", () => {
   it("draws the relationships on an SVG canvas", () => {
     renderTab(fixtures.partial)
@@ -511,7 +531,29 @@ describe("a field the producer always writes is never invented", () => {
     expect(screen.getByTestId("identity-detail").textContent).toMatch(/swapped/)
     // No receipt card can attribute a generation to the wrong projection.
     expect(screen.queryAllByTestId("identity-receipt").length).toBe(0)
-    expect(panel().textContent).not.toMatch(/hash-verified/)
+    // Scoped to the tenant surface: the capability matrix's own hash-verified
+    // sentence is about the data path and stays on screen, correctly.
+    expect(tenantAuthorityText()).not.toMatch(/hash-verified/)
+  })
+
+  it("the capability matrix keeps its hash-verified explanation regardless", () => {
+    // The boundary above must not be met by deleting true capability copy. This
+    // sentence describes the installed data path -- configured grants come from
+    // the decision authority, not a legacy HAS_POLICY edge -- and is just as
+    // true when one tenant's projection is withheld.
+    renderTab({
+      ...fixtures.ready,
+      inventory_authority: (fixtures.ready as any).decision_authority,
+      decision_authority: (fixtures.ready as any).inventory_authority,
+    })
+    const rows = screen.getAllByTestId("identity-capability-row")
+    expect(rows.length).toBe(15)
+    const explained = rows.filter(row => /hash-verified/.test(row.textContent ?? ""))
+    expect(explained.length).toBeGreaterThan(0)
+    // And it is a data-path row, never the tenant's own authority.
+    for (const row of explained) {
+      expect(row.getAttribute("data-status")).toBe("unavailable")
+    }
   })
 
   it("a withheld role reporting a fabricated zero is refused", () => {

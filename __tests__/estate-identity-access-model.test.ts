@@ -725,6 +725,33 @@ describe("the two authorities cannot be swapped", () => {
     expect(view.detail).toContain(scope)
   })
 
+  it("the withheld detail never says hash-verified, though the matrix still does", () => {
+    // The boundary a rendered assertion got wrong: "hash-verified" belongs to
+    // the tenant's DETAIL only when a decision receipt was read, but the
+    // capability matrix says it too -- about the installed data path -- and
+    // that sentence is true whatever happens to one tenant's payload. A
+    // whole-panel assertion cannot tell the two apart; this one can.
+    const view = viewOf({
+      ...fixtures.ready,
+      inventory_authority: fixtures.ready.decision_authority,
+      decision_authority: fixtures.ready.inventory_authority,
+    })
+    expect(view.state).toBe("invalid")
+    expect(view.detail).toMatch(/swapped/)
+    expect(view.detail).not.toMatch(/hash-verified/)
+    expect(view.headline).not.toMatch(/hash-verified/)
+    expect(view.receipts).toEqual([])
+
+    const explained = view.capabilities.filter(row => /hash-verified/.test(row.detail))
+    expect(explained.length).toBeGreaterThan(0)
+    // Every one of them is a data-path verdict, never the tenant's authority.
+    expect(explained.every(row => row.status === "unavailable")).toBe(true)
+  })
+
+  it("a readable payload DOES say hash-verified, so the check above is not vacuous", () => {
+    expect(viewOf(fixtures.ready).detail).toMatch(/hash-verified/)
+  })
+
   it("an unknown projection scope is invalid too", () => {
     const view = viewOf({
       ...fixtures.ready,
