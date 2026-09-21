@@ -98,10 +98,15 @@ export async function GET(
       // code and everything else the backend attached, at whatever size it
       // came in, which makes this proxy an amplification surface. Instead an
       // ALLOWLIST -- code, upstream_code, message, request_id and scalar
-      // diagnostics, each clipped, the whole thing capped. Unknown keys are
-      // dropped, not truncated, because a truncated unknown key is still
-      // unbounded in shape. A non-JSON body keeps the text clip, only to keep
-      // an HTML error page out of the payload.
+      // diagnostics, each clipped. Unknown keys are dropped, not truncated,
+      // because a truncated unknown key is still unbounded in shape.
+      //
+      // What arrives here is therefore one of three shapes, never a partial
+      // one: the clipped allowlist when it fits MAX_REFUSAL_BYTES; the
+      // identity (code plus upstream_code) when it does not, with the
+      // commentary dropped rather than shortened; or the code alone. The UI
+      // routes on `code`, which survives all three. A non-JSON body keeps the
+      // text clip instead, only to keep an HTML error page out of the payload.
       let detail: string | Record<string, unknown> = errorText.slice(0, MAX_TEXT_CHARS)
       try {
         const refusal = extractTypedRefusal(JSON.parse(errorText))
