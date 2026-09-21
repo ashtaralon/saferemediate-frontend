@@ -19,7 +19,16 @@
  * callback so `fitView` still resets the auto-refit latch the same way.
  */
 
-import { useCallback, useRef, useState, type PointerEvent, type WheelEvent } from "react"
+import {
+  useCallback,
+  useRef,
+  useState,
+  type Dispatch,
+  type MutableRefObject,
+  type PointerEvent,
+  type SetStateAction,
+  type WheelEvent,
+} from "react"
 
 export const MIN_ZOOM = 0.15
 export const MAX_ZOOM = 2
@@ -35,17 +44,17 @@ const BUTTON_STEP = 1.25
 const SELF_HANDLING = 'button, a, input, select, [data-flow-id], [role="button"], [data-scroll-region]'
 
 export interface MapViewport {
-  viewportRef: React.MutableRefObject<HTMLDivElement | null>
-  contentRef: React.MutableRefObject<HTMLDivElement | null>
+  viewportRef: MutableRefObject<HTMLDivElement | null>
+  contentRef: MutableRefObject<HTMLDivElement | null>
   zoom: number
-  setZoom: React.Dispatch<React.SetStateAction<number>>
+  setZoom: Dispatch<SetStateAction<number>>
   fitScale: number
-  setFitScale: React.Dispatch<React.SetStateAction<number>>
+  setFitScale: Dispatch<SetStateAction<number>>
   pan: { x: number; y: number }
-  setPan: React.Dispatch<React.SetStateAction<{ x: number; y: number }>>
+  setPan: Dispatch<SetStateAction<{ x: number; y: number }>>
   panning: boolean
   /** True once the operator zoomed or panned by hand; auto-refit must then stop stealing the view. */
-  userAdjustedRef: React.MutableRefObject<boolean>
+  userAdjustedRef: MutableRefObject<boolean>
   zoomTo: (next: number, originClientX?: number, originClientY?: number) => void
   zoomInStep: () => void
   zoomOutStep: () => void

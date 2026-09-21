@@ -305,8 +305,14 @@ export function EstateIdentityAccessTab({
   const [reviewRole, setReviewRole] = useState<GraphRoleNode | null>(null)
   // The system this estate payload is for. Review refuses without it rather
   // than guessing, so it is read from the binding the model already verified.
-  const boundSystem = [...view.scopeBinding.verified, ...view.scopeBinding.echoedOnly]
-    .find(entry => entry.field === "system_name")
+  // scopeBinding is null on the states that never got as far as binding a
+  // scope. No binding means no verified system, which is exactly the case the
+  // "Review cannot open" branch below is for -- so it stays undefined rather
+  // than being defaulted to something the payload never said.
+  const binding = view.scopeBinding
+  const boundSystem = binding
+    ? [...binding.verified, ...binding.echoedOnly].find(entry => entry.field === "system_name")
+    : undefined
 
   return (
     <div data-testid="estate-identity-access" data-state={view.state} className="p-3">
