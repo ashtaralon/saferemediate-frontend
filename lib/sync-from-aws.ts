@@ -487,14 +487,25 @@ export function formatSyncSuccessMessage(status: SyncJobStatus): string {
   const lanes = activatedLanes(status)
   const generations = activation?.active_generations
 
+  /** One lane's generation, or undefined. Explicit because TypeScript does
+   *  not narrow an element access whose index is a non-literal `const`, so
+   *  `typeof generations[lane] === "number" ? generations[lane] : undefined`
+   *  stays `number | null | undefined` under `strict` -- and a null would
+   *  render as the literal text "null" in the sentence below. */
+  const generationOf = (lane: string): number | undefined => {
+    const value = generations?.[lane]
+    return typeof value === "number" ? value : undefined
+  }
+
   // MULTI-LANE. Each lane has its own generation counter, so there is no
   // single "generation N" to name for the round.
   if (lanes.length > 1) {
-    const perLane = generations
-      ? lanes
-          .filter((lane) => typeof generations[lane] === "number")
-          .map((lane) => `${lane} generation ${generations[lane]}`)
-      : []
+    const perLane = lanes
+      .map((lane) => ({ lane, generation: generationOf(lane) }))
+      .filter((row): row is { lane: string; generation: number } =>
+        row.generation !== undefined,
+      )
+      .map((row) => `${row.lane} generation ${row.generation}`)
     const scope = perLane.length
       ? `${perLane.join(", ")} ${perLane.length === 1 ? "is" : "are"} active in Neptune.`
       : `${lanes.length} lanes are active in Neptune: ${lanes.join(", ")}.`
@@ -505,16 +516,17 @@ export function formatSyncSuccessMessage(status: SyncJobStatus): string {
   // copy is reached from the IAM, least-privilege, behavioral, dependency and
   // inventory controls too, and naming findings on those was a claim about
   // data the round never touched.
-  const lane = lanes[0]
-  const generation =
-    (lane && generations && typeof generations[lane] === "number"
-      ? generations[lane]
-      : undefined) ?? activation?.projection_generation
+  const lane: string | undefined = lanes[0]
+  const generation: number | undefined =
+    (lane === undefined ? undefined : generationOf(lane)) ??
+    (typeof activation?.projection_generation === "number"
+      ? activation.projection_generation
+      : undefined)
 
-  const subject = lane ? laneSubject(lane) : "This refresh"
+  const subject = lane === undefined ? "This refresh" : laneSubject(lane)
   const scope =
     generation === undefined
-      ? `${subject} ${lane ? "is" : "is"} active in Neptune.`
+      ? `${subject} is active in Neptune.`
       : `${subject} generation ${generation} is active in Neptune.`
 
   return `${scope}${counts}${deferredSuffix}${unservedSuffix}`

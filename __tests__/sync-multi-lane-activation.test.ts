@@ -27,6 +27,7 @@ import {
   MANAGED_SYNC_LANE,
   unservedLanes,
   type SyncJobStatus,
+  type SyncLaneStatus,
 } from "@/lib/sync-from-aws"
 
 function round(over: Partial<SyncJobStatus> = {}): SyncJobStatus {
@@ -41,7 +42,11 @@ function round(over: Partial<SyncJobStatus> = {}): SyncJobStatus {
 const INV = "sha256:inventory-receipt"
 const FLOW = "sha256:flow-receipt"
 
-function servingLane(generation: number, hash: string) {
+function servingLane(generation: number, hash: string): SyncLaneStatus {
+  // Annotated, not inferred. Without the return type the object literal
+  // widens `state` and `lifecycle_stage` to `string`, which is not assignable
+  // to SyncLaneState -- four TS2322 errors that only `tsc` sees, because the
+  // offline runner strips types rather than checking them.
   return {
     state: "SERVING_ACTIVE_GENERATION",
     lifecycle_stage: "SERVING_ACTIVE_GENERATION",
@@ -386,5 +391,59 @@ describe("the managed lane constant mirrors the backend", () => {
 
   it("has a distinct subject, so the assumption is visible in the copy", () => {
     expect(laneSubject(MANAGED_SYNC_LANE)).toBe("Vulnerability findings")
+  })
+})
+
+describe("generations that are recorded as null", () => {
+  /**
+   * `active_generations` is `Record<string, number | null>`: the backend emits
+   * null for a lane whose generation it could not read. TypeScript does not
+   * narrow an element access whose index is a non-literal `const`, so the
+   * obvious `typeof generations[lane] === "number" ? generations[lane] : ...`
+   * stays `number | null` under `strict` -- and a null reaches the template
+   * literal as the text "null".
+   */
+  it("never renders the word null as a generation", () => {
+    const text = formatSyncSuccessMessage(
+      round({
+        activation: {
+          lanes: ["inventory_reconcile"],
+          projection_receipt_hashes: [INV],
+          active_generations: { inventory_reconcile: null },
+        },
+      }),
+    )
+    expect(text).not.toContain("null")
+    expect(text).toContain("AWS inventory is active in Neptune.")
+  })
+
+  it("omits only the lanes whose generation is null on a multi-lane round", () => {
+    const text = formatSyncSuccessMessage(
+      round({
+        activation: {
+          lanes: ["inventory_reconcile", "network_flow"],
+          projection_receipt_hash: null,
+          projection_receipt_hashes: [INV, FLOW],
+          active_generations: { inventory_reconcile: 12, network_flow: null },
+        },
+      }),
+    )
+    expect(text).not.toContain("null")
+    expect(text).toContain("inventory_reconcile generation 12")
+  })
+
+  it("falls back to naming the lanes when no generation is known", () => {
+    const text = formatSyncSuccessMessage(
+      round({
+        activation: {
+          lanes: ["inventory_reconcile", "network_flow"],
+          projection_receipt_hash: null,
+          projection_receipt_hashes: [INV, FLOW],
+          active_generations: { inventory_reconcile: null, network_flow: null },
+        },
+      }),
+    )
+    expect(text).not.toContain("null")
+    expect(text).toContain("2 lanes are active in Neptune")
   })
 })
