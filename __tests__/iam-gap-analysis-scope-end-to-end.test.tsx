@@ -135,15 +135,19 @@ describe("IAM Review scope travels from the operator's selection to the backend"
     )
 
     expect(res.status).toBe(200)
-    expect(backendUrls).toHaveLength(1)
-    const sent = new URL(backendUrls[0])
+    // The modal mounted in the first leg may still have effects in flight, and
+    // they share this spy. Select the backend call by origin rather than
+    // asserting a call count that another component's fetch can change.
+    const toBackend = backendUrls.filter(u => u.startsWith("https://customer-backend.example"))
+    expect(toBackend).toHaveLength(1)
+    const sent = new URL(toBackend[0])
     expect(sent.origin).toBe("https://customer-backend.example")
     expect(sent.pathname).toBe(`/api/iam-roles/${encodeURIComponent(ROLE)}/gap-analysis`)
     expect(sent.searchParams.get("customer_id")).toBe(SELECTED.customerId)
     expect(sent.searchParams.get("account_id")).toBe(SELECTED.accountId)
     expect(sent.searchParams.get("region")).toBe(SELECTED.region)
     expect(sent.searchParams.get("days")).toBe("365")
-    expect(backendUrls[0]).not.toContain("undefined")
+    expect(toBackend[0]).not.toContain("undefined")
   })
 
   it("an unnarrowed selection sends no account or region rather than a placeholder", async () => {
