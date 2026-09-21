@@ -18,7 +18,7 @@ import {
   type SharedOverrideState,
 } from "@/components/override-modal-shared"
 import { ConfidenceExplanationPanel } from "@/components/ConfidenceExplanationPanel"
-import { fetchWithEnvelope } from "@/components/trust/use-trust-envelope"
+import { EnvelopeFetchError, fetchWithEnvelope } from "@/components/trust/use-trust-envelope"
 import { TrustEnvelopeBadge, type Provenance } from "@/components/trust/trust-envelope-badge"
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert"
 import type {
@@ -125,6 +125,67 @@ export interface CanonicalPermissionView {
  * Summary showing 27 protected while Permissions showed 2 removable/25
  * protected for the exact same role and modal session.
  */
+/**
+ * How the modal speaks about one named backend refusal.
+ *
+ * `retryable` is the load-bearing field. A deliberately disabled seam, a scope
+ * mismatch and a role that is not in scope do not become true by asking again,
+ * and offering Retry for them trains operators to mash a button that cannot
+ * work. Only a transient fault gets one.
+ *
+ * A code absent from this table renders the generic failure exactly as before,
+ * so an unrecognised refusal is never dressed up as something understood.
+ */
+export const REVIEW_REFUSALS: Record<string, { title: string; guidance: string; retryable: boolean }> = {
+  REVIEW_RUNTIME_UNAVAILABLE: {
+    title: "Permission detail is not enabled in this deployment",
+    guidance:
+      "The Decision runtime that serves per-role permission detail is switched off here, so there is nothing to retry. The role list and its counts are unaffected.",
+    retryable: false,
+  },
+  DECISION_DEPLOYMENT_PRINCIPAL_UNAVAILABLE: {
+    title: "This deployment has no server credential installed",
+    guidance:
+      "The server-to-server credential this environment uses to reach the backend is not installed, so the request was refused before it was sent. This is a deployment setting, not your session.",
+    retryable: false,
+  },
+  ANALYST_AUTHENTICATED_PRINCIPAL_UNAVAILABLE: {
+    title: "No verified operator identity on this request",
+    guidance:
+      "The load balancer attached no signed identity, so the backend cannot tell who is asking. Signing in again through the normal entry point attaches one.",
+    retryable: false,
+  },
+  REVIEW_SCOPE_MISMATCH: {
+    title: "This role is outside the scope you are signed in to",
+    guidance:
+      "The backend resolved the role to a different account or tenant than this session is scoped to, and refused rather than answer across that boundary.",
+    retryable: false,
+  },
+  REVIEW_TENANT_NOT_SERVING: {
+    title: "This tenant is not serving review answers right now",
+    guidance:
+      "The tenant is mid-lifecycle: its serving authority is not currently answering. This usually clears on its own.",
+    retryable: true,
+  },
+  REVIEW_SCOPE_UNAVAILABLE: {
+    title: "The account scope for this review could not be resolved",
+    guidance:
+      "The backend could not resolve exactly one account for this request, so it refused rather than pick one.",
+    retryable: false,
+  },
+  ROLE_NOT_FOUND_IN_SCOPE: {
+    title: "That role is not in this account",
+    guidance:
+      "The backend found no such role inside the account this session is scoped to. It may belong to another account, or have been deleted.",
+    retryable: false,
+  },
+  ROLE_REFERENCE_REQUIRED: {
+    title: "The request did not identify a role",
+    guidance: "No usable role name or ARN reached the backend.",
+    retryable: false,
+  },
+}
+
 export function buildCanonicalPermissionView(
   legacyPermissions: PermissionAnalysis[],
   removalSafety: RemovalSafetyBundle | null,
@@ -919,6 +980,11 @@ export function IAMPermissionAnalysisModal({
   const [gapData, setGapData] = useState<GapAnalysisData | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // The refusal behind `error`, when the backend named one. Kept beside the
+  // message rather than replacing it: a generic failure still renders as it
+  // always did, and a NAMED one can say which fault this is and whether
+  // retrying can possibly help.
+  const [refusal, setRefusal] = useState<{ code: string; message: string | null; status: number } | null>(null)
   const [tfAdapter, setTfAdapter] = useState<string>("unregistered")
   const [showSimulation, setShowSimulation] = useState(false)
   const [analysisTab, setAnalysisTab] = useState<'summary' | 'permissions' | 'context'>('summary')
@@ -1296,6 +1362,7 @@ export function IAMPermissionAnalysisModal({
   const fetchGapAnalysis = async (forceRefresh = false) => {
     setLoading(true)
     setError(null)
+    setRefusal(null)
     try {
       console.log('[IAM-Modal] Fetching gap analysis for:', roleName, forceRefresh ? '(force refresh)' : '')
       const refreshParam = forceRefresh ? '&refresh=true' : ''
@@ -1438,6 +1505,12 @@ export function IAMPermissionAnalysisModal({
       // explicit operator choice via the checkboxes below.
     } catch (err: any) {
       console.error('[IAM-Modal] Error:', err)
+      // A typed refusal names WHICH fault this is. Without it the modal showed
+      // "Request failed (502)" for a deliberately disabled seam and offered a
+      // Retry that could never succeed.
+      if (err instanceof EnvelopeFetchError && err.code) {
+        setRefusal({ code: err.code, message: err.detailMessage, status: err.backendStatus ?? err.status })
+      }
       setError(err.message || 'Failed to fetch gap analysis')
     } finally {
       setLoading(false)
@@ -3432,13 +3505,33 @@ export function IAMPermissionAnalysisModal({
 
   // Error state
   if (error) {
+    // A named refusal replaces the generic copy AND decides whether Retry is
+    // offered at all: a disabled seam, a scope mismatch and a role outside
+    // scope do not become true by asking again. An unrecognised code falls
+    // through to the generic state rather than being dressed up as understood.
+    const namedRefusal = refusal ? REVIEW_REFUSALS[refusal.code] : undefined
+    const retryCanHelp = namedRefusal ? namedRefusal.retryable : true
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={REMEDIATION_MODAL_BACKDROP_STYLE}>
         <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full p-8 text-center">
           <XCircle className="w-12 h-12 mx-auto mb-4 text-[#ef4444]" />
-          <h2 className="text-2xl font-bold mb-2 text-[var(--foreground,#111827)]">Failed to Load Data</h2>
-          <p className="mb-4" style={{ color: "var(--muted-foreground, #6b7280)" }}>{error}</p>
+          <h2 className="text-2xl font-bold mb-2 text-[var(--foreground,#111827)]">
+            {namedRefusal ? namedRefusal.title : "Failed to Load Data"}
+          </h2>
+          <p className="mb-4" style={{ color: "var(--muted-foreground, #6b7280)" }}>
+            {namedRefusal ? namedRefusal.guidance : error}
+          </p>
+          {refusal && (
+            <p
+              className="mb-4 text-xs font-mono"
+              style={{ color: "var(--muted-foreground, #9ca3af)" }}
+              data-testid="review-refusal-code"
+            >
+              {refusal.code} · HTTP {refusal.status}
+            </p>
+          )}
           <div className="flex justify-center gap-3">
+            {retryCanHelp && (
             <button
               onClick={() => fetchGapAnalysis()}
               className="px-4 py-2 bg-[#8b5cf6] text-white rounded-md hover:bg-[#7c3aed] text-sm font-medium flex items-center gap-2"
@@ -3446,6 +3539,7 @@ export function IAMPermissionAnalysisModal({
               <RefreshCw className="w-4 h-4" />
               Retry
             </button>
+            )}
             <button
               onClick={handleClose}
               className="px-4 py-2 border border-[var(--border,#d1d5db)] rounded-md text-[var(--foreground,#374151)] hover:bg-gray-50 text-sm font-medium"
