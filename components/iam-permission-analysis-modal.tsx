@@ -19,7 +19,7 @@ import {
 } from "@/components/override-modal-shared"
 import { ConfidenceExplanationPanel } from "@/components/ConfidenceExplanationPanel"
 import { EnvelopeFetchError, fetchWithEnvelope } from "@/components/trust/use-trust-envelope"
-import { withAccountScope } from "@/lib/account-scope"
+import { buildIamGapAnalysisUrl } from "@/lib/iam-review-url"
 import { useAccountScope } from "@/lib/account-scope-context"
 import { TrustEnvelopeBadge, type Provenance } from "@/components/trust/trust-envelope-badge"
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert"
@@ -1374,17 +1374,9 @@ export function IAMPermissionAnalysisModal({
     setRefusal(null)
     try {
       console.log('[IAM-Modal] Fetching gap analysis for:', roleName, forceRefresh ? '(force refresh)' : '')
-      const refreshParam = forceRefresh ? '&refresh=true' : ''
-      // `withAccountScope` is the same helper LeastPrivilegeTab uses for its
-      // proxy reads (lib/account-scope.ts). It omits a narrowing that is still
-      // "all" rather than sending a placeholder, so an unnarrowed scope stays
-      // absent instead of arriving as a literal "all" the backend would have
-      // to interpret. Role encoding is applied before scope is appended.
       const env = await fetchWithEnvelope<any>(
-        withAccountScope(
-          `/api/proxy/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=365${refreshParam}`,
-          accountScope,
-        )
+        buildIamGapAnalysisUrl(roleName, accountScope,
+          forceRefresh ? { cacheBust: 'refresh' } : {}),
       )
       setProvenance(env.provenance)
       const rawData = env.result
@@ -1923,12 +1915,7 @@ export function IAMPermissionAnalysisModal({
         
         // 1. Clear frontend cache for this role (force refresh)
         try {
-          // Same endpoint, same rule: a read that does not name the account
-          // asks the backend to pick one. Scoped like the read above.
-          await fetch(withAccountScope(
-            `/api/proxy/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=365&force_refresh=true`,
-            accountScope,
-          ))
+          await fetch(buildIamGapAnalysisUrl(roleName, accountScope, { cacheBust: 'force_refresh' }))
           console.log('[IAM-Modal] Cleared role cache')
         } catch (e) {
           console.warn('[IAM-Modal] Failed to clear role cache:', e)

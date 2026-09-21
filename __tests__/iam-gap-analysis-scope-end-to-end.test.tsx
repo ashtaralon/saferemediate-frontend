@@ -15,8 +15,6 @@
 import { render, waitFor } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
-import { readFileSync } from "node:fs"
-import { resolve } from "node:path"
 
 vi.mock("@/lib/server/backend-url", () => ({
   getBackendBaseUrl: () => "https://customer-backend.example",
@@ -42,6 +40,7 @@ vi.mock("@/lib/account-scope-context", () => ({
 }))
 
 import { IAMPermissionAnalysisModal } from "@/components/iam-permission-analysis-modal"
+import { buildIamGapAnalysisUrl } from "@/lib/iam-review-url"
 import { GET } from "@/app/api/proxy/iam-roles/[roleName]/gap-analysis/route"
 
 /** The exact role from the reproduced Permissions-tab defect. */
@@ -94,26 +93,69 @@ async function urlTheModalRequested(): Promise<string> {
 }
 
 describe("IAM Review scope travels from the operator's selection to the backend", () => {
-  it("every gap-analysis read in the modal is scoped, not just the one under test", () => {
-    // The mounted test below drives ONE of the modal's gap-analysis reads. A
-    // second one exists on the post-remediation cache-clear path and had the
-    // same defect; reaching it from a test means driving a whole remediation.
-    // So assert the property at the source instead: no bare fetch of this
-    // endpoint, ever. A third call site cannot be added unscoped.
-    const source = readFileSync(
-      resolve(__dirname, "../components/iam-permission-analysis-modal.tsx"), "utf8",
-    )
-    const reads = source.split("\n")
-      .map((line, i) => [i + 1, line] as const)
-      .filter(([, line]) => line.includes("/gap-analysis"))
-    expect(reads.length).toBeGreaterThan(0)
-    for (const [lineNo, line] of reads) {
-      // The URL literal sits inside a withAccountScope(...) call, so the call
-      // opens on this line or the one before it.
-      const window = source.split("\n").slice(Math.max(0, lineNo - 3), lineNo).join("\n")
-      expect(window, `unscoped gap-analysis read at line ${lineNo}: ${line.trim()}`)
-        .toContain("withAccountScope")
-    }
+  // Both reads of this endpoint -- the one the panel opens with and the
+  // post-remediation cache clear -- go through buildIamGapAnalysisUrl. The
+  // second is only reachable by driving a whole remediation, so its behaviour
+  // is covered here, at the function that decides what travels. This is the
+  // real production builder, not a description of it.
+  describe("buildIamGapAnalysisUrl", () => {
+    it("carries every narrowing the operator selected", () => {
+      const url = new URL(buildIamGapAnalysisUrl(ROLE, SELECTED), "https://app.example")
+      expect(url.pathname).toBe(`/api/proxy/iam-roles/${encodeURIComponent(ROLE)}/gap-analysis`)
+      expect(url.searchParams.get("customer_id")).toBe(SELECTED.customerId)
+      expect(url.searchParams.get("account_id")).toBe(SELECTED.accountId)
+      expect(url.searchParams.get("region")).toBe(SELECTED.region)
+      expect(url.searchParams.get("days")).toBe("365")
+    })
+
+    it("omits a narrowing still set to all, rather than sending the word", () => {
+      const url = new URL(
+        buildIamGapAnalysisUrl(ROLE, { ...SELECTED, groupId: "all", accountId: "all", region: "all" }),
+        "https://app.example",
+      )
+      expect(url.searchParams.get("customer_id")).toBe(SELECTED.customerId)
+      expect(url.searchParams.has("account_id")).toBe(false)
+      expect(url.searchParams.has("region")).toBe(false)
+      expect(url.searchParams.has("account_group")).toBe(false)
+    })
+
+    it("invents nothing when no customer is selected either", () => {
+      const built = buildIamGapAnalysisUrl(ROLE, {
+        customerId: null, groupId: "all", accountId: "all", region: "all",
+      })
+      expect(built).toBe(`/api/proxy/iam-roles/${encodeURIComponent(ROLE)}/gap-analysis?days=365`)
+      expect(built).not.toContain("undefined")
+      expect(built).not.toContain("null")
+    })
+
+    it("scopes the post-remediation cache-clear read the same way", () => {
+      // The second call site. Its cache-bust spelling differs from the first
+      // and is preserved; what matters is that scope travels with it too.
+      const url = new URL(
+        buildIamGapAnalysisUrl(ROLE, SELECTED, { cacheBust: "force_refresh" }),
+        "https://app.example",
+      )
+      expect(url.searchParams.get("force_refresh")).toBe("true")
+      expect(url.searchParams.get("customer_id")).toBe(SELECTED.customerId)
+      expect(url.searchParams.get("account_id")).toBe(SELECTED.accountId)
+      expect(url.searchParams.get("region")).toBe(SELECTED.region)
+    })
+
+    it("scopes the panel's own force-refresh read the same way", () => {
+      const url = new URL(
+        buildIamGapAnalysisUrl(ROLE, SELECTED, { cacheBust: "refresh" }),
+        "https://app.example",
+      )
+      expect(url.searchParams.get("refresh")).toBe("true")
+      expect(url.searchParams.get("account_id")).toBe(SELECTED.accountId)
+    })
+
+    it("encodes the role once, before any scope is appended", () => {
+      const awkward = "svc/role name+x"
+      const built = buildIamGapAnalysisUrl(awkward, SELECTED)
+      expect(built).toContain(`/iam-roles/${encodeURIComponent(awkward)}/gap-analysis`)
+      expect(built).not.toContain("svc/role name+x")
+    })
   })
 
   it("the modal's own request carries customer, account and region", async () => {
