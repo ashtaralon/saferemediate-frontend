@@ -3,10 +3,12 @@
  *
  * Two pure contracts, asserted without a DOM:
  *
- *  - the lens deep link is ADDITIVE. `?lens=` selects a view, and its absence
- *    changes nothing — the Estate page keeps whatever default it already had.
- *    A deep link that quietly moved the landing view would be navigation
- *    disguised as a link.
+ *  - the lens deep link is ADDITIVE and ONE-DIRECTIONAL. `?lens=` selects a
+ *    view, and its absence changes nothing — the Estate page keeps whatever
+ *    default it already had. A deep link that quietly moved the landing view
+ *    would be navigation disguised as a link. Nothing writes the parameter
+ *    back, because on this page a post-mount query change unmounts the map
+ *    (estate-map-view.tsx says how it was measured).
  *  - the identity taxonomy is READ, never derived. `estate-identity-access/v1`
  *    carries roles; users, groups, policies, permission sets, federated
  *    identities and protected resources are not in it. Every family stays
@@ -17,7 +19,6 @@ import { describe, expect, it } from "vitest"
 import {
   ESTATE_LENSES,
   lensFromSearch,
-  withLensParam,
 } from "@/components/topology-v0-2/topology-scope-url"
 import {
   TAXONOMY_EDGE_FAMILIES,
@@ -41,17 +42,13 @@ describe("Estate lens deep link", () => {
     expect(lensFromSearch("?lens=something-else")).toBeNull()
   })
 
-  it("sets the lens without disturbing any other parameter", () => {
-    const next = withLensParam("?systemName=alon-prod&account_id=416651950952", "identity")
-    const q = new URLSearchParams(next.replace(/^\?/, ""))
-    expect(q.get("lens")).toBe("identity")
-    expect(q.get("systemName")).toBe("alon-prod")
-    expect(q.get("account_id")).toBe("416651950952")
-  })
-
-  it("round-trips every declared lens", () => {
+  it("reads every declared lens, alongside the parameters a real estate URL carries", () => {
+    // The link a reader actually shares: the system, the operator's scope, and
+    // the lens. Each one still resolves, and none of the others is mistaken
+    // for it.
     for (const lens of ESTATE_LENSES) {
-      expect(lensFromSearch(withLensParam("?systemName=x", lens))).toBe(lens)
+      const search = `?systemName=alon-prod&customer_id=cust-testbed&account_id=416651950952&lens=${lens}`
+      expect(lensFromSearch(search)).toBe(lens)
     }
   })
 })

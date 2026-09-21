@@ -34,7 +34,7 @@
 import { useEffect, useState } from "react"
 
 import { useMapViewport } from "./use-map-viewport"
-import { FLOW_ALERT_COLOR, FLOW_COLOR_BY_CLASS } from "./flow-visuals"
+import { FLOW_COLOR_BY_CLASS } from "./flow-visuals"
 import {
   TAXONOMY_LABEL,
   TAXONOMY_REQUIREMENTS,
@@ -55,16 +55,15 @@ const INK = "#1A2330"
 const MUTED = "#5A6B7A"
 const LINE = "#CBD5E1"
 /**
- * The Estate map's own colour language, imported rather than re-typed.
+ * The Estate map's own colour for an observed flow, imported rather than
+ * re-typed: an observed authority edge here is the same colour an observed
+ * service call is there, so a viewer reads one legend across both lenses.
  *
- * `internal` is what that map paints an observed service call with, so an
- * observed authority edge here is the same colour an observed call is there,
- * and a viewer reads one legend across both lenses. The alert colour is the
- * same one the Estate map reserves for exposure, used here only where the
- * producer withheld the decision -- a withheld answer is not a quiet one.
+ * The withheld-decision amber below stays as it was -- it is this lens's own
+ * signal for "no counts, not zero", and recolouring it to the estate map's
+ * exposure red would claim something the producer did not say.
  */
 const TEAL = FLOW_COLOR_BY_CLASS.internal
-const WITHHELD = FLOW_ALERT_COLOR
 const TEAL_BG = "#E6FBF7"
 const WARN = "#92400E"
 const WARN_BG = "#FFFBEB"

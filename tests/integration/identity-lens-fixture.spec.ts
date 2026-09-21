@@ -34,6 +34,10 @@ test.describe("Estate · Identity & access lens", () => {
 
     const tab = page.getByTestId("estate-identity-access")
     await expect(tab).toBeVisible({ timeout: 60_000 })
+    // The tab root paints before the projection resolves, so waiting on it is
+    // not waiting for the map. page.evaluate does not retry: without this the
+    // read below would be a race against the render it is measuring.
+    await expect(page.getByTestId("identity-map")).toBeVisible({ timeout: 60_000 })
 
     // The lens the URL asked for, not the page default.
     await expect(page.getByTestId("topology-estate-view-identity")).toHaveAttribute(
@@ -78,9 +82,12 @@ test.describe("Estate · Identity & access lens", () => {
     await expect(page.getByTestId("estate-identity-access")).toBeVisible({ timeout: 60_000 })
 
     const families = page.getByTestId("identity-map-taxonomy-family")
-    const count = await families.count()
     // The contract declares seven; all of them are reported one way or another.
-    expect(count).toBe(7)
+    // toHaveCount, not count(): `locator.count()` is a single-shot read with no
+    // auto-wait, so it answered 0 for a rail that had simply not rendered yet
+    // (run 35568526695, desktop + tablet + mobile).
+    await expect(families).toHaveCount(7)
+    const count = await families.count()
     for (let i = 0; i < count; i++) {
       const state = await families.nth(i).getAttribute("data-state")
       expect(["present", "unavailable"]).toContain(state)
@@ -92,9 +99,64 @@ test.describe("Estate · Identity & access lens", () => {
     }
   })
 
+  test("selecting a lens leaves the query untouched", async ({ page }) => {
+    // The regression this case exists to hold down. When the toggle wrote
+    // `?lens=` back, Next's patched replaceState updated useSearchParams, the
+    // App Router re-keyed a page segment whose cache key includes the search
+    // string, and the whole estate remounted a few hundred milliseconds after
+    // the click -- discarding fullscreen, the fit, and the selection. Three of
+    // the six topology specs failed on it (run 35568526695), each on a
+    // single-shot assertion that resolved against a subtree already gone.
+    //
+    // Entering WITHOUT a lens parameter is the point: a URL that already
+    // carries one cannot show the difference.
+    await page.goto(ESTATE_URL, { waitUntil: "domcontentloaded" })
+    await expect(page.getByTestId("topology-estate-view-map")).toBeVisible({ timeout: 60_000 })
+    const before = await page.evaluate(() => window.location.search)
+
+    await page.getByTestId("topology-estate-view-identity").click()
+    await expect(page.getByTestId("identity-map")).toBeVisible({ timeout: 60_000 })
+    expect(
+      await page.evaluate(() => window.location.search),
+      "the lens toggle rewrote the query, which remounts this page",
+    ).toBe(before)
+
+    await page.getByTestId("topology-estate-view-inventory").click()
+    expect(await page.evaluate(() => window.location.search)).toBe(before)
+  })
+
+  test("map state survives the toggle", async ({ page }) => {
+    // The consequence, asserted directly rather than inferred from the query.
+    // Desktop only, for the same reason the six topology specs are: fullscreen
+    // is a desktop surface and its geometry is written for that width. The
+    // cause above is width-independent and is checked at all three.
+    test.skip(
+      test.info().project.name !== "desktop",
+      "fullscreen is asserted on the desktop project, as the topology specs are",
+    )
+    await page.goto(ESTATE_URL, { waitUntil: "domcontentloaded" })
+    await expect(page.getByTestId("topology-estate-view-map")).toBeVisible({ timeout: 60_000 })
+
+    await page.getByTestId("topology-estate-view-identity").click()
+    await expect(page.getByTestId("identity-map")).toBeVisible({ timeout: 60_000 })
+    await page.getByTestId("topology-estate-view-map").click()
+
+    const enlarge = page.getByTestId("topology-estate-map-enlarge")
+    await expect(enlarge).toBeVisible({ timeout: 60_000 })
+    await enlarge.click()
+    const fullscreen = page.getByTestId("topology-estate-map-fullscreen")
+    await expect(fullscreen).toBeVisible()
+    // A remount landed within one Playwright call of the click that caused it,
+    // so this is generous rather than arbitrary; it is also how the other
+    // fixture specs in this directory settle the map.
+    await page.waitForTimeout(1500)
+    await expect(fullscreen, "fullscreen closed itself: the map remounted").toBeVisible()
+  })
+
   test("the map stays readable without horizontal page scroll", async ({ page }) => {
     await page.goto(IDENTITY_URL, { waitUntil: "domcontentloaded" })
     await expect(page.getByTestId("estate-identity-access")).toBeVisible({ timeout: 60_000 })
+    await expect(page.getByTestId("identity-map")).toBeVisible({ timeout: 60_000 })
 
     // The canvas may pan inside its own frame; the PAGE must not scroll
     // sideways at any width. This is the assertion the desktop-only suite

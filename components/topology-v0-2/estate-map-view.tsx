@@ -12,7 +12,7 @@ import { HeadlineStrip, staleNote } from "@/components/topology-v0-2/headline-st
 import { AwsFrame, dedupeLambdaServiceTwins, listTopologyAzs } from "@/components/topology-v0-2/aws-frame"
 import { CanvasPane } from "@/components/topology-v0-2/canvas-pane"
 import { MAX_ZOOM, MIN_ZOOM, useMapViewport } from "@/components/topology-v0-2/use-map-viewport"
-import { lensFromSearch, withLensParam, type EstateLens } from "@/components/topology-v0-2/topology-scope-url"
+import { lensFromSearch, type EstateLens } from "@/components/topology-v0-2/topology-scope-url"
 import {
   applyFilters,
   applyFiltersOffCanvas,
@@ -635,14 +635,30 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     const requested = lensFromSearch(window.location.search)
     return requested ? requested : "inventory"
   })
-  // Selecting a lens rewrites the query so the view is linkable. replaceState
-  // rather than the router: this is a view toggle, not navigation, and it must
-  // not push history entries or remount the map mid-interaction.
-  const selectLens = useCallback((next: EstateLens) => {
-    setView(next)
-    if (typeof window === "undefined") return
-    window.history.replaceState(null, "", `${window.location.pathname}${withLensParam(window.location.search, next)}`)
-  }, [])
+  // `?lens=` is READ on mount and never written back. That is not a shortcut;
+  // on this page a lens toggle CANNOT touch the query without destroying the
+  // map, and the previous commit proved it in CI (run 35568526695: three of the
+  // six topology specs failed, every failure a single-shot assertion resolving
+  // against a subtree that had just gone away).
+  //
+  // What the run MEASURED: fullscreen opened and then detached between two
+  // adjacent assertions; a collapsed row had attributes but no bounding box;
+  // trunk badges read empty -- all state a remount takes, and the lens tab
+  // itself read correctly afterwards because the new mount re-read `?lens=`
+  // from the URL the toggle had just written.
+  //
+  // What READING the code says causes it, two paths that both end in a
+  // remount: Next patches history.replaceState, so writing the query updates
+  // useSearchParams, and AccountScopeProvider's rebind effect keys on
+  // searchParams.toString() -- it then finds no customer_id in a URL whose
+  // customer it has since resolved and answers with router.replace. Separately,
+  // the App Router's page-segment cache key includes the search string, so a
+  // query change re-keys this segment on its own. Neither needs the other.
+  //
+  // So the deep link stays one-directional. A shared `?lens=identity` opens the
+  // identity lens, which is what a deep link is for; the toggle is view state
+  // and stays view state. A hash would sidestep the segment key, but it would
+  // be a second spelling of a link this app writes as a query everywhere else.
 
   // Fullscreen is a modal surface, so leaving it has to hand the keyboard back
   // where it came from. Measured on C1 (run 34754792418): after Escape exited
@@ -1776,7 +1792,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
                     type="button"
                     role="tab"
                     aria-selected={active}
-                    onClick={() => selectLens(id)}
+                    onClick={() => setView(id)}
                     className="inline-flex items-center rounded-md border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide transition-colors"
                     style={{
                       borderColor: active ? "#00C2A8" : "#CBD5E1",
