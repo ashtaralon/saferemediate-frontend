@@ -6,6 +6,12 @@ vi.mock("@/lib/server/backend-url", () => ({
 }))
 
 import { GET } from "@/app/api/proxy/iam-roles/[roleName]/gap-analysis/route"
+import {
+  MAX_DIAGNOSTIC_KEYS,
+  MAX_FIELD_CHARS,
+  MAX_REFUSAL_BYTES,
+  MAX_TEXT_CHARS,
+} from "@/lib/server/typed-refusal"
 import { installCustomerBackendAuthFetch } from "@/lib/server/customer-backend-auth"
 
 /** The exact role from the reproduced Permissions-tab defect. */
@@ -101,17 +107,16 @@ describe("IAM gap-analysis proxy — typed refusals reach the operator", () => {
     expect(res.status).toBe(503)
     const body = await res.json()
     expect(body.backendStatus).toBe(503)
-    expect(body.detail.detail.code).toBe("REVIEW_RUNTIME_UNAVAILABLE")
-    expect(body.detail.detail.upstream_code).toBe("DECISION_RUNTIME_DISABLED")
+    expect(body.detail.code).toBe("REVIEW_RUNTIME_UNAVAILABLE")
+    expect(body.detail.upstream_code).toBe("DECISION_RUNTIME_DISABLED")
   })
 
-  it("forwards a long typed body whole — truncation destroyed the code", async () => {
+  it("keeps the code when the body is long — truncation used to destroy it", async () => {
     customerResident()
     backendResponds(503, {
       detail: {
         code: "REVIEW_RUNTIME_UNAVAILABLE",
-        // Diagnostics ahead of nothing: >500 chars, so a slice(0,500) left
-        // unparseable JSON and the code was lost.
+        // >500 chars, so the old slice(0,500) left unparseable JSON.
         diagnostics: { note: "x".repeat(900) },
       },
     })
@@ -119,8 +124,60 @@ describe("IAM gap-analysis proxy — typed refusals reach the operator", () => {
     const res = await GET(req(), { params })
     const body = await res.json()
 
-    expect(typeof body.detail).toBe("object")
-    expect(body.detail.detail.code).toBe("REVIEW_RUNTIME_UNAVAILABLE")
+    expect(body.detail.code).toBe("REVIEW_RUNTIME_UNAVAILABLE")
+    // ...and the long field is clipped rather than relayed at its own size.
+    expect(body.detail.diagnostics.note.length).toBeLessThanOrEqual(MAX_FIELD_CHARS)
+  })
+
+  it("is BOUNDED: an adversarial upstream body cannot be relayed at its size", async () => {
+    // The other half of the truncation fix. Forwarding the parsed object whole
+    // preserves the code and also everything else the backend attached, at
+    // whatever size -- an amplification surface. The allowlist drops unknown
+    // keys entirely rather than truncating them, because a truncated unknown
+    // key is still unbounded in shape.
+    customerResident()
+    const hostile: Record<string, unknown> = {
+      code: "REVIEW_RUNTIME_UNAVAILABLE",
+      upstream_code: "DECISION_RUNTIME_DISABLED",
+      message: "m".repeat(50_000),
+      ...Object.fromEntries(
+        Array.from({ length: 200 }, (_, i) => [`junk_${i}`, "z".repeat(5_000)]),
+      ),
+      nested: { a: { b: { c: Array.from({ length: 5_000 }, () => "deep") } } },
+      diagnostics: {
+        ...Object.fromEntries(
+          Array.from({ length: 300 }, (_, i) => [`d_${i}`, "q".repeat(4_000)]),
+        ),
+        nested_obj: { should: "be dropped" },
+      },
+    }
+    backendResponds(503, { detail: hostile })
+
+    const res = await GET(req(), { params })
+    const body = await res.json()
+    const serialized = JSON.stringify(body.detail)
+
+    expect(body.detail.code).toBe("REVIEW_RUNTIME_UNAVAILABLE")
+    expect(body.detail.upstream_code).toBe("DECISION_RUNTIME_DISABLED")
+    expect(serialized.length).toBeLessThanOrEqual(MAX_REFUSAL_BYTES)
+    expect(body.detail.junk_0).toBeUndefined()
+    expect(body.detail.nested).toBeUndefined()
+    expect(body.detail.message.length).toBeLessThanOrEqual(MAX_FIELD_CHARS)
+    expect(Object.keys(body.detail.diagnostics ?? {}).length).toBeLessThanOrEqual(
+      MAX_DIAGNOSTIC_KEYS,
+    )
+    expect(body.detail.diagnostics?.nested_obj).toBeUndefined()
+  })
+
+  it("does not manufacture a refusal from a body that carries no code", async () => {
+    customerResident()
+    backendResponds(500, { detail: { message: "something went wrong", trace: "x".repeat(2000) } })
+
+    const res = await GET(req(), { params })
+    const body = await res.json()
+
+    expect(typeof body.detail).toBe("string")
+    expect(body.detail.length).toBeLessThanOrEqual(MAX_TEXT_CHARS)
   })
 
   it("mirrors a 403 scope mismatch with its code", async () => {
@@ -130,7 +187,7 @@ describe("IAM gap-analysis proxy — typed refusals reach the operator", () => {
     const res = await GET(req(`days=365&account_id=${ACCOUNT}`), { params })
 
     expect(res.status).toBe(403)
-    expect((await res.json()).detail.detail.code).toBe("REVIEW_SCOPE_MISMATCH")
+    expect((await res.json()).detail.code).toBe("REVIEW_SCOPE_MISMATCH")
   })
 
   it("mirrors a 404 role-not-found with its code", async () => {
@@ -140,7 +197,7 @@ describe("IAM gap-analysis proxy — typed refusals reach the operator", () => {
     const res = await GET(req(), { params })
 
     expect(res.status).toBe(404)
-    expect((await res.json()).detail.detail.code).toBe("ROLE_NOT_FOUND_IN_SCOPE")
+    expect((await res.json()).detail.code).toBe("ROLE_NOT_FOUND_IN_SCOPE")
   })
 
   it("refuses with a name, and sends nothing, when no operator identity is attached", async () => {

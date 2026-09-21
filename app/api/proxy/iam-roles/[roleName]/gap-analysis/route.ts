@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { PROOF_REFUSAL_MESSAGES, selectBackendProof } from "@/lib/server/backend-proof"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
+import { MAX_TEXT_CHARS, extractTypedRefusal } from "@/lib/server/typed-refusal"
 import { backendError, fromCaughtError } from "@/lib/server/proxy-error"
 
 export const runtime = "nodejs"
@@ -12,12 +13,10 @@ const BACKEND_URL = getBackendBaseUrl()
 /** A parsed backend body that carries a typed refusal code of its own
  *  (FastAPI's `{detail: {code}}`, which is what this backend raises). */
 function hasTypedCode(detail: string | Record<string, unknown>): boolean {
-  if (typeof detail !== "object" || detail === null) return false
-  const inner = (detail as Record<string, unknown>).detail
-  return Boolean(
-    inner && typeof inner === "object" &&
-    typeof (inner as Record<string, unknown>).code === "string",
-  )
+  // `detail` is the SHAPED refusal by this point -- flat, allowlisted -- so a
+  // typed body is one that carries a `code`.
+  return typeof detail === "object" && detail !== null &&
+    typeof (detail as Record<string, unknown>).code === "string"
 }
 
 export async function GET(
@@ -90,18 +89,23 @@ export async function GET(
       // down" from "role is genuinely clean" and renders the removal/clean state
       // for both.
       //
-      // Forward the backend's TYPED detail WHOLE. Slicing it to 500 characters
-      // cut the refusal's own `code` out of the JSON, so a deliberately
-      // disabled seam (REVIEW_RUNTIME_UNAVAILABLE / DECISION_RUNTIME_DISABLED)
-      // reached the operator as a bare 502 and the reason was gone. Only a
-      // non-JSON body is truncated, and only to keep an HTML error page out of
-      // the payload.
-      let detail: string | Record<string, unknown> = errorText.slice(0, 500)
+      // Slicing the JSON to 500 characters cut the refusal's own `code` out of
+      // it, so a deliberately disabled seam (REVIEW_RUNTIME_UNAVAILABLE /
+      // DECISION_RUNTIME_DISABLED) reached the operator as a bare 502 with the
+      // reason gone.
+      //
+      // The fix is not to relay the upstream object whole: that preserves the
+      // code and everything else the backend attached, at whatever size it
+      // came in, which makes this proxy an amplification surface. Instead an
+      // ALLOWLIST -- code, upstream_code, message, request_id and scalar
+      // diagnostics, each clipped, the whole thing capped. Unknown keys are
+      // dropped, not truncated, because a truncated unknown key is still
+      // unbounded in shape. A non-JSON body keeps the text clip, only to keep
+      // an HTML error page out of the payload.
+      let detail: string | Record<string, unknown> = errorText.slice(0, MAX_TEXT_CHARS)
       try {
-        const parsed = JSON.parse(errorText)
-        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-          detail = parsed as Record<string, unknown>
-        }
+        const refusal = extractTypedRefusal(JSON.parse(errorText))
+        if (refusal) detail = refusal as unknown as Record<string, unknown>
       } catch {
         // Not JSON: keep the truncated text.
       }
