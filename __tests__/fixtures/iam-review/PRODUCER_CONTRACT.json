@@ -1,0 +1,87 @@
+{
+  "__what_this_is__": "A read-only record of the backend Review producer's DECLARED contract. It is not a response body and must not be used as one. The generated fixture it is waiting for is described under pending_fixture.",
+  "backend": {
+    "head_sha": "a1f7dcf8691c393f6911fae79bf2d8703e152cc8",
+    "note": "Hashes are from the ref above. Compare against the backend head the release actually composes; if that head differs, regenerate this record rather than trusting these hashes.",
+    "read_from_ref": "remotes/origin/main",
+    "sources": {
+      "api/iam_gap_analysis.py": "04590ae31f1622629255098a932a0254d4521a4dbb3ecd5f89a29962d9e184b4",
+      "tests/decision/test_role_review_scope_contract.py": "d72a850ac0075b7f0cc2bf3c727a89114618cd5e4aea49ac86841859ad5be2ce",
+      "unified/decision/operations/iam_role_review_detail.py": "cedc5040083c337a3b3827d907b1642cf5c1543f5cdd456bb78d74d1d255adfd"
+    }
+  },
+  "derived_by": "saferemediate-frontend scripts/derive-producer-contract.py",
+  "pending_fixture": {
+    "payload_sha256": null,
+    "status": "NOT GENERATED -- blocked at the release-ownership boundary",
+    "why": "Generating it means executing the real operation executor and RoleReviewDetailResult.model_dump, which needs pydantic. pydantic is not installed here and PyPI is unreachable from this session, and the backend repo is owned by the Semantic task, so it cannot be added there from here."
+  },
+  "result_model": {
+    "declared_list_caps": {
+      "high_risk_unused": 20,
+      "unused_permissions": 100,
+      "used_permissions": 50
+    },
+    "field_count": 32,
+    "fields": [
+      "role_name",
+      "role_arn",
+      "authority",
+      "review_scope",
+      "sections",
+      "observation_days",
+      "effective_observation_days",
+      "requested_lookback_days",
+      "required_observation_days",
+      "observation_readiness",
+      "observation_window",
+      "decision_evidence_ready",
+      "data_source",
+      "confidence_mode",
+      "summary",
+      "behavioral_authority",
+      "permissions_analysis",
+      "used_permissions",
+      "unused_permissions",
+      "high_risk_unused",
+      "confidence",
+      "confidence_groups",
+      "safety_vector",
+      "evidence_breakdown",
+      "dependency_context",
+      "service_role_analysis",
+      "remediated_at",
+      "reason",
+      "is_remediable",
+      "remediable_reason",
+      "timestamp",
+      "budget"
+    ],
+    "name": "RoleReviewDetailResult"
+  },
+  "route_query_params": [
+    "days",
+    "envelope",
+    "customer_id",
+    "account_id",
+    "region"
+  ],
+  "schema_hash": "b1f3883ba705a4d38a5099515b7855d21dcb230901ea813a2c8965976844ca17",
+  "summary_model": {
+    "fields": [
+      "total_permissions",
+      "used_count",
+      "unused_count",
+      "lp_score",
+      "overall_risk",
+      "data_confidence",
+      "cloudtrail_events",
+      "event_count_basis",
+      "high_risk_unused_count",
+      "api_relationships",
+      "traffic_relationships",
+      "total_evidence"
+    ],
+    "name": "ReviewSummary"
+  }
+}

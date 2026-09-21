@@ -19,6 +19,8 @@ import {
 } from "@/components/override-modal-shared"
 import { ConfidenceExplanationPanel } from "@/components/ConfidenceExplanationPanel"
 import { EnvelopeFetchError, fetchWithEnvelope } from "@/components/trust/use-trust-envelope"
+import { withAccountScope } from "@/lib/account-scope"
+import { useAccountScope } from "@/lib/account-scope-context"
 import { TrustEnvelopeBadge, type Provenance } from "@/components/trust/trust-envelope-badge"
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert"
 import type {
@@ -977,6 +979,12 @@ export function IAMPermissionAnalysisModal({
 
   console.log('[IAMPermissionAnalysisModal] RENDER - isOpen:', isOpen, 'roleName:', roleName)
   const { toast } = useToast()
+  // The tenant/account/region the operator actually selected. The backend
+  // resolves the role INSIDE this scope and refuses a mismatch (403); sending
+  // no scope asks it to pick, which is how a role from another account could
+  // answer for this one. `useAccountScope` throws outside its provider rather
+  // than handing back a default -- a guessed account is a cross-tenant read.
+  const accountScope = useAccountScope()
   const [gapData, setGapData] = useState<GapAnalysisData | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -1108,7 +1116,8 @@ export function IAMPermissionAnalysisModal({
       fetchConfidenceScore(safety)
     })()
     return () => { cancelled = true }
-  }, [isOpen, roleName, findingId])
+  }, [isOpen, roleName, findingId,
+      accountScope.customerId, accountScope.groupId, accountScope.accountId, accountScope.region])
 
   useEffect(() => {
     if (!isOpen || !systemName) {
@@ -1366,8 +1375,16 @@ export function IAMPermissionAnalysisModal({
     try {
       console.log('[IAM-Modal] Fetching gap analysis for:', roleName, forceRefresh ? '(force refresh)' : '')
       const refreshParam = forceRefresh ? '&refresh=true' : ''
+      // `withAccountScope` is the same helper LeastPrivilegeTab uses for its
+      // proxy reads (lib/account-scope.ts). It omits a narrowing that is still
+      // "all" rather than sending a placeholder, so an unnarrowed scope stays
+      // absent instead of arriving as a literal "all" the backend would have
+      // to interpret. Role encoding is applied before scope is appended.
       const env = await fetchWithEnvelope<any>(
-        `/api/proxy/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=365${refreshParam}`
+        withAccountScope(
+          `/api/proxy/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=365${refreshParam}`,
+          accountScope,
+        )
       )
       setProvenance(env.provenance)
       const rawData = env.result

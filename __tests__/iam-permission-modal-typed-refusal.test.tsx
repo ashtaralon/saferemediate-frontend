@@ -1,6 +1,19 @@
 import { render, screen, waitFor } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+// The modal now reads the operator's selected scope, and `useAccountScope`
+// throws outside its provider rather than handing back a default. Supplying it
+// is supplying the component's input, the way production does; the component
+// under test is still the real one.
+vi.mock("@/lib/account-scope-context", () => ({
+  useAccountScope: () => ({
+    customerId: "cust-testbed",
+    groupId: "prod",
+    accountId: "416651950952",
+    region: "eu-west-1",
+  }),
+}))
+
 import { EnvelopeFetchError } from "@/components/trust/use-trust-envelope"
 import {
   IAMPermissionAnalysisModal,
