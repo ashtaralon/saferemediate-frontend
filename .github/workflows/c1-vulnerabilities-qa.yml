@@ -67,6 +67,15 @@ jobs:
         run: npm run build
         env:
           NEXT_TELEMETRY_DISABLED: "1"
+      - name: Job-local site password
+        if: ${{ inputs.build_branch == true }}
+        # The site gate accepts only the sealed session /api/auth/login issues,
+        # so the locally started app gets a per-job password and the specs
+        # sign in with it (tests/integration/live-auth.ts reads SITE_PASSWORD).
+        run: |
+          password="fixture-$(openssl rand -hex 24)"
+          echo "::add-mask::${password}"
+          echo "SITE_PASSWORD=${password}" >> "$GITHUB_ENV"
       - name: Start this checkout against the live backend
         if: ${{ inputs.build_branch == true }}
         # Same start pattern as fixture-e2e.yml, with the proxy resolver pointed
@@ -88,6 +97,9 @@ jobs:
         env:
           # A push carries no inputs: fall back to the C1 production defaults.
           FRONTEND_URL: ${{ inputs.build_branch == true && 'http://localhost:3000' || inputs.frontend_url || 'https://cyntro-c1.vercel.app' }}
+          # Deployed console: the C1 site password secret. Branch build: empty,
+          # so live-auth.ts falls back to the job-local SITE_PASSWORD.
+          CYNTRO_LIVE_SITE_PASSWORD: ${{ inputs.build_branch != true && secrets.CYNTRO_C1_SITE_PASSWORD || '' }}
           C1_SYSTEM: ${{ inputs.system || 'testbed-webshop' }}
           PW_CHANNEL: chromium
           CI: "1"

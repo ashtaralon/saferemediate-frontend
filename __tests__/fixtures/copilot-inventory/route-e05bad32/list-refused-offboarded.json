@@ -1,0 +1,49 @@
+{
+  "body": {
+    "provenance": {
+      "completeness": {
+        "missing_sources": [],
+        "status": "unknown"
+      },
+      "confidence": "unknown",
+      "confidence_caveats": [
+        "No usable evidence is presented for this answer: TENANT_LIFECYCLE_OFFBOARDED"
+      ],
+      "evidence_sources": [],
+      "freshness": {},
+      "observation_coverage": null,
+      "observation_window_days": null,
+      "observed_vs_configured": {
+        "configured": [],
+        "inferred": [],
+        "observed": []
+      },
+      "scope": {
+        "resource_id": null,
+        "resource_type": "s3",
+        "system": "payments"
+      }
+    },
+    "result": {
+      "failing_axes": [
+        "tenant_lifecycle"
+      ],
+      "reason_category": "authorization",
+      "reason_code": "TENANT_LIFECYCLE_OFFBOARDED",
+      "reason_codes": [
+        "TENANT_LIFECYCLE_OFFBOARDED"
+      ],
+      "resource_type": "s3",
+      "serve_state": "NOT_READY",
+      "status": "refused",
+      "system": "payments"
+    }
+  },
+  "executes": [
+    "inventory.list"
+  ],
+  "graph_calls": 0,
+  "http": 200,
+  "legacy_runs": 0,
+  "lifecycle_reads": 1
+}

@@ -1,0 +1,49 @@
+{
+  "body": {
+    "provenance": {
+      "completeness": {
+        "missing_sources": [],
+        "status": "unknown"
+      },
+      "confidence": "unknown",
+      "confidence_caveats": [
+        "No usable evidence is presented for this answer: INVENTORY_LIST_CURSOR_MISMATCH"
+      ],
+      "evidence_sources": [],
+      "freshness": {},
+      "observation_coverage": null,
+      "observation_window_days": null,
+      "observed_vs_configured": {
+        "configured": [],
+        "inferred": [],
+        "observed": []
+      },
+      "scope": {
+        "resource_id": null,
+        "resource_type": "s3",
+        "system": "payments"
+      }
+    },
+    "result": {
+      "failing_axes": [
+        "graph_health"
+      ],
+      "reason_category": "consistency",
+      "reason_code": "INVENTORY_LIST_CURSOR_MISMATCH",
+      "reason_codes": [
+        "INVENTORY_LIST_CURSOR_MISMATCH"
+      ],
+      "resource_type": "s3",
+      "serve_state": "NOT_READY",
+      "status": "refused",
+      "system": "payments"
+    }
+  },
+  "executes": [
+    "inventory.list"
+  ],
+  "graph_calls": 0,
+  "http": 200,
+  "legacy_runs": 0,
+  "lifecycle_reads": 2
+}

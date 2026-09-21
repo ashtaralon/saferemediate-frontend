@@ -1,0 +1,61 @@
+{
+  "body": {
+    "provenance": {
+      "completeness": {
+        "missing_sources": [],
+        "status": "complete"
+      },
+      "confidence": "unknown",
+      "confidence_caveats": [
+        "inventory read did not complete"
+      ],
+      "evidence_sources": [
+        "Neptune Serving Graph"
+      ],
+      "freshness": {
+        "serving_graph": {
+          "age_seconds": null,
+          "generation": null,
+          "last_sync": null,
+          "scope": null,
+          "source_detail": null,
+          "status": "fresh",
+          "unknown_reason": null
+        }
+      },
+      "generated_at": "2026-09-16T15:57:51.406977+00:00",
+      "observation_coverage": null,
+      "observation_window_days": null,
+      "observed_vs_configured": {
+        "configured": [],
+        "inferred": [],
+        "observed": []
+      },
+      "scope": {
+        "resource_id": null,
+        "resource_type": "s3",
+        "system": null
+      }
+    },
+    "result": {
+      "analysis_complete": false,
+      "count": null,
+      "counts_are_partial": true,
+      "coverage_state": "NOT_READY",
+      "display_name": "S3 buckets",
+      "error": "graph driver unavailable",
+      "error_code": "GRAPH_UNAVAILABLE",
+      "resource_type": "s3",
+      "retryable": true,
+      "scope_applied": {
+        "account_id": "111111111111",
+        "customer_id": "customer-a"
+      },
+      "serve_state": "NOT_READY",
+      "status": "unavailable",
+      "system": null
+    }
+  },
+  "graph_calls": 0,
+  "status": 200
+}
