@@ -127,3 +127,29 @@ export function buildTopologyRiskServerCacheKey(
       : `topology-risk:${tenant}:${systemName}:${account}:${region}:${vpc}`
   return `${base}:${TOPOLOGY_RISK_SERVER_CACHE_SCHEMA}`
 }
+
+/**
+ * The Estate page's selectable lenses, and their deep link.
+ *
+ * `lens` is additive and optional. When it is absent the page keeps whatever
+ * default it already had -- adding a deep link must not become a way of
+ * changing where the page opens. When it is present and recognised it selects
+ * that view, so a shared link lands on the same lens the sender was looking
+ * at.
+ */
+export const ESTATE_LENSES = ["map", "inventory", "identity"] as const
+export type EstateLens = (typeof ESTATE_LENSES)[number]
+
+/** The lens this URL asks for, or null when it asks for none. */
+export function lensFromSearch(search: string): EstateLens | null {
+  const raw = new URLSearchParams(String(search || "").replace(/^\?/, "")).get("lens")
+  const match = ESTATE_LENSES.find(lens => lens === raw)
+  return match ? match : null
+}
+
+/** The same query string with `lens` set, preserving every other parameter. */
+export function withLensParam(search: string, lens: EstateLens): string {
+  const q = new URLSearchParams(String(search || "").replace(/^\?/, ""))
+  q.set("lens", lens)
+  return `?${q.toString()}`
+}

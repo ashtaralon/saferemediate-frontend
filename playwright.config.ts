@@ -9,6 +9,27 @@ export default defineConfig({
   // Vitest live/API specs share tests/integration; keep them off the Playwright glob.
   testIgnore: ["**/*.vitest.spec.ts"],
   timeout: 180_000,
+  // Responsive projects exist ONLY for the identity-lens spec. The six
+  // topology specs keep running exactly as they did, on desktop, because their
+  // geometry assertions are written for that width -- widening them here would
+  // change what they mean rather than add coverage.
+  //
+  // Viewport + hasTouch rather than a device descriptor: the descriptors for
+  // phones and tablets carry `defaultBrowserType: "webkit"`, and CI installs
+  // chromium only (fixture-e2e.yml). A webkit project would not run.
+  projects: [
+    { name: "desktop" },
+    {
+      name: "tablet",
+      testMatch: ["**/identity-lens-fixture.spec.ts"],
+      use: { viewport: { width: 834, height: 1112 }, hasTouch: true },
+    },
+    {
+      name: "mobile",
+      testMatch: ["**/identity-lens-fixture.spec.ts"],
+      use: { viewport: { width: 390, height: 844 }, hasTouch: true },
+    },
+  ],
   use: {
     baseURL: process.env.FRONTEND_URL || "http://localhost:3000",
     trace: "on-first-retry",

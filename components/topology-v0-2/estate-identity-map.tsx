@@ -33,6 +33,15 @@
 
 import { useEffect, useState } from "react"
 
+import { useMapViewport } from "./use-map-viewport"
+import { FLOW_ALERT_COLOR, FLOW_COLOR_BY_CLASS } from "./flow-visuals"
+import {
+  TAXONOMY_LABEL,
+  TAXONOMY_REQUIREMENTS,
+  readTaxonomy,
+  type TaxonomyReading,
+} from "./identity-taxonomy-contract"
+
 import {
   layoutGraph,
   type GraphDecisionNode,
@@ -45,7 +54,17 @@ import {
 const INK = "#1A2330"
 const MUTED = "#5A6B7A"
 const LINE = "#CBD5E1"
-const TEAL = "#0E8B7A"
+/**
+ * The Estate map's own colour language, imported rather than re-typed.
+ *
+ * `internal` is what that map paints an observed service call with, so an
+ * observed authority edge here is the same colour an observed call is there,
+ * and a viewer reads one legend across both lenses. The alert colour is the
+ * same one the Estate map reserves for exposure, used here only where the
+ * producer withheld the decision -- a withheld answer is not a quiet one.
+ */
+const TEAL = FLOW_COLOR_BY_CLASS.internal
+const WITHHELD = FLOW_ALERT_COLOR
 const TEAL_BG = "#E6FBF7"
 const WARN = "#92400E"
 const WARN_BG = "#FFFBEB"
@@ -86,8 +105,20 @@ function laneLabel(lane: PlacedNode["lane"]): string {
   return lane === "workload" ? "Workload" : lane === "role" ? "IAM role" : "Decision authority"
 }
 
-function NodeBox({ placed }: { placed: PlacedNode }) {
+function NodeBox({
+  placed,
+  selected,
+  onSelect,
+}: {
+  placed: PlacedNode
+  selected: boolean
+  onSelect?: (role: GraphRoleNode) => void
+}) {
   const { node, x, y, width, height, lane } = placed
+  // Only a role opens Review: Review answers about a role. A workload or a
+  // decision hop has nothing for it to resolve, so neither is made to look
+  // clickable.
+  const selectable = node.kind === "role" && typeof onSelect === "function"
   const withheld = node.kind === "decision" && node.state !== "ready"
   const stroke = withheld ? WARN_LINE : lane === "role" ? TEAL : LINE
   const fill = withheld ? WARN_BG : lane === "role" ? TEAL_BG : "#FFFFFF"
@@ -116,13 +147,26 @@ function NodeBox({ placed }: { placed: PlacedNode }) {
     }
   }
 
+  const activate = () => {
+    if (node.kind === "role" && onSelect) onSelect(node as GraphRoleNode)
+  }
+
   return (
     <g
       data-testid="identity-map-node"
       data-node-id={node.id}
       data-node-kind={node.kind}
       data-node-lane={lane}
+      data-selected={selected ? "true" : undefined}
       data-decision-state={node.kind === "decision" ? (node as GraphDecisionNode).state : undefined}
+      role={selectable ? "button" : undefined}
+      tabIndex={selectable ? 0 : undefined}
+      aria-pressed={selectable ? selected : undefined}
+      style={selectable ? { cursor: "pointer" } : undefined}
+      onClick={selectable ? activate : undefined}
+      onKeyDown={selectable ? (e => {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); activate() }
+      }) : undefined}
     >
       <rect
         x={x}
@@ -131,8 +175,8 @@ function NodeBox({ placed }: { placed: PlacedNode }) {
         height={height}
         rx={8}
         fill={fill}
-        stroke={stroke}
-        strokeWidth={1.5}
+        stroke={selected ? TEAL : stroke}
+        strokeWidth={selected ? 3 : 1.5}
       />
       <text x={x + 12} y={y + 23} fontSize={13} fontWeight={600} fill={INK}>
         {title.length > 26 ? `${title.slice(0, 25)}…` : title}
@@ -145,19 +189,124 @@ function NodeBox({ placed }: { placed: PlacedNode }) {
   )
 }
 
-export function EstateIdentityMap({ view }: { view: IdentityView }) {
+export function EstateIdentityMap({
+  view,
+  taxonomy,
+  selectedRoleId,
+  onSelectRole,
+}: {
+  view: IdentityView
+  /** What the producer carries beyond roles. Absent families stay absent. */
+  taxonomy?: TaxonomyReading
+  selectedRoleId?: string | null
+  onSelectRole?: (role: GraphRoleNode) => void
+}) {
   const reducedMotion = usePrefersReducedMotion()
   const layout = layoutGraph(view.graph)
   const animate = !reducedMotion
+  // The SAME viewport shell the Estate map runs on: cursor-anchored zoom,
+  // drag-pan, and a readout relative to fit. One implementation, two maps.
+  const vp = useMapViewport()
+  // The identity lens's filter, the counterpart of the Estate map's flow-mode
+  // toggle. It hides edges; it never changes what they mean, and it can never
+  // make an absent plane look present -- filtering to "observed" on a graph
+  // with no observed evidence shows an empty canvas and says so.
+  const [planeFilter, setPlaneFilter] = useState<"all" | "configured" | "observed">("all")
+  const visibleEdges = layout.edges.filter(
+    ({ edge }) => planeFilter === "all" || edge.plane === planeFilter,
+  )
 
   return (
     <div data-testid="identity-map" data-motion={reducedMotion ? "reduced" : "animated"}>
+      <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2" data-testid="identity-map-controls">
+        <div
+          className="inline-flex overflow-hidden rounded-md border"
+          style={{ borderColor: LINE }}
+          role="group"
+          aria-label="Relationship plane"
+          data-testid="identity-map-plane-filter"
+        >
+          {([
+            ["all", "All"],
+            ["configured", "Configured"],
+            ["observed", "Observed"],
+          ] as const).map(([id, label]) => {
+            const active = planeFilter === id
+            return (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setPlaneFilter(id)}
+                aria-pressed={active}
+                data-testid={`identity-map-plane-${id}`}
+                className="px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide transition-colors"
+                style={{ background: active ? INK : "transparent", color: active ? "#FFFFFF" : MUTED }}
+              >
+                {label}
+              </button>
+            )
+          })}
+        </div>
+        <div className="flex items-center gap-1">
+        <button
+          type="button"
+          data-testid="identity-map-zoom-out"
+          onClick={vp.zoomOutStep}
+          aria-label="Zoom out"
+          className="rounded border px-2 py-0.5 text-[11px]"
+          style={{ borderColor: LINE, color: MUTED }}
+        >
+          −
+        </button>
+        <span data-testid="identity-map-zoom-readout" className="min-w-[3.25rem] text-center text-[11px]" style={{ color: MUTED }}>
+          {vp.relZoomPct}%
+        </span>
+        <button
+          type="button"
+          data-testid="identity-map-zoom-in"
+          onClick={vp.zoomInStep}
+          aria-label="Zoom in"
+          className="rounded border px-2 py-0.5 text-[11px]"
+          style={{ borderColor: LINE, color: MUTED }}
+        >
+          +
+        </button>
+        <button
+          type="button"
+          data-testid="identity-map-fit"
+          onClick={vp.fitView}
+          className="rounded border px-2 py-0.5 text-[11px]"
+          style={{ borderColor: LINE, color: MUTED }}
+        >
+          Fit
+        </button>
+        </div>
+      </div>
       <figure className="m-0">
         <div
+          ref={vp.viewportRef}
           data-testid="identity-map-canvas-frame"
           className="w-full overflow-x-auto rounded-lg border"
-          style={{ borderColor: LINE, background: LANE_BG }}
+          style={{
+            borderColor: LINE,
+            background: LANE_BG,
+            cursor: vp.panning ? "grabbing" : "grab",
+            touchAction: "pan-y",
+          }}
+          onWheel={vp.onViewportWheel}
+          onPointerDown={vp.onPanDown}
+          onPointerMove={vp.onPanMove}
+          onPointerUp={vp.onPanUp}
+          onPointerLeave={vp.onPanUp}
         >
+          <div
+            ref={vp.contentRef}
+            data-testid="identity-map-canvas-transform"
+            style={{
+              transform: `translate(${vp.pan.x}px, ${vp.pan.y}px) scale(${vp.zoom})`,
+              transformOrigin: "0 0",
+            }}
+          >
           <svg
             data-testid="identity-map-canvas"
             role="img"
@@ -213,7 +362,7 @@ export function EstateIdentityMap({ view }: { view: IdentityView }) {
               )
             })}
 
-            {layout.edges.map(({ edge, path, labelX, labelY }) => {
+            {visibleEdges.map(({ edge, path, labelX, labelY }) => {
               const observed = edge.plane === "observed"
               const moving = animate && edge.animated
               return (
@@ -264,9 +413,15 @@ export function EstateIdentityMap({ view }: { view: IdentityView }) {
             })}
 
             {layout.nodes.map(placed => (
-              <NodeBox key={placed.node.id} placed={placed} />
+              <NodeBox
+                key={placed.node.id}
+                placed={placed}
+                selected={placed.node.kind === "role" && (placed.node as GraphRoleNode).roleId === selectedRoleId}
+                onSelect={onSelectRole}
+              />
             ))}
           </svg>
+          </div>
         </div>
 
         <figcaption className="mt-1.5 flex flex-wrap items-center gap-3 text-[10px]" style={{ color: MUTED }}>
@@ -289,6 +444,50 @@ export function EstateIdentityMap({ view }: { view: IdentityView }) {
           ) : null}
         </figcaption>
       </figure>
+
+      {/*
+        What this map cannot draw yet, said out loud.
+
+        The producer contract carries roles; users, federated identities,
+        groups, policies, permission sets and protected resources are not in
+        it, and neither are the edges between them. Deriving them here would
+        be inventing a graph, so each family is listed as UNAVAILABLE with the
+        payload key that would carry it. When the producer starts sending one,
+        readTaxonomy reports it present and this rail shrinks by itself.
+      */}
+      {taxonomy ? (
+        <section data-testid="identity-map-taxonomy" className="mt-2">
+          <h4 className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: MUTED }}>
+            Relationship families
+          </h4>
+          <ul className="mt-1 grid gap-1 sm:grid-cols-2">
+            {taxonomy.families.map(family => {
+              const requirement = TAXONOMY_REQUIREMENTS.find(r => r.family === family.family)
+              return (
+                <li
+                  key={family.family}
+                  data-testid="identity-map-taxonomy-family"
+                  data-family={family.family}
+                  data-state={family.state}
+                  className="flex items-baseline justify-between gap-2 rounded border px-2 py-1 text-[10px]"
+                  style={{
+                    borderColor: family.state === "present" ? TEAL : WARN_LINE,
+                    background: family.state === "present" ? TEAL_BG : WARN_BG,
+                    color: family.state === "present" ? INK : WARN,
+                  }}
+                >
+                  <span>{TAXONOMY_LABEL[family.family]}</span>
+                  <span className="font-mono">
+                    {family.state === "present"
+                      ? `${family.count} edges`
+                      : `unavailable · ${requirement ? requirement.block_key : family.family}`}
+                  </span>
+                </li>
+              )
+            })}
+          </ul>
+        </section>
+      ) : null}
 
       {/*
         The same graph as a table. Always in the DOM: it is the accessible

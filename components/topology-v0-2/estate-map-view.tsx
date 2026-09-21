@@ -11,6 +11,8 @@ import { clearCachedFetch, useCachedFetch } from "@/lib/use-cached-fetch"
 import { HeadlineStrip, staleNote } from "@/components/topology-v0-2/headline-strip"
 import { AwsFrame, dedupeLambdaServiceTwins, listTopologyAzs } from "@/components/topology-v0-2/aws-frame"
 import { CanvasPane } from "@/components/topology-v0-2/canvas-pane"
+import { MAX_ZOOM, MIN_ZOOM, useMapViewport } from "@/components/topology-v0-2/use-map-viewport"
+import { lensFromSearch, withLensParam, type EstateLens } from "@/components/topology-v0-2/topology-scope-url"
 import {
   applyFilters,
   applyFiltersOffCanvas,
@@ -625,7 +627,22 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
   const [filtersOpen, setFiltersOpen] = useState(false)
   // Lead with the cross-discipline command view. The existing AWS placement
   // diagram remains unchanged and one click away under Network topology.
-  const [view, setView] = useState<"map" | "inventory" | "identity">("inventory")
+  // The page default is unchanged. `?lens=` only OVERRIDES it, so a deep link
+  // lands where its sender was and a bare URL opens exactly where it always
+  // did. Lazy initialiser because window does not exist during SSR.
+  const [view, setView] = useState<EstateLens>(() => {
+    if (typeof window === "undefined") return "inventory"
+    const requested = lensFromSearch(window.location.search)
+    return requested ? requested : "inventory"
+  })
+  // Selecting a lens rewrites the query so the view is linkable. replaceState
+  // rather than the router: this is a view toggle, not navigation, and it must
+  // not push history entries or remount the map mid-interaction.
+  const selectLens = useCallback((next: EstateLens) => {
+    setView(next)
+    if (typeof window === "undefined") return
+    window.history.replaceState(null, "", `${window.location.pathname}${withLensParam(window.location.search, next)}`)
+  }, [])
 
   // Fullscreen is a modal surface, so leaving it has to hand the keyboard back
   // where it came from. Measured on C1 (run 34754792418): after Escape exited
@@ -676,19 +693,16 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
   // scale, +/− steps, wheel-zoom-around-cursor, and background drag-pan.
   // AwsFrame forwards `zoom` to FlowOverlay, which divides its measured rects by
   // it so the animated edges stay pinned to chips at any zoom (retires PR #227).
-  const viewportRef = useRef<HTMLDivElement | null>(null)
-  const contentRef = useRef<HTMLDivElement | null>(null)
-  const [zoom, setZoom] = useState(1)
-  const [fitScale, setFitScale] = useState(1)
-  const [pan, setPan] = useState({ x: 0, y: 0 })
-  const [panning, setPanning] = useState(false)
-  const panDrag = useRef<{ x: number; y: number; px: number; py: number } | null>(null)
-  // True once the operator zooms/pans by hand — auto-refit (content growth,
-  // window resize) then stops stealing the view and only refreshes the fit
-  // target so the relative-% readout stays honest.
-  const userAdjustedRef = useRef(false)
-  const MIN_ZOOM = 0.15
-  const MAX_ZOOM = 2
+  // Zoom/pan/wheel/drag come from the shared viewport shell, which the
+  // Identity & access map uses too — one implementation, not two that drift.
+  // `fitView` stays local because it is coupled to this map's computeFit and
+  // its one-way card/tile collapse, which the shell deliberately does not own.
+  const {
+    viewportRef, contentRef,
+    zoom, setZoom, fitScale, setFitScale, pan, setPan, panning,
+    userAdjustedRef, zoomTo, zoomInStep, zoomOutStep, relZoomPct,
+    onViewportWheel, onPanDown, onPanMove, onPanUp,
+  } = useMapViewport()
   // Below this zoom, full cards are unreadable → collapse to density tiles.
   // ONE-WAY lock: the fit is a function of content size, and collapsing to tiles
   // CHANGES that size. A two-way threshold flip-flops tiles↔cards and (via the
@@ -839,65 +853,11 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     }
   }, [mapEnlarged, gridSourceNodes, computeFit])
 
-  const zoomTo = useCallback((next: number, originClientX?: number, originClientY?: number) => {
-    const vp = viewportRef.current
-    userAdjustedRef.current = true // manual zoom — stop auto-refit stealing the view
-    setZoom(prev => {
-      const clamped = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, next))
-      if (vp && originClientX != null && originClientY != null && clamped !== prev) {
-        const rect = vp.getBoundingClientRect()
-        const cx = originClientX - rect.left
-        const cy = originClientY - rect.top
-        // Keep the point under the cursor stationary through the zoom.
-        setPan(p => ({
-          x: cx - ((cx - p.x) * clamped) / prev,
-          y: cy - ((cy - p.y) * clamped) / prev,
-        }))
-      }
-      return clamped
-    })
-  }, [])
-
   const fitView = useCallback(() => {
     // Returning to 100%-of-map re-enables auto-refit on content growth.
     userAdjustedRef.current = false
     computeFit(true)
   }, [computeFit])
-  const zoomInStep = useCallback(() => zoomTo(zoom * 1.25), [zoom, zoomTo])
-  const zoomOutStep = useCallback(() => zoomTo(zoom / 1.25), [zoom, zoomTo])
-  // Zoom is DISPLAYED relative to the fit scale: "100%" = map fills page
-  // width. Fit ⇒ 100%; zooming in reads 125%, 185%, …; raw CSS scale stays
-  // internal. Tall content scrolls/pans vertically.
-  const relZoomPct = Math.round((zoom / (fitScale || 1)) * 100)
-
-  const onViewportWheel = useCallback((e: React.WheelEvent) => {
-    // Pinch / ctrl+wheel → zoom. Plain wheel → native vertical scroll so
-    // width-filled 100% can reach Data / IAM without shrinking the map.
-    if (!(e.ctrlKey || e.metaKey)) return
-    e.preventDefault()
-    zoomTo(zoom * (e.deltaY < 0 ? 1.12 : 1 / 1.12), e.clientX, e.clientY)
-  }, [zoom, zoomTo])
-
-  const onPanDown = useCallback((e: React.PointerEvent) => {
-    if (e.button !== 0) return
-    // Let chips / buttons / links handle their own clicks; only the bare canvas pans.
-    const t = e.target as HTMLElement
-    // A scroll region (the off-VPC rail) owns its own drag: a scrollbar
-    // drag must scroll it, not pan the canvas underneath.
-    if (t.closest('button, a, input, select, [data-flow-id], [role="button"], [data-scroll-region]')) return
-    userAdjustedRef.current = true // manual pan — stop auto-refit stealing the view
-    panDrag.current = { x: e.clientX, y: e.clientY, px: pan.x, py: pan.y }
-    setPanning(true)
-  }, [pan.x, pan.y])
-  const onPanMove = useCallback((e: React.PointerEvent) => {
-    const d = panDrag.current
-    if (!d) return
-    setPan({ x: d.px + (e.clientX - d.x), y: d.py + (e.clientY - d.y) })
-  }, [])
-  const onPanUp = useCallback(() => {
-    panDrag.current = null
-    setPanning(false)
-  }, [])
 
   const chipCountNodes = useMemo(() => {
     const byId = new Map<string, TopologyNode>()
@@ -1816,7 +1776,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
                     type="button"
                     role="tab"
                     aria-selected={active}
-                    onClick={() => setView(id)}
+                    onClick={() => selectLens(id)}
                     className="inline-flex items-center rounded-md border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide transition-colors"
                     style={{
                       borderColor: active ? "#00C2A8" : "#CBD5E1",
