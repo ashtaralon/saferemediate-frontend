@@ -1923,7 +1923,12 @@ export function IAMPermissionAnalysisModal({
         
         // 1. Clear frontend cache for this role (force refresh)
         try {
-          await fetch(`/api/proxy/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=365&force_refresh=true`)
+          // Same endpoint, same rule: a read that does not name the account
+          // asks the backend to pick one. Scoped like the read above.
+          await fetch(withAccountScope(
+            `/api/proxy/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=365&force_refresh=true`,
+            accountScope,
+          ))
           console.log('[IAM-Modal] Cleared role cache')
         } catch (e) {
           console.warn('[IAM-Modal] Failed to clear role cache:', e)

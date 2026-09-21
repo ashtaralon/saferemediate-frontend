@@ -15,6 +15,8 @@
 import { render, waitFor } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
+import { readFileSync } from "node:fs"
+import { resolve } from "node:path"
 
 vi.mock("@/lib/server/backend-url", () => ({
   getBackendBaseUrl: () => "https://customer-backend.example",
@@ -92,6 +94,28 @@ async function urlTheModalRequested(): Promise<string> {
 }
 
 describe("IAM Review scope travels from the operator's selection to the backend", () => {
+  it("every gap-analysis read in the modal is scoped, not just the one under test", () => {
+    // The mounted test below drives ONE of the modal's gap-analysis reads. A
+    // second one exists on the post-remediation cache-clear path and had the
+    // same defect; reaching it from a test means driving a whole remediation.
+    // So assert the property at the source instead: no bare fetch of this
+    // endpoint, ever. A third call site cannot be added unscoped.
+    const source = readFileSync(
+      resolve(__dirname, "../components/iam-permission-analysis-modal.tsx"), "utf8",
+    )
+    const reads = source.split("\n")
+      .map((line, i) => [i + 1, line] as const)
+      .filter(([, line]) => line.includes("/gap-analysis"))
+    expect(reads.length).toBeGreaterThan(0)
+    for (const [lineNo, line] of reads) {
+      // The URL literal sits inside a withAccountScope(...) call, so the call
+      // opens on this line or the one before it.
+      const window = source.split("\n").slice(Math.max(0, lineNo - 3), lineNo).join("\n")
+      expect(window, `unscoped gap-analysis read at line ${lineNo}: ${line.trim()}`)
+        .toContain("withAccountScope")
+    }
+  })
+
   it("the modal's own request carries customer, account and region", async () => {
     const requested = await urlTheModalRequested()
     const params = new URL(requested, "https://app.example").searchParams
