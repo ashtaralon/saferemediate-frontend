@@ -804,3 +804,39 @@ export function triggerBundleSnapshot(base: typeof SNAPSHOT = SNAPSHOT) {
     expectedEdgeRows: rules.length * 2,
   }
 }
+
+/**
+ * The estate snapshot with an identity projection attached.
+ *
+ * The block itself is `ready` from __tests__/fixtures/estate-identity-access.json
+ * — literal return values of the backend's build_estate_identity_access, not a
+ * shape written here. Only its SCOPE is rebound, to this snapshot's own
+ * system/account/region/vpc: bindScope compares those against the topology
+ * payload, and a projection built for another estate is correctly withheld as
+ * a scope mismatch rather than drawn.
+ *
+ * It is a v1 block, so the wider identity taxonomy (users, groups, policies,
+ * permission sets, federated identities, protected resources) is absent here
+ * exactly as it is absent in production until the producer emits it.
+ */
+export function identitySnapshot(base: typeof SNAPSHOT = SNAPSHOT) {
+  const ready = JSON.parse(
+    fs.readFileSync(
+      path.join(process.cwd(), "__tests__/fixtures/estate-identity-access.json"),
+      "utf8",
+    ),
+  ).ready
+  return {
+    ...base,
+    identity_access: {
+      ...ready,
+      scope: {
+        ...ready.scope,
+        system_name: (base as { system?: string }).system,
+        account_id: (base as { account_id?: string }).account_id,
+        region: (base as { region?: string }).region,
+        vpc_id: (base as { vpc_topology?: { vpc_id?: string } }).vpc_topology?.vpc_id,
+      },
+    },
+  }
+}

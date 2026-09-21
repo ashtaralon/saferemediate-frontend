@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test"
 
 import { seedAuthCookie } from "./live-auth"
-import { ESTATE_URL, routeSnapshot } from "./topology-fixture"
+import { ESTATE_URL, identitySnapshot, routeSnapshot } from "./topology-fixture"
 
 /**
  * The Identity & access lens, at the three widths a reader actually uses.
@@ -24,7 +24,9 @@ test.describe("Estate · Identity & access lens", () => {
   test.beforeEach(async ({ context, page }) => {
     test.setTimeout(120_000)
     await seedAuthCookie(context)
-    await routeSnapshot(page)
+    // The estate snapshot WITH an identity projection: without one the tab
+    // correctly reports the projection absent and there is no map to assert on.
+    await routeSnapshot(page, identitySnapshot() as never)
   })
 
   test("the deep link opens the identity lens with the map as its primary content", async ({ page }) => {
