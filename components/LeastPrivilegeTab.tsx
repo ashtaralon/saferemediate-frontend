@@ -40,6 +40,7 @@ import {
 import { useAccountScope } from '@/lib/account-scope-context'
 import { resourceAccountId, withAccountScope } from '@/lib/account-scope'
 import { buildIamGapAnalysisUrl } from '@/lib/iam-review-url'
+import { readReviewRefusal, reviewRefusalLine, ReviewRefusalError } from '@/lib/iam-review-refusal'
 import { TerraformExecutionChip } from '@/components/terraform-execution-chip'
 import {
   resolveSecurityGroupReviewTarget,
@@ -749,10 +750,16 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
     
     try {
       console.log('[IAM] Fetching gap analysis for:', roleName)
-      const response = await fetch(buildIamGapAnalysisUrl(roleName, accountScope))
+      // no-store: a previously cached success must never be served over a
+      // fresh refusal -- that is how a switched-off seam reads as clean data.
+      const response = await fetch(buildIamGapAnalysisUrl(roleName, accountScope), { cache: 'no-store' })
       if (!response.ok) {
-        console.error('[IAM] Gap analysis fetch failed:', response.status)
-        return null
+        // Returning null here made a typed refusal indistinguishable from "this
+        // role has no gap analysis". It is raised instead, so the only consumer
+        // (RulesTab) can name it.
+        const refusal = await readReviewRefusal(response)
+        console.error('[IAM] Gap analysis refused:', response.status, refusal?.code ?? 'untyped')
+        throw new ReviewRefusalError(response.status, refusal)
       }
       const data = await response.json()
       console.log('[IAM] Got gap analysis:', {
@@ -4596,7 +4603,7 @@ function RulesTab({
           }
           
           // Direct fetch
-          const res = await fetch(buildIamGapAnalysisUrl(roleName, rulesAccountScope))
+          const res = await fetch(buildIamGapAnalysisUrl(roleName, rulesAccountScope), { cache: 'no-store' })
           if (res.ok) {
             const data = await res.json()
             console.log('[RulesTab] Got IAM data:', {
@@ -4607,12 +4614,24 @@ function RulesTab({
             })
             setIamGapData(data)
           } else {
-            console.error('[RulesTab] IAM fetch failed:', res.status)
-            setError(`Failed to load IAM data: ${res.status}`)
+            // "Failed to load IAM data: 503" told the operator a number and
+            // threw away the reason the backend sent with it.
+            const refusal = await readReviewRefusal(res)
+            console.error('[RulesTab] IAM read refused:', res.status, refusal?.code ?? 'untyped')
+            setError(refusal
+              ? reviewRefusalLine(refusal)
+              : `Failed to load IAM data (HTTP ${res.status}).`)
           }
         } catch (err) {
           console.error('[RulesTab] Failed to fetch IAM data:', err)
-          setError('Failed to load IAM permissions')
+          // A refusal raised by the shared cached fetch above arrives here.
+          if (err instanceof ReviewRefusalError) {
+            setError(err.refusal
+              ? reviewRefusalLine(err.refusal)
+              : `Failed to load IAM data (HTTP ${err.status}).`)
+          } else {
+            setError('Failed to load IAM permissions')
+          }
         } finally {
           setLoading(false)
         }

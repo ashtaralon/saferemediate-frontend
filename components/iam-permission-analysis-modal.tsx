@@ -128,7 +128,9 @@ export interface CanonicalPermissionView {
  * protected for the exact same role and modal session.
  */
 /**
- * How the modal speaks about one named backend refusal.
+ * How the modal speaks about one named backend refusal. The table itself
+ * now lives in lib/iam-review-refusal.ts, shared with the Permissions tab
+ * and its Rules panel, which read the same contract.
  *
  * `retryable` is the load-bearing field. A deliberately disabled seam, a scope
  * mismatch and a role that is not in scope do not become true by asking again,
@@ -138,55 +140,8 @@ export interface CanonicalPermissionView {
  * A code absent from this table renders the generic failure exactly as before,
  * so an unrecognised refusal is never dressed up as something understood.
  */
-export const REVIEW_REFUSALS: Record<string, { title: string; guidance: string; retryable: boolean }> = {
-  REVIEW_RUNTIME_UNAVAILABLE: {
-    title: "Permission detail is not enabled in this deployment",
-    guidance:
-      "The Decision runtime that serves per-role permission detail is switched off here, so there is nothing to retry. The role list and its counts are unaffected.",
-    retryable: false,
-  },
-  DECISION_DEPLOYMENT_PRINCIPAL_UNAVAILABLE: {
-    title: "This deployment has no server credential installed",
-    guidance:
-      "The server-to-server credential this environment uses to reach the backend is not installed, so the request was refused before it was sent. This is a deployment setting, not your session.",
-    retryable: false,
-  },
-  ANALYST_AUTHENTICATED_PRINCIPAL_UNAVAILABLE: {
-    title: "No verified operator identity on this request",
-    guidance:
-      "The load balancer attached no signed identity, so the backend cannot tell who is asking. Signing in again through the normal entry point attaches one.",
-    retryable: false,
-  },
-  REVIEW_SCOPE_MISMATCH: {
-    title: "This role is outside the scope you are signed in to",
-    guidance:
-      "The backend resolved the role to a different account or tenant than this session is scoped to, and refused rather than answer across that boundary.",
-    retryable: false,
-  },
-  REVIEW_TENANT_NOT_SERVING: {
-    title: "This tenant is not serving review answers right now",
-    guidance:
-      "The tenant is mid-lifecycle: its serving authority is not currently answering. This usually clears on its own.",
-    retryable: true,
-  },
-  REVIEW_SCOPE_UNAVAILABLE: {
-    title: "The account scope for this review could not be resolved",
-    guidance:
-      "The backend could not resolve exactly one account for this request, so it refused rather than pick one.",
-    retryable: false,
-  },
-  ROLE_NOT_FOUND_IN_SCOPE: {
-    title: "That role is not in this account",
-    guidance:
-      "The backend found no such role inside the account this session is scoped to. It may belong to another account, or have been deleted.",
-    retryable: false,
-  },
-  ROLE_REFERENCE_REQUIRED: {
-    title: "The request did not identify a role",
-    guidance: "No usable role name or ARN reached the backend.",
-    retryable: false,
-  },
-}
+import { REVIEW_REFUSALS } from "@/lib/iam-review-refusal"
+export { REVIEW_REFUSALS }
 
 export function buildCanonicalPermissionView(
   legacyPermissions: PermissionAnalysis[],
