@@ -39,6 +39,7 @@ import {
 } from '@/lib/resource-risk-decision'
 import { useAccountScope } from '@/lib/account-scope-context'
 import { resourceAccountId, withAccountScope } from '@/lib/account-scope'
+import { buildIamGapAnalysisUrl } from '@/lib/iam-review-url'
 import { TerraformExecutionChip } from '@/components/terraform-execution-chip'
 import {
   resolveSecurityGroupReviewTarget,
@@ -748,7 +749,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
     
     try {
       console.log('[IAM] Fetching gap analysis for:', roleName)
-      const response = await fetch(`/api/proxy/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=365`)
+      const response = await fetch(buildIamGapAnalysisUrl(roleName, accountScope))
       if (!response.ok) {
         console.error('[IAM] Gap analysis fetch failed:', response.status)
         return null
@@ -3509,7 +3510,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
               // If no permissions in unusedList, fetch from gap analysis
               if (permissionsToRemove.length === 0 && roleName) {
                 console.log('[IAM-SIMULATE-FIX] Fetching permissions from gap analysis...')
-                const gapRes = await fetch(`/api/proxy/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=90`)
+                const gapRes = await fetch(buildIamGapAnalysisUrl(roleName, accountScope, { days: 90 }))
                 if (gapRes.ok) {
                   const gapData = await gapRes.json()
                   permissionsToRemove = Array.from(new Set(
@@ -4437,6 +4438,11 @@ function RulesTab({
   iamCachedFetch?: (roleName: string, forceRefresh?: boolean) => Promise<any>
   iamCache?: Record<string, any>
 }) {
+  // RulesTab is its own component: the parent's accountScope is not in lexical
+  // scope here, so it reads the operator's selection directly. Same rule as
+  // every other read of this endpoint -- never resolve a role without naming
+  // the account.
+  const rulesAccountScope = useAccountScope()
   const [rulesAnalysis, setRulesAnalysis] = useState<RuleAnalysis[]>([])
   const [iamGapData, setIamGapData] = useState<any>(null)
   const [loading, setLoading] = useState(false)
@@ -4590,7 +4596,7 @@ function RulesTab({
           }
           
           // Direct fetch
-          const res = await fetch(`/api/proxy/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=365`)
+          const res = await fetch(buildIamGapAnalysisUrl(roleName, rulesAccountScope))
           if (res.ok) {
             const data = await res.json()
             console.log('[RulesTab] Got IAM data:', {

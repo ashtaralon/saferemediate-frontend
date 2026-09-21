@@ -5,6 +5,7 @@ import { Sparkles, Loader2, AlertCircle, Shield, Send, Bot } from "lucide-react"
 import { resolveIntent, type IntentRoute, type IntentContext } from "./intent-router"
 import { fetchWithEnvelope } from "@/components/trust/use-trust-envelope"
 import { TrustEnvelopeBadge, type Provenance } from "@/components/trust/trust-envelope-badge"
+import { useAccountScope } from "@/lib/account-scope-context"
 
 // Example prompts derive from the active system — never name a pinned one.
 function examplePrompts(systemName?: string): string[] {
@@ -69,6 +70,10 @@ const INITIAL_CAPABILITY: FreeformCapability = {
 }
 
 export function SavedQuestionGallery({ systemName }: SavedQuestionGalleryProps) {
+  // Routes that read a per-role contract resolve the role inside an account.
+  // The gallery is the production caller, so it supplies the real selection
+  // rather than leaving the route to do without one.
+  const accountScope = useAccountScope()
   const [answer, setAnswer] = useState<AnswerState>(INITIAL_STATE)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [roleName, setRoleName] = useState("")
@@ -169,7 +174,7 @@ export function SavedQuestionGallery({ systemName }: SavedQuestionGalleryProps) 
 
   async function handleAsk(questionId: string) {
     const requestGeneration = requestGenerationRef.current
-    const route = resolveIntent(questionId, { systemName, roleName: roleName || undefined })
+    const route = resolveIntent(questionId, { systemName, roleName: roleName || undefined, scope: accountScope })
     if (!route) {
       setAnswer({ ...INITIAL_STATE, error: `Unknown question id: ${questionId}` })
       return

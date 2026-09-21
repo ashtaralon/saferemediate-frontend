@@ -32,6 +32,8 @@ import { ResourceConfigTab } from "@/components/inventory/resource-config-tab"
 import { ResourceDossier } from "@/components/inventory/resource-dossier"
 import { canonicalInventoryResourceId } from "@/lib/inventory-resource-identity"
 import { ServiceTypeBadge, getServiceMeta } from "@/lib/service-type"
+import { useAccountScope } from "@/lib/account-scope-context"
+import { buildIamGapAnalysisUrl } from "@/lib/iam-review-url"
 
 export interface ServiceNode {
   id: string
@@ -144,6 +146,10 @@ function matchesTypeList(type: string, list: readonly string[]): boolean {
 // uncovered types fall back to the neutral `Resource` tile.
 
 export function AllServicesTab({ systemName }: AllServicesTabProps) {
+  // Reads of the IAM Review contract name the account they resolve the role
+  // inside. A role id is not unique across accounts, so an unscoped read asks
+  // the backend to pick one.
+  const accountScope = useAccountScope()
   const [services, setServices] = useState<ServiceNode[]>([])
   const [loadError, setLoadError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -525,12 +531,12 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
       
       try {
         console.log('[AllServices] Fetching IAM data for role:', roleName)
-        const res = await fetch(`/api/proxy/iam-roles/${encodeURIComponent(roleName)}/gap-analysis`)
+        const res = await fetch(buildIamGapAnalysisUrl(roleName, accountScope))
         
         if (!res.ok) {
           console.log('[AllServices] First attempt failed, trying with service name:', selectedService.name)
           // Try with service name as fallback
-          const altRes = await fetch(`/api/proxy/iam-roles/${encodeURIComponent(selectedService.name)}/gap-analysis`)
+          const altRes = await fetch(buildIamGapAnalysisUrl(selectedService.name, accountScope))
           if (altRes.ok) {
             const data = await altRes.json()
             console.log('[AllServices] IAM data received (fallback):', data)
