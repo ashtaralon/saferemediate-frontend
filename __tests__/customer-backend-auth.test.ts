@@ -1,3 +1,4 @@
+// @vitest-environment node
 import {afterEach, describe, expect, it, vi} from "vitest"
 
 describe("customer backend service authentication", () => {
@@ -97,7 +98,7 @@ function headersOf(call: unknown[]): Headers {
 
 function urlOf(call: unknown[]): string {
   const input = call[0]
-  return typeof input === "string" ? input : (input as Request | URL).toString()
+  return input instanceof Request ? input.url : String(input)
 }
 
 /** Install the wrapper on the hosted path with a mocked upstream. */
@@ -206,6 +207,149 @@ describe("redirect handling for the credentialed backend call", () => {
     expect(replay.method).toBe("POST")
     expect(replay.body).toBe('{"a":1}')
     expect(new Headers(replay.headers).get("content-type")).toBe("application/json")
+  })
+
+  it.each([307, 308])("replays a Request-carried JSON body across repeated %i redirects", async status => {
+    const sent: Request[] = []
+    const bodies: string[] = []
+    const upstream = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = new Request(input, init)
+      sent.push(request)
+      bodies.push(await request.text())
+      return sent.length < 3 ? redirectTo(status, `${BACKEND}/api/hop-${sent.length}`) : new Response("ok")
+    })
+    await installWithUpstream(upstream)
+
+    const request = new Request(`${BACKEND}/api/save`, {
+      method: "POST", body: '{"a":1}', headers: {"content-type": "application/json"},
+    })
+    const response = await fetch(request)
+
+    expect(await response.text()).toBe("ok")
+    expect(bodies).toEqual(['{"a":1}', '{"a":1}', '{"a":1}'])
+    for (const hop of sent) {
+      expect(hop.method).toBe("POST")
+      expect(hop.headers.get("content-type")).toBe("application/json")
+      expect(hop.headers.get(TOKEN_HEADER)).toBe("hosted-secret")
+    }
+  })
+
+  it("preserves Request options and lets explicit init values override them", async () => {
+    const requests: Request[] = []
+    const upstream = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push(new Request(input, init))
+      return requests.length === 1 ? redirectTo(307, "/api/moved") : new Response("ok")
+    })
+    await installWithUpstream(upstream)
+    const controller = new AbortController()
+    const request = new Request(`${BACKEND}/api/read`, {
+      cache: "no-store", credentials: "omit", integrity: "sha256-expected",
+      keepalive: true, mode: "same-origin", referrer: `${BACKEND}/source`,
+      referrerPolicy: "no-referrer", signal: controller.signal,
+    })
+
+    await fetch(request, {cache: "reload", credentials: undefined})
+
+    expect(requests).toHaveLength(2)
+    for (const hop of requests) {
+      expect(hop.cache).toBe("reload")
+      expect(hop.credentials).toBe("omit")
+      expect(hop.integrity).toBe("sha256-expected")
+      expect(hop.keepalive).toBe(true)
+      expect(hop.mode).toBe("same-origin")
+      expect(hop.referrer).toBe(`${BACKEND}/source`)
+      expect(hop.referrerPolicy).toBe("no-referrer")
+    }
+    controller.abort()
+    expect(requests.every(hop => hop.signal.aborted)).toBe(true)
+  })
+
+  it("uses an init body override instead of replaying the Request's old body", async () => {
+    const bodies: string[] = []
+    const upstream = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      bodies.push(await new Request(input, init).text())
+      return bodies.length === 1 ? redirectTo(308, "/api/moved") : new Response("ok")
+    })
+    await installWithUpstream(upstream)
+    await fetch(new Request(`${BACKEND}/api/save`, {method: "POST", body: "old"}), {body: "new"})
+    expect(bodies).toEqual(["new", "new"])
+  })
+
+  it("keeps a bodyless GET's caller headers on a 307 redirect", async () => {
+    const upstream = vi.fn()
+      .mockResolvedValueOnce(redirectTo(307, "/api/moved"))
+      .mockResolvedValueOnce(new Response("ok"))
+    await installWithUpstream(upstream)
+    await fetch(new Request(`${BACKEND}/api/read`, {headers: {"content-type": "application/json"}}))
+    expect(headersOf(upstream.mock.calls[1]).get("content-type")).toBe("application/json")
+  })
+
+  it.each([301, 302, 303])("removes all body headers only when %i rewrites POST to GET", async status => {
+    const upstream = vi.fn()
+      .mockResolvedValueOnce(redirectTo(status, "/api/moved"))
+      .mockResolvedValueOnce(new Response("ok"))
+    await installWithUpstream(upstream)
+    await fetch(new Request(`${BACKEND}/api/save`, {
+      method: "POST", body: "{}", headers: {
+        "content-type": "application/json", "content-encoding": "gzip",
+        "content-language": "en", "content-location": "/payload", "content-length": "2",
+        "accept": "application/json",
+      },
+    }))
+    const hop = upstream.mock.calls[1][1] as RequestInit
+    expect(hop.method).toBe("GET")
+    expect(hop.body).toBeUndefined()
+    for (const name of ["content-type", "content-encoding", "content-language", "content-location", "content-length"]) {
+      expect(headersOf(upstream.mock.calls[1]).has(name)).toBe(false)
+    }
+    expect(headersOf(upstream.mock.calls[1]).get("accept")).toBe("application/json")
+  })
+
+  it("keeps the 20-hop limit across origins and never reattaches credentials on return", async () => {
+    let count = 0
+    const upstream = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => {
+      count += 1
+      const origin = count % 3 === 0 ? BACKEND : OFF_ORIGIN
+      return redirectTo(302, `${origin}/hop-${count}`)
+    })
+    await installWithUpstream(upstream)
+    await expect(fetch(`${BACKEND}/api/start`, {
+      headers: {authorization: "Bearer caller", cookie: "session=caller", "proxy-authorization": "proxy", host: "backend"},
+    })).rejects.toThrow(/too many redirects/)
+    expect(upstream.mock.calls).toHaveLength(21)
+    expect(headersOf(upstream.mock.calls[0]).has(TOKEN_HEADER)).toBe(true)
+    for (const call of upstream.mock.calls.slice(1)) {
+      expect((call[1] as RequestInit).redirect).toBe("manual")
+      for (const name of [TOKEN_HEADER, "authorization", "cookie", "proxy-authorization", "host"]) {
+        expect(headersOf(call).has(name)).toBe(false)
+      }
+    }
+  })
+
+  it("refuses an off-origin redirect for a Request with same-origin mode", async () => {
+    const upstream = vi.fn().mockResolvedValue(redirectTo(307, `${OFF_ORIGIN}/collect`))
+    await installWithUpstream(upstream)
+    await expect(fetch(new Request(`${BACKEND}/api/read`, {mode: "same-origin"})))
+      .rejects.toThrow(/same-origin/)
+    expect(upstream).toHaveBeenCalledTimes(1)
+  })
+
+  it("cancels a pending Request-body replay before sending the redirected hop", async () => {
+    const controller = new AbortController()
+    const upstream = vi.fn().mockResolvedValue(redirectTo(307, "/api/moved"))
+    await installWithUpstream(upstream)
+    const stream = new ReadableStream<Uint8Array>({start(sink) { sink.enqueue(new Uint8Array([1])) }})
+    const request = new Request(`${BACKEND}/api/save`, {
+      method: "POST", body: stream, signal: controller.signal,
+      ...{duplex: "half"},
+    })
+    const pending = fetch(request)
+    const rejected = expect(pending).rejects.toMatchObject({name: "AbortError"})
+    await new Promise<void>(resolve => setImmediate(resolve))
+    controller.abort()
+    await rejected
+    expect(upstream).toHaveBeenCalledTimes(1)
+    void request.body?.cancel().catch(() => {})
   })
 
   it("applies the platform's 302-on-POST rewrite instead of replaying the body", async () => {

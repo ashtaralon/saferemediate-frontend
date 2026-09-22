@@ -21,12 +21,59 @@ const CROSS_ORIGIN_STRIPPED_HEADERS = [
   "host",
 ]
 
-/** The caller's body lives on their `Request` object: we can see that it
- * exists, but reading it to replay it would consume the caller's stream. A hop
- * that would have to replay it is therefore replay-unsafe, not droppable. */
-const UNREPLAYABLE_REQUEST_BODY = Symbol("cyntro.unreplayableRequestBody")
+const REQUEST_BODY_HEADERS = [
+  "content-encoding", "content-language", "content-location", "content-type", "content-length",
+]
 
-type CallerBody = BodyInit | null | undefined | typeof UNREPLAYABLE_REQUEST_BODY
+const CLONED_REQUEST_BODY = Symbol("cyntro.clonedRequestBody")
+
+type CallerBody = BodyInit | null | undefined | typeof CLONED_REQUEST_BODY
+
+/** Request properties are not enumerable, so spreading a Request loses them. */
+function requestOptions(input: Parameters<typeof fetch>[0]): RequestInit {
+  if (!(input instanceof Request)) return {}
+  return {
+    cache: input.cache,
+    credentials: input.credentials,
+    integrity: input.integrity,
+    keepalive: input.keepalive,
+    method: input.method,
+    mode: input.mode,
+    referrer: input.referrer,
+    referrerPolicy: input.referrerPolicy,
+    signal: input.signal,
+  }
+}
+
+/** Read only the branch cloned before the first send. Cancellation must also
+ * interrupt replay preparation, not just the subsequent network request. */
+async function replayRequestBody(snapshot: Request, signal?: AbortSignal | null): Promise<ArrayBuffer> {
+  const reader = snapshot.body!.getReader()
+  const chunks: Uint8Array[] = []
+  let length = 0
+  const abort = () => { void reader.cancel(signal?.reason).catch(() => {}) }
+  signal?.addEventListener("abort", abort, {once: true})
+  try {
+    signal?.throwIfAborted()
+    for (;;) {
+      const {done, value} = await reader.read()
+      signal?.throwIfAborted()
+      if (done) break
+      chunks.push(value)
+      length += value.byteLength
+    }
+    const bytes = new Uint8Array(length)
+    let offset = 0
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset)
+      offset += chunk.byteLength
+    }
+    return bytes.buffer
+  } finally {
+    signal?.removeEventListener("abort", abort)
+    reader.releaseLock()
+  }
+}
 
 function requestUrl(input: Parameters<typeof fetch>[0]): URL | null {
   try {
@@ -58,7 +105,7 @@ function hostedBackendOrigin(): string | null {
  */
 function isReplayableBody(body: CallerBody): boolean {
   if (body === undefined || body === null) return true
-  if (body === UNREPLAYABLE_REQUEST_BODY) return false
+  if (body === CLONED_REQUEST_BODY) return false
   if (typeof body === "string") return true
   if (body instanceof URLSearchParams) return true
   if (body instanceof ArrayBuffer || ArrayBuffer.isView(body)) return true
@@ -79,9 +126,8 @@ function isReplayableBody(body: CallerBody): boolean {
  * Rules, in order:
  *   * a hop that stays on the EXACT backend origin keeps the token and keeps
  *     working — this is not "never redirect";
- *   * a hop that leaves it is handed to the platform with the token and the
- *     platform's own cross-origin credential headers removed, so the call
- *     still completes exactly as it did before the token existed;
+ *   * a hop that leaves it loses the token and the platform's own cross-origin
+ *     credential headers; all later hops remain manual under the same limit;
  *   * an unparseable target, an over-long chain, or a body that cannot be
  *     safely replayed fails closed rather than guessing.
  */
@@ -93,105 +139,124 @@ async function followWithinBackendOrigin(
   backendOrigin: string,
   headers: Headers,
 ): Promise<Response> {
-  const signal = init.signal ?? (input instanceof Request ? input.signal : undefined)
+  const options = {...requestOptions(input)}
+  // Undefined dictionary members do not override a Request's existing value.
+  for (const [key, value] of Object.entries(init)) {
+    if (value !== undefined) Object.assign(options, {[key]: value})
+  }
+  const signal = options.signal
 
   let method = (
     init.method ?? (input instanceof Request ? input.method : "GET")
   ).toUpperCase()
 
-  // Read the body's PRESENCE without consuming anything.
+  // Clone before fetch consumes the original Request. Only read this branch
+  // if a redirect preserves its body; cancel it on every other exit.
+  const snapshot = input instanceof Request && input.body !== null && init.body == null
+    ? input.clone()
+    : null
   let body: CallerBody =
     init.body !== undefined && init.body !== null
       ? init.body
-      : input instanceof Request && input.body !== null
-        ? UNREPLAYABLE_REQUEST_BODY
+      : snapshot
+        ? CLONED_REQUEST_BODY
         : undefined
 
   let currentUrl = startUrl
   let currentHeaders = headers
 
-  // First hop goes out as the caller built it — same input object, same init,
-  // so method, body, signal and every other field are theirs untouched. Only
-  // the redirect mode changes, because following is the part we must own.
-  let response = await originalFetch(input, {...init, headers, redirect: "manual"})
+  // Supplying init to fetch(Request) can reset inherited referrer settings.
+  // Carry the resolved Request options explicitly on the first hop too.
+  try {
+    let response = await originalFetch(input, {...options, headers, redirect: "manual"})
 
-  for (let hop = 1; ; hop += 1) {
-    if (!REDIRECT_STATUSES.has(response.status)) return response
+    for (let hop = 1; ; hop += 1) {
+      if (!REDIRECT_STATUSES.has(response.status)) return response
 
-    const location = response.headers.get("location")
-    // A redirect status with no target is not a redirect to follow; the
-    // platform hands it back, and so do we.
-    if (location === null) return response
+      const location = response.headers.get("location")
+      // A redirect status with no target is not a redirect to follow; the
+      // platform hands it back, and so do we.
+      if (location === null) return response
 
-    if (hop > MAX_REDIRECT_HOPS) {
-      throw new TypeError(
-        `fetch: too many redirects (> ${MAX_REDIRECT_HOPS}) starting at ${startUrl.origin}${startUrl.pathname}`,
-      )
-    }
+      if (hop > MAX_REDIRECT_HOPS) {
+        void response.body?.cancel().catch(() => {})
+        throw new TypeError(
+          `fetch: too many redirects (> ${MAX_REDIRECT_HOPS}) starting at ${startUrl.origin}${startUrl.pathname}`,
+        )
+      }
 
-    let nextUrl: URL
-    try {
-      nextUrl = new URL(location, currentUrl)
-    } catch {
-      // Ambiguous target: refuse rather than guess where the credential and
-      // the caller's request were meant to go.
-      throw new TypeError(
-        `fetch: backend redirect carried an unresolvable Location; refusing to guess a destination`,
-      )
-    }
+      let nextUrl: URL
+      try {
+        nextUrl = new URL(location, currentUrl)
+      } catch {
+        void response.body?.cancel().catch(() => {})
+        // Ambiguous target: refuse rather than guess where the credential and
+        // the caller's request were meant to go.
+        throw new TypeError(
+          `fetch: backend redirect carried an unresolvable Location; refusing to guess a destination`,
+        )
+      }
 
-    const nextHeaders = new Headers(currentHeaders)
+      // Native redirect following permits only HTTP(S), even though a fresh
+      // fetch could accept another scheme such as data:.
+      if (!["http:", "https:"].includes(nextUrl.protocol) || nextUrl.username || nextUrl.password) {
+        void response.body?.cancel().catch(() => {})
+        throw new TypeError("fetch: backend redirect has an unsupported or credential-bearing URL")
+      }
+      if (options.mode === "same-origin" && nextUrl.origin !== startUrl.origin) {
+        void response.body?.cancel().catch(() => {})
+        throw new TypeError("fetch: redirect leaves a same-origin request's origin")
+      }
 
-    // The platform's method/body rewrite, reproduced so a manually followed
-    // chain behaves like an automatically followed one.
-    if ((response.status === 301 || response.status === 302) && method === "POST") {
-      method = "GET"
-      body = undefined
-    } else if (response.status === 303 && method !== "GET" && method !== "HEAD") {
-      method = "GET"
-      body = undefined
-    }
+      const nextHeaders = new Headers(currentHeaders)
 
-    if (body === undefined || body === null) {
-      nextHeaders.delete("content-length")
-      nextHeaders.delete("content-type")
-    } else if (!isReplayableBody(body)) {
-      // The hop preserves the body and we cannot re-send it. Dropping it would
-      // silently turn a write into a different request; re-sending a consumed
-      // stream would fail or, worse, send a truncated one.
-      throw new TypeError(
-        `fetch: backend redirect (${response.status}) requires replaying a request body that cannot be safely replayed; refusing to drop or re-send it`,
-      )
-    }
+      // The platform's method/body rewrite, reproduced so a manually followed
+      // chain behaves like an automatically followed one.
+      const discardsBody = ((response.status === 301 || response.status === 302) && method === "POST") ||
+        (response.status === 303 && method !== "GET" && method !== "HEAD")
+      if (discardsBody) {
+        method = "GET"
+        body = undefined
+        for (const name of REQUEST_BODY_HEADERS) nextHeaders.delete(name)
+      }
 
-    if (nextUrl.origin !== backendOrigin) {
-      // Leaving the backend origin. The token goes no further, and neither do
-      // the credential headers the platform itself strips here.
-      nextHeaders.delete(SERVICE_TOKEN_HEADER)
-      for (const name of CROSS_ORIGIN_STRIPPED_HEADERS) nextHeaders.delete(name)
+      void response.body?.cancel().catch(() => {})
+      if (body === CLONED_REQUEST_BODY && snapshot) {
+        body = await replayRequestBody(snapshot, signal)
+      }
+      if (!isReplayableBody(body)) {
+        // The hop preserves the body and we cannot re-send it. Dropping it would
+        // silently turn a write into a different request; re-sending a consumed
+        // stream would fail or, worse, send a truncated one.
+        throw new TypeError(
+          `fetch: backend redirect (${response.status}) requires replaying a request body that cannot be safely replayed; refusing to drop or re-send it`,
+        )
+      }
 
-      // Nothing of ours is attached any more, so let the platform follow the
-      // remainder exactly as it would have.
-      return originalFetch(nextUrl.toString(), {
-        ...init,
+      if (nextUrl.origin !== backendOrigin) {
+        // Leaving the backend origin. The token goes no further, and neither do
+        // the credential headers the platform itself strips here.
+        nextHeaders.delete(SERVICE_TOKEN_HEADER)
+      }
+      if (nextUrl.origin !== currentUrl.origin) {
+        for (const name of CROSS_ORIGIN_STRIPPED_HEADERS) nextHeaders.delete(name)
+      }
+
+      currentUrl = nextUrl
+      currentHeaders = nextHeaders
+      response = await originalFetch(nextUrl.toString(), {
+        ...options,
         method,
         headers: nextHeaders,
         body: body as BodyInit | null | undefined,
         signal,
-        redirect: "follow",
+        redirect: "manual",
       })
     }
-
-    currentUrl = nextUrl
-    currentHeaders = nextHeaders
-    response = await originalFetch(nextUrl.toString(), {
-      ...init,
-      method,
-      headers: nextHeaders,
-      body: body as BodyInit | null | undefined,
-      signal,
-      redirect: "manual",
-    })
+  } finally {
+    // A tee branch's cancellation may wait for its sibling; do not hold a
+    // completed response hostage to that cleanup.
+    if (snapshot?.body && !snapshot.body.locked) void snapshot.body.cancel().catch(() => {})
   }
 }
 
