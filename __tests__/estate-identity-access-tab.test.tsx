@@ -1079,8 +1079,8 @@ describe("compact focused diagram selection and connected geometry", () => {
 
 it("keeps the producer's standalone account canvas without claiming an empty identity graph", () => {
   const payload = { ...TOPOLOGY, identity_access: NODE_ONLY_ACCOUNT } as any
-  render(<EstateIdentityAccessTab payload={payload} canvas={<div data-testid="node-only-account-canvas">account</div>} />)
-  expect(screen.getByTestId("node-only-account-canvas")).toBeInTheDocument()
+  render(<EstateIdentityAccessTab payload={payload} canvas={<div>Standalone account canvas fixture</div>} />)
+  expect(screen.getByText("Standalone account canvas fixture")).toBeInTheDocument()
   expect(screen.queryByTestId("identity-empty-authoritative")).toBeNull()
   expect(screen.getByTestId("identity-coverage-indicator")).toHaveAttribute("data-identity-graph-state", "ready")
 })
