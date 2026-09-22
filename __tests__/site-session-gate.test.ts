@@ -110,11 +110,12 @@ describe("middleware site gate", () => {
     expect(isPublicStaticRead("GET", "/design/topology-v0.2.html")).toBe(false)
   })
 
-  it("keeps the public paths and the bound OIDC callback reachable without a session", async () => {
-    for (const path of ["/login", "/api/auth/login", "/api/healthz", "/api/build-version", "/api/proxy/meta", "/api/cron/warm", "/api/auth/operator/callback"]) {
+  it("keeps the deployed public paths reachable and unmounted operator routes gated", async () => {
+    for (const path of ["/login", "/api/auth/login", "/api/healthz", "/api/build-version", "/api/proxy/meta", "/api/cron/warm"]) {
       expect(passed(await gate(path)), path).toBe(true)
     }
     expect(redirectedToLogin(await gate("/api/auth/operator/start"))).toBe(true)
+    expect(redirectedToLogin(await gate("/api/auth/operator/callback"))).toBe(true)
   })
 
   it("leaves the customer-resident ALB mode unchanged", async () => {
