@@ -20,6 +20,10 @@ jobs:
   playwright-fixture:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      # Shared only by this job's localhost app and fixture login client.
+      # No production credential is used by deterministic browser fixtures.
+      SITE_PASSWORD: fixture-only-local-signin-never-production
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
