@@ -71,6 +71,8 @@ interface Props {
    * diagram sits at the top of the panel; peer clicks pivot selection only.
    */
   identity?: IdentitySelectionDetail | null
+  /** Active host lens, including selections with no served identity detail. */
+  identityLensActive?: boolean
   onSelectIdentityNode?: (id: string) => void
 }
 
@@ -370,6 +372,7 @@ export function DetailPanel({
   trafficAuthority,
   onClose,
   identity = null,
+  identityLensActive = false,
   onSelectIdentityNode,
 }: Props) {
   const [tab, setTab] = useState<Tab>("resource")
@@ -778,12 +781,14 @@ export function DetailPanel({
             onSelectNode={onSelectIdentityNode}
           />
         ) : null}
-        <ServicePathMap
-          selectedNodeId={node.id}
-          nodes={inspectorNodes}
-          edges={inspectorEdges}
-          trafficAuthority={trafficAuthority}
-        />
+        {!identityLensActive ? (
+          <ServicePathMap
+            selectedNodeId={node.id}
+            nodes={inspectorNodes}
+            edges={inspectorEdges}
+            trafficAuthority={trafficAuthority}
+          />
+        ) : null}
         {tab === "resource" ? (
           <div data-testid="estate-operations-resource">
             {identityAnchor ? null : (

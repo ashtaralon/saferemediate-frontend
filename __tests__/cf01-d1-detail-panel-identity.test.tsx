@@ -23,6 +23,7 @@ import { DetailPanel } from "@/components/topology-v0-2/detail-panel"
 import {
   buildIdentityLensForPayload,
   identitySelectionDetail,
+  identityLensTrafficEdges,
 } from "@/components/topology-v0-2/estate-identity-access-model"
 import { identityNodeAsTopologyNode } from "@/components/topology-v0-2/estate-identity-plane"
 
@@ -339,5 +340,36 @@ describe("CF01-D1 · DetailPanel reused for identity selections", () => {
     )
     fireEvent.click(screen.getByLabelText("Close service details"))
     expect(onClose).toHaveBeenCalled()
+  })
+})
+
+
+describe("identity lens keeps the traffic inspector separate", () => {
+  it("shows trust evidence without a second traffic route or rebuilding claim", () => {
+    const role = lens.nodes.find(n => n.kind === "iam_role" && n.label === "web")!
+    render(<DetailPanel
+      node={identityNodeAsTopologyNode(role)} systemName="testbed-webshop"
+      inspectorNodes={lens.nodes.map(identityNodeAsTopologyNode)}
+      inspectorEdges={identityLensTrafficEdges(lens, role.id)}
+      identity={identitySelectionDetail(lens, role.id)} identityLensActive
+      onClose={() => {}}
+    />)
+    expect(screen.getByTestId("estate-identity-access-path")).toBeInTheDocument()
+    expect(screen.getByTestId("estate-identity-relationships")).toBeInTheDocument()
+    expect(screen.queryByTestId("topology-service-path-map")).toBeNull()
+    expect(screen.queryByText("Traffic evidence rebuilding")).toBeNull()
+    expect(screen.queryByText("Configured route")).toBeNull()
+  })
+
+  it("uses the active lens even for a selected resource with no identity detail, then restores the network inspector", () => {
+    const props = { node: payload.nodes.find((n: any) => n.id === "alb"), systemName: "testbed-webshop",
+      inspectorNodes: payload.nodes, inspectorEdges: payload.traffic_edges, onClose: () => {} }
+    const { rerender } = render(<DetailPanel {...props} identityLensActive identity={null} />)
+    expect(screen.getByTestId("resource-config-tab-stub")).toBeInTheDocument()
+    expect(screen.queryByTestId("estate-identity-detail")).toBeNull()
+    expect(screen.queryByTestId("topology-service-path-map")).toBeNull()
+    rerender(<DetailPanel {...props} />)
+    expect(screen.getByTestId("topology-service-path-map")).toBeInTheDocument()
+    expect(screen.getByTestId("resource-config-tab-stub")).toBeInTheDocument()
   })
 })

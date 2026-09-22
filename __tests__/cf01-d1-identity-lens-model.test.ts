@@ -65,6 +65,13 @@ function lensOf(identityAccess: unknown) {
 }
 
 const READY_WITH_GRAPH = graphFixture.composed.ready_with_graph
+// The producer's "empty graph" fixture still contains a standalone account.
+// Keep those source bytes intact; a truly empty negative control has no nodes.
+const NODE_ONLY_ACCOUNT = graphFixture.composed.empty_authoritative_with_empty_graph
+const TRULY_EMPTY_GRAPH = {
+  ...NODE_ONLY_ACCOUNT,
+  identity_graph: { ...NODE_ONLY_ACCOUNT.identity_graph, nodes: [], nodes_total: 0 },
+}
 const PARTIAL_WITH_GRAPH = graphFixture.composed.partial_with_truncated_graph
 
 describe("the producer's closed family set is the lens's closed family set", () => {
@@ -358,7 +365,7 @@ describe("unavailable is not zero", () => {
   })
 
   it("empty-authoritative is the ONE empty canvas that is an answer, and it says so", () => {
-    const lens = lensOf(graphFixture.composed.empty_authoritative_with_empty_graph)
+    const lens = lensOf(TRULY_EMPTY_GRAPH)
     expect(lens.state).toBe("ready")
     expect(lens.graphState).toBe("ready")
     expect(lens.nothingToDraw).toBe(true)
@@ -375,7 +382,7 @@ describe("unavailable is not zero", () => {
    * empty canvas was ever read, and they must not render identically.
    */
   it("an authoritative empty and an unread graph never render identically", () => {
-    const answer = lensOf(graphFixture.composed.empty_authoritative_with_empty_graph)
+    const answer = lensOf(TRULY_EMPTY_GRAPH)
     const unread = lensOf(graphFixture.composed.empty_authoritative_with_unread_graph)
 
     // Identical on the surface a naive consumer would key off.
@@ -923,7 +930,7 @@ describe("query success is not collection completeness", () => {
   })
 
   it("names the families whose absence is unknown rather than zero", () => {
-    const lens = lensOf(graphFixture.composed.empty_authoritative_with_empty_graph)
+    const lens = lensOf(TRULY_EMPTY_GRAPH)
     expect(lens.emptyClaim).toBe("qualified_empty")
     // The one family with a real coverage receipt is excluded from the caveat.
     expect(lens.familiesWithoutCoverageReceipt).not.toContain("WORKLOAD_USES_ROLE")
@@ -1412,5 +1419,47 @@ describe("CF01-F · the unnamed producer refusal", () => {
     // A hand-written gap would not come with the generation's own receipt.
     expect(refusal.inventory_authority?.generation).toEqual(expect.any(Number))
     expect(refusal.inventory_authority?.projection_receipt_hash).toMatch(/^v1:[0-9a-f]{64}$/)
+  })
+})
+
+
+describe("served identities without relationship rows", () => {
+  it("retains the real producer's standalone account despite its empty-graph fixture name", () => {
+    const lens = lensOf(NODE_ONLY_ACCOUNT)
+    expect(lens.nodes).toHaveLength(1)
+    expect(lens.nodes[0].kind).toBe("aws_account")
+    expect(lens.edges).toEqual([])
+    expect(lens.emptyClaim).toBe("not_empty")
+    expect(lens.nothingToDraw).toBe(false)
+  })
+
+  it("keeps a real isolated IAM user selectable without claiming joins or an empty identity canvas", () => {
+    const base = TRULY_EMPTY_GRAPH
+    const user = graphFixture.graph.ready.nodes.find(node => node.node_kind === "iam_user")!
+    const lens = lensOf({ ...base, identity_graph: { ...base.identity_graph,
+      nodes: [user], nodes_total: 1, edges: [], edges_total: 0 } })
+    expect(lens.graphState).toBe("ready")
+    expect(lens.nothingToDraw).toBe(false)
+    expect(lens.emptyClaim).toBe("not_empty")
+    expect(lens.emptyAnswer).toBe(false)
+    expect(lens.edges).toEqual([])
+    expect(lens.nodes).toHaveLength(1)
+    expect(lens.nodes[0]).toMatchObject({ kind: "iam_user", label: "alice", resolved: true })
+    const detail = identitySelectionDetail(lens, lens.nodes[0].id)!
+    expect(detail.relationships).toEqual([])
+    expect(detail.accessPath.focus.id).toBe(lens.nodes[0].id)
+    expect(detail.accessPath.hops).toEqual([])
+    expect(detail.accessPath.gaps.map(g => g.code)).toContain("NO_SERVED_ACCESS_PATH")
+  })
+
+  it.each([
+    ["empty", TRULY_EMPTY_GRAPH, "qualified_empty"],
+    ["unavailable", graphFixture.composed.empty_authoritative_with_unread_graph, "unread"],
+  ])("keeps the %s negative control distinct from a populated node-only graph", (_label, block, claim) => {
+    const lens = lensOf(block)
+    expect(lens.nodes).toEqual([])
+    expect(lens.edges).toEqual([])
+    expect(lens.nothingToDraw).toBe(true)
+    expect(lens.emptyClaim).toBe(claim)
   })
 })

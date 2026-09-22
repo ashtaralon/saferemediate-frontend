@@ -318,6 +318,12 @@ export function IdentityPlane({
 
       <TruncationLine frame={frame} collapsedTotal={collapsedTotal} undrawnBecauseCollapsed={undrawnBecauseCollapsed} />
 
+      {!lens.nothingToDraw && lens.edges.length === 0 ? (
+        <p className="mb-2 text-[11px]" style={{ color: "#92400E" }} data-testid="identity-plane-no-joins">
+          These identities were returned, but no relationships were served for them. Select an identity
+          to inspect its evidence. Missing relationships do not prove that it has no access.
+        </p>
+      ) : null}
       {lens.nothingToDraw ? (
         <IdentityLensNotice lens={lens} />
       ) : (

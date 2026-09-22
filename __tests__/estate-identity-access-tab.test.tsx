@@ -27,6 +27,13 @@ import graphFixture from "./fixtures/cf01-d1/estate-identity-graph-6e08d6b2.json
 import { IdentityLensNotice } from "@/components/topology-v0-2/estate-identity-plane"
 import { buildIdentityLensForPayload } from "@/components/topology-v0-2/estate-identity-access-model"
 
+// This producer fixture contains a standalone account despite its name.
+const NODE_ONLY_ACCOUNT = graphFixture.composed.empty_authoritative_with_empty_graph
+const TRULY_EMPTY_GRAPH = {
+  ...NODE_ONLY_ACCOUNT,
+  identity_graph: { ...NODE_ONLY_ACCOUNT.identity_graph, nodes: [], nodes_total: 0 },
+}
+
 const CAPABILITY_COUNT = fixtures.ready.relationship_capabilities.length
 const AVAILABLE_FAMILIES = fixtures.ready.relationship_capabilities
   .filter((row: { status: string }) => row.status === "available")
@@ -187,7 +194,7 @@ describe("the tab never renders a blank panel", () => {
   })
 
   it("empty-authoritative renders as a QUALIFIED answer, with its generation still shown", () => {
-    renderTab(graphFixture.composed.empty_authoritative_with_empty_graph)
+    renderTab(TRULY_EMPTY_GRAPH)
     expect(panel()).toHaveAttribute("data-state", "ready")
     const box = screen.getByTestId("identity-empty-authoritative")
     expect(box).toHaveAttribute("data-identity-empty-claim", "qualified_empty")
@@ -274,8 +281,8 @@ describe("the tab never renders a blank panel", () => {
     }
   })
 
-  it("states the coverage caveat exactly once across tab AND canvas", () => {
-    const block = graphFixture.composed.empty_authoritative_with_empty_graph
+  it("states the coverage caveat in the tab when a genuinely empty graph has no canvas content", () => {
+    const block = TRULY_EMPTY_GRAPH
     const payload = { ...TOPOLOGY, identity_access: block } as any
     const lens = buildIdentityLensForPayload(payload, {
       topologyNodes: (TOPOLOGY as any).nodes.map((n: any) => ({ id: n.id, name: n.name, type: n.type })),
@@ -289,15 +296,16 @@ describe("the tab never renders a blank panel", () => {
     const occurrences = (panel().textContent ?? "").split(LONG).length - 1
     expect(occurrences).toBe(1)
 
-    // And it is the CANVAS that carries it here, with the tab pointing at it.
-    expect(screen.getByTestId("identity-lens-notice-coverage").textContent).toContain(LONG)
-    expect(screen.getByTestId("identity-empty-coverage-pointer")).toBeInTheDocument()
-    expect(screen.queryByTestId("identity-empty-coverage-caveat")).toBeNull()
+    // No nodes or edges means the host slot is not mounted. The tab must
+    // carry the caveat itself instead of pointing to a nonexistent canvas.
+    expect(screen.queryByTestId("identity-lens-notice-coverage")).toBeNull()
+    expect(screen.queryByTestId("identity-empty-coverage-pointer")).toBeNull()
+    expect(screen.getByTestId("identity-empty-coverage-caveat").textContent).toContain(LONG)
   })
 
   it("when there is no canvas to carry it, the tab states it exactly once itself", () => {
     // No canvas prop: the tab is the only surface, so the long form must be here.
-    renderTab(graphFixture.composed.empty_authoritative_with_empty_graph)
+    renderTab(TRULY_EMPTY_GRAPH)
     const LONG = "Unknown rather than zero here:"
     const occurrences = (panel().textContent ?? "").split(LONG).length - 1
     expect(occurrences).toBe(1)
@@ -344,7 +352,8 @@ describe("the tab never renders a blank panel", () => {
     // graph supplies, roles do not
     ["empty roles + populated graph", () => fixtures.empty_authoritative, true],
     ["incomplete roles + populated graph", () => fixtures.partial_unresolved_role_id, true],
-    ["empty roles + empty-but-READ graph", () => graphFixture.composed.empty_authoritative_with_empty_graph, true],
+    ["empty roles + standalone account without relationships", () => NODE_ONLY_ACCOUNT, true],
+    ["empty roles + genuinely empty-but-READ graph", () => TRULY_EMPTY_GRAPH, false],
     // roles supply, graph does not
     ["valid role bindings + ABSENT graph", () => graphFixture.composed.valid_role_bindings_absent_graph, true],
     ["valid role bindings + UNREAD graph", () => graphFixture.composed.valid_role_bindings_unread_graph, true],
@@ -466,7 +475,7 @@ describe("the tab never renders a blank panel", () => {
   })
 
   it("the answer and the unread graph differ on the tab, not only in the model", () => {
-    renderTab(graphFixture.composed.empty_authoritative_with_empty_graph)
+    renderTab(TRULY_EMPTY_GRAPH)
     const answerGraphState = screen
       .getByTestId("identity-coverage-indicator")
       .getAttribute("data-identity-graph-state")
@@ -1065,4 +1074,13 @@ describe("compact focused diagram selection and connected geometry", () => {
     const center = boxes.get(role.id)!
     expect([...boxes.values()].some(box => box !== center && !borders([center.x, box.y + box.h / 2], center))).toBe(true)
   })
+})
+
+
+it("keeps the producer's standalone account canvas without claiming an empty identity graph", () => {
+  const payload = { ...TOPOLOGY, identity_access: NODE_ONLY_ACCOUNT } as any
+  render(<EstateIdentityAccessTab payload={payload} canvas={<div data-testid="node-only-account-canvas">account</div>} />)
+  expect(screen.getByTestId("node-only-account-canvas")).toBeInTheDocument()
+  expect(screen.queryByTestId("identity-empty-authoritative")).toBeNull()
+  expect(screen.getByTestId("identity-coverage-indicator")).toHaveAttribute("data-identity-graph-state", "ready")
 })

@@ -1820,7 +1820,7 @@ export function identityEmptyClaim(
   // Judging emptiness from the nested graph alone called a lens with two real
   // WORKLOAD_USES_ROLE edges "unread" whenever the graph was refused — the
   // same graph-only bias that stopped the host mounting the canvas.
-  if (graph.edges.length > 0 || view.roles.length > 0) return "not_empty"
+  if (graph.nodes.length > 0 || graph.edges.length > 0 || view.roles.length > 0) return "not_empty"
   if (!identityGraphWasRead(graph)) return "unread"
   const rolesAuthoritativelyEmpty =
     view.emptyAuthoritative &&
@@ -3062,7 +3062,9 @@ export function buildIdentityLens(
   }
 
   const readable = view.state === "ready" || view.state === "incomplete"
-  const nothingToDraw = !readable || edges.length === 0
+  // Producer-backed identities remain selectable even when no joins were served.
+  // A zero relationship count must not erase known isolated users or policies.
+  const nothingToDraw = !readable || nodes.size === 0
 
   /**
    * Did the identity graph actually get READ?

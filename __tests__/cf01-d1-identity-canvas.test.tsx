@@ -61,6 +61,13 @@ afterEach(() => {
 })
 
 const READY_WITH_GRAPH = graphFixture.composed.ready_with_graph
+// The producer's "empty graph" fixture still contains a standalone account.
+// Keep those source bytes intact; a truly empty negative control has no nodes.
+const NODE_ONLY_ACCOUNT = graphFixture.composed.empty_authoritative_with_empty_graph
+const TRULY_EMPTY_GRAPH = {
+  ...NODE_ONLY_ACCOUNT,
+  identity_graph: { ...NODE_ONLY_ACCOUNT.identity_graph, nodes: [], nodes_total: 0 },
+}
 
 function lensFor(identityAccess: unknown, focusedNodeId: string | null = null, hops = 2) {
   const payload = { ...estatePayload(), identity_access: identityAccess } as any
@@ -357,7 +364,7 @@ describe("CF01-D1 · unavailable is not zero, on the canvas", () => {
   })
 
   it("empty-authoritative is the one empty canvas that is an answer, and it says so", async () => {
-    const { container } = await renderLens(graphFixture.composed.empty_authoritative_with_empty_graph)
+    const { container } = await renderLens(TRULY_EMPTY_GRAPH)
     const notice = container.querySelector('[data-testid="identity-lens-notice"]')!
     expect(notice.getAttribute("data-identity-empty-answer")).toBe("true")
     expect(notice.textContent).toMatch(/No workload in this scope is bound/)
@@ -387,7 +394,7 @@ describe("CF01-D1 · unavailable is not zero, on the canvas", () => {
   })
 
   it("the two empty canvases are visibly different, not just internally different", async () => {
-    const answer = await renderLens(graphFixture.composed.empty_authoritative_with_empty_graph)
+    const answer = await renderLens(TRULY_EMPTY_GRAPH)
     const unread = await renderLens(graphFixture.composed.empty_authoritative_with_unread_graph)
     const a = answer.container.querySelector('[data-testid="identity-lens-notice"]')!
     const u = unread.container.querySelector('[data-testid="identity-lens-notice"]')!
@@ -1240,5 +1247,45 @@ describe("CF01-D1 · an unnamed refusal is rendered as a refusal, not a diagnosi
     expect(
       named!.querySelector('[data-testid="identity-lens-notice-gap-unnamed"]'),
     ).toBeNull()
+  })
+})
+
+
+describe("identity canvas keeps producer-backed isolated nodes", () => {
+  it("draws the real producer's standalone account with zero served edges", async () => {
+    const { container } = await renderLens(NODE_ONLY_ACCOUNT)
+    expect(container.querySelector('[data-testid="identity-plane-chip"][data-identity-kind="aws_account"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="identity-plane-no-joins"]')).not.toBeNull()
+    expect(container.querySelector("g[data-flow-family]")).toBeNull()
+    expect(container.querySelector('[data-testid="identity-lens-notice"]')).toBeNull()
+  })
+
+  it("renders and selects an isolated IAM user, explains missing joins and draws no relationships", async () => {
+    const base = TRULY_EMPTY_GRAPH
+    const user = graphFixture.graph.ready.nodes.find(node => node.node_kind === "iam_user")!
+    const block = { ...base, identity_graph: { ...base.identity_graph,
+      nodes: [user], nodes_total: 1, edges: [], edges_total: 0 } }
+    const onSelect = vi.fn()
+    const { container, lens } = await renderLens(block, { onSelect })
+    const chip = container.querySelector('[data-testid="identity-plane-chip"][data-identity-kind="iam_user"]')!
+    expect(chip).not.toBeNull()
+    expect(chip.textContent).toContain("alice")
+    fireEvent.click(chip.querySelector("[data-flow-id]")!)
+    expect(onSelect).toHaveBeenCalledWith(lens.nodes[0].id)
+    expect(container.querySelector('[data-testid="identity-plane-no-joins"]')!.textContent)
+      .toMatch(/no relationships were served[\s\S]*do not prove that it has no access/)
+    expect(container.querySelector('[data-testid="identity-lens-notice"]')).toBeNull()
+    expect(container.querySelector("g[data-flow-family]")).toBeNull()
+  })
+
+  it.each([
+    ["empty", TRULY_EMPTY_GRAPH, "true"],
+    ["unread", graphFixture.composed.empty_authoritative_with_unread_graph, "false"],
+  ])("retains the %s notice without inventing a selectable identity", async (_label, block, emptyAnswer) => {
+    const { container } = await renderLens(block)
+    expect(container.querySelector('[data-testid="identity-plane-chip"]')).toBeNull()
+    expect(container.querySelector('[data-testid="identity-plane-no-joins"]')).toBeNull()
+    expect(container.querySelector('[data-testid="identity-lens-notice"]')?.getAttribute("data-identity-empty-answer"))
+      .toBe(emptyAnswer)
   })
 })

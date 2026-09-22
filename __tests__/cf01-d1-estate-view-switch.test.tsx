@@ -284,3 +284,29 @@ describe("CF01-D1 · selection on the identity lens reuses the shared DetailPane
     expect(drawn + omitted).toBe(graphFixture.composed.ready_with_graph.identity_graph.edges.length + 2)
   })
 })
+
+
+describe("mounted identity drawers do not render traffic claims", () => {
+  it.each([false, true])("keeps the identity lens for a resource with no identity detail (fullscreen=%s)", async fullscreen => {
+    await mount(graphFixture.composed.ready_with_graph, { defaultView: "identity" })
+    if (fullscreen) fireEvent.click(screen.getByRole("button", { name: "Open map fullscreen" }))
+    const map = screen.getByTestId(fullscreen ? "topology-estate-map-fullscreen" : "identity-canvas-slot")
+    const alb = map.querySelector('[data-flow-id="alb"]') as HTMLElement
+    expect(alb).not.toBeNull()
+    fireEvent.click(alb)
+    const panel = await screen.findByTestId("topology-service-detail-panel")
+    expect(within(panel).queryByTestId("estate-identity-detail")).toBeNull()
+    expect(within(panel).queryByTestId("topology-service-path-map")).toBeNull()
+    expect(panel.textContent).not.toContain("Traffic evidence rebuilding")
+    const dossierRequest = vi.mocked(globalThis.fetch).mock.calls
+      .map(call => String(call[0])).find(url => url.includes("resource_id=alb"))!
+    expect(dossierRequest).toBeDefined()
+    const params = new URL(dossierRequest, "http://fixture.invalid").searchParams
+    expect(params.get("customer_id")).toBe("testbed-webshop")
+    expect(params.get("account_id")).toBe("416651950952")
+    expect(params.get("region")).toBe("eu-west-1")
+    // The request keeps the topology fetch scope; display-only VPC selection
+    // must not invent a different generation identity for the drawer.
+    expect(params.get("vpc_id")).toBeNull()
+  })
+})

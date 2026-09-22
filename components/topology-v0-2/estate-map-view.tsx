@@ -2112,6 +2112,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
           vpces={flowOverlayContext.vpces}
           trafficAuthority={identityLensActive ? undefined : data.traffic_authority}
           identity={identitySelection}
+          identityLensActive={identityLensActive}
           onSelectIdentityNode={setSelectedNodeId}
           onClose={() => setSelectedNodeId(null)}
         />
@@ -2297,6 +2298,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
                   vpces={flowOverlayContext.vpces}
                   trafficAuthority={identityLensActive ? undefined : data.traffic_authority}
                   identity={identitySelection}
+                  identityLensActive={identityLensActive}
                   onSelectIdentityNode={setSelectedNodeId}
                   onClose={() => setSelectedNodeId(null)}
                 />
