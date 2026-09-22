@@ -270,6 +270,34 @@ export async function GET() {
     pingStatus = res.status
     const elapsed = Date.now() - start
     const cold = elapsed > 5000
+    // A fast non-2xx is NOT a warm backend. Before this guard a 401 parsed
+    // cleanly (`res.json()` succeeds on the error envelope, `body?.systems` is
+    // undefined), the sweep silently no-opped over zero targets, and the route
+    // reported ok:true with backend_status:401 — so a rejected caller presented
+    // as a healthy cron while every operator click kept paying the full ~100s
+    // cold start. Fail closed here, and name the auth case so the log says WHY
+    // the sweep stopped instead of leaving it to be read as a latency problem.
+    // Status and elapsed only — never log request headers or credentials.
+    if (!res.ok) {
+      const isAuth = res.status === 401 || res.status === 403
+      const reason = isAuth
+        ? `backend rejected the keep-warm caller (HTTP ${res.status} — authentication/authorization failure)`
+        : `backend ping returned HTTP ${res.status}`
+      console.error(
+        `[keep-warm] ${reason} after ${elapsed}ms — prewarm sweep skipped`,
+      )
+      return NextResponse.json(
+        {
+          ok: false,
+          error: reason,
+          failure_kind: isAuth ? "auth" : "http_error",
+          backend_status: pingStatus,
+          elapsed_ms: Date.now() - start,
+          cold,
+        },
+        { status: 200 },
+      )
+    }
     if (cold) {
       console.warn(
         `[keep-warm] backend was cold — woke in ${elapsed}ms (status=${res.status})`,
@@ -361,7 +389,10 @@ export async function GET() {
     }
 
     return NextResponse.json({
-      ok: true,
+      // Non-2xx already returned above; this also refuses to call a 2xx that
+      // is not a 200 (e.g. a bodyless 204) a success, since those parse to an
+      // empty `systems` list and would report a green run over an empty sweep.
+      ok: pingStatus === 200,
       backend_status: pingStatus,
       elapsed_ms: Date.now() - start,
       cold,

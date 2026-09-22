@@ -32,8 +32,10 @@ describe("customer-resident frontend image", () => {
     const auth = readFileSync("lib/server/customer-backend-auth.ts", "utf8")
     const route = readFileSync("app/api/backend/[...path]/route.ts", "utf8")
 
-    expect(auth).toContain('headers.set("X-Cyntro-Service-Token", token)')
-    expect(auth).toContain("url.origin !== backendOrigin")
+    expect(auth).toContain('const SERVICE_TOKEN_HEADER = "X-Cyntro-Service-Token"')
+    expect(auth).toContain('headers.set(SERVICE_TOKEN_HEADER, token)')
+    expect(auth).toContain("const resolvedOrigin = backendOrigin")
+    expect(auth).toContain("if (!url || url.origin !== resolvedOrigin) return originalFetch(input, init)")
     expect(route).toContain('headers.delete("x-cyntro-service-token")')
     expect(route).toContain('headers.delete("authorization")')
   })
