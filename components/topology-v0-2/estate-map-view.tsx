@@ -2003,7 +2003,8 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
         <DetailPanel
           node={selectedNode}
           systemName={systemName}
-          vpcId={scopedVpc}
+          customerId={scopeParams.customerId}
+          vpcId={fetchVpcId}
           accountId={selectedAccountId}
           region={selectedRegionId}
           inspectorNodes={inspectorNodes}
@@ -2185,7 +2186,8 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
                 <DetailPanel
                   node={selectedNode}
                   systemName={systemName}
-                  vpcId={scopedVpc}
+                  customerId={scopeParams.customerId}
+                  vpcId={fetchVpcId}
                   accountId={selectedAccountId}
                   region={selectedRegionId}
                   inspectorNodes={inspectorNodes}

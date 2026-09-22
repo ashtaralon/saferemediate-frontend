@@ -424,4 +424,50 @@ describe("Estate operations panel", () => {
     expect(await screen.findByText(narration.operator_summary)).toBeInTheDocument()
     expect(screen.getByTestId("estate-narration-source")).toHaveTextContent("Deterministic evidence summary")
   })
+
+  it("sends the product tenant on resource and narration reads", async () => {
+    const spy = vi.spyOn(globalThis, "fetch").mockImplementation(standardBackendResponse)
+    render(
+      <DetailPanel
+        node={node}
+        systemName="testbed-webshop"
+        customerId="testbed-webshop"
+        accountId="416651950952"
+        region="eu-west-1"
+        vpcId={null}
+        onClose={() => {}}
+      />,
+    )
+
+    await waitFor(() => expect(spy.mock.calls.length).toBeGreaterThanOrEqual(2))
+    const urls = spy.mock.calls.map(([input]) => String(input))
+    const resource = urls.find((url) => url.includes("/resource?") && !url.includes("/resource/narration"))
+    const narrationUrl = urls.find((url) => url.includes("/resource/narration?"))
+    expect(resource).toContain("customer_id=testbed-webshop")
+    expect(resource).toContain("account_id=416651950952")
+    expect(resource).toContain("region=eu-west-1")
+    expect(resource).not.toContain("vpc_id=")
+    expect(narrationUrl).toContain("customer_id=testbed-webshop")
+    expect(narrationUrl).not.toContain("vpc_id=")
+  })
+
+  it("sends the map fetch vpc, not a picker vpc, when that is the prop", async () => {
+    const spy = vi.spyOn(globalThis, "fetch").mockImplementation(standardBackendResponse)
+    render(
+      <DetailPanel
+        node={node}
+        systemName="testbed-webshop"
+        customerId="testbed-webshop"
+        accountId="416651950952"
+        region="eu-west-1"
+        vpcId="vpc-bbbbbbbbbbbbbbbbb"
+        onClose={() => {}}
+      />,
+    )
+
+    await waitFor(() => expect(spy).toHaveBeenCalled())
+    const urls = spy.mock.calls.map(([input]) => String(input))
+    expect(urls.some((url) => url.includes("vpc_id=vpc-bbbbbbbbbbbbbbbbb") && url.includes("/resource?"))).toBe(true)
+    expect(urls.some((url) => url.includes("vpc_id=vpc-bbbbbbbbbbbbbbbbb") && url.includes("/resource/narration?"))).toBe(true)
+  })
 })
