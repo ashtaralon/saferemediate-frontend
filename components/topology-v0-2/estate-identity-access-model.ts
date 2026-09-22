@@ -1831,7 +1831,24 @@ export function identityEmptyClaim(
   return rolesAuthoritativelyEmpty ? "qualified_empty" : "unread"
 }
 
+/** Scope emitted by the account-wide canonical identity reader, independently
+ * of the outer workload selection. Null filters mean account-wide, not missing
+ * values to fill from the topology selection. */
+export interface IdentityGraphScope {
+  level: "account"
+  customer_id: string
+  account_id: string
+  inventory_generation: number
+  region: null
+  system_name: null
+  vpc_id: null
+}
+
+export type IdentityGraphScopeStatus = "unproven" | "matched" | "invalid" | "unavailable"
+
 export interface IdentityGraphView {
+  scope: IdentityGraphScope | null
+  scopeStatus: IdentityGraphScopeStatus
   state: IdentityGraphState
   headline: string
   detail: string
@@ -1886,6 +1903,8 @@ function graphShell(
     headline,
     detail,
     contractVersion: null,
+    scope: null,
+    scopeStatus: state === "absent" || state === "unavailable" ? "unavailable" : "unproven",
     nodes: [],
     edges: [],
     nodesTotal: null,
@@ -2004,6 +2023,30 @@ export function buildIdentityGraphView(raw: unknown): IdentityGraphView {
     }
   }
 
+  let scope: IdentityGraphScope | null = null
+  if (raw.scope !== undefined) {
+    if (status === "unavailable") {
+      if (raw.scope !== null) return graphShell("invalid", "The identity graph scope is not readable.",
+        "An unavailable identity graph must not assert an account scope.",
+        { contractVersion, scopeStatus: "invalid" })
+    } else {
+      const declared = raw.scope
+      if (!isPlainObject(declared) || declared.level !== "account"
+          || !isText(declared.customer_id) || !isText(declared.account_id)
+          || !isCount(declared.inventory_generation)
+          || declared.region !== null || declared.system_name !== null || declared.vpc_id !== null) {
+        return graphShell("invalid", "The identity graph scope is not readable.",
+          "The declared graph scope does not match the account-wide producer contract.",
+          { contractVersion, scopeStatus: "invalid" })
+      }
+      scope = {
+        level: "account", customer_id: declared.customer_id, account_id: declared.account_id,
+        inventory_generation: declared.inventory_generation,
+        region: null, system_name: null, vpc_id: null,
+      }
+    }
+  }
+
   const nodes: IdentityGraphNode[] = []
   for (const item of raw.nodes as unknown[]) {
     if (!isPlainObject(item)) return violation("a node is not an object")
@@ -2080,6 +2123,7 @@ export function buildIdentityGraphView(raw: unknown): IdentityGraphView {
       : totalsNote,
     {
       contractVersion,
+      scope,
       nodes,
       edges,
       nodesTotal: nodesTotal as number,
@@ -2088,6 +2132,28 @@ export function buildIdentityGraphView(raw: unknown): IdentityGraphView {
       gaps,
     },
   )
+}
+
+/** Match the nested graph to its own inventory authority. The outer region,
+ * system and VPC remain workload filters and never narrow an account graph.
+ * Historical payloads without this field remain explicitly unproven. */
+function bindIdentityGraphScope(view: IdentityView, graph: IdentityGraphView): IdentityGraphView {
+  if (!identityGraphWasRead(graph) || graph.scope === null) return graph
+  const inventory = view.receipts.find(item => item.label === INVENTORY_AUTHORITY_LABEL)
+  const mismatches: string[] = []
+  if (graph.scope.customer_id !== view.scope?.customer_id) mismatches.push("customer_id")
+  if (graph.scope.account_id !== view.scope?.account_id) mismatches.push("account_id")
+  if (!inventory || graph.scope.inventory_generation !== inventory.generation) mismatches.push("inventory_generation")
+  if (mismatches.length > 0) {
+    const detail = `The identity graph does not match its enclosing inventory authority (${mismatches.join(", ")}). ` +
+      "Its relationships are withheld; independently valid workload bindings may still be shown."
+    return graphShell("invalid", "Identity graph scope mismatch.", detail, {
+      contractVersion: graph.contractVersion,
+      scopeStatus: "invalid",
+      gaps: [{ code: "IDENTITY_GRAPH_SCOPE_MISMATCH", detail }],
+    })
+  }
+  return { ...graph, scopeStatus: "matched" }
 }
 
 /* ── the identity lens on the shared canvas ────────────────────────────────
@@ -2514,6 +2580,7 @@ export function buildIdentityLens(
   graph: IdentityGraphView,
   options: { topologyNodes: readonly TopologyRef[] },
 ): IdentityLens {
+  graph = bindIdentityGraphScope(view, graph)
   const topologyById = new Map<string, TopologyRef>()
   const topologyByName = new Map<string, TopologyRef>()
   for (const item of options.topologyNodes) {
@@ -3184,7 +3251,7 @@ export function identityGraphViewForPayload(
     isPlainObject(raw) && (view.state === "ready" || view.state === "incomplete" || view.state === "unavailable")
       ? raw.identity_graph
       : undefined
-  return buildIdentityGraphView(graphRaw)
+  return bindIdentityGraphScope(view, buildIdentityGraphView(graphRaw))
 }
 
 /* ── the compact indicator above the map ───────────────────────────────────
@@ -3226,6 +3293,9 @@ export interface IdentityIndicator {
   graphState: IdentityGraphState
   graphEdges: number
   graphNodes: number
+  graphScopeLine: string
+  graphScopeDetail: string
+  graphScopeStatus: IdentityGraphScopeStatus
   /** Families the installed path can serve / rule on. Null with no matrix. */
   familiesAvailable: number | null
   familiesTotal: number | null
@@ -3260,6 +3330,7 @@ function stateWords(state: IdentityViewState, projectionStatus: string | null): 
  * function decides no honesty question of its own, it only picks words.
  */
 export function buildIdentityIndicator(view: IdentityView, graph: IdentityGraphView): IdentityIndicator {
+  graph = bindIdentityGraphScope(view, graph)
   const words = stateWords(view.state, view.projectionStatus)
   const scope = view.scope
   const scopeLine = scope
@@ -3343,6 +3414,18 @@ export function buildIdentityIndicator(view: IdentityView, graph: IdentityGraphV
     graphState: graph.state,
     graphEdges: graph.edges.length,
     graphNodes: graph.nodes.length,
+    graphScopeStatus: graph.scopeStatus,
+    graphScopeLine: graph.scopeStatus === "matched" && graph.scope
+      ? `Identity graph: account-wide · ${graph.scope.account_id}`
+      : graph.scopeStatus === "invalid" ? "Identity graph scope invalid — graph withheld"
+        : identityGraphWasRead(graph) ? "Identity graph scope unproven"
+          : "Identity graph scope unavailable",
+    graphScopeDetail: graph.scopeStatus === "matched"
+      ? "Matches the inventory tenant, account and generation. These relationships are not filtered by the selected region, system or VPC."
+      : graph.scopeStatus === "invalid" ? graph.detail
+        : identityGraphWasRead(graph)
+          ? "This legacy snapshot does not declare the graph scope. Selected workload filters are not verified for these relationships."
+          : "No readable graph scope is available on this snapshot.",
     familiesAvailable: matrixKnown ? view.capabilities.filter(row => row.status === "available").length : null,
     familiesTotal: matrixKnown ? view.capabilities.length : null,
     matrixUnavailableReason: view.capabilitiesUnavailableReason,

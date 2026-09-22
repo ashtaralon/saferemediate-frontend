@@ -1,21 +1,30 @@
 # CF01 · D1 identity fixtures — provenance
 
-Every byte under this directory and in `__tests__/fixtures/estate-identity-access.json`
-was produced by running a backend script. Nothing here was hand-written to reach a
-state, and nothing was edited after it was emitted.
+The JSON fixtures preserve historical producer-output examples generated from
+explicitly synthetic input rows. Their embedded provenance identifies the
+producer or generation recipe; they are not captured production responses or
+proof of installed coverage. `network-fixture.ts` also contains a **hand-built**
+layout-only `estatePayload()` and DOM geometry stub, as its own header states;
+those values do not prove a producer contract.
 
-## Backend the fixtures were produced from
+Some examples reuse the existing demo/testbed account identifier and ARN/name
+templates. They are not fully anonymized. Credential examples use nonfunctional
+`AKIAEXAMPLE…` markers and metadata; no passwords or secret access keys are
+fixture inputs.
+
+## Historical backend references for the legacy JSON fixtures
 
 | | |
 |---|---|
 | Producer commit | `6e08d6b291eb9508212517702c9647c515d8e532` — *Emit fixtures whose identity graph was actually read* (CF01 lane F) |
 | Assembled candidate | `bc512560e422924f0759ae3926ef159bf9e7d6f4` (lane F integrated at `6cad0842`, plus lane E) |
-| Snapshots used | `cf01/review/F-6e08d6b2` and `cf01/be-integration` — the four producer files (`scripts/emit_estate_identity_access_fixtures.py`, `scripts/estate_identity_access.py`, `scripts/estate_identity_graph.py`, `unified/tenant_lifecycle/serving.py`) are byte-identical between them, and both snapshots emit the same 272,236 bytes (sha256 `09051e96…8113af`) |
+| Historical snapshots | `cf01/review/F-6e08d6b2` and `cf01/be-integration`. These names record the original generation context; they are not a claim that a current checkout under those paths still reproduces the committed fixture. Use the exact producer and recipe revisions identified below. |
 | Runtime | `cf01/.venv313/bin/python` |
 
-## `__tests__/fixtures/estate-identity-access.json` (272,236 B)
+## `__tests__/fixtures/estate-identity-access.json` (303,764 B)
 
-The backend's own fixture file, copied verbatim.
+Archived output of the backend's own fixture emitter. The recipe below applies
+to its historical producer snapshot, not an arbitrary current backend checkout.
 
 ```sh
 cd <backend snapshot>
@@ -43,10 +52,12 @@ Account-context coverage carried by the backend fixture:
 | `partial_no_account_policy_context` | `ACCOUNT_POLICY_CONTEXT_ABSENT` — a named gap, not "standalone" |
 | `unavailable` | graph `unavailable`, `IDENTITY_ACCESS_PROJECTION_UNAVAILABLE` |
 
-## `estate-identity-graph-6e08d6b2.json` (287,116 B)
+## `estate-identity-graph-6e08d6b2.json` (398,714 B)
 
-Emitted by `emit_identity_graph_fixture.py` beside it (renamed from
-`estate-identity-graph-41f5.json` to name its producing commit).
+Emitted by the historical `emit_identity_graph_fixture.py` recipe (renamed from
+`estate-identity-graph-41f5.json` to name its producing commit). To reproduce these
+archived bytes use frontend recipe revision `64d19479` and backend `6e08d6b2`,
+not the current recipe beside it; see the legacy provenance section below.
 
 ```sh
 cd <frontend>
@@ -116,13 +127,16 @@ been read comes back carrying `IDENTITY_GRAPH_READ_FAILED`.
 
 ## CF01-F candidate — `estate-identity-graph-F-candidate.json`
 
-Literal output of the recipe against `cf01/be-F` (unintegrated; **read-only**, nothing there was
-edited). Named a *candidate* because F is not landed.
+Archived output whose embedded `_backend.commit` is
+`b0d94a742d834a46105741da1fb10700da7a9f78`, with `dirty: false`. The *candidate*
+filename is historical and is not a statement about the current integration or
+deployment state. Reproduction requires that exact backend producer and the
+matching frontend recipe, not whichever commit currently occupies `cf01/be-F`.
 
 Reproduce:
 
 ```sh
-PYTHONPATH=<cf01/be-F> python __tests__/fixtures/cf01-d1/emit_identity_graph_fixture.py \
+PYTHONPATH=<backend-at-b0d94a74> python __tests__/fixtures/cf01-d1/emit_identity_graph_fixture.py \
   > __tests__/fixtures/cf01-d1/estate-identity-graph-F-candidate.json
 ```
 
@@ -160,8 +174,8 @@ longer exists as an input.
 The recipe still RUNS against `6e08d6b2` (the fake answers the un-paged read shape, and the
 coverage argument is passed only when the backend defines `REQUIRED_FAMILIES`), so the legacy
 states remain reachable. But to reproduce the committed legacy bytes exactly, check out the recipe
-at `64d19479`. Both files are kept: the legacy one is the contract in force until F integrates, and
-the candidate is what the consumer is being reconciled against.
+at `64d19479`. Both files are kept to test the historical producer contracts;
+neither filename establishes the currently installed contract or integration state.
 
 ### `producer_refusal.inventory_authority_invalid` — a refusal with no name
 
@@ -208,3 +222,21 @@ The guard asserted the absence of one named code, `IDENTITY_GRAPH_READ_FAILED`. 
 written as `unavailable` with exit 0 — the same fail-open shape as a check that only fires on an
 explicit `False`. It now asserts what a read must ACHIEVE (no block that should have been read may
 come back `unavailable`), which no new refusal code can outrun.
+
+
+## Current explicit graph-scope contract
+
+The minimal producer composition reviewed at backend `aeafee168e907f217ff0ae184c615c18cc8cb72d`
+adds an explicit `identity_graph.scope`: account level, tenant, account and
+inventory generation, with region/system/VPC null. The outer workload scope
+remains separately selected. The frontend model/tab scope tests add this exact
+new contract shape to historical synthetic graph rows as **consumer contract
+inputs**; they do not relabel the old JSON files as output of the new producer.
+
+That minimal backend composition does not carry the historical emitter's
+`account_context_row()` helper. The current recipe correctly refuses to run
+against it. Do not bypass the refusal, fake producer hashes or infer live data
+from the archived fixtures. Use the historical revisions to regenerate archived
+fixtures; any new producer fixture needs its own explicit generation recipe and
+provenance. Production readiness still requires a fresh durable projection and
+independent authenticated API/UI verification.

@@ -338,7 +338,7 @@ function ScopeVerdictChip({ binding }: { binding: ScopeBinding | null }) {
       <Chip
         tone="warn"
         testId="identity-scope-verdict"
-        label={`scope mismatch · ${binding.mismatches.map(m => m.field).join(", ")}`}
+        label={`workload scope mismatch · ${binding.mismatches.map(m => m.field).join(", ")}`}
       />
     )
   }
@@ -347,7 +347,7 @@ function ScopeVerdictChip({ binding }: { binding: ScopeBinding | null }) {
     <Chip
       tone="teal"
       testId="identity-scope-verdict"
-      label={`scope verified · ${binding.verified.length} field${binding.verified.length === 1 ? "" : "s"}`}
+      label={`workload scope matches · ${binding.verified.length} field${binding.verified.length === 1 ? "" : "s"}`}
     />
   )
 }
@@ -385,7 +385,7 @@ function CoverageIndicator({ indicator, compact = false }: { indicator: Identity
         <Chip
           testId="identity-coverage-scope"
           tone={indicator.scopeMismatch ? "warn" : indicator.scopeVerified ? "teal" : "neutral"}
-          label={indicator.scopeLine}
+          label={`Workload scope: ${indicator.scopeLine}`}
         />
       ) : null}
       {/* Generation diagnostics and the family-coverage count are Evidence
@@ -537,6 +537,14 @@ export function EstateIdentityAccessTab({
               Evidence. Nothing was deleted.
             */}
             <CoverageIndicator indicator={indicator} compact />
+            <div className="mt-1.5" data-testid="identity-graph-scope" data-scope-status={indicator.graphScopeStatus}>
+              <Chip
+                testId="identity-graph-scope-label"
+                tone={indicator.graphScopeStatus === "matched" ? "teal" : "warn"}
+                label={indicator.graphScopeLine}
+              />
+              <p className="mt-1 text-[11px]" style={{ color: MUTED }}>{indicator.graphScopeDetail}</p>
+            </div>
             <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
               <ScopeVerdictChip binding={view.scopeBinding} />
               <CoverageLimitsCompact limits={indicator.limits} />

@@ -1084,3 +1084,46 @@ it("keeps the producer's standalone account canvas without claiming an empty ide
   expect(screen.queryByTestId("identity-empty-authoritative")).toBeNull()
   expect(screen.getByTestId("identity-coverage-indicator")).toHaveAttribute("data-identity-graph-state", "ready")
 })
+
+
+describe("separate workload and account graph scope labels", () => {
+  function withAccountScope(): any {
+    const block = structuredClone(graphFixture.composed.ready_with_graph)
+    return { ...block, identity_graph: { ...block.identity_graph, scope: {
+      level: "account", customer_id: block.scope.customer_id, account_id: block.scope.account_id,
+      inventory_generation: block.inventory_authority.generation,
+      region: null, system_name: null, vpc_id: null,
+    } } }
+  }
+
+  it("labels the account-wide graph separately from the selected workload filters", () => {
+    renderTab(withAccountScope())
+    expect(screen.getByTestId("identity-coverage-scope").textContent).toContain("Workload scope:")
+    expect(screen.getByTestId("identity-coverage-scope").textContent).toContain("eu-west-1")
+    const graphScope = screen.getByTestId("identity-graph-scope")
+    expect(graphScope.getAttribute("data-scope-status")).toBe("matched")
+    expect(graphScope.textContent).toContain("Identity graph: account-wide")
+    expect(graphScope.textContent).toContain("not filtered by the selected region, system or VPC")
+    expect(screen.getByTestId("identity-scope-verdict").textContent).toContain("workload scope matches")
+    expect(screen.getByTestId("identity-graph-scope-label").textContent).not.toContain("eu-west-1")
+    expect(screen.getByTestId("identity-coverage-graph").textContent).toContain("relationships")
+  })
+
+  it("shows legacy graph scope as unproven while retaining its graph", () => {
+    renderTab(graphFixture.composed.ready_with_graph)
+    expect(screen.getByTestId("identity-graph-scope-label").textContent).toBe("Identity graph scope unproven")
+    expect(screen.getByTestId("identity-graph-scope").textContent).toContain("Selected workload filters are not verified")
+    expect(screen.getByTestId("identity-coverage-graph").textContent).toContain("relationships")
+  })
+
+  it("names a mismatched account graph as withheld without certifying its scope", () => {
+    const block = withAccountScope()
+    block.identity_graph.scope.account_id = "foreign-account"
+    renderTab(block)
+    expect(screen.getByTestId("identity-graph-scope").getAttribute("data-scope-status")).toBe("invalid")
+    expect(screen.getByTestId("identity-graph-scope-label").textContent).toContain("graph withheld")
+    expect(screen.getByTestId("identity-coverage-graph").textContent).toBe("identity graph invalid")
+    expect(screen.getByTestId("identity-scope-verdict").textContent).toContain("workload scope matches")
+    expect(screen.getByTestId("identity-roles-counts").textContent).toContain("shown")
+  })
+})

@@ -25,9 +25,14 @@ import {
   bindScope,
   buildGraph,
   buildIdentityView,
+  buildIdentityGraphView,
+  buildIdentityIndicator,
+  buildIdentityLensForPayload,
+  identityGraphViewForPayload,
 } from "@/components/topology-v0-2/estate-identity-access-model"
 
 import fixtures from "./fixtures/estate-identity-access.json"
+import scopeGraphFixture from "./fixtures/cf01-d1/estate-identity-graph-F-candidate.json"
 
 const READY_CAPABILITIES = fixtures.ready.relationship_capabilities as Array<{
   family: string
@@ -1566,4 +1571,101 @@ describe("selected role attachments stay distinct from resource access", () => {
       expect(path.focus.id).toBe(selectedId)
     },
   )
+})
+
+
+describe("account graph scope versus selected workload scope", () => {
+  // Explicit contract inputs matching estate_identity_access._read_identity_graph
+  // at aeafee16: these add the new scope shape to historical synthetic rows.
+  // They do not claim that the historical fixture was re-emitted at that commit.
+  const scopedBlock = (): any => {
+    const block = structuredClone(scopeGraphFixture.composed.ready_with_graph)
+    return { ...block, identity_graph: { ...block.identity_graph, scope: {
+      level: "account", customer_id: block.scope.customer_id, account_id: block.scope.account_id,
+      inventory_generation: block.inventory_authority.generation,
+      region: null, system_name: null, vpc_id: null,
+    } } }
+  }
+
+  it("preserves explicit account scope and matches only its inventory authority", () => {
+    const block = scopedBlock(), data = payload(block)
+    const view = buildIdentityView(data), graph = identityGraphViewForPayload(data)
+    expect(graph.scope).toEqual(block.identity_graph.scope)
+    expect(graph.scopeStatus).toBe("matched")
+    expect(graph.edges).toHaveLength(block.identity_graph.edges.length)
+    const indicator = buildIdentityIndicator(view, graph)
+    expect(indicator.scopeLine).toContain("eu-west-1")
+    expect(indicator.graphScopeLine).toBe(`Identity graph: account-wide · ${block.scope.account_id}`)
+    expect(indicator.graphScopeLine).not.toContain("eu-west-1")
+    expect(indicator.graphScopeDetail).toContain("not filtered by the selected region, system or VPC")
+    // Parsing the graph alone has no enclosing authority to compare against.
+    expect(buildIdentityGraphView(block.identity_graph).scopeStatus).toBe("unproven")
+  })
+
+  it.each(["customer_id", "account_id", "inventory_generation"])("withholds a mismatched %s without dropping valid workload bindings", field => {
+    const block = scopedBlock()
+    block.identity_graph.scope[field] = field === "inventory_generation" ? 999 : "foreign-scope"
+    const graph = identityGraphViewForPayload(payload(block))
+    expect(graph.state).toBe("invalid")
+    expect(graph.scopeStatus).toBe("invalid")
+    expect(graph.detail).toContain(field)
+    expect(graph.edges).toEqual([])
+    const lens = buildIdentityLensForPayload(payload(block), { topologyNodes: [] })
+    const { identity_graph: omitted, ...rolesOnly } = block
+    void omitted
+    const rolesLens = buildIdentityLensForPayload(payload(rolesOnly), { topologyNodes: [] })
+    expect(lens.edges.map(edge => edge.id)).toEqual(rolesLens.edges.map(edge => edge.id))
+    expect(lens.edges.length).toBeGreaterThan(0)
+  })
+
+  it.each([null, {}, { level: "region" }, { inventory_generation: "31" }, { region: "eu-west-1" }, { system_name: "testbed-webshop" }, { vpc_id: "vpc-1" }])("refuses a malformed or falsely narrowed explicit scope %j", change => {
+    const block = scopedBlock()
+    block.identity_graph.scope = change === null || Object.keys(change).length === 0
+      ? change : { ...block.identity_graph.scope, ...change }
+    const graph = identityGraphViewForPayload(payload(block))
+    expect(graph.state).toBe("invalid")
+    expect(graph.nodes).toEqual([])
+    expect(graph.edges).toEqual([])
+  })
+
+  it("retains legacy relationships with scope explicitly unproven", () => {
+    const block = scopedBlock()
+    delete block.identity_graph.scope
+    const view = buildIdentityView(payload(block)), graph = identityGraphViewForPayload(payload(block))
+    expect(graph.scope).toBeNull()
+    expect(graph.scopeStatus).toBe("unproven")
+    expect(graph.edges.length).toBeGreaterThan(0)
+    expect(buildIdentityIndicator(view, graph).graphScopeLine).toBe("Identity graph scope unproven")
+  })
+
+  it("preserves null scope on a genuinely unavailable graph", () => {
+    const block = scopedBlock()
+    block.identity_graph = { ...scopeGraphFixture.graph.unavailable_read_failed, scope: null }
+    const graph = identityGraphViewForPayload(payload(block))
+    expect(graph.state).toBe("unavailable")
+    expect(graph.scopeStatus).toBe("unavailable")
+    expect(graph.scope).toBeNull()
+    expect(graph.edges).toEqual([])
+  })
+
+  it("rejects an unavailable graph that asserts an account scope", () => {
+    const block = scopedBlock()
+    block.identity_graph = { ...scopeGraphFixture.graph.unavailable_read_failed, scope: block.identity_graph.scope }
+    const graph = identityGraphViewForPayload(payload(block))
+    expect(graph.state).toBe("invalid")
+    expect(graph.scopeStatus).toBe("invalid")
+    expect(graph.edges).toEqual([])
+  })
+
+  it("accepts a partial account graph without upgrading coverage or known totals", () => {
+    const block = scopedBlock()
+    block.identity_graph = { ...scopeGraphFixture.graph.partial_principals_truncated, scope: block.identity_graph.scope }
+    const graph = identityGraphViewForPayload(payload(block))
+    expect(graph.state).toBe("partial")
+    expect(graph.scopeStatus).toBe("matched")
+    expect(graph.nodesTotal).toBeNull()
+    expect(graph.edgesTotal).toBeNull()
+    expect(graph.truncated).toBe(true)
+    expect(graph.edges.length).toBeGreaterThan(0)
+  })
 })
