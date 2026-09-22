@@ -87,3 +87,16 @@ export function installCustomerBackendAuthFetch(): void {
   }
   markedGlobal[INSTALL_MARKER] = true
 }
+
+/** Whether the service-token writer above is installed in this process.
+ *
+ * A proxy needs this BEFORE it sends: on the hosted shape the service token is
+ * the only proof the request carries, so without the writer the call goes out
+ * unauthenticated and the backend's refusal reads as an identity failure of the
+ * operator rather than a deployment that never installed its own credential.
+ * Reading the marker is not a grant -- the backend still verifies the token and
+ * decides.
+ */
+export function customerBackendAuthInstalled(): boolean {
+  return Boolean((globalThis as MarkedGlobal)[INSTALL_MARKER])
+}

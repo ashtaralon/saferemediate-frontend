@@ -32,6 +32,7 @@ import {
   regionsQueryParam,
 } from '@/lib/inventory-honesty'
 import { useAccountScope } from '@/lib/account-scope-context'
+import { buildIamGapAnalysisUrl } from '@/lib/iam-review-url'
 import { resourceAccountId, withAccountScope, type ProductScope } from '@/lib/account-scope'
 import { RefreshEvidenceButton } from "@/components/RefreshEvidenceButton"
 
@@ -616,11 +617,11 @@ export default function AllServicesInventory({ systemName }: Props) {
       setIamError(null)
       
       try {
-        const res = await fetch(`/api/proxy/iam-roles/${encodeURIComponent(roleName)}/gap-analysis`)
+        const res = await fetch(buildIamGapAnalysisUrl(roleName, accountScope))
         
         if (!res.ok) {
           // Try with service name as fallback
-          const altRes = await fetch(`/api/proxy/iam-roles/${encodeURIComponent(selectedService.name)}/gap-analysis`)
+          const altRes = await fetch(buildIamGapAnalysisUrl(selectedService.name, accountScope))
           if (altRes.ok) {
             const data = await altRes.json()
             setIamData(data)

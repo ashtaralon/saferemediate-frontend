@@ -127,3 +127,27 @@ export function buildTopologyRiskServerCacheKey(
       : `topology-risk:${tenant}:${systemName}:${account}:${region}:${vpc}`
   return `${base}:${TOPOLOGY_RISK_SERVER_CACHE_SCHEMA}`
 }
+
+/**
+ * The Estate page's selectable lenses, and their deep link.
+ *
+ * `lens` is additive, optional, and READ-ONLY. When it is absent the page keeps
+ * whatever default it already had -- adding a deep link must not become a way
+ * of changing where the page opens. When it is present and recognised it
+ * selects that view, so a shared link lands on the same lens the sender was
+ * looking at.
+ *
+ * Nothing writes it back. The Estate page is a client page under the App
+ * Router, whose page-segment cache key includes the search string, so a
+ * post-mount query change unmounts the map (see estate-map-view.tsx for the
+ * measurement). A lens toggle is view state, not navigation.
+ */
+export const ESTATE_LENSES = ["map", "inventory", "identity"] as const
+export type EstateLens = (typeof ESTATE_LENSES)[number]
+
+/** The lens this URL asks for, or null when it asks for none. */
+export function lensFromSearch(search: string): EstateLens | null {
+  const raw = new URLSearchParams(String(search || "").replace(/^\?/, "")).get("lens")
+  const match = ESTATE_LENSES.find(lens => lens === raw)
+  return match ? match : null
+}

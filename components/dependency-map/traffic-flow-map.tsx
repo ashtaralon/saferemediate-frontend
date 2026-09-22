@@ -35,6 +35,8 @@ import { HeatmapControls } from './heatmap-controls';
 import { TimelineSlider } from './timeline-slider';
 import { VPCBoundaries } from './vpc-boundaries';
 import { ExportControls } from './export-controls';
+import { useAccountScope } from '@/lib/account-scope-context';
+import { buildIamGapAnalysisUrl } from '@/lib/iam-review-url';
 import {
   type CanvasEdge,
   type EdgePlane,
@@ -8775,6 +8777,9 @@ export default function TrafficFlowMap({
   // pathFilter applied if set) via useMemo, so switching attack paths
   // re-renders instantly without refetching and stale fetches can't
   // race-overwrite the right filter.
+  // The IAM Review read below resolves a role inside an account. A role id is
+  // not unique across accounts, so it names the operator's selected one.
+  const accountScope = useAccountScope();
   const [rawArchitecture, setRawArchitecture] = useState<SystemArchitecture | null>(null);
 
   const pathAuthorityArchitecture = useMemo((): SystemArchitecture | null => {
@@ -10811,7 +10816,7 @@ export default function TrafficFlowMap({
     lpScore: number;
   } | null> => {
     try {
-      const res = await fetch(`/api/proxy/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=365`);
+      const res = await fetch(buildIamGapAnalysisUrl(roleName, accountScope));
       if (!res.ok) {
         console.warn(`[IAM] Failed to fetch gap analysis for ${roleName}: ${res.status}`);
         return null;

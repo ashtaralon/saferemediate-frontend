@@ -23,7 +23,10 @@ import { NextResponse } from "next/server"
 
 export type ProxyErrorBody = {
   error: string
-  detail?: string
+  /** The backend's own body when it was JSON, else its text. Never truncated
+   *  when it parsed: a refusal's `code` is the only thing that lets the UI say
+   *  WHICH fault this is, and slicing the JSON destroyed it. */
+  detail?: string | Record<string, unknown>
   backendStatus?: number
   origin: "proxy"
 }
@@ -32,13 +35,23 @@ export type ProxyErrorBody = {
  * Backend returned a non-2xx status. Mirror 4xx straight through; collapse
  * 5xx to 502 Bad Gateway so callers can treat all server-side faults
  * uniformly. Never returns 200.
+ *
+ * `preserveStatus` opts one route out of that collapse. It exists because the
+ * collapse is not free: a deliberately disabled capability answers a typed
+ * 503, and flattening it to 502 tells the operator "the gateway is broken"
+ * about a deployment that is working exactly as configured. Routes whose
+ * backend emits typed refusals pass `preserveStatus: true`; the other 23
+ * callers keep the uniform behaviour they were written against, so this
+ * changes no existing contract.
  */
 export function backendError(opts: {
   status: number
   message: string
-  detail?: string
+  detail?: string | Record<string, unknown>
+  preserveStatus?: boolean
 }): NextResponse {
-  const responseStatus = opts.status >= 500 ? 502 : opts.status
+  const responseStatus =
+    opts.preserveStatus || opts.status < 500 ? opts.status : 502
   const body: ProxyErrorBody = {
     error: opts.message,
     detail: opts.detail,

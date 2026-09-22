@@ -11,6 +11,8 @@
  * endpoint is for.
  */
 
+import { buildIamGapAnalysisUrl, type ReviewScope } from "@/lib/iam-review-url"
+
 export type QueryFamily = "gap_analysis" | "exposure" | "history" | "aggregator" | "inventory"
 
 export interface CanonicalQuestion {
@@ -28,6 +30,13 @@ export interface CanonicalQuestion {
 export interface IntentContext {
   systemName?: string
   roleName?: string
+  /**
+   * The operator's selected tenant/account/region, for routes that read a
+   * per-role contract. Absent means the caller did not supply one -- it is
+   * never filled in here, because a guessed account is a cross-tenant read.
+   * The gallery, the only production caller, always passes it.
+   */
+  scope?: ReviewScope
   bucketName?: string
   windowDays?: number
   resourceType?: string
@@ -78,10 +87,14 @@ export const CANONICAL_QUESTIONS: CanonicalQuestion[] = [
     hint: "Per-role IAM gap-analysis",
     family: "gap_analysis",
     route: (ctx) => ({
-      url: withEnvelope(
-        `/api/proxy/iam-roles/${encodeURIComponent(ctx.roleName ?? "")}/gap-analysis`,
-        { days: 365 }
-      ),
+      // Scoped when the caller supplied a selection. When it did not, the URL
+      // is what it always was -- absence is preserved, never invented.
+      url: ctx.scope
+        ? `${buildIamGapAnalysisUrl(ctx.roleName ?? "", ctx.scope)}&envelope=true`
+        : withEnvelope(
+            `/api/proxy/iam-roles/${encodeURIComponent(ctx.roleName ?? "")}/gap-analysis`,
+            { days: 365 }
+          ),
       method: "GET",
       family: "gap_analysis",
       resultHeadline: `Gap analysis for ${ctx.roleName ?? "role"}`,

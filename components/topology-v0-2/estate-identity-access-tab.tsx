@@ -17,7 +17,12 @@
  * facts, and each gets its own words.
  */
 
+import { useState } from "react"
+
 import { AlertTriangle, Info, ShieldCheck } from "lucide-react"
+
+import { IAMPermissionAnalysisModal } from "@/components/iam-permission-analysis-modal"
+import { readTaxonomy } from "./identity-taxonomy-contract"
 
 import { EstateIdentityMap } from "./estate-identity-map"
 import {
@@ -28,6 +33,7 @@ import {
   type RelationshipCapability,
   type ScopeBinding,
 } from "./estate-identity-access-model"
+import type { GraphRoleNode } from "./estate-identity-access-model"
 import type { TopologyRiskResponse } from "./types"
 
 const INK = "#1A2330"
@@ -290,6 +296,23 @@ export function EstateIdentityAccessTab({
 }) {
   const view = buildIdentityView(payload)
   const bad = view.state === "unavailable" || view.state === "invalid" || view.state === "scope_mismatch"
+  // Which families the producer actually sent. Absent ones are reported
+  // absent; none of them is derived from the roles that ARE present.
+  const taxonomy = readTaxonomy(payload?.identity_access)
+  // Clicking a role opens the EXISTING Review surface -- the same modal, the
+  // same typed-refusal path -- rather than a second detail panel that would
+  // have to re-learn what a refusal means.
+  const [reviewRole, setReviewRole] = useState<GraphRoleNode | null>(null)
+  // The system this estate payload is for. Review refuses without it rather
+  // than guessing, so it is read from the binding the model already verified.
+  // scopeBinding is null on the states that never got as far as binding a
+  // scope. No binding means no verified system, which is exactly the case the
+  // "Review cannot open" branch below is for -- so it stays undefined rather
+  // than being defaulted to something the payload never said.
+  const binding = view.scopeBinding
+  const boundSystem = binding
+    ? [...binding.verified, ...binding.echoedOnly].find(entry => entry.field === "system_name")
+    : undefined
 
   return (
     <div data-testid="estate-identity-access" data-state={view.state} className="p-3">
@@ -332,15 +355,11 @@ export function EstateIdentityAccessTab({
 
       <GapList gaps={view.gaps} testId="identity-projection-gaps" />
 
-      <section className="mt-3">
-        <h3 className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: MUTED }}>
-          Projection authority
-        </h3>
-        <div className="mt-1.5">
-          <Receipts receipts={view.receipts} />
-        </div>
-      </section>
-
+      {/*
+        The map is this tab's primary content: the question here is who can
+        reach what, and the map is the answer. The projection authority and the
+        capability matrix follow it as the evidence behind it.
+      */}
       {view.state === "ready" || view.state === "incomplete" ? (
         <section className="mt-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -392,14 +411,49 @@ export function EstateIdentityAccessTab({
                 generation it was read from.
               </div>
             ) : (
-              <EstateIdentityMap view={view} />
+              <EstateIdentityMap
+                view={view}
+                taxonomy={taxonomy}
+                selectedRoleId={reviewRole ? reviewRole.roleId : null}
+                onSelectRole={setReviewRole}
+              />
             )}
           </div>
           <RoleGaps view={view} />
         </section>
       ) : null}
 
+      <section className="mt-3">
+        <h3 className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: MUTED }}>
+          Projection authority
+        </h3>
+        <div className="mt-1.5">
+          <Receipts receipts={view.receipts} />
+        </div>
+      </section>
+
       <CapabilityMatrix view={view} />
+
+      {reviewRole && boundSystem ? (
+        <IAMPermissionAnalysisModal
+          isOpen
+          roleName={reviewRole.label}
+          systemName={boundSystem.value}
+          onClose={() => setReviewRole(null)}
+          onApplyFix={() => {}}
+        />
+      ) : null}
+      {reviewRole && !boundSystem ? (
+        <div
+          data-testid="identity-review-unbound"
+          className="mt-3 rounded-lg border px-3 py-2.5 text-[11px]"
+          style={{ borderColor: WARN_LINE, background: WARN_BG, color: WARN }}
+        >
+          Review cannot open for <span className="font-mono">{reviewRole.label}</span>: this payload
+          names no system for the role to be resolved inside. Opening it anyway would ask the
+          backend to pick one.
+        </div>
+      ) : null}
 
       <footer className="mt-4 text-[10px] leading-relaxed" style={{ color: MUTED }}>
         Read from the <span className="font-mono">estate-identity-access/v1</span> block on this

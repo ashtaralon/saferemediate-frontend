@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { Shield, Lock, Globe, CheckCircle, XCircle, ArrowRight, Loader2, AlertTriangle, RefreshCw, X, ChevronRight, Key, FileWarning, Zap, Map as MapIcon } from "lucide-react"
+import { useAccountScope } from "@/lib/account-scope-context"
+import { buildIamGapAnalysisUrl } from "@/lib/iam-review-url"
 
 interface Resource {
   id: string
@@ -217,6 +219,10 @@ interface SystemSecurityOverviewProps {
 }
 
 export function SystemSecurityOverview({ systemName, onViewOnMap }: SystemSecurityOverviewProps) {
+  // Reads of the IAM Review contract name the account they resolve the role
+  // inside. A role id is not unique across accounts, so an unscoped read asks
+  // the backend to pick one.
+  const accountScope = useAccountScope()
   const [loading, setLoading] = useState(true)
   const [resources, setResources] = useState<Resource[]>([])
   const [connections, setConnections] = useState<Connection[]>([])
@@ -245,7 +251,7 @@ export function SystemSecurityOverview({ systemName, onViewOnMap }: SystemSecuri
   const fetchRoleDetail = useCallback(async (roleName: string) => {
     setRoleDetailLoading(true)
     try {
-      const res = await fetch(`/api/proxy/iam-roles/${encodeURIComponent(roleName)}/gap-analysis`)
+      const res = await fetch(buildIamGapAnalysisUrl(roleName, accountScope))
       if (res.ok) {
         const data = await res.json()
         setRoleDetail(data)

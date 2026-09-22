@@ -1,6 +1,18 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+// The gallery now reads the operator's selected scope so its per-role route
+// names an account. `useAccountScope` throws outside its provider rather than
+// handing back a default, so the test supplies the input production supplies.
+vi.mock("@/lib/account-scope-context", () => ({
+  useAccountScope: () => ({
+    customerId: "cust-testbed",
+    groupId: "prod",
+    accountId: "416651950952",
+    region: "eu-west-1",
+  }),
+}))
+
 import { SavedQuestionGallery } from "@/components/copilot/saved-question-gallery"
 
 afterEach(() => {
