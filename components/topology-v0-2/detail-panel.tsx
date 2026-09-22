@@ -50,6 +50,7 @@ import {
 interface Props {
   node: TopologyNode | null
   systemName: string
+  customerId?: string | null
   accountId?: string | null
   region?: string | null
   vpcId?: string | null
@@ -61,6 +62,23 @@ interface Props {
 }
 
 type Tab = "resource" | "dependencies" | "change"
+
+function operationalScopeQuery(
+  resourceId: string,
+  scope: {
+    customerId?: string | null
+    accountId?: string | null
+    region?: string | null
+    vpcId?: string | null
+  },
+): URLSearchParams {
+  const query = new URLSearchParams({ resource_id: resourceId, window_days: "90" })
+  if (scope.customerId) query.set("customer_id", scope.customerId)
+  if (scope.accountId) query.set("account_id", scope.accountId)
+  if (scope.region) query.set("region", scope.region)
+  if (scope.vpcId) query.set("vpc_id", scope.vpcId)
+  return query
+}
 
 function relativeTime(value?: string | null): string {
   if (!value) return "No observation timestamp"
@@ -330,6 +348,7 @@ function ServicePathMap({
 export function DetailPanel({
   node,
   systemName,
+  customerId,
   accountId,
   region,
   vpcId,
@@ -396,10 +415,7 @@ export function DetailPanel({
     const load = async () => {
       setLoading(true)
       setError(null)
-      const query = new URLSearchParams({ resource_id: requestId, window_days: "90" })
-      if (accountId) query.set("account_id", accountId)
-      if (region) query.set("region", region)
-      if (vpcId) query.set("vpc_id", vpcId)
+      const query = operationalScopeQuery(requestId, { customerId, accountId, region, vpcId })
       try {
         const body = await operationalRequest<OperationalDossier>(systemName, `resource?${query}`)
         if (!cancelled) setDossier(body)
@@ -411,7 +427,7 @@ export function DetailPanel({
     }
     void load()
     return () => { cancelled = true }
-  }, [node, requestId, systemName, accountId, region, vpcId])
+  }, [node, requestId, systemName, customerId, accountId, region, vpcId])
 
   useEffect(() => {
     const operationId = plan?.operation_id
@@ -465,10 +481,7 @@ export function DetailPanel({
     const loadNarration = async () => {
       setNarrationLoading(true)
       setNarrationError(false)
-      const query = new URLSearchParams({ resource_id: requestId, window_days: "90" })
-      if (accountId) query.set("account_id", accountId)
-      if (region) query.set("region", region)
-      if (vpcId) query.set("vpc_id", vpcId)
+      const query = operationalScopeQuery(requestId, { customerId, accountId, region, vpcId })
       try {
         const body = await operationalRequest<EstateOperatorNarration>(
           systemName,
@@ -483,7 +496,7 @@ export function DetailPanel({
     }
     void loadNarration()
     return () => { cancelled = true }
-  }, [node, requestId, systemName, accountId, region, vpcId])
+  }, [node, requestId, systemName, customerId, accountId, region, vpcId])
 
   if (!node) return null
 

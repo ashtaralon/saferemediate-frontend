@@ -162,6 +162,18 @@ describe("topology scope URLs", () => {
     ).toBe("vpc-0c39cde96f29f8f4e")
   })
 
+  it("the drawer vpc is the topology-risk fetch vpc, including when auto-select matches the snapshot", () => {
+    const pickerVpc = "vpc-0c39cde96f29f8f4e"
+    const fetchVpc = resolveTopologyFetchVpcId({
+      urlVpcId: null,
+      selectedVpcId: pickerVpc,
+      payloadVpcId: pickerVpc,
+      fetchVpcId: null,
+    })
+    expect(fetchVpc).toBeNull()
+    expect(fetchVpc).not.toBe(pickerVpc)
+  })
+
   it("caps a 180s backend compute deadline to 90s", () => {
     const started = Date.parse("2026-09-08T12:00:00.000Z")
     expect(
