@@ -40,6 +40,17 @@ import {
 } from "@/components/topology-v0-2/topology-scope-url"
 import { EVIDENCE_TIER_LABEL } from "@/lib/types/scope"
 import { EstateIdentityAccessTab } from "@/components/topology-v0-2/estate-identity-access-tab"
+import {
+  boundIdentityEdges,
+  buildIdentityLensForPayload,
+  identityLensTrafficEdges,
+  identitySelectionDetail,
+} from "@/components/topology-v0-2/estate-identity-access-model"
+import {
+  IDENTITY_DEFAULT_CHIP_CAP,
+  identityNodeAsTopologyNode,
+  type IdentityLensFrameProps,
+} from "@/components/topology-v0-2/estate-identity-plane"
 import type { TopologyNode, TopologyRiskResponse } from "@/components/topology-v0-2/types"
 import { createMap } from "@/components/topology-v0-2/native-map"
 import {
@@ -122,9 +133,18 @@ const EstateSystemView = dynamic(
   },
 )
 
+/** The three peer views of the Estate: Command map, Network topology, Identity & access. */
+export type EstateViewId = "inventory" | "map" | "identity"
+
+/** Whole-lens cap when nothing is selected. Beyond it the lens says how many
+ *  relationships are not drawn and asks for a selection to expand. */
+export const IDENTITY_EDGE_CAP = 120
+
 export interface EstateMapViewProps {
   systemName: string
   embedded?: boolean
+  /** Which Estate view opens first. Deep links pass `?view=identity`. */
+  defaultView?: EstateViewId
   /** Switch Topology tab to Traffic map (TFM graph). */
   onOpenTrafficMap?: () => void
   /** Initial map lens. The network view opens on Dependencies: the map's job
@@ -172,7 +192,7 @@ function topologyGridWouldBeEmpty(data: TopologyRiskResponse): boolean {
   return true
 }
 
-export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, defaultFlowMode = "all_access", collapseEmptyAzsByDefault = false, defaultToAllVpcs = false }: EstateMapViewProps) {
+export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, defaultFlowMode = "all_access", collapseEmptyAzsByDefault = false, defaultToAllVpcs = false, defaultView = "inventory" }: EstateMapViewProps) {
   const productScope = useAccountScope()
   // useCachedFetch can synchronously recover a browser-local last-good map.
   // Hold the server and first client render on the same loading shell so a
@@ -624,8 +644,13 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
   const [statsExpanded, setStatsExpanded] = useState(false)
   const [filtersOpen, setFiltersOpen] = useState(false)
   // Lead with the cross-discipline command view. The existing AWS placement
-  // diagram remains unchanged and one click away under Network topology.
-  const [view, setView] = useState<"map" | "inventory" | "identity">("inventory")
+  // diagram remains unchanged and one click away under Network topology; the
+  // Identity & access lens is the third peer, drawn on the same frame.
+  const [view, setView] = useState<EstateViewId>(defaultView)
+  // CF01 · D1 — identity lens neighbourhood bound and chip cap (operator
+  // preferences, never graph facts).
+  const [identityHops, setIdentityHops] = useState(2)
+  const [identityChipCap, setIdentityChipCap] = useState(IDENTITY_DEFAULT_CHIP_CAP)
 
   // Fullscreen is a modal surface, so leaving it has to hand the keyboard back
   // where it came from. Measured on C1 (run 34754792418): after Escape exited
@@ -1137,15 +1162,61 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     [attackPaths, flowOverlayContext, iapBody?.materialization_available],
   )
 
+  // ── CF01 · D1 — the Identity & access lens over the SAME canvas ──────────
+  // Built from the payload the canvas is already drawing, scoped to the nodes
+  // it draws (`detailNodes`), so a workload or bucket that is a chip keeps its
+  // id and placement in both views. Hooks stay above the early returns.
+  const identityLens = useMemo(
+    () => buildIdentityLensForPayload(data, { topologyNodes: detailNodes }),
+    [data, detailNodes],
+  )
+  const identityBound = useMemo(
+    () => boundIdentityEdges(identityLens.edges, selectedNodeId, identityHops, IDENTITY_EDGE_CAP),
+    [identityLens.edges, selectedNodeId, identityHops],
+  )
+  const identityOverlayEdges = useMemo(
+    () => identityLensTrafficEdges({ ...identityLens, edges: identityBound.edges }, selectedNodeId),
+    [identityLens, identityBound.edges, selectedNodeId],
+  )
+  const identityFrame = useMemo<IdentityLensFrameProps>(
+    () => ({
+      lens: identityLens,
+      drawn: identityBound.edges.length,
+      omitted: identityBound.omitted,
+      omittedInNeighbourhood: identityBound.omittedInNeighbourhood,
+      reachable: identityBound.reachable,
+      focusedNodeId: selectedNodeId,
+      hops: identityHops,
+      onHopsChange: setIdentityHops,
+      chipCap: identityChipCap,
+      onChipCapChange: setIdentityChipCap,
+    }),
+    [identityLens, identityBound, selectedNodeId, identityHops, identityChipCap],
+  )
+  // Identity-plane nodes as inspector nodes, so selecting one opens the SAME
+  // DetailPanel (its id is a canvas anchor: no Inventory request is made).
+  const identityInspectorNodes = useMemo(
+    () => identityLens.nodes.filter(n => !n.onCanvas).map(identityNodeAsTopologyNode),
+    [identityLens.nodes],
+  )
+  const allInspectorNodes = useMemo(
+    () => (view === "identity" ? [...inspectorNodes, ...identityInspectorNodes] : inspectorNodes),
+    [view, inspectorNodes, identityInspectorNodes],
+  )
+  const identitySelection = useMemo(
+    () => (view === "identity" ? identitySelectionDetail(identityLens, selectedNodeId) : null),
+    [view, identityLens, selectedNodeId],
+  )
+
   const selectedNode = useMemo(() => {
     if (!selectedNodeId) return null
     return (
-      inspectorNodes.find(n => n.id === selectedNodeId) ??
+      allInspectorNodes.find(n => n.id === selectedNodeId) ??
       scopedEstate?.nodes.find(n => n.id === selectedNodeId) ??
       data?.nodes.find(n => n.id === selectedNodeId) ??
       null
     )
-  }, [selectedNodeId, inspectorNodes, scopedEstate?.nodes, data?.nodes])
+  }, [selectedNodeId, allInspectorNodes, scopedEstate?.nodes, data?.nodes])
 
   // Escape dismisses the TOPMOST surface, not whichever one happens to own a
   // handler. The drawer (z-220) sits above the fullscreen map (z-200) and over
@@ -1434,6 +1505,12 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     }
   }
 
+  // The identity lens is the SAME frame with the lens's edges in place of the
+  // traffic overlay: same nodes, placement, scope, filters, density, fullscreen
+  // zoom/pan and selection. Traffic-only inputs (traffic edges, authority,
+  // attack-path count, the flow-mode toggle) are withheld so a traffic claim
+  // never rides on the identity canvas.
+  const identityLensActive = view === "identity"
   const renderMap = (presentationMode: boolean, scale = 1, densityCollapsedArg = false) => (mapVpcTopology ? (
     <AwsFrame
       vpcTopology={mapVpcTopology}
@@ -1445,12 +1522,12 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
       onPlaceNode={handlePlaceNode}
       serverlessSourceNodes={filteredServerlessSource}
       regionalDataSourceNodes={filteredRegionalSource}
-      trafficEdges={scopedTrafficEdges}
-      trafficAuthority={data.traffic_authority}
-      overlayEdges={focusedOverlayEdges}
-      flowMode={flowMode}
-      onFlowModeChange={setFlowMode}
-      attackPathFlowCount={attackPathFlowCount}
+      trafficEdges={identityLensActive ? [] : scopedTrafficEdges}
+      trafficAuthority={identityLensActive ? undefined : data.traffic_authority}
+      overlayEdges={identityLensActive ? identityOverlayEdges : focusedOverlayEdges}
+      flowMode={identityLensActive ? "all_access" : flowMode}
+      onFlowModeChange={identityLensActive ? undefined : setFlowMode}
+      attackPathFlowCount={identityLensActive ? 0 : attackPathFlowCount}
       selectedNodeId={selectedNodeId}
       highlightedRoleName={highlightedRoleName}
       onSelect={selectMapNode}
@@ -1459,6 +1536,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
       densityCollapsed={densityCollapsedArg}
       viewDensity={viewDensity}
       systemLabel={systemName}
+      identityLens={identityLensActive ? identityFrame : undefined}
     />
   ) : (
     <CanvasPane
@@ -1912,6 +1990,25 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
                   Map fullscreen
                 </button>
               </>
+            ) : view === "identity" ? (
+              <button
+                ref={enlargeRef}
+                type="button"
+                onClick={openSubnetMap}
+                className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide shadow-sm hover:bg-[#F8FAFC] transition-colors shrink-0"
+                style={{ borderColor: "#CBD5E1", background: "#FFFFFF", color: "#1A2330" }}
+                aria-label="Open map fullscreen"
+                data-testid="topology-estate-map-enlarge"
+                disabled={identityLens.nothingToDraw && identityLens.state !== "ready"}
+                title={
+                  identityLens.nothingToDraw && identityLens.state !== "ready"
+                    ? "No identity evidence is available to draw fullscreen"
+                    : "Open the identity lens fullscreen"
+                }
+              >
+                <Maximize2 className="h-3.5 w-3.5" />
+                Map fullscreen
+              </button>
             ) : null}
           </div>
           {scopedVpc ? (
@@ -1937,7 +2034,10 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
               {view === "map" ? (
                 !mapEnlarged ? renderMap(false) : null
               ) : view === "identity" ? (
-                <EstateIdentityAccessTab payload={data} />
+                <EstateIdentityAccessTab
+                  payload={data}
+                  canvas={!mapEnlarged ? renderMap(false) : null}
+                />
               ) : (
                 <EstateSystemView
                   data={data}
@@ -2007,10 +2107,12 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
           vpcId={fetchVpcId}
           accountId={selectedAccountId}
           region={selectedRegionId}
-          inspectorNodes={inspectorNodes}
-          inspectorEdges={inspectorEdges}
+          inspectorNodes={allInspectorNodes}
+          inspectorEdges={identityLensActive ? identityOverlayEdges : inspectorEdges}
           vpces={flowOverlayContext.vpces}
-          trafficAuthority={data.traffic_authority}
+          trafficAuthority={identityLensActive ? undefined : data.traffic_authority}
+          identity={identitySelection}
+          onSelectIdentityNode={setSelectedNodeId}
           onClose={() => setSelectedNodeId(null)}
         />
       ) : null}
@@ -2043,7 +2145,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
                 over the next control. */}
             <div className="flex items-baseline gap-2 min-w-0 overflow-hidden">
               <span className="text-[10px] uppercase tracking-[0.14em] font-semibold shrink-0" style={{ color: "#5A6B7A" }}>
-                Cloud topology
+                {view === "identity" ? "Identity & access" : "Cloud topology"}
               </span>
               <span className="text-[13px] font-semibold truncate min-w-0" style={{ color: "#1A2330" }}>
                 {data.system}
@@ -2190,10 +2292,12 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
                   vpcId={fetchVpcId}
                   accountId={selectedAccountId}
                   region={selectedRegionId}
-                  inspectorNodes={inspectorNodes}
-                  inspectorEdges={inspectorEdges}
+                  inspectorNodes={allInspectorNodes}
+                  inspectorEdges={identityLensActive ? identityOverlayEdges : inspectorEdges}
                   vpces={flowOverlayContext.vpces}
-                  trafficAuthority={data.traffic_authority}
+                  trafficAuthority={identityLensActive ? undefined : data.traffic_authority}
+                  identity={identitySelection}
+                  onSelectIdentityNode={setSelectedNodeId}
                   onClose={() => setSelectedNodeId(null)}
                 />
               </div>

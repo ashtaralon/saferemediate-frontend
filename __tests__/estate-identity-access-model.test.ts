@@ -25,10 +25,24 @@ import {
   bindScope,
   buildGraph,
   buildIdentityView,
-  layoutGraph,
 } from "@/components/topology-v0-2/estate-identity-access-model"
 
 import fixtures from "./fixtures/estate-identity-access.json"
+
+const READY_CAPABILITIES = fixtures.ready.relationship_capabilities as Array<{
+  family: string
+  status: string
+  reason_codes: string[]
+}>
+const CAPABILITY_COUNT = READY_CAPABILITIES.length
+const AVAILABLE_FAMILIES = READY_CAPABILITIES.filter(row => row.status === "available")
+  .map(row => row.family)
+  .sort()
+const QUALIFIED_AVAILABLE = READY_CAPABILITIES.filter(
+  row => row.status === "available" && row.reason_codes.length > 0,
+)
+  .map(row => row.family)
+  .sort()
 
 const TOPOLOGY = {
   system: "testbed-webshop",
@@ -232,7 +246,7 @@ describe("status is a closed set", () => {
 
   it("keeps the capability matrix through an invalid status", () => {
     // The matrix describes the installed data path, not this tenant's data.
-    expect(viewOf({ ...fixtures.ready, status: "nonsense" }).capabilities.length).toBe(15)
+    expect(viewOf({ ...fixtures.ready, status: "nonsense" }).capabilities.length).toBe(CAPABILITY_COUNT)
   })
 })
 
@@ -963,20 +977,17 @@ describe("a ready state must have the counts it claims", () => {
 })
 
 describe("the capability matrix is all-or-nothing", () => {
-  it("carries a verdict for all fifteen requested families", () => {
+  it("carries a verdict for every family the regenerated fixture rules on", () => {
     const view = viewOf(fixtures.ready)
-    expect(view.capabilities.length).toBe(15)
+    expect(view.capabilities.length).toBe(CAPABILITY_COUNT)
     expect(view.capabilitiesUnavailableReason).toBeNull()
   })
 
-  it("names exactly the two families the installed path can serve", () => {
+  it("names exactly the families the installed path can serve, from the fixture", () => {
     const available = viewOf(fixtures.ready).capabilities.filter(
       row => row.status === "available",
     )
-    expect(available.map(row => row.family).sort()).toEqual([
-      "ROLE_ACTION_DECISION",
-      "WORKLOAD_USES_ROLE",
-    ])
+    expect(available.map(row => row.family).sort()).toEqual(AVAILABLE_FAMILIES)
     expect(available.every(row => Boolean(row.canonical_writer) && Boolean(row.bounded_read))).toBe(
       true,
     )
@@ -1038,7 +1049,7 @@ describe("the capability matrix is all-or-nothing", () => {
     expect(view.state).toBe("ready")
     expect(view.capabilities).toEqual([])
     expect(view.capabilitiesUnavailableReason).toContain("whole matrix is withheld")
-    expect(view.capabilitiesUnavailableReason).toContain("1 of 16")
+    expect(view.capabilitiesUnavailableReason).toContain(`1 of ${CAPABILITY_COUNT + 1}`)
   })
 
   it("the frontend's required family list matches the backend's, exactly", () => {
@@ -1100,10 +1111,10 @@ describe("the capability matrix is all-or-nothing", () => {
       family: "WORKLOAD_USES_ROLE", status: "available", plane: "configured",
       canonical_writer: "w", bounded_read: "", reason_codes: [], detail: "a detail",
     }],
-    ["an available row carrying a reason code", {
+    ["an available row carrying a reason code outside the closed set", {
       family: "WORKLOAD_USES_ROLE", status: "available", plane: "configured",
       canonical_writer: "w", bounded_read: "r",
-      reason_codes: ["NO_CANONICAL_PRODUCER"], detail: "a detail",
+      reason_codes: ["MADE_UP_QUALIFIER"], detail: "a detail",
     }],
   ])("%s withholds the whole matrix", (_label, row) => {
     const rows = fixtures.ready.relationship_capabilities.map((item: any) =>
@@ -1113,6 +1124,17 @@ describe("the capability matrix is all-or-nothing", () => {
     expect(view.state).toBe("ready")
     expect(view.capabilities).toEqual([])
     expect(view.capabilitiesUnavailableReason).toContain("whole matrix is withheld")
+  })
+
+  it("an available attribute-backed row may carry a qualifying reason code (41f5dda3)", () => {
+    // scripts/estate_relationship_capability.py: USER_MEMBER_OF_GROUP and
+    // PRINCIPAL_HAS_INLINE_POLICY are available with
+    // ENDPOINT_NOT_A_PROJECTED_RESOURCE; USER_AUTHENTICATES_WITH with
+    // SOURCE_CALL_NOT_ACQUIRED. The code qualifies HOW the family is served.
+    const qualified = viewOf(fixtures.ready).capabilities.filter(
+      row => row.status === "available" && row.reason_codes.length > 0,
+    )
+    expect(qualified.map(row => row.family).sort()).toEqual(QUALIFIED_AVAILABLE)
   })
 
   it("a duplicated family is an incomplete matrix, not a complete one", () => {
@@ -1130,7 +1152,7 @@ describe("the capability matrix is all-or-nothing", () => {
     const rows = fixtures.ready.relationship_capabilities.filter(
       (row: any) => row.family !== "TRUSTS",
     )
-    expect(rows.length).toBe(14)
+    expect(rows.length).toBe(CAPABILITY_COUNT - 1)
     const view = viewOf({ ...fixtures.ready, relationship_capabilities: rows })
     expect(view.capabilities).toEqual([])
     expect(view.capabilitiesUnavailableReason).toContain("no verdict for TRUSTS")
@@ -1164,18 +1186,18 @@ describe("the capability matrix is all-or-nothing", () => {
     ]
     const view = viewOf({ ...fixtures.ready, relationship_capabilities: rows })
     expect(view.capabilitiesUnavailableReason).toBeNull()
-    expect(view.capabilities.length).toBe(16)
+    expect(view.capabilities.length).toBe(CAPABILITY_COUNT + 1)
   })
 
   it("a malformed row never leaves a family silently absent", () => {
-    // The 15-into-14 failure: drop one row's validity and the matrix must not
-    // present the remaining 14 as a complete account.
+    // The 22-into-21 failure: drop one row's validity and the matrix must not
+    // present the remaining 21 as a complete account.
     const rows = fixtures.ready.relationship_capabilities.map((row: any) =>
       row.family === "TRUSTS" ? { ...row, reason_codes: ["MADE_UP_CODE"] } : row,
     )
     const view = viewOf({ ...fixtures.ready, relationship_capabilities: rows })
     expect(view.capabilities.length).toBe(0)
-    expect(view.capabilities.length).not.toBe(14)
+    expect(view.capabilities.length).not.toBe(21)
   })
 
   it("a missing matrix is an explicit unknown, never a silent empty list", () => {
@@ -1193,7 +1215,7 @@ describe("the capability matrix is all-or-nothing", () => {
   })
 
   it("survives the unavailable state — that is when a screen most needs it", () => {
-    expect(viewOf(fixtures.unavailable).capabilities.length).toBe(15)
+    expect(viewOf(fixtures.unavailable).capabilities.length).toBe(CAPABILITY_COUNT)
   })
 })
 
@@ -1251,7 +1273,7 @@ describe("empty-authoritative is the strongest claim, so it is the narrowest", (
   it("the incomplete state keeps its receipts and its matrix", () => {
     const view = viewOf(fixtures.partial_unresolved_role_id)
     expect(view.receipts.length).toBe(2)
-    expect(view.capabilities.length).toBe(15)
+    expect(view.capabilities.length).toBe(CAPABILITY_COUNT)
     expect(view.gaps.map(gap => gap.code)).toEqual(["ROLE_ID_UNRESOLVED"])
   })
 
@@ -1371,7 +1393,7 @@ describe("scope binding", () => {
     expect(view.graph.nodes).toEqual([])
     expect(view.detail).toContain("999988887777")
     expect(view.detail).toContain("416651950952")
-    expect(view.capabilities.length).toBe(15)
+    expect(view.capabilities.length).toBe(CAPABILITY_COUNT)
   })
 
   it("a field the topology payload does not carry is echoed, never counted as verified", () => {
@@ -1486,52 +1508,6 @@ describe("motion is a claim, so it is gated twice", () => {
   })
 })
 
-describe("map layout", () => {
-  it("places each kind in its own lane, left to right", () => {
-    const layout = layoutGraph(viewOf(fixtures.partial).graph)
-    const x = (kind: string) =>
-      layout.nodes.filter(item => item.node.kind === kind).map(item => item.x)
-    expect(Math.max(...x("workload"))).toBeLessThan(Math.min(...x("role")))
-    expect(Math.max(...x("role"))).toBeLessThan(Math.min(...x("decision")))
-  })
-
-  it("routes every edge left to right, so direction is geometric not just labelled", () => {
-    const view = viewOf(fixtures.partial)
-    const layout = layoutGraph(view.graph)
-    const byId = new Map(layout.nodes.map(item => [item.node.id, item] as const))
-    expect(layout.edges.length).toBe(view.graph.edges.length)
-    for (const placed of layout.edges) {
-      const from = byId.get(placed.edge.from)!
-      const to = byId.get(placed.edge.to)!
-      expect(from.x + from.width).toBeLessThan(to.x)
-      expect(placed.path.startsWith("M ")).toBe(true)
-      expect(placed.path).toContain(" C ")
-    }
-  })
-
-  it("grows its canvas height with the tallest lane, and never overlaps nodes", () => {
-    const one = layoutGraph(viewOf(fixtures.ready).graph)
-    const two = layoutGraph(viewOf(fixtures.partial).graph)
-    expect(two.height).toBeGreaterThan(one.height)
-    const lane = two.nodes.filter(item => item.lane === "role").sort((a, b) => a.y - b.y)
-    for (let i = 1; i < lane.length; i += 1) {
-      expect(lane[i].y).toBeGreaterThan(lane[i - 1].y + lane[i - 1].height)
-    }
-  })
-
-  it("is deterministic — the same graph lays out identically twice", () => {
-    const graph = viewOf(fixtures.partial).graph
-    expect(JSON.stringify(layoutGraph(graph))).toBe(JSON.stringify(layoutGraph(graph)))
-  })
-
-  it("lays out an empty graph without throwing", () => {
-    const layout = layoutGraph({ nodes: [], edges: [] })
-    expect(layout.nodes).toEqual([])
-    expect(layout.edges).toEqual([])
-    expect(layout.height).toBeGreaterThan(0)
-  })
-})
-
 describe("receipts and truncation", () => {
   it("surfaces both authority receipts with generation and hashes", () => {
     const view = viewOf(fixtures.ready)
@@ -1561,4 +1537,33 @@ describe("receipts and truncation", () => {
     expect(view.rolesTruncated).toBe(true)
     expect(view.rolesOmittedUnresolved).toBe(4)
   })
+})
+
+describe("selected role attachments stay distinct from resource access", () => {
+  it.each(["PRINCIPAL_HAS_MANAGED_POLICY", "PRINCIPAL_HAS_INLINE_POLICY", "PRINCIPAL_HAS_PERMISSIONS_BOUNDARY", "ROLE_ACTION_DECISION"])(
+    "retains the selected %s endpoint through the actual served edge", async family => {
+      const { buildIdentityLensForPayload, identityFocusedAccessPath } = await import("@/components/topology-v0-2/estate-identity-access-model")
+      const graph = await import("./fixtures/cf01-d1/estate-identity-graph-6e08d6b2.json")
+      const lens = buildIdentityLensForPayload({ ...TOPOLOGY, identity_access: graph.default.composed.ready_with_graph } as any, { topologyNodes: [] })
+      const role = lens.nodes.find(node => node.kind === "iam_role" && node.label === "web")!
+      expect(role).toBeDefined()
+      const edge = lens.edges.find(item => item.family === family && (item.sourceId === role.id || item.targetId === role.id))!
+      expect(edge).toBeDefined()
+      const selectedId = edge.sourceId === role.id ? edge.targetId : edge.sourceId
+      const path = identityFocusedAccessPath(lens, selectedId)
+      const selectedJoin = path.selectionJoins.find(hop => hop.edge?.family === family)!
+      // A shared policy can touch several roles. The existing deterministic
+      // role selection chooses one; its connector must still be an exact
+      // served edge, and the selected policy must remain on that connector.
+      const servedEdge = lens.edges.find(item => item.id === selectedJoin?.edge?.id)!
+      expect(selectedJoin).toBeDefined()
+      expect(selectedJoin.from.id).toBe(servedEdge.sourceId)
+      expect(selectedJoin.to.id).toBe(servedEdge.targetId)
+      expect(selectedJoin.edge).toBe(servedEdge)
+      expect(path.targets.some(hop => hop.edge?.id === servedEdge.id)).toBe(false)
+      expect([selectedJoin.from.id, selectedJoin.to.id]).toContain(selectedId)
+      expect(path.hops).toContain(selectedJoin)
+      expect(path.focus.id).toBe(selectedId)
+    },
+  )
 })

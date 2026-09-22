@@ -1,7 +1,7 @@
 "use client"
 
 /**
- * Estate · Identity & access tab.
+ * Estate · Identity & access — the evidence frame around the shared canvas.
  *
  * Renders the `estate-identity-access/v1` block that rides on the SAME
  * topology-risk payload the Estate map already fetched. It issues no request of
@@ -11,19 +11,36 @@
  * ./estate-identity-access-model. This file renders that view model and judges
  * nothing, which is why the honesty rules are executable without a DOM.
  *
+ * The map itself is NOT drawn here (CF01 · D1). The identity lens is rendered
+ * on the shared Estate canvas — the same AwsFrame, chips, FlowOverlay,
+ * selection and DetailPanel the Network view uses — and the host passes that
+ * canvas in through the `canvas` slot. This component supplies the words
+ * around it: a compact scope/freshness/coverage indicator, visible honesty
+ * warnings, then the map. Receipts, hashes, query names and the capability
+ * matrix live in an Evidence drawer so they are not the first thing a reader
+ * sees.
+ *
  * The one rule that governs the whole surface: a blank panel is a claim. A
  * snapshot with no identity block, a projection that refused, and a projection
  * that read the canonical generation and found no bindings are three different
  * facts, and each gets its own words.
  */
 
+import type { ReactNode } from "react"
 import { AlertTriangle, Info, ShieldCheck } from "lucide-react"
 
-import { EstateIdentityMap } from "./estate-identity-map"
 import {
+  buildIdentityIndicator,
   buildIdentityView,
+  identityEmptyClaim,
+  identityGraphViewForPayload,
+  IDENTITY_FAMILIES_WITHOUT_COVERAGE_RECEIPT,
+  IDENTITY_FAMILY_COVERAGE_MISSING_LINK,
   type AuthorityReceipt,
+  type IdentityAccountContext,
+  type IdentityCoverageLimit,
   type IdentityGap,
+  type IdentityIndicator,
   type IdentityView,
   type RelationshipCapability,
   type ScopeBinding,
@@ -220,7 +237,7 @@ function RoleGaps({ view }: { view: IdentityView }) {
 
 function CapabilityMatrix({ view }: { view: IdentityView }) {
   return (
-    <section data-testid="identity-capability-matrix" className="mt-4">
+    <section data-testid="identity-capability-matrix" className="mt-3">
       <h3 className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: MUTED }}>
         Relationship families
       </h3>
@@ -283,13 +300,204 @@ function CapabilityRow({ row }: { row: RelationshipCapability }) {
   )
 }
 
+function accountContextTone(state: IdentityAccountContext["state"]): "teal" | "warn" | "neutral" {
+  if (state === "in_organization" || state === "standalone") return "teal"
+  if (state === "unknown" || state === "refused" || state === "not_carried") return "warn"
+  return "neutral"
+}
+
+/**
+ * One chip standing in for the full limitation list.
+ *
+ * The limits are honesty-critical, so they are never dropped — the full list
+ * lives in Evidence and this names what is missing rather than only counting
+ * it. A bare "4 limits" would be a number a reader has to go and decode; the
+ * first two labels plus "+N" keeps the meaning on screen at a fraction of the
+ * height.
+ */
+function CoverageLimitsCompact({ limits }: { limits: IdentityCoverageLimit[] }) {
+  if (limits.length === 0) return null
+  const named = limits.slice(0, 2).map(l => l.label).join(", ")
+  const rest = limits.length > 2 ? ` +${limits.length - 2}` : ""
+  return (
+    <span
+      data-testid="identity-coverage-limits-compact"
+      data-limit-count={String(limits.length)}
+      title={limits.map(l => `${l.label}: ${l.detail}`).join("\n\n")}
+    >
+      <Chip tone="warn" testId="identity-coverage-limit-summary" label={`not shown: ${named}${rest}`} />
+    </span>
+  )
+}
+
+/** The scope check as ONE verdict; the field-by-field line lives in Evidence. */
+function ScopeVerdictChip({ binding }: { binding: ScopeBinding | null }) {
+  if (!binding) return null
+  if (binding.mismatches.length > 0) {
+    return (
+      <Chip
+        tone="warn"
+        testId="identity-scope-verdict"
+        label={`scope mismatch · ${binding.mismatches.map(m => m.field).join(", ")}`}
+      />
+    )
+  }
+  if (binding.verified.length === 0) return null
+  return (
+    <Chip
+      tone="teal"
+      testId="identity-scope-verdict"
+      label={`scope verified · ${binding.verified.length} field${binding.verified.length === 1 ? "" : "s"}`}
+    />
+  )
+}
+
+function CoverageIndicator({ indicator, compact = false }: { indicator: IdentityIndicator; compact?: boolean }) {
+  const freshness: string[] = []
+  if (indicator.inventoryGeneration !== null) {
+    freshness.push(
+      `inventory generation ${indicator.inventoryGeneration}` +
+        (indicator.inventoryCertified ? " (certified)" : ""),
+    )
+  }
+  if (indicator.decisionGeneration !== null) {
+    freshness.push(`decision generation ${indicator.decisionGeneration}`)
+  }
+  const coverage =
+    indicator.familiesAvailable !== null && indicator.familiesTotal !== null
+      ? `${indicator.familiesAvailable} of ${indicator.familiesTotal} families servable`
+      : indicator.matrixUnavailableReason
+        ? "family coverage not shown"
+        : null
+  return (
+    <div
+      data-testid="identity-coverage-indicator"
+      data-identity-state={indicator.state}
+      data-identity-graph-state={indicator.graphState}
+      className="mt-1.5 flex flex-wrap items-center gap-1.5"
+    >
+      <Chip
+        testId="identity-coverage-state"
+        tone={indicator.tone === "ok" ? "teal" : indicator.tone === "warn" ? "warn" : "neutral"}
+        label={indicator.stateLabel}
+      />
+      {indicator.scopeLine ? (
+        <Chip
+          testId="identity-coverage-scope"
+          tone={indicator.scopeMismatch ? "warn" : indicator.scopeVerified ? "teal" : "neutral"}
+          label={indicator.scopeLine}
+        />
+      ) : null}
+      {/* Generation diagnostics and the family-coverage count are Evidence
+          material: they describe how the reading was produced, not what the
+          map is showing. At 768px they cost two of the seven rows that pushed
+          the map below the fold. Rendered in full inside the drawer. */}
+      {!compact && freshness.length > 0 ? (
+        <Chip testId="identity-coverage-freshness" label={freshness.join(" · ")} />
+      ) : null}
+      {!compact && coverage ? <Chip testId="identity-coverage-families" label={coverage} /> : null}
+      {indicator.graphState === "ready" || indicator.graphState === "partial" ? (
+        <Chip
+          testId="identity-coverage-graph"
+          tone={indicator.graphState === "partial" ? "warn" : "teal"}
+          label={
+            indicator.graphState === "partial"
+              ? `graph read with gaps · ${indicator.graphEdges} relationships`
+              : `${indicator.graphEdges} relationships · ${indicator.graphNodes} identity nodes`
+          }
+        />
+      ) : indicator.graphState === "absent" ? (
+        <Chip testId="identity-coverage-graph" tone="warn" label="identity graph not carried" />
+      ) : (
+        <Chip testId="identity-coverage-graph" tone="warn" label={`identity graph ${indicator.graphState}`} />
+      )}
+      <AccountContextChip context={indicator.accountContext} />
+    </div>
+  )
+}
+
+function AccountContextChip({ context }: { context: IdentityAccountContext }) {
+  return (
+    <span data-testid="identity-account-context" data-account-context={context.state} title={context.detail}>
+      <Chip testId="identity-account-context-label" tone={accountContextTone(context.state)} label={context.label} />
+    </span>
+  )
+}
+
+function CoverageLimits({ limits }: { limits: IdentityCoverageLimit[] }) {
+  if (limits.length === 0) return null
+  return (
+    <ul data-testid="identity-coverage-limits" className="mt-2 flex flex-wrap gap-1.5">
+      {limits.map(limit => (
+        <li
+          key={limit.key}
+          data-testid="identity-coverage-limit"
+          data-limit-key={limit.key}
+          data-limit-status={limit.status}
+          className="rounded border px-1.5 py-0.5 text-[10px]"
+          style={{ borderColor: WARN_LINE, background: WARN_BG, color: WARN }}
+          title={limit.detail}
+        >
+          <span className="font-semibold">{limit.label}</span>
+          <span className="ml-1" style={{ color: MUTED }}>
+            {limit.status.replace(/_/g, " ")}
+          </span>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
 export function EstateIdentityAccessTab({
   payload,
+  canvas,
 }: {
   payload: TopologyRiskResponse | null | undefined
+  /**
+   * The shared Estate canvas with the identity lens applied. Rendered in place
+   * of the retired custom SVG map, only in the states where a map may be
+   * drawn (ready). Absent means the host chose to render the canvas itself.
+   */
+  canvas?: ReactNode
 }) {
   const view = buildIdentityView(payload)
+  const graph = identityGraphViewForPayload(payload, view)
+  const indicator = buildIdentityIndicator(view, graph)
+  const emptyClaim = identityEmptyClaim(view, graph)
+  /**
+   * TWO INDEPENDENT SOURCES FEED THIS CANVAS, and either one alone is reason
+   * enough to draw it.
+   *
+   *   - the v1 roles projection supplies WORKLOAD_USES_ROLE and
+   *     ROLE_ACTION_DECISION;
+   *   - the nested identity graph supplies the other eleven families.
+   *
+   * `scripts/estate_identity_access.py` deliberately isolates
+   * `_read_identity_graph` failures precisely so the rest of the projection
+   * stays readable, so gating on either source ALONE throws away data the
+   * producer went out of its way to preserve. Both directions have now been
+   * shipped as defects and each is pinned by a host test:
+   *
+   *   roles-only gate  -> empty roles + a ready 13-edge graph drew nothing;
+   *   graph-only gate  -> one valid role binding + an absent or unavailable
+   *                       graph drew nothing, though the lens had 2 edges.
+   *
+   * The nested graph's partial/missing warning belongs BESIDE whatever the
+   * other source could still answer, never in place of it.
+   */
+  const graphHasData =
+    graph.nodes.length > 0 || graph.edges.length > 0 || view.roles.length > 0
+
+  /**
+   * Only a canvas that is ACTUALLY on screen can carry the coverage paragraph.
+   * Deciding that from `graphHasData` alone assumed a host that always supplies
+   * one, so a host that supplies none dropped the paragraph entirely — the
+   * long form appeared zero times and nothing noticed. Whether the slot is
+   * filled is the thing to test, not whether it could have been.
+   */
+  const canvasCarriesCoverage = graphHasData && canvas != null
   const bad = view.state === "unavailable" || view.state === "invalid" || view.state === "scope_mismatch"
+  const mapReady = view.state === "ready" || view.state === "incomplete"
 
   return (
     <div data-testid="estate-identity-access" data-state={view.state} className="p-3">
@@ -315,16 +523,23 @@ export function EstateIdentityAccessTab({
             <p data-testid="identity-detail" className="mt-0.5 text-[11px]" style={{ color: MUTED }}>
               {view.detail}
             </p>
+            {/*
+              COMPACT HEADER. At 768px this block was ~7 rows of chips — the
+              contract version, the projection status word, generation
+              numbers, the family count, five scope fields and four limitation
+              chips — and the map started below the fold, which defeats a
+              map-first view on tablet.
+              What stays is what a reader acts on: state, scope, what the graph
+              holds, the account's org placement, and a named summary of what
+              is NOT shown. The contract version, status word, generation
+              diagnostics, per-field scope check and the full limitation list
+              describe how the reading was produced, so they moved into
+              Evidence. Nothing was deleted.
+            */}
+            <CoverageIndicator indicator={indicator} compact />
             <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-              {view.contractVersion ? (
-                <Chip testId="identity-contract-version" label={view.contractVersion} />
-              ) : null}
-              {view.projectionStatus ? (
-                <Chip testId="identity-projection-status" label={`status ${view.projectionStatus}`} />
-              ) : null}
-            </div>
-            <div className="mt-1.5">
-              <ScopeBindingLine binding={view.scopeBinding} />
+              <ScopeVerdictChip binding={view.scopeBinding} />
+              <CoverageLimitsCompact limits={indicator.limits} />
             </div>
           </div>
         </div>
@@ -332,20 +547,11 @@ export function EstateIdentityAccessTab({
 
       <GapList gaps={view.gaps} testId="identity-projection-gaps" />
 
-      <section className="mt-3">
-        <h3 className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: MUTED }}>
-          Projection authority
-        </h3>
-        <div className="mt-1.5">
-          <Receipts receipts={view.receipts} />
-        </div>
-      </section>
-
-      {view.state === "ready" || view.state === "incomplete" ? (
-        <section className="mt-4">
+      {mapReady ? (
+        <section className="mt-3" data-testid="identity-map-section">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h3 className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: MUTED }}>
-              Workload → role → decision
+              Identity relationships on the estate canvas
             </h3>
             <div className="flex flex-wrap items-center gap-1.5 text-[10px]" style={{ color: MUTED }}>
               <span data-testid="identity-roles-counts">
@@ -364,48 +570,176 @@ export function EstateIdentityAccessTab({
               ) : null}
             </div>
           </div>
-          <div className="mt-1.5">
+          <div className="mt-1.5 space-y-2">
+            {/*
+              The canvas is rendered whenever the producer supplied graph data,
+              and the notices below sit BESIDE it rather than replacing it.
+              Previously an empty roles projection removed the map entirely, so
+              a customer with users, policies and accounts but no workload role
+              bindings saw a blank panel and a confident message telling them
+              the blank was the answer. Roles being empty is a statement about
+              roles, not about the graph.
+            */}
+            {graphHasData ? (
+              <div data-testid="identity-canvas-slot">{canvas ?? null}</div>
+            ) : null}
             {view.state === "incomplete" ? (
-              // Readable, but nothing to draw AND not authoritative that nothing
-              // is bound. Drawing an empty canvas here would read as "no
-              // relationships exist", which is the claim this state exists to
-              // refuse.
+              // Roles the producer counted but could not render. A banner, not
+              // a replacement: whatever graph data exists is still drawn above.
               <div
                 data-testid="identity-incomplete"
                 className="rounded-lg border px-3 py-2.5 text-[11px]"
                 style={{ borderColor: WARN_LINE, background: WARN_BG, color: INK }}
               >
                 <span className="font-semibold" style={{ color: WARN }}>
-                  The map is empty because these roles could not be rendered, not because
-                  none exist.
+                  {graphHasData
+                    ? "Some roles could not be rendered — the map below is not the whole picture."
+                    : "The map is empty because these roles could not be rendered, not because none exist."}
                 </span>{" "}
                 {view.detail}
               </div>
-            ) : view.emptyAuthoritative ? (
+            ) : null}
+            {emptyClaim === "qualified_empty" ? (
+              // A QUALIFIED empty. The role-binding half is backed by the
+              // inventory receipt; the other half is not, and says so. The
+              // producer derives readiness from the absence of gaps, so it
+              // cannot distinguish a family that returned no rows from one
+              // that was never read — and a frontend must not certify that on
+              // its behalf.
               <div
                 data-testid="identity-empty-authoritative"
+                data-identity-empty-claim="qualified_empty"
                 className="rounded-lg border px-3 py-2.5 text-[11px]"
                 style={{ borderColor: LINE, background: "#FFFFFF", color: INK }}
               >
-                The active canonical generation was read and holds no workload-to-role binding in
-                this scope. This is an answer, not a missing read — the receipts above name the
-                generation it was read from.
+                <span className="font-semibold">
+                  No workload-to-role binding exists in the generation that was read.
+                </span>{" "}
+                That part is an answer, not a missing read — the receipts in Evidence name the
+                generation and its binding completeness.
+                {/*
+                  The canvas notice already carries this paragraph when the
+                  canvas is on screen. Printing the same three lines twice on
+                  one view made the qualified empty read as noise rather than
+                  as an answer, so the long form appears here only when there
+                  is no canvas to carry it.
+                */}
+                {canvasCarriesCoverage ? (
+                  <span
+                    data-testid="identity-empty-coverage-pointer"
+                    className="mt-1.5 block"
+                    style={{ color: WARN }}
+                  >
+                    Absence of the other{" "}
+                    {IDENTITY_FAMILIES_WITHOUT_COVERAGE_RECEIPT.length} relationship families is
+                    unknown rather than zero — see the note on the canvas.
+                  </span>
+                ) : (
+                  <span
+                    data-testid="identity-empty-coverage-caveat"
+                    className="mt-1.5 block"
+                    style={{ color: WARN }}
+                  >
+                    {IDENTITY_FAMILY_COVERAGE_MISSING_LINK} Unknown rather than zero here:{" "}
+                    <span className="font-mono">{IDENTITY_FAMILIES_WITHOUT_COVERAGE_RECEIPT.join(", ")}</span>.
+                  </span>
+                )}
               </div>
-            ) : (
-              <EstateIdentityMap view={view} />
-            )}
+            ) : null}
+            {!graphHasData && emptyClaim === "unread" && view.state !== "incomplete" ? (
+              <div
+                data-testid="identity-graph-unread"
+                className="rounded-lg border px-3 py-2.5 text-[11px]"
+                style={{ borderColor: WARN_LINE, background: WARN_BG, color: INK }}
+              >
+                <span className="font-semibold" style={{ color: WARN }}>
+                  No identity relationship is drawn, and that is not a statement that none exist.
+                </span>{" "}
+                {view.detail}
+              </div>
+            ) : null}
           </div>
           <RoleGaps view={view} />
         </section>
       ) : null}
 
-      <CapabilityMatrix view={view} />
-
-      <footer className="mt-4 text-[10px] leading-relaxed" style={{ color: MUTED }}>
-        Read from the <span className="font-mono">estate-identity-access/v1</span> block on this
-        estate&apos;s topology-risk payload. This tab issues no request of its own and performs no
-        graph traversal.
-      </footer>
+      <details
+        data-testid="identity-evidence-drawer"
+        className="mt-3 rounded-lg border px-3 py-2"
+        style={{ borderColor: LINE, background: "#FFFFFF" }}
+      >
+        <summary
+          className="cursor-pointer text-[11px] font-semibold uppercase tracking-wide"
+          style={{ color: MUTED }}
+          data-testid="identity-evidence-summary"
+        >
+          Evidence — receipts, family coverage, projection hashes
+        </summary>
+        <p className="mt-1.5 text-[11px]" style={{ color: MUTED }}>
+          Technical receipts and the installed-path capability matrix. They describe how this
+          reading was produced, not a claim that every family is drawn on the map.
+        </p>
+        {/* Everything the compact header stopped showing. Moved here, not
+            dropped: a reader who wants the contract version, the generation
+            numbers, the per-field scope check or the full limitation list
+            finds all of it one click away. */}
+        <section className="mt-3" data-testid="identity-evidence-diagnostics">
+          <h3 className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: MUTED }}>
+            Contract, generation and scope
+          </h3>
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+            {view.contractVersion ? (
+              <Chip testId="identity-contract-version" label={view.contractVersion} />
+            ) : null}
+            {view.projectionStatus ? (
+              <Chip testId="identity-projection-status" label={`status ${view.projectionStatus}`} />
+            ) : null}
+          </div>
+          {/* Only the chips the compact header drops — the indicator itself
+              stays single, so its test ids remain unique on the page. */}
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+            {indicator.inventoryGeneration !== null || indicator.decisionGeneration !== null ? (
+              <Chip
+                testId="identity-coverage-freshness"
+                label={[
+                  indicator.inventoryGeneration !== null
+                    ? `inventory generation ${indicator.inventoryGeneration}${indicator.inventoryCertified ? " (certified)" : ""}`
+                    : null,
+                  indicator.decisionGeneration !== null
+                    ? `decision generation ${indicator.decisionGeneration}`
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              />
+            ) : null}
+            {indicator.familiesAvailable !== null && indicator.familiesTotal !== null ? (
+              <Chip
+                testId="identity-coverage-families"
+                label={`${indicator.familiesAvailable} of ${indicator.familiesTotal} families servable`}
+              />
+            ) : null}
+          </div>
+          <div className="mt-1.5">
+            <ScopeBindingLine binding={view.scopeBinding} />
+          </div>
+          <CoverageLimits limits={indicator.limits} />
+        </section>
+        <section className="mt-3">
+          <h3 className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: MUTED }}>
+            Projection authority
+          </h3>
+          <div className="mt-1.5">
+            <Receipts receipts={view.receipts} />
+          </div>
+        </section>
+        <CapabilityMatrix view={view} />
+        <p className="mt-3 text-[10px] leading-relaxed" style={{ color: MUTED }}>
+          Read from the <span className="font-mono">estate-identity-access/v1</span> block on this
+          estate&apos;s topology-risk payload. This tab issues no request of its own and performs no
+          graph traversal.
+        </p>
+      </details>
     </div>
   )
 }
