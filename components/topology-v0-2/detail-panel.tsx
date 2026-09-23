@@ -34,6 +34,8 @@ import {
 } from "./service-paths"
 import { FLOW_COLOR_BY_CLASS } from "./flow-visuals"
 import { relationshipBadgeLabel } from "./estate-edge-labels"
+import { isIdentityAnchorId, type IdentitySelectionDetail } from "./estate-identity-access-model"
+import { EstateIdentityAccessDetail } from "./estate-identity-access-detail"
 import {
   operationalRequest,
   snapshotMirrorSummary,
@@ -59,6 +61,19 @@ interface Props {
   vpces?: EdgeVpce[]
   trafficAuthority?: TopologyRiskResponse["traffic_authority"]
   onClose: () => void
+  /**
+   * CF01 · D1 — the Identity & access lens's evidence for this selection, when
+   * the host is on that lens and the node takes part in an identity
+   * relationship. Rendered as its own section in the Resource tab; the rest
+   * of the panel (dossier, inspector, change impact) is unchanged. An
+   * identity-plane node (`__identity__:…` anchor) has no Inventory dossier
+   * and requests none — its evidence IS this section. The focused access
+   * diagram sits at the top of the panel; peer clicks pivot selection only.
+   */
+  identity?: IdentitySelectionDetail | null
+  /** Active host lens, including selections with no served identity detail. */
+  identityLensActive?: boolean
+  onSelectIdentityNode?: (id: string) => void
 }
 
 type Tab = "resource" | "dependencies" | "change"
@@ -356,6 +371,9 @@ export function DetailPanel({
   inspectorEdges = [],
   trafficAuthority,
   onClose,
+  identity = null,
+  identityLensActive = false,
+  onSelectIdentityNode,
 }: Props) {
   const [tab, setTab] = useState<Tab>("resource")
   const [expanded, setExpanded] = useState(false)
@@ -383,6 +401,9 @@ export function DetailPanel({
   // rendered and NOTHING is requested (2026-09-12 review: the anchor reached
   // Inventory as a resource id and read "InternetGateway __igw__ not found").
   const requestId = node ? inspectableResourceId(node) : null
+  // CF01 · D1 — an identity-plane node is a canvas anchor with no Inventory
+  // dossier; its evidence is the identity section, and nothing is requested.
+  const identityAnchor = Boolean(node && identity && isIdentityAnchorId(node.id))
 
   useEffect(() => {
     setTab("resource")
@@ -688,20 +709,26 @@ export function DetailPanel({
         <div className="flex items-start gap-3">
           <ServiceTypeBadge type={node.type ?? "Resource"} variant="tile" size={42} />
           <div className="min-w-0 flex-1">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.16em]" style={{ color: "#0E8B7A" }}>
-              Estate operations · {node.type ?? "Resource"}
+            <div className="text-[10px] font-semibold uppercase tracking-[0.16em]" style={{ color: identityAnchor ? "#B42318" : "#0E8B7A" }}>
+              {identityAnchor && identity
+                ? `Identity & access · ${identity.kindLabel}`
+                : `Estate operations · ${node.type ?? "Resource"}`}
             </div>
             <div className="mt-0.5 text-[10px] font-medium" style={{ color: "#5A6B7A" }}>
-              {node.type?.toLowerCase().includes("lambda") && !node.vpc_id
-                ? "AWS-managed runtime · not VPC-attached"
-                : node.type?.toLowerCase().includes("endpoint")
-                  ? "Network boundary · Interface endpoint"
-                  : "Cloud service · scoped operational context"}
+              {identityAnchor
+                ? "Identity-plane node · evidence from the canonical generation, no operational dossier"
+                : node.type?.toLowerCase().includes("lambda") && !node.vpc_id
+                  ? "AWS-managed runtime · not VPC-attached"
+                  : node.type?.toLowerCase().includes("endpoint")
+                    ? "Network boundary · Interface endpoint"
+                    : "Cloud service · scoped operational context"}
             </div>
             <h2 className="mt-1 truncate text-lg font-bold">{node.name}</h2>
             <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] font-mono" style={{ color: "#5A6B7A" }}>
               <span data-testid="estate-operations-resource-id">
-                {requestId ?? "resource id · unresolved in this payload"}
+                {identityAnchor && identity
+                  ? identity.node.arn ?? "name-only endpoint · no ARN in the served block"
+                  : requestId ?? "resource id · unresolved in this payload"}
               </span>
               {node.vpc_id ? <span>{node.vpc_id}</span> : null}
               {node.subnet_id ? <span>{node.subnet_id}</span> : null}
@@ -748,14 +775,23 @@ export function DetailPanel({
       </header>
 
       <div className="flex-1 overflow-y-auto p-5">
-        <ServicePathMap
-          selectedNodeId={node.id}
-          nodes={inspectorNodes}
-          edges={inspectorEdges}
-          trafficAuthority={trafficAuthority}
-        />
+        {identity ? (
+          <EstateIdentityAccessDetail
+            detail={identity}
+            onSelectNode={onSelectIdentityNode}
+          />
+        ) : null}
+        {!identityLensActive ? (
+          <ServicePathMap
+            selectedNodeId={node.id}
+            nodes={inspectorNodes}
+            edges={inspectorEdges}
+            trafficAuthority={trafficAuthority}
+          />
+        ) : null}
         {tab === "resource" ? (
           <div data-testid="estate-operations-resource">
+            {identityAnchor ? null : (
             <div className="mb-4 rounded-xl border p-4" style={{ borderColor: "#B9E8DF", background: "#F0FDFA" }}>
               <div className="flex items-center gap-2 text-sm font-semibold" style={{ color: "#0E8B7A" }}>
                 <ShieldCheck className="h-4 w-4" /> Live configuration from Inventory
@@ -764,6 +800,8 @@ export function DetailPanel({
                 Same resource inspector and evidence used by All Services. The map adds dependency and change scope around it.
               </p>
             </div>
+            )}
+            {identityAnchor ? null : (
             <section
               className="mb-4 rounded-xl border p-4"
               style={{ borderColor: "#C9D4DE", background: "#FFFFFF" }}
@@ -816,6 +854,7 @@ export function DetailPanel({
                 </p>
               ) : null}
             </section>
+            )}
             {dossier ? (
               <div className="mb-4 space-y-3" data-testid="estate-resource-overview">
                 <div className="grid grid-cols-3 gap-3">
@@ -839,6 +878,19 @@ export function DetailPanel({
             ) : null}
             {requestId ? (
               <ResourceConfigTab resourceId={requestId} resourceType={node.type ?? "Resource"} systemName={systemName} />
+            ) : identityAnchor ? (
+              <div
+                className="rounded-xl border p-4 text-xs"
+                style={{ borderColor: "#DDE3E8", background: "#FFFFFF", color: "#5A6B7A" }}
+                data-testid="estate-identity-anchor-no-dossier"
+              >
+                <p className="text-sm font-semibold" style={{ color: "#1A2330" }}>No Inventory dossier for an identity-plane node</p>
+                <p className="mt-1 leading-5">
+                  This chip is the identity lens&apos;s canvas anchor for the {identity?.kindLabel.toLowerCase() ?? "identity node"} the
+                  served block named. Its evidence is the section above, read from the canonical generation; nothing was requested
+                  from Inventory, and no dossier, dependency cone or change plan is claimed for it.
+                </p>
+              </div>
             ) : (
               <div
                 className="rounded-xl border p-4 text-xs"

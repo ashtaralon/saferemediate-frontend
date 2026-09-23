@@ -78,7 +78,19 @@ import {
   FLOW_ALERT_COLOR,
   FLOW_COLOR_BY_CLASS,
   FLOW_LEGEND_ITEMS,
+  IDENTITY_PLANE_COLOR,
+  IDENTITY_STROKE_DASH,
+  identityStrokeKey,
+  type IdentityStrokeKey,
 } from "./flow-visuals"
+// CF01 · D1 — the identity lens draws ON this frame. The plane module imports
+// WorkloadChip from here and this file renders the plane; both references are
+// resolved at render time, never at module evaluation, so the cycle is inert.
+import {
+  IdentityLensLegend,
+  IdentityPlane,
+  type IdentityLensFrameProps,
+} from "./estate-identity-plane"
 import {
   ALB_HEADER_TYPES,
   RDS_TYPES,
@@ -199,6 +211,15 @@ interface Props {
   viewDensity?: ViewDensity
   /** Business system name — used in All VPCs · Compare architecture strip. */
   systemLabel?: string
+  /**
+   * CF01 · D1 — Identity & access lens. When set, this frame is the identity
+   * map: the identity plane band renders inside the flow container (its chips
+   * are overlay anchors), the traffic legend and traffic-authority banners
+   * yield to the identity legend, and `overlayEdges` are expected to be the
+   * lens's `edge_class: "identity"` edges. Absent (the Network view) NOTHING
+   * in this frame changes.
+   */
+  identityLens?: IdentityLensFrameProps
 }
 
 /** @deprecated use REGIONAL_EDGE_SERVICE_TYPES from estate-placement */
@@ -950,6 +971,37 @@ function nodeIcon(type: string | null): { symbol: ReactNode; bg: string; fg: str
     case "ALB":
     case "ApplicationLoadBalancer":
       return { symbol: <AlbGlyph />, bg: "#8C4FFF", fg: "white" }
+    // CF01 · D1 — identity-plane kinds that have no official resource icon.
+    // IAMRole / IAMPolicy / IAMUser resolve above through the catalog.
+    case "IAMGroup":
+      return { symbol: "GRP", bg: "#DD344C", fg: "white" }
+    case "ServicePrincipal":
+      return { symbol: "SVC", bg: "#DD344C", fg: "white" }
+    case "FederatedPrincipal":
+      return { symbol: "FED", bg: "#DD344C", fg: "white" }
+    case "AWSAccountPrincipal":
+      return { symbol: "ACCT", bg: "#DD344C", fg: "white" }
+    case "IAMCredential":
+      return { symbol: "KEY", bg: "#DD344C", fg: "white" }
+    case "ActionDecision":
+      return { symbol: "DEC", bg: "#DD344C", fg: "white" }
+    case "ResourcePolicy":
+      return { symbol: "RP", bg: "#DD344C", fg: "white" }
+    // CF01 lane F — the account's own Organizations placement. A distinct
+    // (ink) family from the trust-policy principals above, so a trusted
+    // external account (ACCT, carmine) never reads as the tenant's own.
+    case "AWSAccount":
+      return { symbol: "ACC", bg: "#0D1B2A", fg: "white" }
+    case "Organization":
+      return { symbol: "ORG", bg: "#0D1B2A", fg: "white" }
+    case "OrganizationalUnit":
+      return { symbol: "OU", bg: "#0D1B2A", fg: "white" }
+    case "ControlPolicy":
+      return { symbol: "CP", bg: "#0D1B2A", fg: "white" }
+    case "ProtectedResource":
+      return { symbol: "RES", bg: "#5A6B7A", fg: "white" }
+    case "Workload":
+      return { symbol: "WL", bg: "#5A6B7A", fg: "white" }
     default:
       return { symbol: "?", bg: "#5A6B7A", fg: "white" }
   }
@@ -1002,7 +1054,7 @@ function chipLayout(size: ChipSize): {
 }
 
 export function WorkloadChip({
-  node, selected, onClick, iamSummary, size,
+  node, selected, onClick, iamSummary, size, identitySubtitle,
 }: {
   node: TopologyNode
   selected: boolean
@@ -1010,6 +1062,19 @@ export function WorkloadChip({
   iamSummary?: string | null
   /** Visual hierarchy — gateway landmarks vs named anchors vs compact. */
   size?: ChipSize
+  /**
+   * OPT-IN, identity lens only. When present it replaces the chip's default
+   * `type · id` second line.
+   *
+   * An identity chip's id is a canvas anchor (`__identity:<kind>:<key>__`), so
+   * the default line rendered a truncated synthetic fragment — `IAMRole ·
+   * __identity:i…` — which identifies nothing and is exactly what a reader
+   * needs in order to tell two similarly-named principals apart. The identity
+   * plane passes the producer's own discriminator instead.
+   *
+   * Omitted everywhere else, so the Network view's chips are byte-identical.
+   */
+  identitySubtitle?: string | null
 }) {
   const stale = !!node.stale
   const { ring, halo } = severityRing(node)
@@ -1207,7 +1272,9 @@ export function WorkloadChip({
               {usageLine && usageLine !== "no observed access" ? ` · ${usageLine}` : ""}
             </span>
           ) : (
-            usageLine ?? `${node.type ?? "?"}${node.id && node.id !== node.name ? ` · ${node.id.slice(0, 24)}` : ""}`
+            identitySubtitle ??
+            usageLine ??
+            `${node.type ?? "?"}${node.id && node.id !== node.name ? ` · ${node.id.slice(0, 24)}` : ""}`
           )}
         </div>
       </div>
@@ -3868,6 +3935,34 @@ interface FlowPath {
   externalDestinations: number | null
   badgeX: number
   badgeY: number
+  /** Where the badge sat before any displacement pass — beside its own line.
+   *  Identity lens only; undefined elsewhere, so Network is untouched. */
+  badgeAnchorX?: number
+  badgeAnchorY?: number
+  /** The route's own polyline, so a leader can terminate ON the path rather
+   *  than at a remembered badge position. */
+  polyline?: { x: number; y: number }[]
+  /** Leader tip, resolved on the DRAWN stroke (rounded corners included) in
+   *  the identity post-pass rather than in render. Undefined when the badge
+   *  did not move, and everywhere outside the identity lens. */
+  leaderTipX?: number
+  leaderTipY?: number
+  /** Measured distance from that tip to the nearest OTHER drawn stroke.
+   *
+   *  Carried because "the tip is on its own path" is necessary but NOT
+   *  sufficient: where identity routes share a bus lane the same point lies on
+   *  several paths at once, and a tip there names a bundle, not an edge. This
+   *  is the number that says which case a given leader is in. */
+  leaderForeignClearance?: number
+  /** Whether that clearance reaches `LEADER_DISCRIMINATION_MARGIN_PX`. False
+   *  is the honest, common case in a dense render — never asserted away. */
+  leaderDiscriminates?: boolean
+  /** How many foreign strokes the clearance was measured against, and how many
+   *  drawn strokes existed to measure against. Unequal means the comparison
+   *  set was short and the clearance is not trustworthy — recorded so a
+   *  control can refuse it instead of reading a fail-open "0 foreign". */
+  leaderComparedCurves?: number
+  leaderComparableCurves?: number
   badgeLabel: string
   /** Full per-edge detail when badgeLabel is a corridor bundle chip. */
   badgeTitle?: string
@@ -3894,6 +3989,8 @@ interface FlowPath {
   stubD?: string
   /** Fixed badges on the feeder legs ("API" at each function's edge); not moved by the de-overlap pass. */
   stubBadges?: { x: number; y: number; label: string; title: string }[]
+  /** CF01 · D1 — the identity annotation of the edge this path draws, if any. */
+  identity?: TrafficEdge["identity"]
 }
 
 export type TrafficMotionKind = "authoritative" | "historical" | "none"
@@ -3961,8 +4058,12 @@ type Pt = { x: number; y: number }
 /** Chip rect in natural coordinates with derived edges/center. */
 type NatRect = { l: number; t: number; r: number; b: number; cx: number; cy: number }
 
-/** Manhattan polyline → SVG path with rounded corners. */
-function orthoPath(pts: Pt[], radius = 8): string {
+/** Manhattan polyline → SVG path with rounded corners.
+ *
+ *  Exported so a control can measure a leader tip against the string this
+ *  function actually emits, rather than against the raw polyline handed to it —
+ *  the two differ by up to 2.828px at every corner. */
+export function orthoPath(pts: Pt[], radius = 8): string {
   // Drop zero-length segments so corner math never divides by zero.
   const p: Pt[] = [pts[0]]
   for (const q of pts.slice(1)) {
@@ -4204,6 +4305,254 @@ export function badgeHalfWidth(label: string): number {
  *  `y={-7} height={14}`, the feeder stub `y={-6} height={12}`. Named so the
  *  containment pass measures the same boxes the renderer paints. */
 export const BADGE_HALF_HEIGHT = 7
+
+/**
+ * The closest point ON a polyline to (x, y) — projected onto each segment, not
+ * snapped to a vertex.
+ *
+ * The identity leader line needs a point the edge actually passes through. Its
+ * first version pointed back to the badge's saved pre-displacement position,
+ * which is only ever NEAR the line — so it led back to where the badge used to
+ * sit rather than to the edge it names, and could not support the claim made
+ * for it.
+ */
+export function nearestPointOnPolyline(
+  pts: readonly { x: number; y: number }[],
+  x: number,
+  y: number,
+): { x: number; y: number } | null {
+  if (!pts || pts.length === 0) return null
+  if (pts.length === 1) return { x: pts[0].x, y: pts[0].y }
+  let best = { x: pts[0].x, y: pts[0].y }
+  let bestD = Infinity
+  for (let i = 1; i < pts.length; i += 1) {
+    const a = pts[i - 1]
+    const b = pts[i]
+    const dx = b.x - a.x
+    const dy = b.y - a.y
+    const len2 = dx * dx + dy * dy
+    const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((x - a.x) * dx + (y - a.y) * dy) / len2))
+    const px = a.x + t * dx
+    const py = a.y + t * dy
+    const d = Math.hypot(x - px, y - py)
+    if (d < bestD) {
+      bestD = d
+      best = { x: px, y: py }
+    }
+  }
+  return best
+}
+
+/** The corner radius `orthoPath` rounds with. Named so the geometry that
+ *  FINDS a point on the drawn stroke uses the same radius that DREW it. */
+export const ORTHO_CORNER_RADIUS = 8
+
+/**
+ * The drawn stroke, as a dense polyline.
+ *
+ * `orthoPath` does not draw the raw polyline: it replaces every corner with a
+ * quadratic whose control point is the corner vertex. So the raw polyline is
+ * NOT the curve on screen, and a point found on the raw polyline can be off
+ * the stroke by up to `r·√2/2·…` — concretely 2.828px for r=8, which is what a
+ * query point on a corner's outer bisector produces: the raw nearest point is
+ * the vertex, and the quadratic's midpoint sits 2√2 away from it.
+ *
+ * That was the gap between "the tip is on the path" and what could be
+ * measured: the tip was computed against the raw polyline, and the assertion
+ * carried a 1.5px tolerance whose stated reason was this very rounding — a
+ * tolerance that does not in fact cover it. Flattening the SAME construction
+ * `orthoPath` emits gives a point genuinely on the drawn stroke, so the
+ * measured distance is ~0 rather than a tolerance standing in for one.
+ *
+ * `perCorner` 24 bounds the flattening error at |B''|h²/8 = 22.6/(24²·8) ≈
+ * 0.005px, two orders of magnitude below the defect it replaces.
+ */
+export function roundedPathPoints(
+  pts: readonly Pt[],
+  radius = ORTHO_CORNER_RADIUS,
+  perCorner = 24,
+): Pt[] {
+  if (!pts || pts.length === 0) return []
+  // The same zero-length-segment drop `orthoPath` applies, so both agree about
+  // which vertices are corners.
+  const p: Pt[] = [{ x: pts[0].x, y: pts[0].y }]
+  for (const q of pts.slice(1)) {
+    const last = p[p.length - 1]
+    if (Math.abs(q.x - last.x) > 0.5 || Math.abs(q.y - last.y) > 0.5) p.push({ x: q.x, y: q.y })
+  }
+  if (p.length < 2) return p
+  const out: Pt[] = [{ x: p[0].x, y: p[0].y }]
+  for (let i = 1; i < p.length - 1; i += 1) {
+    const a = p[i - 1], b = p[i], c = p[i + 1]
+    const rIn = Math.min(
+      radius,
+      Math.hypot(b.x - a.x, b.y - a.y) / 2,
+      Math.hypot(c.x - b.x, c.y - b.y) / 2,
+    )
+    const inX = b.x - Math.sign(b.x - a.x) * rIn
+    const inY = b.y - Math.sign(b.y - a.y) * rIn
+    const outX = b.x + Math.sign(c.x - b.x) * rIn
+    const outY = b.y + Math.sign(c.y - b.y) * rIn
+    out.push({ x: inX, y: inY })
+    for (let k = 1; k <= perCorner; k += 1) {
+      const t = k / perCorner
+      const mt = 1 - t
+      out.push({
+        x: mt * mt * inX + 2 * mt * t * b.x + t * t * outX,
+        y: mt * mt * inY + 2 * mt * t * b.y + t * t * outY,
+      })
+    }
+  }
+  out.push({ x: p[p.length - 1].x, y: p[p.length - 1].y })
+  return out
+}
+
+/** Closest point on the DRAWN stroke (rounded corners included). */
+export function nearestPointOnRoundedPath(
+  pts: readonly Pt[],
+  x: number,
+  y: number,
+  radius = ORTHO_CORNER_RADIUS,
+): Pt | null {
+  return nearestPointOnPolyline(roundedPathPoints(pts, radius), x, y)
+}
+
+/**
+ * How far a leader tip must clear every OTHER drawn stroke before the tip can
+ * be said to name one edge rather than a bundle.
+ *
+ * The halo behind each line is drawn at strokeWidth 4 — 2px either side of the
+ * centreline — so a tip 4px from a foreign centreline is outside that foreign
+ * line's halo altogether. Below it, the tip is painted on top of the other
+ * line and points at both.
+ */
+export const LEADER_DISCRIMINATION_MARGIN_PX = 4
+
+/**
+ * Pull identity badges off each other so a label can be read.
+ *
+ * The identity plane runs many near-parallel lines through a dense chip grid,
+ * so their badges land at similar heights and stack: "managed policy (ARN
+ * only)", "boundary" and "inline policy" drawn over one another produce
+ * `ma|boundary|RN only)`, which is three true labels rendered as one false
+ * one. The label that explains an edge was obscuring the edge it explains.
+ *
+ * A deterministic sweep, identity lens only:
+ *   - order by (y, x, label) so one payload always yields one layout — a
+ *     selection must not reshuffle labels it did not change;
+ *   - place each badge, and while it overlaps one already placed, step it
+ *     alternately above and below its natural position;
+ *   - give up after a bounded number of steps and leave it where it started,
+ *     because a badge flung far from its line is worse than one that overlaps.
+ *
+ * Only `badgeY` moves, and only for the identity lens. No route, geometry,
+ * colour or classification changes, and the network lens never calls this.
+ */
+export function separateIdentityBadges(
+  paths: FlowPath[],
+  obstacles: { x0: number; x1: number; y0: number; y1: number }[] = [],
+  bounds?: { width: number; height: number },
+): void {
+  const STEP = BADGE_HALF_HEIGHT * 2 + 2
+  const MAX_STEPS = 6
+  // Chip boxes come first so a badge is pushed off a chip as readily as off
+  // another badge. They are obstacles only — nothing moves them.
+  const placed: { x0: number; x1: number; y0: number; y1: number }[] = [...obstacles]
+
+  /**
+   * CONTAINMENT IS PART OF CANDIDATE SELECTION, NOT A CORRECTION AFTERWARDS.
+   *
+   * This pass runs after the overlay's final `clampBadgeIntoBounds`, so a
+   * candidate it invents is never re-contained by anything downstream. The
+   * first version accepted any Y, which pushed a badge to y = -7 — box top
+   * -14, wholly above a 400x200 overlay — and `setPaths` shipped it. Solving a
+   * collision by moving a label off the canvas destroys more than the overlap
+   * did.
+   *
+   * Clamping the RESULT instead would be worse: the clamp would shove the
+   * badge straight back into the obstacle separation had just moved it off,
+   * and the two passes would fight with the clamp always winning. So a
+   * candidate outside the overlay is simply never offered, and when nothing
+   * inside the overlay is free the badge keeps its original contained
+   * position — overlapping but visible, which is the lesser failure.
+   */
+  const insideBounds = (y: number): boolean => {
+    if (!bounds) return true
+    const yMin = BADGE_HALF_HEIGHT + 2
+    const yMax = bounds.height - BADGE_HALF_HEIGHT - 2
+    /**
+     * An overlay too short to contain a badge at all refuses EVERY candidate.
+     *
+     * This returned `true` — "unbounded" — which disabled containment exactly
+     * where a badge has least room to go and most need of the bound: in a
+     * 400x16 overlay a contained label at y = 8 was moved to y = -8, the same
+     * escape as before, reached through the guard instead of around it.
+     *
+     * Refusing every candidate is right because the fallback below already
+     * handles it: when nothing inside is free the badge keeps the position the
+     * clamp gave it. Overlapping but visible beat separated but off-canvas at
+     * 200px and it still does at 16px, and this guard must never produce a
+     * result the unguarded path would have refused.
+     */
+    if (yMax < yMin) return false
+    return y >= yMin && y <= yMax
+  }
+
+  const indexed = paths
+    .map((p, index) => ({ p, index }))
+    .filter(({ p }) => Boolean(p.badgeLabel))
+    .sort(
+      (a, b) =>
+        a.p.badgeY - b.p.badgeY ||
+        a.p.badgeX - b.p.badgeX ||
+        a.p.badgeLabel.localeCompare(b.p.badgeLabel) ||
+        a.index - b.index,
+    )
+
+  const hits = (x0: number, x1: number, y0: number, y1: number) =>
+    placed.some(r => x0 < r.x1 && x1 > r.x0 && y0 < r.y1 && y1 > r.y0)
+
+  for (const { p } of indexed) {
+    const hw = badgeHalfWidth(p.badgeLabel)
+    const x0 = p.badgeX - hw
+    const x1 = p.badgeX + hw
+    const free = (candidate: number) =>
+      insideBounds(candidate) &&
+      !hits(x0, x1, candidate - BADGE_HALF_HEIGHT, candidate + BADGE_HALF_HEIGHT)
+
+    let y = p.badgeY
+    // The natural position counts only if it is itself inside the overlay —
+    // otherwise a badge the clamp had contained could be "kept" outside it.
+    let found = free(p.badgeY)
+    if (!found) {
+      for (let step = 1; step <= MAX_STEPS; step += 1) {
+        // Alternate up / down so a stack grows symmetrically around the line
+        // rather than drifting in one direction away from what it labels.
+        const offset = Math.ceil(step / 2) * STEP * (step % 2 === 1 ? -1 : 1)
+        const candidate = p.badgeY + offset
+        if (free(candidate)) {
+          y = candidate
+          found = true
+          break
+        }
+      }
+    }
+    if (found) {
+      p.badgeY = y
+      placed.push({ x0, x1, y0: y - BADGE_HALF_HEIGHT, y1: y + BADGE_HALF_HEIGHT })
+    } else {
+      // Nothing free inside the overlay within the budget: keep the position
+      // the clamp already gave it. Overlapping but visible beats separated but
+      // off-canvas, and `p.badgeY` is deliberately left untouched.
+      placed.push({
+        x0,
+        x1,
+        y0: p.badgeY - BADGE_HALF_HEIGHT,
+        y1: p.badgeY + BADGE_HALF_HEIGHT,
+      })
+    }
+  }
+}
 export const STUB_BADGE_HALF_HEIGHT = 6
 
 /** Keep a badge box inside the overlay's own extent.
@@ -4793,6 +5142,7 @@ function FlowOverlay({
   viewDensity = "glance",
   selectedNodeId = null,
   flowMode = "architecture",
+  lens = "network",
 }: {
   edges: TrafficEdge[]
   containerRef: React.RefObject<HTMLDivElement | null>
@@ -4808,6 +5158,9 @@ function FlowOverlay({
   viewDensity?: ViewDensity
   selectedNodeId?: string | null
   flowMode?: EstateFlowMode
+  /** CF01 · D1 — "identity" recolours and dashes by the edge's identity
+   *  annotation (plane / certainty). "network" (default) is unchanged. */
+  lens?: "network" | "identity"
 }) {
   const [paths, setPaths] = useState<FlowPath[]>([])
   const [size, setSize] = useState({ w: 0, h: 0 })
@@ -5161,11 +5514,25 @@ function FlowOverlay({
         if (!d) continue
         const e = j.e
         const cls = j.cls
-        let badgeLabel = edgeBadgeLabel(e, cls, routedViaVpce, routedViaIgw, routedViaNat)
-        if (j.count > 1 && !e.is_exposed) badgeLabel = `${j.count} flows`
+        let badgeLabel = e.identity
+          ? e.identity.label
+          : edgeBadgeLabel(e, cls, routedViaVpce, routedViaIgw, routedViaNat)
+        if (j.count > 1 && !e.is_exposed) badgeLabel = e.identity ? `${j.count} links` : `${j.count} flows`
+        // Direction, in WORDS, on the selected node's own relationships.
+        //
+        // Inbound and outbound previously shared weight and colour and were
+        // separated only by a line-end arrowhead a few pixels across, which
+        // disappears at 768px and in greyscale. "out ·" / "in ·" is legible
+        // wherever the badge is legible, needs no colour, and reads the same
+        // to someone who cannot resolve the arrowhead at all. Context edges
+        // get no prefix — they are not the selection's own access, and the
+        // existing dimming already says so.
+        if (e.identity && e.identity.focusRelation === "outgoing") badgeLabel = `out · ${badgeLabel}`
+        else if (e.identity && e.identity.focusRelation === "incoming") badgeLabel = `in · ${badgeLabel}`
         next.push({
           d,
           cls,
+          identity: e.identity ?? undefined,
           sourceId: e.source_id,
           targetId: e.target_id,
           protocol: e.protocol,
@@ -5173,6 +5540,7 @@ function FlowOverlay({
           externalDestinations: e.external_destinations ?? null,
           badgeX: badge.x,
           badgeY: badge.y - 6,
+          polyline: pts.map(q => ({ x: q.x, y: q.y })),
           badgeLabel,
           badgeTitle: formatEgressDestinationsTitle(e, badgeLabel),
           isExposed: Boolean(e.is_exposed),
@@ -5576,6 +5944,12 @@ function FlowOverlay({
         // labels clear the check and still paint over an obstacle by up to
         // ~12px per side.
         const hw = badgeHalfWidth(p.badgeLabel)
+        // The undisplaced anchor: flowBadgeAnchor put it beside this edge's
+        // own line, and every later pass moves the badge AWAY from it. It is
+        // therefore the one point that still identifies which edge the label
+        // belongs to, which is what the identity leader line draws back to.
+        p.badgeAnchorX = p.badgeX
+        p.badgeAnchorY = p.badgeY
         let y = p.badgeY
         if (!clearAt(p.badgeX, y, hw)) {
           let found = false
@@ -5624,6 +5998,78 @@ function FlowOverlay({
             )
             return { ...b, x: c.x, y: c.y }
           })
+        }
+      }
+      if (lens === "identity") {
+        // Chips are obstacles too. A badge nudged clear of other badges but
+        // parked on a chip title still hides the node its own line points at,
+        // which is the failure this whole pass exists to remove.
+        const chipBoxes = Array.from(
+          container.querySelectorAll<HTMLElement>('[data-testid="identity-plane-chip"]'),
+        ).map(el => {
+          const n = toNat(el.getBoundingClientRect())
+          return { x0: n.l, x1: n.r, y0: n.t, y1: n.b }
+        })
+        // The SAME bounds the final clampBadgeIntoBounds pass used. This runs
+        // after that clamp and nothing contains badges afterwards, so the
+        // overlay has to bound the candidates this pass chooses from.
+        separateIdentityBadges(next, chipBoxes, { width: natW, height: natH })
+
+        // LEADER ATTACHMENT — resolved here, after every displacement pass, so
+        // the tip answers to the badge's FINAL position.
+        //
+        // Computed in the pass rather than in render for two reasons: render
+        // has no business flattening curves on every paint, and the clearance
+        // below needs every OTHER route's geometry, which only this scope has.
+        //
+        // The tip goes on the DRAWN stroke, not the raw polyline. The raw
+        // polyline is not what `orthoPath` paints — it rounds every corner —
+        // so a tip taken from it can sit 2.828px off the stroke at r=8.
+        //
+        // The clearance is the honest half of this. "The tip is on its own
+        // path" is necessary but not sufficient: identity routes share bus
+        // lanes, so one point can lie on several paths at once, and a tip
+        // there names a bundle rather than an edge. Measuring the distance to
+        // the nearest foreign stroke is what tells the two cases apart, and it
+        // is recorded per leader instead of being assumed away.
+        const curves = next.map(p => ({
+          p,
+          pts: p.d && p.polyline && p.polyline.length > 1 ? roundedPathPoints(p.polyline) : null,
+        }))
+        const comparable = curves.filter(c => c.pts && c.pts.length > 1).length
+        for (const entry of curves) {
+          const p = entry.p
+          if (!p.badgeLabel || !entry.pts) continue
+          const moved =
+            p.badgeAnchorX != null &&
+            p.badgeAnchorY != null &&
+            Math.hypot(p.badgeX - p.badgeAnchorX, p.badgeY - p.badgeAnchorY) >
+              BADGE_HALF_HEIGHT * 2
+          if (!moved) continue
+          const tip = nearestPointOnPolyline(entry.pts, p.badgeX, p.badgeY)
+          if (!tip) continue
+          p.leaderTipX = tip.x
+          p.leaderTipY = tip.y
+          let clearance = Infinity
+          let compared = 0
+          for (const other of curves) {
+            if (other === entry || !other.pts || other.pts.length < 2) continue
+            compared += 1
+            const near = nearestPointOnPolyline(other.pts, tip.x, tip.y)
+            if (!near) continue
+            clearance = Math.min(clearance, Math.hypot(near.x - tip.x, near.y - tip.y))
+          }
+          p.leaderComparedCurves = compared
+          p.leaderComparableCurves = comparable
+          if (compared > 0) p.leaderForeignClearance = clearance
+          // Fail CLOSED on a short comparison set: a leader may only claim to
+          // single out its edge when every other drawn stroke was actually
+          // measured. An unmeasured neighbour reads as "0 foreign curves
+          // nearby", which is the fail-open shape this lane keeps finding.
+          p.leaderDiscriminates =
+            compared > 0 &&
+            compared === comparable - 1 &&
+            clearance >= LEADER_DISCRIMINATION_MARGIN_PX
         }
       }
       setPaths(next)
@@ -5718,13 +6164,34 @@ function FlowOverlay({
             <path d="M 0 0 L 10 5 L 0 10 z" fill={FLOW_COLOR_BY_CLASS[c]} />
           </marker>
         ))}
+        {lens === "identity"
+          ? (Object.keys(IDENTITY_PLANE_COLOR) as IdentityStrokeKey[]).map(key => (
+              <marker
+                key={`identity-${key}`}
+                id={`flow-arrow-identity-${key}`}
+                viewBox="0 0 10 10"
+                refX="9"
+                refY="5"
+                markerWidth="4"
+                markerHeight="4"
+                orient="auto-start-reverse"
+              >
+                <path d="M 0 0 L 10 5 L 0 10 z" fill={IDENTITY_PLANE_COLOR[key]} />
+              </marker>
+            ))
+          : null}
       </defs>
       {paths.map((p, i) => {
-        const stroke =
-          p.highlight === "attack_path" || p.isExposed
+        // CF01 · D1 — on the identity lens the line's colour and dash are the
+        // producer's plane and certainty, not a traffic class.
+        const identity = lens === "identity" && p.identity ? p.identity : null
+        const identityKey: IdentityStrokeKey | null = identity ? identityStrokeKey(identity) : null
+        const stroke = identityKey
+          ? IDENTITY_PLANE_COLOR[identityKey]
+          : p.highlight === "attack_path" || p.isExposed
             ? FLOW_ALERT_COLOR
             : FLOW_COLOR_BY_CLASS[p.cls]
-        const markerCls = p.isExposed ? "database" : p.cls
+        const markerCls = identityKey ? `identity-${identityKey}` : p.isExposed ? "database" : p.cls
         const dependencyFocusActive = flowMode === "all_access" && selectedNodeId != null
         const focusedDependency = dependencyFocusActive && p.focused
         const dimmed = dependencyFocusActive && !p.focused
@@ -5760,6 +6227,14 @@ function FlowOverlay({
           data-flow-authority={p.authorityState ?? undefined}
           data-flow-path-basis={p.pathBasis ?? undefined}
           data-flow-motion={motionKind}
+          data-flow-family={identity?.family}
+          data-flow-plane={identity?.plane}
+          data-flow-certainty={identity?.certainty}
+          data-flow-verdict={identity?.verdict}
+          // The selected node's own access relationships vs surrounding
+          // context. Presentation only: "context" is still evidence-backed and
+          // still drawn, it is simply not the selection's own edge.
+          data-flow-focus-relation={identity?.focusRelation}
           data-flow-bundle={p.bundle ? String(p.bundle.count) : undefined}
           data-flow-members={p.bundle ? p.bundle.members.join("|") : undefined}
         >
@@ -5799,11 +6274,13 @@ function FlowOverlay({
                   : "0.62"
             }
             strokeDasharray={
-              p.highlight === "attack_path" || p.isExposed
-                ? "6 4"
-                : inferredOrUnverified
-                  ? "7 5"
-                  : undefined
+              identityKey
+                ? IDENTITY_STROKE_DASH[identityKey]
+                : p.highlight === "attack_path" || p.isExposed
+                  ? "6 4"
+                  : inferredOrUnverified
+                    ? "7 5"
+                    : undefined
             }
             strokeLinecap="round"
             markerEnd={p.arrow === false ? undefined : `url(#flow-arrow-${markerCls})`}
@@ -5934,6 +6411,58 @@ function FlowOverlay({
             {p.badgeLabel ? (
               <>
                 <title>{p.badgeTitle || p.badgeLabel}</title>
+                {/* LEADER LINE, identity lens only.
+                    A displaced badge keeps its text but loses the one cue that
+                    said which edge it labels: proximity. Measured on the dense
+                    3-hop render, 7 of 17 badges sat closer to a FOREIGN edge
+                    than to their own — `managed policy` 118.8px from its own
+                    and 12.5px from another — so a viewer reading by proximity
+                    is not uncertain, they are confidently wrong.
+                    Drawn only when the badge actually moved, so an undisplaced
+                    label gains no clutter, and rendered before the badge box so
+                    it tucks underneath rather than crossing the text. */}
+                {(() => {
+                  if (lens !== "identity") return null
+                  // Resolved in the identity post-pass: ON THE DRAWN STROKE,
+                  // not on the raw polyline and not at the remembered badge
+                  // position. Absent means the badge never moved — or that
+                  // this is not the identity lens, which sets none of it.
+                  if (p.leaderTipX == null || p.leaderTipY == null) return null
+                  const tip = { x: p.leaderTipX, y: p.leaderTipY }
+                  // The `data-leader-*` measurements below say what this
+                  // leader can and cannot establish. A tip on a shared bus
+                  // lane lies on several paths at once; recording that is the
+                  // difference between a cue and a claim.
+                  return (
+                  <line
+                    data-flow-badge-leader="true"
+                    data-leader-tip-x={tip.x.toFixed(2)}
+                    data-leader-tip-y={tip.y.toFixed(2)}
+                    data-leader-discriminates={p.leaderDiscriminates ? "true" : "false"}
+                    data-leader-foreign-clearance={
+                      p.leaderForeignClearance != null
+                        ? p.leaderForeignClearance.toFixed(2)
+                        : undefined
+                    }
+                    data-leader-compared-curves={
+                      p.leaderComparedCurves != null ? String(p.leaderComparedCurves) : undefined
+                    }
+                    data-leader-comparable-curves={
+                      p.leaderComparableCurves != null
+                        ? String(p.leaderComparableCurves)
+                        : undefined
+                    }
+                    x1={0}
+                    y1={0}
+                    x2={tip.x - p.badgeX}
+                    y2={tip.y - p.badgeY}
+                    stroke={stroke}
+                    strokeWidth="0.75"
+                    strokeOpacity="0.55"
+                    strokeDasharray="2 2"
+                  />
+                  )
+                })()}
                 <rect
                   x={-badgeHalfWidth(p.badgeLabel)}
                   y={-BADGE_HALF_HEIGHT}
@@ -8613,6 +9142,7 @@ export function AwsFrame({
   densityCollapsed = false,
   viewDensity = "glance",
   systemLabel,
+  identityLens,
 }: Props) {
   const topo = useMemo(() => normalizeVpcTopology(vpcTopology), [vpcTopology])
   // SG lookup for the SubnetCell groupings.
@@ -8674,6 +9204,7 @@ export function AwsFrame({
     () => externalDestinationMap(externalEgress, trafficEdgesList),
     [externalEgress, trafficEdgesList],
   )
+  const identityPlaneIds = identityLens?.lens.nodes
   const visibleEdges = useMemo(() => {
     const visible = new Set(nodes.map(n => n.id))
     for (const n of regionalTierNodes) visible.add(n.id)
@@ -8681,6 +9212,8 @@ export function AwsFrame({
     // Triggers were edge-visible only because they used to sit in
     // regionalTierNodes. Leaving them out here drops the TRIGGERS fan-out.
     for (const n of triggerTierNodes) visible.add(n.id)
+    // CF01 · D1 — identity-plane chips are overlay anchors too.
+    if (identityPlaneIds) for (const n of identityPlaneIds) if (!n.onCanvas) visible.add(n.id)
     const railIds = new Set<string>([
       ...regionalTierNodes.map(n => n.id),
       ...serverlessTierNodes.map(n => n.id),
@@ -8756,6 +9289,7 @@ export function AwsFrame({
     vpceIds,
     mergedVpcView,
     externalDestinations,
+    identityPlaneIds,
   ])
   // One frame PER VPC. Merged mode renders every VPC that owns a subnet in the
   // payload (primary first); scoped mode renders just the selected VPC. Each
@@ -8924,8 +9458,12 @@ export function AwsFrame({
           </div>
         </div>
       ) : null}
-      {flowMode !== "architecture" ? <FlowLegend compact={presentationMode} /> : null}
-      {flowMode === "all_access" && trafficAuthority?.state === "authoritative_positive_only" ? (
+      {identityLens ? (
+        <IdentityLensLegend lens={identityLens.lens} compact={presentationMode} />
+      ) : flowMode !== "architecture" ? (
+        <FlowLegend compact={presentationMode} />
+      ) : null}
+      {!identityLens && flowMode === "all_access" && trafficAuthority?.state === "authoritative_positive_only" ? (
         <div
           className="flex items-center justify-between gap-3 border-b px-2 py-1.5 text-[10px]"
           style={{ borderColor: "#99F6E4", background: "#F0FDFA", color: "#115E59" }}
@@ -8938,7 +9476,8 @@ export function AwsFrame({
           </span>
         </div>
       ) : null}
-      {flowMode === "all_access" &&
+      {!identityLens &&
+      flowMode === "all_access" &&
       trafficAuthority?.state !== "authoritative" &&
       trafficAuthority?.state !== "authoritative_positive_only" ? (
         <div
@@ -8958,7 +9497,7 @@ export function AwsFrame({
           </span>
         </div>
       ) : null}
-      {flowMode === "all_access" && trafficAuthority?.lane_coverage ? (
+      {!identityLens && flowMode === "all_access" && trafficAuthority?.lane_coverage ? (
         <LaneCoveragePill
           coverage={trafficAuthority.lane_coverage}
           gaps={resolveCoverageGaps(trafficAuthority)}
@@ -9546,6 +10085,17 @@ export function AwsFrame({
         </div>
       </div>
 
+      {/* CF01 · D1 — the identity plane, INSIDE the flow container so its
+          chips are anchors the overlay can route to, in every mode. */}
+      {identityLens ? (
+        <IdentityPlane
+          frame={identityLens}
+          selectedNodeId={selectedNodeId}
+          onSelect={onSelect}
+          compact={presentationMode}
+        />
+      ) : null}
+
       {/* Sections below the AWS frame — diagnostic. Hidden in
           presentation/fullscreen mode so the map itself is the focus.
           Inline page keeps everything.  */}
@@ -9597,11 +10147,13 @@ export function AwsFrame({
             </div>
           ) : null}
 
-          <TrafficFlowBand
-            evidenceEdges={trafficEdgesList}
-            drawnEdges={visibleEdges}
-            nodes={nodes}
-          />
+          {identityLens ? null : (
+            <TrafficFlowBand
+              evidenceEdges={trafficEdgesList}
+              drawnEdges={visibleEdges}
+              nodes={nodes}
+            />
+          )}
           <EncodingLegend />
         </DiagnosticsAccordion>
       )}
@@ -9618,6 +10170,7 @@ export function AwsFrame({
         viewDensity={viewDensity}
         selectedNodeId={selectedNodeId}
         flowMode={flowMode}
+        lens={identityLens ? "identity" : "network"}
       />
     </div>
   )

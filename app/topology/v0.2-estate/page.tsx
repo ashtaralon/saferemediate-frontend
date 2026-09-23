@@ -3,7 +3,7 @@
 /**
  * Topology v0.2 — Estate view (live data).
  *
- * Thin page wrapper: reads `systemName` from the URL; with no param it
+ * Thin page wrapper: reads `systemName` (and an optional `view`) from the URL; with no param it
  * resolves the WORST system from /api/systems (most criticals, then highs,
  * then lowest health — see lib/pick-worst-system; never a pinned environment)
  * and renders the shared <EstateMapView/>. The map itself —
@@ -15,13 +15,22 @@
 
 import { Suspense, useEffect, useState } from "react"
 import { useSearchParams } from "next/navigation"
-import { EstateMapView } from "@/components/topology-v0-2/estate-map-view"
+import { EstateMapView, type EstateViewId } from "@/components/topology-v0-2/estate-map-view"
 import { pickWorstSystemName } from "@/lib/pick-worst-system"
 import { catalogSystemName, useScopedSystemCatalog } from "@/lib/scoped-system-catalog"
+
+const ESTATE_VIEWS: readonly EstateViewId[] = ["inventory", "map", "identity"]
+
+/** `?view=identity` opens the Identity & access lens directly (CF01 · D1).
+ *  Anything else, including nothing, keeps the Command map default. */
+function estateViewFromParam(value: string | null | undefined): EstateViewId | undefined {
+  return ESTATE_VIEWS.find(id => id === value)
+}
 
 function EstateView() {
   const params = useSearchParams()
   const fromUrl = params.get("systemName")
+  const defaultView = estateViewFromParam(params.get("view"))
   const [systemName, setSystemName] = useState<string | null>(fromUrl)
   const [resolving, setResolving] = useState(true)
   const systemsCatalog = useScopedSystemCatalog()
@@ -70,7 +79,7 @@ function EstateView() {
       </div>
     )
   }
-  return <EstateMapView systemName={systemName} />
+  return <EstateMapView systemName={systemName} defaultView={defaultView} />
 }
 
 export default function TopologyV02EstatePage() {

@@ -16,20 +16,39 @@ import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { describe, expect, it } from "vitest"
+import ts from "typescript"
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const COMPONENT_DIR = resolve(HERE, "../components/topology-v0-2")
-const TAB =
-  readFileSync(resolve(COMPONENT_DIR, "estate-identity-access-tab.tsx"), "utf8") +
-  readFileSync(resolve(COMPONENT_DIR, "estate-identity-map.tsx"), "utf8")
-const MAP = readFileSync(resolve(COMPONENT_DIR, "estate-identity-map.tsx"), "utf8")
+// The custom SVG map (estate-identity-map.tsx) was retired in CF01 · D1: the
+// identity lens now renders on the shared Estate canvas (aws-frame.tsx +
+// estate-identity-plane.tsx), whose test ids are covered by cf01-d1-*.test.tsx.
+const TAB = readFileSync(resolve(COMPONENT_DIR, "estate-identity-access-tab.tsx"), "utf8")
 const SUITE = readFileSync(resolve(HERE, "estate-identity-access-tab.test.tsx"), "utf8")
+const PLANE = readFileSync(resolve(COMPONENT_DIR, "estate-identity-plane.tsx"), "utf8")
+const DETAIL = readFileSync(resolve(COMPONENT_DIR, "estate-identity-access-detail.tsx"), "utf8")
 
-/** Test ids the component declares, i.e. `data-testid="..."` or testId="...". */
+/** Literal JSX test ids, including literal arms of a conditional attribute.
+ * Dynamic names remain unproven; comments and arbitrary strings never count. */
 function declaredIds(source: string): Set<string> {
   const ids = new Set<string>()
-  for (const match of source.matchAll(/data-testid="([^"]+)"/g)) ids.add(match[1])
-  for (const match of source.matchAll(/testId="([^"]+)"/g)) ids.add(match[1])
+  const tree = ts.createSourceFile("component.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+  const literalIds = (value: ts.Node): void => {
+    if (ts.isStringLiteral(value)) ids.add(value.text)
+    else if (ts.isConditionalExpression(value)) {
+      literalIds(value.whenTrue)
+      literalIds(value.whenFalse)
+    }
+  }
+  const visit = (node: ts.Node): void => {
+    if (ts.isJsxAttribute(node) && ["data-testid", "testId"].includes(node.name.getText(tree)) && node.initializer) {
+      if (ts.isJsxExpression(node.initializer)) {
+        if (node.initializer.expression) literalIds(node.initializer.expression)
+      } else literalIds(node.initializer)
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(tree)
   return ids
 }
 
@@ -152,7 +171,6 @@ describe("no required field is read with a fallback", () => {
 
   const SOURCES: [string, string][] = [
     ["estate-identity-access-model.ts", MODEL],
-    ["estate-identity-map.tsx", MAP],
     ["estate-identity-access-tab.tsx", TAB_ONLY],
   ]
 
@@ -254,17 +272,23 @@ describe("no interface declares the same member twice", () => {
     return [...body.matchAll(/^\s{2}(\w+)[?]?:/gm)].map(match => match[1])
   }
 
-  it.each(["PlacedEdge", "PlacedNode", "MapLayout", "GraphEdge", "IdentityView"])(
-    "%s declares each member once",
-    name => {
-      const members = membersOf(MODEL, name)
-      expect(members.length).toBeGreaterThan(0)
-      expect(members.length).toBe(new Set(members).size)
-    },
-  )
+  it.each([
+    "IdentityLensNode",
+    "IdentityLensEdge",
+    "IdentityGraphView",
+    "IdentityLens",
+    "GraphEdge",
+    "IdentityView",
+  ])("%s declares each member once", name => {
+    const members = membersOf(MODEL, name)
+    expect(members.length).toBeGreaterThan(0)
+    expect(members.length).toBe(new Set(members).size)
+  })
 
-  it("PlacedEdge holds exactly one edge reference", () => {
-    expect(membersOf(MODEL, "PlacedEdge").filter(member => member === "edge").length).toBe(1)
+  it("IdentityLensEdge holds exactly one source and one target", () => {
+    const members = membersOf(MODEL, "IdentityLensEdge")
+    expect(members.filter(member => member === "sourceId").length).toBe(1)
+    expect(members.filter(member => member === "targetId").length).toBe(1)
   })
 })
 
@@ -273,8 +297,28 @@ describe("the rendered suite and the tab agree on their hooks", () => {
     expect(requiredIds(SUITE).size).toBeGreaterThan(12)
   })
 
-  it("every id the suite requires is declared by the component", () => {
-    const declared = declaredIds(TAB)
+  it("recognizes conditional literal hooks without admitting unrelated or dynamic names", () => {
+    const source = `
+      // data-testid="comment-only"
+      const unrelated = 'data-testid="string-only"'
+      const dynamic = "dynamic-only"
+      const view = <section>
+        <div data-testid="literal" />
+        <div data-testid={missing ? "missing-node" : "real-node"} />
+        <Panel testId="child-hook" />
+        <div data-testid={dynamic} />
+      </section>
+    `
+    const declared = declaredIds(source)
+    expect([...declared].sort()).toEqual(["child-hook", "literal", "missing-node", "real-node"])
+    const required = requiredIds('getByTestId("real-node"); getByTestId("typo-node"); getByTestId("dynamic-only")')
+    expect([...required].filter(id => !declared.has(id)).sort()).toEqual(["dynamic-only", "typo-node"])
+  })
+
+  it("every id the suite requires is declared by a component it renders", () => {
+    // Only the three components this suite actually renders declare its
+    // hooks. The detail's node/missing-node switch uses conditional literals.
+    const declared = new Set([...declaredIds(TAB), ...declaredIds(PLANE), ...declaredIds(DETAIL)])
     const missing = [...requiredIds(SUITE)].filter(id => !declared.has(id)).sort()
     expect(missing).toEqual([])
   })
@@ -301,37 +345,19 @@ describe("the rendered suite and the tab agree on their hooks", () => {
       "identity-receipts-none",
       "identity-scope-mismatch",
       "identity-plane-none",
-      "identity-map",
-      "identity-map-canvas",
-      "identity-map-edge",
-      "identity-map-node",
-      "identity-map-fallback",
+      "identity-canvas-slot",
     ]) {
       expect(declared.has(id)).toBe(true)
     }
   })
 
-  it("the map is drawn as SVG, not assembled from divs", () => {
-    // The blocker this replaces was a stacked card list. A map that quietly
-    // became one again would still pass every id check above.
-    expect(MAP).toContain("<svg")
-    expect(MAP).toContain("<path")
-    expect(MAP).toContain("markerEnd")
-    expect(MAP).toContain("viewBox")
-  })
-
-  it("motion is reachable only through the model's animated flag", () => {
-    const code = MAP.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "")
-    // Every <animate> must sit behind `moving`, which is `animate && edge.animated`.
-    expect(code).toContain("const moving = animate && edge.animated")
-    expect(code).toContain("{moving ? (")
-    // And `animate` is the negation of the reduced-motion preference.
-    expect(code).toContain("const animate = !reducedMotion")
-  })
-
-  it("the reduced-motion default is no motion", () => {
-    // useState(true) means: unknown preference renders static.
-    expect(MAP).toContain("useState(true)")
+  it("the map is not drawn here — it lives on the shared Estate canvas", () => {
+    // CF01 · D1 retired the custom SVG. A map that quietly came back here
+    // would be a second, unshared canvas again.
+    const code = TAB.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "")
+    expect(code).not.toContain("<svg")
+    expect(code).not.toContain("estate-identity-map")
+    expect(code).toContain("identity-canvas-slot")
   })
 
   it("the tab issues no request of its own", () => {

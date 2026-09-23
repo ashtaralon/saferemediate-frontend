@@ -333,7 +333,52 @@ export interface LaneCoverage extends LaneCoverageCounts {
   coverage_gaps?: LaneCoverageWarning[]
 }
 
-export type TrafficEdgeClass = "internal" | "edge_service" | "vpce" | "egress" | "database"
+export type TrafficEdgeClass = "internal" | "edge_service" | "vpce" | "egress" | "database" | "identity"
+
+/**
+ * Lens annotation on an identity-lens overlay edge (CF01 · D1). Only the
+ * Identity & access view emits `edge_class: "identity"`; the Network view
+ * never does, so nothing here changes how a network edge is drawn. The plane
+ * and certainty are the producer's own (estate-identity-access/v1 +
+ * estate-identity-graph/v1), never inferred by the renderer.
+ */
+export interface IdentityEdgeAnnotation {
+  family:
+    | "WORKLOAD_USES_ROLE"
+    | "PRINCIPAL_HAS_MANAGED_POLICY"
+    | "PRINCIPAL_HAS_INLINE_POLICY"
+    | "PRINCIPAL_HAS_PERMISSIONS_BOUNDARY"
+    | "USER_MEMBER_OF_GROUP"
+    | "ROLE_TRUST_POLICY"
+    | "USER_AUTHENTICATES_WITH"
+    | "RESOURCE_POLICY_GRANT"
+    | "ROLE_ACTION_DECISION"
+    // CF01 lane F (6e08d6b2) — account-context families, configured by construction.
+    | "ACCOUNT_IN_ORGANIZATION"
+    | "ACCOUNT_IN_ORG_UNIT"
+    | "ACCOUNT_LIMITED_BY_SCP"
+    | "ACCOUNT_LIMITED_BY_RCP"
+  plane: "configured" | "observed"
+  certainty: "resolved" | "unresolved_endpoint"
+  /**
+   * The legend word for the line: configured / observed / denied (the
+   * producer's own Deny effect) / unknown (a withheld decision). Never
+   * "allowed" — nothing in the installed contract projects an effective
+   * decision.
+   */
+  verdict: "configured" | "observed" | "denied" | "unknown"
+  label: string
+  /** Observed AND generation-backed — the only edge that may carry motion. */
+  animated: boolean
+  generation: number | null
+  /**
+   * Where this line stands relative to the current selection: the selected
+   * node's own outgoing/incoming access, or surrounding context one or more
+   * hops away. Presentation only — it never changes what the producer said
+   * about the edge, and "context" does not mean weaker evidence.
+   */
+  focusRelation?: "outgoing" | "incoming" | "context"
+}
 export type TrafficAuthorityState =
   | "authoritative"
   | "authoritative_positive_only"
@@ -466,6 +511,8 @@ export interface TrafficEdge {
   route_last_seen?: string | null
   /** Lane 3 — attack-path overlay uses IAP PathEdgeDetail rows. */
   flow_highlight?: "attack_path" | null
+  /** Identity & access lens only (CF01 · D1). Absent on every network edge. */
+  identity?: IdentityEdgeAnnotation | null
 }
 
 export interface VpcTopology {

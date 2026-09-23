@@ -1,11 +1,16 @@
 /**
- * Estate · Identity & access tab — rendered.
+ * Estate · Identity & access — the evidence frame, rendered.
  *
  * These render the real component against fixtures that are literal return
- * values of the backend's build_estate_identity_access. They assert on the DOM
- * a reader sees, because the failures this tab exists to prevent are VISUAL: a
- * blank panel taken for "there is nothing here", and a moving line taken for
- * live traffic that was never observed.
+ * values of the backend's build_estate_identity_access (41f5dda3). They assert
+ * on the DOM a reader sees, because the failures this surface exists to
+ * prevent are VISUAL: a blank panel taken for "there is nothing here".
+ *
+ * The MAP is no longer drawn here (CF01 · D1): the identity lens renders on
+ * the shared Estate canvas, and its drawing rules — planes, motion, anchors,
+ * the shared DetailPanel — are covered by __tests__/cf01-d1-*.test.tsx. This
+ * suite keeps the words around the canvas honest: states, receipts, gaps and
+ * the capability matrix.
  *
  * The companion suite, estate-identity-access-model.test.ts, covers the same
  * decisions at the model layer. Both are needed: the model suite proves the
@@ -18,6 +23,49 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { EstateIdentityAccessTab } from "@/components/topology-v0-2/estate-identity-access-tab"
 
 import fixtures from "./fixtures/estate-identity-access.json"
+import historicalGraphFixture from "./fixtures/cf01-d1/estate-identity-graph-6e08d6b2.json"
+import { IdentityLensNotice } from "@/components/topology-v0-2/estate-identity-plane"
+import { buildIdentityLensForPayload } from "@/components/topology-v0-2/estate-identity-access-model"
+
+// The captured graph predates the producer's explicit account-scope field.
+// Give positive rendering tests a same-generation scope; negative tests use
+// the original historical bytes below to prove an unbound graph is withheld.
+const scopedHistoricalBlock = (block: any) => ({
+  ...block,
+  identity_graph: { ...block.identity_graph, scope: {
+    level: "account", customer_id: block.scope.customer_id,
+    account_id: block.scope.account_id,
+    inventory_generation: block.inventory_authority.generation,
+    region: null, system_name: null, vpc_id: null,
+  } },
+})
+const graphFixture = {
+  ...historicalGraphFixture,
+  composed: {
+    ...historicalGraphFixture.composed,
+    ready_with_graph: scopedHistoricalBlock(historicalGraphFixture.composed.ready_with_graph),
+    partial_with_truncated_graph: scopedHistoricalBlock(historicalGraphFixture.composed.partial_with_truncated_graph),
+    empty_authoritative_with_empty_graph: scopedHistoricalBlock(historicalGraphFixture.composed.empty_authoritative_with_empty_graph),
+  },
+} as typeof historicalGraphFixture
+
+const withPositiveGraphScope = (block: any) => block?.identity_graph &&
+  ["ready", "partial"].includes(block.identity_graph.status) && block.identity_graph.scope === undefined &&
+  block.scope?.account_id && block.inventory_authority?.generation !== undefined
+  ? scopedHistoricalBlock(block) : block
+
+// This producer fixture contains a standalone account despite its name.
+const NODE_ONLY_ACCOUNT = graphFixture.composed.empty_authoritative_with_empty_graph
+const TRULY_EMPTY_GRAPH = {
+  ...NODE_ONLY_ACCOUNT,
+  identity_graph: { ...NODE_ONLY_ACCOUNT.identity_graph, nodes: [], nodes_total: 0 },
+}
+
+const CAPABILITY_COUNT = fixtures.ready.relationship_capabilities.length
+const AVAILABLE_FAMILIES = fixtures.ready.relationship_capabilities
+  .filter((row: { status: string }) => row.status === "available")
+  .map((row: { family: string }) => row.family)
+  .sort()
 
 afterEach(() => {
   cleanup()
@@ -67,13 +115,13 @@ function clearMatchMedia() {
 
 function renderTab(identityAccess?: unknown, { reduceMotion = false } = {}) {
   setReducedMotion(reduceMotion)
+  const positiveBlock = withPositiveGraphScope(identityAccess)
   const payload =
-    identityAccess === undefined ? TOPOLOGY : { ...TOPOLOGY, identity_access: identityAccess }
+    identityAccess === undefined ? TOPOLOGY : { ...TOPOLOGY, identity_access: positiveBlock }
   return render(<EstateIdentityAccessTab payload={payload} />)
 }
 
 const panel = () => screen.getByTestId("estate-identity-access")
-const canvas = () => screen.getByTestId("identity-map-canvas")
 
 /**
  * What the tab says about THIS TENANT'S authority: the headline, the detail
@@ -95,69 +143,37 @@ function tenantAuthorityText(): string {
   ].join(" ")
 }
 
-describe("the surface is a directional map, not a list of cards", () => {
-  it("draws the relationships on an SVG canvas", () => {
-    renderTab(fixtures.partial)
-    const svg = canvas()
-    expect(svg.tagName.toLowerCase()).toBe("svg")
-    expect(svg.getAttribute("role")).toBe("img")
-    expect(svg.getAttribute("aria-label")).toMatch(/workload to role to decision/i)
-  })
-
-  it("places every node of the graph on the canvas, in three lanes", () => {
-    renderTab(fixtures.partial)
-    const nodes = within(canvas()).getAllByTestId("identity-map-node")
-    // 2 workloads + 2 roles + 2 decisions.
-    expect(nodes.length).toBe(6)
-    const lanes = nodes.map(node => node.getAttribute("data-node-lane"))
-    expect(new Set(lanes)).toEqual(new Set(["workload", "role", "decision"]))
-    const labels = within(canvas())
-      .getAllByTestId("identity-map-lane-label")
-      .map(node => node.textContent)
-    expect(labels).toEqual(["WORKLOAD", "IAM ROLE", "DECISION AUTHORITY"])
-  })
-
-  it("draws a directional edge per relationship, with an arrowhead at the target", () => {
-    renderTab(fixtures.partial)
-    const edges = within(canvas()).getAllByTestId("identity-map-edge")
-    // 2 attachments + 2 decision hops.
-    expect(edges.length).toBe(4)
-    for (const edge of edges) {
-      const path = edge.querySelector("path")!
-      expect(path.getAttribute("marker-end")).toMatch(/^url\(#identity-arrow-/)
-      expect(path.getAttribute("d")).toMatch(/^M /)
-    }
-  })
-
-  it("points every edge from workload to role to decision, never backwards", () => {
-    renderTab(fixtures.partial)
-    for (const edge of within(canvas()).getAllByTestId("identity-map-edge")) {
-      const from = edge.getAttribute("data-edge-from")!
-      const to = edge.getAttribute("data-edge-to")!
-      if (edge.getAttribute("data-edge-family") === "WORKLOAD_USES_ROLE") {
-        expect(from.startsWith("workload:")).toBe(true)
-        expect(to.startsWith("role:")).toBe(true)
-      } else {
-        expect(from.startsWith("role:")).toBe(true)
-        expect(to.startsWith("decision:")).toBe(true)
-      }
-    }
-  })
-
-  it("labels each edge with the plane it stands on", () => {
-    renderTab(fixtures.partial)
-    const planes = within(canvas())
-      .getAllByTestId("identity-map-edge-label")
-      .map(node => node.textContent)
-      .sort()
-    expect(planes).toEqual(["configured", "configured", "configured", "observed"])
-  })
-
+describe("the evidence frame hands the map to the shared canvas", () => {
   it("does not fall back to one card per role", () => {
-    renderTab(fixtures.partial)
-    // The old surface. If it comes back, this fails.
+    renderTab(fixtures.ready)
+    // The old stacked-card surface. If it comes back, this fails.
     expect(screen.queryAllByTestId("identity-graph-row").length).toBe(0)
     expect(screen.queryByTestId("identity-graph")).toBeNull()
+  })
+
+  it("renders the host's canvas inside the slot, only in a readable state", () => {
+    const payload = { ...TOPOLOGY, identity_access: fixtures.ready } as any
+    render(
+      <EstateIdentityAccessTab
+        payload={payload}
+        canvas={<div data-host-canvas="true">shared canvas</div>}
+      />,
+    )
+    expect(
+      screen.getByTestId("identity-canvas-slot").querySelector("[data-host-canvas]"),
+    ).not.toBeNull()
+  })
+
+  it("never renders the canvas slot for an absent block — the notice is the whole surface", () => {
+    render(
+      <EstateIdentityAccessTab
+        payload={TOPOLOGY}
+        canvas={<div data-host-canvas="true">shared canvas</div>}
+      />,
+    )
+    expect(screen.queryByTestId("identity-canvas-slot")).toBeNull()
+    expect(document.querySelector("[data-host-canvas]")).toBeNull()
+    expect(screen.getByTestId("identity-headline").textContent).toMatch(/no identity projection/i)
   })
 
   it("issues no request of its own — the block rides on the estate payload", () => {
@@ -170,147 +186,6 @@ describe("the surface is a directional map, not a list of cards", () => {
     } finally {
       globalThis.fetch = original
     }
-  })
-})
-
-describe("configured and observed are visually distinct, and only one may move", () => {
-  it("draws a configured edge dashed and still", () => {
-    renderTab(fixtures.partial)
-    const configured = within(canvas())
-      .getAllByTestId("identity-map-edge")
-      .filter(edge => edge.getAttribute("data-edge-plane") === "configured")
-    expect(configured.length).toBe(3)
-    for (const edge of configured) {
-      expect(edge.getAttribute("data-edge-animated")).toBe("false")
-      expect(edge.querySelector("path")!.getAttribute("stroke-dasharray")).toBe("4 5")
-      expect(edge.querySelector("animate")).toBeNull()
-      expect(edge.querySelector("path")!.getAttribute("marker-end")).toBe(
-        "url(#identity-arrow-configured)",
-      )
-    }
-  })
-
-  it("animates the observed hop, and only that one", () => {
-    renderTab(fixtures.partial)
-    const animated = within(canvas())
-      .getAllByTestId("identity-map-edge")
-      .filter(edge => edge.getAttribute("data-edge-animated") === "true")
-    expect(animated.length).toBe(1)
-    expect(animated[0].getAttribute("data-edge-plane")).toBe("observed")
-    expect(animated[0].getAttribute("data-edge-to")).toBe("decision:AROAEXAMPLE")
-    expect(animated[0].querySelector("animate")).not.toBeNull()
-    expect(animated[0].querySelector("path")!.getAttribute("marker-end")).toBe(
-      "url(#identity-arrow-observed)",
-    )
-  })
-
-  it("never animates a payload whose decisions were not read", () => {
-    renderTab(fixtures.partial_no_decision_authority)
-    expect(canvas().querySelectorAll("animate").length).toBe(0)
-    const edges = within(canvas()).getAllByTestId("identity-map-edge")
-    expect(edges.length).toBeGreaterThan(0)
-    expect(edges.every(edge => edge.getAttribute("data-edge-animated") === "false")).toBe(true)
-  })
-
-  it("explains both planes in the legend", () => {
-    renderTab(fixtures.partial)
-    expect(screen.getByTestId("identity-map-legend-configured").textContent).toMatch(
-      /never observed, never moves/i,
-    )
-    expect(screen.getByTestId("identity-map-legend-observed").textContent).toMatch(
-      /named decision generation/i,
-    )
-  })
-})
-
-describe("reduced motion", () => {
-  it("stops every animation when the viewer asks for it", () => {
-    renderTab(fixtures.partial, { reduceMotion: true })
-    expect(screen.getByTestId("identity-map")).toHaveAttribute("data-motion", "reduced")
-    expect(canvas().querySelectorAll("animate").length).toBe(0)
-    expect(
-      within(canvas())
-        .getAllByTestId("identity-map-edge")
-        .every(edge => edge.getAttribute("data-edge-animated") === "false"),
-    ).toBe(true)
-  })
-
-  it("loses no information when motion is off — same nodes, edges and planes", () => {
-    renderTab(fixtures.partial, { reduceMotion: true })
-    const still = {
-      nodes: within(canvas()).getAllByTestId("identity-map-node").length,
-      edges: within(canvas()).getAllByTestId("identity-map-edge").length,
-      planes: within(canvas())
-        .getAllByTestId("identity-map-edge-label")
-        .map(node => node.textContent)
-        .sort(),
-    }
-    cleanup()
-    renderTab(fixtures.partial, { reduceMotion: false })
-    expect(still.nodes).toBe(within(canvas()).getAllByTestId("identity-map-node").length)
-    expect(still.edges).toBe(within(canvas()).getAllByTestId("identity-map-edge").length)
-    expect(still.planes).toEqual(
-      within(canvas())
-        .getAllByTestId("identity-map-edge-label")
-        .map(node => node.textContent)
-        .sort(),
-    )
-  })
-
-  it("says the map is unchanged without motion", () => {
-    renderTab(fixtures.partial, { reduceMotion: true })
-    expect(screen.getByTestId("identity-map-motion-note").textContent).toMatch(
-      /identical without it/i,
-    )
-  })
-
-  it("defaults to no motion when the preference cannot be read", () => {
-    clearMatchMedia()
-    render(
-      <EstateIdentityAccessTab
-        payload={{ ...TOPOLOGY, identity_access: fixtures.partial } as any}
-      />,
-    )
-    expect(screen.getByTestId("identity-map")).toHaveAttribute("data-motion", "reduced")
-    expect(canvas().querySelectorAll("animate").length).toBe(0)
-  })
-})
-
-describe("it works at any width", () => {
-  it("scales with a viewBox instead of a fixed pixel width", () => {
-    renderTab(fixtures.partial)
-    const svg = canvas()
-    expect(svg.getAttribute("viewBox")).toMatch(/^0 0 \d+(\.\d+)? \d+(\.\d+)?$/)
-    expect(svg.getAttribute("preserveAspectRatio")).toBe("xMidYMid meet")
-    // A hard pixel width would not respond to the container at all.
-    expect(svg.getAttribute("width")).toBeNull()
-    expect(svg.getAttribute("class")).toContain("w-full")
-  })
-
-  it("scrolls the canvas rather than crushing it on a narrow screen", () => {
-    renderTab(fixtures.partial)
-    const frame = screen.getByTestId("identity-map-canvas-frame")
-    expect(frame.getAttribute("class")).toContain("overflow-x-auto")
-    expect(canvas().getAttribute("class")).toContain("min-w-[720px]")
-  })
-
-  it("carries the whole map as text, for narrow screens and screen readers", () => {
-    renderTab(fixtures.partial)
-    const rows = within(screen.getByTestId("identity-map-fallback")).getAllByTestId(
-      "identity-map-fallback-row",
-    )
-    expect(rows.length).toBe(within(canvas()).getAllByTestId("identity-map-edge").length)
-    for (const row of rows) {
-      expect(row.textContent).toMatch(/→/)
-      expect(["configured", "observed"]).toContain(row.getAttribute("data-edge-plane"))
-    }
-  })
-
-  it("names the direction of every relationship in words", () => {
-    renderTab(fixtures.partial)
-    const text = screen.getByTestId("identity-map-fallback").textContent!
-    expect(text).toContain("runs as →")
-    expect(text).toContain("decided by →")
   })
 })
 
@@ -333,7 +208,7 @@ describe("the tab never renders a blank panel", () => {
     const headline = screen.getByTestId("identity-headline").textContent!
     expect(headline).toMatch(/no identity projection/i)
     expect(headline).not.toMatch(/no workload/i)
-    expect(screen.queryByTestId("identity-map")).toBeNull()
+    expect(screen.queryByTestId("identity-canvas-slot")).toBeNull()
     expect(screen.queryByTestId("identity-empty-authoritative")).toBeNull()
   })
 
@@ -343,17 +218,313 @@ describe("the tab never renders a blank panel", () => {
       .getAllByTestId("identity-gap")
       .map(node => node.getAttribute("data-gap-code"))
     expect(codes).toContain("ACTIVE_INVENTORY_POINTER_MISSING")
-    expect(screen.queryByTestId("identity-map")).toBeNull()
+    expect(screen.queryByTestId("identity-canvas-slot")).toBeNull()
   })
 
-  it("empty-authoritative renders as an ANSWER, with its generation still shown", () => {
-    renderTab(fixtures.empty_authoritative)
+  it("empty-authoritative renders as a QUALIFIED answer, with its generation still shown", () => {
+    renderTab(TRULY_EMPTY_GRAPH)
     expect(panel()).toHaveAttribute("data-state", "ready")
-    expect(screen.getByTestId("identity-empty-authoritative").textContent).toMatch(
-      /is an answer, not a missing read/i,
+    const box = screen.getByTestId("identity-empty-authoritative")
+    expect(box).toHaveAttribute("data-identity-empty-claim", "qualified_empty")
+    // The backed half.
+    expect(box.textContent).toMatch(/is an answer, not a missing read/i)
+    // And the half the producer cannot back, named rather than implied. No
+    // canvas is passed here, so this box is the only surface on screen and
+    // must carry the full wording itself.
+    expect(screen.getByTestId("identity-empty-coverage-caveat").textContent).toMatch(
+      /unknown, not zero/i,
     )
+    expect(screen.queryByTestId("identity-empty-coverage-pointer")).toBeNull()
     expect(screen.queryByTestId("identity-gap")).toBeNull()
     expect(screen.getAllByTestId("identity-receipt").length).toBe(2)
+  })
+
+  /**
+   * Visual QA found the same three-line coverage paragraph printed twice on
+   * one screen — once by the canvas notice and again by this box — which made
+   * a qualified answer read as noise. The long form belongs wherever it is the
+   * only copy on screen.
+   */
+  /**
+   * COMPOSED, and exactly one.
+   *
+   * The first version of this test rendered the tab WITHOUT its canvas and
+   * asserted `<= 1`, which also passes when the long form appears ZERO times —
+   * the same fail-open shape as an acquisition flag that only fires on an
+   * explicit `False`. The tab and the canvas notice are the two things that can
+   * print this paragraph, so the assertion has to see both at once and demand
+   * exactly one.
+   */
+  /**
+   * The compact header must SHRINK the surface, not lose any of it. Every
+   * diagnostic it stopped showing has to be one click away in Evidence, and
+   * the limitations have to stay named on screen rather than reduced to a
+   * count a reader must go and decode.
+   */
+  it("moves diagnostics into Evidence rather than dropping them", () => {
+    renderTab(fixtures.ready)
+    const evidence = screen.getByTestId("identity-evidence-drawer")
+    for (const id of [
+      "identity-contract-version",
+      "identity-projection-status",
+      "identity-coverage-freshness",
+      "identity-coverage-families",
+      "identity-scope-binding",
+      "identity-coverage-limits",
+    ]) {
+      const node = screen.getByTestId(id)
+      expect(evidence.contains(node), `${id} should live in Evidence`).toBe(true)
+    }
+  })
+
+  it("keeps state, scope, graph, org placement and a NAMED limitation visible", () => {
+    renderTab(fixtures.ready)
+    const evidence = screen.getByTestId("identity-evidence-drawer")
+    for (const id of [
+      "identity-coverage-state",
+      "identity-coverage-scope",
+      "identity-coverage-graph",
+      "identity-account-context",
+      "identity-coverage-limits-compact",
+    ]) {
+      const node = screen.getByTestId(id)
+      expect(evidence.contains(node), `${id} should stay visible, not in Evidence`).toBe(false)
+    }
+    // Named, not merely counted — a bare "4 limits" is a number to decode.
+    const summary = screen.getByTestId("identity-coverage-limit-summary")
+    expect(summary.textContent).toMatch(/not shown:/i)
+    expect(summary.textContent!.replace(/not shown:\s*/i, "").length).toBeGreaterThan(8)
+  })
+
+  it("every limitation is still recoverable in full", () => {
+    renderTab(fixtures.ready)
+    const compact = screen.getByTestId("identity-coverage-limits-compact")
+    const count = Number(compact.getAttribute("data-limit-count"))
+    expect(count).toBeGreaterThan(0)
+    expect(screen.getAllByTestId("identity-coverage-limit").length).toBe(count)
+    // The hover text carries all of them, so nothing depends on opening the drawer.
+    for (const label of screen.getAllByTestId("identity-coverage-limit")) {
+      const name = label.querySelector("span")!.textContent!
+      expect(compact.getAttribute("title")).toContain(name)
+    }
+  })
+
+  it("states the coverage caveat in the tab when a genuinely empty graph has no canvas content", () => {
+    const block = TRULY_EMPTY_GRAPH
+    const payload = { ...TOPOLOGY, identity_access: block } as any
+    const lens = buildIdentityLensForPayload(payload, {
+      topologyNodes: (TOPOLOGY as any).nodes.map((n: any) => ({ ...n })),
+    })
+    // The canvas the host really passes carries the plane's own notice.
+    render(
+      <EstateIdentityAccessTab payload={payload} canvas={<IdentityLensNotice lens={lens} />} />,
+    )
+
+    const LONG = "Unknown rather than zero here:"
+    const occurrences = (panel().textContent ?? "").split(LONG).length - 1
+    expect(occurrences).toBe(1)
+
+    // No nodes or edges means the host slot is not mounted. The tab must
+    // carry the caveat itself instead of pointing to a nonexistent canvas.
+    expect(screen.queryByTestId("identity-lens-notice-coverage")).toBeNull()
+    expect(screen.queryByTestId("identity-empty-coverage-pointer")).toBeNull()
+    expect(screen.getByTestId("identity-empty-coverage-caveat").textContent).toContain(LONG)
+  })
+
+  it("when there is no canvas to carry it, the tab states it exactly once itself", () => {
+    // No canvas prop: the tab is the only surface, so the long form must be here.
+    renderTab(TRULY_EMPTY_GRAPH)
+    const LONG = "Unknown rather than zero here:"
+    const occurrences = (panel().textContent ?? "").split(LONG).length - 1
+    expect(occurrences).toBe(1)
+    expect(screen.getByTestId("identity-empty-coverage-caveat").textContent).toContain(LONG)
+  })
+
+  /**
+   * Root review of 147b1100, P1: the host hid a valid graph. These are host
+   * RENDER assertions over the real backend-generated fixtures — a model
+   * assertion cannot observe a branch that never renders the canvas.
+   */
+  it("renders the shared canvas whenever the producer supplied graph data", () => {
+    for (const block of [
+      withPositiveGraphScope(fixtures.empty_authoritative), // zero roles, ready graph of 5 nodes / 13 edges
+      withPositiveGraphScope(fixtures.ready),
+      graphFixture.composed.ready_with_graph,
+      graphFixture.composed.partial_with_truncated_graph,
+    ]) {
+      const payload = { ...TOPOLOGY, identity_access: block } as any
+      render(
+        <EstateIdentityAccessTab
+          payload={payload}
+          canvas={<div data-host-canvas="true">shared canvas</div>}
+        />,
+      )
+      expect(
+        screen.getByTestId("identity-canvas-slot").querySelector("[data-host-canvas]"),
+      ).not.toBeNull()
+      cleanup()
+    }
+  })
+
+  /**
+   * BOTH DIRECTIONS, pinned together on purpose.
+   *
+   * The canvas has two independent sources. Gating on either one alone has now
+   * shipped as a defect once each — roles-only hid a ready 13-edge graph, and
+   * the fix for it (graph-only) hid two valid role-binding edges. A suite that
+   * covers one direction lets a correct-looking fix swing the gate the other
+   * way with everything green, which is exactly what happened. These cases are
+   * the guard rail: any future change has to satisfy all four rows.
+   */
+  describe.each([
+    // graph supplies, roles do not
+    ["empty roles + populated graph", () => fixtures.empty_authoritative, true],
+    ["incomplete roles + populated graph", () => fixtures.partial_unresolved_role_id, true],
+    ["empty roles + standalone account without relationships", () => NODE_ONLY_ACCOUNT, true],
+    ["empty roles + genuinely empty-but-READ graph", () => TRULY_EMPTY_GRAPH, false],
+    // roles supply, graph does not
+    ["valid role bindings + ABSENT graph", () => graphFixture.composed.valid_role_bindings_absent_graph, true],
+    ["valid role bindings + UNREAD graph", () => graphFixture.composed.valid_role_bindings_unread_graph, true],
+    // neither supplies — the only row that may draw nothing
+    ["empty roles + unread graph", () => graphFixture.composed.empty_authoritative_with_unread_graph, false],
+  ])("either source alone is enough to draw: %s", (_label, block, expected) => {
+    it(`renders the canvas: ${expected}`, () => {
+      const payload = { ...TOPOLOGY, identity_access: withPositiveGraphScope(block()) } as any
+      render(
+        <EstateIdentityAccessTab
+          payload={payload}
+          canvas={<div data-host-canvas="true">shared canvas</div>}
+        />,
+      )
+      expect(
+        screen.queryByTestId("identity-canvas-slot")?.querySelector("[data-host-canvas]") != null,
+      ).toBe(expected)
+    })
+  })
+
+  it("a readable roles projection survives a graph that was never read", () => {
+    const block = graphFixture.composed.valid_role_bindings_unread_graph as any
+    expect(block.roles.length).toBe(1)
+    expect(block.identity_graph.status).toBe("unavailable")
+    const payload = { ...TOPOLOGY, identity_access: block } as any
+    render(
+      <EstateIdentityAccessTab
+        payload={payload}
+        canvas={<div data-host-canvas="true">shared canvas</div>}
+      />,
+    )
+    // The role bindings the producer COULD answer are drawn ...
+    expect(
+      screen.getByTestId("identity-canvas-slot").querySelector("[data-host-canvas]"),
+    ).not.toBeNull()
+    // ... and the failed graph read is named beside them, not instead of them.
+    expect(screen.getByTestId("identity-coverage-indicator")).toHaveAttribute(
+      "data-identity-graph-state",
+      "unavailable",
+    )
+    expect(screen.queryByTestId("identity-empty-authoritative")).toBeNull()
+  })
+
+  it("a pre-lane-F payload with no identity_graph key still draws its role bindings", () => {
+    const block = graphFixture.composed.valid_role_bindings_absent_graph as any
+    expect("identity_graph" in block).toBe(false)
+    const payload = { ...TOPOLOGY, identity_access: block } as any
+    render(
+      <EstateIdentityAccessTab
+        payload={payload}
+        canvas={<div data-host-canvas="true">shared canvas</div>}
+      />,
+    )
+    expect(
+      screen.getByTestId("identity-canvas-slot").querySelector("[data-host-canvas]"),
+    ).not.toBeNull()
+    expect(screen.getByTestId("identity-coverage-indicator")).toHaveAttribute(
+      "data-identity-graph-state",
+      "absent",
+    )
+  })
+
+  it("a graph with nodes but no role bindings still reaches the canvas", () => {
+    const payload = {
+      ...TOPOLOGY,
+      identity_access: {
+        ...(fixtures.empty_authoritative as any),
+        identity_graph: { ...graphFixture.graph.users_without_credential_rows, scope: {
+          level: "account", customer_id: fixtures.empty_authoritative.scope.customer_id,
+          account_id: fixtures.empty_authoritative.scope.account_id,
+          inventory_generation: fixtures.empty_authoritative.inventory_authority.generation,
+          region: null, system_name: null, vpc_id: null,
+        } },
+      },
+    } as any
+    render(
+      <EstateIdentityAccessTab
+        payload={payload}
+        canvas={<div data-host-canvas="true">shared canvas</div>}
+      />,
+    )
+    // Users and policies exist; only workload role bindings are empty.
+    expect(
+      screen.getByTestId("identity-canvas-slot").querySelector("[data-host-canvas]"),
+    ).not.toBeNull()
+    expect(screen.queryByTestId("identity-empty-authoritative")).toBeNull()
+  })
+
+  /**
+   * The empty-authoritative box REPLACES the canvas, so gating it on the roles
+   * flag alone did not merely mislabel a state — it hid a fully-read identity
+   * graph. The backend's own `empty_authoritative` payload has zero
+   * workload-to-role bindings AND thirteen policy, trust and account-context
+   * relationships, and those must still reach the map.
+   */
+  it("roles-empty does not hide a graph the producer actually supplied", () => {
+    const payload = { ...TOPOLOGY, identity_access: withPositiveGraphScope(fixtures.empty_authoritative) } as any
+    render(
+      <EstateIdentityAccessTab
+        payload={payload}
+        canvas={<div data-host-canvas="true">shared canvas</div>}
+      />,
+    )
+    expect((fixtures.empty_authoritative as any).roles_total).toBe(0)
+    expect((fixtures.empty_authoritative as any).identity_graph.edges.length).toBeGreaterThan(0)
+    expect(screen.queryByTestId("identity-empty-authoritative")).toBeNull()
+    expect(
+      screen.getByTestId("identity-canvas-slot").querySelector("[data-host-canvas]"),
+    ).not.toBeNull()
+  })
+
+  it("an empty canvas whose graph was never read keeps its warning, not the answer copy", () => {
+    renderTab(graphFixture.composed.empty_authoritative_with_unread_graph)
+    // Same authoritatively-empty roles projection as the test above, so the
+    // roles flag alone cannot tell these two apart.
+    expect(panel()).toHaveAttribute("data-state", "ready")
+    expect(screen.queryByTestId("identity-empty-authoritative")).toBeNull()
+    // The failed graph read is named rather than absorbed into an empty map.
+    expect(screen.getByTestId("identity-coverage-indicator")).toHaveAttribute(
+      "data-identity-graph-state",
+      "unavailable",
+    )
+    expect(screen.getByTestId("identity-coverage-graph").textContent).toMatch(/unavailable/i)
+  })
+
+  it("the answer and the unread graph differ on the tab, not only in the model", () => {
+    renderTab(TRULY_EMPTY_GRAPH)
+    const answerGraphState = screen
+      .getByTestId("identity-coverage-indicator")
+      .getAttribute("data-identity-graph-state")
+    const answerBox = screen.queryByTestId("identity-empty-authoritative") !== null
+    cleanup()
+
+    renderTab(graphFixture.composed.empty_authoritative_with_unread_graph)
+    const unreadGraphState = screen
+      .getByTestId("identity-coverage-indicator")
+      .getAttribute("data-identity-graph-state")
+    const unreadBox = screen.queryByTestId("identity-empty-authoritative") !== null
+
+    expect(answerGraphState).toBe("ready")
+    expect(unreadGraphState).toBe("unavailable")
+    expect(answerBox).toBe(true)
+    expect(unreadBox).toBe(false)
   })
 
   it("a status this contract does not define is withheld, not rendered", () => {
@@ -362,9 +533,9 @@ describe("the tab never renders a blank panel", () => {
     expect(screen.getByTestId("identity-detail").textContent).toMatch(
       /partial, ready, unavailable/,
     )
-    expect(screen.queryByTestId("identity-map")).toBeNull()
+    expect(screen.queryByTestId("identity-canvas-slot")).toBeNull()
     // The matrix still applies: it describes the data path, not the tenant.
-    expect(screen.getAllByTestId("identity-capability-row").length).toBe(15)
+    expect(screen.getAllByTestId("identity-capability-row").length).toBe(CAPABILITY_COUNT)
   })
 
   it.each([
@@ -376,7 +547,7 @@ describe("the tab never renders a blank panel", () => {
   ])("%s renders invalid rather than throwing", (_label, override) => {
     expect(() => renderTab({ ...fixtures.ready, ...override })).not.toThrow()
     expect(panel()).toHaveAttribute("data-state", "invalid")
-    expect(screen.queryByTestId("identity-map")).toBeNull()
+    expect(screen.queryByTestId("identity-canvas-slot")).toBeNull()
   })
 
   it("a malformed capability row withholds the matrix but keeps the tenant's map", () => {
@@ -385,7 +556,7 @@ describe("the tab never renders a blank panel", () => {
       relationship_capabilities: [...fixtures.ready.relationship_capabilities, { family: "X" }],
     })
     expect(panel()).toHaveAttribute("data-state", "ready")
-    expect(screen.getByTestId("identity-map")).toBeInTheDocument()
+    expect(screen.getByTestId("identity-canvas-slot")).toBeInTheDocument()
     expect(screen.queryAllByTestId("identity-capability-row").length).toBe(0)
     expect(screen.getByTestId("identity-capability-unavailable").textContent).toMatch(
       /whole matrix is withheld/i,
@@ -399,7 +570,7 @@ describe("malformed authority never reaches the screen", () => {
     // account comparison and drew one tenant's roles under another's estate.
     renderTab({ ...fixtures.ready, scope: { ...fixtures.ready.scope, account_id: [] } })
     expect(panel()).toHaveAttribute("data-state", "invalid")
-    expect(screen.queryByTestId("identity-map")).toBeNull()
+    expect(screen.queryByTestId("identity-canvas-slot")).toBeNull()
     expect(screen.queryByTestId("identity-scope-verified")).toBeNull()
     expect(screen.getByTestId("identity-detail").textContent).toMatch(/account_id/)
   })
@@ -414,7 +585,7 @@ describe("malformed authority never reaches the screen", () => {
   ])("%s draws no map and shows no receipt card", (_label, override) => {
     renderTab({ ...fixtures.ready, ...override })
     expect(panel()).toHaveAttribute("data-state", "invalid")
-    expect(screen.queryByTestId("identity-map")).toBeNull()
+    expect(screen.queryByTestId("identity-canvas-slot")).toBeNull()
     expect(screen.queryAllByTestId("identity-receipt").length).toBe(0)
     expect(screen.getByTestId("identity-receipts-none")).toBeInTheDocument()
   })
@@ -452,7 +623,7 @@ describe("malformed authority never reaches the screen", () => {
   ])("%s is withheld rather than coerced", (_label, override) => {
     renderTab({ ...fixtures.ready, ...override })
     expect(panel()).toHaveAttribute("data-state", "invalid")
-    expect(screen.queryByTestId("identity-map")).toBeNull()
+    expect(screen.queryByTestId("identity-canvas-slot")).toBeNull()
     expect(screen.queryByTestId("identity-roles-counts")).toBeNull()
   })
 
@@ -461,7 +632,7 @@ describe("malformed authority never reaches the screen", () => {
     role.observed_use.successful_action_count = "1"
     renderTab({ ...fixtures.ready, roles: [role] })
     expect(panel()).toHaveAttribute("data-state", "invalid")
-    expect(screen.queryByTestId("identity-map-canvas")).toBeNull()
+    expect(screen.queryByTestId("identity-canvas-slot")).toBeNull()
     expect(document.querySelectorAll("animate").length).toBe(0)
   })
 
@@ -490,7 +661,7 @@ describe("a field the producer always writes is never invented", () => {
   ])("a payload missing %s draws nothing and shows no counts", field => {
     renderTab(without(field, fixtures.ready))
     expect(panel()).toHaveAttribute("data-state", "invalid")
-    expect(screen.queryByTestId("identity-map")).toBeNull()
+    expect(screen.queryByTestId("identity-canvas-slot")).toBeNull()
     expect(screen.queryByTestId("identity-roles-counts")).toBeNull()
     expect(screen.queryByTestId("identity-empty-authoritative")).toBeNull()
     expect(screen.getByTestId("identity-detail").textContent).toMatch(/producer always writes/)
@@ -506,9 +677,9 @@ describe("a field the producer always writes is never invented", () => {
   ])("a role missing %s draws no node and no edge", field => {
     renderTab({ ...fixtures.ready, roles: [without(field, fixtures.ready.roles[0])] })
     expect(panel()).toHaveAttribute("data-state", "invalid")
-    expect(screen.queryByTestId("identity-map-canvas")).toBeNull()
-    expect(screen.queryAllByTestId("identity-map-node").length).toBe(0)
-    expect(screen.queryAllByTestId("identity-map-edge").length).toBe(0)
+    expect(screen.queryByTestId("identity-canvas-slot")).toBeNull()
+    expect(screen.queryAllByTestId("identity-plane-chip").length).toBe(0)
+    expect(screen.queryAllByTestId("identity-flow-edge").length).toBe(0)
   })
 
   it("an authority missing its receipt-hash key shows no receipt card", () => {
@@ -547,7 +718,7 @@ describe("a field the producer always writes is never invented", () => {
       decision_authority: (fixtures.ready as any).inventory_authority,
     })
     const rows = screen.getAllByTestId("identity-capability-row")
-    expect(rows.length).toBe(15)
+    expect(rows.length).toBe(CAPABILITY_COUNT)
     const explained = rows.filter(row => /hash-verified/.test(row.textContent ?? ""))
     expect(explained.length).toBeGreaterThan(0)
     // And it is a data-path row, never the tenant's own authority.
@@ -563,8 +734,12 @@ describe("a field the producer always writes is never invented", () => {
     role.observed_use.successful_action_count = 0
     renderTab({ ...fixtures.partial_no_decision_authority, roles: [role] })
     expect(panel()).toHaveAttribute("data-state", "invalid")
-    // Neither "0 used" nor the withheld wording gets to appear.
-    expect(panel().textContent).not.toMatch(/used/)
+    // Neither "0 used" nor the withheld wording gets to appear in what the
+    // tab says about THIS TENANT. The capability matrix legitimately says
+    // "last-used" about the installed data path (USER_AUTHENTICATES_WITH at
+    // 41f5dda3), so the whole panel is not the right scope for this check.
+    expect(tenantAuthorityText()).not.toMatch(/used/)
+    expect(panel().textContent).not.toMatch(/0 used/)
     expect(panel().textContent).not.toMatch(/no counts — not zero/)
   })
 
@@ -588,7 +763,7 @@ describe("a field the producer always writes is never invented", () => {
     // The legitimate case, unchanged.
     renderTab(fixtures.partial_no_decision_authority)
     expect(panel()).toHaveAttribute("data-state", "ready")
-    expect(screen.getByTestId("identity-map")).toBeInTheDocument()
+    expect(screen.getByTestId("identity-canvas-slot")).toBeInTheDocument()
     expect(screen.getAllByTestId("identity-receipt").length).toBe(1)
   })
 
@@ -599,7 +774,7 @@ describe("a field the producer always writes is never invented", () => {
   ])("an unavailable projection reporting %s is refused", (_label, override) => {
     renderTab({ ...fixtures.unavailable, ...override })
     expect(panel()).toHaveAttribute("data-state", "invalid")
-    expect(screen.queryByTestId("identity-map")).toBeNull()
+    expect(screen.queryByTestId("identity-canvas-slot")).toBeNull()
   })
 })
 
@@ -622,19 +797,19 @@ describe("the capability matrix is withheld whole, or not at all", () => {
     })
     // The tenant's own map is unaffected: the matrix describes the data path.
     expect(panel()).toHaveAttribute("data-state", "ready")
-    expect(screen.getByTestId("identity-map")).toBeInTheDocument()
+    expect(screen.getByTestId("identity-canvas-slot")).toBeInTheDocument()
     expect(screen.queryAllByTestId("identity-capability-row").length).toBe(0)
     expect(screen.getByTestId("identity-capability-unavailable")).toBeInTheDocument()
   })
 
-  it("never shows fourteen rows as a complete account of fifteen families", () => {
+  it("never shows twenty-one rows as a complete account of twenty-two families", () => {
     renderTab({
       ...fixtures.ready,
       relationship_capabilities: fixtures.ready.relationship_capabilities.filter(
         (row: any) => row.family !== "TRUSTS",
       ),
     })
-    expect(screen.queryAllByTestId("identity-capability-row").length).not.toBe(14)
+    expect(screen.queryAllByTestId("identity-capability-row").length).not.toBe(21)
     expect(screen.queryAllByTestId("identity-capability-row").length).toBe(0)
     expect(screen.getByTestId("identity-capability-unavailable").textContent).toMatch(
       /no verdict for TRUSTS/,
@@ -643,15 +818,34 @@ describe("the capability matrix is withheld whole, or not at all", () => {
 })
 
 describe("a partial projection with nothing to draw", () => {
-  it("says the map is empty for a reason, and never that nothing is bound", () => {
+  /**
+   * This payload has one unresolvable role AND a fully-read graph of 13
+   * relationships. The unresolved role is a reason to caveat the map, not a
+   * reason to delete it: suppressing the canvas here threw away everything the
+   * producer could answer because one dimension could not be rendered.
+   */
+  it("caveats the map rather than deleting it, and never says nothing is bound", () => {
     renderTab(fixtures.partial_unresolved_role_id)
+    expect(panel()).toHaveAttribute("data-state", "incomplete")
+    expect((fixtures.partial_unresolved_role_id as any).identity_graph.edges.length).toBeGreaterThan(0)
+    const box = screen.getByTestId("identity-incomplete")
+    expect(box.textContent).toMatch(/not the whole picture/i)
+    expect(box.textContent).toMatch(/no AWS RoleId/i)
+    expect(screen.queryByTestId("identity-empty-authoritative")).toBeNull()
+    // The graph the producer DID supply still reaches the canvas.
+    expect(screen.getByTestId("identity-canvas-slot")).toBeInTheDocument()
+    expect(panel().textContent).not.toMatch(/No workload in this scope is bound/)
+  })
+
+  it("still says the map is empty for a reason when there is genuinely no graph", () => {
+    renderTab({
+      ...(fixtures.partial_unresolved_role_id as any),
+      identity_graph: graphFixture.graph.unavailable_read_failed,
+    })
     expect(panel()).toHaveAttribute("data-state", "incomplete")
     const box = screen.getByTestId("identity-incomplete")
     expect(box.textContent).toMatch(/not because none exist/i)
-    expect(box.textContent).toMatch(/no AWS RoleId/i)
-    expect(screen.queryByTestId("identity-empty-authoritative")).toBeNull()
-    expect(screen.queryByTestId("identity-map")).toBeNull()
-    expect(panel().textContent).not.toMatch(/No workload in this scope is bound/)
+    expect(screen.queryByTestId("identity-canvas-slot")).toBeNull()
   })
 
   it("still shows how many roles were counted and omitted", () => {
@@ -683,15 +877,6 @@ describe("a readable projection with no decision authority", () => {
     expect(receipts[0].textContent).toMatch(/Canonical inventory/)
   })
 
-  it("still draws the workload-to-role map, with no counts on the decision node", () => {
-    renderTab(fixtures.partial_no_decision_authority)
-    const decision = within(canvas())
-      .getAllByTestId("identity-map-node")
-      .find(node => node.getAttribute("data-node-kind") === "decision")!
-    expect(decision).toHaveAttribute("data-decision-state", "unavailable")
-    expect(decision.textContent).toMatch(/no counts — not zero/i)
-  })
-
   it("explains per role why its decisions were withheld", () => {
     renderTab(fixtures.partial_no_decision_authority)
     const gap = screen.getByTestId("identity-role-gap")
@@ -703,15 +888,12 @@ describe("a readable projection with no decision authority", () => {
 })
 
 describe("the capability matrix is on screen in every state", () => {
-  it("renders all fifteen families with a status each", () => {
+  it("renders every family the fixture rules on, with a status each", () => {
     renderTab(fixtures.ready)
     const rows = screen.getAllByTestId("identity-capability-row")
-    expect(rows.length).toBe(15)
+    expect(rows.length).toBe(CAPABILITY_COUNT)
     const available = rows.filter(row => row.getAttribute("data-status") === "available")
-    expect(available.map(row => row.getAttribute("data-family")).sort()).toEqual([
-      "ROLE_ACTION_DECISION",
-      "WORKLOAD_USES_ROLE",
-    ])
+    expect(available.map(row => row.getAttribute("data-family")).sort()).toEqual(AVAILABLE_FAMILIES)
   })
 
   it("shows no plane chip for an unavailable family", () => {
@@ -731,7 +913,7 @@ describe("the capability matrix is on screen in every state", () => {
 
   it("survives the unavailable state, where a reader most needs it", () => {
     renderTab(fixtures.unavailable)
-    expect(screen.getAllByTestId("identity-capability-row").length).toBe(15)
+    expect(screen.getAllByTestId("identity-capability-row").length).toBe(CAPABILITY_COUNT)
   })
 
   it("a payload with no matrix says why, and renders no family rows", () => {
@@ -762,9 +944,57 @@ describe("scope, tenant and receipt binding", () => {
   it("withholds tenant data when the block was built for a different account", () => {
     renderTab({ ...fixtures.ready, scope: { ...fixtures.ready.scope, account_id: "999988887777" } })
     expect(panel()).toHaveAttribute("data-state", "scope_mismatch")
-    expect(screen.queryByTestId("identity-map")).toBeNull()
+    expect(screen.queryByTestId("identity-canvas-slot")).toBeNull()
     expect(screen.getByTestId("identity-scope-mismatch").textContent).toMatch(/999988887777/)
-    expect(screen.getAllByTestId("identity-capability-row").length).toBe(15)
+    expect(screen.getAllByTestId("identity-capability-row").length).toBe(CAPABILITY_COUNT)
+  })
+
+  it("puts the shared canvas before the Evidence drawer and keeps receipts out of the first headline", () => {
+    const payload = { ...TOPOLOGY, identity_access: withPositiveGraphScope(fixtures.ready) } as any
+    render(
+      <EstateIdentityAccessTab
+        payload={payload}
+        canvas={<div data-host-canvas="true">shared canvas</div>}
+      />,
+    )
+    const root = panel()
+    const canvas = screen.getByTestId("identity-canvas-slot")
+    const drawer = screen.getByTestId("identity-evidence-drawer")
+    const receipts = screen.getByTestId("identity-receipts")
+    expect(root.compareDocumentPosition(canvas) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(canvas.compareDocumentPosition(drawer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(drawer.contains(receipts)).toBe(true)
+    expect(drawer.contains(screen.getByTestId("identity-capability-matrix"))).toBe(true)
+    expect(screen.getByTestId("identity-evidence-summary").textContent).toMatch(/Evidence/)
+    expect(screen.getByTestId("identity-headline").textContent).not.toMatch(/v1:[0-9a-f]{8}/)
+    expect(screen.getByTestId("identity-coverage-indicator")).toBeInTheDocument()
+    expect(screen.getByTestId("identity-account-context").getAttribute("data-account-context")).toBe(
+      "in_organization",
+    )
+    expect(screen.getAllByTestId("identity-coverage-limit").map(n => n.getAttribute("data-limit-key"))).toEqual(
+      ["observed_role_assumption", "principal_data_access", "effective_permission", "kubernetes_rbac"],
+    )
+  })
+
+  it("names a standalone account as a positive claim", () => {
+    renderTab(fixtures.standalone_account)
+    expect(screen.getByTestId("identity-account-context").getAttribute("data-account-context")).toBe(
+      "standalone",
+    )
+    expect(screen.getByTestId("identity-account-context-label").textContent).toMatch(
+      /not part of an AWS Organization/i,
+    )
+  })
+
+  it("does not call a missing organization context standalone", () => {
+    renderTab(fixtures.partial_no_account_policy_context)
+    expect(screen.getByTestId("identity-account-context").getAttribute("data-account-context")).toBe(
+      "unknown",
+    )
+    expect(screen.getByTestId("identity-account-context-label").textContent).toMatch(/not available/i)
+    expect(screen.getByTestId("identity-account-context-label").textContent).not.toMatch(
+      /not part of an AWS Organization/i,
+    )
   })
 
   it("shows the generation and receipt hash for both authorities", () => {
@@ -789,5 +1019,145 @@ describe("scope, tenant and receipt binding", () => {
     expect(screen.getByTestId("identity-receipts-none").textContent).toMatch(
       /no generation or receipt to show/i,
     )
+  })
+})
+
+describe("compact focused diagram selection and connected geometry", () => {
+  async function model() {
+    const { identitySelectionDetail } = await import("@/components/topology-v0-2/estate-identity-access-model")
+    const { EstateIdentityAccessDetail } = await import("@/components/topology-v0-2/estate-identity-access-detail")
+    const lens = buildIdentityLensForPayload({ ...TOPOLOGY, identity_access: graphFixture.composed.ready_with_graph } as any, { topologyNodes: [] })
+    return { lens, identitySelectionDetail, EstateIdentityAccessDetail }
+  }
+
+  it.each(["PRINCIPAL_HAS_MANAGED_POLICY", "PRINCIPAL_HAS_INLINE_POLICY", "PRINCIPAL_HAS_PERMISSIONS_BOUNDARY", "ROLE_ACTION_DECISION"])(
+    "keeps selected %s in the diagram, with its actual evidence label", async family => {
+      const { lens, identitySelectionDetail, EstateIdentityAccessDetail } = await model()
+      const role = lens.nodes.find(node => node.kind === "iam_role" && node.label === "web")!
+      const edge = lens.edges.find(item => item.family === family && (item.sourceId === role.id || item.targetId === role.id))!
+      expect(edge).toBeDefined()
+      const selectedId = edge.sourceId === role.id ? edge.targetId : edge.sourceId
+      render(<EstateIdentityAccessDetail detail={identitySelectionDetail(lens, selectedId)!} />)
+      const diagram = screen.getByTestId("estate-identity-access-path-diagram")
+      expect(diagram.querySelector(`[data-node-id="${selectedId}"]`)).not.toBeNull()
+      expect(within(diagram).getAllByTestId("estate-identity-access-path-hop").some(button => button.textContent === edge.label)).toBe(true)
+      expect(screen.getAllByTestId("estate-identity-relationship").length).toBe(identitySelectionDetail(lens, selectedId)!.relationships.length)
+    },
+  )
+
+  it("draws a resource→role served join back toward the role, including right-side fan-in", async () => {
+    const { lens, identitySelectionDetail, EstateIdentityAccessDetail } = await model()
+    const role = lens.nodes.find(node => node.kind === "iam_role" && node.label === "web")!
+    const resource = lens.nodes.find(node => node.kind === "protected_resource")!
+    const template = lens.edges.find(edge => edge.family === "RESOURCE_POLICY_GRANT")!
+    expect(resource).toBeDefined()
+    expect(template).toBeDefined()
+    // Explicit contract variant, not a claim that the captured producer
+    // emits a role-resource join: retain the family/plane and reverse its
+    // endpoints to exercise a real allowed direction at the render boundary.
+    const variants = [0, 1].map(index => ({
+      node: { ...resource, id: `direction-target-${index}` },
+      edge: { ...template, id: `direction-edge-${index}`, sourceId: `direction-target-${index}`, targetId: role.id },
+    }))
+    const extended = { ...lens, nodes: [...lens.nodes, ...variants.map(item => item.node)], edges: [...lens.edges, ...variants.map(item => item.edge)] }
+    render(<EstateIdentityAccessDetail detail={identitySelectionDetail(extended, role.id)!} />)
+    const diagram = screen.getByTestId("estate-identity-access-path-diagram")
+    const center = diagram.querySelector(`[data-node-id="${role.id}"]`)!.parentElement!.style
+    for (const { node } of variants) {
+      const card = diagram.querySelector(`[data-node-id="${node.id}"]`)!.parentElement!.style
+      const path = diagram.querySelector(`[data-testid="estate-identity-access-path-connector"][data-source-id="${node.id}"]`)!
+      const coords = path.getAttribute("d")!.match(/-?\d+(?:\.\d+)?/g)!.map(Number)
+      expect(path.getAttribute("data-target-id")).toBe(role.id)
+      expect(coords.slice(0, 2)).toEqual([parseFloat(card.left), parseFloat(card.top) + parseFloat(card.height) / 2])
+      expect(coords.at(-2)).toBe(parseFloat(center.left) + parseFloat(center.width))
+      expect(coords.at(-1)!).toBeGreaterThan(parseFloat(center.top))
+      expect(coords.at(-1)!).toBeLessThan(parseFloat(center.top) + parseFloat(center.height))
+    }
+  })
+
+  it("connects every off-centre branch to actual card borders and preserves producer direction", async () => {
+    const { lens, identitySelectionDetail, EstateIdentityAccessDetail } = await model()
+    const role = lens.nodes.find(node => node.kind === "iam_role" && node.label === "web")!
+    render(<EstateIdentityAccessDetail detail={identitySelectionDetail(lens, role.id)!} />)
+    const diagram = screen.getByTestId("estate-identity-access-path-diagram")
+    const boxes = new Map(within(diagram).getAllByTestId("estate-identity-access-path-node").map(card => {
+      const style = (card.parentElement as HTMLElement).style
+      return [card.getAttribute("data-node-id"), { x: parseFloat(style.left), y: parseFloat(style.top), w: parseFloat(style.width), h: parseFloat(style.height) }]
+    }))
+    const borders = (point: number[], box: { x: number; y: number; w: number; h: number }) =>
+      (point[0] === box.x || point[0] === box.x + box.w) && point[1] >= box.y && point[1] <= box.y + box.h
+    let offCentre = 0
+    const paths = within(diagram).getAllByTestId("estate-identity-access-path-connector")
+      .filter(path => path.closest('[data-family="missing"]') === null)
+    expect(paths.length).toBeGreaterThan(1)
+    for (const path of paths) {
+      const coords = path.getAttribute("d")!.match(/-?\d+(?:\.\d+)?/g)!.map(Number)
+      const start = coords.slice(0, 2), end = coords.slice(-2)
+      const source = boxes.get(path.getAttribute("data-source-id"))!
+      const target = boxes.get(path.getAttribute("data-target-id"))!
+      expect(source).toBeDefined()
+      expect(target).toBeDefined()
+      expect(borders(start, source)).toBe(true)
+      expect(borders(end, target)).toBe(true)
+      if (start[1] !== end[1]) offCentre++
+    }
+    expect(offCentre).toBeGreaterThan(0)
+    // Negative control: the former horizontal row arrow misses the shared
+    // role entirely on outer branches, rather than merely looking different.
+    const center = boxes.get(role.id)!
+    expect([...boxes.values()].some(box => box !== center && !borders([center.x, box.y + box.h / 2], center))).toBe(true)
+  })
+})
+
+
+it("keeps the producer's standalone account canvas without claiming an empty identity graph", () => {
+  const payload = { ...TOPOLOGY, identity_access: NODE_ONLY_ACCOUNT } as any
+  render(<EstateIdentityAccessTab payload={payload} canvas={<div>Standalone account canvas fixture</div>} />)
+  expect(screen.getByText("Standalone account canvas fixture")).toBeInTheDocument()
+  expect(screen.queryByTestId("identity-empty-authoritative")).toBeNull()
+  expect(screen.getByTestId("identity-coverage-indicator")).toHaveAttribute("data-identity-graph-state", "ready")
+})
+
+
+describe("separate workload and account graph scope labels", () => {
+  function withAccountScope(): any {
+    const block = structuredClone(graphFixture.composed.ready_with_graph)
+    return { ...block, identity_graph: { ...block.identity_graph, scope: {
+      level: "account", customer_id: block.scope.customer_id, account_id: block.scope.account_id,
+      inventory_generation: block.inventory_authority.generation,
+      region: null, system_name: null, vpc_id: null,
+    } } }
+  }
+
+  it("labels the account-wide graph separately from the selected workload filters", () => {
+    renderTab(withAccountScope())
+    expect(screen.getByTestId("identity-coverage-scope").textContent).toContain("Workload scope:")
+    expect(screen.getByTestId("identity-coverage-scope").textContent).toContain("eu-west-1")
+    const graphScope = screen.getByTestId("identity-graph-scope")
+    expect(graphScope.getAttribute("data-scope-status")).toBe("matched")
+    expect(graphScope.textContent).toContain("Identity graph: account-wide")
+    expect(graphScope.textContent).toContain("not filtered by the selected region, system or VPC")
+    expect(screen.getByTestId("identity-scope-verdict").textContent).toContain("workload scope matches")
+    expect(screen.getByTestId("identity-graph-scope-label").textContent).not.toContain("eu-west-1")
+    expect(screen.getByTestId("identity-coverage-graph").textContent).toContain("relationships")
+  })
+
+  it("shows legacy graph scope as unproven and withholds its relationships", () => {
+    render(<EstateIdentityAccessTab payload={{ ...TOPOLOGY, identity_access: historicalGraphFixture.composed.ready_with_graph }} />)
+    expect(screen.getByTestId("identity-graph-scope")).toHaveAttribute("data-scope-status", "unproven")
+    expect(screen.getByTestId("identity-graph-scope-label").textContent).toContain("Identity graph scope unproven")
+    expect(screen.getByTestId("identity-graph-scope").textContent).toContain("relationships are withheld")
+    expect(screen.getByTestId("identity-coverage-graph").textContent).toBe("identity graph invalid")
+  })
+
+  it("names a mismatched account graph as withheld without certifying its scope", () => {
+    const block = withAccountScope()
+    block.identity_graph.scope.account_id = "foreign-account"
+    renderTab(block)
+    expect(screen.getByTestId("identity-graph-scope").getAttribute("data-scope-status")).toBe("invalid")
+    expect(screen.getByTestId("identity-graph-scope-label").textContent).toContain("graph withheld")
+    expect(screen.getByTestId("identity-coverage-graph").textContent).toBe("identity graph invalid")
+    expect(screen.getByTestId("identity-scope-verdict").textContent).toContain("workload scope matches")
+    expect(screen.getByTestId("identity-roles-counts").textContent).toContain("shown")
   })
 })
