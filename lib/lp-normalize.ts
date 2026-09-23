@@ -130,6 +130,8 @@ export interface NormalizedGapResource {
   coverageState?: LPCoverageState
   usageMeasured?: boolean
   usageNotComputedReason?: string | null
+  /** The IAM usage lane cannot authorize observations from this generation. */
+  usageGenerationUnverified?: boolean
 }
 
 export interface NormalizedLPSummary {
@@ -150,6 +152,28 @@ export interface NormalizedLPSummary {
   evidenceBlockedCount: number | null
   manualReviewCount: number | null
   safetyReviewPendingCount: number | null
+}
+
+type LPGenerationHoldRow = Pick<
+  NormalizedGapResource,
+  'usageGenerationUnverified' | 'remediatedAt' | 'verificationState'
+>
+
+/** Keep estate-wide usage claims unknown while an active IAM row has no verified generation. */
+export function holdUnverifiedIamUsageAggregates(
+  resources: ReadonlyArray<LPGenerationHoldRow>,
+  summary: NormalizedLPSummary,
+): NormalizedLPSummary {
+  const activeIamHold = resources.some((resource) =>
+    resource.usageGenerationUnverified === true && (
+      !resource.remediatedAt ||
+      resource.verificationState === 'applied_verifying' ||
+      resource.verificationState === 'verify_failed'
+    ),
+  )
+  return activeIamHold
+    ? { ...summary, avgLPScore: null, attackSurfaceReduction: null }
+    : summary
 }
 
 export type ResourceRiskCapability = {
@@ -530,39 +554,45 @@ export function normalizeLPResponse(result: any): NormalizedLPResponse {
       : undefined
 
   const rawResources: unknown[] = Array.isArray(input.resources) ? input.resources : []
+  const iamGeneration = input.readiness_by_lane?.cloudtrail_iam_usage?.generation
+  const iamUsageGenerationUnverified = iamGeneration && typeof iamGeneration === 'object'
+    && (iamGeneration.known === false || iamGeneration.negative_authority_permitted !== true)
   const resources = rawResources
-    .map((r) => normalizeGapResource(r))
+    .map((r) => {
+      const resource = normalizeGapResource(r)
+      if (iamUsageGenerationUnverified && resource.resourceType === 'IAMRole') {
+        return {
+          ...resource,
+          usageGenerationUnverified: true,
+          // Allowed permissions and risk classification remain valid. Usage
+          // counts, scores and lists require a verified IAM usage generation.
+          usedCount: null,
+          gapCount: null,
+          gapPercent: null,
+          lpScore: null,
+          usedList: [],
+          unusedList: [],
+          highRiskUnused: [],
+        }
+      }
+      return resource
+    })
     .filter((r) => !r.isServiceLinkedRole)
 
-  const measured = rawResources.filter((row) => {
-    const r = row as Record<string, unknown>
-    return typeof r.gapPercent === 'number' || typeof r.gap_percent === 'number'
-  })
+  const measured = resources.filter((resource) =>
+    resource.usageMeasured !== false && resource.gapPercent !== null,
+  )
 
   const avgLPScore =
     measured.length === 0
       ? null
-      : (measured.reduce((acc: number, row) => {
-          const r = row as Record<string, unknown>
-          const gp =
-            typeof r.gapPercent === 'number'
-              ? r.gapPercent
-              : (r.gap_percent as number)
-          return acc + (100 - gp)
-        }, 0) as number) / measured.length
+      : measured.reduce((acc, resource) => acc + (100 - (resource.gapPercent as number)), 0) / measured.length
 
   // Missing measured rows → null (unknown), never invent 0% reduction.
   const attackSurfaceReduction =
     measured.length === 0
       ? null
-      : (measured.reduce((acc: number, row) => {
-          const r = row as Record<string, unknown>
-          const gp =
-            typeof r.gapPercent === 'number'
-              ? r.gapPercent
-              : (r.gap_percent as number)
-          return acc + gp
-        }, 0) as number) / measured.length
+      : measured.reduce((acc, resource) => acc + (resource.gapPercent as number), 0) / measured.length
 
   const observationDays =
     asFiniteNumber(input.observationDays) ??
@@ -570,6 +600,7 @@ export function normalizeLPResponse(result: any): NormalizedLPResponse {
     null
 
   const totalExcess =
+    resources.some((resource) => resource.usageGenerationUnverified) ? null :
     typeof summaryIn?.totalExcessPermissions === 'number' &&
     Number.isFinite(summaryIn.totalExcessPermissions)
       ? (summaryIn.totalExcessPermissions as number)
@@ -606,6 +637,8 @@ export function normalizeLPResponse(result: any): NormalizedLPResponse {
     staleReason:
       typeof input.staleReason === 'string' ? input.staleReason : undefined,
   }
+
+  normalized.summary = holdUnverifiedIamUsageAggregates(resources, normalized.summary)
 
   // Copy integrity fields LITERALLY — do not drop / rename / invent.
   if ('serve_state' in input) normalized.serve_state = input.serve_state

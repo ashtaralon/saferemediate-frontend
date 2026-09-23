@@ -12,6 +12,7 @@ import { dispatchRemediationChanged, onRemediationChanged } from '@/lib/remediat
 import { deriveLPIntegrity, lpEvidenceGapCopy, lpIntegrityCopy } from '@/lib/lp-integrity'
 import { resolveLPReviewSurface } from '@/lib/lp-review-routing'
 import {
+  holdUnverifiedIamUsageAggregates,
   mergeLpResourcesAfterFetch,
   markResourceVerifying,
   normalizeLPResponse,
@@ -211,6 +212,7 @@ interface GapResource {
   // every check below is `=== false` and never a truthiness test.
   usageMeasured?: boolean
   usageNotComputedReason?: string | null
+  usageGenerationUnverified?: boolean
 }
 
 /** Mutation boundary not shipped — Apply stays off on every LP surface. */
@@ -1035,7 +1037,9 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
     if (metrics.measured === false) {
       return {
         kind: 'na',
-        title:
+        title: resource.usageGenerationUnverified
+          ? 'Usage unknown — the IAM usage generation is not verified. No non-use percentage can be reported.'
+          :
           'Usage not computed for this resource — no evidence was collected in the '
           + 'observation window. This is not the same as "no unused permissions".',
       }
@@ -1160,7 +1164,9 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
     const measuredResources = activeResources.filter(
       (resource) => getUsageMetricsForResource(resource).measured !== false,
     )
-    const totalExcessPermissions = measuredResources.length === 0 && activeResources.length > 0
+    const totalExcessPermissions = activeResources.some(resource => resource.usageGenerationUnverified)
+      ? null
+      : measuredResources.length === 0 && activeResources.length > 0
       ? null
       : measuredResources.reduce((total, resource) => {
           const metrics = getUsageMetricsForResource(resource)
@@ -1192,7 +1198,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       ? measuredForScore.reduce((total, resource) => total + (getUsageMetricsForResource(resource).gapPct as number), 0) / measuredForScore.length
       : null
 
-    return {
+    return holdUnverifiedIamUsageAggregates(activeResources, {
       ...previousSummary,
       totalResources: resources.length,
       totalExcessPermissions,
@@ -1206,7 +1212,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       lowCount: severityCounts.low,
       confidenceLevel,
       attackSurfaceReduction,
-    }
+    })
   }
 
   const readStoredDismissedResources = (): string[] => {
@@ -2237,9 +2243,11 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
               const sevColor = getSeverityColor(resource)
               const sevLabel = getSeverityLabel(resource)
               const metrics = getUsageMetricsForResource(resource)
-              const inventoryDescription = resource.resourceType === 'IAMRole' && activeTab !== 'remediated' && metrics.measured !== false
-                ? iamInventoryRowCopy(metrics.unusedCount ?? 0, metrics.total ?? 0).summary
-                : (resource.description || resource.title || 'Risk details available')
+              const inventoryDescription = resource.usageGenerationUnverified
+                ? 'Usage unknown — IAM usage generation is not verified; review required'
+                : resource.resourceType === 'IAMRole' && activeTab !== 'remediated' && metrics.measured !== false
+                  ? iamInventoryRowCopy(metrics.unusedCount ?? 0, metrics.total ?? 0).summary
+                  : (resource.description || resource.title || 'Risk details available')
               const isExpanded = expandedRow === (resource.id || resource.resourceName)
               const rowKey = resource.id || resource.resourceArn || resource.resourceName
               const tfRoleArn = resource.resourceArn?.startsWith('arn:')
@@ -2699,12 +2707,16 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                             <>
                               <div className="flex items-center gap-3 mb-2">
                                 <span className="text-3xl font-bold" style={{ color: "var(--text-muted)" }}>?</span>
-                                <span className="text-xs font-medium" style={{ color: "var(--text-muted)" }}>Usage not computed</span>
+                                <span className="text-xs font-medium" style={{ color: "var(--text-muted)" }}>
+                                  {resource.usageGenerationUnverified ? 'Usage unknown' : 'Usage not computed'}
+                                </span>
                               </div>
                               <p className="text-xs mb-3" style={{ color: "var(--text-secondary)" }}>
-                                {metrics.total} permission{metrics.total === 1 ? '' : 's'} allowed. No usage evidence was
-                                collected for this resource in the observation window, so Cyntro cannot say which are
-                                unused. This is <strong>unknown</strong>, not zero — sync usage evidence before remediating.
+                                {resource.usageGenerationUnverified
+                                  ? `${metrics.total ?? '—'} permissions allowed. The IAM usage generation is not verified, so observed and not-observed usage is unknown. Review the generation before relying on usage counts.`
+                                  : <>{metrics.total} permission{metrics.total === 1 ? '' : 's'} allowed. No usage evidence was
+                                    collected for this resource in the observation window, so Cyntro cannot say which are
+                                    unused. This is <strong>unknown</strong>, not zero — sync usage evidence before remediating.</>}
                               </p>
                             </>
                           ) : (
@@ -2792,7 +2804,9 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                                 </>
                               ) : metrics.measured === false ? (
                                 <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-                                  Usage not computed — Cyntro has no evidence for this role in the observation window.
+                                  {resource.usageGenerationUnverified
+                                    ? 'Usage unknown — the IAM usage generation is not verified.'
+                                    : 'Usage not computed — Cyntro has no evidence for this role in the observation window.'}
                                 </p>
                               ) : (
                                 <p className="text-xs" style={{ color: "#22c55e" }}>All permissions are in use.</p>
@@ -4238,6 +4252,7 @@ function RemediationDrawer({
 function SummaryTab({ resource }: { resource: GapResource }) {
   // For Security Groups, show Network Exposure instead of LP Score
   const isSecurityGroup = resource.resourceType === 'SecurityGroup'
+  const usageUnknown = resource.usageGenerationUnverified === true
   
   return (
     <div className="space-y-6">
@@ -4307,7 +4322,7 @@ function SummaryTab({ resource }: { resource: GapResource }) {
                 {resource.gapPercent !== null ? `${resource.gapPercent.toFixed(0)}%` : 'N/A'}
               </div>
               <div className="text-xs text-[var(--muted-foreground,#6b7280)] mt-1">
-                {resource.gapCount ?? 0} of {resource.allowedCount ?? '—'} permissions
+                {usageUnknown ? 'Usage unknown' : `${resource.gapCount ?? 0} of ${resource.allowedCount ?? '—'} permissions`}
               </div>
             </div>
           </>
@@ -4342,6 +4357,10 @@ function SummaryTab({ resource }: { resource: GapResource }) {
               })
             </div>
           </div>
+        ) : usageUnknown ? (
+          <div className="py-3 text-sm text-[var(--muted-foreground,#6b7280)]">
+            Usage unknown — the IAM usage generation is not verified.
+          </div>
         ) : (
           <div className="w-full h-12 bg-gray-200 rounded-lg overflow-hidden flex mb-4">
             <div
@@ -4368,12 +4387,17 @@ function SummaryTab({ resource }: { resource: GapResource }) {
             the whole window — which this payload does not establish. See
             unified/lp_safety/measured_zero.py: trusting a zero needs maturity
             AND ingest health AND coverage, and only maturity is carried today. */}
-        <p className="text-sm text-[var(--foreground,#374151)]">
+        {usageUnknown ? (
+          <p className="text-sm text-[var(--foreground,#374151)]">
+            <strong>{resource.resourceName}</strong> has <strong>{resource.allowedCount ?? '—'} allowed permissions</strong>.
+            Observed and not-observed usage is unknown until the IAM usage generation is verified.
+          </p>
+        ) : <p className="text-sm text-[var(--foreground,#374151)]">
           <strong>{resource.resourceName}</strong> has <strong>{resource.allowedCount ?? '—'} allowed permissions</strong>.
           Over <strong>{resource.evidence?.observationDays ?? '—'} days</strong> of evidence,{' '}
           <strong>{resource.usedCount ?? '—'}</strong> {resource.usedCount === 1 ? 'was' : 'were'} observed in use
           and <strong>{resource.gapCount ?? '—'}{resource.gapPercent !== null ? ` (${resource.gapPercent.toFixed(0)}%)` : ''}</strong> {resource.gapCount === 1 ? 'was' : 'were'} not observed.
-        </p>
+        </p>}
         {resource.evidence?.coverage?.complete !== true && (
           <p className="mt-2 text-xs text-[var(--muted-foreground,#6b7280)]">
             Not observed is not the same as unused. Evidence coverage for this
@@ -4563,7 +4587,7 @@ function RulesTab({
 
   // Fetch gap analysis for IAM Roles
   useEffect(() => {
-    if (resource.resourceType === 'IAMRole') {
+    if (resource.resourceType === 'IAMRole' && !resource.usageGenerationUnverified) {
       const fetchIAMData = async () => {
         setLoading(true)
         setError(null)
@@ -4815,6 +4839,13 @@ function RulesTab({
 
   // For IAM Roles and other resources - permissions list view
   // Use real API data if available, otherwise fall back to resource data
+  if (resource.usageGenerationUnverified) {
+    return (
+      <p className="text-sm text-[var(--muted-foreground,#6b7280)]">
+        Usage unknown — the IAM usage generation is not verified. Permission usage and removal recommendations cannot be shown yet.
+      </p>
+    )
+  }
   const totalPermissions = iamGapData?.summary?.total_permissions ?? resource.allowedCount ?? 0
   const usedCount = iamGapData?.summary?.used_count ?? resource.usedCount ?? 0
   const unusedCount = iamGapData?.summary?.unused_count ?? resource.gapCount ?? 0
@@ -5268,6 +5299,13 @@ function EvidenceTab({ resource }: { resource: GapResource }) {
 }
 
 function ImpactTab({ resource }: { resource: GapResource }) {
+  if (resource.usageGenerationUnverified) {
+    return (
+      <p className="text-sm text-[var(--muted-foreground,#6b7280)]">
+        Usage unknown — the IAM usage generation is not verified. Reduction and continuity estimates cannot be shown yet.
+      </p>
+    )
+  }
   return (
     <div className="space-y-6">
       <div className="rounded-lg border border-[#22c55e40] bg-[#22c55e10] p-6">
