@@ -33,6 +33,16 @@ export type ProxyErrorBody = {
  * 5xx to 502 Bad Gateway so callers can treat all server-side faults
  * uniformly. Never returns 200.
  */
+/** Status the role gap-analysis proxy returns for a backend status.
+ *
+ * 401 and 403 stay denials. 503 stays unavailable. Other 5xx collapse to 502.
+ * 504 is not produced here; only a local abort uses that status. */
+export function reviewProxyStatus(backendStatus: number): number {
+  if (backendStatus === 401 || backendStatus === 403 || backendStatus === 503) return backendStatus
+  if (backendStatus >= 500) return 502
+  return backendStatus
+}
+
 export function backendError(opts: {
   status: number
   message: string
