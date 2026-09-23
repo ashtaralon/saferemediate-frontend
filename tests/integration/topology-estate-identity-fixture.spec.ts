@@ -108,7 +108,8 @@ for (const vp of VIEWPORTS) {
     await page.goto(ESTATE_URL, { waitUntil: "domcontentloaded" })
     await expect(page.getByTestId("topology-estate-view-map")).toBeVisible({ timeout: 60_000 })
     await page.getByRole("tab", { name: "Identity & access" }).click()
-    await page.getByTestId("topology-estate-density-glance").click()
+    // No density toggle on the identity lens (it is Network-only chrome; the
+    // view-switch suite pins its absence) — glance is the lens's density.
 
     // --- the SAME frame, with identity inputs --------------------------------
     await expect(page.getByTestId("topology-vpc-frame").first()).toBeVisible()
