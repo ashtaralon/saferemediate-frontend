@@ -49,7 +49,7 @@ describe("IAM simulate-fix preview", () => {
       <IAMSimulateFixModal
         isOpen
         onClose={() => {}}
-        result={populated() as SimulateFixResponse}
+        result={populated() as unknown as SimulateFixResponse}
         resourceName="web-role"
         applyDisabled
       />,
@@ -65,7 +65,7 @@ describe("IAM simulate-fix preview", () => {
       <IAMSimulateFixModal
         isOpen
         onClose={() => {}}
-        result={empty() as SimulateFixResponse}
+        result={empty() as unknown as SimulateFixResponse}
         resourceName="web-role"
         applyDisabled
       />,
