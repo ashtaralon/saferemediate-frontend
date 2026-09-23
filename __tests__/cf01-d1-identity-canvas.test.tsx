@@ -337,6 +337,86 @@ describe("CF01 · the lines are the Network view's lines with the producer's pla
   })
 })
 
+describe("CF01 · the twin survives the frame's other modes and the producer's other shapes", () => {
+  it("keeps every identity line in All-VPCs (merged) mode, where cross-VPC chip lines are dropped", async () => {
+    restoreLayout = installLayoutStub()
+    const { payload, frame, edges } = lensFor(READY_WITH_GRAPH)
+    const view = render(
+      <AwsFrame
+        vpcTopology={payload.vpc_topology}
+        nodes={payload.nodes}
+        mergedVpcView
+        serverlessSourceNodes={payload.nodes}
+        regionalDataSourceNodes={payload.nodes}
+        trafficEdges={[]}
+        overlayEdges={edges}
+        flowMode="all_access"
+        attackPathFlowCount={0}
+        selectedNodeId={null}
+        onSelect={() => {}}
+        presentationMode={false}
+        viewDensity="glance"
+        systemLabel={payload.system}
+        identityLens={frame}
+      />,
+    )
+    await waitFor(() => {
+      expect(view.container.querySelectorAll("g[data-flow-source]").length).toBeGreaterThan(0)
+    })
+    const families = lines(view.container).map(g => g.getAttribute("data-flow-family"))
+    expect(families).toContain("WORKLOAD_USES_ROLE")
+    expect(families).toContain("ROLE_TRUST_POLICY")
+    expect(families).toContain("ROLE_ACTION_DECISION")
+  })
+
+  it("puts a reach into SQS / SNS / EventBridge on the regional rail, and never grows a Lambda lane to host it", async () => {
+    const block = {
+      ...READY_WITH_GRAPH,
+      roles: READY_WITH_GRAPH.roles.map((r: any) => ({
+        ...r,
+        action_details: [...r.action_details, { ...r.action_details[0], action: "sqs:SendMessage", usage_state: "NOT_OBSERVED" }],
+      })),
+    }
+    const { container } = await renderLens(block)
+    const regional = container.querySelector('[data-testid="topology-regional-data-tier"]') as HTMLElement
+    const ids = Array.from(regional.querySelectorAll("[data-flow-id]")).map(c => c.getAttribute("data-flow-id"))
+    expect(ids).toContain(identityServiceAnchorId("sqs"))
+    expect(within(regional).getByText("SQS · any queue")).toBeInTheDocument()
+    expect(container.querySelector('[data-testid="topology-serverless-tier"]')).toBeNull()
+    expect(container.querySelector('[data-testid="topology-triggers-band"]')).toBeNull()
+    const sqs = lines(container).find(g => g.getAttribute("data-flow-target") === identityServiceAnchorId("sqs"))!
+    expect(sqs.getAttribute("data-flow-plane")).toBe("configured")
+    expect(sqs.getAttribute("data-flow-motion")).toBe("none")
+    expect(sqs.querySelector("text")?.textContent).toBe("sqs · explicit 1 · not observed")
+  })
+
+  it("draws a Deny trust statement in the denied stroke with its own word, never as a grant", async () => {
+    const graph = READY_WITH_GRAPH.identity_graph
+    const allow = graph.edges.find((e: any) => e.family === "ROLE_TRUST_POLICY" && e.source.node_kind === "federated_principal")!
+    const block = {
+      ...READY_WITH_GRAPH,
+      identity_graph: { ...graph, edges: graph.edges.map((e: any) => (e === allow ? { ...e, effect: "Deny" } : e)) },
+    }
+    const { container } = await renderLens(block)
+    const denied = lines(container).find(g => g.getAttribute("data-flow-verdict") === "denied")!
+    expect(denied).toBeDefined()
+    expect(denied.getAttribute("data-flow-family")).toBe("ROLE_TRUST_POLICY")
+    expect(denied.getAttribute("data-flow-motion")).toBe("none")
+    const stroke = denied.querySelector('path[data-flow-line="stroke"]')!
+    expect(stroke.getAttribute("stroke")).toBe("#9F1239")
+    expect(stroke.getAttribute("stroke-dasharray")).toBe("8 3 2 3")
+    expect(denied.querySelector("text")?.textContent).toBe("statement denies · unconditioned")
+  })
+
+  it("captions a reached service with its projected policy rows in fullscreen, as the regional chips carry their inbound captions", async () => {
+    const { container, lens } = await renderLens(v1.ready, { presentationMode: true })
+    const rows = lens.nodes.filter(n => n.kind === "resource_policy" && n.label === "s3:bucket-authorization").length
+    expect(rows).toBeGreaterThan(0)
+    const chip = container.querySelector(`[data-flow-id="${CSS.escape(S3_ANCHOR)}"]`) as HTMLElement
+    expect(within(chip).getByTestId("topology-chip-caption").textContent).toBe(`${rows} policy row${rows === 1 ? "" : "s"} projected · present/absent: not served`)
+  })
+})
+
 describe("CF01 · unavailable is not zero, on the canvas", () => {
   it("the emitter's ready v1 draws the real bindings and reach, not a swallowed read failure", async () => {
     const { container, lens } = await renderLens(v1.ready)
@@ -344,9 +424,11 @@ describe("CF01 · unavailable is not zero, on the canvas", () => {
     expect(lineOf(container, "WORKLOAD_USES_ROLE")).not.toBeNull()
     expect(lineOf(container, "ROLE_ACTION_DECISION")).not.toBeNull()
     // The emitter's trust statements are all service principals: no entrance
-    // is drawn and the strip says which reason applies, never "nobody".
+    // is drawn and the strip says what WAS served, never "nobody".
+    const { twin } = lensFor(v1.ready)
+    expect(twin.counts.serviceTrustStatements).toBeGreaterThan(0)
     const strip = container.querySelector('[data-testid="topology-identity-principals"]') as HTMLElement
-    expect(strip.textContent).toMatch(/None drawn · no trust statement served for the bound roles/)
+    expect(strip.textContent).toMatch(new RegExp(`None drawn · only service-principal trust served \\(${twin.counts.serviceTrustStatements} statement`))
   })
 
   it("an unavailable projection shows the notice with its gap code and draws no lane, no entrance and no line", async () => {

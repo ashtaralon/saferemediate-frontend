@@ -20,8 +20,10 @@ import {
   buildIdentityTwin,
   classifyTrustPrincipal,
   identityServiceAnchorId,
+  identityTwinTrafficEdge,
   reachByService,
 } from "@/components/topology-v0-2/estate-identity-twin"
+import { trafficMotionKind } from "@/components/topology-v0-2/aws-frame"
 
 import v1 from "./fixtures/estate-identity-access.json"
 import { estatePayload } from "./fixtures/cf01-d1/network-fixture"
@@ -254,6 +256,52 @@ describe("principal → role entrances", () => {
       e.family === "ROLE_TRUST_POLICY" && e.targetId === identityAnchorId("iam_role", "AROAEXAMPLE") &&
       lens.nodes.find(n => n.id === e.sourceId)?.kind === "service_principal")
     expect(roleCaption.includes("trusts ")).toBe(serviceTrust)
+  })
+})
+
+describe("the raw decision rows join by the role's anchor, never by a display field", () => {
+  it("still draws reach when the graph renames the role", () => {
+    const block = {
+      ...v1.ready,
+      identity_graph: {
+        ...v1.ready.identity_graph,
+        nodes: v1.ready.identity_graph.nodes.map((n: any) => (n.node_kind === "iam_role" ? { ...n, name: "web-renamed" } : n)),
+      },
+    }
+    const { twin } = twinFor(block)
+    expect(twin.edges.filter(e => e.identity?.family === "ROLE_ACTION_DECISION")).toHaveLength(1)
+  })
+  it("counts service-principal trust statements it folds into captions", () => {
+    const { lens, twin } = twinFor(v1.ready)
+    const expected = lens.edges.filter(e =>
+      e.family === "ROLE_TRUST_POLICY" && lens.nodes.find(n => n.id === e.sourceId)?.kind === "service_principal" &&
+      twin.roleNodes.some(r => r.id === e.targetId)).length
+    expect(twin.counts.serviceTrustStatements).toBe(expected)
+    expect(expected).toBeGreaterThan(0)
+  })
+  it("never claims 'other account' when the lens has no bound scope account", () => {
+    expect(classifyTrustPrincipal(
+      { kind: "aws_account_principal", arn: "arn:aws:iam::123456789012:root", label: "x" },
+      { accountId: null, managementAccountId: null },
+    )).toMatchObject({ class: "unclassified", label: "acct 1234…9012 · scope not bound", accountId: "123456789012" })
+  })
+})
+
+describe("an observed line without a named generation never moves, not even 'historically'", () => {
+  const base = {
+    family: "ROLE_ACTION_DECISION" as const, plane: "observed" as const, certainty: "resolved" as const, verdict: "observed" as const,
+    label: "s3 · explicit 1 · used 1", generation: null, lastSeen: "2026-09-14T06:00:00Z", sourceId: "r", targetId: "s",
+  }
+  it("drops last_seen so the overlay's legacy_unverified + last_seen 'historical direction' rule cannot fire", () => {
+    const still = identityTwinTrafficEdge({ ...base, animated: false }, null)
+    expect(still.authority_state).toBe("legacy_unverified")
+    expect(still.last_seen).toBeNull()
+    expect(trafficMotionKind(still)).toBe("none")
+  })
+  it("keeps last_seen and moves only when the edge is generation-stamped", () => {
+    const moving = identityTwinTrafficEdge({ ...base, animated: true, generation: 12 }, null)
+    expect(moving.last_seen).toBe("2026-09-14T06:00:00Z")
+    expect(trafficMotionKind(moving)).toBe("authoritative")
   })
 })
 

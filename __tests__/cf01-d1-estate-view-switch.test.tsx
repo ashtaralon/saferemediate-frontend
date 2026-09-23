@@ -327,6 +327,21 @@ describe("CF01-D1 · selection on the identity lens reuses the shared DetailPane
   })
 })
 
+describe("CF01 · a reached-service anchor is inspectable without an Inventory request", () => {
+  it("clicking the S3 anchor opens the shared panel and requests nothing for the anchor id", async () => {
+    await mount(graphFixture.composed.ready_with_graph)
+    fireEvent.click(tab("Identity & access"))
+    const regional = screen.getByTestId("topology-regional-data-tier")
+    const anchor = regional.querySelector('[data-flow-id="__identity:service:s3__"]') as HTMLElement
+    expect(anchor).not.toBeNull()
+    fireEvent.click(anchor)
+    const panel = await screen.findByTestId("topology-service-detail-panel")
+    expect(panel.textContent).toMatch(/S3 · any bucket/)
+    const calls = (globalThis.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls
+    expect(calls.filter(c => String(c[0]).includes("__identity"))).toEqual([])
+  })
+})
+
 describe("mounted identity drawers do not render traffic claims", () => {
   it.each([false, true])("keeps the identity lens for a resource with no identity detail (fullscreen=%s)", async fullscreen => {
     await mount(graphFixture.composed.ready_with_graph, { defaultView: "identity" })

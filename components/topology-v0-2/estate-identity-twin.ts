@@ -29,6 +29,7 @@ import type { IdentityEdgeAnnotation, TopologyNode, TrafficEdge } from "./types"
 import {
   DECISION_AUTHORITY_LABEL,
   INVENTORY_AUTHORITY_LABEL,
+  identityAnchorId,
   identityFocusRelation,
   type IdentityLens,
   type IdentityLensEdge,
@@ -131,7 +132,12 @@ export function classifyTrustPrincipal(
   const accountOf = (acct: string | null): TrustPrincipalReading => {
     if (!acct) return { class: "unclassified", label: raw || "principal", type: "AWSAccountPrincipal", accountId: null }
     const short = `${acct.slice(0, 4)}…${acct.slice(-4)}`
-    if (scope.accountId && acct === scope.accountId) {
+    // Without a bound scope account the split this/other is a guess, and
+    // "other account" is the one claim that must never be guessed.
+    if (!scope.accountId) {
+      return { class: "unclassified", label: `acct ${short} · scope not bound`, type: "AWSAccountPrincipal", accountId: acct }
+    }
+    if (acct === scope.accountId) {
       return { class: "this_account_root", label: "this account (:root)", type: "AWSAccountPrincipal", accountId: acct }
     }
     if (scope.managementAccountId && acct === scope.managementAccountId) {
@@ -247,6 +253,9 @@ export interface IdentityTwinCounts {
   trustEntrances: Record<TrustPrincipalClass, number>
   /** Service prefixes reached that the canvas has no home for (never drawn). */
   reachNotDrawn: number
+  /** Trust statements naming an AWS service principal (the binding mechanism),
+   *  folded into the role captions rather than drawn as entrances. */
+  serviceTrustStatements: number
 }
 
 export interface IdentityTwin {
@@ -276,7 +285,12 @@ function roleSuffix(name: string, keep = 28): string {
   return name.length > keep ? `…${name.slice(-keep)}` : name
 }
 
-function trafficEdge(
+/**
+ * One identity line as the TrafficEdge the shared overlay draws. Exported so
+ * the motion guard is testable on its own: the lens never hands this an
+ * observed-but-unstamped edge today, and the guard must still hold if it does.
+ */
+export function identityTwinTrafficEdge(
   edge: Pick<IdentityLensEdge, "family" | "plane" | "certainty" | "verdict" | "label" | "animated" | "generation" | "lastSeen" | "sourceId" | "targetId">,
   focusId: string | null | undefined,
 ): TrafficEdge {
@@ -301,7 +315,10 @@ function trafficEdge(
     authority_state: observed ? (edge.animated ? "authoritative" : "legacy_unverified") : "configured",
     path_basis: observed ? "observed_segment" : "configured_route",
     projection_generation: edge.generation,
-    last_seen: observed ? edge.lastSeen : null,
+    // `last_seen` rides only on a generation-backed observed line: the
+    // overlay animates legacy_unverified + last_seen as "historical
+    // direction", and the legend promises motion only with a named generation.
+    last_seen: observed && edge.animated ? edge.lastSeen : null,
     identity: annotation,
   }
 }
@@ -349,7 +366,7 @@ export function buildIdentityTwin(lens: IdentityLens, options: IdentityTwinOptio
     boundRoleIds.add(role.id)
     const modes = typeof edge.facts.attachment_modes === "string" ? edge.facts.attachment_modes : ""
     const mechanism = bindingMechanismWord(modes, typeById.get(workload.id) ?? null)
-    edges.push(trafficEdge({ ...edge, label: mechanism }, focusId))
+    edges.push(identityTwinTrafficEdge({ ...edge, label: mechanism }, focusId))
     const parts = workloadCaptionParts.get(workload.id) ?? []
     parts.push(`${mechanism} · ${roleSuffix(role.label)}`)
     workloadCaptionParts.set(workload.id, parts)
@@ -370,13 +387,17 @@ export function buildIdentityTwin(lens: IdentityLens, options: IdentityTwinOptio
   for (const [workloadId, parts] of workloadCaptionParts) captions.set(workloadId, parts.join(" · "))
 
   // ── 2. principal → role: who else may assume it ──────────────────────────
+  let serviceTrustStatements = 0
   for (const edge of lens.edges) {
     if (edge.family !== "ROLE_TRUST_POLICY") continue
     if (!boundRoleIds.has(edge.targetId)) continue
     const principal = nodeById.get(edge.sourceId)
     if (!principal) continue
     // Service-principal trust is the mechanism of hop 1, not a second entrance.
-    if (principal.kind === "service_principal") continue
+    if (principal.kind === "service_principal") {
+      serviceTrustStatements += 1
+      continue
+    }
     const reading = classifyTrustPrincipal(
       { kind: principal.kind, arn: principal.arn, label: principal.label },
       scope,
@@ -401,13 +422,15 @@ export function buildIdentityTwin(lens: IdentityLens, options: IdentityTwinOptio
     const label = denied
       ? `statement denies · ${conditioned ? "conditioned" : "unconditioned"}`
       : `may assume · ${conditioned ? "conditioned" : "unconditioned"}`
-    edges.push(trafficEdge({ ...edge, label, animated: false }, focusId))
+    edges.push(identityTwinTrafficEdge({ ...edge, label, animated: false }, focusId))
   }
 
   // ── 3. role → service: explicit N · used M, at action scope ──────────────
-  const rawByRoleId = new Map<string, RawRoleActions>()
+  // Keyed by the role's canvas anchor (the lens derives it from role_id), so
+  // the join never depends on a display field the graph may overwrite.
+  const rawByAnchor = new Map<string, RawRoleActions>()
   for (const raw of options.rawRoles ?? []) {
-    if (typeof raw.role_id === "string") rawByRoleId.set(raw.role_id, raw)
+    if (typeof raw.role_id === "string") rawByAnchor.set(identityAnchorId("iam_role", raw.role_id), raw)
   }
   let rolesUsageNotComputed = 0
   let reachNotDrawnTotal = 0
@@ -416,7 +439,9 @@ export function buildIdentityTwin(lens: IdentityLens, options: IdentityTwinOptio
     if (!role) continue
     // The lens's own ROLE_ACTION_DECISION edge says whether counts exist.
     const decision = lens.edges.find(e => e.family === "ROLE_ACTION_DECISION" && e.sourceId === roleId)
-    const configuredReady = decision !== undefined && decision.verdict !== "unknown"
+    // The lens marks an unread decision as an unresolved endpoint; anything
+    // resolved carries the configured counts (observed use may still be unread).
+    const configuredReady = decision !== undefined && decision.certainty === "resolved"
     const captionParts: string[] = []
     if (!configuredReady) {
       rolesUsageNotComputed += 1
@@ -427,7 +452,7 @@ export function buildIdentityTwin(lens: IdentityLens, options: IdentityTwinOptio
       captionParts.push(
         `explicit ${typeof explicit === "number" ? explicit : "?"} · used ${typeof used === "number" ? used : "?"}`,
       )
-      const raw = rawByRoleId.get(role.sublabel ?? "") ?? rawByRoleId.get(roleId)
+      const raw = rawByAnchor.get(roleId)
       const rows = raw && Array.isArray(raw.action_details) ? (raw.action_details as RawActionDetail[]) : []
       // The producer serves at most the first 25 decision rows per role
       // (`action_details_truncated`). A per-service verdict computed from a
@@ -471,7 +496,7 @@ export function buildIdentityTwin(lens: IdentityLens, options: IdentityTwinOptio
           : verdict === "denied" ? "denied only" : verdict === "unknown" ? "use unknown" : "not observed"
         const explicitWord = truncated ? `explicit ≥${reach.explicit}` : `explicit ${reach.explicit}`
         const animated = observed && decisionGeneration !== null
-        edges.push(trafficEdge({
+        edges.push(identityTwinTrafficEdge({
           family: "ROLE_ACTION_DECISION",
           plane: observed ? "observed" : "configured",
           certainty: "resolved",
@@ -559,6 +584,7 @@ export function buildIdentityTwin(lens: IdentityLens, options: IdentityTwinOptio
       users,
       trustEntrances,
       reachNotDrawn: reachNotDrawnTotal,
+      serviceTrustStatements,
     },
   }
 }

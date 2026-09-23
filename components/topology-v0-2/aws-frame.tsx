@@ -3002,11 +3002,14 @@ function IdentityPrincipalsStrip({
   compact: boolean
 }) {
   const graphRead = lens.graphState === "ready" || lens.graphState === "partial"
+  const serviceOnly = twin.counts.serviceTrustStatements
   const reason = !graphRead
     ? "identity graph not read for this generation"
     : twin.counts.boundRoles === 0
       ? "no role bound to a workload on this canvas"
-      : "no trust statement served for the bound roles"
+      : serviceOnly > 0
+        ? `only service-principal trust served (${serviceOnly} statement${serviceOnly === 1 ? "" : "s"}, on the role chips)`
+        : "no trust statement served for the bound roles"
   return (
     <div
       className="flex items-center gap-2 shrink-0 min-w-0"
@@ -9357,15 +9360,22 @@ export function AwsFrame({
   )
   const regionalTierNodes = useMemo(() => {
     const base = extractRegionalDataServices(railSourceNodes)
-    return ensureAwsPublicServiceSentinels(base, overlayEdgeList)
-  }, [railSourceNodes, overlayEdgeList])
+    // A role reaching SQS / SNS / EventBridge is a reach into a service, not
+    // a trigger of a function: its anchor joins the regional rail beside S3
+    // and KMS, so the identity lens never grows a "Lambda runtime (0)" lane
+    // just to host it.
+    const reachAnchorsInTriggerTypes = identityServiceNodes
+      ? identityServiceNodes.filter(node => node.type !== null && TRIGGER_TYPES.has(node.type))
+      : []
+    return ensureAwsPublicServiceSentinels([...base, ...reachAnchorsInTriggerTypes], overlayEdgeList)
+  }, [railSourceNodes, identityServiceNodes, overlayEdgeList])
   const serverlessTierNodes = useMemo(
     () => extractServerlessOutsideVpc(serverlessSourceNodes ?? nodes, topo.subnets),
     [serverlessSourceNodes, nodes, topo.subnets],
   )
   const triggerTierNodes = useMemo(
-    () => extractTriggerServices(railSourceNodes),
-    [railSourceNodes],
+    () => extractTriggerServices(regionalDataSourceNodes ?? nodes),
+    [regionalDataSourceNodes, nodes],
   )
   const identityRoleNodes = identityLens?.twin.roleNodes
   const identityPrincipalNodes = identityLens?.twin.principalNodes
@@ -9596,9 +9606,12 @@ export function AwsFrame({
       // subset, so hiding a line removed a named caller from the caption.
       const caption = railInboundCaption(node.id, trafficEdgesList, id => functionIds.has(id))
       if (caption) captions.set(node.id, caption)
+      // CF01 — a service anchor's caption is the twin's (policy rows projected).
+      const twinCaption = identityLens?.twin.captions.get(node.id)
+      if (twinCaption) captions.set(node.id, twinCaption)
     }
     return captions
-  }, [regionalTierNodes, serverlessTierNodes, trafficEdgesList])
+  }, [regionalTierNodes, serverlessTierNodes, trafficEdgesList, identityLens])
 
   const attackPathEdgeCount = attackPathFlowCount
 
