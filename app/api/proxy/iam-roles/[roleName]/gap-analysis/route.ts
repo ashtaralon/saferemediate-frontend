@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
-import { backendError, fromCaughtError } from "@/lib/server/proxy-error"
+import { backendError, fromCaughtError, reviewProxyStatus } from "@/lib/server/proxy-error"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -43,6 +43,13 @@ export async function GET(
       // for both. Every consumer of this route already guards on `res.ok`
       // (or `fetchWithEnvelope`, which throws on non-2xx), so a typed error
       // surfaces an honest error/empty state instead of a fabricated zero.
+      const clientStatus = reviewProxyStatus(res.status)
+      if (clientStatus === 401 || clientStatus === 403 || clientStatus === 503) {
+        return new NextResponse(errorText || "{}", {
+          status: clientStatus,
+          headers: { "Cache-Control": "no-store", "Content-Type": "application/json" },
+        })
+      }
       return backendError({
         status: res.status,
         message: `IAM gap-analysis backend returned ${res.status}`,
