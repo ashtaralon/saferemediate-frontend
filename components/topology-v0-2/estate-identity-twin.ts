@@ -92,6 +92,43 @@ export interface RawRoleActions {
   role_id?: unknown
   action_details?: unknown
   action_details_truncated?: unknown
+  /** The producer's complete per-service rollup (scripts/estate_identity_access
+   *  `service_grants`), computed over the FULL decision set before the
+   *  action_details cap. Absent on older producers; null when not served. */
+  service_grants?: unknown
+}
+
+/** One row of the producer's `service_grants[]`, read leniently. */
+export interface RawServiceGrant {
+  service_prefix?: unknown
+  explicit?: unknown
+  success_observed?: unknown
+  denied_only?: unknown
+  not_observed?: unknown
+  unknown?: unknown
+  coverage_incomplete?: unknown
+  last_success_at?: unknown
+}
+
+/** The producer's complete rollup as reach rows; null when it is not served. */
+export function reachFromServiceGrants(value: unknown): IdentityReach[] | null {
+  if (!Array.isArray(value)) return null
+  const out: IdentityReach[] = []
+  for (const row of value as RawServiceGrant[]) {
+    if (typeof row?.service_prefix !== "string") continue
+    const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0)
+    out.push({
+      prefix: row.service_prefix.toLowerCase(),
+      explicit: num(row.explicit),
+      used: num(row.success_observed),
+      denied: num(row.denied_only),
+      notObserved: num(row.not_observed),
+      unknown: num(row.unknown),
+      coverageIncomplete: row.coverage_incomplete === true,
+      lastSuccessAt: typeof row.last_success_at === "string" ? row.last_success_at : null,
+    })
+  }
+  return out.sort((a, b) => a.prefix.localeCompare(b.prefix))
 }
 
 export type TrustPrincipalClass =
@@ -552,16 +589,19 @@ export function buildIdentityTwin(lens: IdentityLens, options: IdentityTwinOptio
       )
       const raw = rawByAnchor.get(roleId)
       const rows = raw && Array.isArray(raw.action_details) ? (raw.action_details as RawActionDetail[]) : []
-      // The producer serves at most the first 25 decision rows per role
-      // (`action_details_truncated`). A per-service verdict computed from a
+      // The producer's complete rollup wins when it is served: computed over
+      // the full decision set, it needs no truncation caveat. Without it, the
+      // producer serves at most the first 25 decision rows per role
+      // (`action_details_truncated`); a per-service verdict computed from a
       // cut slice would fabricate "not observed" for a service whose rows
       // were cut, so under truncation only what the slice PROVES is drawn:
       // observed use is monotone (one observed row is enough) and its count
       // is a floor; nothing is said about the services the slice omits.
-      const truncated = raw?.action_details_truncated === true
+      const complete = reachFromServiceGrants(raw?.service_grants)
+      const truncated = complete === null && raw?.action_details_truncated === true
       const notDrawn: string[] = []
       let withheldByTruncation = 0
-      for (const reach of reachByService(rows)) {
+      for (const reach of complete ?? reachByService(rows)) {
         const target = IDENTITY_SERVICE_TARGETS[reach.prefix]
         if (!target) {
           notDrawn.push(reach.prefix)

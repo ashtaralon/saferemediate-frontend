@@ -23,6 +23,7 @@ import {
   identityKindForService,
   identityTwinTrafficEdge,
   reachByService,
+  reachFromServiceGrants,
 } from "@/components/topology-v0-2/estate-identity-twin"
 import { trafficMotionKind } from "@/components/topology-v0-2/aws-frame"
 
@@ -187,6 +188,41 @@ describe("a truncated action slice proves only what it shows", () => {
   it("says the slice is partial even when every row in it is observed", () => {
     const { twin } = twinFor(truncatedRole([observedRow]))
     expect(twin.captions.get(identityAnchorId("iam_role", "AROAEXAMPLE"))).toContain("services beyond them: not served")
+  })
+})
+
+describe("the producer's complete service_grants rollup wins over the capped slice", () => {
+  it("draws every service from the rollup, with no truncation caveat, even when action_details is cut", () => {
+    const block = {
+      ...v1.ready,
+      roles: v1.ready.roles.map((r: any) => ({
+        ...r,
+        action_details: [r.action_details[0]],
+        action_details_truncated: true,
+        service_grants: [
+          { service_prefix: "s3", explicit: 3, success_observed: 2, denied_only: 0, not_observed: 1, unknown: 0, coverage_incomplete: false, last_success_at: "2026-09-14T06:00:00Z" },
+          { service_prefix: "kms", explicit: 1, success_observed: 0, denied_only: 0, not_observed: 1, unknown: 0, coverage_incomplete: false, last_success_at: null },
+        ],
+      })),
+    }
+    const { twin } = twinFor(block)
+    const reach = twin.edges.filter(e => e.identity?.family === "ROLE_ACTION_DECISION")
+    expect(reach.map(e => e.identity?.label).sort()).toEqual(["kms · explicit 1 · not observed", "s3 · explicit 3 · used 2"])
+    expect(reach.find(e => e.target_id === identityServiceAnchorId("kms"))?.identity?.kind).toBe("secret_key")
+    expect(reach.find(e => e.target_id === identityServiceAnchorId("s3"))?.identity?.animated).toBe(true)
+    const caption = twin.captions.get(identityAnchorId("iam_role", "AROAEXAMPLE")) ?? ""
+    expect(caption).not.toContain("first 25 actions only")
+  })
+  it("falls back to the slice when service_grants is null (not served) or absent", () => {
+    for (const grants of [null, undefined]) {
+      const block = { ...v1.ready, roles: v1.ready.roles.map((r: any) => ({ ...r, service_grants: grants })) }
+      const { twin } = twinFor(block)
+      expect(twin.edges.filter(e => e.identity?.family === "ROLE_ACTION_DECISION")).toHaveLength(1)
+    }
+    expect(reachFromServiceGrants(null)).toBeNull()
+    expect(reachFromServiceGrants([{ service_prefix: "S3", explicit: "x" }])).toEqual([
+      { prefix: "s3", explicit: 0, used: 0, denied: 0, notObserved: 0, unknown: 0, coverageIncomplete: false, lastSuccessAt: null },
+    ])
   })
 })
 
