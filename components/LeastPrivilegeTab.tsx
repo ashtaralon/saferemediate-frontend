@@ -23,7 +23,7 @@ import {
   RESOURCE_RISK_OPEN_EVENT,
   type ResourceRiskOpenDetail,
 } from '@/lib/resource-risk-navigation'
-import { IAMPermissionAnalysisModal } from '@/components/iam-permission-analysis-modal'
+import { IAMPermissionAnalysisModal, selectCurrentIamRestore } from '@/components/iam-permission-analysis-modal'
 // Legacy modals replaced by v4.4 §11E-style cards. Aliased imports
 // preserve existing JSX without further changes at the call sites.
 import { S3RemediationModal as S3PolicyAnalysisModal } from '@/components/s3-remediation-modal'
@@ -71,6 +71,7 @@ interface GapResource {
   remediatedAt?: string | null
   remediatedBy?: string | null
   snapshotId?: string | null
+  operationId?: string | null
   eventId?: string | null
   rollbackAvailable?: boolean
   /** Client-only VERIFYING TTL clock — never render as mutation evidence. */
@@ -323,6 +324,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
   const [executionResult, setExecutionResult] = useState<any>(null)
   const [iamModalOpen, setIamModalOpen] = useState(false)
   const [selectedIAMRole, setSelectedIAMRole] = useState<string | null>(null)
+  const [selectedIAMRoleArn, setSelectedIAMRoleArn] = useState<string | null>(null)
   const [selectedIAMFindingId, setSelectedIAMFindingId] = useState<string | null>(null)
   const [s3ModalOpen, setS3ModalOpen] = useState(false)
   const [selectedS3Bucket, setSelectedS3Bucket] = useState<string | null>(null)
@@ -410,6 +412,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
     }
     if (reviewSurface === 'iam') {
       setSelectedIAMRole(match.resourceName)
+      setSelectedIAMRoleArn(match.resourceArn)
       setSelectedIAMFindingId(match.findingId || null)
       setIamModalOpen(true)
     } else if (reviewSurface === 's3') {
@@ -1240,6 +1243,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
     resource: GapResource,
     metadata?: {
       snapshotId?: string | null
+      operationId?: string | null
       eventId?: string | null
       /** Only when backend declares it — never inferred from snapshotId. */
       rollbackAvailable?: boolean
@@ -1267,17 +1271,22 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
           remediatedAt?: string | null
           remediatedBy?: string | null
           snapshotId?: string | null
+          operationId?: string | null
           eventId?: string | null
           rollbackAvailable?: boolean
         } = {}
         if (metadata?.remediatedAt !== undefined) receipt.remediatedAt = metadata.remediatedAt
         if (metadata?.remediatedBy !== undefined) receipt.remediatedBy = metadata.remediatedBy
         if (metadata?.snapshotId !== undefined) receipt.snapshotId = metadata.snapshotId
+        if (metadata?.operationId !== undefined) receipt.operationId = metadata.operationId
         if (metadata?.eventId !== undefined) receipt.eventId = metadata.eventId
         if (typeof metadata?.rollbackAvailable === 'boolean') {
           receipt.rollbackAvailable = metadata.rollbackAvailable
         }
-        return markResourceVerifying(existing as any, receipt) as GapResource
+        return {
+          ...markResourceVerifying(existing as any, receipt),
+          ...(receipt.operationId !== undefined ? { operationId: receipt.operationId } : {}),
+        } as GapResource
       })
       return { ...prev, resources: nextResources }
     })
@@ -1332,6 +1341,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
           remediatedAt: undefined,
           remediatedBy: undefined,
           snapshotId: null,
+          operationId: null,
           eventId: null,
           rollbackAvailable: false,
         }
@@ -1370,42 +1380,54 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       const resourceId = resource.id || resource.resourceName
       console.log('[Rollback] Starting for:', resourceName, 'type:', resource.resourceType)
 
+      if (resource.resourceType === 'IAMRole') {
+        const arn = resource.resourceArn
+        const scopedSystem = systemName || resource.systemName || ''
+        if (!/^arn:aws:iam::[0-9]{12}:role\/.+/.test(arn) || !scopedSystem) {
+          throw new Error('Exact IAM role ARN and system are required for restore.')
+        }
+        const query = new URLSearchParams({
+          resource_arn: arn, system_name: scopedSystem, force_refresh: 'true',
+        })
+        const listResponse = await fetch(`/api/proxy/iam-snapshots?${query}`, { cache: 'no-store' })
+        const ledger = await listResponse.json().catch(() => null)
+        if (!listResponse.ok) {
+          throw new Error(ledger?.detail?.code || ledger?.detail?.message || 'Scoped IAM History is unavailable.')
+        }
+        const selected = selectCurrentIamRestore(ledger, arn, scopedSystem, {
+          snapshotId: resource.snapshotId, operationId: resource.operationId,
+        })
+        if (!window.confirm(`Restore ${resourceName} from checkpoint ${selected.snapshotId}?\nForward operation: ${selected.operationId}`)) return
+        const response = await fetch('/api/proxy/iam-roles/rollback', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            snapshot_id: selected.snapshotId, operation_id: selected.operationId,
+            resource_arn: arn, system_name: scopedSystem,
+          }),
+        })
+        const result = await response.json().catch(() => null)
+        if (!response.ok || result?.success !== true || result?.code !== 'RESTORE_VERIFIED' ||
+            result?.restores_operation_id !== selected.operationId ||
+            result?.history?.restoration?.validated !== true) {
+          throw new Error(result?.detail?.code || result?.detail?.message ||
+            'Restore outcome is not verified; inspect History before retrying.')
+        }
+        toast({
+          title: 'Restore verified',
+          description: `${resourceName}: checkpoint ${selected.snapshotId} consumed. History restore ${result.operation_id} verified for ${selected.operationId}.`,
+        })
+        handleRollbackSuccess(resourceName)
+        return
+      }
+
       // Step 1: Prefer stored remediation metadata, then fall back to discovery
       let snapshotId: string | null = resource.snapshotId || null
       let eventId: string | null = resource.eventId || null
       let eventSource: string | null = null
       let sgId: string | null = null
 
-      if (resource.resourceType === 'IAMRole' && !snapshotId && !eventId) {
-        // Strategy A: Fetch all IAM snapshots, find matching one
-        try {
-          const snapRes = await fetch('/api/proxy/iam-snapshots?force_refresh=true')
-          if (snapRes.ok) {
-            const snapshots = await snapRes.json()
-            const arr = Array.isArray(snapshots) ? snapshots : (snapshots.snapshots || [])
-            console.log('[Rollback] Found', arr.length, 'IAM snapshots, searching for:', resourceName)
-            const match = arr
-              .filter((s: any) =>
-              s.rollback_available !== false &&
-              !s.rolled_back_at &&
-              s.status !== 'restored' &&
-              (s.original_role === resourceName ||
-               s.resource_id === resourceName ||
-               s.role_name === resourceName ||
-               s.original_role === resourceId)
-              )
-              .sort((a: any, b: any) =>
-                new Date(b.created_at || b.timestamp || 0).getTime() - new Date(a.created_at || a.timestamp || 0).getTime()
-              )[0]
-            if (match) {
-              snapshotId = match.snapshot_id || match.id
-              console.log('[Rollback] Found IAM snapshot:', snapshotId)
-            }
-          }
-        } catch (e) {
-          console.warn('[Rollback] IAM snapshots fetch failed:', e)
-        }
-      } else if (resource.resourceType === 'SecurityGroup') {
+      if (resource.resourceType === 'SecurityGroup') {
         sgId = resource.id?.startsWith('sg-') ? resource.id : resource.resourceName
         // Strategy A for SG: Fetch SG snapshots
         if (!snapshotId && !eventId) {
@@ -1491,9 +1513,6 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       if (eventId && eventSource === 'neo4j') {
         endpoint = `/api/proxy/remediation-history/events/${eventId}/rollback`
         bodyContent = { approved_by: "user@cyntro.io" }
-      } else if (resource.resourceType === 'IAMRole' && snapshotId) {
-        endpoint = `/api/proxy/iam-snapshots/${snapshotId}/rollback`
-        bodyContent = {}
       } else if (resource.resourceType === 'SecurityGroup' && sgId && snapshotId) {
         // Two SG snapshot formats coexist; each has its own rollback endpoint.
         // "sg-snap-{sg_id}-{ts}" ← api/sg_least_privilege.py
@@ -1507,9 +1526,6 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       } else if (resource.resourceType === 'S3Bucket') {
         endpoint = `/api/proxy/s3-buckets/rollback`
         bodyContent = { checkpoint_id: snapshotId, bucket_name: resourceName }
-      } else if (snapshotId) {
-        endpoint = `/api/proxy/iam-snapshots/${snapshotId}/rollback`
-        bodyContent = {}
       } else {
         toast({ title: "Rollback Failed", description: "Could not determine rollback endpoint", variant: "destructive" })
         return
@@ -1846,6 +1862,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
     }
     if (reviewSurface === 'iam') {
       setSelectedIAMRole(resource.resourceName)
+      setSelectedIAMRoleArn(resource.resourceArn)
       setSelectedIAMFindingId(resource.findingId || null)
       setIamModalOpen(true)
     } else if (reviewSurface === 's3') {
@@ -3454,6 +3471,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                   setSimulationResult(null)
                   handleRemediationSuccess(selectedResource, {
                     snapshotId: result.snapshot_id || null,
+                    operationId: result.operation_id || null,
                     eventId: result.event_id || null,
                     ...(typeof result.rollback_available === 'boolean'
                       ? { rollbackAvailable: result.rollback_available }
@@ -3580,6 +3598,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                   setIamSimulateFixResult(null)
                   handleRemediationSuccess(selectedResource, {
                     snapshotId: result.snapshot_id || null,
+                    operationId: result.operation_id || null,
                     eventId: result.event_id || null,
                     ...(typeof result.rollback_available === 'boolean'
                       ? { rollbackAvailable: result.rollback_available }
@@ -3621,9 +3640,13 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         onClose={() => {
           setIamModalOpen(false)
           setSelectedIAMRole(null)
+          setSelectedIAMRoleArn(null)
           setSelectedIAMFindingId(null)
         }}
         roleName={selectedIAMRole || ''}
+        roleArn={selectedIAMRoleArn}
+        restoreSnapshotId={data?.resources.find(resource => resource.resourceType === 'IAMRole' && resource.resourceArn === selectedIAMRoleArn)?.snapshotId}
+        restoreOperationId={data?.resources.find(resource => resource.resourceType === 'IAMRole' && resource.resourceArn === selectedIAMRoleArn)?.operationId}
         findingId={selectedIAMFindingId || undefined}
         systemName={systemName}
         // IAM review stays on the canonical signed-plan Change Case even when

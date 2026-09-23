@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { Shield, Calendar, User, ArrowDownToLine, ArrowUpFromLine, RotateCcw, RefreshCw, Trash2, MapPin, Server, Key, Lock, Database } from 'lucide-react'
+import { IAM_RESTORE_UNAVAILABLE, commitIamRestore, iamRestoreTarget, prepareIamRestore } from '@/lib/iam-restore-control'
 
 interface Snapshot {
   snapshot_id: string
@@ -28,6 +29,17 @@ interface Snapshot {
   type?: 'SecurityGroup' | 'IAMRole' | 'S3Bucket'
   role_name?: string
   role_arn?: string
+  resource_arn?: string
+  operation_id?: string
+  system_name?: string
+  tenant_id?: string
+  account_id?: string
+  scope_proof?: string
+  source?: string
+  state?: string
+  current?: { code?: string; operationId?: string }
+  rollback_available?: boolean
+  offer_withheld_reason?: string | null
   permissions_count?: number
   removed_permissions?: string[]
   // New IAM remediation snapshot fields (SNAP-* format)
@@ -90,6 +102,9 @@ export default function RecoveryTab({ systemName }: RecoveryTabProps) {
       let sgSnapshots: Snapshot[] = []
       if (sgRes && sgRes.ok) {
         const sgData = await sgRes.json()
+        if (sgData.iam_source?.available === false) {
+          setError('IAM History is unavailable or incomplete; IAM restore cannot be verified. Other resource snapshots remain visible.')
+        }
         const sgList = Array.isArray(sgData) ? sgData : (sgData.snapshots || [])
         // Detect type - PRIORITIZE snapshot_id prefix as it's most reliable
         sgSnapshots = sgList.map((s: any) => {
@@ -126,29 +141,38 @@ export default function RecoveryTab({ systemName }: RecoveryTabProps) {
       // Process IAM snapshots
       let iamSnapshots: Snapshot[] = []
       if (iamRes && iamRes.ok) {
-        const iamData = await iamRes.json()
-        const iamList = Array.isArray(iamData) ? iamData : (iamData.snapshots || [])
-        iamSnapshots = iamList.map((s: any) => ({ ...s, type: 'IAMRole' as const }))
+        const iamData = await iamRes.json().catch(() => null)
+        const iamList = Array.isArray(iamData) ? iamData :
+          Array.isArray(iamData?.snapshots) ? iamData.snapshots : null
+        if (iamList) {
+          iamSnapshots = iamList.map((s: any) => ({ ...s, type: 'IAMRole' as const }))
+        } else {
+          setError('IAM History returned an invalid response; IAM restore is unavailable.')
+        }
+      } else {
+        setError('IAM History is unavailable; IAM restore cannot be verified. Other resource snapshots remain visible.')
       }
 
       // Combine all snapshots
       let allSnapshots = [...sgSnapshots, ...iamSnapshots]
 
+      // A selected system may only show IAM rows with that exact producer
+      // binding, even when the separate resource-index read failed or is empty.
+      if (systemName) {
+        allSnapshots = allSnapshots.filter(s => s.type !== 'IAMRole' || s.system_name === systemName)
+      }
+
       // Filter by system if systemName is provided and resources were fetched
       if (systemResourceNames && systemResourceNames.size > 0) {
         allSnapshots = allSnapshots.filter((s: any) => {
+          if (s.type === 'IAMRole') return true
           // Match SG snapshots by sg_name
           if (s.sg_name && systemResourceNames!.has(s.sg_name.toLowerCase())) return true
-          // Match IAM snapshots by role_name or original_role
-          if (s.role_name && systemResourceNames!.has(s.role_name.toLowerCase())) return true
-          if (s.original_role && systemResourceNames!.has(s.original_role.toLowerCase())) return true
           // Match S3 snapshots by finding_id (bucket name) or resource_name
           if (s.finding_id && systemResourceNames!.has(s.finding_id.toLowerCase())) return true
           if (s.current_state?.resource_name && systemResourceNames!.has(s.current_state.resource_name.toLowerCase())) return true
           // Match by sg_id (AWS SG ID like sg-xxx)
           if (s.sg_id && systemResourceNames!.has(s.sg_id.toLowerCase())) return true
-          // Match by role_arn
-          if (s.role_arn && systemResourceNames!.has(s.role_arn.toLowerCase())) return true
           return false
         })
       }
@@ -330,7 +354,7 @@ export default function RecoveryTab({ systemName }: RecoveryTabProps) {
         ? `⚠️ Restore S3 Bucket checkpoint?\n\nThis will:\n• Restore the bucket policy for ${resourceName}\n• Re-add any removed policy statements\n\nContinue?`
         : `⚠️ Restore Security Group snapshot?\n\nThis will:\n• Remove ALL current inbound rules from ${resourceName}\n• Restore ${snapshot.rules_count?.inbound || 'all'} inbound rules from this snapshot\n\nContinue?`
 
-    if (!confirm(confirmMessage)) {
+    if (!isIAMRole && !confirm(confirmMessage)) {
       return
     }
 
@@ -338,15 +362,24 @@ export default function RecoveryTab({ systemName }: RecoveryTabProps) {
       setRestoring(snapshot.snapshot_id)
       setError(null)
 
+      if (isIAMRole) {
+        const target = iamRestoreTarget(snapshot, systemName)
+        if (!target) throw new Error(IAM_RESTORE_UNAVAILABLE)
+        await prepareIamRestore(target)
+        if (!confirm(`${confirmMessage}\n\nCheckpoint: ${target.snapshotId}\nForward operation: ${target.operationId}`)) return
+        const verified = await commitIamRestore(target)
+        alert(`Restore verified for ${resourceName}.\nCheckpoint: ${target.snapshotId}\nHistory restore: ${verified.operation_id}\nForward operation: ${verified.restores_operation_id}`)
+        await loadSnapshots()
+        return
+      }
+
       // Detect if this is a new SG LP snapshot (sg-snap-* format)
       const isSgLpSnapshot = snapshot.snapshot_id?.startsWith('sg-snap-')
 
       let endpoint: string
       let bodyContent: any = undefined
 
-      if (isIAMRole) {
-        endpoint = `/api/proxy/iam-snapshots/${snapshot.snapshot_id}/rollback`
-      } else if (isS3Bucket) {
+      if (isS3Bucket) {
         endpoint = `/api/proxy/s3-buckets/rollback`
         bodyContent = {
           checkpoint_id: snapshot.snapshot_id,
@@ -376,9 +409,7 @@ export default function RecoveryTab({ systemName }: RecoveryTabProps) {
       const result = await res.json()
       
       if (result.success) {
-        if (isIAMRole) {
-          alert(`✅ Restored Successfully!\n\nIAM Role: ${result.role_name || resourceName}\nPermissions restored: ${result.permissions_restored || 'All'}`)
-        } else if (isS3Bucket) {
+        if (isS3Bucket) {
           alert(`✅ Restored Successfully!\n\nS3 Bucket: ${result.bucket_name || resourceName}\nPolicy restored from checkpoint`)
         } else {
           alert(`✅ Restored Successfully!\n\nSecurity Group: ${result.sg_name || result.sg_id}\nRules restored: ${result.rules_restored}`)
@@ -550,6 +581,7 @@ export default function RecoveryTab({ systemName }: RecoveryTabProps) {
               isSelected={selectedSnapshots.has(snapshot.snapshot_id)}
               isRestoring={restoring === snapshot.snapshot_id}
               isDeleting={deletingSnapshot === snapshot.snapshot_id}
+              iamUnavailableReason={snapshot.type === 'IAMRole' && !iamRestoreTarget(snapshot, systemName) ? IAM_RESTORE_UNAVAILABLE : undefined}
               formatDate={formatDate}
               getTimeAgo={getTimeAgo}
             />
@@ -569,6 +601,7 @@ function SnapshotCard({
   isSelected,
   isRestoring,
   isDeleting,
+  iamUnavailableReason,
   formatDate,
   getTimeAgo
 }: {
@@ -579,6 +612,7 @@ function SnapshotCard({
   isSelected: boolean
   isRestoring: boolean
   isDeleting: boolean
+  iamUnavailableReason?: string
   formatDate: (ts: string | undefined) => string
   getTimeAgo: (ts: string | undefined) => string
 }) {
@@ -588,7 +622,9 @@ function SnapshotCard({
   const region = snapshot.region || 'eu-west-1'
   const triggeredBy = snapshot.triggered_by || 'system'
   const reason = snapshot.reason || snapshot.current_state?.reason || 'Remediation backup'
-  const status = snapshot.status || 'available'
+  const status = isIAMRole
+    ? snapshot.current?.code === 'RESTORED' ? 'restored' : iamUnavailableReason ? 'unavailable' : 'available'
+    : snapshot.status || 'available'
 
   // SG-specific fields
   const sgName = snapshot.sg_name || snapshot.current_state?.sg_name || 'Unknown Security Group'
@@ -669,9 +705,9 @@ function SnapshotCard({
             <span className={`px-2 py-1 text-xs font-medium rounded-full ${
               status === 'available' 
                 ? 'bg-[#22c55e20] text-[#22c55e]' 
-                : 'bg-[#3b82f620] text-[#3b82f6]'
+                : status === 'restored' ? 'bg-[#3b82f620] text-[#3b82f6]' : 'bg-amber-100 text-amber-800'
             }`}>
-              {status === 'available' ? '● Available' : '↺ Restored'}
+              {status === 'available' ? '● Available' : status === 'restored' ? '↺ Restored' : 'Unavailable'}
             </span>
           </div>
         </div>
@@ -802,10 +838,12 @@ function SnapshotCard({
               <Trash2 className="w-4 h-4" />
             )}
           </button>
+          {iamUnavailableReason && <span className="text-xs text-amber-700 max-w-44">{iamUnavailableReason}</span>}
           {/* Restore Button */}
           <button
             onClick={onRestore}
-            disabled={isRestoring || isDeleting}
+            disabled={isRestoring || isDeleting || Boolean(iamUnavailableReason)}
+            title={iamUnavailableReason}
             className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors ${
               isRestoring
                 ? 'bg-gray-300 text-[var(--muted-foreground,#6b7280)] cursor-not-allowed'
@@ -824,7 +862,7 @@ function SnapshotCard({
             ) : (
               <>
                 <RotateCcw className="w-4 h-4" />
-                Restore
+                {iamUnavailableReason ? 'IAM restore unavailable' : isIAMRole ? 'Review IAM restore' : 'Restore'}
               </>
             )}
           </button>

@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useToast } from '@/components/ui/use-toast';
 import { BackToDashboard } from '@/components/back-to-dashboard';
+import { IAM_RESTORE_UNAVAILABLE, commitIamRestore, iamRestoreTarget, prepareIamRestore } from '@/lib/iam-restore-control';
 
 interface Snapshot {
   snapshot_id: string;
@@ -18,6 +19,15 @@ interface Snapshot {
   status: string;
   system_name?: string;
   rollback_available?: boolean;
+  operation_id?: string;
+  resource_arn?: string;
+  tenant_id?: string;
+  account_id?: string;
+  scope_proof?: string;
+  source?: string;
+  state?: string;
+  current?: { code?: string; operationId?: string };
+  offer_withheld_reason?: string | null;
   current_state?: {
     role_name?: string;
     resource_name?: string;
@@ -32,6 +42,7 @@ export default function RecoveryTab() {
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
   const [loading, setLoading] = useState(true);
   const [restoring, setRestoring] = useState<string | null>(null);
+  const [iamHistoryError, setIamHistoryError] = useState<string | null>(null);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -49,6 +60,8 @@ export default function RecoveryTab() {
       }
       
       const data = await response.json();
+      setIamHistoryError(data.iam_source?.available === false
+        ? 'IAM History is unavailable; IAM restore cannot be offered until it can be verified.' : null);
       
       // Handle both array and object with snapshots array
       const snapshotsArray = Array.isArray(data) ? data : (data.snapshots || []);
@@ -56,6 +69,7 @@ export default function RecoveryTab() {
       setSnapshots(snapshotsArray);
     } catch (error) {
       console.error('Error fetching snapshots:', error);
+      setIamHistoryError('IAM History is unavailable; IAM restore cannot be verified.');
       toast({
         title: 'Error',
         description: 'Failed to load snapshots',
@@ -85,20 +99,20 @@ export default function RecoveryTab() {
 
       // Determine the correct rollback endpoint based on resource type
       // Check snapshot ID prefix FIRST (most reliable), then resource_type field
-      const isIAMRole =
+      const isS3Bucket =
+        snapshotId.startsWith('S3Bucket-') ||
+        snapshotId.startsWith('s3-') ||
+        snapshot.resource_type === 'S3Bucket' ||
+        snapshot.current_state?.checkpoint_type === 'S3Bucket';
+
+      const isIAMRole = !isS3Bucket && (
         snapshotId.startsWith('IAMRole-') ||
         snapshotId.startsWith('iam-') ||
         snapshotId.startsWith('SNAP-') ||  // New IAM remediation format
         snapshot.resource_type === 'IAMRole' ||
         snapshot.resource_type === 'IAM_REMEDIATION' ||
         snapshot.snapshot_type === 'IAM_REMEDIATION' ||
-        snapshot.current_state?.checkpoint_type === 'IAMRole';
-
-      const isS3Bucket =
-        snapshotId.startsWith('S3Bucket-') ||
-        snapshotId.startsWith('s3-') ||
-        snapshot.resource_type === 'S3Bucket' ||
-        snapshot.current_state?.checkpoint_type === 'S3Bucket';
+        snapshot.current_state?.checkpoint_type === 'IAMRole');
 
       console.log('[Recovery] Restoring snapshot:', {
         snapshotId,
@@ -108,63 +122,46 @@ export default function RecoveryTab() {
         finding_id: snapshot.finding_id
       });
 
-      let response;
-
-      // For SNAP- prefixed IDs, use the unified snapshots rollback endpoint directly
-      if (snapshotId.startsWith('SNAP-')) {
-        const url = `/api/proxy/snapshots/${encodeURIComponent(snapshotId)}/rollback`;
-        console.log('[Recovery] Using unified snapshots rollback endpoint:', url);
-        response = await fetch(url, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        });
-        console.log('[Recovery] Response status:', response.status);
-      } else if (isIAMRole) {
-        // Legacy IAM Role checkpoint rollback
-        console.log('[Recovery] Using IAM rollback endpoint');
-        response = await fetch('/api/proxy/iam-roles/rollback', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            checkpoint_id: snapshotId,
-            role_name: snapshot.finding_id || ''
-          }),
-        });
-      } else if (isS3Bucket) {
-        // S3 Bucket checkpoint rollback
-        console.log('[Recovery] Using S3 rollback endpoint');
-        response = await fetch('/api/proxy/s3-buckets/rollback', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            checkpoint_id: snapshotId,
-            bucket_name: snapshot.finding_id || ''
-          }),
-        });
+      let result;
+      if (isIAMRole) {
+        const target = iamRestoreTarget(snapshot);
+        if (!target) throw new Error(IAM_RESTORE_UNAVAILABLE);
+        await prepareIamRestore(target);
+        if (!window.confirm(`Restore checkpoint ${target.snapshotId}?\nForward operation: ${target.operationId}`)) return;
+        result = await commitIamRestore(target);
       } else {
-        // Security Group snapshot rollback (default)
-        console.log('[Recovery] Using SG rollback endpoint');
-        response = await fetch(`/api/proxy/remediation/rollback/${snapshotId}`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        });
+        if (snapshotId.startsWith('SNAP-')) throw new Error('Snapshot type is unverified; restore was not started.');
+        let response: Response;
+        if (isS3Bucket) {
+          // S3 Bucket checkpoint rollback
+          console.log('[Recovery] Using S3 rollback endpoint');
+          response = await fetch('/api/proxy/s3-buckets/rollback', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              checkpoint_id: snapshotId,
+              bucket_name: snapshot.finding_id || ''
+            }),
+          });
+        } else {
+          // Security Group snapshot rollback (default)
+          console.log('[Recovery] Using SG rollback endpoint');
+          response = await fetch(`/api/proxy/remediation/rollback/${snapshotId}`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          });
+        }
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({ detail: response.statusText }));
+          console.error('[Recovery] Error response:', errorData);
+          throw new Error(errorData.detail || `Failed to restore: ${response.statusText}`);
+        }
+        result = await response.json();
       }
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ detail: response.statusText }));
-        console.error('[Recovery] Error response:', errorData);
-        throw new Error(errorData.detail || `Failed to restore: ${response.statusText}`);
-      }
-
-      const result = await response.json();
       console.log('[Recovery] Success response:', result);
 
       // After successful rollback, remove the resource from the remediated roles localStorage
@@ -188,8 +185,10 @@ export default function RecoveryTab() {
       }
 
       toast({
-        title: 'Success',
-        description: `Snapshot ${snapshotId} restored successfully`,
+        title: isIAMRole ? 'Restore verified' : 'Success',
+        description: isIAMRole
+          ? `Checkpoint ${snapshotId} consumed. History restore ${result.operation_id} verified for ${result.restores_operation_id}.`
+          : `Snapshot ${snapshotId} restored successfully`,
       });
 
       // Refresh snapshots list
@@ -238,6 +237,8 @@ export default function RecoveryTab() {
         </div>
       </div>
 
+      {iamHistoryError && <p className="mb-4 rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">{iamHistoryError}</p>}
+
       {snapshots.length === 0 ? (
         <div className="text-center p-8 bg-gray-50 rounded-lg">
           <p className="text-gray-600">No snapshots available</p>
@@ -253,6 +254,14 @@ export default function RecoveryTab() {
           {snapshots.map((snapshot) => {
             const snapshotId = snapshot.snapshot_id || snapshot.id;
             const isRestoring = restoring === snapshotId;
+            const isS3Card = snapshot.resource_type === 'S3Bucket' || snapshot.current_state?.checkpoint_type === 'S3Bucket' ||
+              snapshotId.startsWith('S3Bucket-') || snapshotId.startsWith('s3-');
+            const isIAMCard = !isS3Card && (snapshotId.startsWith('SNAP-') || snapshotId.startsWith('IAMRole-') ||
+              snapshotId.startsWith('iam-') || snapshot.resource_type === 'IAMRole' ||
+              snapshot.resource_type === 'IAM_REMEDIATION' || snapshot.snapshot_type === 'IAM_REMEDIATION' ||
+              snapshot.current_state?.checkpoint_type === 'IAMRole');
+            const iamUnavailable = isIAMCard && !iamRestoreTarget(snapshot);
+            const shownStatus = iamUnavailable ? 'UNAVAILABLE' : snapshot.status || 'ACTIVE';
             // Determine resource type from snapshot ID prefix or resource_type field
             let resourceType = 'SecurityGroup';
             if (snapshotId.startsWith('SNAP-')) {
@@ -314,11 +323,11 @@ export default function RecoveryTab() {
                         {resourceType}
                       </span>
                       <span className={`px-2 py-1 text-xs rounded ${
-                        snapshot.status === 'ACTIVE' 
+                        shownStatus === 'ACTIVE'
                           ? 'bg-green-100 text-green-800' 
                           : 'bg-gray-100 text-gray-800'
                       }`}>
-                        {snapshot.status || 'ACTIVE'}
+                        {shownStatus}
                       </span>
                     </div>
                     
@@ -343,15 +352,17 @@ export default function RecoveryTab() {
                   <button
                     type="button"
                     onClick={() => handleRestore(snapshot)}
-                    disabled={isRestoring}
+                    disabled={isRestoring || iamUnavailable}
+                    title={iamUnavailable ? IAM_RESTORE_UNAVAILABLE : undefined}
                     className={`ml-4 px-4 py-2 rounded font-medium transition-colors ${
                       isRestoring
                         ? 'bg-gray-400 text-white cursor-not-allowed'
                         : 'bg-green-600 text-white hover:bg-green-700'
                     }`}
                   >
-                    {isRestoring ? 'Restoring...' : 'Restore'}
+                    {isRestoring ? 'Restoring...' : iamUnavailable ? 'IAM restore unavailable' : isIAMCard ? 'Review IAM restore' : 'Restore'}
                   </button>
+                  {iamUnavailable && <p className="text-xs text-amber-700 mt-1">{IAM_RESTORE_UNAVAILABLE}</p>}
                 </div>
               </div>
             );

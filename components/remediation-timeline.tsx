@@ -36,6 +36,7 @@ import { ServiceTypeBadge } from "@/lib/service-type"
 import { fetchWithEnvelope } from "@/components/trust/use-trust-envelope"
 import { TrustEnvelopeBadge, Provenance } from "@/components/trust/trust-envelope-badge"
 import { operationalRequest } from "@/components/topology-v0-2/estate-operations"
+import { IAM_RESTORE_UNAVAILABLE, commitIamRestore, iamRestoreTarget, prepareIamRestore, type IamRestoreTarget } from '@/lib/iam-restore-control'
 import {
   DEFAULT_REMEDIATION_EVENT_FILTER,
   dedupeRemediationEvents,
@@ -227,6 +228,7 @@ interface RemediationEvent {
       rollback_path?: string | null
       reason?: string | null
     }
+    iam_restore?: IamRestoreTarget | null
     safety_signals?: SafetySignals
     [key: string]: any
   }
@@ -878,7 +880,10 @@ const EventDetailModal = ({ event, isOpen, onClose, onRollback }: EventDetailMod
           )}
 
           {/* Selective Restore Section */}
-          {event.rollback_available && event.metadata?.event_kind !== "checkpoint" && hasSelectableItems && (
+          {event.resource_type === 'IAMRole' && !event.metadata?.iam_restore && (
+            <p className="text-xs text-amber-300 mt-2">{IAM_RESTORE_UNAVAILABLE}</p>
+          )}
+          {event.resource_type !== 'IAMRole' && event.rollback_available && event.metadata?.event_kind !== "checkpoint" && hasSelectableItems && (
             <div className="rounded-lg border" style={{ background: "#252538", borderColor: "#3d3d5c" }}>
               <button
                 onClick={() => {
@@ -983,7 +988,7 @@ const EventDetailModal = ({ event, isOpen, onClose, onRollback }: EventDetailMod
               Close
             </button>
             {event.rollback_available && event.metadata?.event_kind !== "checkpoint" && (
-              hasSelectableItems && showSelectiveRestore ? (
+              event.resource_type !== 'IAMRole' && hasSelectableItems && showSelectiveRestore ? (
                 <button
                   onClick={() => onRollback(event.event_id, Array.from(selectedItems))}
                   disabled={selectedItems.size === 0}
@@ -1000,7 +1005,7 @@ const EventDetailModal = ({ event, isOpen, onClose, onRollback }: EventDetailMod
                   style={{ background: "#F59E0B" }}
                 >
                   <RotateCcw className="w-4 h-4" />
-                  Restore All
+                  {event.resource_type === 'IAMRole' ? 'Review IAM restore' : 'Restore All'}
                 </button>
               )
             )}
@@ -1025,6 +1030,7 @@ export function RemediationTimeline({
   const [summary, setSummary] = useState<TimelineSummary | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [iamHistoryError, setIamHistoryError] = useState<string | null>(null)
   const [provenance, setProvenance] = useState<Provenance | null>(null)
 
   const [selectedPeriod, setSelectedPeriod] = useState<"7d" | "30d" | "90d" | "1y">("30d")
@@ -1271,7 +1277,7 @@ export function RemediationTimeline({
       confidence_score: null as number | null,
       approved_by: snapshot.triggered_by || 'system',
       snapshot_id: snapshot.snapshot_id,
-      rollback_available: snapshot.rollback_available !== false,
+      rollback_available: isIAMRole ? Boolean(iamRestoreTarget(snapshot, systemId)) : snapshot.rollback_available !== false,
       metadata: {
         reason: snapshot.reason || 'Least-privilege remediation',
         rules_count: snapshot.rules_count,
@@ -1279,6 +1285,7 @@ export function RemediationTimeline({
         permissions_removed: permissionsRemoved,
         original_role: snapshot.original_role,
         new_role: snapshot.new_role,
+        iam_restore: isIAMRole ? iamRestoreTarget(snapshot, systemId) : null,
       },
       before_state: beforeState,
       after_state: afterState,
@@ -1287,7 +1294,7 @@ export function RemediationTimeline({
       sg_id: snapshot.sg_id,
       sg_name: snapshot.sg_name,
       role_name: snapshot.original_role || snapshot.role_name || resourceId,
-      role_arn: snapshot.role_arn,
+      role_arn: snapshot.resource_arn || snapshot.role_arn,
       bucket_name: isS3Bucket ? resourceId : undefined,
       system_name:
         snapshot.system_name ||
@@ -1306,6 +1313,7 @@ export function RemediationTimeline({
     const fetchTimeline = async () => {
       setLoading(true)
       setError(null)
+      setIamHistoryError(null)
 
       try {
         const periodDays = { "7d": 7, "30d": 30, "90d": 90, "1y": 365 }
@@ -1345,6 +1353,9 @@ export function RemediationTimeline({
 
         if (sgRes && sgRes.ok) {
           const sgData = await sgRes.json()
+          if (sgData.iam_source?.available === false) {
+            setIamHistoryError('IAM History is unavailable or incomplete; IAM restore cannot be verified.')
+          }
           const sgList = Array.isArray(sgData) ? sgData : (sgData.snapshots || [])
           const typedSnapshots = sgList.map((s: any) => {
             // Detect IAM Role snapshots - check multiple indicators including new format
@@ -1369,9 +1380,13 @@ export function RemediationTimeline({
         }
 
         if (iamRes && iamRes.ok) {
-          const iamData = await iamRes.json()
-          const iamList = Array.isArray(iamData) ? iamData : (iamData.snapshots || [])
-          snapshotEvents.push(...iamList.map((s: any) => convertSnapshotToEvent({ ...s, type: 'IAMRole' })))
+          const iamData = await iamRes.json().catch(() => null)
+          const iamList = Array.isArray(iamData) ? iamData :
+            Array.isArray(iamData?.snapshots) ? iamData.snapshots : null
+          if (iamList) snapshotEvents.push(...iamList.map((s: any) => convertSnapshotToEvent({ ...s, type: 'IAMRole' })))
+          else setIamHistoryError('IAM History returned an invalid response; IAM restore is unavailable.')
+        } else {
+          setIamHistoryError('IAM History is unavailable; IAM restore cannot be verified.')
         }
 
         // Snapshot endpoints are account-wide. Only merge snapshots whose
@@ -1379,7 +1394,20 @@ export function RemediationTimeline({
         const scopedSnapshotEvents = snapshotEvents.filter(event =>
           snapshotBelongsToSystem(event, systemId),
         )
-        allEvents = dedupeRemediationEvents([...allEvents, ...scopedSnapshotEvents])
+        const canonicalIamBySnapshot = new Map(
+          scopedSnapshotEvents
+            .filter(event => event.resource_type === 'IAMRole' && event.snapshot_id && event.metadata?.iam_restore)
+            .map(event => [event.snapshot_id!, event.metadata.iam_restore!] as const),
+        )
+        allEvents = dedupeRemediationEvents([...allEvents, ...scopedSnapshotEvents]).map(event => {
+          if (event.resource_type !== 'IAMRole') return event
+          const target = event.snapshot_id ? canonicalIamBySnapshot.get(event.snapshot_id) || null : null
+          return {
+            ...event,
+            rollback_available: Boolean(target),
+            metadata: { ...event.metadata, iam_restore: target },
+          }
+        })
 
         // Filter by date range
         allEvents = allEvents.filter(e => {
@@ -1476,11 +1504,27 @@ export function RemediationTimeline({
 
     let confirmMessage = `⚠️ Restore ${resourceType} (${restoreLabel})?\n\nResource: ${resourceName}\n\nThis will undo the selected remediation. Continue?`
 
-    if (!confirm(confirmMessage)) {
+    if (resourceType !== 'IAMRole' && !confirm(confirmMessage)) {
       return
     }
 
     try {
+      if (resourceType === 'IAMRole') {
+        if (isPartial) throw new Error('Partial IAM restore is unavailable; use the exact full checkpoint in History.')
+        const target = event.metadata?.iam_restore
+        if (!target) throw new Error(IAM_RESTORE_UNAVAILABLE)
+        setRestoringEventId(eventId)
+        await prepareIamRestore(target)
+        if (!confirm(`${confirmMessage}\n\nCheckpoint: ${target.snapshotId}\nForward operation: ${target.operationId}`)) return
+        const verified = await commitIamRestore(target)
+        alert(`Restore verified for ${resourceName}.\nCheckpoint: ${target.snapshotId}\nHistory restore: ${verified.operation_id}\nForward operation: ${verified.restores_operation_id}`)
+        dispatchRemediationChanged({ action: 'rollback', resource_type: resourceType, resource_id: resourceName, partial: false, source_id: eventId })
+        setShowModal(false)
+        setSelectedEvent(null)
+        onRollback?.(eventId)
+        refreshTimeline()
+        return
+      }
       const restore = event.metadata?.restore
       if (restore?.available) {
         if (
@@ -1546,12 +1590,7 @@ export function RemediationTimeline({
         }
       }
       // Otherwise, use the snapshot-specific endpoints
-      else if (resourceType === 'IAMRole') {
-        endpoint = `/api/proxy/iam-snapshots/${snapshotId}/rollback`
-        bodyContent = {
-          ...(isPartial && { selected_items: selectedItems })
-        }
-      } else if (resourceType === 'S3Bucket') {
+      else if (resourceType === 'S3Bucket') {
         endpoint = `/api/proxy/s3-buckets/rollback`
         bodyContent = {
           checkpoint_id: snapshotId,
@@ -1754,6 +1793,12 @@ export function RemediationTimeline({
           </div>
         )}
       </div>
+
+      {iamHistoryError && (
+        <p className="mx-4 mt-3 rounded border border-amber-700/50 bg-amber-900/20 p-3 text-sm text-amber-300">
+          {iamHistoryError}
+        </p>
+      )}
 
       {/* Chart */}
       <div className="p-4" style={{ background: "var(--bg-primary)" }}>
