@@ -57,8 +57,23 @@ describe("clicked IAM gap-analysis proxy", () => {
 
     expect(res.status).toBe(401)
     expect(await res.json()).toEqual({ detail: "service authentication required" })
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
     expect(url).toBe(`http://backend.test/api/iam-roles/${ROLE}/gap-analysis?days=365`)
+    expect((init.headers as Record<string, string>)["X-Cyntro-Service-Token"]).toBe(TOKEN)
+  })
+
+  it("ignores a browser-supplied service token and does not return the server token", async () => {
+    process.env.CYNTRO_SERVICE_TOKEN = TOKEN
+    process.env.BACKEND_URL_OVERRIDE = "http://backend.test"
+    const fetchMock = vi.fn(async () => backend(200, { summary: { used_count: 6, unused_count: 4 } }))
+    vi.stubGlobal("fetch", fetchMock)
+
+    const res = await call(request({ "x-cyntro-service-token": "browser-supplied-token" }))
+    const text = JSON.stringify(await res.json())
+
+    expect(text).not.toContain(TOKEN)
+    expect(text).not.toContain("browser-supplied-token")
+    const init = (fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1]
     expect((init.headers as Record<string, string>)["X-Cyntro-Service-Token"]).toBe(TOKEN)
   })
 
