@@ -35,6 +35,7 @@ import type { IdentityLensFrameProps } from "@/components/topology-v0-2/estate-i
 import { identityChipSubtitle } from "@/components/topology-v0-2/estate-identity-plane"
 import { buildIdentityTwin, identityServiceAnchorId } from "@/components/topology-v0-2/estate-identity-twin"
 import { awsIconUrl } from "@/components/topology-v0-2/aws-architecture-icons"
+import { IDENTITY_KIND_COLOR, IDENTITY_PLANE_COLOR } from "@/components/topology-v0-2/flow-visuals"
 
 import v1 from "./fixtures/estate-identity-access.json"
 import historicalGraphFixture from "./fixtures/cf01-d1/estate-identity-graph-6e08d6b2.json"
@@ -170,7 +171,18 @@ describe("CF01 · the identity lens IS the Network frame", () => {
     expect(lane.textContent).toMatch(/IAM · Roles \(1\)/)
     const chips = Array.from(lane.querySelectorAll("[data-flow-id]"))
     expect(chips.map(c => c.getAttribute("data-flow-id"))).toEqual(twin.roleNodes.map(n => n.id))
-    expect(chips.map(c => c.getAttribute("data-flow-id"))).toEqual([WEB_ROLE])
+    // The bound role first; the `*`-trusted `api` role, which no workload
+    // here runs as, sits in the lane's second group: assumable from outside.
+    // (In this fixture `api` is a graph-only role, so its anchor is keyed by
+    // resource uid, not by a v1 role id.)
+    expect(twin.externalRoleIds.size).toBe(1)
+    const [outsideRole] = [...twin.externalRoleIds]
+    expect(twin.roleNodes.find(n => n.id === outsideRole)?.name).toBe("api")
+    expect(chips.map(c => c.getAttribute("data-flow-id"))).toEqual([WEB_ROLE, outsideRole])
+    const external = lane.querySelector('[data-testid="topology-iam-roles-external"]') as HTMLElement
+    expect(external.getAttribute("data-count")).toBe("1")
+    expect(external.textContent).toMatch(/Assumable from outside \(1\)/)
+    expect(external.querySelector(`[data-flow-id="${CSS.escape(outsideRole)}"]`)).not.toBeNull()
     expect(within(lane).getByText("web")).toBeInTheDocument()
     const icon = lane.querySelector("img")!
     expect(icon.getAttribute("src")).toBe(awsIconUrl("IAMRole"))
@@ -185,7 +197,7 @@ describe("CF01 · the identity lens IS the Network frame", () => {
     expect(container.querySelector('[data-testid="topology-internet-node"]')).toBeNull()
     const strip = container.querySelector('[data-testid="topology-identity-principals"]') as HTMLElement
     expect(strip.textContent).toMatch(/Trust entrances/)
-    expect(strip.textContent).toMatch(/May assume a bound role · 2/)
+    expect(strip.textContent).toMatch(/May assume a role here · 3/)
     const chips = Array.from(strip.querySelectorAll('[data-testid="topology-identity-principal"]'))
     expect(chips.map(c => c.getAttribute("data-flow-id")).sort()).toEqual(twin.principalNodes.map(n => n.id).sort())
     const byClass = new Map(chips.map(c => [c.getAttribute("data-principal-class"), c]))
@@ -194,6 +206,8 @@ describe("CF01 · the identity lens IS the Network frame", () => {
     expect(byClass.get("this_account_root")?.querySelector("img")?.getAttribute("src")).toBe(awsIconUrl("AWSAccountPrincipal"))
     expect(byClass.get("federated")?.textContent).toMatch(/token\.actions\.githubusercontent\.com · SAML \/ OIDC/)
     expect(byClass.get("federated")?.querySelector("img")?.getAttribute("src")).toBe(awsIconUrl("FederatedPrincipal"))
+    // `*` on the api role: anyone, drawn as an entrance into the outside-assumable group.
+    expect(byClass.get("anyone")?.textContent).toMatch(/anyone \(\*\)/)
     // A service principal (ec2.amazonaws.com) is the mechanism of the binding, not an entrance.
     expect(byClass.has("unclassified")).toBe(false)
     expect(strip.textContent).not.toMatch(/ec2\.amazonaws\.com/)
@@ -223,7 +237,9 @@ describe("CF01 · the identity lens IS the Network frame", () => {
     const { container, twin } = await renderLens(READY_WITH_GRAPH)
     const footer = container.querySelector('[data-testid="identity-twin-footer"]') as HTMLElement
     expect(footer.textContent).toMatch(/1 role bound to a workload on this canvas/)
-    expect(footer.textContent).toMatch(new RegExp(`${twin.counts.otherAccountRoles} other role`))
+    expect(footer.textContent).toMatch(/1 role assumable from outside, not run by a workload here/)
+    if (twin.counts.otherAccountRoles > 0) expect(footer.textContent).toMatch(new RegExp(`${twin.counts.otherAccountRoles} other role`))
+    else expect(footer.textContent).not.toMatch(/other role/)
     expect(footer.textContent).toMatch(new RegExp(`${twin.counts.users} IAM users in the graph, not drawn`))
     expect(footer.textContent).toMatch(/protected resource not on this map/)
     expect(footer.textContent).toMatch(/relationship families not on the canonical path/)
@@ -238,24 +254,31 @@ describe("CF01 · the lines are the Network view's lines with the producer's pla
     expect(runsAs.getAttribute("data-flow-target")).toBe(WEB_ROLE)
     expect(runsAs.getAttribute("data-flow-plane")).toBe("configured")
     expect(runsAs.getAttribute("data-flow-motion")).toBe("none")
+    // Colour = kind of access (runs-as indigo); dash = plane (configured).
     const stroke = runsAs.querySelector('path[data-flow-line="stroke"]')!
-    expect(stroke.getAttribute("stroke")).toBe("#475569")
+    expect(stroke.getAttribute("stroke")).toBe(IDENTITY_KIND_COLOR.runs_as)
     expect(stroke.getAttribute("stroke-dasharray")).toBe("5 4")
+    expect(stroke.getAttribute("marker-end")).toBe("url(#flow-arrow-identity-runs_as)")
     expect(runsAs.querySelector('[data-testid="topology-flow-running-track"]')).toBeNull()
     expect(runsAs.querySelector("text")?.textContent).toBe("instance profile")
   })
 
   it("draws principal → role from the strip into the IAM lane, one still line per statement, conditioned or not", async () => {
     const { container } = await renderLens(READY_WITH_GRAPH)
+    const { twin } = lensFor(READY_WITH_GRAPH)
+    const [outsideRole] = [...twin.externalRoleIds]
     const trust = lines(container).filter(g => g.getAttribute("data-flow-family") === "ROLE_TRUST_POLICY")
-    expect(trust).toHaveLength(2)
+    expect(trust).toHaveLength(3)
     for (const g of trust) {
-      expect(g.getAttribute("data-flow-target")).toBe(WEB_ROLE)
+      expect([WEB_ROLE, outsideRole]).toContain(g.getAttribute("data-flow-target"))
       expect(g.getAttribute("data-flow-plane")).toBe("configured")
       expect(g.getAttribute("data-flow-motion")).toBe("none")
     }
-    const words = trust.map(g => g.querySelector("text")?.textContent).sort()
-    expect(words).toEqual(["may assume · conditioned", "may assume · unconditioned"])
+    const intoWeb = trust.filter(g => g.getAttribute("data-flow-target") === WEB_ROLE)
+    expect(intoWeb.map(g => g.querySelector("text")?.textContent).sort()).toEqual(["may assume · conditioned", "may assume · unconditioned"])
+    // Colour by kind: an account is "may assume" (violet), a federation is a human identity (amber).
+    const colours = new Set(intoWeb.map(g => g.querySelector('path[data-flow-line="stroke"]')!.getAttribute("stroke")))
+    expect(colours).toEqual(new Set([IDENTITY_KIND_COLOR.may_assume, IDENTITY_KIND_COLOR.human]))
   })
 
   it("draws role → service as a rail feeder through the corridor, teal, MOVING, because use was observed under a decision generation", async () => {
@@ -268,8 +291,9 @@ describe("CF01 · the lines are the Network view's lines with the producer's pla
     expect(reach.getAttribute("data-flow-motion")).toBe("authoritative")
     expect(reach.getAttribute("data-flow-bundle")).toBe("1")
     expect(reach.getAttribute("data-flow-members")).toBe(`${WEB_ROLE}→${S3_ANCHOR}`)
+    // S3 is data access (green); observed = solid + moving.
     const stroke = reach.querySelector('path[data-flow-line="stroke"]')!
-    expect(stroke.getAttribute("stroke")).toBe("#0E8B7A")
+    expect(stroke.getAttribute("stroke")).toBe(IDENTITY_KIND_COLOR.data)
     expect(stroke.getAttribute("stroke-dasharray")).toBeNull()
     expect(reach.querySelector('[data-testid="topology-flow-running-track"]')).not.toBeNull()
     expect(reach.querySelector("text")?.textContent).toBe("s3 · explicit 1 · used 1")
@@ -303,7 +327,12 @@ describe("CF01 · the lines are the Network view's lines with the producer's pla
     const relations = lines(container).map(g => g.getAttribute("data-flow-focus-relation"))
     expect(relations).toContain("incoming")
     expect(relations).toContain("outgoing")
-    expect(relations).not.toContain("context")
+    // Only a line that does not touch the selection is context (the `*` → api entrance).
+    for (const g of lines(container)) {
+      const touches = [g.getAttribute("data-flow-source"), g.getAttribute("data-flow-target")].includes(WEB_ROLE) ||
+        g.getAttribute("data-flow-source") === "lane:iam"
+      expect(g.getAttribute("data-flow-focus-relation") === "context").toBe(!touches)
+    }
     for (const g of lines(container)) {
       const relation = g.getAttribute("data-flow-focus-relation")
       const word = g.querySelector("text")?.textContent ?? ""
@@ -313,15 +342,16 @@ describe("CF01 · the lines are the Network view's lines with the producer's pla
       if (relation === "outgoing") expect(word).toMatch(/^out · /)
       if (relation === "incoming") expect(word).toMatch(/^in · /)
     }
-    // Every line here is the selection's own: nothing is dimmed as context.
-    expect(lines(container).every(g => g.getAttribute("data-flow-focus-relation") !== "context")).toBe(true)
   })
 
   it("renders in fullscreen presentation mode with the same anchors and the role's reading as its chip caption", async () => {
     const { container } = await renderLens(READY_WITH_GRAPH, { presentationMode: true })
     const lane = container.querySelector('[data-testid="topology-iam-roles-tier"]') as HTMLElement
-    expect(lane.querySelector(`[data-flow-id="${CSS.escape(WEB_ROLE)}"]`)).not.toBeNull()
-    expect(within(lane).getByTestId("topology-chip-caption").textContent).toBe("explicit 1 · used 1 · trusts ec2.amazonaws.com")
+    const webChip = lane.querySelector(`[data-flow-id="${CSS.escape(WEB_ROLE)}"]`) as HTMLElement
+    expect(webChip).not.toBeNull()
+    expect(within(webChip).getByTestId("topology-chip-caption").textContent).toBe("explicit 1 · used 1 · trusts ec2.amazonaws.com")
+    const outside = lane.querySelector('[data-testid="topology-iam-roles-external"] [data-flow-id]') as HTMLElement
+    expect(within(outside).getByTestId("topology-chip-caption").textContent).toMatch(/^not run by a workload on this canvas · assumable from anyone · usage not served$/)
     expect(container.querySelector(`[data-flow-id="${CSS.escape(S3_ANCHOR)}"]`)).not.toBeNull()
     expect(lineOf(container, "ROLE_ACTION_DECISION")).not.toBeNull()
   })
@@ -402,8 +432,9 @@ describe("CF01 · the twin survives the frame's other modes and the producer's o
     expect(denied).toBeDefined()
     expect(denied.getAttribute("data-flow-family")).toBe("ROLE_TRUST_POLICY")
     expect(denied.getAttribute("data-flow-motion")).toBe("none")
+    // The verdict overrides the kind colour: a Deny is crimson whatever it denies.
     const stroke = denied.querySelector('path[data-flow-line="stroke"]')!
-    expect(stroke.getAttribute("stroke")).toBe("#9F1239")
+    expect(stroke.getAttribute("stroke")).toBe(IDENTITY_PLANE_COLOR.denied)
     expect(stroke.getAttribute("stroke-dasharray")).toBe("8 3 2 3")
     expect(denied.querySelector("text")?.textContent).toBe("statement denies · unconditioned")
   })

@@ -342,6 +342,25 @@ export type TrafficEdgeClass = "internal" | "edge_service" | "vpce" | "egress" |
  * and certainty are the producer's own (estate-identity-access/v1 +
  * estate-identity-graph/v1), never inferred by the renderer.
  */
+/**
+ * What KIND of access an identity line is — the identity analogue of the
+ * Network view's traffic class, and what the line's colour says. The plane
+ * (configured / observed) stays on the dash and the motion, never on the hue.
+ */
+export type IdentityLineKind =
+  /** a workload running as a role: instance profile / execution role */
+  | "runs_as"
+  /** a trust statement: an account, role or `*` that may assume the role */
+  | "may_assume"
+  /** a human identity: an IAM user credential, SAML / OIDC federation */
+  | "human"
+  /** secrets & keys: Secrets Manager, KMS */
+  | "secret_key"
+  /** data access: S3, DynamoDB, RDS */
+  | "data"
+  /** any other AWS service reach */
+  | "service"
+
 export interface IdentityEdgeAnnotation {
   family:
     | "WORKLOAD_USES_ROLE"
@@ -358,7 +377,15 @@ export interface IdentityEdgeAnnotation {
     | "ACCOUNT_IN_ORG_UNIT"
     | "ACCOUNT_LIMITED_BY_SCP"
     | "ACCOUNT_LIMITED_BY_RCP"
+    // CF01 production pass — an observed access edge the legacy behavioral
+    // graph carries (ACTUAL_S3_ACCESS, ACTUAL_API_CALL, …) drawn on the
+    // identity lens with the Network view's own "legacy · unverified"
+    // treatment. Not a canonical family; never generation-backed; never moves.
+    | "LEGACY_OBSERVED_ACCESS"
   plane: "configured" | "observed"
+  /** The colour of the line. Absent on producers that predate it: the
+   *  renderer falls back to the plane colour. */
+  kind?: IdentityLineKind
   certainty: "resolved" | "unresolved_endpoint"
   /**
    * The legend word for the line: configured / observed / denied (the
@@ -434,6 +461,9 @@ export interface EgressHop {
 }
 
 export interface TrafficEdge {
+  /** Legacy behavioral-graph edges: the API actions observed on this edge
+   *  (e.g. GetObject, PutObject). Absent on canonical traffic. */
+  observed_actions?: string[] | null
   source_id: string
   // For egress edges this is the sentinel "__igw__" — the FE terminates
   // the arrow at the IGW perimeter icon rather than at a chip.

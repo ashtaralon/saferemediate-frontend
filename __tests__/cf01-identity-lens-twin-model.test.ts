@@ -20,6 +20,7 @@ import {
   buildIdentityTwin,
   classifyTrustPrincipal,
   identityServiceAnchorId,
+  identityKindForService,
   identityTwinTrafficEdge,
   reachByService,
 } from "@/components/topology-v0-2/estate-identity-twin"
@@ -289,7 +290,7 @@ describe("the raw decision rows join by the role's anchor, never by a display fi
 
 describe("an observed line without a named generation never moves, not even 'historically'", () => {
   const base = {
-    family: "ROLE_ACTION_DECISION" as const, plane: "observed" as const, certainty: "resolved" as const, verdict: "observed" as const,
+    family: "ROLE_ACTION_DECISION" as const, kind: "data" as const, plane: "observed" as const, certainty: "resolved" as const, verdict: "observed" as const,
     label: "s3 · explicit 1 · used 1", generation: null, lastSeen: "2026-09-14T06:00:00Z", sourceId: "r", targetId: "s",
   }
   it("drops last_seen so the overlay's legacy_unverified + last_seen 'historical direction' rule cannot fire", () => {
@@ -302,6 +303,54 @@ describe("an observed line without a named generation never moves, not even 'his
     const moving = identityTwinTrafficEdge({ ...base, animated: true, generation: 12 }, null)
     expect(moving.last_seen).toBe("2026-09-14T06:00:00Z")
     expect(trafficMotionKind(moving)).toBe("authoritative")
+  })
+})
+
+describe("legacy-parity observed access lines", () => {
+  const legacy = (source: string, target: string, protocol = "ACTUAL_S3_ACCESS", actions: string[] = ["GetObject"], last = "2026-08-20T13:37:32Z") =>
+    ({ source_id: source, target_id: target, protocol, port: null, evidence_type: "inferred", evidence_source: "legacy_behavioral_graph",
+       authority_state: "legacy_unverified", path_basis: "inferred_correlation", last_seen: last, observed_actions: actions }) as any
+  const build = (edges: any[]) => {
+    const payload = { ...estatePayload(), identity_access: scoped(v1.ready) } as any
+    const topologyNodes = payload.nodes.map((n: any) => ({ ...n }))
+    const lens = buildIdentityLensForPayload(payload, { topologyNodes })
+    return buildIdentityTwin(lens, { rawRoles: (v1.ready as any).roles, topologyNodes, focusId: null, legacyEdges: edges })
+  }
+  it("draws one workload → resource line per pair, actions merged, in the data colour, dashed as legacy and never moving", () => {
+    const twin = build([legacy("i-web", "bucket-assets", "ACTUAL_S3_ACCESS", ["GetObject"]), legacy("i-web", "bucket-assets", "ACTUAL_S3_ACCESS", ["PutObject"], "2026-08-21T00:00:00Z")])
+    const lines = twin.edges.filter(e => e.identity?.family === "LEGACY_OBSERVED_ACCESS")
+    expect(lines).toHaveLength(1)
+    expect(lines[0].source_id).toBe("i-web")
+    expect(lines[0].target_id).toBe("bucket-assets")
+    expect(lines[0].identity?.kind).toBe("data")
+    expect(lines[0].identity?.label).toBe("S3 access · GetObject, PutObject · legacy · unverified")
+    expect(lines[0].identity?.plane).toBe("observed")
+    expect(lines[0].identity?.animated).toBe(false)
+    expect(lines[0].authority_state).toBe("legacy_unverified")
+    expect(lines[0].evidence_type).toBe("inferred")
+    expect(lines[0].last_seen).toBeNull()
+    expect(trafficMotionKind(lines[0])).toBe("none")
+    expect(twin.counts.legacyLines).toBe(1)
+    expect(twin.counts.drawnByFamily.LEGACY_OBSERVED_ACCESS).toBe(1)
+  })
+  it("draws nothing to a chip that is not on this canvas, and nothing for a non-access protocol", () => {
+    const twin = build([legacy("i-web", "arn:aws:s3:::not-here"), legacy("i-web", "bucket-assets", "TARGETS", [])])
+    expect(twin.edges.some(e => e.identity?.family === "LEGACY_OBSERVED_ACCESS")).toBe(false)
+    expect(twin.counts.legacyLines).toBe(0)
+  })
+  it("classifies reach by service: secrets & keys, data, other", () => {
+    expect(identityKindForService("kms")).toBe("secret_key")
+    expect(identityKindForService("secretsmanager")).toBe("secret_key")
+    expect(identityKindForService("s3")).toBe("data")
+    expect(identityKindForService("DynamoDB")).toBe("data")
+    expect(identityKindForService("sqs")).toBe("service")
+    expect(identityKindForService(null)).toBe("service")
+  })
+  it("counts drawn lines per family — the legend's number, not the graph's", () => {
+    const twin = build([])
+    const total = Object.values(twin.counts.drawnByFamily).reduce((a, b) => a + b, 0)
+    expect(total).toBe(twin.edges.length)
+    expect(twin.counts.drawnByFamily.WORKLOAD_USES_ROLE).toBe(1)
   })
 })
 

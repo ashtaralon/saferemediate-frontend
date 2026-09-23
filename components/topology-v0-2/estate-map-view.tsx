@@ -134,6 +134,13 @@ const EstateSystemView = dynamic(
 /** The three peer views of the Estate: Command map, Network topology, Identity & access. */
 export type EstateViewId = "inventory" | "map" | "identity"
 
+/**
+ * CF01 — draw the Network view's legacy observed-access edges on the identity
+ * lens too ("legacy · unverified", dashed, never moving). Alon, 2026-09-23:
+ * production pass. Off → canonical families only.
+ */
+export const IDENTITY_LEGACY_PARITY = true
+
 export interface EstateMapViewProps {
   systemName: string
   embedded?: boolean
@@ -1169,9 +1176,17 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     const block = (data?.identity_access ?? null) as { roles?: unknown } | null
     return Array.isArray(block?.roles) ? (block.roles as RawRoleActions[]) : null
   }, [data, identityLens.state])
+  // Legacy-parity: the observed access edges the Network view already draws
+  // ("legacy · unverified") are drawn on the identity lens in the same words.
+  // Canonical motion still comes only from the decision projection.
   const identityTwin = useMemo(
-    () => buildIdentityTwin(identityLens, { rawRoles: identityRawRoles, topologyNodes: detailNodes, focusId: selectedNodeId }),
-    [identityLens, identityRawRoles, detailNodes, selectedNodeId],
+    () => buildIdentityTwin(identityLens, {
+      rawRoles: identityRawRoles,
+      topologyNodes: detailNodes,
+      focusId: selectedNodeId,
+      legacyEdges: IDENTITY_LEGACY_PARITY ? scopedTrafficEdges : null,
+    }),
+    [identityLens, identityRawRoles, detailNodes, selectedNodeId, scopedTrafficEdges],
   )
   const identityOverlayEdges = identityTwin.edges
   const identityFrame = useMemo<IdentityLensFrameProps>(
