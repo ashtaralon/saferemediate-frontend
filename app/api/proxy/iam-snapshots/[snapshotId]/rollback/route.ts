@@ -1,49 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getBackendBaseUrl } from "@/lib/server/backend-url"
+import { NextResponse } from 'next/server'
 
-const BACKEND_URL = getBackendBaseUrl();
-
-export async function POST(
-  req: NextRequest,
-  { params }: { params: Promise<{ snapshotId: string }> }
-) {
-  try {
-    const { snapshotId } = await params;
-
-    // Forward request body (may contain selected_items for partial restore)
-    const body = await req.json().catch(() => ({}));
-
-    console.log(`[IAM-ROLLBACK] Rolling back IAM snapshot: ${snapshotId}`, body.selected_items ? `(partial: ${body.selected_items.length} items)` : '(full)');
-
-    // Use the generic snapshots rollback endpoint which handles SNAP-* format
-    const response = await fetch(
-      `${BACKEND_URL}/api/snapshots/${snapshotId}/rollback`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      }
-    );
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      console.error(`[IAM-ROLLBACK] Error:`, data);
-      return NextResponse.json(
-        { error: data.detail || data.error || 'Rollback failed', success: false },
-        { status: response.status }
-      );
-    }
-
-    console.log(`[IAM-ROLLBACK] Success:`, data);
-    return NextResponse.json({ success: true, ...data });
-
-  } catch (error: any) {
-    console.error(`[IAM-ROLLBACK] Exception:`, error);
-    return NextResponse.json(
-      { error: error.message || 'Internal server error', success: false },
-      { status: 500 }
-    );
-  }
+// IAM restore authority is the exact operation-bound POST at
+// /api/proxy/iam-roles/rollback. A checkpoint id in a URL is insufficient.
+export async function POST() {
+  return NextResponse.json({ success: false, detail: { code: 'IAM_EXACT_OPERATION_REQUIRED' } }, { status: 422 })
 }
-

@@ -46,6 +46,7 @@ export async function GET(req: NextRequest) {
     ])
 
     let allSnapshots: any[] = []
+    let iamSourceCode: string | null = unifiedSnapshotsResponse?.ok ? null : 'IAM_HISTORY_UNAVAILABLE'
 
     // Process IAM/SG snapshots from old endpoint (now includes rollback_available)
     if (sgResponse?.ok) {
@@ -114,8 +115,10 @@ export async function GET(req: NextRequest) {
 
     // Process unified snapshots (IAM remediation with SNAP-* format)
     if (unifiedSnapshotsResponse?.ok) {
-      const unifiedData = await unifiedSnapshotsResponse.json()
-      const unifiedSnapshots = unifiedData.snapshots || []
+      const unifiedData = await unifiedSnapshotsResponse.json().catch(() => null)
+      const unifiedSnapshots = Array.isArray(unifiedData?.snapshots) ? unifiedData.snapshots : []
+      if (!Array.isArray(unifiedData?.snapshots)) iamSourceCode = 'IAM_HISTORY_INVALID'
+      else if (unifiedData.complete !== true) iamSourceCode = 'IAM_HISTORY_INCOMPLETE'
 
       // Transform to match snapshot format for all IAM/unified snapshots.
       // Older/live IAM remediations can produce IAMRole-* IDs, not only SNAP-*.
@@ -137,8 +140,21 @@ export async function GET(req: NextRequest) {
           timestamp: snap.created_at,
           created_by: 'iam-remediation-engine',
           reason: 'IAM remediation snapshot',
-          status: snap.rollback_available === false ? 'RESTORED' : 'ACTIVE',
+          // An unavailable offer may be incomplete or uncertain, not restored.
+          status: snap.current?.code === 'RESTORED' ? 'RESTORED' :
+            snap.rollback_available === true ? 'ACTIVE' : 'UNAVAILABLE',
           rollback_available: snap.rollback_available,
+          offer_withheld_reason: snap.offer_withheld_reason,
+          operation_id: snap.operation_id,
+          resource_arn: snap.resource_arn,
+          system_name: snap.system_name,
+          tenant_id: snap.tenant_id,
+          account_id: snap.account_id,
+          scope_proof: snap.scope_proof,
+          source: snap.source,
+          state: snap.state,
+          current: snap.current,
+          restoration: snap.restoration,
           rolled_back_at: snap.rolled_back_at,
           original_role: snap.original_role,
           new_role: snap.new_role,
@@ -164,6 +180,17 @@ export async function GET(req: NextRequest) {
       if (!existing) {
         snapshotMap.set(id, snap)
       } else {
+        // A canonical scoped ledger row outranks an older graph/name row even
+        // when its offer is withheld. A stale legacy true is not authority.
+        const existingCanonical = existing.source === 'lifecycle_checkpoint' &&
+          existing.scope_proof === 'PROVEN_TENANT_ACCOUNT'
+        const newCanonical = snap.source === 'lifecycle_checkpoint' &&
+          snap.scope_proof === 'PROVEN_TENANT_ACCOUNT'
+        if (newCanonical && !existingCanonical) {
+          snapshotMap.set(id, snap)
+          continue
+        }
+        if (existingCanonical && !newCanonical) continue
         // Prefer entries with rollback_available field (indicates more complete data)
         const existingHasRollback = existing.rollback_available !== undefined
         const newHasRollback = snap.rollback_available !== undefined
@@ -198,7 +225,8 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       snapshots: deduplicatedSnapshots,
-      total: deduplicatedSnapshots.length
+      total: deduplicatedSnapshots.length,
+      iam_source: { available: iamSourceCode === null, code: iamSourceCode },
     }, {
       status: 200,
       headers: {
@@ -207,7 +235,7 @@ export async function GET(req: NextRequest) {
     })
   } catch (error: any) {
     console.error("[proxy] snapshots error:", error)
-    return NextResponse.json({ snapshots: [], total: 0 }, { status: 200 })
+    return NextResponse.json({ detail: { code: 'SNAPSHOT_AGGREGATE_UNAVAILABLE' } }, { status: 503 })
   }
 }
 
