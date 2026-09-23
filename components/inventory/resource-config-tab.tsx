@@ -20,6 +20,7 @@
 import { useEffect, useState } from "react"
 import { AlertTriangle, ChevronDown, ChevronRight, RefreshCw, ShieldAlert } from "lucide-react"
 import { InsightCards } from "@/components/inventory/insight-cards"
+import { SemanticReadStatus } from "@/components/semantic-read-status"
 import {
   humanizeInspectorError,
   insightsFromInspectorPayload,
@@ -995,6 +996,8 @@ export function ResourceConfigTab({ resourceId, resourceType, systemName }: Prop
 
   return (
     <div className="space-y-4">
+      <SemanticReadStatus payload={data} />
+      <SemanticReadStatus payload={readiness} />
       {readinessBanner}
       {configBody}
     </div>

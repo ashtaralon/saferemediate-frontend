@@ -9,6 +9,7 @@ import { ChevronDown, ChevronUp, LoaderCircle, Maximize2, Minimize2, ZoomIn, Zoo
 import { isTrustEnvelope } from "@/components/trust/trust-envelope-badge"
 import { clearCachedFetch, useCachedFetch } from "@/lib/use-cached-fetch"
 import { HeadlineStrip, staleNote } from "@/components/topology-v0-2/headline-strip"
+import { isSemanticHold, SemanticReadStatus } from "@/components/semantic-read-status"
 import { AwsFrame, dedupeLambdaServiceTwins, listTopologyAzs } from "@/components/topology-v0-2/aws-frame"
 import { CanvasPane } from "@/components/topology-v0-2/canvas-pane"
 import {
@@ -1363,6 +1364,14 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     [data?.system_kpis, chipCountNodes],
   )
 
+  if (isSemanticHold(data)) {
+    return (
+      <div className={`${outerClass} p-8`} data-testid="estate-semantic-read" style={{ background: "#F4F6F8", color: "#1A2330" }}>
+        <SemanticReadStatus payload={data} />
+      </div>
+    )
+  }
+
   if (computingTimedOut && !data?.system_kpis) {
     return (
       <div className={`${outerClass} p-8`} style={{ background: "#F4F6F8", color: "#1A2330" }}>
@@ -1572,6 +1581,9 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
 
   const renderScopeControls = (compact = false) => (
     <>
+      <div className={`${ESTATE_SHELL_X} py-1`}>
+        <SemanticReadStatus payload={data} />
+      </div>
       {(data.available_accounts?.length ?? 0) > 1 ? (
         <div
           className={`${ESTATE_SHELL_X} ${compact ? "py-1" : "py-2"} border-b flex flex-wrap items-center gap-2`}

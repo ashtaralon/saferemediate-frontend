@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { Eye } from 'lucide-react'
+import { isSemanticHold, SemanticReadStatus } from '@/components/semantic-read-status'
 
 /**
  * Says out loud how much OBSERVED evidence the findings below are built on.
@@ -39,6 +40,7 @@ interface CoverageTotals {
 }
 
 export function EvidenceCoverageBanner({ systemName }: { systemName?: string }) {
+  const [payload, setPayload] = useState<Record<string, unknown> | null>(null)
   const [totals, setTotals] = useState<CoverageTotals | null>(null)
 
   useEffect(() => {
@@ -51,14 +53,18 @@ export function EvidenceCoverageBanner({ systemName }: { systemName?: string }) 
           { cache: 'no-store' },
         )
         if (!res.ok) return // silence, not a second error card
-        const payload = await res.json()
-        if (!cancelled && payload?.totals) setTotals(payload.totals as CoverageTotals)
+        const body = await res.json()
+        if (cancelled || !body || typeof body !== "object") return
+        setPayload(body as Record<string, unknown>)
+        if (body.totals) setTotals(body.totals as CoverageTotals)
       } catch {
         /* advisory only — never surface */
       }
     })()
     return () => { cancelled = true }
   }, [systemName])
+
+  if (isSemanticHold(payload)) return <SemanticReadStatus payload={payload} />
 
   if (!totals) return null
 
