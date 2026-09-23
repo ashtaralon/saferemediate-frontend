@@ -1,0 +1,1127 @@
+# Instructions
+
+- Following Playwright test failed.
+- Explain why, be concise, respect Playwright best practices.
+- Provide a snippet of code with the fix, if possible.
+
+# Test info
+
+- Name: topology-estate-identity-fixture.spec.ts >> the identity lens is the Network frame with identity inputs at 1024x720 · glance
+- Location: tests/integration/topology-estate-identity-fixture.spec.ts:105:7
+
+# Error details
+
+```
+Error: expect(received).toBe(expected) // Object.is equality
+
+Expected: "#7C3AED"
+Received: "#B45309"
+```
+
+# Page snapshot
+
+```yaml
+- generic [ref=e1]:
+  - generic [ref=e4]:
+    - generic [ref=e5]: Scope
+    - generic [ref=e6]:
+      - img [ref=e7]
+      - generic [ref=e11]: Organization
+      - combobox "Organization" [ref=e12]:
+        - option "cyntro-dev" [selected]
+    - generic [ref=e13]:
+      - img [ref=e14]
+      - generic [ref=e18]: Group
+      - combobox "Group" [ref=e19]:
+        - option "All account groups" [selected]
+    - generic [ref=e20]:
+      - img [ref=e21]
+      - generic [ref=e23]: Account
+      - combobox "Account" [ref=e24]:
+        - option "All accounts" [selected]
+        - option "ashtaralon · 745783559495"
+    - generic [ref=e25]:
+      - img [ref=e26]
+      - generic [ref=e31]: Region
+      - combobox "Region" [ref=e32]:
+        - option "All regions" [selected]
+        - option "eu-west-1"
+        - option "global"
+        - option "us-east-1"
+    - generic [ref=e34]: 1 account in view
+  - generic [ref=e35]:
+    - banner [ref=e36]:
+      - generic [ref=e37]:
+        - generic [ref=e38]:
+          - generic [ref=e39]: Estate · Topology v0.2 · alon-prod
+          - generic [ref=e40]: SafeRemediate-Test-Frontend-1 is LATENT_EXPOSURE — inbound path open, unused (zero public inbound in 365 days). Observed egress to 566 external destinations (365d).
+          - generic [ref=e41]: scored 2026-07-09T11:36:31Z · 4 flagged · posture_correlated_at >= now() - 7d on any workload · VPC vpc-0329e985173bed24f
+        - generic [ref=e42]:
+          - generic [ref=e43]:
+            - generic [ref=e44]: Evidence computed Jul 9, 2026, 11:36 AM
+            - generic [ref=e46]: Live graph
+          - button "System stats" [ref=e47]
+    - generic [ref=e48]:
+      - generic [ref=e49]: Region scope
+      - combobox "Region scope" [ref=e50]:
+        - option "eu-west-1" [selected]
+        - option "global"
+        - option "us-east-1"
+    - generic [ref=e51]:
+      - generic [ref=e52]: VPC scope
+      - combobox "VPC scope" [ref=e53]:
+        - option "All VPCs · Compare"
+        - option "alon-prod-vpc · vpc-0329e985173bed24f (6 workloads)" [selected]
+        - option "vpc-086bcc2186fa42c96 · vpc-086bcc2186fa42c96 (8 workloads)"
+      - generic [ref=e54]: Subnet-linked compute in tier cells; regional/serverless on the right rail.
+    - generic [ref=e55]:
+      - generic [ref=e56]: Availability zones
+      - button "eu-west-1a" [pressed] [ref=e57]
+      - button "eu-west-1b" [pressed] [ref=e58]
+    - generic [ref=e59]:
+      - generic "EC2 / RDS / LoadBalancer in the selected VPC" [ref=e60]: In this VPC
+      - button "EC2 (3)" [pressed] [ref=e61]
+      - button "RDS (1)" [pressed] [ref=e62]
+      - generic "Regional services are system-wide. Lambda inventory is system-wide too, while placement distinguishes VPC-attached functions from non-VPC-attached runtimes." [ref=e63]: System-wide
+      - button "Lambda (16)" [pressed] [ref=e64]
+      - button "S3 (10)" [pressed] [ref=e65]
+      - button "DynamoDB (8)" [pressed] [ref=e66]
+      - button "Show all" [ref=e67]
+      - button "Clear all" [ref=e68]
+    - main [ref=e70]:
+      - generic [ref=e71]:
+        - tablist "Estate view" [ref=e72]:
+          - tab "Command map" [ref=e73]
+          - tab "Network topology" [ref=e74]
+          - tab "Identity & access" [active] [selected] [ref=e75]
+        - button "Open map fullscreen" [ref=e76]:
+          - img [ref=e77]
+          - text: Map fullscreen
+      - generic [ref=e84]:
+        - generic [ref=e86]:
+          - img [ref=e87]
+          - generic [ref=e90]:
+            - heading "1 role bound to workloads in this scope." [level=2] [ref=e91]
+            - paragraph [ref=e92]: Read from the active canonical inventory generation, joined to the hash-verified decision authority (generation 12).
+            - generic [ref=e93]:
+              - generic [ref=e94]: Read from the canonical generation
+              - generic [ref=e95]: "Workload scope: 745783559495 · eu-west-1 · alon-prod"
+              - generic [ref=e96]: 14 relationships · 5 identity nodes
+              - generic "2 SCP and 1 RCP attachments bound this account from the organization hierarchy (attachments above the account are inherited and still apply)." [ref=e97]:
+                - generic [ref=e98]: In organization o-fixtureorg1
+            - generic [ref=e99]:
+              - generic [ref=e100]: "Identity graph: account-wide · 745783559495"
+              - paragraph [ref=e101]: Matches the inventory tenant, account and generation. These relationships are not filtered by the selected region, system or VPC.
+            - generic [ref=e102]:
+              - generic [ref=e103]: workload scope matches · 4 fields
+              - 'generic "Observed role assumption: No producer records who actually assumed a role. Trust lines are configured permission to assume, never evidence that an assumption happened, and no authentication method is claimed for a role. Principal → data target: No principal-anchored read joins an identity to the data it reaches, so no line runs from a role to a bucket, table or key as \"accesses\". Resource policies are shown on the resource they protect. Effective permission verdict: Configured grants and observed use are shown per role; no allow/deny verdict for a specific target is projected, and a missing SCP, boundary or condition reading never implies allow. Kubernetes RBAC: Service accounts, Roles/ClusterRoles and bindings are not part of the installed identity contract. Nothing here is RBAC, and no cluster binding is drawn." [ref=e104]':
+                - generic [ref=e105]: "not shown: Observed role assumption, Principal → data target +2"
+        - generic [ref=e106]:
+          - generic [ref=e107]:
+            - heading "Identity relationships on the estate canvas" [level=3] [ref=e108]
+            - generic [ref=e110]: 1 shown of 1
+          - generic [ref=e113]:
+            - generic "Identity relationship legend" [ref=e114]:
+              - generic [ref=e115]: Colour · kind of access
+              - generic "a workload running as a role — instance profile or execution role" [ref=e116]:
+                - generic [ref=e118]: Runs as
+              - 'generic "a trust statement: an account, role or * that may assume the role" [ref=e119]':
+                - generic [ref=e121]: May assume
+              - generic "a human identity — an IAM user credential or SAML / OIDC federation" [ref=e122]:
+                - generic [ref=e124]: Human identity
+              - generic "Secrets Manager and KMS reach" [ref=e125]:
+                - generic [ref=e127]: Secrets & keys
+              - generic "S3, DynamoDB and RDS reach" [ref=e128]:
+                - generic [ref=e130]: Data access
+              - generic "reach into any other AWS service" [ref=e131]:
+                - generic [ref=e133]: Service reach
+              - generic [ref=e134]: Style · evidence
+              - generic "a policy, binding or trust fact from the canonical generation — never observed, never moves" [ref=e135]:
+                - img [ref=e136]
+                - generic [ref=e138]: Configured
+              - generic "evidence that was read (last used / decided); moves only when a named generation stands behind it" [ref=e139]:
+                - img [ref=e140]
+                - generic [ref=e142]: Observed
+              - generic "the producer's own Deny effect on a trust statement — configured state that forbids, never an evaluated verdict" [ref=e143]:
+                - img [ref=e144]
+                - generic [ref=e146]: Denied
+              - generic "the producer withheld this reading (a decision not read) — not zero, not allowed, not denied" [ref=e147]:
+                - img [ref=e148]
+                - generic [ref=e150]: Unknown
+              - generic "the producer derived this edge from a principal attribute and the far end is a name, not a projected resource" [ref=e151]:
+                - img [ref=e152]
+                - generic [ref=e154]: Name only
+              - generic "an observed access edge from the legacy behavioral graph — read, not generation-backed; the Network view draws it the same way; never moves" [ref=e155]:
+                - img [ref=e156]
+                - generic [ref=e158]: Legacy · unverified
+              - generic [ref=e159]: Moving = observed with a named generation · a configured or trust line never moves
+              - group [ref=e160]:
+                - generic "13 families servable · 13 not on the canonical path" [ref=e161] [cursor=pointer]
+            - generic [ref=e162]:
+              - generic [ref=e163]: 1 role bound to a workload on this canvas
+              - generic [ref=e164]: 1 observed access line from the legacy graph · unverified, never moving
+              - generic [ref=e165]: 1 IAM user in the graph, not drawn
+              - generic [ref=e166]: 1 protected resource not on this map
+              - generic [ref=e167]: 13 relationship families not on the canonical path (see legend)
+            - generic [ref=e168]:
+              - generic [ref=e169]:
+                - img [ref=e171]
+                - generic [ref=e176]:
+                  - generic [ref=e177]: Users
+                  - generic [ref=e178]: 1 IAM user in the graph · credential use served
+              - generic [ref=e180]:
+                - generic [ref=e181]:
+                  - generic [ref=e182]: Trust entrances
+                  - generic [ref=e183]: May assume a role here · 1
+                - button "acct 2222…4444 · other account" [ref=e185]:
+                  - generic [ref=e188]: acct 2222…4444 · other account
+            - generic [ref=e189]:
+              - generic [ref=e190]: ☁ AWS Cloud · acct 745783559495
+              - generic [ref=e191]:
+                - generic [ref=e192]: Region · eu-west-1
+                - generic [ref=e193]:
+                  - generic [ref=e194]:
+                    - generic [ref=e195]:
+                      - generic "vpc-0329e985173bed24f" [ref=e196]: VPC · vpc-0329e985173bed24f
+                      - generic "3 of 6 workloads in this VPC drop the shared prefix \"SafeRemediate-Test-\" from their chip label — every tooltip still carries the full name" [ref=e197]: SafeRemediate-Test-… ×3
+                    - generic [ref=e200]:
+                      - generic [ref=e201]:
+                        - generic "eu-west-1a" [ref=e202]: Availability Zone · eu-west-1a
+                        - 'generic "Public subnet (web tier) · SafeRemediate-Test-Public-1 · 10.0.1.0/24 · Owner: alon-prod" [ref=e203]':
+                          - generic [ref=e204]:
+                            - generic [ref=e205]: Public · SafeRemediate-Test-Public-1
+                            - generic [ref=e206]: 10.0.1.0/24
+                          - button "high posture score …Frontend-1" [ref=e208]:
+                            - generic "high posture score" [ref=e209]
+                            - generic [ref=e212]: …Frontend-1
+                        - 'generic "Private subnet (app tier) · SafeRemediate-Test-Private-App-1 · 10.0.10.0/24 · Owner: alon-prod" [ref=e213]':
+                          - generic [ref=e214]:
+                            - generic [ref=e215]: Private · SafeRemediate-Test-Private-App-1
+                            - generic [ref=e216]: 10.0.10.0/24
+                          - button "quiet posture score PaymentProductionAPI" [ref=e218]:
+                            - generic "quiet posture score" [ref=e219]
+                            - generic [ref=e222]: PaymentProductionAPI
+                        - 'generic "Private subnet (data tier) · SafeRemediate-Test-Private-DB-1 · 10.0.20.0/24 · Owner: alon-prod" [ref=e223]':
+                          - generic [ref=e224]:
+                            - generic [ref=e225]: Data · SafeRemediate-Test-Private-DB-1
+                            - generic [ref=e226]: 10.0.20.0/24
+                          - button "quiet posture score saferemediate-test-db" [ref=e228]:
+                            - generic "quiet posture score" [ref=e229]
+                            - generic [ref=e232]: saferemediate-test-db
+                      - generic [ref=e233]:
+                        - generic "eu-west-1b" [ref=e234]: Availability Zone · eu-west-1b
+                        - 'generic "Public subnet (web tier) · SafeRemediate-Test-Public-2 · 10.0.2.0/24 · Owner: alon-prod" [ref=e235]':
+                          - generic [ref=e236]:
+                            - generic [ref=e237]: Public · SafeRemediate-Test-Public-2
+                            - generic [ref=e238]: 10.0.2.0/24
+                          - button "high posture score …Frontend-2" [ref=e240]:
+                            - generic "high posture score" [ref=e241]
+                            - generic [ref=e244]: …Frontend-2
+                        - 'generic "Private subnet (app tier) · SafeRemediate-Test-Private-App-2 · 10.0.11.0/24 · Owner: alon-prod" [ref=e245]':
+                          - generic [ref=e246]:
+                            - generic [ref=e247]: Private · SafeRemediate-Test-Private-App-2
+                            - generic [ref=e248]: 10.0.11.0/24
+                          - generic [ref=e249]:
+                            - button "quiet posture score …App-2" [ref=e250]:
+                              - generic "quiet posture score" [ref=e251]
+                              - generic [ref=e254]: …App-2
+                            - button "quiet posture score VPCTrafficGenerator" [ref=e255]:
+                              - generic "quiet posture score" [ref=e256]
+                              - generic [ref=e259]: VPCTrafficGenerator
+                        - 'generic "Private subnet (data tier) · SafeRemediate-Test-Private-DB-2 · 10.0.21.0/24 · Owner: alon-prod" [ref=e260]':
+                          - generic [ref=e261]:
+                            - generic [ref=e262]: Data · SafeRemediate-Test-Private-DB-2
+                            - generic [ref=e263]: 10.0.21.0/24
+                          - generic [ref=e264]: No workloads
+                  - generic [ref=e265]:
+                    - generic [ref=e266]: VPC boundary
+                    - generic [ref=e267]:
+                      - generic [ref=e268]: ↑ Internet
+                      - generic [ref=e269]:
+                        - button "IGW alon-prod-igw" [ref=e270]:
+                          - img [ref=e272]
+                          - generic [ref=e275]: IGW
+                          - generic [ref=e276]: alon-prod-igw
+                        - generic "Workloads whose egress routes through this gateway, counted from the payload's edges. Hiding lines does not change this count." [ref=e277]: "egress: not observed"
+                    - generic [ref=e279]:
+                      - generic [ref=e280]: Endpoints (4)
+                      - generic [ref=e281]:
+                        - button "VPCE IF EC2 Messages" [ref=e282]:
+                          - img [ref=e284]
+                          - generic [ref=e288]: VPCE
+                          - generic [ref=e289]: IF
+                          - generic [ref=e290]: EC2 Messages
+                        - generic "Workloads reaching this endpoint, counted from the payload's edges rather than a route table. Hiding lines does not change this count." [ref=e291]: "use: not observed"
+                      - generic [ref=e292]:
+                        - button "VPCE GW Amazon S3" [ref=e293]:
+                          - img [ref=e295]
+                          - generic [ref=e299]: VPCE
+                          - generic [ref=e300]: GW
+                          - generic [ref=e301]: Amazon S3
+                        - generic "Workloads reaching this endpoint, counted from the payload's edges rather than a route table. Hiding lines does not change this count." [ref=e302]: "use: not observed"
+                      - generic [ref=e303]:
+                        - button "VPCE IF AWS Systems Manager" [ref=e304]:
+                          - img [ref=e306]
+                          - generic [ref=e310]: VPCE
+                          - generic [ref=e311]: IF
+                          - generic [ref=e312]: AWS Systems Manager
+                        - generic "Workloads reaching this endpoint, counted from the payload's edges rather than a route table. Hiding lines does not change this count." [ref=e313]: "use: not observed"
+                      - generic [ref=e314]:
+                        - button "VPCE IF SSM Messages" [ref=e315]:
+                          - img [ref=e317]
+                          - generic [ref=e321]: VPCE
+                          - generic [ref=e322]: IF
+                          - generic [ref=e323]: SSM Messages
+                        - generic "Workloads reaching this endpoint, counted from the payload's edges rather than a route table. Hiding lines does not change this count." [ref=e324]: "use: not observed"
+                  - generic [ref=e325]:
+                    - generic [ref=e327]: Not in this VPC
+                    - generic "Application Load Balancer · alon-prod-3tier-alb Runs in vpc-086bcc2186fa42c96, not the VPC drawn here — so it gets no chip on this canvas. That VPC's subnets are tagged for \"payment-production\". Switch to All VPCs · Compare to see it in its own VPC." [ref=e329]:
+                      - generic [ref=e330]: ALB · alon-prod-3tier-alb
+                      - generic [ref=e331]: VPC vpc-086bcc2186…
+                      - generic [ref=e332]: · payment-production
+                  - generic [ref=e334]:
+                    - generic [ref=e335]:
+                      - generic [ref=e336]:
+                        - generic [ref=e337]: Lambda runtime (14)
+                        - generic [ref=e338]:
+                          - text: outside subnet grid · 14 attachment unverified
+                          - generic "11 of 14 chips omit this shared prefix" [ref=e339]: · SafeRemediate-… ×11
+                        - button "No recorded S3 traffic from 14 functions" [ref=e341]
+                      - generic [ref=e343]:
+                        - button "quiet posture score alon-prod-continuous-traffic" [ref=e344]:
+                          - generic "quiet posture score" [ref=e345]
+                          - generic [ref=e348]: alon-prod-continuous-traffic
+                        - button "Lambda×13" [ref=e349]:
+                          - generic [ref=e353]:
+                            - text: Lambda
+                            - generic [ref=e354]: ×13
+                    - generic [ref=e356]:
+                      - generic [ref=e357]: IAM · Roles (1)
+                      - button "Posture not scored web" [ref=e360]:
+                        - generic "Posture not scored" [ref=e361]
+                        - generic [ref=e364]: web
+                    - generic [ref=e366]:
+                      - generic [ref=e367]:
+                        - text: Regional · S3 / DDB (19)
+                        - generic "3 of 19 chips omit this shared prefix" [ref=e368]: SafeRemediate-… ×3
+                      - generic [ref=e370]:
+                        - button "quiet posture score alon-demo-data-bucket-745783559495" [ref=e371]:
+                          - generic "quiet posture score" [ref=e372]
+                          - generic [ref=e375]: alon-demo-data-bucket-745783559495
+                        - button "Posture not scored S3 · any bucket" [ref=e376]:
+                          - generic "Posture not scored" [ref=e377]
+                          - generic [ref=e380]: S3 · any bucket
+                        - button "S3×9" [ref=e381]:
+                          - generic [ref=e385]:
+                            - text: S3
+                            - generic [ref=e386]: ×9
+                        - button "DynamoDB×8" [ref=e387]:
+                          - generic [ref=e391]:
+                            - text: DynamoDB
+                            - generic [ref=e392]: ×8
+            - generic [ref=e393]:
+              - button "Diagnostics 14 serverless ▴" [ref=e394]:
+                - generic [ref=e395]: Diagnostics
+                - generic [ref=e396]: 14 serverless ▴
+              - generic [ref=e397]:
+                - generic [ref=e398]:
+                  - generic [ref=e399]: Serverless compute (14)
+                  - generic [ref=e400]:
+                    - button "AlonIAMTest-traffic-generator Lambda · arn:aws:lambda:eu-west-1 24" [ref=e401]:
+                      - generic [ref=e403]:
+                        - generic [ref=e405]: AlonIAMTest-traffic-generator
+                        - generic [ref=e406]: Lambda · arn:aws:lambda:eu-west-1
+                      - generic [ref=e407]: "24"
+                    - button "PaymentTrafficGenerator Lambda · arn:aws:lambda:eu-west-1 18" [ref=e408]:
+                      - generic [ref=e410]:
+                        - generic [ref=e412]: PaymentTrafficGenerator
+                        - generic [ref=e413]: Lambda · arn:aws:lambda:eu-west-1
+                      - generic [ref=e414]: "18"
+                    - button "SafeRemediate-BehaviorAnalyzer Lambda · arn:aws:lambda:eu-west-1 18" [ref=e415]:
+                      - generic [ref=e417]:
+                        - generic [ref=e419]: SafeRemediate-BehaviorAnalyzer
+                        - generic [ref=e420]: Lambda · arn:aws:lambda:eu-west-1
+                      - generic [ref=e421]: "18"
+                    - button "SafeRemediate-ConfidenceScorer Lambda · arn:aws:lambda:eu-west-1 18" [ref=e422]:
+                      - generic [ref=e424]:
+                        - generic [ref=e426]: SafeRemediate-ConfidenceScorer
+                        - generic [ref=e427]: Lambda · arn:aws:lambda:eu-west-1
+                      - generic [ref=e428]: "18"
+                    - button "SafeRemediate-CreateCheckpoint Lambda · arn:aws:lambda:eu-west-1 18" [ref=e429]:
+                      - generic [ref=e431]:
+                        - generic [ref=e433]: SafeRemediate-CreateCheckpoint
+                        - generic [ref=e434]: Lambda · arn:aws:lambda:eu-west-1
+                      - generic [ref=e435]: "18"
+                    - button "SafeRemediate-PrismaWebhook Lambda · arn:aws:lambda:eu-west-1 18" [ref=e436]:
+                      - generic [ref=e438]:
+                        - generic [ref=e440]: SafeRemediate-PrismaWebhook
+                        - generic [ref=e441]: Lambda · arn:aws:lambda:eu-west-1
+                      - generic [ref=e442]: "18"
+                    - button "SafeRemediate-RemediationExecutor Lambda · arn:aws:lambda:eu-west-1 18" [ref=e443]:
+                      - generic [ref=e445]:
+                        - generic [ref=e447]: SafeRemediate-RemediationExecutor
+                        - generic [ref=e448]: Lambda · arn:aws:lambda:eu-west-1
+                      - generic [ref=e449]: "18"
+                    - button "SafeRemediate-RollbackExecutor Lambda · arn:aws:lambda:eu-west-1 18" [ref=e450]:
+                      - generic [ref=e452]:
+                        - generic [ref=e454]: SafeRemediate-RollbackExecutor
+                        - generic [ref=e455]: Lambda · arn:aws:lambda:eu-west-1
+                      - generic [ref=e456]: "18"
+                    - button "SafeRemediate-RollbackMonitor Lambda · arn:aws:lambda:eu-west-1 18" [ref=e457]:
+                      - generic [ref=e459]:
+                        - generic [ref=e461]: SafeRemediate-RollbackMonitor
+                        - generic [ref=e462]: Lambda · arn:aws:lambda:eu-west-1
+                      - generic [ref=e463]: "18"
+                    - button "SafeRemediate-ServiceAwareSimulator Lambda · arn:aws:lambda:eu-west-1 18" [ref=e464]:
+                      - generic [ref=e466]:
+                        - generic [ref=e468]: SafeRemediate-ServiceAwareSimulator
+                        - generic [ref=e469]: Lambda · arn:aws:lambda:eu-west-1
+                      - generic [ref=e470]: "18"
+                    - button "SafeRemediate-ServiceCatalogBuilder Lambda · arn:aws:lambda:eu-west-1 18" [ref=e471]:
+                      - generic [ref=e473]:
+                        - generic [ref=e475]: SafeRemediate-ServiceCatalogBuilder
+                        - generic [ref=e476]: Lambda · arn:aws:lambda:eu-west-1
+                      - generic [ref=e477]: "18"
+                    - button "SafeRemediate-SimulationEngine Lambda · arn:aws:lambda:eu-west-1 18" [ref=e478]:
+                      - generic [ref=e480]:
+                        - generic [ref=e482]: SafeRemediate-SimulationEngine
+                        - generic [ref=e483]: Lambda · arn:aws:lambda:eu-west-1
+                      - generic [ref=e484]: "18"
+                    - button "SafeRemediate-WizWebhook Lambda · arn:aws:lambda:eu-west-1 18" [ref=e485]:
+                      - generic [ref=e487]:
+                        - generic [ref=e489]: SafeRemediate-WizWebhook
+                        - generic [ref=e490]: Lambda · arn:aws:lambda:eu-west-1
+                      - generic [ref=e491]: "18"
+                    - button "alon-prod-continuous-traffic Lambda · arn:aws:lambda:eu-west-1 17" [ref=e492]:
+                      - generic [ref=e494]:
+                        - generic [ref=e496]: alon-prod-continuous-traffic
+                        - generic [ref=e497]: Lambda · arn:aws:lambda:eu-west-1
+                      - generic [ref=e498]: "17"
+                - generic [ref=e499]:
+                  - generic [ref=e500]: Encoding
+                  - generic [ref=e501]:
+                    - generic [ref=e504]: Worst (carmine halo + pulse)
+                    - generic [ref=e507]: High / elevated (ring only)
+                    - generic [ref=e508]:
+                      - generic [ref=e509]: ♛
+                      - generic [ref=e510]: Crown-jewel halo
+                    - generic [ref=e513]: Clean · remediated (teal ring)
+                    - generic [ref=e516]: Stale (dimmed)
+                    - generic [ref=e519]: Coverage gap (not collected)
+            - img:
+              - generic:
+                - generic:
+                  - generic: instance profile
+              - generic:
+                - generic:
+                  - generic: may assume · conditioned
+              - generic:
+                - generic:
+                  - generic: s3 · explicit 1 · used 1
+              - generic:
+                - generic:
+                  - generic: S3 access · legacy · unverified
+        - group [ref=e520]:
+          - generic "Evidence — receipts, family coverage, projection hashes" [ref=e521] [cursor=pointer]
+    - complementary [ref=e523]:
+      - generic [ref=e524]:
+        - generic [ref=e525]:
+          - heading "Service index" [level=2] [ref=e526]
+          - generic [ref=e527]: "38"
+        - generic [ref=e528]:
+          - img [ref=e529]
+          - searchbox "Find service in topology" [ref=e532]
+        - button "Filters" [ref=e535]:
+          - img [ref=e536]
+          - text: Filters
+      - list [ref=e538]:
+        - listitem [ref=e539]:
+          - button "SafeRemediate-Test-Frontend-1 Current graph data EC2 · eu-west-1a · web 0 in · 4 out Jul 9, 11:04 AM" [ref=e540]:
+            - generic [ref=e541]:
+              - img [ref=e543]
+              - generic [ref=e545]:
+                - generic [ref=e546]:
+                  - generic [ref=e547]: SafeRemediate-Test-Frontend-1
+                  - generic "Current graph data" [ref=e548]
+                - generic [ref=e550]: EC2 · eu-west-1a · web
+                - generic [ref=e551]:
+                  - generic [ref=e552]: 0 in · 4 out
+                  - generic [ref=e553]:
+                    - img [ref=e554]
+                    - text: Jul 9, 11:04 AM
+        - listitem [ref=e557]:
+          - button "SafeRemediate-Test-App-2 Current graph data EC2 · eu-west-1b · app 0 in · 3 out Jul 9, 10:40 AM" [ref=e558]:
+            - generic [ref=e559]:
+              - img [ref=e561]
+              - generic [ref=e563]:
+                - generic [ref=e564]:
+                  - generic [ref=e565]: SafeRemediate-Test-App-2
+                  - generic "Current graph data" [ref=e566]
+                - generic [ref=e568]: EC2 · eu-west-1b · app
+                - generic [ref=e569]:
+                  - generic [ref=e570]: 0 in · 3 out
+                  - generic [ref=e571]:
+                    - img [ref=e572]
+                    - text: Jul 9, 10:40 AM
+        - listitem [ref=e575]:
+          - button "saferemediate-test-db Current graph data RDS · eu-west-1a · data 3 in · 0 out Jul 6, 03:05 PM" [ref=e576]:
+            - generic [ref=e577]:
+              - img [ref=e579]
+              - generic [ref=e581]:
+                - generic [ref=e582]:
+                  - generic [ref=e583]: saferemediate-test-db
+                  - generic "Current graph data" [ref=e584]
+                - generic [ref=e586]: RDS · eu-west-1a · data
+                - generic [ref=e587]:
+                  - generic [ref=e588]: 3 in · 0 out
+                  - generic [ref=e589]:
+                    - img [ref=e590]
+                    - text: Jul 6, 03:05 PM
+        - listitem [ref=e593]:
+          - button "SafeRemediate-Test-Frontend-2 Current graph data EC2 · eu-west-1b · web 0 in · 3 out Jul 9, 11:04 AM" [ref=e594]:
+            - generic [ref=e595]:
+              - img [ref=e597]
+              - generic [ref=e599]:
+                - generic [ref=e600]:
+                  - generic [ref=e601]: SafeRemediate-Test-Frontend-2
+                  - generic "Current graph data" [ref=e602]
+                - generic [ref=e604]: EC2 · eu-west-1b · web
+                - generic [ref=e605]:
+                  - generic [ref=e606]: 0 in · 3 out
+                  - generic [ref=e607]:
+                    - img [ref=e608]
+                    - text: Jul 9, 11:04 AM
+        - listitem [ref=e611]:
+          - button "alon-demo-data-bucket-745783559495 Current graph data S3 · eu-west-1 · regional 1 in · 0 out Jun 25, 08:58 AM" [ref=e612]:
+            - generic [ref=e613]:
+              - img [ref=e615]
+              - generic [ref=e617]:
+                - generic [ref=e618]:
+                  - generic [ref=e619]: alon-demo-data-bucket-745783559495
+                  - generic "Current graph data" [ref=e620]
+                - generic [ref=e622]: S3 · eu-west-1 · regional
+                - generic [ref=e623]:
+                  - generic [ref=e624]: 1 in · 0 out
+                  - generic [ref=e625]:
+                    - img [ref=e626]
+                    - text: Jun 25, 08:58 AM
+        - listitem [ref=e629]:
+          - button "alon-prod-continuous-traffic Current graph data Lambda · eu-west-1 · regional 0 in · 1 out Jun 25, 08:58 AM" [ref=e630]:
+            - generic [ref=e631]:
+              - img [ref=e633]
+              - generic [ref=e635]:
+                - generic [ref=e636]:
+                  - generic [ref=e637]: alon-prod-continuous-traffic
+                  - generic "Current graph data" [ref=e638]
+                - generic [ref=e640]: Lambda · eu-west-1 · regional
+                - generic [ref=e641]:
+                  - generic [ref=e642]: 0 in · 1 out
+                  - generic [ref=e643]:
+                    - img [ref=e644]
+                    - text: Jun 25, 08:58 AM
+        - listitem [ref=e647]:
+          - button "AlonIAMTest-traffic-generator Current graph data Lambda · eu-west-1 · regional 0 in · 0 out No runtime timestamp" [ref=e648]:
+            - generic [ref=e649]:
+              - img [ref=e651]
+              - generic [ref=e654]:
+                - generic [ref=e655]:
+                  - generic [ref=e656]: AlonIAMTest-traffic-generator
+                  - generic "Current graph data" [ref=e657]
+                - generic [ref=e659]: Lambda · eu-west-1 · regional
+                - generic [ref=e660]:
+                  - generic [ref=e661]: 0 in · 0 out
+                  - generic [ref=e662]:
+                    - img [ref=e663]
+                    - text: No runtime timestamp
+        - listitem [ref=e666]:
+          - button "aws-sam-cli-managed-default-samclisourcebucket-zpixwbu9coth Current graph data S3 · eu-west-1 · regional 0 in · 0 out No runtime timestamp" [ref=e667]:
+            - generic [ref=e668]:
+              - img [ref=e670]
+              - generic [ref=e673]:
+                - generic [ref=e674]:
+                  - generic [ref=e675]: aws-sam-cli-managed-default-samclisourcebucket-zpixwbu9coth
+                  - generic "Current graph data" [ref=e676]
+                - generic [ref=e678]: S3 · eu-west-1 · regional
+                - generic [ref=e679]:
+                  - generic [ref=e680]: 0 in · 0 out
+                  - generic [ref=e681]:
+                    - img [ref=e682]
+                    - text: No runtime timestamp
+        - listitem [ref=e685]:
+          - button "cyntro-demo-analytics-745783559495 Current graph data S3 · eu-west-1 · regional 0 in · 0 out No runtime timestamp" [ref=e686]:
+            - generic [ref=e687]:
+              - img [ref=e689]
+              - generic [ref=e692]:
+                - generic [ref=e693]:
+                  - generic [ref=e694]: cyntro-demo-analytics-745783559495
+                  - generic "Current graph data" [ref=e695]
+                - generic [ref=e697]: S3 · eu-west-1 · regional
+                - generic [ref=e698]:
+                  - generic [ref=e699]: 0 in · 0 out
+                  - generic [ref=e700]:
+                    - img [ref=e701]
+                    - text: No runtime timestamp
+        - listitem [ref=e704]:
+          - button "cyntro-demo-eu Current graph data S3 · eu-west-1 · regional 0 in · 0 out No runtime timestamp" [ref=e705]:
+            - generic [ref=e706]:
+              - img [ref=e708]
+              - generic [ref=e711]:
+                - generic [ref=e712]:
+                  - generic [ref=e713]: cyntro-demo-eu
+                  - generic "Current graph data" [ref=e714]
+                - generic [ref=e716]: S3 · eu-west-1 · regional
+                - generic [ref=e717]:
+                  - generic [ref=e718]: 0 in · 0 out
+                  - generic [ref=e719]:
+                    - img [ref=e720]
+                    - text: No runtime timestamp
+        - listitem [ref=e723]:
+          - button "cyntro-demo-prod-data-745783559495 Current graph data S3 · eu-west-1 · regional 0 in · 0 out No runtime timestamp" [ref=e724]:
+            - generic [ref=e725]:
+              - img [ref=e727]
+              - generic [ref=e730]:
+                - generic [ref=e731]:
+                  - generic [ref=e732]: cyntro-demo-prod-data-745783559495
+                  - generic "Current graph data" [ref=e733]
+                - generic [ref=e735]: S3 · eu-west-1 · regional
+                - generic [ref=e736]:
+                  - generic [ref=e737]: 0 in · 0 out
+                  - generic [ref=e738]:
+                    - img [ref=e739]
+                    - text: No runtime timestamp
+        - listitem [ref=e742]:
+          - button "cyntronewtestbucket Current graph data S3 · eu-west-1 · regional 0 in · 0 out No runtime timestamp" [ref=e743]:
+            - generic [ref=e744]:
+              - img [ref=e746]
+              - generic [ref=e749]:
+                - generic [ref=e750]:
+                  - generic [ref=e751]: cyntronewtestbucket
+                  - generic "Current graph data" [ref=e752]
+                - generic [ref=e754]: S3 · eu-west-1 · regional
+                - generic [ref=e755]:
+                  - generic [ref=e756]: 0 in · 0 out
+                  - generic [ref=e757]:
+                    - img [ref=e758]
+                    - text: No runtime timestamp
+        - listitem [ref=e761]:
+          - button "cyntrotest2 Current graph data S3 · eu-west-1 · regional 0 in · 0 out No runtime timestamp" [ref=e762]:
+            - generic [ref=e763]:
+              - img [ref=e765]
+              - generic [ref=e768]:
+                - generic [ref=e769]:
+                  - generic [ref=e770]: cyntrotest2
+                  - generic "Current graph data" [ref=e771]
+                - generic [ref=e773]: S3 · eu-west-1 · regional
+                - generic [ref=e774]:
+                  - generic [ref=e775]: 0 in · 0 out
+                  - generic [ref=e776]:
+                    - img [ref=e777]
+                    - text: No runtime timestamp
+        - listitem [ref=e780]:
+          - button "impaciq-findings Current graph data DynamoDB · eu-west-1 · regional 0 in · 0 out No runtime timestamp" [ref=e781]:
+            - generic [ref=e782]:
+              - img [ref=e784]
+              - generic [ref=e787]:
+                - generic [ref=e788]:
+                  - generic [ref=e789]: impaciq-findings
+                  - generic "Current graph data" [ref=e790]
+                - generic [ref=e792]: DynamoDB · eu-west-1 · regional
+                - generic [ref=e793]:
+                  - generic [ref=e794]: 0 in · 0 out
+                  - generic [ref=e795]:
+                    - img [ref=e796]
+                    - text: No runtime timestamp
+        - listitem [ref=e799]:
+          - button "impaciq-remediation-history Current graph data DynamoDB · eu-west-1 · regional 0 in · 0 out No runtime timestamp" [ref=e800]:
+            - generic [ref=e801]:
+              - img [ref=e803]
+              - generic [ref=e806]:
+                - generic [ref=e807]:
+                  - generic [ref=e808]: impaciq-remediation-history
+                  - generic "Current graph data" [ref=e809]
+                - generic [ref=e811]: DynamoDB · eu-west-1 · regional
+                - generic [ref=e812]:
+                  - generic [ref=e813]: 0 in · 0 out
+                  - generic [ref=e814]:
+                    - img [ref=e815]
+                    - text: No runtime timestamp
+        - listitem [ref=e818]:
+          - button "impaciq-scan-status Current graph data DynamoDB · eu-west-1 · regional 0 in · 0 out No runtime timestamp" [ref=e819]:
+            - generic [ref=e820]:
+              - img [ref=e822]
+              - generic [ref=e825]:
+                - generic [ref=e826]:
+                  - generic [ref=e827]: impaciq-scan-status
+                  - generic "Current graph data" [ref=e828]
+                - generic [ref=e830]: DynamoDB · eu-west-1 · regional
+                - generic [ref=e831]:
+                  - generic [ref=e832]: 0 in · 0 out
+                  - generic [ref=e833]:
+                    - img [ref=e834]
+                    - text: No runtime timestamp
+        - listitem [ref=e837]:
+          - button "least_privilege_role_state Current graph data DynamoDB · eu-west-1 · regional 0 in · 0 out No runtime timestamp" [ref=e838]:
+            - generic [ref=e839]:
+              - img [ref=e841]
+              - generic [ref=e844]:
+                - generic [ref=e845]:
+                  - generic [ref=e846]: least_privilege_role_state
+                  - generic "Current graph data" [ref=e847]
+                - generic [ref=e849]: DynamoDB · eu-west-1 · regional
+                - generic [ref=e850]:
+                  - generic [ref=e851]: 0 in · 0 out
+                  - generic [ref=e852]:
+                    - img [ref=e853]
+                    - text: No runtime timestamp
+        - listitem [ref=e856]:
+          - button "PaymentProductionAPI Current graph data Lambda · eu-west-1a · app 0 in · 0 out No runtime timestamp" [ref=e857]:
+            - generic [ref=e858]:
+              - img [ref=e860]
+              - generic [ref=e863]:
+                - generic [ref=e864]:
+                  - generic [ref=e865]: PaymentProductionAPI
+                  - generic "Current graph data" [ref=e866]
+                - generic [ref=e868]: Lambda · eu-west-1a · app
+                - generic [ref=e869]:
+                  - generic [ref=e870]: 0 in · 0 out
+                  - generic [ref=e871]:
+                    - img [ref=e872]
+                    - text: No runtime timestamp
+        - listitem [ref=e875]:
+          - button "PaymentTrafficGenerator Current graph data Lambda · eu-west-1 · regional 0 in · 0 out No runtime timestamp" [ref=e876]:
+            - generic [ref=e877]:
+              - img [ref=e879]
+              - generic [ref=e882]:
+                - generic [ref=e883]:
+                  - generic [ref=e884]: PaymentTrafficGenerator
+                  - generic "Current graph data" [ref=e885]
+                - generic [ref=e887]: Lambda · eu-west-1 · regional
+                - generic [ref=e888]:
+                  - generic [ref=e889]: 0 in · 0 out
+                  - generic [ref=e890]:
+                    - img [ref=e891]
+                    - text: No runtime timestamp
+        - listitem [ref=e894]:
+          - button "saferemediate-access-logs-745783559495 Current graph data S3 · eu-west-1 · regional 0 in · 0 out No runtime timestamp" [ref=e895]:
+            - generic [ref=e896]:
+              - img [ref=e898]
+              - generic [ref=e901]:
+                - generic [ref=e902]:
+                  - generic [ref=e903]: saferemediate-access-logs-745783559495
+                  - generic "Current graph data" [ref=e904]
+                - generic [ref=e906]: S3 · eu-west-1 · regional
+                - generic [ref=e907]:
+                  - generic [ref=e908]: 0 in · 0 out
+                  - generic [ref=e909]:
+                    - img [ref=e910]
+                    - text: No runtime timestamp
+        - listitem [ref=e913]:
+          - button "SafeRemediate-BehaviorAnalyzer Current graph data Lambda · eu-west-1 · regional 0 in · 0 out No runtime timestamp" [ref=e914]:
+            - generic [ref=e915]:
+              - img [ref=e917]
+              - generic [ref=e920]:
+                - generic [ref=e921]:
+                  - generic [ref=e922]: SafeRemediate-BehaviorAnalyzer
+                  - generic "Current graph data" [ref=e923]
+                - generic [ref=e925]: Lambda · eu-west-1 · regional
+                - generic [ref=e926]:
+                  - generic [ref=e927]: 0 in · 0 out
+                  - generic [ref=e928]:
+                    - img [ref=e929]
+                    - text: No runtime timestamp
+        - listitem [ref=e932]:
+          - button "SafeRemediate-ConfidenceScorer Current graph data Lambda · eu-west-1 · regional 0 in · 0 out No runtime timestamp" [ref=e933]:
+            - generic [ref=e934]:
+              - img [ref=e936]
+              - generic [ref=e939]:
+                - generic [ref=e940]:
+                  - generic [ref=e941]: SafeRemediate-ConfidenceScorer
+                  - generic "Current graph data" [ref=e942]
+                - generic [ref=e944]: Lambda · eu-west-1 · regional
+                - generic [ref=e945]:
+                  - generic [ref=e946]: 0 in · 0 out
+                  - generic [ref=e947]:
+                    - img [ref=e948]
+                    - text: No runtime timestamp
+        - listitem [ref=e951]:
+          - button "SafeRemediate-CreateCheckpoint Current graph data Lambda · eu-west-1 · regional 0 in · 0 out No runtime timestamp" [ref=e952]:
+            - generic [ref=e953]:
+              - img [ref=e955]
+              - generic [ref=e958]:
+                - generic [ref=e959]:
+                  - generic [ref=e960]: SafeRemediate-CreateCheckpoint
+                  - generic "Current graph data" [ref=e961]
+                - generic [ref=e963]: Lambda · eu-west-1 · regional
+                - generic [ref=e964]:
+                  - generic [ref=e965]: 0 in · 0 out
+                  - generic [ref=e966]:
+                    - img [ref=e967]
+                    - text: No runtime timestamp
+        - listitem [ref=e970]:
+          - button "saferemediate-demo-cloudtrail-745783559495 Current graph data S3 · eu-west-1 · regional 0 in · 0 out No runtime timestamp" [ref=e971]:
+            - generic [ref=e972]:
+              - img [ref=e974]
+              - generic [ref=e977]:
+                - generic [ref=e978]:
+                  - generic [ref=e979]: saferemediate-demo-cloudtrail-745783559495
+                  - generic "Current graph data" [ref=e980]
+                - generic [ref=e982]: S3 · eu-west-1 · regional
+                - generic [ref=e983]:
+                  - generic [ref=e984]: 0 in · 0 out
+                  - generic [ref=e985]:
+                    - img [ref=e986]
+                    - text: No runtime timestamp
+        - listitem [ref=e989]:
+          - button "SafeRemediate-Executions Current graph data DynamoDB · eu-west-1 · regional 0 in · 0 out No runtime timestamp" [ref=e990]:
+            - generic [ref=e991]:
+              - img [ref=e993]
+              - generic [ref=e996]:
+                - generic [ref=e997]:
+                  - generic [ref=e998]: SafeRemediate-Executions
+                  - generic "Current graph data" [ref=e999]
+                - generic [ref=e1001]: DynamoDB · eu-west-1 · regional
+                - generic [ref=e1002]:
+                  - generic [ref=e1003]: 0 in · 0 out
+                  - generic [ref=e1004]:
+                    - img [ref=e1005]
+                    - text: No runtime timestamp
+        - listitem [ref=e1008]:
+          - button "SafeRemediate-Findings Current graph data DynamoDB · eu-west-1 · regional 0 in · 0 out No runtime timestamp" [ref=e1009]:
+            - generic [ref=e1010]:
+              - img [ref=e1012]
+              - generic [ref=e1015]:
+                - generic [ref=e1016]:
+                  - generic [ref=e1017]: SafeRemediate-Findings
+                  - generic "Current graph data" [ref=e1018]
+                - generic [ref=e1020]: DynamoDB · eu-west-1 · regional
+                - generic [ref=e1021]:
+                  - generic [ref=e1022]: 0 in · 0 out
+                  - generic [ref=e1023]:
+                    - img [ref=e1024]
+                    - text: No runtime timestamp
+        - listitem [ref=e1027]:
+          - button "saferemediate-logs-745783559495 Current graph data S3 · eu-west-1 · regional 0 in · 0 out No runtime timestamp" [ref=e1028]:
+            - generic [ref=e1029]:
+              - img [ref=e1031]
+              - generic [ref=e1034]:
+                - generic [ref=e1035]:
+                  - generic [ref=e1036]: saferemediate-logs-745783559495
+                  - generic "Current graph data" [ref=e1037]
+                - generic [ref=e1039]: S3 · eu-west-1 · regional
+                - generic [ref=e1040]:
+                  - generic [ref=e1041]: 0 in · 0 out
+                  - generic [ref=e1042]:
+                    - img [ref=e1043]
+                    - text: No runtime timestamp
+        - listitem [ref=e1046]:
+          - button "SafeRemediate-PrismaWebhook Current graph data Lambda · eu-west-1 · regional 0 in · 0 out No runtime timestamp" [ref=e1047]:
+            - generic [ref=e1048]:
+              - img [ref=e1050]
+              - generic [ref=e1053]:
+                - generic [ref=e1054]:
+                  - generic [ref=e1055]: SafeRemediate-PrismaWebhook
+                  - generic "Current graph data" [ref=e1056]
+                - generic [ref=e1058]: Lambda · eu-west-1 · regional
+                - generic [ref=e1059]:
+                  - generic [ref=e1060]: 0 in · 0 out
+                  - generic [ref=e1061]:
+                    - img [ref=e1062]
+                    - text: No runtime timestamp
+        - listitem [ref=e1065]:
+          - button "SafeRemediate-RemediationExecutor Current graph data Lambda · eu-west-1 · regional 0 in · 0 out No runtime timestamp" [ref=e1066]:
+            - generic [ref=e1067]:
+              - img [ref=e1069]
+              - generic [ref=e1072]:
+                - generic [ref=e1073]:
+                  - generic [ref=e1074]: SafeRemediate-RemediationExecutor
+                  - generic "Current graph data" [ref=e1075]
+                - generic [ref=e1077]: Lambda · eu-west-1 · regional
+                - generic [ref=e1078]:
+                  - generic [ref=e1079]: 0 in · 0 out
+                  - generic [ref=e1080]:
+                    - img [ref=e1081]
+                    - text: No runtime timestamp
+        - listitem [ref=e1084]:
+          - button "SafeRemediate-RollbackExecutor Current graph data Lambda · eu-west-1 · regional 0 in · 0 out No runtime timestamp" [ref=e1085]:
+            - generic [ref=e1086]:
+              - img [ref=e1088]
+              - generic [ref=e1091]:
+                - generic [ref=e1092]:
+                  - generic [ref=e1093]: SafeRemediate-RollbackExecutor
+                  - generic "Current graph data" [ref=e1094]
+                - generic [ref=e1096]: Lambda · eu-west-1 · regional
+                - generic [ref=e1097]:
+                  - generic [ref=e1098]: 0 in · 0 out
+                  - generic [ref=e1099]:
+                    - img [ref=e1100]
+                    - text: No runtime timestamp
+        - listitem [ref=e1103]:
+          - button "SafeRemediate-RollbackMonitor Current graph data Lambda · eu-west-1 · regional 0 in · 0 out No runtime timestamp" [ref=e1104]:
+            - generic [ref=e1105]:
+              - img [ref=e1107]
+              - generic [ref=e1110]:
+                - generic [ref=e1111]:
+                  - generic [ref=e1112]: SafeRemediate-RollbackMonitor
+                  - generic "Current graph data" [ref=e1113]
+                - generic [ref=e1115]: Lambda · eu-west-1 · regional
+                - generic [ref=e1116]:
+                  - generic [ref=e1117]: 0 in · 0 out
+                  - generic [ref=e1118]:
+                    - img [ref=e1119]
+                    - text: No runtime timestamp
+        - listitem [ref=e1122]:
+          - button "SafeRemediate-ServiceAwareSimulator Current graph data Lambda · eu-west-1 · regional 0 in · 0 out No runtime timestamp" [ref=e1123]:
+            - generic [ref=e1124]:
+              - img [ref=e1126]
+              - generic [ref=e1129]:
+                - generic [ref=e1130]:
+                  - generic [ref=e1131]: SafeRemediate-ServiceAwareSimulator
+                  - generic "Current graph data" [ref=e1132]
+                - generic [ref=e1134]: Lambda · eu-west-1 · regional
+                - generic [ref=e1135]:
+                  - generic [ref=e1136]: 0 in · 0 out
+                  - generic [ref=e1137]:
+                    - img [ref=e1138]
+                    - text: No runtime timestamp
+        - listitem [ref=e1141]:
+          - button "SafeRemediate-ServiceCatalogBuilder Current graph data Lambda · eu-west-1 · regional 0 in · 0 out No runtime timestamp" [ref=e1142]:
+            - generic [ref=e1143]:
+              - img [ref=e1145]
+              - generic [ref=e1148]:
+                - generic [ref=e1149]:
+                  - generic [ref=e1150]: SafeRemediate-ServiceCatalogBuilder
+                  - generic "Current graph data" [ref=e1151]
+                - generic [ref=e1153]: Lambda · eu-west-1 · regional
+                - generic [ref=e1154]:
+                  - generic [ref=e1155]: 0 in · 0 out
+                  - generic [ref=e1156]:
+                    - img [ref=e1157]
+                    - text: No runtime timestamp
+        - listitem [ref=e1160]:
+          - button "SafeRemediate-SimulationEngine Current graph data Lambda · eu-west-1 · regional 0 in · 0 out No runtime timestamp" [ref=e1161]:
+            - generic [ref=e1162]:
+              - img [ref=e1164]
+              - generic [ref=e1167]:
+                - generic [ref=e1168]:
+                  - generic [ref=e1169]: SafeRemediate-SimulationEngine
+                  - generic "Current graph data" [ref=e1170]
+                - generic [ref=e1172]: Lambda · eu-west-1 · regional
+                - generic [ref=e1173]:
+                  - generic [ref=e1174]: 0 in · 0 out
+                  - generic [ref=e1175]:
+                    - img [ref=e1176]
+                    - text: No runtime timestamp
+        - listitem [ref=e1179]:
+          - button "SafeRemediate-Simulations Current graph data DynamoDB · eu-west-1 · regional 0 in · 0 out No runtime timestamp" [ref=e1180]:
+            - generic [ref=e1181]:
+              - img [ref=e1183]
+              - generic [ref=e1186]:
+                - generic [ref=e1187]:
+                  - generic [ref=e1188]: SafeRemediate-Simulations
+                  - generic "Current graph data" [ref=e1189]
+                - generic [ref=e1191]: DynamoDB · eu-west-1 · regional
+                - generic [ref=e1192]:
+                  - generic [ref=e1193]: 0 in · 0 out
+                  - generic [ref=e1194]:
+                    - img [ref=e1195]
+                    - text: No runtime timestamp
+        - listitem [ref=e1198]:
+          - button "SafeRemediate-WizWebhook Current graph data Lambda · eu-west-1 · regional 0 in · 0 out No runtime timestamp" [ref=e1199]:
+            - generic [ref=e1200]:
+              - img [ref=e1202]
+              - generic [ref=e1205]:
+                - generic [ref=e1206]:
+                  - generic [ref=e1207]: SafeRemediate-WizWebhook
+                  - generic "Current graph data" [ref=e1208]
+                - generic [ref=e1210]: Lambda · eu-west-1 · regional
+                - generic [ref=e1211]:
+                  - generic [ref=e1212]: 0 in · 0 out
+                  - generic [ref=e1213]:
+                    - img [ref=e1214]
+                    - text: No runtime timestamp
+        - listitem [ref=e1217]:
+          - button "sg_state Current graph data DynamoDB · eu-west-1 · regional 0 in · 0 out No runtime timestamp" [ref=e1218]:
+            - generic [ref=e1219]:
+              - img [ref=e1221]
+              - generic [ref=e1224]:
+                - generic [ref=e1225]:
+                  - generic [ref=e1226]: sg_state
+                  - generic "Current graph data" [ref=e1227]
+                - generic [ref=e1229]: DynamoDB · eu-west-1 · regional
+                - generic [ref=e1230]:
+                  - generic [ref=e1231]: 0 in · 0 out
+                  - generic [ref=e1232]:
+                    - img [ref=e1233]
+                    - text: No runtime timestamp
+        - listitem [ref=e1236]:
+          - button "VPCTrafficGenerator Current graph data Lambda · eu-west-1b · app 0 in · 0 out No runtime timestamp" [ref=e1237]:
+            - generic [ref=e1238]:
+              - img [ref=e1240]
+              - generic [ref=e1243]:
+                - generic [ref=e1244]:
+                  - generic [ref=e1245]: VPCTrafficGenerator
+                  - generic "Current graph data" [ref=e1246]
+                - generic [ref=e1248]: Lambda · eu-west-1b · app
+                - generic [ref=e1249]:
+                  - generic [ref=e1250]: 0 in · 0 out
+                  - generic [ref=e1251]:
+                    - img [ref=e1252]
+                    - text: No runtime timestamp
+    - contentinfo [ref=e1255]:
+      - text: Live read from
+      - generic [ref=e1256]: /api/topology-risk/alon-prod
+      - text: . Glance groups real Neptune nodes only — empty cells are honest, not fabricated.
+  - region "Notifications (F8)":
+    - list
+  - alert [ref=e1257]
+```
+
+# Test source
+
+```ts
+  41  | function boundWorkload(): { id: string; name: string } {
+  42  |   const node = (SNAPSHOT.nodes as Array<{ id: string; name: string; type: string; vpc_id?: string | null }>).find(
+  43  |     n => n.type === "EC2" && n.vpc_id === SNAPSHOT.vpc_id,
+  44  |   )
+  45  |   if (!node) throw new Error("snapshot carries no EC2 chip in its own VPC")
+  46  |   return { id: node.id, name: node.name }
+  47  | }
+  48  | 
+  49  | function identitySnapshot() {
+  50  |   const account = String(SNAPSHOT.account_id)
+  51  |   const region = String(SNAPSHOT.region)
+  52  |   const vpc = String(SNAPSHOT.vpc_id)
+  53  |   const workload = boundWorkload()
+  54  |   const remapped = JSON.parse(
+  55  |     JSON.stringify(IDENTITY_FIXTURE.ready).split(EMITTER_ACCOUNT).join(account).split(JSON.stringify(EMITTER_VPC)).join(JSON.stringify(vpc)),
+  56  |   )
+  57  |   remapped.scope = { customer_id: ORGANIZATION.customer_id, system_name: SYSTEM, account_id: account, region, vpc_id: vpc }
+  58  |   remapped.roles = remapped.roles.map((role: { workload_ids: string[] }) => ({ ...role, workload_ids: [workload.id] }))
+  59  |   const graph = remapped.identity_graph
+  60  |   graph.scope = {
+  61  |     level: "account",
+  62  |     customer_id: ORGANIZATION.customer_id,
+  63  |     account_id: account,
+  64  |     inventory_generation: remapped.inventory_authority.generation,
+  65  |     region: null,
+  66  |     system_name: null,
+  67  |     vpc_id: null,
+  68  |   }
+  69  |   const serviceTrust = graph.edges.find(
+  70  |     (edge: { family: string; source: { node_kind: string } }) => edge.family === "ROLE_TRUST_POLICY" && edge.source.node_kind === "service_principal",
+  71  |   )
+  72  |   if (!serviceTrust) throw new Error("emitter fixture carries no service-principal trust statement to mirror")
+  73  |   graph.edges.push({
+  74  |     ...serviceTrust,
+  75  |     source: {
+  76  |       node_kind: "aws_account_principal",
+  77  |       arn: `arn:aws:iam::${OUTSIDE_ACCOUNT}:root`,
+  78  |       name: `arn:aws:iam::${OUTSIDE_ACCOUNT}:root`,
+  79  |       resource_uid: null,
+  80  |       resolved: false,
+  81  |       unresolved_reason: "ENDPOINT_NOT_A_PROJECTED_RESOURCE",
+  82  |     },
+  83  |     effect: "Allow",
+  84  |     has_conditions: true,
+  85  |     is_wildcard_principal: false,
+  86  |     principal_kind: "AWS",
+  87  |   })
+  88  |   graph.edges_total = graph.edges.length
+  89  |   return { snapshot: { ...SNAPSHOT, identity_access: remapped }, workload }
+  90  | }
+  91  | 
+  92  | const VIEWPORTS = [
+  93  |   { name: "1024x720", width: 1024, height: 720 },
+  94  |   { name: "1366x768", width: 1366, height: 768 },
+  95  |   { name: "1600x900", width: 1600, height: 900 },
+  96  | ] as const
+  97  | 
+  98  | const KIND_COLOR = { runs_as: "#4338CA", may_assume: "#7C3AED", data: "#1E8E3E" } as const
+  99  | 
+  100 | async function strokeOf(page: Page, family: string): Promise<string | null> {
+  101 |   return page.locator(`g[data-flow-family="${family}"] path[data-flow-line="stroke"]`).first().getAttribute("stroke")
+  102 | }
+  103 | 
+  104 | for (const vp of VIEWPORTS) {
+  105 |   test(`the identity lens is the Network frame with identity inputs at ${vp.name} · glance`, async ({ context, page }) => {
+  106 |     test.setTimeout(150_000)
+  107 |     const { snapshot, workload } = identitySnapshot()
+  108 |     await seedAuthCookie(context)
+  109 |     await routeSnapshot(page, snapshot)
+  110 |     await page.setViewportSize({ width: vp.width, height: vp.height })
+  111 |     await page.goto(ESTATE_URL, { waitUntil: "domcontentloaded" })
+  112 |     await expect(page.getByTestId("topology-estate-view-map")).toBeVisible({ timeout: 60_000 })
+  113 |     await page.getByRole("tab", { name: "Identity & access" }).click()
+  114 |     // No density toggle on the identity lens (it is Network-only chrome; the
+  115 |     // view-switch suite pins its absence) — glance is the lens's density.
+  116 | 
+  117 |     // --- the SAME frame, with identity inputs --------------------------------
+  118 |     await expect(page.getByTestId("topology-vpc-frame").first()).toBeVisible()
+  119 |     const lane = page.getByTestId("topology-iam-roles-tier")
+  120 |     await expect(lane, `no IAM roles lane at ${vp.name}`).toBeVisible()
+  121 |     await expect(lane).toContainText("IAM · Roles (1)")
+  122 |     const roleChips = lane.locator("[data-flow-id]")
+  123 |     await expect(roleChips).toHaveCount(1)
+  124 |     await expect(roleChips.first().locator("img")).toHaveCount(1)
+  125 |     await expect(page.locator(`[data-flow-id="${workload.id}"]`).first()).toBeVisible()
+  126 |     await expect(page.getByTestId("topology-internet-node")).toHaveCount(0)
+  127 | 
+  128 |     // --- trust entrances in the strip ----------------------------------------
+  129 |     const principals = page.getByTestId("topology-identity-principals")
+  130 |     await expect(principals).toContainText("Trust entrances")
+  131 |     const entrance = page.locator('[data-testid="topology-identity-principal"]')
+  132 |     await expect(entrance).toHaveCount(1)
+  133 |     await expect(entrance.first()).toHaveAttribute("data-principal-class", "other_account")
+  134 |     await expect(entrance.first()).toContainText("other account")
+  135 | 
+  136 |     // --- one line per kind of access, colour by kind, motion only on observed --
+  137 |     await expect(page.locator('g[data-flow-family="WORKLOAD_USES_ROLE"]')).toHaveCount(1, { timeout: 30_000 })
+  138 |     await expect(page.locator('g[data-flow-family="ROLE_TRUST_POLICY"]')).toHaveCount(1)
+  139 |     await expect(page.locator('g[data-flow-family="ROLE_ACTION_DECISION"]')).toHaveCount(1)
+  140 |     expect(await strokeOf(page, "WORKLOAD_USES_ROLE")).toBe(KIND_COLOR.runs_as)
+> 141 |     expect(await strokeOf(page, "ROLE_TRUST_POLICY")).toBe(KIND_COLOR.may_assume)
+      |                                                       ^ Error: expect(received).toBe(expected) // Object.is equality
+  142 |     expect(await strokeOf(page, "ROLE_ACTION_DECISION")).toBe(KIND_COLOR.data)
+  143 |     const runsAs = page.locator('g[data-flow-family="WORKLOAD_USES_ROLE"]').first()
+  144 |     await expect(runsAs).toHaveAttribute("data-flow-motion", "none")
+  145 |     await expect(runsAs).toHaveAttribute("data-flow-source", workload.id)
+  146 |     await expect(runsAs.locator("text").first()).toHaveText("instance profile")
+  147 |     const trust = page.locator('g[data-flow-family="ROLE_TRUST_POLICY"]').first()
+  148 |     await expect(trust).toHaveAttribute("data-flow-motion", "none")
+  149 |     await expect(trust.locator("text").first()).toHaveText("may assume · conditioned")
+  150 |     const reach = page.locator('g[data-flow-family="ROLE_ACTION_DECISION"]').first()
+  151 |     await expect(reach).toHaveAttribute("data-flow-plane", "observed")
+  152 |     await expect(reach).toHaveAttribute("data-flow-motion", "authoritative")
+  153 |     await expect(reach.locator('[data-testid="topology-flow-running-track"]')).toHaveCount(1)
+  154 |     await expect(reach.locator("text").first()).toHaveText("s3 · explicit 1 · used 1")
+  155 |     // The reach ends on a SERVICE anchor, never on a named bucket the row cannot name.
+  156 |     await expect(reach).toHaveAttribute("data-flow-target", "__identity:service:s3__")
+  157 |     await expect(page.locator('[data-flow-id="__identity:service:s3__"]').first()).toBeVisible()
+  158 | 
+  159 |     // --- legend and honesty footer -------------------------------------------
+  160 |     const legend = page.getByTestId("identity-lens-legend")
+  161 |     await expect(legend).toContainText("Colour · kind of access")
+  162 |     await expect(legend).toContainText("Style · evidence")
+  163 |     await expect(legend).toContainText("Moving = observed with a named generation")
+  164 |     const footer = page.getByTestId("identity-twin-footer")
+  165 |     await expect(footer).toContainText("1 role bound to a workload on this canvas")
+  166 |     await expect(page.getByTestId("topology-flow-legend")).toHaveCount(0)
+  167 | 
+  168 |     // --- no clipped or overlapping chrome in the lane header, no badge on a header --
+  169 |     const defects = await chromeTextDefects(page, '[data-testid="topology-iam-roles-tier"] [data-flow-obstacle="iam-roles-tier-header"]')
+  170 |     expect(defects.overlaps, `overlapping lane header text at ${vp.name}`).toEqual([])
+  171 |     expect(defects.collapsed, `collapsed lane header text at ${vp.name}`).toEqual([])
+  172 |     expect(await railHeaderBadgeOverlaps(page), `a badge sits on a rail header at ${vp.name}`).toEqual([])
+  173 | 
+  174 |     await page.screenshot({ path: `test-results/estate-identity-default-${vp.name}.png`, fullPage: false })
+  175 | 
+  176 |     // --- selecting the role: the panel is the shared one --------------------
+  177 |     await roleChips.first().click()
+  178 |     const panel = page.getByTestId("topology-service-detail-panel")
+  179 |     await expect(panel).toBeVisible()
+  180 |     await expect(panel).toContainText("Identity & access")
+  181 |     await page.screenshot({ path: `test-results/estate-identity-selected-${vp.name}.png`, fullPage: false })
+  182 |   })
+  183 | }
+  184 | 
+```
