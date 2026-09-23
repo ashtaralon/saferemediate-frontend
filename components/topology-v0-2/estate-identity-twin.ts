@@ -25,7 +25,7 @@
  * VPC-endpoint policies and organisation context are captions and counts,
  * never chips.
  */
-import type { IdentityEdgeAnnotation, TopologyNode, TrafficEdge } from "./types"
+import type { IdentityEdgeAnnotation, IdentityLineKind, TopologyNode, TrafficEdge } from "./types"
 import {
   DECISION_AUTHORITY_LABEL,
   INVENTORY_AUTHORITY_LABEL,
@@ -92,6 +92,43 @@ export interface RawRoleActions {
   role_id?: unknown
   action_details?: unknown
   action_details_truncated?: unknown
+  /** The producer's complete per-service rollup (scripts/estate_identity_access
+   *  `service_grants`), computed over the FULL decision set before the
+   *  action_details cap. Absent on older producers; null when not served. */
+  service_grants?: unknown
+}
+
+/** One row of the producer's `service_grants[]`, read leniently. */
+export interface RawServiceGrant {
+  service_prefix?: unknown
+  explicit?: unknown
+  success_observed?: unknown
+  denied_only?: unknown
+  not_observed?: unknown
+  unknown?: unknown
+  coverage_incomplete?: unknown
+  last_success_at?: unknown
+}
+
+/** The producer's complete rollup as reach rows; null when it is not served. */
+export function reachFromServiceGrants(value: unknown): IdentityReach[] | null {
+  if (!Array.isArray(value)) return null
+  const out: IdentityReach[] = []
+  for (const row of value as RawServiceGrant[]) {
+    if (typeof row?.service_prefix !== "string") continue
+    const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0)
+    out.push({
+      prefix: row.service_prefix.toLowerCase(),
+      explicit: num(row.explicit),
+      used: num(row.success_observed),
+      denied: num(row.denied_only),
+      notObserved: num(row.not_observed),
+      unknown: num(row.unknown),
+      coverageIncomplete: row.coverage_incomplete === true,
+      lastSuccessAt: typeof row.last_success_at === "string" ? row.last_success_at : null,
+    })
+  }
+  return out.sort((a, b) => a.prefix.localeCompare(b.prefix))
 }
 
 export type TrustPrincipalClass =
@@ -256,6 +293,15 @@ export interface IdentityTwinCounts {
   /** Trust statements naming an AWS service principal (the binding mechanism),
    *  folded into the role captions rather than drawn as entrances. */
   serviceTrustStatements: number
+  /** Roles no workload on this canvas runs as, but which an outside account,
+   *  a federation or a human may assume — drawn as the lane's second group. */
+  externalRoles: number
+  /** Observed access lines drawn from the legacy behavioral graph
+   *  ("legacy · unverified"), never generation-backed. */
+  legacyLines: number
+  /** Lines actually drawn on this canvas, per family — what the legend's
+   *  "drawn" must say (the lens's own counts are the graph's, not the map's). */
+  drawnByFamily: Record<string, number>
 }
 
 export interface IdentityTwin {
@@ -270,6 +316,8 @@ export interface IdentityTwin {
   reachNotDrawn: Map<string, string[]>
   /** Per principal chip, the trust-principal class it was read as. */
   principalClasses: Map<string, TrustPrincipalClass>
+  /** Role chips in the lane's "assumable from outside" group. */
+  externalRoleIds: Set<string>
   counts: IdentityTwinCounts
 }
 
@@ -279,6 +327,45 @@ export interface IdentityTwinOptions {
   /** The frame's nodes, for workload types (mechanism words) and ids. */
   topologyNodes: readonly Pick<TopologyNode, "id" | "type">[]
   focusId?: string | null
+  /**
+   * The Network view's own traffic edges. Observed access edges among them
+   * (ACTUAL_S3_ACCESS, ACTUAL_API_CALL, …) come from the legacy behavioral
+   * graph and are drawn here exactly as the Network view draws them:
+   * "legacy · unverified", dashed, never moving. Omit to draw canonical
+   * families only.
+   */
+  legacyEdges?: readonly TrafficEdge[] | null
+}
+
+/** Legacy behavioral-graph protocols that are observed ACCESS by an identity. */
+export const LEGACY_IDENTITY_ACCESS_PROTOCOLS: ReadonlySet<string> = new Set([
+  "ACTUAL_S3_ACCESS",
+  "ATTRIBUTED_S3_ACCESS",
+  "ACTUAL_API_CALL",
+  "ACCESSES_RESOURCE",
+  "READS_FROM",
+  "WRITES_TO",
+  "S3_OPERATION",
+  "RUNTIME_CALLS",
+])
+
+/** Which kind of access a reached service prefix or a target chip type is. */
+export function identityKindForService(prefixOrType: string | null | undefined): IdentityLineKind {
+  const key = (prefixOrType ?? "").toLowerCase()
+  if (["kms", "kmskey", "secretsmanager", "secret", "secretsmanagersecret", "ssm"].includes(key)) return "secret_key"
+  if (["s3", "s3bucket", "dynamodb", "dynamodbtable", "rds", "rdsinstance", "rds-db", "neptune", "neptunecluster", "documentdb"].includes(key)) return "data"
+  return "service"
+}
+
+const LEGACY_PROTOCOL_WORD: Readonly<Record<string, string>> = {
+  ACTUAL_S3_ACCESS: "S3 access",
+  ATTRIBUTED_S3_ACCESS: "S3 access",
+  ACTUAL_API_CALL: "API call",
+  ACCESSES_RESOURCE: "resource access",
+  READS_FROM: "reads",
+  WRITES_TO: "writes",
+  S3_OPERATION: "S3 operation",
+  RUNTIME_CALLS: "calls",
 }
 
 function roleSuffix(name: string, keep = 28): string {
@@ -291,7 +378,12 @@ function roleSuffix(name: string, keep = 28): string {
  * observed-but-unstamped edge today, and the guard must still hold if it does.
  */
 export function identityTwinTrafficEdge(
-  edge: Pick<IdentityLensEdge, "family" | "plane" | "certainty" | "verdict" | "label" | "animated" | "generation" | "lastSeen" | "sourceId" | "targetId">,
+  edge: Pick<IdentityLensEdge, "plane" | "certainty" | "verdict" | "label" | "animated" | "generation" | "lastSeen" | "sourceId" | "targetId"> & {
+    family: IdentityEdgeAnnotation["family"]
+    kind: IdentityLineKind
+    /** Legacy behavioral-graph evidence: read, not generation-backed. */
+    legacy?: boolean
+  },
   focusId: string | null | undefined,
 ): TrafficEdge {
   const observed = edge.plane === "observed"
@@ -300,8 +392,9 @@ export function identityTwinTrafficEdge(
     plane: edge.plane,
     certainty: edge.certainty,
     verdict: edge.verdict,
+    kind: edge.kind,
     label: edge.label,
-    animated: edge.animated,
+    animated: edge.animated && !edge.legacy,
     generation: edge.generation,
     focusRelation: identityFocusRelation(edge, focusId),
   }
@@ -311,16 +404,21 @@ export function identityTwinTrafficEdge(
     protocol: edge.family,
     port: null,
     edge_class: "identity",
-    evidence_type: observed ? "observed" : "configured",
-    authority_state: observed ? (edge.animated ? "authoritative" : "legacy_unverified") : "configured",
-    path_basis: observed ? "observed_segment" : "configured_route",
+    evidence_type: edge.legacy ? "inferred" : observed ? "observed" : "configured",
+    authority_state: observed ? (annotation.animated ? "authoritative" : "legacy_unverified") : "configured",
+    path_basis: edge.legacy ? "inferred_correlation" : observed ? "observed_segment" : "configured_route",
     projection_generation: edge.generation,
     // `last_seen` rides only on a generation-backed observed line: the
     // overlay animates legacy_unverified + last_seen as "historical
     // direction", and the legend promises motion only with a named generation.
-    last_seen: observed && edge.animated ? edge.lastSeen : null,
+    last_seen: observed && annotation.animated ? edge.lastSeen : null,
     identity: annotation,
   }
+}
+
+/** Who may assume: a human identity (user / federation) or an account, role or `*`. */
+export function trustKindFor(principalClass: TrustPrincipalClass): IdentityLineKind {
+  return principalClass === "iam_user" || principalClass === "federated" ? "human" : "may_assume"
 }
 
 /**
@@ -366,7 +464,7 @@ export function buildIdentityTwin(lens: IdentityLens, options: IdentityTwinOptio
     boundRoleIds.add(role.id)
     const modes = typeof edge.facts.attachment_modes === "string" ? edge.facts.attachment_modes : ""
     const mechanism = bindingMechanismWord(modes, typeById.get(workload.id) ?? null)
-    edges.push(identityTwinTrafficEdge({ ...edge, label: mechanism }, focusId))
+    edges.push(identityTwinTrafficEdge({ ...edge, label: mechanism, kind: "runs_as" }, focusId))
     const parts = workloadCaptionParts.get(workload.id) ?? []
     parts.push(`${mechanism} · ${roleSuffix(role.label)}`)
     workloadCaptionParts.set(workload.id, parts)
@@ -387,15 +485,45 @@ export function buildIdentityTwin(lens: IdentityLens, options: IdentityTwinOptio
   for (const [workloadId, parts] of workloadCaptionParts) captions.set(workloadId, parts.join(" · "))
 
   // ── 2. principal → role: who else may assume it ──────────────────────────
+  // A role no workload on this canvas runs as, but which an outside account,
+  // a federation or a human may assume, is an entrance into the account —
+  // exactly what a reviewer wants in five seconds. Those roles take the
+  // lane's second group ("assumable from outside"); service-linked roles
+  // and roles trusted only by AWS services stay counts.
+  const externalRoleIds = new Set<string>()
+  for (const edge of lens.edges) {
+    if (edge.family !== "ROLE_TRUST_POLICY") continue
+    const role = nodeById.get(edge.targetId)
+    const principal = nodeById.get(edge.sourceId)
+    if (!role || !principal || role.kind !== "iam_role") continue
+    if (boundRoleIds.has(role.id) || role.label.startsWith("AWSServiceRole")) continue
+    if (principal.kind === "service_principal") continue
+    externalRoleIds.add(role.id)
+  }
+  for (const roleId of [...externalRoleIds].sort()) {
+    const role = nodeById.get(roleId)
+    if (!role) continue
+    roleNodes.set(role.id, {
+      id: role.id,
+      name: role.label,
+      type: "IAMRole",
+      subnet_id: null,
+      score: null,
+      stale: null,
+      is_jewel: false,
+      account_id: scope.accountId,
+      resource_id: role.arn,
+    })
+  }
   let serviceTrustStatements = 0
   for (const edge of lens.edges) {
     if (edge.family !== "ROLE_TRUST_POLICY") continue
-    if (!boundRoleIds.has(edge.targetId)) continue
+    if (!boundRoleIds.has(edge.targetId) && !externalRoleIds.has(edge.targetId)) continue
     const principal = nodeById.get(edge.sourceId)
     if (!principal) continue
     // Service-principal trust is the mechanism of hop 1, not a second entrance.
     if (principal.kind === "service_principal") {
-      serviceTrustStatements += 1
+      if (boundRoleIds.has(edge.targetId)) serviceTrustStatements += 1
       continue
     }
     const reading = classifyTrustPrincipal(
@@ -422,7 +550,14 @@ export function buildIdentityTwin(lens: IdentityLens, options: IdentityTwinOptio
     const label = denied
       ? `statement denies · ${conditioned ? "conditioned" : "unconditioned"}`
       : `may assume · ${conditioned ? "conditioned" : "unconditioned"}`
-    edges.push(identityTwinTrafficEdge({ ...edge, label, animated: false }, focusId))
+    edges.push(identityTwinTrafficEdge({ ...edge, label, animated: false, kind: trustKindFor(reading.class) }, focusId))
+  }
+  for (const roleId of externalRoleIds) {
+    const who = lens.edges
+      .filter(e => e.family === "ROLE_TRUST_POLICY" && e.targetId === roleId && principalClasses.has(e.sourceId))
+      .map(e => principalClasses.get(e.sourceId) as TrustPrincipalClass)
+    const classes = [...new Set(who)].map(c => c.replace(/_/g, " ")).sort()
+    captions.set(roleId, `not run by a workload on this canvas · assumable from ${classes.join(", ") || "outside"} · usage not served`)
   }
 
   // ── 3. role → service: explicit N · used M, at action scope ──────────────
@@ -454,16 +589,19 @@ export function buildIdentityTwin(lens: IdentityLens, options: IdentityTwinOptio
       )
       const raw = rawByAnchor.get(roleId)
       const rows = raw && Array.isArray(raw.action_details) ? (raw.action_details as RawActionDetail[]) : []
-      // The producer serves at most the first 25 decision rows per role
-      // (`action_details_truncated`). A per-service verdict computed from a
+      // The producer's complete rollup wins when it is served: computed over
+      // the full decision set, it needs no truncation caveat. Without it, the
+      // producer serves at most the first 25 decision rows per role
+      // (`action_details_truncated`); a per-service verdict computed from a
       // cut slice would fabricate "not observed" for a service whose rows
       // were cut, so under truncation only what the slice PROVES is drawn:
       // observed use is monotone (one observed row is enough) and its count
       // is a floor; nothing is said about the services the slice omits.
-      const truncated = raw?.action_details_truncated === true
+      const complete = reachFromServiceGrants(raw?.service_grants)
+      const truncated = complete === null && raw?.action_details_truncated === true
       const notDrawn: string[] = []
       let withheldByTruncation = 0
-      for (const reach of reachByService(rows)) {
+      for (const reach of complete ?? reachByService(rows)) {
         const target = IDENTITY_SERVICE_TARGETS[reach.prefix]
         if (!target) {
           notDrawn.push(reach.prefix)
@@ -498,6 +636,7 @@ export function buildIdentityTwin(lens: IdentityLens, options: IdentityTwinOptio
         const animated = observed && decisionGeneration !== null
         edges.push(identityTwinTrafficEdge({
           family: "ROLE_ACTION_DECISION",
+          kind: identityKindForService(reach.prefix),
           plane: observed ? "observed" : "configured",
           certainty: "resolved",
           verdict,
@@ -549,13 +688,55 @@ export function buildIdentityTwin(lens: IdentityLens, options: IdentityTwinOptio
     captions.set(anchorId, `${rows} policy row${rows === 1 ? "" : "s"} projected · present/absent: not served`)
   }
 
+  // ── 4b. observed access from the legacy behavioral graph ─────────────────
+  // The Network view draws these edges today as "legacy · unverified"
+  // traffic. On the identity lens they are the same claim in the same words:
+  // an access that WAS read, from a workload chip to a resource chip that is
+  // on this canvas, never generation-backed and never moving. One line per
+  // (workload, target), actions merged; nothing is drawn to a chip that is
+  // not here, and nothing is attributed to a role — the edge names a
+  // workload, not a principal, and the map says so.
+  const onCanvas = new Set(options.topologyNodes.map(node => node.id))
+  const legacyByPair = new Map<string, { protocol: string; actions: Set<string>; lastSeen: string | null; source: string; target: string }>()
+  for (const edge of options.legacyEdges ?? []) {
+    const protocol = edge.protocol ?? ""
+    if (!LEGACY_IDENTITY_ACCESS_PROTOCOLS.has(protocol)) continue
+    if (!onCanvas.has(edge.source_id) || !onCanvas.has(edge.target_id)) continue
+    if (edge.source_id === edge.target_id) continue
+    const key = `${edge.source_id}→${edge.target_id}`
+    const entry = legacyByPair.get(key) ?? { protocol, actions: new Set<string>(), lastSeen: null, source: edge.source_id, target: edge.target_id }
+    for (const action of edge.observed_actions ?? []) if (typeof action === "string") entry.actions.add(action)
+    if (typeof edge.last_seen === "string" && (!entry.lastSeen || edge.last_seen > entry.lastSeen)) entry.lastSeen = edge.last_seen
+    legacyByPair.set(key, entry)
+  }
+  let legacyLines = 0
+  for (const entry of [...legacyByPair.values()].sort((a, b) => `${a.source}${a.target}`.localeCompare(`${b.source}${b.target}`))) {
+    const word = LEGACY_PROTOCOL_WORD[entry.protocol] ?? entry.protocol.toLowerCase().replace(/_/g, " ")
+    const actions = [...entry.actions].sort()
+    edges.push(identityTwinTrafficEdge({
+      family: "LEGACY_OBSERVED_ACCESS",
+      kind: identityKindForService(typeById.get(entry.target)),
+      plane: "observed",
+      certainty: "resolved",
+      verdict: "observed",
+      label: `${word}${actions.length > 0 ? ` · ${actions.join(", ")}` : ""} · legacy · unverified`,
+      animated: false,
+      generation: null,
+      lastSeen: entry.lastSeen,
+      sourceId: entry.source,
+      targetId: entry.target,
+      legacy: true,
+    }, focusId))
+    legacyLines += 1
+  }
+
   // ── 5. counts for the footer: nothing hidden without a number ────────────
   let serviceLinkedRoles = 0
   let otherAccountRoles = 0
   let users = 0
   let targetsNotOnMap = 0
   for (const node of lens.nodes) {
-    if (node.kind === "iam_role" && !boundRoleIds.has(node.id)) {
+    if (node.kind === "iam_role" && !boundRoleIds.has(node.id) && !externalRoleIds.has(node.id)) {
       if (node.label.startsWith("AWSServiceRole")) serviceLinkedRoles += 1
       else otherAccountRoles += 1
     } else if (node.kind === "iam_user") {
@@ -565,14 +746,28 @@ export function buildIdentityTwin(lens: IdentityLens, options: IdentityTwinOptio
     }
   }
 
+  const drawnByFamily: Record<string, number> = {}
+  for (const edge of edges) {
+    const family = edge.identity?.family ?? "unknown"
+    drawnByFamily[family] = (drawnByFamily[family] ?? 0) + 1
+  }
+
+  // Bound roles first (the rows of the map), then the roles assumable from
+  // outside; alphabetical within each group.
+  const orderedRoles = [...roleNodes.values()].sort((a, b) => {
+    const ea = externalRoleIds.has(a.id) ? 1 : 0
+    const eb = externalRoleIds.has(b.id) ? 1 : 0
+    return ea - eb || a.name.localeCompare(b.name)
+  })
   return {
-    roleNodes: [...roleNodes.values()].sort((a, b) => a.name.localeCompare(b.name)),
+    roleNodes: orderedRoles,
     principalNodes: [...principalNodes.values()].sort((a, b) => a.name.localeCompare(b.name)),
     serviceNodes: [...serviceNodes.values()].sort((a, b) => a.name.localeCompare(b.name)),
     edges,
     captions,
     reachNotDrawn,
     principalClasses,
+    externalRoleIds,
     counts: {
       boundRoles: boundRoleIds.size,
       rolesUsageNotComputed,
@@ -585,6 +780,9 @@ export function buildIdentityTwin(lens: IdentityLens, options: IdentityTwinOptio
       trustEntrances,
       reachNotDrawn: reachNotDrawnTotal,
       serviceTrustStatements,
+      externalRoles: externalRoleIds.size,
+      legacyLines,
+      drawnByFamily,
     },
   }
 }

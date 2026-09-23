@@ -27,7 +27,7 @@ import {
   type IdentityLensNodeKind,
 } from "./estate-identity-access-model"
 import type { IdentityTwin } from "./estate-identity-twin"
-import { IDENTITY_LEGEND_ITEMS } from "./flow-visuals"
+import { IDENTITY_KIND_LEGEND_ITEMS, IDENTITY_LEGEND_ITEMS } from "./flow-visuals"
 import type { TopologyNode } from "./types"
 
 /** What the frame needs from the host to draw the lens. */
@@ -136,6 +136,12 @@ export function IdentityTwinFooter({
   }
   if (c.boundWorkloadsOffCanvas > 0) {
     parts.push({ key: "workloads-off-canvas", text: `${plural(c.boundWorkloadsOffCanvas, "bound workload")} outside this canvas scope` })
+  }
+  if (c.externalRoles > 0) {
+    parts.push({ key: "external-roles", text: `${plural(c.externalRoles, "role")} assumable from outside, not run by a workload here` })
+  }
+  if (c.legacyLines > 0) {
+    parts.push({ key: "legacy-lines", text: `${plural(c.legacyLines, "observed access line")} from the legacy graph · unverified, never moving` })
   }
   if (c.otherAccountRoles > 0) {
     parts.push({ key: "other-roles", text: `${plural(c.otherAccountRoles, "other role")} in the account, not drawn` })
@@ -265,7 +271,9 @@ function verdictTone(row: IdentityFamilyVerdict): { color: string; bg: string } 
 }
 
 /** Replaces the traffic FlowLegend on the identity lens. */
-export function IdentityLensLegend({ lens, compact = false }: { lens: IdentityLens; compact?: boolean }) {
+export function IdentityLensLegend({ lens, twin, compact = false }: { lens: IdentityLens; twin?: IdentityTwin; compact?: boolean }) {
+  const drawnFor = (family: string, fallback: number) =>
+    twin ? (twin.counts.drawnByFamily[family] ?? 0) : fallback
   const available = lens.families.filter(f => f.status === "available")
   const unavailable = lens.families.filter(f => f.status === "unavailable")
   const noVerdict = lens.families.filter(f => f.status === "no_verdict")
@@ -278,7 +286,23 @@ export function IdentityLensLegend({ lens, compact = false }: { lens: IdentityLe
       aria-label="Identity relationship legend"
     >
       <span className="text-[9px] font-bold uppercase tracking-[0.12em]" style={{ color: "#475569" }}>
-        Identity lines
+        Colour · kind of access
+      </span>
+      {IDENTITY_KIND_LEGEND_ITEMS.map(item => (
+        <span
+          key={item.kind}
+          className="inline-flex items-center gap-1.5 whitespace-nowrap"
+          data-testid={`identity-legend-kind-${item.kind}`}
+          title={item.detail}
+        >
+          <span className="inline-block rounded-sm" style={{ width: 14, height: 8, background: item.color }} aria-hidden />
+          <span className="text-[9px] font-medium" style={{ color: "#475569" }}>
+            {item.label}
+          </span>
+        </span>
+      ))}
+      <span className="text-[9px] font-bold uppercase tracking-[0.12em]" style={{ color: "#475569" }}>
+        Style · evidence
       </span>
       {IDENTITY_LEGEND_ITEMS.map(item => (
         <span
@@ -316,7 +340,7 @@ export function IdentityLensLegend({ lens, compact = false }: { lens: IdentityLe
                 data-testid="identity-legend-family"
                 data-family={row.family}
                 data-status={row.status}
-                data-drawn={String(row.drawn)}
+                data-drawn={String(drawnFor(row.family, row.drawn))}
                 title={row.detail}
               >
                 <span className="font-mono font-semibold" style={{ color: "#1A2330" }}>
@@ -324,9 +348,9 @@ export function IdentityLensLegend({ lens, compact = false }: { lens: IdentityLe
                 </span>{" "}
                 <span style={{ color: tone.color }}>
                   {row.status === "available"
-                    ? `${row.plane ?? "plane not asserted"} · ${row.drawn} drawn`
+                    ? `${row.plane ?? "plane not asserted"} · ${drawnFor(row.family, row.drawn)} drawn`
                     : row.status === "no_verdict"
-                      ? `no verdict carried · ${row.drawn} drawn`
+                      ? `no verdict carried · ${drawnFor(row.family, row.drawn)} drawn`
                       : `not drawn — ${row.reason_codes.join(", ")}`}
                 </span>
               </li>
