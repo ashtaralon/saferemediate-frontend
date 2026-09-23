@@ -15,6 +15,7 @@ import {
   normalizeLPSeverityBucket,
   normalizeGapResource,
   normalizeLPResponse,
+  holdUnverifiedIamUsageAggregates,
   mergeLpResourcesAfterFetch,
   markResourceVerifying,
   LP_VERIFYING_TTL_MS,
@@ -96,6 +97,50 @@ describe('normalizeLPResponse — integrity fields preserved', () => {
     })
     expect(normalized.resources[0].gapPercent).toBeNull()
     expect(normalized.resources[1].gapPercent).toBe(40)
+    expect(normalized.summary.avgLPScore).toBeNull()
+    expect(normalized.summary.attackSurfaceReduction).toBeNull()
+
+    // The fetch path recomputes the summary after merging rows. A measured
+    // non-IAM row must not turn an incomplete estate-wide LP score numeric.
+    const recomputed = holdUnverifiedIamUsageAggregates(normalized.resources, {
+      ...normalized.summary, avgLPScore: 60, attackSurfaceReduction: 40,
+    })
+    expect(recomputed.avgLPScore).toBeNull()
+    expect(recomputed.attackSurfaceReduction).toBeNull()
+  })
+
+  it('leaves non-IAM rows and verified aggregate calculations unchanged', () => {
+    const normalized = normalizeLPResponse({
+      readiness_by_lane: { cloudtrail_iam_usage: { generation: {
+        known: true, active_generation_id: 'generation-2', negative_authority_permitted: true,
+      } } },
+      resources: [baseRole({ gapPercent: 20 }), {
+        ...baseRole({ id: 'sg-1', resourceType: 'SecurityGroup' }),
+        gapPercent: 40,
+      }],
+    })
+    expect(normalized.resources[1].gapPercent).toBe(40)
+    expect(normalized.summary.avgLPScore).toBe(70)
+    expect(normalized.summary.attackSurfaceReduction).toBe(30)
+    const recomputed = holdUnverifiedIamUsageAggregates(normalized.resources, {
+      ...normalized.summary, avgLPScore: 70, attackSurfaceReduction: 30,
+    })
+    expect(recomputed.avgLPScore).toBe(70)
+    expect(recomputed.attackSurfaceReduction).toBe(30)
+  })
+
+  it('holds overall usage only for active IAM rows', () => {
+    const summary = normalizeLPResponse({ resources: [baseRole()] }).summary
+    const heldReceipt = {
+      usageGenerationUnverified: true,
+      remediatedAt: '2026-09-22T00:00:00Z',
+      verificationState: null,
+    }
+    const numericSummary = { ...summary, avgLPScore: 75, attackSurfaceReduction: 25 }
+    expect(holdUnverifiedIamUsageAggregates([heldReceipt], numericSummary)).toEqual(numericSummary)
+    expect(holdUnverifiedIamUsageAggregates([
+      { ...heldReceipt, verificationState: 'applied_verifying' },
+    ], numericSummary)).toMatchObject({ avgLPScore: null, attackSurfaceReduction: null })
   })
 
   it('preserves an explicitly measured zero on a verified IAM generation', () => {

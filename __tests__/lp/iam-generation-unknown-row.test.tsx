@@ -3,6 +3,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import LeastPrivilegeTab from '@/components/LeastPrivilegeTab'
+import * as lpNormalize from '@/lib/lp-normalize'
 
 vi.mock('@/lib/account-scope-context', () => ({
   useAccountScope: () => ({ customerId: 'test-customer', groupId: 'all', accountId: 'all', region: 'all' }),
@@ -39,6 +40,7 @@ async function renderResponse(payload: unknown) {
 afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
+  vi.restoreAllMocks()
 })
 
 describe('IAM Risk Inventory generation authority', () => {
@@ -74,5 +76,32 @@ describe('IAM Risk Inventory generation authority', () => {
     expect(screen.getByText('Usage not computed — permissions sync failed')).toBeInTheDocument()
     expect(screen.queryByText(/Usage unknown — IAM usage generation/)).not.toBeInTheDocument()
     expect(screen.queryByText('0%')).not.toBeInTheDocument()
+  })
+
+  it('holds both initial and recomputed overall usage summaries with a measured non-IAM row', async () => {
+    const aggregateSpy = vi.spyOn(lpNormalize, 'holdUnverifiedIamUsageAggregates')
+    await renderResponse({
+      ...response(false, false),
+      resources: [role, {
+        ...role, id: 'sg-1', resourceName: 'measured-security-group',
+        resourceType: 'SecurityGroup', gapPercent: 40,
+        networkExposure: { score: 40, severity: 'MEDIUM', totalRules: 10,
+          internetExposedRules: 4, highRiskPorts: [], details: {
+            totalIngressRules: 10, totalEgressRules: 0, findingsCount: 0,
+            criticalFindings: 0, highFindings: 0,
+          } },
+      }],
+    })
+    expect(screen.getByText('measured-security-group')).toBeInTheDocument()
+    expect(screen.getByText('40%')).toBeInTheDocument()
+    // normalizeLPResponse is asserted separately; this call is the UI's
+    // post-fetch recomputation after merging its rows.
+    expect(aggregateSpy).toHaveBeenCalledOnce()
+    expect(aggregateSpy.mock.calls[0][1]).toMatchObject({
+      avgLPScore: 60, attackSurfaceReduction: 40,
+    })
+    expect(aggregateSpy.mock.results[0].value).toMatchObject({
+      avgLPScore: null, attackSurfaceReduction: null,
+    })
   })
 })

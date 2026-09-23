@@ -154,6 +154,28 @@ export interface NormalizedLPSummary {
   safetyReviewPendingCount: number | null
 }
 
+type LPGenerationHoldRow = Pick<
+  NormalizedGapResource,
+  'usageGenerationUnverified' | 'remediatedAt' | 'verificationState'
+>
+
+/** Keep estate-wide usage claims unknown while an active IAM row has no verified generation. */
+export function holdUnverifiedIamUsageAggregates(
+  resources: ReadonlyArray<LPGenerationHoldRow>,
+  summary: NormalizedLPSummary,
+): NormalizedLPSummary {
+  const activeIamHold = resources.some((resource) =>
+    resource.usageGenerationUnverified === true && (
+      !resource.remediatedAt ||
+      resource.verificationState === 'applied_verifying' ||
+      resource.verificationState === 'verify_failed'
+    ),
+  )
+  return activeIamHold
+    ? { ...summary, avgLPScore: null, attackSurfaceReduction: null }
+    : summary
+}
+
 export type ResourceRiskCapability = {
   resource_type: string
   display_name: string
@@ -615,6 +637,8 @@ export function normalizeLPResponse(result: any): NormalizedLPResponse {
     staleReason:
       typeof input.staleReason === 'string' ? input.staleReason : undefined,
   }
+
+  normalized.summary = holdUnverifiedIamUsageAggregates(resources, normalized.summary)
 
   // Copy integrity fields LITERALLY — do not drop / rename / invent.
   if ('serve_state' in input) normalized.serve_state = input.serve_state

@@ -12,6 +12,7 @@ import { dispatchRemediationChanged, onRemediationChanged } from '@/lib/remediat
 import { deriveLPIntegrity, lpEvidenceGapCopy, lpIntegrityCopy } from '@/lib/lp-integrity'
 import { resolveLPReviewSurface } from '@/lib/lp-review-routing'
 import {
+  holdUnverifiedIamUsageAggregates,
   mergeLpResourcesAfterFetch,
   markResourceVerifying,
   normalizeLPResponse,
@@ -1197,7 +1198,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       ? measuredForScore.reduce((total, resource) => total + (getUsageMetricsForResource(resource).gapPct as number), 0) / measuredForScore.length
       : null
 
-    return {
+    return holdUnverifiedIamUsageAggregates(activeResources, {
       ...previousSummary,
       totalResources: resources.length,
       totalExcessPermissions,
@@ -1211,7 +1212,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       lowCount: severityCounts.low,
       confidenceLevel,
       attackSurfaceReduction,
-    }
+    })
   }
 
   const readStoredDismissedResources = (): string[] => {
