@@ -59,6 +59,75 @@ describe('normalizeLPSeverityBucket', () => {
 })
 
 describe('normalizeLPResponse — integrity fields preserved', () => {
+  it('marks IAM usage unknown when the active generation is unknown, without erasing review risk', () => {
+    const normalized = normalizeLPResponse({
+      readiness_by_lane: { cloudtrail_iam_usage: { generation: {
+        known: false, active_generation_id: null, negative_authority_permitted: false,
+      } } },
+      resources: [baseRole({ severity: 'HIGH', decision_canonical: 'MANUAL_REVIEW',
+        counts_toward_summary: true, usage_measured: true, highRiskUnused: [
+          { permission: 'iam:PassRole', riskLevel: 'HIGH', reason: 'No observed use' },
+        ],
+      })],
+      summary: { totalExcessPermissions: 3 },
+    })
+    const role = normalized.resources[0]
+    expect(role).toMatchObject({
+      usageGenerationUnverified: true, allowedCount: 10, usedCount: null,
+      gapCount: null, gapPercent: null, lpScore: null,
+      severity: 'high', decisionCanonical: 'MANUAL_REVIEW', countsTowardSummary: true,
+      usageMeasured: true,
+    })
+    expect(role.usedList).toEqual([])
+    expect(role.unusedList).toEqual([])
+    expect(role.highRiskUnused).toEqual([])
+    expect(normalized.summary).toMatchObject({
+      totalExcessPermissions: null, avgLPScore: null, attackSurfaceReduction: null,
+    })
+  })
+
+  it('holds IAM usage for an identified but unready generation, preserving independent posture rows', () => {
+    const normalized = normalizeLPResponse({
+      readiness_by_lane: { cloudtrail_iam_usage: { generation: {
+        known: true, active_generation_id: 'generation-1', negative_authority_permitted: false,
+      } } },
+      resources: [baseRole(), { ...baseRole({ id: 'rds-1', resourceType: 'RDSInstance' }),
+        resourceName: 'database', gapPercent: 40 }],
+    })
+    expect(normalized.resources[0].gapPercent).toBeNull()
+    expect(normalized.resources[1].gapPercent).toBe(40)
+  })
+
+  it('preserves an explicitly measured zero on a verified IAM generation', () => {
+    const normalized = normalizeLPResponse({
+      readiness_by_lane: { cloudtrail_iam_usage: { generation: {
+        known: true, active_generation_id: 'generation-2', negative_authority_permitted: true,
+      } } },
+      resources: [baseRole({ allowedCount: 10, usedCount: 10, gapCount: 0,
+        gapPercent: 0, lpScore: 100, usage_measured: true })],
+    })
+    expect(normalized.resources[0]).toMatchObject({
+      usageMeasured: true, usedCount: 10, gapCount: 0, gapPercent: 0, lpScore: 100,
+    })
+    expect(normalized.resources[0].usageGenerationUnverified).toBeUndefined()
+  })
+
+  it('keeps row-level usageMeasured=false separate from a generation hold', () => {
+    const normalized = normalizeLPResponse({
+      readiness_by_lane: { cloudtrail_iam_usage: { generation: {
+        known: true, active_generation_id: 'generation-2', negative_authority_permitted: true,
+      } } },
+      resources: [baseRole({ usage_measured: false, usedCount: null,
+        gapCount: null, gapPercent: null, usage_not_computed_reason: 'Permissions sync failed' })],
+    })
+    expect(normalized.resources[0]).toMatchObject({
+      usageMeasured: false, usageNotComputedReason: 'Permissions sync failed',
+      usedCount: null, gapCount: null, gapPercent: null,
+    })
+    expect(normalized.resources[0].usageGenerationUnverified).toBeUndefined()
+    expect(normalized.summary.avgLPScore).toBeNull()
+  })
+
   it('READY: copies serve_state / analysis_complete / failedAnalyzers / integrityReason / counts_are_partial', () => {
     const normalized = normalizeLPResponse({
       serve_state: 'READY',
