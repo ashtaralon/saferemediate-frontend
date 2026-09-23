@@ -1,0 +1,102 @@
+import { afterEach, describe, expect, it, vi } from "vitest"
+import { NextRequest } from "next/server"
+
+import { GET } from "@/app/api/proxy/iam-roles/[roleName]/gap-analysis/route"
+
+const TOKEN = "fixture-service-token-0123456789abcdef"
+const ROLE = "cyntro-tb-prod-web-role"
+
+function request(headers: Record<string, string> = {}) {
+  return new NextRequest(
+    `http://localhost/api/proxy/iam-roles/${ROLE}/gap-analysis?days=365`,
+    { headers },
+  )
+}
+
+function call(incoming = request()) {
+  return GET(incoming, { params: Promise.resolve({ roleName: ROLE }) })
+}
+
+function backend(status: number, payload: unknown) {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    text: async () => JSON.stringify(payload),
+    json: async () => payload,
+  } as Response
+}
+
+afterEach(() => {
+  delete process.env.CYNTRO_SERVICE_TOKEN
+  delete process.env.BACKEND_URL_OVERRIDE
+  vi.unstubAllGlobals()
+  vi.restoreAllMocks()
+})
+
+describe("clicked IAM gap-analysis proxy", () => {
+  it("refuses locally when the service token is absent and does not call the backend", async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+
+    const res = await call()
+    const body = await res.json()
+
+    expect(res.status).toBe(503)
+    expect(body.error_code).toBe("DEPLOYMENT_SERVICE_TOKEN_NOT_CONFIGURED")
+    expect(body.origin).toBe("proxy")
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it("sends the service token and keeps a backend 401", async () => {
+    process.env.CYNTRO_SERVICE_TOKEN = TOKEN
+    process.env.BACKEND_URL_OVERRIDE = "http://backend.test"
+    const fetchMock = vi.fn(async () => backend(401, { detail: "service authentication required" }))
+    vi.stubGlobal("fetch", fetchMock)
+
+    const res = await call()
+
+    expect(res.status).toBe(401)
+    expect(await res.json()).toEqual({ detail: "service authentication required" })
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe(`http://backend.test/api/iam-roles/${ROLE}/gap-analysis?days=365`)
+    expect((init.headers as Record<string, string>)["X-Cyntro-Service-Token"]).toBe(TOKEN)
+  })
+
+  it("keeps a backend 503 instead of collapsing it to 502", async () => {
+    process.env.CYNTRO_SERVICE_TOKEN = TOKEN
+    process.env.BACKEND_URL_OVERRIDE = "http://backend.test"
+    const fetchMock = vi.fn(async () => backend(503, {
+      detail: { code: "REVIEW_RUNTIME_UNAVAILABLE", message: "Permission detail is not served." },
+    }))
+    vi.stubGlobal("fetch", fetchMock)
+
+    const res = await call()
+    const body = await res.json()
+
+    expect(res.status).toBe(503)
+    expect(body.detail.code).toBe("REVIEW_RUNTIME_UNAVAILABLE")
+  })
+
+  it("passes a populated review and a measured-empty review through unchanged", async () => {
+    process.env.CYNTRO_SERVICE_TOKEN = TOKEN
+    process.env.BACKEND_URL_OVERRIDE = "http://backend.test"
+    const populated = { summary: { used_count: 6, unused_count: 4, data_confidence: "OBSERVED" } }
+    const empty = { summary: { used_count: 0, unused_count: 0, data_confidence: "OBSERVED" } }
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(backend(200, populated))
+      .mockResolvedValueOnce(backend(200, empty))
+    vi.stubGlobal("fetch", fetchMock)
+
+    expect(await (await call()).json()).toEqual(populated)
+    expect(await (await call()).json()).toEqual(empty)
+  })
+
+  it("passes an unmeasured review through with null counts", async () => {
+    process.env.CYNTRO_SERVICE_TOKEN = TOKEN
+    process.env.BACKEND_URL_OVERRIDE = "http://backend.test"
+    const unknown = { summary: { used_count: null, unused_count: null, data_confidence: "UNKNOWN" } }
+    vi.stubGlobal("fetch", vi.fn(async () => backend(200, unknown)))
+
+    expect(await (await call()).json()).toEqual(unknown)
+  })
+})

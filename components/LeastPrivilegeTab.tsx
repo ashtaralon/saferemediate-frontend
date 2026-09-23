@@ -756,8 +756,10 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       console.log('[IAM] Fetching gap analysis for:', roleName)
       const response = await fetch(`/api/proxy/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=365`)
       if (!response.ok) {
-        console.error('[IAM] Gap analysis fetch failed:', response.status)
-        return null
+        const errorData = await response.json().catch(() => null)
+        const copy = reviewRefusalCopy(refusalFromPreviewBody(response.status, errorData))
+        console.error('[IAM] Gap analysis fetch failed:', response.status, copy.title)
+        throw new Error(copy.title)
       }
       const data = await response.json()
       console.log('[IAM] Got gap analysis:', {
@@ -4643,7 +4645,7 @@ function RulesTab({
             }
           }
           
-          // Direct fetch
+          // Direct fetch. The cached helper already throws a refusal title.
           const res = await fetch(`/api/proxy/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=365`)
           if (res.ok) {
             const data = await res.json()
@@ -4655,12 +4657,14 @@ function RulesTab({
             })
             setIamGapData(data)
           } else {
-            console.error('[RulesTab] IAM fetch failed:', res.status)
-            setError(`Failed to load IAM data: ${res.status}`)
+            const errorData = await res.json().catch(() => null)
+            const copy = reviewRefusalCopy(refusalFromPreviewBody(res.status, errorData))
+            console.error('[RulesTab] IAM fetch failed:', res.status, copy.title)
+            setError(copy.title)
           }
         } catch (err) {
           console.error('[RulesTab] Failed to fetch IAM data:', err)
-          setError('Failed to load IAM permissions')
+          setError(err instanceof Error && err.message ? err.message : 'Failed to load IAM permissions')
         } finally {
           setLoading(false)
         }
