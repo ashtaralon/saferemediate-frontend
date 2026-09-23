@@ -102,7 +102,7 @@ const PARTIAL_WITH_GRAPH = graphFixture.composed.partial_with_truncated_graph
 
 describe("identity endpoints bind to canvas chips only by scoped identity", () => {
   it("does not turn a protected resource's display-name collision into a canvas attachment", () => {
-    const extra = { id: "unrelated-key", name: "webshop-data-key", type: "KMS", account_id: TOPOLOGY.account_id,
+    const extra = { id: "unrelated-key", name: "webshop-data-key", type: "KMSKey", account_id: TOPOLOGY.account_id,
       region: TOPOLOGY.region, vpc_id: TOPOLOGY.vpc_id }
     const lens = buildIdentityLensForPayload({ ...TOPOLOGY, identity_access: READY_WITH_GRAPH } as any,
       { topologyNodes: [...topologyNodes, extra] })
@@ -139,13 +139,44 @@ describe("identity endpoints bind to canvas chips only by scoped identity", () =
     const grant = block.identity_graph.edges.find((edge: any) => edge.family === "RESOURCE_POLICY_GRANT" && edge.source?.arn?.includes(":kms:"))
     grant.source.resource_uid = "key-chip"
     grant.source.name = "renamed key"
-    const keyChip = { id: "key-chip", name: "old key label", type: "KMS", account_id: TOPOLOGY.account_id,
+    const keyChip = { id: "key-chip", name: "old key label", type: "KMSKey", account_id: TOPOLOGY.account_id,
       region: TOPOLOGY.region, vpc_id: TOPOLOGY.vpc_id }
     const lensForKey = () => buildIdentityLensForPayload({ ...TOPOLOGY, identity_access: block } as any,
       { topologyNodes: [keyChip] })
     expect(lensForKey().nodes.find(node => node.id === "key-chip")?.onCanvas).toBe(true)
     grant.source.arn = "arn:aws:kms:eu-west-1:999988887777:key/1111-2222"
     expect(lensForKey().nodes.find(node => node.id === "key-chip")).toBeUndefined()
+  })
+
+  it.each([
+    ["kms:key-authorization", "arn:aws:kms:eu-west-1:416651950952:key/1111-2222", "KMSKey"],
+    ["lambda:function-authorization", "arn:aws:lambda:eu-west-1:416651950952:function:web-policy-target", "Lambda"],
+    ["ec2:vpc-endpoint-authorization", "arn:aws:ec2:eu-west-1:416651950952:vpc-endpoint/vpce-0123", "VPCEndpoint"],
+  ])("binds the producer's %s protected-resource source to an exact %s chip", (grantType, targetArn, nodeType) => {
+    // resource_grant_edges() emits an ARN-only protected_resource source and
+    // a typed authorization-record target, with grant_resource_type on edge.
+    const block = structuredClone(READY_WITH_GRAPH) as any
+    const grant = block.identity_graph.edges.find((edge: any) => edge.family === "RESOURCE_POLICY_GRANT" && edge.grant_resource_type === "kms:key-authorization")
+    grant.grant_resource_type = grantType
+    grant.source = { node_kind: "protected_resource", arn: targetArn, name: "policy target", resource_uid: null,
+      resolved: false, unresolved_reason: null }
+    grant.target = { node_kind: "protected_resource", arn: targetArn, name: "policy record",
+      resource_uid: `aws:${grantType}:416651950952:grant`, resource_type: grantType,
+      region: "eu-west-1", protects_arn: targetArn }
+    const chip = { id: targetArn, name: "canvas resource", type: nodeType,
+      account_id: TOPOLOGY.account_id, region: TOPOLOGY.region, vpc_id: TOPOLOGY.vpc_id }
+    const lensWith = (nodes: Array<typeof chip>) => buildIdentityLensForPayload(
+      { ...TOPOLOGY, identity_access: block } as any, { topologyNodes: nodes })
+    expect(lensWith([chip]).edges.some(edge => edge.family === "RESOURCE_POLICY_GRANT" && edge.sourceId === targetArn)).toBe(true)
+    expect(lensWith([{ ...chip, account_id: "999988887777" }]).edges.some(edge => edge.sourceId === targetArn)).toBe(false)
+    expect(lensWith([{ ...chip, vpc_id: "vpc-foreign" }]).edges.some(edge => edge.sourceId === targetArn)).toBe(false)
+    expect(lensWith([{ ...chip, type: "EC2" }]).edges.some(edge => edge.sourceId === targetArn)).toBe(false)
+    expect(lensWith([chip, { ...chip, name: "ambiguous twin" }]).edges.some(edge => edge.sourceId === targetArn)).toBe(false)
+    if (grantType === "ec2:vpc-endpoint-authorization") {
+      const instanceArn = "arn:aws:ec2:eu-west-1:416651950952:instance/i-0123"
+      grant.source.arn = instanceArn
+      expect(lensWith([{ ...chip, id: instanceArn }]).edges.some(edge => edge.sourceId === instanceArn)).toBe(false)
+    }
   })
 })
 

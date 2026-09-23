@@ -2581,6 +2581,31 @@ interface TopologyRef {
   arn?: string | null
 }
 
+// These are the producer's resource_grant_edges() resource_type values and
+// their inventory sibling labels (resource_manifest.py). In particular an
+// EC2-service grant is a VPC endpoint policy, not an EC2 instance; Lambda is
+// also a protected resource when its resource policy is the subject.
+const GRANT_CANVAS_TYPES: Record<string, readonly string[]> = {
+  "ec2:vpc-endpoint-authorization": ["vpcendpoint", "vpce"],
+  "events:event-bus-authorization": ["eventbus"],
+  "kms:key-authorization": ["kmskey"],
+  "lambda:function-authorization": ["lambda", "lambdafunction"],
+  "s3:bucket-authorization": ["s3", "s3bucket"],
+  "secretsmanager:secret-authorization": ["secret", "secretsmanagersecret"],
+  "sns:topic-authorization": ["sns", "snstopic"],
+  "sqs:queue-authorization": ["sqs", "sqsqueue"],
+}
+const GRANT_ARN_SERVICES: Record<string, string> = {
+  "ec2:vpc-endpoint-authorization": "ec2",
+  "events:event-bus-authorization": "events",
+  "kms:key-authorization": "kms",
+  "lambda:function-authorization": "lambda",
+  "s3:bucket-authorization": "s3",
+  "secretsmanager:secret-authorization": "secretsmanager",
+  "sns:topic-authorization": "sns",
+  "sqs:queue-authorization": "sqs",
+}
+
 /**
  * Build the lens.
  *
@@ -2775,13 +2800,15 @@ export function buildIdentityLens(
     }
   }
 
-  const resolveTopology = (endpoint: IdentityGraphEndpoint | IdentityGraphNode): TopologyRef | null => {
+  const resolveTopology = (endpoint: IdentityGraphEndpoint | IdentityGraphNode, edgeExtra: Record<string, unknown>): TopologyRef | null => {
     const arn = endpoint.arn
     const producerVpc = typeof endpoint.extra.vpc_id === "string" ? endpoint.extra.vpc_id : null
     const producerRegion = typeof endpoint.extra.region === "string" ? endpoint.extra.region : null
     const arnParts = arn?.split(":")
     const service = arnParts?.[2] ?? null
     const arnAccount = arnParts?.[4] ?? null
+    const grantType = typeof endpoint.extra.resource_type === "string" ? endpoint.extra.resource_type
+      : typeof edgeExtra.grant_resource_type === "string" ? edgeExtra.grant_resource_type : null
     const compatible = (node: TopologyRef): boolean => {
       // A graph node is account-wide, but a canvas chip belongs to a selected
       // workload scope. Never bind across an account, VPC or known region.
@@ -2792,15 +2819,23 @@ export function buildIdentityLens(
       if (endpoint.node_kind === "workload" && view.scope.vpc_id && node.vpc_id !== view.scope.vpc_id) return false
       if (producerVpc && node.vpc_id !== producerVpc) return false
       if (producerRegion && node.region && node.region !== producerRegion) return false
+      const arnRegion = arnParts?.[3]
+      if (arnRegion && node.region !== arnRegion) return false
       const type = node.type?.toLowerCase() ?? ""
-      if (endpoint.node_kind === "workload" && !["ec2", "lambda", "ecs", "eks", "fargate"].includes(type)) return false
-      if (endpoint.node_kind === "protected_resource" && ["ec2", "lambda", "ecs", "eks", "fargate"].includes(type)) return false
-      if (service === "s3" && type !== "s3") return false
-      if (service === "kms" && type !== "kms") return false
-      if (service === "dynamodb" && type !== "dynamodb") return false
-      if (service === "rds" && type !== "rds") return false
-      if (service === "lambda" && type !== "lambda") return false
-      if (service === "ec2" && type !== "ec2") return false
+      if (endpoint.node_kind === "workload") {
+        if (!["ec2", "ec2instance", "lambda", "lambdafunction", "ecs", "eks", "fargate", "rds", "rdsinstance"].includes(type)) return false
+        if (service === "lambda" && !["lambda", "lambdafunction"].includes(type)) return false
+        if (service === "ec2" && !["ec2", "ec2instance"].includes(type)) return false
+      } else if (endpoint.node_kind === "protected_resource") {
+        // A grant's producer type disambiguates the overloaded ARN service.
+        // Unknown types stay as identity anchors; an exact ID alone cannot
+        // turn an EC2 instance into a VPC endpoint or a key into a function.
+        if (!grantType) return false
+        const allowed = GRANT_CANVAS_TYPES[grantType]
+        if (!allowed?.includes(type)) return false
+        if (service && GRANT_ARN_SERVICES[grantType] !== service) return false
+        if (grantType === "ec2:vpc-endpoint-authorization" && arn && !arn.includes(":vpc-endpoint/")) return false
+      }
       return true
     }
     // Resource UID and ARN are identities. A display name is not: two resources
@@ -2816,7 +2851,7 @@ export function buildIdentityLens(
     const bucketName = arn?.match(/^arn:[^:]+:s3:::([^/]+)$/)?.[1]
     if (endpoint.node_kind === "protected_resource" && bucketName) {
       const buckets = options.topologyNodes.filter(node => compatible(node) &&
-        node.type?.toLowerCase() === "s3" && node.name === bucketName)
+        ["s3", "s3bucket"].includes(node.type?.toLowerCase() ?? "") && node.name === bucketName)
       if (buckets.length === 1) return buckets[0]
     }
     return null
@@ -3010,7 +3045,7 @@ export function buildIdentityLens(
     }
     if (lensKind === "workload") {
       const key = endpoint.resource_uid ?? endpoint.arn ?? endpoint.name ?? "workload"
-      const onCanvas = resolveTopology({ ...endpoint, extra })
+      const onCanvas = resolveTopology({ ...endpoint, extra }, edgeExtra)
       const id = onCanvas ? onCanvas.id : identityAnchorId("workload", key)
       return upsert(
         blank(id, "workload", onCanvas?.name ?? endpoint.name ?? key, {
@@ -3021,7 +3056,7 @@ export function buildIdentityLens(
       )
     }
     // protected_resource
-    const onCanvas = resolveTopology({ ...endpoint, extra })
+    const onCanvas = resolveTopology({ ...endpoint, extra }, edgeExtra)
     const isAuthorizationRecord = typeof extra.protects_arn === "string" || typeof extra.resource_type === "string"
     if (isAuthorizationRecord) {
       const id = identityAnchorId("resource_policy", endpoint.resource_uid ?? endpoint.arn ?? endpoint.name ?? "grant")
