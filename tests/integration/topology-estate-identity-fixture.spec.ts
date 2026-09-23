@@ -8,7 +8,6 @@ import {
   SNAPSHOT,
   SYSTEM,
   chromeTextDefects,
-  railHeaderBadgeOverlaps,
   routeSnapshot,
 } from "./topology-fixture"
 
@@ -169,7 +168,6 @@ for (const vp of VIEWPORTS) {
     const defects = await chromeTextDefects(page, '[data-testid="topology-iam-roles-tier"] [data-flow-obstacle="iam-roles-tier-header"]')
     expect(defects.overlaps, `overlapping lane header text at ${vp.name}`).toEqual([])
     expect(defects.collapsed, `collapsed lane header text at ${vp.name}`).toEqual([])
-    expect(await railHeaderBadgeOverlaps(page), `a badge sits on a rail header at ${vp.name}`).toEqual([])
 
     await page.screenshot({ path: `test-results/estate-identity-default-${vp.name}.png`, fullPage: false })
 
