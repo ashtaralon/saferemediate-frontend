@@ -1493,6 +1493,19 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
   const selectedRailId = selectedNodeId
 
   const mapVpcTopology = scopedVpcTopology ?? data.vpc_topology
+  const identityLensActive = view === "identity"
+  const identityPlacementUnavailable = identityLensActive && !data.vpc_topology && !fullSystemPayload?.vpc_topology
+  // Identity relationships can still be shown when the VPC scaffold is absent.
+  // This empty placement frame claims no AZ, subnet or VPC location.
+  const identityMapTopology = identityPlacementUnavailable ? {
+    region: data.selected_region_id ?? data.region ?? null,
+    account_id: data.selected_account_id ?? data.account_id ?? null,
+    vpc_id: null,
+    azs: [],
+    subnets: [],
+    edges: { igws: [], nat_gws: [], vpces: [] },
+    unknown_subnet_count: 0,
+  } : mapVpcTopology
   const selectMapNode = (id: string) => {
     const nextId = id === selectedNodeId ? null : id
     setSelectedNodeId(nextId)
@@ -1510,10 +1523,15 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
   // zoom/pan and selection. Traffic-only inputs (traffic edges, authority,
   // attack-path count, the flow-mode toggle) are withheld so a traffic claim
   // never rides on the identity canvas.
-  const identityLensActive = view === "identity"
-  const renderMap = (presentationMode: boolean, scale = 1, densityCollapsedArg = false) => (mapVpcTopology ? (
+  const renderMap = (presentationMode: boolean, scale = 1, densityCollapsedArg = false) => (identityMapTopology ? (
+    <>
+    {identityPlacementUnavailable ? (
+      <div data-testid="identity-placement-unavailable" className="px-3 py-2 text-xs" style={{ color: "#92400E", background: "#FFFBEB" }}>
+        VPC placement is unavailable for this reading. Identity relationships are shown without an AZ or subnet claim.
+      </div>
+    ) : null}
     <AwsFrame
-      vpcTopology={mapVpcTopology}
+      vpcTopology={identityMapTopology}
       nodes={filteredNodes}
       mergedVpcView={!scopedVpc}
       hiddenAzs={hiddenAzs}
@@ -1538,6 +1556,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
       systemLabel={systemName}
       identityLens={identityLensActive ? identityFrame : undefined}
     />
+    </>
   ) : (
     <CanvasPane
       vpcId={data.vpc_id}

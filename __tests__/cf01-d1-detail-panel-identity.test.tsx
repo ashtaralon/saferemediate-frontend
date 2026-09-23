@@ -27,8 +27,30 @@ import {
 } from "@/components/topology-v0-2/estate-identity-access-model"
 import { identityNodeAsTopologyNode } from "@/components/topology-v0-2/estate-identity-plane"
 
-import graphFixture from "./fixtures/cf01-d1/estate-identity-graph-6e08d6b2.json"
+import historicalGraphFixture from "./fixtures/cf01-d1/estate-identity-graph-6e08d6b2.json"
 import { estatePayload } from "./fixtures/cf01-d1/network-fixture"
+
+// The captured graph predates the producer's explicit account-scope field.
+// Give positive rendering tests a same-generation scope; negative tests use
+// the original historical bytes below to prove an unbound graph is withheld.
+const scopedHistoricalBlock = (block: any) => ({
+  ...block,
+  identity_graph: { ...block.identity_graph, scope: {
+    level: "account", customer_id: block.scope.customer_id,
+    account_id: block.scope.account_id,
+    inventory_generation: block.inventory_authority.generation,
+    region: null, system_name: null, vpc_id: null,
+  } },
+})
+const graphFixture = {
+  ...historicalGraphFixture,
+  composed: {
+    ...historicalGraphFixture.composed,
+    ready_with_graph: scopedHistoricalBlock(historicalGraphFixture.composed.ready_with_graph),
+    partial_with_truncated_graph: scopedHistoricalBlock(historicalGraphFixture.composed.partial_with_truncated_graph),
+    empty_authoritative_with_empty_graph: scopedHistoricalBlock(historicalGraphFixture.composed.empty_authoritative_with_empty_graph),
+  },
+} as typeof historicalGraphFixture
 
 const fetchSpy = vi.fn()
 
@@ -48,7 +70,7 @@ afterEach(() => cleanup())
 
 const payload = { ...estatePayload(), identity_access: graphFixture.composed.ready_with_graph } as any
 const lens = buildIdentityLensForPayload(payload, {
-  topologyNodes: payload.nodes.map((n: any) => ({ id: n.id, name: n.name, type: n.type })),
+  topologyNodes: payload.nodes.map((n: any) => ({ ...n })),
 })
 
 describe("CF01-D1 · DetailPanel reused for identity selections", () => {

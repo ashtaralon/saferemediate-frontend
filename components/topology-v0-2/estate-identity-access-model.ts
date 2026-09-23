@@ -2138,7 +2138,16 @@ export function buildIdentityGraphView(raw: unknown): IdentityGraphView {
  * system and VPC remain workload filters and never narrow an account graph.
  * Historical payloads without this field remain explicitly unproven. */
 function bindIdentityGraphScope(view: IdentityView, graph: IdentityGraphView): IdentityGraphView {
-  if (!identityGraphWasRead(graph) || graph.scope === null) return graph
+  if (!identityGraphWasRead(graph)) return graph
+  if (graph.scope === null) {
+    const detail = "The identity graph did not name its tenant, account and inventory generation. " +
+      "Its relationships are withheld; independently verified workload bindings may still be shown."
+    return graphShell("invalid", "Identity graph scope unproven.", detail, {
+      contractVersion: graph.contractVersion,
+      scopeStatus: "unproven",
+      gaps: [{ code: "IDENTITY_GRAPH_SCOPE_UNPROVEN", detail }],
+    })
+  }
   const inventory = view.receipts.find(item => item.label === INVENTORY_AUTHORITY_LABEL)
   const mismatches: string[] = []
   if (graph.scope.customer_id !== view.scope?.customer_id) mismatches.push("customer_id")
@@ -2566,6 +2575,10 @@ interface TopologyRef {
   id: string
   name: string
   type: string | null
+  account_id?: string | null
+  region?: string | null
+  vpc_id?: string | null
+  arn?: string | null
 }
 
 /**
@@ -2581,12 +2594,6 @@ export function buildIdentityLens(
   options: { topologyNodes: readonly TopologyRef[] },
 ): IdentityLens {
   graph = bindIdentityGraphScope(view, graph)
-  const topologyById = new Map<string, TopologyRef>()
-  const topologyByName = new Map<string, TopologyRef>()
-  for (const item of options.topologyNodes) {
-    topologyById.set(item.id, item)
-    if (item.name) topologyByName.set(item.name, item)
-  }
 
   const nodes = new Map<string, IdentityLensNode>()
   const edges: IdentityLensEdge[] = []
@@ -2676,10 +2683,15 @@ export function buildIdentityLens(
     )
 
     for (const workloadId of [...role.workload_ids].sort()) {
-      const onCanvas = topologyById.has(workloadId)
+      const workloadMatches = options.topologyNodes.filter(node => node.id === workloadId &&
+        node.account_id === view.scope?.account_id &&
+        (!view.scope?.vpc_id || node.vpc_id === view.scope.vpc_id) &&
+        ["ec2", "lambda", "ecs", "eks", "fargate", "rds"].includes(node.type?.toLowerCase() ?? ""))
+      const canvasWorkload = workloadMatches.length === 1 ? workloadMatches[0] : null
+      const onCanvas = canvasWorkload !== null
       const workloadNodeId = onCanvas ? workloadId : identityAnchorId("workload", workloadId)
       upsert(
-        blank(workloadNodeId, "workload", topologyById.get(workloadId)?.name ?? workloadId, {
+        blank(workloadNodeId, "workload", canvasWorkload?.name ?? workloadId, {
           onCanvas,
           sublabel: onCanvas ? null : "not on this canvas scope",
           facts: onCanvas ? [] : ["bound in the canonical generation; outside the drawn scope"],
@@ -2763,14 +2775,49 @@ export function buildIdentityLens(
     }
   }
 
-  const resolveTopology = (endpoint: { arn: string | null; name: string | null; resource_uid: string | null; extra?: Record<string, unknown> }): TopologyRef | null => {
-    const protects = typeof endpoint.extra?.protects_arn === "string" ? endpoint.extra.protects_arn : null
-    for (const key of [endpoint.resource_uid, endpoint.arn, protects, endpoint.name]) {
-      if (!key) continue
-      const byId = topologyById.get(key)
-      if (byId) return byId
-      const byName = topologyByName.get(key)
-      if (byName) return byName
+  const resolveTopology = (endpoint: IdentityGraphEndpoint | IdentityGraphNode): TopologyRef | null => {
+    const arn = endpoint.arn
+    const producerVpc = typeof endpoint.extra.vpc_id === "string" ? endpoint.extra.vpc_id : null
+    const producerRegion = typeof endpoint.extra.region === "string" ? endpoint.extra.region : null
+    const arnParts = arn?.split(":")
+    const service = arnParts?.[2] ?? null
+    const arnAccount = arnParts?.[4] ?? null
+    const compatible = (node: TopologyRef): boolean => {
+      // A graph node is account-wide, but a canvas chip belongs to a selected
+      // workload scope. Never bind across an account, VPC or known region.
+      if (!view.scope?.account_id || node.account_id !== view.scope.account_id) return false
+      if (arnAccount && /^\d{12}$/.test(arnAccount) && arnAccount !== view.scope.account_id) return false
+      if (typeof endpoint.extra.account_id === "string" && endpoint.extra.account_id !== view.scope.account_id) return false
+      if (view.scope.vpc_id && node.vpc_id && node.vpc_id !== view.scope.vpc_id) return false
+      if (endpoint.node_kind === "workload" && view.scope.vpc_id && node.vpc_id !== view.scope.vpc_id) return false
+      if (producerVpc && node.vpc_id !== producerVpc) return false
+      if (producerRegion && node.region && node.region !== producerRegion) return false
+      const type = node.type?.toLowerCase() ?? ""
+      if (endpoint.node_kind === "workload" && !["ec2", "lambda", "ecs", "eks", "fargate"].includes(type)) return false
+      if (endpoint.node_kind === "protected_resource" && ["ec2", "lambda", "ecs", "eks", "fargate"].includes(type)) return false
+      if (service === "s3" && type !== "s3") return false
+      if (service === "kms" && type !== "kms") return false
+      if (service === "dynamodb" && type !== "dynamodb") return false
+      if (service === "rds" && type !== "rds") return false
+      if (service === "lambda" && type !== "lambda") return false
+      if (service === "ec2" && type !== "ec2") return false
+      return true
+    }
+    // Resource UID and ARN are identities. A display name is not: two resources
+    // can share one, and a same-named service of another kind is not this edge.
+    const exact = options.topologyNodes.filter(node => compatible(node) &&
+      (node.id === endpoint.resource_uid || (arn !== null && (node.id === arn || node.arn === arn))))
+    if (exact.length === 1) return exact[0]
+    if (exact.length > 1) return null
+
+    // A bucket ARN contains its globally unique bucket name. This is a typed
+    // ARN match, not a generic display-name fallback, and still requires one
+    // account-compatible S3 chip in the selected canvas scope.
+    const bucketName = arn?.match(/^arn:[^:]+:s3:::([^/]+)$/)?.[1]
+    if (endpoint.node_kind === "protected_resource" && bucketName) {
+      const buckets = options.topologyNodes.filter(node => compatible(node) &&
+        node.type?.toLowerCase() === "s3" && node.name === bucketName)
+      if (buckets.length === 1) return buckets[0]
     }
     return null
   }
@@ -3418,13 +3465,13 @@ export function buildIdentityIndicator(view: IdentityView, graph: IdentityGraphV
     graphScopeLine: graph.scopeStatus === "matched" && graph.scope
       ? `Identity graph: account-wide · ${graph.scope.account_id}`
       : graph.scopeStatus === "invalid" ? "Identity graph scope invalid — graph withheld"
-        : identityGraphWasRead(graph) ? "Identity graph scope unproven"
+        : graph.scopeStatus === "unproven" ? "Identity graph scope unproven — relationships withheld"
           : "Identity graph scope unavailable",
     graphScopeDetail: graph.scopeStatus === "matched"
       ? "Matches the inventory tenant, account and generation. These relationships are not filtered by the selected region, system or VPC."
       : graph.scopeStatus === "invalid" ? graph.detail
-        : identityGraphWasRead(graph)
-          ? "This legacy snapshot does not declare the graph scope. Selected workload filters are not verified for these relationships."
+        : graph.scopeStatus === "unproven"
+          ? "This legacy snapshot does not declare its tenant, account or generation. Its graph relationships are withheld."
           : "No readable graph scope is available on this snapshot.",
     familiesAvailable: matrixKnown ? view.capabilities.filter(row => row.status === "available").length : null,
     familiesTotal: matrixKnown ? view.capabilities.length : null,

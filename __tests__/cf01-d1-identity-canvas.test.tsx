@@ -38,9 +38,31 @@ import type { IdentityLensFrameProps } from "@/components/topology-v0-2/estate-i
 import { identityChipSubtitle } from "@/components/topology-v0-2/estate-identity-plane"
 
 import v1 from "./fixtures/estate-identity-access.json"
-import graphFixture from "./fixtures/cf01-d1/estate-identity-graph-6e08d6b2.json"
+import historicalGraphFixture from "./fixtures/cf01-d1/estate-identity-graph-6e08d6b2.json"
 import fCandidate from "./fixtures/cf01-d1/estate-identity-graph-F-candidate.json"
 import { estatePayload, installLayoutStub } from "./fixtures/cf01-d1/network-fixture"
+
+// The captured graph predates the producer's explicit account-scope field.
+// Give positive rendering tests a same-generation scope; negative tests use
+// the original historical bytes below to prove an unbound graph is withheld.
+const scopedHistoricalBlock = (block: any) => ({
+  ...block,
+  identity_graph: { ...block.identity_graph, scope: {
+    level: "account", customer_id: block.scope.customer_id,
+    account_id: block.scope.account_id,
+    inventory_generation: block.inventory_authority.generation,
+    region: null, system_name: null, vpc_id: null,
+  } },
+})
+const graphFixture = {
+  ...historicalGraphFixture,
+  composed: {
+    ...historicalGraphFixture.composed,
+    ready_with_graph: scopedHistoricalBlock(historicalGraphFixture.composed.ready_with_graph),
+    partial_with_truncated_graph: scopedHistoricalBlock(historicalGraphFixture.composed.partial_with_truncated_graph),
+    empty_authoritative_with_empty_graph: scopedHistoricalBlock(historicalGraphFixture.composed.empty_authoritative_with_empty_graph),
+  },
+} as typeof historicalGraphFixture
 
 let restoreLayout: () => void = () => {}
 
@@ -70,9 +92,13 @@ const TRULY_EMPTY_GRAPH = {
 }
 
 function lensFor(identityAccess: unknown, focusedNodeId: string | null = null, hops = 2) {
-  const payload = { ...estatePayload(), identity_access: identityAccess } as any
+  const block = identityAccess as any
+  const positiveBlock = block?.identity_graph && ["ready", "partial"].includes(block.identity_graph.status) &&
+    block.identity_graph.scope === undefined && block.scope?.account_id && block.inventory_authority?.generation !== undefined
+    ? scopedHistoricalBlock(block) : identityAccess
+  const payload = { ...estatePayload(), identity_access: positiveBlock } as any
   const lens = buildIdentityLensForPayload(payload, {
-    topologyNodes: payload.nodes.map((n: any) => ({ id: n.id, name: n.name, type: n.type })),
+    topologyNodes: payload.nodes.map((n: any) => ({ ...n })),
   })
   const bound = boundIdentityEdges(lens.edges, focusedNodeId, hops, 1000)
   const frame: IdentityLensFrameProps = {
@@ -752,7 +778,7 @@ describe("CF01-D1 · a selection reads as its own access, on the canvas", () => 
     restoreLayout = installLayoutStub()
     const payload = { ...estatePayload(), identity_access: READY_WITH_GRAPH } as any
     const lens = buildIdentityLensForPayload(payload, {
-      topologyNodes: payload.nodes.map((n: any) => ({ id: n.id, name: n.name, type: n.type })),
+      topologyNodes: payload.nodes.map((n: any) => ({ ...n })),
     })
     const role = lens.nodes.find(n => n.arn === "arn:aws:iam::416651950952:role/web")!
     // Bound with the SAME focus in both arms: the population is held fixed.

@@ -18,7 +18,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 
 import type { TopologyRiskResponse } from "@/components/topology-v0-2/types"
 
-import graphFixture from "./fixtures/cf01-d1/estate-identity-graph-6e08d6b2.json"
+import historicalGraphFixture from "./fixtures/cf01-d1/estate-identity-graph-6e08d6b2.json"
 import { estatePayload, installLayoutStub } from "./fixtures/cf01-d1/network-fixture"
 
 let topologyPayload: TopologyRiskResponse | null = null
@@ -82,6 +82,28 @@ vi.mock("@/components/inventory/resource-config-tab", () => ({
 }))
 
 import { EstateMapView } from "@/components/topology-v0-2/estate-map-view"
+
+// The captured graph predates the producer's explicit account-scope field.
+// Give positive rendering tests a same-generation scope; negative tests use
+// the original historical bytes below to prove an unbound graph is withheld.
+const scopedHistoricalBlock = (block: any) => ({
+  ...block,
+  identity_graph: { ...block.identity_graph, scope: {
+    level: "account", customer_id: block.scope.customer_id,
+    account_id: block.scope.account_id,
+    inventory_generation: block.inventory_authority.generation,
+    region: null, system_name: null, vpc_id: null,
+  } },
+})
+const graphFixture = {
+  ...historicalGraphFixture,
+  composed: {
+    ...historicalGraphFixture.composed,
+    ready_with_graph: scopedHistoricalBlock(historicalGraphFixture.composed.ready_with_graph),
+    partial_with_truncated_graph: scopedHistoricalBlock(historicalGraphFixture.composed.partial_with_truncated_graph),
+    empty_authoritative_with_empty_graph: scopedHistoricalBlock(historicalGraphFixture.composed.empty_authoritative_with_empty_graph),
+  },
+} as typeof historicalGraphFixture
 
 let restoreLayout: () => void = () => {}
 
@@ -236,6 +258,18 @@ describe("CF01-D1 · unavailable is not zero, in the view", () => {
 })
 
 describe("CF01-D1 · selection on the identity lens reuses the shared DetailPanel", () => {
+  it("keeps the identity plane and selection when VPC placement is unavailable", async () => {
+    topologyPayload = { ...withIdentity(graphFixture.composed.ready_with_graph), vpc_topology: null }
+    render(<EstateMapView systemName="testbed-webshop" defaultView="identity" />)
+    const warning = await screen.findByTestId("identity-placement-unavailable")
+    expect(warning.textContent).toMatch(/without an AZ or subnet claim/)
+    const plane = screen.getByTestId("identity-lens-plane")
+    const roleChip = plane.querySelector('[data-identity-kind="iam_role"] [data-flow-id]') as HTMLElement
+    expect(roleChip).not.toBeNull()
+    fireEvent.click(roleChip)
+    expect(await screen.findByTestId("topology-service-detail-panel")).toBeInTheDocument()
+  })
+
   it("clicking a role chip opens the same detail panel with the identity evidence section", async () => {
     await mount(graphFixture.composed.ready_with_graph)
     fireEvent.click(tab("Identity & access"))

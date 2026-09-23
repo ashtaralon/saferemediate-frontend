@@ -52,15 +52,41 @@ import {
 import { trafficMotionKind } from "@/components/topology-v0-2/aws-frame"
 
 import v1 from "./fixtures/estate-identity-access.json"
-import graphFixture from "./fixtures/cf01-d1/estate-identity-graph-6e08d6b2.json"
+import historicalGraphFixture from "./fixtures/cf01-d1/estate-identity-graph-6e08d6b2.json"
 import fCandidate from "./fixtures/cf01-d1/estate-identity-graph-F-candidate.json"
 import { estatePayload } from "./fixtures/cf01-d1/network-fixture"
 
+// The captured graph predates the producer's explicit account-scope field.
+// Give positive rendering tests a same-generation scope; negative tests use
+// the original historical bytes below to prove an unbound graph is withheld.
+const scopedHistoricalBlock = (block: any) => ({
+  ...block,
+  identity_graph: { ...block.identity_graph, scope: {
+    level: "account", customer_id: block.scope.customer_id,
+    account_id: block.scope.account_id,
+    inventory_generation: block.inventory_authority.generation,
+    region: null, system_name: null, vpc_id: null,
+  } },
+})
+const graphFixture = {
+  ...historicalGraphFixture,
+  composed: {
+    ...historicalGraphFixture.composed,
+    ready_with_graph: scopedHistoricalBlock(historicalGraphFixture.composed.ready_with_graph),
+    partial_with_truncated_graph: scopedHistoricalBlock(historicalGraphFixture.composed.partial_with_truncated_graph),
+    empty_authoritative_with_empty_graph: scopedHistoricalBlock(historicalGraphFixture.composed.empty_authoritative_with_empty_graph),
+  },
+} as typeof historicalGraphFixture
+
 const TOPOLOGY = estatePayload()
-const topologyNodes = TOPOLOGY.nodes.map(n => ({ id: n.id, name: n.name, type: n.type }))
+const topologyNodes = TOPOLOGY.nodes.map(n => ({ ...n }))
 
 function lensOf(identityAccess: unknown) {
-  const payload = { ...TOPOLOGY, identity_access: identityAccess } as any
+  const block = identityAccess as any
+  const positiveBlock = block?.identity_graph && ["ready", "partial"].includes(block.identity_graph.status) &&
+    block.identity_graph.scope === undefined && block.scope?.account_id && block.inventory_authority?.generation !== undefined
+    ? scopedHistoricalBlock(block) : identityAccess
+  const payload = { ...TOPOLOGY, identity_access: positiveBlock } as any
   return buildIdentityLensForPayload(payload, { topologyNodes })
 }
 
@@ -73,6 +99,55 @@ const TRULY_EMPTY_GRAPH = {
   identity_graph: { ...NODE_ONLY_ACCOUNT.identity_graph, nodes: [], nodes_total: 0 },
 }
 const PARTIAL_WITH_GRAPH = graphFixture.composed.partial_with_truncated_graph
+
+describe("identity endpoints bind to canvas chips only by scoped identity", () => {
+  it("does not turn a protected resource's display-name collision into a canvas attachment", () => {
+    const extra = { id: "unrelated-key", name: "webshop-data-key", type: "KMS", account_id: TOPOLOGY.account_id,
+      region: TOPOLOGY.region, vpc_id: TOPOLOGY.vpc_id }
+    const lens = buildIdentityLensForPayload({ ...TOPOLOGY, identity_access: READY_WITH_GRAPH } as any,
+      { topologyNodes: [...topologyNodes, extra] })
+    expect(lens.nodes.find(node => node.id === "unrelated-key")).toBeUndefined()
+    const kms = lens.nodes.find(node => node.arn === "arn:aws:kms:eu-west-1:416651950952:key/1111-2222")
+    expect(kms).toBeDefined()
+    expect(kms?.onCanvas).toBe(false)
+  })
+
+  it("binds the bucket's typed ARN only in its account and selected VPC", () => {
+    const bucket = topologyNodes.find(node => node.id === "bucket-assets")!
+    const sameName = (account_id: string, vpc_id: string) => ({ ...bucket, account_id, vpc_id })
+    const lensWith = (node: typeof bucket) => buildIdentityLensForPayload(
+      { ...TOPOLOGY, identity_access: READY_WITH_GRAPH } as any, { topologyNodes: [node] })
+    expect(lensWith(bucket).nodes.find(node => node.id === bucket.id)?.onCanvas).toBe(true)
+    expect(lensWith(sameName("999988887777", "vpc-1")).nodes.find(node => node.id === bucket.id)).toBeUndefined()
+    expect(lensWith(sameName(TOPOLOGY.account_id!, "vpc-foreign")).nodes.find(node => node.id === bucket.id)).toBeUndefined()
+    expect(lensWith({ ...bucket, type: "EC2" }).nodes.find(node => node.id === bucket.id)).toBeUndefined()
+  })
+
+  it("keeps a same-id workload off canvas when the node belongs to another account or VPC", () => {
+    const web = topologyNodes.find(node => node.id === "i-web")!
+    for (const foreign of [{ ...web, account_id: "999988887777" }, { ...web, vpc_id: "vpc-foreign" }, { ...web, type: "S3" }]) {
+      const lens = buildIdentityLensForPayload({ ...TOPOLOGY, identity_access: READY_WITH_GRAPH } as any,
+        { topologyNodes: [foreign] })
+      const binding = lens.edges.find(edge => edge.family === "WORKLOAD_USES_ROLE")!
+      expect(binding.sourceId).not.toBe("i-web")
+      expect(isIdentityAnchorId(binding.sourceId)).toBe(true)
+    }
+  })
+
+  it("uses an exact UID despite a changed display name, but refuses a foreign ARN", () => {
+    const block = structuredClone(READY_WITH_GRAPH) as any
+    const grant = block.identity_graph.edges.find((edge: any) => edge.family === "RESOURCE_POLICY_GRANT" && edge.source?.arn?.includes(":kms:"))
+    grant.source.resource_uid = "key-chip"
+    grant.source.name = "renamed key"
+    const keyChip = { id: "key-chip", name: "old key label", type: "KMS", account_id: TOPOLOGY.account_id,
+      region: TOPOLOGY.region, vpc_id: TOPOLOGY.vpc_id }
+    const lensForKey = () => buildIdentityLensForPayload({ ...TOPOLOGY, identity_access: block } as any,
+      { topologyNodes: [keyChip] })
+    expect(lensForKey().nodes.find(node => node.id === "key-chip")?.onCanvas).toBe(true)
+    grant.source.arn = "arn:aws:kms:eu-west-1:999988887777:key/1111-2222"
+    expect(lensForKey().nodes.find(node => node.id === "key-chip")).toBeUndefined()
+  })
+})
 
 describe("the producer's closed family set is the lens's closed family set", () => {
   it("mirrors scripts/estate_identity_graph.py EDGE_FAMILIES exactly", () => {

@@ -23,9 +23,36 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { EstateIdentityAccessTab } from "@/components/topology-v0-2/estate-identity-access-tab"
 
 import fixtures from "./fixtures/estate-identity-access.json"
-import graphFixture from "./fixtures/cf01-d1/estate-identity-graph-6e08d6b2.json"
+import historicalGraphFixture from "./fixtures/cf01-d1/estate-identity-graph-6e08d6b2.json"
 import { IdentityLensNotice } from "@/components/topology-v0-2/estate-identity-plane"
 import { buildIdentityLensForPayload } from "@/components/topology-v0-2/estate-identity-access-model"
+
+// The captured graph predates the producer's explicit account-scope field.
+// Give positive rendering tests a same-generation scope; negative tests use
+// the original historical bytes below to prove an unbound graph is withheld.
+const scopedHistoricalBlock = (block: any) => ({
+  ...block,
+  identity_graph: { ...block.identity_graph, scope: {
+    level: "account", customer_id: block.scope.customer_id,
+    account_id: block.scope.account_id,
+    inventory_generation: block.inventory_authority.generation,
+    region: null, system_name: null, vpc_id: null,
+  } },
+})
+const graphFixture = {
+  ...historicalGraphFixture,
+  composed: {
+    ...historicalGraphFixture.composed,
+    ready_with_graph: scopedHistoricalBlock(historicalGraphFixture.composed.ready_with_graph),
+    partial_with_truncated_graph: scopedHistoricalBlock(historicalGraphFixture.composed.partial_with_truncated_graph),
+    empty_authoritative_with_empty_graph: scopedHistoricalBlock(historicalGraphFixture.composed.empty_authoritative_with_empty_graph),
+  },
+} as typeof historicalGraphFixture
+
+const withPositiveGraphScope = (block: any) => block?.identity_graph &&
+  ["ready", "partial"].includes(block.identity_graph.status) && block.identity_graph.scope === undefined &&
+  block.scope?.account_id && block.inventory_authority?.generation !== undefined
+  ? scopedHistoricalBlock(block) : block
 
 // This producer fixture contains a standalone account despite its name.
 const NODE_ONLY_ACCOUNT = graphFixture.composed.empty_authoritative_with_empty_graph
@@ -88,8 +115,9 @@ function clearMatchMedia() {
 
 function renderTab(identityAccess?: unknown, { reduceMotion = false } = {}) {
   setReducedMotion(reduceMotion)
+  const positiveBlock = withPositiveGraphScope(identityAccess)
   const payload =
-    identityAccess === undefined ? TOPOLOGY : { ...TOPOLOGY, identity_access: identityAccess }
+    identityAccess === undefined ? TOPOLOGY : { ...TOPOLOGY, identity_access: positiveBlock }
   return render(<EstateIdentityAccessTab payload={payload} />)
 }
 
@@ -285,7 +313,7 @@ describe("the tab never renders a blank panel", () => {
     const block = TRULY_EMPTY_GRAPH
     const payload = { ...TOPOLOGY, identity_access: block } as any
     const lens = buildIdentityLensForPayload(payload, {
-      topologyNodes: (TOPOLOGY as any).nodes.map((n: any) => ({ id: n.id, name: n.name, type: n.type })),
+      topologyNodes: (TOPOLOGY as any).nodes.map((n: any) => ({ ...n })),
     })
     // The canvas the host really passes carries the plane's own notice.
     render(
@@ -319,8 +347,8 @@ describe("the tab never renders a blank panel", () => {
    */
   it("renders the shared canvas whenever the producer supplied graph data", () => {
     for (const block of [
-      fixtures.empty_authoritative, // zero roles, ready graph of 5 nodes / 13 edges
-      fixtures.ready,
+      withPositiveGraphScope(fixtures.empty_authoritative), // zero roles, ready graph of 5 nodes / 13 edges
+      withPositiveGraphScope(fixtures.ready),
       graphFixture.composed.ready_with_graph,
       graphFixture.composed.partial_with_truncated_graph,
     ]) {
@@ -361,7 +389,7 @@ describe("the tab never renders a blank panel", () => {
     ["empty roles + unread graph", () => graphFixture.composed.empty_authoritative_with_unread_graph, false],
   ])("either source alone is enough to draw: %s", (_label, block, expected) => {
     it(`renders the canvas: ${expected}`, () => {
-      const payload = { ...TOPOLOGY, identity_access: block() } as any
+      const payload = { ...TOPOLOGY, identity_access: withPositiveGraphScope(block()) } as any
       render(
         <EstateIdentityAccessTab
           payload={payload}
@@ -421,7 +449,12 @@ describe("the tab never renders a blank panel", () => {
       ...TOPOLOGY,
       identity_access: {
         ...(fixtures.empty_authoritative as any),
-        identity_graph: graphFixture.graph.users_without_credential_rows,
+        identity_graph: { ...graphFixture.graph.users_without_credential_rows, scope: {
+          level: "account", customer_id: fixtures.empty_authoritative.scope.customer_id,
+          account_id: fixtures.empty_authoritative.scope.account_id,
+          inventory_generation: fixtures.empty_authoritative.inventory_authority.generation,
+          region: null, system_name: null, vpc_id: null,
+        } },
       },
     } as any
     render(
@@ -445,7 +478,7 @@ describe("the tab never renders a blank panel", () => {
    * relationships, and those must still reach the map.
    */
   it("roles-empty does not hide a graph the producer actually supplied", () => {
-    const payload = { ...TOPOLOGY, identity_access: fixtures.empty_authoritative } as any
+    const payload = { ...TOPOLOGY, identity_access: withPositiveGraphScope(fixtures.empty_authoritative) } as any
     render(
       <EstateIdentityAccessTab
         payload={payload}
@@ -917,7 +950,7 @@ describe("scope, tenant and receipt binding", () => {
   })
 
   it("puts the shared canvas before the Evidence drawer and keeps receipts out of the first headline", () => {
-    const payload = { ...TOPOLOGY, identity_access: fixtures.ready } as any
+    const payload = { ...TOPOLOGY, identity_access: withPositiveGraphScope(fixtures.ready) } as any
     render(
       <EstateIdentityAccessTab
         payload={payload}
@@ -1109,11 +1142,12 @@ describe("separate workload and account graph scope labels", () => {
     expect(screen.getByTestId("identity-coverage-graph").textContent).toContain("relationships")
   })
 
-  it("shows legacy graph scope as unproven while retaining its graph", () => {
-    renderTab(graphFixture.composed.ready_with_graph)
-    expect(screen.getByTestId("identity-graph-scope-label").textContent).toBe("Identity graph scope unproven")
-    expect(screen.getByTestId("identity-graph-scope").textContent).toContain("Selected workload filters are not verified")
-    expect(screen.getByTestId("identity-coverage-graph").textContent).toContain("relationships")
+  it("shows legacy graph scope as unproven and withholds its relationships", () => {
+    render(<EstateIdentityAccessTab payload={{ ...TOPOLOGY, identity_access: historicalGraphFixture.composed.ready_with_graph }} />)
+    expect(screen.getByTestId("identity-graph-scope")).toHaveAttribute("data-scope-status", "unproven")
+    expect(screen.getByTestId("identity-graph-scope-label").textContent).toContain("Identity graph scope unproven")
+    expect(screen.getByTestId("identity-graph-scope").textContent).toContain("relationships are withheld")
+    expect(screen.getByTestId("identity-coverage-graph").textContent).toBe("identity graph invalid")
   })
 
   it("names a mismatched account graph as withheld without certifying its scope", () => {

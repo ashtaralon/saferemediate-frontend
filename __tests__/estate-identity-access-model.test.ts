@@ -1549,7 +1549,13 @@ describe("selected role attachments stay distinct from resource access", () => {
     "retains the selected %s endpoint through the actual served edge", async family => {
       const { buildIdentityLensForPayload, identityFocusedAccessPath } = await import("@/components/topology-v0-2/estate-identity-access-model")
       const graph = await import("./fixtures/cf01-d1/estate-identity-graph-6e08d6b2.json")
-      const lens = buildIdentityLensForPayload({ ...TOPOLOGY, identity_access: graph.default.composed.ready_with_graph } as any, { topologyNodes: [] })
+      const block = structuredClone(graph.default.composed.ready_with_graph) as any
+      block.identity_graph.scope = {
+        level: "account", customer_id: block.scope.customer_id, account_id: block.scope.account_id,
+        inventory_generation: block.inventory_authority.generation,
+        region: null, system_name: null, vpc_id: null,
+      }
+      const lens = buildIdentityLensForPayload({ ...TOPOLOGY, identity_access: block } as any, { topologyNodes: [] })
       const role = lens.nodes.find(node => node.kind === "iam_role" && node.label === "web")!
       expect(role).toBeDefined()
       const edge = lens.edges.find(item => item.family === family && (item.sourceId === role.id || item.targetId === role.id))!
@@ -1628,14 +1634,23 @@ describe("account graph scope versus selected workload scope", () => {
     expect(graph.edges).toEqual([])
   })
 
-  it("retains legacy relationships with scope explicitly unproven", () => {
+  it("withholds legacy relationships with scope explicitly unproven while keeping v1 bindings", () => {
     const block = scopedBlock()
     delete block.identity_graph.scope
     const view = buildIdentityView(payload(block)), graph = identityGraphViewForPayload(payload(block))
     expect(graph.scope).toBeNull()
     expect(graph.scopeStatus).toBe("unproven")
-    expect(graph.edges.length).toBeGreaterThan(0)
-    expect(buildIdentityIndicator(view, graph).graphScopeLine).toBe("Identity graph scope unproven")
+    expect(buildIdentityGraphView(block.identity_graph).edges.length).toBeGreaterThan(0)
+    expect(graph.edges).toEqual([])
+    expect(buildIdentityIndicator(view, graph).graphScopeLine).toBe("Identity graph scope unproven — relationships withheld")
+    const lens = buildIdentityLensForPayload(payload(block), { topologyNodes: [] })
+    expect(lens.graphState).toBe("invalid")
+    const { identity_graph: omitted, ...rolesOnly } = block
+    void omitted
+    const rolesLens = buildIdentityLensForPayload(payload(rolesOnly), { topologyNodes: [] })
+    expect(lens.edges.map(edge => edge.id)).toEqual(rolesLens.edges.map(edge => edge.id))
+    expect(lens.edges.length).toBeGreaterThan(0)
+    expect(lens.gaps.map(gap => gap.code)).toContain("IDENTITY_GRAPH_SCOPE_UNPROVEN")
   })
 
   it("preserves null scope on a genuinely unavailable graph", () => {
