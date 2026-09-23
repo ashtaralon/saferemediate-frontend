@@ -154,6 +154,14 @@ export function IAMSimulateFixModal({
     : SAFETY_STYLE[safety.decision]
   const severityStyle = SEVERITY_STYLE[resource.severity] || SEVERITY_STYLE.INFO
   const confidenceStyle = CONFIDENCE_STYLE[evidence.confidence] || CONFIDENCE_STYLE.unknown
+  const dataConfidence = evidence.visibility_signals?.data_confidence
+  // An installed role review only measured usage when confidence is OBSERVED.
+  // Older previews have no marker and retain their existing display.
+  const usageUnmeasured = dataConfidence != null && dataConfidence !== 'OBSERVED'
+  const booleanVisibilitySignals = Object.entries(evidence.visibility_signals || {}).filter(
+    (entry): entry is [string, boolean] => typeof entry[1] === 'boolean'
+  )
+  const familyScoresBefore = projected_effect.family_scores_before
 
   const totalPermissions = simulation.kept_permissions + simulation.removed_permissions
 
@@ -261,11 +269,11 @@ export function IAMSimulateFixModal({
                 <div className="grid grid-cols-3 gap-4 mb-3">
                   <Metric
                     label="Gap %"
-                    value={`${problem.gap_percent}%`}
-                    color={problem.gap_percent > 50 ? '#EF4444' : problem.gap_percent > 20 ? '#F59E0B' : '#10B981'}
+                    value={usageUnmeasured ? 'Unknown' : `${problem.gap_percent}%`}
+                    color={usageUnmeasured ? '#94A3B8' : problem.gap_percent > 50 ? '#EF4444' : problem.gap_percent > 20 ? '#F59E0B' : '#10B981'}
                   />
-                  <Metric label="Unused Permissions" value={problem.unused_count} color="#EF4444" />
-                  <Metric label="Used Permissions" value={problem.used_count} color="#10B981" />
+                  <Metric label="Unused Permissions" value={usageUnmeasured ? 'Unknown' : problem.unused_count} color={usageUnmeasured ? '#94A3B8' : '#EF4444'} />
+                  <Metric label="Used Permissions" value={usageUnmeasured ? 'Unknown' : problem.used_count} color={usageUnmeasured ? '#94A3B8' : '#10B981'} />
                 </div>
                 {problem.top_risk_reasons.length > 0 && (
                   <div className="mt-3 pt-3 border-t border-slate-700">
@@ -285,6 +293,9 @@ export function IAMSimulateFixModal({
               {/* Simulation - What Will Change */}
               <Section title="Proposed Changes" icon={<Shield className="w-4 h-4 text-indigo-400" />}>
                 <p className="text-sm text-slate-300 mb-3">{simulation.summary}</p>
+                {simulation.action_type === 'none' ? (
+                  <p className="text-xs text-slate-400">No removal plan was issued.</p>
+                ) : (
                 <div className="grid grid-cols-2 gap-4 mb-3">
                   <div className="rounded-lg bg-slate-700/50 p-3">
                     <div className="flex items-center justify-between mb-2">
@@ -311,6 +322,7 @@ export function IAMSimulateFixModal({
                     )}
                   </div>
                 </div>
+                )}
               </Section>
 
               {/* Consumers (if shared) */}
@@ -366,7 +378,10 @@ export function IAMSimulateFixModal({
                 <div className="mt-4 pt-4 border-t border-slate-700">
                   <div className="text-xs text-slate-400 mb-2">Visibility Signals:</div>
                   <div className="flex flex-wrap gap-2">
-                    {Object.entries(evidence.visibility_signals).map(([key, enabled]) => (
+                    {booleanVisibilitySignals.length === 0 && (
+                      <span className="text-xs text-slate-500">No visibility signals reported</span>
+                    )}
+                    {booleanVisibilitySignals.map(([key, enabled]) => (
                       <Chip
                         key={key}
                         color={enabled ? '#10B981' : '#6B7280'}
@@ -424,7 +439,11 @@ export function IAMSimulateFixModal({
               <Section title="Blast Radius Impact" icon={<TrendingDown className="w-4 h-4 text-green-400" />}>
                 <div className="grid grid-cols-3 gap-4 mb-4">
                   <div className="text-center p-3 rounded-lg bg-slate-700/50">
-                    <div className="text-2xl font-bold text-slate-300">{projected_effect.blast_radius_score_before}</div>
+                    {projected_effect.blast_radius_score_before != null ? (
+                      <div className="text-2xl font-bold text-slate-300">{projected_effect.blast_radius_score_before}</div>
+                    ) : (
+                      <div className="text-sm text-slate-500 italic">Current score unavailable</div>
+                    )}
                     <div className="text-xs text-slate-400">Before</div>
                   </div>
                   <div className="text-center p-3 rounded-lg bg-slate-700/50">
@@ -463,15 +482,21 @@ export function IAMSimulateFixModal({
                   <div className="text-xs text-slate-400 mb-3">Resource Risk Contribution:</div>
                   <div className="flex items-center gap-4">
                     <div className="flex-1">
-                      <div className="flex justify-between text-xs mb-1">
-                        <span className="text-slate-400">Before</span>
-                        <span className="text-slate-300">{(projected_effect.resource_risk_contribution_before * 100).toFixed(1)}%</span>
-                      </div>
-                      <ProgressBar
-                        value={projected_effect.resource_risk_contribution_before * 100}
-                        max={100}
-                        color="#EF4444"
-                      />
+                      {projected_effect.resource_risk_contribution_before != null ? (
+                        <>
+                          <div className="flex justify-between text-xs mb-1">
+                            <span className="text-slate-400">Before</span>
+                            <span className="text-slate-300">{(projected_effect.resource_risk_contribution_before * 100).toFixed(1)}%</span>
+                          </div>
+                          <ProgressBar
+                            value={projected_effect.resource_risk_contribution_before * 100}
+                            max={100}
+                            color="#EF4444"
+                          />
+                        </>
+                      ) : (
+                        <div className="text-xs text-slate-500 italic pt-1">Current contribution unavailable</div>
+                      )}
                     </div>
                     <div className="text-slate-500">→</div>
                     <div className="flex-1">
@@ -495,11 +520,11 @@ export function IAMSimulateFixModal({
                 </div>
 
                 {/* Family Scores */}
-                {Object.keys(projected_effect.family_scores_before).length > 0 && (
+                {familyScoresBefore && Object.keys(familyScoresBefore).length > 0 && (
                   <div className="mt-4 pt-4 border-t border-slate-700">
                     <div className="text-xs text-slate-400 mb-2">Impact by Family:</div>
                     <div className="grid grid-cols-2 gap-2">
-                      {Object.entries(projected_effect.family_scores_before).map(([family, before]) => {
+                      {Object.entries(familyScoresBefore).map(([family, before]) => {
                         const after = projected_effect.family_scores_after?.[family]
                         const delta = after != null ? after - before : null
                         return (

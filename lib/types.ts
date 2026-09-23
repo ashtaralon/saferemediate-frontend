@@ -414,11 +414,16 @@ export interface SimulateFixProblem {
 }
 
 export interface SimulateFixVisibilitySignals {
-  cloudtrail: boolean
-  flowlogs: boolean
-  xray: boolean
-  s3_access_logs: boolean
-  [key: string]: boolean
+  cloudtrail?: boolean
+  flowlogs?: boolean
+  xray?: boolean
+  s3_access_logs?: boolean
+  // The scoped IAM review also carries metadata here. It is not a visibility
+  // signal and must never be rendered as a green check merely because a string
+  // such as "UNKNOWN" is truthy.
+  data_confidence?: "UNKNOWN" | "PARTIAL" | "LOW" | "OBSERVED"
+  lp_score?: number | null
+  [key: string]: boolean | string | number | null | undefined
 }
 
 export interface SimulateFixEvidence {
@@ -440,13 +445,15 @@ export interface SimulateFixSimulation {
 }
 
 export interface SimulateFixProjectedEffect {
-  blast_radius_score_before: number
-  blast_radius_score_after: number
-  blast_radius_score_delta: number
-  family_scores_before: Record<string, number>
-  family_scores_after: Record<string, number>
-  resource_risk_contribution_before: number
-  resource_risk_contribution_after: number
+  blast_radius_score_before: number | null
+  blast_radius_score_after: number | null
+  blast_radius_score_delta: number | null
+  family_scores_before: Record<string, number> | null
+  family_scores_after: Record<string, number> | null
+  resource_risk_contribution_before: number | null
+  resource_risk_contribution_after: number | null
+  projection_available?: boolean
+  current_state_available?: boolean
 }
 
 export type SimulateFixSafetyDecision = "auto_eligible" | "approval_required" | "blocked"
