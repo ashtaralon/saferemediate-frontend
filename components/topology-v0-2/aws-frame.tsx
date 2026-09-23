@@ -78,8 +78,10 @@ import {
   FLOW_ALERT_COLOR,
   FLOW_COLOR_BY_CLASS,
   FLOW_LEGEND_ITEMS,
-  IDENTITY_PLANE_COLOR,
+  IDENTITY_MARKER_COLORS,
   IDENTITY_STROKE_DASH,
+  identityLineColor,
+  identityMarkerKey,
   identityStrokeKey,
   type IdentityStrokeKey,
 } from "./flow-visuals"
@@ -2918,6 +2920,7 @@ function IamRolesTier({
   compact = false,
   laneMinHeight,
   captions,
+  externalRoleIds,
 }: {
   nodes: TopologyNode[]
   selectedNodeId: string | null
@@ -2927,10 +2930,27 @@ function IamRolesTier({
   laneMinHeight?: number
   /** Per role chip, the twin's one-line reading (estate-identity-twin captions). */
   captions?: ReadonlyMap<string, string>
+  /** Roles no workload here runs as, but which an outside account, a
+   *  federation or a human may assume — the lane's second group. */
+  externalRoleIds?: ReadonlySet<string>
 }) {
   if (nodes.length === 0) return null
+  const bound = nodes.filter(node => !externalRoleIds?.has(node.id))
+  const external = nodes.filter(node => externalRoleIds?.has(node.id))
   const elided = elideSharedPrefix(nodes.map(node => node.name))
   const displayName = new Map(nodes.map((node, i) => [node.id, elided.labels[i]]))
+  const chip = (node: TopologyNode) => (
+    <ServiceNodeIcon
+      key={node.id}
+      node={node}
+      selected={node.id === selectedNodeId}
+      onSelect={onSelect}
+      dense
+      railChip={compact}
+      displayName={displayName.get(node.id)}
+      caption={compact ? captions?.get(node.id) : undefined}
+    />
+  )
   return (
     <div
       className={compact ? "rounded-md p-2 flex flex-col min-h-0" : "rounded-md p-2.5"}
@@ -2947,7 +2967,7 @@ function IamRolesTier({
         style={{ color: "#9F1239" }}
         data-flow-obstacle="iam-roles-tier-header"
       >
-        IAM · Roles ({nodes.length})
+        IAM · Roles ({bound.length})
         {elided.prefix ? (
           <div
             className="normal-case tracking-normal font-medium text-[9px] mt-0.5"
@@ -2961,19 +2981,28 @@ function IamRolesTier({
       </div>
       <RailLaneBody lane="iam" compact={compact} revision={nodes.length}>
         <div className={compact ? "flex flex-col gap-1 max-w-full" : "flex flex-wrap gap-1.5 max-w-full justify-center"}>
-          {nodes.map(node => (
-            <ServiceNodeIcon
-              key={node.id}
-              node={node}
-              selected={node.id === selectedNodeId}
-              onSelect={onSelect}
-              dense
-              railChip={compact}
-              displayName={displayName.get(node.id)}
-              caption={compact ? captions?.get(node.id) : undefined}
-            />
-          ))}
+          {bound.map(chip)}
         </div>
+        {external.length > 0 ? (
+          <div
+            className={compact ? "mt-1.5 pt-1.5 border-t" : "mt-2 pt-2 border-t"}
+            style={{ borderColor: "#F5C6CF" }}
+            data-testid="topology-iam-roles-external"
+            data-count={external.length}
+          >
+            <div
+              className="text-[9px] uppercase tracking-[0.12em] font-semibold mb-1"
+              style={{ color: "#9F1239" }}
+              data-flow-obstacle="iam-roles-external-header"
+              title="Roles no workload on this canvas runs as, but which an outside account, a federation or a human may assume"
+            >
+              Assumable from outside ({external.length})
+            </div>
+            <div className={compact ? "flex flex-col gap-1 max-w-full" : "flex flex-wrap gap-1.5 max-w-full justify-center"}>
+              {external.map(chip)}
+            </div>
+          </div>
+        ) : null}
       </RailLaneBody>
     </div>
   )
@@ -2988,6 +3017,18 @@ function IamRolesTier({
  * no entrance the slot says which of the three reasons applies; it never
  * reads as "nobody else can assume these roles".
  */
+/**
+ * CF01 — the Users block's line on the identity lens: what the graph served
+ * about human identities, never the Network view's "Clients & operators".
+ */
+function identityUsersCaption(frame: IdentityLensFrameProps): string {
+  const users = frame.twin.counts.users
+  const family = frame.lens.families.find(f => f.family === "USER_AUTHENTICATES_WITH")
+  const credentials = family?.status === "available" ? "credential use served" : "credential use not on the canonical path"
+  if (users === 0) return `IAM users: none served · ${credentials}`
+  return `${users} IAM user${users === 1 ? "" : "s"} in the graph · ${credentials}`
+}
+
 function IdentityPrincipalsStrip({
   lens,
   twin,
@@ -3030,7 +3071,7 @@ function IdentityPrincipalsStrip({
         </span>
         <span className="text-[10px] font-medium" style={{ color: PAL.slate }} data-testid="topology-identity-principals-caption">
           {twin.principalNodes.length > 0
-            ? `May assume a bound role · ${twin.principalNodes.length}`
+            ? `May assume a role here · ${twin.principalNodes.length}`
             : `None drawn · ${reason}`}
         </span>
       </div>
@@ -6345,7 +6386,7 @@ function FlowOverlay({
           </marker>
         ))}
         {lens === "identity"
-          ? (Object.keys(IDENTITY_PLANE_COLOR) as IdentityStrokeKey[]).map(key => (
+          ? Object.entries(IDENTITY_MARKER_COLORS).map(([key, color]) => (
               <marker
                 key={`identity-${key}`}
                 id={`flow-arrow-identity-${key}`}
@@ -6356,22 +6397,26 @@ function FlowOverlay({
                 markerHeight="4"
                 orient="auto-start-reverse"
               >
-                <path d="M 0 0 L 10 5 L 0 10 z" fill={IDENTITY_PLANE_COLOR[key]} />
+                <path d="M 0 0 L 10 5 L 0 10 z" fill={color} />
               </marker>
             ))
           : null}
       </defs>
       {paths.map((p, i) => {
-        // CF01 · D1 — on the identity lens the line's colour and dash are the
-        // producer's plane and certainty, not a traffic class.
+        // CF01 — on the identity lens the line's COLOUR is the kind of access
+        // (runs-as / may-assume / human / secrets & keys / data / service) and
+        // its DASH and motion are the producer's plane and certainty; the
+        // verdict (denied / unknown / name-only) overrides the colour.
         const identity = lens === "identity" && p.identity ? p.identity : null
-        const identityKey: IdentityStrokeKey | null = identity ? identityStrokeKey(identity) : null
-        const stroke = identityKey
-          ? IDENTITY_PLANE_COLOR[identityKey]
+        const identityKey: IdentityStrokeKey | null = identity
+          ? identityStrokeKey({ ...identity, authority: p.authorityState })
+          : null
+        const stroke = identity
+          ? identityLineColor(identity)
           : p.highlight === "attack_path" || p.isExposed
             ? FLOW_ALERT_COLOR
             : FLOW_COLOR_BY_CLASS[p.cls]
-        const markerCls = identityKey ? `identity-${identityKey}` : p.isExposed ? "database" : p.cls
+        const markerCls = identity ? `identity-${identityMarkerKey(identity)}` : p.isExposed ? "database" : p.cls
         const dependencyFocusActive = flowMode === "all_access" && selectedNodeId != null
         const focusedDependency = dependencyFocusActive && p.focused
         const dimmed = dependencyFocusActive && !p.focused
@@ -9680,7 +9725,7 @@ export function AwsFrame({
       ) : null}
       {identityLens ? (
         <>
-          <IdentityLensLegend lens={identityLens.lens} compact={presentationMode} />
+          <IdentityLensLegend lens={identityLens.lens} twin={identityLens.twin} compact={presentationMode} />
           <IdentityTwinFooter lens={identityLens.lens} twin={identityLens.twin} compact={presentationMode} />
         </>
       ) : flowMode !== "architecture" ? (
@@ -9772,9 +9817,15 @@ export function AwsFrame({
             >
               Users
             </span>
+            {identityLens ? (
+              <span className="text-[10px] font-medium" style={{ color: PAL.slate }} data-testid="topology-users-caption">
+                {identityUsersCaption(identityLens)}
+              </span>
+            ) : (
             <span className="text-[10px] font-medium" style={{ color: PAL.slate }}>
               Clients & operators
             </span>
+            )}
           </div>
         </div>
         <div
@@ -10281,6 +10332,7 @@ export function AwsFrame({
                     <IamRolesTier
                       nodes={identityRoleNodes ?? []}
                       captions={identityLens.twin.captions}
+                      externalRoleIds={identityLens.twin.externalRoleIds}
                       laneMinHeight={railLaneMinHeight}
                       selectedNodeId={selectedNodeId}
                       onSelect={onSelect}
