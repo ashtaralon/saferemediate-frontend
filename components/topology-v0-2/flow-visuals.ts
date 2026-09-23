@@ -82,8 +82,14 @@ export const IDENTITY_MARKER_COLORS: Record<string, string> = {
 
 /**
  * The line's colour: the producer's verdict wins (a Deny is crimson, a
- * withheld decision grey, a name-only endpoint amber), else the KIND of
- * access, else — for a producer that carries no kind — the plane.
+ * withheld decision grey), else the KIND of access, else — for a producer
+ * that carries no kind — the plane, with a name-only endpoint amber.
+ *
+ * A name-only endpoint does NOT take the colour away from a kind: every
+ * trust principal in another account is a name in a policy document and
+ * never a projected resource, so on a real estate the entrance lines are
+ * exactly the unresolved ones. Their certainty stays on the dash (1.5 4,
+ * the legend's "Name only"); their hue stays "may assume" / "human".
  */
 export function identityLineColor(annotation: {
   plane: "configured" | "observed"
@@ -93,8 +99,8 @@ export function identityLineColor(annotation: {
 }): string {
   if (annotation.verdict === "denied") return IDENTITY_PLANE_COLOR.denied
   if (annotation.verdict === "unknown") return IDENTITY_PLANE_COLOR.unknown
-  if (annotation.certainty === "unresolved_endpoint") return IDENTITY_PLANE_COLOR.unresolved_endpoint
   if (annotation.kind) return IDENTITY_KIND_COLOR[annotation.kind]
+  if (annotation.certainty === "unresolved_endpoint") return IDENTITY_PLANE_COLOR.unresolved_endpoint
   return IDENTITY_PLANE_COLOR[annotation.plane]
 }
 
@@ -107,8 +113,8 @@ export function identityMarkerKey(annotation: {
 }): string {
   if (annotation.verdict === "denied") return "denied"
   if (annotation.verdict === "unknown") return "unknown"
-  if (annotation.certainty === "unresolved_endpoint") return "unresolved_endpoint"
   if (annotation.kind) return annotation.kind
+  if (annotation.certainty === "unresolved_endpoint") return "unresolved_endpoint"
   return annotation.plane
 }
 
@@ -192,7 +198,7 @@ export const IDENTITY_LEGEND_ITEMS: Array<{
   {
     key: "unresolved_endpoint",
     label: "Name only",
-    detail: "the producer derived this edge from a principal attribute and the far end is a name, not a projected resource",
+    detail: "dotted: the far end is a name in a policy document, not a projected resource (every outside principal is); the colour still says what kind of access it is",
     color: IDENTITY_PLANE_COLOR.unresolved_endpoint,
     dash: IDENTITY_STROKE_DASH.unresolved_endpoint,
   },

@@ -448,6 +448,35 @@ describe("CF01 · the twin survives the frame's other modes and the producer's o
   })
 })
 
+describe("CF01 · a name-only principal keeps its kind colour", () => {
+  it("draws trust from an unresolved outside account in the may-assume colour, dotted as name-only", async () => {
+    const graph = READY_WITH_GRAPH.identity_graph
+    const service = graph.edges.find((e: any) => e.family === "ROLE_TRUST_POLICY" && e.source.node_kind === "service_principal")!
+    const block = {
+      ...READY_WITH_GRAPH,
+      identity_graph: {
+        ...graph,
+        edges: [...graph.edges, {
+          ...service,
+          source: { node_kind: "aws_account_principal", arn: "arn:aws:iam::222233334444:root", name: "arn:aws:iam::222233334444:root", resource_uid: null, resolved: false, unresolved_reason: "ENDPOINT_NOT_A_PROJECTED_RESOURCE" },
+          effect: "Allow", has_conditions: true, is_wildcard_principal: false, principal_kind: "AWS",
+        }],
+        edges_total: graph.edges.length + 1,
+      },
+    }
+    const { container } = await renderLens(block)
+    const line = lines(container).find(g => g.getAttribute("data-flow-source")?.includes("222233334444"))!
+    expect(line).toBeDefined()
+    expect(line.getAttribute("data-flow-certainty")).toBe("unresolved_endpoint")
+    const stroke = line.querySelector('path[data-flow-line="stroke"]')!
+    expect(stroke.getAttribute("stroke")).toBe(IDENTITY_KIND_COLOR.may_assume)
+    expect(stroke.getAttribute("stroke-dasharray")).toBe("1.5 4")
+    expect(stroke.getAttribute("marker-end")).toBe("url(#flow-arrow-identity-may_assume)")
+    const chip = container.querySelector('[data-testid="topology-identity-principal"][data-principal-class="other_account"]')!
+    expect(chip.textContent).toMatch(/other account/)
+  })
+})
+
 describe("CF01 · unavailable is not zero, on the canvas", () => {
   it("the emitter's ready v1 draws the real bindings and reach, not a swallowed read failure", async () => {
     const { container, lens } = await renderLens(v1.ready)
