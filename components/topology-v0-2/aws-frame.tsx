@@ -3715,6 +3715,11 @@ function ExternalDestinationsNode({
           </button>
         </PopoverTrigger>
         <PopoverContent
+          // The lane trigger sits at the bottom of a 176px column. At
+          // 1024x720 glance, side bottom opens into the viewport edge and the
+          // same click dismisses the panel, so data-open stays false
+          // (fixture run 35867238093). Open beside the trigger instead.
+          side={lane ? "left" : "bottom"}
           align="end"
           sideOffset={8}
           // The top inset clears the app's own fixed scope bar. Radix's
