@@ -697,6 +697,18 @@ export function selectCurrentIamRestore(
   return { snapshotId: matches[0].snapshot_id, operationId: matches[0].operation_id }
 }
 
+/** A 2xx Apply response is only a customer success with an exact durable receipt. */
+export function isVerifiedIamApplyReceipt(
+  result: any, resourceArn: string, systemName: string, roleName: string,
+): boolean {
+  return result?.success === true && result?.operation_recorded === true &&
+    result?.operation_state === 'VERIFIED' && result?.rollback_available === true &&
+    typeof result?.operation_id === 'string' && result.operation_id.length > 0 &&
+    typeof result?.snapshot_id === 'string' && result.snapshot_id.length > 0 &&
+    result?.resource_arn === resourceArn && result?.system_name === systemName &&
+    result?.role_name === roleName
+}
+
 export function shouldOfferIamSimulation(
   hasVerifiedSnapshot: boolean,
   removableCount: number,
@@ -1740,6 +1752,17 @@ export function IAMPermissionAnalysisModal({
       })
       return
     }
+    const exactRoleArn = roleArn || gapData?.role_arn
+    if (!systemName || !exactRoleArn ||
+        !/^arn:aws:iam::[0-9]{12}:role\/.+/.test(exactRoleArn) ||
+        exactRoleArn.split('/').at(-1) !== roleName || !createSnapshot) {
+      toast({
+        title: 'Verified checkpoint required',
+        description: 'This IAM role needs an exact ARN, system, and rollback checkpoint before Apply.',
+        variant: 'destructive',
+      })
+      return
+    }
     const nonAutoSelected = allSelected.filter(p => !autoRemediable.has(p))
     let effectiveForce = force
     if (nonAutoSelected.length > 0 && !force) {
@@ -1815,6 +1838,8 @@ export function IAMPermissionAnalysisModal({
         signal: abortCtrl.signal,
         body: JSON.stringify({
           role_name: roleName,
+          resource_arn: exactRoleArn,
+          system_name: systemName,
           identity_type: identityType?.toLowerCase().includes('user') ? 'user' : 'role',
           dry_run: false,
           create_snapshot: createSnapshot,
@@ -1832,20 +1857,24 @@ export function IAMPermissionAnalysisModal({
       const result = await response.json()
       console.log('[IAM-Modal] Remediation response:', result)
 
-      // Check response from proxy - it returns summary.unused_removed and success
-      const permissionsRemoved = result.permissions_removed || result.summary?.unused_removed || 0
-      const beforeTotal = result.summary?.before_total || 0
-      const afterTotal = result.summary?.after_total || 0
+      const permissionsRemoved = typeof result.permissions_removed === 'number' ? result.permissions_removed : null
+      const beforeTotal = typeof result.summary?.before_total === 'number' ? result.summary.before_total : null
+      const afterTotal = typeof result.summary?.after_total === 'number' ? result.summary.after_total : null
       const snapshotId = result.snapshot_id
       const managedPoliciesDetached = result.managed_policies_detached || []
       const inlinePoliciesModified = result.inline_policies_modified || []
 
       if (result.success) {
+        if (!response.ok || !isVerifiedIamApplyReceipt(result, exactRoleArn, systemName, roleName)) {
+          const unverified = new Error('IAM apply outcome is unverified. Inspect scoped History before retrying.')
+          unverified.name = 'ApplyOutcomeUnknown'
+          throw unverified
+        }
         // Build description with details about DIRECT MODIFICATION
         let desc = ''
 
         // Show what was modified
-        if (permissionsRemoved > 0) {
+        if (permissionsRemoved !== null && permissionsRemoved > 0) {
           desc = `Removed ${permissionsRemoved} unused permissions from ${roleName}`
         } else {
           desc = `Modified ${roleName}`
@@ -1947,7 +1976,7 @@ export function IAMPermissionAnalysisModal({
         // Surface the override prompt inline rather than throwing —
         // otherwise IAM remediation is unreachable, since the FULL_AUTO
         // threshold is structurally unreachable for IAMRoles with deps.
-        !force && (result.decision === 'approval_required' || result.action_required === 'approval')
+        response.ok && !force && (result.decision === 'approval_required' || result.action_required === 'approval')
       ) {
         const reason = result.block_reason || result.message || 'Pipeline requires approval before applying.'
         const proceed = typeof window !== 'undefined'
@@ -1975,6 +2004,11 @@ export function IAMPermissionAnalysisModal({
         }
       } else {
         // If not success, show appropriate error
+        if (result.outcome === 'UNKNOWN' || result.code?.startsWith('APPLY_')) {
+          const unverified = new Error(result.message || 'IAM apply outcome is unverified. Inspect scoped History before retrying.')
+          unverified.name = 'ApplyOutcomeUnknown'
+          throw unverified
+        }
         const errorMsg = result.error || result.message || 'Unknown error'
         throw new Error(`Remediation failed: ${errorMsg}`)
       }
@@ -1992,7 +2026,7 @@ export function IAMPermissionAnalysisModal({
         : (err?.message || 'Failed to apply remediation')
       console.error('[IAM-Modal] Apply fix error after', elapsedMs, 'ms:', err?.name, err?.message)
       toast({
-        title: isTimeout ? "⏱ Remediation Timed Out" : "❌ Remediation Failed",
+        title: isTimeout ? "⏱ Remediation Timed Out" : err?.name === 'ApplyOutcomeUnknown' ? 'Apply outcome unverified' : "❌ Remediation Failed",
         description: friendlyMsg,
         variant: "destructive"
       })
