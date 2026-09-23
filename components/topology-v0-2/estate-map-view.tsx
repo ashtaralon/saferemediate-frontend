@@ -41,16 +41,14 @@ import {
 import { EVIDENCE_TIER_LABEL } from "@/lib/types/scope"
 import { EstateIdentityAccessTab } from "@/components/topology-v0-2/estate-identity-access-tab"
 import {
-  boundIdentityEdges,
   buildIdentityLensForPayload,
-  identityLensTrafficEdges,
   identitySelectionDetail,
 } from "@/components/topology-v0-2/estate-identity-access-model"
 import {
-  IDENTITY_DEFAULT_CHIP_CAP,
   identityNodeAsTopologyNode,
   type IdentityLensFrameProps,
 } from "@/components/topology-v0-2/estate-identity-plane"
+import { buildIdentityTwin, type RawRoleActions } from "@/components/topology-v0-2/estate-identity-twin"
 import type { TopologyNode, TopologyRiskResponse } from "@/components/topology-v0-2/types"
 import { createMap } from "@/components/topology-v0-2/native-map"
 import {
@@ -135,10 +133,6 @@ const EstateSystemView = dynamic(
 
 /** The three peer views of the Estate: Command map, Network topology, Identity & access. */
 export type EstateViewId = "inventory" | "map" | "identity"
-
-/** Whole-lens cap when nothing is selected. Beyond it the lens says how many
- *  relationships are not drawn and asks for a selection to expand. */
-export const IDENTITY_EDGE_CAP = 120
 
 export interface EstateMapViewProps {
   systemName: string
@@ -647,10 +641,6 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
   // diagram remains unchanged and one click away under Network topology; the
   // Identity & access lens is the third peer, drawn on the same frame.
   const [view, setView] = useState<EstateViewId>(defaultView)
-  // CF01 · D1 — identity lens neighbourhood bound and chip cap (operator
-  // preferences, never graph facts).
-  const [identityHops, setIdentityHops] = useState(2)
-  const [identityChipCap, setIdentityChipCap] = useState(IDENTITY_DEFAULT_CHIP_CAP)
 
   // Fullscreen is a modal surface, so leaving it has to hand the keyboard back
   // where it came from. Measured on C1 (run 34754792418): after Escape exited
@@ -1170,34 +1160,33 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
     () => buildIdentityLensForPayload(data, { topologyNodes: detailNodes }),
     [data, detailNodes],
   )
-  const identityBound = useMemo(
-    () => boundIdentityEdges(identityLens.edges, selectedNodeId, identityHops, IDENTITY_EDGE_CAP),
-    [identityLens.edges, selectedNodeId, identityHops],
+  // The twin: the frame's inputs (rail nodes, strip nodes, lines, captions,
+  // counts) derived from the validated lens plus the producer's per-action
+  // rows, which the lens summarises to totals. The rows are read only once
+  // the lens has validated the block's contract.
+  const identityRawRoles = useMemo<RawRoleActions[] | null>(() => {
+    if (identityLens.state !== "ready" && identityLens.state !== "incomplete") return null
+    const block = (data?.identity_access ?? null) as { roles?: unknown } | null
+    return Array.isArray(block?.roles) ? (block.roles as RawRoleActions[]) : null
+  }, [data, identityLens.state])
+  const identityTwin = useMemo(
+    () => buildIdentityTwin(identityLens, { rawRoles: identityRawRoles, topologyNodes: detailNodes, focusId: selectedNodeId }),
+    [identityLens, identityRawRoles, detailNodes, selectedNodeId],
   )
-  const identityOverlayEdges = useMemo(
-    () => identityLensTrafficEdges({ ...identityLens, edges: identityBound.edges }, selectedNodeId),
-    [identityLens, identityBound.edges, selectedNodeId],
-  )
+  const identityOverlayEdges = identityTwin.edges
   const identityFrame = useMemo<IdentityLensFrameProps>(
-    () => ({
-      lens: identityLens,
-      drawn: identityBound.edges.length,
-      omitted: identityBound.omitted,
-      omittedInNeighbourhood: identityBound.omittedInNeighbourhood,
-      reachable: identityBound.reachable,
-      focusedNodeId: selectedNodeId,
-      hops: identityHops,
-      onHopsChange: setIdentityHops,
-      chipCap: identityChipCap,
-      onChipCapChange: setIdentityChipCap,
-    }),
-    [identityLens, identityBound, selectedNodeId, identityHops, identityChipCap],
+    () => ({ lens: identityLens, twin: identityTwin, focusedNodeId: selectedNodeId }),
+    [identityLens, identityTwin, selectedNodeId],
   )
-  // Identity-plane nodes as inspector nodes, so selecting one opens the SAME
-  // DetailPanel (its id is a canvas anchor: no Inventory request is made).
+  // Identity nodes as inspector nodes, so selecting a role, principal or
+  // service anchor opens the SAME DetailPanel (its id is a canvas anchor: no
+  // Inventory request is made).
   const identityInspectorNodes = useMemo(
-    () => identityLens.nodes.filter(n => !n.onCanvas).map(identityNodeAsTopologyNode),
-    [identityLens.nodes],
+    () => [
+      ...identityLens.nodes.filter(n => !n.onCanvas).map(identityNodeAsTopologyNode),
+      ...identityTwin.serviceNodes.map(n => ({ ...n, resource_id: undefined, score: null, stale: null, is_jewel: false })),
+    ],
+    [identityLens.nodes, identityTwin.serviceNodes],
   )
   const allInspectorNodes = useMemo(
     () => (view === "identity" ? [...inspectorNodes, ...identityInspectorNodes] : inspectorNodes),

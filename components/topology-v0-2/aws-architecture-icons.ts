@@ -601,6 +601,29 @@ const CATALOG: Record<string, AwsServicePresentation> = {
     name: "Service Control Policy",
     short: "SCP",
   },
+  // CF01 — trust-policy principals on the Identity & access twin. AWS has no
+  // icon for "a principal"; each reads as the closest official family and is
+  // marked as such, so an `<img>` here never claims a resource kind AWS
+  // does not draw.
+  AWSAccountPrincipal: {
+    // An account named in a trust policy (`:root`, a bare account id).
+    slug: "aws-res-aws-organizations-account",
+    precision: "family",
+    category: "security",
+    scope: "global",
+    name: "AWS account principal",
+    short: "Account",
+  },
+  FederatedPrincipal: {
+    // A SAML / OIDC identity provider. IAM Identity Center is the official
+    // federation icon; the provider itself (Okta, Entra) is named on the chip.
+    slug: "aws-aws-iam-identity-center",
+    precision: "family",
+    category: "security",
+    scope: "global",
+    name: "Federated identity provider",
+    short: "Federated",
+  },
 
   // ------------------------------------------------- management & governance
   Account: {

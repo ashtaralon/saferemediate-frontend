@@ -88,7 +88,8 @@ import {
 // resolved at render time, never at module evaluation, so the cycle is inert.
 import {
   IdentityLensLegend,
-  IdentityPlane,
+  IdentityLensNotice,
+  IdentityTwinFooter,
   type IdentityLensFrameProps,
 } from "./estate-identity-plane"
 import {
@@ -213,11 +214,14 @@ interface Props {
   systemLabel?: string
   /**
    * CF01 · D1 — Identity & access lens. When set, this frame is the identity
-   * map: the identity plane band renders inside the flow container (its chips
-   * are overlay anchors), the traffic legend and traffic-authority banners
-   * yield to the identity legend, and `overlayEdges` are expected to be the
-   * lens's `edge_class: "identity"` edges. Absent (the Network view) NOTHING
-   * in this frame changes.
+   * map, drawn with the Network view's own grammar and nothing else: the
+   * twin's IAM roles take a rail lane beside the regional services, the AWS
+   * services a role reaches take regional / triggers chips, the principals
+   * that may assume a role take the top strip where the Network view keeps
+   * Internet, the traffic legend and traffic-authority banners yield to the
+   * identity legend, and `overlayEdges` are expected to be the twin's
+   * `edge_class: "identity"` edges. Absent (the Network view) NOTHING in
+   * this frame changes.
    */
   identityLens?: IdentityLensFrameProps
 }
@@ -971,16 +975,18 @@ function nodeIcon(type: string | null): { symbol: ReactNode; bg: string; fg: str
     case "ALB":
     case "ApplicationLoadBalancer":
       return { symbol: <AlbGlyph />, bg: "#8C4FFF", fg: "white" }
-    // CF01 · D1 — identity-plane kinds that have no official resource icon.
+    // CF01 · D1 — identity kinds that have no official resource icon.
     // IAMRole / IAMPolicy / IAMUser resolve above through the catalog.
     case "IAMGroup":
       return { symbol: "GRP", bg: "#DD344C", fg: "white" }
     case "ServicePrincipal":
       return { symbol: "SVC", bg: "#DD344C", fg: "white" }
-    case "FederatedPrincipal":
-      return { symbol: "FED", bg: "#DD344C", fg: "white" }
-    case "AWSAccountPrincipal":
-      return { symbol: "ACCT", bg: "#DD344C", fg: "white" }
+    // FederatedPrincipal / AWSAccountPrincipal resolve above through the
+    // catalog since CF01 (the identity twin draws them in the top strip).
+    case "AnyonePrincipal":
+      // `*` in a trust policy. No AWS icon exists for "anyone"; a glyph is
+      // the honest rendering, in the denied crimson the legend uses.
+      return { symbol: "ANY", bg: "#9F1239", fg: "white" }
     case "IAMCredential":
       return { symbol: "KEY", bg: "#DD344C", fg: "white" }
     case "ActionDecision":
@@ -2603,7 +2609,7 @@ function RailLaneBody({
   revision,
   children,
 }: {
-  lane: "serverless" | "regional"
+  lane: "serverless" | "iam" | "regional"
   compact: boolean
   revision: number
   children: ReactNode
@@ -2894,6 +2900,161 @@ export function regionalFamilies(nodes: TopologyNode[], limit = 3): string {
   if (ordered.length === 0) return "services"
   const shown = ordered.slice(0, limit).map(([label]) => label)
   return ordered.length > limit ? `${shown.join(" / ")} +${ordered.length - limit}` : shown.join(" / ")
+}
+
+/**
+ * CF01 — the IAM roles lane of the Identity & access twin. The regional lane,
+ * in IAM's own colour: one chip per role a visible workload runs as, drawn
+ * with the same rail chip as every other service so the shared overlay routes
+ * workload → role → service exactly as it routes Lambda → S3. The caption is
+ * the twin's honest line for the role ("explicit 3 · used 1", or "usage not
+ * computed"). Roles nothing on this canvas runs as are a COUNT in the footer,
+ * never a chip: the lane is the rows of the map, not the account's IAM.
+ */
+function IamRolesTier({
+  nodes,
+  selectedNodeId,
+  onSelect,
+  compact = false,
+  laneMinHeight,
+  captions,
+}: {
+  nodes: TopologyNode[]
+  selectedNodeId: string | null
+  onSelect: (id: string) => void
+  compact?: boolean
+  /** Fullscreen lane floor from useRailLaneFloor (see RAIL_LANE_MIN_PX). */
+  laneMinHeight?: number
+  /** Per role chip, the twin's one-line reading (estate-identity-twin captions). */
+  captions?: ReadonlyMap<string, string>
+}) {
+  if (nodes.length === 0) return null
+  const elided = elideSharedPrefix(nodes.map(node => node.name))
+  const displayName = new Map(nodes.map((node, i) => [node.id, elided.labels[i]]))
+  return (
+    <div
+      className={compact ? "rounded-md p-2 flex flex-col min-h-0" : "rounded-md p-2.5"}
+      data-testid="topology-iam-roles-tier"
+      style={{
+        background: "#FDF2F4",
+        border: "1px solid #F5C6CF",
+        borderLeft: "3px solid #DD344C",
+        ...(compact ? { minHeight: laneMinHeight ?? RAIL_LANE_MIN_PX } : {}),
+      }}
+    >
+      <div
+        className="text-[10px] uppercase tracking-[0.12em] font-semibold mb-1.5"
+        style={{ color: "#9F1239" }}
+        data-flow-obstacle="iam-roles-tier-header"
+      >
+        IAM · Roles ({nodes.length})
+        {elided.prefix ? (
+          <div
+            className="normal-case tracking-normal font-medium text-[9px] mt-0.5"
+            style={{ color: "#DD344C" }}
+            data-testid="topology-iam-roles-name-prefix"
+            title={`${elided.count} of ${nodes.length} chips omit this shared prefix`}
+          >
+            <span className="font-mono">{elided.prefix}</span>… ×{elided.count}
+          </div>
+        ) : null}
+      </div>
+      <RailLaneBody lane="iam" compact={compact} revision={nodes.length}>
+        <div className={compact ? "flex flex-col gap-1 max-w-full" : "flex flex-wrap gap-1.5 max-w-full justify-center"}>
+          {nodes.map(node => (
+            <ServiceNodeIcon
+              key={node.id}
+              node={node}
+              selected={node.id === selectedNodeId}
+              onSelect={onSelect}
+              dense
+              railChip={compact}
+              displayName={displayName.get(node.id)}
+              caption={compact ? captions?.get(node.id) : undefined}
+            />
+          ))}
+        </div>
+      </RailLaneBody>
+    </div>
+  )
+}
+
+/**
+ * CF01 — the trust entrances of the Identity & access twin, in the strip where
+ * the Network view keeps Internet: every non-service principal a bound role's
+ * trust policy names (this account's `:root`, the organisation's management
+ * account, another account, a federated provider, `*`), each an overlay
+ * anchor so "may assume" routes from it to the role chip. When the lens drew
+ * no entrance the slot says which of the three reasons applies; it never
+ * reads as "nobody else can assume these roles".
+ */
+function IdentityPrincipalsStrip({
+  lens,
+  twin,
+  selectedNodeId,
+  onSelect,
+  compact,
+}: {
+  lens: IdentityLensFrameProps["lens"]
+  twin: IdentityLensFrameProps["twin"]
+  selectedNodeId: string | null
+  onSelect: (id: string) => void
+  compact: boolean
+}) {
+  const graphRead = lens.graphState === "ready" || lens.graphState === "partial"
+  const reason = !graphRead
+    ? "identity graph not read for this generation"
+    : twin.counts.boundRoles === 0
+      ? "no role bound to a workload on this canvas"
+      : "no trust statement served for the bound roles"
+  return (
+    <div
+      className="flex items-center gap-2 shrink-0 min-w-0"
+      style={{ color: PAL.ink }}
+      data-testid="topology-identity-principals"
+      data-principal-count={twin.principalNodes.length}
+    >
+      <div className="flex flex-col leading-tight shrink-0">
+        <span
+          className={
+            compact
+              ? "text-[14px] uppercase tracking-[0.12em] font-bold"
+              : "text-[16px] uppercase tracking-[0.12em] font-bold"
+          }
+          style={{ color: PAL.ink }}
+        >
+          Trust entrances
+        </span>
+        <span className="text-[10px] font-medium" style={{ color: PAL.slate }} data-testid="topology-identity-principals-caption">
+          {twin.principalNodes.length > 0
+            ? `May assume a bound role · ${twin.principalNodes.length}`
+            : `None drawn · ${reason}`}
+        </span>
+      </div>
+      {twin.principalNodes.length > 0 ? (
+        <div className="flex flex-wrap items-center gap-1.5 min-w-0" data-testid="topology-identity-principal-chips">
+          {twin.principalNodes.map(node => (
+            <ServiceIconShell
+              key={node.id}
+              type={node.type}
+              selected={node.id === selectedNodeId}
+              label={node.name}
+              sublabel={twin.principalClasses.get(node.id)?.replace(/_/g, " ") ?? "principal"}
+              title={`${node.name}${node.resource_id ? ` · ${node.resource_id}` : ""} — may assume a role on this canvas — click for details`}
+              onClick={() => onSelect(node.id)}
+              testId="topology-identity-principal"
+              flowId={node.id}
+              dense
+              extraAttrs={{
+                "data-node-id": node.id,
+                "data-principal-class": twin.principalClasses.get(node.id),
+              }}
+            />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
 }
 
 function RegionalDataServicesTier({
@@ -4431,7 +4592,7 @@ export const LEADER_DISCRIMINATION_MARGIN_PX = 4
 /**
  * Pull identity badges off each other so a label can be read.
  *
- * The identity plane runs many near-parallel lines through a dense chip grid,
+ * The identity lens runs many near-parallel lines through a dense chip grid,
  * so their badges land at similar heights and stack: "managed policy (ARN
  * only)", "boundary" and "inline policy" drawn over one another produce
  * `ma|boundary|RN only)`, which is three true labels rendered as one false
@@ -5330,11 +5491,15 @@ function FlowOverlay({
       const laneOf = (el: HTMLElement): HTMLElement | null =>
         railEl?.contains(el)
           ? el.closest<HTMLElement>(
-              '[data-testid="topology-serverless-tier"], [data-testid="topology-regional-data-tier"]',
+              '[data-testid="topology-serverless-tier"], [data-testid="topology-iam-roles-tier"], [data-testid="topology-regional-data-tier"]',
             )
           : null
       const laneKey = (lane: HTMLElement): string =>
-        lane.getAttribute("data-testid") === "topology-serverless-tier" ? "serverless" : "regional"
+        lane.getAttribute("data-testid") === "topology-serverless-tier"
+          ? "serverless"
+          : lane.getAttribute("data-testid") === "topology-iam-roles-tier"
+            ? "iam"
+            : "regional"
       const elKeys = new Map<HTMLElement, number>()
       const keyOf = (el: HTMLElement) => {
         const k = elKeys.get(el) ?? elKeys.size
@@ -5419,7 +5584,11 @@ function FlowOverlay({
           drawJobs.push(j)
           continue
         }
-        const label = edgeBadgeLabel(j.e, j.cls, false, false)
+        // CF01 — an identity line groups by its own word, which carries the
+        // producer's plane and state ("s3 · explicit 2 · used 1"), so a
+        // feeder bus never merges an observed leg with a configured one and
+        // never reads "TCP ×N" for protocol-less edges.
+        const label = j.e.identity ? j.e.identity.label : edgeBadgeLabel(j.e, j.cls, false, false)
         const dstChip = j.railLanes.dstChip
         const key = `${keyOf(j.railLanes.src)}→${keyOf(dstChip)}·${label}`
         const group = railGroups.get(key)
@@ -5614,12 +5783,12 @@ function FlowOverlay({
       // Every `g[data-flow-bundle]` still stands for exactly the edges into ONE
       // chip (count + members), so the fixture spec's accounting holds: a
       // trunk's stubs carry the bundles, the trunk itself carries the badge.
-      const corridors = ["topology-flow-corridor", "topology-interlane-corridor"].flatMap(id => {
-        const el = container.querySelector<HTMLElement>(`[data-testid="${id}"]`)
-        if (!el) return []
-        const rect = toNat(visibleRect(el, el.getBoundingClientRect()))
-        return rect.r > rect.l ? [rect] : []
-      })
+      const corridors = ["topology-flow-corridor", "topology-interlane-corridor"].flatMap(id =>
+        Array.from(container.querySelectorAll<HTMLElement>(`[data-testid="${id}"]`)).flatMap(el => {
+          const rect = toNat(visibleRect(el, el.getBoundingClientRect()))
+          return rect.r > rect.l ? [rect] : []
+        }),
+      )
       type RailGroup = NonNullable<ReturnType<typeof railGroups.get>>
       const measure = (el: HTMLElement) => toNat(visibleRect(el, el.getBoundingClientRect()))
       const memberKeys = (group: RailGroup) => group.jobs.map(j => `${j.e.source_id}→${j.e.target_id}`)
@@ -5723,6 +5892,10 @@ function FlowOverlay({
             evidenceType: lead.evidence_type,
             pathBasis: lead.path_basis,
             lastSeen: lead.last_seen,
+            // CF01 — a rail bundle of identity lines keeps the producer's
+            // plane on the trunk, so its stroke, dash and marker are the
+            // legend's and never the traffic class's.
+            identity: lead.identity ?? undefined,
             arrow: false,
           })
           wordIndex += 1
@@ -5752,6 +5925,7 @@ function FlowOverlay({
             evidenceType: chipLead.evidence_type,
             pathBasis: chipLead.path_basis,
             lastSeen: chipLead.last_seen,
+            identity: chipLead.identity ?? undefined,
             bundle: {
               count: chip.groups.reduce((n, g) => n + bundleCount(g), 0),
               members: chip.groups.flatMap(memberKeys),
@@ -5867,6 +6041,7 @@ function FlowOverlay({
           evidenceType: lead.evidence_type,
           pathBasis: lead.path_basis,
           lastSeen: lead.last_seen,
+          identity: lead.identity ?? undefined,
           bundle: { count, members },
           stubD,
           stubBadges,
@@ -6005,7 +6180,9 @@ function FlowOverlay({
         // parked on a chip title still hides the node its own line points at,
         // which is the failure this whole pass exists to remove.
         const chipBoxes = Array.from(
-          container.querySelectorAll<HTMLElement>('[data-testid="identity-plane-chip"]'),
+          container.querySelectorAll<HTMLElement>(
+            '[data-testid="topology-iam-roles-tier"] [data-flow-id], [data-testid="topology-identity-principal"]',
+          ),
         ).map(el => {
           const n = toNat(el.getBoundingClientRect())
           return { x0: n.l, x1: n.r, y0: n.t, y1: n.b }
@@ -9169,18 +9346,29 @@ export function AwsFrame({
     () => new Set((topo.edges.vpces ?? []).map(v => v.id)),
     [topo.edges.vpces],
   )
+  // CF01 — on the identity lens the AWS services a role reaches join the rail
+  // source as service anchors ("S3 · any bucket"), because a role-action
+  // decision row is action-scoped and cannot name a bucket; the placement
+  // catalog then puts each in the lane the Network view draws that service in.
+  const identityServiceNodes = identityLens?.twin.serviceNodes
+  const railSourceNodes = useMemo(
+    () => (identityServiceNodes ? [...(regionalDataSourceNodes ?? nodes), ...identityServiceNodes] : regionalDataSourceNodes ?? nodes),
+    [identityServiceNodes, regionalDataSourceNodes, nodes],
+  )
   const regionalTierNodes = useMemo(() => {
-    const base = extractRegionalDataServices(regionalDataSourceNodes ?? nodes)
+    const base = extractRegionalDataServices(railSourceNodes)
     return ensureAwsPublicServiceSentinels(base, overlayEdgeList)
-  }, [regionalDataSourceNodes, nodes, overlayEdgeList])
+  }, [railSourceNodes, overlayEdgeList])
   const serverlessTierNodes = useMemo(
     () => extractServerlessOutsideVpc(serverlessSourceNodes ?? nodes, topo.subnets),
     [serverlessSourceNodes, nodes, topo.subnets],
   )
   const triggerTierNodes = useMemo(
-    () => extractTriggerServices(regionalDataSourceNodes ?? nodes),
-    [regionalDataSourceNodes, nodes],
+    () => extractTriggerServices(railSourceNodes),
+    [railSourceNodes],
   )
+  const identityRoleNodes = identityLens?.twin.roleNodes
+  const identityPrincipalNodes = identityLens?.twin.principalNodes
   const namedFlowNodeIds = useMemo(() => {
     const ids = new Set<string>()
     if (flowMode === "all_access") {
@@ -9191,9 +9379,18 @@ export function AwsFrame({
         ids.add(edge.target_id)
       }
     }
+    // CF01 — every end of an identity line is named: a role's reach into
+    // "S3 ×2" is not a reading, and the identity lens has no traffic list to
+    // name them from.
+    if (identityRoleNodes) {
+      for (const edge of overlayEdgeList) {
+        ids.add(edge.source_id)
+        ids.add(edge.target_id)
+      }
+    }
     if (selectedNodeId) ids.add(selectedNodeId)
     return ids
-  }, [flowMode, trafficEdgesList, selectedNodeId])
+  }, [flowMode, trafficEdgesList, identityRoleNodes, overlayEdgeList, selectedNodeId])
   // Declared BEFORE visibleEdges on purpose: that memo synthesizes the
   // gateway -> destination edges from this map, and a const used above its own
   // declaration is a TDZ error, not a hoist (tsc: TS2448, run 34865296106).
@@ -9204,7 +9401,6 @@ export function AwsFrame({
     () => externalDestinationMap(externalEgress, trafficEdgesList),
     [externalEgress, trafficEdgesList],
   )
-  const identityPlaneIds = identityLens?.lens.nodes
   const visibleEdges = useMemo(() => {
     const visible = new Set(nodes.map(n => n.id))
     for (const n of regionalTierNodes) visible.add(n.id)
@@ -9212,12 +9408,14 @@ export function AwsFrame({
     // Triggers were edge-visible only because they used to sit in
     // regionalTierNodes. Leaving them out here drops the TRIGGERS fan-out.
     for (const n of triggerTierNodes) visible.add(n.id)
-    // CF01 · D1 — identity-plane chips are overlay anchors too.
-    if (identityPlaneIds) for (const n of identityPlaneIds) if (!n.onCanvas) visible.add(n.id)
+    // CF01 — the twin's role and principal chips are overlay anchors too.
+    if (identityRoleNodes) for (const n of identityRoleNodes) visible.add(n.id)
+    if (identityPrincipalNodes) for (const n of identityPrincipalNodes) visible.add(n.id)
     const railIds = new Set<string>([
       ...regionalTierNodes.map(n => n.id),
       ...serverlessTierNodes.map(n => n.id),
       ...triggerTierNodes.map(n => n.id),
+      ...(identityRoleNodes ?? []).map(n => n.id),
     ])
     let edges = overlayEdgeList.filter(e => {
       if (!visible.has(e.source_id)) return false
@@ -9289,7 +9487,8 @@ export function AwsFrame({
     vpceIds,
     mergedVpcView,
     externalDestinations,
-    identityPlaneIds,
+    identityRoleNodes,
+    identityPrincipalNodes,
   ])
   // One frame PER VPC. Merged mode renders every VPC that owns a subnet in the
   // payload (primary first); scoped mode renders just the selected VPC. Each
@@ -9371,11 +9570,19 @@ export function AwsFrame({
   // draws for triggers alone (its band members left the regional rail).
   const showServerlessLane = serverlessTierNodes.length > 0 || triggerTierNodes.length > 0
   const showRegionalLane = regionalTierNodes.length > 0
-  const showEdgeRail = showServerlessLane || showRegionalLane
+  // CF01 — the identity twin's IAM roles lane, between Lambda and Regional so
+  // workload → role → service reads left to right. Never on the Network view.
+  const showIamLane = (identityRoleNodes?.length ?? 0) > 0
+  const showEdgeRail = showServerlessLane || showIamLane || showRegionalLane
+  const railLaneCount = [showServerlessLane, showIamLane, showRegionalLane].filter(Boolean).length
   const railColumnW =
-    showServerlessLane && showRegionalLane
-      ? RAIL_LANE_W_PX * 2 + RAIL_LANE_CORRIDOR_W_PX
+    railLaneCount > 1
+      ? RAIL_LANE_W_PX * railLaneCount + RAIL_LANE_CORRIDOR_W_PX * (railLaneCount - 1)
       : RAIL_LANE_W_PX
+  const railGridTemplateColumns =
+    railLaneCount > 1
+      ? Array.from({ length: railLaneCount }, () => `${RAIL_LANE_W_PX}px`).join(` ${RAIL_LANE_CORRIDOR_W_PX}px `)
+      : `${RAIL_LANE_W_PX}px`
   // "4 fn · service-plane access" under the bucket: the receiving end of the
   // rail feeders, stated at the chip from the same edges the overlay draws.
   const railInboundCaptions = useMemo(() => {
@@ -9459,7 +9666,10 @@ export function AwsFrame({
         </div>
       ) : null}
       {identityLens ? (
-        <IdentityLensLegend lens={identityLens.lens} compact={presentationMode} />
+        <>
+          <IdentityLensLegend lens={identityLens.lens} compact={presentationMode} />
+          <IdentityTwinFooter lens={identityLens.lens} twin={identityLens.twin} compact={presentationMode} />
+        </>
       ) : flowMode !== "architecture" ? (
         <FlowLegend compact={presentationMode} />
       ) : null}
@@ -9559,6 +9769,15 @@ export function AwsFrame({
           style={{ borderColor: "#94A3B8" }}
           aria-hidden
         />
+        {identityLens ? (
+          <IdentityPrincipalsStrip
+            lens={identityLens.lens}
+            twin={identityLens.twin}
+            selectedNodeId={selectedNodeId}
+            onSelect={onSelect}
+            compact={presentationMode}
+          />
+        ) : (
         <div
           className="flex items-center gap-2 shrink-0"
           style={{ color: PAL.ink }}
@@ -9595,6 +9814,7 @@ export function AwsFrame({
             </span>
           </div>
         </div>
+        )}
         {/* The External destinations node moved onto the CANVAS, into the lane
             beyond the VPC boundary, where the traffic it describes is drawn.
             Keeping a copy here would state one fact in two places and spend a
@@ -10012,10 +10232,7 @@ export function AwsFrame({
                   style={{
                     width: `${railColumnW}px`,
                     maxWidth: `${railColumnW}px`,
-                    gridTemplateColumns:
-                      showServerlessLane && showRegionalLane
-                        ? `${RAIL_LANE_W_PX}px ${RAIL_LANE_CORRIDOR_W_PX}px ${RAIL_LANE_W_PX}px`
-                        : `${RAIL_LANE_W_PX}px`,
+                    gridTemplateColumns: railGridTemplateColumns,
                     gridTemplateRows: presentationMode ? "minmax(0, 1fr)" : "auto",
                   }}
                   data-scroll-region="edge-services-rail"
@@ -10034,7 +10251,7 @@ export function AwsFrame({
                     namedFlowNodeIds={namedFlowNodeIds}
                     s3Coverage={serverlessS3Coverage}
                   />
-                  {showServerlessLane && showRegionalLane ? (
+                  {showServerlessLane && (showIamLane || showRegionalLane) ? (
                     <div
                       className="self-stretch"
                       style={{
@@ -10044,6 +10261,30 @@ export function AwsFrame({
                           "linear-gradient(90deg, transparent, rgba(238,242,246,0.6), transparent)",
                       }}
                       data-testid="topology-interlane-corridor"
+                      aria-hidden
+                    />
+                  ) : null}
+                  {showIamLane && identityLens ? (
+                    <IamRolesTier
+                      nodes={identityRoleNodes ?? []}
+                      captions={identityLens.twin.captions}
+                      laneMinHeight={railLaneMinHeight}
+                      selectedNodeId={selectedNodeId}
+                      onSelect={onSelect}
+                      compact={presentationMode}
+                    />
+                  ) : null}
+                  {showIamLane && showRegionalLane ? (
+                    <div
+                      className="self-stretch"
+                      style={{
+                        borderLeft: "1px dashed #CBD5E1",
+                        borderRight: "1px dashed #CBD5E1",
+                        background:
+                          "linear-gradient(90deg, transparent, rgba(238,242,246,0.6), transparent)",
+                      }}
+                      data-testid="topology-interlane-corridor"
+                      data-corridor="iam-regional"
                       aria-hidden
                     />
                   ) : null}
@@ -10085,16 +10326,9 @@ export function AwsFrame({
         </div>
       </div>
 
-      {/* CF01 · D1 — the identity plane, INSIDE the flow container so its
-          chips are anchors the overlay can route to, in every mode. */}
-      {identityLens ? (
-        <IdentityPlane
-          frame={identityLens}
-          selectedNodeId={selectedNodeId}
-          onSelect={onSelect}
-          compact={presentationMode}
-        />
-      ) : null}
+      {/* CF01 — when the lens may draw nothing, the reason is on the canvas in
+          the producer's words; never a silent frame with no lines. */}
+      {identityLens?.lens.nothingToDraw ? <IdentityLensNotice lens={identityLens.lens} /> : null}
 
       {/* Sections below the AWS frame — diagnostic. Hidden in
           presentation/fullscreen mode so the map itself is the focus.
