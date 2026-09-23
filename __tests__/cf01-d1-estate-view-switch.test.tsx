@@ -164,23 +164,27 @@ describe("CF01-D1 · Identity & access is a third peer view", () => {
     expect(tab("Command map").getAttribute("aria-selected")).toBe("true")
     expect(tab("Identity & access").getAttribute("aria-selected")).toBe("false")
     // Only the selected view renders.
-    expect(screen.queryByTestId("identity-lens-plane")).toBeNull()
+    expect(screen.queryByTestId("topology-iam-roles-tier")).toBeNull()
     expect(screen.queryByTestId("estate-identity-access")).toBeNull()
     expect(screen.queryByTestId("topology-vpc-frame")).toBeNull()
   })
 
-  it("selecting Identity & access renders the SHARED frame with the identity plane, and nothing else", async () => {
+  it("selecting Identity & access renders the SHARED frame with the IAM lane and trust entrances, and nothing else", async () => {
     await mount(graphFixture.composed.ready_with_graph)
     fireEvent.click(tab("Identity & access"))
     expect(tab("Identity & access").getAttribute("aria-selected")).toBe("true")
     // The evidence frame around the canvas, the canvas slot, the shared VPC
-    // frame inside it, and the identity plane inside THAT.
+    // frame inside it, and the twin's IAM lane + trust entrances inside THAT.
     const evidence = screen.getByTestId("estate-identity-access")
     expect(evidence.getAttribute("data-state")).toBe("ready")
     const slot = within(evidence).getByTestId("identity-canvas-slot")
     expect(within(slot).getByTestId("topology-vpc-frame")).toBeInTheDocument()
-    expect(within(slot).getByTestId("identity-lens-plane")).toBeInTheDocument()
+    expect(within(slot).getByTestId("topology-iam-roles-tier")).toBeInTheDocument()
+    expect(within(slot).getByTestId("topology-identity-principals")).toBeInTheDocument()
+    expect(within(slot).queryByTestId("topology-internet-node")).toBeNull()
     expect(within(slot).getByTestId("identity-lens-legend")).toBeInTheDocument()
+    expect(within(slot).getByTestId("identity-twin-footer")).toBeInTheDocument()
+    expect(within(slot).queryByTestId("identity-lens-plane")).toBeNull()
     // Network-only chrome is not on the identity canvas.
     expect(screen.queryByTestId("topology-flow-legend")).toBeNull()
     expect(screen.queryByTestId("topology-platform-map-summary")).toBeNull()
@@ -190,15 +194,24 @@ describe("CF01-D1 · Identity & access is a third peer view", () => {
       expect(slot.querySelectorAll("g[data-flow-family]").length).toBeGreaterThan(0)
     })
     expect(slot.querySelector('g[data-flow-family="WORKLOAD_USES_ROLE"]')!.getAttribute("data-flow-source")).toBe("i-web")
+    // The role's observed reach moves; its binding and trust never do.
+    const reach = slot.querySelector('g[data-flow-family="ROLE_ACTION_DECISION"]')!
+    expect(reach.getAttribute("data-flow-motion")).toBe("authoritative")
+    expect(reach.querySelector('[data-testid="topology-flow-running-track"]')).not.toBeNull()
+    for (const g of Array.from(slot.querySelectorAll('g[data-flow-family="WORKLOAD_USES_ROLE"], g[data-flow-family="ROLE_TRUST_POLICY"]'))) {
+      expect(g.getAttribute("data-flow-motion")).toBe("none")
+    }
   })
 
-  it("switching back to Network topology restores the Network frame with no identity plane", async () => {
+  it("switching back to Network topology restores the Network frame with no IAM lane", async () => {
     await mount(graphFixture.composed.ready_with_graph)
     fireEvent.click(tab("Identity & access"))
     fireEvent.click(tab("Network topology"))
     expect(tab("Network topology").getAttribute("aria-selected")).toBe("true")
     expect(screen.getByTestId("topology-vpc-frame")).toBeInTheDocument()
-    expect(screen.queryByTestId("identity-lens-plane")).toBeNull()
+    expect(screen.queryByTestId("topology-iam-roles-tier")).toBeNull()
+    expect(screen.queryByTestId("topology-identity-principals")).toBeNull()
+    expect(screen.getByTestId("topology-internet-node")).toBeInTheDocument()
     expect(screen.queryByTestId("identity-lens-legend")).toBeNull()
     expect(screen.queryByTestId("estate-identity-access")).toBeNull()
     expect(screen.getByTestId("topology-flow-legend")).toBeInTheDocument()
@@ -212,7 +225,7 @@ describe("CF01-D1 · Identity & access is a third peer view", () => {
   it("opens on Identity & access when the host asks (the ?view=identity deep link)", async () => {
     await mount(graphFixture.composed.ready_with_graph, { defaultView: "identity" })
     expect(tab("Identity & access").getAttribute("aria-selected")).toBe("true")
-    expect(screen.getByTestId("identity-lens-plane")).toBeInTheDocument()
+    expect(screen.getByTestId("topology-iam-roles-tier")).toBeInTheDocument()
   })
 
   it("the tabs are keyboard reachable buttons with tab semantics", async () => {
@@ -258,13 +271,13 @@ describe("CF01-D1 · unavailable is not zero, in the view", () => {
 })
 
 describe("CF01-D1 · selection on the identity lens reuses the shared DetailPanel", () => {
-  it("keeps the identity plane and selection when VPC placement is unavailable", async () => {
+  it("keeps the IAM lane and selection when VPC placement is unavailable", async () => {
     topologyPayload = { ...withIdentity(graphFixture.composed.ready_with_graph), vpc_topology: null }
     render(<EstateMapView systemName="testbed-webshop" defaultView="identity" />)
     const warning = await screen.findByTestId("identity-placement-unavailable")
     expect(warning.textContent).toMatch(/without an AZ or subnet claim/)
-    const plane = screen.getByTestId("identity-lens-plane")
-    const roleChip = plane.querySelector('[data-identity-kind="iam_role"] [data-flow-id]') as HTMLElement
+    const lane = screen.getByTestId("topology-iam-roles-tier")
+    const roleChip = lane.querySelector("[data-flow-id]") as HTMLElement
     expect(roleChip).not.toBeNull()
     fireEvent.click(roleChip)
     expect(await screen.findByTestId("topology-service-detail-panel")).toBeInTheDocument()
@@ -273,16 +286,14 @@ describe("CF01-D1 · selection on the identity lens reuses the shared DetailPane
   it("clicking a role chip opens the same detail panel with the identity evidence section", async () => {
     await mount(graphFixture.composed.ready_with_graph)
     fireEvent.click(tab("Identity & access"))
-    const plane = screen.getByTestId("identity-lens-plane")
-    const roleChip = plane.querySelector('[data-identity-kind="iam_role"] [data-flow-id]') as HTMLElement
+    const lane = screen.getByTestId("topology-iam-roles-tier")
+    const roleChip = lane.querySelector("[data-flow-id]") as HTMLElement
     expect(roleChip).not.toBeNull()
     fireEvent.click(roleChip)
     const panel = await screen.findByTestId("topology-service-detail-panel")
     expect(panel.textContent).toMatch(/Identity & access · IAM role/)
     expect(within(panel).getByTestId("estate-identity-detail")).toBeInTheDocument()
     expect(within(panel).getAllByTestId("estate-identity-relationship").length).toBeGreaterThan(0)
-    // The neighbourhood control appears for the focused chip.
-    expect(screen.getByTestId("identity-neighbourhood-counts").textContent).toMatch(/Around /)
     // Escape closes the panel, as on the Network view.
     fireEvent.keyDown(window, { key: "Escape" })
     await waitFor(() => {
@@ -302,23 +313,34 @@ describe("CF01-D1 · selection on the identity lens reuses the shared DetailPane
     expect(rows.map(r => r.getAttribute("data-family"))).toEqual(["WORKLOAD_USES_ROLE"])
   })
 
-  it("the hop control bounds the neighbourhood and reports what is not drawn", async () => {
+  it("clicking a trust entrance in the strip opens the same detail panel for the principal", async () => {
     await mount(graphFixture.composed.ready_with_graph)
     fireEvent.click(tab("Identity & access"))
-    const plane = screen.getByTestId("identity-lens-plane")
-    const roleChip = plane.querySelector('[data-identity-kind="iam_role"] [data-flow-id]') as HTMLElement
-    fireEvent.click(roleChip)
-    await screen.findByTestId("identity-hops-1")
-    fireEvent.click(screen.getByTestId("identity-hops-1"))
-    expect(screen.getByTestId("identity-hops-1").getAttribute("aria-pressed")).toBe("true")
-    const counts = screen.getByTestId("identity-neighbourhood-counts").textContent!
-    const drawn = Number(/(\d+) drawn/.exec(counts)![1])
-    const omitted = Number(/(\d+) not drawn/.exec(counts)?.[1] ?? "0")
-    expect(drawn).toBeGreaterThan(0)
-    expect(drawn + omitted).toBe(graphFixture.composed.ready_with_graph.identity_graph.edges.length + 2)
+    const strip = screen.getByTestId("topology-identity-principals")
+    const chip = strip.querySelector('[data-testid="topology-identity-principal"][data-principal-class="federated"]') as HTMLElement
+    expect(chip).not.toBeNull()
+    fireEvent.click(chip)
+    const panel = await screen.findByTestId("topology-service-detail-panel")
+    expect(within(panel).getByTestId("estate-identity-detail")).toBeInTheDocument()
+    const rows = within(panel).getAllByTestId("estate-identity-relationship")
+    expect(rows.map(r => r.getAttribute("data-family"))).toEqual(["ROLE_TRUST_POLICY"])
   })
 })
 
+describe("CF01 · a reached-service anchor is inspectable without an Inventory request", () => {
+  it("clicking the S3 anchor opens the shared panel and requests nothing for the anchor id", async () => {
+    await mount(graphFixture.composed.ready_with_graph)
+    fireEvent.click(tab("Identity & access"))
+    const regional = screen.getByTestId("topology-regional-data-tier")
+    const anchor = regional.querySelector('[data-flow-id="__identity:service:s3__"]') as HTMLElement
+    expect(anchor).not.toBeNull()
+    fireEvent.click(anchor)
+    const panel = await screen.findByTestId("topology-service-detail-panel")
+    expect(panel.textContent).toMatch(/S3 · any bucket/)
+    const calls = (globalThis.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls
+    expect(calls.filter(c => String(c[0]).includes("__identity"))).toEqual([])
+  })
+})
 
 describe("mounted identity drawers do not render traffic claims", () => {
   it.each([false, true])("keeps the identity lens for a resource with no identity detail (fullscreen=%s)", async fullscreen => {

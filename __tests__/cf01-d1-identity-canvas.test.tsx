@@ -1,16 +1,19 @@
 /// <reference types="vitest/globals" />
 /**
- * CF01 · D1 — the identity lens is drawn ON the shared AwsFrame.
+ * CF01 — the Identity & access lens is a 1:1 twin of the Network view.
  *
- * Same frame, same chips, same FlowOverlay: this renders `AwsFrame` with the
- * `identityLens` prop and the lens's own overlay edges, over the same
- * estate payload the Network regression guard pins, and asserts what a reader
- * sees — identity chips as overlay anchors, one routed line per producer
- * family with the producer's plane, no motion on anything configured, and an
- * explicit not-an-answer state when nothing may be drawn.
+ * Same `AwsFrame`, same VPC frame, subnet grid, rails, chips, FlowOverlay,
+ * legend geometry and selection. What the lens swaps is the frame's INPUTS
+ * (estate-identity-twin.ts): IAM roles as a rail lane beside the regional
+ * services, the AWS services a role reaches as regional chips, the principals
+ * that may assume a role in the strip where the Network view keeps Internet,
+ * and identity lines in place of traffic — each with the producer's plane on
+ * the line, and motion ONLY on observed use backed by a decision generation.
  *
  * Payloads: the v1 + graph fixtures generated from saferemediate-backend
- * 41f5dda3 (see cf01-d1-identity-lens-model.test.ts for provenance).
+ * 41f5dda3 / 6e08d6b2 (see cf01-d1-identity-lens-model.test.ts for
+ * provenance). They are test inputs for the CONSUMER contract, not
+ * production reads.
  */
 
 import React from "react"
@@ -20,7 +23,6 @@ import { cleanup, fireEvent, render, waitFor, within } from "@testing-library/re
 import {
   AwsFrame,
   BADGE_HALF_HEIGHT,
-  LEADER_DISCRIMINATION_MARGIN_PX,
   badgeHalfWidth,
   clampBadgeIntoBounds,
   nearestPointOnPolyline,
@@ -28,18 +30,14 @@ import {
   orthoPath,
   separateIdentityBadges,
 } from "@/components/topology-v0-2/aws-frame"
-import {
-  IDENTITY_GRAPH_EDGE_FAMILIES,
-  boundIdentityEdges,
-  buildIdentityLensForPayload,
-  identityLensTrafficEdges,
-} from "@/components/topology-v0-2/estate-identity-access-model"
+import { buildIdentityLensForPayload, identityAnchorId } from "@/components/topology-v0-2/estate-identity-access-model"
 import type { IdentityLensFrameProps } from "@/components/topology-v0-2/estate-identity-plane"
 import { identityChipSubtitle } from "@/components/topology-v0-2/estate-identity-plane"
+import { buildIdentityTwin, identityServiceAnchorId } from "@/components/topology-v0-2/estate-identity-twin"
+import { awsIconUrl } from "@/components/topology-v0-2/aws-architecture-icons"
 
 import v1 from "./fixtures/estate-identity-access.json"
 import historicalGraphFixture from "./fixtures/cf01-d1/estate-identity-graph-6e08d6b2.json"
-import fCandidate from "./fixtures/cf01-d1/estate-identity-graph-F-candidate.json"
 import { estatePayload, installLayoutStub } from "./fixtures/cf01-d1/network-fixture"
 
 // The captured graph predates the producer's explicit account-scope field.
@@ -83,6 +81,7 @@ afterEach(() => {
 })
 
 const READY_WITH_GRAPH = graphFixture.composed.ready_with_graph
+const PARTIAL_WITH_GRAPH = graphFixture.composed.partial_with_truncated_graph
 // The producer's "empty graph" fixture still contains a standalone account.
 // Keep those source bytes intact; a truly empty negative control has no nodes.
 const NODE_ONLY_ACCOUNT = graphFixture.composed.empty_authoritative_with_empty_graph
@@ -91,44 +90,33 @@ const TRULY_EMPTY_GRAPH = {
   identity_graph: { ...NODE_ONLY_ACCOUNT.identity_graph, nodes: [], nodes_total: 0 },
 }
 
-function lensFor(identityAccess: unknown, focusedNodeId: string | null = null, hops = 2) {
+const WEB_ROLE = identityAnchorId("iam_role", "AROAEXAMPLE")
+const API_ROLE = identityAnchorId("iam_role", "AROAAPI")
+const S3_ANCHOR = identityServiceAnchorId("s3")
+
+function lensFor(identityAccess: unknown, focusedNodeId: string | null = null) {
   const block = identityAccess as any
   const positiveBlock = block?.identity_graph && ["ready", "partial"].includes(block.identity_graph.status) &&
     block.identity_graph.scope === undefined && block.scope?.account_id && block.inventory_authority?.generation !== undefined
     ? scopedHistoricalBlock(block) : identityAccess
   const payload = { ...estatePayload(), identity_access: positiveBlock } as any
-  const lens = buildIdentityLensForPayload(payload, {
-    topologyNodes: payload.nodes.map((n: any) => ({ ...n })),
-  })
-  const bound = boundIdentityEdges(lens.edges, focusedNodeId, hops, 1000)
-  const frame: IdentityLensFrameProps = {
-    lens,
-    drawn: bound.edges.length,
-    omitted: bound.omitted,
-    focusedNodeId,
-    hops,
-    chipCap: 12,
-  }
-  // Mirrors estate-map-view: the selection is handed to the overlay builder so
-  // the drawn line carries its relation to the focus.
-  return {
-    payload,
-    lens,
-    frame,
-    edges: identityLensTrafficEdges({ ...lens, edges: bound.edges }, focusedNodeId),
-  }
+  const topologyNodes = payload.nodes.map((n: any) => ({ ...n }))
+  const lens = buildIdentityLensForPayload(payload, { topologyNodes })
+  // Mirrors estate-map-view: the raw rows are read only once the lens has
+  // validated the block, and the selection is handed to the twin so the
+  // drawn line carries its relation to the focus.
+  const rawRoles = lens.state === "ready" || lens.state === "incomplete" ? (positiveBlock as any)?.roles ?? null : null
+  const twin = buildIdentityTwin(lens, { rawRoles, topologyNodes, focusId: focusedNodeId })
+  const frame: IdentityLensFrameProps = { lens, twin, focusedNodeId }
+  return { payload, lens, twin, frame, edges: twin.edges }
 }
 
 async function renderLens(
   identityAccess: unknown,
-  options: { selectedNodeId?: string | null; onSelect?: (id: string) => void; presentationMode?: boolean; frame?: Partial<IdentityLensFrameProps>; hops?: number } = {},
+  options: { selectedNodeId?: string | null; onSelect?: (id: string) => void; presentationMode?: boolean } = {},
 ) {
   restoreLayout = installLayoutStub()
-  const { payload, lens, frame, edges } = lensFor(
-    identityAccess,
-    options.selectedNodeId ?? null,
-    options.hops ?? 2,
-  )
+  const { payload, lens, twin, frame, edges } = lensFor(identityAccess, options.selectedNodeId ?? null)
   const view = render(
     <AwsFrame
       vpcTopology={payload.vpc_topology}
@@ -144,290 +132,385 @@ async function renderLens(
       presentationMode={options.presentationMode ?? false}
       viewDensity="glance"
       systemLabel={payload.system}
-      identityLens={{ ...frame, ...(options.frame ?? {}) }}
+      identityLens={frame}
     />,
   )
   if (edges.length > 0) {
     await waitFor(() => {
-      expect(view.container.querySelectorAll("g[data-flow-family]").length).toBeGreaterThan(0)
+      expect(view.container.querySelectorAll("g[data-flow-source]").length).toBeGreaterThan(0)
     })
   }
-  return { ...view, lens, edges }
+  return { ...view, lens, twin, edges }
 }
 
-describe("CF01-D1 · the identity lens shares the Network frame", () => {
-  it("renders the SAME VPC frame, subnet grid and topology chips as the Network view", async () => {
+const lines = (container: HTMLElement) => Array.from(container.querySelectorAll("g[data-flow-family]"))
+const lineOf = (container: HTMLElement, family: string) =>
+  container.querySelector(`g[data-flow-family="${family}"]`) as SVGGElement | null
+
+describe("CF01 · the identity lens IS the Network frame", () => {
+  it("renders the SAME VPC frame, subnet grid, strip and rail as the Network view, with the identity inputs in place", async () => {
     const { container } = await renderLens(READY_WITH_GRAPH)
     expect(container.querySelector('[data-testid="topology-vpc-frame"]')).not.toBeNull()
-    // Workload chips keep their topology anchors; the lens draws TO them.
+    expect(container.querySelector('[data-testid="topology-users-internet-strip"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="topology-users-node"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="topology-edge-services-rail"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="topology-regional-data-tier"]')).not.toBeNull()
+    // Workload and bucket chips keep their topology anchors; the lens draws TO them.
     expect(container.querySelector('[data-flow-id="i-web"]')).not.toBeNull()
     expect(container.querySelector('[data-flow-id="bucket-assets"]')).not.toBeNull()
+    // The band that used to hang under the frame is gone: one grammar per canvas.
+    expect(container.querySelector('[data-testid="identity-lens-plane"]')).toBeNull()
+    expect(container.querySelector('[data-testid="identity-plane-chip"]')).toBeNull()
   })
 
-  it("renders the four account-context kinds as plane chips, with SCP and RCP kept apart", async () => {
+  it("draws the bound roles as an IAM lane on the rail, one chip per role, wearing the official IAM role icon", async () => {
+    const { container, twin } = await renderLens(READY_WITH_GRAPH)
+    const lane = container.querySelector('[data-testid="topology-iam-roles-tier"]') as HTMLElement
+    expect(lane).not.toBeNull()
+    expect(lane.textContent).toMatch(/IAM · Roles \(1\)/)
+    const chips = Array.from(lane.querySelectorAll("[data-flow-id]"))
+    expect(chips.map(c => c.getAttribute("data-flow-id"))).toEqual(twin.roleNodes.map(n => n.id))
+    expect(chips.map(c => c.getAttribute("data-flow-id"))).toEqual([WEB_ROLE])
+    expect(within(lane).getByText("web")).toBeInTheDocument()
+    const icon = lane.querySelector("img")!
+    expect(icon.getAttribute("src")).toBe(awsIconUrl("IAMRole"))
+    // The lane is a rail lane the overlay knows: the grid has a corridor before Regional.
+    const rail = container.querySelector('[data-testid="topology-edge-services-rail"]') as HTMLElement
+    expect(rail.style.gridTemplateColumns).toBe("200px 112px 200px")
+    expect(container.querySelectorAll('[data-testid="topology-interlane-corridor"]').length).toBe(1)
+  })
+
+  it("puts the trust entrances in the strip where the Network view keeps Internet, each with its class and icon", async () => {
+    const { container, twin } = await renderLens(READY_WITH_GRAPH)
+    expect(container.querySelector('[data-testid="topology-internet-node"]')).toBeNull()
+    const strip = container.querySelector('[data-testid="topology-identity-principals"]') as HTMLElement
+    expect(strip.textContent).toMatch(/Trust entrances/)
+    expect(strip.textContent).toMatch(/May assume a bound role · 2/)
+    const chips = Array.from(strip.querySelectorAll('[data-testid="topology-identity-principal"]'))
+    expect(chips.map(c => c.getAttribute("data-flow-id")).sort()).toEqual(twin.principalNodes.map(n => n.id).sort())
+    const byClass = new Map(chips.map(c => [c.getAttribute("data-principal-class"), c]))
+    // `:root` of THIS account is the account-wide grant, never an outside party.
+    expect(byClass.get("this_account_root")?.textContent).toMatch(/this account \(:root\)/)
+    expect(byClass.get("this_account_root")?.querySelector("img")?.getAttribute("src")).toBe(awsIconUrl("AWSAccountPrincipal"))
+    expect(byClass.get("federated")?.textContent).toMatch(/token\.actions\.githubusercontent\.com · SAML \/ OIDC/)
+    expect(byClass.get("federated")?.querySelector("img")?.getAttribute("src")).toBe(awsIconUrl("FederatedPrincipal"))
+    // A service principal (ec2.amazonaws.com) is the mechanism of the binding, not an entrance.
+    expect(byClass.has("unclassified")).toBe(false)
+    expect(strip.textContent).not.toMatch(/ec2\.amazonaws\.com/)
+  })
+
+  it("puts the service a role reaches on the regional rail as a service anchor, beside the real buckets, never AS a bucket", async () => {
     const { container } = await renderLens(READY_WITH_GRAPH)
-    for (const kind of ["aws_account", "organization", "organizational_unit", "control_policy"]) {
-      expect(
-        container.querySelector(`[data-testid="identity-plane-chip"][data-identity-kind="${kind}"]`),
-        kind,
-      ).not.toBeNull()
-    }
-    const policies = Array.from(
-      container.querySelectorAll('[data-testid="identity-plane-chip"][data-identity-kind="control_policy"]'),
-    )
-    const labels = policies.map(chip => chip.getAttribute("data-identity-sublabel") ?? "")
-    expect(labels).toContain("SCP")
-    expect(labels).toContain("RCP")
+    const regional = container.querySelector('[data-testid="topology-regional-data-tier"]') as HTMLElement
+    const ids = Array.from(regional.querySelectorAll("[data-flow-id]")).map(c => c.getAttribute("data-flow-id"))
+    expect(ids).toContain(S3_ANCHOR)
+    expect(ids).toContain("bucket-assets")
+    expect(within(regional).getByText("S3 · any bucket")).toBeInTheDocument()
+    // No line ends on the named bucket: the decision row is action-scoped.
+    expect(lines(container).some(g => g.getAttribute("data-flow-target") === "bucket-assets")).toBe(false)
   })
 
-  it("adds the identity plane INSIDE the frame with one anchor chip per identity-plane node", async () => {
-    const { container, lens } = await renderLens(READY_WITH_GRAPH)
-    const plane = container.querySelector('[data-testid="identity-lens-plane"]')!
-    expect(plane).not.toBeNull()
-    const planeNodes = lens.nodes.filter(n => !n.onCanvas)
-    expect(planeNodes.length).toBeGreaterThan(5)
-    for (const node of planeNodes) {
-      const chip = plane.querySelector(`[data-flow-id="${CSS.escape(node.id)}"]`)
-      expect(chip, `anchor for ${node.kind} ${node.label}`).not.toBeNull()
-    }
-    // And no second chip for a node the topology already draws.
-    expect(plane.querySelector('[data-flow-id="i-web"]')).toBeNull()
-    expect(plane.querySelector('[data-flow-id="bucket-assets"]')).toBeNull()
-  })
-
-  it("replaces the traffic legend, flow-mode toggle and traffic banners with the identity legend", async () => {
+  it("replaces the traffic legend, flow-mode toggle and traffic banners with the identity legend and the twin footer", async () => {
     const { container } = await renderLens(READY_WITH_GRAPH)
     expect(container.querySelector('[data-testid="identity-lens-legend"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="identity-twin-footer"]')).not.toBeNull()
     expect(container.querySelector('[data-testid="topology-flow-legend"]')).toBeNull()
-    expect(container.querySelector('[data-testid="topology-platform-map-summary"]')).toBeNull()
-    expect(container.querySelector('[data-testid="topology-traffic-authority-state"]')).toBeNull()
-    for (const key of ["configured", "observed", "unresolved_endpoint"]) {
-      expect(container.querySelector(`[data-testid="identity-legend-${key}"]`)).not.toBeNull()
-    }
-    expect(container.querySelector('[data-testid="identity-legend-motion"]')!.textContent).toMatch(
-      /configured or trust line never moves/i,
-    )
+    expect(container.querySelector('[data-testid="topology-flow-mode-toggle"]')).toBeNull()
+    expect(container.querySelector('[data-testid="topology-traffic-authority"]')).toBeNull()
   })
 
-  it("lists EVERY family verdict in the legend, including the ones the producer cannot serve, with their reason", async () => {
-    const { container, lens } = await renderLens(READY_WITH_GRAPH)
-    const rows = Array.from(container.querySelectorAll('[data-testid="identity-legend-family"]'))
-    const byFamily = new Map(rows.map(r => [r.getAttribute("data-family"), r]))
-    expect(rows.length).toBe(lens.families.length)
-    for (const family of ["ASSUMES_ROLE", "CAN_ASSUME", "TRUSTS", "HAS_POLICY", "LIMITED_BY_SCP", "IN_ORG", "IN_ORG_UNIT", "DATA_ACCESS", "TARGETS", "USES_KMS_KEY", "MEMBER_OF"]) {
-      const row = byFamily.get(family)!
-      expect(row, family).toBeDefined()
-      expect(row.getAttribute("data-status")).toBe("unavailable")
-      expect(row.getAttribute("data-drawn")).toBe("0")
-      expect(row.textContent).toMatch(/not drawn/)
-    }
-    for (const family of IDENTITY_GRAPH_EDGE_FAMILIES) {
-      const row = byFamily.get(family)!
-      expect(row.getAttribute("data-status")).toBe("available")
-      expect(Number(row.getAttribute("data-drawn"))).toBeGreaterThan(0)
-    }
+  it("counts every hidden set in the footer instead of dropping it", async () => {
+    const { container, twin } = await renderLens(READY_WITH_GRAPH)
+    const footer = container.querySelector('[data-testid="identity-twin-footer"]') as HTMLElement
+    expect(footer.textContent).toMatch(/1 role bound to a workload on this canvas/)
+    expect(footer.textContent).toMatch(new RegExp(`${twin.counts.otherAccountRoles} other role`))
+    expect(footer.textContent).toMatch(new RegExp(`${twin.counts.users} IAM users in the graph, not drawn`))
+    expect(footer.textContent).toMatch(/protected resource not on this map/)
+    expect(footer.textContent).toMatch(/relationship families not on the canonical path/)
   })
 })
 
-describe("CF01-D1 · every producer family is routed by the shared overlay with its plane", () => {
-  it("draws one overlay group per lens edge, tagged with family, plane and certainty", async () => {
-    const { container, edges } = await renderLens(READY_WITH_GRAPH)
-    const groups = Array.from(container.querySelectorAll("g[data-flow-family]"))
-    expect(groups.length).toBe(edges.length)
-    const families = new Set(groups.map(g => g.getAttribute("data-flow-family")))
-    for (const family of IDENTITY_GRAPH_EDGE_FAMILIES) expect(families.has(family), family).toBe(true)
-    for (const g of groups) {
-      expect(["configured", "observed"]).toContain(g.getAttribute("data-flow-plane"))
-      expect(["resolved", "unresolved_endpoint"]).toContain(g.getAttribute("data-flow-certainty"))
-    }
+describe("CF01 · the lines are the Network view's lines with the producer's plane", () => {
+  it("draws workload → role from the workload's own chip into the IAM lane, dashed slate, still, with the mechanism as its badge", async () => {
+    const { container } = await renderLens(READY_WITH_GRAPH)
+    const runsAs = lineOf(container, "WORKLOAD_USES_ROLE")!
+    expect(runsAs.getAttribute("data-flow-source")).toBe("i-web")
+    expect(runsAs.getAttribute("data-flow-target")).toBe(WEB_ROLE)
+    expect(runsAs.getAttribute("data-flow-plane")).toBe("configured")
+    expect(runsAs.getAttribute("data-flow-motion")).toBe("none")
+    const stroke = runsAs.querySelector('path[data-flow-line="stroke"]')!
+    expect(stroke.getAttribute("stroke")).toBe("#475569")
+    expect(stroke.getAttribute("stroke-dasharray")).toBe("5 4")
+    expect(runsAs.querySelector('[data-testid="topology-flow-running-track"]')).toBeNull()
+    expect(runsAs.querySelector("text")?.textContent).toBe("instance profile")
   })
 
-  it("a configured edge is dashed, still, and carries no packet", async () => {
+  it("draws principal → role from the strip into the IAM lane, one still line per statement, conditioned or not", async () => {
     const { container } = await renderLens(READY_WITH_GRAPH)
-    const configured = Array.from(container.querySelectorAll('g[data-flow-plane="configured"][data-flow-certainty="resolved"]'))
-    expect(configured.length).toBeGreaterThan(0)
-    for (const g of configured) {
+    const trust = lines(container).filter(g => g.getAttribute("data-flow-family") === "ROLE_TRUST_POLICY")
+    expect(trust).toHaveLength(2)
+    for (const g of trust) {
+      expect(g.getAttribute("data-flow-target")).toBe(WEB_ROLE)
+      expect(g.getAttribute("data-flow-plane")).toBe("configured")
       expect(g.getAttribute("data-flow-motion")).toBe("none")
-      expect(g.querySelector('[data-testid="topology-flow-packet"]')).toBeNull()
-      expect(g.querySelector('[data-testid="topology-flow-historical-packet"]')).toBeNull()
-      expect(g.querySelector("animate, animateMotion")).toBeNull()
-      const line = g.querySelector('path[data-flow-line="stroke"]')!
-      expect(line.getAttribute("stroke-dasharray")).toBe("5 4")
-      expect(line.getAttribute("marker-end")).toBe("url(#flow-arrow-identity-configured)")
     }
+    const words = trust.map(g => g.querySelector("text")?.textContent).sort()
+    expect(words).toEqual(["may assume · conditioned", "may assume · unconditioned"])
   })
 
-  it("an unresolved-endpoint edge is dotted and still — derived from an attribute, drawn to a name", async () => {
+  it("draws role → service as a rail feeder through the corridor, teal, MOVING, because use was observed under a decision generation", async () => {
     const { container } = await renderLens(READY_WITH_GRAPH)
-    const derived = Array.from(container.querySelectorAll('g[data-flow-certainty="unresolved_endpoint"][data-flow-plane="configured"]'))
-    expect(derived.length).toBeGreaterThan(0)
-    for (const g of derived) {
-      expect(g.getAttribute("data-flow-motion")).toBe("none")
-      expect(g.querySelector("animate, animateMotion")).toBeNull()
-      expect(g.querySelector('path[data-flow-line="stroke"]')!.getAttribute("stroke-dasharray")).toBe("1.5 4")
-      expect(g.querySelector('path[data-flow-line="stroke"]')!.getAttribute("marker-end")).toBe(
-        "url(#flow-arrow-identity-unresolved_endpoint)",
-      )
+    const reach = lineOf(container, "ROLE_ACTION_DECISION")!
+    expect(reach.getAttribute("data-flow-source")).toBe("lane:iam")
+    expect(reach.getAttribute("data-flow-target")).toBe(S3_ANCHOR)
+    expect(reach.getAttribute("data-flow-plane")).toBe("observed")
+    expect(reach.getAttribute("data-flow-verdict")).toBe("observed")
+    expect(reach.getAttribute("data-flow-motion")).toBe("authoritative")
+    expect(reach.getAttribute("data-flow-bundle")).toBe("1")
+    expect(reach.getAttribute("data-flow-members")).toBe(`${WEB_ROLE}→${S3_ANCHOR}`)
+    const stroke = reach.querySelector('path[data-flow-line="stroke"]')!
+    expect(stroke.getAttribute("stroke")).toBe("#0E8B7A")
+    expect(stroke.getAttribute("stroke-dasharray")).toBeNull()
+    expect(reach.querySelector('[data-testid="topology-flow-running-track"]')).not.toBeNull()
+    expect(reach.querySelector("text")?.textContent).toBe("s3 · explicit 1 · used 1")
+  })
+
+  it("moves nothing when the decision authority is not generation-stamped", async () => {
+    const block = { ...READY_WITH_GRAPH, decision_authority: null } as any
+    const { container, edges } = await renderLens(block)
+    expect(edges.some(e => e.identity?.family === "ROLE_ACTION_DECISION")).toBe(false)
+    for (const g of lines(container)) expect(g.getAttribute("data-flow-motion")).toBe("none")
+    expect(container.querySelector('[data-testid="topology-flow-running-track"]')).toBeNull()
+  })
+
+  it("a role whose usage is not computed gets its chip and its runs-as line, and NO reach line", async () => {
+    const { container } = await renderLens(PARTIAL_WITH_GRAPH)
+    const lane = container.querySelector('[data-testid="topology-iam-roles-tier"]') as HTMLElement
+    expect(Array.from(lane.querySelectorAll("[data-flow-id]")).map(c => c.getAttribute("data-flow-id"))).toEqual([API_ROLE, WEB_ROLE])
+    const runsAs = lines(container).filter(g => g.getAttribute("data-flow-family") === "WORKLOAD_USES_ROLE")
+    expect(runsAs.map(g => `${g.getAttribute("data-flow-source")}→${g.getAttribute("data-flow-target")}`).sort()).toEqual([
+      `i-api→${API_ROLE}`,
+      `i-web→${WEB_ROLE}`,
+    ])
+    const reach = lines(container).filter(g => g.getAttribute("data-flow-family") === "ROLE_ACTION_DECISION")
+    expect(reach).toHaveLength(1)
+    expect(reach[0].getAttribute("data-flow-members")).toBe(`${WEB_ROLE}→${S3_ANCHOR}`)
+    expect(container.querySelector('[data-testid="identity-twin-footer"]')!.textContent).toMatch(/1 of them: usage not computed \(no reach line\)/)
+  })
+
+  it("selecting a role marks its own lines outgoing / incoming and words them out / in, as the Network view does", async () => {
+    const { container } = await renderLens(READY_WITH_GRAPH, { selectedNodeId: WEB_ROLE })
+    const relations = lines(container).map(g => g.getAttribute("data-flow-focus-relation"))
+    expect(relations).toContain("incoming")
+    expect(relations).toContain("outgoing")
+    expect(relations).not.toContain("context")
+    for (const g of lines(container)) {
+      const relation = g.getAttribute("data-flow-focus-relation")
+      const word = g.querySelector("text")?.textContent ?? ""
+      // Per-chip lines carry the direction word; a rail bundle's word is its
+      // count and stays as the Network view prints it.
+      if (g.getAttribute("data-flow-source")?.startsWith("lane:")) continue
+      if (relation === "outgoing") expect(word).toMatch(/^out · /)
+      if (relation === "incoming") expect(word).toMatch(/^in · /)
     }
+    // Every line here is the selection's own: nothing is dimmed as context.
+    expect(lines(container).every(g => g.getAttribute("data-flow-focus-relation") !== "context")).toBe(true)
   })
 
-  it("only observed, generation-backed edges move, with the frame's own authoritative packet", async () => {
-    const { container } = await renderLens(READY_WITH_GRAPH)
-    const moving = Array.from(container.querySelectorAll('g[data-flow-motion="authoritative"]'))
-    expect(moving.length).toBe(3)
-    for (const g of moving) {
-      expect(g.getAttribute("data-flow-plane")).toBe("observed")
-      expect(g.querySelector('[data-testid="topology-flow-packet"]')).not.toBeNull()
-    }
-    expect(new Set(moving.map(g => g.getAttribute("data-flow-family")))).toEqual(
-      new Set(["ROLE_ACTION_DECISION", "USER_AUTHENTICATES_WITH"]),
-    )
-    // Nothing else animates: every packet on the canvas belongs to an observed edge.
-    const packets = container.querySelectorAll('[data-testid="topology-flow-packet"]')
-    expect(packets.length).toBe(moving.length)
+  it("renders in fullscreen presentation mode with the same anchors and the role's reading as its chip caption", async () => {
+    const { container } = await renderLens(READY_WITH_GRAPH, { presentationMode: true })
+    const lane = container.querySelector('[data-testid="topology-iam-roles-tier"]') as HTMLElement
+    expect(lane.querySelector(`[data-flow-id="${CSS.escape(WEB_ROLE)}"]`)).not.toBeNull()
+    expect(within(lane).getByTestId("topology-chip-caption").textContent).toBe("explicit 1 · used 1 · trusts ec2.amazonaws.com")
+    expect(container.querySelector(`[data-flow-id="${CSS.escape(S3_ANCHOR)}"]`)).not.toBeNull()
+    expect(lineOf(container, "ROLE_ACTION_DECISION")).not.toBeNull()
   })
 
-  it("the trust edge points AT the role and names the principal on its badge", async () => {
-    const { container, lens } = await renderLens(READY_WITH_GRAPH)
-    const trust = Array.from(container.querySelectorAll('g[data-flow-family="ROLE_TRUST_POLICY"]'))
-    expect(trust.length).toBe(4)
-    const roleIds = new Set(lens.nodes.filter(n => n.kind === "iam_role").map(n => n.id))
-    for (const g of trust) expect(roleIds.has(g.getAttribute("data-flow-target")!)).toBe(true)
-    const labels = trust.map(g => g.querySelector('[data-testid="topology-flow-badge"]')?.textContent ?? "")
-    // This fixture's wildcard trust carries no condition, so "unconditionally"
-    // is the accurate badge. A conditional wildcard must never read this way —
-    // the condition is what bounds who may assume.
-    expect(labels.some(text => /any principal, unconditionally/i.test(text))).toBe(true)
-    expect(labels.some(text => /ANYONE/.test(text))).toBe(false)
-    // Configured statement language, never effective authorization.
-    for (const text of labels) expect(text).not.toMatch(/\b(can assume|is allowed|authorized)\b/i)
-  })
-
-  it("WORKLOAD_USES_ROLE runs from the workload's topology chip to the role chip on the plane", async () => {
-    const { container } = await renderLens(READY_WITH_GRAPH)
-    const g = container.querySelector('g[data-flow-family="WORKLOAD_USES_ROLE"]')!
-    expect(g.getAttribute("data-flow-source")).toBe("i-web")
-    expect(g.getAttribute("data-flow-target")).toMatch(/^__identity:iam_role:.*__$/)
-    expect(g.getAttribute("data-flow-plane")).toBe("configured")
-  })
-})
-
-describe("CF01-D1 · chips, selection and bounded neighbourhoods", () => {
-  it("a name-only endpoint renders in the missing-evidence state", async () => {
-    const { container } = await renderLens(READY_WITH_GRAPH)
-    const unresolved = Array.from(container.querySelectorAll('[data-testid="identity-plane-chip"][data-identity-resolved="false"]'))
-    expect(unresolved.length).toBeGreaterThan(0)
-    for (const chip of unresolved) {
-      expect(within(chip as HTMLElement).getByTestId("identity-plane-chip-unresolved").textContent).toMatch(/name only/i)
-    }
-    const group = container.querySelector('[data-testid="identity-plane-chip"][data-identity-kind="iam_group"]')!
-    expect(group.getAttribute("data-identity-resolved")).toBe("false")
-  })
-
-  it("clicking an identity chip selects it through the frame's own onSelect", async () => {
+  it("clicking a role chip or a principal chip selects it through the frame's own onSelect", async () => {
     const onSelect = vi.fn()
-    const { container, lens } = await renderLens(READY_WITH_GRAPH, { onSelect })
-    const role = lens.nodes.find(n => n.kind === "iam_role")!
-    const chip = container.querySelector(`[data-flow-id="${CSS.escape(role.id)}"]`) as HTMLElement
-    fireEvent.click(chip)
-    expect(onSelect).toHaveBeenCalledWith(role.id)
-  })
-
-  it("a selected chip shows the hop control and the drawn / not-drawn counts", async () => {
-    const { lens } = lensFor(READY_WITH_GRAPH)
-    const role = lens.nodes.find(n => n.kind === "iam_role" && n.label === "web")!
-    const { container } = await renderLens(READY_WITH_GRAPH, { selectedNodeId: role.id })
-    const counts = container.querySelector('[data-testid="identity-neighbourhood-counts"]')!.textContent!
-    expect(counts).toMatch(/Around web:/)
-    expect(counts).toMatch(/\d+ drawn · \d+ not drawn/)
-    expect(container.querySelector('[data-testid="identity-hops-2"]')!.getAttribute("aria-pressed")).toBe("true")
-  })
-
-  it("collapsed chips are counted, and so are the relationships they hide", async () => {
-    const { container } = await renderLens(READY_WITH_GRAPH, { frame: { chipCap: 1 } })
-    const truncation = container.querySelector('[data-testid="identity-plane-truncation"]')!
-    expect(truncation.textContent).toMatch(/chips? collapsed below \(\d+ relationships? to them not drawn\)/)
-    expect(container.querySelectorAll('[data-testid="identity-plane-show-more"]').length).toBeGreaterThan(0)
-  })
-
-  it("the producer's own truncation is surfaced", async () => {
-    const { container } = await renderLens(graphFixture.composed.partial_with_truncated_graph)
-    expect(container.querySelector('[data-testid="identity-plane-truncation"]')!.textContent).toMatch(
-      /producer truncated this read/,
-    )
-    expect(container.querySelector('[data-testid="identity-plane-state"]')!.textContent).toMatch(/graph read with gaps/)
-  })
-
-  it("renders in fullscreen presentation mode with the same anchors", async () => {
-    const { container, lens } = await renderLens(READY_WITH_GRAPH, { presentationMode: true })
-    expect(container.querySelector('[data-testid="identity-lens-plane"]')).not.toBeNull()
-    for (const node of lens.nodes.filter(n => !n.onCanvas)) {
-      expect(container.querySelector(`[data-flow-id="${CSS.escape(node.id)}"]`)).not.toBeNull()
-    }
+    const { container, twin } = await renderLens(READY_WITH_GRAPH, { onSelect })
+    fireEvent.click(container.querySelector(`[data-testid="topology-iam-roles-tier"] [data-flow-id="${CSS.escape(WEB_ROLE)}"]`)!)
+    expect(onSelect).toHaveBeenLastCalledWith(WEB_ROLE)
+    const principal = twin.principalNodes[0]
+    fireEvent.click(container.querySelector(`[data-testid="topology-identity-principal"][data-flow-id="${CSS.escape(principal.id)}"]`)!)
+    expect(onSelect).toHaveBeenLastCalledWith(principal.id)
   })
 })
 
-describe("CF01-D1 · unavailable is not zero, on the canvas", () => {
-  it("the emitter's ready v1 draws the real identity graph, not a swallowed read failure", async () => {
-    const { container } = await renderLens(v1.ready)
-    expect(container.querySelector('[data-testid="identity-plane-state"]')!.textContent).toMatch(/graph read/)
-    const families = new Set(
-      Array.from(container.querySelectorAll("g[data-flow-family]")).map(g => g.getAttribute("data-flow-family")),
+describe("CF01 · the twin survives the frame's other modes and the producer's other shapes", () => {
+  it("keeps every identity line in All-VPCs (merged) mode, where cross-VPC chip lines are dropped", async () => {
+    restoreLayout = installLayoutStub()
+    const { payload, frame, edges } = lensFor(READY_WITH_GRAPH)
+    const view = render(
+      <AwsFrame
+        vpcTopology={payload.vpc_topology}
+        nodes={payload.nodes}
+        mergedVpcView
+        serverlessSourceNodes={payload.nodes}
+        regionalDataSourceNodes={payload.nodes}
+        trafficEdges={[]}
+        overlayEdges={edges}
+        flowMode="all_access"
+        attackPathFlowCount={0}
+        selectedNodeId={null}
+        onSelect={() => {}}
+        presentationMode={false}
+        viewDensity="glance"
+        systemLabel={payload.system}
+        identityLens={frame}
+      />,
     )
-    expect(families.has("WORKLOAD_USES_ROLE")).toBe(true)
-    expect(families.has("ACCOUNT_IN_ORGANIZATION")).toBe(true)
-    expect(families.has("ACCOUNT_LIMITED_BY_SCP")).toBe(true)
-    expect(families.has("ACCOUNT_LIMITED_BY_RCP")).toBe(true)
+    await waitFor(() => {
+      expect(view.container.querySelectorAll("g[data-flow-source]").length).toBeGreaterThan(0)
+    })
+    const families = lines(view.container).map(g => g.getAttribute("data-flow-family"))
+    expect(families).toContain("WORKLOAD_USES_ROLE")
+    expect(families).toContain("ROLE_TRUST_POLICY")
+    expect(families).toContain("ROLE_ACTION_DECISION")
   })
 
-  it("an unavailable projection shows the notice with its gap code and draws no relationship", async () => {
+  it("puts a reach into SQS / SNS / EventBridge on the regional rail, and never grows a Lambda lane to host it", async () => {
+    const block = {
+      ...READY_WITH_GRAPH,
+      roles: READY_WITH_GRAPH.roles.map((r: any) => ({
+        ...r,
+        action_details: [...r.action_details, { ...r.action_details[0], action: "sqs:SendMessage", usage_state: "NOT_OBSERVED" }],
+      })),
+    }
+    const { container } = await renderLens(block)
+    const regional = container.querySelector('[data-testid="topology-regional-data-tier"]') as HTMLElement
+    const ids = Array.from(regional.querySelectorAll("[data-flow-id]")).map(c => c.getAttribute("data-flow-id"))
+    expect(ids).toContain(identityServiceAnchorId("sqs"))
+    expect(within(regional).getByText("SQS · any queue")).toBeInTheDocument()
+    expect(container.querySelector('[data-testid="topology-serverless-tier"]')).toBeNull()
+    expect(container.querySelector('[data-testid="topology-triggers-band"]')).toBeNull()
+    const sqs = lines(container).find(g => g.getAttribute("data-flow-target") === identityServiceAnchorId("sqs"))!
+    expect(sqs.getAttribute("data-flow-plane")).toBe("configured")
+    expect(sqs.getAttribute("data-flow-motion")).toBe("none")
+    expect(sqs.querySelector("text")?.textContent).toBe("sqs · explicit 1 · not observed")
+  })
+
+  it("draws a Deny trust statement in the denied stroke with its own word, never as a grant", async () => {
+    const graph = READY_WITH_GRAPH.identity_graph
+    const allow = graph.edges.find((e: any) => e.family === "ROLE_TRUST_POLICY" && e.source.node_kind === "federated_principal")!
+    const block = {
+      ...READY_WITH_GRAPH,
+      identity_graph: { ...graph, edges: graph.edges.map((e: any) => (e === allow ? { ...e, effect: "Deny" } : e)) },
+    }
+    const { container } = await renderLens(block)
+    const denied = lines(container).find(g => g.getAttribute("data-flow-verdict") === "denied")!
+    expect(denied).toBeDefined()
+    expect(denied.getAttribute("data-flow-family")).toBe("ROLE_TRUST_POLICY")
+    expect(denied.getAttribute("data-flow-motion")).toBe("none")
+    const stroke = denied.querySelector('path[data-flow-line="stroke"]')!
+    expect(stroke.getAttribute("stroke")).toBe("#9F1239")
+    expect(stroke.getAttribute("stroke-dasharray")).toBe("8 3 2 3")
+    expect(denied.querySelector("text")?.textContent).toBe("statement denies · unconditioned")
+  })
+
+  it("captions a reached service with its projected policy rows in fullscreen, as the regional chips carry their inbound captions", async () => {
+    const { container, lens } = await renderLens(v1.ready, { presentationMode: true })
+    const rows = lens.nodes.filter(n => n.kind === "resource_policy" && n.label === "s3:bucket-authorization").length
+    expect(rows).toBeGreaterThan(0)
+    const chip = container.querySelector(`[data-flow-id="${CSS.escape(S3_ANCHOR)}"]`) as HTMLElement
+    expect(within(chip).getByTestId("topology-chip-caption").textContent).toBe(`${rows} policy row${rows === 1 ? "" : "s"} projected · present/absent: not served`)
+  })
+})
+
+describe("CF01 · unavailable is not zero, on the canvas", () => {
+  it("the emitter's ready v1 draws the real bindings and reach, not a swallowed read failure", async () => {
+    const { container, lens } = await renderLens(v1.ready)
+    expect(lens.state).toBe("ready")
+    expect(lineOf(container, "WORKLOAD_USES_ROLE")).not.toBeNull()
+    expect(lineOf(container, "ROLE_ACTION_DECISION")).not.toBeNull()
+    // The emitter's trust statements are all service principals: no entrance
+    // is drawn and the strip says what WAS served, never "nobody".
+    const { twin } = lensFor(v1.ready)
+    expect(twin.counts.serviceTrustStatements).toBeGreaterThan(0)
+    const strip = container.querySelector('[data-testid="topology-identity-principals"]') as HTMLElement
+    expect(strip.textContent).toMatch(new RegExp(`None drawn · only service-principal trust served \\(${twin.counts.serviceTrustStatements} statement`))
+  })
+
+  it("an unavailable projection shows the notice with its gap code and draws no lane, no entrance and no line", async () => {
     const { container } = await renderLens(v1.unavailable)
-    const notice = container.querySelector('[data-testid="identity-lens-notice"]')!
-    expect(notice.textContent).toMatch(/not a statement that there are no identities/i)
-    expect(notice.querySelector('[data-gap-code="ACTIVE_INVENTORY_POINTER_MISSING"]')).not.toBeNull()
-    expect(container.querySelectorAll("g[data-flow-family]").length).toBe(0)
-    expect(container.querySelectorAll('[data-testid="identity-plane-chip"]').length).toBe(0)
+    const notice = container.querySelector('[data-testid="identity-lens-notice"]') as HTMLElement
+    expect(notice).not.toBeNull()
+    expect(notice.getAttribute("data-identity-empty-answer")).toBe("false")
+    expect(within(notice).getAllByTestId("identity-lens-notice-gap").map(g => g.getAttribute("data-gap-code"))).toContain(
+      "ACTIVE_INVENTORY_POINTER_MISSING",
+    )
+    expect(container.querySelector('[data-testid="topology-iam-roles-tier"]')).toBeNull()
+    expect(container.querySelector('[data-testid="topology-identity-principal"]')).toBeNull()
+    expect(lines(container)).toHaveLength(0)
+    expect(container.querySelector('[data-testid="topology-identity-principals-caption"]')!.textContent).toMatch(/identity graph not read/)
   })
 
   it("empty-authoritative is the one empty canvas that is an answer, and it says so", async () => {
-    const { container } = await renderLens(TRULY_EMPTY_GRAPH)
-    const notice = container.querySelector('[data-testid="identity-lens-notice"]')!
+    const { container, lens } = await renderLens(TRULY_EMPTY_GRAPH)
+    expect(lens.emptyAnswer).toBe(true)
+    const notice = container.querySelector('[data-testid="identity-lens-notice"]') as HTMLElement
     expect(notice.getAttribute("data-identity-empty-answer")).toBe("true")
-    expect(notice.textContent).toMatch(/No workload in this scope is bound/)
-    expect(notice.textContent).not.toMatch(/not a statement that there are no identities/)
-    // Backed for role bindings, explicitly unknown for every family the
-    // producer cannot prove it acquired.
-    const caveat = notice.querySelector('[data-testid="identity-lens-notice-coverage"]')!
-    expect(caveat.textContent).toMatch(/unknown, not zero/i)
-    expect(caveat.textContent).toMatch(/USER_AUTHENTICATES_WITH/)
-    expect(caveat.textContent).not.toMatch(/WORKLOAD_USES_ROLE/)
+    expect(within(notice).getByTestId("identity-lens-notice-coverage").textContent).toMatch(/Unknown rather than zero/)
+    expect(container.querySelector('[data-testid="topology-iam-roles-tier"]')).toBeNull()
+    expect(container.querySelector('[data-testid="topology-identity-principals-caption"]')!.textContent).toMatch(/no role bound to a workload on this canvas/)
   })
 
-  /**
-   * The DOM half of the collapse. The notice used to compute its own
-   * "this is an answer" styling from `lens.state === "ready" && !edges.length`
-   * — the v1 ROLES projection's word. A payload whose roles read cleanly and
-   * whose identity GRAPH failed to read satisfied that test and rendered the
-   * calm white "answer" box with the warning suppressed.
-   */
   it("a roles-empty payload whose GRAPH was never read is not an answer on the canvas", async () => {
-    const { container } = await renderLens(graphFixture.composed.empty_authoritative_with_unread_graph)
-    const notice = container.querySelector('[data-testid="identity-lens-notice"]')!
-    expect(notice.getAttribute("data-identity-empty-answer")).toBe("false")
-    expect(notice.textContent).toMatch(/not a statement that there are no identities/)
-    expect(notice.querySelector('[data-gap-code="IDENTITY_GRAPH_READ_FAILED"]')).not.toBeNull()
-    expect(container.querySelectorAll("g[data-flow-family]").length).toBe(0)
+    const { container, lens } = await renderLens(historicalGraphFixture.composed.empty_authoritative_with_unread_graph)
+    expect(lens.emptyAnswer).toBe(false)
+    expect(container.querySelector('[data-testid="identity-lens-notice"]')!.getAttribute("data-identity-empty-answer")).toBe("false")
   })
 
-  it("the two empty canvases are visibly different, not just internally different", async () => {
-    const answer = await renderLens(TRULY_EMPTY_GRAPH)
-    const unread = await renderLens(graphFixture.composed.empty_authoritative_with_unread_graph)
-    const a = answer.container.querySelector('[data-testid="identity-lens-notice"]')!
-    const u = unread.container.querySelector('[data-testid="identity-lens-notice"]')!
-    expect(a.getAttribute("data-identity-empty-answer")).not.toBe(
-      u.getAttribute("data-identity-empty-answer"),
+  it("the Network frame does not change when the lens is off", async () => {
+    restoreLayout = installLayoutStub()
+    const payload = estatePayload()
+    const { container } = render(
+      <AwsFrame
+        vpcTopology={payload.vpc_topology!}
+        nodes={payload.nodes}
+        serverlessSourceNodes={payload.nodes}
+        regionalDataSourceNodes={payload.nodes}
+        trafficEdges={payload.traffic_edges ?? []}
+        flowMode="all_access"
+        attackPathFlowCount={0}
+        selectedNodeId={null}
+        onSelect={() => {}}
+        presentationMode={false}
+        viewDensity="glance"
+        systemLabel={payload.system}
+      />,
     )
-    expect(a.textContent).not.toBe(u.textContent)
+    expect(container.querySelector('[data-testid="topology-iam-roles-tier"]')).toBeNull()
+    expect(container.querySelector('[data-testid="topology-identity-principals"]')).toBeNull()
+    expect(container.querySelector('[data-testid="topology-internet-node"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="identity-lens-legend"]')).toBeNull()
+    expect(container.querySelector('[data-testid="identity-twin-footer"]')).toBeNull()
+    expect(container.querySelector("marker[id^='flow-arrow-identity-']")).toBeNull()
+  })
+})
+
+describe("CF01 · a chip names the thing, not its anchor id", () => {
+  it("never shows a synthetic canvas anchor as chip text", async () => {
+    const { container } = await renderLens(READY_WITH_GRAPH)
+    for (const sel of ['[data-testid="topology-iam-roles-tier"]', '[data-testid="topology-identity-principals"]']) {
+      const el = container.querySelector(sel) as HTMLElement
+      expect(el.querySelector("[data-flow-id]")!.getAttribute("data-flow-id")).toMatch(/^__identity:/)
+      expect(el.textContent ?? "").not.toMatch(/__identity:/)
+    }
+  })
+
+  it("the identity subtitle helper is derived from producer fields only", () => {
+    expect(
+      identityChipSubtitle({
+        kind: "iam_role",
+        arn: "arn:aws:iam::999988887777:role/partner",
+        resourceUid: null,
+      } as any),
+    ).toBe("acct 999988887777")
+    // No account anywhere: say what it is, invent no owner.
+    expect(
+      identityChipSubtitle({ kind: "organization", arn: null, resourceUid: null } as any),
+    ).not.toMatch(/\d/)
   })
 })
 
@@ -625,325 +708,7 @@ describe("CF01-D1 · identity badges are pulled off each other", () => {
   })
 })
 
-describe("CF01-D1 · an identity chip names the thing, not its anchor id", () => {
-  it("never shows the synthetic canvas anchor as a chip's subtitle", async () => {
-    const { container } = await renderLens(READY_WITH_GRAPH)
-    const chips = Array.from(container.querySelectorAll('[data-testid="identity-plane-chip"]'))
-    expect(chips.length).toBeGreaterThan(0)
-    for (const chip of chips) {
-      // The anchor id stays an attribute — it is how the overlay binds — but it
-      // must never be the text a reader is asked to identify a principal by.
-      expect(chip.getAttribute("data-identity-node-id")).toMatch(/^__identity:/)
-      expect(chip.textContent ?? "").not.toMatch(/__identity:/)
-    }
-  })
 
-  it("names the kind and the owning account, so two same-named principals differ", async () => {
-    const { container, lens } = await renderLens(READY_WITH_GRAPH)
-    const role = lens.nodes.find(n => n.arn === "arn:aws:iam::416651950952:role/web")!
-    const chip = container.querySelector(
-      `[data-identity-node-id="${CSS.escape(role.id)}"]`,
-    )!
-    // The full 12-digit account, not a truncated prefix: a cut-off account id
-    // cannot be told from another one sharing its prefix.
-    expect(chip.textContent).toMatch(/acct 416651950952/)
-  })
-
-  it("the subtitle is derived from producer fields only", () => {
-    expect(
-      identityChipSubtitle({
-        kind: "iam_role",
-        arn: "arn:aws:iam::999988887777:role/partner",
-        resourceUid: null,
-      } as any),
-    ).toBe("acct 999988887777")
-    // No account anywhere: say what it is, invent no owner.
-    expect(
-      identityChipSubtitle({ kind: "organization", arn: null, resourceUid: null } as any),
-    ).not.toMatch(/\d/)
-  })
-})
-
-describe("CF01-D1 · a selection reads as its own access, on the canvas", () => {
-  it("labels the selected node's own lines and leaves the rest as context", async () => {
-    const { lens } = lensFor(READY_WITH_GRAPH)
-    const role = lens.nodes.find(n => n.arn === "arn:aws:iam::416651950952:role/web")!
-    const { container } = await renderLens(READY_WITH_GRAPH, { selectedNodeId: role.id })
-    const groups = Array.from(container.querySelectorAll("g[data-flow-focus-relation]"))
-    expect(groups.length).toBeGreaterThan(0)
-    for (const group of groups) {
-      const source = group.getAttribute("data-flow-source")
-      const target = group.getAttribute("data-flow-target")
-      const expected =
-        source === role.id ? "outgoing" : target === role.id ? "incoming" : "context"
-      expect(group.getAttribute("data-flow-focus-relation")).toBe(expected)
-    }
-    const seen = new Set(groups.map(g => g.getAttribute("data-flow-focus-relation")))
-    expect(seen.has("outgoing")).toBe(true)
-    expect(seen.has("incoming")).toBe(true)
-  })
-
-  /**
-   * Direction must survive greyscale, 768px and a reader who cannot resolve a
-   * few-pixel arrowhead. So it is carried in WORDS on the badge, not in colour
-   * and not in the line end alone.
-   */
-  it("says out / in on the selected node's own edges, in words", async () => {
-    const { lens } = lensFor(READY_WITH_GRAPH)
-    const role = lens.nodes.find(n => n.arn === "arn:aws:iam::416651950952:role/web")!
-    const { container } = await renderLens(READY_WITH_GRAPH, { selectedNodeId: role.id })
-
-    const labelled = Array.from(container.querySelectorAll("g[data-flow-focus-relation]")).map(g => ({
-      rel: g.getAttribute("data-flow-focus-relation"),
-      text: g.querySelector('[data-testid="topology-flow-badge"]')?.textContent ?? "",
-    }))
-    const withBadge = labelled.filter(x => x.text.trim() !== "")
-    expect(withBadge.length).toBeGreaterThan(0)
-
-    for (const { rel, text } of withBadge) {
-      if (rel === "outgoing") expect(text).toMatch(/^out · /)
-      else if (rel === "incoming") expect(text).toMatch(/^in · /)
-      else expect(text).not.toMatch(/^(out|in) · /)
-    }
-    // Both directions are actually present, or this proves nothing.
-    expect(withBadge.some(x => x.rel === "outgoing")).toBe(true)
-    expect(withBadge.some(x => x.rel === "incoming")).toBe(true)
-  })
-
-  it("with no selection no edge claims a direction", async () => {
-    const { container } = await renderLens(READY_WITH_GRAPH)
-    for (const g of Array.from(container.querySelectorAll('[data-testid="topology-flow-badge"]'))) {
-      expect(g.textContent ?? "").not.toMatch(/^(out|in) · /)
-    }
-  })
-
-  it("emphasis never changes the evidence a line was drawn from", async () => {
-    const { lens } = lensFor(READY_WITH_GRAPH)
-    const role = lens.nodes.find(n => n.arn === "arn:aws:iam::416651950952:role/web")!
-    // Keyed by edge identity, because a selection deliberately draws FEWER
-    // lines (the bounded neighbourhood). The invariant is about the lines that
-    // survive: selecting must not restate what any of them is evidence of.
-    const read = (c: Element) =>
-      new Map(
-        Array.from(c.querySelectorAll("g[data-flow-family]")).map(g => [
-          `${g.getAttribute("data-flow-source")}->${g.getAttribute("data-flow-target")}:${g.getAttribute("data-flow-family")}`,
-          [
-            g.getAttribute("data-flow-plane"),
-            g.getAttribute("data-flow-verdict"),
-            g.getAttribute("data-flow-certainty"),
-            g.getAttribute("data-flow-authority"),
-            g.getAttribute("data-flow-path-basis"),
-            g.getAttribute("data-flow-motion"),
-          ].join("|"),
-        ]),
-      )
-    const unfocused = await renderLens(READY_WITH_GRAPH)
-    const before = read(unfocused.container)
-    cleanup()
-    const focused = await renderLens(READY_WITH_GRAPH, { selectedNodeId: role.id })
-    const after = read(focused.container)
-
-    expect(after.size).toBeGreaterThan(0)
-    expect(after.size).toBeLessThan(before.size)
-    for (const [key, evidence] of after) {
-      expect(before.has(key)).toBe(true)
-      expect(evidence).toBe(before.get(key))
-    }
-  })
-
-  /**
-   * THE CUE MAY NOT MOVE ANYTHING.
-   *
-   * `renderLens` derives the drawn edge set FROM the selection, so a selected
-   * render and an unselected one differ in two ways at once — which edges
-   * exist, and how they are cued. Comparing those two cannot tell a cue from a
-   * relayout. These controls bind ONE edge set and vary a single knob:
-   *
-   *   knob 1 — `focusedNodeId` in `identityLensTrafficEdges`: the direction
-   *            words ("out ·" / "in ·") prefixed onto the badge. This knob
-   *            widens labels, and label width feeds `badgeHalfWidth` →
-   *            `clearAt` → the displacement sweep, so it CAN reach layout.
-   *   knob 2 — the `selectedNodeId` prop: emphasis and dimming. This is the
-   *            knob that reaches `j.focused`, which the router itself branches
-   *            on (`if (!j.railLanes || j.focused)`), so it is the one most
-   *            able to move geometry.
-   */
-  /** The focus both arms are bound around, resolved without rendering. */
-  function focusRoleId() {
-    const { lens } = lensFor(READY_WITH_GRAPH)
-    return lens.nodes.find(n => n.arn === "arn:aws:iam::416651950952:role/web")!.id
-  }
-
-  async function renderFixedEdgeSet(opts: { cueFor: string | null; selected: string | null }) {
-    restoreLayout = installLayoutStub()
-    const payload = { ...estatePayload(), identity_access: READY_WITH_GRAPH } as any
-    const lens = buildIdentityLensForPayload(payload, {
-      topologyNodes: payload.nodes.map((n: any) => ({ ...n })),
-    })
-    const role = lens.nodes.find(n => n.arn === "arn:aws:iam::416651950952:role/web")!
-    // Bound with the SAME focus in both arms: the population is held fixed.
-    const bound = boundIdentityEdges(lens.edges, role.id, 3, 1000)
-    const frame: IdentityLensFrameProps = {
-      lens,
-      drawn: bound.edges.length,
-      omitted: bound.omitted,
-      focusedNodeId: role.id,
-      hops: 3,
-      chipCap: 12,
-    }
-    const edges = identityLensTrafficEdges({ ...lens, edges: bound.edges }, opts.cueFor)
-    const { container } = render(
-      <AwsFrame
-        vpcTopology={payload.vpc_topology}
-        nodes={payload.nodes}
-        serverlessSourceNodes={payload.nodes}
-        regionalDataSourceNodes={payload.nodes}
-        trafficEdges={[]}
-        overlayEdges={edges}
-        flowMode="all_access"
-        attackPathFlowCount={0}
-        selectedNodeId={opts.selected}
-        onSelect={() => {}}
-        presentationMode={false}
-        viewDensity="glance"
-        systemLabel={payload.system}
-        identityLens={frame}
-      />,
-    )
-    await waitFor(() => {
-      expect(container.querySelectorAll("g[data-flow-family]").length).toBeGreaterThan(0)
-    })
-    const snap = new Map<
-      string,
-      { d: string; pos: string; text: string; tip: string; paint: string }
-    >()
-    for (const g of Array.from(container.querySelectorAll("g[data-flow-family]"))) {
-      const stroke = g.querySelector('path[data-flow-line="stroke"]')
-      const badge = g.querySelector('g[data-testid="topology-flow-badge"]')
-      const leader = g.querySelector('[data-flow-badge-leader="true"]')
-      snap.set(
-        `${g.getAttribute("data-flow-source")}->${g.getAttribute("data-flow-target")}:${g.getAttribute("data-flow-family")}`,
-        {
-          d: stroke?.getAttribute("d") ?? "",
-          pos: badge?.getAttribute("transform") ?? "",
-          text: badge?.querySelector("text")?.textContent ?? "",
-          tip: leader
-            ? `${leader.getAttribute("data-leader-tip-x")},${leader.getAttribute("data-leader-tip-y")}`
-            : "",
-          paint: `${stroke?.getAttribute("stroke-width")}|${stroke?.getAttribute("stroke-opacity")}`,
-        },
-      )
-    }
-    return snap
-  }
-
-  it("the direction words change the label and re-route nothing", async () => {
-    const role = focusRoleId()
-    const cued = await renderFixedEdgeSet({ cueFor: role, selected: null })
-    cleanup()
-    const plain = await renderFixedEdgeSet({ cueFor: null, selected: null })
-
-    expect(cued.size).toBe(plain.size)
-    let relabelled = 0
-    for (const [key, a] of cued) {
-      const b = plain.get(key)
-      expect(b, `edge ${key} missing without the cue`).toBeDefined()
-      if (a.text !== b!.text) relabelled += 1
-      // A label is not a route.
-      expect(a.d, `the cue re-routed ${key}`).toBe(b!.d)
-    }
-    // Non-vacuous: the cue must actually say something.
-    expect(relabelled).toBeGreaterThan(0)
-  })
-
-  it("moves no badge whose own label the cue did not change", async () => {
-    const role = focusRoleId()
-    const cued = await renderFixedEdgeSet({ cueFor: role, selected: null })
-    cleanup()
-    const plain = await renderFixedEdgeSet({ cueFor: null, selected: null })
-
-    let unchangedLabels = 0
-    for (const [key, a] of cued) {
-      const b = plain.get(key)!
-      if (a.text !== b.text) continue // its own label widened; it may need room
-      unchangedLabels += 1
-      expect(a.pos, `the cue displaced the badge of ${key}, which it did not relabel`).toBe(b.pos)
-      expect(a.tip, `the cue moved the leader tip of ${key}, which it did not relabel`).toBe(b.tip)
-    }
-    // Non-vacuous: there are bystanders to be moved.
-    expect(unchangedLabels).toBeGreaterThan(0)
-  })
-
-  it("emphasis repaints every line and re-routes none", async () => {
-    const role = focusRoleId()
-    const selected = await renderFixedEdgeSet({ cueFor: role, selected: role })
-    cleanup()
-    const unselected = await renderFixedEdgeSet({ cueFor: role, selected: null })
-
-    let repainted = 0
-    for (const [key, a] of selected) {
-      const b = unselected.get(key)!
-      if (a.paint !== b.paint) repainted += 1
-      expect(a.d, `selecting re-routed ${key}`).toBe(b.d)
-      expect(a.pos, `selecting moved the badge of ${key}`).toBe(b.pos)
-      expect(a.text, `selecting relabelled ${key}`).toBe(b.text)
-      expect(a.tip, `selecting moved the leader tip of ${key}`).toBe(b.tip)
-    }
-    // Non-vacuous: emphasis must actually emphasise.
-    expect(repainted).toBeGreaterThan(0)
-  })
-})
-
-describe("CF01-D1 · the Network frame does not change when the lens is off", () => {
-  it("renders no identity plane, no identity legend and no identity markers without the prop", async () => {
-    restoreLayout = installLayoutStub()
-    const payload = estatePayload()
-    const { container } = render(
-      <AwsFrame
-        vpcTopology={payload.vpc_topology!}
-        nodes={payload.nodes}
-        trafficEdges={payload.traffic_edges ?? []}
-        overlayEdges={payload.traffic_edges ?? []}
-        flowMode="all_access"
-        onFlowModeChange={() => {}}
-        selectedNodeId={null}
-        onSelect={() => {}}
-        systemLabel={payload.system}
-      />,
-    )
-    await waitFor(() => {
-      expect(container.querySelectorAll("g[data-flow-source]").length).toBeGreaterThan(0)
-    })
-    expect(container.querySelector('[data-testid="identity-lens-plane"]')).toBeNull()
-    expect(container.querySelector('[data-testid="identity-lens-legend"]')).toBeNull()
-    expect(container.querySelector('marker[id^="flow-arrow-identity"]')).toBeNull()
-    expect(container.querySelector('[data-testid="topology-flow-legend"]')).not.toBeNull()
-    expect(container.querySelector("g[data-flow-family]")).toBeNull()
-  })
-})
-
-/**
- * A displaced badge keeps its text but loses the only cue that said which edge
- * it labels: proximity. Measured on the dense 3-hop render, 7 of 17 badges sat
- * closer to a FOREIGN edge than their own. The leader line restores part of
- * that association by ending on the badge's own drawn stroke.
- *
- * PART, not all — and this suite now says which part. Two limits are measured
- * here rather than asserted away:
- *
- *  1. The tip goes on the DRAWN stroke. `orthoPath` rounds every corner into a
- *     quadratic whose control point is the corner vertex, so the raw polyline
- *     handed to it is not the curve on screen. A point taken from the raw
- *     polyline sits up to 2.828px off the stroke at r=8.
- *
- *  2. Ending on the intended path is NECESSARY BUT NOT SUFFICIENT. Identity
- *     routes share bus lanes, so at hops=3 twelve of fifteen tips lie at
- *     exactly 0.00px from a FOREIGN stroke as well: the same point is on
- *     several paths, and a tip there names a bundle, not an edge. Membership
- *     alone cannot tell "attached to its own path" from "attached to any of
- *     five", so each leader carries its measured clearance and only claims to
- *     single out an edge when that clearance is real.
- */
 describe("CF01-D1 · a displaced badge still points at its own edge", () => {
   /**
    * The drawn stroke, sampled.
@@ -1000,46 +765,6 @@ describe("CF01-D1 · a displaced badge still points at its own edge", () => {
    */
   const ON_STROKE_PX = 0.05
 
-  /** Every drawn group in the render, with its stroke sampled once. */
-  function strokesOf(container: HTMLElement) {
-    return Array.from(container.querySelectorAll("g[data-flow-family]"))
-      .map(g => {
-        const d = g.querySelector('path[data-flow-line="stroke"]')?.getAttribute("d") ?? ""
-        return { g, d, sampled: d ? sampleDrawnPath(d) : [] }
-      })
-      .filter(s => s.sampled.length > 1)
-  }
-
-  /** Independent re-measurement: the tip's own stroke, and the nearest foreign one. */
-  function measureTip(container: HTMLElement, leader: Element) {
-    const group = leader.closest("g[data-flow-family]")!
-    const strokes = strokesOf(container)
-    const mine = strokes.find(s => s.g === group)!
-    const tip = {
-      x: Number(leader.getAttribute("data-leader-tip-x")),
-      y: Number(leader.getAttribute("data-leader-tip-y")),
-    }
-    let foreign = Infinity
-    for (const s of strokes) {
-      if (s.g === group) continue
-      foreign = Math.min(foreign, distanceToStroke(s.sampled, tip.x, tip.y))
-    }
-    return { tip, own: distanceToStroke(mine.sampled, tip.x, tip.y), foreign, strokes }
-  }
-
-  /** The density the attribution finding was measured at: 15 leaders, 17
-   *  drawn strokes. The suite this replaces asserted at hops=2, two hops
-   *  short of the render whose misattribution it was citing. */
-  const DENSE_HOPS = 3
-
-  async function denseRender() {
-    const { lens } = lensFor(READY_WITH_GRAPH)
-    const role = lens.nodes.find(n => n.arn === "arn:aws:iam::416651950952:role/web")!
-    const view = await renderLens(READY_WITH_GRAPH, { selectedNodeId: role.id, hops: DENSE_HOPS })
-    const leaders = Array.from(view.container.querySelectorAll('[data-flow-badge-leader="true"]'))
-    return { ...view, leaders }
-  }
-
   /**
    * THE CORNER COUNTEREXAMPLE, at unit level.
    *
@@ -1085,233 +810,4 @@ describe("CF01-D1 · a displaced badge still points at its own edge", () => {
    * on a straight run, so both give 0.000px here. The corner case above is
    * where that distinction is pinned.
    */
-  it("draws leaders, and every tip lands ON the stroke its own group paints", async () => {
-    const { container, leaders } = await denseRender()
-    // A render drawing zero leaders FAILS here.
-    expect(leaders.length).toBeGreaterThan(0)
-    for (const leader of leaders) {
-      const { tip, own } = measureTip(container, leader)
-      expect(Number.isFinite(tip.x) && Number.isFinite(tip.y)).toBe(true)
-      expect(own, `tip ${own.toFixed(4)}px off its own stroke`).toBeLessThanOrEqual(ON_STROKE_PX)
-    }
-  })
-
-  /**
-   * The clearance is RECORDED, and it is the real number.
-   *
-   * Without this the lens knows only "the tip is on a path" — the predicate
-   * that twelve of fifteen coincident tips satisfy against a foreign path just
-   * as well as their own.
-   */
-  it("records how far each tip clears every OTHER drawn stroke", async () => {
-    const { container, leaders } = await denseRender()
-    expect(leaders.length).toBeGreaterThan(0)
-    for (const leader of leaders) {
-      const recorded = leader.getAttribute("data-leader-foreign-clearance")
-      expect(recorded, "leader carries no measured clearance").not.toBeNull()
-      const { foreign } = measureTip(container, leader)
-      // Re-measured here from the rendered `d`, independently of the component.
-      expect(Number(recorded)).toBeCloseTo(foreign, 1)
-    }
-  })
-
-  /**
-   * THE DISCRIMINATING ASSERTION. A leader may say it singles out its edge
-   * only where the tip genuinely stands apart from every other stroke.
-   *
-   * This is what "on the intended path" could not establish: it fails if the
-   * lens marks a tip discriminating while that tip also lies on a neighbour,
-   * which is the state twelve of fifteen tips are in.
-   */
-  it("claims to single out an edge only where the tip clears the others", async () => {
-    const { container, leaders } = await denseRender()
-    const claiming = leaders.filter(l => l.getAttribute("data-leader-discriminates") === "true")
-    // Non-vacuous: if nothing discriminates, this control proves nothing.
-    expect(claiming.length).toBeGreaterThan(0)
-    for (const leader of claiming) {
-      const { own, foreign } = measureTip(container, leader)
-      expect(own).toBeLessThanOrEqual(ON_STROKE_PX)
-      expect(
-        foreign,
-        `claims to single out its edge but sits ${foreign.toFixed(2)}px from a foreign stroke`,
-      ).toBeGreaterThanOrEqual(LEADER_DISCRIMINATION_MARGIN_PX)
-    }
-  })
-
-  /**
-   * THE OTHER SIDE OF THE PARTITION. The coincident majority is marked false,
-   * not quietly omitted and not passed off as attached.
-   *
-   * The counts are MEASURED on this fixture at hops=3. A change here is a
-   * re-measurement, not a number to re-baseline: it means the routes moved and
-   * the attribution claim has to be re-established.
-   */
-  it("marks the coincident majority false rather than passing it off as attached", async () => {
-    const { container, leaders } = await denseRender()
-    const yes = leaders.filter(l => l.getAttribute("data-leader-discriminates") === "true")
-    const no = leaders.filter(l => l.getAttribute("data-leader-discriminates") === "false")
-    expect(yes.length + no.length).toBe(leaders.length)
-    expect(leaders.length).toBe(15)
-    expect(yes.length).toBe(3)
-    expect(no.length).toBe(12)
-    // Each "false" is false for the measured reason.
-    for (const leader of no) {
-      const { foreign } = measureTip(container, leader)
-      expect(foreign).toBeLessThan(LEADER_DISCRIMINATION_MARGIN_PX)
-    }
-  })
-
-  /**
-   * FAIL CLOSED on a short comparison set. An unmeasured neighbour reads as
-   * "no foreign stroke nearby", which would turn a coincident tip into a
-   * confident one — the fail-open shape that makes a predicate pass on absence.
-   */
-  it("measures the clearance against every drawn stroke, never a subset", async () => {
-    const { container, leaders } = await denseRender()
-    const drawn = strokesOf(container as HTMLElement).length
-    expect(leaders.length).toBeGreaterThan(0)
-    for (const leader of leaders) {
-      const compared = Number(leader.getAttribute("data-leader-compared-curves"))
-      const comparable = Number(leader.getAttribute("data-leader-comparable-curves"))
-      // Every drawn stroke had geometry to compare against.
-      expect(comparable).toBe(drawn)
-      // And every other one of them was actually measured.
-      expect(compared).toBe(comparable - 1)
-    }
-  })
-
-  it("a leader travels — it is a cue, not a zero-length mark", async () => {
-    const { lens } = lensFor(READY_WITH_GRAPH)
-    const role = lens.nodes.find(n => n.arn === "arn:aws:iam::416651950952:role/web")!
-    const { container } = await renderLens(READY_WITH_GRAPH, { selectedNodeId: role.id })
-    const leaders = Array.from(container.querySelectorAll('[data-flow-badge-leader="true"]'))
-    expect(leaders.length).toBeGreaterThan(0)
-    for (const leader of leaders) {
-      const dx = Number(leader.getAttribute("x2"))
-      const dy = Number(leader.getAttribute("y2"))
-      expect(Math.hypot(dx, dy)).toBeGreaterThan(0)
-    }
-  })
-
-  it("the Network view never grows a leader line", async () => {
-    restoreLayout = installLayoutStub()
-    const payload = estatePayload()
-    const { container } = render(
-      <AwsFrame
-        vpcTopology={payload.vpc_topology!}
-        nodes={payload.nodes}
-        serverlessSourceNodes={payload.nodes}
-        regionalDataSourceNodes={payload.nodes}
-        trafficEdges={payload.traffic_edges ?? []}
-        overlayEdges={[]}
-        flowMode="all_access"
-        attackPathFlowCount={0}
-        selectedNodeId={null}
-        onSelect={() => {}}
-        presentationMode={false}
-        viewDensity="glance"
-        systemLabel={payload.system}
-      />,
-    )
-    expect(container.querySelectorAll('[data-flow-badge-leader]').length).toBe(0)
-  })
-})
-
-/**
- * CF01-D1 · a refusal with no name must not read as a finding.
- *
- * The lens prints every gap as `CODE — detail`, which is how a named diagnosis
- * is presented. `INVENTORY_AUTHORITY_INVALID` is not a diagnosis: the producer
- * emits it when a failure occurred that its contract cannot classify, and its
- * detail carries only the exception TYPE. Rendered the same way as a real
- * finding, it invites a reader to take "ValueError" for the cause.
- *
- * The payload here is the producer's own builder output, reached by malforming
- * one receipt field in the producer's harness — not a hand-written gap. Its
- * provenance is pinned in cf01-d1-identity-lens-model.test.ts.
- */
-describe("CF01-D1 · an unnamed refusal is rendered as a refusal, not a diagnosis", () => {
-  // Optional-chained on purpose: if the recipe ever stops emitting the block,
-  // this suite must fail on an ASSERTION that says so, not crash at import
-  // and leave the rendering rule untested.
-  const REFUSAL = (fCandidate as any).producer_refusal?.inventory_authority_invalid
-
-  it("shows the producer's code and marks it as naming no cause", async () => {
-    expect(REFUSAL, "the recipe emitted no unnamed-refusal block").toBeDefined()
-    const { container } = await renderLens(REFUSAL)
-    const gap = container.querySelector('[data-gap-code="INVENTORY_AUTHORITY_INVALID"]')
-    expect(gap, "the refusal is not surfaced at all").not.toBeNull()
-    // The code is still shown — support needs it, and the producer's own
-    // wording is never rewritten here.
-    expect(gap!.textContent).toContain("INVENTORY_AUTHORITY_INVALID")
-    // But it is explicitly NOT a named finding.
-    expect(gap!.getAttribute("data-gap-names-cause")).toBe("false")
-    expect(
-      gap!.querySelector('[data-testid="identity-lens-notice-gap-unnamed"]'),
-      "no qualifier: the token reads as a diagnosis",
-    ).not.toBeNull()
-    expect(gap!.textContent).toMatch(/could not name a cause/i)
-  })
-
-  it("draws no relationship off the back of a refused projection", async () => {
-    expect(REFUSAL, "the recipe emitted no unnamed-refusal block").toBeDefined()
-    const { container } = await renderLens(REFUSAL)
-    expect(container.querySelectorAll("g[data-flow-family]").length).toBe(0)
-    expect(container.querySelector('[data-testid="identity-lens-notice"]')).not.toBeNull()
-  })
-
-  /**
-   * THE OTHER SIDE OF THE PARTITION. The rule must not blanket every gap as
-   * unnamed — a real diagnosis has to keep reading as one, or the lens has
-   * simply stopped naming anything.
-   */
-  it("leaves a NAMED gap named", async () => {
-    const { container } = await renderLens(v1.unavailable)
-    const named = container.querySelector('[data-gap-code="ACTIVE_INVENTORY_POINTER_MISSING"]')
-    expect(named).not.toBeNull()
-    expect(named!.getAttribute("data-gap-names-cause")).toBe("true")
-    expect(
-      named!.querySelector('[data-testid="identity-lens-notice-gap-unnamed"]'),
-    ).toBeNull()
-  })
-})
-
-
-describe("identity canvas keeps producer-backed isolated nodes", () => {
-  it("draws the real producer's standalone account with zero served edges", async () => {
-    const { container } = await renderLens(NODE_ONLY_ACCOUNT)
-    expect(container.querySelector('[data-testid="identity-plane-chip"][data-identity-kind="aws_account"]')).not.toBeNull()
-    expect(container.querySelector('[data-testid="identity-plane-no-joins"]')).not.toBeNull()
-    expect(container.querySelector("g[data-flow-family]")).toBeNull()
-    expect(container.querySelector('[data-testid="identity-lens-notice"]')).toBeNull()
-  })
-
-  it("renders and selects an isolated IAM user, explains missing joins and draws no relationships", async () => {
-    const base = TRULY_EMPTY_GRAPH
-    const user = graphFixture.graph.ready.nodes.find(node => node.node_kind === "iam_user")!
-    const block = { ...base, identity_graph: { ...base.identity_graph,
-      nodes: [user], nodes_total: 1, edges: [], edges_total: 0 } }
-    const onSelect = vi.fn()
-    const { container, lens } = await renderLens(block, { onSelect })
-    const chip = container.querySelector('[data-testid="identity-plane-chip"][data-identity-kind="iam_user"]')!
-    expect(chip).not.toBeNull()
-    expect(chip.textContent).toContain("alice")
-    fireEvent.click(chip.querySelector("[data-flow-id]")!)
-    expect(onSelect).toHaveBeenCalledWith(lens.nodes[0].id)
-    expect(container.querySelector('[data-testid="identity-plane-no-joins"]')!.textContent)
-      .toMatch(/no relationships were served[\s\S]*do not prove that it has no access/)
-    expect(container.querySelector('[data-testid="identity-lens-notice"]')).toBeNull()
-    expect(container.querySelector("g[data-flow-family]")).toBeNull()
-  })
-
-  it.each([
-    ["empty", TRULY_EMPTY_GRAPH, "true"],
-    ["unread", graphFixture.composed.empty_authoritative_with_unread_graph, "false"],
-  ])("retains the %s notice without inventing a selectable identity", async (_label, block, emptyAnswer) => {
-    const { container } = await renderLens(block)
-    expect(container.querySelector('[data-testid="identity-plane-chip"]')).toBeNull()
-    expect(container.querySelector('[data-testid="identity-plane-no-joins"]')).toBeNull()
-    expect(container.querySelector('[data-testid="identity-lens-notice"]')?.getAttribute("data-identity-empty-answer"))
-      .toBe(emptyAnswer)
-  })
 })

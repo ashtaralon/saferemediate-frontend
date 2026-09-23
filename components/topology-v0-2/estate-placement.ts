@@ -265,6 +265,9 @@ export const PLACEMENT_RULES: readonly PlacementRule[] = [
     types: [
       "IAMRole", "IAMPolicy", "IAMUser", "InstanceProfile", "STSSession",
       "Organization", "SCP",
+      // CF01 — trust-policy principals. The identity twin draws them in the
+      // frame's top strip from its own inputs, never through this grid.
+      "AWSAccountPrincipal", "FederatedPrincipal", "AnyonePrincipal",
       "LaunchTemplate", "TaskDefinition", "LoadBalancerListener",
       "S3Prefix", "ConfigRule", "SSMAssociation", "SSMStateManagerAssociation",
       "FlowLogs",

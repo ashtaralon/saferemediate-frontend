@@ -1,32 +1,23 @@
 "use client"
 
 /**
- * Estate · Identity & access — the identity plane ON the shared canvas.
+ * Estate · Identity & access — the frame-side pieces of the identity lens.
  *
- * CF01 · D1. The Identity & access view is the same AwsFrame the Network view
+ * CF01. The Identity & access view is the same AwsFrame the Network view
  * draws: same VPC frames, subnet grid, rails, chips, FlowOverlay, selection,
- * fullscreen zoom/pan and DetailPanel. What the lens adds is this band — the
- * identity-only nodes the producer named (roles, users, policies, groups,
- * trust principals, credentials, decision records, resource-policy grants and
- * off-canvas protected resources) rendered as the SAME chip component the
- * canvas already uses (`WorkloadChip`), each carrying a `data-flow-id` anchor
- * so the shared overlay can route identity relationships between a workload
- * in its subnet and the role it runs as, exactly as it routes traffic.
+ * fullscreen zoom/pan and DetailPanel. The lens swaps only the frame's
+ * INPUTS (estate-identity-twin.ts): IAM roles as a rail lane, reached AWS
+ * services as regional / trigger chips, trust principals in the top strip,
+ * and identity lines in place of traffic. This module keeps what the frame
+ * needs beside that: the props contract, the legend, the not-an-answer
+ * notice, the footer that counts every hidden set, and the identity-node →
+ * TopologyNode adapter the DetailPanel consumes.
  *
- * Honesty rules this band enforces on screen:
- *   - A chip whose endpoint the producer marked unresolved (a policy ARN not
- *     in the generation, a group name, a credential) is drawn in a name-only,
- *     missing-evidence state, never as a resource that exists here.
- *   - Chips beyond the cap are collapsed with a count, and the relationships
- *     that could not be drawn because their chip is collapsed are counted
- *     beside it. A short list is never a complete one.
- *   - When nothing may be drawn, the band says why in the producer's words
- *     and says explicitly that this is not "no identities".
+ * The earlier identity plane band — sixteen kind-rows of chips under the
+ * frame with one orthogonal line per relationship — was retired here: it
+ * was a second grammar on one canvas, and unreadable at estate scale.
  */
 
-import { useMemo } from "react"
-
-import { WorkloadChip } from "./aws-frame"
 import {
   IDENTITY_KIND_LABEL,
   gapNamesItsCause,
@@ -35,31 +26,17 @@ import {
   type IdentityLensNode,
   type IdentityLensNodeKind,
 } from "./estate-identity-access-model"
-import { IDENTITY_LEGEND_ITEMS, IDENTITY_PLANE_COLOR } from "./flow-visuals"
+import type { IdentityTwin } from "./estate-identity-twin"
+import { IDENTITY_LEGEND_ITEMS } from "./flow-visuals"
 import type { TopologyNode } from "./types"
 
 /** What the frame needs from the host to draw the lens. */
 export interface IdentityLensFrameProps {
   lens: IdentityLens
-  /** Relationships drawn after the neighbourhood bound. */
-  drawn: number
-  /** Relationships the bound left out (select a node / raise hops to reach). */
-  omitted: number
-  /** With a focus: neighbourhood edges the cap left out. Distinct from
-   *  `omitted`, which also counts edges outside the neighbourhood. */
-  omittedInNeighbourhood?: number
-  /** With a focus: neighbourhood size before the cap. */
-  reachable?: number
+  /** The frame inputs derived from the lens: rail nodes, strip nodes, captions, counts. */
+  twin: IdentityTwin
   focusedNodeId: string | null
-  hops: number
-  onHopsChange?: (hops: number) => void
-  /** Chips shown per kind before "+N more". */
-  chipCap: number
-  onChipCapChange?: (cap: number) => void
 }
-
-export const IDENTITY_DEFAULT_CHIP_CAP = 12
-export const IDENTITY_MAX_HOPS = 3
 
 /**
  * The topology `type` an identity node is drawn with. IAMRole / IAMPolicy /
@@ -86,25 +63,6 @@ export const IDENTITY_TOPOLOGY_TYPE: Record<IdentityLensNodeKind, string> = {
   organizational_unit: "OrganizationalUnit",
   control_policy: "ControlPolicy",
 }
-
-const KIND_ORDER: IdentityLensNodeKind[] = [
-  "workload",
-  "iam_role",
-  "iam_user",
-  "aws_account",
-  "organization",
-  "organizational_unit",
-  "control_policy",
-  "decision",
-  "credential",
-  "iam_policy",
-  "iam_group",
-  "service_principal",
-  "federated_principal",
-  "aws_account_principal",
-  "resource_policy",
-  "protected_resource",
-]
 
 /**
  * An identity-plane node as the TopologyNode the shared chip and the shared
@@ -154,303 +112,65 @@ export function identityChipSubtitle(node: IdentityLensNode): string {
   return IDENTITY_KIND_LABEL[node.kind]
 }
 
-function Chip({
-  node,
-  selected,
-  onSelect,
-}: {
-  node: IdentityLensNode
-  selected: boolean
-  onSelect: (id: string) => void
-}) {
-  const topologyNode = useMemo(() => identityNodeAsTopologyNode(node), [node])
-  const unresolved = !node.resolved
-  return (
-    <div
-      data-testid="identity-plane-chip"
-      data-identity-node-id={node.id}
-      data-identity-kind={node.kind}
-      data-identity-sublabel={node.sublabel ?? undefined}
-      data-identity-resolved={node.resolved ? "true" : "false"}
-      className="flex flex-col items-stretch gap-0.5 min-w-0"
-      style={
-        unresolved
-          ? {
-              border: `1.5px dashed ${IDENTITY_PLANE_COLOR.unresolved_endpoint}`,
-              borderRadius: 8,
-              padding: 2,
-              background: "#FFFBEB",
-            }
-          : undefined
-      }
-      title={
-        unresolved
-          ? `${IDENTITY_KIND_LABEL[node.kind]} · name only — ${node.unresolvedReason ?? "not a projected resource"}`
-          : `${IDENTITY_KIND_LABEL[node.kind]}${node.arn ? ` · ${node.arn}` : ""}`
-      }
-    >
-      <WorkloadChip
-        node={topologyNode}
-        selected={selected}
-        onClick={() => onSelect(node.id)}
-        identitySubtitle={identityChipSubtitle(node)}
-      />
-      {node.sublabel ? (
-        <div className="truncate text-[9px] font-mono px-1" style={{ color: "#5A6B7A" }} title={node.sublabel}>
-          {node.sublabel}
-        </div>
-      ) : null}
-      {node.facts.slice(0, 2).map(item => (
-        <div key={item} className="truncate text-[9px] px-1" style={{ color: "#1A2330" }} title={item}>
-          {item}
-        </div>
-      ))}
-      {unresolved ? (
-        <div
-          className="text-[9px] font-semibold uppercase tracking-wide px-1"
-          style={{ color: IDENTITY_PLANE_COLOR.unresolved_endpoint }}
-          data-testid="identity-plane-chip-unresolved"
-        >
-          name only · no evidence node
-        </div>
-      ) : null}
-      {node.gaps.length > 0 ? (
-        <div className="text-[9px] px-1" style={{ color: "#92400E" }} data-testid="identity-plane-chip-gaps">
-          {node.gaps.length} gap{node.gaps.length === 1 ? "" : "s"}: {node.gaps.map(g => g.code).join(", ")}
-        </div>
-      ) : null}
-    </div>
-  )
-}
-
-/** The band. Renders inside the AwsFrame flow container so its chips are overlay anchors. */
-export function IdentityPlane({
-  frame,
-  selectedNodeId,
-  onSelect,
+/**
+ * CF01 — the footer under the legend: every set the twin did NOT draw, as a
+ * number. A lane of nine role chips over an account of forty-two roles must
+ * say so, or the map reads as the account's IAM.
+ */
+export function IdentityTwinFooter({
+  lens,
+  twin,
   compact = false,
 }: {
-  frame: IdentityLensFrameProps
-  selectedNodeId: string | null
-  onSelect: (id: string) => void
+  lens: IdentityLens
+  twin: IdentityTwin
   compact?: boolean
 }) {
-  const { lens, chipCap } = frame
-  const planeNodes = useMemo(() => lens.nodes.filter(node => !node.onCanvas), [lens.nodes])
-  const groups = useMemo(() => {
-    const byKind = new Map<IdentityLensNodeKind, IdentityLensNode[]>()
-    for (const node of planeNodes) {
-      const list = byKind.get(node.kind) ?? []
-      list.push(node)
-      byKind.set(node.kind, list)
-    }
-    return KIND_ORDER.filter(kind => byKind.has(kind)).map(kind => {
-      const all = [...(byKind.get(kind) ?? [])].sort((a, b) => a.label.localeCompare(b.label))
-      // The selected chip is always shown, so a selection never disappears
-      // behind the cap.
-      const shown = all.slice(0, chipCap)
-      if (selectedNodeId && !shown.some(n => n.id === selectedNodeId)) {
-        const picked = all.find(n => n.id === selectedNodeId)
-        if (picked) shown.push(picked)
-      }
-      return { kind, all, shown, hidden: all.length - shown.length }
-    })
-  }, [planeNodes, chipCap, selectedNodeId])
-
-  const hiddenIds = useMemo(() => {
-    const ids = new Set<string>()
-    for (const group of groups) {
-      const shownIds = new Set(group.shown.map(n => n.id))
-      for (const node of group.all) if (!shownIds.has(node.id)) ids.add(node.id)
-    }
-    return ids
-  }, [groups])
-  const undrawnBecauseCollapsed = useMemo(
-    () => lens.edges.filter(edge => hiddenIds.has(edge.sourceId) || hiddenIds.has(edge.targetId)).length,
-    [lens.edges, hiddenIds],
-  )
-  const collapsedTotal = groups.reduce((n, g) => n + g.hidden, 0)
-
-  const stateChip =
-    lens.graphState === "ready"
-      ? { label: "graph read", color: "#0E8B7A", bg: "#E6FBF7" }
-      : lens.graphState === "partial"
-        ? { label: "graph read with gaps", color: "#92400E", bg: "#FFFBEB" }
-        : lens.graphState === "absent"
-          ? { label: "graph not carried", color: "#92400E", bg: "#FFFBEB" }
-          : { label: `graph ${lens.graphState}`, color: "#92400E", bg: "#FFFBEB" }
-
-  return (
-    <section
-      data-testid="identity-lens-plane"
-      data-identity-state={lens.state}
-      data-identity-graph-state={lens.graphState}
-      data-flow-obstacle="identity-plane-header"
-      aria-label="Identity plane"
-      className={compact ? "rounded-md p-1.5 relative" : "rounded-md p-3 relative"}
-      style={{ background: "#FFFFFF", border: "1.5px solid #DD344C", borderLeftWidth: compact ? 4 : 8 }}
-    >
-      <div className={`flex flex-wrap items-center justify-between gap-x-3 gap-y-1 ${compact ? "mb-1" : "mb-2"}`}>
-        <div className="flex flex-wrap items-center gap-2 min-w-0">
-          <span
-            className="text-[10px] uppercase tracking-[0.14em] font-bold shrink-0"
-            style={{ color: "#DD344C" }}
-          >
-            IAM · Identity plane
-          </span>
-          <span
-            className="rounded border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide"
-            style={{ color: stateChip.color, background: stateChip.bg, borderColor: stateChip.color }}
-            data-testid="identity-plane-state"
-          >
-            {stateChip.label}
-          </span>
-          {!compact ? (
-            <span className="text-[10px]" style={{ color: "#5A6B7A" }} data-testid="identity-plane-counts">
-              {planeNodes.length} identity node{planeNodes.length === 1 ? "" : "s"} ·{" "}
-              {lens.nodes.length - planeNodes.length} on the topology ·{" "}
-              {lens.edges.length} relationship{lens.edges.length === 1 ? "" : "s"}
-            </span>
-          ) : null}
-        </div>
-        <NeighbourhoodControls frame={frame} compact={compact} />
-      </div>
-
-      <TruncationLine frame={frame} collapsedTotal={collapsedTotal} undrawnBecauseCollapsed={undrawnBecauseCollapsed} />
-
-      {!lens.nothingToDraw && lens.edges.length === 0 ? (
-        <p className="mb-2 text-[11px]" style={{ color: "#92400E" }} data-testid="identity-plane-no-joins">
-          These identities were returned, but no relationships were served for them. Select an identity
-          to inspect its evidence. Missing relationships do not prove that it has no access.
-        </p>
-      ) : null}
-      {lens.nothingToDraw ? (
-        <IdentityLensNotice lens={lens} />
-      ) : (
-        <div className={`flex flex-wrap ${compact ? "gap-2" : "gap-3"}`} data-testid="identity-plane-groups">
-          {groups.map(group => (
-            <div
-              key={group.kind}
-              className="flex flex-col gap-1 min-w-0"
-              data-testid="identity-plane-group"
-              data-identity-kind={group.kind}
-            >
-              <div className="text-[9px] uppercase tracking-wider font-semibold" style={{ color: "#5A6B7A" }}>
-                {IDENTITY_KIND_LABEL[group.kind]}
-                {group.all.length > 1 ? ` (${group.all.length})` : ""}
-              </div>
-              <div className={`flex flex-wrap ${compact ? "gap-1" : "gap-2"}`}>
-                {group.shown.map(node => (
-                  <Chip
-                    key={node.id}
-                    node={node}
-                    selected={node.id === selectedNodeId}
-                    onSelect={onSelect}
-                  />
-                ))}
-                {group.hidden > 0 ? (
-                  <button
-                    type="button"
-                    onClick={() => frame.onChipCapChange?.(chipCap + IDENTITY_DEFAULT_CHIP_CAP)}
-                    className="self-start rounded-md border px-2 py-1 text-[10px] font-semibold"
-                    style={{ borderColor: "#CBD5E1", background: "#F8FAFC", color: "#1A2330" }}
-                    data-testid="identity-plane-show-more"
-                    title="Show more chips of this kind"
-                  >
-                    +{group.hidden} more
-                  </button>
-                ) : null}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </section>
-  )
-}
-
-function NeighbourhoodControls({ frame, compact }: { frame: IdentityLensFrameProps; compact: boolean }) {
-  const { lens, focusedNodeId, hops, drawn, omitted } = frame
-  const omittedInNeighbourhood = frame.omittedInNeighbourhood ?? 0
-  const outside = focusedNodeId ? Math.max(0, omitted - omittedInNeighbourhood) : 0
-  const focused = focusedNodeId ? lens.nodes.find(n => n.id === focusedNodeId) : null
-  const breakdown =
-    focused && omitted > 0
-      ? omittedInNeighbourhood > 0 && outside > 0
-        ? ` (${omittedInNeighbourhood} in this neighbourhood, ${outside} outside)`
-        : omittedInNeighbourhood > 0
-          ? " (inside this neighbourhood)"
-          : " (outside this neighbourhood)"
-      : ""
-  return (
-    <div className="flex flex-wrap items-center gap-2 shrink-0" data-testid="identity-neighbourhood">
-      <span className={compact ? "text-[9px]" : "text-[10px]"} style={{ color: "#5A6B7A" }} data-testid="identity-neighbourhood-counts">
-        {focused ? `Around ${focused.label}: ` : "Whole lens: "}
-        {drawn} drawn{omitted > 0 ? ` · ${omitted} not drawn${breakdown}` : ""}
-        {!focused && omitted > 0 ? " — select a chip to expand its neighbourhood" : ""}
-      </span>
-      {focused ? (
-        <div
-          className="inline-flex rounded-md border overflow-hidden"
-          style={{ borderColor: "#CBD5E1", background: "#FFFFFF" }}
-          role="group"
-          aria-label="Neighbourhood hops"
-        >
-          {Array.from({ length: IDENTITY_MAX_HOPS }, (_, i) => i + 1).map(n => (
-            <button
-              key={n}
-              type="button"
-              onClick={() => frame.onHopsChange?.(n)}
-              aria-pressed={hops === n}
-              className="px-2 py-0.5 text-[10px] font-semibold"
-              style={{ background: hops === n ? "#0D1B2A" : "transparent", color: hops === n ? "#FFFFFF" : "#5A6B7A" }}
-              data-testid={`identity-hops-${n}`}
-              title={`${n} hop${n === 1 ? "" : "s"} from the selected chip`}
-            >
-              {n} hop{n === 1 ? "" : "s"}
-            </button>
-          ))}
-        </div>
-      ) : null}
-    </div>
-  )
-}
-
-function TruncationLine({
-  frame,
-  collapsedTotal,
-  undrawnBecauseCollapsed,
-}: {
-  frame: IdentityLensFrameProps
-  collapsedTotal: number
-  undrawnBecauseCollapsed: number
-}) {
-  const { truncation } = frame.lens
-  const parts: string[] = []
-  if (truncation.producerTruncated) {
-    parts.push(
-      `the producer truncated this read (${truncation.nodesTotal ?? "?"} nodes / ${truncation.edgesTotal ?? "?"} relationships counted at the source)`,
-    )
+  const c = twin.counts
+  const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`
+  const parts: Array<{ key: string; text: string }> = [
+    { key: "bound-roles", text: `${plural(c.boundRoles, "role")} bound to a workload on this canvas` },
+  ]
+  if (c.rolesUsageNotComputed > 0) {
+    parts.push({ key: "usage-not-computed", text: `${c.rolesUsageNotComputed} of them: usage not computed (no reach line)` })
   }
-  if (truncation.rolesTruncated) parts.push("the role list was truncated by the projection")
-  if (truncation.rolesOmittedUnresolved !== null && truncation.rolesOmittedUnresolved > 0) {
-    parts.push(
-      `${truncation.rolesOmittedUnresolved} role${truncation.rolesOmittedUnresolved === 1 ? " was" : "s were"} omitted for an unresolved AWS RoleId`,
-    )
+  if (c.boundWorkloadsOffCanvas > 0) {
+    parts.push({ key: "workloads-off-canvas", text: `${plural(c.boundWorkloadsOffCanvas, "bound workload")} outside this canvas scope` })
   }
-  if (collapsedTotal > 0) {
-    parts.push(
-      `${collapsedTotal} chip${collapsedTotal === 1 ? "" : "s"} collapsed below (${undrawnBecauseCollapsed} relationship${undrawnBecauseCollapsed === 1 ? "" : "s"} to them not drawn)`,
-    )
+  if (c.otherAccountRoles > 0) {
+    parts.push({ key: "other-roles", text: `${plural(c.otherAccountRoles, "other role")} in the account, not drawn` })
   }
-  if (parts.length === 0) return null
+  if (c.serviceLinkedRoles > 0) {
+    parts.push({ key: "service-linked", text: `${plural(c.serviceLinkedRoles, "service-linked role")} (by name), not drawn` })
+  }
+  if (c.users > 0) parts.push({ key: "users", text: `${plural(c.users, "IAM user")} in the graph, not drawn` })
+  if (c.reachNotDrawn > 0) {
+    parts.push({ key: "reach-not-drawn", text: `${plural(c.reachNotDrawn, "reached service")} with no place on this canvas (listed on the role chip)` })
+  }
+  if (c.targetsNotOnMap > 0) {
+    parts.push({ key: "targets-not-on-map", text: `${plural(c.targetsNotOnMap, "protected resource")} not on this map` })
+  }
+  if (c.endpointPolicyRows > 0) {
+    parts.push({ key: "endpoint-policy", text: `${plural(c.endpointPolicyRows, "VPC endpoint policy row")} projected` })
+  }
+  const unavailable = lens.families.filter(f => f.status === "unavailable").length
   return (
     <div
-      className="mb-2 rounded border px-2 py-1 text-[10px]"
-      style={{ borderColor: "#F2C94C", background: "#FFFBEB", color: "#92400E" }}
-      data-testid="identity-plane-truncation"
+      className={`flex flex-wrap items-center gap-x-3 gap-y-0.5 ${compact ? "px-1 py-0.5" : "px-2 py-1"}`}
+      style={{ color: "#5A6B7A" }}
+      data-testid="identity-twin-footer"
+      data-flow-obstacle="identity-footer"
     >
-      Not everything is on this canvas: {parts.join("; ")}.
+      {parts.map(part => (
+        <span key={part.key} className="text-[9px] font-medium whitespace-nowrap" data-testid={`identity-twin-footer-${part.key}`}>
+          {part.text}
+        </span>
+      ))}
+      {unavailable > 0 ? (
+        <span className="text-[9px] font-medium whitespace-nowrap" data-testid="identity-twin-footer-unavailable" style={{ color: "#92400E" }}>
+          {unavailable} relationship famil{unavailable === 1 ? "y" : "ies"} not on the canonical path (see legend)
+        </span>
+      ) : null}
     </div>
   )
 }

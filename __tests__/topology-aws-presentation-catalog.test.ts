@@ -64,6 +64,7 @@ const VERIFIED_SLUGS = new Set([
   "aws-aws-cloudtrail",
   "aws-aws-config",
   "aws-aws-fargate",
+  "aws-aws-iam-identity-center",
   "aws-aws-identity-and-access-management",
   "aws-aws-key-management-service",
   "aws-aws-lambda",
