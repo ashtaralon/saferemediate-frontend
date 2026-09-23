@@ -629,6 +629,9 @@ interface IAMPermissionAnalysisModalProps {
   isOpen: boolean
   onClose: () => void
   roleName: string
+  roleArn?: string | null
+  restoreSnapshotId?: string | null
+  restoreOperationId?: string | null
   findingId?: string
   systemName?: string
   identityType?: string
@@ -642,6 +645,7 @@ interface IAMPermissionAnalysisModalProps {
   onSuccess?: () => void
   onRemediationSuccess?: (roleName: string, receipt?: {
     snapshotId?: string | null
+    operationId?: string | null
     eventId?: string | null
     rollbackAvailable?: boolean
     remediatedBy?: string | null
@@ -654,6 +658,43 @@ interface IAMPermissionAnalysisModalProps {
   applyDisabled?: boolean
   /** Authoritative estate-level veto. Review remains available; approval/execution do not. */
   authorityHoldReason?: string | null
+}
+
+/** Select the one current, server-scoped IAM change. Names and timestamps are display only. */
+export function selectCurrentIamRestore(
+  payload: unknown,
+  resourceArn: string,
+  systemName: string,
+  expected?: { snapshotId?: string | null; operationId?: string | null },
+): { snapshotId: string; operationId: string } {
+  const list = payload && typeof payload === 'object' && !Array.isArray(payload)
+    ? payload as Record<string, any> : null
+  const account = /^arn:aws:iam::([0-9]{12}):role\/.+/.exec(resourceArn)?.[1]
+  if (!account || !systemName || list?.complete !== true ||
+      list?.scope?.resolved_by !== 'server' || list?.scope?.account_id !== account ||
+      typeof list?.scope?.tenant_id !== 'string' ||
+      list?.selectors?.resource_arn !== resourceArn ||
+      list?.selectors?.system_name !== systemName || !Array.isArray(list?.snapshots)) {
+    throw new Error('Scoped IAM History is unavailable or incomplete. Restore was not started.')
+  }
+  // An apply receipt is an exact pair. A refreshed Remediated row can retain
+  // only one field; in that case the fresh scoped CURRENT offer is authority.
+  const hasReceiptPair = Boolean(expected?.snapshotId && expected?.operationId)
+  const matches = list.snapshots.filter((row: any) =>
+    row?.resource_arn === resourceArn && row?.system_name === systemName &&
+    row?.tenant_id === list.scope.tenant_id && row?.account_id === account &&
+    row?.scope_proof === 'PROVEN_TENANT_ACCOUNT' && row?.source === 'lifecycle_checkpoint' &&
+    row?.state === 'VERIFIED' && row?.rollback_available === true &&
+    row?.offer_withheld_reason === null && row?.current?.code === 'CURRENT' &&
+    typeof row?.snapshot_id === 'string' && row.snapshot_id.length > 0 &&
+    typeof row?.operation_id === 'string' && row.operation_id.length > 0 &&
+    row?.current?.operationId === row.operation_id &&
+    (!hasReceiptPair || (row.snapshot_id === expected!.snapshotId && row.operation_id === expected!.operationId)),
+  )
+  if (matches.length !== 1) {
+    throw new Error('No unique CURRENT, rollback-available operation matches this exact IAM role and receipt. Restore was not started.')
+  }
+  return { snapshotId: matches[0].snapshot_id, operationId: matches[0].operation_id }
 }
 
 export function shouldOfferIamSimulation(
@@ -888,6 +929,9 @@ export function IAMPermissionAnalysisModal({
   isOpen,
   onClose,
   roleName,
+  roleArn,
+  restoreSnapshotId,
+  restoreOperationId,
   findingId,
   systemName,
   identityType,
@@ -1873,6 +1917,7 @@ export function IAMPermissionAnalysisModal({
         if (onRemediationSuccess) {
           onRemediationSuccess(roleName, {
             snapshotId: snapshotId ?? null,
+            operationId: result.operation_id ?? null,
             eventId: result.event_id ?? null,
             rollbackAvailable: result.rollback_available === true,
             remediatedBy: result.remediated_by ?? null,
@@ -5612,14 +5657,37 @@ export function IAMPermissionAnalysisModal({
                   <button
                     onClick={async () => {
                       try {
-                        const res = await fetch(`/api/proxy/iam-roles/rollback`, {
+                        if (!roleArn || !systemName) {
+                          throw new Error('Exact IAM role ARN and system are required for restore.')
+                        }
+                        const query = new URLSearchParams({
+                          resource_arn: roleArn, system_name: systemName, force_refresh: 'true',
+                        })
+                        const listing = await fetch(`/api/proxy/iam-snapshots?${query}`, { cache: 'no-store' })
+                        const ledger = await listing.json().catch(() => null)
+                        if (!listing.ok) {
+                          throw new Error(ledger?.detail?.code || ledger?.detail?.message || 'Scoped IAM History is unavailable.')
+                        }
+                        const selected = selectCurrentIamRestore(ledger, roleArn, systemName, {
+                          snapshotId: restoreSnapshotId, operationId: restoreOperationId,
+                        })
+                        if (!window.confirm(`Restore ${roleName} from checkpoint ${selected.snapshotId}?\nForward operation: ${selected.operationId}`)) return
+                        const res = await fetch('/api/proxy/iam-roles/rollback', {
                           method: 'POST',
                           headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ role_name: roleName })
+                          body: JSON.stringify({
+                            snapshot_id: selected.snapshotId, operation_id: selected.operationId,
+                            resource_arn: roleArn, system_name: systemName,
+                          }),
                         })
-                        const result = await res.json()
-                        if (res.ok) {
-                          toast({ title: "Rollback Successful", description: `Restored ${roleName} to pre-remediation state`, variant: "default" })
+                        const result = await res.json().catch(() => null)
+                        if (res.ok && result?.success === true && result?.code === 'RESTORE_VERIFIED' &&
+                            result?.restores_operation_id === selected.operationId &&
+                            result?.history?.restoration?.validated === true) {
+                          toast({
+                            title: 'Restore verified',
+                            description: `${roleName}: checkpoint ${selected.snapshotId} consumed. History restore ${result.operation_id} verified for ${selected.operationId}.`,
+                          })
                           fetchGapAnalysis(true)
                           onRollbackSuccess?.(roleName)
                           dispatchRemediationChanged({
@@ -5627,19 +5695,17 @@ export function IAMPermissionAnalysisModal({
                             resource_type: "IAMRole",
                             resource_id: roleName,
                           })
-                        } else if (res.status === 404) {
-                          toast({ title: "No Snapshot Available", description: `No rollback snapshot found for ${roleName}. The remediation may have been done outside this system.`, variant: "destructive" })
                         } else {
-                          toast({ title: "Rollback Failed", description: result.detail || 'Could not rollback', variant: "destructive" })
+                          throw new Error(result?.detail?.code || result?.detail?.message || 'Restore outcome is not verified; inspect History before retrying.')
                         }
-                      } catch (err: any) {
-                        toast({ title: "Rollback Error", description: err.message, variant: "destructive" })
+                      } catch (err) {
+                        toast({ title: 'Restore not verified', description: err instanceof Error ? err.message : 'Inspect History before retrying.', variant: 'destructive' })
                       }
                     }}
                     className="w-full px-4 py-3 bg-amber-600 text-white rounded-md hover:bg-amber-700 text-sm font-medium flex items-center justify-center gap-2"
                   >
                     <RefreshCw className="w-4 h-4" />
-                    Rollback to Pre-Remediation State
+                    Restore from verified checkpoint
                   </button>
                 </div>
               )
