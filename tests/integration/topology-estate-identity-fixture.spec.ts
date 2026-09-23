@@ -32,7 +32,10 @@ const IDENTITY_FIXTURE = JSON.parse(
 )
 const EMITTER_ACCOUNT = "416651950952"
 const EMITTER_VPC = "vpc-1"
-const OUTSIDE_ACCOUNT = "999988887777"
+// Not the emitter fixture's organisation management account (999988887777):
+// that one is read as `org_management`, which is exactly the split the lens
+// must never guess. An unrelated account reads as `other_account`.
+const OUTSIDE_ACCOUNT = "222233334444"
 
 /** The EC2 chip in the snapshot's own VPC that the role will run as. */
 function boundWorkload(): { id: string; name: string } {
