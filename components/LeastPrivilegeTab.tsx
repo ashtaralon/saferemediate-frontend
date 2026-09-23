@@ -8,6 +8,7 @@ import { IAMSimulateFixModal } from '@/components/IAMSimulateFixModal'
 import type { DecisionOutcomeCanonical, SimulateFixResponse } from '@/lib/types'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useToast } from '@/hooks/use-toast'
+import { refusalFromPreviewBody, reviewRefusalCopy } from '@/lib/lp-preview-refusal'
 import { dispatchRemediationChanged, onRemediationChanged } from '@/lib/remediation-events'
 import { deriveLPIntegrity, lpEvidenceGapCopy, lpIntegrityCopy } from '@/lib/lp-integrity'
 import { resolveLPReviewSurface } from '@/lib/lp-review-routing'
@@ -3242,7 +3243,13 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
 
                 if (!response.ok) {
                   const errorData = await response.json().catch(() => ({}))
-                  throw new Error(errorData.error || `Simulation failed: ${response.status}`)
+                  const copy = reviewRefusalCopy(refusalFromPreviewBody(response.status, errorData))
+                  toast({
+                    title: copy.title,
+                    description: copy.body,
+                    variant: 'destructive',
+                  })
+                  return
                 }
 
                 const simulateFixData: SimulateFixResponse = await response.json()
