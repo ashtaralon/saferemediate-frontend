@@ -1,45 +1,13 @@
 import { NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
+import { previewProofFor, previewProofNotConfigured } from "@/lib/server/lp-preview-proof"
 
 export const dynamic = "force-dynamic"
 export const fetchCache = "force-no-store"
 export const revalidate = 0
 export const maxDuration = 30
 
-const SERVICE_TOKEN_HEADER = "X-Cyntro-Service-Token"
-const OIDC_DATA_HEADER = "X-Amzn-Oidc-Data"
-const NOT_CONFIGURED = "DEPLOYMENT_SERVICE_TOKEN_NOT_CONFIGURED"
-const NOT_CONFIGURED_MESSAGE =
-  "This request carries no verified identity and this deployment has no " +
-  "service token configured (CYNTRO_SERVICE_TOKEN), so the read cannot be " +
-  "authorized. Installing the token is a release prerequisite."
-
 const UPSTREAM_TIMEOUT_MS = 25_000
-
-type Proof =
-  | { kind: "ready"; headers: Record<string, string> }
-  | { kind: "not_configured" }
-
-function proofFor(request: Request): Proof {
-  const oidc = request.headers.get("x-amzn-oidc-data")?.trim()
-  if (oidc) return { kind: "ready", headers: { [OIDC_DATA_HEADER]: oidc } }
-  const token = process.env.CYNTRO_SERVICE_TOKEN?.trim()
-  if (token) return { kind: "ready", headers: { [SERVICE_TOKEN_HEADER]: token } }
-  return { kind: "not_configured" }
-}
-
-function localRefusal(): NextResponse {
-  return NextResponse.json(
-    {
-      error_code: NOT_CONFIGURED,
-      code: NOT_CONFIGURED,
-      error: NOT_CONFIGURED_MESSAGE,
-      detail: NOT_CONFIGURED_MESSAGE,
-      origin: "proxy",
-    },
-    { status: 503, headers: { "Cache-Control": "no-store" } },
-  )
-}
 
 async function passthrough(response: Response): Promise<NextResponse> {
   const text = await response.text().catch(() => "")
@@ -65,8 +33,8 @@ async function passthrough(response: Response): Promise<NextResponse> {
 }
 
 export async function POST(request: Request) {
-  const proof = proofFor(request)
-  if (proof.kind === "not_configured") return localRefusal()
+  const proof = previewProofFor(request)
+  if (proof.kind === "not_configured") return previewProofNotConfigured()
 
   const body = await request.json().catch(() => ({}))
   const { resource_type, resource_id, system_name } = body as {

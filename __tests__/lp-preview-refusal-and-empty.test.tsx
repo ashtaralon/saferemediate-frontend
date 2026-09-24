@@ -29,7 +29,8 @@ describe("LeastPrivilegeTab refusal copy", () => {
 
     expect(absent.title).toBe("The frontend has no service proof for the backend")
     expect(wrong.title).toBe("The deployment's service identity was not accepted")
-    expect(unavailable.title).toBe("Your identity could not be verified")
+    // A 503 from an unconfigured verifier is a deployment prerequisite, not the user's identity.
+    expect(unavailable.title).toBe("This deployment cannot verify requests yet")
     expect(unavailable.body).not.toContain("raw")
     expect(JSON.stringify(absent)).not.toContain("raw proxy string")
 

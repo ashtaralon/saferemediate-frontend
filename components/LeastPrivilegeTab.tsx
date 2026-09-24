@@ -4922,7 +4922,8 @@ function RulesTab({
   const totalPermissions = iamGapData?.summary?.total_permissions ?? resource.allowedCount ?? 0
   const usedCount = iamGapData?.summary?.used_count ?? resource.usedCount ?? 0
   const unusedCount = iamGapData?.summary?.unused_count ?? resource.gapCount ?? 0
-  const lpScore = iamGapData?.summary?.lp_score ?? 0
+  // null = the backend did not compute a score; shown as unknown, never as 0%.
+  const lpScore: number | null = typeof iamGapData?.summary?.lp_score === 'number' ? iamGapData.summary.lp_score : null
   const permissionsAnalysis = iamGapData?.permissions_analysis ?? []
   const usedPermissions = iamGapData?.used_permissions ?? resource.usedList ?? []
   const unusedPermissions = iamGapData?.unused_permissions ?? resource.unusedList ?? []
@@ -4947,6 +4948,7 @@ function RulesTab({
       {/* LP Score Badge - only show if we have real data */}
       {iamGapData && (
         <div className={`p-3 rounded-lg border ${
+          lpScore === null ? 'bg-gray-50 border-[var(--border,#e5e7eb)]' :
           lpScore >= 80 ? 'bg-[#22c55e10] border-[#22c55e40]' :
           lpScore >= 50 ? 'bg-[#eab30810] border-[#eab30840]' :
           'bg-[#ef444410] border-[#ef444440]'
@@ -4954,10 +4956,11 @@ function RulesTab({
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium">
               LP Score: <span className={`text-lg font-bold ${
+                lpScore === null ? 'text-[var(--muted-foreground,#6b7280)]' :
                 lpScore >= 80 ? 'text-[#22c55e]' :
                 lpScore >= 50 ? 'text-[#eab308]' :
                 'text-[#ef4444]'
-              }`}>{lpScore}%</span>
+              }`}>{lpScore === null ? 'Not computed' : `${lpScore}%`}</span>
             </span>
             <span className="text-xs text-[var(--muted-foreground,#6b7280)]">
               {iamGapData.summary?.cloudtrail_events == null
