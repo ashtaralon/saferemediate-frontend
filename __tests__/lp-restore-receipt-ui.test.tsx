@@ -3,9 +3,9 @@
  *
  * The receipt the Tab keeps is an in-memory hint from that Apply's response
  * (backend #2137 `receipt`); the backend ledger stays the authority and
- * re-checks the operation and role on Restore (#2131). There is no scoped
- * backend receipt lookup, so nothing is persisted and a reload or logout offers
- * no Restore.
+ * re-checks the operation and role on Restore (#2131). Nothing is persisted in
+ * the browser; after a reload the hint is loaded from the ledger (#2139,
+ * lp-restore-receipt-lookup.test.ts), and a signed-out operator gets none.
  */
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
@@ -149,6 +149,12 @@ describe("the Tab keeps the receipt in memory only", () => {
   it("captures the receipt from both Apply call sites", () => {
     expect(tab.split("receiptFromApply(selectedResource.serverPlan, result)").length - 1).toBe(2)
     expect(tab).toContain("<LpRestoreControl")
+  })
+
+  it("loads the receipt from the ledger when a role is selected (reload)", () => {
+    expect(tab).toContain("useState<LpApplyReceipt | null>(null)")
+    expect(tab).toMatch(/lookupLpReceipt\(\{ roleArn: receiptRoleArn, roleId: receiptRoleId/)
+    expect(tab).toMatch(/\}, \[receiptRoleArn, receiptRoleId, accountScope\.customerId, accountScope\.accountId\]\)/)
   })
 
   it("drops the receipt on a tenant or account switch", () => {

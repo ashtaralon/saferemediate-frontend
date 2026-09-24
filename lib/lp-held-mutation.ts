@@ -139,8 +139,8 @@ type ReceiptScope = { customerId?: string | null; accountId?: string | null }
  * Whether a receipt held in memory may be offered as a Restore hint for the
  * role now selected. It is never proof: Restore submits the exact binding and
  * the backend re-checks it against its ledger (RESTORE_ROLE_MISMATCH,
- * RESTORE_TRANSACTION_MISMATCH). There is no scoped backend receipt lookup, so
- * nothing is persisted: after a reload or logout no Restore is offered.
+ * RESTORE_TRANSACTION_MISMATCH). Nothing is persisted in the browser: after a
+ * reload the hint comes only from the ledger (`lookupLpReceipt`).
  */
 export function receiptOffersRestore(receipt: LpApplyReceipt | null, plan: SentPlan, scope: ReceiptScope): boolean {
   if (!receipt || !plan) return false
@@ -149,4 +149,36 @@ export function receiptOffersRestore(receipt: LpApplyReceipt | null, plan: SentP
   if (account && account !== "all" && account !== receipt.accountId) return false
   if (scope.customerId && scope.customerId !== receipt.tenantId) return false
   return true
+}
+
+/**
+ * After a reload, ask the backend ledger which verified Apply on exactly this
+ * role incarnation may be restored. The ledger is the authority; the answer is
+ * accepted only for this role ARN and role id. Anything else (404 no receipt,
+ * 409 already restored or outstanding, an unavailable lookup, a signed-out
+ * operator) means no Restore is offered.
+ */
+export async function lookupLpReceipt(plan: SentPlan): Promise<LpApplyReceipt | null> {
+  if (!plan) return null
+  let response: Response
+  try {
+    const query = new URLSearchParams({ role_arn: plan.roleArn, role_id: plan.roleId })
+    response = await fetch(`/api/proxy/least-privilege/receipt?${query}`, { cache: "no-store" })
+  } catch {
+    return null
+  }
+  if (!response.ok) return null
+  const body = (await response.json().catch(() => null)) as Record<string, unknown> | null
+  const receipt = body?.receipt as Record<string, unknown> | undefined
+  if (!receipt || receipt.kind !== "apply" || receipt.restores_operation_id != null) return null
+  if (receipt.role_arn !== plan.roleArn || receipt.role_id !== plan.roleId) return null
+  if (!nonEmpty(receipt.operation_id) || !nonEmpty(receipt.plan_head) || !nonEmpty(receipt.tenant_id) || !nonEmpty(receipt.account_id)) return null
+  return {
+    operationId: receipt.operation_id,
+    roleArn: plan.roleArn,
+    roleId: plan.roleId,
+    planHead: receipt.plan_head,
+    tenantId: receipt.tenant_id,
+    accountId: receipt.account_id,
+  }
 }

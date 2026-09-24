@@ -9,7 +9,7 @@ import type { DecisionOutcomeCanonical, SimulateFixResponse } from '@/lib/types'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useToast } from '@/hooks/use-toast'
 import { refusalFromPreviewBody, reviewRefusalCopy } from '@/lib/lp-preview-refusal'
-import { heldMutationState, measuredIamPlan, receiptFromApply, submitHeldLpApply, type LpApplyReceipt } from '@/lib/lp-held-mutation'
+import { heldMutationState, lookupLpReceipt, measuredIamPlan, receiptFromApply, submitHeldLpApply, type LpApplyReceipt } from '@/lib/lp-held-mutation'
 import { LpRestoreControl } from '@/components/iam-lp/LpRestoreControl'
 import { dispatchRemediationChanged, onRemediationChanged } from '@/lib/remediation-events'
 import { deriveLPIntegrity, lpEvidenceGapCopy, lpIntegrityCopy } from '@/lib/lp-integrity'
@@ -834,6 +834,20 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
   useEffect(() => {
     setLpReceipt(null)
   }, [accountScope.customerId, accountScope.accountId])
+
+  // After a reload the ledger, not the browser, says which Apply may be restored.
+  const receiptRoleArn = selectedResource?.resourceType === 'IAMRole' ? selectedResource.serverPlan?.roleArn : undefined
+  const receiptRoleId = selectedResource?.resourceType === 'IAMRole' ? selectedResource.serverPlan?.roleId : undefined
+  useEffect(() => {
+    if (!receiptRoleArn || !receiptRoleId) return
+    let current = true
+    void lookupLpReceipt({ roleArn: receiptRoleArn, roleId: receiptRoleId, planHead: '' }).then((found) => {
+      if (current) setLpReceipt(found)
+    })
+    return () => {
+      current = false
+    }
+  }, [receiptRoleArn, receiptRoleId, accountScope.customerId, accountScope.accountId])
   
   // NOTE: Pre-fetch removed to prevent timeout errors
   // Gap analysis is now fetched ON-DEMAND when user opens a modal
