@@ -62,8 +62,9 @@ describe("LeastPrivilegeTab authority wiring", () => {
     const matches = src.match(/applyDisabled=\{LP_MUTATION_APPLY_DISABLED\}/g) || []
     expect(matches.length).toBeGreaterThanOrEqual(3)
     expect(src).toContain("const LP_MUTATION_APPLY_DISABLED = true")
-    expect(src).not.toContain("/api/least-privilege/apply")
-    expect(src).not.toContain("/api/least-privilege/restore")
+    expect(src).toContain("/api/proxy/least-privilege/apply")
+    expect(src).toContain("resource_family: 'iam-role'")
+    expect(src).toContain("/api/proxy/remediation/execute")
     expect(src).not.toMatch(/remediatedBy:\s*'user@cyntro\.io'/)
     expect(src).not.toMatch(/remediatedAt\s*=\s*new Date\(\)/)
   })

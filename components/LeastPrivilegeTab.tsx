@@ -3464,9 +3464,17 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                  role_name: roleName,
-                  dry_run: dryRun,
-                  permissions_to_remove: permissionsToRemove
+                  role_arn: selectedResource.resourceArn,
+                  role_id: (selectedResource as { roleId?: string }).roleId,
+                  plan_head: (selectedResource as { planHead?: string }).planHead,
+                  resource_family: 'iam-role',
+                  actions: permissionsToRemove.map((permission) => ({
+                    permission,
+                    configured: true,
+                    coverage: 'UNKNOWN',
+                    observed_use_count: null,
+                    effect: 'remove',
+                  })),
                 })
               })
 
@@ -3586,9 +3594,17 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                  role_name: roleName,
-                  dry_run: dryRun,
-                  permissions_to_remove: permissionsToRemove
+                  role_arn: selectedResource.resourceArn,
+                  role_id: (selectedResource as { roleId?: string }).roleId,
+                  plan_head: (selectedResource as { planHead?: string }).planHead,
+                  resource_family: 'iam-role',
+                  actions: permissionsToRemove.map((permission) => ({
+                    permission,
+                    configured: true,
+                    coverage: 'UNKNOWN',
+                    observed_use_count: null,
+                    effect: 'remove',
+                  })),
                 })
               })
 

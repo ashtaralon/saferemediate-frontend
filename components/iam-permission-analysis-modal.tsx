@@ -1830,6 +1830,10 @@ export function IAMPermissionAnalysisModal({
       console.log('[IAM-Modal] Detach managed policies:', detachManagedPolicies)
       console.log('[IAM-Modal] Detach ALL managed policies:', detachAllManagedPolicies)
       console.log('[IAM-Modal] Force override block:', effectiveForce, '(raw:', force, ', non-auto in selection:', nonAutoSelected.length, ')')
+      const LP_LEGACY_REMEDIATE_ENABLED = false
+      if (!LP_LEGACY_REMEDIATE_ENABLED) {
+        throw new Error('Apply is disabled until installed recovery is proven')
+      }
       console.log('[IAM-Modal] POST /api/proxy/cyntro/remediate (timeout=' + REMEDIATE_TIMEOUT_MS + 'ms)')
 
       const response = await fetch('/api/proxy/cyntro/remediate', {
