@@ -91,7 +91,7 @@ export async function forwardLpMutation(request: Request, path: "/api/least-priv
   }
   const action = path.endsWith("/restore") ? "rollback" : "execute"
   const admission = await admitOperator(request, body as Record<string, unknown>, action)
-  if (admission.status !== 200) {
+  if (!("tenantId" in admission)) {
     return NextResponse.json(
       {
         code: admission.code,
@@ -153,7 +153,7 @@ export async function forwardLpMutation(request: Request, path: "/api/least-priv
   } catch {
     parsed = null
   }
-  const payload = parsed && typeof parsed === "object" ? { ...(parsed as Record<string, unknown>) } : {
+  const payload: Record<string, unknown> = parsed && typeof parsed === "object" ? { ...(parsed as Record<string, unknown>) } : {
     code: "UNREADABLE", cloud_writes: null, attempted_writes: null, confirmed_writes: null, unknown_writes: null,
   }
   if (payload.code === "APPLY_OUTCOME_UNKNOWN" && payload.unknown_writes === 0) payload.unknown_writes = null
