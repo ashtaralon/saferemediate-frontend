@@ -42,35 +42,25 @@ describe("held Apply and Restore proxy", () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
-  it("forwards only the server token and preserves 401, 403, and 503", async () => {
+  it("does not send Apply or Restore to the serving host for either tenant", async () => {
     process.env.CYNTRO_SERVICE_TOKEN = TOKEN
-    process.env.BACKEND_URL_OVERRIDE = "http://backend.test"
-    const statuses = [401, 403, 503]
-    const fetchMock = vi.fn(async () => new Response(
-      JSON.stringify({ detail: { code: "held", cloud_writes: null } }),
-      { status: statuses.shift() },
-    ))
+    process.env.BACKEND_URL_OVERRIDE = "https://cyntro-c1.onrender.com"
+    const fetchMock = vi.fn()
     vi.stubGlobal("fetch", fetchMock)
-    for (const post of [applyPost, restorePost, applyPost]) {
-      const res = await post(request("/api/proxy/least-privilege/apply"))
-      expect([401, 403, 503]).toContain(res.status)
-      const body = await res.json()
-      expect(body.detail.cloud_writes).toBeNull()
-      expect(JSON.stringify(body)).not.toContain(TOKEN)
-    }
-    const calls = fetchMock.mock.calls as unknown as [string, RequestInit][]
-    expect(calls.map((call) => call[0])).toEqual([
-      "http://backend.test/api/least-privilege/apply",
-      "http://backend.test/api/least-privilege/restore",
-      "http://backend.test/api/least-privilege/apply",
-    ])
-    for (const [url, init] of calls) {
-      const headers = init.headers as Record<string, string>
-      expect(headers["X-Cyntro-Service-Token"]).toBe(TOKEN)
-      expect(JSON.stringify(headers)).not.toContain("browser-supplied-token")
-      expect(url).not.toContain("other-shop")
-      expect(url).not.toContain("customer_id")
-    }
+    const shop = await applyPost(request("/api/proxy/least-privilege/apply"))
+    const other = await restorePost(request("/api/proxy/least-privilege/restore"))
+    expect(shop.status).toBe(503)
+    expect(other.status).toBe(503)
+    expect(await shop.json()).toMatchObject({
+      code: "LIFECYCLE_PROCESS_NOT_DEPLOYED",
+      attempted_writes: 0,
+      confirmed_writes: 0,
+      unknown_writes: 0,
+    })
+    expect(fetchMock).not.toHaveBeenCalled()
+    const source = readFileSync(join(process.cwd(), "lib/server/lp-mutation-proxy.ts"), "utf8")
+    expect(source).not.toContain("getBackendBaseUrl")
+    expect(source).not.toContain("cyntro-c1.onrender.com")
   })
 
   it("keeps Apply and Restore disabled in the UI until recovery is proven", async () => {
