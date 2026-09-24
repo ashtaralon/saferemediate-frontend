@@ -6,6 +6,8 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { POST } from "@/app/api/proxy/least-privilege/simulate-fix/route"
 import { IAMPermissionAnalysisModal } from "@/components/iam-permission-analysis-modal"
 import { EnvelopeRequestError, fetchWithEnvelope } from "@/components/trust/use-trust-envelope"
+import { AdvancedDrawer } from "@/components/iam-lp/AdvancedDrawer"
+import type { IamGapAnalysis } from "@/components/iam-lp/types"
 import { refusalFromPreviewBody, reviewRefusalCopy } from "@/lib/lp-preview-refusal"
 
 const TOKEN = "fixture-service-token-0123456789abcdef"
@@ -187,15 +189,37 @@ describe("Permissions modal source contract", () => {
     expect(modal).toContain("rawData.summary?.lp_score ?? rawData.lp_score ?? null")
   })
 
-  it("the Least Privilege tab shows an uncomputed LP score as unknown, not 0%", () => {
+  it("the Least Privilege tab drops an uncomputed LP score instead of showing 0% or a label", () => {
     const tab = readFileSync(path.join(__dirname, "../components/LeastPrivilegeTab.tsx"), "utf8")
     expect(tab).not.toContain("iamGapData?.summary?.lp_score ?? 0")
-    expect(tab).toContain("lpScore === null ? 'Not computed'")
+    expect(tab).toContain("{iamGapData && lpScore !== null && (")
+    expect(tab).not.toContain("Not computed")
   })
 
   it("maps a failed Simulate fix through the refusal copy, never an Error built from the body", () => {
     expect(modal).not.toContain("throw new Error(result.error || result.detail")
     const button = modal.slice(modal.lastIndexOf("/api/proxy/least-privilege/simulate-fix"))
     expect(button.slice(0, 1500)).toContain("refusalFromPreviewBody(response.status, errorData)")
+  })
+})
+
+describe("Advanced drawer LP score", () => {
+  function gap(lpScore: number | null): IamGapAnalysis {
+    return {
+      role_name: "web-role",
+      summary: { total_permissions: 4, used_count: 3, unused_count: 1, lp_score: lpScore },
+    } as unknown as IamGapAnalysis
+  }
+
+  it("drops the LP score tile when the backend computed none", () => {
+    render(<AdvancedDrawer gap={gap(null)} defaultOpen />)
+    expect(screen.queryByText("LP score")).toBeNull()
+    expect(screen.queryByText("—")).toBeNull()
+  })
+
+  it("shows the backend's LP score when it has one", () => {
+    render(<AdvancedDrawer gap={gap(75)} defaultOpen />)
+    expect(screen.getByText("LP score")).toBeTruthy()
+    expect(screen.getByText("75")).toBeTruthy()
   })
 })
