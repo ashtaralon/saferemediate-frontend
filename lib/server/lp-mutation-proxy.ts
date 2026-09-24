@@ -18,6 +18,9 @@ export async function forwardLpMutation(request: Request, path: "/api/least-priv
         error_code: NOT_CONFIGURED,
         code: NOT_CONFIGURED,
         cloud_writes: 0,
+        attempted_writes: 0,
+        confirmed_writes: 0,
+        unknown_writes: 0,
         origin: "proxy",
       },
       { status: 503, headers: { "Cache-Control": "no-store" } },
@@ -26,7 +29,7 @@ export async function forwardLpMutation(request: Request, path: "/api/least-priv
   const body = await request.json().catch(() => null)
   if (!body || typeof body !== "object") {
     return NextResponse.json(
-      { code: "PLAN_EMPTY", cloud_writes: 0, origin: "proxy" },
+      { code: "PLAN_EMPTY", cloud_writes: 0, attempted_writes: 0, confirmed_writes: 0, unknown_writes: 0, origin: "proxy" },
       { status: 422, headers: { "Cache-Control": "no-store" } },
     )
   }
@@ -47,7 +50,13 @@ export async function forwardLpMutation(request: Request, path: "/api/least-priv
   } catch {
     parsed = null
   }
-  const payload = parsed && typeof parsed === "object" ? parsed : { code: "UNREADABLE", cloud_writes: null }
+  const payload = parsed && typeof parsed === "object" ? parsed : {
+    code: "UNREADABLE",
+    cloud_writes: null,
+    attempted_writes: null,
+    confirmed_writes: null,
+    unknown_writes: null,
+  }
   return NextResponse.json(payload, {
     status: response.status,
     headers: { "Cache-Control": "no-store" },

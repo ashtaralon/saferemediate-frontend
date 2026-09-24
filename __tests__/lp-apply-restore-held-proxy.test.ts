@@ -38,6 +38,7 @@ describe("held Apply and Restore proxy", () => {
     const restore = await restorePost(request("/api/proxy/least-privilege/restore"))
     expect(apply.status).toBe(503)
     expect(restore.status).toBe(503)
+    expect(await apply.json()).toMatchObject({ attempted_writes: 0, confirmed_writes: 0, unknown_writes: 0 })
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
