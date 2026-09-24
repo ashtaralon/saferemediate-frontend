@@ -250,7 +250,51 @@ describe("held Apply and Restore proxy", () => {
     expect(sent.tenant_id).toBe("fixture-webshop")
     expect(sent.account_id).toBe("111111111111")
     expect(sent.actor).toBe("operator-1")
+    const outbound = (brokerCalls[0][1] as RequestInit).headers as Record<string, string>
+    expect(outbound["X-Cyntro-Service-Token"]).toBe(TOKEN)
+    expect(String(outbound.Authorization || "")).toMatch(/^Bearer\s+\S+/)
+    expect(String(outbound.Authorization)).toContain(".")
     expect((await allowed.json()).unknown_writes).toBe(null)
+  })
+
+  it("refuses a wrong-tenant body and a second plan replay without calling the broker", async () => {
+    process.env.CYNTRO_SERVICE_TOKEN = TOKEN
+    process.env.CYNTRO_LP_BROKER_ENABLED = "true"
+    process.env.BACKEND_URL_OVERRIDE = "https://cyntro-c1.onrender.com"
+    process.env.CYNTRO_TENANT_ID = "fixture-webshop"
+    process.env.AWS_ACCOUNT_ID = "111111111111"
+    process.env.CYNTRO_OPERATOR_ROLE_MAP = JSON.stringify({ "cyntro-operators": "OPERATOR" })
+    process.env.CYNTRO_OPERATOR_OIDC_ISSUER = ISSUER
+    process.env.CYNTRO_OPERATOR_OIDC_CLIENT_ID = CLIENT_ID
+    process.env.CYNTRO_OPERATOR_OIDC_REDIRECT_URI = "https://console.cyntro.test/callback"
+    process.env.CYNTRO_OPERATOR_SESSION_SECRET = "session-secret-0123456789abcdef-extra"
+    const config = operatorOidcConfig()!
+    const now = Math.floor(Date.now() / 1000)
+    const claims = {
+      sub: "operator-2",
+      iss: ISSUER,
+      aud: CLIENT_ID,
+      exp: now + 600,
+      nbf: now - 10,
+      nonce: "nonce-tenant",
+      groups: ["cyntro-operators"],
+    }
+    const idToken = await mintIdToken(claims)
+    const sealed = await sealSession(claims, idToken, config)
+    const fetchMock = stubOidcAndBroker(async () => new Response(JSON.stringify({ code: "OK", cloud_writes: 1 }), { status: 200 }))
+    vi.stubGlobal("fetch", fetchMock)
+    const wrongTenant = await applyPost(withSession(sealed.value, { plan_head: "plan-tenant", tenant_id: "other-shop" }))
+    expect(wrongTenant.status).toBe(403)
+    expect(await wrongTenant.json()).toMatchObject({ code: "FORGED_SCOPE_REFUSED", attempted_writes: 0 })
+    const first = await applyPost(withSession(sealed.value, { plan_head: "plan-replay-a" }))
+    const second = await applyPost(withSession(sealed.value, { plan_head: "plan-replay-a" }))
+    expect(first.status).toBe(200)
+    expect(second.status).toBe(409)
+    expect(await second.json()).toMatchObject({ code: "PLAN_REPLAY_REFUSED", attempted_writes: 0 })
+    const brokerCalls = fetchMock.mock.calls.filter((call) => String(call[0]).includes("/api/lp-lifecycle/"))
+    expect(brokerCalls).toHaveLength(1)
+    const headers = (brokerCalls[0][1] as RequestInit).headers as Record<string, string>
+    expect(headers.Authorization).toBe(`Bearer ${idToken}`)
   })
 
   it("keeps Apply and Restore disabled in the UI until recovery is proven", async () => {

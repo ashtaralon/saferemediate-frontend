@@ -114,4 +114,41 @@ describe("clicked IAM gap-analysis proxy", () => {
 
     expect(await (await call()).json()).toEqual(unknown)
   })
+
+  it("prefers ALB OIDC over the service token and keeps two-customer refusals distinct", async () => {
+    process.env.CYNTRO_SERVICE_TOKEN = TOKEN
+    process.env.BACKEND_URL_OVERRIDE = "http://backend.test"
+    const oidc = "eyJhbGciOiJSUzI1NiJ9.e30.sig"
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(backend(403, { detail: { code: "REVIEW_SCOPE_MISMATCH", customer: "other-shop" } }))
+      .mockResolvedValueOnce(backend(503, { detail: { code: "ANALYST_RUNTIME_UNAVAILABLE" } }))
+      .mockResolvedValueOnce(backend(401, { detail: { code: "DECISION_DEPLOYMENT_PRINCIPAL_UNAVAILABLE" } }))
+      .mockResolvedValueOnce(backend(200, { summary: { used_count: 2, unused_count: 1, tenant: "fixture-webshop" } }))
+      .mockResolvedValueOnce(backend(200, { summary: { used_count: 0, unused_count: 0, tenant: "fixture-webshop", data_confidence: "OBSERVED" } }))
+    vi.stubGlobal("fetch", fetchMock)
+
+    const foreign = await call(request({ "x-amzn-oidc-data": oidc }))
+    expect(foreign.status).toBe(403)
+    expect((await foreign.json()).detail.code).toBe("REVIEW_SCOPE_MISMATCH")
+
+    const analystDown = await call(request({ "x-amzn-oidc-data": oidc }))
+    expect(analystDown.status).toBe(503)
+    expect((await analystDown.json()).detail.code).toBe("ANALYST_RUNTIME_UNAVAILABLE")
+
+    const badPrincipal = await call(request({ "x-amzn-oidc-data": oidc }))
+    expect(badPrincipal.status).toBe(401)
+    expect((await badPrincipal.json()).detail.code).toBe("DECISION_DEPLOYMENT_PRINCIPAL_UNAVAILABLE")
+
+    const populated = await call(request({ "x-amzn-oidc-data": oidc }))
+    const empty = await call(request({ "x-amzn-oidc-data": oidc }))
+    expect(await populated.json()).toEqual({ summary: { used_count: 2, unused_count: 1, tenant: "fixture-webshop" } })
+    expect(await empty.json()).toEqual({ summary: { used_count: 0, unused_count: 0, tenant: "fixture-webshop", data_confidence: "OBSERVED" } })
+
+    for (const callArgs of fetchMock.mock.calls) {
+      const init = callArgs[1] as RequestInit
+      const headers = init.headers as Record<string, string>
+      expect(headers["X-Amzn-Oidc-Data"]).toBe(oidc)
+      expect(headers["X-Cyntro-Service-Token"]).toBeUndefined()
+    }
+  })
 })

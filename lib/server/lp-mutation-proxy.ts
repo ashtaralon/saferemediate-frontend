@@ -6,6 +6,7 @@ import {
   discoverOidc,
   operatorOidcConfig,
   readOperatorSession,
+  serverDerivedOperatorHeaders,
   verifyIdToken,
 } from "@/lib/server/operator-session"
 
@@ -14,6 +15,7 @@ const APPLY_ROLES = new Set(["OPERATOR", "EMERGENCY"])
 const SERVICE_TOKEN_HEADER = "X-Cyntro-Service-Token"
 const NOT_CONFIGURED = "DEPLOYMENT_SERVICE_TOKEN_NOT_CONFIGURED"
 const LIFECYCLE_REQUIRED = "LIFECYCLE_PROCESS_NOT_DEPLOYED"
+const OPERATOR_PROOF_MISSING = "OPERATOR_PROOF_NOT_FORWARDABLE"
 function brokerEnabled(): boolean {
   return process.env.CYNTRO_LP_BROKER_ENABLED === "true"
 }
@@ -92,6 +94,14 @@ async function admitOperator(request: Request, body: Record<string, unknown>, ac
   return { status: 200, code: "ADMITTED", subject: session.subject, ...scope }
 }
 
+function hasOperatorProof(headers: Record<string, string>): boolean {
+  const bearer = headers.Authorization || headers.authorization
+  const oidc = headers["X-Amzn-Oidc-Data"] || headers["x-amzn-oidc-data"]
+  if (typeof bearer === "string" && bearer.toLowerCase().startsWith("bearer ") && bearer.slice(7).trim()) return true
+  if (typeof oidc === "string" && oidc.trim()) return true
+  return false
+}
+
 export async function forwardLpMutation(request: Request, path: "/api/least-privilege/apply" | "/api/least-privilege/restore") {
   const body = await request.json().catch(() => null)
   if (!body || typeof body !== "object" || Array.isArray(body)) {
@@ -143,6 +153,22 @@ export async function forwardLpMutation(request: Request, path: "/api/least-priv
       { status: 503, headers: { "Cache-Control": "no-store" } },
     )
   }
+  // Re-prove the same sealed session for the private broker. Body actor is not
+  // authority — the broker verifies Bearer / ALB OIDC independently.
+  const operatorHeaders = await serverDerivedOperatorHeaders(request as never)
+  if (!hasOperatorProof(operatorHeaders)) {
+    return NextResponse.json(
+      {
+        code: OPERATOR_PROOF_MISSING,
+        cloud_writes: 0,
+        attempted_writes: 0,
+        confirmed_writes: 0,
+        unknown_writes: 0,
+        origin: "proxy",
+      },
+      { status: 401, headers: { "Cache-Control": "no-store" } },
+    )
+  }
   const forwarded = { ...(body as Record<string, unknown>) }
   delete forwarded.lifecycle_url
   delete forwarded.lifecycleUrl
@@ -153,7 +179,11 @@ export async function forwardLpMutation(request: Request, path: "/api/least-priv
   const brokerPath = path.endsWith("/restore") ? "/api/lp-lifecycle/restore" : "/api/lp-lifecycle/apply"
   const response = await fetch(`${getBackendBaseUrl().replace(/\/+$/, "")}${brokerPath}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", [SERVICE_TOKEN_HEADER]: token },
+    headers: {
+      "Content-Type": "application/json",
+      [SERVICE_TOKEN_HEADER]: token,
+      ...operatorHeaders,
+    },
     cache: "no-store",
     body: JSON.stringify(forwarded),
   })
