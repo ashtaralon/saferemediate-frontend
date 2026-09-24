@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
-import { fromCaughtError } from "@/lib/server/proxy-error"
+import { ERROR_ORIGIN_HEADER, fromCaughtError, reviewProxyStatus } from "@/lib/server/proxy-error"
 import { previewProofFor, previewProofNotConfigured } from "@/lib/server/lp-preview-proof"
 
 export const runtime = "nodejs"
@@ -44,20 +44,23 @@ export async function GET(
       } catch {
         parsed = null
       }
-      if (parsed !== null && typeof parsed === "object") {
-        return NextResponse.json(parsed, {
-          status: res.status,
-          headers: { "Cache-Control": "no-store" },
-        })
+      // The backend's typed body (its refusal code) is kept whatever the status;
+      // only the status is mapped, so a backend 504 never reads as this proxy's
+      // own timeout (see reviewProxyStatus).
+      const status = reviewProxyStatus(res.status)
+      const headers = { "Cache-Control": "no-store", [ERROR_ORIGIN_HEADER]: "backend" }
+      if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
+        const body = status === res.status ? parsed : { ...(parsed as Record<string, unknown>), backendStatus: res.status }
+        return NextResponse.json(body, { status, headers })
       }
       return NextResponse.json(
         {
           error: `IAM gap-analysis backend returned ${res.status}`,
           detail: errorText.slice(0, 500),
           backendStatus: res.status,
-          origin: "proxy",
+          origin: "backend",
         },
-        { status: res.status, headers: { "Cache-Control": "no-store" } },
+        { status, headers },
       )
     }
 
@@ -73,6 +76,8 @@ export async function GET(
     console.error(`[IAM Proxy] Error for ${roleName}:`, e?.name, e?.message)
     // Fail closed on timeout/unreachable too: AbortError -> 504, else -> 503.
     // Never a 200-with-zeros (see the !res.ok branch above).
-    return fromCaughtError(error)
+    const failed = fromCaughtError(error)
+    failed.headers.set(ERROR_ORIGIN_HEADER, "proxy")
+    return failed
   }
 }

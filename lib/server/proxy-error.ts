@@ -28,6 +28,28 @@ export type ProxyErrorBody = {
   origin: "proxy"
 }
 
+/** Header naming who produced an error response: this proxy, or the backend it relayed. */
+export const ERROR_ORIGIN_HEADER = "X-Cyntro-Error-Origin"
+
+/**
+ * Status the role gap-analysis (Review) proxy answers for a backend error status.
+ *
+ * Three meanings a caller must never confuse:
+ * - 401 / 403: the backend refused the identity or the scope (a denial, including
+ *   a downstream authentication failure of the proxy's own proof). Kept.
+ * - 503: the backend is up and says a dependency is unavailable. Kept.
+ * - 504: reserved for THIS proxy's own 55s abort (``fromCaughtError``). A 504
+ *   the backend (or its load balancer) answered is not a local timeout, so it
+ *   and every other backend 5xx become 502, with ``backendStatus`` saying what
+ *   the backend actually answered.
+ * Other 4xx pass through.
+ */
+export function reviewProxyStatus(backendStatus: number): number {
+  if (backendStatus === 401 || backendStatus === 403 || backendStatus === 503) return backendStatus
+  if (backendStatus >= 500) return 502
+  return backendStatus
+}
+
 /**
  * Backend returned a non-2xx status. Mirror 4xx straight through; collapse
  * 5xx to 502 Bad Gateway so callers can treat all server-side faults
