@@ -7,6 +7,36 @@ export type HeldMutationState = {
   recoveryProven: false
 }
 
+export function measuredIamPlan(payload: unknown) {
+  if (!payload || typeof payload !== "object") return undefined
+  const row = payload as Record<string, unknown>
+  const roleArn = row.role_arn
+  const roleId = row.role_id
+  const planHead = row.plan_head
+  const actions = row.actions
+  if (typeof roleArn !== "string" || !roleArn || typeof roleId !== "string" || !roleId || typeof planHead !== "string" || !planHead) {
+    return undefined
+  }
+  if (!Array.isArray(actions) || actions.length === 0) return undefined
+  const parsed = []
+  for (const item of actions) {
+    if (!item || typeof item !== "object") return undefined
+    const action = item as Record<string, unknown>
+    if (action.configured !== true || action.coverage !== "OBSERVED" || typeof action.observed_use_count !== "number") {
+      return undefined
+    }
+    if (action.effect !== "remove" && action.effect !== "keep") return undefined
+    parsed.push({
+      permission: String(action.permission || ""),
+      configured: true as const,
+      coverage: "OBSERVED" as const,
+      observed_use_count: action.observed_use_count,
+      effect: action.effect,
+    })
+  }
+  return { roleArn, roleId, planHead, actions: parsed }
+}
+
 export function heldMutationState(): HeldMutationState {
   return {
     applyEnabled: LP_MUTATION_APPLY_ENABLED,

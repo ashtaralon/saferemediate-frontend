@@ -62,6 +62,18 @@ interface GapResource {
   resourceType: 'IAMRole' | 'SecurityGroup' | 'S3Bucket' | 'NetworkACL' | 'RDSInstance' | 'LambdaFunction' | 'EC2Instance' | string
   resourceName: string
   resourceArn: string
+  serverPlan?: {
+    roleArn: string
+    roleId: string
+    planHead: string
+    actions: Array<{
+      permission: string
+      configured: true
+      coverage: 'OBSERVED'
+      observed_use_count: number
+      effect: 'remove' | 'keep'
+    }>
+  }
   accountId?: string
   account_id?: string
   systemName?: string
@@ -3464,17 +3476,11 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                  role_arn: selectedResource.resourceArn,
-                  role_id: (selectedResource as { roleId?: string }).roleId,
-                  plan_head: (selectedResource as { planHead?: string }).planHead,
+                  role_arn: selectedResource.serverPlan?.roleArn,
+                  role_id: selectedResource.serverPlan?.roleId,
+                  plan_head: selectedResource.serverPlan?.planHead,
                   resource_family: 'iam-role',
-                  actions: permissionsToRemove.map((permission) => ({
-                    permission,
-                    configured: true,
-                    coverage: 'UNKNOWN',
-                    observed_use_count: null,
-                    effect: 'remove',
-                  })),
+                  actions: selectedResource.serverPlan?.actions,
                 })
               })
 
@@ -3594,17 +3600,11 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                  role_arn: selectedResource.resourceArn,
-                  role_id: (selectedResource as { roleId?: string }).roleId,
-                  plan_head: (selectedResource as { planHead?: string }).planHead,
+                  role_arn: selectedResource.serverPlan?.roleArn,
+                  role_id: selectedResource.serverPlan?.roleId,
+                  plan_head: selectedResource.serverPlan?.planHead,
                   resource_family: 'iam-role',
-                  actions: permissionsToRemove.map((permission) => ({
-                    permission,
-                    configured: true,
-                    coverage: 'UNKNOWN',
-                    observed_use_count: null,
-                    effect: 'remove',
-                  })),
+                  actions: selectedResource.serverPlan?.actions,
                 })
               })
 

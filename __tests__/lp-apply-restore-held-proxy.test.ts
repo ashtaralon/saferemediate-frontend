@@ -5,7 +5,8 @@ import { NextRequest } from "next/server"
 
 import { POST as applyPost } from "@/app/api/proxy/least-privilege/apply/route"
 import { POST as restorePost } from "@/app/api/proxy/least-privilege/restore/route"
-import { heldMutationState, submitHeldLpApply, submitHeldLpRestore } from "@/lib/lp-held-mutation"
+import { heldMutationState, measuredIamPlan, submitHeldLpApply, submitHeldLpRestore } from "@/lib/lp-held-mutation"
+import { postIamShadowRemediation } from "@/lib/use-iam-remediation"
 
 const TOKEN = "fixture-service-token-0123456789abcdef"
 
@@ -88,8 +89,36 @@ describe("held Apply and Restore proxy", () => {
     expect(tab).toContain("/api/proxy/least-privilege/simulate-fix")
     expect(tab).not.toContain("/api/proxy/cyntro/remediate")
     expect(tab).toContain("resource_family: 'iam-role'")
-    expect(tab).toContain("plan_head: (selectedResource as { planHead?: string }).planHead")
+    expect(tab).toContain("plan_head: selectedResource.serverPlan?.planHead")
+    expect(tab).not.toContain("coverage: 'UNKNOWN'")
     expect(tab).toContain("/api/proxy/remediation/execute")
+    const shadow = readFileSync(join(process.cwd(), "lib/use-iam-remediation.ts"), "utf8")
+    expect(shadow).toContain("IAM_ROLE_WRITE_OUTSIDE_TRANSACTION")
+    expect(shadow).not.toContain("/api/proxy/remediation/execute")
+    expect(shadow).toContain("SECURITY_GROUP_FAMILY_SEPARATE")
+  })
+
+  it("does not write an IAM role through shadow execute, and keeps a security group separate", async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+    const role = await postIamShadowRemediation({ role_name: "payments", resource_type: "iam-role" })
+    const group = await postIamShadowRemediation({ role_name: "sg-1", resource_type: "security-group" })
+    expect(role.error).toBe("IAM_ROLE_WRITE_OUTSIDE_TRANSACTION")
+    expect(group.error).toBe("SECURITY_GROUP_FAMILY_SEPARATE")
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(measuredIamPlan({ role_arn: "arn", role_id: "AROA", plan_head: "abc" })).toBeUndefined()
+    expect(measuredIamPlan({
+      role_arn: "arn:aws:iam::111111111111:role/payments",
+      role_id: "AROAEXAMPLE",
+      plan_head: "abc",
+      actions: [{ permission: "iam:CreateRole", configured: true, coverage: "OBSERVED", observed_use_count: 0, effect: "remove" }],
+    })?.roleId).toBe("AROAEXAMPLE")
+    expect(measuredIamPlan({
+      role_arn: "arn",
+      role_id: "AROA",
+      plan_head: "abc",
+      actions: [{ permission: "iam:CreateRole", configured: true, coverage: "UNKNOWN", observed_use_count: null, effect: "remove" }],
+    })).toBeUndefined()
     const store = readFileSync(join(process.cwd(), "hooks/useLeastPrivilegeStore.ts"), "utf8")
     expect(store).toContain("const LP_ENFORCE_ENABLED = false")
     const modal = readFileSync(join(process.cwd(), "components/iam-permission-analysis-modal.tsx"), "utf8")
