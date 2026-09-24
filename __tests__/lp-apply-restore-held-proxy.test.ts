@@ -91,6 +91,8 @@ describe("held Apply and Restore proxy", () => {
     expect(tab).not.toContain("/api/proxy/cyntro/remediate")
     expect(tab).toContain("resource_family: 'iam-role'")
     expect(tab).toContain("plan_head: selectedResource.serverPlan?.planHead")
+    expect(tab).toContain("measuredIamPlan(data?.server_plan)")
+    expect(tab).toContain("planIssueState: data.server_plan.issue_state")
     expect(tab).not.toContain("coverage: 'UNKNOWN'")
     expect(tab).toContain("/api/proxy/remediation/execute")
     const shadow = readFileSync(join(process.cwd(), "lib/use-iam-remediation.ts"), "utf8")

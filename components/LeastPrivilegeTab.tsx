@@ -9,7 +9,7 @@ import type { DecisionOutcomeCanonical, SimulateFixResponse } from '@/lib/types'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useToast } from '@/hooks/use-toast'
 import { refusalFromPreviewBody, reviewRefusalCopy } from '@/lib/lp-preview-refusal'
-import { heldMutationState, submitHeldLpApply, submitHeldLpRestore } from '@/lib/lp-held-mutation'
+import { heldMutationState, measuredIamPlan, submitHeldLpApply, submitHeldLpRestore } from '@/lib/lp-held-mutation'
 import { dispatchRemediationChanged, onRemediationChanged } from '@/lib/remediation-events'
 import { deriveLPIntegrity, lpEvidenceGapCopy, lpIntegrityCopy } from '@/lib/lp-integrity'
 import { resolveLPReviewSurface } from '@/lib/lp-review-routing'
@@ -62,6 +62,7 @@ interface GapResource {
   resourceType: 'IAMRole' | 'SecurityGroup' | 'S3Bucket' | 'NetworkACL' | 'RDSInstance' | 'LambdaFunction' | 'EC2Instance' | string
   resourceName: string
   resourceArn: string
+  planIssueState?: 'MEASURED' | 'MEASURED_EMPTY' | 'UNKNOWN' | 'IDENTITY_UNAVAILABLE'
   serverPlan?: {
     roleArn: string
     roleId: string
@@ -776,6 +777,15 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         throw new Error(copy.title)
       }
       const data = await response.json()
+      const issued = measuredIamPlan(data?.server_plan)
+      if (data?.server_plan) {
+        setSelectedResource((current) => {
+          if (!current || current.resourceType !== 'IAMRole') return current
+          const sameRole = current.resourceName === roleName || current.resourceArn?.endsWith(`/${roleName}`)
+          if (!sameRole) return current
+          return { ...current, serverPlan: issued, planIssueState: data.server_plan.issue_state }
+        })
+      }
       console.log('[IAM] Got gap analysis:', {
         role: roleName,
         total: data.summary?.total_permissions,

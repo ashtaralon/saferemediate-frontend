@@ -18,7 +18,13 @@ export function measuredIamPlan(payload: unknown) {
     return undefined
   }
   if (!Array.isArray(actions) || actions.length === 0) return undefined
-  const parsed = []
+  const parsed: Array<{
+    permission: string
+    configured: true
+    coverage: "OBSERVED"
+    observed_use_count: number
+    effect: "remove" | "keep"
+  }> = []
   for (const item of actions) {
     if (!item || typeof item !== "object") return undefined
     const action = item as Record<string, unknown>
