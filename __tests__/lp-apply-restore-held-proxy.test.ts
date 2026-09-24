@@ -26,7 +26,7 @@ function request(path: string) {
 afterEach(() => {
   delete process.env.CYNTRO_SERVICE_TOKEN
   delete process.env.BACKEND_URL_OVERRIDE
-  delete process.env.CYNTRO_LP_LIFECYCLE_URL
+  delete process.env.CYNTRO_LP_BROKER_ENABLED
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
@@ -60,13 +60,13 @@ describe("held Apply and Restore proxy", () => {
     })
     expect(fetchMock).not.toHaveBeenCalled()
     const source = readFileSync(join(process.cwd(), "lib/server/lp-mutation-proxy.ts"), "utf8")
-    expect(source).toContain("CYNTRO_LP_LIFECYCLE_URL")
-    expect(source).toContain("cyntro-c1.onrender.com")
+    expect(source).toContain("CYNTRO_LP_BROKER_ENABLED")
+    expect(source).toContain("/api/lp-lifecycle/apply")
   })
 
   it("uses only the configured lifecycle origin and ignores a browser URL", async () => {
     process.env.CYNTRO_SERVICE_TOKEN = TOKEN
-    process.env.CYNTRO_LP_LIFECYCLE_URL = "https://lp-lifecycle.internal/ignored"
+    process.env.CYNTRO_LP_BROKER_ENABLED = "true"
     process.env.BACKEND_URL_OVERRIDE = "https://cyntro-c1.onrender.com"
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({ admitted: false, cloud_writes: 0 }), { status: 503 }))
     vi.stubGlobal("fetch", fetchMock)
@@ -84,8 +84,8 @@ describe("held Apply and Restore proxy", () => {
     const res = await applyPost(asked)
     expect(res.status).toBe(503)
     const calls = fetchMock.mock.calls as unknown as [string, RequestInit][]
-    expect(calls[0][0]).toBe("https://lp-lifecycle.internal/api/least-privilege/apply")
-    expect(calls[0][0]).not.toContain("cyntro-c1")
+    expect(calls[0][0]).toBe("https://cyntro-c1.onrender.com/api/lp-lifecycle/apply")
+    expect(calls[0][0]).not.toContain("/api/least-privilege/apply")
     expect(String(calls[0][1].body)).not.toContain("lifecycle_url")
     expect(String(calls[0][1].body)).toContain("AROAEXAMPLE")
   })

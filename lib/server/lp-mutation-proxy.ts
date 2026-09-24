@@ -5,23 +5,8 @@ import { getBackendBaseUrl } from "@/lib/server/backend-url"
 const SERVICE_TOKEN_HEADER = "X-Cyntro-Service-Token"
 const NOT_CONFIGURED = "DEPLOYMENT_SERVICE_TOKEN_NOT_CONFIGURED"
 const LIFECYCLE_REQUIRED = "LIFECYCLE_PROCESS_NOT_DEPLOYED"
-const DESTINATION_ENV = "CYNTRO_LP_LIFECYCLE_URL"
-
-function lifecycleOrigin(): string | null {
-  const raw = process.env[DESTINATION_ENV]?.trim()
-  if (!raw) return null
-  let destination: URL
-  try {
-    destination = new URL(raw)
-  } catch {
-    return null
-  }
-  if (destination.protocol !== "https:" || destination.username || destination.password || destination.search || destination.hash) {
-    return null
-  }
-  const servingHost = new URL(getBackendBaseUrl()).hostname
-  if (destination.hostname === servingHost || destination.hostname === "cyntro-c1.onrender.com") return null
-  return destination.origin
+function brokerEnabled(): boolean {
+  return process.env.CYNTRO_LP_BROKER_ENABLED === "true"
 }
 
 function serverToken(): string | null {
@@ -45,8 +30,7 @@ export async function forwardLpMutation(request: Request, path: "/api/least-priv
       { status: 503, headers: { "Cache-Control": "no-store" } },
     )
   }
-  const origin = lifecycleOrigin()
-  if (!origin) {
+  if (!brokerEnabled()) {
     return NextResponse.json(
       {
         code: LIFECYCLE_REQUIRED,
@@ -69,7 +53,8 @@ export async function forwardLpMutation(request: Request, path: "/api/least-priv
   const forwarded = { ...(body as Record<string, unknown>) }
   delete forwarded.lifecycle_url
   delete forwarded.lifecycleUrl
-  const response = await fetch(origin + path, {
+  const brokerPath = path.endsWith("/restore") ? "/api/lp-lifecycle/restore" : "/api/lp-lifecycle/apply"
+  const response = await fetch(`${getBackendBaseUrl().replace(/\/+$/, "")}${brokerPath}`, {
     method: "POST",
     headers: { "Content-Type": "application/json", [SERVICE_TOKEN_HEADER]: token },
     cache: "no-store",
