@@ -9,6 +9,7 @@ import type { DecisionOutcomeCanonical, SimulateFixResponse } from '@/lib/types'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useToast } from '@/hooks/use-toast'
 import { refusalFromPreviewBody, reviewRefusalCopy } from '@/lib/lp-preview-refusal'
+import { heldMutationState, submitHeldLpApply, submitHeldLpRestore } from '@/lib/lp-held-mutation'
 import { dispatchRemediationChanged, onRemediationChanged } from '@/lib/remediation-events'
 import { deriveLPIntegrity, lpEvidenceGapCopy, lpIntegrityCopy } from '@/lib/lp-integrity'
 import { resolveLPReviewSurface } from '@/lib/lp-review-routing'
@@ -219,6 +220,7 @@ interface GapResource {
 
 /** Mutation boundary not shipped — Apply stays off on every LP surface. */
 const LP_MUTATION_APPLY_DISABLED = true
+const LP_HELD_MUTATION = heldMutationState()
 
 export type FetchGapsResult =
   | { status: 'ok' }
@@ -3430,9 +3432,16 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
             if (LP_MUTATION_APPLY_DISABLED && !dryRun) {
               toast({
                 title: 'Apply disabled',
-                description: 'Mutation requires a signed backend plan — Apply is disabled until the mutation boundary ships.',
+                description: 'Apply stays off until the installed ledger, IAM writer, verified readback, and Restore are proven.',
               })
               return
+            }
+            if (!dryRun && !LP_HELD_MUTATION.applyEnabled) {
+              await submitHeldLpApply({ role_name: selectedResource.resourceName })
+              return
+            }
+            if (!dryRun && LP_HELD_MUTATION.restoreEnabled) {
+              await submitHeldLpRestore("")
             }
             setIsExecuting(true)
             try {
