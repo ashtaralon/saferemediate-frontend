@@ -9,7 +9,8 @@ import type { DecisionOutcomeCanonical, SimulateFixResponse } from '@/lib/types'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useToast } from '@/hooks/use-toast'
 import { refusalFromPreviewBody, reviewRefusalCopy } from '@/lib/lp-preview-refusal'
-import { heldMutationState, measuredIamPlan, submitHeldLpApply, submitHeldLpRestore } from '@/lib/lp-held-mutation'
+import { heldMutationState, lookupLpReceipt, measuredIamPlan, receiptFromApply, submitHeldLpApply, type LpApplyReceipt } from '@/lib/lp-held-mutation'
+import { LpRestoreControl } from '@/components/iam-lp/LpRestoreControl'
 import { dispatchRemediationChanged, onRemediationChanged } from '@/lib/remediation-events'
 import { deriveLPIntegrity, lpEvidenceGapCopy, lpIntegrityCopy } from '@/lib/lp-integrity'
 import { resolveLPReviewSurface } from '@/lib/lp-review-routing'
@@ -324,6 +325,8 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
   /** Progress note shown on the loading screen (e.g. retry-in-progress). */
   const [loadingNote, setLoadingNote] = useState<string | null>(null)
   const [selectedResource, setSelectedResource] = useState<GapResource | null>(null)
+  // In-memory hint only (never persisted): the Apply receipt Restore may be offered for.
+  const [lpReceipt, setLpReceipt] = useState<LpApplyReceipt | null>(null)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [simulating, setSimulating] = useState(false)
   const [simulationResult, setSimulationResult] = useState<any>(null)
@@ -825,6 +828,26 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       unsubscribe()
     }
   }, [systemName, accountScope.customerId, accountScope.groupId, accountScope.accountId, accountScope.region])
+
+  // A tenant or account switch drops the Restore hint; the server re-checks
+  // scope on Restore regardless.
+  useEffect(() => {
+    setLpReceipt(null)
+  }, [accountScope.customerId, accountScope.accountId])
+
+  // After a reload the ledger, not the browser, says which Apply may be restored.
+  const receiptRoleArn = selectedResource?.resourceType === 'IAMRole' ? selectedResource.serverPlan?.roleArn : undefined
+  const receiptRoleId = selectedResource?.resourceType === 'IAMRole' ? selectedResource.serverPlan?.roleId : undefined
+  useEffect(() => {
+    if (!receiptRoleArn || !receiptRoleId) return
+    let current = true
+    void lookupLpReceipt({ roleArn: receiptRoleArn, roleId: receiptRoleId, planHead: '' }).then((found) => {
+      if (current) setLpReceipt(found)
+    })
+    return () => {
+      current = false
+    }
+  }, [receiptRoleArn, receiptRoleId, accountScope.customerId, accountScope.accountId])
   
   // NOTE: Pre-fetch removed to prevent timeout errors
   // Gap analysis is now fetched ON-DEMAND when user opens a modal
@@ -3313,6 +3336,15 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         />
       )}
 
+      {selectedResource?.resourceType === 'IAMRole' && (
+        <LpRestoreControl
+          receipt={lpReceipt}
+          plan={selectedResource.serverPlan}
+          scope={{ customerId: accountScope.customerId, accountId: accountScope.accountId }}
+          onReceiptCleared={() => setLpReceipt(null)}
+        />
+      )}
+
       {/* Simulation Results Modal - Different for SG vs IAM */}
       {simulationModalOpen && simulationResult && selectedResource && (
         simulationResult.type === 'security_group' ? (
@@ -3462,9 +3494,6 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
               await submitHeldLpApply({ role_name: selectedResource.resourceName })
               return
             }
-            if (!dryRun && LP_HELD_MUTATION.restoreEnabled) {
-              await submitHeldLpRestore("")
-            }
             setIsExecuting(true)
             try {
               // Get role name from resource
@@ -3500,6 +3529,10 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
               }
 
               const result = await response.json()
+              // Retain exactly the operation this verified Apply recorded, so
+              // Restore can be offered for it (and only it) on this role.
+              const applyReceipt = receiptFromApply(selectedResource.serverPlan, result)
+              if (applyReceipt) setLpReceipt(applyReceipt)
 
               if (result.success) {
                 const removedPermissions = result.permissions_removed || result.summary?.reduction || result.summary?.unused_removed || 0
@@ -3624,6 +3657,10 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
               }
 
               const result = await response.json()
+              // Retain exactly the operation this verified Apply recorded, so
+              // Restore can be offered for it (and only it) on this role.
+              const applyReceipt = receiptFromApply(selectedResource.serverPlan, result)
+              if (applyReceipt) setLpReceipt(applyReceipt)
 
               if (result.success) {
                 const removedPermissions = result.permissions_removed || result.summary?.reduction || result.summary?.unused_removed || 0
