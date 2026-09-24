@@ -91,3 +91,62 @@ export async function submitHeldLpRestore(binding: RestoreBinding) {
   })
   return { ok: response.ok, status: response.status, body: await response.json().catch(() => null) }
 }
+
+/** The binding a verified Apply recorded (backend `receipt`, #2137). */
+export type LpApplyReceipt = {
+  operationId: string
+  roleArn: string
+  roleId: string
+  planHead: string
+  tenantId: string
+  accountId: string
+}
+
+type SentPlan = { roleArn: string; roleId: string; planHead: string } | undefined
+
+function nonEmpty(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0
+}
+
+/**
+ * Accept an Apply response as a Restore-able receipt only when the backend
+ * verified it and recorded exactly the plan this client sent: same operation,
+ * role ARN, role incarnation and plan head. Anything else (a refusal, an older
+ * backend without `receipt`, a different role) is not a receipt.
+ */
+export function receiptFromApply(sent: SentPlan, response: unknown): LpApplyReceipt | null {
+  if (!sent || !response || typeof response !== "object") return null
+  const body = response as Record<string, unknown>
+  const receipt = body.receipt as Record<string, unknown> | undefined
+  if (body.code !== "VERIFIED" || !receipt || typeof receipt !== "object") return null
+  if (receipt.kind !== "apply" || receipt.restores_operation_id != null) return null
+  if (!nonEmpty(receipt.operation_id) || receipt.operation_id !== body.operation_id) return null
+  if (receipt.role_arn !== sent.roleArn || receipt.role_id !== sent.roleId || receipt.plan_head !== sent.planHead) return null
+  if (!nonEmpty(receipt.tenant_id) || !nonEmpty(receipt.account_id)) return null
+  return {
+    operationId: receipt.operation_id,
+    roleArn: sent.roleArn,
+    roleId: sent.roleId,
+    planHead: sent.planHead,
+    tenantId: receipt.tenant_id,
+    accountId: receipt.account_id,
+  }
+}
+
+type ReceiptScope = { customerId?: string | null; accountId?: string | null }
+
+/**
+ * Whether a receipt held in memory may be offered as a Restore hint for the
+ * role now selected. It is never proof: Restore submits the exact binding and
+ * the backend re-checks it against its ledger (RESTORE_ROLE_MISMATCH,
+ * RESTORE_TRANSACTION_MISMATCH). There is no scoped backend receipt lookup, so
+ * nothing is persisted: after a reload or logout no Restore is offered.
+ */
+export function receiptOffersRestore(receipt: LpApplyReceipt | null, plan: SentPlan, scope: ReceiptScope): boolean {
+  if (!receipt || !plan) return false
+  if (receipt.roleArn !== plan.roleArn || receipt.roleId !== plan.roleId) return false
+  const account = scope.accountId
+  if (account && account !== "all" && account !== receipt.accountId) return false
+  if (scope.customerId && scope.customerId !== receipt.tenantId) return false
+  return true
+}
