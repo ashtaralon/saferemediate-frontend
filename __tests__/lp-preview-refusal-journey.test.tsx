@@ -187,6 +187,12 @@ describe("Permissions modal source contract", () => {
     expect(modal).toContain("rawData.summary?.lp_score ?? rawData.lp_score ?? null")
   })
 
+  it("the Least Privilege tab shows an uncomputed LP score as unknown, not 0%", () => {
+    const tab = readFileSync(path.join(__dirname, "../components/LeastPrivilegeTab.tsx"), "utf8")
+    expect(tab).not.toContain("iamGapData?.summary?.lp_score ?? 0")
+    expect(tab).toContain("lpScore === null ? 'Not computed'")
+  })
+
   it("maps a failed Simulate fix through the refusal copy, never an Error built from the body", () => {
     expect(modal).not.toContain("throw new Error(result.error || result.detail")
     const button = modal.slice(modal.lastIndexOf("/api/proxy/least-privilege/simulate-fix"))
