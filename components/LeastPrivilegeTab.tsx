@@ -3457,8 +3457,10 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                 throw new Error('No explicit permissions were selected for remediation')
               }
 
-              // Call remediation API
-              const response = await fetch('/api/proxy/cyntro/remediate', {
+              if (dryRun) {
+                return
+              }
+              const response = await fetch('/api/proxy/least-privilege/apply', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -3577,8 +3579,10 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
 
               console.log(`[IAM-SIMULATE-FIX] ${dryRun ? 'DRY RUN' : 'LIVE'} - Removing ${permissionsToRemove.length} permissions`)
 
-              // Call remediation API
-              const response = await fetch('/api/proxy/cyntro/remediate', {
+              if (dryRun) {
+                return
+              }
+              const response = await fetch('/api/proxy/least-privilege/apply', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
