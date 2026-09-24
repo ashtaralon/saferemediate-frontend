@@ -11,6 +11,7 @@ import { useToast } from '@/hooks/use-toast'
 import { refusalFromPreviewBody, reviewRefusalCopy } from '@/lib/lp-preview-refusal'
 import { heldMutationState, lookupLpReceipt, measuredIamPlan, receiptFromApply, submitHeldLpApply, type LpApplyReceipt } from '@/lib/lp-held-mutation'
 import { LpRestoreControl } from '@/components/iam-lp/LpRestoreControl'
+import { LpOutstandingPanel } from '@/components/iam-lp/LpOutstandingPanel'
 import { dispatchRemediationChanged, onRemediationChanged } from '@/lib/remediation-events'
 import { deriveLPIntegrity, lpEvidenceGapCopy, lpIntegrityCopy } from '@/lib/lp-integrity'
 import { resolveLPReviewSurface } from '@/lib/lp-review-routing'
@@ -327,6 +328,8 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
   const [selectedResource, setSelectedResource] = useState<GapResource | null>(null)
   // In-memory hint only (never persisted): the Apply receipt Restore may be offered for.
   const [lpReceipt, setLpReceipt] = useState<LpApplyReceipt | null>(null)
+  // Bumped after an operator resolution so the ledger receipt is read again.
+  const [lpReceiptReload, setLpReceiptReload] = useState(0)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [simulating, setSimulating] = useState(false)
   const [simulationResult, setSimulationResult] = useState<any>(null)
@@ -847,7 +850,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
     return () => {
       current = false
     }
-  }, [receiptRoleArn, receiptRoleId, accountScope.customerId, accountScope.accountId])
+  }, [receiptRoleArn, receiptRoleId, accountScope.customerId, accountScope.accountId, lpReceiptReload])
   
   // NOTE: Pre-fetch removed to prevent timeout errors
   // Gap analysis is now fetched ON-DEMAND when user opens a modal
@@ -3336,6 +3339,12 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         />
       )}
 
+      {selectedResource?.resourceType === 'IAMRole' && (
+        <LpOutstandingPanel
+          plan={selectedResource.serverPlan}
+          onResolved={() => setLpReceiptReload((value) => value + 1)}
+        />
+      )}
       {selectedResource?.resourceType === 'IAMRole' && (
         <LpRestoreControl
           receipt={lpReceipt}

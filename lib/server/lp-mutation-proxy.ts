@@ -48,7 +48,7 @@ export function resetLpOperatorReplays(): void {
   replays.clear()
 }
 
-async function admitOperator(request: Request, body: Record<string, unknown>, action: "execute" | "rollback" | "lookup") {
+async function admitOperator(request: Request, body: Record<string, unknown>, action: "execute" | "rollback" | "lookup" | "resolve") {
   const config = operatorOidcConfig()
   if (!config) return { status: 401, code: "OPERATOR_SESSION_REQUIRED" }
   const cookieApi = (request as { cookies?: { get?: (name: string) => { value?: string } | undefined } }).cookies
@@ -76,7 +76,7 @@ async function admitOperator(request: Request, body: Record<string, unknown>, ac
   if (!scope) return { status: 503, code: "SERVER_SCOPE_UNAVAILABLE" }
   const groups = Array.isArray(claims.groups) ? claims.groups.filter((item): item is string => typeof item === "string") : []
   const roles = rolesForGroups(groups)
-  const allowed = action === "execute" ? APPLY_ROLES : new Set([...APPLY_ROLES, "APPROVER"])
+  const allowed = action === "execute" || action === "resolve" ? APPLY_ROLES : new Set([...APPLY_ROLES, "APPROVER"])
   if (!roles.some((role) => allowed.has(role))) return { status: 403, code: "OPERATOR_APPLY_FORBIDDEN" }
   for (const key of ["tenant_id", "customer_id", "account_id", "actor", "role"]) {
     if (key in body && String(body[key] || "") !== (key === "account_id" ? scope.accountId : key === "actor" ? session.subject : key === "role" ? "" : scope.tenantId)) {
@@ -91,6 +91,13 @@ async function admitOperator(request: Request, body: Record<string, unknown>, ac
   // idempotency is the backend ledger's, not this process's memory.
   // A receipt lookup reads; it needs the Restore role and nothing more.
   if (action === "lookup") return { status: 200, code: "ADMITTED", subject: session.subject, ...scope }
+  // Resolution names the outstanding operation the backend reported; the
+  // backend re-checks it is the role's holder. Its idempotency is the ledger's fence.
+  if (action === "resolve") {
+    const operationId = body.operation_id
+    if (typeof operationId !== "string" || !operationId) return { status: 422, code: "RESOLUTION_OPERATION_MISSING" }
+    return { status: 200, code: "ADMITTED", subject: session.subject, ...scope }
+  }
   if (action === "rollback") {
     const operationId = body.operation_id
     if (typeof operationId !== "string" || !operationId) return { status: 422, code: "RESTORE_TRANSACTION_MISSING" }
@@ -252,3 +259,86 @@ export async function forwardLpReceiptLookup(request: Request) {
   const payload = parsed && typeof parsed === "object" ? parsed : { code: "UNREADABLE" }
   return NextResponse.json(payload, { status: response.status, headers: { "Cache-Control": "no-store" } })
 }
+
+
+/** Read-only: the operation holding a role and the backend's live reconciliation of it. */
+export async function forwardLpOutstanding(request: Request) {
+  return forwardRoleRead(request, "/api/lp-lifecycle/outstanding")
+}
+
+async function forwardRoleRead(request: Request, brokerPath: string) {
+  const url = new URL(request.url)
+  const roleArn = url.searchParams.get("role_arn") || ""
+  const roleId = url.searchParams.get("role_id") || ""
+  const claims: Record<string, unknown> = {}
+  url.searchParams.forEach((value, key) => {
+    if (key !== "role_arn" && key !== "role_id") claims[key] = value
+  })
+  const refuse = (status: number, code: string) =>
+    NextResponse.json({ code, origin: "proxy" }, { status, headers: { "Cache-Control": "no-store" } })
+  if (!roleArn || !roleId) return refuse(422, "ROLE_REFERENCE_REQUIRED")
+  const admission = await admitOperator(request, claims, "lookup")
+  if (!("tenantId" in admission)) return refuse(admission.status, admission.code)
+  const token = serverToken()
+  if (!token) return refuse(503, NOT_CONFIGURED)
+  if (!brokerEnabled()) return refuse(503, LIFECYCLE_REQUIRED)
+  const operatorHeaders = await serverDerivedOperatorHeaders(request as never)
+  if (!hasOperatorProof(operatorHeaders)) return refuse(401, OPERATOR_PROOF_MISSING)
+  const query = new URLSearchParams({ role_arn: roleArn, role_id: roleId })
+  const response = await fetch(`${getBackendBaseUrl().replace(/\/+$/, "")}${brokerPath}?${query}`, {
+    method: "GET",
+    headers: { [SERVICE_TOKEN_HEADER]: token, ...operatorHeaders },
+    cache: "no-store",
+  })
+  return passBrokerAnswer(response)
+}
+
+async function passBrokerAnswer(response: Response) {
+  const text = await response.text().catch(() => "")
+  let parsed: unknown = null
+  try {
+    parsed = text ? JSON.parse(text) : null
+  } catch {
+    parsed = null
+  }
+  const payload = parsed && typeof parsed === "object" ? parsed : { code: "UNREADABLE" }
+  return NextResponse.json(payload, { status: response.status, headers: { "Cache-Control": "no-store" } })
+}
+
+/**
+ * An operator's explicit resolution of a held Apply. Apply-level authority only.
+ * The body names the operation and role; tenant, account and actor come from
+ * the server session, never from the browser.
+ */
+export async function forwardLpResolve(request: Request) {
+  const body = await request.json().catch(() => null)
+  const refuse = (status: number, code: string) =>
+    NextResponse.json({ code, ...ZERO_WRITES, origin: "proxy" }, { status, headers: { "Cache-Control": "no-store" } })
+  if (!body || typeof body !== "object" || Array.isArray(body)) return refuse(422, "RESOLUTION_EMPTY")
+  const admission = await admitOperator(request, body as Record<string, unknown>, "resolve")
+  if (!("tenantId" in admission)) return refuse(admission.status, admission.code)
+  const token = serverToken()
+  if (!token) return refuse(503, NOT_CONFIGURED)
+  if (!brokerEnabled()) return refuse(503, LIFECYCLE_REQUIRED)
+  const operatorHeaders = await serverDerivedOperatorHeaders(request as never)
+  if (!hasOperatorProof(operatorHeaders)) return refuse(401, OPERATOR_PROOF_MISSING)
+  const record = body as Record<string, unknown>
+  const forwarded = {
+    operation_id: record.operation_id,
+    role_arn: record.role_arn,
+    role_id: record.role_id,
+    resource_family: "iam-role",
+    tenant_id: admission.tenantId,
+    account_id: admission.accountId,
+    actor: admission.subject,
+  }
+  const response = await fetch(`${getBackendBaseUrl().replace(/\/+$/, "")}/api/lp-lifecycle/resolve`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", [SERVICE_TOKEN_HEADER]: token, ...operatorHeaders },
+    cache: "no-store",
+    body: JSON.stringify(forwarded),
+  })
+  return passBrokerAnswer(response)
+}
+
+const ZERO_WRITES = { cloud_writes: 0, attempted_writes: 0, confirmed_writes: 0, unknown_writes: 0 }

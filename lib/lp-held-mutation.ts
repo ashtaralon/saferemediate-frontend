@@ -182,3 +182,68 @@ export async function lookupLpReceipt(plan: SentPlan): Promise<LpApplyReceipt | 
     accountId: receipt.account_id,
   }
 }
+
+/** Resolution records a proven outcome in the backend ledger (no IAM write). Held with Apply/Restore. */
+export const LP_RESOLVE_ENABLED = false
+
+export type LpLiveVerdict = "applied" | "not_applied" | "partial" | "diverged" | "unreadable"
+
+export type LpOutstanding = {
+  operationId: string
+  state: string
+  attempt: number | null
+  resolvable: boolean
+  verdict: LpLiveVerdict
+  perPolicy: Record<string, "preimage" | "intended" | "diverged">
+}
+
+const VERDICTS = new Set(["applied", "not_applied", "partial", "diverged", "unreadable"])
+const POLICY_STATES = new Set(["preimage", "intended", "diverged"])
+
+/**
+ * The operation holding exactly this role incarnation, and the backend's
+ * read-only reconciliation of the live policies. Only the server's answer is
+ * shown; null when nothing is outstanding, the operator is signed out or may
+ * not see it, or the lookup is unavailable.
+ */
+export async function fetchLpOutstanding(plan: SentPlan): Promise<LpOutstanding | null> {
+  if (!plan) return null
+  let response: Response
+  try {
+    const query = new URLSearchParams({ role_arn: plan.roleArn, role_id: plan.roleId })
+    response = await fetch(`/api/proxy/least-privilege/outstanding?${query}`, { cache: "no-store" })
+  } catch {
+    return null
+  }
+  if (!response.ok) return null
+  const body = (await response.json().catch(() => null)) as Record<string, unknown> | null
+  const live = body?.live as Record<string, unknown> | undefined
+  if (!body || !nonEmpty(body.operation_id) || !nonEmpty(body.state) || !live || !VERDICTS.has(String(live.verdict))) return null
+  const perPolicy = (live.per_policy && typeof live.per_policy === "object" ? live.per_policy : {}) as Record<string, unknown>
+  if (!Object.values(perPolicy).every((value) => POLICY_STATES.has(String(value)))) return null
+  return {
+    operationId: body.operation_id,
+    state: body.state,
+    attempt: typeof body.attempt === "number" ? body.attempt : null,
+    resolvable: body.resolvable === true,
+    verdict: live.verdict as LpLiveVerdict,
+    perPolicy: perPolicy as LpOutstanding["perPolicy"],
+  }
+}
+
+/** An operator's explicit resolution of the outstanding operation on this exact role. */
+export async function submitLpResolve(binding: RestoreBinding) {
+  if (!LP_RESOLVE_ENABLED) {
+    return { ok: false, status: 503, code: "RESOLVE_HELD", cloud_writes: 0 }
+  }
+  const { operationId, roleArn, roleId } = binding
+  if (!operationId || !roleArn || !roleId) {
+    return { ok: false, status: 422, code: "RESOLUTION_BINDING_MISSING", cloud_writes: 0 }
+  }
+  const response = await fetch("/api/proxy/least-privilege/resolve", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ operation_id: operationId, role_arn: roleArn, role_id: roleId, resource_family: "iam-role" }),
+  })
+  return { ok: response.ok, status: response.status, body: await response.json().catch(() => null) }
+}
