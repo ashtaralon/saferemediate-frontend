@@ -111,6 +111,10 @@ const api = {
   },
   
   async enforceRemediation(roleArn: string, permissions: string[]): Promise<EnforcementResult> {
+    const LP_ENFORCE_ENABLED = false
+    if (!LP_ENFORCE_ENABLED) {
+      return { success: false, cloud_writes: 0, code: 'APPLY_HELD' } as unknown as EnforcementResult
+    }
     const response = await fetch('/api/proxy/least-privilege/enforce', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

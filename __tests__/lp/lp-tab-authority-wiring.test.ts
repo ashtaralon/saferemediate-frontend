@@ -61,6 +61,10 @@ describe("LeastPrivilegeTab authority wiring", () => {
     // Must appear on all three modal call sites
     const matches = src.match(/applyDisabled=\{LP_MUTATION_APPLY_DISABLED\}/g) || []
     expect(matches.length).toBeGreaterThanOrEqual(3)
+    expect(src).toContain("const LP_MUTATION_APPLY_DISABLED = true")
+    expect(src).toContain("/api/proxy/least-privilege/apply")
+    expect(src).toContain("resource_family: 'iam-role'")
+    expect(src).toContain("/api/proxy/remediation/execute")
     expect(src).not.toMatch(/remediatedBy:\s*'user@cyntro\.io'/)
     expect(src).not.toMatch(/remediatedAt\s*=\s*new Date\(\)/)
   })

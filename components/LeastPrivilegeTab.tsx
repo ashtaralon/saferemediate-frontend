@@ -8,6 +8,8 @@ import { IAMSimulateFixModal } from '@/components/IAMSimulateFixModal'
 import type { DecisionOutcomeCanonical, SimulateFixResponse } from '@/lib/types'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useToast } from '@/hooks/use-toast'
+import { refusalFromPreviewBody, reviewRefusalCopy } from '@/lib/lp-preview-refusal'
+import { heldMutationState, measuredIamPlan, submitHeldLpApply, submitHeldLpRestore } from '@/lib/lp-held-mutation'
 import { dispatchRemediationChanged, onRemediationChanged } from '@/lib/remediation-events'
 import { deriveLPIntegrity, lpEvidenceGapCopy, lpIntegrityCopy } from '@/lib/lp-integrity'
 import { resolveLPReviewSurface } from '@/lib/lp-review-routing'
@@ -60,6 +62,19 @@ interface GapResource {
   resourceType: 'IAMRole' | 'SecurityGroup' | 'S3Bucket' | 'NetworkACL' | 'RDSInstance' | 'LambdaFunction' | 'EC2Instance' | string
   resourceName: string
   resourceArn: string
+  planIssueState?: 'MEASURED' | 'MEASURED_EMPTY' | 'UNKNOWN' | 'IDENTITY_UNAVAILABLE'
+  serverPlan?: {
+    roleArn: string
+    roleId: string
+    planHead: string
+    actions: Array<{
+      permission: string
+      configured: true
+      coverage: 'OBSERVED'
+      observed_use_count: number
+      effect: 'remove' | 'keep'
+    }>
+  }
   accountId?: string
   account_id?: string
   systemName?: string
@@ -218,6 +233,7 @@ interface GapResource {
 
 /** Mutation boundary not shipped — Apply stays off on every LP surface. */
 const LP_MUTATION_APPLY_DISABLED = true
+const LP_HELD_MUTATION = heldMutationState()
 
 export type FetchGapsResult =
   | { status: 'ok' }
@@ -755,10 +771,21 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       console.log('[IAM] Fetching gap analysis for:', roleName)
       const response = await fetch(`/api/proxy/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=365`)
       if (!response.ok) {
-        console.error('[IAM] Gap analysis fetch failed:', response.status)
-        return null
+        const errorData = await response.json().catch(() => null)
+        const copy = reviewRefusalCopy(refusalFromPreviewBody(response.status, errorData))
+        console.error('[IAM] Gap analysis fetch failed:', response.status, copy.title)
+        throw new Error(copy.title)
       }
       const data = await response.json()
+      const issued = measuredIamPlan(data?.server_plan)
+      if (data?.server_plan) {
+        setSelectedResource((current) => {
+          if (!current || current.resourceType !== 'IAMRole') return current
+          const sameRole = current.resourceName === roleName || current.resourceArn?.endsWith(`/${roleName}`)
+          if (!sameRole) return current
+          return { ...current, serverPlan: issued, planIssueState: data.server_plan.issue_state }
+        })
+      }
       console.log('[IAM] Got gap analysis:', {
         role: roleName,
         total: data.summary?.total_permissions,
@@ -3242,7 +3269,13 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
 
                 if (!response.ok) {
                   const errorData = await response.json().catch(() => ({}))
-                  throw new Error(errorData.error || `Simulation failed: ${response.status}`)
+                  const copy = reviewRefusalCopy(refusalFromPreviewBody(response.status, errorData))
+                  toast({
+                    title: copy.title,
+                    description: copy.body,
+                    variant: 'destructive',
+                  })
+                  return
                 }
 
                 const simulateFixData: SimulateFixResponse = await response.json()
@@ -3421,9 +3454,16 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
             if (LP_MUTATION_APPLY_DISABLED && !dryRun) {
               toast({
                 title: 'Apply disabled',
-                description: 'Mutation requires a signed backend plan — Apply is disabled until the mutation boundary ships.',
+                description: 'Apply stays off until the installed ledger, IAM writer, verified readback, and Restore are proven.',
               })
               return
+            }
+            if (!dryRun && !LP_HELD_MUTATION.applyEnabled) {
+              await submitHeldLpApply({ role_name: selectedResource.resourceName })
+              return
+            }
+            if (!dryRun && LP_HELD_MUTATION.restoreEnabled) {
+              await submitHeldLpRestore("")
             }
             setIsExecuting(true)
             try {
@@ -3439,14 +3479,18 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                 throw new Error('No explicit permissions were selected for remediation')
               }
 
-              // Call remediation API
-              const response = await fetch('/api/proxy/cyntro/remediate', {
+              if (dryRun) {
+                return
+              }
+              const response = await fetch('/api/proxy/least-privilege/apply', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                  role_name: roleName,
-                  dry_run: dryRun,
-                  permissions_to_remove: permissionsToRemove
+                  role_arn: selectedResource.serverPlan?.roleArn,
+                  role_id: selectedResource.serverPlan?.roleId,
+                  plan_head: selectedResource.serverPlan?.planHead,
+                  resource_family: 'iam-role',
+                  actions: selectedResource.serverPlan?.actions,
                 })
               })
 
@@ -3559,14 +3603,18 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
 
               console.log(`[IAM-SIMULATE-FIX] ${dryRun ? 'DRY RUN' : 'LIVE'} - Removing ${permissionsToRemove.length} permissions`)
 
-              // Call remediation API
-              const response = await fetch('/api/proxy/cyntro/remediate', {
+              if (dryRun) {
+                return
+              }
+              const response = await fetch('/api/proxy/least-privilege/apply', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                  role_name: roleName,
-                  dry_run: dryRun,
-                  permissions_to_remove: permissionsToRemove
+                  role_arn: selectedResource.serverPlan?.roleArn,
+                  role_id: selectedResource.serverPlan?.roleId,
+                  plan_head: selectedResource.serverPlan?.planHead,
+                  resource_family: 'iam-role',
+                  actions: selectedResource.serverPlan?.actions,
                 })
               })
 
@@ -4636,7 +4684,7 @@ function RulesTab({
             }
           }
           
-          // Direct fetch
+          // Direct fetch. The cached helper already throws a refusal title.
           const res = await fetch(`/api/proxy/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=365`)
           if (res.ok) {
             const data = await res.json()
@@ -4648,12 +4696,14 @@ function RulesTab({
             })
             setIamGapData(data)
           } else {
-            console.error('[RulesTab] IAM fetch failed:', res.status)
-            setError(`Failed to load IAM data: ${res.status}`)
+            const errorData = await res.json().catch(() => null)
+            const copy = reviewRefusalCopy(refusalFromPreviewBody(res.status, errorData))
+            console.error('[RulesTab] IAM fetch failed:', res.status, copy.title)
+            setError(copy.title)
           }
         } catch (err) {
           console.error('[RulesTab] Failed to fetch IAM data:', err)
-          setError('Failed to load IAM permissions')
+          setError(err instanceof Error && err.message ? err.message : 'Failed to load IAM permissions')
         } finally {
           setLoading(false)
         }

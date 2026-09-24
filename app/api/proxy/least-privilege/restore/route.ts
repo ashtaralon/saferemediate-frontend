@@ -5,5 +5,5 @@ export const fetchCache = "force-no-store"
 export const revalidate = 0
 
 export async function POST(request: Request) {
-  return forwardLpMutation(request, "/api/least-privilege/apply")
+  return forwardLpMutation(request, "/api/least-privilege/restore")
 }
