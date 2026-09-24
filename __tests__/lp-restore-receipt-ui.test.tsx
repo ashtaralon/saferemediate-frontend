@@ -154,7 +154,7 @@ describe("the Tab keeps the receipt in memory only", () => {
   it("loads the receipt from the ledger when a role is selected (reload)", () => {
     expect(tab).toContain("useState<LpApplyReceipt | null>(null)")
     expect(tab).toMatch(/lookupLpReceipt\(\{ roleArn: receiptRoleArn, roleId: receiptRoleId/)
-    expect(tab).toMatch(/\}, \[receiptRoleArn, receiptRoleId, accountScope\.customerId, accountScope\.accountId\]\)/)
+    expect(tab).toMatch(/\}, \[receiptRoleArn, receiptRoleId, accountScope\.customerId, accountScope\.accountId, lpReceiptReload\]\)/)
   })
 
   it("drops the receipt on a tenant or account switch", () => {
