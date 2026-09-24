@@ -10,12 +10,34 @@ const SERVICE_TOKEN_HEADER = "X-Cyntro-Service-Token"
 const OIDC_DATA_HEADER = "X-Amzn-Oidc-Data"
 const NOT_CONFIGURED = "DEPLOYMENT_SERVICE_TOKEN_NOT_CONFIGURED"
 
+/**
+ * Server-owned proof for the clicked IAM Preview (gap-analysis).
+ *
+ * Hosted SaaS (C1): only the deployment service token. The browser site-session
+ * cookie admits the page but identifies no backend principal; operator Bearer is
+ * for lifecycle mutations, not account-scoped Review. Browser-supplied
+ * `x-amzn-oidc-data` must not outrank a valid service token — the backend treats
+ * OIDC as authoritative when present, so a forged claim would 401 an otherwise
+ * authorized deployment read.
+ *
+ * Customer-resident: ALB-signed OIDC for Analyst scope, plus the service token
+ * so an enforce-mode auth boundary can admit the hop.
+ */
 function proofFor(request: NextRequest):
   | { kind: "ready"; headers: Record<string, string> }
   | { kind: "not_configured" } {
-  const oidc = request.headers.get("x-amzn-oidc-data")?.trim()
-  if (oidc) return { kind: "ready", headers: { [OIDC_DATA_HEADER]: oidc } }
   const token = process.env.CYNTRO_SERVICE_TOKEN?.trim()
+  if (process.env.CYNTRO_DEPLOYMENT_MODE === "CUSTOMER_RESIDENT") {
+    const oidc = request.headers.get("x-amzn-oidc-data")?.trim()
+    if (oidc && token) {
+      return {
+        kind: "ready",
+        headers: { [OIDC_DATA_HEADER]: oidc, [SERVICE_TOKEN_HEADER]: token },
+      }
+    }
+    if (token) return { kind: "ready", headers: { [SERVICE_TOKEN_HEADER]: token } }
+    return { kind: "not_configured" }
+  }
   if (token) return { kind: "ready", headers: { [SERVICE_TOKEN_HEADER]: token } }
   return { kind: "not_configured" }
 }

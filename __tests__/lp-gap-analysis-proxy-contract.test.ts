@@ -4,17 +4,17 @@ import { NextRequest } from "next/server"
 import { GET } from "@/app/api/proxy/iam-roles/[roleName]/gap-analysis/route"
 
 const TOKEN = "fixture-service-token-0123456789abcdef"
-const ROLE = "cyntro-tb-prod-web-role"
+const ROLE = "cyntro-tb-prod-consumer-monthly"
 
-function request(headers: Record<string, string> = {}) {
+function request(headers: Record<string, string> = {}, role = ROLE) {
   return new NextRequest(
-    `http://localhost/api/proxy/iam-roles/${ROLE}/gap-analysis?days=365`,
+    `http://localhost/api/proxy/iam-roles/${role}/gap-analysis?days=365`,
     { headers },
   )
 }
 
-function call(incoming = request()) {
-  return GET(incoming, { params: Promise.resolve({ roleName: ROLE }) })
+function call(incoming = request(), role = ROLE) {
+  return GET(incoming, { params: Promise.resolve({ roleName: role }) })
 }
 
 function backend(status: number, payload: unknown) {
@@ -29,12 +29,13 @@ function backend(status: number, payload: unknown) {
 afterEach(() => {
   delete process.env.CYNTRO_SERVICE_TOKEN
   delete process.env.BACKEND_URL_OVERRIDE
+  delete process.env.CYNTRO_DEPLOYMENT_MODE
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
 
 describe("clicked IAM gap-analysis proxy", () => {
-  it("refuses locally when the service token is absent and does not call the backend", async () => {
+  it("refuses locally when credentials are missing and does not call the backend", async () => {
     const fetchMock = vi.fn()
     vi.stubGlobal("fetch", fetchMock)
 
@@ -47,7 +48,28 @@ describe("clicked IAM gap-analysis proxy", () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
-  it("sends the service token and keeps a backend 401", async () => {
+  it("authorized Preview forwards the server token and returns the populated review", async () => {
+    process.env.CYNTRO_SERVICE_TOKEN = TOKEN
+    process.env.BACKEND_URL_OVERRIDE = "http://backend.test"
+    const populated = {
+      role_name: ROLE,
+      summary: { used_count: 6, unused_count: 4, data_confidence: "OBSERVED" },
+    }
+    const fetchMock = vi.fn(async () => backend(200, populated))
+    vi.stubGlobal("fetch", fetchMock)
+
+    const res = await call()
+    const body = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(body).toEqual(populated)
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toBe(`http://backend.test/api/iam-roles/${ROLE}/gap-analysis?days=365`)
+    expect((init.headers as Record<string, string>)["X-Cyntro-Service-Token"]).toBe(TOKEN)
+    expect((init.headers as Record<string, string>)["X-Amzn-Oidc-Data"]).toBeUndefined()
+  })
+
+  it("keeps a backend missing-credential 401 and does not turn it into empty data", async () => {
     process.env.CYNTRO_SERVICE_TOKEN = TOKEN
     process.env.BACKEND_URL_OVERRIDE = "http://backend.test"
     const fetchMock = vi.fn(async () => backend(401, { detail: "service authentication required" }))
@@ -60,6 +82,22 @@ describe("clicked IAM gap-analysis proxy", () => {
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
     expect(url).toBe(`http://backend.test/api/iam-roles/${ROLE}/gap-analysis?days=365`)
     expect((init.headers as Record<string, string>)["X-Cyntro-Service-Token"]).toBe(TOKEN)
+  })
+
+  it("keeps wrong-tenant access as 403 REVIEW_SCOPE_MISMATCH", async () => {
+    process.env.CYNTRO_SERVICE_TOKEN = TOKEN
+    process.env.BACKEND_URL_OVERRIDE = "http://backend.test"
+    const fetchMock = vi.fn(async () =>
+      backend(403, { detail: { code: "REVIEW_SCOPE_MISMATCH", customer: "other-shop" } }),
+    )
+    vi.stubGlobal("fetch", fetchMock)
+
+    const res = await call()
+    const body = await res.json()
+
+    expect(res.status).toBe(403)
+    expect(body.detail.code).toBe("REVIEW_SCOPE_MISMATCH")
+    expect(body.summary).toBeUndefined()
   })
 
   it("ignores a browser-supplied service token and does not return the server token", async () => {
@@ -75,6 +113,55 @@ describe("clicked IAM gap-analysis proxy", () => {
     expect(text).not.toContain("browser-supplied-token")
     const init = (fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1]
     expect((init.headers as Record<string, string>)["X-Cyntro-Service-Token"]).toBe(TOKEN)
+  })
+
+  it("on hosted SaaS ignores browser OIDC so a forged claim cannot starve the service channel", async () => {
+    process.env.CYNTRO_SERVICE_TOKEN = TOKEN
+    process.env.BACKEND_URL_OVERRIDE = "http://backend.test"
+    delete process.env.CYNTRO_DEPLOYMENT_MODE
+    const fetchMock = vi.fn(async () =>
+      backend(200, { summary: { used_count: 2, unused_count: 1, tenant: "fixture-webshop" } }),
+    )
+    vi.stubGlobal("fetch", fetchMock)
+
+    const res = await call(request({ "x-amzn-oidc-data": "eyJhbGciOiJSUzI1NiJ9.e30.sig" }))
+    expect(res.status).toBe(200)
+    const init = (fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1]
+    const headers = init.headers as Record<string, string>
+    expect(headers["X-Cyntro-Service-Token"]).toBe(TOKEN)
+    expect(headers["X-Amzn-Oidc-Data"]).toBeUndefined()
+  })
+
+  it("on customer-resident forwards ALB OIDC with the service token", async () => {
+    process.env.CYNTRO_DEPLOYMENT_MODE = "CUSTOMER_RESIDENT"
+    process.env.CYNTRO_SERVICE_TOKEN = TOKEN
+    process.env.BACKEND_URL_OVERRIDE = "http://backend.test"
+    const oidc = "eyJhbGciOiJSUzI1NiJ9.e30.sig"
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(backend(403, { detail: { code: "REVIEW_SCOPE_MISMATCH", customer: "other-shop" } }))
+      .mockResolvedValueOnce(backend(401, { detail: { code: "ANALYST_IDENTITY_INVALID" } }))
+      .mockResolvedValueOnce(backend(200, { summary: { used_count: 2, unused_count: 1, tenant: "fixture-webshop" } }))
+    vi.stubGlobal("fetch", fetchMock)
+
+    const foreign = await call(request({ "x-amzn-oidc-data": oidc }))
+    expect(foreign.status).toBe(403)
+    expect((await foreign.json()).detail.code).toBe("REVIEW_SCOPE_MISMATCH")
+
+    const badIdentity = await call(request({ "x-amzn-oidc-data": oidc }))
+    expect(badIdentity.status).toBe(401)
+    expect((await badIdentity.json()).detail.code).toBe("ANALYST_IDENTITY_INVALID")
+
+    const populated = await call(request({ "x-amzn-oidc-data": oidc }))
+    expect(await populated.json()).toEqual({
+      summary: { used_count: 2, unused_count: 1, tenant: "fixture-webshop" },
+    })
+
+    for (const callArgs of fetchMock.mock.calls) {
+      const init = callArgs[1] as RequestInit
+      const headers = init.headers as Record<string, string>
+      expect(headers["X-Amzn-Oidc-Data"]).toBe(oidc)
+      expect(headers["X-Cyntro-Service-Token"]).toBe(TOKEN)
+    }
   })
 
   it("keeps a backend 503 instead of collapsing it to 502", async () => {
@@ -113,42 +200,5 @@ describe("clicked IAM gap-analysis proxy", () => {
     vi.stubGlobal("fetch", vi.fn(async () => backend(200, unknown)))
 
     expect(await (await call()).json()).toEqual(unknown)
-  })
-
-  it("prefers ALB OIDC over the service token and keeps two-customer refusals distinct", async () => {
-    process.env.CYNTRO_SERVICE_TOKEN = TOKEN
-    process.env.BACKEND_URL_OVERRIDE = "http://backend.test"
-    const oidc = "eyJhbGciOiJSUzI1NiJ9.e30.sig"
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(backend(403, { detail: { code: "REVIEW_SCOPE_MISMATCH", customer: "other-shop" } }))
-      .mockResolvedValueOnce(backend(503, { detail: { code: "ANALYST_RUNTIME_UNAVAILABLE" } }))
-      .mockResolvedValueOnce(backend(401, { detail: { code: "DECISION_DEPLOYMENT_PRINCIPAL_UNAVAILABLE" } }))
-      .mockResolvedValueOnce(backend(200, { summary: { used_count: 2, unused_count: 1, tenant: "fixture-webshop" } }))
-      .mockResolvedValueOnce(backend(200, { summary: { used_count: 0, unused_count: 0, tenant: "fixture-webshop", data_confidence: "OBSERVED" } }))
-    vi.stubGlobal("fetch", fetchMock)
-
-    const foreign = await call(request({ "x-amzn-oidc-data": oidc }))
-    expect(foreign.status).toBe(403)
-    expect((await foreign.json()).detail.code).toBe("REVIEW_SCOPE_MISMATCH")
-
-    const analystDown = await call(request({ "x-amzn-oidc-data": oidc }))
-    expect(analystDown.status).toBe(503)
-    expect((await analystDown.json()).detail.code).toBe("ANALYST_RUNTIME_UNAVAILABLE")
-
-    const badPrincipal = await call(request({ "x-amzn-oidc-data": oidc }))
-    expect(badPrincipal.status).toBe(401)
-    expect((await badPrincipal.json()).detail.code).toBe("DECISION_DEPLOYMENT_PRINCIPAL_UNAVAILABLE")
-
-    const populated = await call(request({ "x-amzn-oidc-data": oidc }))
-    const empty = await call(request({ "x-amzn-oidc-data": oidc }))
-    expect(await populated.json()).toEqual({ summary: { used_count: 2, unused_count: 1, tenant: "fixture-webshop" } })
-    expect(await empty.json()).toEqual({ summary: { used_count: 0, unused_count: 0, tenant: "fixture-webshop", data_confidence: "OBSERVED" } })
-
-    for (const callArgs of fetchMock.mock.calls) {
-      const init = callArgs[1] as RequestInit
-      const headers = init.headers as Record<string, string>
-      expect(headers["X-Amzn-Oidc-Data"]).toBe(oidc)
-      expect(headers["X-Cyntro-Service-Token"]).toBeUndefined()
-    }
   })
 })
