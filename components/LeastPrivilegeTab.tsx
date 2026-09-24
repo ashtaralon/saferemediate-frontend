@@ -4922,7 +4922,8 @@ function RulesTab({
   const totalPermissions = iamGapData?.summary?.total_permissions ?? resource.allowedCount ?? 0
   const usedCount = iamGapData?.summary?.used_count ?? resource.usedCount ?? 0
   const unusedCount = iamGapData?.summary?.unused_count ?? resource.gapCount ?? 0
-  const lpScore = iamGapData?.summary?.lp_score ?? 0
+  // null = the backend did not compute a score; the badge is not rendered, never 0%.
+  const lpScore: number | null = typeof iamGapData?.summary?.lp_score === 'number' ? iamGapData.summary.lp_score : null
   const permissionsAnalysis = iamGapData?.permissions_analysis ?? []
   const usedPermissions = iamGapData?.used_permissions ?? resource.usedList ?? []
   const unusedPermissions = iamGapData?.unused_permissions ?? resource.unusedList ?? []
@@ -4945,7 +4946,7 @@ function RulesTab({
       )}
 
       {/* LP Score Badge - only show if we have real data */}
-      {iamGapData && (
+      {iamGapData && lpScore !== null && (
         <div className={`p-3 rounded-lg border ${
           lpScore >= 80 ? 'bg-[#22c55e10] border-[#22c55e40]' :
           lpScore >= 50 ? 'bg-[#eab30810] border-[#eab30840]' :

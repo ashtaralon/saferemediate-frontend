@@ -1,64 +1,18 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
 import { fromCaughtError } from "@/lib/server/proxy-error"
+import { previewProofFor, previewProofNotConfigured } from "@/lib/server/lp-preview-proof"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 export const maxDuration = 60
 
-const SERVICE_TOKEN_HEADER = "X-Cyntro-Service-Token"
-const OIDC_DATA_HEADER = "X-Amzn-Oidc-Data"
-const NOT_CONFIGURED = "DEPLOYMENT_SERVICE_TOKEN_NOT_CONFIGURED"
-
-/**
- * Server-owned proof for the clicked IAM Preview (gap-analysis).
- *
- * Hosted SaaS (C1): only the deployment service token. The browser site-session
- * cookie admits the page but identifies no backend principal; operator Bearer is
- * for lifecycle mutations, not account-scoped Review. Browser-supplied
- * `x-amzn-oidc-data` must not outrank a valid service token — the backend treats
- * OIDC as authoritative when present, so a forged claim would 401 an otherwise
- * authorized deployment read.
- *
- * Customer-resident: ALB-signed OIDC for Analyst scope, plus the service token
- * so an enforce-mode auth boundary can admit the hop.
- */
-function proofFor(request: NextRequest):
-  | { kind: "ready"; headers: Record<string, string> }
-  | { kind: "not_configured" } {
-  const token = process.env.CYNTRO_SERVICE_TOKEN?.trim()
-  if (process.env.CYNTRO_DEPLOYMENT_MODE === "CUSTOMER_RESIDENT") {
-    const oidc = request.headers.get("x-amzn-oidc-data")?.trim()
-    if (oidc && token) {
-      return {
-        kind: "ready",
-        headers: { [OIDC_DATA_HEADER]: oidc, [SERVICE_TOKEN_HEADER]: token },
-      }
-    }
-    if (token) return { kind: "ready", headers: { [SERVICE_TOKEN_HEADER]: token } }
-    return { kind: "not_configured" }
-  }
-  if (token) return { kind: "ready", headers: { [SERVICE_TOKEN_HEADER]: token } }
-  return { kind: "not_configured" }
-}
-
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ roleName: string }> }
 ) {
-  const proof = proofFor(req)
-  if (proof.kind === "not_configured") {
-    return NextResponse.json(
-      {
-        error_code: NOT_CONFIGURED,
-        code: NOT_CONFIGURED,
-        error: "This request carries no verified identity and this deployment has no service token configured (CYNTRO_SERVICE_TOKEN), so the read cannot be authorized. Installing the token is a release prerequisite.",
-        detail: "This request carries no verified identity and this deployment has no service token configured (CYNTRO_SERVICE_TOKEN), so the read cannot be authorized. Installing the token is a release prerequisite.",
-        origin: "proxy",
-      },
-      { status: 503, headers: { "Cache-Control": "no-store" } },
-    )
-  }
+  const proof = previewProofFor(req)
+  if (proof.kind === "not_configured") return previewProofNotConfigured()
 
   const { roleName } = await params
   const url = new URL(req.url)
