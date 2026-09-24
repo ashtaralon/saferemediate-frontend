@@ -8,6 +8,10 @@ import { IAMSimulateFixModal } from '@/components/IAMSimulateFixModal'
 import type { DecisionOutcomeCanonical, SimulateFixResponse } from '@/lib/types'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useToast } from '@/hooks/use-toast'
+import { refusalFromPreviewBody, reviewRefusalCopy } from '@/lib/lp-preview-refusal'
+import { heldMutationState, lookupLpReceipt, measuredIamPlan, receiptFromApply, submitHeldLpApply, type LpApplyReceipt } from '@/lib/lp-held-mutation'
+import { LpRestoreControl } from '@/components/iam-lp/LpRestoreControl'
+import { LpOutstandingPanel } from '@/components/iam-lp/LpOutstandingPanel'
 import { dispatchRemediationChanged, onRemediationChanged } from '@/lib/remediation-events'
 import { deriveLPIntegrity, lpEvidenceGapCopy, lpIntegrityCopy } from '@/lib/lp-integrity'
 import { resolveLPReviewSurface } from '@/lib/lp-review-routing'
@@ -60,6 +64,19 @@ interface GapResource {
   resourceType: 'IAMRole' | 'SecurityGroup' | 'S3Bucket' | 'NetworkACL' | 'RDSInstance' | 'LambdaFunction' | 'EC2Instance' | string
   resourceName: string
   resourceArn: string
+  planIssueState?: 'MEASURED' | 'MEASURED_EMPTY' | 'UNKNOWN' | 'IDENTITY_UNAVAILABLE'
+  serverPlan?: {
+    roleArn: string
+    roleId: string
+    planHead: string
+    actions: Array<{
+      permission: string
+      configured: true
+      coverage: 'OBSERVED'
+      observed_use_count: number
+      effect: 'remove' | 'keep'
+    }>
+  }
   accountId?: string
   account_id?: string
   systemName?: string
@@ -218,6 +235,7 @@ interface GapResource {
 
 /** Mutation boundary not shipped — Apply stays off on every LP surface. */
 const LP_MUTATION_APPLY_DISABLED = true
+const LP_HELD_MUTATION = heldMutationState()
 
 export type FetchGapsResult =
   | { status: 'ok' }
@@ -308,6 +326,10 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
   /** Progress note shown on the loading screen (e.g. retry-in-progress). */
   const [loadingNote, setLoadingNote] = useState<string | null>(null)
   const [selectedResource, setSelectedResource] = useState<GapResource | null>(null)
+  // In-memory hint only (never persisted): the Apply receipt Restore may be offered for.
+  const [lpReceipt, setLpReceipt] = useState<LpApplyReceipt | null>(null)
+  // Bumped after an operator resolution so the ledger receipt is read again.
+  const [lpReceiptReload, setLpReceiptReload] = useState(0)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [simulating, setSimulating] = useState(false)
   const [simulationResult, setSimulationResult] = useState<any>(null)
@@ -755,10 +777,21 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       console.log('[IAM] Fetching gap analysis for:', roleName)
       const response = await fetch(`/api/proxy/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=365`)
       if (!response.ok) {
-        console.error('[IAM] Gap analysis fetch failed:', response.status)
-        return null
+        const errorData = await response.json().catch(() => null)
+        const copy = reviewRefusalCopy(refusalFromPreviewBody(response.status, errorData))
+        console.error('[IAM] Gap analysis fetch failed:', response.status, copy.title)
+        throw new Error(copy.title)
       }
       const data = await response.json()
+      const issued = measuredIamPlan(data?.server_plan)
+      if (data?.server_plan) {
+        setSelectedResource((current) => {
+          if (!current || current.resourceType !== 'IAMRole') return current
+          const sameRole = current.resourceName === roleName || current.resourceArn?.endsWith(`/${roleName}`)
+          if (!sameRole) return current
+          return { ...current, serverPlan: issued, planIssueState: data.server_plan.issue_state }
+        })
+      }
       console.log('[IAM] Got gap analysis:', {
         role: roleName,
         total: data.summary?.total_permissions,
@@ -798,6 +831,26 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       unsubscribe()
     }
   }, [systemName, accountScope.customerId, accountScope.groupId, accountScope.accountId, accountScope.region])
+
+  // A tenant or account switch drops the Restore hint; the server re-checks
+  // scope on Restore regardless.
+  useEffect(() => {
+    setLpReceipt(null)
+  }, [accountScope.customerId, accountScope.accountId])
+
+  // After a reload the ledger, not the browser, says which Apply may be restored.
+  const receiptRoleArn = selectedResource?.resourceType === 'IAMRole' ? selectedResource.serverPlan?.roleArn : undefined
+  const receiptRoleId = selectedResource?.resourceType === 'IAMRole' ? selectedResource.serverPlan?.roleId : undefined
+  useEffect(() => {
+    if (!receiptRoleArn || !receiptRoleId) return
+    let current = true
+    void lookupLpReceipt({ roleArn: receiptRoleArn, roleId: receiptRoleId, planHead: '' }).then((found) => {
+      if (current) setLpReceipt(found)
+    })
+    return () => {
+      current = false
+    }
+  }, [receiptRoleArn, receiptRoleId, accountScope.customerId, accountScope.accountId, lpReceiptReload])
   
   // NOTE: Pre-fetch removed to prevent timeout errors
   // Gap analysis is now fetched ON-DEMAND when user opens a modal
@@ -3242,7 +3295,13 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
 
                 if (!response.ok) {
                   const errorData = await response.json().catch(() => ({}))
-                  throw new Error(errorData.error || `Simulation failed: ${response.status}`)
+                  const copy = reviewRefusalCopy(refusalFromPreviewBody(response.status, errorData))
+                  toast({
+                    title: copy.title,
+                    description: copy.body,
+                    variant: 'destructive',
+                  })
+                  return
                 }
 
                 const simulateFixData: SimulateFixResponse = await response.json()
@@ -3277,6 +3336,21 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
             }
           }}
           simulating={simulating}
+        />
+      )}
+
+      {selectedResource?.resourceType === 'IAMRole' && (
+        <LpOutstandingPanel
+          plan={selectedResource.serverPlan}
+          onResolved={() => setLpReceiptReload((value) => value + 1)}
+        />
+      )}
+      {selectedResource?.resourceType === 'IAMRole' && (
+        <LpRestoreControl
+          receipt={lpReceipt}
+          plan={selectedResource.serverPlan}
+          scope={{ customerId: accountScope.customerId, accountId: accountScope.accountId }}
+          onReceiptCleared={() => setLpReceipt(null)}
         />
       )}
 
@@ -3421,8 +3495,12 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
             if (LP_MUTATION_APPLY_DISABLED && !dryRun) {
               toast({
                 title: 'Apply disabled',
-                description: 'Mutation requires a signed backend plan — Apply is disabled until the mutation boundary ships.',
+                description: 'Apply stays off until the installed ledger, IAM writer, verified readback, and Restore are proven.',
               })
+              return
+            }
+            if (!dryRun && !LP_HELD_MUTATION.applyEnabled) {
+              await submitHeldLpApply({ role_name: selectedResource.resourceName })
               return
             }
             setIsExecuting(true)
@@ -3439,14 +3517,18 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                 throw new Error('No explicit permissions were selected for remediation')
               }
 
-              // Call remediation API
-              const response = await fetch('/api/proxy/cyntro/remediate', {
+              if (dryRun) {
+                return
+              }
+              const response = await fetch('/api/proxy/least-privilege/apply', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                  role_name: roleName,
-                  dry_run: dryRun,
-                  permissions_to_remove: permissionsToRemove
+                  role_arn: selectedResource.serverPlan?.roleArn,
+                  role_id: selectedResource.serverPlan?.roleId,
+                  plan_head: selectedResource.serverPlan?.planHead,
+                  resource_family: 'iam-role',
+                  actions: selectedResource.serverPlan?.actions,
                 })
               })
 
@@ -3456,6 +3538,10 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
               }
 
               const result = await response.json()
+              // Retain exactly the operation this verified Apply recorded, so
+              // Restore can be offered for it (and only it) on this role.
+              const applyReceipt = receiptFromApply(selectedResource.serverPlan, result)
+              if (applyReceipt) setLpReceipt(applyReceipt)
 
               if (result.success) {
                 const removedPermissions = result.permissions_removed || result.summary?.reduction || result.summary?.unused_removed || 0
@@ -3559,14 +3645,18 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
 
               console.log(`[IAM-SIMULATE-FIX] ${dryRun ? 'DRY RUN' : 'LIVE'} - Removing ${permissionsToRemove.length} permissions`)
 
-              // Call remediation API
-              const response = await fetch('/api/proxy/cyntro/remediate', {
+              if (dryRun) {
+                return
+              }
+              const response = await fetch('/api/proxy/least-privilege/apply', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                  role_name: roleName,
-                  dry_run: dryRun,
-                  permissions_to_remove: permissionsToRemove
+                  role_arn: selectedResource.serverPlan?.roleArn,
+                  role_id: selectedResource.serverPlan?.roleId,
+                  plan_head: selectedResource.serverPlan?.planHead,
+                  resource_family: 'iam-role',
+                  actions: selectedResource.serverPlan?.actions,
                 })
               })
 
@@ -3576,6 +3666,10 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
               }
 
               const result = await response.json()
+              // Retain exactly the operation this verified Apply recorded, so
+              // Restore can be offered for it (and only it) on this role.
+              const applyReceipt = receiptFromApply(selectedResource.serverPlan, result)
+              if (applyReceipt) setLpReceipt(applyReceipt)
 
               if (result.success) {
                 const removedPermissions = result.permissions_removed || result.summary?.reduction || result.summary?.unused_removed || 0
@@ -4636,7 +4730,7 @@ function RulesTab({
             }
           }
           
-          // Direct fetch
+          // Direct fetch. The cached helper already throws a refusal title.
           const res = await fetch(`/api/proxy/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=365`)
           if (res.ok) {
             const data = await res.json()
@@ -4648,12 +4742,14 @@ function RulesTab({
             })
             setIamGapData(data)
           } else {
-            console.error('[RulesTab] IAM fetch failed:', res.status)
-            setError(`Failed to load IAM data: ${res.status}`)
+            const errorData = await res.json().catch(() => null)
+            const copy = reviewRefusalCopy(refusalFromPreviewBody(res.status, errorData))
+            console.error('[RulesTab] IAM fetch failed:', res.status, copy.title)
+            setError(copy.title)
           }
         } catch (err) {
           console.error('[RulesTab] Failed to fetch IAM data:', err)
-          setError('Failed to load IAM permissions')
+          setError(err instanceof Error && err.message ? err.message : 'Failed to load IAM permissions')
         } finally {
           setLoading(false)
         }
@@ -4872,7 +4968,8 @@ function RulesTab({
   const totalPermissions = iamGapData?.summary?.total_permissions ?? resource.allowedCount ?? 0
   const usedCount = iamGapData?.summary?.used_count ?? resource.usedCount ?? 0
   const unusedCount = iamGapData?.summary?.unused_count ?? resource.gapCount ?? 0
-  const lpScore = iamGapData?.summary?.lp_score ?? 0
+  // null = the backend did not compute a score; the badge is not rendered, never 0%.
+  const lpScore: number | null = typeof iamGapData?.summary?.lp_score === 'number' ? iamGapData.summary.lp_score : null
   const permissionsAnalysis = iamGapData?.permissions_analysis ?? []
   const usedPermissions = iamGapData?.used_permissions ?? resource.usedList ?? []
   const unusedPermissions = iamGapData?.unused_permissions ?? resource.unusedList ?? []
@@ -4895,7 +4992,7 @@ function RulesTab({
       )}
 
       {/* LP Score Badge - only show if we have real data */}
-      {iamGapData && (
+      {iamGapData && lpScore !== null && (
         <div className={`p-3 rounded-lg border ${
           lpScore >= 80 ? 'bg-[#22c55e10] border-[#22c55e40]' :
           lpScore >= 50 ? 'bg-[#eab30810] border-[#eab30840]' :

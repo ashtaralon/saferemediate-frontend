@@ -1,17 +1,19 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
-import { backendError, fromCaughtError } from "@/lib/server/proxy-error"
+import { fromCaughtError } from "@/lib/server/proxy-error"
+import { previewProofFor, previewProofNotConfigured } from "@/lib/server/lp-preview-proof"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 export const maxDuration = 60
 
-const BACKEND_URL = getBackendBaseUrl()
-
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ roleName: string }> }
 ) {
+  const proof = previewProofFor(req)
+  if (proof.kind === "not_configured") return previewProofNotConfigured()
+
   const { roleName } = await params
   const url = new URL(req.url)
   const days = url.searchParams.get("days") ?? "90"
@@ -23,12 +25,12 @@ export async function GET(
   const timeoutId = setTimeout(() => controller.abort(), 55000) // 55s timeout
 
   try {
-    const backendUrl = `${BACKEND_URL}/api/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=${days}${envelope ? "&envelope=true" : ""}`
+    const backendUrl = `${getBackendBaseUrl()}/api/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=${days}${envelope ? "&envelope=true" : ""}`
     console.log(`[IAM Proxy] Calling: ${backendUrl}`)
 
     const res = await fetch(backendUrl, {
       signal: controller.signal,
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...proof.headers },
     })
 
     clearTimeout(timeoutId)
@@ -36,18 +38,27 @@ export async function GET(
     if (!res.ok) {
       const errorText = await res.text().catch(() => "")
       console.error(`[IAM Proxy] Backend error ${res.status}: ${errorText.slice(0, 200)}`)
-      // Fail closed: propagate a typed non-2xx (never 200-with-zeros). Returning
-      // 200 {used:0, unused:0} on a backend fault is the forbidden anti-pattern
-      // documented in lib/server/proxy-error.ts — the LP UI cannot tell "backend
-      // down" from "role is genuinely clean" and renders the removal/clean state
-      // for both. Every consumer of this route already guards on `res.ok`
-      // (or `fetchWithEnvelope`, which throws on non-2xx), so a typed error
-      // surfaces an honest error/empty state instead of a fabricated zero.
-      return backendError({
-        status: res.status,
-        message: `IAM gap-analysis backend returned ${res.status}`,
-        detail: errorText.slice(0, 500),
-      })
+      let parsed: unknown = null
+      try {
+        parsed = errorText ? JSON.parse(errorText) : null
+      } catch {
+        parsed = null
+      }
+      if (parsed !== null && typeof parsed === "object") {
+        return NextResponse.json(parsed, {
+          status: res.status,
+          headers: { "Cache-Control": "no-store" },
+        })
+      }
+      return NextResponse.json(
+        {
+          error: `IAM gap-analysis backend returned ${res.status}`,
+          detail: errorText.slice(0, 500),
+          backendStatus: res.status,
+          origin: "proxy",
+        },
+        { status: res.status, headers: { "Cache-Control": "no-store" } },
+      )
     }
 
     const data = await res.json()
