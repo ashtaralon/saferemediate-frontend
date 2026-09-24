@@ -1,7 +1,13 @@
 import { NextResponse } from "next/server"
 
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
-import { OPERATOR_SESSION_COOKIE, readOperatorSession } from "@/lib/server/operator-session"
+import {
+  OPERATOR_SESSION_COOKIE,
+  discoverOidc,
+  operatorOidcConfig,
+  readOperatorSession,
+  verifyIdToken,
+} from "@/lib/server/operator-session"
 
 const APPLY_ROLES = new Set(["OPERATOR", "EMERGENCY"])
 
@@ -34,17 +40,6 @@ function rolesForGroups(groups: string[]): string[] {
   return groups.map((group) => map[group]).filter((role): role is string => Boolean(role))
 }
 
-function groupsFromIdToken(idToken: string): string[] {
-  const payload = idToken.split(".")[1]
-  if (!payload) return []
-  try {
-    const claims = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as { groups?: unknown }
-    return Array.isArray(claims.groups) ? claims.groups.filter((item): item is string => typeof item === "string") : []
-  } catch {
-    return []
-  }
-}
-
 const replays = new Set<string>()
 
 export function resetLpOperatorReplays(): void {
@@ -52,17 +47,33 @@ export function resetLpOperatorReplays(): void {
 }
 
 async function admitOperator(request: Request, body: Record<string, unknown>, action: "execute" | "rollback") {
+  const config = operatorOidcConfig()
+  if (!config) return { status: 401, code: "OPERATOR_SESSION_REQUIRED" }
   const cookieApi = (request as { cookies?: { get?: (name: string) => { value?: string } | undefined } }).cookies
   const header = request.headers.get("cookie") || ""
   const sealed = header.split(";").map((part) => part.trim()).find((part) => part.startsWith(`${OPERATOR_SESSION_COOKIE}=`))?.slice(OPERATOR_SESSION_COOKIE.length + 1)
   const sessionRequest = typeof cookieApi?.get === "function"
     ? request
     : { cookies: { get: (name: string) => (name === OPERATOR_SESSION_COOKIE && sealed ? { name, value: decodeURIComponent(sealed) } : undefined) } }
-  const session = await readOperatorSession(sessionRequest as never)
+  const session = await readOperatorSession(sessionRequest as never, config)
   if (!session) return { status: 401, code: "OPERATOR_SESSION_REQUIRED" }
+  let claims: Record<string, unknown>
+  try {
+    const discovery = await discoverOidc(config.issuer)
+    claims = await verifyIdToken(session.idToken, {
+      issuer: config.issuer,
+      clientId: config.clientId,
+      nonce: session.nonce,
+      jwksUri: discovery.jwks_uri,
+    })
+  } catch {
+    return { status: 401, code: "OPERATOR_SESSION_REQUIRED" }
+  }
+  if (String(claims.sub || "") !== session.subject) return { status: 401, code: "OPERATOR_SESSION_REQUIRED" }
   const scope = serverScope()
   if (!scope) return { status: 503, code: "SERVER_SCOPE_UNAVAILABLE" }
-  const roles = rolesForGroups(groupsFromIdToken(session.idToken))
+  const groups = Array.isArray(claims.groups) ? claims.groups.filter((item): item is string => typeof item === "string") : []
+  const roles = rolesForGroups(groups)
   const allowed = action === "rollback" ? new Set([...APPLY_ROLES, "APPROVER"]) : APPLY_ROLES
   if (!roles.some((role) => allowed.has(role))) return { status: 403, code: "OPERATOR_APPLY_FORBIDDEN" }
   for (const key of ["tenant_id", "customer_id", "account_id", "actor", "role"]) {

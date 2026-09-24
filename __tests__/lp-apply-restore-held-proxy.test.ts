@@ -1,16 +1,52 @@
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import { NextRequest } from "next/server"
 
 import { POST as applyPost } from "@/app/api/proxy/least-privilege/apply/route"
 import { POST as restorePost } from "@/app/api/proxy/least-privilege/restore/route"
-import { operatorOidcConfig, sealSession } from "@/lib/server/operator-session"
+import { base64UrlEncode, operatorOidcConfig, resetOperatorOidcCaches, sealSession } from "@/lib/server/operator-session"
 import { resetLpOperatorReplays } from "@/lib/server/lp-mutation-proxy"
 import { heldMutationState, measuredIamPlan, submitHeldLpApply, submitHeldLpRestore } from "@/lib/lp-held-mutation"
 import { postIamShadowRemediation } from "@/lib/use-iam-remediation"
 
 const TOKEN = "fixture-service-token-0123456789abcdef"
+const ISSUER = "https://idp.cyntro.test/oauth2"
+const CLIENT_ID = "cyntro"
+const KID = "fixture-rs256"
+
+let privateKey: CryptoKey
+let publicJwk: JsonWebKey
+
+function b64urlJson(value: unknown): string {
+  return Buffer.from(JSON.stringify(value)).toString("base64url")
+}
+
+async function mintIdToken(claims: Record<string, unknown>): Promise<string> {
+  const header = { alg: "RS256", typ: "JWT", kid: KID }
+  const data = `${b64urlJson(header)}.${b64urlJson(claims)}`
+  const signature = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", privateKey, new TextEncoder().encode(data))
+  return `${data}.${base64UrlEncode(new Uint8Array(signature))}`
+}
+
+function stubOidcAndBroker(broker?: (url: string, init?: RequestInit) => Promise<Response>) {
+  return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input)
+    if (url.endsWith("/.well-known/openid-configuration")) {
+      return new Response(JSON.stringify({
+        issuer: ISSUER,
+        authorization_endpoint: `${ISSUER}/authorize`,
+        token_endpoint: `${ISSUER}/token`,
+        jwks_uri: `${ISSUER}/jwks`,
+      }))
+    }
+    if (url.endsWith("/jwks")) {
+      return new Response(JSON.stringify({ keys: [{ ...publicJwk, kid: KID, use: "sig", alg: "RS256" }] }))
+    }
+    if (broker) return broker(url, init)
+    return new Response("unexpected fetch", { status: 500 })
+  })
+}
 
 function request(path: string) {
   return new NextRequest(`http://localhost${path}`, {
@@ -25,10 +61,41 @@ function request(path: string) {
   })
 }
 
+function withSession(cookie: string, body: unknown, extra: Record<string, string> = {}) {
+  const req = new Request("http://localhost/api/proxy/least-privilege/apply", {
+    method: "POST",
+    headers: { "content-type": "application/json", ...extra },
+    body: JSON.stringify(body),
+  })
+  Object.defineProperty(req, "cookies", {
+    value: { get: (name: string) => (name === "cyntro_operator_session" ? { name, value: cookie } : undefined) },
+  })
+  return req
+}
+
+beforeAll(async () => {
+  const pair = await crypto.subtle.generateKey(
+    { name: "RSASSA-PKCS1-v1_5", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" },
+    true,
+    ["sign", "verify"],
+  )
+  privateKey = pair.privateKey
+  publicJwk = await crypto.subtle.exportKey("jwk", pair.publicKey)
+})
+
 afterEach(() => {
   delete process.env.CYNTRO_SERVICE_TOKEN
   delete process.env.BACKEND_URL_OVERRIDE
   delete process.env.CYNTRO_LP_BROKER_ENABLED
+  delete process.env.CYNTRO_TENANT_ID
+  delete process.env.AWS_ACCOUNT_ID
+  delete process.env.CYNTRO_OPERATOR_ROLE_MAP
+  delete process.env.CYNTRO_OPERATOR_OIDC_ISSUER
+  delete process.env.CYNTRO_OPERATOR_OIDC_CLIENT_ID
+  delete process.env.CYNTRO_OPERATOR_OIDC_REDIRECT_URI
+  delete process.env.CYNTRO_OPERATOR_SESSION_SECRET
+  resetOperatorOidcCaches()
+  resetLpOperatorReplays()
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
@@ -64,13 +131,14 @@ describe("held Apply and Restore proxy", () => {
     const source = readFileSync(join(process.cwd(), "lib/server/lp-mutation-proxy.ts"), "utf8")
     expect(source).toContain("CYNTRO_LP_BROKER_ENABLED")
     expect(source).toContain("/api/lp-lifecycle/apply")
+    expect(source).toContain("verifyIdToken")
   })
 
   it("uses only the configured lifecycle origin and ignores a browser URL", async () => {
     process.env.CYNTRO_SERVICE_TOKEN = TOKEN
     process.env.CYNTRO_LP_BROKER_ENABLED = "true"
     process.env.BACKEND_URL_OVERRIDE = "https://cyntro-c1.onrender.com"
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ admitted: false, cloud_writes: 0 }), { status: 503 }))
+    const fetchMock = stubOidcAndBroker(async () => new Response(JSON.stringify({ admitted: false, cloud_writes: 0 }), { status: 503 }))
     vi.stubGlobal("fetch", fetchMock)
     const asked = new NextRequest("http://localhost/api/proxy/least-privilege/apply", {
       method: "POST",
@@ -85,7 +153,43 @@ describe("held Apply and Restore proxy", () => {
     })
     const res = await applyPost(asked)
     expect(res.status).toBe(401)
-    expect(fetchMock).not.toHaveBeenCalled()
+    expect(fetchMock.mock.calls.every((call) => !String(call[0]).includes("/api/lp-lifecycle/"))).toBe(true)
+  })
+
+  it("refuses a sealed cookie whose ID-token signature does not verify", async () => {
+    process.env.CYNTRO_SERVICE_TOKEN = TOKEN
+    process.env.CYNTRO_LP_BROKER_ENABLED = "true"
+    process.env.BACKEND_URL_OVERRIDE = "https://cyntro-c1.onrender.com"
+    process.env.CYNTRO_TENANT_ID = "fixture-webshop"
+    process.env.AWS_ACCOUNT_ID = "111111111111"
+    process.env.CYNTRO_OPERATOR_ROLE_MAP = JSON.stringify({ "cyntro-operators": "OPERATOR" })
+    process.env.CYNTRO_OPERATOR_OIDC_ISSUER = ISSUER
+    process.env.CYNTRO_OPERATOR_OIDC_CLIENT_ID = CLIENT_ID
+    process.env.CYNTRO_OPERATOR_OIDC_REDIRECT_URI = "https://console.cyntro.test/callback"
+    process.env.CYNTRO_OPERATOR_SESSION_SECRET = "session-secret-0123456789abcdef-extra"
+    const config = operatorOidcConfig()
+    expect(config).not.toBeNull()
+    const now = Math.floor(Date.now() / 1000)
+    const claims = {
+      sub: "operator-1",
+      iss: ISSUER,
+      aud: CLIENT_ID,
+      exp: now + 600,
+      nbf: now - 10,
+      nonce: "nonce-forged",
+      groups: ["cyntro-operators"],
+      name: "Op",
+    }
+    const good = await mintIdToken(claims)
+    const [header, payload] = good.split(".")
+    const forged = `${header}.${payload}.${"A".repeat(86)}`
+    const sealed = await sealSession(claims, forged, config!)
+    const fetchMock = stubOidcAndBroker(async () => new Response(JSON.stringify({ ok: true }), { status: 200 }))
+    vi.stubGlobal("fetch", fetchMock)
+    const response = await applyPost(withSession(sealed.value, { plan_head: "plan-forged" }))
+    expect(response.status).toBe(401)
+    expect(await response.json()).toMatchObject({ code: "OPERATOR_SESSION_REQUIRED", attempted_writes: 0 })
+    expect(fetchMock.mock.calls.every((call) => !String(call[0]).includes("/api/lp-lifecycle/"))).toBe(true)
   })
 
   it("forwards only for an authorized operator and binds server scope", async () => {
@@ -95,49 +199,54 @@ describe("held Apply and Restore proxy", () => {
     process.env.CYNTRO_TENANT_ID = "fixture-webshop"
     process.env.AWS_ACCOUNT_ID = "111111111111"
     process.env.CYNTRO_OPERATOR_ROLE_MAP = JSON.stringify({ "cyntro-operators": "OPERATOR", "cyntro-viewers": "AUDITOR" })
-    process.env.CYNTRO_OPERATOR_OIDC_ISSUER = "https://idp.cyntro.test/oauth2"
-    process.env.CYNTRO_OPERATOR_OIDC_CLIENT_ID = "cyntro"
+    process.env.CYNTRO_OPERATOR_OIDC_ISSUER = ISSUER
+    process.env.CYNTRO_OPERATOR_OIDC_CLIENT_ID = CLIENT_ID
     process.env.CYNTRO_OPERATOR_OIDC_REDIRECT_URI = "https://console.cyntro.test/callback"
     process.env.CYNTRO_OPERATOR_SESSION_SECRET = "session-secret-0123456789abcdef-extra"
-    resetLpOperatorReplays()
     const config = operatorOidcConfig()
     expect(config).not.toBeNull()
-    const payload = Buffer.from(JSON.stringify({ groups: ["cyntro-operators"] })).toString("base64url")
-    const sealed = await sealSession(
-      { sub: "operator-1", iss: config?.issuer, exp: Math.floor(Date.now() / 1000) + 600, name: "Op" },
-      `e30.${payload}.sig`,
-      config!,
-    )
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ code: "APPLY_OUTCOME_UNKNOWN", unknown_writes: 0 }), { status: 503 }))
-    vi.stubGlobal("fetch", fetchMock)
-    const withSession = (cookie: string, body: unknown, extra: Record<string, string> = {}) => {
-      const req = new Request("http://localhost/api/proxy/least-privilege/apply", {
-        method: "POST",
-        headers: { "content-type": "application/json", ...extra },
-        body: JSON.stringify(body),
-      })
-      Object.defineProperty(req, "cookies", { value: { get: (name: string) => name === "cyntro_operator_session" ? { name, value: cookie } : undefined } })
-      return req
+    const now = Math.floor(Date.now() / 1000)
+    const operatorClaims = {
+      sub: "operator-1",
+      iss: ISSUER,
+      aud: CLIENT_ID,
+      exp: now + 600,
+      nbf: now - 10,
+      nonce: "nonce-operator",
+      groups: ["cyntro-operators"],
+      name: "Op",
     }
+    const viewerClaims = {
+      sub: "viewer-1",
+      iss: ISSUER,
+      aud: CLIENT_ID,
+      exp: now + 600,
+      nbf: now - 10,
+      nonce: "nonce-viewer",
+      groups: ["cyntro-viewers"],
+    }
+    const sealed = await sealSession(operatorClaims, await mintIdToken(operatorClaims), config!)
+    const viewer = await sealSession(viewerClaims, await mintIdToken(viewerClaims), config!)
+    const fetchMock = stubOidcAndBroker(async (url) => {
+      if (url.includes("/api/lp-lifecycle/apply")) {
+        return new Response(JSON.stringify({ code: "APPLY_OUTCOME_UNKNOWN", unknown_writes: 0 }), { status: 503 })
+      }
+      return new Response("unexpected", { status: 500 })
+    })
+    vi.stubGlobal("fetch", fetchMock)
     const forged = await applyPost(withSession(sealed.value, { plan_head: "plan-1", tenant_id: "other", role: "OPERATOR" }, { "x-cyntro-role": "OPERATOR" }))
     expect(forged.status).toBe(403)
-    expect(fetchMock).not.toHaveBeenCalled()
-    const viewerPayload = Buffer.from(JSON.stringify({ groups: ["cyntro-viewers"] })).toString("base64url")
-    const viewer = await sealSession(
-      { sub: "viewer-1", iss: config?.issuer, exp: Math.floor(Date.now() / 1000) + 600 },
-      `e30.${viewerPayload}.sig`,
-      config!,
-    )
+    expect(fetchMock.mock.calls.every((call) => !String(call[0]).includes("/api/lp-lifecycle/"))).toBe(true)
     const viewerResponse = await applyPost(withSession(viewer.value, { plan_head: "plan-2" }))
     expect(viewerResponse.status).toBe(403)
     const allowed = await applyPost(withSession(sealed.value, { plan_head: "plan-3", role_id: "AROAEXAMPLE" }))
     const replay = await applyPost(withSession(sealed.value, { plan_head: "plan-3" }))
     expect(allowed.status).toBe(503)
     expect(replay.status).toBe(409)
-    expect(fetchMock).toHaveBeenCalledTimes(1)
-    const call = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
-    expect(call[0]).toBe("https://cyntro-c1.onrender.com/api/lp-lifecycle/apply")
-    const sent = JSON.parse(String(call[1].body))
+    const brokerCalls = fetchMock.mock.calls.filter((call) => String(call[0]).includes("/api/lp-lifecycle/apply"))
+    expect(brokerCalls).toHaveLength(1)
+    expect(String(brokerCalls[0][0])).toBe("https://cyntro-c1.onrender.com/api/lp-lifecycle/apply")
+    const sent = JSON.parse(String((brokerCalls[0][1] as RequestInit).body))
     expect(sent.tenant_id).toBe("fixture-webshop")
     expect(sent.account_id).toBe("111111111111")
     expect(sent.actor).toBe("operator-1")
