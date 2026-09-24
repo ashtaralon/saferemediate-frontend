@@ -9,7 +9,7 @@ import type { DecisionOutcomeCanonical, SimulateFixResponse } from '@/lib/types'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useToast } from '@/hooks/use-toast'
 import { refusalFromPreviewBody, reviewRefusalCopy } from '@/lib/lp-preview-refusal'
-import { heldMutationState, measuredIamPlan, submitHeldLpApply, submitHeldLpRestore } from '@/lib/lp-held-mutation'
+import { heldMutationState, measuredIamPlan, submitHeldLpApply } from '@/lib/lp-held-mutation'
 import { dispatchRemediationChanged, onRemediationChanged } from '@/lib/remediation-events'
 import { deriveLPIntegrity, lpEvidenceGapCopy, lpIntegrityCopy } from '@/lib/lp-integrity'
 import { resolveLPReviewSurface } from '@/lib/lp-review-routing'
@@ -3461,9 +3461,6 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
             if (!dryRun && !LP_HELD_MUTATION.applyEnabled) {
               await submitHeldLpApply({ role_name: selectedResource.resourceName })
               return
-            }
-            if (!dryRun && LP_HELD_MUTATION.restoreEnabled) {
-              await submitHeldLpRestore("")
             }
             setIsExecuting(true)
             try {

@@ -63,14 +63,31 @@ export async function submitHeldLpApply(body: Record<string, unknown>) {
   return { ok: response.ok, status: response.status, body: await response.json().catch(() => null) }
 }
 
-export async function submitHeldLpRestore(operationId: string) {
+export type RestoreBinding = { operationId: string; roleArn: string; roleId: string }
+
+/**
+ * A Restore names the Apply operation it undoes and the role that operation
+ * changed; the backend refuses a Restore whose role differs from the restored
+ * operation's (RESTORE_ROLE_MISMATCH). Without the whole binding, no body.
+ */
+export function restoreRequestBody(binding: RestoreBinding) {
+  const { operationId, roleArn, roleId } = binding
+  if (!operationId || !roleArn || !roleId) return null
+  return { operation_id: operationId, role_arn: roleArn, role_id: roleId, resource_family: "iam-role" }
+}
+
+export async function submitHeldLpRestore(binding: RestoreBinding) {
   if (!LP_RESTORE_ENABLED) {
     return { ok: false, status: 503, code: "RESTORE_HELD", cloud_writes: 0 }
+  }
+  const body = restoreRequestBody(binding)
+  if (!body) {
+    return { ok: false, status: 422, code: "RESTORE_BINDING_MISSING", cloud_writes: 0 }
   }
   const response = await fetch("/api/proxy/least-privilege/restore", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ operation_id: operationId }),
+    body: JSON.stringify(body),
   })
   return { ok: response.ok, status: response.status, body: await response.json().catch(() => null) }
 }

@@ -86,6 +86,14 @@ async function admitOperator(request: Request, body: Record<string, unknown>, ac
   if (request.headers.get("x-cyntro-role") || request.headers.get("x-forwarded-url")) {
     return { status: 403, code: "FORGED_SCOPE_REFUSED" }
   }
+  // Apply is admitted on its plan head, once per operator. Restore names the
+  // operation it undoes, carries no plan and must stay retryable: its
+  // idempotency is the backend ledger's, not this process's memory.
+  if (action === "rollback") {
+    const operationId = body.operation_id
+    if (typeof operationId !== "string" || !operationId) return { status: 422, code: "RESTORE_TRANSACTION_MISSING" }
+    return { status: 200, code: "ADMITTED", subject: session.subject, ...scope }
+  }
   const planHead = body.plan_head
   if (typeof planHead !== "string" || !planHead) return { status: 422, code: "PLAN_EMPTY" }
   const replay = `${session.subject}:${planHead}`

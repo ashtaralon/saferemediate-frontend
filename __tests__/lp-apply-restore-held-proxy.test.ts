@@ -303,12 +303,14 @@ describe("held Apply and Restore proxy", () => {
     const fetchMock = vi.fn()
     vi.stubGlobal("fetch", fetchMock)
     expect(await submitHeldLpApply({ role_name: "payments" })).toMatchObject({ code: "APPLY_HELD", cloud_writes: 0 })
-    expect(await submitHeldLpRestore("op-1")).toMatchObject({ code: "RESTORE_HELD", cloud_writes: 0 })
+    expect(await submitHeldLpRestore({ operationId: "op-1", roleArn: "arn:aws:iam::111111111111:role/r", roleId: "AROA" })).toMatchObject({ code: "RESTORE_HELD", cloud_writes: 0 })
     expect(fetchMock).not.toHaveBeenCalled()
     const tab = readFileSync(join(process.cwd(), "components/LeastPrivilegeTab.tsx"), "utf8")
     expect(tab).toContain("const LP_MUTATION_APPLY_DISABLED = true")
     expect(tab).toContain("submitHeldLpApply")
-    expect(tab).toContain("submitHeldLpRestore")
+    // Restore needs the Apply's operation id and role (lp-restore-binding.test.ts);
+    // the Tab holds neither yet, so it must not call Restore at all.
+    expect(tab).not.toContain("submitHeldLpRestore")
     expect(tab).toContain("/api/proxy/least-privilege/apply")
     expect(tab).toContain("/api/proxy/iam-roles/")
     expect(tab).toContain("/api/proxy/least-privilege/simulate-fix")
