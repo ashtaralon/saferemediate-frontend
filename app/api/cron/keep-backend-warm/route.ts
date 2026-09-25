@@ -37,7 +37,6 @@ export const maxDuration = 60
  * Companion memory: `feedback_render_backend_cold_start_curve`.
  */
 const BACKEND_URL =
-  process.env.BACKEND_URL_OVERRIDE ||
   getBackendBaseUrl()
 
 // Must match Attack Paths v2 proxy defaults (lib/server/iap-proxy-query.ts)
