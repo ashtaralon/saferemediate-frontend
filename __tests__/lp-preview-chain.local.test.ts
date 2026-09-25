@@ -102,6 +102,35 @@ run("LP Preview through the FE proxy against the backend chain (real HTTP)", () 
     expect(JSON.stringify(a.body)).not.toContain("333333333333")
   })
 
+  it("a matching selected customer and the row's own account are served", async () => {
+    useToken(TOKEN)
+    const a = await review("fixture-shared-name-role", "&customer_id=fixture-webshop&account_id=111111111111")
+    expect(a.status).toBe(200)
+    expect(a.body.role_arn).toBe("arn:aws:iam::111111111111:role/fixture-shared-name-role")
+  })
+
+  it("a mismatched selected account is a 403 scope refusal, never the pinned account's Review", async () => {
+    useToken(TOKEN)
+    const a = await review("fixture-shared-name-role", "&customer_id=fixture-webshop&account_id=333333333333")
+    expect(a.status).toBe(403)
+    expect(a.body.detail.code).toBe("REVIEW_SCOPE_MISMATCH")
+    expect(a.body.summary).toBeUndefined()
+  })
+
+  it("the LP list honours the selected customer/account: matching served, mismatched 403", async () => {
+    useToken(TOKEN)
+    const ok = await read(await issuesGET(new NextRequest(
+      "http://localhost/api/proxy/least-privilege/issues?systemName=fixture-shop&force_refresh=true&customer_id=fixture-webshop&account_id=111111111111")))
+    expect(ok.status).toBe(200)
+    for (const claim of ["customer_id=fixture-neighbour-co", "account_id=333333333333"]) {
+      const refused = await read(await issuesGET(new NextRequest(
+        `http://localhost/api/proxy/least-privilege/issues?systemName=fixture-shop&force_refresh=true&${claim}`)))
+      expect(refused.status).toBe(403)
+      expect(refused.body.detail.code).toBe("REVIEW_SCOPE_MISMATCH")
+      expect(refused.body.resources).toBeUndefined()
+    }
+  })
+
   it("the other tenant's claim is a 403 scope refusal with its code", async () => {
     useToken(TOKEN)
     const a = await review("fixture-shared-name-role", "&customer_id=fixture-neighbour-co")
