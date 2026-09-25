@@ -45,6 +45,7 @@ import {
 } from '@/lib/resource-risk-decision'
 import { useAccountScope } from '@/lib/account-scope-context'
 import { resourceAccountId, withAccountScope } from '@/lib/account-scope'
+import { reviewScopeFor } from '@/lib/lp-review-scope'
 import { TerraformExecutionChip } from '@/components/terraform-execution-chip'
 import {
   resolveSecurityGroupReviewTarget,
@@ -767,16 +768,24 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
   }
 
   // Cached fetch for IAM Role gap analysis
-  const fetchIAMGapAnalysis = async (roleName: string, forceRefresh = false) => {
-    // Return cached data if available and not forcing refresh
-    if (!forceRefresh && iamGapAnalysisCache[roleName]) {
+  // Scoped per clicked role: the selected customer plus the role row's own account
+  // (lib/lp-review-scope.ts). The cache is keyed by that scope, never by role name
+  // alone, so a tenant or account switch can never show another scope's Review.
+  const fetchIAMGapAnalysis = async (
+    roleName: string,
+    forceRefresh = false,
+    resource?: Record<string, unknown> | null,
+  ): Promise<{ data?: any; error?: string }> => {
+    const scope = reviewScopeFor(resource, accountScope.customerId, roleName)
+    if (!scope.ok) return { error: scope.message }
+    if (!forceRefresh && iamGapAnalysisCache[scope.cacheKey]) {
       console.log('[IAM] Using cached gap analysis for:', roleName)
-      return iamGapAnalysisCache[roleName]
+      return { data: iamGapAnalysisCache[scope.cacheKey] }
     }
     
     try {
       console.log('[IAM] Fetching gap analysis for:', roleName)
-      const response = await fetch(`/api/proxy/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=365`)
+      const response = await fetch(`/api/proxy/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=365${scope.query}`)
       if (!response.ok) {
         const errorData = await response.json().catch(() => null)
         const copy = reviewRefusalCopy(refusalFromPreviewBody(response.status, errorData))
@@ -801,13 +810,13 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         lpScore: data.summary?.lp_score
       })
       
-      // Cache the result
-      setIamGapAnalysisCache(prev => ({ ...prev, [roleName]: data }))
+      // Cache the result under its scope
+      setIamGapAnalysisCache(prev => ({ ...prev, [scope.cacheKey]: data }))
       
-      return data
+      return { data }
     } catch (error) {
       console.error('[IAM] Failed to fetch gap analysis:', error)
-      return null
+      return { error: error instanceof Error && error.message ? error.message : 'Failed to load IAM permissions' }
     }
   }
 
@@ -3632,8 +3641,12 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
               // If no permissions in unusedList, fetch from gap analysis
               if (permissionsToRemove.length === 0 && roleName) {
                 console.log('[IAM-SIMULATE-FIX] Fetching permissions from gap analysis...')
-                const gapRes = await fetch(`/api/proxy/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=90`)
-                if (gapRes.ok) {
+                // Scoped like every Review: the selected customer and this row's own account.
+                const gapScope = reviewScopeFor(selectedResource as unknown as Record<string, unknown>, accountScope.customerId, roleName)
+                const gapRes = gapScope.ok
+                  ? await fetch(`/api/proxy/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=90${gapScope.query}`)
+                  : null
+                if (gapRes && gapRes.ok) {
                   const gapData = await gapRes.json()
                   permissionsToRemove = Array.from(new Set(
                     (gapData.unused_permissions || [])
@@ -4254,7 +4267,7 @@ function RemediationDrawer({
   resource: GapResource
   cachedFetch?: (sgId: string, forceRefresh?: boolean) => Promise<any>
   cache?: Record<string, any>
-  iamCachedFetch?: (roleName: string, forceRefresh?: boolean) => Promise<any>
+  iamCachedFetch?: (roleName: string, forceRefresh?: boolean, resource?: Record<string, unknown> | null) => Promise<{ data?: any; error?: string }>
   iamCache?: Record<string, any>
   onClose: () => void
   onSimulate?: () => void
@@ -4580,7 +4593,7 @@ function RulesTab({
   resource: GapResource
   cachedFetch?: (sgId: string, forceRefresh?: boolean) => Promise<any>
   cache?: Record<string, any>
-  iamCachedFetch?: (roleName: string, forceRefresh?: boolean) => Promise<any>
+  iamCachedFetch?: (roleName: string, forceRefresh?: boolean, resource?: Record<string, unknown> | null) => Promise<{ data?: any; error?: string }>
   iamCache?: Record<string, any>
 }) {
   const [rulesAnalysis, setRulesAnalysis] = useState<RuleAnalysis[]>([])
@@ -4717,40 +4730,25 @@ function RulesTab({
           const roleName = resource.resourceName || resource.id
           console.log('[RulesTab] Fetching IAM gap analysis for:', roleName)
           
-          // Check cache first
-          if (iamCache?.[roleName]) {
-            console.log('[RulesTab] Using cached IAM data for:', roleName)
-            setIamGapData(iamCache[roleName])
-            setLoading(false)
+          // One scoped path only (fetchIAMGapAnalysis): it applies the selected
+          // customer and this role row's own account, caches by that scope, and
+          // refuses a row with no trustworthy account. There is no unscoped
+          // direct fetch and no role-name-keyed cache lookup here.
+          if (!iamCachedFetch) {
+            setError('Permission detail is unavailable here: no scoped Review fetch is configured.')
             return
           }
-          
-          // Use cached fetch if available
-          if (iamCachedFetch) {
-            const data = await iamCachedFetch(roleName)
-            if (data) {
-              setIamGapData(data)
-              setLoading(false)
-              return
-            }
-          }
-          
-          // Direct fetch. The cached helper already throws a refusal title.
-          const res = await fetch(`/api/proxy/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=365`)
-          if (res.ok) {
-            const data = await res.json()
+          const result = await iamCachedFetch(roleName, false, resource as unknown as Record<string, unknown>)
+          if (result?.data) {
             console.log('[RulesTab] Got IAM data:', {
               role: roleName,
-              total: data.summary?.total_permissions,
-              used: data.summary?.used_count,
-              unused: data.summary?.unused_count
+              total: result.data.summary?.total_permissions,
+              used: result.data.summary?.used_count,
+              unused: result.data.summary?.unused_count
             })
-            setIamGapData(data)
+            setIamGapData(result.data)
           } else {
-            const errorData = await res.json().catch(() => null)
-            const copy = reviewRefusalCopy(refusalFromPreviewBody(res.status, errorData))
-            console.error('[RulesTab] IAM fetch failed:', res.status, copy.title)
-            setError(copy.title)
+            setError(result?.error || 'Failed to load IAM permissions')
           }
         } catch (err) {
           console.error('[RulesTab] Failed to fetch IAM data:', err)
