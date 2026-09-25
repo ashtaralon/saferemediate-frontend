@@ -144,6 +144,21 @@ describe("held answers are passed through and never cached", () => {
     expect(upstream).toHaveBeenCalledTimes(1)
   })
 
+  it("a hold answering the lighter-budget retry is passed through and not cached either", async () => {
+    const hold = HOLDS.install_not_recorded
+    const upstream = vi
+      .fn()
+      .mockImplementationOnce(async () => answer({ detail: "bad gateway" }, 502)) // untyped, fast
+      .mockImplementation(async () => answer(hold.body))
+    const get = await loadRoute(upstream)
+    const first = await get()
+    expect(upstream).toHaveBeenCalledTimes(2) // primary 502, then the lighter budget
+    expect(first.headers.get("cache-control")).toBe("no-store")
+    expect(await first.json()).toEqual(hold.body)
+    await get()
+    expect(upstream).toHaveBeenCalledTimes(3) // not served from cache
+  })
+
   it("a hold arriving after a cached map replaces it — never a stale map", async () => {
     const upstream = vi
       .fn()
