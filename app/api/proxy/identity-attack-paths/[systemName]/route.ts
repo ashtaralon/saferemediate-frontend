@@ -20,7 +20,6 @@ export const maxDuration = 60
 // without editing this file. Render/Vercel never set it, so prod stays
 // on the Render URL.
 const BACKEND_URL =
-  process.env.BACKEND_URL_OVERRIDE ||
   getBackendBaseUrl()
 
 export async function GET(

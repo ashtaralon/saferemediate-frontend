@@ -20,8 +20,6 @@ export const maxDuration = 60
 // BACKEND_URL is kept as a secondary fallback for back-compat with the
 // older sibling proxy that uses that name.
 const BACKEND_URL =
-  process.env.BACKEND_URL_OVERRIDE ||
-  process.env.BACKEND_URL ||
   getBackendBaseUrl()
 
 export async function POST(req: NextRequest) {

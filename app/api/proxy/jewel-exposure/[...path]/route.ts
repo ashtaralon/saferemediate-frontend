@@ -11,7 +11,6 @@ export const runtime = "nodejs"
 export const maxDuration = 60
 
 const BACKEND_URL =
-  process.env.BACKEND_URL_OVERRIDE ||
   getBackendBaseUrl()
 
 export async function GET(

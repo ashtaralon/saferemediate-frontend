@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic"
 export const maxDuration = 60
 
 const BACKEND_URL =
-  process.env.BACKEND_URL || getBackendBaseUrl()
+  getBackendBaseUrl()
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
