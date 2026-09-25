@@ -31,7 +31,6 @@
 // Absent signal → the claim is absent AND listed in `missing_evidence`
 // (silent dropping hides collection gaps; surfacing them is the feature).
 
-import type { PathClassification, PlaneState } from "@/lib/attack-paths/path-evidence-view"
 import type {
   LayerEvidence,
   ReachableDamageBucket,
@@ -435,27 +434,6 @@ export interface PathListRow {
    *  (observed | configured | unverified | blocked). Null when the backend
    *  did not declare one (never invent "configured"). */
   evidence_type: "observed" | "configured" | "unverified" | "blocked" | null
-
-  /** Whole-path evidence classification (server `evidence_contract`, else
-   *  the legacy word): observed | inferred | blocked | unknown. Missing or
-   *  unrecognised is "unknown". See lib/attack-paths/path-evidence-view.ts. */
-  evidence_class?: PathClassification
-
-  /** Per-plane RUNTIME evidence (identity / network / data). Null when the
-   *  server sent no evidence contract. Kept apart from permission coverage. */
-  runtime_planes?: Array<[string, PlaneState]> | null
-
-  /** Per-action PERMISSION coverage line ("1 of 2 actions have an evaluated
-   *  permission"). Null when the server sent no evidence contract. */
-  permission_coverage_line?: string | null
-
-  /** The server's `damage_capability.effective_damage`, verbatim; null when
-   *  it sent none (then no damage claim is rendered on the row at all). */
-  effective_damage?: string | null
-
-  /** Why damage is unknown (e.g. "data-plane reachability not evaluated");
-   *  null when the server's effective_damage is a known answer. */
-  damage_unknown_reason?: string | null
 
   // ---- Classifications ------------------------------------------------------
 

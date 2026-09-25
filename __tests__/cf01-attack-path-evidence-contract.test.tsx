@@ -11,9 +11,10 @@
  *     → path-list-grouped.tsx → compile-path-list-row.ts → effective-damage-matrix.ts
  *     → identity-attack-paths/crown-jewel-list-panel.tsx
  *     → zoom0-fan-in-panel.tsx → lib/attack-paths/iap-to-convergence.ts
+ *     → zoom0-fan-in-panel.tsx → current-access-dossier-panel.tsx (the selected path's story)
  */
-import { cleanup, render, screen, within } from "@testing-library/react"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { cleanup, render, screen } from "@testing-library/react"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import holdsFixture from "@/__tests__/fixtures/cf01-attack-path-evidence/iap-payments-holds.json"
 import twoCustomers from "@/__tests__/fixtures/cf01-attack-path-evidence/iap-payments-two-customers.json"
@@ -21,14 +22,14 @@ import {
   buildEffectiveDamageMatrix,
   matrixToSummary,
 } from "@/components/attack-paths-v2/effective-damage-matrix"
-import { PathListGrouped } from "@/components/attack-paths-v2/path-list-grouped"
+import { CurrentAccessDossierPanel } from "@/components/attack-paths-v2/current-access-dossier-panel"
 import { CrownJewelListPanel } from "@/components/identity-attack-paths/crown-jewel-list-panel"
 import type {
   CrownJewelSummary,
   DamageCapability,
   IdentityAttackPath,
 } from "@/components/identity-attack-paths/types"
-import { filterActivePaths } from "@/lib/active-filters"
+import { buildCurrentAccessDossier } from "@/lib/attack-paths/build-current-access-dossier"
 import { iapPathsToConvergence } from "@/lib/attack-paths/iap-to-convergence"
 import {
   damageUnknownReason,
@@ -36,6 +37,7 @@ import {
   evidenceTag,
   iapHold,
   pathClassification,
+  pathEvidenceSummary,
   permissionCoverageLine,
   planeStates,
 } from "@/lib/attack-paths/path-evidence-view"
@@ -184,82 +186,111 @@ describe.each(["acme", "beta"] as const)("IAP → convergence fallback for %s", 
   })
 })
 
-// ─── The rendered route picker ───────────────────────────────────────────────
+// ─── The selected-path story: the Current Access dossier ─────────────────────
+//
+// The route picker stays a clean FROM → TO selector (its design note); the
+// path's evidence lives in the dossier the page opens for the pinned path.
+// Here the dossier is fed exactly what Zoom0FanInPanel feeds it on the IAP
+// fallback: the convergence row from iapPathsToConvergence and the IAP path's
+// own evidence summary. The whole-page chain is pinned separately in
+// __tests__/cf01-attack-paths-v2-page-hold.test.tsx.
 
-function renderPicker(customer: Customer) {
+function renderDossier(customer: Customer, cls: string) {
   const { body } = CUSTOMERS[customer]
+  const path = byClass(customer)[cls]
+  const conv = iapPathsToConvergence("payments", body.crown_jewels[0], body.paths)
+  const row = conv.paths.find((p) => p.path_id === (path.attack_path_id ?? path.id))!
   return render(
-    <PathListGrouped
-      paths={filterActivePaths(body.paths)}
-      jewel={body.crown_jewels[0]}
-      selectedPathId={null}
-      onSelectPath={vi.fn()}
+    <CurrentAccessDossierPanel
+      dossier={buildCurrentAccessDossier({ ...row, hops_load_state: "ready" })}
+      pathEvidence={pathEvidenceSummary(path)}
+      jewelName={body.crown_jewels[0].name}
+      jewelType={body.crown_jewels[0].type}
+      systemName="payments"
     />,
   )
 }
 
-function rowFor(pathId: string): HTMLElement {
-  const row = screen
-    .getAllByTestId("zoom0-path-row")
-    .find((el) => el.getAttribute("data-path-id") === pathId)
-  if (!row) throw new Error(`no rendered row for ${pathId}`)
-  return row
-}
+describe.each(["acme", "beta"] as const)("Current Access dossier — %s", (customer) => {
+  beforeEach(() => {
+    // The dossier's own exact-scope explorer asks the proxy; not under test.
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 404 })))
+  })
+  afterEach(() => vi.unstubAllGlobals())
 
-describe.each(["acme", "beta"] as const)("rendered route picker — %s", (customer) => {
-  it("shows OBSERVED / INFERRED / BLOCKED / UNKNOWN from the contract, one per path", () => {
-    renderPicker(customer)
-    const tags = screen.getAllByTestId("path-evidence-class").map((el) => el.textContent)
-    expect(tags.sort()).toEqual(["BLOCKED", "INFERRED", "OBSERVED", "UNKNOWN"])
-    const c = byClass(customer)
-    for (const [cls, path] of Object.entries(c)) {
-      expect(within(rowFor(path.id)).getByTestId("path-evidence-class")).toHaveTextContent(
-        cls.toUpperCase(),
-      )
-    }
-    expect(screen.queryByText(/^CONFIGURED$/)).toBeNull()
+  it.each(["observed", "inferred", "blocked", "unknown"])("names the %s class from the contract", (cls) => {
+    renderDossier(customer, cls)
+    const chip = screen.getByTestId("dossier-evidence-class")
+    expect(chip).toHaveTextContent(cls.toUpperCase())
+    expect(chip).toHaveAttribute("data-evidence-class", cls)
   })
 
-  it("renders unknown damage as Unknown with the unevaluated gate — never the grant ceiling", () => {
-    renderPicker(customer)
-    const unknownRow = rowFor(byClass(customer).unknown.id)
-    const damage = within(unknownRow).getByTestId("path-damage-line")
-    expect(damage).toHaveTextContent("Damage: Unknown — data-plane reachability not evaluated")
-    expect(damage.textContent).not.toMatch(/READ|WRITE/)
-    // Controls: the live and blocked rows keep their server answers.
-    expect(within(rowFor(byClass(customer).observed.id)).getByTestId("path-damage-line")).toHaveTextContent(
-      "Damage: WRITE · READ",
+  it("prints unknown as unknown — never blocked, live or empty", () => {
+    renderDossier(customer, "unknown")
+    expect(screen.getByTestId("dossier-evidence-class")).toHaveTextContent("UNKNOWN")
+    const damage = screen.getByTestId("dossier-effective-damage")
+    expect(damage).toHaveTextContent("Effective damage: unknown — data-plane reachability not evaluated")
+    expect(damage.textContent).not.toMatch(/blocked|live/i)
+    // The unavailable data plane is printed as unavailable, not as "not observed".
+    expect(screen.getByTestId("dossier-runtime-evidence")).toHaveTextContent(
+      "Runtime evidence: identity observed · network observed · data unavailable",
     )
-    expect(within(rowFor(byClass(customer).blocked.id)).getByTestId("path-damage-line")).toHaveTextContent(
-      "Damage: Blocked",
+    expect(screen.getByText("data plane unavailable")).toBeInTheDocument()
+    // Potential damage is the server's words, not "none listed".
+    expect(screen.queryByText("No potential damage is listed for this path.")).toBeNull()
+  })
+
+  it("controls: blocked and live keep their server answers", () => {
+    renderDossier(customer, "blocked")
+    expect(screen.getByTestId("dossier-effective-damage")).toHaveTextContent("blocked by network controls")
+    cleanup()
+    renderDossier(customer, "observed")
+    expect(screen.getByTestId("dossier-effective-damage")).toHaveTextContent("live — reachable end to end")
+    expect(screen.getByTestId("dossier-runtime-evidence")).toHaveTextContent(
+      "identity observed · network observed · data observed",
     )
   })
 
   it("keeps runtime evidence and permission coverage on separate, labelled lines", () => {
-    renderPicker(customer)
-    const unknownRow = rowFor(byClass(customer).unknown.id)
-    expect(within(unknownRow).getByTestId("path-runtime-evidence")).toHaveTextContent(
-      "Runtime evidence: identity observed · network observed · data unavailable",
-    )
-    expect(within(unknownRow).getByTestId("path-permission-coverage")).toHaveTextContent(
-      "Permission coverage: 1 of 2 actions have an evaluated permission",
-    )
-    expect(within(unknownRow).getByTestId("path-runtime-evidence").textContent).not.toContain(
-      "permission",
-    )
-    expect(screen.getAllByTestId("path-permission-coverage")).toHaveLength(4)
+    renderDossier(customer, "inferred")
+    const runtime = screen.getByTestId("dossier-runtime-evidence")
+    const coverage = screen.getByTestId("dossier-permission-coverage")
+    expect(runtime).toHaveTextContent("Runtime evidence: identity unavailable · network unavailable · data unavailable")
+    expect(coverage).toHaveTextContent("Permission coverage: 1 of 2 actions have an evaluated permission")
+    expect(runtime.textContent).not.toMatch(/permission/i)
+    expect(coverage.textContent).not.toMatch(/identity|network/)
   })
 
   it("contains nothing of the other customer", () => {
-    const { container } = renderPicker(customer)
+    const { container } = renderDossier(customer, "unknown")
     const html = container.innerHTML
     const { other } = CUSTOMERS[customer]
-    // Positive control: this customer's own tenant-named resources ARE rendered,
-    // so the absence below is not an empty render.
-    expect(html).toContain(`${customer}-web-1`)
+    // Positive control: this customer's own names ARE rendered.
+    expect(html).toContain(`${customer}-web-2`)
     expect(html).toContain(`${customer}-data`)
     expect(html).not.toContain(CUSTOMERS[other].account)
     expect(html).not.toContain(`${other}-`)
+  })
+})
+
+describe("a path with no evidence contract", () => {
+  it("says the runtime and permission lines were not reported — it does not invent them", () => {
+    const summary = pathEvidenceSummary({ evidence_type: "unverified" })!
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 404 })))
+    const { body } = CUSTOMERS.acme
+    const conv = iapPathsToConvergence("payments", body.crown_jewels[0], body.paths)
+    render(
+      <CurrentAccessDossierPanel
+        dossier={buildCurrentAccessDossier({ ...conv.paths[0], hops_load_state: "ready" })}
+        pathEvidence={summary}
+        jewelName="acme-data"
+      />,
+    )
+    expect(screen.getByTestId("dossier-evidence-class")).toHaveTextContent("UNKNOWN")
+    expect(screen.getByTestId("dossier-runtime-evidence")).toHaveTextContent("not reported by the server for this path")
+    expect(screen.getByTestId("dossier-permission-coverage")).toHaveTextContent("not reported by the server for this path")
+    expect(screen.queryByTestId("dossier-effective-damage")).toBeNull()
+    vi.unstubAllGlobals()
   })
 })
 

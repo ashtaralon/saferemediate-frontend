@@ -13,6 +13,14 @@
  *  - a held / unavailable IAP answer read as "no crown jewels".
  */
 
+import {
+  semanticStatusHold,
+  typedReaderUnavailable,
+  typedServingRefusal,
+  type SemanticHold,
+  type SemanticHoldKind,
+} from "@/lib/semantic-hold"
+
 export type PathClassification = "observed" | "inferred" | "blocked" | "unknown"
 export type PlaneState = "observed" | "not_observed" | "unattributed" | "unavailable"
 export type PermissionState = "ALLOWED" | "EXPLICIT_DENY" | "NOT_EVALUATED"
@@ -142,23 +150,79 @@ export function planeStateLabel(state: PlaneState): string {
   return state.replace(/_/g, " ")
 }
 
-// ─── Held / unavailable IAP answers ─────────────────────────────────────────
-//
-// The IAP route answers "I cannot tell you" in three shapes, none of which is a
-// map and none of which may be read as "no crown jewels":
-//   - 200 `{semantic_status: "not_recorded", hold_reason}`  (install reader not ready)
-//   - 200 `{error, semantic_status: "unavailable"}`         (C1, guard off)
-//   - 503 `{detail: {code: "SEMANTIC_READ_UNAVAILABLE" | "SERVING_READ_REFUSED"}}` (install)
+// ─── One selected path's evidence, for the Current Access dossier ────────────
 
-export type IapHoldKind = "not_recorded" | "unavailable" | "refused" | "error"
-
-export interface IapHold {
-  kind: IapHoldKind
-  /** The server's own words (hold_reason / error / detail.code), verbatim. */
-  reason: string | null
+/** What the server said about one path's evidence — never derived here. */
+export interface PathEvidenceSummary {
+  classification: PathClassification
+  /** True when the class came from the server's evidence_contract (not the legacy word). */
+  fromContract: boolean
+  /** Per-plane runtime evidence; null when the server sent no contract for this path. */
+  runtimePlanes: Array<[string, PlaneState]> | null
+  /** Per-action permission coverage line; null when the server sent no contract. */
+  permissionCoverage: string | null
+  /** The server's effective_damage ("unknown" when it sent a capability without one);
+   *  null when the path carries no damage capability at all. */
+  effectiveDamage: string | null
+  /** Why damage is unknown; null when the server's answer is known. */
+  damageUnknownReason: string | null
 }
 
-const HOLD_SEMANTIC_STATUS: ReadonlySet<string> = new Set(["not_recorded", "unavailable"])
+export function pathEvidenceSummary(
+  path:
+    | {
+        evidence_contract?: PathEvidenceContract | null
+        evidence_type?: string | null
+        damage_capability?: {
+          effective_damage?: string | null
+          gates?: { network_reachable?: boolean | null; data_plane_reachable?: boolean | null } | null
+        } | null
+      }
+    | null
+    | undefined,
+): PathEvidenceSummary | null {
+  if (!path) return null
+  const contract = path.evidence_contract ?? null
+  const dc = path.damage_capability ?? null
+  return {
+    classification: pathClassification(path),
+    fromContract: Boolean(contract && CLASSIFICATIONS.has(String(contract.classification))),
+    runtimePlanes: contract ? planeStates(contract) : null,
+    permissionCoverage: permissionCoverageLine(contract),
+    effectiveDamage: dc ? effectiveDamage(dc) : null,
+    damageUnknownReason: dc ? damageUnknownReason(dc) : null,
+  }
+}
+
+const EFFECTIVE_DAMAGE_LABEL: Readonly<Record<string, string>> = {
+  live: "live — reachable end to end",
+  network_blocked: "blocked by network controls",
+  data_plane_blocked: "blocked at the data plane",
+  identity_blocked: "blocked at the identity gate",
+  no_jewel_perms: "no permissions on the crown jewel",
+}
+
+/** The server's effective damage in words; anything the UI does not know is "unknown". */
+export function effectiveDamageLabel(summary: PathEvidenceSummary): string | null {
+  if (summary.effectiveDamage == null) return null
+  const known = EFFECTIVE_DAMAGE_LABEL[summary.effectiveDamage]
+  if (known && Object.prototype.hasOwnProperty.call(EFFECTIVE_DAMAGE_LABEL, summary.effectiveDamage)) {
+    return known
+  }
+  return summary.damageUnknownReason ? `unknown — ${summary.damageUnknownReason}` : "unknown"
+}
+
+// ─── Held / unavailable IAP answers ─────────────────────────────────────────
+//
+// The IAP route answers "I cannot tell you" in these shapes (lib/semantic-hold),
+// none of which is a map and none of which may be read as "no crown jewels":
+//   - 200 `{semantic_status: "not_recorded", hold_reason}`  (install reader not ready)
+//   - 200 `{error, semantic_status: "unavailable"}`         (C1, guard off)
+//   - 503 `{detail: {code: SERVING_READ_REFUSED | SERVING_ROUTE_HELD | SEMANTIC_READ_UNAVAILABLE}}`
+//   - (legacy) a 200 `error` with no rows, from a backend that predates semantic_status.
+
+export type IapHoldKind = SemanticHoldKind
+export type IapHold = SemanticHold
 
 /** Statuses in which the server says the body IS an answer (possibly empty). */
 const ANSWER_SEMANTIC_STATUS: ReadonlySet<string> = new Set(["populated", "empty"])
@@ -167,27 +231,13 @@ function hasRows(value: unknown): boolean {
   return Array.isArray(value) && value.length > 0
 }
 
-function holdOf(body: Record<string, unknown>): IapHold | null {
-  const status = typeof body.semantic_status === "string" ? body.semantic_status : null
-  const error = typeof body.error === "string" && body.error.length > 0 ? body.error : null
-  const holdReason =
-    typeof body.hold_reason === "string" && body.hold_reason.length > 0 ? body.hold_reason : null
-  if (status && HOLD_SEMANTIC_STATUS.has(status)) {
-    return { kind: status as IapHoldKind, reason: holdReason ?? error }
-  }
-  const detail = body.detail
-  if (detail && typeof detail === "object") {
-    const d = detail as Record<string, unknown>
-    const why = typeof d.reason === "string" && d.reason ? `: ${d.reason}` : ""
-    if (d.code === "SERVING_READ_REFUSED") return { kind: "refused", reason: `SERVING_READ_REFUSED${why}` }
-    if (d.code === "SEMANTIC_READ_UNAVAILABLE") {
-      return { kind: "unavailable", reason: `SEMANTIC_READ_UNAVAILABLE${why}` }
-    }
-  }
+function legacyErrorHold(body: Record<string, unknown>): IapHold | null {
   // The backend's rule (estate_read.finish_estate_read): data alongside an
   // error is still an answer ("populated"). Only an error with no rows is a
   // failed read — including from a backend that predates semantic_status.
+  const status = typeof body.semantic_status === "string" ? body.semantic_status : null
   if (status && ANSWER_SEMANTIC_STATUS.has(status)) return null
+  const error = typeof body.error === "string" && body.error.length > 0 ? body.error : null
   if (error && !hasRows(body.paths) && !hasRows(body.crown_jewels)) {
     return { kind: "error", reason: error }
   }
@@ -200,11 +250,15 @@ function holdOf(body: Record<string, unknown>): IapHold | null {
  */
 export function iapHold(body: unknown): IapHold | null {
   if (body == null || typeof body !== "object") return null
-  const outer = holdOf(body as Record<string, unknown>)
-  if (outer) return outer
-  const inner = (body as Record<string, unknown>).result
-  if (inner && typeof inner === "object") return holdOf(inner as Record<string, unknown>)
-  return null
+  const typed =
+    semanticStatusHold(body) ?? typedServingRefusal(body) ?? typedReaderUnavailable(body)
+  if (typed) return typed
+  const outer = body as Record<string, unknown>
+  const inner = outer.result
+  return (
+    legacyErrorHold(outer) ??
+    (inner && typeof inner === "object" ? legacyErrorHold(inner as Record<string, unknown>) : null)
+  )
 }
 
 export function iapHoldTitle(hold: IapHold): string {
@@ -213,6 +267,8 @@ export function iapHoldTitle(hold: IapHold): string {
       return "Attack-path evidence not recorded yet"
     case "refused":
       return "Attack-path read refused"
+    case "route_held":
+      return "Attack-path route held"
     case "unavailable":
       return "Attack-path evidence unavailable"
     default:

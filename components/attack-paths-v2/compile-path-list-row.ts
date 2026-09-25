@@ -29,12 +29,6 @@ import {
   buildEffectiveDamageMatrix,
   matrixToSummary,
 } from "./effective-damage-matrix"
-import {
-  damageUnknownReason,
-  pathClassification,
-  permissionCoverageLine,
-  planeStates,
-} from "@/lib/attack-paths/path-evidence-view"
 import { friendlyResourceName } from "./friendly-names"
 import type {
   HeadlineTag,
@@ -373,13 +367,6 @@ export function compilePathListRow(
     has_observed_edge: compileHasObservedEdge(path),
     // Absent evidence_type stays null — never invent "configured".
     evidence_type: path.evidence_type ?? null,
-    // Server-owned whole-path class; missing/unrecognised → "unknown".
-    evidence_class: pathClassification(path),
-    // Runtime (per plane) and permission coverage (per action) stay apart.
-    runtime_planes: path.evidence_contract ? planeStates(path.evidence_contract) : null,
-    permission_coverage_line: permissionCoverageLine(path.evidence_contract),
-    effective_damage: path.damage_capability?.effective_damage ?? null,
-    damage_unknown_reason: damageUnknownReason(path.damage_capability),
     // Backend category only; never a FE-derived fallback class.
     initial_access_category: fromBackend ?? fromArg ?? "UNKNOWN",
     acquisition: path.acquisition ?? null,

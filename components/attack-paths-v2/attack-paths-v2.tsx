@@ -374,6 +374,7 @@ export function AttackPathsV2({
     data: jewelsRaw,
     loading: jewelsLoading,
     error: jewelsError,
+    hold: jewelsHold,
     isStale: jewelsIsStale,
     retry: retryJewels,
   } = useCachedFetch<TargetCatalog>(jewelsUrl, {
@@ -396,13 +397,14 @@ export function AttackPathsV2({
     data: rawData,
     loading: isLoading,
     error: _iapBackgroundError,
+    hold: iapFetchHold,
     isStale: iapIsStale,
     retry: retryFullIap,
   } = useCachedFetch<any>(fetchUrl, {
     cacheKey: `iap-v2:5x5:${systemName}`,
-    // A held / unavailable IAP answer (semantic_status not_recorded |
-    // unavailable) is a status report: never persisted or re-painted as a
-    // map, and it replaces (fails closed over) an older cached map.
+    // The hook already fails closed on typed refusals and semantic_status
+    // holds (returned as `hold`). This also refuses to persist a legacy
+    // 200 `error` with no rows, from a backend that predates semantic_status.
     isCacheable: isIapBodyCacheable,
   })
 
@@ -500,8 +502,10 @@ export function AttackPathsV2({
         serveJewelsError: jewelsError,
         jewelsEmpty: jewels.length === 0,
         iapBody: rawData,
+        fetchHold: iapFetchHold,
+        catalogHold: jewelsHold,
       }),
-    [jewelsRaw, jewelsError, jewels.length, rawData],
+    [jewelsRaw, jewelsError, jewels.length, rawData, iapFetchHold, jewelsHold],
   )
   // Client-side stale-node gate. Runs on EVERY render — fresh AND
   // localStorage-SWR-cached. Drops paths whose nodes carry
