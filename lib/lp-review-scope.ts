@@ -37,3 +37,27 @@ export function reviewScopeFor(
   params.set("account_id", account)
   return { ok: true, query: `&${params.toString()}`, cacheKey: `${customer}|${account}|${roleName}` }
 }
+
+/**
+ * The claims the shared Review modal sends for one role.
+ *
+ * The modal is opened from many surfaces, some of which know only a role name,
+ * so it does not refuse an ARN-less role the way the LP tab refuses an
+ * account-less row. It sends every claim it can prove: the selected customer,
+ * and the account parsed from the role's own ARN. The backend validates each
+ * against its server-owned binding (403 on a mismatch) and never widens scope
+ * for a missing claim, so omitting the account can only read the deployment's
+ * own verified account, never another tenant's.
+ */
+export function reviewClaimsQuery(
+  roleArn: string | null | undefined,
+  customerId: string | null | undefined,
+): string {
+  const params = new URLSearchParams()
+  const customer = typeof customerId === "string" ? customerId.trim() : ""
+  if (customer) params.set("customer_id", customer)
+  const account = typeof roleArn === "string" ? resourceAccountId({ arn: roleArn }) : null
+  if (account) params.set("account_id", account)
+  const query = params.toString()
+  return query ? `&${query}` : ""
+}
