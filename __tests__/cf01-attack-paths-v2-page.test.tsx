@@ -145,6 +145,9 @@ describe("AttackPathsV2 whole page — IAP hold on the crown-jewel rail", () => 
     expect(hold).toHaveTextContent(title)
     expect(hold).toHaveTextContent(reason)
     expect(screen.queryByText(/No crown jewels detected/)).toBeNull()
+    // The page header names it too — never a bare "0 targets".
+    expect(screen.queryByText(/\b0 targets\b/)).toBeNull()
+    expect(screen.getAllByText(title).length).toBeGreaterThanOrEqual(3)
     // Precondition: the IAP proxy route was really asked.
     expect(
       fetchMock.mock.calls.some(([u]) => String(u).startsWith("/api/proxy/identity-attack-paths/payments")),
@@ -175,6 +178,32 @@ describe("AttackPathsV2 whole page — IAP hold on the crown-jewel rail", () => 
     await waitFor(() => expect(screen.queryByTestId("crown-jewel-hold")).not.toBeNull())
     expect(screen.getByTestId("crown-jewel-hold")).toHaveTextContent("503: Neo4j not connected")
     expect(window.localStorage.getItem(IAP_CACHE)).toBeNull()
+  })
+})
+
+describe("AttackPathsV2 whole page — an empty rail beside a failed catalog", () => {
+  it("an untyped IAP failure too: the rail names the catalog failure, never 'No crown jewels'", async () => {
+    serve({ status: 502, body: { detail: "bad gateway" } })
+    await renderPage()
+    const hold = await screen.findByTestId("crown-jewel-hold")
+    expect(hold).toHaveTextContent("Attack-path read failed")
+    expect(hold).toHaveTextContent("HTTP 502")
+    expect(screen.queryByText(/No crown jewels detected/)).toBeNull()
+  })
+
+  it("a typed refusal of the catalog itself is named as a refusal", async () => {
+    const refused = HOLDS.install_serving_read_refused
+    const fetchMock = serve({ status: 502, body: { detail: "bad gateway" } })
+    const base = fetchMock.getMockImplementation()!
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input instanceof Request ? input.url : input)
+      if (url.startsWith("/api/proxy/attack-paths/payments/targets")) return respond(refused.status, refused.body)
+      return base(input)
+    })
+    await renderPage()
+    const hold = await screen.findByTestId("crown-jewel-hold")
+    expect(hold).toHaveTextContent("Attack-path read refused")
+    expect(hold).toHaveTextContent("SERVING_READ_REFUSED: FACADE_READ_OUTSIDE_ADMISSION")
   })
 })
 

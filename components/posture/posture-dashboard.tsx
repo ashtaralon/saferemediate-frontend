@@ -188,11 +188,9 @@ export function PostureDashboard() {
           subtitle="Should hold only edge / proxy (ALB, NAT, bastion, WAF). Sensitive workloads here are exposed by design."
           workloads={publicGroup}
           emptyText={
-            workloadsResp.error && allWorkloads.length === 0
-              ? "Workloads unavailable — see the error above."
-              : includeCorrect
-                ? "No workloads currently sit in public subnets."
-                : "No workloads in public subnets need review."
+            includeCorrect
+              ? "No workloads currently sit in public subnets."
+              : "No workloads in public subnets need review."
           }
           selectedId={selectedId}
           onSelect={setSelectedId}
@@ -202,11 +200,9 @@ export function PostureDashboard() {
           subtitle="Should hold sensitive workloads, databases, internal jobs. LB-chain exposure still possible via internet-facing ALBs."
           workloads={privateGroup}
           emptyText={
-            workloadsResp.error && allWorkloads.length === 0
-              ? "Workloads unavailable — see the error above."
-              : includeCorrect
-                ? "No workloads currently sit in private subnets."
-                : "No workloads in private subnets need review."
+            includeCorrect
+              ? "No workloads currently sit in private subnets."
+              : "No workloads in private subnets need review."
           }
           selectedId={selectedId}
           onSelect={setSelectedId}
