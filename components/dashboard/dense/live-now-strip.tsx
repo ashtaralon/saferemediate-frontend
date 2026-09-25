@@ -65,7 +65,7 @@ function ageFromIso(iso: string | null | undefined): number | null {
 export function LiveNowStrip() {
   // 1-min staleness — by-definition live surface. If older than that,
   // refresh; if even older, show "—" rather than misleading claim.
-  const { data, loading } = useCachedFetch<ActivityResponse>(
+  const { data, loading, error } = useCachedFetch<ActivityResponse>(
     "/api/proxy/recent-activity",
     {
       cacheKey: "live-now-activity",
@@ -86,7 +86,24 @@ export function LiveNowStrip() {
     )
   }
 
-  const items = data?.items ?? []
+  // No reading (a failed or refused read): say so. Falling through would
+  // print "Engine idle · No remediation events recorded" — a claim about the
+  // engine made from the absence of an answer.
+  if (!data) {
+    return (
+      <div className="rounded-[14px] border border-amber-200 bg-amber-50/60 px-4 py-3" data-testid="live-now-unavailable">
+        <div className="flex items-center gap-3 text-sm">
+          <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-amber-100">
+            <Activity className="h-3.5 w-3.5 text-amber-600" />
+          </span>
+          <span className="font-medium text-slate-700">Remediation activity unavailable</span>
+          <span className="ml-auto truncate text-xs text-slate-500">{error ?? "No reading yet"}</span>
+        </div>
+      </div>
+    )
+  }
+
+  const items = data.items ?? []
   // Find any in-flight remediation. Backend contract: status === "in_flight"
   // OR "executing" OR "canary" — none of those guaranteed yet, so we look
   // for status that ISN'T a terminal state. If none of the records use

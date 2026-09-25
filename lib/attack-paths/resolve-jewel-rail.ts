@@ -12,6 +12,7 @@ import type {
 } from "@/components/identity-attack-paths/types"
 import type { CrownJewelConvergence } from "./convergence-types"
 import { convergencePathsToIdentityAttackPaths } from "./convergence-to-iap"
+import { iapHold, type IapHold } from "./path-evidence-view"
 
 export type JewelRailSource = "serve" | "iap_fallback" | "none"
 
@@ -107,4 +108,36 @@ export function shouldShowAttackPathsNotComputed(args: {
     !args.jewelsLoading &&
     !args.iapLoading
   )
+}
+
+/**
+ * The hold to name on the crown-jewel rail, or null.
+ *
+ * Only when the SERVE catalog did not answer and the rail is empty. Then an
+ * empty list is "the server could not answer", never "No crown jewels
+ * detected": the IAP's own hold wins (it says why), else the catalog's typed
+ * refusal, else the catalog's failure itself. An answered SERVE catalog is
+ * its own truth.
+ */
+export function resolveRailIapHold(args: {
+  serveJewelsRaw: unknown
+  serveJewelsError: string | null | undefined
+  jewelsEmpty: boolean
+  iapBody: unknown
+  /** The IAP fetch hook's own `hold` (typed refusal / semantic_status hold). */
+  fetchHold?: IapHold | null
+  /** The target-catalog fetch hook's own `hold`. */
+  catalogHold?: IapHold | null
+}): IapHold | null {
+  if (isServeJewelsAuthoritative(args.serveJewelsRaw, args.serveJewelsError)) return null
+  if (!args.jewelsEmpty) return null
+  const fromIap = args.fetchHold ?? iapHold(args.iapBody)
+  if (fromIap) return fromIap
+  if (args.catalogHold) return args.catalogHold
+  return args.serveJewelsError ? { kind: "error", reason: args.serveJewelsError } : null
+}
+
+/** useCachedFetch `isCacheable` for the full IAP body: a hold is never a reading. */
+export function isIapBodyCacheable(body: unknown): boolean {
+  return iapHold(body) == null
 }
