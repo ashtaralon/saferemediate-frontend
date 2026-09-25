@@ -4,7 +4,12 @@
  * Attack-path route picker.
  *
  * This surface answers one question only: which service can reach which crown
- * jewel? Evidence, damage and remediation belong to the selected-path story.
+ * jewel? The full evidence, damage and remediation story belongs to the
+ * selected path. Each route still carries ONE compact evidence strip, because
+ * "can reach" is itself an evidence claim: the server's whole-path class
+ * (OBSERVED / INFERRED / BLOCKED / UNKNOWN), its effective damage, and — kept
+ * on separate lines — per-plane runtime evidence and per-action permission
+ * coverage. Nothing here is derived; see lib/attack-paths/path-evidence-view.
  * Missing Initial Access evidence is intentionally not a route category.
  */
 
@@ -17,6 +22,10 @@ import type {
 import type { ActivePathList } from "@/lib/active-filters"
 import { initialAccessCategoryFromBackend } from "@/lib/attack-paths/initial-access-from-backend"
 import { getServiceMeta, ServiceTypeBadge } from "@/lib/service-type"
+import {
+  planeStateLabel,
+  type PathClassification,
+} from "@/lib/attack-paths/path-evidence-view"
 import type { PathListRow } from "./attack-path-report-types"
 import { compilePathListRow } from "./compile-path-list-row"
 import { MaterializedScopeBadge } from "./materialized-scope-badge"
@@ -34,6 +43,52 @@ function endpointLabel(row: PathListRow, side: "from" | "to"): string {
     return row.start_label || row.source_label || "Unknown service"
   }
   return row.target_label || "Crown jewel"
+}
+
+const EVIDENCE_CLASS_STYLE: Record<PathClassification, string> = {
+  observed: "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+  inferred: "border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-300",
+  blocked: "border-slate-500/40 bg-slate-500/10 text-slate-700 dark:text-slate-300",
+  unknown: "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+}
+
+/** The route's evidence claim, read from the compiled row only. */
+function PathEvidenceStrip({ row }: { row: PathListRow }) {
+  const cls: PathClassification = row.evidence_class ?? "unknown"
+  return (
+    <div className="mt-2.5 space-y-1 border-t border-border/60 pt-2 text-[10px] leading-snug">
+      <div className="flex flex-wrap items-center gap-1.5" data-testid="path-evidence-strip">
+        <span
+          className={`inline-flex items-center rounded border px-1.5 py-px font-semibold uppercase tracking-wide ${EVIDENCE_CLASS_STYLE[cls]}`}
+          data-testid="path-evidence-class"
+          data-evidence-class={cls}
+        >
+          {cls.toUpperCase()}
+        </span>
+        {/* Only when the server reported effective damage: a row whose
+            payload carries none makes no damage claim here at all. */}
+        {row.effective_damage != null ? (
+          <span className="text-muted-foreground" data-testid="path-damage-line">
+            Damage: <span className="text-foreground">{row.damage_summary}</span>
+            {row.damage_unknown_reason ? ` — ${row.damage_unknown_reason}` : ""}
+          </span>
+        ) : null}
+      </div>
+      {row.runtime_planes ? (
+        <div className="text-muted-foreground" data-testid="path-runtime-evidence">
+          Runtime evidence:{" "}
+          {row.runtime_planes
+            .map(([plane, state]) => `${plane} ${planeStateLabel(state)}`)
+            .join(" · ")}
+        </div>
+      ) : null}
+      {row.permission_coverage_line ? (
+        <div className="text-muted-foreground" data-testid="path-permission-coverage">
+          Permission coverage: {row.permission_coverage_line}
+        </div>
+      ) : null}
+    </div>
+  )
 }
 
 function Endpoint({
@@ -219,6 +274,7 @@ export function PathListGrouped({
                   type={targetType}
                 />
               </div>
+              <PathEvidenceStrip row={row} />
             </button>
           )
         })}

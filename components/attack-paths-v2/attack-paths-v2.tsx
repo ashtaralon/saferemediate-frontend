@@ -42,11 +42,14 @@ import type { ExfilPayload } from "./exfil-view-v3"
 import { useRetryFetch } from "@/lib/use-retry-fetch"
 import { classifyIapResponse } from "@/lib/attack-paths/iap-response-health"
 import {
+  isIapBodyCacheable,
   isServeJewelsAuthoritative,
   resolveJewelPickerList,
   resolveJewelRailPaths,
+  resolveRailIapHold,
   shouldShowAttackPathsNotComputed,
 } from "@/lib/attack-paths/resolve-jewel-rail"
+import { iapHoldTitle } from "@/lib/attack-paths/path-evidence-view"
 import {
   isTargetCatalogCacheable,
   targetCatalogTotals,
@@ -397,6 +400,10 @@ export function AttackPathsV2({
     retry: retryFullIap,
   } = useCachedFetch<any>(fetchUrl, {
     cacheKey: `iap-v2:5x5:${systemName}`,
+    // A held / unavailable IAP answer (semantic_status not_recorded |
+    // unavailable) is a status report: never persisted or re-painted as a
+    // map, and it replaces (fails closed over) an older cached map.
+    isCacheable: isIapBodyCacheable,
   })
 
   // The full IAP fan-out above is optional enrichment and can legitimately
@@ -483,6 +490,18 @@ export function AttackPathsV2({
   const iapHealth = useMemo(
     () => classifyIapResponse(rawData, data),
     [rawData, data],
+  )
+  // Held / unavailable IAP beside an empty, IAP-sourced rail: the rail names
+  // the hold instead of "No crown jewels detected".
+  const railIapHold = useMemo(
+    () =>
+      resolveRailIapHold({
+        serveJewelsRaw: jewelsRaw,
+        serveJewelsError: jewelsError,
+        jewelsEmpty: jewels.length === 0,
+        iapBody: rawData,
+      }),
+    [jewelsRaw, jewelsError, jewels.length, rawData],
   )
   // Client-side stale-node gate. Runs on EVERY render — fresh AND
   // localStorage-SWR-cached. Drops paths whose nodes carry
@@ -1136,7 +1155,9 @@ export function AttackPathsV2({
                     ? `${allPaths.length} loaded paths · ${jewels.length} listed jewels`
                   : jewelsLoading
                     ? "Loading crown-jewel targets…"
-                    : `${jewels.length} targets${isLoading ? " · totals loading…" : ""}`}
+                    : railIapHold
+                      ? iapHoldTitle(railIapHold)
+                      : `${jewels.length} targets${isLoading ? " · totals loading…" : ""}`}
                 {showingStale ? " · showing cached" : ""}
               </div>
             </div>
@@ -1150,6 +1171,7 @@ export function AttackPathsV2({
           stateCounts={targetCatalogCounts}
           selectedJewelId={selectedJewelId}
           onSelect={handleSelectJewel}
+          iapHold={railIapHold}
         />
       </aside>
 

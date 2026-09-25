@@ -236,4 +236,26 @@ describe("convergencePathsToIdentityAttackPaths", () => {
     expect(normalizePathStatus("")).toBe("UNVERIFIED")
     expect(normalizePathStatus("POTENTIAL_EXCESS")).toBe("POTENTIAL_EXCESS")
   })
+
+  // SERVE `evidence` is the whole-path word (api/attack_paths.py: observed |
+  // configured | unverified | blocked); `confidence` is its legacy alias.
+  // unverified / blocked must reach the rail as themselves, never dropped and
+  // never collapsed into "configured".
+  it.each([
+    [{ evidence: "blocked", confidence: "configured" }, "blocked"],
+    [{ evidence: "unverified", confidence: "configured" }, "unverified"],
+    [{ evidence: undefined, confidence: "observed" }, "observed"],
+    [{ evidence: undefined, confidence: "surely" }, undefined],
+  ])("carries SERVE evidence %j through as evidence_type %s", (words, expected) => {
+    const row: ConvergencePath = {
+      path_id: "ap-evidence",
+      damage: ["read"],
+      score: 10,
+      hop_count: 1,
+      hops: [],
+      ...words,
+    } as ConvergencePath
+    const [out] = convergencePathsToIdentityAttackPaths(jewel, [row])
+    expect(out.evidence_type).toBe(expected)
+  })
 })

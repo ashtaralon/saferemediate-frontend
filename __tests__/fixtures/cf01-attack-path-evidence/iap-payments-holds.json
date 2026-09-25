@@ -1,0 +1,54 @@
+{
+ "c1_unavailable": {
+  "body": {
+   "coverage": null,
+   "critical_paths": 0,
+   "crown_jewels": [],
+   "error": "503: Neo4j not connected",
+   "exposed_jewels": 0,
+   "graph_version": null,
+   "high_paths": 0,
+   "paths": [],
+   "semantic_status": "unavailable",
+   "source_generation": null,
+   "system_name": "payments",
+   "timestamp": "2026-09-25T12:48:43.511518+00:00",
+   "total_jewels": 0,
+   "total_paths": 0
+  },
+  "cache_control": null,
+  "status": 200
+ },
+ "install_not_recorded": {
+  "body": {
+   "coverage": null,
+   "graph_version": null,
+   "hold_reason": "CONSUMER_READINESS_UNOBSERVABLE",
+   "semantic_status": "not_recorded",
+   "source_generation": null
+  },
+  "cache_control": null,
+  "status": 200
+ },
+ "install_semantic_read_unavailable": {
+  "body": {
+   "detail": {
+    "code": "SEMANTIC_READ_UNAVAILABLE",
+    "error": "503: Neo4j not connected",
+    "reason": "READER_ERROR"
+   }
+  },
+  "cache_control": "no-store",
+  "status": 503
+ },
+ "install_serving_read_refused": {
+  "body": {
+   "detail": {
+    "code": "SERVING_READ_REFUSED",
+    "reason": "FACADE_READ_OUTSIDE_ADMISSION"
+   }
+  },
+  "cache_control": "no-store",
+  "status": 503
+ }
+}

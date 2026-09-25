@@ -12,6 +12,7 @@ import type {
 } from "@/components/identity-attack-paths/types"
 import type { CrownJewelConvergence } from "./convergence-types"
 import { convergencePathsToIdentityAttackPaths } from "./convergence-to-iap"
+import { iapHold, type IapHold } from "./path-evidence-view"
 
 export type JewelRailSource = "serve" | "iap_fallback" | "none"
 
@@ -107,4 +108,28 @@ export function shouldShowAttackPathsNotComputed(args: {
     !args.jewelsLoading &&
     !args.iapLoading
   )
+}
+
+/**
+ * The IAP hold to name on the crown-jewel rail, or null.
+ *
+ * Only when the rail's list could have come from the IAP (the SERVE catalog
+ * did not answer) and that list is empty: an empty IAP-sourced list beside a
+ * held / unavailable IAP body is "the server could not answer", never
+ * "No crown jewels detected". An answered SERVE catalog is its own truth.
+ */
+export function resolveRailIapHold(args: {
+  serveJewelsRaw: unknown
+  serveJewelsError: string | null | undefined
+  jewelsEmpty: boolean
+  iapBody: unknown
+}): IapHold | null {
+  if (isServeJewelsAuthoritative(args.serveJewelsRaw, args.serveJewelsError)) return null
+  if (!args.jewelsEmpty) return null
+  return iapHold(args.iapBody)
+}
+
+/** useCachedFetch `isCacheable` for the full IAP body: a hold is never a reading. */
+export function isIapBodyCacheable(body: unknown): boolean {
+  return iapHold(body) == null
 }
