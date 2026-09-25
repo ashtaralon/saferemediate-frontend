@@ -65,6 +65,18 @@ def test_capture_holds(aws, gated, monkeypatch):
     out["install_serving_read_refused"] = _record(
         TestClient(guard_app, raise_server_exceptions=False).get("/api/identity-attack-paths/payments"))
 
+    # 5. Install: a route the serving tier holds -> estate_read.held_route_refusal's typed 503.
+    from cyntro_data.semantic.estate_read import held_route_refusal
+
+    held_app = FastAPI()
+
+    @held_app.get("/api/identity-attack-paths/{system_name}")
+    def _held(system_name: str):
+        raise held_route_refusal()
+
+    out["install_serving_route_held"] = _record(
+        TestClient(held_app, raise_server_exceptions=False).get("/api/identity-attack-paths/payments"))
+
     for name, rec in out.items():
         assert t.A[1] not in json.dumps(rec) or name == "install_semantic_read_unavailable", name
     with open(os.environ["CYNTRO_HOLD_CAPTURE_OUT"], "w") as fh:

@@ -12,7 +12,7 @@
    "semantic_status": "unavailable",
    "source_generation": null,
    "system_name": "payments",
-   "timestamp": "2026-09-25T12:48:43.511518+00:00",
+   "timestamp": "2026-09-25T13:23:23.024393+00:00",
    "total_jewels": 0,
    "total_paths": 0
   },
@@ -46,6 +46,16 @@
    "detail": {
     "code": "SERVING_READ_REFUSED",
     "reason": "FACADE_READ_OUTSIDE_ADMISSION"
+   }
+  },
+  "cache_control": "no-store",
+  "status": 503
+ },
+ "install_serving_route_held": {
+  "body": {
+   "detail": {
+    "code": "SERVING_ROUTE_HELD",
+    "reason": "HELD_CUSTOMER_READ"
    }
   },
   "cache_control": "no-store",

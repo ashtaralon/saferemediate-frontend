@@ -189,13 +189,13 @@ describe("typed 503s", () => {
     return { get, upstream }
   }
 
-  it("SERVING_READ_REFUSED passes through as 503 even with a stale map in cache", async () => {
-    const { get, upstream } = await withStaleMap("install_serving_read_refused")
+  it.each(["install_serving_read_refused", "install_serving_route_held"])("%s passes through as 503 even with a stale map in cache", async (key) => {
+    const { get, upstream } = await withStaleMap(key)
     const refused = await get()
     expect(refused.status).toBe(503)
     expect(refused.headers.get("cache-control")).toBe("no-store")
     const body = await refused.json()
-    expect(body).toEqual(HOLDS.install_serving_read_refused.body)
+    expect(body).toEqual(HOLDS[key].body)
     expect(body.fromStaleCache).toBeUndefined()
     expect(JSON.stringify(body)).not.toContain("acme-data")
     // A typed answer is read once — no compute-in-progress retry.

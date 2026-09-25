@@ -39,16 +39,19 @@ What is SUBSTITUTED (labelled in the harness itself): the materialized rows are
 fixture rows (no graph is run), and the Estate gate's one pointer read is
 answered per scope by a monkeypatched `validated_inventory_generation`.
 
-## `iap-payments-holds.json` (1,170 B)
+## `iap-payments-holds.json` (1,360 B)
 
-Recipe: `capture_holds.py` (beside it). The route's four "I cannot tell you"
-answers, each exactly as a FastAPI `TestClient` received it:
+Recipe: `capture_holds.py` (beside it). The route's five "I cannot tell you"
+answers, each exactly as a FastAPI `TestClient` received it (re-captured on
+2026-09-25 to add the fifth; the other four came back identical apart from the
+C1 body's `timestamp`):
 
 | key | status | produced by |
 |---|---|---|
 | `install_not_recorded` | 200 | real gated router, `CYNTRO_SERVING_READ_GUARD=enforce`, `beta` never published → `semantic_status: not_recorded`, `hold_reason: CONSUMER_READINESS_UNOBSERVABLE` |
 | `c1_unavailable` | 200 | real gated router, guard off (C1 legacy mode), same scope → `error` + `semantic_status: unavailable` |
 | `install_semantic_read_unavailable` | 503 | `cyntro_data.semantic.estate_read.finish_estate_read` in enforce mode, given the backend test's own failed-reader body (`{"error": "503: Neo4j not connected", "paths": [], "crown_jewels": []}`) inside a one-route FastAPI app |
+| `install_serving_route_held` | 503 | `cyntro_data.semantic.estate_read.held_route_refusal()` raised from a one-route FastAPI app → `SERVING_ROUTE_HELD: HELD_CUSTOMER_READ` |
 | `install_serving_read_refused` | 503 | `cyntro_data.semantic.serving_read_guard.check_read(mode=ENFORCE, caller_resolver=lambda: "api/identity_attack_paths.py")` behind the guard's own `_RefusedReadResponse` middleware → `FACADE_READ_OUTSIDE_ADMISSION` |
 
 The `error` string in `c1_unavailable` is what the harness's router said when it

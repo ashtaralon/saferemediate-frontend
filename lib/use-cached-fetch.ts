@@ -1,6 +1,12 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
+import {
+  semanticHoldMessage,
+  semanticStatusHold,
+  typedServingRefusal,
+  type SemanticHold,
+} from "@/lib/semantic-hold"
 import { TRANSIENT_STATUSES } from "@/lib/transient-retry"
 
 /**
@@ -22,6 +28,13 @@ import { TRANSIENT_STATUSES } from "@/lib/transient-retry"
  *      localStorage entry with the new value.
  *   4. If the fetch fails, keep the stale data shown (no error flash).
  *      Only surface an error when there's no cached data at all.
+ *   5. EXCEPT when the server answers on purpose that this read is not
+ *      served (lib/semantic-hold): a typed 503 refusal
+ *      (`SERVING_READ_REFUSED` / `SERVING_ROUTE_HELD`) or a 200 hold
+ *      (`semantic_status: not_recorded | unavailable`). Then the cached entry
+ *      for this key is dropped, `data` is null, `error` and `hold` name the
+ *      server's answer, and nothing is written. A cached map must never stand
+ *      in for a refusal. Untyped 5xx / timeouts keep rule 4 unchanged.
  *
  * Cache key derivation: caller provides a stable string. Cache value
  * is stored as { ts: number, data: T } so we know when it was written.
@@ -136,8 +149,12 @@ export interface UseCachedFetchResult<T> {
    * so callers can poll — never blank the UI for a peer lock.
    */
   isComputing: boolean
-  /** Surfaced ONLY when there's no cached fallback to show. */
+  /** Surfaced ONLY when there's no cached fallback to show — or when the
+   *  server refused / held the read (see `hold`), which no cache may mask. */
   error: string | null
+  /** The server's typed refusal or hold for this read, verbatim (kind +
+   *  reason). Null otherwise. When set, `data` is null and `error` is set. */
+  hold: SemanticHold | null
   /** Manual re-fetch. */
   retry: () => void
 }
@@ -284,6 +301,15 @@ function readCacheAny<T>(
   return readCache<T>(key, FALLBACK_HARD_CAP_MS, isCacheable)
 }
 
+/** A failed response's JSON body, or null — never throws. */
+async function readJsonQuietly(res: Response): Promise<unknown> {
+  try {
+    return typeof res.json === "function" ? await res.json() : null
+  } catch {
+    return null
+  }
+}
+
 export function clearCachedFetch(key: string): void {
   if (typeof window === "undefined") return
   try {
@@ -342,6 +368,7 @@ export function useCachedFetch<T = unknown>(
   const [loading, setLoading] = useState<boolean>(initial === null && !!url)
   const [isComputing, setIsComputing] = useState<boolean>(false)
   const [error, setError] = useState<string | null>(null)
+  const [hold, setHold] = useState<SemanticHold | null>(null)
   const [staleReason, setStaleReason] = useState<string | null>(
     initial !== null && fresh === null ? STALE_AGED_OUT : null,
   )
@@ -417,6 +444,7 @@ export function useCachedFetch<T = unknown>(
     setLoading(nextInitial === null && !!url)
     setIsComputing(false)
     setError(null)
+    setHold(null)
     // The new key is a different question; any retry pending for the old one
     // must not fire against it.
     clearAutoRetry()
@@ -443,19 +471,45 @@ export function useCachedFetch<T = unknown>(
     const TRANSIENT = TRANSIENT_STATUSES
     const maxAttempts = 1 + Math.max(0, transientRetries)
 
+    // The server answered, on purpose, that this read is not served. Drop
+    // what we hold for this key and say so — never keep a cached map over it.
+    const failClosedForHold = (h: SemanticHold) => {
+      clearCachedFetch(cacheKey)
+      setData(null)
+      setIsStale(false)
+      setCachedAt(null)
+      setStaleReason(null)
+      setIsComputing(false)
+      setHold(h)
+      setError(semanticHoldMessage(h))
+      setLoading(false)
+      clearAutoRetry()
+    }
+
     try {
       let res: Response | null = null
+      let failBody: unknown = null
       for (let attempt = 0; attempt < maxAttempts; attempt++) {
         if (myEpoch !== epochRef.current) return
         res = await fetch(url, { ...fetchInit })
         if (myEpoch !== epochRef.current) return
         if (res.ok) break
+        failBody = await readJsonQuietly(res)
+        if (myEpoch !== epochRef.current) return
+        // A typed refusal is an answer, not a blip: never retried.
+        if (typedServingRefusal(failBody)) break
         if (!TRANSIENT.has(res.status) || attempt === maxAttempts - 1) break
         // Cold Render / Vercel 504 — wait then retry; wake+snapshot often lands.
         await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)))
       }
       if (!res) return
       if (!res.ok) {
+        const refusal = typedServingRefusal(failBody)
+        if (refusal) {
+          failClosedForHold(refusal)
+          return
+        }
+        setHold(null)
         // TRANSPORT vs SEMANTIC. A 502/504 says the backend is unreachable;
         // it says nothing about whether the cached reading is still true. A
         // 4xx is the backend answering authoritatively that it is not.
@@ -536,6 +590,14 @@ export function useCachedFetch<T = unknown>(
         )
       }
       const sanitized = cleaned as T
+      // A 200 hold is a status report, not a reading: never cached, never
+      // shown as data, and it evicts whatever this key held before.
+      const statusHold = semanticStatusHold(sanitized)
+      if (statusHold) {
+        failClosedForHold(statusHold)
+        return
+      }
+      setHold(null)
       // Wave D computing envelopes are HTTP 200 with null payloads — never
       // write them into client cache or Estate Map sticks on "No system_kpis".
       const envelope = sanitized as { status?: string; system_kpis?: unknown }
@@ -693,5 +755,5 @@ export function useCachedFetch<T = unknown>(
     fetchFresh()
   }, [fetchFresh, clearAutoRetry])
 
-  return { data, isStale, cachedAt, staleReason, loading, isComputing, error, retry }
+  return { data, isStale, cachedAt, staleReason, loading, isComputing, error, hold, retry }
 }
