@@ -59,6 +59,27 @@ const COPY: Record<string, Copy> = {
   ROLE_IDENTITY_AMBIGUOUS: { title: "This role reference matches more than one role" },
   ROLE_IDENTITY_CONFLICT: { title: "This role's identity changed during the review" },
   ROLE_REFERENCE_REQUIRED: { title: "A valid role name or ARN is required" },
+  // Install holds: a typed hold is not an empty answer and says nothing about this role.
+  SERVING_ROUTE_HELD: {
+    title: "This view is held on this deployment",
+    body: `The backend serves this read only through its semantic read model, which is not serving it yet, so nothing was read. A hold is not an empty result. ${DEPLOYMENT_PREREQUISITE}`,
+  },
+  CONSUMER_READINESS_UNOBSERVABLE: {
+    title: "This organization's data readiness could not be confirmed",
+    body: `The backend could not confirm that this organization's data is ready to serve, so nothing was read. ${DEPLOYMENT_PREREQUISITE}`,
+  },
+  CONSUMER_NOT_READY: {
+    title: "This organization's data is not ready to serve yet",
+    body: `Collection or activation has not completed for this organization, so nothing was read. ${DEPLOYMENT_PREREQUISITE}`,
+  },
+  REVIEW_GRAPH_UNAVAILABLE: {
+    title: "Permission data is unavailable right now",
+    body: "The backend could not read the permission data for this role. Nothing partial is shown. Retry shortly.",
+  },
+  GAP_ANALYSIS_BUDGET_EXHAUSTED: {
+    title: "Permission detail could not be completed in time",
+    body: "The review ran out of its time budget. No partial counts are shown. Retry shortly.",
+  },
 }
 
 /** The auth boundary's pre-routing 401 carries only this string, no code. */

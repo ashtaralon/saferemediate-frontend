@@ -19,6 +19,7 @@ import {
 } from "@/components/override-modal-shared"
 import { ConfidenceExplanationPanel } from "@/components/ConfidenceExplanationPanel"
 import { EnvelopeRequestError, fetchWithEnvelope } from "@/components/trust/use-trust-envelope"
+import { DecisionAuthorityPanel } from "@/components/lp-decision-authority-panel"
 import { TrustEnvelopeBadge, type Provenance } from "@/components/trust/trust-envelope-badge"
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert"
 import type {
@@ -482,6 +483,8 @@ interface GapAnalysisData {
     high_risk_unused_count?: number
   }
   permissions_analysis: PermissionAnalysis[]
+  /** Backend `decision_authority` (lp-decision-authority/v1), passed through unmodified. */
+  decision_authority?: unknown
   used_permissions: string[]
   unused_permissions: string[]
   high_risk_unused: string[]
@@ -1058,6 +1061,8 @@ export function IAMPermissionAnalysisModal({
   const [confidenceScore, setConfidenceScore] = useState<ConfidenceScore | null>(null)
   const [confidenceLoading, setConfidenceLoading] = useState(false)
   const [provenance, setProvenance] = useState<Provenance | null>(null)
+  // The Preview's decision_authority from the same simulate-fix snapshot; undefined until a Preview ran.
+  const [previewDecisionAuthority, setPreviewDecisionAuthority] = useState<unknown>(undefined)
   // Pipeline safety context from simulate-fix. When populated this is the
   // AUTHORITATIVE decision source — Agent 5 (confidenceScore) is merely
   // an explainer subordinate to it. See Layer 1/2 in backend.
@@ -1298,6 +1303,7 @@ export function IAMPermissionAnalysisModal({
           : null,
       )
       setPreviewProblem(data?.problem ?? null)
+      setPreviewDecisionAuthority(data?.decision_authority ?? null)
       const observedDays = data?.evidence?.observation_window_days ?? data?.safety?.observation_days
       setPreviewObservationDays(typeof observedDays === 'number' ? observedDays : null)
       setDecisionPersistence(data?.decision_persistence ?? null)
@@ -1445,6 +1451,7 @@ export function IAMPermissionAnalysisModal({
         observation_window: rawData.observation_window ?? null,
         // Backend remediability contract — consumed by the mutation gate below.
         is_remediable: rawData.is_remediable,
+        decision_authority: rawData.decision_authority ?? null,
         remediable_reason: rawData.remediable_reason,
         reason: rawData.reason ?? null,
         summary: {
@@ -4940,6 +4947,10 @@ export function IAMPermissionAnalysisModal({
               </button>
             ))}
           </div>
+
+          {analysisTab === 'summary' && gapData && (
+            <DecisionAuthorityPanel review={gapData.decision_authority} preview={previewDecisionAuthority} />
+          )}
 
           {(analysisTab === 'summary' || analysisTab === 'permissions') && safetyLoading && (
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-5" data-testid="permission-snapshot-loading">
