@@ -380,6 +380,12 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
       setError(null)
       setStage("remediation")
 
+      const LP_LEGACY_REMEDIATE_ENABLED = false
+      if (!LP_LEGACY_REMEDIATE_ENABLED) {
+        setError("Apply is disabled until installed recovery is proven")
+        setLoading(false)
+        return
+      }
       try {
         const data = await apiCall("POST", "/api/proxy/cyntro/remediate", {
           role_name: selectedRole,

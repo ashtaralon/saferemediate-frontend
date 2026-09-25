@@ -255,3 +255,8 @@ export function useAccountScope(): AccountScopeContextValue {
   if (!context) throw new Error("useAccountScope must be used within AccountScopeProvider")
   return context
 }
+
+/** The scope when a provider is mounted, else null. For components also rendered outside the app shell. */
+export function useOptionalAccountScope(): AccountScopeContextValue | null {
+  return useContext(AccountScopeContext)
+}
