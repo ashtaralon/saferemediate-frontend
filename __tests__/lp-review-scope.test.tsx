@@ -121,6 +121,13 @@ describe("IAM Permissions modal Review request carries the scope claims", () => 
       />,
     )
     await waitFor(() => expect(gapCalls(fetchMock).length).toBeGreaterThan(0))
+    for (const raw of fetchMock.mock.calls.map((call) => String((call as unknown[])[0])).filter((url) => url.includes("/gap-analysis"))) {
+      // The helper's leading '&' joins the modal's existing `?days=365...` query exactly once.
+      expect(raw.split("?")).toHaveLength(2)
+      expect(raw).not.toContain("&&")
+      // fetchWithEnvelope then appends its own `&envelope=true`; the whole real URL is pinned.
+      expect(raw).toBe("/api/proxy/iam-roles/shared-role/gap-analysis?days=365&customer_id=cust-b&account_id=222222222222&envelope=true")
+    }
     for (const sent of gapCalls(fetchMock)) {
       expect(sent.get("customer_id")).toBe("cust-b")
       expect(sent.get("account_id")).toBe(ACCOUNT_B)

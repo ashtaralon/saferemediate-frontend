@@ -24,6 +24,7 @@ import { NextRequest } from "next/server"
 import { GET as reviewGET } from "@/app/api/proxy/iam-roles/[roleName]/gap-analysis/route"
 import { GET as issuesGET } from "@/app/api/proxy/least-privilege/issues/route"
 import { installCustomerBackendAuthFetch } from "@/lib/server/customer-backend-auth"
+import { reviewClaimsQuery } from "@/lib/lp-review-scope"
 
 const BASE = process.env.LP_PREVIEW_CHAIN_BACKEND_URL ?? ""
 const TOKEN = process.env.LP_PREVIEW_CHAIN_TOKEN ?? ""
@@ -160,6 +161,66 @@ run("LP Preview through the FE proxy against the backend chain (real HTTP)", () 
     const wrong = await issues()
     expect(wrong.status).toBe(401)
     expect(wrong.body.resources).toBeUndefined()
+  })
+
+  // The IAM Permissions modal's own assembly: `?days=365${refreshParam}${reviewClaimsQuery(roleArn, customer)}`.
+  // The role ARN is client data; it only becomes an account CLAIM, and the backend's binding decides.
+  it("the modal's assembled Review URL: own ARN served, foreign ARN refused, absent claims get only this tenant", async () => {
+    useToken(TOKEN)
+    const own = "arn:aws:iam::111111111111:role/fixture-shared-name-role"
+    const foreign = "arn:aws:iam::333333333333:role/fixture-shared-name-role"
+    const cases: [string | null, string | null, number][] = [
+      [own, "fixture-webshop", 200],
+      [foreign, "fixture-webshop", 403],
+      [foreign, null, 403],
+      [null, "fixture-neighbour-co", 403],
+      [null, null, 200],
+      ["not-an-arn", null, 200],
+    ]
+    for (const [arn, customer, status] of cases) {
+      for (const refreshParam of ["", "&refresh=true"]) {
+        const query = `${refreshParam}${reviewClaimsQuery(arn, customer)}`
+        const a = await review("fixture-shared-name-role", query)
+        expect(a.status, JSON.stringify({ arn, customer, refreshParam, body: a.body })).toBe(status)
+        if (status === 200) expect(a.body.role_arn).toBe(own)
+        else {
+          expect(a.body.detail.code).toBe("REVIEW_SCOPE_MISMATCH")
+          expect(a.body.summary).toBeUndefined()
+        }
+        expect(JSON.stringify(a.body)).not.toContain("333333333333:role")
+      }
+    }
+  })
+
+  it("server-owned scope unavailable or contradictory: typed backend refusal through both proxies, never a default tenant", async () => {
+    useToken(TOKEN)
+    const cases: [string, number, string][] = [
+      ["drop-tenant-pin", 503, "REVIEW_SCOPE_UNAVAILABLE"],
+      ["drop-account-pin", 503, "REVIEW_SCOPE_UNAVAILABLE"],
+      ["tenant-pins-disagree", 403, "REVIEW_SCOPE_MISMATCH"],
+    ]
+    try {
+      for (const [change, status, code] of cases) {
+        const switched = await originalFetch(`${BASE}/api/__fixture/scope/${change}`, { method: "POST", headers: { "X-Cyntro-Service-Token": TOKEN } })
+        expect(switched.status).toBe(200)
+        for (const claims of ["", reviewClaimsQuery("arn:aws:iam::111111111111:role/fixture-shared-name-role", "fixture-webshop")]) {
+          const a = await review("fixture-shared-name-role", claims)
+          expect(a.status, `${change} ${claims}`).toBe(status)
+          expect(a.origin).toBe("backend")
+          expect(a.body.detail.code).toBe(code)
+          expect(a.body.summary).toBeUndefined()
+          const list = await read(await issuesGET(new NextRequest(
+            `http://localhost/api/proxy/least-privilege/issues?systemName=fixture-shop&force_refresh=true${claims}`)))
+          expect(list.status, `${change} list ${claims}`).toBe(status)
+          expect(list.body.resources).toBeUndefined()
+          expect(JSON.stringify(list.body)).not.toContain("fixture-neighbour-co")
+        }
+      }
+    } finally {
+      await originalFetch(`${BASE}/api/__fixture/scope/restore`, { method: "POST", headers: { "X-Cyntro-Service-Token": TOKEN } })
+    }
+    const restored = await review("fixture-shared-name-role")
+    expect(restored.status).toBe(200)
   })
 
   it("zz: an unavailable graph: the LP list keeps the backend's 503 and its typed code", async () => {
