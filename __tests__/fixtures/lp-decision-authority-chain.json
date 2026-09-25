@@ -1,5 +1,5 @@
 {
-  "_source": "captured from preview_chain.py --lp-decision-coverage at backend 1b8a487a966432689fb81ef476a9c2e4bc15d482 (labelled fixture tenant; real publisher, real routes)",
+  "_source": "captured from preview_chain.py --lp-decision-coverage at backend 441a0710f63db4b05755fe53334dd5a8cea9dbe6 (labelled fixture tenant; real publisher, real routes)",
   "empty": {
     "actions": [],
     "authority": "DECISION_GRADE",
@@ -19,8 +19,8 @@
     "decisions_outside_configuration": 0,
     "detail": "",
     "publication": {
-      "attempt": "dee2e98947994960afb75d2e910fd33d",
-      "published_at": "2026-09-25T13:36:00+00:00"
+      "attempt": "f0456acff8f04f23883b2317716a704f",
+      "published_at": "2026-09-25T16:22:41+00:00"
     },
     "reason": null,
     "receipt": {
@@ -73,11 +73,65 @@
         "as_of": "2026-09-20T12:00:00+00:00",
         "corroboration_state": "NOT_EVALUATED",
         "coverage_state": "COMPLETE",
-        "decision_hash": "v1:2fb5a46a70bd51836a8cfa8be20508b56cbc95d2447739baada2d80af7911580",
+        "decision_hash": "v1:be1e22171970a8e55f06aaa9448fd1edbe505d1cb6eb651f5f1b6bc24d1f1b15",
         "eligibility_state": "ELIGIBLE",
+        "layers": [
+          {
+            "layer": "IDENTITY_POLICY",
+            "reason": "",
+            "verdict": "GRANT"
+          },
+          {
+            "layer": "PERMISSIONS_BOUNDARY",
+            "reason": "ROLE_NOT_COMMITTED",
+            "verdict": "UNKNOWN"
+          },
+          {
+            "layer": "RESOURCE_POLICY",
+            "reason": "SERVICE_NOT_CATALOGUED:dynamodb",
+            "verdict": "UNKNOWN"
+          },
+          {
+            "layer": "SCP_RCP",
+            "reason": "ORGANIZATION_CONTEXT_NOT_COMMITTED",
+            "verdict": "UNKNOWN"
+          },
+          {
+            "layer": "SERVICE_SPECIFIC",
+            "reason": "REGION_COVERAGE_UNPROVEN",
+            "verdict": "UNKNOWN"
+          },
+          {
+            "layer": "SESSION_POLICY",
+            "reason": "SESSION_EVIDENCE_NOT_ACQUIRED",
+            "verdict": "UNKNOWN"
+          }
+        ],
         "reason": null,
         "removal_verdict": "LAYER_UNKNOWN",
         "state": "DECISION_ACTIVE",
+        "unknown_layers": [
+          {
+            "layer": "PERMISSIONS_BOUNDARY",
+            "reason": "ROLE_NOT_COMMITTED"
+          },
+          {
+            "layer": "RESOURCE_POLICY",
+            "reason": "SERVICE_NOT_CATALOGUED:dynamodb"
+          },
+          {
+            "layer": "SCP_RCP",
+            "reason": "ORGANIZATION_CONTEXT_NOT_COMMITTED"
+          },
+          {
+            "layer": "SERVICE_SPECIFIC",
+            "reason": "REGION_COVERAGE_UNPROVEN"
+          },
+          {
+            "layer": "SESSION_POLICY",
+            "reason": "SESSION_EVIDENCE_NOT_ACQUIRED"
+          }
+        ],
         "usage_state": "NOT_OBSERVED"
       },
       {
@@ -85,11 +139,65 @@
         "as_of": "2026-09-20T12:00:00+00:00",
         "corroboration_state": "NOT_EVALUATED",
         "coverage_state": "COMPLETE",
-        "decision_hash": "v1:306d7030bead9f6edd5adfb166ee945a13703cba3c9aee5d9653dd606c8810ca",
+        "decision_hash": "v1:9392e19bd85a966d3c2d15b77deca74baa2f5ce62527765934e6507e3d0e6251",
         "eligibility_state": "ELIGIBLE",
+        "layers": [
+          {
+            "layer": "IDENTITY_POLICY",
+            "reason": "",
+            "verdict": "GRANT"
+          },
+          {
+            "layer": "PERMISSIONS_BOUNDARY",
+            "reason": "ROLE_NOT_COMMITTED",
+            "verdict": "UNKNOWN"
+          },
+          {
+            "layer": "RESOURCE_POLICY",
+            "reason": "SERVICE_NOT_CATALOGUED:dynamodb",
+            "verdict": "UNKNOWN"
+          },
+          {
+            "layer": "SCP_RCP",
+            "reason": "ORGANIZATION_CONTEXT_NOT_COMMITTED",
+            "verdict": "UNKNOWN"
+          },
+          {
+            "layer": "SERVICE_SPECIFIC",
+            "reason": "REGION_COVERAGE_UNPROVEN",
+            "verdict": "UNKNOWN"
+          },
+          {
+            "layer": "SESSION_POLICY",
+            "reason": "SESSION_EVIDENCE_NOT_ACQUIRED",
+            "verdict": "UNKNOWN"
+          }
+        ],
         "reason": null,
         "removal_verdict": "LAYER_UNKNOWN",
         "state": "DECISION_ACTIVE",
+        "unknown_layers": [
+          {
+            "layer": "PERMISSIONS_BOUNDARY",
+            "reason": "ROLE_NOT_COMMITTED"
+          },
+          {
+            "layer": "RESOURCE_POLICY",
+            "reason": "SERVICE_NOT_CATALOGUED:dynamodb"
+          },
+          {
+            "layer": "SCP_RCP",
+            "reason": "ORGANIZATION_CONTEXT_NOT_COMMITTED"
+          },
+          {
+            "layer": "SERVICE_SPECIFIC",
+            "reason": "REGION_COVERAGE_UNPROVEN"
+          },
+          {
+            "layer": "SESSION_POLICY",
+            "reason": "SESSION_EVIDENCE_NOT_ACQUIRED"
+          }
+        ],
         "usage_state": "NOT_OBSERVED"
       },
       {
@@ -97,11 +205,65 @@
         "as_of": "2026-09-20T12:00:00+00:00",
         "corroboration_state": "NOT_EVALUATED",
         "coverage_state": "COMPLETE",
-        "decision_hash": "v1:6d6bebf88e920366146f017f0cfa10f0db3690ae4f485c4e6e314430feffbafa",
+        "decision_hash": "v1:c125d09192ad689f4a14371339f5f0d4982b2f603e069a8c54bf09ff1a3e6bb0",
         "eligibility_state": "ELIGIBLE",
+        "layers": [
+          {
+            "layer": "IDENTITY_POLICY",
+            "reason": "",
+            "verdict": "GRANT"
+          },
+          {
+            "layer": "PERMISSIONS_BOUNDARY",
+            "reason": "ROLE_NOT_COMMITTED",
+            "verdict": "UNKNOWN"
+          },
+          {
+            "layer": "RESOURCE_POLICY",
+            "reason": "SERVICE_NOT_CATALOGUED:dynamodb",
+            "verdict": "UNKNOWN"
+          },
+          {
+            "layer": "SCP_RCP",
+            "reason": "ORGANIZATION_CONTEXT_NOT_COMMITTED",
+            "verdict": "UNKNOWN"
+          },
+          {
+            "layer": "SERVICE_SPECIFIC",
+            "reason": "REGION_COVERAGE_UNPROVEN",
+            "verdict": "UNKNOWN"
+          },
+          {
+            "layer": "SESSION_POLICY",
+            "reason": "SESSION_EVIDENCE_NOT_ACQUIRED",
+            "verdict": "UNKNOWN"
+          }
+        ],
         "reason": null,
         "removal_verdict": "LAYER_UNKNOWN",
         "state": "DECISION_ACTIVE",
+        "unknown_layers": [
+          {
+            "layer": "PERMISSIONS_BOUNDARY",
+            "reason": "ROLE_NOT_COMMITTED"
+          },
+          {
+            "layer": "RESOURCE_POLICY",
+            "reason": "SERVICE_NOT_CATALOGUED:dynamodb"
+          },
+          {
+            "layer": "SCP_RCP",
+            "reason": "ORGANIZATION_CONTEXT_NOT_COMMITTED"
+          },
+          {
+            "layer": "SERVICE_SPECIFIC",
+            "reason": "REGION_COVERAGE_UNPROVEN"
+          },
+          {
+            "layer": "SESSION_POLICY",
+            "reason": "SESSION_EVIDENCE_NOT_ACQUIRED"
+          }
+        ],
         "usage_state": "NOT_OBSERVED"
       },
       {
@@ -109,11 +271,61 @@
         "as_of": "2026-09-20T12:00:00+00:00",
         "corroboration_state": "NOT_EVALUATED",
         "coverage_state": "COMPLETE",
-        "decision_hash": "v1:0bd97005d7ae3d2cba473ff42a5c9088230a5cd93781d19de1355b3e1976d7e9",
+        "decision_hash": "v1:9d4e9fdfb68c4d2018a964d3ca1261fed8d851394a729b8f2d4271e9ff9bde61",
         "eligibility_state": "ELIGIBLE",
+        "layers": [
+          {
+            "layer": "IDENTITY_POLICY",
+            "reason": "",
+            "verdict": "GRANT"
+          },
+          {
+            "layer": "PERMISSIONS_BOUNDARY",
+            "reason": "ROLE_NOT_COMMITTED",
+            "verdict": "UNKNOWN"
+          },
+          {
+            "layer": "RESOURCE_POLICY",
+            "reason": "",
+            "verdict": "NOT_APPLICABLE"
+          },
+          {
+            "layer": "SCP_RCP",
+            "reason": "ORGANIZATION_CONTEXT_NOT_COMMITTED",
+            "verdict": "UNKNOWN"
+          },
+          {
+            "layer": "SERVICE_SPECIFIC",
+            "reason": "REGION_COVERAGE_UNPROVEN",
+            "verdict": "UNKNOWN"
+          },
+          {
+            "layer": "SESSION_POLICY",
+            "reason": "SESSION_EVIDENCE_NOT_ACQUIRED",
+            "verdict": "UNKNOWN"
+          }
+        ],
         "reason": null,
         "removal_verdict": "LAYER_UNKNOWN",
         "state": "DECISION_ACTIVE",
+        "unknown_layers": [
+          {
+            "layer": "PERMISSIONS_BOUNDARY",
+            "reason": "ROLE_NOT_COMMITTED"
+          },
+          {
+            "layer": "SCP_RCP",
+            "reason": "ORGANIZATION_CONTEXT_NOT_COMMITTED"
+          },
+          {
+            "layer": "SERVICE_SPECIFIC",
+            "reason": "REGION_COVERAGE_UNPROVEN"
+          },
+          {
+            "layer": "SESSION_POLICY",
+            "reason": "SESSION_EVIDENCE_NOT_ACQUIRED"
+          }
+        ],
         "usage_state": "NOT_OBSERVED"
       },
       {
@@ -121,11 +333,65 @@
         "as_of": "2026-09-20T12:00:00+00:00",
         "corroboration_state": "NOT_EVALUATED",
         "coverage_state": "COMPLETE",
-        "decision_hash": "v1:a79d3bf941c4d73500b526f352a360e80146eb2a885ee697ec146b781289bd43",
+        "decision_hash": "v1:9b2476b3adba16cf9fbcdcb76836788fb76c7a082d647c75f66c8bcb50a2d542",
         "eligibility_state": "ELIGIBLE",
+        "layers": [
+          {
+            "layer": "IDENTITY_POLICY",
+            "reason": "",
+            "verdict": "GRANT"
+          },
+          {
+            "layer": "PERMISSIONS_BOUNDARY",
+            "reason": "ROLE_NOT_COMMITTED",
+            "verdict": "UNKNOWN"
+          },
+          {
+            "layer": "RESOURCE_POLICY",
+            "reason": "REGION_COVERAGE_UNPROVEN",
+            "verdict": "UNKNOWN"
+          },
+          {
+            "layer": "SCP_RCP",
+            "reason": "ORGANIZATION_CONTEXT_NOT_COMMITTED",
+            "verdict": "UNKNOWN"
+          },
+          {
+            "layer": "SERVICE_SPECIFIC",
+            "reason": "REGION_COVERAGE_UNPROVEN",
+            "verdict": "UNKNOWN"
+          },
+          {
+            "layer": "SESSION_POLICY",
+            "reason": "SESSION_EVIDENCE_NOT_ACQUIRED",
+            "verdict": "UNKNOWN"
+          }
+        ],
         "reason": null,
         "removal_verdict": "LAYER_UNKNOWN",
         "state": "DECISION_ACTIVE",
+        "unknown_layers": [
+          {
+            "layer": "PERMISSIONS_BOUNDARY",
+            "reason": "ROLE_NOT_COMMITTED"
+          },
+          {
+            "layer": "RESOURCE_POLICY",
+            "reason": "REGION_COVERAGE_UNPROVEN"
+          },
+          {
+            "layer": "SCP_RCP",
+            "reason": "ORGANIZATION_CONTEXT_NOT_COMMITTED"
+          },
+          {
+            "layer": "SERVICE_SPECIFIC",
+            "reason": "REGION_COVERAGE_UNPROVEN"
+          },
+          {
+            "layer": "SESSION_POLICY",
+            "reason": "SESSION_EVIDENCE_NOT_ACQUIRED"
+          }
+        ],
         "usage_state": "NOT_OBSERVED"
       },
       {
@@ -133,11 +399,65 @@
         "as_of": "2026-09-20T12:00:00+00:00",
         "corroboration_state": "NOT_EVALUATED",
         "coverage_state": "COMPLETE",
-        "decision_hash": "v1:74c7b3b826d915d6af48677d75443cf474ef4f637dff1e3d1a60d16e608a9010",
+        "decision_hash": "v1:d3a02636e63b4cff8bc9b4797ff7e9d9f850dad95cb8cb9b5ec9f85414cb84ec",
         "eligibility_state": "ELIGIBLE",
+        "layers": [
+          {
+            "layer": "IDENTITY_POLICY",
+            "reason": "",
+            "verdict": "GRANT"
+          },
+          {
+            "layer": "PERMISSIONS_BOUNDARY",
+            "reason": "ROLE_NOT_COMMITTED",
+            "verdict": "UNKNOWN"
+          },
+          {
+            "layer": "RESOURCE_POLICY",
+            "reason": "REGION_COVERAGE_UNPROVEN",
+            "verdict": "UNKNOWN"
+          },
+          {
+            "layer": "SCP_RCP",
+            "reason": "ORGANIZATION_CONTEXT_NOT_COMMITTED",
+            "verdict": "UNKNOWN"
+          },
+          {
+            "layer": "SERVICE_SPECIFIC",
+            "reason": "REGION_COVERAGE_UNPROVEN",
+            "verdict": "UNKNOWN"
+          },
+          {
+            "layer": "SESSION_POLICY",
+            "reason": "SESSION_EVIDENCE_NOT_ACQUIRED",
+            "verdict": "UNKNOWN"
+          }
+        ],
         "reason": null,
         "removal_verdict": "LAYER_UNKNOWN",
         "state": "DECISION_ACTIVE",
+        "unknown_layers": [
+          {
+            "layer": "PERMISSIONS_BOUNDARY",
+            "reason": "ROLE_NOT_COMMITTED"
+          },
+          {
+            "layer": "RESOURCE_POLICY",
+            "reason": "REGION_COVERAGE_UNPROVEN"
+          },
+          {
+            "layer": "SCP_RCP",
+            "reason": "ORGANIZATION_CONTEXT_NOT_COMMITTED"
+          },
+          {
+            "layer": "SERVICE_SPECIFIC",
+            "reason": "REGION_COVERAGE_UNPROVEN"
+          },
+          {
+            "layer": "SESSION_POLICY",
+            "reason": "SESSION_EVIDENCE_NOT_ACQUIRED"
+          }
+        ],
         "usage_state": "NOT_OBSERVED"
       },
       {
@@ -145,11 +465,65 @@
         "as_of": "2026-09-20T12:00:00+00:00",
         "corroboration_state": "NOT_EVALUATED",
         "coverage_state": "COMPLETE",
-        "decision_hash": "v1:219fc0ff62a47302c04986dad3b6fe5dec2bc6f466cbc7ae6172e0e4c6891863",
+        "decision_hash": "v1:1022824ab919406471e6b31c49aef3b138ab40eef4747ee46f20f0661700535b",
         "eligibility_state": "PROTECTED",
+        "layers": [
+          {
+            "layer": "IDENTITY_POLICY",
+            "reason": "",
+            "verdict": "GRANT"
+          },
+          {
+            "layer": "PERMISSIONS_BOUNDARY",
+            "reason": "ROLE_NOT_COMMITTED",
+            "verdict": "UNKNOWN"
+          },
+          {
+            "layer": "RESOURCE_POLICY",
+            "reason": "SCOPE_NOT_COLLECTED:s3:bucket-authorization@global",
+            "verdict": "UNKNOWN"
+          },
+          {
+            "layer": "SCP_RCP",
+            "reason": "ORGANIZATION_CONTEXT_NOT_COMMITTED",
+            "verdict": "UNKNOWN"
+          },
+          {
+            "layer": "SERVICE_SPECIFIC",
+            "reason": "REGION_COVERAGE_UNPROVEN",
+            "verdict": "UNKNOWN"
+          },
+          {
+            "layer": "SESSION_POLICY",
+            "reason": "SESSION_EVIDENCE_NOT_ACQUIRED",
+            "verdict": "UNKNOWN"
+          }
+        ],
         "reason": null,
         "removal_verdict": "IN_USE",
         "state": "DECISION_ACTIVE",
+        "unknown_layers": [
+          {
+            "layer": "PERMISSIONS_BOUNDARY",
+            "reason": "ROLE_NOT_COMMITTED"
+          },
+          {
+            "layer": "RESOURCE_POLICY",
+            "reason": "SCOPE_NOT_COLLECTED:s3:bucket-authorization@global"
+          },
+          {
+            "layer": "SCP_RCP",
+            "reason": "ORGANIZATION_CONTEXT_NOT_COMMITTED"
+          },
+          {
+            "layer": "SERVICE_SPECIFIC",
+            "reason": "REGION_COVERAGE_UNPROVEN"
+          },
+          {
+            "layer": "SESSION_POLICY",
+            "reason": "SESSION_EVIDENCE_NOT_ACQUIRED"
+          }
+        ],
         "usage_state": "SUCCESS_OBSERVED"
       },
       {
@@ -157,11 +531,65 @@
         "as_of": "2026-09-20T12:00:00+00:00",
         "corroboration_state": "NOT_EVALUATED",
         "coverage_state": "COMPLETE",
-        "decision_hash": "v1:64683caaebb62fd5de3307d6ac68a2120f32237b6f475f9475e555d908d4504f",
+        "decision_hash": "v1:dbe73e2cb99a78349223f18148262ad5af2342d10c9fe8d6607fda9280651ed0",
         "eligibility_state": "PROTECTED",
+        "layers": [
+          {
+            "layer": "IDENTITY_POLICY",
+            "reason": "",
+            "verdict": "GRANT"
+          },
+          {
+            "layer": "PERMISSIONS_BOUNDARY",
+            "reason": "ROLE_NOT_COMMITTED",
+            "verdict": "UNKNOWN"
+          },
+          {
+            "layer": "RESOURCE_POLICY",
+            "reason": "SCOPE_NOT_COLLECTED:s3:bucket-authorization@global",
+            "verdict": "UNKNOWN"
+          },
+          {
+            "layer": "SCP_RCP",
+            "reason": "ORGANIZATION_CONTEXT_NOT_COMMITTED",
+            "verdict": "UNKNOWN"
+          },
+          {
+            "layer": "SERVICE_SPECIFIC",
+            "reason": "REGION_COVERAGE_UNPROVEN",
+            "verdict": "UNKNOWN"
+          },
+          {
+            "layer": "SESSION_POLICY",
+            "reason": "SESSION_EVIDENCE_NOT_ACQUIRED",
+            "verdict": "UNKNOWN"
+          }
+        ],
         "reason": null,
         "removal_verdict": "IN_USE",
         "state": "DECISION_ACTIVE",
+        "unknown_layers": [
+          {
+            "layer": "PERMISSIONS_BOUNDARY",
+            "reason": "ROLE_NOT_COMMITTED"
+          },
+          {
+            "layer": "RESOURCE_POLICY",
+            "reason": "SCOPE_NOT_COLLECTED:s3:bucket-authorization@global"
+          },
+          {
+            "layer": "SCP_RCP",
+            "reason": "ORGANIZATION_CONTEXT_NOT_COMMITTED"
+          },
+          {
+            "layer": "SERVICE_SPECIFIC",
+            "reason": "REGION_COVERAGE_UNPROVEN"
+          },
+          {
+            "layer": "SESSION_POLICY",
+            "reason": "SESSION_EVIDENCE_NOT_ACQUIRED"
+          }
+        ],
         "usage_state": "SUCCESS_OBSERVED"
       },
       {
@@ -169,11 +597,65 @@
         "as_of": "2026-09-20T12:00:00+00:00",
         "corroboration_state": "NOT_EVALUATED",
         "coverage_state": "COMPLETE",
-        "decision_hash": "v1:e01b7f15a1d4212dc5a1e935e6af5ff38026a81f175ff49c3de66217f76d6198",
+        "decision_hash": "v1:36c26f7b52e21f65bd5de9c138c496af00cb35da3c36f613ce8446a35a2ef8ff",
         "eligibility_state": "PROTECTED",
+        "layers": [
+          {
+            "layer": "IDENTITY_POLICY",
+            "reason": "",
+            "verdict": "GRANT"
+          },
+          {
+            "layer": "PERMISSIONS_BOUNDARY",
+            "reason": "ROLE_NOT_COMMITTED",
+            "verdict": "UNKNOWN"
+          },
+          {
+            "layer": "RESOURCE_POLICY",
+            "reason": "SCOPE_NOT_COLLECTED:s3:bucket-authorization@global",
+            "verdict": "UNKNOWN"
+          },
+          {
+            "layer": "SCP_RCP",
+            "reason": "ORGANIZATION_CONTEXT_NOT_COMMITTED",
+            "verdict": "UNKNOWN"
+          },
+          {
+            "layer": "SERVICE_SPECIFIC",
+            "reason": "REGION_COVERAGE_UNPROVEN",
+            "verdict": "UNKNOWN"
+          },
+          {
+            "layer": "SESSION_POLICY",
+            "reason": "SESSION_EVIDENCE_NOT_ACQUIRED",
+            "verdict": "UNKNOWN"
+          }
+        ],
         "reason": null,
         "removal_verdict": "IN_USE",
         "state": "DECISION_ACTIVE",
+        "unknown_layers": [
+          {
+            "layer": "PERMISSIONS_BOUNDARY",
+            "reason": "ROLE_NOT_COMMITTED"
+          },
+          {
+            "layer": "RESOURCE_POLICY",
+            "reason": "SCOPE_NOT_COLLECTED:s3:bucket-authorization@global"
+          },
+          {
+            "layer": "SCP_RCP",
+            "reason": "ORGANIZATION_CONTEXT_NOT_COMMITTED"
+          },
+          {
+            "layer": "SERVICE_SPECIFIC",
+            "reason": "REGION_COVERAGE_UNPROVEN"
+          },
+          {
+            "layer": "SESSION_POLICY",
+            "reason": "SESSION_EVIDENCE_NOT_ACQUIRED"
+          }
+        ],
         "usage_state": "SUCCESS_OBSERVED"
       },
       {
@@ -181,11 +663,65 @@
         "as_of": "2026-09-20T12:00:00+00:00",
         "corroboration_state": "NOT_EVALUATED",
         "coverage_state": "COMPLETE",
-        "decision_hash": "v1:bdd6fe671e4942659059aca67ddf04b5d943e1b79fcb319fdf461da5ded3d912",
+        "decision_hash": "v1:559fdd400152b5db60655d2e45679821d78c18a7d07fc23ead64f15676400663",
         "eligibility_state": "PROTECTED",
+        "layers": [
+          {
+            "layer": "IDENTITY_POLICY",
+            "reason": "",
+            "verdict": "GRANT"
+          },
+          {
+            "layer": "PERMISSIONS_BOUNDARY",
+            "reason": "ROLE_NOT_COMMITTED",
+            "verdict": "UNKNOWN"
+          },
+          {
+            "layer": "RESOURCE_POLICY",
+            "reason": "SCOPE_NOT_COLLECTED:s3:bucket-authorization@global",
+            "verdict": "UNKNOWN"
+          },
+          {
+            "layer": "SCP_RCP",
+            "reason": "ORGANIZATION_CONTEXT_NOT_COMMITTED",
+            "verdict": "UNKNOWN"
+          },
+          {
+            "layer": "SERVICE_SPECIFIC",
+            "reason": "REGION_COVERAGE_UNPROVEN",
+            "verdict": "UNKNOWN"
+          },
+          {
+            "layer": "SESSION_POLICY",
+            "reason": "SESSION_EVIDENCE_NOT_ACQUIRED",
+            "verdict": "UNKNOWN"
+          }
+        ],
         "reason": null,
         "removal_verdict": "IN_USE",
         "state": "DECISION_ACTIVE",
+        "unknown_layers": [
+          {
+            "layer": "PERMISSIONS_BOUNDARY",
+            "reason": "ROLE_NOT_COMMITTED"
+          },
+          {
+            "layer": "RESOURCE_POLICY",
+            "reason": "SCOPE_NOT_COLLECTED:s3:bucket-authorization@global"
+          },
+          {
+            "layer": "SCP_RCP",
+            "reason": "ORGANIZATION_CONTEXT_NOT_COMMITTED"
+          },
+          {
+            "layer": "SERVICE_SPECIFIC",
+            "reason": "REGION_COVERAGE_UNPROVEN"
+          },
+          {
+            "layer": "SESSION_POLICY",
+            "reason": "SESSION_EVIDENCE_NOT_ACQUIRED"
+          }
+        ],
         "usage_state": "SUCCESS_OBSERVED"
       },
       {
@@ -193,11 +729,65 @@
         "as_of": "2026-09-20T12:00:00+00:00",
         "corroboration_state": "NOT_EVALUATED",
         "coverage_state": "COMPLETE",
-        "decision_hash": "v1:84e4faaa489e1773fd7636ffae3cf280aa1f3e5ea888497aaefd30318fd54ea4",
+        "decision_hash": "v1:5ac0eda0972ce811bb6f8c24348767af915f70452060aabf4372765ab93fdd6d",
         "eligibility_state": "ELIGIBLE",
+        "layers": [
+          {
+            "layer": "IDENTITY_POLICY",
+            "reason": "",
+            "verdict": "GRANT"
+          },
+          {
+            "layer": "PERMISSIONS_BOUNDARY",
+            "reason": "ROLE_NOT_COMMITTED",
+            "verdict": "UNKNOWN"
+          },
+          {
+            "layer": "RESOURCE_POLICY",
+            "reason": "REGION_COVERAGE_UNPROVEN",
+            "verdict": "UNKNOWN"
+          },
+          {
+            "layer": "SCP_RCP",
+            "reason": "ORGANIZATION_CONTEXT_NOT_COMMITTED",
+            "verdict": "UNKNOWN"
+          },
+          {
+            "layer": "SERVICE_SPECIFIC",
+            "reason": "REGION_COVERAGE_UNPROVEN",
+            "verdict": "UNKNOWN"
+          },
+          {
+            "layer": "SESSION_POLICY",
+            "reason": "SESSION_EVIDENCE_NOT_ACQUIRED",
+            "verdict": "UNKNOWN"
+          }
+        ],
         "reason": null,
         "removal_verdict": "LAYER_UNKNOWN",
         "state": "DECISION_ACTIVE",
+        "unknown_layers": [
+          {
+            "layer": "PERMISSIONS_BOUNDARY",
+            "reason": "ROLE_NOT_COMMITTED"
+          },
+          {
+            "layer": "RESOURCE_POLICY",
+            "reason": "REGION_COVERAGE_UNPROVEN"
+          },
+          {
+            "layer": "SCP_RCP",
+            "reason": "ORGANIZATION_CONTEXT_NOT_COMMITTED"
+          },
+          {
+            "layer": "SERVICE_SPECIFIC",
+            "reason": "REGION_COVERAGE_UNPROVEN"
+          },
+          {
+            "layer": "SESSION_POLICY",
+            "reason": "SESSION_EVIDENCE_NOT_ACQUIRED"
+          }
+        ],
         "usage_state": "NOT_OBSERVED"
       },
       {
@@ -205,11 +795,65 @@
         "as_of": "2026-09-20T12:00:00+00:00",
         "corroboration_state": "NOT_EVALUATED",
         "coverage_state": "COMPLETE",
-        "decision_hash": "v1:57727cb2b7350ef9209523e831b91cbbb89efc38085270a1deedef429800e372",
+        "decision_hash": "v1:17cd907aae335a57027ca58430728f7cc8bf8f7ce3aa9ad30ea12725e62c39d8",
         "eligibility_state": "ELIGIBLE",
+        "layers": [
+          {
+            "layer": "IDENTITY_POLICY",
+            "reason": "",
+            "verdict": "GRANT"
+          },
+          {
+            "layer": "PERMISSIONS_BOUNDARY",
+            "reason": "ROLE_NOT_COMMITTED",
+            "verdict": "UNKNOWN"
+          },
+          {
+            "layer": "RESOURCE_POLICY",
+            "reason": "REGION_COVERAGE_UNPROVEN",
+            "verdict": "UNKNOWN"
+          },
+          {
+            "layer": "SCP_RCP",
+            "reason": "ORGANIZATION_CONTEXT_NOT_COMMITTED",
+            "verdict": "UNKNOWN"
+          },
+          {
+            "layer": "SERVICE_SPECIFIC",
+            "reason": "REGION_COVERAGE_UNPROVEN",
+            "verdict": "UNKNOWN"
+          },
+          {
+            "layer": "SESSION_POLICY",
+            "reason": "SESSION_EVIDENCE_NOT_ACQUIRED",
+            "verdict": "UNKNOWN"
+          }
+        ],
         "reason": null,
         "removal_verdict": "LAYER_UNKNOWN",
         "state": "DECISION_ACTIVE",
+        "unknown_layers": [
+          {
+            "layer": "PERMISSIONS_BOUNDARY",
+            "reason": "ROLE_NOT_COMMITTED"
+          },
+          {
+            "layer": "RESOURCE_POLICY",
+            "reason": "REGION_COVERAGE_UNPROVEN"
+          },
+          {
+            "layer": "SCP_RCP",
+            "reason": "ORGANIZATION_CONTEXT_NOT_COMMITTED"
+          },
+          {
+            "layer": "SERVICE_SPECIFIC",
+            "reason": "REGION_COVERAGE_UNPROVEN"
+          },
+          {
+            "layer": "SESSION_POLICY",
+            "reason": "SESSION_EVIDENCE_NOT_ACQUIRED"
+          }
+        ],
         "usage_state": "NOT_OBSERVED"
       }
     ],
@@ -230,8 +874,8 @@
     "decisions_outside_configuration": 0,
     "detail": "",
     "publication": {
-      "attempt": "dee2e98947994960afb75d2e910fd33d",
-      "published_at": "2026-09-25T13:36:00+00:00"
+      "attempt": "f0456acff8f04f23883b2317716a704f",
+      "published_at": "2026-09-25T16:22:41+00:00"
     },
     "reason": null,
     "receipt": {
@@ -254,35 +898,207 @@
       "indeterminate": [
         {
           "action": "dynamodb:GetItem",
-          "reason": "LAYER_UNKNOWN"
+          "reason": "LAYER_UNKNOWN",
+          "unknown_layers": [
+            {
+              "layer": "PERMISSIONS_BOUNDARY",
+              "reason": "ROLE_NOT_COMMITTED"
+            },
+            {
+              "layer": "RESOURCE_POLICY",
+              "reason": "SERVICE_NOT_CATALOGUED:dynamodb"
+            },
+            {
+              "layer": "SCP_RCP",
+              "reason": "ORGANIZATION_CONTEXT_NOT_COMMITTED"
+            },
+            {
+              "layer": "SERVICE_SPECIFIC",
+              "reason": "REGION_COVERAGE_UNPROVEN"
+            },
+            {
+              "layer": "SESSION_POLICY",
+              "reason": "SESSION_EVIDENCE_NOT_ACQUIRED"
+            }
+          ]
         },
         {
           "action": "dynamodb:PutItem",
-          "reason": "LAYER_UNKNOWN"
+          "reason": "LAYER_UNKNOWN",
+          "unknown_layers": [
+            {
+              "layer": "PERMISSIONS_BOUNDARY",
+              "reason": "ROLE_NOT_COMMITTED"
+            },
+            {
+              "layer": "RESOURCE_POLICY",
+              "reason": "SERVICE_NOT_CATALOGUED:dynamodb"
+            },
+            {
+              "layer": "SCP_RCP",
+              "reason": "ORGANIZATION_CONTEXT_NOT_COMMITTED"
+            },
+            {
+              "layer": "SERVICE_SPECIFIC",
+              "reason": "REGION_COVERAGE_UNPROVEN"
+            },
+            {
+              "layer": "SESSION_POLICY",
+              "reason": "SESSION_EVIDENCE_NOT_ACQUIRED"
+            }
+          ]
         },
         {
           "action": "dynamodb:Query",
-          "reason": "LAYER_UNKNOWN"
+          "reason": "LAYER_UNKNOWN",
+          "unknown_layers": [
+            {
+              "layer": "PERMISSIONS_BOUNDARY",
+              "reason": "ROLE_NOT_COMMITTED"
+            },
+            {
+              "layer": "RESOURCE_POLICY",
+              "reason": "SERVICE_NOT_CATALOGUED:dynamodb"
+            },
+            {
+              "layer": "SCP_RCP",
+              "reason": "ORGANIZATION_CONTEXT_NOT_COMMITTED"
+            },
+            {
+              "layer": "SERVICE_SPECIFIC",
+              "reason": "REGION_COVERAGE_UNPROVEN"
+            },
+            {
+              "layer": "SESSION_POLICY",
+              "reason": "SESSION_EVIDENCE_NOT_ACQUIRED"
+            }
+          ]
         },
         {
           "action": "iam:PassRole",
-          "reason": "LAYER_UNKNOWN"
+          "reason": "LAYER_UNKNOWN",
+          "unknown_layers": [
+            {
+              "layer": "PERMISSIONS_BOUNDARY",
+              "reason": "ROLE_NOT_COMMITTED"
+            },
+            {
+              "layer": "SCP_RCP",
+              "reason": "ORGANIZATION_CONTEXT_NOT_COMMITTED"
+            },
+            {
+              "layer": "SERVICE_SPECIFIC",
+              "reason": "REGION_COVERAGE_UNPROVEN"
+            },
+            {
+              "layer": "SESSION_POLICY",
+              "reason": "SESSION_EVIDENCE_NOT_ACQUIRED"
+            }
+          ]
         },
         {
           "action": "kms:Decrypt",
-          "reason": "LAYER_UNKNOWN"
+          "reason": "LAYER_UNKNOWN",
+          "unknown_layers": [
+            {
+              "layer": "PERMISSIONS_BOUNDARY",
+              "reason": "ROLE_NOT_COMMITTED"
+            },
+            {
+              "layer": "RESOURCE_POLICY",
+              "reason": "REGION_COVERAGE_UNPROVEN"
+            },
+            {
+              "layer": "SCP_RCP",
+              "reason": "ORGANIZATION_CONTEXT_NOT_COMMITTED"
+            },
+            {
+              "layer": "SERVICE_SPECIFIC",
+              "reason": "REGION_COVERAGE_UNPROVEN"
+            },
+            {
+              "layer": "SESSION_POLICY",
+              "reason": "SESSION_EVIDENCE_NOT_ACQUIRED"
+            }
+          ]
         },
         {
           "action": "kms:Encrypt",
-          "reason": "LAYER_UNKNOWN"
+          "reason": "LAYER_UNKNOWN",
+          "unknown_layers": [
+            {
+              "layer": "PERMISSIONS_BOUNDARY",
+              "reason": "ROLE_NOT_COMMITTED"
+            },
+            {
+              "layer": "RESOURCE_POLICY",
+              "reason": "REGION_COVERAGE_UNPROVEN"
+            },
+            {
+              "layer": "SCP_RCP",
+              "reason": "ORGANIZATION_CONTEXT_NOT_COMMITTED"
+            },
+            {
+              "layer": "SERVICE_SPECIFIC",
+              "reason": "REGION_COVERAGE_UNPROVEN"
+            },
+            {
+              "layer": "SESSION_POLICY",
+              "reason": "SESSION_EVIDENCE_NOT_ACQUIRED"
+            }
+          ]
         },
         {
           "action": "sqs:ReceiveMessage",
-          "reason": "LAYER_UNKNOWN"
+          "reason": "LAYER_UNKNOWN",
+          "unknown_layers": [
+            {
+              "layer": "PERMISSIONS_BOUNDARY",
+              "reason": "ROLE_NOT_COMMITTED"
+            },
+            {
+              "layer": "RESOURCE_POLICY",
+              "reason": "REGION_COVERAGE_UNPROVEN"
+            },
+            {
+              "layer": "SCP_RCP",
+              "reason": "ORGANIZATION_CONTEXT_NOT_COMMITTED"
+            },
+            {
+              "layer": "SERVICE_SPECIFIC",
+              "reason": "REGION_COVERAGE_UNPROVEN"
+            },
+            {
+              "layer": "SESSION_POLICY",
+              "reason": "SESSION_EVIDENCE_NOT_ACQUIRED"
+            }
+          ]
         },
         {
           "action": "sqs:SendMessage",
-          "reason": "LAYER_UNKNOWN"
+          "reason": "LAYER_UNKNOWN",
+          "unknown_layers": [
+            {
+              "layer": "PERMISSIONS_BOUNDARY",
+              "reason": "ROLE_NOT_COMMITTED"
+            },
+            {
+              "layer": "RESOURCE_POLICY",
+              "reason": "REGION_COVERAGE_UNPROVEN"
+            },
+            {
+              "layer": "SCP_RCP",
+              "reason": "ORGANIZATION_CONTEXT_NOT_COMMITTED"
+            },
+            {
+              "layer": "SERVICE_SPECIFIC",
+              "reason": "REGION_COVERAGE_UNPROVEN"
+            },
+            {
+              "layer": "SESSION_POLICY",
+              "reason": "SESSION_EVIDENCE_NOT_ACQUIRED"
+            }
+          ]
         }
       ]
     },
@@ -363,40 +1179,212 @@
     "indeterminate": [
       {
         "candidate": "dynamodb:GetItem",
-        "reason": "LAYER_UNKNOWN"
+        "reason": "LAYER_UNKNOWN",
+        "unknown_layers": [
+          {
+            "layer": "PERMISSIONS_BOUNDARY",
+            "reason": "ROLE_NOT_COMMITTED"
+          },
+          {
+            "layer": "RESOURCE_POLICY",
+            "reason": "SERVICE_NOT_CATALOGUED:dynamodb"
+          },
+          {
+            "layer": "SCP_RCP",
+            "reason": "ORGANIZATION_CONTEXT_NOT_COMMITTED"
+          },
+          {
+            "layer": "SERVICE_SPECIFIC",
+            "reason": "REGION_COVERAGE_UNPROVEN"
+          },
+          {
+            "layer": "SESSION_POLICY",
+            "reason": "SESSION_EVIDENCE_NOT_ACQUIRED"
+          }
+        ]
       },
       {
         "candidate": "dynamodb:PutItem",
-        "reason": "LAYER_UNKNOWN"
+        "reason": "LAYER_UNKNOWN",
+        "unknown_layers": [
+          {
+            "layer": "PERMISSIONS_BOUNDARY",
+            "reason": "ROLE_NOT_COMMITTED"
+          },
+          {
+            "layer": "RESOURCE_POLICY",
+            "reason": "SERVICE_NOT_CATALOGUED:dynamodb"
+          },
+          {
+            "layer": "SCP_RCP",
+            "reason": "ORGANIZATION_CONTEXT_NOT_COMMITTED"
+          },
+          {
+            "layer": "SERVICE_SPECIFIC",
+            "reason": "REGION_COVERAGE_UNPROVEN"
+          },
+          {
+            "layer": "SESSION_POLICY",
+            "reason": "SESSION_EVIDENCE_NOT_ACQUIRED"
+          }
+        ]
       },
       {
         "candidate": "dynamodb:Query",
-        "reason": "LAYER_UNKNOWN"
+        "reason": "LAYER_UNKNOWN",
+        "unknown_layers": [
+          {
+            "layer": "PERMISSIONS_BOUNDARY",
+            "reason": "ROLE_NOT_COMMITTED"
+          },
+          {
+            "layer": "RESOURCE_POLICY",
+            "reason": "SERVICE_NOT_CATALOGUED:dynamodb"
+          },
+          {
+            "layer": "SCP_RCP",
+            "reason": "ORGANIZATION_CONTEXT_NOT_COMMITTED"
+          },
+          {
+            "layer": "SERVICE_SPECIFIC",
+            "reason": "REGION_COVERAGE_UNPROVEN"
+          },
+          {
+            "layer": "SESSION_POLICY",
+            "reason": "SESSION_EVIDENCE_NOT_ACQUIRED"
+          }
+        ]
       },
       {
         "candidate": "sqs:SendMessage",
-        "reason": "LAYER_UNKNOWN"
+        "reason": "LAYER_UNKNOWN",
+        "unknown_layers": [
+          {
+            "layer": "PERMISSIONS_BOUNDARY",
+            "reason": "ROLE_NOT_COMMITTED"
+          },
+          {
+            "layer": "RESOURCE_POLICY",
+            "reason": "REGION_COVERAGE_UNPROVEN"
+          },
+          {
+            "layer": "SCP_RCP",
+            "reason": "ORGANIZATION_CONTEXT_NOT_COMMITTED"
+          },
+          {
+            "layer": "SERVICE_SPECIFIC",
+            "reason": "REGION_COVERAGE_UNPROVEN"
+          },
+          {
+            "layer": "SESSION_POLICY",
+            "reason": "SESSION_EVIDENCE_NOT_ACQUIRED"
+          }
+        ]
       },
       {
         "candidate": "sqs:ReceiveMessage",
-        "reason": "LAYER_UNKNOWN"
+        "reason": "LAYER_UNKNOWN",
+        "unknown_layers": [
+          {
+            "layer": "PERMISSIONS_BOUNDARY",
+            "reason": "ROLE_NOT_COMMITTED"
+          },
+          {
+            "layer": "RESOURCE_POLICY",
+            "reason": "REGION_COVERAGE_UNPROVEN"
+          },
+          {
+            "layer": "SCP_RCP",
+            "reason": "ORGANIZATION_CONTEXT_NOT_COMMITTED"
+          },
+          {
+            "layer": "SERVICE_SPECIFIC",
+            "reason": "REGION_COVERAGE_UNPROVEN"
+          },
+          {
+            "layer": "SESSION_POLICY",
+            "reason": "SESSION_EVIDENCE_NOT_ACQUIRED"
+          }
+        ]
       },
       {
         "candidate": "kms:Decrypt",
-        "reason": "LAYER_UNKNOWN"
+        "reason": "LAYER_UNKNOWN",
+        "unknown_layers": [
+          {
+            "layer": "PERMISSIONS_BOUNDARY",
+            "reason": "ROLE_NOT_COMMITTED"
+          },
+          {
+            "layer": "RESOURCE_POLICY",
+            "reason": "REGION_COVERAGE_UNPROVEN"
+          },
+          {
+            "layer": "SCP_RCP",
+            "reason": "ORGANIZATION_CONTEXT_NOT_COMMITTED"
+          },
+          {
+            "layer": "SERVICE_SPECIFIC",
+            "reason": "REGION_COVERAGE_UNPROVEN"
+          },
+          {
+            "layer": "SESSION_POLICY",
+            "reason": "SESSION_EVIDENCE_NOT_ACQUIRED"
+          }
+        ]
       },
       {
         "candidate": "kms:Encrypt",
-        "reason": "LAYER_UNKNOWN"
+        "reason": "LAYER_UNKNOWN",
+        "unknown_layers": [
+          {
+            "layer": "PERMISSIONS_BOUNDARY",
+            "reason": "ROLE_NOT_COMMITTED"
+          },
+          {
+            "layer": "RESOURCE_POLICY",
+            "reason": "REGION_COVERAGE_UNPROVEN"
+          },
+          {
+            "layer": "SCP_RCP",
+            "reason": "ORGANIZATION_CONTEXT_NOT_COMMITTED"
+          },
+          {
+            "layer": "SERVICE_SPECIFIC",
+            "reason": "REGION_COVERAGE_UNPROVEN"
+          },
+          {
+            "layer": "SESSION_POLICY",
+            "reason": "SESSION_EVIDENCE_NOT_ACQUIRED"
+          }
+        ]
       },
       {
         "candidate": "iam:PassRole",
-        "reason": "LAYER_UNKNOWN"
+        "reason": "LAYER_UNKNOWN",
+        "unknown_layers": [
+          {
+            "layer": "PERMISSIONS_BOUNDARY",
+            "reason": "ROLE_NOT_COMMITTED"
+          },
+          {
+            "layer": "SCP_RCP",
+            "reason": "ORGANIZATION_CONTEXT_NOT_COMMITTED"
+          },
+          {
+            "layer": "SERVICE_SPECIFIC",
+            "reason": "REGION_COVERAGE_UNPROVEN"
+          },
+          {
+            "layer": "SESSION_POLICY",
+            "reason": "SESSION_EVIDENCE_NOT_ACQUIRED"
+          }
+        ]
       }
     ],
     "publication": {
-      "attempt": "dee2e98947994960afb75d2e910fd33d",
-      "published_at": "2026-09-25T13:36:00+00:00"
+      "attempt": "f0456acff8f04f23883b2317716a704f",
+      "published_at": "2026-09-25T16:22:41+00:00"
     },
     "reason": null,
     "receipt": {
@@ -416,8 +1404,8 @@
     "contract": "lp-decision-authority/v1",
     "detail": "the publication holds no record for this role",
     "publication": {
-      "attempt": "dee2e98947994960afb75d2e910fd33d",
-      "published_at": "2026-09-25T13:36:00+00:00"
+      "attempt": "f0456acff8f04f23883b2317716a704f",
+      "published_at": "2026-09-25T16:22:41+00:00"
     },
     "reason": "ROLE_NOT_PUBLISHED",
     "receipt": null,

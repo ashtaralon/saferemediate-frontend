@@ -60,6 +60,10 @@ describe("the mounted IAM Permissions modal renders the decision authority", () 
     )
     expect(within(panel).getByTestId("decision-authority-removal").textContent).toContain("Cleared for removal: 0")
     expect(panel.textContent).toContain("LAYER_UNKNOWN")
+    // Each held action names the unknown layers and why (L7d), on the mounted modal.
+    const held = within(panel).getAllByTestId("decision-authority-held-action")
+    expect(held.length).toBe(full.review_envelope.result.decision_authority.removal.indeterminate.length)
+    expect(held[0].textContent).toContain("session policies: SESSION_EVIDENCE_NOT_ACQUIRED")
   })
 
   it("shows the Preview's grade as informational and not decision grade", async () => {

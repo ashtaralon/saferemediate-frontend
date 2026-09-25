@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import captured from "./fixtures/lp-decision-authority-chain.json"
-import { decisionAuthorityView, previewDecisionGrade, reasonCopy } from "@/lib/lp-decision-authority"
+import { decisionAuthorityView, previewDecisionGrade, reasonCopy, unknownLayersCopy } from "@/lib/lp-decision-authority"
 
 // Every block below was captured from the backend's mounted Review/Preview routes (preview_chain.py
 // --lp-decision-coverage: the real publisher and the real serving read); see `_source` in the fixture.
@@ -85,5 +85,34 @@ describe("previewDecisionGrade", () => {
     expect(previewDecisionGrade({ ...captured.preview_populated, decision_grade: true }).kind).toBe("graded")
     expect(previewDecisionGrade({ ...captured.preview_populated, decision_grade: "true" }).kind).toBe("not_reported")
     expect(previewDecisionGrade(undefined).kind).toBe("not_reported")
+  })
+})
+
+describe("per-action layer explanations (L7d)", () => {
+  it("names, for each held action, which authorization layers are unknown and why", () => {
+    const view = decisionAuthorityView(captured.populated)
+    expect(view.indeterminate.length).toBeGreaterThan(0)
+    for (const held of view.indeterminate) {
+      const byLayer = Object.fromEntries(held.unknownLayers.map((l) => [l.layer, l.reason]))
+      expect(byLayer.SESSION_POLICY).toBe("SESSION_EVIDENCE_NOT_ACQUIRED")
+      expect(byLayer.SCP_RCP).toBe("ORGANIZATION_CONTEXT_NOT_COMMITTED")
+    }
+    expect(unknownLayersCopy([{ layer: "SESSION_POLICY", reason: "SESSION_EVIDENCE_NOT_ACQUIRED" }])).toBe(
+      "session policies: SESSION_EVIDENCE_NOT_ACQUIRED",
+    )
+  })
+
+  it("carries the same explanation for each Preview candidate", () => {
+    const grade = previewDecisionGrade(captured.preview_populated)
+    expect(grade.indeterminate.every((e) => e.unknownLayers.some((l) => l.layer === "SESSION_POLICY"))).toBe(true)
+  })
+
+  it("never invents a layer reason the backend did not send", () => {
+    const view = decisionAuthorityView({
+      ...captured.populated,
+      removal: { cleared: [], in_use: [], indeterminate: [{ action: "s3:GetObject", reason: "LAYER_UNKNOWN",
+        unknown_layers: [{ layer: "SCP_RCP", reason: "" }, { layer: "X" }] }] },
+    })
+    expect(view.indeterminate[0].unknownLayers).toEqual([])
   })
 })

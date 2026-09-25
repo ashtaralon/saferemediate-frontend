@@ -10,6 +10,19 @@
 
 export type DecisionAuthorityKind = "populated" | "empty" | "unavailable" | "not_reported"
 
+/** One authorization layer that is UNKNOWN for an action, and the backend's named reason. */
+export type UnknownLayer = { layer: string; reason: string }
+
+/** Plain names for the six layers of the decision contract (backend `AuthorizationLayer`). */
+export const LAYER_NAMES: Record<string, string> = {
+  IDENTITY_POLICY: "identity policy",
+  PERMISSIONS_BOUNDARY: "permissions boundary",
+  SCP_RCP: "organization policies (SCP/RCP)",
+  RESOURCE_POLICY: "resource policies",
+  SESSION_POLICY: "session policies",
+  SERVICE_SPECIFIC: "service-specific controls",
+}
+
 export type DecisionAuthorityReceipt = {
   tenantId: string
   accountId: string
@@ -32,7 +45,7 @@ export type DecisionAuthorityView = {
   counts: Record<string, number>
   cleared: string[]
   inUse: string[]
-  indeterminate: Array<{ action: string; reason: string }>
+  indeterminate: Array<{ action: string; reason: string; unknownLayers: UnknownLayer[] }>
 }
 
 export type PreviewDecisionGrade = {
@@ -42,7 +55,7 @@ export type PreviewDecisionGrade = {
   candidates: number | null
   cleared: string[]
   inUse: string[]
-  indeterminate: Array<{ candidate: string; reason: string }>
+  indeterminate: Array<{ candidate: string; reason: string; unknownLayers: UnknownLayer[] }>
 }
 
 const REASON_COPY: Record<string, string> = {
@@ -69,16 +82,36 @@ function strings(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : []
 }
 
-function pairs<K extends string>(value: unknown, key: K): Array<Record<K, string> & { reason: string }> {
+function unknownLayers(value: unknown): UnknownLayer[] {
   if (!Array.isArray(value)) return []
-  const out: Array<Record<K, string> & { reason: string }> = []
+  const out: UnknownLayer[] = []
   for (const item of value) {
     const row = asRecord(item)
-    if (row && typeof row[key] === "string" && typeof row.reason === "string") {
-      out.push({ [key]: row[key], reason: row.reason } as Record<K, string> & { reason: string })
+    if (row && typeof row.layer === "string" && typeof row.reason === "string" && row.reason) {
+      out.push({ layer: row.layer, reason: row.reason })
     }
   }
   return out
+}
+
+function pairs<K extends string>(
+  value: unknown, key: K,
+): Array<Record<K, string> & { reason: string; unknownLayers: UnknownLayer[] }> {
+  if (!Array.isArray(value)) return []
+  const out: Array<Record<K, string> & { reason: string; unknownLayers: UnknownLayer[] }> = []
+  for (const item of value) {
+    const row = asRecord(item)
+    if (row && typeof row[key] === "string" && typeof row.reason === "string") {
+      out.push({ [key]: row[key], reason: row.reason, unknownLayers: unknownLayers(row.unknown_layers) } as
+        Record<K, string> & { reason: string; unknownLayers: UnknownLayer[] })
+    }
+  }
+  return out
+}
+
+/** "session policies: SESSION_EVIDENCE_NOT_ACQUIRED; organization policies (SCP/RCP): ..." */
+export function unknownLayersCopy(layers: UnknownLayer[]): string {
+  return layers.map((l) => `${LAYER_NAMES[l.layer] ?? l.layer}: ${l.reason}`).join("; ")
 }
 
 export function reasonCopy(reason: string | null | undefined): string {

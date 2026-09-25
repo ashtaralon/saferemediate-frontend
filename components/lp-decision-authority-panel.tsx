@@ -5,6 +5,7 @@ import React from "react"
 import {
   decisionAuthorityView,
   previewDecisionGrade,
+  unknownLayersCopy,
   type DecisionAuthorityView,
   type PreviewDecisionGrade,
 } from "@/lib/lp-decision-authority"
@@ -39,6 +40,16 @@ function PreviewGrade({ grade }: { grade: PreviewDecisionGrade }) {
       {grade.inUse.length > 0 && (
         <div className="text-[11px] text-slate-600">In use: {grade.inUse.join(", ")}</div>
       )}
+      {grade.indeterminate.some((e) => e.unknownLayers.length > 0) && (
+        <ul className="text-[11px] text-slate-600" data-testid="decision-authority-preview-held">
+          {grade.indeterminate.map((e) => (
+            <li key={e.candidate}>
+              <span className="font-mono">{e.candidate}</span>: {e.reason}
+              {e.unknownLayers.length > 0 ? ` (unknown: ${unknownLayersCopy(e.unknownLayers)})` : ""}
+            </li>
+          ))}
+        </ul>
+      )}
       <div className="text-[11px] text-slate-500">
         Informational only: this does not authorize removal and does not change the Preview's safety decision.
       </div>
@@ -69,9 +80,17 @@ export function DecisionAuthorityPanel({ review, preview }: Props) {
             Cleared for removal: {view.cleared.length} · In use: {view.inUse.length} · Cannot determine: {view.indeterminate.length}
           </div>
           {view.indeterminate.length > 0 && (
-            <div className="text-slate-500">
-              Why not cleared: {Array.from(new Set(view.indeterminate.map((e) => e.reason))).join(", ")}
-            </div>
+            <details className="text-slate-500" data-testid="decision-authority-why">
+              <summary>Why not cleared: {Array.from(new Set(view.indeterminate.map((e) => e.reason))).join(", ")}</summary>
+              <ul className="mt-1 space-y-0.5">
+                {view.indeterminate.map((e) => (
+                  <li key={e.action} data-testid="decision-authority-held-action">
+                    <span className="font-mono">{e.action}</span>: {e.reason}
+                    {e.unknownLayers.length > 0 ? ` (unknown: ${unknownLayersCopy(e.unknownLayers)})` : ""}
+                  </li>
+                ))}
+              </ul>
+            </details>
           )}
         </div>
       )}
