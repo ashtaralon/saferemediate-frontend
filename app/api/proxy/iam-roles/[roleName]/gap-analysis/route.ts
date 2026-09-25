@@ -25,7 +25,18 @@ export async function GET(
   const timeoutId = setTimeout(() => controller.abort(), 55000) // 55s timeout
 
   try {
-    const backendUrl = `${getBackendBaseUrl()}/api/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=${days}${envelope ? "&envelope=true" : ""}`
+    // The operator's scope claims ride along so the BACKEND can refuse a mismatch
+    // (403 REVIEW_SCOPE_MISMATCH) against its server-owned binding. They only
+    // narrow; without them the backend serves its pinned scope. Dropping them
+    // here meant a second registered tenant's selection was silently served the
+    // pinned tenant's Review.
+    const claims = new URLSearchParams({ days })
+    if (envelope) claims.set("envelope", "true")
+    for (const name of ["customer_id", "account_id", "region"]) {
+      const value = url.searchParams.get(name)?.trim()
+      if (value) claims.set(name, value)
+    }
+    const backendUrl = `${getBackendBaseUrl()}/api/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?${claims.toString()}`
     console.log(`[IAM Proxy] Calling: ${backendUrl}`)
 
     const res = await fetch(backendUrl, {

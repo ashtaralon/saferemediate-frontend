@@ -59,6 +59,13 @@ export async function GET(req: NextRequest) {
     if (systemName) params.set("systemName", systemName)
     params.set("observationDays", observationDays)
     if (forceRefresh) params.set("force_refresh", "true")
+    // The operator's scope claims (withAccountScope) ride along so the backend
+    // can refuse a mismatched customer/account against its server-owned
+    // binding (403). They only narrow; they were silently dropped before.
+    for (const name of ["customer_id", "account_id", "region"]) {
+      const value = url.searchParams.get(name)?.trim()
+      if (value) params.set(name, value)
+    }
 
     const res = await fetch(`${getBackendBaseUrl()}/api/least-privilege/issues?${params.toString()}`, {
       headers: { "Content-Type": "application/json" },
