@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server"
 import {
-  backendError,
+  ERROR_ORIGIN_HEADER,
+  allowlistedBackendDetail,
   fromCaughtError,
+  reviewProxyStatus,
 } from "@/lib/server/proxy-error"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
@@ -66,16 +68,26 @@ export async function GET(req: NextRequest) {
     clearTimeout(timeoutId)
 
     if (!res.ok) {
-      const detail = await res.text().catch(() => "")
-      console.error(`[LP Proxy] Backend ${res.status}: ${detail.slice(0, 200)}`)
-      // Fail loud. The frontend has an error card at LeastPrivilegeTab.tsx:1234
-      // that fires when fetch.ok is false; it renders "Error loading data"
-      // instead of the dangerous "No LP issues" success state.
-      return backendError({
-        status: res.status,
-        message: `Least-privilege backend returned ${res.status}`,
-        detail: detail.slice(0, 500),
-      })
+      const raw = await res.text().catch(() => "")
+      const detail = allowlistedBackendDetail(raw)
+      console.error(`[LP Proxy] Backend ${res.status}: code=${detail?.code ?? "none"}`)
+      // Fail loud, typed. Same status rule as the Review proxy (#916):
+      // 401/403 stay denials, 503 stays "unavailable", every other backend 5xx
+      // (a backend or load-balancer 504 included) is 502 with backendStatus, so
+      // 504 means only this proxy's own abort. Only the allowlisted typed
+      // fields are forwarded; raw upstream text never reaches the browser.
+      return NextResponse.json(
+        {
+          error: `Least-privilege backend returned ${res.status}`,
+          ...(detail ? { detail } : {}),
+          backendStatus: res.status,
+          origin: "backend",
+        },
+        {
+          status: reviewProxyStatus(res.status),
+          headers: { "Cache-Control": SCOPED_NO_STORE, [ERROR_ORIGIN_HEADER]: "backend" },
+        },
+      )
     }
 
     const data = await res.json()
@@ -97,6 +109,8 @@ export async function GET(req: NextRequest) {
     // A timeout or an unreachable backend is an honest error (AbortError -> 504,
     // else 503). No earlier answer is served in its place: it could belong to
     // another tenant, and it cannot vouch for the current analysis.
-    return fromCaughtError(error)
+    const failed = fromCaughtError(error)
+    failed.headers.set(ERROR_ORIGIN_HEADER, "proxy")
+    return failed
   }
 }

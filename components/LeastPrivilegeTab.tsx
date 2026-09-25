@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from 'react'
+import { lpIssuesFailure } from '@/lib/lp-issues-error'
 import { riskLabel } from '@/lib/utils'
 import { Shield, Database, Network, AlertTriangle, CheckCircle2, XCircle, Clock, FileDown, Send, Zap, ChevronRight, ChevronDown, ExternalLink, Loader2, RefreshCw, Search, Globe, Trash2, X, Activity, BarChart3, Lightbulb, MapPin, Eye, Calendar, RotateCcw } from 'lucide-react'
 import SimulationResultsModal from '@/components/SimulationResultsModal'
@@ -896,7 +897,11 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         response = await fetch(requestUrl, { cache: 'no-store', signal })
         if (response.ok) break
         const body = await response.json().catch(() => ({}))
-        lastDetail = body.detail || body.error || `HTTP ${response.status}`
+        // The proxy forwards the backend's typed refusal; show its message or
+        // code (never "[object Object]"), and retry only what can change on its
+        // own (lib/lp-issues-error.ts).
+        const failure = lpIssuesFailure(response.status, response.headers.get('X-Cyntro-Error-Origin'), body)
+        lastDetail = failure.code && failure.code !== failure.message ? `${failure.message} (${failure.code})` : failure.message
         // 503 AND 504. Excluding 504 was defended as "retrying an identical
         // budget cannot succeed" — true only if nothing changes between
         // attempts, and something does: the first request WAKES the backend.
@@ -908,7 +913,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         // "Retrying often succeeds once it has warmed up" — and clicking Retry
         // loaded it. The loop should not need a human to do what it was already
         // telling the human to do.
-        const retryable = response.status === 503 || response.status === 504
+        const retryable = failure.retryable
         previousStatus = response.status
         if (!retryable || attempt >= retryDelaysMs.length) {
           throw new Error(`Backend ${response.status}: ${lastDetail}`)

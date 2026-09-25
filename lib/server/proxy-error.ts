@@ -55,6 +55,59 @@ export function reviewProxyStatus(backendStatus: number): number {
  * 5xx to 502 Bad Gateway so callers can treat all server-side faults
  * uniformly. Never returns 200.
  */
+/** The typed fields a backend refusal may carry through a proxy. Nothing else is forwarded. */
+export type AllowlistedBackendDetail = {
+  code?: string
+  message?: string
+  upstream_code?: string
+  failing_axes?: string[]
+  failed_analyzers?: string[]
+}
+
+const MAX_TYPED_TEXT = 200
+
+function typedText(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.slice(0, MAX_TYPED_TEXT) : undefined
+}
+
+function typedNames(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const names = value.filter((v): v is string => typeof v === "string" && v.length <= 80).slice(0, 32)
+  return names.length ? names : undefined
+}
+
+/**
+ * The backend refusal reduced to its typed fields. A JSON ``detail`` object keeps
+ * only code / message / upstream_code / failing_axes / failed_analyzers; a string
+ * ``detail`` (the auth boundary's "service authentication required") becomes the
+ * message. A non-JSON body (a load balancer page, stack text) forwards NOTHING:
+ * raw upstream text is never echoed to the browser.
+ */
+export function allowlistedBackendDetail(rawBody: string): AllowlistedBackendDetail | undefined {
+  let parsed: unknown
+  try {
+    parsed = rawBody ? JSON.parse(rawBody) : undefined
+  } catch {
+    return undefined
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined
+  const detail = (parsed as Record<string, unknown>).detail
+  if (typeof detail === "string") return typedText(detail) ? { message: typedText(detail) } : undefined
+  if (!detail || typeof detail !== "object" || Array.isArray(detail)) return undefined
+  const d = detail as Record<string, unknown>
+  const out: AllowlistedBackendDetail = {
+    code: typedText(d.code),
+    message: typedText(d.message),
+    upstream_code: typedText(d.upstream_code),
+    failing_axes: typedNames(d.failing_axes),
+    failed_analyzers: typedNames(d.failed_analyzers),
+  }
+  for (const key of Object.keys(out) as (keyof AllowlistedBackendDetail)[]) {
+    if (out[key] === undefined) delete out[key]
+  }
+  return Object.keys(out).length ? out : undefined
+}
+
 export function backendError(opts: {
   status: number
   message: string
