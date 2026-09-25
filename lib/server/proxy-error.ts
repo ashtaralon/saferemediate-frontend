@@ -28,11 +28,86 @@ export type ProxyErrorBody = {
   origin: "proxy"
 }
 
+/** Header naming who produced an error response: this proxy, or the backend it relayed. */
+export const ERROR_ORIGIN_HEADER = "X-Cyntro-Error-Origin"
+
+/**
+ * Status the role gap-analysis (Review) proxy answers for a backend error status.
+ *
+ * Three meanings a caller must never confuse:
+ * - 401 / 403: the backend refused the identity or the scope (a denial, including
+ *   a downstream authentication failure of the proxy's own proof). Kept.
+ * - 503: the backend is up and says a dependency is unavailable. Kept.
+ * - 504: reserved for THIS proxy's own 55s abort (``fromCaughtError``). A 504
+ *   the backend (or its load balancer) answered is not a local timeout, so it
+ *   and every other backend 5xx become 502, with ``backendStatus`` saying what
+ *   the backend actually answered.
+ * Other 4xx pass through.
+ */
+export function reviewProxyStatus(backendStatus: number): number {
+  if (backendStatus === 401 || backendStatus === 403 || backendStatus === 503) return backendStatus
+  if (backendStatus >= 500) return 502
+  return backendStatus
+}
+
 /**
  * Backend returned a non-2xx status. Mirror 4xx straight through; collapse
  * 5xx to 502 Bad Gateway so callers can treat all server-side faults
  * uniformly. Never returns 200.
  */
+/** The typed fields a backend refusal may carry through a proxy. Nothing else is forwarded. */
+export type AllowlistedBackendDetail = {
+  code?: string
+  message?: string
+  upstream_code?: string
+  failing_axes?: string[]
+  failed_analyzers?: string[]
+}
+
+const MAX_TYPED_TEXT = 200
+
+function typedText(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.slice(0, MAX_TYPED_TEXT) : undefined
+}
+
+function typedNames(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const names = value.filter((v): v is string => typeof v === "string" && v.length <= 80).slice(0, 32)
+  return names.length ? names : undefined
+}
+
+/**
+ * The backend refusal reduced to its typed fields. A JSON ``detail`` object keeps
+ * only code / message / upstream_code / failing_axes / failed_analyzers; a string
+ * ``detail`` (the auth boundary's "service authentication required") becomes the
+ * message. A non-JSON body (a load balancer page, stack text) forwards NOTHING:
+ * raw upstream text is never echoed to the browser.
+ */
+export function allowlistedBackendDetail(rawBody: string): AllowlistedBackendDetail | undefined {
+  let parsed: unknown
+  try {
+    parsed = rawBody ? JSON.parse(rawBody) : undefined
+  } catch {
+    return undefined
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined
+  const detail = (parsed as Record<string, unknown>).detail
+  if (typeof detail === "string") return typedText(detail) ? { message: typedText(detail) } : undefined
+  if (!detail || typeof detail !== "object" || Array.isArray(detail)) return undefined
+  const d = detail as Record<string, unknown>
+  const out: AllowlistedBackendDetail = {
+    code: typedText(d.code),
+    message: typedText(d.message),
+    upstream_code: typedText(d.upstream_code),
+    failing_axes: typedNames(d.failing_axes),
+    failed_analyzers: typedNames(d.failed_analyzers),
+  }
+  for (const key of Object.keys(out) as (keyof AllowlistedBackendDetail)[]) {
+    if (out[key] === undefined) delete out[key]
+  }
+  return Object.keys(out).length ? out : undefined
+}
+
 export function backendError(opts: {
   status: number
   message: string

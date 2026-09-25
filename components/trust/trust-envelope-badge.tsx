@@ -12,6 +12,17 @@ export interface FreshnessEntry {
   age_seconds: number | null
   status: FreshnessStatus
   source_detail?: string | null
+  /** Why an UNKNOWN entry is unknown (backend `unified/trust/freshness.py`), e.g. `not_read_on_install`. */
+  unknown_reason?: string | null
+}
+
+/** The age label for one source. An unknown entry is never "never synced" unless the backend said so. */
+export function freshnessAgeLabel(entry: FreshnessEntry): string {
+  if (entry.last_sync) return formatAge(entry.age_seconds)
+  if (entry.unknown_reason === "not_read_on_install") return "not read on this deployment"
+  if (entry.unknown_reason === "lookup_failed") return "lookup failed"
+  if (entry.unknown_reason) return `unknown (${entry.unknown_reason})`
+  return "never synced"
 }
 
 export interface Provenance {
@@ -228,7 +239,7 @@ export function TrustEnvelopeBadge({ provenance, compact = false, surface = "def
                     {entry.status}
                   </span>
                   <span className={`text-[11px] ${entry.last_sync ? (lightSurface ? "text-slate-500" : "text-slate-400") : "text-amber-600"}`}>
-                    {entry.last_sync ? formatAge(entry.age_seconds) : "never synced"}
+                    {freshnessAgeLabel(entry)}
                   </span>
                 </div>
               ))}

@@ -29,7 +29,64 @@ import type {
   CurrentAccessDossier,
   DossierCheckpoint,
 } from "@/lib/attack-paths/build-current-access-dossier"
+import {
+  effectiveDamageLabel,
+  planeStateLabel,
+  type PathClassification,
+  type PathEvidenceSummary,
+} from "@/lib/attack-paths/path-evidence-view"
 import { getServiceMeta, ServiceTypeBadge } from "@/lib/service-type"
+
+const CLASS_TONE: Record<PathClassification, string> = {
+  observed: "border-emerald-500/30 bg-emerald-500/10 text-emerald-800 dark:text-emerald-300",
+  inferred: "border-cyan-500/30 bg-cyan-500/10 text-cyan-800 dark:text-cyan-300",
+  blocked: "border-slate-500/30 bg-slate-500/10 text-slate-800 dark:text-slate-300",
+  unknown: "border-amber-500/30 bg-amber-500/10 text-amber-900 dark:text-amber-200",
+}
+
+/**
+ * The server's whole-path evidence for the selected path (evidence_contract):
+ * the class, effective damage, per-plane RUNTIME evidence and per-action
+ * PERMISSION coverage — three separate lines, never merged, never derived.
+ * Unknown and unavailable are printed as such, never as blocked, live or empty.
+ */
+function PathEvidenceBlock({ evidence }: { evidence: PathEvidenceSummary }) {
+  const damage = effectiveDamageLabel(evidence)
+  return (
+    <section className="rounded-lg border border-border bg-muted/10 px-3 py-2.5 text-[11px]" data-testid="dossier-path-evidence">
+      <div className="flex items-center gap-2">
+        <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Whole-path evidence</span>
+        <span
+          className={`inline-flex rounded border px-1.5 py-0.5 font-mono text-[9px] font-semibold uppercase tracking-wide ${CLASS_TONE[evidence.classification]}`}
+          data-testid="dossier-evidence-class"
+          data-evidence-class={evidence.classification}
+        >
+          {evidence.classification.toUpperCase()}
+        </span>
+      </div>
+      <dl className="mt-2 space-y-1 text-muted-foreground">
+        {damage ? (
+          <div data-testid="dossier-effective-damage">
+            <dt className="inline font-medium text-foreground">Effective damage: </dt>
+            <dd className="inline">{damage}</dd>
+          </div>
+        ) : null}
+        <div data-testid="dossier-runtime-evidence">
+          <dt className="inline font-medium text-foreground">Runtime evidence: </dt>
+          <dd className="inline">
+            {evidence.runtimePlanes
+              ? evidence.runtimePlanes.map(([plane, state]) => `${plane} ${planeStateLabel(state)}`).join(" · ")
+              : "not reported by the server for this path"}
+          </dd>
+        </div>
+        <div data-testid="dossier-permission-coverage">
+          <dt className="inline font-medium text-foreground">Permission coverage: </dt>
+          <dd className="inline">{evidence.permissionCoverage ?? "not reported by the server for this path"}</dd>
+        </div>
+      </dl>
+    </section>
+  )
+}
 
 function statusTone(status: string): string {
   const value = status.toUpperCase()
@@ -352,6 +409,7 @@ export function CurrentAccessDossierPanel({
   onClearPin,
   businessImpact,
   cveAnalysis,
+  pathEvidence = null,
 }: {
   dossier: CurrentAccessDossier | null
   jewelName: string
@@ -362,6 +420,8 @@ export function CurrentAccessDossierPanel({
   businessImpact?: ReactNode
   /** Backend-authored CVE decision and current-vs-enabled damage delta. */
   cveAnalysis?: ReactNode
+  /** The server's evidence contract for this path (lib/attack-paths/path-evidence-view). */
+  pathEvidence?: PathEvidenceSummary | null
 }) {
   const model = useMemo(() => {
     if (!dossier) return null
@@ -401,6 +461,14 @@ export function CurrentAccessDossierPanel({
   const observedNow = /observed/i.test(
     `${model.observed?.status ?? ""} ${model.observed?.evidence ?? ""}`,
   )
+  // The server's data-plane RUNTIME state for this path, when it sent one.
+  // "unavailable" / "unattributed" are not "not observed": say which.
+  const dataPlaneRuntime =
+    pathEvidence?.runtimePlanes?.find(([plane]) => plane === "data")?.[1] ?? null
+  const runtimeGap =
+    !observedNow && dataPlaneRuntime && dataPlaneRuntime !== "observed" && dataPlaneRuntime !== "not_observed"
+      ? dataPlaneRuntime
+      : null
   const observedRows = detailValues(
     model.observed,
     observedNow
@@ -454,14 +522,22 @@ export function CurrentAccessDossierPanel({
       ) : null}
 
       <div className="space-y-2.5 p-3" data-testid="dossier-checkpoints">
+        {pathEvidence ? <PathEvidenceBlock evidence={pathEvidence} /> : null}
+
         <DecisionSection
           icon={Eye}
           eyebrow="1 · Evidence"
           title="Observed traffic"
-          status={observedNow ? (model.observed?.status ?? "observed") : "not observed"}
+          status={observedNow
+            ? (model.observed?.status ?? "observed")
+            : runtimeGap
+              ? `data plane ${runtimeGap.replace(/_/g, " ")}`
+              : "not observed"}
           summary={observedNow
             ? `${model.observed?.summary ?? "Observed data-plane use is present."} Telemetry proves use, not that the use is business-approved.`
-            : `No observed traffic proves this route today. ${model.observed?.summary ?? "A configured access relationship exists."}`}
+            : runtimeGap
+              ? `Data-plane runtime evidence is ${runtimeGap.replace(/_/g, " ")} for this route, so Cyntro cannot say whether it is used. ${model.observed?.summary ?? ""}`.trim()
+              : `No observed traffic proves this route today. ${model.observed?.summary ?? "A configured access relationship exists."}`}
           rows={observedRows}
         />
 

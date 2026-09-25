@@ -1,0 +1,426 @@
+{
+  "_source": "captured from preview_chain.py --lp-decision-coverage at backend 1b8a487a966432689fb81ef476a9c2e4bc15d482 (labelled fixture tenant; real publisher, real routes)",
+  "empty": {
+    "actions": [],
+    "authority": "DECISION_GRADE",
+    "configured_set": {
+      "closed": true,
+      "open_reasons": []
+    },
+    "contract": "lp-decision-authority/v1",
+    "counts": {
+      "ACTION_ABSENT": 0,
+      "DECISION_ACTIVE": 0,
+      "GENERATION_UNVERIFIED": 0,
+      "NOT_EVALUATED": 0,
+      "NO_ACTIVE_GENERATION": 0,
+      "RECEIPT_MISSING": 0
+    },
+    "decisions_outside_configuration": 0,
+    "detail": "",
+    "publication": {
+      "attempt": "dee2e98947994960afb75d2e910fd33d",
+      "published_at": "2026-09-25T13:36:00+00:00"
+    },
+    "reason": null,
+    "receipt": {
+      "account_id": "111111111111",
+      "projected_through": "2026-09-20T12:00:00+00:00",
+      "projection_generation": 7,
+      "projection_receipt_hash": "v1:7c457f942a55b690236a9c7c5b11c6363d95c5c4c238e5110a59c9cc596cafc1",
+      "scope": "iam.role_action_decision.v1",
+      "staging_run_id": "fixture-stage-7",
+      "tenant_id": "fixture-webshop"
+    },
+    "removal": {
+      "cleared": [],
+      "in_use": [],
+      "indeterminate": []
+    },
+    "role": {
+      "role_arn": "arn:aws:iam::111111111111:role/fixture-empty-role",
+      "role_id": "AROAFIXTUREEMPTY"
+    },
+    "state": "ACTIVE_EMPTY",
+    "tally": {}
+  },
+  "not_published": {
+    "actions": [],
+    "authority": "NOT_DECISION_GRADE",
+    "contract": "lp-decision-authority/v1",
+    "detail": "NO_PUBLICATION_RECORDED:lp_role_coverage: no LATEST_PUBLISHED#lp_role_coverage#fixture-webshop#111111111111 row",
+    "publication": {
+      "attempt": null,
+      "published_at": null
+    },
+    "reason": "NOT_PUBLISHED",
+    "receipt": null,
+    "state": "UNAVAILABLE"
+  },
+  "not_resident": {
+    "actions": [],
+    "authority": "NOT_DECISION_GRADE",
+    "contract": "lp-decision-authority/v1",
+    "detail": "this deployment publishes no LP decision coverage",
+    "reason": "DEPLOYMENT_NOT_CUSTOMER_RESIDENT",
+    "receipt": null,
+    "state": "UNAVAILABLE"
+  },
+  "populated": {
+    "actions": [
+      {
+        "action": "dynamodb:GetItem",
+        "as_of": "2026-09-20T12:00:00+00:00",
+        "corroboration_state": "NOT_EVALUATED",
+        "coverage_state": "COMPLETE",
+        "decision_hash": "v1:2fb5a46a70bd51836a8cfa8be20508b56cbc95d2447739baada2d80af7911580",
+        "eligibility_state": "ELIGIBLE",
+        "reason": null,
+        "removal_verdict": "LAYER_UNKNOWN",
+        "state": "DECISION_ACTIVE",
+        "usage_state": "NOT_OBSERVED"
+      },
+      {
+        "action": "dynamodb:PutItem",
+        "as_of": "2026-09-20T12:00:00+00:00",
+        "corroboration_state": "NOT_EVALUATED",
+        "coverage_state": "COMPLETE",
+        "decision_hash": "v1:306d7030bead9f6edd5adfb166ee945a13703cba3c9aee5d9653dd606c8810ca",
+        "eligibility_state": "ELIGIBLE",
+        "reason": null,
+        "removal_verdict": "LAYER_UNKNOWN",
+        "state": "DECISION_ACTIVE",
+        "usage_state": "NOT_OBSERVED"
+      },
+      {
+        "action": "dynamodb:Query",
+        "as_of": "2026-09-20T12:00:00+00:00",
+        "corroboration_state": "NOT_EVALUATED",
+        "coverage_state": "COMPLETE",
+        "decision_hash": "v1:6d6bebf88e920366146f017f0cfa10f0db3690ae4f485c4e6e314430feffbafa",
+        "eligibility_state": "ELIGIBLE",
+        "reason": null,
+        "removal_verdict": "LAYER_UNKNOWN",
+        "state": "DECISION_ACTIVE",
+        "usage_state": "NOT_OBSERVED"
+      },
+      {
+        "action": "iam:PassRole",
+        "as_of": "2026-09-20T12:00:00+00:00",
+        "corroboration_state": "NOT_EVALUATED",
+        "coverage_state": "COMPLETE",
+        "decision_hash": "v1:0bd97005d7ae3d2cba473ff42a5c9088230a5cd93781d19de1355b3e1976d7e9",
+        "eligibility_state": "ELIGIBLE",
+        "reason": null,
+        "removal_verdict": "LAYER_UNKNOWN",
+        "state": "DECISION_ACTIVE",
+        "usage_state": "NOT_OBSERVED"
+      },
+      {
+        "action": "kms:Decrypt",
+        "as_of": "2026-09-20T12:00:00+00:00",
+        "corroboration_state": "NOT_EVALUATED",
+        "coverage_state": "COMPLETE",
+        "decision_hash": "v1:a79d3bf941c4d73500b526f352a360e80146eb2a885ee697ec146b781289bd43",
+        "eligibility_state": "ELIGIBLE",
+        "reason": null,
+        "removal_verdict": "LAYER_UNKNOWN",
+        "state": "DECISION_ACTIVE",
+        "usage_state": "NOT_OBSERVED"
+      },
+      {
+        "action": "kms:Encrypt",
+        "as_of": "2026-09-20T12:00:00+00:00",
+        "corroboration_state": "NOT_EVALUATED",
+        "coverage_state": "COMPLETE",
+        "decision_hash": "v1:74c7b3b826d915d6af48677d75443cf474ef4f637dff1e3d1a60d16e608a9010",
+        "eligibility_state": "ELIGIBLE",
+        "reason": null,
+        "removal_verdict": "LAYER_UNKNOWN",
+        "state": "DECISION_ACTIVE",
+        "usage_state": "NOT_OBSERVED"
+      },
+      {
+        "action": "s3:DeleteObject",
+        "as_of": "2026-09-20T12:00:00+00:00",
+        "corroboration_state": "NOT_EVALUATED",
+        "coverage_state": "COMPLETE",
+        "decision_hash": "v1:219fc0ff62a47302c04986dad3b6fe5dec2bc6f466cbc7ae6172e0e4c6891863",
+        "eligibility_state": "PROTECTED",
+        "reason": null,
+        "removal_verdict": "IN_USE",
+        "state": "DECISION_ACTIVE",
+        "usage_state": "SUCCESS_OBSERVED"
+      },
+      {
+        "action": "s3:GetObject",
+        "as_of": "2026-09-20T12:00:00+00:00",
+        "corroboration_state": "NOT_EVALUATED",
+        "coverage_state": "COMPLETE",
+        "decision_hash": "v1:64683caaebb62fd5de3307d6ac68a2120f32237b6f475f9475e555d908d4504f",
+        "eligibility_state": "PROTECTED",
+        "reason": null,
+        "removal_verdict": "IN_USE",
+        "state": "DECISION_ACTIVE",
+        "usage_state": "SUCCESS_OBSERVED"
+      },
+      {
+        "action": "s3:ListBucket",
+        "as_of": "2026-09-20T12:00:00+00:00",
+        "corroboration_state": "NOT_EVALUATED",
+        "coverage_state": "COMPLETE",
+        "decision_hash": "v1:e01b7f15a1d4212dc5a1e935e6af5ff38026a81f175ff49c3de66217f76d6198",
+        "eligibility_state": "PROTECTED",
+        "reason": null,
+        "removal_verdict": "IN_USE",
+        "state": "DECISION_ACTIVE",
+        "usage_state": "SUCCESS_OBSERVED"
+      },
+      {
+        "action": "s3:PutObject",
+        "as_of": "2026-09-20T12:00:00+00:00",
+        "corroboration_state": "NOT_EVALUATED",
+        "coverage_state": "COMPLETE",
+        "decision_hash": "v1:bdd6fe671e4942659059aca67ddf04b5d943e1b79fcb319fdf461da5ded3d912",
+        "eligibility_state": "PROTECTED",
+        "reason": null,
+        "removal_verdict": "IN_USE",
+        "state": "DECISION_ACTIVE",
+        "usage_state": "SUCCESS_OBSERVED"
+      },
+      {
+        "action": "sqs:ReceiveMessage",
+        "as_of": "2026-09-20T12:00:00+00:00",
+        "corroboration_state": "NOT_EVALUATED",
+        "coverage_state": "COMPLETE",
+        "decision_hash": "v1:84e4faaa489e1773fd7636ffae3cf280aa1f3e5ea888497aaefd30318fd54ea4",
+        "eligibility_state": "ELIGIBLE",
+        "reason": null,
+        "removal_verdict": "LAYER_UNKNOWN",
+        "state": "DECISION_ACTIVE",
+        "usage_state": "NOT_OBSERVED"
+      },
+      {
+        "action": "sqs:SendMessage",
+        "as_of": "2026-09-20T12:00:00+00:00",
+        "corroboration_state": "NOT_EVALUATED",
+        "coverage_state": "COMPLETE",
+        "decision_hash": "v1:57727cb2b7350ef9209523e831b91cbbb89efc38085270a1deedef429800e372",
+        "eligibility_state": "ELIGIBLE",
+        "reason": null,
+        "removal_verdict": "LAYER_UNKNOWN",
+        "state": "DECISION_ACTIVE",
+        "usage_state": "NOT_OBSERVED"
+      }
+    ],
+    "authority": "DECISION_GRADE",
+    "configured_set": {
+      "closed": true,
+      "open_reasons": []
+    },
+    "contract": "lp-decision-authority/v1",
+    "counts": {
+      "ACTION_ABSENT": 0,
+      "DECISION_ACTIVE": 12,
+      "GENERATION_UNVERIFIED": 0,
+      "NOT_EVALUATED": 0,
+      "NO_ACTIVE_GENERATION": 0,
+      "RECEIPT_MISSING": 0
+    },
+    "decisions_outside_configuration": 0,
+    "detail": "",
+    "publication": {
+      "attempt": "dee2e98947994960afb75d2e910fd33d",
+      "published_at": "2026-09-25T13:36:00+00:00"
+    },
+    "reason": null,
+    "receipt": {
+      "account_id": "111111111111",
+      "projected_through": "2026-09-20T12:00:00+00:00",
+      "projection_generation": 7,
+      "projection_receipt_hash": "v1:7c457f942a55b690236a9c7c5b11c6363d95c5c4c238e5110a59c9cc596cafc1",
+      "scope": "iam.role_action_decision.v1",
+      "staging_run_id": "fixture-stage-7",
+      "tenant_id": "fixture-webshop"
+    },
+    "removal": {
+      "cleared": [],
+      "in_use": [
+        "s3:DeleteObject",
+        "s3:GetObject",
+        "s3:ListBucket",
+        "s3:PutObject"
+      ],
+      "indeterminate": [
+        {
+          "action": "dynamodb:GetItem",
+          "reason": "LAYER_UNKNOWN"
+        },
+        {
+          "action": "dynamodb:PutItem",
+          "reason": "LAYER_UNKNOWN"
+        },
+        {
+          "action": "dynamodb:Query",
+          "reason": "LAYER_UNKNOWN"
+        },
+        {
+          "action": "iam:PassRole",
+          "reason": "LAYER_UNKNOWN"
+        },
+        {
+          "action": "kms:Decrypt",
+          "reason": "LAYER_UNKNOWN"
+        },
+        {
+          "action": "kms:Encrypt",
+          "reason": "LAYER_UNKNOWN"
+        },
+        {
+          "action": "sqs:ReceiveMessage",
+          "reason": "LAYER_UNKNOWN"
+        },
+        {
+          "action": "sqs:SendMessage",
+          "reason": "LAYER_UNKNOWN"
+        }
+      ]
+    },
+    "role": {
+      "role_arn": "arn:aws:iam::111111111111:role/fixture-web-role",
+      "role_id": "AROAFIXTUREWEB"
+    },
+    "state": "ACTIVE_POPULATED",
+    "tally": {
+      "NOT_OBSERVED": {
+        "ELIGIBLE": 8
+      },
+      "SUCCESS_OBSERVED": {
+        "PROTECTED": 4
+      }
+    }
+  },
+  "preview_not_published": {
+    "candidates": 8,
+    "cleared": [],
+    "contract": "lp-decision-authority/v1",
+    "decision_grade": false,
+    "decision_grade_reasons": [
+      "NOT_PUBLISHED"
+    ],
+    "in_use": [],
+    "indeterminate": [
+      {
+        "candidate": "dynamodb:GetItem",
+        "reason": "NOT_PUBLISHED"
+      },
+      {
+        "candidate": "dynamodb:PutItem",
+        "reason": "NOT_PUBLISHED"
+      },
+      {
+        "candidate": "dynamodb:Query",
+        "reason": "NOT_PUBLISHED"
+      },
+      {
+        "candidate": "sqs:SendMessage",
+        "reason": "NOT_PUBLISHED"
+      },
+      {
+        "candidate": "sqs:ReceiveMessage",
+        "reason": "NOT_PUBLISHED"
+      },
+      {
+        "candidate": "kms:Decrypt",
+        "reason": "NOT_PUBLISHED"
+      },
+      {
+        "candidate": "kms:Encrypt",
+        "reason": "NOT_PUBLISHED"
+      },
+      {
+        "candidate": "iam:PassRole",
+        "reason": "NOT_PUBLISHED"
+      }
+    ],
+    "publication": {
+      "attempt": null,
+      "published_at": null
+    },
+    "reason": "NOT_PUBLISHED",
+    "receipt": null,
+    "state": "UNAVAILABLE"
+  },
+  "preview_populated": {
+    "candidates": 8,
+    "cleared": [],
+    "contract": "lp-decision-authority/v1",
+    "decision_grade": false,
+    "decision_grade_reasons": [
+      "LAYER_UNKNOWN"
+    ],
+    "in_use": [],
+    "indeterminate": [
+      {
+        "candidate": "dynamodb:GetItem",
+        "reason": "LAYER_UNKNOWN"
+      },
+      {
+        "candidate": "dynamodb:PutItem",
+        "reason": "LAYER_UNKNOWN"
+      },
+      {
+        "candidate": "dynamodb:Query",
+        "reason": "LAYER_UNKNOWN"
+      },
+      {
+        "candidate": "sqs:SendMessage",
+        "reason": "LAYER_UNKNOWN"
+      },
+      {
+        "candidate": "sqs:ReceiveMessage",
+        "reason": "LAYER_UNKNOWN"
+      },
+      {
+        "candidate": "kms:Decrypt",
+        "reason": "LAYER_UNKNOWN"
+      },
+      {
+        "candidate": "kms:Encrypt",
+        "reason": "LAYER_UNKNOWN"
+      },
+      {
+        "candidate": "iam:PassRole",
+        "reason": "LAYER_UNKNOWN"
+      }
+    ],
+    "publication": {
+      "attempt": "dee2e98947994960afb75d2e910fd33d",
+      "published_at": "2026-09-25T13:36:00+00:00"
+    },
+    "reason": null,
+    "receipt": {
+      "account_id": "111111111111",
+      "projected_through": "2026-09-20T12:00:00+00:00",
+      "projection_generation": 7,
+      "projection_receipt_hash": "v1:7c457f942a55b690236a9c7c5b11c6363d95c5c4c238e5110a59c9cc596cafc1",
+      "scope": "iam.role_action_decision.v1",
+      "staging_run_id": "fixture-stage-7",
+      "tenant_id": "fixture-webshop"
+    },
+    "state": "ACTIVE_POPULATED"
+  },
+  "role_not_published": {
+    "actions": [],
+    "authority": "NOT_DECISION_GRADE",
+    "contract": "lp-decision-authority/v1",
+    "detail": "the publication holds no record for this role",
+    "publication": {
+      "attempt": "dee2e98947994960afb75d2e910fd33d",
+      "published_at": "2026-09-25T13:36:00+00:00"
+    },
+    "reason": "ROLE_NOT_PUBLISHED",
+    "receipt": null,
+    "state": "UNAVAILABLE"
+  }
+}
