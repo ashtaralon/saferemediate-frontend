@@ -44,6 +44,8 @@ import {
 } from "@/lib/resource-risk-preview-summary"
 import { AdvancedDrawer } from "@/components/iam-lp/AdvancedDrawer"
 import { type PreviewRefusal, refusalFromPreviewBody, reviewRefusalCopy } from "@/lib/lp-preview-refusal"
+import { useOptionalAccountScope } from "@/lib/account-scope-context"
+import { reviewClaimsQuery } from "@/lib/lp-review-scope"
 import { TerraformExecutionChip } from "@/components/terraform-execution-chip"
 import {
   ApprovalActionModal,
@@ -973,6 +975,9 @@ export function IAMPermissionAnalysisModal({
 
   console.log('[IAMPermissionAnalysisModal] RENDER - isOpen:', isOpen, 'roleName:', roleName)
   const { toast } = useToast()
+  // Every Review read carries the selected customer and the role ARN's account, so the
+  // backend can refuse a scope mismatch (403) instead of serving its pinned scope.
+  const reviewClaims = reviewClaimsQuery(roleArn, useOptionalAccountScope()?.customerId)
   const [gapData, setGapData] = useState<GapAnalysisData | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -1104,7 +1109,8 @@ export function IAMPermissionAnalysisModal({
       fetchConfidenceScore(safety)
     })()
     return () => { cancelled = true }
-  }, [isOpen, roleName, findingId])
+    // reviewClaims: a customer switch while open re-reads under the new scope, never keeps the old one's Review.
+  }, [isOpen, roleName, findingId, reviewClaims])
 
   useEffect(() => {
     if (!isOpen || !systemName) {
@@ -1368,7 +1374,7 @@ export function IAMPermissionAnalysisModal({
       console.log('[IAM-Modal] Fetching gap analysis for:', roleName, forceRefresh ? '(force refresh)' : '')
       const refreshParam = forceRefresh ? '&refresh=true' : ''
       const env = await fetchWithEnvelope<any>(
-        `/api/proxy/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=365${refreshParam}`
+        `/api/proxy/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=365${refreshParam}${reviewClaims}`
       )
       setProvenance(env.provenance)
       const rawData = env.result
@@ -1926,7 +1932,7 @@ export function IAMPermissionAnalysisModal({
         
         // 1. Clear frontend cache for this role (force refresh)
         try {
-          await fetch(`/api/proxy/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=365&force_refresh=true`)
+          await fetch(`/api/proxy/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=365&force_refresh=true${reviewClaims}`)
           console.log('[IAM-Modal] Cleared role cache')
         } catch (e) {
           console.warn('[IAM-Modal] Failed to clear role cache:', e)
