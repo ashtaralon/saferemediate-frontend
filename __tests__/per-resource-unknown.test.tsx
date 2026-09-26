@@ -190,7 +190,8 @@ describe("Compare Approaches over the real recommend proxy", () => {
     fireEvent.click(screen.getByText("Compare Approaches"))
     await screen.findByTestId("per-resource-cyntro-risk-reduction")
     expect(screen.getByTestId("per-resource-cyntro-exposure").textContent).toBe("3")    // worker 1 + reader 2
-    expect(screen.getByTestId("per-resource-cyntro-risk-reduction").textContent).toMatch(/^\d+%$/)
+    // Derived from the per-resource answer alone: grant 4 x 2 resources = 8; after = 1 + 2 used = 3 -> 63%.
+    expect(screen.getByTestId("per-resource-cyntro-risk-reduction").textContent).toBe("63%")
     expect(screen.getAllByText("Simulate Split").length).toBeGreaterThan(0)
   })
 })

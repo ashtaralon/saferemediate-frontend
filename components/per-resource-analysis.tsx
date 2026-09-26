@@ -97,6 +97,17 @@ function unusedOf(a: ResourceAnalysis): string[] | null {
     Array.isArray(a.unused_permissions) ? a.unused_permissions : null
 }
 
+/** The per-resource approach's exposure reduction, derived only from the per-resource answer itself: every resource
+ *  observed and its role grant known. Original exposure = grant x resources; after = the sum of what each resource
+ *  was seen using. */
+function perResourceReduction(data: AnalysisData | null | undefined): number | null {
+  const grant = data?.aggregated.total_permissions
+  if (!data || !everyObserved(data) || !knownNumber(grant) || grant <= 0) return null
+  const original = grant * data.analyses.length
+  const after = data.analyses.reduce((sum, a) => sum + (a.used_count ?? 0), 0)
+  return Math.max(0, Math.round(((original - after) / original) * 100))
+}
+
 /** Whether every resource sharing the role was observed: the precondition for any split or role-level claim. */
 function everyObserved(data: AnalysisData | null | undefined): boolean {
   return !!data && data.analyses.length > 0 && data.analyses.every(isObserved)
@@ -125,14 +136,17 @@ interface ProposedRole {
   resource_conditions: Record<string, string>
 }
 
+/** The recommend proxy passes the Review's own numbers or null (never a `|| 0`): an unmeasured Review has no used
+ *  count, and the Review carries neither the resource count nor a per-resource reduction. */
 interface RecommendData {
   original_role: string
-  original_permissions: number
-  resources_attached: number
-  aggregated_used: number
-  aggregated_risk_reduction: number
-  cyntro_risk_reduction: number
-  total_new_permissions: number
+  original_permissions: number | null
+  resources_attached: number | null
+  aggregated_used: number | null
+  aggregated_risk_reduction: number | null
+  cyntro_risk_reduction: number | null
+  total_new_permissions: number | null
+  hold_reason?: string | null
   proposed_roles: ProposedRole[]
   policies: Record<string, any>
 }
@@ -1782,15 +1796,15 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
             </div>
             <div className="grid grid-cols-3 gap-4 text-center">
               <div>
-                <div className="text-3xl font-bold" style={{ color: "#ef4444" }}>{recommendData.original_permissions}</div>
+                <div className="text-3xl font-bold" style={{ color: "#ef4444" }}>{recommendData.original_permissions ?? UNKNOWN}</div>
                 <div className="text-xs" style={{ color: "var(--text-secondary)" }}>permissions granted</div>
               </div>
               <div>
-                <div className="text-3xl font-bold" style={{ color: "#ef4444" }}>{recommendData.resources_attached}</div>
+                <div className="text-3xl font-bold" style={{ color: "#ef4444" }}>{analysisData.analyses.length}</div>
                 <div className="text-xs" style={{ color: "var(--text-secondary)" }}>resources sharing</div>
               </div>
               <div>
-                <div className="text-3xl font-bold" style={{ color: "#ef4444" }}>{recommendData.original_permissions * recommendData.resources_attached}</div>
+                <div className="text-3xl font-bold" style={{ color: "#ef4444" }}>{knownNumber(recommendData.original_permissions) ? recommendData.original_permissions * analysisData.analyses.length : UNKNOWN}</div>
                 <div className="text-xs" style={{ color: "var(--text-secondary)" }}>total exposure</div>
               </div>
             </div>
@@ -1808,17 +1822,17 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
               </div>
               <div className="p-4 space-y-4" style={{ background: "var(--bg-primary)" }}>
                 <div className="text-sm" style={{ color: "var(--text-secondary)" }}>
-                  Reduces role to <strong>{recommendData.aggregated_used} permissions</strong> (union of all used)
+                  Reduces role to <strong data-testid="per-resource-aggregated-used">{recommendData.aggregated_used ?? UNKNOWN} permissions</strong> (union of all used)
                 </div>
                 <div className="rounded-lg p-3 border" style={{ background: "#f9731610", borderColor: "#f9731640" }}>
                   <div className="text-xs font-medium mb-2" style={{ color: "#f97316" }}>After remediation:</div>
                   <div className="space-y-1">
-                    {Array.from({ length: Math.min(recommendData.resources_attached, 4) }).map((_, i) => (
+                    {Array.from({ length: Math.min(analysisData.analyses.length, 4) }).map((_, i) => (
                       <div key={i} className="flex items-center gap-2">
                         <Server className="w-4 h-4" style={{ color: "var(--text-muted)" }} />
                         <span className="text-xs" style={{ color: "var(--text-secondary)" }}>Resource {i + 1}</span>
                         <ArrowRight className="w-3 h-3" style={{ color: "var(--text-muted)" }} />
-                        <span className="text-xs font-mono px-2 py-0.5 rounded" style={{ background: "#f9731620", color: "#f97316" }}>{recommendData.aggregated_used} perms</span>
+                        <span className="text-xs font-mono px-2 py-0.5 rounded" style={{ background: "#f9731620", color: "#f97316" }}>{recommendData.aggregated_used ?? UNKNOWN} perms</span>
                       </div>
                     ))}
                   </div>
@@ -1827,16 +1841,18 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
                   <div className="flex justify-between items-end">
                     <div>
                       <div className="text-xs" style={{ color: "var(--text-muted)" }}>Total exposure after fix</div>
-                      <div className="text-2xl font-bold" style={{ color: "var(--text-secondary)" }}>{recommendData.aggregated_used * recommendData.resources_attached}</div>
+                      <div className="text-2xl font-bold" style={{ color: "var(--text-secondary)" }}>{knownNumber(recommendData.aggregated_used) ? recommendData.aggregated_used * analysisData.analyses.length : UNKNOWN}</div>
                     </div>
                     <div className="text-right">
                       <div className="text-xs" style={{ color: "var(--text-muted)" }}>Risk reduction</div>
-                      <div className="text-2xl font-bold" style={{ color: "var(--text-secondary)" }}>{Math.round(recommendData.aggregated_risk_reduction)}%</div>
+                      <div className="text-2xl font-bold" style={{ color: "var(--text-secondary)" }} data-testid="per-resource-aggregated-risk-reduction">{knownNumber(recommendData.aggregated_risk_reduction) ? `${Math.round(recommendData.aggregated_risk_reduction)}%` : UNKNOWN}</div>
                     </div>
                   </div>
-                  <div className="mt-2 h-2 rounded-full overflow-hidden" style={{ background: "var(--bg-secondary)" }}>
-                    <div className="h-full rounded-full" style={{ background: "var(--text-muted)", width: `${recommendData.aggregated_risk_reduction}%` }} />
-                  </div>
+                  {knownNumber(recommendData.aggregated_risk_reduction) && (
+                    <div className="mt-2 h-2 rounded-full overflow-hidden" style={{ background: "var(--bg-secondary)" }}>
+                      <div className="h-full rounded-full" style={{ background: "var(--text-muted)", width: `${recommendData.aggregated_risk_reduction}%` }} />
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -1874,12 +1890,12 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
                     </div>
                     <div className="text-right">
                       <div className="text-xs" style={{ color: "var(--text-muted)" }}>Risk reduction</div>
-                      <div className="text-2xl font-bold" style={{ color: "#22c55e" }} data-testid="per-resource-cyntro-risk-reduction">{everyObserved(analysisData) ? `${Math.round(recommendData.cyntro_risk_reduction)}%` : UNKNOWN}</div>
+                      <div className="text-2xl font-bold" style={{ color: "#22c55e" }} data-testid="per-resource-cyntro-risk-reduction">{perResourceReduction(analysisData) !== null ? `${perResourceReduction(analysisData)}%` : UNKNOWN}</div>
                     </div>
                   </div>
-                  {everyObserved(analysisData) && (
+                  {perResourceReduction(analysisData) !== null && (
                     <div className="mt-2 h-2 rounded-full overflow-hidden" style={{ background: "#22c55e20" }}>
-                      <div className="h-full rounded-full" style={{ background: "#22c55e", width: `${recommendData.cyntro_risk_reduction}%` }} />
+                      <div className="h-full rounded-full" style={{ background: "#22c55e", width: `${perResourceReduction(analysisData)}%` }} />
                     </div>
                   )}
                 </div>
@@ -1898,8 +1914,8 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
                 <div className="text-sm" style={{ color: "var(--text-secondary)" }}>
                   Traditional tools give every resource the <strong>same reduced permissions</strong>.
                   Cyntro tracks which resource uses which permission, so each gets <strong>only what it actually needs</strong>.
-                  {analysisData && analysisData.analyses.length > 0 && analysisData.analyses.every(isObserved) && recommendData.aggregated_used * recommendData.resources_attached > 0
-                    ? <>This eliminates <strong>{Math.round((1 - analysisData.analyses.reduce((sum, a) => sum + (a.used_count ?? 0), 0) / (recommendData.aggregated_used * recommendData.resources_attached)) * 100)}% more risk</strong> than aggregated approaches.</>
+                  {analysisData && everyObserved(analysisData) && knownNumber(recommendData.aggregated_used) && recommendData.aggregated_used * analysisData.analyses.length > 0
+                    ? <>This eliminates <strong>{Math.round((1 - analysisData.analyses.reduce((sum, a) => sum + (a.used_count ?? 0), 0) / (recommendData.aggregated_used * analysisData.analyses.length)) * 100)}% more risk</strong> than aggregated approaches.</>
                     : <>How much more this eliminates than an aggregated approach is unknown until every resource sharing the role has been observed.</>}
                 </div>
               </div>
