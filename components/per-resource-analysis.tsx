@@ -89,9 +89,17 @@ function isObserved(a: ResourceAnalysis): boolean {
   return a.has_observed_data !== false && typeof a.used_count === "number"
 }
 
-/** The per-resource unused list only where it was actually derived; null otherwise. */
+/** The per-resource unused list only where a PER-RESOURCE grant was actually read (granted_grain present and not
+ *  "role_flat"); null otherwise. An older backend sends the role-flat subtraction (the role's grant minus this
+ *  resource's observations) as "unused" with no grain: that is not this resource's removal list, so it is null. */
 function unusedOf(a: ResourceAnalysis): string[] | null {
-  return isObserved(a) && Array.isArray(a.unused_permissions) ? a.unused_permissions : null
+  return isObserved(a) && typeof a.granted_grain === "string" && a.granted_grain !== "role_flat" &&
+    Array.isArray(a.unused_permissions) ? a.unused_permissions : null
+}
+
+/** Whether every resource sharing the role was observed: the precondition for any split or role-level claim. */
+function everyObserved(data: AnalysisData | null | undefined): boolean {
+  return !!data && data.analyses.length > 0 && data.analyses.every(isObserved)
 }
 
 function knownNumber(value: number | null | undefined): value is number {
@@ -1588,7 +1596,7 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
                                   <div key={p.action} className="flex items-start gap-1.5 text-xs">
                                     <CheckCircle2 className="w-3.5 h-3.5 shrink-0 mt-0.5" style={{ color: "#22c55e" }} />
                                     <span className="font-mono" style={{ color: "var(--text-primary)" }}>{p.action}</span>
-                                    {knownNumber(p.call_count) && <span style={{ color: "var(--text-muted)" }}>({p.call_count.toLocaleString()})</span>}
+                                    {typeof a.granted_grain === "string" && knownNumber(p.call_count) && <span style={{ color: "var(--text-muted)" }}>({p.call_count.toLocaleString()})</span>}
                                   </div>
                                 ))}
                               </div>
@@ -1607,7 +1615,7 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
                               ))}
                               {unusedMore > 0 && <span className="text-xs" style={{ color: "var(--text-muted)" }}>+{unusedMore} more</span>}
                             </div>
-                            {observed && a.risk_factors.length > 0 && (
+                            {unusedList !== null && a.risk_factors.length > 0 && (
                               <div className="mt-2 flex items-center gap-1.5">
                                 <AlertTriangle className="w-3 h-3" style={{ color: "#ef4444" }} />
                                 <span className="text-xs" style={{ color: "#ef4444" }}>{a.risk_factors.slice(0, 2).join("; ")}</span>
@@ -1657,9 +1665,15 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
                           </div>
                         </div>
                       )}
-                      <p className="text-sm mb-3" style={{ color: "var(--text-secondary)" }}>
-                        Split into {analysisData.analyses.length} least-privilege roles:
-                      </p>
+                      {everyObserved(analysisData) ? (
+                        <p className="text-sm mb-3" style={{ color: "var(--text-secondary)" }}>
+                          Split into {analysisData.analyses.length} least-privilege roles:
+                        </p>
+                      ) : (
+                        <p className="text-sm mb-3" style={{ color: "var(--text-secondary)" }} data-testid="per-resource-split-unavailable">
+                          No split is proposed: behavior was observed for {analysisData.analyses.filter(isObserved).length} of {analysisData.analyses.length} resources sharing this role.
+                        </p>
+                      )}
 
                       {/* Resources with ZERO usage — recommend removing access */}
                       {zeroUsage.length > 0 && (
@@ -1740,9 +1754,11 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
                   <button onClick={showComparison} disabled={loading} className="flex items-center gap-2 text-sm font-medium px-4 py-2 rounded-lg border transition-colors" style={{ color: "var(--text-secondary)", borderColor: "var(--border-subtle)" }}>
                     Compare Approaches
                   </button>
-                  <button onClick={runSimulation} disabled={loading} className="flex items-center gap-2 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors hover:opacity-90 disabled:opacity-50" style={{ background: "#8b5cf6" }}>
-                    <Play className="w-4 h-4" /> Simulate Split
-                  </button>
+                  {everyObserved(analysisData) && (
+                    <button onClick={runSimulation} disabled={loading} className="flex items-center gap-2 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors hover:opacity-90 disabled:opacity-50" style={{ background: "#8b5cf6" }}>
+                      <Play className="w-4 h-4" /> Simulate Split
+                    </button>
+                  )}
                   <button onClick={() => runRemediation(true)} disabled={loading} className="flex items-center gap-2 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors hover:opacity-90 disabled:opacity-50" style={{ background: "#22c55e" }}>
                     Remediate Now
                   </button>
@@ -1854,16 +1870,18 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
                   <div className="flex justify-between items-end">
                     <div>
                       <div className="text-xs" style={{ color: "var(--text-muted)" }}>Total exposure after fix</div>
-                      <div className="text-2xl font-bold" style={{ color: "#22c55e" }}>{analysisData && analysisData.analyses.length > 0 && analysisData.analyses.every(isObserved) ? analysisData.analyses.reduce((sum, a) => sum + (a.used_count ?? 0), 0) : UNKNOWN}</div>
+                      <div className="text-2xl font-bold" style={{ color: "#22c55e" }} data-testid="per-resource-cyntro-exposure">{analysisData && analysisData.analyses.length > 0 && analysisData.analyses.every(isObserved) ? analysisData.analyses.reduce((sum, a) => sum + (a.used_count ?? 0), 0) : UNKNOWN}</div>
                     </div>
                     <div className="text-right">
                       <div className="text-xs" style={{ color: "var(--text-muted)" }}>Risk reduction</div>
-                      <div className="text-2xl font-bold" style={{ color: "#22c55e" }}>{Math.round(recommendData.cyntro_risk_reduction)}%</div>
+                      <div className="text-2xl font-bold" style={{ color: "#22c55e" }} data-testid="per-resource-cyntro-risk-reduction">{everyObserved(analysisData) ? `${Math.round(recommendData.cyntro_risk_reduction)}%` : UNKNOWN}</div>
                     </div>
                   </div>
-                  <div className="mt-2 h-2 rounded-full overflow-hidden" style={{ background: "#22c55e20" }}>
-                    <div className="h-full rounded-full" style={{ background: "#22c55e", width: `${recommendData.cyntro_risk_reduction}%` }} />
-                  </div>
+                  {everyObserved(analysisData) && (
+                    <div className="mt-2 h-2 rounded-full overflow-hidden" style={{ background: "#22c55e20" }}>
+                      <div className="h-full rounded-full" style={{ background: "#22c55e", width: `${recommendData.cyntro_risk_reduction}%` }} />
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -1913,9 +1931,11 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
           {/* Action buttons */}
           <div className="mt-6 space-y-4">
             <div className="flex gap-3">
-              <button onClick={runSimulation} disabled={loading} className="flex items-center gap-2 text-white text-sm font-semibold px-5 py-2.5 rounded-lg transition-colors hover:opacity-90 disabled:opacity-50" style={{ background: "#8b5cf6" }}>
-                <Play className="w-4 h-4" /> Simulate Split
-              </button>
+              {everyObserved(analysisData) && (
+                <button onClick={runSimulation} disabled={loading} className="flex items-center gap-2 text-white text-sm font-semibold px-5 py-2.5 rounded-lg transition-colors hover:opacity-90 disabled:opacity-50" style={{ background: "#8b5cf6" }}>
+                  <Play className="w-4 h-4" /> Simulate Split
+                </button>
+              )}
               <button onClick={() => runRemediation(true)} disabled={loading} className="flex items-center gap-2 text-sm font-semibold px-5 py-2.5 rounded-lg border transition-colors disabled:opacity-50" style={{ color: "var(--text-secondary)", borderColor: "var(--border-subtle)" }}>
                 Aggregated Remediation
               </button>
