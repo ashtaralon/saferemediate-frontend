@@ -3,17 +3,16 @@
  *
  * The Apply names the receipted activation the operator planned against: the Review's decision authority
  * generation, receipt hash and publication attempt, for exactly the planned role, copied verbatim. Anything else
- * sends no binding and the backend refuses by name. Apply itself stays held -- this is the source contract only.
+ * builds no Apply body. Apply itself stays held -- this is the source contract only. No IAM-role surface issues an Apply
+ * yet (IAM roles route to IAMPermissionAnalysisModal, which has no Apply control); that caller must use lpApplyBody.
  *
  * The Review body is the one captured from the backend's mounted routes (fixture `_source`), not hand-written.
  */
-import { readFileSync } from "node:fs"
-import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import full from "./fixtures/lp-review-preview-install-chain.json"
 import { decisionBindingOf } from "@/lib/lp-decision-authority"
-import { LP_MUTATION_APPLY_ENABLED, submitHeldLpApply } from "@/lib/lp-held-mutation"
+import { LP_MUTATION_APPLY_ENABLED, lpApplyBody, submitHeldLpApply } from "@/lib/lp-held-mutation"
 
 const review = full.review_envelope.result as Record<string, any>
 const role = { roleArn: review.server_plan.role_arn as string, roleId: review.server_plan.role_id as string }
@@ -46,21 +45,44 @@ describe("decisionBindingOf", () => {
   })
 })
 
-describe("the LP tab's Apply carries the binding and stays held", () => {
-  const tab = readFileSync(join(process.cwd(), "components/LeastPrivilegeTab.tsx"), "utf8")
+describe("lpApplyBody: the one Apply-body builder", () => {
+  // The captured plan as a MEASURED plan for the SAME role would read (labelled test input: the capture itself is
+  // UNKNOWN, which is the refusal case below). Actions use the backend server_plan row shape.
+  const measured = {
+    ...review.server_plan,
+    issue_state: "MEASURED",
+    plan_head: "fixture-plan-head",
+    actions: [{ permission: "s3:DeleteObject", configured: true, coverage: "OBSERVED", observed_use_count: 0, effect: "remove" }],
+  }
 
-  it("binds the Review's own authority to the Review's own role and sends it with both Apply bodies", () => {
-    expect(tab).toContain("decisionBindingOf(data?.decision_authority, {")
-    expect(tab).toContain("roleArn: data?.server_plan?.role_arn,")
-    expect(tab).toContain("roleId: data?.server_plan?.role_id,")
-    expect(tab.split("decision_binding: selectedResource.serverPlan?.decisionBinding ?? undefined").length - 1).toBe(2)
+  it("builds the admitted body with the Review's binding for exactly that role", () => {
+    const body = lpApplyBody({ server_plan: measured, decision_authority: block })
+    expect(body).toEqual({
+      role_arn: role.roleArn,
+      role_id: role.roleId,
+      plan_head: "fixture-plan-head",
+      resource_family: "iam-role",
+      actions: measured.actions,
+      decision_binding: decisionBindingOf(block, role),
+    })
+    expect(JSON.parse(JSON.stringify(body)).decision_binding.projection_generation).toBe(block.receipt.projection_generation)
   })
 
-  it("keeps Apply held: the flag is off and a held Apply never reaches the network", async () => {
+  it.each([
+    ["the captured UNKNOWN plan", { server_plan: review.server_plan, decision_authority: block }],
+    ["no authority", { server_plan: measured }],
+    ["an unavailable authority", { server_plan: measured, decision_authority: { ...block, state: "UNAVAILABLE" } }],
+    ["another role's authority", { server_plan: measured, decision_authority: { ...block, role: { ...block.role, role_id: "AROAOTHER" } } }],
+    ["no review", undefined],
+  ])("builds no Apply from %s", (_label, input) => {
+    expect(lpApplyBody(input)).toBeUndefined()
+  })
+
+  it("keeps Apply held: the flag is off and a built body never reaches the network", async () => {
     const fetchMock = vi.fn()
     vi.stubGlobal("fetch", fetchMock)
     expect(LP_MUTATION_APPLY_ENABLED).toBe(false)
-    const held = await submitHeldLpApply({ plan_head: "p", decision_binding: decisionBindingOf(block, role) })
+    const held = await submitHeldLpApply(lpApplyBody({ server_plan: measured, decision_authority: block })!)
     expect(held).toEqual({ ok: false, status: 503, code: "APPLY_HELD", cloud_writes: 0 })
     expect(fetchMock).not.toHaveBeenCalled()
   })

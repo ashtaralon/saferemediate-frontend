@@ -1,3 +1,5 @@
+import { decisionBindingOf, type LpDecisionBinding } from "@/lib/lp-decision-authority"
+
 export const LP_MUTATION_APPLY_ENABLED = false
 export const LP_RESTORE_ENABLED = false
 
@@ -246,4 +248,41 @@ export async function submitLpResolve(binding: RestoreBinding) {
     body: JSON.stringify({ operation_id: operationId, role_arn: roleArn, role_id: roleId, resource_family: "iam-role" }),
   })
   return { ok: response.ok, status: response.status, body: await response.json().catch(() => null) }
+}
+
+/** The LP Apply request body the backend admits (api/lp_remediation_route.py apply_lp). */
+export type LpApplyBody = {
+  role_arn: string
+  role_id: string
+  plan_head: string
+  resource_family: "iam-role"
+  actions: NonNullable<ReturnType<typeof measuredIamPlan>>["actions"]
+  decision_binding: LpDecisionBinding
+}
+
+/**
+ * The ONE builder for an LP Apply body, from a single Review response: its MEASURED `server_plan` and, for exactly that
+ * role, its receipted `decision_authority` (lib/lp-decision-authority.ts::decisionBindingOf). Returns undefined -- no
+ * Apply can be formed -- unless both are present: the backend refuses an Apply without a binding
+ * (DECISION_BINDING_REQUIRED), so an unbound body is never built. Building a body grants nothing: sending it goes
+ * through submitHeldLpApply, which stays held while LP_MUTATION_APPLY_ENABLED is false.
+ *
+ * No IAM-role surface calls this yet: IAM roles route to IAMPermissionAnalysisModal (lib/lp-review-routing.ts), which
+ * has no Apply control. The caller that enables Apply there must use this builder.
+ */
+export function lpApplyBody(review: unknown): LpApplyBody | undefined {
+  const data = review && typeof review === "object" ? (review as Record<string, unknown>) : null
+  if (!data) return undefined
+  const plan = measuredIamPlan(data.server_plan)
+  if (!plan) return undefined
+  const binding = decisionBindingOf(data.decision_authority, { roleArn: plan.roleArn, roleId: plan.roleId })
+  if (!binding) return undefined
+  return {
+    role_arn: plan.roleArn,
+    role_id: plan.roleId,
+    plan_head: plan.planHead,
+    resource_family: "iam-role",
+    actions: plan.actions,
+    decision_binding: binding,
+  }
 }
