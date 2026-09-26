@@ -17,6 +17,9 @@ vi.mock("@/lib/lp-held-mutation", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/lp-held-mutation")>()
   return {
     ...actual,
+    // The resolution FLOW with the release switch on (it is false in source); the held control is
+    // lp-held-controls-send-nothing.test.tsx, with the real submitter and a network spy.
+    LP_RESOLVE_ENABLED: true,
     fetchLpOutstanding: (...args: unknown[]) => read(...args),
     submitLpResolve: (...args: unknown[]) => resolve(...args),
   }
