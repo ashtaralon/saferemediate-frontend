@@ -79,7 +79,12 @@ const STALE_CODES = new Set([
 ])
 
 /** Codes whose outcome is NOT known to be zero writes, whatever the body says. */
-const UNCONFIRMED_CODES = new Set(["APPLY_OUTCOME_UNKNOWN", "RESTORE_ATTEMPT_OUTCOME_UNKNOWN", "READBACK_FAILED"])
+// VERIFY_RECEIPT_MISSING / OPERATION_RECORD_UNCONFIRMED: the route answers these with cloud_writes 0 while its ledger
+// row can be PARTIALLY_APPLIED (tests/test_lp_replay_contract.py on the backend), so "nothing written" is not proven.
+const UNCONFIRMED_CODES = new Set([
+  "APPLY_OUTCOME_UNKNOWN", "RESTORE_ATTEMPT_OUTCOME_UNKNOWN", "READBACK_FAILED",
+  "VERIFY_RECEIPT_MISSING", "OPERATION_RECORD_UNCONFIRMED",
+])
 const UNCONFIRMED = "The outcome is unconfirmed; check the role's outstanding operation."
 
 function refusalCode(result: SubmitResult): string | undefined {

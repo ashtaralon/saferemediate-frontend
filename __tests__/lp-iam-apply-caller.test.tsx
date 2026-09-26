@@ -147,8 +147,9 @@ describe("LpIamApplyPanel", () => {
     expect(onReviewStale).toHaveBeenCalledTimes(1)
   })
 
-  it("an outcome-unknown refusal is unconfirmed even when its body says zero writes", async () => {
-    const submitApply = vi.fn(async () => ({ ok: false, status: 503, body: { detail: { code: "APPLY_OUTCOME_UNKNOWN", cloud_writes: 0 } } }))
+  it.each(["APPLY_OUTCOME_UNKNOWN", "VERIFY_RECEIPT_MISSING", "OPERATION_RECORD_UNCONFIRMED"])(
+    "%s is unconfirmed even when its body says zero writes", async (code) => {
+    const submitApply = vi.fn(async () => ({ ok: false, status: 503, body: { detail: { code, cloud_writes: 0 } } }))
     render(<LpIamApplyPanel review={measured} scope={scope} applyEnabled submitApply={submitApply} lookupReceipt={async () => null} />)
     fireEvent.click(button())
     const out = await screen.findByRole("status")
