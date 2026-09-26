@@ -243,6 +243,11 @@ export async function submitLpResolve(binding: RestoreBinding) {
   if (!LP_RESOLVE_ENABLED) {
     return { ok: false, status: 503, code: "RESOLVE_HELD", cloud_writes: 0 }
   }
+  return postLpResolve(binding)
+}
+
+/** The one Resolve request: this operation on this exact role, to the held proxy. Callers use submitLpResolve. */
+export async function postLpResolve(binding: RestoreBinding) {
   const { operationId, roleArn, roleId } = binding
   if (!operationId || !roleArn || !roleId) {
     return { ok: false, status: 422, code: "RESOLUTION_BINDING_MISSING", cloud_writes: 0 }

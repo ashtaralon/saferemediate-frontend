@@ -230,7 +230,7 @@ describe("the mounted Permissions modal carries the caller", () => {
     expect(panel.textContent).toContain("No measured removal plan (UNKNOWN)")    // the capture is UNKNOWN: no Apply
     await waitFor(() => expect(fetchMock.mock.calls.length).toBeGreaterThan(0))
     const urls = fetchMock.mock.calls.map((call) => String(call[0]))
-    expect(urls.filter((url) => /least-privilege\/(apply|restore|resolve)|lp-lifecycle|\/receipt/.test(url))).toEqual([])
+    expect(urls.filter((url) => /least-privilege\/(apply|restore|resolve|outstanding)|lp-lifecycle|\/receipt/.test(url))).toEqual([])
   })
 
   function modal(roleName: string) {
