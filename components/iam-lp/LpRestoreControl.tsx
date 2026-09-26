@@ -13,6 +13,8 @@ type Plan = { roleArn: string; roleId: string; planHead: string } | undefined
 type Scope = { customerId?: string | null; accountId?: string | null }
 type Outcome = { text: string } | null
 
+const RESTORE_HELD_COPY = "Restore stays off until the installed ledger, IAM writer and verified readback are proven."
+
 /**
  * Restore for exactly the operation a verified Apply recorded on this role.
  *
@@ -43,6 +45,11 @@ export function LpRestoreControl({
   const bound = receipt
 
   async function restore() {
+    // Held: the control is disabled AND the handler sends nothing -- a disabled look is not a guard.
+    if (!LP_RESTORE_ENABLED) {
+      setOutcome({ text: RESTORE_HELD_COPY })
+      return
+    }
     setBusy(true)
     try {
       const result = await submitHeldLpRestore({
@@ -59,7 +66,7 @@ export function LpRestoreControl({
       }
       const code = ("code" in result ? result.code : undefined) ?? (detail?.code as string | undefined)
       if (code === "RESTORE_HELD") {
-        setOutcome({ text: "Restore stays off until the installed ledger, IAM writer and verified readback are proven." })
+        setOutcome({ text: RESTORE_HELD_COPY })
         return
       }
       setOutcome({ text: `Restore was refused (${String(code ?? `HTTP ${result.status}`)}). Nothing was written.` })
@@ -78,10 +85,12 @@ export function LpRestoreControl({
         className="mt-2 rounded border px-3 py-1"
         onClick={restore}
         aria-busy={busy}
+        disabled={!LP_RESTORE_ENABLED}
         aria-disabled={!LP_RESTORE_ENABLED}
       >
         Restore this operation
       </button>
+      {!LP_RESTORE_ENABLED && !outcome && <div className="mt-2 text-slate-600">{RESTORE_HELD_COPY}</div>}
       {outcome && (
         <div role="status" className="mt-2">
           {outcome.text}

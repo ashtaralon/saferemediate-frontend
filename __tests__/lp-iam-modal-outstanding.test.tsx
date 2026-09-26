@@ -5,7 +5,7 @@
  * the modal makes no outstanding read). The Review is the backend capture (fixture `_source`); the outstanding and
  * resolve bodies follow api/lp_remediation_route.py lp_outstanding / resolve (labelled test input).
  */
-import { fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import full from "./fixtures/lp-review-preview-install-chain.json"
@@ -75,6 +75,7 @@ function modal() {
 }
 
 afterEach(() => {
+  cleanup()   // unmount before unstubbing: no effect may outlive the stub and reach the real network
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })

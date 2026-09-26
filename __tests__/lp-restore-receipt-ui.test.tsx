@@ -15,7 +15,9 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 const submit = vi.fn()
 vi.mock("@/lib/lp-held-mutation", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/lp-held-mutation")>()
-  return { ...actual, submitHeldLpRestore: (...args: unknown[]) => submit(...args) }
+  // The Restore FLOW with the release switch on (it is false in source); the held control is
+  // lp-held-controls-send-nothing.test.tsx, with the real submitter and a network spy.
+  return { ...actual, LP_RESTORE_ENABLED: true, submitHeldLpRestore: (...args: unknown[]) => submit(...args) }
 })
 
 import { receiptFromApply, receiptOffersRestore, type LpApplyReceipt } from "@/lib/lp-held-mutation"

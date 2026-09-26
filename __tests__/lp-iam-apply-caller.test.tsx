@@ -7,8 +7,8 @@
  * backend's mounted routes (fixture `_source`); where a MEASURED plan is needed it is that capture with a measured
  * plan for the SAME role (labelled test input), because the capture itself is UNKNOWN.
  */
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import full from "./fixtures/lp-review-preview-install-chain.json"
 import { IAMPermissionAnalysisModal } from "@/components/iam-permission-analysis-modal"
@@ -51,11 +51,31 @@ function button() {
 }
 
 afterEach(() => {
+  // Unmount BEFORE unstubbing: an effect that outlived the test would otherwise reach the real network.
+  cleanup()
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
 
 describe("LpIamApplyPanel", () => {
+  // An enabled panel also reads the role's outstanding operation. No test here may reach a real network: the default
+  // stub answers that one read (nothing outstanding) and refuses anything else by name.
+  let network: string[] = []
+  beforeEach(() => {
+    network = []
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      network.push(url)
+      if (url.startsWith("/api/proxy/least-privilege/outstanding?")) {
+        return { ok: false, status: 404, json: async () => ({ detail: { code: "NO_OUTSTANDING_OPERATION" } }) } as Response
+      }
+      throw new Error(`unrouted request in a unit test: ${url}`)
+    }))
+  })
+  afterEach(() => {
+    expect(network.filter((url) => !url.startsWith("/api/proxy/least-privilege/outstanding?"))).toEqual([])
+  })
+
   it("is held by default: disabled, and neither Apply nor a ledger lookup reaches the network", async () => {
     const fetchMock = vi.fn()
     vi.stubGlobal("fetch", fetchMock)

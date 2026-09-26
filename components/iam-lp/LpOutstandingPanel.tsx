@@ -21,6 +21,8 @@ const STATE_COPY: Record<string, string> = {
   RESOLVED_PARTIAL: "Resolved as partially applied. Restore puts every policy back to its preimage.",
 }
 
+const RESOLVE_HELD_COPY = "Resolution stays off until the installed ledger and lifecycle process are proven."
+
 const VERDICT_COPY: Record<string, string> = {
   applied: "Live policies show every intended change.",
   not_applied: "Live policies are all at their preimage.",
@@ -69,12 +71,17 @@ export function LpOutstandingPanel({
   const bound = { operationId: outstanding.operationId, roleArn: plan.roleArn, roleId: plan.roleId }
 
   async function resolve() {
+    // Held: the control is disabled AND the handler sends nothing -- a disabled look is not a guard.
+    if (!LP_RESOLVE_ENABLED) {
+      setMessage(RESOLVE_HELD_COPY)
+      return
+    }
     const result = await submitLpResolve(bound)
     const body = "body" in result ? (result.body as Record<string, unknown> | null) : null
     const detail = (body?.detail as Record<string, unknown> | undefined) ?? body ?? undefined
     const code = ("code" in result ? result.code : undefined) ?? (detail?.code as string | undefined)
     if (code === "RESOLVE_HELD") {
-      setMessage("Resolution stays off until the installed ledger and lifecycle process are proven.")
+      setMessage(RESOLVE_HELD_COPY)
       return
     }
     if (result.ok && body?.code === "RESOLVED") {
@@ -100,9 +107,18 @@ export function LpOutstandingPanel({
         ))}
       </ul>
       {outstanding.resolvable && (
-        <button type="button" className="mt-2 rounded border px-3 py-1" onClick={resolve} aria-disabled={!LP_RESOLVE_ENABLED}>
+        <button
+          type="button"
+          className="mt-2 rounded border px-3 py-1 disabled:opacity-50"
+          onClick={resolve}
+          disabled={!LP_RESOLVE_ENABLED}
+          aria-disabled={!LP_RESOLVE_ENABLED}
+        >
           Resolve from live state
         </button>
+      )}
+      {outstanding.resolvable && !LP_RESOLVE_ENABLED && !message && (
+        <div className="mt-2 text-slate-600">{RESOLVE_HELD_COPY}</div>
       )}
       {message && (
         <div role="status" className="mt-2">
