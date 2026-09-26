@@ -220,6 +220,25 @@ describe("the mounted Permissions modal carries the caller", () => {
     await waitFor(() => expect(screen.queryByTestId("lp-iam-apply-panel")).toBeNull())
   })
 
+  it("a same-role re-read hides the old Review's caller until the new Review arrives", async () => {
+    const measuredEnvelope = { ...full.review_envelope, result: measured }
+    let reads = 0
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes("/gap-analysis")) {
+        reads += 1
+        return reads === 1 ? reply(200, measuredEnvelope) : new Promise<Response>(() => {})   // the re-read hangs
+      }
+      if (url.includes("/simulate-fix")) return reply(200, full.preview)
+      return reply(404, { detail: { code: "FIXTURE_UNROUTED" } })
+    }))
+    render(modal("fixture-web-role"))
+    await screen.findByRole("button", { name: "Apply this plan" })
+    fireEvent.click(screen.getByTitle("Refresh data"))
+    await waitFor(() => expect(screen.queryByTestId("lp-iam-apply-panel")).toBeNull())
+    expect(reads).toBe(2)
+  })
+
   it("an out-of-order Review for the previous role never replaces the current role's caller", async () => {
     let releaseFirst: (value: Response) => void = () => {}
     const first = new Promise<Response>((resolve) => { releaseFirst = resolve })
