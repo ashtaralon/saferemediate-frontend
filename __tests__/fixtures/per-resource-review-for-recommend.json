@@ -1,0 +1,604 @@
+{
+ "_producer": "GET /api/iam-roles/{role}/gap-analysis at saferemediate-backend claude/cf01-review-region-claim 6d237a8c, real route + real proof + fixture review runtime over tests/test_iam_review_scope.py's graph session",
+ "review": {
+  "authority": "LEGACY_DIAGNOSTIC",
+  "behavioral_authority": {
+   "authoritative": false,
+   "coverage_state": null,
+   "limitation": "fixture",
+   "parity_delta": null,
+   "projection_generation": null
+  },
+  "budget": {
+   "budget_exhausted": false,
+   "budget_ms": 2000,
+   "elapsed_ms": 38,
+   "phases": [
+    {
+     "error_type": null,
+     "kind": "graph_read",
+     "ms": 0,
+     "name": "read_identity_resolve_exact",
+     "rows": 1,
+     "state": "OK"
+    },
+    {
+     "error_type": null,
+     "kind": "graph_read",
+     "ms": 0,
+     "name": "read_identity_resolve_unattributed",
+     "rows": 0,
+     "state": "OK"
+    },
+    {
+     "error_type": null,
+     "kind": "graph_read",
+     "ms": 0,
+     "name": "read_identity_census",
+     "rows": 1,
+     "state": "OK"
+    },
+    {
+     "error_type": null,
+     "kind": null,
+     "ms": 0,
+     "name": "resolve_identity",
+     "rows": null,
+     "state": "OK"
+    },
+    {
+     "error_type": null,
+     "kind": "graph_read",
+     "ms": 0,
+     "name": "read_role_record",
+     "rows": null,
+     "state": "OK"
+    },
+    {
+     "error_type": null,
+     "kind": null,
+     "ms": 0,
+     "name": "role_record",
+     "rows": 1,
+     "state": "OK"
+    },
+    {
+     "error_type": null,
+     "kind": "graph_read",
+     "ms": 0,
+     "name": "read_used_action_window",
+     "rows": 0,
+     "state": "OK"
+    },
+    {
+     "error_type": null,
+     "kind": null,
+     "ms": 2,
+     "name": "usage_window",
+     "rows": null,
+     "state": "OK"
+    },
+    {
+     "error_type": null,
+     "kind": null,
+     "ms": 0,
+     "name": "behavioral_usage_fallback",
+     "rows": null,
+     "state": "OK"
+    },
+    {
+     "error_type": null,
+     "kind": null,
+     "ms": 0,
+     "name": "policy_fallback",
+     "rows": null,
+     "state": "OK"
+    },
+    {
+     "error_type": null,
+     "kind": null,
+     "ms": 0,
+     "name": "usage_fallbacks",
+     "rows": null,
+     "state": "OK"
+    },
+    {
+     "error_type": null,
+     "kind": "graph_read",
+     "ms": 0,
+     "name": "read_schedule_role_lookup",
+     "rows": 0,
+     "state": "OK"
+    },
+    {
+     "error_type": null,
+     "kind": "graph_read",
+     "ms": 0,
+     "name": "read_schedule_link_eventbridge_rule",
+     "rows": 0,
+     "state": "OK"
+    },
+    {
+     "error_type": null,
+     "kind": "graph_read",
+     "ms": 0,
+     "name": "read_schedule_link_scheduled_task",
+     "rows": 0,
+     "state": "OK"
+    },
+    {
+     "error_type": null,
+     "kind": "graph_read",
+     "ms": 0,
+     "name": "read_schedule_link_targets_consumer",
+     "rows": 0,
+     "state": "OK"
+    },
+    {
+     "error_type": null,
+     "kind": "graph_read",
+     "ms": 0,
+     "name": "read_schedule_link_state_machine",
+     "rows": 0,
+     "state": "OK"
+    },
+    {
+     "error_type": null,
+     "kind": "graph_read",
+     "ms": 0,
+     "name": "read_schedule_link_asg_scheduled_action",
+     "rows": 0,
+     "state": "OK"
+    },
+    {
+     "error_type": null,
+     "kind": "graph_read",
+     "ms": 0,
+     "name": "read_schedule_link_uses_role",
+     "rows": 0,
+     "state": "OK"
+    },
+    {
+     "error_type": null,
+     "kind": "graph_read",
+     "ms": 0,
+     "name": "read_schedule_link_targets_glue_ssm",
+     "rows": 0,
+     "state": "OK"
+    },
+    {
+     "error_type": null,
+     "kind": "graph_read",
+     "ms": 0,
+     "name": "read_schedule_link_targets_ec2_ssm",
+     "rows": 0,
+     "state": "OK"
+    },
+    {
+     "error_type": "AttributeError",
+     "kind": "graph_read",
+     "ms": 0,
+     "name": "read_coverage_sources",
+     "rows": null,
+     "state": "ERROR"
+    },
+    {
+     "error_type": null,
+     "kind": null,
+     "ms": 30,
+     "name": "observation_readiness",
+     "rows": null,
+     "state": "OK"
+    },
+    {
+     "error_type": null,
+     "kind": "graph_read",
+     "ms": 0,
+     "name": "read_evidence_tally",
+     "rows": null,
+     "state": "OK"
+    },
+    {
+     "error_type": null,
+     "kind": null,
+     "ms": 1,
+     "name": "evidence_tally",
+     "rows": null,
+     "state": "OK"
+    },
+    {
+     "error_type": null,
+     "kind": null,
+     "ms": 0,
+     "name": "runtime_traffic_authority",
+     "rows": null,
+     "state": "OK"
+    }
+   ],
+   "phases_truncated": false,
+   "sections": {
+    "account_data_event_signals": "NOT_EVALUATED",
+    "calibration": "NOT_EVALUATED",
+    "evidence_breakdown": "NOT_EVALUATED",
+    "evidence_tally": "READY",
+    "observation_readiness": "READY",
+    "role_record": "READY",
+    "runtime_traffic_authority": "READY",
+    "safety_vector": "NOT_EVALUATED",
+    "usage_window": "READY"
+   }
+  },
+  "confidence": "MEDIUM",
+  "confidence_groups": {
+   "account_data_event_signals_evaluated": false,
+   "account_signals": {
+    "dynamodb_data_events": false,
+    "lambda_data_events": false,
+    "s3_data_events": false
+   },
+   "calibration_evaluated": false,
+   "calibration_factor": 1.0,
+   "calibration_reasons": {},
+   "evidence_overall_confidence": 20,
+   "groups": [
+    {
+     "action": "investigate_first",
+     "auto_remediable": false,
+     "block_reason_code": "needs_telemetry",
+     "block_reason_human": "S3 CloudTrail data events are not enabled \u2014 Cyntro cannot verify these permissions are unused. Enable data events or wait for the 30-day observation window.",
+     "color": "red",
+     "confidence_score": 20,
+     "data_source_type": "data_event",
+     "decision_contract": {
+      "account_id": "111111111111",
+      "contract_version": "1.0.0",
+      "coverage": {
+       "access_advisor": "not_applicable",
+       "blind_spots": [
+        "cloudtrail_data_events:s3"
+       ],
+       "cloudtrail_data_events": "missing",
+       "cloudtrail_management": "not_applicable",
+       "config_history": "not_applicable",
+       "flow_logs": "not_applicable",
+       "network_access_analyzer": "not_applicable",
+       "overall_score": 0.0,
+       "reachability_preflight": "not_applicable",
+       "resource_policy_scan": "not_applicable"
+      },
+      "coverage_snapshot_hash": "sha256:ceda359f6502793e4170b70ee064e6cc2c807a2aa4ce9731b3f8cb4db2a80ee5",
+      "customer_id": "tenant-a",
+      "customer_overlay_version": null,
+      "decision_id": "d-28b4472cf4594666",
+      "decision_time": "2026-09-26T14:53:55.563050+00:00",
+      "engine_version": "2026-05-06",
+      "evidence": [
+       {
+        "age_days": null,
+        "confidence": 1.0,
+        "description": "Coverage missing: cloudtrail_data_events:s3",
+        "detail": {
+         "missing_sources": [
+          "cloudtrail_data_events:s3"
+         ],
+         "required_sources": [
+          "cloudtrail_management",
+          "cloudtrail_data_events"
+         ]
+        },
+        "recorded_at": "2026-09-26T14:53:55.563007+00:00",
+        "source": "cloudtrail"
+       }
+      ],
+      "evidence_snapshot_hash": "sha256:84bdfe77fba69f69f11b1428ce220757c3bd6cbaadf8b509f8f1761c293c8ced",
+      "lifecycle": {
+       "assigned_owner": null,
+       "created_at": "2026-09-26T14:53:55.563077+00:00",
+       "due_at": null,
+       "last_reviewed_at": null,
+       "override_lineage": null,
+       "resolution": null,
+       "review_due_at": null,
+       "stale_after": null,
+       "status": "OPEN"
+      },
+      "operator_context": {
+       "blast_radius": null,
+       "blocked_change": {
+        "current_state": "telemetry coverage incomplete: missing cloudtrail_data_events:s3",
+        "proposed_change": "remove 1 unused S3 permission(s)",
+        "resource_id": "web-role"
+       },
+       "escalation_target": {
+        "confidence": 0.0,
+        "display_name": null,
+        "source": "unknown",
+        "target_type": "unknown_no_default_configured"
+       },
+       "likely_owner": {
+        "confidence": 0.0,
+        "source": "unknown",
+        "team": null
+       },
+       "override_requirements": {
+        "allowed": false,
+        "rationale_required": true,
+        "required_acknowledgements": [
+         "acknowledge_missing_coverage_risk"
+        ],
+        "required_role": null,
+        "rollback_required": true
+       },
+       "rendered_explanation": "Cyntro blocked this IAM remediation because required telemetry is missing or stale. Without cloudtrail_data_events:s3, the engine cannot tell whether the permission is actually unused vs unused-but-needed-rarely. Required: cloudtrail_management, cloudtrail_data_events. Missing: cloudtrail_data_events:s3. Enable the missing source(s) and wait for a collection cycle before retrying.",
+       "suggested_safer_actions": [
+        {
+         "action": "Enable the missing telemetry source(s) in AWS",
+         "expected_risk_reduction": null,
+         "explanation": "CloudTrail data events for S3/DynamoDB/Lambda must be enabled in the customer account; collector lag resolves with one collection cycle."
+        }
+       ],
+       "summary": "Cyntro blocked remove 1 unused S3 permission(s) on web-role because required telemetry is missing: cloudtrail_data_events:s3. Acting on missing data is the false-remove failure mode the engine refuses to ship.",
+       "what_to_check": [
+        {
+         "check": "Enable cloudtrail_data_events:s3 for this account/region",
+         "command_or_link": "https://console.aws.amazon.com/cloudtrail/",
+         "expected_result": "cloudtrail_data_events:s3 appears in next coverage scan"
+        }
+       ],
+       "why": {
+        "confidence": 1.0,
+        "evidence_refs": [
+         "coverage_status"
+        ],
+        "explanation": "Required telemetry sources are missing or stale: cloudtrail_data_events:s3. The engine cannot distinguish 'unused' from 'unused-but-needed-rarely' without these signals. Fail-closed posture applies."
+       }
+      },
+      "outcome": "BLOCK",
+      "reason_code": "missing_coverage",
+      "region": "global",
+      "remediation_intent": null,
+      "removal_safety_score": 0.0,
+      "resource_id": "web-role",
+      "resource_type": "IAM_ROLE",
+      "risk_of_leaving_score": 0.52,
+      "risk_severity": "HIGH",
+      "rollback_plan": null,
+      "rule_id": null,
+      "taxonomy_version": "1.0.0",
+      "template_version": "1.0.0",
+      "urgency": "MEDIUM"
+     },
+     "evidence_confidence_score": 20,
+     "evidence_summary": "S3 data events are NOT enabled in CloudTrail. Cannot determine if these permissions are actively used. Enable S3 data events in CloudTrail before removing.",
+     "explanation": "S3 data events are NOT enabled in CloudTrail. Cannot determine if these permissions are actively used. Enable S3 data events in CloudTrail before removing. S3 CloudTrail data events are not enabled \u2014 Cyntro cannot verify these permissions are unused. Enable data events or wait for the 30-day observation window.",
+     "group_id": "data_event_investigate_first",
+     "label": "S3 Data Operations (1)",
+     "logged_by_default": false,
+     "permission_count": 1,
+     "permissions": [
+      {
+       "_action": "investigate_first",
+       "calibration_factor": 1.0,
+       "calibration_reasons": [],
+       "confidence_score": 20,
+       "damage_label": "Write/modify operation",
+       "damage_tier": "WRITE",
+       "data_source_type": "data_event",
+       "evidence_confidence": 20,
+       "evidence_summary": "S3 data events are NOT enabled in CloudTrail. Cannot determine if these permissions are actively used. Enable S3 data events in CloudTrail before removing.",
+       "execution_confidence": 20,
+       "explanation": "S3 data events are NOT enabled in CloudTrail. Cannot determine if these permissions are actively used. Enable S3 data events in CloudTrail before removing. S3 CloudTrail data events are not enabled \u2014 Cyntro cannot verify these permissions are unused. Enable data events or wait for the 30-day observation window.",
+       "logged_by_default": false,
+       "permission": "s3:PutObject",
+       "protected": false,
+       "protection_category": null,
+       "protection_tier": null,
+       "recommendation": "Verify - not observed in 120 effective day(s); 7 required",
+       "reserved": false,
+       "risk_level": "MEDIUM",
+       "service_label": "S3",
+       "service_prefix": "s3",
+       "status": "UNUSED",
+       "usage_count": 0,
+       "warn": false
+      }
+     ],
+     "protected": false,
+     "protection_category": null,
+     "protection_tier": null,
+     "service_label": "S3",
+     "telemetry_enablement_action": {
+      "endpoint": "/api/telemetry/enable-data-events",
+      "estimated_cost_usd_per_month": 5,
+      "service": "s3"
+     },
+     "warn": false
+    }
+   ],
+   "observation_days": 120,
+   "overall_confidence": 20,
+   "summary": {
+    "investigate_first": 1,
+    "protected": 0,
+    "reserved": 0,
+    "safe_to_remove": 0,
+    "verify_first": 0,
+    "warn_before_removing": 0
+   },
+   "total_permissions": 1,
+   "total_permissions_all": 1
+  },
+  "confidence_mode": "observed",
+  "data_source": "real",
+  "decision_authority": {
+   "actions": [],
+   "authority": "NOT_DECISION_GRADE",
+   "contract": "lp-decision-authority/v1",
+   "detail": "this deployment publishes no LP decision coverage",
+   "reason": "DEPLOYMENT_NOT_CUSTOMER_RESIDENT",
+   "receipt": null,
+   "state": "UNAVAILABLE"
+  },
+  "decision_evidence_ready": false,
+  "dependency_context": {
+   "dependencies": null,
+   "has_critical_dependencies": null,
+   "limitation": "Dependency analysis was not computed for this role.",
+   "status": "not_computed",
+   "system": {
+    "criticality": null,
+    "name": "shop"
+   }
+  },
+  "effective_observation_days": 120,
+  "evidence_breakdown": null,
+  "high_risk_unused": [],
+  "is_remediable": false,
+  "observation_days": 120,
+  "observation_readiness": {
+   "blockers": [
+    {
+     "reason": "CADENCE_INVENTORY_NOT_COLLECTED",
+     "source_type": "SCHEDULE_INVENTORY"
+    },
+    {
+     "reason": "COVERAGE_READ_FAILED"
+    }
+   ],
+   "coverage_complete": false,
+   "decision_evidence_ready": false,
+   "effective_observation_days": 120,
+   "observation_floor": {
+    "cadence_days": null,
+    "minimum_days": 7,
+    "required_days": 7,
+    "rule": "max(minimum_days, 2 x cadence_days)",
+    "schedule_inventory_complete": false,
+    "schedule_inventory_status": "missing",
+    "source": "CYNTRO_MUTATION_EVIDENCE_MIN_OBSERVATION_DAYS"
+   },
+   "requested_lookback_days": 365,
+   "required_observation_days": 7
+  },
+  "observation_window": {
+   "basis": "observed_events",
+   "collected_at": "2026-09-26T14:53:55+00:00",
+   "effective_days": 120,
+   "limitation": null,
+   "observed_from": "2026-05-29T14:53:55+00:00",
+   "observed_through": "2026-09-25T14:53:55+00:00",
+   "requested_lookback_days": 365,
+   "span_days": 119
+  },
+  "permissions_analysis": [
+   {
+    "damage_tier": "READ",
+    "evidence": [
+     "s3:GetObject"
+    ],
+    "last_used": null,
+    "permission": "s3:GetObject",
+    "recommendation": "Keep - actively used",
+    "risk_level": "LOW",
+    "status": "USED",
+    "usage_count": null
+   },
+   {
+    "damage_label": "Write/modify operation",
+    "damage_tier": "WRITE",
+    "permission": "s3:PutObject",
+    "recommendation": "Verify - not observed in 120 effective day(s); 7 required",
+    "risk_level": "MEDIUM",
+    "status": "UNUSED",
+    "usage_count": 0
+   }
+  ],
+  "reason": "evidence_window_immature",
+  "remediable_reason": "Effective observation 120/7 days; collect more evidence before remediation",
+  "remediated_at": null,
+  "requested_lookback_days": 365,
+  "required_observation_days": 7,
+  "review_scope": {
+   "account_id": "111111111111",
+   "account_match_mode": "EXACT",
+   "authority": "SERVER_DEPLOYMENT_CONFIG",
+   "graph_nodes_for_arn": 1,
+   "region_context": null,
+   "role_arn": "arn:aws:iam::111111111111:role/web-role",
+   "role_id": "AROAA",
+   "role_name": "web-role",
+   "tenant_id": "tenant-a"
+  },
+  "role_arn": "arn:aws:iam::111111111111:role/web-role",
+  "role_name": "web-role",
+  "safety_vector": null,
+  "sections": {
+   "account_data_event_signals": "NOT_EVALUATED",
+   "calibration": "NOT_EVALUATED",
+   "evidence_breakdown": "NOT_EVALUATED",
+   "evidence_tally": "READY",
+   "observation_readiness": "READY",
+   "role_record": "READY",
+   "runtime_traffic_authority": "READY",
+   "safety_vector": "NOT_EVALUATED",
+   "usage_window": "READY"
+  },
+  "server_plan": {
+   "account_id": "111111111111",
+   "actions": [],
+   "issue_state": "UNKNOWN",
+   "plan_head": null,
+   "role_arn": "arn:aws:iam::111111111111:role/web-role",
+   "role_id": "AROAA",
+   "tenant_id": "tenant-a",
+   "unavailable_actions": [
+    {
+     "coverage": "UNAVAILABLE",
+     "observed_use_count": null,
+     "permission": "s3:GetObject"
+    },
+    {
+     "coverage": "UNAVAILABLE",
+     "observed_use_count": 0,
+     "permission": "s3:PutObject"
+    }
+   ]
+  },
+  "service_role_analysis": {
+   "analysis": null,
+   "is_service_role": null,
+   "limitation": "The trust policy for this role is not in the serving graph. Run the IAM collector; live IAM is not consulted on the read path.",
+   "service_principals": [],
+   "source": "graph",
+   "status": "not_computed"
+  },
+  "summary": {
+   "api_relationships": 0,
+   "cloudtrail_events": null,
+   "data_confidence": "PARTIAL",
+   "event_count_basis": {
+    "edges_in_window": 0,
+    "edges_without_hit_count": 0,
+    "limitation": "No USED_ACTION edge falls inside the decision window.",
+    "source": "USED_ACTION.hit_count",
+    "window_cutoff": "2026-06-28T14:53:55",
+    "window_days": 90
+   },
+   "high_risk_unused_count": 0,
+   "lp_score": 50.0,
+   "overall_risk": "HIGH",
+   "total_evidence": 0,
+   "total_permissions": 2,
+   "traffic_relationships": 0,
+   "unused_count": 1,
+   "used_count": 1
+  },
+  "timestamp": "2026-09-26T14:53:55.546184+00:00",
+  "unused_permissions": [
+   "s3:PutObject"
+  ],
+  "used_permissions": [
+   "s3:GetObject"
+  ]
+ }
+}

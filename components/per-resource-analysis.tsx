@@ -48,28 +48,73 @@ interface ScannedRole {
 
 interface PermissionUsed {
   action: string
-  call_count: number
+  /** null: the graph records THAT an action was observed, not how often. */
+  call_count: number | null
   targets: string[]
 }
 
+/** Every count below is null when it was not measured: a resource never observed acting is UNKNOWN, never
+ *  "0 used / 100% over-permissioned", and the role-flat grant never yields a per-resource unused set. Older
+ *  backends still send numbers; `has_observed_data === false` marks their unobserved rows as unknown too. */
 interface ResourceAnalysis {
   resource_id: string
   resource_name: string
   resource_type: string
-  permissions_granted: number
+  /** ROLE-LEVEL grant (granted_grain "role_flat"), not this resource's own. */
+  permissions_granted: number | null
+  granted_grain?: string
   permissions_used: PermissionUsed[]
-  unused_permissions: string[]
+  unused_permissions: string[] | null
+  unused_reason?: string
   risk_factors: string[]
-  used_count: number
-  utilization_rate: number
-  over_permission_ratio: number
-  total_api_calls: number
+  used_count: number | null
+  utilization_rate: number | null
+  over_permission_ratio: number | null
+  total_api_calls: number | null
+  has_observed_data?: boolean
 }
 
 interface AnalysisData {
   role: ScannedRole
   analyses: ResourceAnalysis[]
-  aggregated: { total_permissions: number; used_permissions: number }
+  /** used_permissions is null unless every attached resource was observed (a partial union is a lower bound). */
+  aggregated: { total_permissions: number | null; used_permissions: number | null; observed_resources?: number; resources?: number }
+}
+
+const UNKNOWN = "—"
+
+/** Observed means the backend read behavior for this resource. An older backend's numbers for a row it marks
+ *  has_observed_data=false are absence of evidence, not measurements. */
+function isObserved(a: ResourceAnalysis): boolean {
+  return a.has_observed_data !== false && typeof a.used_count === "number"
+}
+
+/** The per-resource unused list only where a PER-RESOURCE grant was actually read (granted_grain present and not
+ *  "role_flat"); null otherwise. An older backend sends the role-flat subtraction (the role's grant minus this
+ *  resource's observations) as "unused" with no grain: that is not this resource's removal list, so it is null. */
+function unusedOf(a: ResourceAnalysis): string[] | null {
+  return isObserved(a) && typeof a.granted_grain === "string" && a.granted_grain !== "role_flat" &&
+    Array.isArray(a.unused_permissions) ? a.unused_permissions : null
+}
+
+/** Whether every resource sharing the role was observed: the precondition for any split or role-level claim. */
+function everyObserved(data: AnalysisData | null | undefined): boolean {
+  return !!data && data.analyses.length > 0 && data.analyses.every(isObserved)
+}
+
+function knownNumber(value: number | null | undefined): value is number {
+  return typeof value === "number" && Number.isFinite(value)
+}
+
+/** The role's aggregate usage is known only when every attached resource was observed. */
+function aggregateUsage(data: AnalysisData): { total: number | null; used: number | null; observed: number; resources: number } {
+  const resources = data.analyses.length
+  const observed = data.analyses.filter(isObserved).length
+  const total = knownNumber(data.aggregated.total_permissions) ? data.aggregated.total_permissions : null
+  const used = total !== null && knownNumber(data.aggregated.used_permissions) && resources > 0 && observed === resources
+    ? Math.min(data.aggregated.used_permissions, total)
+    : null
+  return { total, used, observed, resources }
 }
 
 interface ProposedRole {
@@ -1272,27 +1317,26 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
 
           {/* Summary Banner — answers "what's the problem?" */}
           {(() => {
-            const totalPerms = analysisData.aggregated.total_permissions
-            const usedPerms = Math.min(analysisData.aggregated.used_permissions, totalPerms)
-            const unusedPerms = Math.max(totalPerms - usedPerms, 0)
+            const usage = aggregateUsage(analysisData)
+            const totalPerms = usage.total
+            const usedPerms = usage.used
+            const unusedPerms = totalPerms !== null && usedPerms !== null ? Math.max(totalPerms - usedPerms, 0) : null
             const resourceCount = analysisData.analyses.length
-            const totalExposure = totalPerms * resourceCount
-            const usagePct = totalPerms > 0 ? Math.min(Math.round((usedPerms / totalPerms) * 100), 100) : 0
-            const isOverPermissioned = unusedPerms > 0
-            const severityColor = unusedPerms > 20 ? "#ef4444" : unusedPerms > 5 ? "#f97316" : "#eab308"
+            const totalExposure = totalPerms !== null ? totalPerms * resourceCount : null
+            const severityColor = unusedPerms === null ? "var(--text-muted)" : unusedPerms > 20 ? "#ef4444" : unusedPerms > 5 ? "#f97316" : "#eab308"
 
             return (
               <div className="grid grid-cols-5 gap-3 mb-5">
                 <div className="rounded-lg p-3 border text-center" style={{ borderColor: "var(--border-subtle)" }}>
-                  <div className="text-2xl font-bold" style={{ color: "var(--text-primary)" }}>{totalPerms}</div>
+                  <div className="text-2xl font-bold" style={{ color: "var(--text-primary)" }}>{totalPerms ?? UNKNOWN}</div>
                   <div className="text-[10px] uppercase" style={{ color: "var(--text-muted)" }}>Total Permissions</div>
                 </div>
                 <div className="rounded-lg p-3 border text-center" style={{ borderColor: "#22c55e40", background: "#22c55e10" }}>
-                  <div className="text-2xl font-bold" style={{ color: "#22c55e" }}>{usedPerms}</div>
-                  <div className="text-[10px] uppercase" style={{ color: "var(--text-muted)" }}>Actually Used</div>
+                  <div className="text-2xl font-bold" style={{ color: usedPerms === null ? "var(--text-muted)" : "#22c55e" }} data-testid="per-resource-used">{usedPerms ?? UNKNOWN}</div>
+                  <div className="text-[10px] uppercase" style={{ color: "var(--text-muted)" }}>{usedPerms === null ? `Actually Used (observed ${usage.observed} of ${usage.resources})` : "Actually Used"}</div>
                 </div>
                 <div className="rounded-lg p-3 border text-center" style={{ borderColor: `${severityColor}40`, background: `${severityColor}10` }}>
-                  <div className="text-2xl font-bold" style={{ color: severityColor }}>{unusedPerms}</div>
+                  <div className="text-2xl font-bold" style={{ color: severityColor }} data-testid="per-resource-unused">{unusedPerms ?? UNKNOWN}</div>
                   <div className="text-[10px] uppercase" style={{ color: "var(--text-muted)" }}>Unused (Waste)</div>
                 </div>
                 <div className="rounded-lg p-3 border text-center" style={{ borderColor: "var(--border-subtle)" }}>
@@ -1300,7 +1344,7 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
                   <div className="text-[10px] uppercase" style={{ color: "var(--text-muted)" }}>Resources Sharing</div>
                 </div>
                 <div className="rounded-lg p-3 border text-center" style={{ borderColor: "#ef444440", background: "#ef444410" }}>
-                  <div className="text-2xl font-bold" style={{ color: "#ef4444" }}>{totalExposure}</div>
+                  <div className="text-2xl font-bold" style={{ color: "#ef4444" }}>{totalExposure ?? UNKNOWN}</div>
                   <div className="text-[10px] uppercase" style={{ color: "var(--text-muted)" }}>Total Exposure</div>
                 </div>
               </div>
@@ -1309,10 +1353,22 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
 
           {/* Verdict */}
           {(() => {
-            const totalPermsV = analysisData.aggregated.total_permissions
-            const usedPermsV = Math.min(analysisData.aggregated.used_permissions, totalPermsV)
-            const unusedPerms = Math.max(totalPermsV - usedPermsV, 0)
+            const usageV = aggregateUsage(analysisData)
             const resourceCount = analysisData.analyses.length
+            if (usageV.total === null || usageV.used === null) {
+              // No verdict from missing evidence: not "least privilege", not "over-permissioned".
+              return (
+                <div className="mb-5 p-3 rounded-lg border" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }} data-testid="per-resource-verdict-unknown">
+                  <span className="text-sm" style={{ color: "var(--text-secondary)" }}>
+                    Usage is unknown: behavior was observed for {usageV.observed} of {usageV.resources} resource{usageV.resources !== 1 ? "s" : ""}
+                    {usageV.total === null ? " and the role's grant is not recorded" : ""}. No least-privilege verdict is drawn from missing evidence.
+                  </span>
+                </div>
+              )
+            }
+            const totalPermsV = usageV.total
+            const usedPermsV = usageV.used
+            const unusedPerms = Math.max(totalPermsV - usedPermsV, 0)
             const isLeastPrivilege = unusedPerms === 0
             const isShared = resourceCount > 1
 
@@ -1397,12 +1453,20 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
                   <div className="flex justify-between text-sm">
                     <span style={{ color: "var(--text-secondary)" }}>Total Permissions</span>
                     <span className="font-mono font-bold" style={{ color: "var(--text-primary)" }}>
-                      {analysisData.aggregated.total_permissions}
+                      {analysisData.aggregated.total_permissions ?? UNKNOWN}
                     </span>
                   </div>
                   {(() => {
-                    const aggTotal = analysisData.aggregated.total_permissions
-                    const aggUsed = Math.min(analysisData.aggregated.used_permissions, aggTotal)
+                    const aggUsage = aggregateUsage(analysisData)
+                    if (aggUsage.total === null || aggUsage.used === null) {
+                      return (
+                        <p className="text-sm" style={{ color: "var(--text-secondary)" }} data-testid="per-resource-aggregate-unknown">
+                          Actually used: {UNKNOWN}. Behavior was observed for {aggUsage.observed} of {aggUsage.resources} resources, so the role&apos;s used and unused counts are not known.
+                        </p>
+                      )
+                    }
+                    const aggTotal = aggUsage.total
+                    const aggUsed = aggUsage.used
                     const aggUnused = Math.max(aggTotal - aggUsed, 0)
                     const aggUsedPct = aggTotal > 0 ? Math.min(Math.round((aggUsed / aggTotal) * 100), 100) : 0
                     const aggUnusedPct = aggTotal > 0 ? Math.max(Math.round((aggUnused / aggTotal) * 100), 0) : 0
@@ -1456,7 +1520,7 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
                       the per-resource Remediate flow below / /shared-resources. */}
                   <div className="mt-4 p-3 rounded-lg border" style={{ background: "#f9731610", borderColor: "#f9731640" }}>
                     <p className="text-xs" style={{ color: "var(--text-secondary)" }}>
-                      An aggregated fix would trim this role to the union of used permissions ({analysisData.aggregated.used_permissions}) — but do all {analysisData.analyses.length} resources need the same {analysisData.aggregated.used_permissions} permissions?
+                      An aggregated fix would trim this role to the union of used permissions ({aggregateUsage(analysisData).used ?? UNKNOWN}) — but do all {analysisData.analyses.length} resources need the same {aggregateUsage(analysisData).used ?? UNKNOWN} permissions?
                     </p>
                     <button onClick={() => setActiveTab("per-resource")} className="text-xs underline mt-1" style={{ color: "#8b5cf6" }}>
                       Switch to Per-Resource View to find out
@@ -1493,11 +1557,15 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
                 </div>
                 <div className="divide-y" style={{ borderColor: "var(--border-subtle)" }}>
                   {analysisData.analyses.map((a) => {
-                    const unusedShown = a.unused_permissions.slice(0, 4)
-                    const unusedMore = a.unused_permissions.length > 4 ? a.unused_permissions.length - 4 : 0
+                    const observed = isObserved(a)
+                    const unusedList = unusedOf(a)
+                    const unusedShown = unusedList?.slice(0, 4) ?? []
+                    const unusedMore = unusedList && unusedList.length > 4 ? unusedList.length - 4 : 0
                     const label = getServiceMeta(a.resource_type).label
-                    const utilPct = a.utilization_rate < 0.005 ? "<1" : String(Math.round(a.utilization_rate * 100))
-                    const utilColor = a.utilization_rate < 0.1 ? "#ef4444" : a.utilization_rate < 0.5 ? "#f97316" : "#22c55e"
+                    // `null < 0.005` is true in JS: never compare an unmeasured rate.
+                    const util = observed && knownNumber(a.utilization_rate) ? a.utilization_rate : null
+                    const utilPct = util === null ? UNKNOWN : util < 0.005 ? "<1" : String(Math.round(util * 100))
+                    const utilColor = util === null ? "var(--text-muted)" : util < 0.1 ? "#ef4444" : util < 0.5 ? "#f97316" : "#22c55e"
                     return (
                       <div key={a.resource_id} className="px-4 py-3">
                         <div className="grid grid-cols-[2fr_80px_80px_80px_100px] gap-2 items-center">
@@ -1508,11 +1576,11 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
                               <div className="text-xs truncate" style={{ color: "var(--text-muted)" }}>{label} &middot; {a.resource_id}</div>
                             </div>
                           </div>
-                          <div className="text-center text-sm font-medium" style={{ color: "var(--text-primary)" }}>{a.permissions_granted}</div>
-                          <div className="text-center text-sm font-medium" style={{ color: "#22c55e" }}>{a.used_count}</div>
-                          <div className="text-center text-sm font-medium" style={{ color: "#ef4444" }}>{a.unused_permissions.length}</div>
+                          <div className="text-center text-sm font-medium" style={{ color: "var(--text-primary)" }} title="Role-level grant, not this resource's own">{a.permissions_granted ?? UNKNOWN}</div>
+                          <div className="text-center text-sm font-medium" style={{ color: observed ? "#22c55e" : "var(--text-muted)" }} data-testid="per-resource-row-used">{observed ? a.used_count : UNKNOWN}</div>
+                          <div className="text-center text-sm font-medium" style={{ color: unusedList ? "#ef4444" : "var(--text-muted)" }} data-testid="per-resource-row-unused" title={unusedList ? undefined : (a.unused_reason || "Not derivable per resource")}>{unusedList ? unusedList.length : UNKNOWN}</div>
                           <div className="text-center">
-                            <span className="px-2 py-0.5 rounded text-xs font-semibold" style={{ background: `${utilColor}20`, color: utilColor }}>{utilPct}%</span>
+                            <span className="px-2 py-0.5 rounded text-xs font-semibold" data-testid="per-resource-row-utilization" style={util === null ? { color: utilColor } : { background: `${utilColor}20`, color: utilColor }} title={util === null ? "No behavior observed: utilization is unknown, not zero." : undefined}>{util === null ? utilPct : `${utilPct}%`}</span>
                           </div>
                         </div>
 
@@ -1521,28 +1589,33 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
                           <div>
                             <p className="text-xs uppercase tracking-wider mb-1.5 font-semibold" style={{ color: "var(--text-muted)" }}>Used permissions:</p>
                             {a.permissions_used.length === 0 ? (
-                              <p className="text-xs italic" style={{ color: "var(--text-muted)" }}>No API calls observed</p>
+                              <p className="text-xs italic" style={{ color: "var(--text-muted)" }}>{observed ? "No API calls observed" : "Not observed: usage unknown"}</p>
                             ) : (
                               <div className="space-y-1">
                                 {a.permissions_used.map((p) => (
                                   <div key={p.action} className="flex items-start gap-1.5 text-xs">
                                     <CheckCircle2 className="w-3.5 h-3.5 shrink-0 mt-0.5" style={{ color: "#22c55e" }} />
                                     <span className="font-mono" style={{ color: "var(--text-primary)" }}>{p.action}</span>
-                                    <span style={{ color: "var(--text-muted)" }}>({p.call_count.toLocaleString()})</span>
+                                    {typeof a.granted_grain === "string" && knownNumber(p.call_count) && <span style={{ color: "var(--text-muted)" }}>({p.call_count.toLocaleString()})</span>}
                                   </div>
                                 ))}
                               </div>
                             )}
                           </div>
                           <div>
-                            <p className="text-xs uppercase tracking-wider mb-1.5 font-semibold" style={{ color: "var(--text-muted)" }}>Never used ({a.unused_permissions.length}):</p>
+                            <p className="text-xs uppercase tracking-wider mb-1.5 font-semibold" style={{ color: "var(--text-muted)" }}>{unusedList ? `Never used (${unusedList.length}):` : "Never used: not derivable"}</p>
+                            {!unusedList && (
+                              <p className="text-xs italic" style={{ color: "var(--text-muted)" }}>
+                                {observed ? (a.unused_reason || "The role-level grant is not this resource's own.") : "No behavior observed for this resource."}
+                              </p>
+                            )}
                             <div className="flex flex-wrap gap-1">
                               {unusedShown.map((u, i) => (
                                 <span key={i} className="px-1.5 py-0.5 rounded text-xs font-mono" style={{ background: "#ef444415", color: "#ef4444" }}>{u}</span>
                               ))}
                               {unusedMore > 0 && <span className="text-xs" style={{ color: "var(--text-muted)" }}>+{unusedMore} more</span>}
                             </div>
-                            {a.risk_factors.length > 0 && (
+                            {unusedList !== null && a.risk_factors.length > 0 && (
                               <div className="mt-2 flex items-center gap-1.5">
                                 <AlertTriangle className="w-3 h-3" style={{ color: "#ef4444" }} />
                                 <span className="text-xs" style={{ color: "#ef4444" }}>{a.risk_factors.slice(0, 2).join("; ")}</span>
@@ -1563,14 +1636,44 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
                   <span className="text-base font-semibold" style={{ color: "#8b5cf6" }}>CYNTRO RECOMMENDATION</span>
                 </div>
                 {(() => {
-                  const zeroUsage = analysisData.analyses.filter(a => a.used_count === 0)
-                  const partialUsage = analysisData.analyses.filter(a => a.used_count > 0 && a.unused_permissions.length > 0)
-                  const fullUsage = analysisData.analyses.filter(a => a.used_count > 0 && a.unused_permissions.length === 0)
+                  // A recommendation needs evidence: unobserved resources get none, and a removal needs a per-resource
+                  // unused set that was actually derived.
+                  const unobserved = analysisData.analyses.filter(a => !isObserved(a))
+                  const zeroUsage = analysisData.analyses.filter(a => isObserved(a) && a.used_count === 0 && unusedOf(a) !== null)
+                  const partialUsage = analysisData.analyses.filter(a => isObserved(a) && (a.used_count ?? 0) > 0 && (unusedOf(a)?.length ?? 0) > 0)
+                  const fullUsage = analysisData.analyses.filter(a => isObserved(a) && (a.used_count ?? 0) > 0 && unusedOf(a)?.length === 0)
+                  const observedNotDerivable = analysisData.analyses.filter(a => isObserved(a) && unusedOf(a) === null)
                   return (
                     <>
-                      <p className="text-sm mb-3" style={{ color: "var(--text-secondary)" }}>
-                        Split into {analysisData.analyses.length} least-privilege roles:
-                      </p>
+                      {unobserved.length > 0 && (
+                        <div className="mb-3 p-3 rounded-lg border" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }} data-testid="per-resource-unobserved">
+                          <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>Usage unknown ({unobserved.length} resource{unobserved.length !== 1 ? "s" : ""})</span>
+                          <p className="text-xs mt-1" style={{ color: "var(--text-secondary)" }}>
+                            No behavior observed for {unobserved.map(a => a.resource_name).join(", ")}. Nothing is recommended from missing evidence.
+                          </p>
+                        </div>
+                      )}
+                      {observedNotDerivable.length > 0 && (
+                        <div className="mb-3 p-3 rounded-lg border" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }} data-testid="per-resource-observed-keep">
+                          <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>Observed ({observedNotDerivable.length} resource{observedNotDerivable.length !== 1 ? "s" : ""})</span>
+                          <div className="space-y-1 mt-1">
+                            {observedNotDerivable.map((a) => (
+                              <div key={a.resource_id} className="text-xs" style={{ color: "var(--text-secondary)" }}>
+                                <span className="font-mono">{a.resource_name}</span> — uses {a.used_count}; which of the role&apos;s other permissions it could lose is not derivable from a role-level grant.
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {everyObserved(analysisData) ? (
+                        <p className="text-sm mb-3" style={{ color: "var(--text-secondary)" }}>
+                          Split into {analysisData.analyses.length} least-privilege roles:
+                        </p>
+                      ) : (
+                        <p className="text-sm mb-3" style={{ color: "var(--text-secondary)" }} data-testid="per-resource-split-unavailable">
+                          No split is proposed: behavior was observed for {analysisData.analyses.filter(isObserved).length} of {analysisData.analyses.length} resources sharing this role.
+                        </p>
+                      )}
 
                       {/* Resources with ZERO usage — recommend removing access */}
                       {zeroUsage.length > 0 && (
@@ -1587,10 +1690,10 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
                               <div key={a.resource_id} className="flex items-center gap-2 text-xs">
                                 <span style={{ color: "var(--text-muted)" }}>&bull;</span>
                                 <span className="font-mono" style={{ color: "#ef4444" }}>{a.resource_name}</span>
-                                <span style={{ color: "var(--text-muted)" }}>— 0 of {a.permissions_granted} used</span>
-                                {a.unused_permissions.length > 0 && (
+                                <span style={{ color: "var(--text-muted)" }}>— 0 of {a.permissions_granted ?? UNKNOWN} used</span>
+                                {(unusedOf(a)?.length ?? 0) > 0 && (
                                   <span className="px-1.5 py-0.5 rounded font-mono" style={{ background: "#ef444415", color: "#ef4444", fontSize: "10px" }}>
-                                    remove: {a.unused_permissions.slice(0, 3).join(", ")}{a.unused_permissions.length > 3 ? ` +${a.unused_permissions.length - 3} more` : ""}
+                                    remove: {(unusedOf(a) ?? []).slice(0, 3).join(", ")}{(unusedOf(a) ?? []).length > 3 ? ` +${(unusedOf(a) ?? []).length - 3} more` : ""}
                                   </span>
                                 )}
                               </div>
@@ -1612,13 +1715,13 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
                                 <div className="flex items-center gap-2">
                                   <span style={{ color: "var(--text-muted)" }}>&bull;</span>
                                   <span className="font-mono" style={{ color: "#f97316" }}>{a.resource_name}</span>
-                                  <span style={{ color: "var(--text-muted)" }}>— keep {a.used_count}, remove {a.unused_permissions.length}</span>
+                                  <span style={{ color: "var(--text-muted)" }}>— keep {a.used_count}, remove {unusedOf(a)?.length ?? 0}</span>
                                 </div>
                                 <div className="ml-4 mt-0.5 flex flex-wrap gap-1">
-                                  {a.unused_permissions.slice(0, 4).map((p, i) => (
+                                  {(unusedOf(a) ?? []).slice(0, 4).map((p, i) => (
                                     <span key={i} className="px-1.5 py-0.5 rounded font-mono" style={{ background: "#ef444415", color: "#ef4444", fontSize: "10px" }}>{p}</span>
                                   ))}
-                                  {a.unused_permissions.length > 4 && <span style={{ color: "var(--text-muted)", fontSize: "10px" }}>+{a.unused_permissions.length - 4} more</span>}
+                                  {(unusedOf(a)?.length ?? 0) > 4 && <span style={{ color: "var(--text-muted)", fontSize: "10px" }}>+{(unusedOf(a)?.length ?? 0) - 4} more</span>}
                                 </div>
                               </div>
                             ))}
@@ -1651,9 +1754,11 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
                   <button onClick={showComparison} disabled={loading} className="flex items-center gap-2 text-sm font-medium px-4 py-2 rounded-lg border transition-colors" style={{ color: "var(--text-secondary)", borderColor: "var(--border-subtle)" }}>
                     Compare Approaches
                   </button>
-                  <button onClick={runSimulation} disabled={loading} className="flex items-center gap-2 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors hover:opacity-90 disabled:opacity-50" style={{ background: "#8b5cf6" }}>
-                    <Play className="w-4 h-4" /> Simulate Split
-                  </button>
+                  {everyObserved(analysisData) && (
+                    <button onClick={runSimulation} disabled={loading} className="flex items-center gap-2 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors hover:opacity-90 disabled:opacity-50" style={{ background: "#8b5cf6" }}>
+                      <Play className="w-4 h-4" /> Simulate Split
+                    </button>
+                  )}
                   <button onClick={() => runRemediation(true)} disabled={loading} className="flex items-center gap-2 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors hover:opacity-90 disabled:opacity-50" style={{ background: "#22c55e" }}>
                     Remediate Now
                   </button>
@@ -1756,7 +1861,7 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
                         <Server className="w-4 h-4" style={{ color: "#22c55e" }} />
                         <span className="text-xs truncate max-w-[100px]" style={{ color: "var(--text-secondary)" }}>{a.resource_name}</span>
                         <ArrowRight className="w-3 h-3" style={{ color: "#22c55e" }} />
-                        <span className="text-xs font-mono px-2 py-0.5 rounded" style={{ background: "#22c55e20", color: "#22c55e" }}>{a.used_count || 0} perm{(a.used_count || 0) !== 1 ? "s" : ""}</span>
+                        <span className="text-xs font-mono px-2 py-0.5 rounded" style={{ background: "#22c55e20", color: "#22c55e" }}>{isObserved(a) ? `${a.used_count} perm${a.used_count !== 1 ? "s" : ""}` : UNKNOWN}</span>
                       </div>
                     ))}
                   </div>
@@ -1765,16 +1870,18 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
                   <div className="flex justify-between items-end">
                     <div>
                       <div className="text-xs" style={{ color: "var(--text-muted)" }}>Total exposure after fix</div>
-                      <div className="text-2xl font-bold" style={{ color: "#22c55e" }}>{(analysisData?.analyses || []).reduce((sum, a) => sum + (a.used_count || 0), 0)}</div>
+                      <div className="text-2xl font-bold" style={{ color: "#22c55e" }} data-testid="per-resource-cyntro-exposure">{analysisData && analysisData.analyses.length > 0 && analysisData.analyses.every(isObserved) ? analysisData.analyses.reduce((sum, a) => sum + (a.used_count ?? 0), 0) : UNKNOWN}</div>
                     </div>
                     <div className="text-right">
                       <div className="text-xs" style={{ color: "var(--text-muted)" }}>Risk reduction</div>
-                      <div className="text-2xl font-bold" style={{ color: "#22c55e" }}>{Math.round(recommendData.cyntro_risk_reduction)}%</div>
+                      <div className="text-2xl font-bold" style={{ color: "#22c55e" }} data-testid="per-resource-cyntro-risk-reduction">{everyObserved(analysisData) ? `${Math.round(recommendData.cyntro_risk_reduction)}%` : UNKNOWN}</div>
                     </div>
                   </div>
-                  <div className="mt-2 h-2 rounded-full overflow-hidden" style={{ background: "#22c55e20" }}>
-                    <div className="h-full rounded-full" style={{ background: "#22c55e", width: `${recommendData.cyntro_risk_reduction}%` }} />
-                  </div>
+                  {everyObserved(analysisData) && (
+                    <div className="mt-2 h-2 rounded-full overflow-hidden" style={{ background: "#22c55e20" }}>
+                      <div className="h-full rounded-full" style={{ background: "#22c55e", width: `${recommendData.cyntro_risk_reduction}%` }} />
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -1791,7 +1898,9 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
                 <div className="text-sm" style={{ color: "var(--text-secondary)" }}>
                   Traditional tools give every resource the <strong>same reduced permissions</strong>.
                   Cyntro tracks which resource uses which permission, so each gets <strong>only what it actually needs</strong>.
-                  This eliminates <strong>{recommendData.aggregated_used * recommendData.resources_attached > 0 ? Math.round((1 - ((analysisData?.analyses || []).reduce((sum, a) => sum + (a.used_count || 0), 0) || 0) / (recommendData.aggregated_used * recommendData.resources_attached)) * 100) : 0}% more risk</strong> than aggregated approaches.
+                  {analysisData && analysisData.analyses.length > 0 && analysisData.analyses.every(isObserved) && recommendData.aggregated_used * recommendData.resources_attached > 0
+                    ? <>This eliminates <strong>{Math.round((1 - analysisData.analyses.reduce((sum, a) => sum + (a.used_count ?? 0), 0) / (recommendData.aggregated_used * recommendData.resources_attached)) * 100)}% more risk</strong> than aggregated approaches.</>
+                    : <>How much more this eliminates than an aggregated approach is unknown until every resource sharing the role has been observed.</>}
                 </div>
               </div>
             </div>
@@ -1822,9 +1931,11 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
           {/* Action buttons */}
           <div className="mt-6 space-y-4">
             <div className="flex gap-3">
-              <button onClick={runSimulation} disabled={loading} className="flex items-center gap-2 text-white text-sm font-semibold px-5 py-2.5 rounded-lg transition-colors hover:opacity-90 disabled:opacity-50" style={{ background: "#8b5cf6" }}>
-                <Play className="w-4 h-4" /> Simulate Split
-              </button>
+              {everyObserved(analysisData) && (
+                <button onClick={runSimulation} disabled={loading} className="flex items-center gap-2 text-white text-sm font-semibold px-5 py-2.5 rounded-lg transition-colors hover:opacity-90 disabled:opacity-50" style={{ background: "#8b5cf6" }}>
+                  <Play className="w-4 h-4" /> Simulate Split
+                </button>
+              )}
               <button onClick={() => runRemediation(true)} disabled={loading} className="flex items-center gap-2 text-sm font-semibold px-5 py-2.5 rounded-lg border transition-colors disabled:opacity-50" style={{ color: "var(--text-secondary)", borderColor: "var(--border-subtle)" }}>
                 Aggregated Remediation
               </button>

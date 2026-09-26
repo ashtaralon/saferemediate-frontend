@@ -1,0 +1,232 @@
+{
+ "_producer": "GET /api/remediation/per-resource-analysis/{role} at saferemediate-backend claude/cf01-per-resource-unknown b5eabf45 over tests/test_per_resource_analysis_unknown.py's fake graph session",
+ "mixed": {
+  "aggregated": {
+   "observed_resources": 1,
+   "resources": 2,
+   "total_permissions": 4,
+   "used_permissions": null
+  },
+  "analyses": [
+   {
+    "data_source": "observed",
+    "granted_grain": "role_flat",
+    "has_observed_data": true,
+    "over_permission_ratio": 50.0,
+    "permissions_granted": 4,
+    "permissions_used": [
+     {
+      "action": "s3:GetObject",
+      "call_count": null,
+      "targets": []
+     },
+     {
+      "action": "s3:PutObject",
+      "call_count": null,
+      "targets": []
+     }
+    ],
+    "resource_id": "arn:aws:lambda:eu-west-1:111111111111:function:worker",
+    "resource_name": "worker",
+    "resource_type": "Lambda",
+    "risk_factors": [],
+    "total_api_calls": null,
+    "unused_permissions": null,
+    "unused_reason": "per-resource grant is not modelled here; the role-level grant is not this resource's",
+    "used_count": 2,
+    "utilization_rate": 0.5
+   },
+   {
+    "data_source": "no_data",
+    "granted_grain": "role_flat",
+    "has_observed_data": false,
+    "over_permission_ratio": null,
+    "permissions_granted": 4,
+    "permissions_used": [],
+    "resource_id": "arn:aws:lambda:eu-west-1:111111111111:function:idle",
+    "resource_name": "idle",
+    "resource_type": "Lambda",
+    "risk_factors": [],
+    "total_api_calls": null,
+    "unused_permissions": null,
+    "unused_reason": "per-resource grant is not modelled here; the role-level grant is not this resource's",
+    "used_count": null,
+    "utilization_rate": null
+   }
+  ],
+  "role": {
+   "all_permissions": [
+    "s3:GetObject",
+    "s3:PutObject",
+    "iam:CreateRole",
+    "dynamodb:GetItem"
+   ],
+   "resources": [
+    {
+     "resource_id": "arn:aws:lambda:eu-west-1:111111111111:function:worker",
+     "resource_name": "worker",
+     "resource_type": "Lambda"
+    },
+    {
+     "resource_id": "arn:aws:lambda:eu-west-1:111111111111:function:idle",
+     "resource_name": "idle",
+     "resource_type": "Lambda"
+    }
+   ],
+   "role_arn": "arn:aws:iam::111111111111:role/shared-app-role",
+   "role_name": "shared-app-role",
+   "total_permissions": 4
+  }
+ },
+ "observed": {
+  "aggregated": {
+   "observed_resources": 2,
+   "resources": 2,
+   "total_permissions": 4,
+   "used_permissions": 2
+  },
+  "analyses": [
+   {
+    "data_source": "observed",
+    "granted_grain": "role_flat",
+    "has_observed_data": true,
+    "over_permission_ratio": 75.0,
+    "permissions_granted": 4,
+    "permissions_used": [
+     {
+      "action": "s3:GetObject",
+      "call_count": null,
+      "targets": []
+     }
+    ],
+    "resource_id": "arn:aws:lambda:eu-west-1:111111111111:function:worker",
+    "resource_name": "worker",
+    "resource_type": "Lambda",
+    "risk_factors": [],
+    "total_api_calls": null,
+    "unused_permissions": null,
+    "unused_reason": "per-resource grant is not modelled here; the role-level grant is not this resource's",
+    "used_count": 1,
+    "utilization_rate": 0.25
+   },
+   {
+    "data_source": "observed",
+    "granted_grain": "role_flat",
+    "has_observed_data": true,
+    "over_permission_ratio": 50.0,
+    "permissions_granted": 4,
+    "permissions_used": [
+     {
+      "action": "dynamodb:GetItem",
+      "call_count": null,
+      "targets": []
+     },
+     {
+      "action": "s3:GetObject",
+      "call_count": null,
+      "targets": []
+     }
+    ],
+    "resource_id": "arn:aws:lambda:eu-west-1:111111111111:function:reader",
+    "resource_name": "reader",
+    "resource_type": "Lambda",
+    "risk_factors": [],
+    "total_api_calls": null,
+    "unused_permissions": null,
+    "unused_reason": "per-resource grant is not modelled here; the role-level grant is not this resource's",
+    "used_count": 2,
+    "utilization_rate": 0.5
+   }
+  ],
+  "role": {
+   "all_permissions": [
+    "s3:GetObject",
+    "s3:PutObject",
+    "iam:CreateRole",
+    "dynamodb:GetItem"
+   ],
+   "resources": [
+    {
+     "resource_id": "arn:aws:lambda:eu-west-1:111111111111:function:worker",
+     "resource_name": "worker",
+     "resource_type": "Lambda"
+    },
+    {
+     "resource_id": "arn:aws:lambda:eu-west-1:111111111111:function:reader",
+     "resource_name": "reader",
+     "resource_type": "Lambda"
+    }
+   ],
+   "role_arn": "arn:aws:iam::111111111111:role/shared-app-role",
+   "role_name": "shared-app-role",
+   "total_permissions": 4
+  }
+ },
+ "unobserved": {
+  "aggregated": {
+   "observed_resources": 0,
+   "resources": 2,
+   "total_permissions": 4,
+   "used_permissions": null
+  },
+  "analyses": [
+   {
+    "data_source": "no_data",
+    "granted_grain": "role_flat",
+    "has_observed_data": false,
+    "over_permission_ratio": null,
+    "permissions_granted": 4,
+    "permissions_used": [],
+    "resource_id": "arn:aws:lambda:eu-west-1:111111111111:function:idle-a",
+    "resource_name": "idle-a",
+    "resource_type": "Lambda",
+    "risk_factors": [],
+    "total_api_calls": null,
+    "unused_permissions": null,
+    "unused_reason": "per-resource grant is not modelled here; the role-level grant is not this resource's",
+    "used_count": null,
+    "utilization_rate": null
+   },
+   {
+    "data_source": "no_data",
+    "granted_grain": "role_flat",
+    "has_observed_data": false,
+    "over_permission_ratio": null,
+    "permissions_granted": 4,
+    "permissions_used": [],
+    "resource_id": "arn:aws:lambda:eu-west-1:111111111111:function:idle-b",
+    "resource_name": "idle-b",
+    "resource_type": "Lambda",
+    "risk_factors": [],
+    "total_api_calls": null,
+    "unused_permissions": null,
+    "unused_reason": "per-resource grant is not modelled here; the role-level grant is not this resource's",
+    "used_count": null,
+    "utilization_rate": null
+   }
+  ],
+  "role": {
+   "all_permissions": [
+    "s3:GetObject",
+    "s3:PutObject",
+    "iam:CreateRole",
+    "dynamodb:GetItem"
+   ],
+   "resources": [
+    {
+     "resource_id": "arn:aws:lambda:eu-west-1:111111111111:function:idle-a",
+     "resource_name": "idle-a",
+     "resource_type": "Lambda"
+    },
+    {
+     "resource_id": "arn:aws:lambda:eu-west-1:111111111111:function:idle-b",
+     "resource_name": "idle-b",
+     "resource_type": "Lambda"
+    }
+   ],
+   "role_arn": "arn:aws:iam::111111111111:role/shared-app-role",
+   "role_name": "shared-app-role",
+   "total_permissions": 4
+  }
+ }
+}
