@@ -291,8 +291,17 @@ describe("held Apply and Restore proxy", () => {
     expect(first.status).toBe(200)
     expect(second.status).toBe(409)
     expect(await second.json()).toMatchObject({ code: "PLAN_REPLAY_REFUSED", attempted_writes: 0 })
+    // The replay key is the plan AND its receipted activation: the same plan re-made after the decision generation
+    // moved is a new plan; the same plan against the same activation is still a replay.
+    const g1 = { projection_generation: 7, projection_receipt_hash: "v1:aa", publication_attempt: "att-1" }
+    const g2 = { projection_generation: 8, projection_receipt_hash: "v1:bb", publication_attempt: "att-2" }
+    const boundFirst = await applyPost(withSession(sealed.value, { plan_head: "plan-bound", decision_binding: g1 }))
+    const boundAgain = await applyPost(withSession(sealed.value, { plan_head: "plan-bound", decision_binding: g1 }))
+    const boundMoved = await applyPost(withSession(sealed.value, { plan_head: "plan-bound", decision_binding: g2 }))
+    expect([boundFirst.status, boundAgain.status, boundMoved.status]).toEqual([200, 409, 200])
     const brokerCalls = fetchMock.mock.calls.filter((call) => String(call[0]).includes("/api/lp-lifecycle/"))
-    expect(brokerCalls).toHaveLength(1)
+    expect(brokerCalls).toHaveLength(3)
+    expect(JSON.parse(String((brokerCalls[2][1] as RequestInit).body)).decision_binding).toEqual(g2)
     const headers = (brokerCalls[0][1] as RequestInit).headers as Record<string, string>
     expect(headers.Authorization).toBe(`Bearer ${idToken}`)
   })

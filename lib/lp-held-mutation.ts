@@ -1,3 +1,5 @@
+import { decisionBindingOf, type LpDecisionBinding } from "@/lib/lp-decision-authority"
+
 export const LP_MUTATION_APPLY_ENABLED = false
 export const LP_RESTORE_ENABLED = false
 
@@ -51,16 +53,21 @@ export function heldMutationState(): HeldMutationState {
   }
 }
 
-export async function submitHeldLpApply(body: Record<string, unknown>) {
-  if (!LP_MUTATION_APPLY_ENABLED) {
-    return { ok: false, status: 503, code: "APPLY_HELD", cloud_writes: 0 }
-  }
+/** The one Apply request: POST the admitted body to the held proxy. Callers go through submitHeldLpApply. */
+export async function postLpApply(body: Record<string, unknown>) {
   const response = await fetch("/api/proxy/least-privilege/apply", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   })
   return { ok: response.ok, status: response.status, body: await response.json().catch(() => null) }
+}
+
+export async function submitHeldLpApply(body: Record<string, unknown>) {
+  if (!LP_MUTATION_APPLY_ENABLED) {
+    return { ok: false, status: 503, code: "APPLY_HELD", cloud_writes: 0 }
+  }
+  return postLpApply(body)
 }
 
 export type RestoreBinding = { operationId: string; roleArn: string; roleId: string }
@@ -246,4 +253,44 @@ export async function submitLpResolve(binding: RestoreBinding) {
     body: JSON.stringify({ operation_id: operationId, role_arn: roleArn, role_id: roleId, resource_family: "iam-role" }),
   })
   return { ok: response.ok, status: response.status, body: await response.json().catch(() => null) }
+}
+
+/** The LP Apply request body the backend admits (api/lp_remediation_route.py apply_lp). */
+export type LpApplyBody = {
+  role_arn: string
+  role_id: string
+  plan_head: string
+  resource_family: "iam-role"
+  actions: NonNullable<ReturnType<typeof measuredIamPlan>>["actions"]
+  decision_binding: LpDecisionBinding
+}
+
+/**
+ * The ONE builder for an LP Apply body, from a single Review response: its MEASURED `server_plan` and, for exactly that
+ * role, its receipted `decision_authority` (lib/lp-decision-authority.ts::decisionBindingOf). Returns undefined -- no
+ * Apply can be formed -- unless both are present: the backend refuses an Apply without a binding
+ * (DECISION_BINDING_REQUIRED), so an unbound body is never built. Building a body grants nothing: sending it goes
+ * through submitHeldLpApply, which stays held while LP_MUTATION_APPLY_ENABLED is false.
+ *
+ * Only a MEASURED plan with at least one removal forms a body (MEASURED_EMPTY, IDENTITY_UNAVAILABLE and UNKNOWN never
+ * do). Its caller is components/iam-lp/LpIamApplyPanel.tsx, mounted in IAMPermissionAnalysisModal -- the surface IAM
+ * roles route to (lib/lp-review-routing.ts).
+ */
+export function lpApplyBody(review: unknown): LpApplyBody | undefined {
+  const data = review && typeof review === "object" ? (review as Record<string, unknown>) : null
+  if (!data) return undefined
+  const raw = data.server_plan && typeof data.server_plan === "object" ? (data.server_plan as Record<string, unknown>) : null
+  if (raw?.issue_state !== "MEASURED") return undefined
+  const plan = measuredIamPlan(raw)
+  if (!plan || !plan.actions.some((action) => action.effect === "remove")) return undefined
+  const binding = decisionBindingOf(data.decision_authority, { roleArn: plan.roleArn, roleId: plan.roleId })
+  if (!binding) return undefined
+  return {
+    role_arn: plan.roleArn,
+    role_id: plan.roleId,
+    plan_head: plan.planHead,
+    resource_family: "iam-role",
+    actions: plan.actions,
+    decision_binding: binding,
+  }
 }

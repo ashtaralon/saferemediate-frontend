@@ -105,7 +105,11 @@ async function admitOperator(request: Request, body: Record<string, unknown>, ac
   }
   const planHead = body.plan_head
   if (typeof planHead !== "string" || !planHead) return { status: 422, code: "PLAN_EMPTY" }
-  const replay = `${session.subject}:${planHead}`
+  // One plan per receipted activation: the replay key includes the Review's decision_binding (generation, receipt
+  // hash, publication attempt). A plan re-made after DECISION_GENERATION_MOVED carries a new binding and is not a
+  // replay; the same plan against the same activation still is.
+  const binding = body.decision_binding && typeof body.decision_binding === "object" ? (body.decision_binding as Record<string, unknown>) : {}
+  const replay = `${session.subject}:${planHead}:${String(binding.projection_generation ?? "")}:${String(binding.projection_receipt_hash ?? "")}:${String(binding.publication_attempt ?? "")}`
   if (replays.has(replay)) return { status: 409, code: "PLAN_REPLAY_REFUSED" }
   replays.add(replay)
   return { status: 200, code: "ADMITTED", subject: session.subject, ...scope }
