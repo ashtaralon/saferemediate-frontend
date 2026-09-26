@@ -16,7 +16,7 @@ import { LpIamApplyPanel, lpIamApplyPanelKey, lpReviewIsForThisRole } from "@/co
 import { lpApplyBody } from "@/lib/lp-held-mutation"
 
 const captured = full.review_envelope.result as Record<string, any>
-const measured = {
+const measured: Record<string, any> = {
   ...captured,
   server_plan: {
     ...captured.server_plan,

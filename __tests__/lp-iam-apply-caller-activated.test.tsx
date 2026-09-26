@@ -34,7 +34,7 @@ function reply(status: number, body: unknown): Response {
 }
 
 function stub(apply: () => Response) {
-  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
     const url = String(input)
     if (url.includes("/gap-analysis")) return reply(200, { ...full.review_envelope, result: measured })
     if (url.includes("/simulate-fix")) return reply(200, full.preview)
