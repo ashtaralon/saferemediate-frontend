@@ -72,6 +72,8 @@ interface ResourceAnalysis {
   over_permission_ratio: number | null
   total_api_calls: number | null
   has_observed_data?: boolean
+  /** Why the backend did or did not derive a ratio ("exact_role_grant" when it did). Absent on older backends. */
+  ratio_basis?: string
 }
 
 interface AnalysisData {
@@ -97,12 +99,31 @@ function unusedOf(a: ResourceAnalysis): string[] | null {
     Array.isArray(a.unused_permissions) ? a.unused_permissions : null
 }
 
+const RATIO_BASIS_REASON: Record<string, string> = {
+  grant_list_not_stored: "the role's permission list is not stored",
+  grant_has_wildcards: "the role's grant uses wildcards, which observed actions cannot be compared with",
+  observed_outside_stored_grant: "observed actions fall outside the stored grant list",
+  grant_count_disagrees_with_list: "the stored permission count disagrees with the stored list",
+}
+
+/** Whether the backend compared every row with an exact grant list. An older backend sends no ratio_basis: its
+ *  rows are treated as before (the has_observed_data rule still applies). */
+function allExactGrant(data: AnalysisData): boolean {
+  return data.analyses.every((a) => a.ratio_basis === undefined || a.ratio_basis === "exact_role_grant")
+}
+
+/** The first non-comparable reason among observed rows, for copy; null when every observed row is comparable. */
+function grantReason(data: AnalysisData): string | null {
+  const row = data.analyses.find((a) => isObserved(a) && a.ratio_basis && a.ratio_basis !== "exact_role_grant")
+  return row ? RATIO_BASIS_REASON[row.ratio_basis as string] || row.ratio_basis || null : null
+}
+
 /** The per-resource approach's exposure reduction, derived only from the per-resource answer itself: every resource
  *  observed and its role grant known. Original exposure = grant x resources; after = the sum of what each resource
  *  was seen using. */
 function perResourceReduction(data: AnalysisData | null | undefined): number | null {
   const grant = data?.aggregated.total_permissions
-  if (!data || !everyObserved(data) || !knownNumber(grant) || grant <= 0) return null
+  if (!data || !everyObserved(data) || !allExactGrant(data) || !knownNumber(grant) || grant <= 0) return null
   const original = grant * data.analyses.length
   const after = data.analyses.reduce((sum, a) => sum + (a.used_count ?? 0), 0)
   return Math.max(0, Math.round(((original - after) / original) * 100))
@@ -122,7 +143,8 @@ function aggregateUsage(data: AnalysisData): { total: number | null; used: numbe
   const resources = data.analyses.length
   const observed = data.analyses.filter(isObserved).length
   const total = knownNumber(data.aggregated.total_permissions) ? data.aggregated.total_permissions : null
-  const used = total !== null && knownNumber(data.aggregated.used_permissions) && resources > 0 && observed === resources
+  const used = total !== null && knownNumber(data.aggregated.used_permissions) && resources > 0 && observed === resources &&
+    allExactGrant(data)
     ? Math.min(data.aggregated.used_permissions, total)
     : null
   return { total, used, observed, resources }
@@ -1374,8 +1396,10 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
               return (
                 <div className="mb-5 p-3 rounded-lg border" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }} data-testid="per-resource-verdict-unknown">
                   <span className="text-sm" style={{ color: "var(--text-secondary)" }}>
-                    Usage is unknown: behavior was observed for {usageV.observed} of {usageV.resources} resource{usageV.resources !== 1 ? "s" : ""}
-                    {usageV.total === null ? " and the role's grant is not recorded" : ""}. No least-privilege verdict is drawn from missing evidence.
+                    {usageV.observed === usageV.resources && grantReason(analysisData)
+                      ? <>Every resource was observed, but {grantReason(analysisData)}, so the role&apos;s used and unused counts cannot be derived. No least-privilege verdict is drawn.</>
+                      : <>Usage is unknown: behavior was observed for {usageV.observed} of {usageV.resources} resource{usageV.resources !== 1 ? "s" : ""}
+                        {usageV.total === null ? " and the role's grant is not recorded" : ""}. No least-privilege verdict is drawn from missing evidence.</>}
                   </span>
                 </div>
               )
@@ -1475,7 +1499,9 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
                     if (aggUsage.total === null || aggUsage.used === null) {
                       return (
                         <p className="text-sm" style={{ color: "var(--text-secondary)" }} data-testid="per-resource-aggregate-unknown">
-                          Actually used: {UNKNOWN}. Behavior was observed for {aggUsage.observed} of {aggUsage.resources} resources, so the role&apos;s used and unused counts are not known.
+                          Actually used: {UNKNOWN}. {aggUsage.observed === aggUsage.resources && grantReason(analysisData)
+                            ? <>Every resource was observed, but {grantReason(analysisData)}.</>
+                            : <>Behavior was observed for {aggUsage.observed} of {aggUsage.resources} resources, so the role&apos;s used and unused counts are not known.</>}
                         </p>
                       )
                     }
@@ -1594,7 +1620,7 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
                           <div className="text-center text-sm font-medium" style={{ color: observed ? "#22c55e" : "var(--text-muted)" }} data-testid="per-resource-row-used">{observed ? a.used_count : UNKNOWN}</div>
                           <div className="text-center text-sm font-medium" style={{ color: unusedList ? "#ef4444" : "var(--text-muted)" }} data-testid="per-resource-row-unused" title={unusedList ? undefined : (a.unused_reason || "Not derivable per resource")}>{unusedList ? unusedList.length : UNKNOWN}</div>
                           <div className="text-center">
-                            <span className="px-2 py-0.5 rounded text-xs font-semibold" data-testid="per-resource-row-utilization" style={util === null ? { color: utilColor } : { background: `${utilColor}20`, color: utilColor }} title={util === null ? "No behavior observed: utilization is unknown, not zero." : undefined}>{util === null ? utilPct : `${utilPct}%`}</span>
+                            <span className="px-2 py-0.5 rounded text-xs font-semibold" data-testid="per-resource-row-utilization" style={util === null ? { color: utilColor } : { background: `${utilColor}20`, color: utilColor }} title={util !== null ? undefined : !observed ? "No behavior observed: utilization is unknown, not zero." : `Utilization is not derivable: ${RATIO_BASIS_REASON[a.ratio_basis || ""] || "the role's grant cannot be compared with the observed actions"}.`}>{util === null ? utilPct : `${utilPct}%`}</span>
                           </div>
                         </div>
 
@@ -1823,6 +1849,9 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
               <div className="p-4 space-y-4" style={{ background: "var(--bg-primary)" }}>
                 <div className="text-sm" style={{ color: "var(--text-secondary)" }}>
                   Reduces role to <strong data-testid="per-resource-aggregated-used">{recommendData.aggregated_used ?? UNKNOWN} permissions</strong> (union of all used)
+                  {recommendData.hold_reason === "USAGE_NOT_MEASURED" && (
+                    <div className="mt-1 text-xs" style={{ color: "var(--text-muted)" }} data-testid="per-resource-recommend-held">Held: usage not measured. No policy is proposed.</div>
+                  )}
                 </div>
                 <div className="rounded-lg p-3 border" style={{ background: "#f9731610", borderColor: "#f9731640" }}>
                   <div className="text-xs font-medium mb-2" style={{ color: "#f97316" }}>After remediation:</div>
@@ -1914,9 +1943,12 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
                 <div className="text-sm" style={{ color: "var(--text-secondary)" }}>
                   Traditional tools give every resource the <strong>same reduced permissions</strong>.
                   Cyntro tracks which resource uses which permission, so each gets <strong>only what it actually needs</strong>.
-                  {analysisData && everyObserved(analysisData) && knownNumber(recommendData.aggregated_used) && recommendData.aggregated_used * analysisData.analyses.length > 0
-                    ? <>This eliminates <strong>{Math.round((1 - analysisData.analyses.reduce((sum, a) => sum + (a.used_count ?? 0), 0) / (recommendData.aggregated_used * analysisData.analyses.length)) * 100)}% more risk</strong> than aggregated approaches.</>
-                    : <>How much more this eliminates than an aggregated approach is unknown until every resource sharing the role has been observed.</>}
+                  {analysisData && perResourceReduction(analysisData) !== null && aggregateUsage(analysisData).used !== null &&
+                    (aggregateUsage(analysisData).used as number) * analysisData.analyses.length > 0 && (
+                    // Both sides from the SAME per-resource answer: the aggregated fix gives every resource the observed
+                    // union; the per-resource fix gives each what it was seen using.
+                    <span data-testid="per-resource-eliminates"> This eliminates <strong>{Math.round((1 - analysisData.analyses.reduce((sum, a) => sum + (a.used_count ?? 0), 0) / ((aggregateUsage(analysisData).used as number) * analysisData.analyses.length)) * 100)}% more risk</strong> than aggregated approaches.</span>
+                  )}
                 </div>
               </div>
             </div>
