@@ -190,3 +190,36 @@ export function previewDecisionGrade(raw: unknown): PreviewDecisionGrade {
     indeterminate: pairs(block.indeterminate, "candidate"),
   }
 }
+
+/** The LP Apply's `decision_binding`: which receipted activation the operator planned against. */
+export type LpDecisionBinding = {
+  projection_generation: number
+  projection_receipt_hash: string
+  publication_attempt: string
+}
+
+/**
+ * The Apply's `decision_binding` (backend `unified/lp/decision_authority.py::apply_decision_admission`, step 2): the
+ * generation, receipt hash and publication attempt of the Review's ACTIVE, receipted decision authority for exactly
+ * this role (ARN and RoleId), copied verbatim. Null when the block is anything else -- the Apply then carries no
+ * binding and the backend refuses it by name (DECISION_BINDING_REQUIRED / DECISION_AUTHORITY_UNAVAILABLE). Nothing
+ * is derived, defaulted or borrowed from another role's block. Sending a binding grants nothing: Apply stays held
+ * (`LP_MUTATION_APPLY_ENABLED`), and the backend re-reads and compares every field.
+ */
+export function decisionBindingOf(
+  raw: unknown,
+  role: { roleArn: string | null | undefined; roleId: string | null | undefined },
+): LpDecisionBinding | null {
+  const block = asRecord(raw)
+  if (!block || (block.state !== "ACTIVE_POPULATED" && block.state !== "ACTIVE_EMPTY")) return null
+  const owner = asRecord(block.role)
+  if (!owner || !role.roleArn || !role.roleId || owner.role_arn !== role.roleArn || owner.role_id !== role.roleId) {
+    return null
+  }
+  const generation = asRecord(block.receipt)?.projection_generation
+  const hash = asRecord(block.receipt)?.projection_receipt_hash
+  const attempt = asRecord(block.publication)?.attempt
+  if (typeof generation !== "number" || !Number.isInteger(generation)) return null
+  if (typeof hash !== "string" || !hash || typeof attempt !== "string" || !attempt) return null
+  return { projection_generation: generation, projection_receipt_hash: hash, publication_attempt: attempt }
+}

@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { useToast } from '@/hooks/use-toast'
 import { refusalFromPreviewBody, reviewRefusalCopy } from '@/lib/lp-preview-refusal'
 import { heldMutationState, lookupLpReceipt, measuredIamPlan, receiptFromApply, submitHeldLpApply, type LpApplyReceipt } from '@/lib/lp-held-mutation'
+import { decisionBindingOf, type LpDecisionBinding } from '@/lib/lp-decision-authority'
 import { LpRestoreControl } from '@/components/iam-lp/LpRestoreControl'
 import { LpOutstandingPanel } from '@/components/iam-lp/LpOutstandingPanel'
 import { dispatchRemediationChanged, onRemediationChanged } from '@/lib/remediation-events'
@@ -71,6 +72,8 @@ interface GapResource {
     roleArn: string
     roleId: string
     planHead: string
+    // The Review's receipted activation this plan was made against (lib/lp-decision-authority.ts::decisionBindingOf).
+    decisionBinding: LpDecisionBinding | null
     actions: Array<{
       permission: string
       configured: true
@@ -794,12 +797,20 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       }
       const data = await response.json()
       const issued = measuredIamPlan(data?.server_plan)
+      const decisionBinding = decisionBindingOf(data?.decision_authority, {
+        roleArn: data?.server_plan?.role_arn,
+        roleId: data?.server_plan?.role_id,
+      })
       if (data?.server_plan) {
         setSelectedResource((current) => {
           if (!current || current.resourceType !== 'IAMRole') return current
           const sameRole = current.resourceName === roleName || current.resourceArn?.endsWith(`/${roleName}`)
           if (!sameRole) return current
-          return { ...current, serverPlan: issued, planIssueState: data.server_plan.issue_state }
+          return {
+            ...current,
+            serverPlan: issued ? { ...issued, decisionBinding } : undefined,
+            planIssueState: data.server_plan.issue_state,
+          }
         })
       }
       console.log('[IAM] Got gap analysis:', {
@@ -3543,6 +3554,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                   plan_head: selectedResource.serverPlan?.planHead,
                   resource_family: 'iam-role',
                   actions: selectedResource.serverPlan?.actions,
+                  decision_binding: selectedResource.serverPlan?.decisionBinding ?? undefined,
                 })
               })
 
@@ -3675,6 +3687,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                   plan_head: selectedResource.serverPlan?.planHead,
                   resource_family: 'iam-role',
                   actions: selectedResource.serverPlan?.actions,
+                  decision_binding: selectedResource.serverPlan?.decisionBinding ?? undefined,
                 })
               })
 
