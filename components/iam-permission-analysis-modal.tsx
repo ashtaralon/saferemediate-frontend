@@ -19,6 +19,7 @@ import {
 } from "@/components/override-modal-shared"
 import { ConfidenceExplanationPanel } from "@/components/ConfidenceExplanationPanel"
 import { EnvelopeRequestError, fetchWithEnvelope } from "@/components/trust/use-trust-envelope"
+import { LpIamApplyPanel, lpIamApplyPanelKey } from "@/components/iam-lp/LpIamApplyPanel"
 import { DecisionAuthorityPanel } from "@/components/lp-decision-authority-panel"
 import { TrustEnvelopeBadge, type Provenance } from "@/components/trust/trust-envelope-badge"
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert"
@@ -980,7 +981,12 @@ export function IAMPermissionAnalysisModal({
   const { toast } = useToast()
   // Every Review read carries the selected customer and the role ARN's account, so the
   // backend can refuse a scope mismatch (403) instead of serving its pinned scope.
-  const reviewClaims = reviewClaimsQuery(roleArn, useOptionalAccountScope()?.customerId)
+  const accountScope = useOptionalAccountScope()
+  const reviewClaims = reviewClaimsQuery(roleArn, accountScope?.customerId)
+  // The LP Apply caller's Review: the raw gap-analysis result (server_plan + decision_authority) of the LATEST request
+  // only. Cleared at the start of every read and on close, so no Apply is ever built from a superseded Review.
+  const [lpReview, setLpReview] = useState<unknown>(null)
+  const lpReviewRequest = useRef(0)
   const [gapData, setGapData] = useState<GapAnalysisData | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -1373,6 +1379,8 @@ export function IAMPermissionAnalysisModal({
   }
 
   const fetchGapAnalysis = async (forceRefresh = false) => {
+    const lpRequest = ++lpReviewRequest.current
+    setLpReview(null)
     setLoading(true)
     setError(null)
     setGapRefusal(null)
@@ -1384,6 +1392,7 @@ export function IAMPermissionAnalysisModal({
       )
       setProvenance(env.provenance)
       const rawData = env.result
+      if (lpRequest === lpReviewRequest.current) setLpReview(rawData)
       console.log('[IAM-Modal] Raw API data:', rawData)
       console.log('[IAM-Modal] Raw data keys:', Object.keys(rawData))
       console.log('[IAM-Modal] Raw data summary:', rawData.summary)
@@ -1614,6 +1623,8 @@ export function IAMPermissionAnalysisModal({
   }
 
   const handleClose = () => {
+    lpReviewRequest.current += 1
+    setLpReview(null)
     setShowSimulation(false)
     setAnalysisTab('summary')
     setGapData(null)
@@ -4950,6 +4961,15 @@ export function IAMPermissionAnalysisModal({
 
           {analysisTab === 'summary' && gapData && (
             <DecisionAuthorityPanel review={gapData.decision_authority} preview={previewDecisionAuthority} />
+          )}
+
+          {analysisTab === 'summary' && gapData && lpReview !== null && (
+            <LpIamApplyPanel
+              key={lpIamApplyPanelKey(lpReview)}
+              review={lpReview}
+              scope={{ customerId: accountScope?.customerId ?? null, accountId: accountScope?.accountId ?? null }}
+              onReviewStale={() => { void fetchGapAnalysis(true) }}
+            />
           )}
 
           {(analysisTab === 'summary' || analysisTab === 'permissions') && safetyLoading && (
