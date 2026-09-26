@@ -2,10 +2,12 @@
 
 import { useEffect, useRef, useState } from "react"
 
+import { LpOutstandingPanel } from "@/components/iam-lp/LpOutstandingPanel"
 import { LpRestoreControl } from "@/components/iam-lp/LpRestoreControl"
 import { decisionBindingOf } from "@/lib/lp-decision-authority"
 import {
   LP_MUTATION_APPLY_ENABLED,
+  LP_RESOLVE_ENABLED,
   LP_RESTORE_ENABLED,
   lookupLpReceipt,
   lpApplyBody,
@@ -142,6 +144,7 @@ export function LpIamApplyPanel({
   holdReason = null,
   applyEnabled = LP_MUTATION_APPLY_ENABLED,
   restoreEnabled = LP_RESTORE_ENABLED,
+  resolveEnabled = LP_RESOLVE_ENABLED,
   submitApply = submitHeldLpApply,
   lookupReceipt = lookupLpReceipt,
 }: {
@@ -151,11 +154,28 @@ export function LpIamApplyPanel({
   holdReason?: string | null
   applyEnabled?: boolean
   restoreEnabled?: boolean
+  resolveEnabled?: boolean
   submitApply?: (body: LpApplyBody) => Promise<SubmitResult>
   lookupReceipt?: typeof lookupLpReceipt
 }) {
   const body = lpApplyBody(review)
   const plan = body ? { roleArn: body.role_arn, roleId: body.role_id, planHead: body.plan_head } : undefined
+  // The role this Review is about, whether or not an Apply can be formed: an operation already holding it (an
+  // unknown or partial outcome) is shown and resolved here, where IAM roles are reviewed.
+  const reviewed = review && typeof review === "object" ? ((review as Record<string, any>).server_plan ?? null) : null
+  const heldRole = typeof reviewed?.role_arn === "string" && reviewed.role_arn && typeof reviewed?.role_id === "string" && reviewed.role_id
+    ? { roleArn: reviewed.role_arn as string, roleId: reviewed.role_id as string, planHead: String(reviewed.plan_head ?? "") }
+    : undefined
+  const lookups = applyEnabled || restoreEnabled || resolveEnabled
+  const [outstandingRefresh, setOutstandingRefresh] = useState(0)
+  const outstandingPanel = (
+    <LpOutstandingPanel
+      plan={heldRole}
+      lookupEnabled={lookups}
+      refresh={outstandingRefresh}
+      onResolved={() => onReviewStale?.()}
+    />
+  )
   const [busy, setBusy] = useState(false)
   const [outcome, setOutcome] = useState<string | null>(null)
   const [receipt, setReceipt] = useState<LpApplyReceipt | null>(null)
@@ -179,6 +199,7 @@ export function LpIamApplyPanel({
       <div data-testid="lp-iam-apply-panel" className="rounded-lg border border-slate-200 p-3 text-sm">
         <div className="font-medium">Apply</div>
         <div role="status" className="text-slate-600">{unavailableReason(review)}</div>
+        {outstandingPanel}
       </div>
     )
   }
@@ -195,6 +216,7 @@ export function LpIamApplyPanel({
       } catch {
         // The request may or may not have reached the writer: never "nothing written", never a silent failure.
         setOutcome(`Apply could not be confirmed. ${UNCONFIRMED}`)
+        setOutstandingRefresh((value) => value + 1)
         return
       }
       const verified = result.ok ? receiptFromApply(plan, result.body) : null
@@ -206,12 +228,14 @@ export function LpIamApplyPanel({
       const code = refusalCode(result)
       if (result.ok) {
         setOutcome(`The backend answered without a verified receipt for this plan. ${UNCONFIRMED}`)
+        setOutstandingRefresh((value) => value + 1)
         return
       }
       const copy = (code && REFUSAL_COPY[code]) ?? `Apply was refused (${code ?? `HTTP ${result.status}`}).`
       const unconfirmed = (code && UNCONFIRMED_CODES.has(code)) || (!zeroWrites(result) && result.status >= 500)
       const writes = unconfirmed ? ` ${UNCONFIRMED}` : zeroWrites(result) ? " Nothing was written." : ""
       setOutcome(`${copy}${writes}`)
+      if (unconfirmed) setOutstandingRefresh((value) => value + 1)   // show the operation now holding the role
       // A stale plan is answered by a fresh Review (which remounts this panel with a new key), never by re-sending
       // the same plan in place: the proxy's and broker's replay guards would refuse it.
       if (code && STALE_CODES.has(code)) onReviewStale?.()
@@ -247,6 +271,7 @@ export function LpIamApplyPanel({
         </div>
       )}
       <LpRestoreControl receipt={receipt} plan={plan} scope={scope} onReceiptCleared={() => setReceipt(null)} />
+      {outstandingPanel}
     </div>
   )
 }

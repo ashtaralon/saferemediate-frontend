@@ -34,7 +34,19 @@ const VERDICT_COPY: Record<string, string> = {
  * The role stays held (no new Apply) until an operator explicitly resolves it and
  * the backend proves the outcome. Nothing here resolves on its own.
  */
-export function LpOutstandingPanel({ plan, onResolved }: { plan: Plan; onResolved: () => void }) {
+export function LpOutstandingPanel({
+  plan,
+  onResolved,
+  lookupEnabled = true,
+  refresh = 0,
+}: {
+  plan: Plan
+  onResolved: () => void
+  /** false: no ledger read at all (a held surface stays inert). The tab keeps its default. */
+  lookupEnabled?: boolean
+  /** Bumped by the caller after an Apply whose outcome is not confirmed: re-read the holder. */
+  refresh?: number
+}) {
   const [outstanding, setOutstanding] = useState<LpOutstanding | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const [version, setVersion] = useState(0)
@@ -42,14 +54,14 @@ export function LpOutstandingPanel({ plan, onResolved }: { plan: Plan; onResolve
   useEffect(() => {
     let current = true
     setOutstanding(null)
-    if (!plan) return
+    if (!plan || !lookupEnabled) return
     void fetchLpOutstanding(plan).then((found) => {
       if (current) setOutstanding(found)
     })
     return () => {
       current = false
     }
-  }, [plan?.roleArn, plan?.roleId, version])
+  }, [plan?.roleArn, plan?.roleId, version, lookupEnabled, refresh])
 
   if (!plan || !outstanding || outstanding.state === "VERIFIED") {
     return message ? <div role="status" className="text-sm">{message}</div> : null
