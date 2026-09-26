@@ -192,6 +192,12 @@ describe("the FE proxy's Apply reservation", () => {
       .toBe("cea3602f6e843b75e3875fe66e797a9d")
     expect(await stableApplyOperationId("tenant-\u{1F600}", "123456789012", "arn:aws:iam::123456789012:role/payments", "v1:\u00e9\u4e2d"))
       .toBe("9082bdf5db563af5a6f250833837181b")
+    // U+007F is ASCII but not printable: ensure_ascii escapes it too, and control characters keep Python's short
+    // forms (\n) or \u00XX (vectors from _stable_operation_id at ae872942).
+    expect(await stableApplyOperationId("tenant-\x7f", "123456789012", "arn:aws:iam::123456789012:role/payments", "v1:abc"))
+      .toBe("57a15d0b3bc82879a4ef57609bb9c6d9")
+    expect(await stableApplyOperationId("tenant-\x7f\u00e9\x1f\n", "123456789012", "arn:aws:iam::123456789012:role/payments", "v1:\x7f"))
+      .toBe("e6865f401046fa8e4a3ef7c6a695706d")
   })
 
   it("an unreadable answer that names no operation keeps the stamped id, so its resolution releases it", async () => {
