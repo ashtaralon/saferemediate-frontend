@@ -148,7 +148,7 @@ describe("LpIamApplyPanel", () => {
     expect(onReviewStale).toHaveBeenCalledTimes(1)
   })
 
-  it.each(["APPLY_OUTCOME_UNKNOWN", "VERIFY_RECEIPT_MISSING", "OPERATION_RECORD_UNCONFIRMED"])(
+  it.each(["APPLY_OUTCOME_UNKNOWN", "VERIFY_RECEIPT_MISSING", "OPERATION_RECORD_UNCONFIRMED", "EXECUTOR_UNAVAILABLE"])(
     "%s is unconfirmed even when its body says zero writes", async (code) => {
     const submitApply = vi.fn(async () => ({ ok: false, status: 503, body: { detail: { code, cloud_writes: 0 } } }))
     render(<LpIamApplyPanel review={measured} scope={scope} applyEnabled submitApply={submitApply} lookupReceipt={async () => null} />)
@@ -310,6 +310,8 @@ describe("the mounted Permissions modal carries the caller", () => {
     await new Promise((resolve) => setTimeout(resolve, 20))
     expect(screen.queryByTestId("lp-iam-apply-panel")).toBeNull()
     expect(screen.queryByRole("button", { name: "Apply this plan" })).toBeNull()
+    // Only C's own read may lift the loading screen: B's late answer must not reveal an older analysis under C.
+    expect(screen.getByText("Analyzing permissions")).toBeTruthy()
   })
 
   it("an out-of-order Review for the previous role never replaces the current role's caller", async () => {

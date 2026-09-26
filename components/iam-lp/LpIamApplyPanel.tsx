@@ -85,6 +85,8 @@ const STALE_CODES = new Set([
 const UNCONFIRMED_CODES = new Set([
   "APPLY_OUTCOME_UNKNOWN", "RESTORE_ATTEMPT_OUTCOME_UNKNOWN", "READBACK_FAILED",
   "VERIFY_RECEIPT_MISSING", "OPERATION_RECORD_UNCONFIRMED",
+  // Answered with aws_writes=0 even when an exception escaped AFTER a write (remediation_transaction.py).
+  "EXECUTOR_UNAVAILABLE",
 ])
 const UNCONFIRMED = "The outcome is unconfirmed; check the role's outstanding operation."
 
