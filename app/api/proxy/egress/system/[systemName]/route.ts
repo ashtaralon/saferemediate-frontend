@@ -24,7 +24,6 @@ export const maxDuration = 60
 // on Render. Set BACKEND_URL_OVERRIDE=http://localhost:8000 in your
 // shell or .env.local to test backend changes before deploying.
 const BACKEND_URL =
-  process.env.BACKEND_URL_OVERRIDE ||
   getBackendBaseUrl()
 
 export async function GET(

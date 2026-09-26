@@ -16,8 +16,6 @@ export const maxDuration = 60
 // local backend in dev. Without it, prod Render is hit (correct for
 // Vercel deploys).
 const BACKEND_URL =
-  process.env.BACKEND_URL_OVERRIDE ||
-  process.env.BACKEND_URL ||
   getBackendBaseUrl()
 
 export async function POST(req: NextRequest) {
