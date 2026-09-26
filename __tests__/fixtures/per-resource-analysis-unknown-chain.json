@@ -1,10 +1,10 @@
 {
- "_producer": "GET /api/remediation/per-resource-analysis/{role} at saferemediate-backend claude/cf01-per-resource-unknown b5eabf45 over tests/test_per_resource_analysis_unknown.py's fake graph session",
+ "_producer": "saferemediate-backend claude/cf01-per-resource-unknown ab0e42ec, ONE pytest session, ONE role (arn:aws:iam::111111111111:role/web-role): GET /api/iam-roles/{role}/gap-analysis (real route + proof + fixture review runtime, tests/test_iam_review_scope.py graph session) and GET /api/remediation/per-resource-analysis/{role} (real route over tests/test_per_resource_analysis_unknown.py graph session) with the same grant",
  "mixed": {
   "aggregated": {
    "observed_resources": 1,
    "resources": 2,
-   "total_permissions": 4,
+   "total_permissions": 2,
    "used_permissions": null
   },
   "analyses": [
@@ -13,19 +13,15 @@
     "granted_grain": "role_flat",
     "has_observed_data": true,
     "over_permission_ratio": 50.0,
-    "permissions_granted": 4,
+    "permissions_granted": 2,
     "permissions_used": [
      {
       "action": "s3:GetObject",
       "call_count": null,
       "targets": []
-     },
-     {
-      "action": "s3:PutObject",
-      "call_count": null,
-      "targets": []
      }
     ],
+    "ratio_basis": "exact_role_grant",
     "resource_id": "arn:aws:lambda:eu-west-1:111111111111:function:worker",
     "resource_name": "worker",
     "resource_type": "Lambda",
@@ -33,7 +29,7 @@
     "total_api_calls": null,
     "unused_permissions": null,
     "unused_reason": "per-resource grant is not modelled here; the role-level grant is not this resource's",
-    "used_count": 2,
+    "used_count": 1,
     "utilization_rate": 0.5
    },
    {
@@ -41,8 +37,9 @@
     "granted_grain": "role_flat",
     "has_observed_data": false,
     "over_permission_ratio": null,
-    "permissions_granted": 4,
+    "permissions_granted": 2,
     "permissions_used": [],
+    "ratio_basis": "not_observed",
     "resource_id": "arn:aws:lambda:eu-west-1:111111111111:function:idle",
     "resource_name": "idle",
     "resource_type": "Lambda",
@@ -57,9 +54,7 @@
   "role": {
    "all_permissions": [
     "s3:GetObject",
-    "s3:PutObject",
-    "iam:CreateRole",
-    "dynamodb:GetItem"
+    "s3:PutObject"
    ],
    "resources": [
     {
@@ -73,16 +68,16 @@
      "resource_type": "Lambda"
     }
    ],
-   "role_arn": "arn:aws:iam::111111111111:role/shared-app-role",
-   "role_name": "shared-app-role",
-   "total_permissions": 4
+   "role_arn": "arn:aws:iam::111111111111:role/web-role",
+   "role_name": "web-role",
+   "total_permissions": 2
   }
  },
  "observed": {
   "aggregated": {
    "observed_resources": 2,
    "resources": 2,
-   "total_permissions": 4,
+   "total_permissions": 2,
    "used_permissions": 2
   },
   "analyses": [
@@ -90,8 +85,8 @@
     "data_source": "observed",
     "granted_grain": "role_flat",
     "has_observed_data": true,
-    "over_permission_ratio": 75.0,
-    "permissions_granted": 4,
+    "over_permission_ratio": 50.0,
+    "permissions_granted": 2,
     "permissions_used": [
      {
       "action": "s3:GetObject",
@@ -99,6 +94,7 @@
       "targets": []
      }
     ],
+    "ratio_basis": "exact_role_grant",
     "resource_id": "arn:aws:lambda:eu-west-1:111111111111:function:worker",
     "resource_name": "worker",
     "resource_type": "Lambda",
@@ -107,26 +103,27 @@
     "unused_permissions": null,
     "unused_reason": "per-resource grant is not modelled here; the role-level grant is not this resource's",
     "used_count": 1,
-    "utilization_rate": 0.25
+    "utilization_rate": 0.5
    },
    {
     "data_source": "observed",
     "granted_grain": "role_flat",
     "has_observed_data": true,
-    "over_permission_ratio": 50.0,
-    "permissions_granted": 4,
+    "over_permission_ratio": 0.0,
+    "permissions_granted": 2,
     "permissions_used": [
-     {
-      "action": "dynamodb:GetItem",
-      "call_count": null,
-      "targets": []
-     },
      {
       "action": "s3:GetObject",
       "call_count": null,
       "targets": []
+     },
+     {
+      "action": "s3:PutObject",
+      "call_count": null,
+      "targets": []
      }
     ],
+    "ratio_basis": "exact_role_grant",
     "resource_id": "arn:aws:lambda:eu-west-1:111111111111:function:reader",
     "resource_name": "reader",
     "resource_type": "Lambda",
@@ -135,15 +132,13 @@
     "unused_permissions": null,
     "unused_reason": "per-resource grant is not modelled here; the role-level grant is not this resource's",
     "used_count": 2,
-    "utilization_rate": 0.5
+    "utilization_rate": 1.0
    }
   ],
   "role": {
    "all_permissions": [
     "s3:GetObject",
-    "s3:PutObject",
-    "iam:CreateRole",
-    "dynamodb:GetItem"
+    "s3:PutObject"
    ],
    "resources": [
     {
@@ -157,16 +152,16 @@
      "resource_type": "Lambda"
     }
    ],
-   "role_arn": "arn:aws:iam::111111111111:role/shared-app-role",
-   "role_name": "shared-app-role",
-   "total_permissions": 4
+   "role_arn": "arn:aws:iam::111111111111:role/web-role",
+   "role_name": "web-role",
+   "total_permissions": 2
   }
  },
  "unobserved": {
   "aggregated": {
    "observed_resources": 0,
    "resources": 2,
-   "total_permissions": 4,
+   "total_permissions": 2,
    "used_permissions": null
   },
   "analyses": [
@@ -175,8 +170,9 @@
     "granted_grain": "role_flat",
     "has_observed_data": false,
     "over_permission_ratio": null,
-    "permissions_granted": 4,
+    "permissions_granted": 2,
     "permissions_used": [],
+    "ratio_basis": "not_observed",
     "resource_id": "arn:aws:lambda:eu-west-1:111111111111:function:idle-a",
     "resource_name": "idle-a",
     "resource_type": "Lambda",
@@ -192,8 +188,9 @@
     "granted_grain": "role_flat",
     "has_observed_data": false,
     "over_permission_ratio": null,
-    "permissions_granted": 4,
+    "permissions_granted": 2,
     "permissions_used": [],
+    "ratio_basis": "not_observed",
     "resource_id": "arn:aws:lambda:eu-west-1:111111111111:function:idle-b",
     "resource_name": "idle-b",
     "resource_type": "Lambda",
@@ -208,9 +205,7 @@
   "role": {
    "all_permissions": [
     "s3:GetObject",
-    "s3:PutObject",
-    "iam:CreateRole",
-    "dynamodb:GetItem"
+    "s3:PutObject"
    ],
    "resources": [
     {
@@ -224,9 +219,97 @@
      "resource_type": "Lambda"
     }
    ],
-   "role_arn": "arn:aws:iam::111111111111:role/shared-app-role",
-   "role_name": "shared-app-role",
-   "total_permissions": 4
+   "role_arn": "arn:aws:iam::111111111111:role/web-role",
+   "role_name": "web-role",
+   "total_permissions": 2
+  }
+ },
+ "wildcard": {
+  "aggregated": {
+   "observed_resources": 2,
+   "resources": 2,
+   "total_permissions": 1,
+   "used_permissions": null
+  },
+  "analyses": [
+   {
+    "data_source": "observed",
+    "granted_grain": "role_flat",
+    "has_observed_data": true,
+    "over_permission_ratio": null,
+    "permissions_granted": 1,
+    "permissions_used": [
+     {
+      "action": "s3:GetObject",
+      "call_count": null,
+      "targets": []
+     },
+     {
+      "action": "s3:PutObject",
+      "call_count": null,
+      "targets": []
+     }
+    ],
+    "ratio_basis": "grant_has_wildcards",
+    "resource_id": "arn:aws:lambda:eu-west-1:111111111111:function:worker",
+    "resource_name": "worker",
+    "resource_type": "Lambda",
+    "risk_factors": [],
+    "total_api_calls": null,
+    "unused_permissions": null,
+    "unused_reason": "per-resource grant is not modelled here; the role-level grant is not this resource's",
+    "used_count": 2,
+    "utilization_rate": null
+   },
+   {
+    "data_source": "observed",
+    "granted_grain": "role_flat",
+    "has_observed_data": true,
+    "over_permission_ratio": null,
+    "permissions_granted": 1,
+    "permissions_used": [
+     {
+      "action": "s3:GetObject",
+      "call_count": null,
+      "targets": []
+     },
+     {
+      "action": "s3:ListBucket",
+      "call_count": null,
+      "targets": []
+     }
+    ],
+    "ratio_basis": "grant_has_wildcards",
+    "resource_id": "arn:aws:lambda:eu-west-1:111111111111:function:reader",
+    "resource_name": "reader",
+    "resource_type": "Lambda",
+    "risk_factors": [],
+    "total_api_calls": null,
+    "unused_permissions": null,
+    "unused_reason": "per-resource grant is not modelled here; the role-level grant is not this resource's",
+    "used_count": 2,
+    "utilization_rate": null
+   }
+  ],
+  "role": {
+   "all_permissions": [
+    "s3:*"
+   ],
+   "resources": [
+    {
+     "resource_id": "arn:aws:lambda:eu-west-1:111111111111:function:worker",
+     "resource_name": "worker",
+     "resource_type": "Lambda"
+    },
+    {
+     "resource_id": "arn:aws:lambda:eu-west-1:111111111111:function:reader",
+     "resource_name": "reader",
+     "resource_type": "Lambda"
+    }
+   ],
+   "role_arn": "arn:aws:iam::111111111111:role/web-role",
+   "role_name": "web-role",
+   "total_permissions": 1
   }
  }
 }

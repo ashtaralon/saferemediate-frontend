@@ -20,9 +20,9 @@ let requests: { method: string; url: string }[] = []
 
 /** The Compare view's data, produced by the REAL /api/proxy/cyntro/recommend handler over a Review body captured from
  *  the real backend route (fixtures/per-resource-review-for-recommend.json). */
-async function recommendFromCapturedReview(): Promise<unknown> {
+async function recommendFromCapturedReview(review: any = reviewCapture.review): Promise<unknown> {
   const realFetch = globalThis.fetch
-  vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(reviewCapture.review), { status: 200 })))
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(review), { status: 200 })))
   try {
     const { POST } = await import("@/app/api/proxy/cyntro/recommend/route")
     const res = await POST(new NextRequest("http://localhost/api/proxy/cyntro/recommend", {
@@ -99,7 +99,7 @@ describe("truthful backend: nullable counts", () => {
     expect(screen.getByTestId("per-resource-used").textContent).toBe("—")      // a partial union is a lower bound
     expect(screen.getByTestId("per-resource-verdict-unknown").textContent).toContain("observed for 1 of 2")
     perResourceTab()
-    expect(within(row("worker")).getByTestId("per-resource-row-used").textContent).toBe("2")
+    expect(within(row("worker")).getByTestId("per-resource-row-used").textContent).toBe("1")
     expect(within(row("worker")).getByTestId("per-resource-row-utilization").textContent).toBe("50%")
     expect(within(row("worker")).getByTestId("per-resource-row-unused").textContent).toBe("—")  // role-flat: not derivable
     expect(within(row("idle")).getByTestId("per-resource-row-used").textContent).toBe("—")
@@ -112,7 +112,7 @@ describe("truthful backend: nullable counts", () => {
   it("a fully observed role shows its aggregate but no per-resource removal it cannot derive", async () => {
     await open(truthful.observed as Capture)
     expect(screen.getByTestId("per-resource-used").textContent).toBe("2")
-    expect(screen.getByTestId("per-resource-unused").textContent).toBe("2")
+    expect(screen.getByTestId("per-resource-unused").textContent).toBe("0")
     expect(screen.queryByTestId("per-resource-verdict-unknown")).toBeNull()
     perResourceTab()
     expect(within(row("reader")).getByTestId("per-resource-row-used").textContent).toBe("2")
@@ -190,7 +190,11 @@ describe("Compare Approaches over the real recommend proxy", () => {
     fireEvent.click(screen.getByText("Compare Approaches"))
     await screen.findByTestId("per-resource-cyntro-risk-reduction")
     expect(screen.getByTestId("per-resource-cyntro-exposure").textContent).toBe("3")    // worker 1 + reader 2
-    expect(screen.getByTestId("per-resource-cyntro-risk-reduction").textContent).toMatch(/^\d+%$/)
+    // Both sides from the one per-resource answer (the Review and it describe ONE role): grant 2 x 2 resources = 4,
+    // after = 1 + 2 = 3 -> 25%; the aggregated fix gives each resource the observed union (2), 2 x 2 = 4 -> 25% more.
+    expect(screen.getByTestId("per-resource-cyntro-risk-reduction").textContent).toBe("25%")
+    expect(screen.getByTestId("per-resource-eliminates").textContent).toContain("25% more risk")
+    expect(screen.getByTestId("per-resource-aggregated-used").textContent).toContain("1")  // the Review's used count
     expect(screen.getAllByText("Simulate Split").length).toBeGreaterThan(0)
   })
 })
@@ -220,5 +224,46 @@ describe("/api/proxy/cyntro/analyze passes the backend through, never synthesize
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual(truthful.mixed)
     expect(calls).toHaveLength(1)
+  })
+})
+
+
+describe("a grant the observations cannot be compared with (real wildcard capture)", () => {
+  beforeEach(async () => { recommendBody = await recommendFromCapturedReview(reviewCapture.review_wildcard) })
+  afterEach(() => { recommendBody = null })
+
+  it("draws no reduction, no elimination claim and says why", async () => {
+    await open(truthful.wildcard as Capture)
+    const verdict = screen.getByTestId("per-resource-verdict-unknown").textContent || ""
+    expect(verdict).toContain("Every resource was observed")
+    expect(verdict).toContain("wildcards")
+    perResourceTab()
+    const util = within(row("worker")).getByTestId("per-resource-row-utilization")
+    expect(util.textContent).toBe("—")
+    expect(util.getAttribute("title")).toContain("wildcards")
+    fireEvent.click(screen.getByText("Compare Approaches"))
+    await screen.findByTestId("per-resource-cyntro-risk-reduction")
+    expect(screen.getByTestId("per-resource-cyntro-risk-reduction").textContent).toBe("—")
+    expect(screen.queryByTestId("per-resource-eliminates")).toBeNull()
+    expect(screen.queryByText(/Risk reduction[^%]*0%/)).toBeNull()
+  })
+})
+
+describe("the recommend proxy's hold is shown", () => {
+  beforeEach(async () => {
+    // The captured Review with its summary counts removed: an answer that does not carry them.
+    const review = JSON.parse(JSON.stringify(reviewCapture.review))
+    delete review.summary.total_permissions
+    delete review.summary.used_count
+    recommendBody = await recommendFromCapturedReview(review)
+  })
+  afterEach(() => { recommendBody = null })
+
+  it("says usage was not measured and proposes nothing", async () => {
+    await open(truthful.observed as Capture)
+    perResourceTab()
+    fireEvent.click(screen.getByText("Compare Approaches"))
+    expect((await screen.findByTestId("per-resource-recommend-held")).textContent).toContain("Held: usage not measured")
+    expect(screen.getByTestId("per-resource-aggregated-used").textContent).toContain("—")
   })
 })
