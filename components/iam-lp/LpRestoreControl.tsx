@@ -82,7 +82,7 @@ export function LpRestoreControl({
       <div className="text-slate-600">Operation {bound.operationId}</div>
       <button
         type="button"
-        className="mt-2 rounded border px-3 py-1"
+        className="mt-2 rounded border px-3 py-1 disabled:opacity-50"
         onClick={restore}
         aria-busy={busy}
         disabled={!LP_RESTORE_ENABLED}

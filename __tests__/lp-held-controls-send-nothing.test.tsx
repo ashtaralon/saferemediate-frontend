@@ -109,6 +109,7 @@ describe("Restore, mounted as the tab mounts it", () => {
     render(<LpRestoreControl receipt={receipt} plan={PLAN} scope={SCOPE} onReceiptCleared={cleared} />)
     const button = screen.getByRole("button", { name: "Restore this operation" }) as HTMLButtonElement
     expect(button.disabled).toBe(true)
+    expect(screen.getByText(/Restore stays off/)).toBeTruthy()          // the held reason is shown before any click
     await clickEveryWay(button)
     expect(calls).toEqual([])
     expect(cleared).not.toHaveBeenCalled()
