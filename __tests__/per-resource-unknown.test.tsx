@@ -107,6 +107,10 @@ describe("truthful backend: nullable counts", () => {
     expect(screen.getByTestId("per-resource-unobserved").textContent).toContain("idle")
     expect(screen.getByTestId("per-resource-observed-keep").textContent).toContain("worker")
     expect(screen.queryByText(/remove:/)).toBeNull()
+    // Review G3: a partially observed role proposes no split and offers no Simulate Split.
+    expect(screen.getByTestId("per-resource-split-unavailable").textContent).toContain("1 of 2")
+    expect(screen.queryByText(/Split into/)).toBeNull()
+    expect(screen.queryByText("Simulate Split")).toBeNull()
   })
 
   it("a fully observed role shows its aggregate but no per-resource removal it cannot derive", async () => {
@@ -194,6 +198,8 @@ describe("Compare Approaches over the real recommend proxy", () => {
     // after = 1 + 2 = 3 -> 25%; the aggregated fix gives each resource the observed union (2), 2 x 2 = 4 -> 25% more.
     expect(screen.getByTestId("per-resource-cyntro-risk-reduction").textContent).toBe("25%")
     expect(screen.getByTestId("per-resource-eliminates").textContent).toContain("25% more risk")
+    // Positive control for the wildcard case's "no bar" assertion: here the same selector finds the bar.
+    expect(screen.getByTestId("per-resource-cyntro-risk-reduction").closest("div.pt-3")?.querySelector("div.h-2")).not.toBeNull()
     expect(screen.getByTestId("per-resource-aggregated-used").textContent).toContain("1")  // the Review's used count
     expect(screen.getAllByText("Simulate Split").length).toBeGreaterThan(0)
   })
@@ -245,7 +251,10 @@ describe("a grant the observations cannot be compared with (real wildcard captur
     await screen.findByTestId("per-resource-cyntro-risk-reduction")
     expect(screen.getByTestId("per-resource-cyntro-risk-reduction").textContent).toBe("—")
     expect(screen.queryByTestId("per-resource-eliminates")).toBeNull()
-    expect(screen.queryByText(/Risk reduction[^%]*0%/)).toBeNull()
+    // The label and its value are separate elements, so a text regex across them could never match: assert the value
+    // itself carries no percentage, and that no reduction bar is drawn for it.
+    expect(screen.getByTestId("per-resource-cyntro-risk-reduction").textContent).not.toMatch(/%/)
+    expect(screen.getByTestId("per-resource-cyntro-risk-reduction").closest("div.pt-3")?.querySelector("div.h-2")).toBeNull()
   })
 })
 
