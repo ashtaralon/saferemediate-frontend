@@ -1,0 +1,1398 @@
+{
+ "acme": {
+  "coverage": null,
+  "coverage_state": "READY",
+  "critical_paths": 0,
+  "crown_jewels": [
+   {
+    "canonical_id": "arn:aws:s3:::acme-data",
+    "highest_risk_score": 35,
+    "id": "arn:aws:s3:::acme-data",
+    "materialized_path_count": 4,
+    "name": "acme-data",
+    "path_count": 4,
+    "severity": "MEDIUM",
+    "type": "S3Bucket"
+   }
+  ],
+  "excluded_non_attacker_paths": 0,
+  "excluded_non_workload_paths": 0,
+  "excluded_service_linked_paths": 0,
+  "from_snapshot": true,
+  "graph_version": "inventory.resource_state.v1/4/run-4",
+  "high_paths": 0,
+  "paths": [
+   {
+    "attack_path_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1",
+    "crown_jewel_id": "arn:aws:s3:::acme-data",
+    "damage_capability": {
+     "damage_source": "materialized_attack_path",
+     "direct_verbs": {
+      "admin": 0,
+      "delete": 0,
+      "read": 1,
+      "write": 1
+     },
+     "effective_damage": "live",
+     "gates": {
+      "data_plane_reachable": true,
+      "network_reachable": true
+     },
+     "jewel_name": "acme-data",
+     "materialized_damage_types": [
+      "read",
+      "write"
+     ],
+     "state": "live",
+     "summary": "on acme-data: write \u00b7 read",
+     "verbs": {
+      "admin": 0,
+      "delete": 0,
+      "read": 1,
+      "write": 1
+     }
+    },
+    "damage_types": [
+     "read",
+     "write"
+    ],
+    "edges": [
+     {
+      "is_observed": false,
+      "source": "arn:aws:ec2:eu-west-1:111111111111:instance/i-acme-1",
+      "target": "arn:aws:iam::111111111111:role/acme-app-1",
+      "type": "USES_ROLE"
+     },
+     {
+      "is_observed": false,
+      "source": "arn:aws:iam::111111111111:role/acme-app-1",
+      "target": "arn:aws:s3:::acme-data",
+      "type": "ACCESSES_RESOURCE"
+     }
+    ],
+    "evidence_contract": {
+     "classification": "observed",
+     "evidence": "observed",
+     "gates": {
+      "data": "OPEN_OBSERVED",
+      "identity": "OPEN_OBSERVED",
+      "network": "OPEN_OBSERVED"
+     },
+     "permission_coverage": {
+      "actions": {
+       "s3:GetObject": {
+        "permission": "ALLOWED",
+        "reason_codes": [],
+        "runtime": "observed",
+        "technique_id": "T1530"
+       },
+       "s3:PutObject": {
+        "permission": "NOT_EVALUATED",
+        "runtime": "not_observed"
+       }
+      },
+      "complete": false,
+      "evaluated_actions": [
+       "s3:GetObject"
+      ],
+      "reason": "1 of 2 action(s) have no evaluated permission decision"
+     },
+     "runtime_evidence": {
+      "data": {
+       "coverage_states": [],
+       "first_seen": "2026-09-20T00:00:00Z",
+       "hit_count": 3,
+       "kinds": [
+        "s3_access_log"
+       ],
+       "last_seen": "2026-09-24T00:00:00Z",
+       "state": "observed"
+      },
+      "identity": {
+       "coverage_states": [],
+       "first_seen": "2026-09-20T00:00:00Z",
+       "hit_count": 3,
+       "kinds": [
+        "cloudtrail_api"
+       ],
+       "last_seen": "2026-09-24T00:00:00Z",
+       "state": "observed"
+      },
+      "network": {
+       "coverage_states": [],
+       "first_seen": "2026-09-20T00:00:00Z",
+       "hit_count": 3,
+       "kinds": [
+        "flow_log_hit"
+       ],
+       "last_seen": "2026-09-24T00:00:00Z",
+       "state": "observed"
+      }
+     },
+     "whole_path_observed": true
+    },
+    "evidence_type": "observed",
+    "hop_count": 2,
+    "id": "path-mat-a9911e7a2972",
+    "materialized": true,
+    "materialized_path": {
+     "damage_types": [
+      "read",
+      "write"
+     ],
+     "data_plane_gate": "OPEN_OBSERVED",
+     "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1",
+     "identity_gate": "OPEN_OBSERVED",
+     "path_status": "OBSERVED",
+     "role_name": "acme-app-1",
+     "route_gate": "OPEN_OBSERVED",
+     "workload_name": "acme-web-1"
+    },
+    "materialized_stale": false,
+    "nodes": [
+     {
+      "arn": "arn:aws:ec2:eu-west-1:111111111111:instance/i-acme-1",
+      "id": "arn:aws:ec2:eu-west-1:111111111111:instance/i-acme-1",
+      "is_active": true,
+      "name": "acme-web-1",
+      "type": "EC2Instance"
+     },
+     {
+      "arn": "arn:aws:iam::111111111111:role/acme-app-1",
+      "id": "arn:aws:iam::111111111111:role/acme-app-1",
+      "is_active": true,
+      "name": "acme-app-1",
+      "type": "IAMRole"
+     },
+     {
+      "arn": null,
+      "canonical_id": "arn:aws:s3:::acme-data",
+      "findings": [],
+      "id": "arn:aws:s3:::acme-data",
+      "lane": "data",
+      "name": "acme-data",
+      "synthesized_terminal": true,
+      "tier": "crown_jewel",
+      "type": "S3Bucket"
+     }
+    ],
+    "path_kind": "identity",
+    "path_kind_tag": "identity",
+    "severity": {
+     "damage_types": [
+      "write",
+      "read"
+     ],
+     "factors": {
+      "damage": 29,
+      "evidence_multiplier": 1.1,
+      "exposure": 0,
+      "hop_signal": 3,
+      "impact_taxonomy": 0,
+      "path_status": 0,
+      "scope": 0,
+      "sensitivity": 0
+     },
+     "overall_score": 35,
+     "scoring_model": "materialized_path_v1",
+     "severity": "MEDIUM"
+    },
+    "stale_reason": null
+   },
+   {
+    "attack_path_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa2",
+    "crown_jewel_id": "arn:aws:s3:::acme-data",
+    "damage_capability": {
+     "damage_source": "materialized_attack_path",
+     "direct_verbs": {
+      "admin": 0,
+      "delete": 0,
+      "read": 1,
+      "write": 1
+     },
+     "effective_damage": "unknown",
+     "gates": {
+      "data_plane_reachable": null,
+      "network_reachable": true
+     },
+     "jewel_name": "acme-data",
+     "materialized_damage_types": [
+      "read",
+      "write"
+     ],
+     "state": "live",
+     "summary": "on acme-data: write \u00b7 read",
+     "verbs": {
+      "admin": 0,
+      "delete": 0,
+      "read": 1,
+      "write": 1
+     }
+    },
+    "damage_types": [
+     "read",
+     "write"
+    ],
+    "edges": [
+     {
+      "is_observed": false,
+      "source": "arn:aws:ec2:eu-west-1:111111111111:instance/i-acme-2",
+      "target": "arn:aws:iam::111111111111:role/acme-app-2",
+      "type": "USES_ROLE"
+     },
+     {
+      "is_observed": false,
+      "source": "arn:aws:iam::111111111111:role/acme-app-2",
+      "target": "arn:aws:s3:::acme-data",
+      "type": "ACCESSES_RESOURCE"
+     }
+    ],
+    "evidence_contract": {
+     "classification": "unknown",
+     "evidence": "unverified",
+     "gates": {
+      "data": "UNKNOWN",
+      "identity": "OPEN_OBSERVED",
+      "network": "OPEN_OBSERVED"
+     },
+     "permission_coverage": {
+      "actions": {
+       "s3:GetObject": {
+        "permission": "ALLOWED",
+        "reason_codes": [],
+        "runtime": "observed",
+        "technique_id": "T1530"
+       },
+       "s3:PutObject": {
+        "permission": "NOT_EVALUATED",
+        "runtime": "not_observed"
+       }
+      },
+      "complete": false,
+      "evaluated_actions": [
+       "s3:GetObject"
+      ],
+      "reason": "1 of 2 action(s) have no evaluated permission decision"
+     },
+     "runtime_evidence": {
+      "data": {
+       "state": "unavailable"
+      },
+      "identity": {
+       "coverage_states": [],
+       "first_seen": "2026-09-20T00:00:00Z",
+       "hit_count": 3,
+       "kinds": [
+        "cloudtrail_api"
+       ],
+       "last_seen": "2026-09-24T00:00:00Z",
+       "state": "observed"
+      },
+      "network": {
+       "coverage_states": [],
+       "first_seen": "2026-09-20T00:00:00Z",
+       "hit_count": 3,
+       "kinds": [
+        "flow_log_hit"
+       ],
+       "last_seen": "2026-09-24T00:00:00Z",
+       "state": "observed"
+      }
+     },
+     "whole_path_observed": false
+    },
+    "evidence_type": "unverified",
+    "hop_count": 2,
+    "id": "path-mat-6a8284e0b313",
+    "materialized": true,
+    "materialized_path": {
+     "damage_types": [
+      "read",
+      "write"
+     ],
+     "data_plane_gate": "UNKNOWN",
+     "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa2",
+     "identity_gate": "OPEN_OBSERVED",
+     "path_status": "UNVERIFIED",
+     "role_name": "acme-app-2",
+     "route_gate": "OPEN_OBSERVED",
+     "workload_name": "acme-web-2"
+    },
+    "materialized_stale": false,
+    "nodes": [
+     {
+      "arn": "arn:aws:ec2:eu-west-1:111111111111:instance/i-acme-2",
+      "id": "arn:aws:ec2:eu-west-1:111111111111:instance/i-acme-2",
+      "is_active": true,
+      "name": "acme-web-2",
+      "type": "EC2Instance"
+     },
+     {
+      "arn": "arn:aws:iam::111111111111:role/acme-app-2",
+      "id": "arn:aws:iam::111111111111:role/acme-app-2",
+      "is_active": true,
+      "name": "acme-app-2",
+      "type": "IAMRole"
+     },
+     {
+      "arn": null,
+      "canonical_id": "arn:aws:s3:::acme-data",
+      "findings": [],
+      "id": "arn:aws:s3:::acme-data",
+      "lane": "data",
+      "name": "acme-data",
+      "synthesized_terminal": true,
+      "tier": "crown_jewel",
+      "type": "S3Bucket"
+     }
+    ],
+    "path_kind": "identity",
+    "path_kind_tag": "identity",
+    "severity": {
+     "damage_types": [
+      "write",
+      "read"
+     ],
+     "factors": {
+      "damage": 29,
+      "evidence_multiplier": 1.05,
+      "exposure": 0,
+      "hop_signal": 3,
+      "impact_taxonomy": 0,
+      "path_status": 0,
+      "scope": 0,
+      "sensitivity": 0
+     },
+     "overall_score": 34,
+     "scoring_model": "materialized_path_v1",
+     "severity": "LOW"
+    },
+    "stale_reason": null
+   },
+   {
+    "attack_path_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa3",
+    "crown_jewel_id": "arn:aws:s3:::acme-data",
+    "damage_capability": {
+     "damage_source": "materialized_attack_path",
+     "direct_verbs": {
+      "admin": 0,
+      "delete": 0,
+      "read": 1,
+      "write": 1
+     },
+     "effective_damage": "live",
+     "gates": {
+      "data_plane_reachable": true,
+      "network_reachable": true
+     },
+     "jewel_name": "acme-data",
+     "materialized_damage_types": [
+      "read",
+      "write"
+     ],
+     "state": "live",
+     "summary": "on acme-data: write \u00b7 read",
+     "verbs": {
+      "admin": 0,
+      "delete": 0,
+      "read": 1,
+      "write": 1
+     }
+    },
+    "damage_types": [
+     "read",
+     "write"
+    ],
+    "edges": [
+     {
+      "is_observed": false,
+      "source": "arn:aws:ec2:eu-west-1:111111111111:instance/i-acme-3",
+      "target": "arn:aws:iam::111111111111:role/acme-app-3",
+      "type": "USES_ROLE"
+     },
+     {
+      "is_observed": false,
+      "source": "arn:aws:iam::111111111111:role/acme-app-3",
+      "target": "arn:aws:s3:::acme-data",
+      "type": "ACCESSES_RESOURCE"
+     }
+    ],
+    "evidence_contract": {
+     "classification": "inferred",
+     "evidence": "configured",
+     "gates": {
+      "data": "OPEN_CONFIG",
+      "identity": "OPEN_CONFIG",
+      "network": "OPEN_CONFIG"
+     },
+     "permission_coverage": {
+      "actions": {
+       "s3:GetObject": {
+        "permission": "ALLOWED",
+        "reason_codes": [],
+        "runtime": "observed",
+        "technique_id": "T1530"
+       },
+       "s3:PutObject": {
+        "permission": "NOT_EVALUATED",
+        "runtime": "not_observed"
+       }
+      },
+      "complete": false,
+      "evaluated_actions": [
+       "s3:GetObject"
+      ],
+      "reason": "1 of 2 action(s) have no evaluated permission decision"
+     },
+     "runtime_evidence": {
+      "data": {
+       "state": "unavailable"
+      },
+      "identity": {
+       "state": "unavailable"
+      },
+      "network": {
+       "state": "unavailable"
+      }
+     },
+     "whole_path_observed": false
+    },
+    "evidence_type": "configured",
+    "hop_count": 2,
+    "id": "path-mat-9d7603a2f892",
+    "materialized": true,
+    "materialized_path": {
+     "damage_types": [
+      "read",
+      "write"
+     ],
+     "data_plane_gate": "OPEN_CONFIG",
+     "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa3",
+     "identity_gate": "OPEN_CONFIG",
+     "path_status": "UNVERIFIED",
+     "role_name": "acme-app-3",
+     "route_gate": "OPEN_CONFIG",
+     "workload_name": "acme-web-3"
+    },
+    "materialized_stale": false,
+    "nodes": [
+     {
+      "arn": "arn:aws:ec2:eu-west-1:111111111111:instance/i-acme-3",
+      "id": "arn:aws:ec2:eu-west-1:111111111111:instance/i-acme-3",
+      "is_active": true,
+      "name": "acme-web-3",
+      "type": "EC2Instance"
+     },
+     {
+      "arn": "arn:aws:iam::111111111111:role/acme-app-3",
+      "id": "arn:aws:iam::111111111111:role/acme-app-3",
+      "is_active": true,
+      "name": "acme-app-3",
+      "type": "IAMRole"
+     },
+     {
+      "arn": null,
+      "canonical_id": "arn:aws:s3:::acme-data",
+      "findings": [],
+      "id": "arn:aws:s3:::acme-data",
+      "lane": "data",
+      "name": "acme-data",
+      "synthesized_terminal": true,
+      "tier": "crown_jewel",
+      "type": "S3Bucket"
+     }
+    ],
+    "path_kind": "identity",
+    "path_kind_tag": "identity",
+    "severity": {
+     "damage_types": [
+      "write",
+      "read"
+     ],
+     "factors": {
+      "damage": 29,
+      "evidence_multiplier": 1.0,
+      "exposure": 0,
+      "hop_signal": 3,
+      "impact_taxonomy": 0,
+      "path_status": 0,
+      "scope": 0,
+      "sensitivity": 0
+     },
+     "overall_score": 32,
+     "scoring_model": "materialized_path_v1",
+     "severity": "LOW"
+    },
+    "stale_reason": null
+   },
+   {
+    "attack_path_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa4",
+    "crown_jewel_id": "arn:aws:s3:::acme-data",
+    "damage_capability": {
+     "damage_source": "materialized_attack_path",
+     "direct_verbs": {
+      "admin": 0,
+      "delete": 0,
+      "read": 1,
+      "write": 1
+     },
+     "effective_damage": "network_blocked",
+     "gates": {
+      "data_plane_reachable": true,
+      "network_reachable": false
+     },
+     "jewel_name": "acme-data",
+     "materialized_damage_types": [
+      "read",
+      "write"
+     ],
+     "state": "live",
+     "summary": "on acme-data: write \u00b7 read",
+     "verbs": {
+      "admin": 0,
+      "delete": 0,
+      "read": 1,
+      "write": 1
+     }
+    },
+    "damage_types": [
+     "read",
+     "write"
+    ],
+    "edges": [
+     {
+      "is_observed": false,
+      "source": "arn:aws:ec2:eu-west-1:111111111111:instance/i-acme-4",
+      "target": "arn:aws:iam::111111111111:role/acme-app-4",
+      "type": "USES_ROLE"
+     },
+     {
+      "is_observed": false,
+      "source": "arn:aws:iam::111111111111:role/acme-app-4",
+      "target": "arn:aws:s3:::acme-data",
+      "type": "ACCESSES_RESOURCE"
+     }
+    ],
+    "evidence_contract": {
+     "classification": "blocked",
+     "evidence": "blocked",
+     "gates": {
+      "data": "OPEN_CONFIG",
+      "identity": "OPEN_CONFIG",
+      "network": "CLOSED"
+     },
+     "permission_coverage": {
+      "actions": {
+       "s3:GetObject": {
+        "permission": "ALLOWED",
+        "reason_codes": [],
+        "runtime": "observed",
+        "technique_id": "T1530"
+       },
+       "s3:PutObject": {
+        "permission": "NOT_EVALUATED",
+        "runtime": "not_observed"
+       }
+      },
+      "complete": false,
+      "evaluated_actions": [
+       "s3:GetObject"
+      ],
+      "reason": "1 of 2 action(s) have no evaluated permission decision"
+     },
+     "runtime_evidence": {
+      "data": {
+       "state": "unavailable"
+      },
+      "identity": {
+       "state": "unavailable"
+      },
+      "network": {
+       "state": "unavailable"
+      }
+     },
+     "whole_path_observed": false
+    },
+    "evidence_type": "blocked",
+    "hop_count": 2,
+    "id": "path-mat-3e6b3937fae9",
+    "materialized": true,
+    "materialized_path": {
+     "damage_types": [
+      "read",
+      "write"
+     ],
+     "data_plane_gate": "OPEN_CONFIG",
+     "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa4",
+     "identity_gate": "OPEN_CONFIG",
+     "path_status": "UNVERIFIED",
+     "role_name": "acme-app-4",
+     "route_gate": "CLOSED",
+     "workload_name": "acme-web-4"
+    },
+    "materialized_stale": false,
+    "nodes": [
+     {
+      "arn": "arn:aws:ec2:eu-west-1:111111111111:instance/i-acme-4",
+      "id": "arn:aws:ec2:eu-west-1:111111111111:instance/i-acme-4",
+      "is_active": true,
+      "name": "acme-web-4",
+      "type": "EC2Instance"
+     },
+     {
+      "arn": "arn:aws:iam::111111111111:role/acme-app-4",
+      "id": "arn:aws:iam::111111111111:role/acme-app-4",
+      "is_active": true,
+      "name": "acme-app-4",
+      "type": "IAMRole"
+     },
+     {
+      "arn": null,
+      "canonical_id": "arn:aws:s3:::acme-data",
+      "findings": [],
+      "id": "arn:aws:s3:::acme-data",
+      "lane": "data",
+      "name": "acme-data",
+      "synthesized_terminal": true,
+      "tier": "crown_jewel",
+      "type": "S3Bucket"
+     }
+    ],
+    "path_kind": "identity",
+    "path_kind_tag": "identity",
+    "severity": {
+     "damage_types": [
+      "write",
+      "read"
+     ],
+     "factors": {
+      "damage": 29,
+      "evidence_multiplier": 0.6,
+      "exposure": 0,
+      "hop_signal": 3,
+      "impact_taxonomy": 0,
+      "path_status": 0,
+      "scope": 0,
+      "sensitivity": 0
+     },
+     "overall_score": 19,
+     "scoring_model": "materialized_path_v1",
+     "severity": "LOW"
+    },
+    "stale_reason": null
+   }
+  ],
+  "rebased_to_workload_paths": 0,
+  "semantic_status": "populated",
+  "snapshot_age_seconds": 0,
+  "snapshot_provenance": {
+   "account_id": "111111111111",
+   "coverage": null,
+   "customer_id": "acme",
+   "generation_status": "pinned",
+   "graph_version": "inventory.resource_state.v1/4/run-4"
+  },
+  "source_generation": "inventory.resource_state.v1/4/run-4",
+  "system_name": "payments",
+  "total_jewels": 1,
+  "total_paths": 4
+ },
+ "beta": {
+  "coverage": null,
+  "coverage_state": "READY",
+  "critical_paths": 0,
+  "crown_jewels": [
+   {
+    "canonical_id": "arn:aws:s3:::beta-data",
+    "highest_risk_score": 35,
+    "id": "arn:aws:s3:::beta-data",
+    "materialized_path_count": 4,
+    "name": "beta-data",
+    "path_count": 4,
+    "severity": "MEDIUM",
+    "type": "S3Bucket"
+   }
+  ],
+  "excluded_non_attacker_paths": 0,
+  "excluded_non_workload_paths": 0,
+  "excluded_service_linked_paths": 0,
+  "from_snapshot": true,
+  "graph_version": "inventory.resource_state.v1/9/run-9",
+  "high_paths": 0,
+  "paths": [
+   {
+    "attack_path_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb1",
+    "crown_jewel_id": "arn:aws:s3:::beta-data",
+    "damage_capability": {
+     "damage_source": "materialized_attack_path",
+     "direct_verbs": {
+      "admin": 0,
+      "delete": 0,
+      "read": 1,
+      "write": 1
+     },
+     "effective_damage": "live",
+     "gates": {
+      "data_plane_reachable": true,
+      "network_reachable": true
+     },
+     "jewel_name": "beta-data",
+     "materialized_damage_types": [
+      "read",
+      "write"
+     ],
+     "state": "live",
+     "summary": "on beta-data: write \u00b7 read",
+     "verbs": {
+      "admin": 0,
+      "delete": 0,
+      "read": 1,
+      "write": 1
+     }
+    },
+    "damage_types": [
+     "read",
+     "write"
+    ],
+    "edges": [
+     {
+      "is_observed": false,
+      "source": "arn:aws:ec2:eu-west-1:222222222222:instance/i-beta-1",
+      "target": "arn:aws:iam::222222222222:role/beta-app-1",
+      "type": "USES_ROLE"
+     },
+     {
+      "is_observed": false,
+      "source": "arn:aws:iam::222222222222:role/beta-app-1",
+      "target": "arn:aws:s3:::beta-data",
+      "type": "ACCESSES_RESOURCE"
+     }
+    ],
+    "evidence_contract": {
+     "classification": "observed",
+     "evidence": "observed",
+     "gates": {
+      "data": "OPEN_OBSERVED",
+      "identity": "OPEN_OBSERVED",
+      "network": "OPEN_OBSERVED"
+     },
+     "permission_coverage": {
+      "actions": {
+       "s3:GetObject": {
+        "permission": "ALLOWED",
+        "reason_codes": [],
+        "runtime": "observed",
+        "technique_id": "T1530"
+       },
+       "s3:PutObject": {
+        "permission": "NOT_EVALUATED",
+        "runtime": "not_observed"
+       }
+      },
+      "complete": false,
+      "evaluated_actions": [
+       "s3:GetObject"
+      ],
+      "reason": "1 of 2 action(s) have no evaluated permission decision"
+     },
+     "runtime_evidence": {
+      "data": {
+       "coverage_states": [],
+       "first_seen": "2026-09-20T00:00:00Z",
+       "hit_count": 3,
+       "kinds": [
+        "s3_access_log"
+       ],
+       "last_seen": "2026-09-24T00:00:00Z",
+       "state": "observed"
+      },
+      "identity": {
+       "coverage_states": [],
+       "first_seen": "2026-09-20T00:00:00Z",
+       "hit_count": 3,
+       "kinds": [
+        "cloudtrail_api"
+       ],
+       "last_seen": "2026-09-24T00:00:00Z",
+       "state": "observed"
+      },
+      "network": {
+       "coverage_states": [],
+       "first_seen": "2026-09-20T00:00:00Z",
+       "hit_count": 3,
+       "kinds": [
+        "flow_log_hit"
+       ],
+       "last_seen": "2026-09-24T00:00:00Z",
+       "state": "observed"
+      }
+     },
+     "whole_path_observed": true
+    },
+    "evidence_type": "observed",
+    "hop_count": 2,
+    "id": "path-mat-1993db2f75c3",
+    "materialized": true,
+    "materialized_path": {
+     "damage_types": [
+      "read",
+      "write"
+     ],
+     "data_plane_gate": "OPEN_OBSERVED",
+     "id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb1",
+     "identity_gate": "OPEN_OBSERVED",
+     "path_status": "OBSERVED",
+     "role_name": "beta-app-1",
+     "route_gate": "OPEN_OBSERVED",
+     "workload_name": "beta-web-1"
+    },
+    "materialized_stale": false,
+    "nodes": [
+     {
+      "arn": "arn:aws:ec2:eu-west-1:222222222222:instance/i-beta-1",
+      "id": "arn:aws:ec2:eu-west-1:222222222222:instance/i-beta-1",
+      "is_active": true,
+      "name": "beta-web-1",
+      "type": "EC2Instance"
+     },
+     {
+      "arn": "arn:aws:iam::222222222222:role/beta-app-1",
+      "id": "arn:aws:iam::222222222222:role/beta-app-1",
+      "is_active": true,
+      "name": "beta-app-1",
+      "type": "IAMRole"
+     },
+     {
+      "arn": null,
+      "canonical_id": "arn:aws:s3:::beta-data",
+      "findings": [],
+      "id": "arn:aws:s3:::beta-data",
+      "lane": "data",
+      "name": "beta-data",
+      "synthesized_terminal": true,
+      "tier": "crown_jewel",
+      "type": "S3Bucket"
+     }
+    ],
+    "path_kind": "identity",
+    "path_kind_tag": "identity",
+    "severity": {
+     "damage_types": [
+      "write",
+      "read"
+     ],
+     "factors": {
+      "damage": 29,
+      "evidence_multiplier": 1.1,
+      "exposure": 0,
+      "hop_signal": 3,
+      "impact_taxonomy": 0,
+      "path_status": 0,
+      "scope": 0,
+      "sensitivity": 0
+     },
+     "overall_score": 35,
+     "scoring_model": "materialized_path_v1",
+     "severity": "MEDIUM"
+    },
+    "stale_reason": null
+   },
+   {
+    "attack_path_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb2",
+    "crown_jewel_id": "arn:aws:s3:::beta-data",
+    "damage_capability": {
+     "damage_source": "materialized_attack_path",
+     "direct_verbs": {
+      "admin": 0,
+      "delete": 0,
+      "read": 1,
+      "write": 1
+     },
+     "effective_damage": "unknown",
+     "gates": {
+      "data_plane_reachable": null,
+      "network_reachable": true
+     },
+     "jewel_name": "beta-data",
+     "materialized_damage_types": [
+      "read",
+      "write"
+     ],
+     "state": "live",
+     "summary": "on beta-data: write \u00b7 read",
+     "verbs": {
+      "admin": 0,
+      "delete": 0,
+      "read": 1,
+      "write": 1
+     }
+    },
+    "damage_types": [
+     "read",
+     "write"
+    ],
+    "edges": [
+     {
+      "is_observed": false,
+      "source": "arn:aws:ec2:eu-west-1:222222222222:instance/i-beta-2",
+      "target": "arn:aws:iam::222222222222:role/beta-app-2",
+      "type": "USES_ROLE"
+     },
+     {
+      "is_observed": false,
+      "source": "arn:aws:iam::222222222222:role/beta-app-2",
+      "target": "arn:aws:s3:::beta-data",
+      "type": "ACCESSES_RESOURCE"
+     }
+    ],
+    "evidence_contract": {
+     "classification": "unknown",
+     "evidence": "unverified",
+     "gates": {
+      "data": "UNKNOWN",
+      "identity": "OPEN_OBSERVED",
+      "network": "OPEN_OBSERVED"
+     },
+     "permission_coverage": {
+      "actions": {
+       "s3:GetObject": {
+        "permission": "ALLOWED",
+        "reason_codes": [],
+        "runtime": "observed",
+        "technique_id": "T1530"
+       },
+       "s3:PutObject": {
+        "permission": "NOT_EVALUATED",
+        "runtime": "not_observed"
+       }
+      },
+      "complete": false,
+      "evaluated_actions": [
+       "s3:GetObject"
+      ],
+      "reason": "1 of 2 action(s) have no evaluated permission decision"
+     },
+     "runtime_evidence": {
+      "data": {
+       "state": "unavailable"
+      },
+      "identity": {
+       "coverage_states": [],
+       "first_seen": "2026-09-20T00:00:00Z",
+       "hit_count": 3,
+       "kinds": [
+        "cloudtrail_api"
+       ],
+       "last_seen": "2026-09-24T00:00:00Z",
+       "state": "observed"
+      },
+      "network": {
+       "coverage_states": [],
+       "first_seen": "2026-09-20T00:00:00Z",
+       "hit_count": 3,
+       "kinds": [
+        "flow_log_hit"
+       ],
+       "last_seen": "2026-09-24T00:00:00Z",
+       "state": "observed"
+      }
+     },
+     "whole_path_observed": false
+    },
+    "evidence_type": "unverified",
+    "hop_count": 2,
+    "id": "path-mat-7301198b72a0",
+    "materialized": true,
+    "materialized_path": {
+     "damage_types": [
+      "read",
+      "write"
+     ],
+     "data_plane_gate": "UNKNOWN",
+     "id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb2",
+     "identity_gate": "OPEN_OBSERVED",
+     "path_status": "UNVERIFIED",
+     "role_name": "beta-app-2",
+     "route_gate": "OPEN_OBSERVED",
+     "workload_name": "beta-web-2"
+    },
+    "materialized_stale": false,
+    "nodes": [
+     {
+      "arn": "arn:aws:ec2:eu-west-1:222222222222:instance/i-beta-2",
+      "id": "arn:aws:ec2:eu-west-1:222222222222:instance/i-beta-2",
+      "is_active": true,
+      "name": "beta-web-2",
+      "type": "EC2Instance"
+     },
+     {
+      "arn": "arn:aws:iam::222222222222:role/beta-app-2",
+      "id": "arn:aws:iam::222222222222:role/beta-app-2",
+      "is_active": true,
+      "name": "beta-app-2",
+      "type": "IAMRole"
+     },
+     {
+      "arn": null,
+      "canonical_id": "arn:aws:s3:::beta-data",
+      "findings": [],
+      "id": "arn:aws:s3:::beta-data",
+      "lane": "data",
+      "name": "beta-data",
+      "synthesized_terminal": true,
+      "tier": "crown_jewel",
+      "type": "S3Bucket"
+     }
+    ],
+    "path_kind": "identity",
+    "path_kind_tag": "identity",
+    "severity": {
+     "damage_types": [
+      "write",
+      "read"
+     ],
+     "factors": {
+      "damage": 29,
+      "evidence_multiplier": 1.05,
+      "exposure": 0,
+      "hop_signal": 3,
+      "impact_taxonomy": 0,
+      "path_status": 0,
+      "scope": 0,
+      "sensitivity": 0
+     },
+     "overall_score": 34,
+     "scoring_model": "materialized_path_v1",
+     "severity": "LOW"
+    },
+    "stale_reason": null
+   },
+   {
+    "attack_path_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb3",
+    "crown_jewel_id": "arn:aws:s3:::beta-data",
+    "damage_capability": {
+     "damage_source": "materialized_attack_path",
+     "direct_verbs": {
+      "admin": 0,
+      "delete": 0,
+      "read": 1,
+      "write": 1
+     },
+     "effective_damage": "live",
+     "gates": {
+      "data_plane_reachable": true,
+      "network_reachable": true
+     },
+     "jewel_name": "beta-data",
+     "materialized_damage_types": [
+      "read",
+      "write"
+     ],
+     "state": "live",
+     "summary": "on beta-data: write \u00b7 read",
+     "verbs": {
+      "admin": 0,
+      "delete": 0,
+      "read": 1,
+      "write": 1
+     }
+    },
+    "damage_types": [
+     "read",
+     "write"
+    ],
+    "edges": [
+     {
+      "is_observed": false,
+      "source": "arn:aws:ec2:eu-west-1:222222222222:instance/i-beta-3",
+      "target": "arn:aws:iam::222222222222:role/beta-app-3",
+      "type": "USES_ROLE"
+     },
+     {
+      "is_observed": false,
+      "source": "arn:aws:iam::222222222222:role/beta-app-3",
+      "target": "arn:aws:s3:::beta-data",
+      "type": "ACCESSES_RESOURCE"
+     }
+    ],
+    "evidence_contract": {
+     "classification": "inferred",
+     "evidence": "configured",
+     "gates": {
+      "data": "OPEN_CONFIG",
+      "identity": "OPEN_CONFIG",
+      "network": "OPEN_CONFIG"
+     },
+     "permission_coverage": {
+      "actions": {
+       "s3:GetObject": {
+        "permission": "ALLOWED",
+        "reason_codes": [],
+        "runtime": "observed",
+        "technique_id": "T1530"
+       },
+       "s3:PutObject": {
+        "permission": "NOT_EVALUATED",
+        "runtime": "not_observed"
+       }
+      },
+      "complete": false,
+      "evaluated_actions": [
+       "s3:GetObject"
+      ],
+      "reason": "1 of 2 action(s) have no evaluated permission decision"
+     },
+     "runtime_evidence": {
+      "data": {
+       "state": "unavailable"
+      },
+      "identity": {
+       "state": "unavailable"
+      },
+      "network": {
+       "state": "unavailable"
+      }
+     },
+     "whole_path_observed": false
+    },
+    "evidence_type": "configured",
+    "hop_count": 2,
+    "id": "path-mat-ad50814fa8c7",
+    "materialized": true,
+    "materialized_path": {
+     "damage_types": [
+      "read",
+      "write"
+     ],
+     "data_plane_gate": "OPEN_CONFIG",
+     "id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb3",
+     "identity_gate": "OPEN_CONFIG",
+     "path_status": "UNVERIFIED",
+     "role_name": "beta-app-3",
+     "route_gate": "OPEN_CONFIG",
+     "workload_name": "beta-web-3"
+    },
+    "materialized_stale": false,
+    "nodes": [
+     {
+      "arn": "arn:aws:ec2:eu-west-1:222222222222:instance/i-beta-3",
+      "id": "arn:aws:ec2:eu-west-1:222222222222:instance/i-beta-3",
+      "is_active": true,
+      "name": "beta-web-3",
+      "type": "EC2Instance"
+     },
+     {
+      "arn": "arn:aws:iam::222222222222:role/beta-app-3",
+      "id": "arn:aws:iam::222222222222:role/beta-app-3",
+      "is_active": true,
+      "name": "beta-app-3",
+      "type": "IAMRole"
+     },
+     {
+      "arn": null,
+      "canonical_id": "arn:aws:s3:::beta-data",
+      "findings": [],
+      "id": "arn:aws:s3:::beta-data",
+      "lane": "data",
+      "name": "beta-data",
+      "synthesized_terminal": true,
+      "tier": "crown_jewel",
+      "type": "S3Bucket"
+     }
+    ],
+    "path_kind": "identity",
+    "path_kind_tag": "identity",
+    "severity": {
+     "damage_types": [
+      "write",
+      "read"
+     ],
+     "factors": {
+      "damage": 29,
+      "evidence_multiplier": 1.0,
+      "exposure": 0,
+      "hop_signal": 3,
+      "impact_taxonomy": 0,
+      "path_status": 0,
+      "scope": 0,
+      "sensitivity": 0
+     },
+     "overall_score": 32,
+     "scoring_model": "materialized_path_v1",
+     "severity": "LOW"
+    },
+    "stale_reason": null
+   },
+   {
+    "attack_path_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb4",
+    "crown_jewel_id": "arn:aws:s3:::beta-data",
+    "damage_capability": {
+     "damage_source": "materialized_attack_path",
+     "direct_verbs": {
+      "admin": 0,
+      "delete": 0,
+      "read": 1,
+      "write": 1
+     },
+     "effective_damage": "network_blocked",
+     "gates": {
+      "data_plane_reachable": true,
+      "network_reachable": false
+     },
+     "jewel_name": "beta-data",
+     "materialized_damage_types": [
+      "read",
+      "write"
+     ],
+     "state": "live",
+     "summary": "on beta-data: write \u00b7 read",
+     "verbs": {
+      "admin": 0,
+      "delete": 0,
+      "read": 1,
+      "write": 1
+     }
+    },
+    "damage_types": [
+     "read",
+     "write"
+    ],
+    "edges": [
+     {
+      "is_observed": false,
+      "source": "arn:aws:ec2:eu-west-1:222222222222:instance/i-beta-4",
+      "target": "arn:aws:iam::222222222222:role/beta-app-4",
+      "type": "USES_ROLE"
+     },
+     {
+      "is_observed": false,
+      "source": "arn:aws:iam::222222222222:role/beta-app-4",
+      "target": "arn:aws:s3:::beta-data",
+      "type": "ACCESSES_RESOURCE"
+     }
+    ],
+    "evidence_contract": {
+     "classification": "blocked",
+     "evidence": "blocked",
+     "gates": {
+      "data": "OPEN_CONFIG",
+      "identity": "OPEN_CONFIG",
+      "network": "CLOSED"
+     },
+     "permission_coverage": {
+      "actions": {
+       "s3:GetObject": {
+        "permission": "ALLOWED",
+        "reason_codes": [],
+        "runtime": "observed",
+        "technique_id": "T1530"
+       },
+       "s3:PutObject": {
+        "permission": "NOT_EVALUATED",
+        "runtime": "not_observed"
+       }
+      },
+      "complete": false,
+      "evaluated_actions": [
+       "s3:GetObject"
+      ],
+      "reason": "1 of 2 action(s) have no evaluated permission decision"
+     },
+     "runtime_evidence": {
+      "data": {
+       "state": "unavailable"
+      },
+      "identity": {
+       "state": "unavailable"
+      },
+      "network": {
+       "state": "unavailable"
+      }
+     },
+     "whole_path_observed": false
+    },
+    "evidence_type": "blocked",
+    "hop_count": 2,
+    "id": "path-mat-862f71e9e628",
+    "materialized": true,
+    "materialized_path": {
+     "damage_types": [
+      "read",
+      "write"
+     ],
+     "data_plane_gate": "OPEN_CONFIG",
+     "id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb4",
+     "identity_gate": "OPEN_CONFIG",
+     "path_status": "UNVERIFIED",
+     "role_name": "beta-app-4",
+     "route_gate": "CLOSED",
+     "workload_name": "beta-web-4"
+    },
+    "materialized_stale": false,
+    "nodes": [
+     {
+      "arn": "arn:aws:ec2:eu-west-1:222222222222:instance/i-beta-4",
+      "id": "arn:aws:ec2:eu-west-1:222222222222:instance/i-beta-4",
+      "is_active": true,
+      "name": "beta-web-4",
+      "type": "EC2Instance"
+     },
+     {
+      "arn": "arn:aws:iam::222222222222:role/beta-app-4",
+      "id": "arn:aws:iam::222222222222:role/beta-app-4",
+      "is_active": true,
+      "name": "beta-app-4",
+      "type": "IAMRole"
+     },
+     {
+      "arn": null,
+      "canonical_id": "arn:aws:s3:::beta-data",
+      "findings": [],
+      "id": "arn:aws:s3:::beta-data",
+      "lane": "data",
+      "name": "beta-data",
+      "synthesized_terminal": true,
+      "tier": "crown_jewel",
+      "type": "S3Bucket"
+     }
+    ],
+    "path_kind": "identity",
+    "path_kind_tag": "identity",
+    "severity": {
+     "damage_types": [
+      "write",
+      "read"
+     ],
+     "factors": {
+      "damage": 29,
+      "evidence_multiplier": 0.6,
+      "exposure": 0,
+      "hop_signal": 3,
+      "impact_taxonomy": 0,
+      "path_status": 0,
+      "scope": 0,
+      "sensitivity": 0
+     },
+     "overall_score": 19,
+     "scoring_model": "materialized_path_v1",
+     "severity": "LOW"
+    },
+    "stale_reason": null
+   }
+  ],
+  "rebased_to_workload_paths": 0,
+  "semantic_status": "populated",
+  "snapshot_age_seconds": 0,
+  "snapshot_provenance": {
+   "account_id": "222222222222",
+   "coverage": null,
+   "customer_id": "beta",
+   "generation_status": "pinned",
+   "graph_version": "inventory.resource_state.v1/9/run-9"
+  },
+  "source_generation": "inventory.resource_state.v1/9/run-9",
+  "system_name": "payments",
+  "total_jewels": 1,
+  "total_paths": 4
+ }
+}

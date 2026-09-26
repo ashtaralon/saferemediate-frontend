@@ -93,9 +93,12 @@ export function PostureDashboard() {
           Per-workload exposure verdict from observed reachability over 365 days.
         </p>
         <div className="mt-8 rounded-lg border border-zinc-800 bg-zinc-950/60 p-8 text-center">
-          <p className="text-[14px] text-zinc-300">
-            {summary?.message ||
-              "PostureCorrelator has not produced a snapshot yet. The scheduler runs every 60 minutes."}
+          <p className="text-[14px] text-zinc-300" data-testid="posture-summary-not-ready">
+            {/* A failed or refused read is not "no snapshot yet": name it. */}
+            {!summary && summaryResp.error
+              ? `Posture summary unavailable — ${summaryResp.error}`
+              : summary?.message ||
+                "PostureCorrelator has not produced a snapshot yet. The scheduler runs every 60 minutes."}
           </p>
           <p className="mt-2 text-[12px] text-zinc-500">
             POST <code className="font-mono text-zinc-400">/api/posture-visibility/recompute</code> on the backend to force a run.

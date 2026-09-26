@@ -23,6 +23,8 @@ alongside ``staleReason: "refresh_queued"``. That is last-good data, correctly
 labelled, and caching it is the point of having a cache. Only an EMPTY payload
 claiming to be pending is poison.
 */
+import { iapHold, type IapHold } from "@/lib/attack-paths/path-evidence-view"
+import { typedReaderUnavailable, typedServingRefusal } from "@/lib/semantic-hold"
 import {
   isComputingEnvelope,
   isSnapshotComputeEnvelope,
@@ -77,4 +79,31 @@ export function isPoisonousProxyPayload(data: unknown): boolean {
   }
 
   return false
+}
+
+/**
+ * A HELD or UNAVAILABLE semantic answer (IAP `semantic_status: not_recorded |
+ * unavailable`, or an error with no rows). Like a pending envelope it is a
+ * status report, not a map: pass it through, never cache it, serve it
+ * `no-store`. Unlike a pending envelope it is NOT replaced by last-good data —
+ * the server said, right now, that it cannot answer, and that is the answer.
+ * The predicate is `iapHold` (lib/attack-paths/path-evidence-view), the one
+ * definition the UI also renders from.
+ */
+export function isSemanticHoldPayload(data: unknown): boolean {
+  return iapHold(data) != null
+}
+
+/**
+ * The typed 503 the backend answers when it REFUSES a read or HOLDS a route
+ * (`detail.code: SERVING_READ_REFUSED | SERVING_ROUTE_HELD`). An authority
+ * answer: never masked by a stale serve. Null for anything else.
+ */
+export function servingReadRefusal(body: unknown): IapHold | null {
+  return typedServingRefusal(body)
+}
+
+/** Any typed IAP 503: a refusal, a held route, or SEMANTIC_READ_UNAVAILABLE. */
+export function isTypedSemanticRefusal(body: unknown): boolean {
+  return typedServingRefusal(body) != null || typedReaderUnavailable(body) != null
 }
