@@ -87,6 +87,7 @@ describe("LpIamApplyPanel", () => {
     expect(Object.keys(sent)).not.toContain("actor")        // identity is sealed server-side, never sent from the UI
     expect(Object.keys(sent)).not.toContain("tenant_id")
     expect(screen.getByTestId("lp-restore-control").textContent).toContain("op-1")   // the verified receipt offers Restore
+    expect(button().disabled).toBe(true)                    // the applied plan is never re-sent from this Review
   })
 
   it("a moved generation is refused by name, asks for a fresh Review, and allows a retry", async () => {
@@ -202,6 +203,21 @@ describe("the mounted Permissions modal carries the caller", () => {
     view.rerender(modal("fixture-other-role"))
     await waitFor(() => expect(document.body.textContent).toContain("This view is held on this deployment"))
     expect(screen.queryByTestId("lp-iam-apply-panel")).toBeNull()
+  })
+
+  it("while the next role's Review is still loading, the previous role's caller is gone", async () => {
+    const measuredEnvelope = { ...full.review_envelope, result: measured }
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes("/iam-roles/fixture-web-role/gap-analysis")) return reply(200, measuredEnvelope)
+      if (url.includes("/gap-analysis")) return new Promise<Response>(() => {})          // never answers
+      if (url.includes("/simulate-fix")) return reply(200, full.preview)
+      return reply(404, { detail: { code: "FIXTURE_UNROUTED" } })
+    }))
+    const view = render(modal("fixture-web-role"))
+    await screen.findByRole("button", { name: "Apply this plan" })
+    view.rerender(modal("fixture-pending-role"))
+    await waitFor(() => expect(screen.queryByTestId("lp-iam-apply-panel")).toBeNull())
   })
 
   it("an out-of-order Review for the previous role never replaces the current role's caller", async () => {
