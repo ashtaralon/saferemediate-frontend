@@ -4,8 +4,19 @@ import {
   IAP_PROXY_DEFAULT_MAX_JEWELS,
   IAP_PROXY_DEFAULT_MAX_PATHS_PER_JEWEL,
 } from "@/lib/server/iap-proxy-query"
-import { getCached, getStaleCached, setCached, TTL_SLOW } from "@/lib/server/proxy-cache"
-import { isPoisonousProxyPayload } from "@/lib/server/proxy-cache-hygiene"
+import {
+  clearCached,
+  getCached,
+  getStaleCached,
+  setCached,
+  TTL_SLOW,
+} from "@/lib/server/proxy-cache"
+import {
+  isPoisonousProxyPayload,
+  isSemanticHoldPayload,
+  isTypedSemanticRefusal,
+  servingReadRefusal,
+} from "@/lib/server/proxy-cache-hygiene"
 import { SNAPSHOT_PROXY_TIMEOUT_MS } from "@/lib/server/snapshot-proxy"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
@@ -20,7 +31,6 @@ export const maxDuration = 60
 // without editing this file. Render/Vercel never set it, so prod stays
 // on the Render URL.
 const BACKEND_URL =
-  process.env.BACKEND_URL_OVERRIDE ||
   getBackendBaseUrl()
 
 export async function GET(
@@ -139,21 +149,56 @@ export async function GET(
       cache: "no-store",
       signal: AbortSignal.timeout(SNAPSHOT_PROXY_TIMEOUT_MS),
     })
+    // A typed 503 (SERVING_READ_REFUSED / SEMANTIC_READ_UNAVAILABLE) is an
+    // answer, not a compute-in-progress blip: read it once, never retry it.
+    let errorBody: unknown = null
+    if (!res.ok) {
+      errorBody = await res.clone().json().catch(() => null)
+    }
     // Legacy 503 compute-in-progress — Wave B+ returns 200 envelopes;
     // keep a short retry for backends mid-rollout.
-    if (res.status === 503) {
+    if (res.status === 503 && !isTypedSemanticRefusal(errorBody)) {
       await new Promise((r) => setTimeout(r, 500))
       res = await fetch(url, {
         headers: { "Content-Type": "application/json" },
         cache: "no-store",
         signal: AbortSignal.timeout(SNAPSHOT_PROXY_TIMEOUT_MS),
       })
+      errorBody = res.ok ? null : await res.clone().json().catch(() => null)
     }
     let latencyMs = Date.now() - t0
     console.log(
       `[identity-attack-paths] systemName=${systemName} status=${res.status} latency_ms=${latencyMs}`
     )
     if (!res.ok) {
+      // A guard REFUSAL is an authority answer about this read, right now.
+      // Serving last-good data over it would present a map the server just
+      // refused to serve — so pass the typed body through with its status,
+      // no-store, and drop the cached map so a later hit cannot resurrect it.
+      const refusal = servingReadRefusal(errorBody)
+      if (refusal) {
+        clearCached(cacheKey)
+        console.warn(
+          `[identity-attack-paths] ${refusal.reason} — passing refusal through, no stale serve systemName=${systemName}`,
+        )
+        return NextResponse.json(errorBody, {
+          status: res.status,
+          headers: { "X-Cache": "BYPASS-REFUSED", "Cache-Control": "no-store" },
+        })
+      }
+      // SEMANTIC_READ_UNAVAILABLE is a READER failure, not a refusal: the
+      // last-good map may still be served, labelled fromStaleCache +
+      // staleReason (existing behaviour, below). Without one, the typed body
+      // passes through — never replaced by an empty-arrays error envelope,
+      // and never sent to the lighter budget, which cannot fix a reader.
+      if (isTypedSemanticRefusal(errorBody)) {
+        const staleRes = serveStale(`backend_${res.status}`)
+        if (staleRes) return staleRes
+        return NextResponse.json(errorBody, {
+          status: res.status,
+          headers: { "X-Cache": "BYPASS-UNAVAILABLE", "Cache-Control": "no-store" },
+        })
+      }
       // Prefer last-good snapshot over empty 502 — cold IAP routinely
       // exceeds the 55s proxy abort on alon-prod; jewels sub-route and
       // topology-risk already degrade this way.
@@ -189,6 +234,14 @@ export async function GET(
       )
     }
     const data = await res.json()
+    // A held / unavailable answer (semantic_status not_recorded | unavailable)
+    // is a status report, not a map: pass it through, never cache it, and
+    // never swap it for last-good data — "cannot answer now" IS the answer.
+    if (isSemanticHoldPayload(data)) {
+      return NextResponse.json(data, {
+        headers: { "X-Cache": "BYPASS-HOLD", "Cache-Control": "no-store" },
+      })
+    }
     // Prefer last-good over caching/returning an empty computing envelope.
     if (isPoisonousProxyPayload(data)) {
       const staleRes = serveStale("peer_computing")
@@ -266,6 +319,12 @@ async function fetchLighterBudget(opts: {
     if (!res.ok) return null
     const data = await res.json()
     if (isPoisonousProxyPayload(data)) return null
+    // A hold is passed through exactly like the primary path does: no cache.
+    if (isSemanticHoldPayload(data)) {
+      return NextResponse.json(data, {
+        headers: { "X-Cache": "BYPASS-HOLD", "Cache-Control": "no-store" },
+      })
+    }
     // Cache under BOTH the lite key shape (via setCached on primary key)
     // so the operator's next visit with default params hits stale/fresh.
     setCached(opts.cacheKey, data, TTL_SLOW)

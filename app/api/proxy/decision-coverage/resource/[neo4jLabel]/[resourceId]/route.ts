@@ -3,8 +3,6 @@ import { getBackendBaseUrl } from "@/lib/server/backend-url"
 import { coerceProxyErrorMessage } from "@/lib/proxy-error-message"
 
 const BACKEND_URL =
-  process.env.BACKEND_URL_OVERRIDE ||
-  process.env.NEXT_PUBLIC_BACKEND_URL ||
   getBackendBaseUrl()
 
 export async function GET(

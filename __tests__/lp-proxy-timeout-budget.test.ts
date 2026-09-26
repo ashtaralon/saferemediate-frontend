@@ -96,7 +96,7 @@ describe('a budget is short only when something visible is waiting on it', () =>
 describe('the caller retries what a cold backend recovers from', () => {
   const src = read(TAB)
 
-  it('retries both 503 and 504', () => {
+  it('retries both 503 and 504', async () => {
     // 504 was briefly excluded on the reasoning that "retrying an identical
     // budget cannot succeed". That holds only if nothing changes between
     // attempts — and here something does: the first request WAKES the
@@ -106,11 +106,17 @@ describe('the caller retries what a cold backend recovers from', () => {
     // Observed in production: the tab hard-failed with "Backend 504" while its
     // own error card read "Retrying often succeeds once it has warmed up", and
     // clicking Retry loaded it. The loop should not need a human for that.
-    const m = src.match(/const retryable\s*=\s*([^\n]+)/)
-    expect(m).not.toBeNull()
-    const expr = (m as RegExpMatchArray)[1]
-    expect(expr).toContain('503')
-    expect(expr).toContain('504')
+    //
+    // A cold backend shows up as THIS proxy's own answers: its 55s abort (504)
+    // or an unreachable backend (503), both marked X-Cyntro-Error-Origin: proxy.
+    // Both are still retried. A TYPED backend 503 (e.g. the analysis is
+    // incomplete) is shown at once -- decided with the user when typed errors
+    // were forwarded (lib/lp-issues-error.ts).
+    expect(src).toContain('const retryable = failure.retryable')
+    const { lpIssuesFailure } = await import('@/lib/lp-issues-error')
+    expect(lpIssuesFailure(504, 'proxy', {}).retryable).toBe(true)
+    expect(lpIssuesFailure(503, 'proxy', {}).retryable).toBe(true)
+    expect(lpIssuesFailure(503, 'backend', { detail: { code: 'DECISION_LP_ISSUES_ANALYSIS_INCOMPLETE' } }).retryable).toBe(false)
   })
 
   it('agrees with the Trust Exposure lens on the same surface', () => {

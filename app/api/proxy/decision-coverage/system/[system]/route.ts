@@ -11,8 +11,6 @@ import { getBackendBaseUrl } from "@/lib/server/backend-url"
 // rather than hold the tab.
 
 const BACKEND_URL =
-  process.env.BACKEND_URL_OVERRIDE ||
-  process.env.NEXT_PUBLIC_BACKEND_URL ||
   getBackendBaseUrl()
 
 export async function GET(

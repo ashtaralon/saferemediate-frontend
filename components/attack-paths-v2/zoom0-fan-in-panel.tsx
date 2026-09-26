@@ -66,6 +66,7 @@ import { Zoom0ExfilLensPanel } from "./zoom0-exfil-lens-panel"
 import { useZoom0Exfil } from "./use-zoom0-exfil"
 import { buildSelectedExfilArchitecture } from "./exfil-view-v3"
 import { CurrentAccessDossierPanel } from "./current-access-dossier-panel"
+import { pathEvidenceSummary } from "@/lib/attack-paths/path-evidence-view"
 import {
   AtlasLateralChainCanvas,
   AtlasLateralLensPanel,
@@ -373,6 +374,21 @@ export function Zoom0FanInPanel({
     () => (pinPathId ? buildCurrentAccessDossier(pinnedPath) : null),
     [pinPathId, pinnedPath],
   )
+
+  // The pinned path's server evidence contract (class, runtime per plane,
+  // permission coverage per action). It rides on the IAP path, not on the
+  // convergence row the dossier is built from, so read it from `paths`; a row
+  // with no IAP twin falls back to its own legacy evidence word (never a
+  // default — pathEvidenceSummary maps missing to "unknown").
+  const pinnedPathEvidence = useMemo(() => {
+    if (!pinPathId) return null
+    const iapTwin =
+      paths.find((p) => p.id === pinPathId || p.attack_path_id === pinPathId) ?? null
+    if (iapTwin) return pathEvidenceSummary(iapTwin)
+    return pinnedPath
+      ? pathEvidenceSummary({ evidence_type: pinnedPath.evidence ?? pinnedPath.confidence ?? null })
+      : null
+  }, [pinPathId, paths, pinnedPath])
 
   /* Composed feasibility for the path actually being DRAWN. Single path only:
      a verdict spanning several paths would be a composite claim we cannot make. */
@@ -1126,6 +1142,7 @@ export function Zoom0FanInPanel({
         <div className="w-[min(430px,42%)] min-w-[360px] shrink-0 overflow-y-auto border-l border-border bg-background">
           <CurrentAccessDossierPanel
             dossier={dossier}
+            pathEvidence={pinnedPathEvidence}
             jewelName={jewel.name}
             jewelType={jewel.type}
             systemName={systemName}

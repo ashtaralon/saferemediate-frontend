@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server"
 import {
-  backendError,
+  ERROR_ORIGIN_HEADER,
+  allowlistedBackendDetail,
   fromCaughtError,
+  reviewProxyStatus,
 } from "@/lib/server/proxy-error"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
@@ -14,13 +16,16 @@ import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
 export const maxDuration = 60
 
-// In-memory cache. Only stores SUCCESSFUL responses. Backend errors are
-// no longer surfaced as "200 with empty data" — the proxy now returns
-// 502/504 and the UI renders an honest error state instead of the
-// green-checkmark "No LP issues" success view that masked outages.
-let cachedData: any = null
-let cacheTimestamp: number = 0
-const CACHE_DURATION = 2 * 60 * 1000 // 2 minutes in ms
+// NO proxy-side cache and NO stale fallback. The LP list is scoped by the
+// backend to a server-verified principal, tenant and account; this proxy never
+// sees that verified identity (it sees request claims only), so it cannot key a
+// reusable answer by it. A shared in-memory cache keyed by systemName + days
+// served one registered tenant's READY list to another tenant sharing the
+// system name, without the backend being asked, and its stale-on-timeout path
+// served the same list on an outage (__tests__/lp-issues-proxy-cache-scope.test.ts).
+// Every request asks the backend; the backend keeps its own scope-checked cache.
+// Responses are never cacheable by a browser-shared or CDN cache.
+const SCOPED_NO_STORE = "private, no-store"
 
 export async function GET(req: NextRequest) {
   const url = new URL(req.url)
@@ -28,29 +33,10 @@ export async function GET(req: NextRequest) {
   const observationDays = url.searchParams.get("observationDays") ?? "365"
   const forceRefresh = url.searchParams.get("refresh") === "true" || url.searchParams.get("force_refresh") === "true"
 
-  const cacheKey = `${systemName}-${observationDays}`
-  const now = Date.now()
-
-  // Return cached data if valid and not forcing refresh.
-  if (!forceRefresh && cachedData && cachedData.cacheKey === cacheKey && (now - cacheTimestamp) < CACHE_DURATION) {
-    console.log("[LP Proxy] Returning cached data")
-    const cacheAge = Math.round((now - cacheTimestamp) / 1000)
-    return NextResponse.json({
-      ...cachedData.data,
-      fromCache: true,
-      cacheAge,
-    }, {
-      headers: {
-        "X-Cache": "HIT",
-        "Cache-Control": "public, s-maxage=120, stale-while-revalidate=60",
-      },
-    })
-  }
-
   const controller = new AbortController()
   // 55s, matching TOPOLOGY_RISK_PROXY_TIMEOUT_MS — the house "full cold-build
   // budget" for a maxDuration=60 route (abort 5s under, so the catch below
-  // still runs and can serve stale cache rather than letting Vercel kill the
+  // still runs and answers a typed timeout rather than letting Vercel kill the
   // function).
   //
   // Was 25s, which was SHORTER THAN THE WORK. Measured 2026-08-01 against
@@ -73,6 +59,13 @@ export async function GET(req: NextRequest) {
     if (systemName) params.set("systemName", systemName)
     params.set("observationDays", observationDays)
     if (forceRefresh) params.set("force_refresh", "true")
+    // The operator's scope claims (withAccountScope) ride along so the backend
+    // can refuse a mismatched customer/account against its server-owned
+    // binding (403). They only narrow; they were silently dropped before.
+    for (const name of ["customer_id", "account_id", "region"]) {
+      const value = url.searchParams.get(name)?.trim()
+      if (value) params.set(name, value)
+    }
 
     const res = await fetch(`${getBackendBaseUrl()}/api/least-privilege/issues?${params.toString()}`, {
       headers: { "Content-Type": "application/json" },
@@ -82,16 +75,26 @@ export async function GET(req: NextRequest) {
     clearTimeout(timeoutId)
 
     if (!res.ok) {
-      const detail = await res.text().catch(() => "")
-      console.error(`[LP Proxy] Backend ${res.status}: ${detail.slice(0, 200)}`)
-      // Fail loud. The frontend has an error card at LeastPrivilegeTab.tsx:1234
-      // that fires when fetch.ok is false; it renders "Error loading data"
-      // instead of the dangerous "No LP issues" success state.
-      return backendError({
-        status: res.status,
-        message: `Least-privilege backend returned ${res.status}`,
-        detail: detail.slice(0, 500),
-      })
+      const raw = await res.text().catch(() => "")
+      const detail = allowlistedBackendDetail(raw)
+      console.error(`[LP Proxy] Backend ${res.status}: code=${detail?.code ?? "none"}`)
+      // Fail loud, typed. Same status rule as the Review proxy (#916):
+      // 401/403 stay denials, 503 stays "unavailable", every other backend 5xx
+      // (a backend or load-balancer 504 included) is 502 with backendStatus, so
+      // 504 means only this proxy's own abort. Only the allowlisted typed
+      // fields are forwarded; raw upstream text never reaches the browser.
+      return NextResponse.json(
+        {
+          error: `Least-privilege backend returned ${res.status}`,
+          ...(detail ? { detail } : {}),
+          backendStatus: res.status,
+          origin: "backend",
+        },
+        {
+          status: reviewProxyStatus(res.status),
+          headers: { "Cache-Control": SCOPED_NO_STORE, [ERROR_ORIGIN_HEADER]: "backend" },
+        },
+      )
     }
 
     const data = await res.json()
@@ -99,67 +102,22 @@ export async function GET(req: NextRequest) {
     const sgCount = (data.resources || []).filter((r: any) => r.resourceType === "SecurityGroup").length
     console.log(`[LP Proxy] Backend OK — ${data.resources?.length || 0} resources (${sgCount} SG)`)
 
-    // Cache a COMPLETE analysis only. The backend already refuses to cache a
-    // partial analyzer sweep (unified/lp/endpoint.py); caching one here would
-    // reinstate the same defect a layer up — one transient failure becoming
-    // minutes of confidently incomplete answers, with the integrity banner
-    // shown but the underlying rows quietly frozen.
-    if (data?.serve_state === "READY") {
-      cachedData = { cacheKey, data }
-      cacheTimestamp = now
-    } else {
-      console.warn(`[LP Proxy] Not caching — serve_state=${data?.serve_state ?? "absent"}`)
-    }
-
     return NextResponse.json({
       ...data,
       fromCache: false,
     }, {
       headers: {
-        "X-Cache": "MISS",
-        "Cache-Control": "public, s-maxage=120, stale-while-revalidate=60",
+        "Cache-Control": SCOPED_NO_STORE,
       },
     })
   } catch (error: unknown) {
     clearTimeout(timeoutId)
     console.error("[LP Proxy] Fetch error:", error instanceof Error ? error.message : error)
-    // Cold Render + 365d observation can exceed the upstream budget. Serve
-    // stale success data when available so Resource Risk doesn't hard-fail
-    // the whole tab on a transient slow backend.
-    if (
-      error instanceof Error &&
-      error.name === "AbortError" &&
-      cachedData &&
-      cachedData.cacheKey === cacheKey
-    ) {
-      const cacheAge = Math.round((now - cacheTimestamp) / 1000)
-      console.warn("[LP Proxy] Timeout — returning stale cache", { cacheAge })
-      return NextResponse.json(
-        {
-          ...cachedData.data,
-          fromCache: true,
-          fromStaleCache: true,
-          staleReason: "timeout",
-          cacheAge,
-          // A stale payload cannot vouch for the CURRENT analysis, however
-          // complete it was when captured. Serving it with its original
-          // serve_state=READY would clear the banner and re-enable Apply on
-          // evidence of unknown age — laundering a live outage into a clean
-          // sweep. The rows are still worth showing; the authority is not.
-          serve_state: "NOT_READY",
-          analysis_complete: false,
-          integrityReason:
-            `Showing the last complete analysis (${cacheAge}s old) — the live ` +
-            `analysis timed out. Remediation is unavailable until it succeeds.`,
-        },
-        {
-          headers: {
-            "X-Cache": "STALE",
-            "Cache-Control": "no-store",
-          },
-        },
-      )
-    }
-    return fromCaughtError(error)
+    // A timeout or an unreachable backend is an honest error (AbortError -> 504,
+    // else 503). No earlier answer is served in its place: it could belong to
+    // another tenant, and it cannot vouch for the current analysis.
+    const failed = fromCaughtError(error)
+    failed.headers.set(ERROR_ORIGIN_HEADER, "proxy")
+    return failed
   }
 }
