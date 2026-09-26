@@ -19,6 +19,8 @@ import {
 } from "@/components/override-modal-shared"
 import { ConfidenceExplanationPanel } from "@/components/ConfidenceExplanationPanel"
 import { EnvelopeRequestError, fetchWithEnvelope } from "@/components/trust/use-trust-envelope"
+import { LpIamApplyPanel, lpIamApplyPanelKey, lpReviewIsForThisRole } from "@/components/iam-lp/LpIamApplyPanel"
+import { LP_MUTATION_APPLY_ENABLED } from "@/lib/lp-held-mutation"
 import { DecisionAuthorityPanel } from "@/components/lp-decision-authority-panel"
 import { TrustEnvelopeBadge, type Provenance } from "@/components/trust/trust-envelope-badge"
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert"
@@ -980,7 +982,12 @@ export function IAMPermissionAnalysisModal({
   const { toast } = useToast()
   // Every Review read carries the selected customer and the role ARN's account, so the
   // backend can refuse a scope mismatch (403) instead of serving its pinned scope.
-  const reviewClaims = reviewClaimsQuery(roleArn, useOptionalAccountScope()?.customerId)
+  const accountScope = useOptionalAccountScope()
+  const reviewClaims = reviewClaimsQuery(roleArn, accountScope?.customerId)
+  // The LP Apply caller's Review: the raw gap-analysis result (server_plan + decision_authority) of the LATEST request
+  // only. Cleared at the start of every read and on close, so no Apply is ever built from a superseded Review.
+  const [lpReview, setLpReview] = useState<unknown>(null)
+  const lpReviewRequest = useRef(0)
   const [gapData, setGapData] = useState<GapAnalysisData | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -1373,6 +1380,8 @@ export function IAMPermissionAnalysisModal({
   }
 
   const fetchGapAnalysis = async (forceRefresh = false) => {
+    const lpRequest = ++lpReviewRequest.current
+    setLpReview(null)
     setLoading(true)
     setError(null)
     setGapRefusal(null)
@@ -1382,8 +1391,11 @@ export function IAMPermissionAnalysisModal({
       const env = await fetchWithEnvelope<any>(
         `/api/proxy/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=365${refreshParam}${reviewClaims}`
       )
+      // A superseded read (another role, a re-read, a close) writes NOTHING: no Review, gapData, error or loading.
+      if (lpRequest !== lpReviewRequest.current) return
       setProvenance(env.provenance)
       const rawData = env.result
+      setLpReview(rawData)
       console.log('[IAM-Modal] Raw API data:', rawData)
       console.log('[IAM-Modal] Raw data keys:', Object.keys(rawData))
       console.log('[IAM-Modal] Raw data summary:', rawData.summary)
@@ -1519,13 +1531,14 @@ export function IAMPermissionAnalysisModal({
       // possible IAM mutation. Detaching managed policies is now always an
       // explicit operator choice via the checkboxes below.
     } catch (err: any) {
+      if (lpRequest !== lpReviewRequest.current) return
       console.error('[IAM-Modal] Error:', err)
       if (err instanceof EnvelopeRequestError) {
         setGapRefusal(refusalFromPreviewBody(err.status, err.body))
       }
       setError(err.message || 'Failed to fetch gap analysis')
     } finally {
-      setLoading(false)
+      if (lpRequest === lpReviewRequest.current) setLoading(false)
     }
   }
 
@@ -1614,6 +1627,8 @@ export function IAMPermissionAnalysisModal({
   }
 
   const handleClose = () => {
+    lpReviewRequest.current += 1
+    setLpReview(null)
     setShowSimulation(false)
     setAnalysisTab('summary')
     setGapData(null)
@@ -4950,6 +4965,18 @@ export function IAMPermissionAnalysisModal({
 
           {analysisTab === 'summary' && gapData && (
             <DecisionAuthorityPanel review={gapData.decision_authority} preview={previewDecisionAuthority} />
+          )}
+
+          {analysisTab === 'summary' && gapData && lpReviewIsForThisRole(lpReview, roleName, roleArn) && (
+            <LpIamApplyPanel
+              key={lpIamApplyPanelKey(lpReview)}
+              review={lpReview}
+              scope={{ customerId: accountScope?.customerId ?? null, accountId: accountScope?.accountId ?? null }}
+              onReviewStale={() => { void fetchGapAnalysis(true) }}
+              // The modal's own execution hold outranks the release flag: a held modal never offers Apply.
+              applyEnabled={LP_MUTATION_APPLY_ENABLED && !applyDisabled && !authorityHoldReason}
+              holdReason={authorityHoldReason ?? (applyDisabled ? 'Production IAM changes are not enabled in this environment.' : null)}
+            />
           )}
 
           {(analysisTab === 'summary' || analysisTab === 'permissions') && safetyLoading && (
