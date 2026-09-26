@@ -42,10 +42,59 @@ function rolesForGroups(groups: string[]): string[] {
   return groups.map((group) => map[group]).filter((role): role is string => Boolean(role))
 }
 
-const replays = new Set<string>()
+/**
+ * Apply reservations in THIS server instance: canonical key -> state. One in-flight owner per key, taken synchronously
+ * (no await between the check and the set) immediately before the broker call, and settled on the broker's answer:
+ * a 2xx keeps it; a typed refusal with every count present and zero (and not an outcome-unknown code) releases it so a
+ * valid retry proceeds; anything else stays held until a resolution proves the operation not applied. Per-instance:
+ * the broker's own reservation and the ledger's create-only operation row are the guards behind it.
+ */
+type Reservation = { state: "IN_FLIGHT" | "ADMITTED" | "UNKNOWN"; operationId: string | null }
+const reservations = new Map<string, Reservation>()
+const OUTCOME_UNKNOWN_CODES = new Set([
+  "APPLY_OUTCOME_UNKNOWN", "READBACK_FAILED", "VERIFY_RECEIPT_MISSING", "OPERATION_RECORD_UNCONFIRMED",
+  "EXECUTOR_UNAVAILABLE", "CLOUD_WRITE_UNCONFIRMED", "PARTIALLY_APPLIED", "APPLIED_UNVERIFIED",
+  "LIFECYCLE_UNREACHABLE", "UNREADABLE",
+])
 
 export function resetLpOperatorReplays(): void {
-  replays.clear()
+  reservations.clear()
+}
+
+function canonical(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonical)
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.keys(value as object).sort().map((key) => [key, canonical((value as Record<string, unknown>)[key])]))
+  }
+  return value
+}
+
+/** Canonical JSON, types preserved: a binding of "7" is not the binding 7. */
+function replayKey(subject: string, planHead: string, binding: unknown): string {
+  return JSON.stringify(canonical({ actor: subject, plan_head: planHead, decision_binding: binding ?? null }))
+}
+
+function provenPreWrite(status: number, detail: Record<string, unknown>): boolean {
+  const code = typeof detail.code === "string" ? detail.code : ""
+  return status >= 400 && status < 600 && code !== "" && !OUTCOME_UNKNOWN_CODES.has(code)
+    && detail.cloud_writes === 0 && detail.attempted_writes === 0 && detail.unknown_writes === 0
+}
+
+function settle(key: string, status: number, payload: Record<string, unknown>): void {
+  const detail = payload.detail && typeof payload.detail === "object" ? (payload.detail as Record<string, unknown>) : payload
+  if (status >= 200 && status < 300) {
+    reservations.set(key, { state: "ADMITTED", operationId: typeof payload.operation_id === "string" ? payload.operation_id : null })
+  } else if (provenPreWrite(status, detail)) {
+    reservations.delete(key)
+  } else {
+    reservations.set(key, { state: "UNKNOWN", operationId: typeof detail.operation_id === "string" ? detail.operation_id : null })
+  }
+}
+
+function releaseResolved(operationId: string): void {
+  for (const [key, reservation] of reservations) {
+    if (reservation.operationId === operationId) reservations.delete(key)
+  }
 }
 
 async function admitOperator(request: Request, body: Record<string, unknown>, action: "execute" | "rollback" | "lookup" | "resolve") {
@@ -108,11 +157,10 @@ async function admitOperator(request: Request, body: Record<string, unknown>, ac
   // One plan per receipted activation: the replay key includes the Review's decision_binding (generation, receipt
   // hash, publication attempt). A plan re-made after DECISION_GENERATION_MOVED carries a new binding and is not a
   // replay; the same plan against the same activation still is.
-  const binding = body.decision_binding && typeof body.decision_binding === "object" ? (body.decision_binding as Record<string, unknown>) : {}
-  const replay = `${session.subject}:${planHead}:${String(binding.projection_generation ?? "")}:${String(binding.projection_receipt_hash ?? "")}:${String(binding.publication_attempt ?? "")}`
-  if (replays.has(replay)) return { status: 409, code: "PLAN_REPLAY_REFUSED" }
-  replays.add(replay)
-  return { status: 200, code: "ADMITTED", subject: session.subject, ...scope }
+  // Reserved just before the broker call (forwardLpMutation), after every local refusal; refused early if held.
+  const replay = replayKey(session.subject, planHead, body.decision_binding)
+  if (reservations.has(replay)) return { status: 409, code: "PLAN_REPLAY_REFUSED" }
+  return { status: 200, code: "ADMITTED", subject: session.subject, replayKey: replay, ...scope }
 }
 
 function hasOperatorProof(headers: Record<string, string>): boolean {
@@ -198,16 +246,33 @@ export async function forwardLpMutation(request: Request, path: "/api/least-priv
   forwarded.account_id = admission.accountId
   forwarded.actor = admission.subject
   const brokerPath = path.endsWith("/restore") ? "/api/lp-lifecycle/restore" : "/api/lp-lifecycle/apply"
-  const response = await fetch(`${getBackendBaseUrl().replace(/\/+$/, "")}${brokerPath}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      [SERVICE_TOKEN_HEADER]: token,
-      ...operatorHeaders,
-    },
-    cache: "no-store",
-    body: JSON.stringify(forwarded),
-  })
+  const key = "replayKey" in admission && typeof admission.replayKey === "string" ? admission.replayKey : null
+  if (key !== null) {
+    // Synchronous check-and-set: no await in between, so two concurrent requests cannot both take it.
+    if (reservations.has(key)) {
+      return NextResponse.json({ code: "PLAN_REPLAY_REFUSED", ...ZERO_WRITES, origin: "proxy" },
+        { status: 409, headers: { "Cache-Control": "no-store" } })
+    }
+    reservations.set(key, { state: "IN_FLIGHT", operationId: null })
+  }
+  let response: Response
+  try {
+    response = await fetch(`${getBackendBaseUrl().replace(/\/+$/, "")}${brokerPath}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        [SERVICE_TOKEN_HEADER]: token,
+        ...operatorHeaders,
+      },
+      cache: "no-store",
+      body: JSON.stringify(forwarded),
+    })
+  } catch {
+    // The request may have reached the writer: the reservation stays held, the outcome is unknown.
+    if (key !== null) reservations.set(key, { state: "UNKNOWN", operationId: null })
+    return NextResponse.json({ code: "LIFECYCLE_UNREACHABLE", cloud_writes: null, attempted_writes: null,
+      confirmed_writes: null, unknown_writes: null, origin: "proxy" }, { status: 503, headers: { "Cache-Control": "no-store" } })
+  }
   const text = await response.text().catch(() => "")
   let parsed: unknown = null
   try {
@@ -219,6 +284,7 @@ export async function forwardLpMutation(request: Request, path: "/api/least-priv
     code: "UNREADABLE", cloud_writes: null, attempted_writes: null, confirmed_writes: null, unknown_writes: null,
   }
   if (payload.code === "APPLY_OUTCOME_UNKNOWN" && payload.unknown_writes === 0) payload.unknown_writes = null
+  if (key !== null) settle(key, response.status, payload)
   return NextResponse.json(payload, { status: response.status, headers: { "Cache-Control": "no-store" } })
 }
 
@@ -342,6 +408,11 @@ export async function forwardLpResolve(request: Request) {
     cache: "no-store",
     body: JSON.stringify(forwarded),
   })
+  const answer = await response.clone().json().catch(() => null)
+  if (response.ok && answer && typeof answer === "object" && (answer as Record<string, unknown>).state === "RESOLVED_NOT_APPLIED"
+    && typeof (answer as Record<string, unknown>).operation_id === "string") {
+    releaseResolved((answer as Record<string, unknown>).operation_id as string)   // proven not applied: release
+  }
   return passBrokerAnswer(response)
 }
 

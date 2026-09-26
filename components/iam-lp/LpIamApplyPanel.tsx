@@ -48,6 +48,7 @@ const REFUSAL_COPY: Record<string, string> = {
   FORGED_ACTOR_REFUSED: "The request named a different operator than the one signed in.",
   LP_APPLY_NOT_ADMITTED: "IAM Apply is not admitted on this deployment.",
   STALE_PLAN_HEAD: "The plan changed since this Review. Reload the Review.",
+  CHANGE_NOT_APPLIED: "AWS rejected the change before it took effect; the role is unchanged.",
   PLAN_EVIDENCE_MISMATCH: "The server's plan no longer matches this Review. Reload the Review.",
   PLAN_EVIDENCE_NOT_MEASURED: "Usage for this role is not measured.",
   PLAN_EVIDENCE_UNAVAILABLE: "The Review could not be re-read to confirm this plan.",

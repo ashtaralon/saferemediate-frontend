@@ -109,6 +109,7 @@ describe("LpIamApplyPanel", () => {
     ["OPERATOR_PROOF_NOT_FORWARDABLE", 401, "Sign in again", " Nothing was written."],
     ["OPERATOR_IDENTITY_REQUIRED", 401, "was not presented", " Nothing was written."],
     ["IAM_APPLY_AUTHORITY_ABSENT", 403, "no authority to forward", " Nothing was written."],
+    ["CHANGE_NOT_APPLIED", 503, "role is unchanged", " Nothing was written."],
     ["LIFECYCLE_DESTINATION_UNAVAILABLE", 503, "no remediation writer", " Nothing was written."],
   ])("%s is shown by name and writes nothing", async (code, status, text, writes) => {
     const submitApply = vi.fn(async () => ({ ok: false, status, body: { detail: { code, cloud_writes: 0 } } }))
