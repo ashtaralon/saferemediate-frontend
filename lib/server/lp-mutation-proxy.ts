@@ -87,8 +87,14 @@ function provenPreWrite(status: number, detail: Record<string, unknown>): boolea
  * the broker call, so a resolution releases it even when the broker's answer never arrives. Pinned to the Python
  * helper by a golden vector in __tests__/lp-proxy-replay-reservation.test.ts.
  */
+/** JSON exactly as the backend's ``json.dumps(value, separators=(",", ":"))`` writes it: ``ensure_ascii`` escapes every
+ * non-ASCII UTF-16 unit as a lowercase ``\uXXXX`` (an astral character becomes its surrogate pair). */
+function pythonAsciiJson(value: unknown): string {
+  return JSON.stringify(value).replace(/[\u0080-\uffff]/g, (unit) => `\\u${unit.charCodeAt(0).toString(16).padStart(4, "0")}`)
+}
+
 export async function stableApplyOperationId(tenantId: string, accountId: string, roleArn: string, planHead: string): Promise<string> {
-  const payload = JSON.stringify([tenantId, accountId, roleArn, planHead, "apply"])
+  const payload = pythonAsciiJson([tenantId, accountId, roleArn, planHead, "apply"])
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(payload))
   return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 32)
 }

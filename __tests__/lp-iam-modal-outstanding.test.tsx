@@ -175,3 +175,28 @@ describe("the IAM modal's held-operation panel", () => {
     expect(count(fetchMock, "least-privilege/outstanding")).toBe(1)
   })
 })
+
+describe("an Apply whose outcome is unconfirmed without a typed refusal", () => {
+  it.each([
+    ["the request never answers (the submit throws)", () => { throw new TypeError("connection reset") }],
+    ["a 2xx that is not a verified receipt for this plan", () => reply(200, { code: "VERIFIED", operation_id: "op-apply-1" })],
+  ])("%s: the holder is re-read and shown", async (_label, answer) => {
+    let applied = false
+    const fetchMock = stub({
+      review: measured,
+      outstanding: () => (applied ? reply(200, HELD) : reply(404, NOT_HELD)),
+      apply: () => {
+        applied = true
+        return answer()
+      },
+    })
+    render(modal())
+    const button = await screen.findByRole("button", { name: "Apply this plan" })
+    await waitFor(() => expect(count(fetchMock, "least-privilege/outstanding")).toBe(1))
+    fireEvent.click(button)
+    const panel = await screen.findByTestId("lp-outstanding-panel")
+    expect(panel.textContent).toContain("This role is held: operation op-apply-1")
+    expect(count(fetchMock, "least-privilege/outstanding")).toBe(2)
+    expect(count(fetchMock, "least-privilege/apply")).toBe(1)                  // no second write
+  })
+})

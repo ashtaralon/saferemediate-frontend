@@ -186,6 +186,29 @@ describe("the FE proxy's Apply reservation", () => {
       .toBe("9e2648c4344329957513096a5a3634f2")
     expect(await stableApplyOperationId("tenant-a", "123456789012", "arn:aws:iam::123456789012:role/payments", "v1:abc"))
       .toBe("73d8b02b00ba11066b20207135cf78f1")
+    // Non-ASCII: the backend's json.dumps escapes it (ensure_ascii), so the id must too -- including an astral
+    // character, which Python writes as its UTF-16 surrogate pair (vectors from _stable_operation_id at 89ab7971).
+    expect(await stableApplyOperationId("tenant-\u00e9", "123456789012", "arn:aws:iam::123456789012:role/payments", "v1:abc"))
+      .toBe("cea3602f6e843b75e3875fe66e797a9d")
+    expect(await stableApplyOperationId("tenant-\u{1F600}", "123456789012", "arn:aws:iam::123456789012:role/payments", "v1:\u00e9\u4e2d"))
+      .toBe("9082bdf5db563af5a6f250833837181b")
+  })
+
+  it("an unreadable answer that names no operation keeps the stamped id, so its resolution releases it", async () => {
+    await operatorSession()
+    const stable = await stableApplyOperationId("fixture-webshop", "111111111111", PLAN.role_arn, PLAN.plan_head)
+    let unreadable = true
+    const calls = stub(async (path) => {
+      if (path.endsWith("/resolve")) return json(200, { code: "RESOLVED", operation_id: stable, state: "RESOLVED_NOT_APPLIED" })
+      if (unreadable) return new Response("<html>502 Bad Gateway</html>", { status: 502 })   // names no operation
+      return json(200, { code: "VERIFIED", operation_id: stable, cloud_writes: 1 })
+    })
+    expect((await apply()).status).toBeGreaterThanOrEqual(500)           // held: outcome unknown
+    expect((await apply()).status).toBe(409)
+    unreadable = false
+    expect((await resolve(stable)).status).toBe(200)
+    expect((await apply()).status).toBe(200)                           // released by the stamped id's resolution
+    expect(calls.filter((c) => c.path.endsWith("/apply"))).toHaveLength(2)
   })
 
   it("a lost broker answer is released by the resolution of its stamped stable operation id", async () => {
