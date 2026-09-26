@@ -12,7 +12,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import full from "./fixtures/lp-review-preview-install-chain.json"
 import { IAMPermissionAnalysisModal } from "@/components/iam-permission-analysis-modal"
-import { LpIamApplyPanel, lpIamApplyPanelKey } from "@/components/iam-lp/LpIamApplyPanel"
+import { LpIamApplyPanel, lpIamApplyPanelKey, lpReviewIsForThisRole } from "@/components/iam-lp/LpIamApplyPanel"
 import { lpApplyBody } from "@/lib/lp-held-mutation"
 
 const captured = full.review_envelope.result as Record<string, any>
@@ -90,7 +90,7 @@ describe("LpIamApplyPanel", () => {
     expect(button().disabled).toBe(true)                    // the applied plan is never re-sent from this Review
   })
 
-  it("a moved generation is refused by name, asks for a fresh Review, and allows a retry", async () => {
+  it("a moved generation is refused by name and asks for a fresh Review instead of re-sending the plan", async () => {
     const onReviewStale = vi.fn()
     const submitApply = vi.fn(async () => ({ ok: false, status: 409, body: { detail: { code: "DECISION_GENERATION_MOVED", cloud_writes: 0 } } }))
     render(<LpIamApplyPanel review={measured} scope={scope} applyEnabled submitApply={submitApply} lookupReceipt={async () => null} onReviewStale={onReviewStale} />)
@@ -99,13 +99,16 @@ describe("LpIamApplyPanel", () => {
     expect(status.textContent).toContain("newer decision generation")
     expect(status.textContent).toContain("Nothing was written.")
     expect(onReviewStale).toHaveBeenCalledTimes(1)
-    expect(button().disabled).toBe(false)
+    expect(button().disabled).toBe(true)          // no in-place retry: the replay guards would refuse the same plan
+    expect(submitApply).toHaveBeenCalledTimes(1)
     expect(screen.queryByTestId("lp-restore-control")).toBeNull()
   })
 
   it.each([
     ["OPERATOR_SCOPE_MISMATCH", 403, "not scoped to this customer and account", " Nothing was written."],
-    ["OPERATOR_PROOF_MISSING", 401, "Sign in again", " Nothing was written."],
+    ["OPERATOR_PROOF_NOT_FORWARDABLE", 401, "Sign in again", " Nothing was written."],
+    ["OPERATOR_IDENTITY_REQUIRED", 401, "was not presented", " Nothing was written."],
+    ["IAM_APPLY_AUTHORITY_ABSENT", 403, "no authority to forward", " Nothing was written."],
     ["LIFECYCLE_DESTINATION_UNAVAILABLE", 503, "no remediation writer", " Nothing was written."],
   ])("%s is shown by name and writes nothing", async (code, status, text, writes) => {
     const submitApply = vi.fn(async () => ({ ok: false, status, body: { detail: { code, cloud_writes: 0 } } }))
@@ -135,9 +138,45 @@ describe("LpIamApplyPanel", () => {
     expect(screen.queryByTestId("lp-restore-control")).toBeNull()
   })
 
+  it("a stale plan head asks for a fresh Review", async () => {
+    const onReviewStale = vi.fn()
+    const submitApply = vi.fn(async () => ({ ok: false, status: 409, body: { detail: { code: "STALE_PLAN_HEAD", cloud_writes: 0 } } }))
+    render(<LpIamApplyPanel review={measured} scope={scope} applyEnabled submitApply={submitApply} lookupReceipt={async () => null} onReviewStale={onReviewStale} />)
+    fireEvent.click(button())
+    expect((await screen.findByRole("status")).textContent).toContain("plan changed")
+    expect(onReviewStale).toHaveBeenCalledTimes(1)
+  })
+
+  it("an outcome-unknown refusal is unconfirmed even when its body says zero writes", async () => {
+    const submitApply = vi.fn(async () => ({ ok: false, status: 503, body: { detail: { code: "APPLY_OUTCOME_UNKNOWN", cloud_writes: 0 } } }))
+    render(<LpIamApplyPanel review={measured} scope={scope} applyEnabled submitApply={submitApply} lookupReceipt={async () => null} />)
+    fireEvent.click(button())
+    const out = await screen.findByRole("status")
+    expect(out.textContent).toContain("unconfirmed")
+    expect(out.textContent).not.toContain("Nothing was written")
+  })
+
+  it("a rejected submit renders an unconfirmed outcome, never silence", async () => {
+    const submitApply = vi.fn(async () => { throw new TypeError("network down") })
+    render(<LpIamApplyPanel review={measured} scope={scope} applyEnabled submitApply={submitApply} lookupReceipt={async () => null} />)
+    fireEvent.click(button())
+    const out = await screen.findByRole("status")
+    expect(out.textContent).toContain("could not be confirmed")
+    expect(out.textContent).not.toContain("Nothing was written")
+  })
+
+  it("the modal's own hold outranks the flag and says why", () => {
+    render(<LpIamApplyPanel review={measured} scope={scope} applyEnabled={false} holdReason="Execution authority is not ready." />)
+    expect(button().disabled).toBe(true)
+    expect(screen.getByRole("note").textContent).toBe("Execution authority is not ready.")
+  })
+
   it.each([
     ["the captured UNKNOWN plan", captured, "No measured removal plan (UNKNOWN)"],
     ["no decision authority for this role", { ...measured, decision_authority: { state: "UNAVAILABLE", reason: "NOT_RESIDENT" } }, "No receipted decision authority for this role (NOT_RESIDENT)"],
+    ["a MEASURED_EMPTY plan", { ...measured, server_plan: { ...measured.server_plan, issue_state: "MEASURED_EMPTY", actions: [] } }, "Nothing to remove"],
+    ["an IDENTITY_UNAVAILABLE plan", { ...measured, server_plan: { ...measured.server_plan, issue_state: "IDENTITY_UNAVAILABLE" } }, "No measured removal plan (IDENTITY_UNAVAILABLE)"],
+    ["a MEASURED plan that removes nothing", { ...measured, server_plan: { ...measured.server_plan, actions: [measured.server_plan.actions[1]] } }, "Nothing to remove in this plan"],
   ])("offers no Apply for %s", (_label, review, text) => {
     render(<LpIamApplyPanel review={review} scope={scope} applyEnabled />)
     expect(screen.queryByRole("button", { name: "Apply this plan" })).toBeNull()
@@ -155,6 +194,16 @@ describe("LpIamApplyPanel", () => {
     expect(moved((r) => { r.decision_authority.publication.attempt = "other" })).not.toBe(base)
     expect(moved((r) => { r.server_plan.role_id = "AROARECREATED" })).not.toBe(base)
     expect(moved((r) => { r.server_plan.plan_head = "other" })).not.toBe(base)
+  })
+})
+
+describe("lpReviewIsForThisRole", () => {
+  it("matches by role ARN when the modal has one, else by role name", () => {
+    expect(lpReviewIsForThisRole(measured, "anything", measured.server_plan.role_arn)).toBe(true)
+    expect(lpReviewIsForThisRole(measured, measured.role_name, "arn:aws:iam::111111111111:role/other")).toBe(false)
+    expect(lpReviewIsForThisRole(measured, measured.role_name, null)).toBe(true)
+    expect(lpReviewIsForThisRole(measured, "other-role", null)).toBe(false)
+    expect(lpReviewIsForThisRole(null, measured.role_name, null)).toBe(false)
   })
 })
 
@@ -237,6 +286,28 @@ describe("the mounted Permissions modal carries the caller", () => {
     fireEvent.click(screen.getByTitle("Refresh data"))
     await waitFor(() => expect(screen.queryByTestId("lp-iam-apply-panel")).toBeNull())
     expect(reads).toBe(2)
+  })
+
+  it("A loaded, B and C pending, B resolves late: no caller is shown while C is open", async () => {
+    let releaseB: (value: Response) => void = () => {}
+    const b = new Promise<Response>((resolve) => { releaseB = resolve })
+    const measuredEnvelope = { ...full.review_envelope, result: measured }
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes("/iam-roles/fixture-web-role/gap-analysis")) return reply(200, measuredEnvelope)
+      if (url.includes("/iam-roles/fixture-b-role/gap-analysis")) return b
+      if (url.includes("/gap-analysis")) return new Promise<Response>(() => {})          // C never answers
+      if (url.includes("/simulate-fix")) return reply(200, full.preview)
+      return reply(404, { detail: { code: "FIXTURE_UNROUTED" } })
+    }))
+    const view = render(modal("fixture-web-role"))
+    await screen.findByRole("button", { name: "Apply this plan" })
+    view.rerender(modal("fixture-b-role"))
+    view.rerender(modal("fixture-c-role"))
+    await act(async () => { releaseB(reply(200, measuredEnvelope)) })
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(screen.queryByTestId("lp-iam-apply-panel")).toBeNull()
+    expect(screen.queryByRole("button", { name: "Apply this plan" })).toBeNull()
   })
 
   it("an out-of-order Review for the previous role never replaces the current role's caller", async () => {

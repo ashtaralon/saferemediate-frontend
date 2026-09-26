@@ -3,8 +3,8 @@
  *
  * The Apply names the receipted activation the operator planned against: the Review's decision authority
  * generation, receipt hash and publication attempt, for exactly the planned role, copied verbatim. Anything else
- * builds no Apply body. Apply itself stays held -- this is the source contract only. No IAM-role surface issues an Apply
- * yet (IAM roles route to IAMPermissionAnalysisModal, which has no Apply control); that caller must use lpApplyBody.
+ * builds no Apply body. Apply itself stays held. The IAM-role caller is components/iam-lp/LpIamApplyPanel.tsx in
+ * IAMPermissionAnalysisModal (__tests__/lp-iam-apply-caller*.test.tsx); it builds its body only with lpApplyBody.
  *
  * The Review body is the one captured from the backend's mounted routes (fixture `_source`), not hand-written.
  */
