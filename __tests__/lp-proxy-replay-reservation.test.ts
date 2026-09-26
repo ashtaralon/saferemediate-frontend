@@ -9,7 +9,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest"
 
 import { POST as applyPost } from "@/app/api/proxy/least-privilege/apply/route"
 import { POST as resolvePost } from "@/app/api/proxy/least-privilege/resolve/route"
-import { resetLpOperatorReplays } from "@/lib/server/lp-mutation-proxy"
+import { resetLpOperatorReplays, stableApplyOperationId } from "@/lib/server/lp-mutation-proxy"
 import { base64UrlEncode, operatorOidcConfig, resetOperatorOidcCaches, sealSession } from "@/lib/server/operator-session"
 
 const ISSUER = "https://idp.cyntro.test/oauth2"
@@ -164,5 +164,57 @@ describe("the FE proxy's Apply reservation", () => {
     release(json(409, { detail: { code: "DECISION_GENERATION_MOVED", ...ZERO } }))
     expect((await forged).status).toBe(409)
     expect(calls).toHaveLength(2)
+  })
+
+  it("simultaneous identical requests both pass admission and race to the check-and-set: exactly one broker call", async () => {
+    await operatorSession()
+    let release: (r: Response) => void = () => {}
+    const held = new Promise<Response>((resolve) => { release = resolve })
+    const calls = stub(async () => held)
+    const [first, second] = [apply(), apply()]                          // started in the same tick
+    const settled = await Promise.race([second.then((r) => ["second", r] as const), first.then((r) => ["first", r] as const)])
+    expect(settled[1].status).toBe(409)
+    expect(await settled[1].json()).toMatchObject({ code: "PLAN_REPLAY_REFUSED", ...ZERO })
+    release(json(200, { code: "VERIFIED", operation_id: "op-1", cloud_writes: 1 }))
+    const statuses = [(await first).status, (await second).status].sort()
+    expect(statuses).toEqual([200, 409])
+    expect(calls).toHaveLength(1)
+  })
+
+  it("the stable operation id matches the backend helper (golden vectors from api.lp_remediation_route)", async () => {
+    expect(await stableApplyOperationId("fixture-webshop", "111111111111", "arn:aws:iam::111111111111:role/web", "plan-r"))
+      .toBe("9e2648c4344329957513096a5a3634f2")
+    expect(await stableApplyOperationId("tenant-a", "123456789012", "arn:aws:iam::123456789012:role/payments", "v1:abc"))
+      .toBe("73d8b02b00ba11066b20207135cf78f1")
+  })
+
+  it("a lost broker answer is released by the resolution of its stamped stable operation id", async () => {
+    await operatorSession()
+    const stable = await stableApplyOperationId("fixture-webshop", "111111111111", PLAN.role_arn, PLAN.plan_head)
+    let transportFails = true
+    const calls = stub(async (path) => {
+      if (path.endsWith("/resolve")) return json(200, { code: "RESOLVED", operation_id: stable, state: "RESOLVED_NOT_APPLIED" })
+      if (transportFails) throw new TypeError("connection reset")
+      return json(200, { code: "VERIFIED", operation_id: stable, cloud_writes: 1 })
+    })
+    expect((await apply()).status).toBe(503)                           // LIFECYCLE_UNREACHABLE: held
+    expect((await apply()).status).toBe(409)
+    transportFails = false
+    expect((await resolve(stable)).status).toBe(200)
+    expect((await apply()).status).toBe(200)                           // released by its own operation's resolution
+    expect(calls.filter((c) => c.path.endsWith("/apply"))).toHaveLength(2)
+  })
+
+  it.each([
+    [{ cloud_writes: 0, attempted_writes: 1, confirmed_writes: 0, unknown_writes: 0 }],
+    [{ cloud_writes: 0, attempted_writes: 0, confirmed_writes: 1, unknown_writes: 0 }],
+    [{ cloud_writes: 0, attempted_writes: 0, unknown_writes: 0 }],
+  ])("a typed refusal is pre-write only when every count is present and zero (%o)", async (counts) => {
+    await operatorSession()
+    const calls = stub(async () => json(409, { detail: { code: "ROLE_OPERATION_OUTSTANDING", ...counts } }))
+    expect((await apply()).status).toBe(409)
+    const again = await apply()
+    expect(await again.json()).toMatchObject({ code: "PLAN_REPLAY_REFUSED" })
+    expect(calls).toHaveLength(1)
   })
 })

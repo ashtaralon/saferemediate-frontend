@@ -77,17 +77,33 @@ function replayKey(subject: string, planHead: string, binding: unknown): string 
 function provenPreWrite(status: number, detail: Record<string, unknown>): boolean {
   const code = typeof detail.code === "string" ? detail.code : ""
   return status >= 400 && status < 600 && code !== "" && !OUTCOME_UNKNOWN_CODES.has(code)
-    && detail.cloud_writes === 0 && detail.attempted_writes === 0 && detail.unknown_writes === 0
+    && detail.cloud_writes === 0 && detail.attempted_writes === 0 && detail.confirmed_writes === 0
+    && detail.unknown_writes === 0
+}
+
+/**
+ * The backend's stable operation id for an Apply (api/lp_remediation_route.py::_stable_operation_id): sha256 of the
+ * compact JSON array [tenant, account, role ARN, plan head, "apply"], first 32 hex. Stamped on the reservation before
+ * the broker call, so a resolution releases it even when the broker's answer never arrives. Pinned to the Python
+ * helper by a golden vector in __tests__/lp-proxy-replay-reservation.test.ts.
+ */
+export async function stableApplyOperationId(tenantId: string, accountId: string, roleArn: string, planHead: string): Promise<string> {
+  const payload = JSON.stringify([tenantId, accountId, roleArn, planHead, "apply"])
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(payload))
+  return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 32)
 }
 
 function settle(key: string, status: number, payload: Record<string, unknown>): void {
   const detail = payload.detail && typeof payload.detail === "object" ? (payload.detail as Record<string, unknown>) : payload
+  const named = typeof detail.operation_id === "string" ? detail.operation_id
+    : typeof payload.operation_id === "string" ? payload.operation_id : null
+  const operationId = named ?? reservations.get(key)?.operationId ?? null   // the stamped stable id when none is named
   if (status >= 200 && status < 300) {
-    reservations.set(key, { state: "ADMITTED", operationId: typeof payload.operation_id === "string" ? payload.operation_id : null })
+    reservations.set(key, { state: "ADMITTED", operationId })
   } else if (provenPreWrite(status, detail)) {
     reservations.delete(key)
   } else {
-    reservations.set(key, { state: "UNKNOWN", operationId: typeof detail.operation_id === "string" ? detail.operation_id : null })
+    reservations.set(key, { state: "UNKNOWN", operationId })
   }
 }
 
@@ -247,13 +263,17 @@ export async function forwardLpMutation(request: Request, path: "/api/least-priv
   forwarded.actor = admission.subject
   const brokerPath = path.endsWith("/restore") ? "/api/lp-lifecycle/restore" : "/api/lp-lifecycle/apply"
   const key = "replayKey" in admission && typeof admission.replayKey === "string" ? admission.replayKey : null
+  // Computed BEFORE the check-and-set (it awaits), so nothing is awaited between the check and the set.
+  const stamped = key !== null && typeof forwarded.plan_head === "string"
+    ? await stableApplyOperationId(admission.tenantId, admission.accountId, String(forwarded.role_arn ?? ""), forwarded.plan_head)
+    : null
   if (key !== null) {
     // Synchronous check-and-set: no await in between, so two concurrent requests cannot both take it.
     if (reservations.has(key)) {
       return NextResponse.json({ code: "PLAN_REPLAY_REFUSED", ...ZERO_WRITES, origin: "proxy" },
         { status: 409, headers: { "Cache-Control": "no-store" } })
     }
-    reservations.set(key, { state: "IN_FLIGHT", operationId: null })
+    reservations.set(key, { state: "IN_FLIGHT", operationId: stamped })
   }
   let response: Response
   try {
@@ -269,7 +289,7 @@ export async function forwardLpMutation(request: Request, path: "/api/least-priv
     })
   } catch {
     // The request may have reached the writer: the reservation stays held, the outcome is unknown.
-    if (key !== null) reservations.set(key, { state: "UNKNOWN", operationId: null })
+    if (key !== null) reservations.set(key, { state: "UNKNOWN", operationId: stamped })
     return NextResponse.json({ code: "LIFECYCLE_UNREACHABLE", cloud_writes: null, attempted_writes: null,
       confirmed_writes: null, unknown_writes: null, origin: "proxy" }, { status: 503, headers: { "Cache-Control": "no-store" } })
   }
