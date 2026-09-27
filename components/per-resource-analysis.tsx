@@ -158,6 +158,19 @@ interface ProposedRole {
   resource_conditions: Record<string, string>
 }
 
+/** A proxy or backend refusal keeps its typed code and message ({error_code}, {code}, or FastAPI's {detail: {code,
+ *  message}}); only a body naming neither falls back to the bare status. */
+function typedRefusalMessage(body: unknown, status: number): string {
+  const row = body && typeof body === "object" && !Array.isArray(body) ? (body as Record<string, unknown>) : {}
+  const detail = row.detail && typeof row.detail === "object" && !Array.isArray(row.detail)
+    ? (row.detail as Record<string, unknown>) : null
+  const text = (value: unknown) => (typeof value === "string" && value.trim() ? value.trim() : null)
+  const code = text(row.error_code) ?? text(row.code) ?? text(detail?.code) ?? text(detail?.error_code)
+  const message = text(row.error) ?? text(row.message) ?? text(detail?.message) ?? text(row.detail) ?? text(detail?.detail)
+  if (code && message && message !== code) return `${code}: ${message}`
+  return code ?? message ?? `HTTP ${status}`
+}
+
 /** The recommend proxy passes the Review's own numbers or null (never a `|| 0`): an unmeasured Review has no used
  *  count, and the Review carries neither the resource count nor a per-resource reduction. */
 interface RecommendData {
@@ -168,7 +181,11 @@ interface RecommendData {
   aggregated_risk_reduction: number | null
   cyntro_risk_reduction: number | null
   total_new_permissions: number | null
+  /** USAGE_NOT_MEASURED; SERVER_PLAN_NOT_MEASURED (no MEASURED server plan); or DECISION_AUTHORITY_NOT_CLEARED (the
+   *  receipted decision authority does not clear every planned removal). Nothing is proposed whatever the counts say. */
   hold_reason?: string | null
+  plan_issue_state?: string | null
+  decision_authority?: { state: string | null; reason: string | null; authority: string | null } | null
   proposed_roles: ProposedRole[]
   policies: Record<string, any>
 }
@@ -242,7 +259,7 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
     const res = await fetch(path, opts)
     if (!res.ok) {
       const errBody = await res.json().catch(() => ({}))
-      throw new Error(errBody.error || `HTTP ${res.status}`)
+      throw new Error(typedRefusalMessage(errBody, res.status))
     }
     return res.json()
   }, [])
@@ -1851,6 +1868,14 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
                   Reduces role to <strong data-testid="per-resource-aggregated-used">{recommendData.aggregated_used ?? UNKNOWN} permissions</strong> (union of all used)
                   {recommendData.hold_reason === "USAGE_NOT_MEASURED" && (
                     <div className="mt-1 text-xs" style={{ color: "var(--text-muted)" }} data-testid="per-resource-recommend-held">Held: usage not measured. No policy is proposed.</div>
+                  )}
+                  {(recommendData.hold_reason === "SERVER_PLAN_NOT_MEASURED" || recommendData.hold_reason === "DECISION_AUTHORITY_NOT_CLEARED") && (
+                    <div className="mt-1 text-xs" style={{ color: "var(--text-muted)" }} data-testid="per-resource-recommend-held">
+                      Held: no removal is authorized (plan {recommendData.plan_issue_state ?? "not reported"}
+                      {recommendData.decision_authority
+                        ? `; decision authority ${recommendData.decision_authority.state ?? "not reported"}${recommendData.decision_authority.reason ? `: ${recommendData.decision_authority.reason}` : ""}`
+                        : "; decision authority not reported"}). Counts alone are not a removal authority, so no policy is proposed.
+                    </div>
                   )}
                 </div>
                 <div className="rounded-lg p-3 border" style={{ background: "#f9731610", borderColor: "#f9731640" }}>

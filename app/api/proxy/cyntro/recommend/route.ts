@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
+import { decisionAuthorityView } from "@/lib/lp-decision-authority"
+import { measuredIamPlan } from "@/lib/lp-held-mutation"
 
 export const dynamic = "force-dynamic"
 export const fetchCache = "force-no-store"
@@ -50,15 +52,44 @@ export async function POST(req: NextRequest) {
     // resource count of max(1, <field the Review does not carry>) was always 1. Nothing is synthesized: the resource
     // count and the per-resource reduction are not in the Review, so they are null (the page derives them from the
     // per-resource analysis it already holds).
+    //
+    // A count is not a removal authority. A numeric used_count beside an UNKNOWN plan and an unavailable decision
+    // authority used to propose a frontend-authored `Resource: "*"` policy. Now a reduction is proposed only when BOTH
+    //  - the Review's own server_plan is MEASURED, read by the parser LP Apply uses (measuredIamPlan) -- itself derived
+    //    from observed counts on the backend, so it is necessary but not sufficient; and
+    //  - the receipted decision authority (decisionAuthorityView) is DECISION_GRADE and lists every planned removal
+    //    as CLEARED.
+    // Otherwise the answer is a typed hold carrying the backend's own plan state and decision-authority state/reason.
     const num = (value: unknown): number | null => (typeof value === "number" && Number.isFinite(value) ? value : null)
+    const record = (value: unknown): Record<string, unknown> | null =>
+      value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null
     const totalPermissions = num(gapData.summary?.total_permissions)
     const usedCount = num(gapData.summary?.used_count)
     const rows: any[] = Array.isArray(gapData.permissions_analysis) ? gapData.permissions_analysis : []
-    const usageMeasured = usedCount !== null
-    const usedPermissions = usageMeasured ? rows.filter((p) => p.status === "USED") : []
-    const unusedPermissions = usageMeasured ? rows.filter((p) => p.status === "UNUSED") : []
-    const aggregatedRiskReduction = totalPermissions !== null && usedCount !== null && totalPermissions > 0
-      ? Math.round(((totalPermissions - usedCount) / totalPermissions) * 100)
+    const serverPlan = record(gapData.server_plan)
+    const planIssueState = typeof serverPlan?.issue_state === "string" ? serverPlan.issue_state : null
+    const plan = planIssueState === "MEASURED" ? measuredIamPlan(serverPlan) : undefined
+    const authority = record(gapData.decision_authority)
+    const authorityView = decisionAuthorityView(gapData.decision_authority)
+    const decisionAuthority = authority
+      ? {
+          state: typeof authority.state === "string" ? authority.state : null,
+          reason: typeof authority.reason === "string" ? authority.reason : null,
+          authority: typeof authority.authority === "string" ? authority.authority : null,
+        }
+      : null
+    const keep = plan ? plan.actions.filter((a) => a.effect === "keep").map((a) => a.permission) : []
+    const remove = plan ? plan.actions.filter((a) => a.effect === "remove").map((a) => a.permission) : []
+    const cleared = new Set(authorityView.cleared)
+    const authorized = authorityView.kind === "populated" && authorityView.receipt !== null
+      && authorityView.coverageComplete && remove.every((permission) => cleared.has(permission))
+    const holdReason = usedCount === null ? "USAGE_NOT_MEASURED"
+      : plan === undefined ? "SERVER_PLAN_NOT_MEASURED"
+      : authorized ? null : "DECISION_AUTHORITY_NOT_CLEARED"
+    const planned = holdReason === null
+    const riskOf = new Map(rows.map((p) => [p.permission, p]))
+    const reduction = planned && keep.length + remove.length > 0
+      ? Math.round((remove.length / (keep.length + remove.length)) * 100)
       : null
     const proposedName = `${role_name}-least-privilege`
 
@@ -66,41 +97,35 @@ export async function POST(req: NextRequest) {
       original_role: role_name,
       original_permissions: totalPermissions,
       resources_attached: null,
-      aggregated_used: usedCount,
-      aggregated_risk_reduction: aggregatedRiskReduction,
+      // The Review's measurement, kept apart from any proposal.
+      measured_used_count: usedCount,
+      aggregated_used: planned ? keep.length : null,
+      aggregated_risk_reduction: reduction,
       cyntro_risk_reduction: null,
-      total_new_permissions: usedCount,
-      // A least-privilege policy is proposed only from measured usage; otherwise it is held by name.
-      hold_reason: usageMeasured ? null : "USAGE_NOT_MEASURED",
-      proposed_roles: usageMeasured ? [{
+      total_new_permissions: planned ? keep.length : null,
+      hold_reason: holdReason,
+      plan_issue_state: planIssueState,
+      decision_authority: decisionAuthority,
+      proposed_roles: planned && plan ? [{
         role_name: proposedName,
-        resource_id: gapData.role_arn,
+        resource_id: plan.roleArn,
         resource_name: role_name,
-        permissions: usedPermissions.map((p) => p.permission),
+        permissions: keep,
         resource_conditions: {},
       }] : [],
-      policies: usageMeasured ? {
-        [proposedName]: {
-          Version: "2012-10-17",
-          Statement: [{
-            Sid: "LeastPrivilegePolicy",
-            Effect: "Allow",
-            Action: usedPermissions.map((p) => p.permission),
-            Resource: "*",  // In production, this should be scoped to specific resources
-          }],
-        },
-      } : {},
-      unused_permissions: unusedPermissions.map((p) => ({
-        permission: p.permission,
-        risk_level: p.risk_level,
-        recommendation: p.recommendation,
+      // No frontend-authored policy document: the server plan names actions, not a policy.
+      policies: {},
+      unused_permissions: (planned ? remove : []).map((permission) => ({
+        permission,
+        risk_level: riskOf.get(permission)?.risk_level ?? null,
+        recommendation: riskOf.get(permission)?.recommendation ?? null,
       })),
       summary: {
         current_permissions: totalPermissions,
-        recommended_permissions: usedCount,
-        permissions_to_remove: totalPermissions !== null && usedCount !== null ? totalPermissions - usedCount : null,
-        risk_reduction_percentage: aggregatedRiskReduction,
-        high_risk_removed: usageMeasured ? unusedPermissions.filter((p) => p.risk_level === "HIGH").length : null,
+        recommended_permissions: planned ? keep.length : null,
+        permissions_to_remove: planned ? remove.length : null,
+        risk_reduction_percentage: reduction,
+        high_risk_removed: planned ? remove.filter((p) => riskOf.get(p)?.risk_level === "HIGH").length : null,
       },
     }
 

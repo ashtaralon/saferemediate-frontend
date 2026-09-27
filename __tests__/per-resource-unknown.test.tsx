@@ -194,7 +194,12 @@ describe("Compare Approaches over the real recommend proxy", () => {
     // after = 1 + 2 = 3 -> 25%; the aggregated fix gives each resource the observed union (2), 2 x 2 = 4 -> 25% more.
     expect(screen.getByTestId("per-resource-cyntro-risk-reduction").textContent).toBe("25%")
     expect(screen.getByTestId("per-resource-eliminates").textContent).toContain("25% more risk")
-    expect(screen.getByTestId("per-resource-aggregated-used").textContent).toContain("1")  // the Review's used count
+    // The Review's used count (1) is a measurement, not a removal authority: its plan is UNKNOWN and its decision
+    // authority UNAVAILABLE (DEPLOYMENT_NOT_CUSTOMER_RESIDENT), so the aggregated side proposes nothing and says why.
+    expect(screen.getByTestId("per-resource-aggregated-used").textContent).toContain("—")
+    const held = screen.getByTestId("per-resource-recommend-held").textContent
+    expect(held).toContain("plan UNKNOWN")
+    expect(held).toContain("decision authority UNAVAILABLE: DEPLOYMENT_NOT_CUSTOMER_RESIDENT")
     expect(screen.getAllByText("Simulate Split").length).toBeGreaterThan(0)
   })
 })
@@ -265,5 +270,28 @@ describe("the recommend proxy's hold is shown", () => {
     fireEvent.click(screen.getByText("Compare Approaches"))
     expect((await screen.findByTestId("per-resource-recommend-held")).textContent).toContain("Held: usage not measured")
     expect(screen.getByTestId("per-resource-aggregated-used").textContent).toContain("—")
+  })
+})
+
+describe("a typed refusal reaches the operator with its code", () => {
+  // The recommend proxy relays the Review's refusal verbatim (tests below in recommend-proxy-honest.test.ts); the
+  // page used to read only `.error`, so a FastAPI {detail: {code, message}} body surfaced as a bare "HTTP 503".
+  const refusal = { detail: { code: "REVIEW_SCOPE_UNAVAILABLE", message: "this deployment has no read scope" } }
+
+  it("shows the backend's code and message, not the bare status", async () => {
+    await open(truthful.observed as Capture)
+    const served = globalThis.fetch as unknown as ReturnType<typeof vi.fn>
+    const inner = served.getMockImplementation()!
+    served.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) === "/api/proxy/cyntro/recommend") {
+        requests.push({ method: init?.method || "GET", url: String(input) })
+        return new Response(JSON.stringify(refusal), { status: 503, headers: { "Content-Type": "application/json" } })
+      }
+      return inner(input, init)
+    })
+    perResourceTab()
+    fireEvent.click(screen.getByText("Compare Approaches"))
+    expect(await screen.findByText("REVIEW_SCOPE_UNAVAILABLE: this deployment has no read scope")).toBeTruthy()
+    expect(screen.queryByText("HTTP 503")).toBeNull()
   })
 })
