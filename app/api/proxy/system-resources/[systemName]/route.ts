@@ -5,6 +5,8 @@ export const runtime = "nodejs"
 export const maxDuration = 60
 
 const BACKEND_URL =
+  process.env.BACKEND_URL_OVERRIDE ||
+  process.env.NEXT_PUBLIC_BACKEND_URL ||
   getBackendBaseUrl()
 
 const RETRYABLE_STATUSES = new Set([500, 502, 503, 504])
