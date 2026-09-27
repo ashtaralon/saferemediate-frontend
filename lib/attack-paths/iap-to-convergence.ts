@@ -8,6 +8,20 @@ import type {
   ConvergencePath,
   CrownJewelConvergence,
 } from "./convergence-types"
+import { pathClassification, type PathClassification } from "./path-evidence-view"
+
+/**
+ * IAP whole-path classification → the convergence `confidence` word.
+ * `inferred` keeps the legacy "configured" word the convergence consumers
+ * already read; unverified (unknown) and blocked keep their own words instead
+ * of collapsing into "configured". `ConvergencePath.confidence` is a string.
+ */
+const CONFIDENCE_BY_CLASS: Readonly<Record<PathClassification, string>> = {
+  observed: "observed",
+  inferred: "configured",
+  unknown: "unknown",
+  blocked: "blocked",
+}
 
 function pickWorkload(nodes: PathNodeDetail[]): PathNodeDetail | undefined {
   return (
@@ -32,7 +46,8 @@ export function iapPathsToConvergence(
   const out: ConvergencePath[] = []
 
   for (const p of paths) {
-    if (p.evidence_type === "observed") observed += 1
+    const classification = pathClassification(p)
+    if (classification === "observed") observed += 1
     const nodes = p.nodes ?? []
     const workload = pickWorkload(nodes)
     const role = pickRole(nodes)
@@ -77,13 +92,24 @@ export function iapPathsToConvergence(
       source_kind: workload?.type ?? null,
       identity: identity ?? null,
       identity_name: role?.name ?? null,
-      damage: p.damage_capability?.direct_actions ?? [],
+      // The server's damage words for this path: direct actions when it sent
+      // them, else its damage_types — never an empty list the server did not say.
+      damage:
+        (p.damage_capability?.direct_actions?.length ? p.damage_capability.direct_actions : null) ??
+        p.damage_types ??
+        [],
+      // Server gates, verbatim from the materialized :AttackPath summary.
+      identity_gate: p.materialized_path?.identity_gate ?? null,
+      route_gate: p.materialized_path?.route_gate ?? null,
+      data_plane_gate: p.materialized_path?.data_plane_gate ?? null,
+      path_status: p.materialized_path?.path_status ?? null,
+      evidence: p.evidence_contract?.evidence ?? p.evidence_type ?? undefined,
       score: Math.round(p.severity?.overall_score ?? 0),
       severity: p.severity?.severity ?? null,
-      confidence: p.evidence_type === "observed" ? "observed" : "configured",
+      confidence: CONFIDENCE_BY_CLASS[classification],
       hop_count: p.hop_count,
       routes_via: [],
-      role_assumption_observed: p.evidence_type === "observed",
+      role_assumption_observed: classification === "observed",
       cj_target_id: jewel.canonical_id ?? jewel.id,
       hops,
       // Synthetic IAP spine — never authoritative for path-authority TFM.

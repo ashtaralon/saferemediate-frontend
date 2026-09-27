@@ -6,6 +6,11 @@
 // Unknown per the Damage-Aware Attack Paths spec.
 
 import type { DamageCapability } from "@/components/identity-attack-paths/types"
+import {
+  damageUnknownReason,
+  effectiveDamage,
+  KNOWN_EFFECTIVE_DAMAGE,
+} from "@/lib/attack-paths/path-evidence-view"
 import type { DamageScopePayload } from "./damage-scope-drawer"
 
 export type DamageVerbKey = "read" | "write" | "delete" | "admin"
@@ -84,14 +89,41 @@ export function buildEffectiveDamageMatrix(
 ): EffectiveDamageMatrix {
   const verbs = dc?.direct_verbs ?? dc?.verbs
   const gates = dc?.gates
-  const effective = dc?.effective_damage
+  // Missing effective_damage is "unknown", never live (path-evidence-view).
+  const effective = effectiveDamage(dc)
+
+  // A closed identity gate blocks every verb, whatever the grants say.
+  if (effective === "identity_blocked") {
+    const reason = dc?.reason ?? "Identity gate is closed"
+    return {
+      read: { allowed: false, confidence: "Blocked", detail: reason },
+      write: { allowed: false, confidence: "Blocked", detail: reason },
+      delete: { allowed: false, confidence: "Blocked", detail: reason },
+      admin: { allowed: false, confidence: "Blocked", detail: reason },
+      blockedReason: reason,
+    }
+  }
+
+  // "unknown" / "data_plane_unknown" / missing / unrecognised: the server did
+  // not establish that any verb lands. Grants and materialized damage types
+  // are a ceiling, not an answer — never render them as allowed here.
+  if (!KNOWN_EFFECTIVE_DAMAGE.has(effective)) {
+    const detail = damageUnknownReason(dc) ?? undefined
+    return {
+      read: { allowed: false, confidence: "Unknown", detail },
+      write: { allowed: false, confidence: "Unknown", detail },
+      delete: { allowed: false, confidence: "Unknown", detail },
+      admin: { allowed: false, confidence: "Unknown", detail },
+    }
+  }
 
   // Accuracy-audit F2/F3 (2026-06-11): when the backend reconciled this
   // path against its materialized :AttackPath node, the graph's
   // damage_types are the source of truth for the chip — not the IAM
   // grant-ceiling verb counts and not the SG/NACL "Blocked" heuristic.
   // The backend already corrects effective_damage on fresh responses;
-  // this branch also protects cached/stale payloads.
+  // this branch also protects cached/stale payloads. Reached only for a
+  // KNOWN, non-identity-blocked effective_damage (see the two guards above).
   const matTypes = dc?.materialized_damage_types
   if (Array.isArray(matTypes) && matTypes.length > 0 &&
       effective !== "network_blocked" && effective !== "data_plane_blocked") {

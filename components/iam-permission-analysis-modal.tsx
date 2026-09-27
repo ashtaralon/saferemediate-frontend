@@ -18,7 +18,10 @@ import {
   type SharedOverrideState,
 } from "@/components/override-modal-shared"
 import { ConfidenceExplanationPanel } from "@/components/ConfidenceExplanationPanel"
-import { fetchWithEnvelope } from "@/components/trust/use-trust-envelope"
+import { EnvelopeRequestError, fetchWithEnvelope } from "@/components/trust/use-trust-envelope"
+import { LpIamApplyPanel, lpIamApplyPanelKey, lpReviewIsForThisRole } from "@/components/iam-lp/LpIamApplyPanel"
+import { LP_MUTATION_APPLY_ENABLED } from "@/lib/lp-held-mutation"
+import { DecisionAuthorityPanel } from "@/components/lp-decision-authority-panel"
 import { TrustEnvelopeBadge, type Provenance } from "@/components/trust/trust-envelope-badge"
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert"
 import type {
@@ -43,6 +46,9 @@ import {
   simulationPlanCounts,
 } from "@/lib/resource-risk-preview-summary"
 import { AdvancedDrawer } from "@/components/iam-lp/AdvancedDrawer"
+import { type PreviewRefusal, refusalFromPreviewBody, reviewRefusalCopy } from "@/lib/lp-preview-refusal"
+import { useOptionalAccountScope } from "@/lib/account-scope-context"
+import { reviewClaimsQuery } from "@/lib/lp-review-scope"
 import { TerraformExecutionChip } from "@/components/terraform-execution-chip"
 import {
   ApprovalActionModal,
@@ -468,7 +474,7 @@ interface GapAnalysisData {
     total_permissions: number
     used_count: number
     unused_count: number
-    lp_score: number
+    lp_score: number | null
     overall_risk: string
     // 'OBSERVED' | 'UNKNOWN' | 'LOW'. UNKNOWN = usage never measured (or no
     // policy attached). Never render a removal/clean verdict on UNKNOWN.
@@ -479,6 +485,8 @@ interface GapAnalysisData {
     high_risk_unused_count?: number
   }
   permissions_analysis: PermissionAnalysis[]
+  /** Backend `decision_authority` (lp-decision-authority/v1), passed through unmodified. */
+  decision_authority?: unknown
   used_permissions: string[]
   unused_permissions: string[]
   high_risk_unused: string[]
@@ -972,9 +980,19 @@ export function IAMPermissionAnalysisModal({
 
   console.log('[IAMPermissionAnalysisModal] RENDER - isOpen:', isOpen, 'roleName:', roleName)
   const { toast } = useToast()
+  // Every Review read carries the selected customer and the role ARN's account, so the
+  // backend can refuse a scope mismatch (403) instead of serving its pinned scope.
+  const accountScope = useOptionalAccountScope()
+  const reviewClaims = reviewClaimsQuery(roleArn, accountScope?.customerId)
+  // The LP Apply caller's Review: the raw gap-analysis result (server_plan + decision_authority) of the LATEST request
+  // only. Cleared at the start of every read and on close, so no Apply is ever built from a superseded Review.
+  const [lpReview, setLpReview] = useState<unknown>(null)
+  const lpReviewRequest = useRef(0)
   const [gapData, setGapData] = useState<GapAnalysisData | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // The backend's structured refusal for the gap-analysis read, when it gave one.
+  const [gapRefusal, setGapRefusal] = useState<PreviewRefusal | null>(null)
   const [tfAdapter, setTfAdapter] = useState<string>("unregistered")
   const [showSimulation, setShowSimulation] = useState(false)
   const [analysisTab, setAnalysisTab] = useState<'summary' | 'permissions' | 'context'>('summary')
@@ -1050,6 +1068,8 @@ export function IAMPermissionAnalysisModal({
   const [confidenceScore, setConfidenceScore] = useState<ConfidenceScore | null>(null)
   const [confidenceLoading, setConfidenceLoading] = useState(false)
   const [provenance, setProvenance] = useState<Provenance | null>(null)
+  // The Preview's decision_authority from the same simulate-fix snapshot; undefined until a Preview ran.
+  const [previewDecisionAuthority, setPreviewDecisionAuthority] = useState<unknown>(undefined)
   // Pipeline safety context from simulate-fix. When populated this is the
   // AUTHORITATIVE decision source — Agent 5 (confidenceScore) is merely
   // an explainer subordinate to it. See Layer 1/2 in backend.
@@ -1059,6 +1079,9 @@ export function IAMPermissionAnalysisModal({
   // prevents the headline from disagreeing with the Resource Risk row when an
   // older gap-analysis snapshot is still cached.
   const [previewProblem, setPreviewProblem] = useState<SimulateFixProblem | null>(null)
+  // A refused Preview (auth, scope, runtime) is shown as that refusal, never
+  // as a transient outage: retrying does not fix a deployment prerequisite.
+  const [previewRefusal, setPreviewRefusal] = useState<PreviewRefusal | null>(null)
   const [previewObservationDays, setPreviewObservationDays] = useState<number | null>(null)
   const [decisionPersistence, setDecisionPersistence] = useState<SimulateFixDecisionPersistence | null>(null)
   // Signed remediation plan from simulate-fix (exact-change binding). The
@@ -1098,7 +1121,8 @@ export function IAMPermissionAnalysisModal({
       fetchConfidenceScore(safety)
     })()
     return () => { cancelled = true }
-  }, [isOpen, roleName, findingId])
+    // reviewClaims: a customer switch while open re-reads under the new scope, never keeps the old one's Review.
+  }, [isOpen, roleName, findingId, reviewClaims])
 
   useEffect(() => {
     if (!isOpen || !systemName) {
@@ -1230,6 +1254,7 @@ export function IAMPermissionAnalysisModal({
     setSafetyContext(null)
     setRemovalSafety(null)
     setPreviewProblem(null)
+    setPreviewRefusal(null)
     setPreviewObservationDays(null)
     setDecisionPersistence(null)
     setPlanToken(null)
@@ -1250,6 +1275,10 @@ export function IAMPermissionAnalysisModal({
       })
       if (!res.ok) {
         console.warn('[IAM-Modal] simulate-fix fetch non-200:', res.status)
+        const body = await res.json().catch(() => null)
+        if (requestVersion === simulateFixRequestVersion.current) {
+          setPreviewRefusal(refusalFromPreviewBody(res.status, body))
+        }
         return null
       }
       const data = await res.json()
@@ -1281,6 +1310,7 @@ export function IAMPermissionAnalysisModal({
           : null,
       )
       setPreviewProblem(data?.problem ?? null)
+      setPreviewDecisionAuthority(data?.decision_authority ?? null)
       const observedDays = data?.evidence?.observation_window_days ?? data?.safety?.observation_days
       setPreviewObservationDays(typeof observedDays === 'number' ? observedDays : null)
       setDecisionPersistence(data?.decision_persistence ?? null)
@@ -1350,16 +1380,22 @@ export function IAMPermissionAnalysisModal({
   }
 
   const fetchGapAnalysis = async (forceRefresh = false) => {
+    const lpRequest = ++lpReviewRequest.current
+    setLpReview(null)
     setLoading(true)
     setError(null)
+    setGapRefusal(null)
     try {
       console.log('[IAM-Modal] Fetching gap analysis for:', roleName, forceRefresh ? '(force refresh)' : '')
       const refreshParam = forceRefresh ? '&refresh=true' : ''
       const env = await fetchWithEnvelope<any>(
-        `/api/proxy/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=365${refreshParam}`
+        `/api/proxy/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=365${refreshParam}${reviewClaims}`
       )
+      // A superseded read (another role, a re-read, a close) writes NOTHING: no Review, gapData, error or loading.
+      if (lpRequest !== lpReviewRequest.current) return
       setProvenance(env.provenance)
       const rawData = env.result
+      setLpReview(rawData)
       console.log('[IAM-Modal] Raw API data:', rawData)
       console.log('[IAM-Modal] Raw data keys:', Object.keys(rawData))
       console.log('[IAM-Modal] Raw data summary:', rawData.summary)
@@ -1409,9 +1445,10 @@ export function IAMPermissionAnalysisModal({
       const finalUnusedCount = actualUnusedPerms.length > 0 ? actualUnusedPerms.length : unusedCount
       const finalTotalCount = allowedCount > 0 ? allowedCount : (finalUsedCount + finalUnusedCount)
 
-      // LP score: trust backend first, then calculate from counts
-      const derivedLpScore = rawData.summary?.lp_score ?? rawData.lp_score ??
-        (finalTotalCount > 0 ? Math.round((finalUsedCount / finalTotalCount) * 100) : 0)
+      // LP score is the backend's measurement or unknown. Never derive it from
+      // counts here: a null score means the backend did not compute one, and
+      // AdvancedDrawer renders that as "—".
+      const derivedLpScore: number | null = rawData.summary?.lp_score ?? rawData.lp_score ?? null
 
       // Track whether we have actual permission names or just counts
       const hasPermissionLists = actualUsedPerms.length > 0 || actualUnusedPerms.length > 0
@@ -1426,6 +1463,7 @@ export function IAMPermissionAnalysisModal({
         observation_window: rawData.observation_window ?? null,
         // Backend remediability contract — consumed by the mutation gate below.
         is_remediable: rawData.is_remediable,
+        decision_authority: rawData.decision_authority ?? null,
         remediable_reason: rawData.remediable_reason,
         reason: rawData.reason ?? null,
         summary: {
@@ -1434,7 +1472,7 @@ export function IAMPermissionAnalysisModal({
           used_count: finalUsedCount,
           unused_count: finalUnusedCount,
           lp_score: derivedLpScore,
-          overall_risk: rawData.summary?.overall_risk ?? rawData.overall_risk ?? 'MEDIUM',
+          overall_risk: rawData.summary?.overall_risk ?? rawData.overall_risk ?? 'UNKNOWN',
           data_confidence: rawData.summary?.data_confidence ?? rawData.data_confidence,
           // null stays null: an unmeasured count is not zero events (F6).
           cloudtrail_events: rawData.summary?.cloudtrail_events ?? null,
@@ -1493,10 +1531,14 @@ export function IAMPermissionAnalysisModal({
       // possible IAM mutation. Detaching managed policies is now always an
       // explicit operator choice via the checkboxes below.
     } catch (err: any) {
+      if (lpRequest !== lpReviewRequest.current) return
       console.error('[IAM-Modal] Error:', err)
+      if (err instanceof EnvelopeRequestError) {
+        setGapRefusal(refusalFromPreviewBody(err.status, err.body))
+      }
       setError(err.message || 'Failed to fetch gap analysis')
     } finally {
-      setLoading(false)
+      if (lpRequest === lpReviewRequest.current) setLoading(false)
     }
   }
 
@@ -1585,6 +1627,8 @@ export function IAMPermissionAnalysisModal({
   }
 
   const handleClose = () => {
+    lpReviewRequest.current += 1
+    setLpReview(null)
     setShowSimulation(false)
     setAnalysisTab('summary')
     setGapData(null)
@@ -1830,6 +1874,10 @@ export function IAMPermissionAnalysisModal({
       console.log('[IAM-Modal] Detach managed policies:', detachManagedPolicies)
       console.log('[IAM-Modal] Detach ALL managed policies:', detachAllManagedPolicies)
       console.log('[IAM-Modal] Force override block:', effectiveForce, '(raw:', force, ', non-auto in selection:', nonAutoSelected.length, ')')
+      const LP_LEGACY_REMEDIATE_ENABLED = false
+      if (!LP_LEGACY_REMEDIATE_ENABLED) {
+        throw new Error('Apply is disabled until installed recovery is proven')
+      }
       console.log('[IAM-Modal] POST /api/proxy/cyntro/remediate (timeout=' + REMEDIATE_TIMEOUT_MS + 'ms)')
 
       const response = await fetch('/api/proxy/cyntro/remediate', {
@@ -1906,7 +1954,7 @@ export function IAMPermissionAnalysisModal({
         
         // 1. Clear frontend cache for this role (force refresh)
         try {
-          await fetch(`/api/proxy/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=365&force_refresh=true`)
+          await fetch(`/api/proxy/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=365&force_refresh=true${reviewClaims}`)
           console.log('[IAM-Modal] Cleared role cache')
         } catch (e) {
           console.warn('[IAM-Modal] Failed to clear role cache:', e)
@@ -2999,7 +3047,6 @@ export function IAMPermissionAnalysisModal({
   const totalPermissions = removalSafety
     ? permissionView.totalCount
     : gapData?.summary?.total_permissions ?? (usedCount + unusedCount)
-  const lpScore = gapData?.summary?.lp_score ?? (totalPermissions > 0 ? Math.round((usedCount / totalPermissions) * 100) : 0)
   const hasPermissionLists = usedPermissions.length > 0 || unusedPermissions.length > 0
 
   const usedPercent = totalPermissions > 0 ? Math.round((usedCount / totalPermissions) * 100) : 0
@@ -3515,8 +3562,12 @@ export function IAMPermissionAnalysisModal({
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={REMEDIATION_MODAL_BACKDROP_STYLE}>
         <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full p-8 text-center">
           <XCircle className="w-12 h-12 mx-auto mb-4 text-[#ef4444]" />
-          <h2 className="text-2xl font-bold mb-2 text-[var(--foreground,#111827)]">Failed to Load Data</h2>
-          <p className="mb-4" style={{ color: "var(--muted-foreground, #6b7280)" }}>{error}</p>
+          <h2 className="text-2xl font-bold mb-2 text-[var(--foreground,#111827)]">
+            {gapRefusal ? reviewRefusalCopy(gapRefusal).title : 'Failed to Load Data'}
+          </h2>
+          <p className="mb-4" style={{ color: "var(--muted-foreground, #6b7280)" }}>
+            {gapRefusal ? reviewRefusalCopy(gapRefusal).body : error}
+          </p>
           <div className="flex justify-center gap-3">
             <button
               onClick={() => fetchGapAnalysis()}
@@ -4912,6 +4963,22 @@ export function IAMPermissionAnalysisModal({
             ))}
           </div>
 
+          {analysisTab === 'summary' && gapData && (
+            <DecisionAuthorityPanel review={gapData.decision_authority} preview={previewDecisionAuthority} />
+          )}
+
+          {analysisTab === 'summary' && gapData && lpReviewIsForThisRole(lpReview, roleName, roleArn) && (
+            <LpIamApplyPanel
+              key={lpIamApplyPanelKey(lpReview)}
+              review={lpReview}
+              scope={{ customerId: accountScope?.customerId ?? null, accountId: accountScope?.accountId ?? null }}
+              onReviewStale={() => { void fetchGapAnalysis(true) }}
+              // The modal's own execution hold outranks the release flag: a held modal never offers Apply.
+              applyEnabled={LP_MUTATION_APPLY_ENABLED && !applyDisabled && !authorityHoldReason}
+              holdReason={authorityHoldReason ?? (applyDisabled ? 'Production IAM changes are not enabled in this environment.' : null)}
+            />
+          )}
+
           {(analysisTab === 'summary' || analysisTab === 'permissions') && safetyLoading && (
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-5" data-testid="permission-snapshot-loading">
               <div className="flex items-center gap-2 text-sm font-medium text-slate-600">
@@ -4933,11 +5000,27 @@ export function IAMPermissionAnalysisModal({
               )}
               {!removalSafety && (
                 <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-950">
-                  <p className="font-semibold">Removal safety is temporarily unavailable</p>
-                  <p className="mt-1 text-sm">
-                    Cyntro will not recommend or enable a permission change until the verified
-                    permission snapshot loads.
-                  </p>
+                  {previewRefusal ? (() => {
+                    const copy = reviewRefusalCopy(previewRefusal)
+                    return (
+                      <>
+                        <p className="font-semibold">{copy.title}</p>
+                        <p className="mt-1 text-sm">{copy.body}</p>
+                        <p className="mt-1 text-sm">
+                          Cyntro will not recommend or enable a permission change without a verified
+                          permission snapshot.
+                        </p>
+                      </>
+                    )
+                  })() : (
+                    <>
+                      <p className="font-semibold">Removal safety is temporarily unavailable</p>
+                      <p className="mt-1 text-sm">
+                        Cyntro will not recommend or enable a permission change until the verified
+                        permission snapshot loads.
+                      </p>
+                    </>
+                  )}
                   <button
                     type="button"
                     onClick={() => { void fetchSafetyContext() }}
@@ -5829,11 +5912,17 @@ export function IAMPermissionAnalysisModal({
                   })
                 })
 
-                const result = await response.json()
-
                 if (!response.ok) {
-                  throw new Error(result.error || result.detail || `Simulation failed: ${response.status}`)
+                  const errorData = await response.json().catch(() => null)
+                  const refusal = refusalFromPreviewBody(response.status, errorData)
+                  if (requestVersion !== simulateFixRequestVersion.current) return
+                  setPreviewRefusal(refusal)
+                  const copy = reviewRefusalCopy(refusal)
+                  toast({ title: copy.title, description: copy.body, variant: 'destructive' })
+                  return
                 }
+
+                const result = await response.json()
 
                 if (requestVersion !== simulateFixRequestVersion.current) return
 

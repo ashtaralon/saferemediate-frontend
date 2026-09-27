@@ -24,6 +24,7 @@ import {
   humanizeInspectorError,
   insightsFromInspectorPayload,
   insightsFromPolicyStatements,
+  lpUsedActionsOf,
   summarizePolicyStatement,
 } from "@/lib/inspector-insights"
 import { ReadinessBadges } from "@/components/inventory/readiness-badges"
@@ -785,7 +786,14 @@ function DynamoDbSections({ data }: { data: InspectorPayload }) {
 
 function InsightSections({ data }: { data: InspectorPayload }) {
   const topInsights = insightsFromInspectorPayload(data)
-  const sections = [data.current, data.observed, data.remove].filter(
+  // A role's configured-action count served by least privilege is shown on its LP cards, with the decision
+  // generation it comes from -- never under the current section's own (graph) source line.
+  const lpServed = Boolean(lpUsedActionsOf(data.observed as Record<string, unknown> | undefined))
+  const current =
+    lpServed && data.current && typeof data.current === "object"
+      ? Object.fromEntries(Object.entries(data.current).filter(([key]) => key !== "allowed_actions_count"))
+      : data.current
+  const sections = [current, data.observed, data.remove].filter(
     (s) => s && typeof s === "object",
   ) as Record<string, unknown>[]
 
@@ -805,7 +813,9 @@ function InsightSections({ data }: { data: InspectorPayload }) {
       {sections.map((sec, i) => (
         <div key={i}>
           <SectionTitle>{String(sec.title ?? `Section ${i + 1}`)}</SectionTitle>
-          {sec.message ? (
+          {lpUsedActionsOf(sec) ? (
+            <InsightCards insights={insightsFromInspectorPayload({ observed: sec })} />
+          ) : sec.message ? (
             <EmptyNote>{String(sec.message)}</EmptyNote>
           ) : sec.title === "Current Configuration" || sec.security_groups || sec.network ? (
             <InsightCards insights={insightsFromInspectorPayload({ current: sec })} />

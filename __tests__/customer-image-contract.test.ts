@@ -36,7 +36,10 @@ describe("customer-resident frontend image", () => {
     expect(auth).toContain('headers.set(SERVICE_TOKEN_HEADER, token)')
     expect(auth).toContain("const resolvedOrigin = backendOrigin")
     expect(auth).toContain("if (!url || url.origin !== resolvedOrigin) return originalFetch(input, init)")
-    expect(route).toContain('headers.delete("x-cyntro-service-token")')
-    expect(route).toContain('headers.delete("authorization")')
+    // The generic relay refuses locally: a relay the patch stamps with the
+    // service token would make the site session the deployment's identity.
+    // Behaviour is pinned in backend-catchall-authority.test.ts.
+    expect(route).not.toContain("fetch(")
+    expect(route).toContain('"BACKEND_RELAY_DISABLED"')
   })
 })

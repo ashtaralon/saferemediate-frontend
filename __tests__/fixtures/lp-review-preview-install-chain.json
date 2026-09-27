@@ -1,0 +1,1779 @@
+{
+ "_source": "captured from preview_chain.py --lp-decision-coverage at backend 1b8a487a966432689fb81ef476a9c2e4bc15d482: GET gap-analysis?days=365&envelope=true and POST simulate-fix (labelled fixture tenant; real publisher, real routes)",
+ "preview": {
+  "authorization_disposition": null,
+  "decision_authority": {
+   "candidates": 8,
+   "cleared": [],
+   "contract": "lp-decision-authority/v1",
+   "decision_grade": false,
+   "decision_grade_reasons": [
+    "LAYER_UNKNOWN"
+   ],
+   "in_use": [],
+   "indeterminate": [
+    {
+     "candidate": "dynamodb:GetItem",
+     "reason": "LAYER_UNKNOWN"
+    },
+    {
+     "candidate": "dynamodb:PutItem",
+     "reason": "LAYER_UNKNOWN"
+    },
+    {
+     "candidate": "dynamodb:Query",
+     "reason": "LAYER_UNKNOWN"
+    },
+    {
+     "candidate": "sqs:SendMessage",
+     "reason": "LAYER_UNKNOWN"
+    },
+    {
+     "candidate": "sqs:ReceiveMessage",
+     "reason": "LAYER_UNKNOWN"
+    },
+    {
+     "candidate": "kms:Decrypt",
+     "reason": "LAYER_UNKNOWN"
+    },
+    {
+     "candidate": "kms:Encrypt",
+     "reason": "LAYER_UNKNOWN"
+    },
+    {
+     "candidate": "iam:PassRole",
+     "reason": "LAYER_UNKNOWN"
+    }
+   ],
+   "publication": {
+    "attempt": "4232e1a5b47846cf8fb665428166af1c",
+    "published_at": "2026-09-25T13:38:03+00:00"
+   },
+   "reason": null,
+   "receipt": {
+    "account_id": "111111111111",
+    "projected_through": "2026-09-20T12:00:00+00:00",
+    "projection_generation": 7,
+    "projection_receipt_hash": "v1:7c457f942a55b690236a9c7c5b11c6363d95c5c4c238e5110a59c9cc596cafc1",
+    "scope": "iam.role_action_decision.v1",
+    "staging_run_id": "fixture-stage-7",
+    "tenant_id": "fixture-webshop"
+   },
+   "state": "ACTIVE_POPULATED"
+  },
+  "decision_persistence": {
+   "decision_key": "",
+   "evaluated_at": "2026-09-25T13:38:04.944995+00:00",
+   "expires_at": "2026-09-25T13:38:04.944995+00:00",
+   "persisted": false,
+   "warning": "Decision-scoped preview does not persist a removal decision."
+  },
+  "evidence": {
+   "caveats": [
+    "Usage was not measured for this role. Unknown coverage is not a clean-role or effective-access verdict, and this preview does not authorize removal."
+   ],
+   "completeness": "unknown",
+   "confidence": "unknown",
+   "evidence_sources": [],
+   "last_sync": null,
+   "observation_window_days": 365,
+   "visibility_signals": {
+    "configured_actions": [
+     {
+      "configured": true,
+      "observed_use_count": null,
+      "permission": "s3:GetObject",
+      "usage_status": "USED"
+     },
+     {
+      "configured": true,
+      "observed_use_count": null,
+      "permission": "s3:PutObject",
+      "usage_status": "USED"
+     },
+     {
+      "configured": true,
+      "observed_use_count": null,
+      "permission": "s3:DeleteObject",
+      "usage_status": "USED"
+     },
+     {
+      "configured": true,
+      "observed_use_count": null,
+      "permission": "s3:ListBucket",
+      "usage_status": "USED"
+     },
+     {
+      "configured": true,
+      "observed_use_count": null,
+      "permission": "dynamodb:GetItem",
+      "usage_status": "UNUSED"
+     },
+     {
+      "configured": true,
+      "observed_use_count": null,
+      "permission": "dynamodb:PutItem",
+      "usage_status": "UNUSED"
+     },
+     {
+      "configured": true,
+      "observed_use_count": null,
+      "permission": "dynamodb:Query",
+      "usage_status": "UNUSED"
+     },
+     {
+      "configured": true,
+      "observed_use_count": null,
+      "permission": "sqs:SendMessage",
+      "usage_status": "UNUSED"
+     },
+     {
+      "configured": true,
+      "observed_use_count": null,
+      "permission": "sqs:ReceiveMessage",
+      "usage_status": "UNUSED"
+     },
+     {
+      "configured": true,
+      "observed_use_count": null,
+      "permission": "kms:Decrypt",
+      "usage_status": "UNUSED"
+     },
+     {
+      "configured": true,
+      "observed_use_count": null,
+      "permission": "kms:Encrypt",
+      "usage_status": "UNUSED"
+     },
+     {
+      "configured": true,
+      "observed_use_count": null,
+      "permission": "iam:PassRole",
+      "usage_status": "UNUSED"
+     }
+    ],
+    "data_confidence": "PARTIAL",
+    "lp_score": null,
+    "usage_state": "unknown"
+   }
+  },
+  "evidence_disposition": null,
+  "final_remediation_state": null,
+  "permission_disposition": null,
+  "plan": null,
+  "plan_issuance_error": null,
+  "problem": {
+   "gap_percent": null,
+   "summary": "Usage was not measured for this role. Unknown coverage is not a clean-role or effective-access verdict, and this preview does not authorize removal.",
+   "top_risk_reasons": [
+    "preview_does_not_authorize_removal",
+    "Effective observation 365/7 days; collect more evidence before remediation"
+   ],
+   "unused_count": null,
+   "used_count": null
+  },
+  "projected_effect": {
+   "approximate": true,
+   "blast_radius_score_after": null,
+   "blast_radius_score_before": null,
+   "blast_radius_score_delta": null,
+   "caveats": [],
+   "current_state_available": false,
+   "current_state_confidence": null,
+   "family_scores_after": null,
+   "family_scores_before": null,
+   "projection_available": false,
+   "resource_risk_contribution_after": null,
+   "resource_risk_contribution_before": null
+  },
+  "removal_safety": null,
+  "resource": {
+   "consumers": [],
+   "id": "fixture-web-role",
+   "severity": "unknown",
+   "shared": false,
+   "shared_confidence": "unknown",
+   "system": "fixture-shop",
+   "type": "IAMRole"
+  },
+  "review_scope": {
+   "account_id": "111111111111",
+   "account_match_mode": "EXACT",
+   "authority": "SERVER_DEPLOYMENT_CONFIG",
+   "graph_nodes_for_arn": 1,
+   "region_context": null,
+   "role_arn": "arn:aws:iam::111111111111:role/fixture-web-role",
+   "role_id": "AROAFIXTUREWEB",
+   "role_name": "fixture-web-role",
+   "tenant_id": "fixture-webshop"
+  },
+  "safety": {
+   "completeness": "unknown",
+   "consumer_count": 0,
+   "data_layer_complete": null,
+   "data_layer_gaps": [],
+   "decision": "blocked",
+   "decision_bundle_hash": null,
+   "decision_canonical": "BLOCK",
+   "decision_envelope_hashes": [],
+   "decision_reason_codes": [
+    "preview_does_not_authorize_removal",
+    "Effective observation 365/7 days; collect more evidence before remediation"
+   ],
+   "engine_decision": null,
+   "engine_version": null,
+   "execution_adapter": "unknown",
+   "execution_status": "preview_only",
+   "iac_binding_id": null,
+   "iac_binding_status": null,
+   "iac_managed": false,
+   "iac_manager": null,
+   "missing_evidence_sources": [
+    "TELEMETRY"
+   ],
+   "mutation_readiness": null,
+   "observation_days": null,
+   "ownership_status": "unknown",
+   "ownership_warning": null,
+   "policy_pack_versions": [],
+   "preflight_required": true,
+   "rollback_available": false,
+   "shared": null,
+   "shared_confidence": "unknown",
+   "shared_resource": null,
+   "snapshot_required": true,
+   "telemetry_coverage": null,
+   "telemetry_planes_active": [],
+   "telemetry_planes_missing": [],
+   "telemetry_planes_required": [],
+   "time_requirement_only": false,
+   "unsafe_reasons": [
+    "preview_does_not_authorize_removal",
+    "Effective observation 365/7 days; collect more evidence before remediation"
+   ],
+   "would_be_decision_if_active": null
+  },
+  "simulation": {
+   "action_type": "none",
+   "dependency_checks": {},
+   "excluded_by_category": {},
+   "excluded_unsafe_count": 0,
+   "kept_examples": [],
+   "kept_permissions": 0,
+   "removed_examples": [],
+   "removed_permissions": 0,
+   "summary": "No removal is authorized by this preview."
+  }
+ },
+ "review_envelope": {
+  "provenance": {
+   "completeness": {
+    "missing_sources": [
+     "serving_graph",
+     "iam_usage",
+     "access_advisor",
+     "behavioral_map"
+    ],
+    "status": "partial"
+   },
+   "confidence": "medium",
+   "confidence_caveats": [
+    "serving_graph freshness is unknown",
+    "iam_usage freshness is unknown",
+    "access_advisor freshness is unknown",
+    "behavioral_map freshness is unknown"
+   ],
+   "evidence_sources": [
+    "Neptune Serving Graph",
+    "IAM Attached Policies",
+    "IAM Access Advisor",
+    "CloudTrail",
+    "Behavioral Map"
+   ],
+   "freshness": {
+    "access_advisor": {
+     "age_seconds": null,
+     "generation": null,
+     "last_sync": null,
+     "scope": "account=111111111111 role=fixture-web-role",
+     "source_detail": "Neo4j role.aa_last_checked",
+     "status": "unknown",
+     "unknown_reason": "not_read_on_install"
+    },
+    "behavioral_map": {
+     "age_seconds": null,
+     "generation": null,
+     "last_sync": null,
+     "scope": "account=111111111111 role=fixture-web-role",
+     "source_detail": "services.behavioral_sync._sync_status['last_run'] OR Neo4j (SyncMetadata {name:'behavioral_sync'}).last_completed_at",
+     "status": "unknown",
+     "unknown_reason": "not_read_on_install"
+    },
+    "iam_usage": {
+     "age_seconds": null,
+     "generation": null,
+     "last_sync": null,
+     "scope": "account=111111111111 role=fixture-web-role",
+     "source_detail": "Neo4j (SyncRun {collector_id:'iam_usage'}).finished_at",
+     "status": "unknown",
+     "unknown_reason": "not_read_on_install"
+    },
+    "serving_graph": {
+     "age_seconds": null,
+     "generation": null,
+     "last_sync": null,
+     "scope": "account=111111111111",
+     "source_detail": "Neptune: active ProjectionGeneration.projected_through, else node.last_synced",
+     "status": "unknown",
+     "unknown_reason": "not_read_on_install"
+    }
+   },
+   "generated_at": "2026-09-25T13:38:04.862385+00:00",
+   "observation_coverage": {
+    "blockers": [
+     {
+      "reason": "CADENCE_INVENTORY_NOT_COLLECTED",
+      "source_type": "SCHEDULE_INVENTORY"
+     },
+     {
+      "reason": "CLOUDTRAIL_MGMT_COVERAGE_NOT_PROJECTED"
+     }
+    ],
+    "coverage_complete": false,
+    "decision_evidence_ready": false,
+    "effective_days": 365,
+    "requested_days": 365,
+    "required_days": 7
+   },
+   "observation_window_days": 365,
+   "observed_vs_configured": {
+    "configured": [
+     "IAM attached policies",
+     "IAM inline policies"
+    ],
+    "inferred": [
+     "unused permission classification",
+     "damage-tier labels",
+     "LP score",
+     "overall risk level"
+    ],
+    "observed": [
+     "CloudTrail API events",
+     "Access Advisor last-used timestamps",
+     "behavioral usage (PermissionUsage)"
+    ]
+   },
+   "scope": {
+    "resource_id": "fixture-web-role",
+    "resource_type": "IAMRole",
+    "system": null
+   }
+  },
+  "result": {
+   "authority": "LEGACY_DIAGNOSTIC",
+   "behavioral_authority": {
+    "authoritative": true,
+    "coverage_state": null,
+    "limitation": null,
+    "parity_delta": null,
+    "projection_generation": null
+   },
+   "budget": {
+    "budget_exhausted": false,
+    "budget_ms": 6000,
+    "elapsed_ms": 110,
+    "phases": [
+     {
+      "error_type": null,
+      "kind": "graph_read",
+      "ms": 21,
+      "name": "read_identity_resolve_exact",
+      "rows": 1,
+      "state": "OK"
+     },
+     {
+      "error_type": null,
+      "kind": "graph_read",
+      "ms": 1,
+      "name": "read_identity_resolve_unattributed",
+      "rows": 0,
+      "state": "OK"
+     },
+     {
+      "error_type": null,
+      "kind": "graph_read",
+      "ms": 4,
+      "name": "read_identity_census",
+      "rows": 1,
+      "state": "OK"
+     },
+     {
+      "error_type": null,
+      "kind": null,
+      "ms": 26,
+      "name": "resolve_identity",
+      "rows": null,
+      "state": "OK"
+     },
+     {
+      "error_type": null,
+      "kind": "graph_read",
+      "ms": 0,
+      "name": "read_role_record",
+      "rows": null,
+      "state": "OK"
+     },
+     {
+      "error_type": null,
+      "kind": null,
+      "ms": 3,
+      "name": "role_record",
+      "rows": 1,
+      "state": "OK"
+     },
+     {
+      "error_type": null,
+      "kind": "graph_read",
+      "ms": 0,
+      "name": "read_used_action_window",
+      "rows": 0,
+      "state": "OK"
+     },
+     {
+      "error_type": null,
+      "kind": null,
+      "ms": 5,
+      "name": "usage_window",
+      "rows": null,
+      "state": "OK"
+     },
+     {
+      "error_type": null,
+      "kind": null,
+      "ms": 0,
+      "name": "behavioral_usage_fallback",
+      "rows": null,
+      "state": "OK"
+     },
+     {
+      "error_type": null,
+      "kind": null,
+      "ms": 0,
+      "name": "policy_fallback",
+      "rows": null,
+      "state": "OK"
+     },
+     {
+      "error_type": null,
+      "kind": null,
+      "ms": 0,
+      "name": "usage_fallbacks",
+      "rows": null,
+      "state": "OK"
+     },
+     {
+      "error_type": null,
+      "kind": "graph_read",
+      "ms": 3,
+      "name": "read_schedule_role_lookup",
+      "rows": 0,
+      "state": "OK"
+     },
+     {
+      "error_type": null,
+      "kind": "graph_read",
+      "ms": 3,
+      "name": "read_schedule_link_eventbridge_rule",
+      "rows": 0,
+      "state": "OK"
+     },
+     {
+      "error_type": null,
+      "kind": "graph_read",
+      "ms": 3,
+      "name": "read_schedule_link_scheduled_task",
+      "rows": 0,
+      "state": "OK"
+     },
+     {
+      "error_type": null,
+      "kind": "graph_read",
+      "ms": 3,
+      "name": "read_schedule_link_targets_consumer",
+      "rows": 0,
+      "state": "OK"
+     },
+     {
+      "error_type": null,
+      "kind": "graph_read",
+      "ms": 3,
+      "name": "read_schedule_link_state_machine",
+      "rows": 0,
+      "state": "OK"
+     },
+     {
+      "error_type": null,
+      "kind": "graph_read",
+      "ms": 9,
+      "name": "read_schedule_link_asg_scheduled_action",
+      "rows": 0,
+      "state": "OK"
+     },
+     {
+      "error_type": null,
+      "kind": "graph_read",
+      "ms": 3,
+      "name": "read_schedule_link_uses_role",
+      "rows": 0,
+      "state": "OK"
+     },
+     {
+      "error_type": null,
+      "kind": "graph_read",
+      "ms": 3,
+      "name": "read_schedule_link_targets_glue_ssm",
+      "rows": 0,
+      "state": "OK"
+     },
+     {
+      "error_type": null,
+      "kind": "graph_read",
+      "ms": 3,
+      "name": "read_schedule_link_targets_ec2_ssm",
+      "rows": 0,
+      "state": "OK"
+     },
+     {
+      "error_type": null,
+      "kind": "graph_read",
+      "ms": 5,
+      "name": "read_coverage_sources",
+      "rows": 0,
+      "state": "OK"
+     },
+     {
+      "error_type": null,
+      "kind": null,
+      "ms": 60,
+      "name": "observation_readiness",
+      "rows": null,
+      "state": "OK"
+     },
+     {
+      "error_type": null,
+      "kind": "graph_read",
+      "ms": 0,
+      "name": "read_evidence_tally",
+      "rows": null,
+      "state": "OK"
+     },
+     {
+      "error_type": null,
+      "kind": null,
+      "ms": 5,
+      "name": "evidence_tally",
+      "rows": null,
+      "state": "OK"
+     },
+     {
+      "error_type": null,
+      "kind": "graph_read",
+      "ms": 7,
+      "name": "read_runtime_traffic_legacy",
+      "rows": 0,
+      "state": "OK"
+     },
+     {
+      "error_type": null,
+      "kind": null,
+      "ms": 7,
+      "name": "runtime_traffic_authority",
+      "rows": null,
+      "state": "OK"
+     }
+    ],
+    "phases_truncated": false,
+    "sections": {
+     "account_data_event_signals": "NOT_EVALUATED",
+     "calibration": "NOT_EVALUATED",
+     "evidence_breakdown": "NOT_EVALUATED",
+     "evidence_tally": "READY",
+     "observation_readiness": "READY",
+     "role_record": "READY",
+     "runtime_traffic_authority": "READY",
+     "safety_vector": "NOT_EVALUATED",
+     "usage_window": "READY"
+    }
+   },
+   "confidence": "MEDIUM",
+   "confidence_groups": {
+    "account_data_event_signals_evaluated": false,
+    "account_signals": {
+     "dynamodb_data_events": false,
+     "lambda_data_events": false,
+     "s3_data_events": false
+    },
+    "calibration_evaluated": false,
+    "calibration_factor": 1.0,
+    "calibration_reasons": {},
+    "evidence_overall_confidence": 30,
+    "groups": [
+     {
+      "action": "investigate_first",
+      "auto_remediable": false,
+      "block_reason_code": "needs_telemetry",
+      "block_reason_human": "DynamoDB CloudTrail data events are not enabled \u2014 Cyntro cannot verify these permissions are unused. Enable data events or wait for the 30-day observation window.",
+      "color": "red",
+      "confidence_score": 30,
+      "data_source_type": "data_event",
+      "decision_contract": {
+       "account_id": "111111111111",
+       "contract_version": "1.0.0",
+       "coverage": {
+        "access_advisor": "not_applicable",
+        "blind_spots": [
+         "cloudtrail_data_events:dynamodb"
+        ],
+        "cloudtrail_data_events": "missing",
+        "cloudtrail_management": "not_applicable",
+        "config_history": "not_applicable",
+        "flow_logs": "not_applicable",
+        "network_access_analyzer": "not_applicable",
+        "overall_score": 0.0,
+        "reachability_preflight": "not_applicable",
+        "resource_policy_scan": "not_applicable"
+       },
+       "coverage_snapshot_hash": "sha256:5ce378437cd4a3b58881ec4855f6100dadcc322d53add0c7222c18b223f66d33",
+       "customer_id": "fixture-webshop",
+       "customer_overlay_version": null,
+       "decision_id": "d-cca9397087a44b99",
+       "decision_time": "2026-09-25T13:38:04.833579+00:00",
+       "engine_version": "2026-05-06",
+       "evidence": [
+        {
+         "age_days": null,
+         "confidence": 1.0,
+         "description": "Coverage missing: cloudtrail_data_events:dynamodb",
+         "detail": {
+          "missing_sources": [
+           "cloudtrail_data_events:dynamodb"
+          ],
+          "required_sources": [
+           "cloudtrail_management",
+           "cloudtrail_data_events"
+          ]
+         },
+         "recorded_at": "2026-09-25T13:38:04.833496+00:00",
+         "source": "cloudtrail"
+        }
+       ],
+       "evidence_snapshot_hash": "sha256:ed362afed585b61ba28d1355ebcb28448f2777768b78f906ab9f79dfa9b0c1b8",
+       "lifecycle": {
+        "assigned_owner": null,
+        "created_at": "2026-09-25T13:38:04.833618+00:00",
+        "due_at": null,
+        "last_reviewed_at": null,
+        "override_lineage": null,
+        "resolution": null,
+        "review_due_at": null,
+        "stale_after": null,
+        "status": "OPEN"
+       },
+       "operator_context": {
+        "blast_radius": null,
+        "blocked_change": {
+         "current_state": "telemetry coverage incomplete: missing cloudtrail_data_events:dynamodb",
+         "proposed_change": "remove 5 unused DynamoDB, SQS permission(s)",
+         "resource_id": "fixture-web-role"
+        },
+        "escalation_target": {
+         "confidence": 0.0,
+         "display_name": null,
+         "source": "unknown",
+         "target_type": "unknown_no_default_configured"
+        },
+        "likely_owner": {
+         "confidence": 0.0,
+         "source": "unknown",
+         "team": null
+        },
+        "override_requirements": {
+         "allowed": false,
+         "rationale_required": true,
+         "required_acknowledgements": [
+          "acknowledge_missing_coverage_risk"
+         ],
+         "required_role": null,
+         "rollback_required": true
+        },
+        "rendered_explanation": "Cyntro blocked this IAM remediation because required telemetry is missing or stale. Without cloudtrail_data_events:dynamodb, the engine cannot tell whether the permission is actually unused vs unused-but-needed-rarely. Required: cloudtrail_management, cloudtrail_data_events. Missing: cloudtrail_data_events:dynamodb. Enable the missing source(s) and wait for a collection cycle before retrying.",
+        "suggested_safer_actions": [
+         {
+          "action": "Enable the missing telemetry source(s) in AWS",
+          "expected_risk_reduction": null,
+          "explanation": "CloudTrail data events for S3/DynamoDB/Lambda must be enabled in the customer account; collector lag resolves with one collection cycle."
+         }
+        ],
+        "summary": "Cyntro blocked remove 5 unused DynamoDB, SQS permission(s) on fixture-web-role because required telemetry is missing: cloudtrail_data_events:dynamodb. Acting on missing data is the false-remove failure mode the engine refuses to ship.",
+        "what_to_check": [
+         {
+          "check": "Enable cloudtrail_data_events:dynamodb for this account/region",
+          "command_or_link": "https://console.aws.amazon.com/cloudtrail/",
+          "expected_result": "cloudtrail_data_events:dynamodb appears in next coverage scan"
+         }
+        ],
+        "why": {
+         "confidence": 1.0,
+         "evidence_refs": [
+          "coverage_status"
+         ],
+         "explanation": "Required telemetry sources are missing or stale: cloudtrail_data_events:dynamodb. The engine cannot distinguish 'unused' from 'unused-but-needed-rarely' without these signals. Fail-closed posture applies."
+        }
+       },
+       "outcome": "BLOCK",
+       "reason_code": "missing_coverage",
+       "region": "global",
+       "remediation_intent": null,
+       "removal_safety_score": 0.0,
+       "resource_id": "fixture-web-role",
+       "resource_type": "IAM_ROLE",
+       "risk_of_leaving_score": 0.52,
+       "risk_severity": "HIGH",
+       "rollback_plan": null,
+       "rule_id": null,
+       "taxonomy_version": "1.0.0",
+       "template_version": "1.0.0",
+       "urgency": "MEDIUM"
+      },
+      "evidence_confidence_score": 30,
+      "evidence_summary": "DynamoDB data events are NOT enabled in CloudTrail. Cannot determine if these permissions are actively used. Enable DynamoDB data events in CloudTrail before removing.",
+      "explanation": "DynamoDB data events are NOT enabled in CloudTrail. Cannot determine if these permissions are actively used. Enable DynamoDB data events in CloudTrail before removing. DynamoDB CloudTrail data events are not enabled \u2014 Cyntro cannot verify these permissions are unused. Enable data events or wait for the 30-day observation window.",
+      "group_id": "data_event_investigate_first",
+      "label": "DynamoDB, SQS Data Operations (5)",
+      "logged_by_default": false,
+      "permission_count": 5,
+      "permissions": [
+       {
+        "_action": "investigate_first",
+        "calibration_factor": 1.0,
+        "calibration_reasons": [],
+        "confidence_score": 30,
+        "damage_label": "Write/modify operation",
+        "damage_tier": "WRITE",
+        "data_source_type": "data_event",
+        "evidence_confidence": 30,
+        "evidence_summary": "DynamoDB data events are NOT enabled in CloudTrail. Cannot determine if these permissions are actively used. Enable DynamoDB data events in CloudTrail before removing.",
+        "execution_confidence": 30,
+        "explanation": "DynamoDB data events are NOT enabled in CloudTrail. Cannot determine if these permissions are actively used. Enable DynamoDB data events in CloudTrail before removing. DynamoDB CloudTrail data events are not enabled \u2014 Cyntro cannot verify these permissions are unused. Enable data events or wait for the 30-day observation window.",
+        "logged_by_default": false,
+        "permission": "dynamodb:PutItem",
+        "protected": false,
+        "protection_category": null,
+        "protection_tier": null,
+        "recommendation": "Verify - not observed in 365 effective day(s); 7 required",
+        "reserved": false,
+        "risk_level": "MEDIUM",
+        "service_label": "DynamoDB",
+        "service_prefix": "dynamodb",
+        "status": "UNUSED",
+        "usage_count": 0,
+        "warn": false
+       },
+       {
+        "_action": "investigate_first",
+        "calibration_factor": 1.0,
+        "calibration_reasons": [],
+        "confidence_score": 30,
+        "damage_label": "Write/modify operation",
+        "damage_tier": "WRITE",
+        "data_source_type": "data_event",
+        "evidence_confidence": 30,
+        "evidence_summary": "SQS data events are NOT enabled in CloudTrail. Cannot determine if these permissions are actively used. Enable SQS data events in CloudTrail before removing.",
+        "execution_confidence": 30,
+        "explanation": "SQS data events are NOT enabled in CloudTrail. Cannot determine if these permissions are actively used. Enable SQS data events in CloudTrail before removing. DynamoDB CloudTrail data events are not enabled \u2014 Cyntro cannot verify these permissions are unused. Enable data events or wait for the 30-day observation window.",
+        "logged_by_default": false,
+        "permission": "sqs:SendMessage",
+        "protected": false,
+        "protection_category": null,
+        "protection_tier": null,
+        "recommendation": "Verify - not observed in 365 effective day(s); 7 required",
+        "reserved": false,
+        "risk_level": "MEDIUM",
+        "service_label": "SQS",
+        "service_prefix": "sqs",
+        "status": "UNUSED",
+        "usage_count": 0,
+        "warn": false
+       },
+       {
+        "_action": "investigate_first",
+        "calibration_factor": 1.0,
+        "calibration_reasons": [],
+        "confidence_score": 30,
+        "damage_label": "Read-only operation",
+        "damage_tier": "READ",
+        "data_source_type": "data_event",
+        "evidence_confidence": 30,
+        "evidence_summary": "DynamoDB data events are NOT enabled in CloudTrail. Cannot determine if these permissions are actively used. Enable DynamoDB data events in CloudTrail before removing.",
+        "execution_confidence": 30,
+        "explanation": "DynamoDB data events are NOT enabled in CloudTrail. Cannot determine if these permissions are actively used. Enable DynamoDB data events in CloudTrail before removing. DynamoDB CloudTrail data events are not enabled \u2014 Cyntro cannot verify these permissions are unused. Enable data events or wait for the 30-day observation window.",
+        "logged_by_default": false,
+        "permission": "dynamodb:GetItem",
+        "protected": false,
+        "protection_category": null,
+        "protection_tier": null,
+        "recommendation": "Verify - not observed in 365 effective day(s); 7 required",
+        "reserved": false,
+        "risk_level": "LOW",
+        "service_label": "DynamoDB",
+        "service_prefix": "dynamodb",
+        "status": "UNUSED",
+        "usage_count": 0,
+        "warn": false
+       },
+       {
+        "_action": "investigate_first",
+        "calibration_factor": 1.0,
+        "calibration_reasons": [],
+        "confidence_score": 30,
+        "damage_label": "Read-only operation",
+        "damage_tier": "READ",
+        "data_source_type": "data_event",
+        "evidence_confidence": 30,
+        "evidence_summary": "DynamoDB data events are NOT enabled in CloudTrail. Cannot determine if these permissions are actively used. Enable DynamoDB data events in CloudTrail before removing.",
+        "execution_confidence": 30,
+        "explanation": "DynamoDB data events are NOT enabled in CloudTrail. Cannot determine if these permissions are actively used. Enable DynamoDB data events in CloudTrail before removing. DynamoDB CloudTrail data events are not enabled \u2014 Cyntro cannot verify these permissions are unused. Enable data events or wait for the 30-day observation window.",
+        "logged_by_default": false,
+        "permission": "dynamodb:Query",
+        "protected": false,
+        "protection_category": null,
+        "protection_tier": null,
+        "recommendation": "Verify - not observed in 365 effective day(s); 7 required",
+        "reserved": false,
+        "risk_level": "LOW",
+        "service_label": "DynamoDB",
+        "service_prefix": "dynamodb",
+        "status": "UNUSED",
+        "usage_count": 0,
+        "warn": false
+       },
+       {
+        "_action": "investigate_first",
+        "calibration_factor": 1.0,
+        "calibration_reasons": [],
+        "confidence_score": 30,
+        "damage_label": "Read-only operation",
+        "damage_tier": "READ",
+        "data_source_type": "data_event",
+        "evidence_confidence": 30,
+        "evidence_summary": "SQS data events are NOT enabled in CloudTrail. Cannot determine if these permissions are actively used. Enable SQS data events in CloudTrail before removing.",
+        "execution_confidence": 30,
+        "explanation": "SQS data events are NOT enabled in CloudTrail. Cannot determine if these permissions are actively used. Enable SQS data events in CloudTrail before removing. DynamoDB CloudTrail data events are not enabled \u2014 Cyntro cannot verify these permissions are unused. Enable data events or wait for the 30-day observation window.",
+        "logged_by_default": false,
+        "permission": "sqs:ReceiveMessage",
+        "protected": false,
+        "protection_category": null,
+        "protection_tier": null,
+        "recommendation": "Verify - not observed in 365 effective day(s); 7 required",
+        "reserved": false,
+        "risk_level": "LOW",
+        "service_label": "SQS",
+        "service_prefix": "sqs",
+        "status": "UNUSED",
+        "usage_count": 0,
+        "warn": false
+       }
+      ],
+      "protected": false,
+      "protection_category": null,
+      "protection_tier": null,
+      "service_label": "DynamoDB, SQS",
+      "telemetry_enablement_action": {
+       "endpoint": "/api/telemetry/enable-data-events",
+       "estimated_cost_usd_per_month": 5,
+       "service": "dynamodb"
+      },
+      "warn": false
+     },
+     {
+      "action": "protected",
+      "auto_remediable": false,
+      "block_reason_code": "protected",
+      "block_reason_human": "KMS cryptographic operations are excluded from most CloudTrail trails due to extreme event volume. These permissions appear unused but are called constantly by any service accessing encrypted resources (S3, EBS, RDS, Secrets Manager, etc.).",
+      "color": "gray",
+      "confidence_score": 30,
+      "data_source_type": "data_event",
+      "evidence_confidence_score": 30,
+      "evidence_summary": "KMS cryptographic operations are excluded from most CloudTrail trails due to extreme event volume. These permissions appear unused but are called constantly by any service accessing encrypted resources (S3, EBS, RDS, Secrets Manager, etc.).",
+      "explanation": "KMS cryptographic operations are excluded from most CloudTrail trails due to extreme event volume. These permissions appear unused but are called constantly by any service accessing encrypted resources (S3, EBS, RDS, Secrets Manager, etc.).",
+      "group_id": "protected_kms_encryption",
+      "label": "KMS Encryption \u2014 Excluded from Most Trails (2)",
+      "logged_by_default": false,
+      "permission_count": 2,
+      "permissions": [
+       {
+        "_action": "protected",
+        "calibration_factor": 1.0,
+        "calibration_reasons": [],
+        "confidence_score": 30,
+        "damage_label": "Read-only operation",
+        "damage_tier": "READ",
+        "data_source_type": "data_event",
+        "evidence_confidence": 30,
+        "execution_confidence": 30,
+        "explanation": "KMS data events are NOT enabled in CloudTrail. Cannot determine if these permissions are actively used. Enable KMS data events in CloudTrail before removing.",
+        "logged_by_default": false,
+        "permission": "kms:Decrypt",
+        "protected": true,
+        "protection_category": "kms_encryption",
+        "protection_tier": "never_remove",
+        "recommendation": "Verify - not observed in 365 effective day(s); 7 required",
+        "reserved": false,
+        "risk_level": "LOW",
+        "service_label": "KMS",
+        "service_prefix": "kms",
+        "status": "UNUSED",
+        "usage_count": 0,
+        "warn": false
+       },
+       {
+        "_action": "protected",
+        "calibration_factor": 1.0,
+        "calibration_reasons": [],
+        "confidence_score": 30,
+        "damage_label": "Read-only operation",
+        "damage_tier": "READ",
+        "data_source_type": "data_event",
+        "evidence_confidence": 30,
+        "execution_confidence": 30,
+        "explanation": "KMS data events are NOT enabled in CloudTrail. Cannot determine if these permissions are actively used. Enable KMS data events in CloudTrail before removing.",
+        "logged_by_default": false,
+        "permission": "kms:Encrypt",
+        "protected": true,
+        "protection_category": "kms_encryption",
+        "protection_tier": "never_remove",
+        "recommendation": "Verify - not observed in 365 effective day(s); 7 required",
+        "reserved": false,
+        "risk_level": "LOW",
+        "service_label": "KMS",
+        "service_prefix": "kms",
+        "status": "UNUSED",
+        "usage_count": 0,
+        "warn": false
+       }
+      ],
+      "protected": true,
+      "protection_category": "kms_encryption",
+      "protection_tier": "never_remove",
+      "service_label": "KMS",
+      "telemetry_enablement_action": null,
+      "warn": false
+     },
+     {
+      "action": "protected",
+      "auto_remediable": false,
+      "block_reason_code": "protected",
+      "block_reason_human": "iam:PassRole never appears in CloudTrail \u2014 it is a permission check, not an API call. Used by 90+ AWS services (Lambda, ECS, EC2, CodeBuild, etc.) to delegate roles to services. Removing this will break service deployments.",
+      "color": "gray",
+      "confidence_score": 75,
+      "data_source_type": "management_event",
+      "evidence_confidence_score": 75,
+      "evidence_summary": "iam:PassRole never appears in CloudTrail \u2014 it is a permission check, not an API call. Used by 90+ AWS services (Lambda, ECS, EC2, CodeBuild, etc.) to delegate roles to services. Removing this will break service deployments.",
+      "explanation": "iam:PassRole never appears in CloudTrail \u2014 it is a permission check, not an API call. Used by 90+ AWS services (Lambda, ECS, EC2, CodeBuild, etc.) to delegate roles to services. Removing this will break service deployments.",
+      "group_id": "protected_iam_passrole",
+      "label": "IAM PassRole \u2014 Invisible in CloudTrail (1)",
+      "logged_by_default": true,
+      "permission_count": 1,
+      "permissions": [
+       {
+        "_action": "protected",
+        "calibration_factor": 1.0,
+        "calibration_reasons": [],
+        "confidence_score": 75,
+        "damage_label": "Privilege escalation",
+        "damage_tier": "ADMIN",
+        "data_source_type": "management_event",
+        "evidence_confidence": 75,
+        "execution_confidence": 75,
+        "explanation": "Fully logged in CloudTrail. No API activity recorded for this role in 365 days. Role appears inactive.",
+        "logged_by_default": true,
+        "permission": "iam:PassRole",
+        "protected": true,
+        "protection_category": "iam_passrole",
+        "protection_tier": "never_remove",
+        "recommendation": "Verify - not observed in 365 effective day(s); 7 required",
+        "reserved": false,
+        "risk_level": "CRITICAL",
+        "service_label": "IAM",
+        "service_prefix": "iam",
+        "status": "UNUSED",
+        "usage_count": 0,
+        "warn": false
+       }
+      ],
+      "protected": true,
+      "protection_category": "iam_passrole",
+      "protection_tier": "never_remove",
+      "service_label": "IAM",
+      "telemetry_enablement_action": null,
+      "warn": false
+     }
+    ],
+    "observation_days": 365,
+    "overall_confidence": 30,
+    "summary": {
+     "investigate_first": 5,
+     "protected": 3,
+     "reserved": 0,
+     "safe_to_remove": 0,
+     "verify_first": 0,
+     "warn_before_removing": 0
+    },
+    "total_permissions": 5,
+    "total_permissions_all": 8
+   },
+   "confidence_mode": "observed",
+   "data_source": "real",
+   "decision_authority": {
+    "actions": [
+     {
+      "action": "dynamodb:GetItem",
+      "as_of": "2026-09-20T12:00:00+00:00",
+      "corroboration_state": "NOT_EVALUATED",
+      "coverage_state": "COMPLETE",
+      "decision_hash": "v1:2fb5a46a70bd51836a8cfa8be20508b56cbc95d2447739baada2d80af7911580",
+      "eligibility_state": "ELIGIBLE",
+      "reason": null,
+      "removal_verdict": "LAYER_UNKNOWN",
+      "state": "DECISION_ACTIVE",
+      "usage_state": "NOT_OBSERVED"
+     },
+     {
+      "action": "dynamodb:PutItem",
+      "as_of": "2026-09-20T12:00:00+00:00",
+      "corroboration_state": "NOT_EVALUATED",
+      "coverage_state": "COMPLETE",
+      "decision_hash": "v1:306d7030bead9f6edd5adfb166ee945a13703cba3c9aee5d9653dd606c8810ca",
+      "eligibility_state": "ELIGIBLE",
+      "reason": null,
+      "removal_verdict": "LAYER_UNKNOWN",
+      "state": "DECISION_ACTIVE",
+      "usage_state": "NOT_OBSERVED"
+     },
+     {
+      "action": "dynamodb:Query",
+      "as_of": "2026-09-20T12:00:00+00:00",
+      "corroboration_state": "NOT_EVALUATED",
+      "coverage_state": "COMPLETE",
+      "decision_hash": "v1:6d6bebf88e920366146f017f0cfa10f0db3690ae4f485c4e6e314430feffbafa",
+      "eligibility_state": "ELIGIBLE",
+      "reason": null,
+      "removal_verdict": "LAYER_UNKNOWN",
+      "state": "DECISION_ACTIVE",
+      "usage_state": "NOT_OBSERVED"
+     },
+     {
+      "action": "iam:PassRole",
+      "as_of": "2026-09-20T12:00:00+00:00",
+      "corroboration_state": "NOT_EVALUATED",
+      "coverage_state": "COMPLETE",
+      "decision_hash": "v1:0bd97005d7ae3d2cba473ff42a5c9088230a5cd93781d19de1355b3e1976d7e9",
+      "eligibility_state": "ELIGIBLE",
+      "reason": null,
+      "removal_verdict": "LAYER_UNKNOWN",
+      "state": "DECISION_ACTIVE",
+      "usage_state": "NOT_OBSERVED"
+     },
+     {
+      "action": "kms:Decrypt",
+      "as_of": "2026-09-20T12:00:00+00:00",
+      "corroboration_state": "NOT_EVALUATED",
+      "coverage_state": "COMPLETE",
+      "decision_hash": "v1:a79d3bf941c4d73500b526f352a360e80146eb2a885ee697ec146b781289bd43",
+      "eligibility_state": "ELIGIBLE",
+      "reason": null,
+      "removal_verdict": "LAYER_UNKNOWN",
+      "state": "DECISION_ACTIVE",
+      "usage_state": "NOT_OBSERVED"
+     },
+     {
+      "action": "kms:Encrypt",
+      "as_of": "2026-09-20T12:00:00+00:00",
+      "corroboration_state": "NOT_EVALUATED",
+      "coverage_state": "COMPLETE",
+      "decision_hash": "v1:74c7b3b826d915d6af48677d75443cf474ef4f637dff1e3d1a60d16e608a9010",
+      "eligibility_state": "ELIGIBLE",
+      "reason": null,
+      "removal_verdict": "LAYER_UNKNOWN",
+      "state": "DECISION_ACTIVE",
+      "usage_state": "NOT_OBSERVED"
+     },
+     {
+      "action": "s3:DeleteObject",
+      "as_of": "2026-09-20T12:00:00+00:00",
+      "corroboration_state": "NOT_EVALUATED",
+      "coverage_state": "COMPLETE",
+      "decision_hash": "v1:219fc0ff62a47302c04986dad3b6fe5dec2bc6f466cbc7ae6172e0e4c6891863",
+      "eligibility_state": "PROTECTED",
+      "reason": null,
+      "removal_verdict": "IN_USE",
+      "state": "DECISION_ACTIVE",
+      "usage_state": "SUCCESS_OBSERVED"
+     },
+     {
+      "action": "s3:GetObject",
+      "as_of": "2026-09-20T12:00:00+00:00",
+      "corroboration_state": "NOT_EVALUATED",
+      "coverage_state": "COMPLETE",
+      "decision_hash": "v1:64683caaebb62fd5de3307d6ac68a2120f32237b6f475f9475e555d908d4504f",
+      "eligibility_state": "PROTECTED",
+      "reason": null,
+      "removal_verdict": "IN_USE",
+      "state": "DECISION_ACTIVE",
+      "usage_state": "SUCCESS_OBSERVED"
+     },
+     {
+      "action": "s3:ListBucket",
+      "as_of": "2026-09-20T12:00:00+00:00",
+      "corroboration_state": "NOT_EVALUATED",
+      "coverage_state": "COMPLETE",
+      "decision_hash": "v1:e01b7f15a1d4212dc5a1e935e6af5ff38026a81f175ff49c3de66217f76d6198",
+      "eligibility_state": "PROTECTED",
+      "reason": null,
+      "removal_verdict": "IN_USE",
+      "state": "DECISION_ACTIVE",
+      "usage_state": "SUCCESS_OBSERVED"
+     },
+     {
+      "action": "s3:PutObject",
+      "as_of": "2026-09-20T12:00:00+00:00",
+      "corroboration_state": "NOT_EVALUATED",
+      "coverage_state": "COMPLETE",
+      "decision_hash": "v1:bdd6fe671e4942659059aca67ddf04b5d943e1b79fcb319fdf461da5ded3d912",
+      "eligibility_state": "PROTECTED",
+      "reason": null,
+      "removal_verdict": "IN_USE",
+      "state": "DECISION_ACTIVE",
+      "usage_state": "SUCCESS_OBSERVED"
+     },
+     {
+      "action": "sqs:ReceiveMessage",
+      "as_of": "2026-09-20T12:00:00+00:00",
+      "corroboration_state": "NOT_EVALUATED",
+      "coverage_state": "COMPLETE",
+      "decision_hash": "v1:84e4faaa489e1773fd7636ffae3cf280aa1f3e5ea888497aaefd30318fd54ea4",
+      "eligibility_state": "ELIGIBLE",
+      "reason": null,
+      "removal_verdict": "LAYER_UNKNOWN",
+      "state": "DECISION_ACTIVE",
+      "usage_state": "NOT_OBSERVED"
+     },
+     {
+      "action": "sqs:SendMessage",
+      "as_of": "2026-09-20T12:00:00+00:00",
+      "corroboration_state": "NOT_EVALUATED",
+      "coverage_state": "COMPLETE",
+      "decision_hash": "v1:57727cb2b7350ef9209523e831b91cbbb89efc38085270a1deedef429800e372",
+      "eligibility_state": "ELIGIBLE",
+      "reason": null,
+      "removal_verdict": "LAYER_UNKNOWN",
+      "state": "DECISION_ACTIVE",
+      "usage_state": "NOT_OBSERVED"
+     }
+    ],
+    "authority": "DECISION_GRADE",
+    "configured_set": {
+     "closed": true,
+     "open_reasons": []
+    },
+    "contract": "lp-decision-authority/v1",
+    "counts": {
+     "ACTION_ABSENT": 0,
+     "DECISION_ACTIVE": 12,
+     "GENERATION_UNVERIFIED": 0,
+     "NOT_EVALUATED": 0,
+     "NO_ACTIVE_GENERATION": 0,
+     "RECEIPT_MISSING": 0
+    },
+    "decisions_outside_configuration": 0,
+    "detail": "",
+    "publication": {
+     "attempt": "4232e1a5b47846cf8fb665428166af1c",
+     "published_at": "2026-09-25T13:38:03+00:00"
+    },
+    "reason": null,
+    "receipt": {
+     "account_id": "111111111111",
+     "projected_through": "2026-09-20T12:00:00+00:00",
+     "projection_generation": 7,
+     "projection_receipt_hash": "v1:7c457f942a55b690236a9c7c5b11c6363d95c5c4c238e5110a59c9cc596cafc1",
+     "scope": "iam.role_action_decision.v1",
+     "staging_run_id": "fixture-stage-7",
+     "tenant_id": "fixture-webshop"
+    },
+    "removal": {
+     "cleared": [],
+     "in_use": [
+      "s3:DeleteObject",
+      "s3:GetObject",
+      "s3:ListBucket",
+      "s3:PutObject"
+     ],
+     "indeterminate": [
+      {
+       "action": "dynamodb:GetItem",
+       "reason": "LAYER_UNKNOWN"
+      },
+      {
+       "action": "dynamodb:PutItem",
+       "reason": "LAYER_UNKNOWN"
+      },
+      {
+       "action": "dynamodb:Query",
+       "reason": "LAYER_UNKNOWN"
+      },
+      {
+       "action": "iam:PassRole",
+       "reason": "LAYER_UNKNOWN"
+      },
+      {
+       "action": "kms:Decrypt",
+       "reason": "LAYER_UNKNOWN"
+      },
+      {
+       "action": "kms:Encrypt",
+       "reason": "LAYER_UNKNOWN"
+      },
+      {
+       "action": "sqs:ReceiveMessage",
+       "reason": "LAYER_UNKNOWN"
+      },
+      {
+       "action": "sqs:SendMessage",
+       "reason": "LAYER_UNKNOWN"
+      }
+     ]
+    },
+    "role": {
+     "role_arn": "arn:aws:iam::111111111111:role/fixture-web-role",
+     "role_id": "AROAFIXTUREWEB"
+    },
+    "state": "ACTIVE_POPULATED",
+    "tally": {
+     "NOT_OBSERVED": {
+      "ELIGIBLE": 8
+     },
+     "SUCCESS_OBSERVED": {
+      "PROTECTED": 4
+     }
+    }
+   },
+   "decision_evidence_ready": false,
+   "dependency_context": {
+    "dependencies": null,
+    "has_critical_dependencies": null,
+    "limitation": "Dependency analysis was not computed for this role.",
+    "status": "not_computed",
+    "system": {
+     "criticality": null,
+     "name": "fixture-shop"
+    }
+   },
+   "diagnostics": {
+    "bound": "CONFIGURATION_ESTIMATE",
+    "budget_exhausted": false,
+    "budget_seconds": 6.0,
+    "cancellation": "client_read_timeout_only",
+    "elapsed_ms": 110,
+    "estimate_fits_proxy": true,
+    "estimated_statement_overshoot_seconds": 6.0,
+    "outside_estimate": [
+     "thread_pool_admission_before_budget_start",
+     "sts_web_identity_credential_refresh",
+     "per_socket_operation_timeout_not_whole_request",
+     "multi_statement_helper_phases"
+    ],
+    "phases": [
+     {
+      "kind": "graph_read",
+      "ms": 21,
+      "phase": "read_identity_resolve_exact",
+      "rows": 1,
+      "state": "OK"
+     },
+     {
+      "kind": "graph_read",
+      "ms": 1,
+      "phase": "read_identity_resolve_unattributed",
+      "rows": 0,
+      "state": "OK"
+     },
+     {
+      "kind": "graph_read",
+      "ms": 4,
+      "phase": "read_identity_census",
+      "rows": 1,
+      "state": "OK"
+     },
+     {
+      "ms": 26,
+      "phase": "resolve_identity",
+      "state": "OK"
+     },
+     {
+      "kind": "graph_read",
+      "ms": 0,
+      "phase": "read_role_record",
+      "state": "OK"
+     },
+     {
+      "ms": 3,
+      "phase": "role_record",
+      "rows": 1,
+      "state": "OK"
+     },
+     {
+      "kind": "graph_read",
+      "ms": 0,
+      "phase": "read_used_action_window",
+      "rows": 0,
+      "state": "OK"
+     },
+     {
+      "ms": 5,
+      "phase": "usage_window",
+      "state": "OK"
+     },
+     {
+      "ms": 0,
+      "phase": "behavioral_usage_fallback",
+      "state": "OK"
+     },
+     {
+      "ms": 0,
+      "phase": "policy_fallback",
+      "state": "OK"
+     },
+     {
+      "ms": 0,
+      "phase": "usage_fallbacks",
+      "state": "OK"
+     },
+     {
+      "kind": "graph_read",
+      "ms": 3,
+      "phase": "read_schedule_role_lookup",
+      "rows": 0,
+      "state": "OK"
+     },
+     {
+      "kind": "graph_read",
+      "ms": 3,
+      "phase": "read_schedule_link_eventbridge_rule",
+      "rows": 0,
+      "state": "OK"
+     },
+     {
+      "kind": "graph_read",
+      "ms": 3,
+      "phase": "read_schedule_link_scheduled_task",
+      "rows": 0,
+      "state": "OK"
+     },
+     {
+      "kind": "graph_read",
+      "ms": 3,
+      "phase": "read_schedule_link_targets_consumer",
+      "rows": 0,
+      "state": "OK"
+     },
+     {
+      "kind": "graph_read",
+      "ms": 3,
+      "phase": "read_schedule_link_state_machine",
+      "rows": 0,
+      "state": "OK"
+     },
+     {
+      "kind": "graph_read",
+      "ms": 9,
+      "phase": "read_schedule_link_asg_scheduled_action",
+      "rows": 0,
+      "state": "OK"
+     },
+     {
+      "kind": "graph_read",
+      "ms": 3,
+      "phase": "read_schedule_link_uses_role",
+      "rows": 0,
+      "state": "OK"
+     },
+     {
+      "kind": "graph_read",
+      "ms": 3,
+      "phase": "read_schedule_link_targets_glue_ssm",
+      "rows": 0,
+      "state": "OK"
+     },
+     {
+      "kind": "graph_read",
+      "ms": 3,
+      "phase": "read_schedule_link_targets_ec2_ssm",
+      "rows": 0,
+      "state": "OK"
+     },
+     {
+      "kind": "graph_read",
+      "ms": 5,
+      "phase": "read_coverage_sources",
+      "rows": 0,
+      "state": "OK"
+     },
+     {
+      "ms": 60,
+      "phase": "observation_readiness",
+      "state": "OK"
+     },
+     {
+      "kind": "graph_read",
+      "ms": 0,
+      "phase": "read_evidence_tally",
+      "state": "OK"
+     },
+     {
+      "ms": 5,
+      "phase": "evidence_tally",
+      "state": "OK"
+     },
+     {
+      "kind": "graph_read",
+      "ms": 7,
+      "phase": "read_runtime_traffic_legacy",
+      "rows": 0,
+      "state": "OK"
+     },
+     {
+      "ms": 7,
+      "phase": "runtime_traffic_authority",
+      "state": "OK"
+     }
+    ],
+    "phases_truncated": false,
+    "request_id": "5f05459a879c4eb4",
+    "route_prepare_ms": 6,
+    "statement_timeout_seconds": 3.0
+   },
+   "effective_observation_days": 365,
+   "evidence_breakdown": null,
+   "high_risk_unused": [
+    "iam:PassRole"
+   ],
+   "is_remediable": false,
+   "observation_days": 365,
+   "observation_readiness": {
+    "blockers": [
+     {
+      "reason": "CADENCE_INVENTORY_NOT_COLLECTED",
+      "source_type": "SCHEDULE_INVENTORY"
+     },
+     {
+      "reason": "CLOUDTRAIL_MGMT_COVERAGE_NOT_PROJECTED"
+     }
+    ],
+    "coverage_complete": false,
+    "decision_evidence_ready": false,
+    "effective_observation_days": 365,
+    "observation_floor": {
+     "cadence_days": null,
+     "minimum_days": 7,
+     "required_days": 7,
+     "rule": "max(minimum_days, 2 x cadence_days)",
+     "schedule_inventory_complete": false,
+     "schedule_inventory_status": "missing",
+     "source": "CYNTRO_MUTATION_EVIDENCE_MIN_OBSERVATION_DAYS"
+    },
+    "requested_lookback_days": 365,
+    "required_observation_days": 7
+   },
+   "observation_window": {
+    "basis": "observed_events",
+    "collected_at": "2026-09-15T00:00:00+00:00",
+    "effective_days": 365,
+    "limitation": null,
+    "observed_from": "2025-09-16T00:00:00+00:00",
+    "observed_through": "2026-09-15T00:00:00+00:00",
+    "requested_lookback_days": 365,
+    "span_days": 364
+   },
+   "permissions_analysis": [
+    {
+     "damage_tier": "READ",
+     "evidence": [
+      "s3:GetObject"
+     ],
+     "last_used": null,
+     "permission": "s3:GetObject",
+     "recommendation": "Keep - actively used",
+     "risk_level": "LOW",
+     "status": "USED",
+     "usage_count": null
+    },
+    {
+     "damage_tier": "WRITE",
+     "evidence": [
+      "s3:PutObject"
+     ],
+     "last_used": null,
+     "permission": "s3:PutObject",
+     "recommendation": "Keep - actively used",
+     "risk_level": "MEDIUM",
+     "status": "USED",
+     "usage_count": null
+    },
+    {
+     "damage_tier": "DESTRUCTIVE",
+     "evidence": [
+      "s3:DeleteObject"
+     ],
+     "last_used": null,
+     "permission": "s3:DeleteObject",
+     "recommendation": "Keep - actively used",
+     "risk_level": "HIGH",
+     "status": "USED",
+     "usage_count": null
+    },
+    {
+     "damage_tier": "READ",
+     "evidence": [
+      "s3:ListBucket"
+     ],
+     "last_used": null,
+     "permission": "s3:ListBucket",
+     "recommendation": "Keep - actively used",
+     "risk_level": "LOW",
+     "status": "USED",
+     "usage_count": null
+    },
+    {
+     "damage_label": "Read-only operation",
+     "damage_tier": "READ",
+     "permission": "dynamodb:GetItem",
+     "recommendation": "Verify - not observed in 365 effective day(s); 7 required",
+     "risk_level": "LOW",
+     "status": "UNUSED",
+     "usage_count": 0
+    },
+    {
+     "damage_label": "Write/modify operation",
+     "damage_tier": "WRITE",
+     "permission": "dynamodb:PutItem",
+     "recommendation": "Verify - not observed in 365 effective day(s); 7 required",
+     "risk_level": "MEDIUM",
+     "status": "UNUSED",
+     "usage_count": 0
+    },
+    {
+     "damage_label": "Read-only operation",
+     "damage_tier": "READ",
+     "permission": "dynamodb:Query",
+     "recommendation": "Verify - not observed in 365 effective day(s); 7 required",
+     "risk_level": "LOW",
+     "status": "UNUSED",
+     "usage_count": 0
+    },
+    {
+     "damage_label": "Write/modify operation",
+     "damage_tier": "WRITE",
+     "permission": "sqs:SendMessage",
+     "recommendation": "Verify - not observed in 365 effective day(s); 7 required",
+     "risk_level": "MEDIUM",
+     "status": "UNUSED",
+     "usage_count": 0
+    },
+    {
+     "damage_label": "Read-only operation",
+     "damage_tier": "READ",
+     "permission": "sqs:ReceiveMessage",
+     "recommendation": "Verify - not observed in 365 effective day(s); 7 required",
+     "risk_level": "LOW",
+     "status": "UNUSED",
+     "usage_count": 0
+    },
+    {
+     "damage_label": "Read-only operation",
+     "damage_tier": "READ",
+     "permission": "kms:Decrypt",
+     "recommendation": "Verify - not observed in 365 effective day(s); 7 required",
+     "risk_level": "LOW",
+     "status": "UNUSED",
+     "usage_count": 0
+    },
+    {
+     "damage_label": "Read-only operation",
+     "damage_tier": "READ",
+     "permission": "kms:Encrypt",
+     "recommendation": "Verify - not observed in 365 effective day(s); 7 required",
+     "risk_level": "LOW",
+     "status": "UNUSED",
+     "usage_count": 0
+    },
+    {
+     "damage_label": "Privilege escalation",
+     "damage_tier": "ADMIN",
+     "permission": "iam:PassRole",
+     "recommendation": "Verify - not observed in 365 effective day(s); 7 required",
+     "risk_level": "CRITICAL",
+     "status": "UNUSED",
+     "usage_count": 0
+    }
+   ],
+   "reason": "evidence_window_immature",
+   "remediable_reason": "Effective observation 365/7 days; collect more evidence before remediation",
+   "remediated_at": null,
+   "requested_lookback_days": 365,
+   "required_observation_days": 7,
+   "review_scope": {
+    "account_id": "111111111111",
+    "account_match_mode": "EXACT",
+    "authority": "SERVER_DEPLOYMENT_CONFIG",
+    "graph_nodes_for_arn": 1,
+    "region_context": null,
+    "role_arn": "arn:aws:iam::111111111111:role/fixture-web-role",
+    "role_id": "AROAFIXTUREWEB",
+    "role_name": "fixture-web-role",
+    "tenant_id": "fixture-webshop"
+   },
+   "role_arn": "arn:aws:iam::111111111111:role/fixture-web-role",
+   "role_name": "fixture-web-role",
+   "safety_vector": null,
+   "sections": {
+    "account_data_event_signals": "NOT_EVALUATED",
+    "calibration": "NOT_EVALUATED",
+    "evidence_breakdown": "NOT_EVALUATED",
+    "evidence_tally": "READY",
+    "observation_readiness": "READY",
+    "role_record": "READY",
+    "runtime_traffic_authority": "READY",
+    "safety_vector": "NOT_EVALUATED",
+    "usage_window": "READY"
+   },
+   "server_plan": {
+    "account_id": "111111111111",
+    "actions": [],
+    "issue_state": "UNKNOWN",
+    "plan_head": null,
+    "role_arn": "arn:aws:iam::111111111111:role/fixture-web-role",
+    "role_id": "AROAFIXTUREWEB",
+    "tenant_id": "fixture-webshop",
+    "unavailable_actions": [
+     {
+      "coverage": "UNAVAILABLE",
+      "observed_use_count": null,
+      "permission": "s3:GetObject"
+     },
+     {
+      "coverage": "UNAVAILABLE",
+      "observed_use_count": null,
+      "permission": "s3:PutObject"
+     },
+     {
+      "coverage": "UNAVAILABLE",
+      "observed_use_count": null,
+      "permission": "s3:DeleteObject"
+     },
+     {
+      "coverage": "UNAVAILABLE",
+      "observed_use_count": null,
+      "permission": "s3:ListBucket"
+     },
+     {
+      "coverage": "UNAVAILABLE",
+      "observed_use_count": 0,
+      "permission": "dynamodb:GetItem"
+     },
+     {
+      "coverage": "UNAVAILABLE",
+      "observed_use_count": 0,
+      "permission": "dynamodb:PutItem"
+     },
+     {
+      "coverage": "UNAVAILABLE",
+      "observed_use_count": 0,
+      "permission": "dynamodb:Query"
+     },
+     {
+      "coverage": "UNAVAILABLE",
+      "observed_use_count": 0,
+      "permission": "sqs:SendMessage"
+     },
+     {
+      "coverage": "UNAVAILABLE",
+      "observed_use_count": 0,
+      "permission": "sqs:ReceiveMessage"
+     },
+     {
+      "coverage": "UNAVAILABLE",
+      "observed_use_count": 0,
+      "permission": "kms:Decrypt"
+     },
+     {
+      "coverage": "UNAVAILABLE",
+      "observed_use_count": 0,
+      "permission": "kms:Encrypt"
+     },
+     {
+      "coverage": "UNAVAILABLE",
+      "observed_use_count": 0,
+      "permission": "iam:PassRole"
+     }
+    ]
+   },
+   "service_role_analysis": {
+    "analysis": null,
+    "is_service_role": null,
+    "limitation": "The trust policy for this role is not in the serving graph. Run the IAM collector; live IAM is not consulted on the read path.",
+    "service_principals": [],
+    "source": "graph",
+    "status": "not_computed"
+   },
+   "summary": {
+    "api_relationships": 0,
+    "cloudtrail_events": null,
+    "data_confidence": "PARTIAL",
+    "event_count_basis": {
+     "edges_in_window": 0,
+     "edges_without_hit_count": 0,
+     "limitation": "No USED_ACTION edge falls inside the decision window.",
+     "source": "USED_ACTION.hit_count",
+     "window_cutoff": "2026-06-27T13:38:04",
+     "window_days": 90
+    },
+    "high_risk_unused_count": 1,
+    "lp_score": 33.3,
+    "overall_risk": "HIGH",
+    "total_evidence": 0,
+    "total_permissions": 12,
+    "traffic_relationships": 0,
+    "unused_count": 8,
+    "used_count": 4
+   },
+   "timestamp": "2026-09-25T13:38:04.826369+00:00",
+   "unused_permissions": [
+    "dynamodb:GetItem",
+    "dynamodb:PutItem",
+    "dynamodb:Query",
+    "sqs:SendMessage",
+    "sqs:ReceiveMessage",
+    "kms:Decrypt",
+    "kms:Encrypt",
+    "iam:PassRole"
+   ],
+   "used_permissions": [
+    "s3:GetObject",
+    "s3:PutObject",
+    "s3:DeleteObject",
+    "s3:ListBucket"
+   ]
+  }
+ }
+}

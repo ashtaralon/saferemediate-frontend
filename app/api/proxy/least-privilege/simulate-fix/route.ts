@@ -1,77 +1,87 @@
-// app/api/proxy/least-privilege/simulate-fix/route.ts
 import { NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
+import { previewProofFor, previewProofNotConfigured } from "@/lib/server/lp-preview-proof"
 
 export const dynamic = "force-dynamic"
 export const fetchCache = "force-no-store"
 export const revalidate = 0
-// 30s max — must be > AbortSignal.timeout below so the function doesn't
-// get killed mid-fetch. Per feedback_vercel_abort_cascade.md: "per-route
-// maxDuration + per-fetch timeout < N" prevents the 500 cascade where
-// Vercel kills the function before fetch finishes and the AbortController
-// raises in-flight, surfacing as 500 to the caller.
 export const maxDuration = 30
 
-const BACKEND_URL = getBackendBaseUrl().replace(/\/+$/, "").replace(/\/backend$/, "")
+const UPSTREAM_TIMEOUT_MS = 25_000
 
-// POST /api/proxy/least-privilege/simulate-fix
-// body: { resource_type: string, resource_id: string, system_name: string }
+async function passthrough(response: Response): Promise<NextResponse> {
+  const text = await response.text().catch(() => "")
+  let parsed: unknown = null
+  try {
+    parsed = text ? JSON.parse(text) : null
+  } catch {
+    parsed = null
+  }
+  const headers = { "Cache-Control": "no-store" }
+  if (parsed !== null && typeof parsed === "object") {
+    return NextResponse.json(parsed, { status: response.status, headers })
+  }
+  return NextResponse.json(
+    {
+      error: `Backend returned ${response.status}`,
+      detail: text.trim().slice(0, 500) || `Backend returned ${response.status} with no readable body`,
+      backendStatus: response.status,
+      origin: "proxy",
+    },
+    { status: response.status, headers },
+  )
+}
+
 export async function POST(request: Request) {
-  const body = await request.json().catch(() => ({}))
-  const { resource_type, resource_id, system_name } = body
+  const proof = previewProofFor(request)
+  if (proof.kind === "not_configured") return previewProofNotConfigured()
 
+  const body = await request.json().catch(() => ({}))
+  const { resource_type, resource_id, system_name } = body as {
+    resource_type?: string
+    resource_id?: string
+    system_name?: string
+  }
   if (!resource_type || !resource_id || !system_name) {
     return NextResponse.json(
       { success: false, error: "resource_type, resource_id, and system_name are required" },
-      { status: 400 },
+      { status: 400, headers: { "Cache-Control": "no-store" } },
     )
   }
 
-  const backendUrl = BACKEND_URL + "/api/least-privilege/simulate-fix"
-
+  const backendUrl = getBackendBaseUrl().replace(/\/+$/, "").replace(/\/backend$/, "")
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS)
   try {
-    const res = await fetch(backendUrl, {
+    const res = await fetch(backendUrl + "/api/least-privilege/simulate-fix", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...proof.headers,
+      },
       cache: "no-store",
       body: JSON.stringify({ resource_type, resource_id, system_name }),
-      // 25s — leaves 5s headroom under Vercel maxDuration (30s) so the
-      // proxy can still serialize the response after fetch completes.
-      // Backend simulate-fix p95 is ~2s in healthy state; 25s tolerates
-      // Render cold-worker + Neo4j Aura first-query latency without
-      // surfacing as a 500 from the function-timeout cascade.
-      signal: AbortSignal.timeout(25000),
+      signal: controller.signal,
     })
-
-    if (!res.ok) {
-      const errorData = await res.json().catch(() => ({}))
-      return NextResponse.json(
-        { success: false, error: errorData.detail || `Backend simulate-fix failed: ${res.status}` },
-        { status: res.status },
-      )
-    }
-
+    if (!res.ok) return passthrough(res)
     const data = await res.json()
-    return NextResponse.json(data, { status: 200 })
-  } catch (err: any) {
-    // Distinguish AbortError (timeout) from other failures so the
-    // toast surfaces a useful retry hint instead of a generic 500.
-    const isTimeout =
-      err?.name === "TimeoutError" ||
-      err?.name === "AbortError" ||
-      String(err?.message || "").includes("timeout")
-    console.error(
-      "[proxy] least-privilege simulate-fix error:",
-      isTimeout ? "timeout" : err,
-    )
+    return NextResponse.json(data, {
+      status: 200,
+      headers: { "Cache-Control": "no-store" },
+    })
+  } catch (err: unknown) {
+    const name = err instanceof Error ? err.name : ""
+    const timedOut = name === "TimeoutError" || name === "AbortError"
     return NextResponse.json(
       {
-        success: false,
-        error: isTimeout
+        error: timedOut
           ? "simulate-fix timed out (backend > 25s). Retry; Render worker may be warming."
-          : err?.message ?? "simulate-fix failed",
+          : err instanceof Error ? err.message : "simulate-fix failed",
+        origin: "proxy",
       },
-      { status: isTimeout ? 504 : 500 },
+      { status: timedOut ? 504 : 503, headers: { "Cache-Control": "no-store" } },
     )
+  } finally {
+    clearTimeout(timeout)
   }
 }

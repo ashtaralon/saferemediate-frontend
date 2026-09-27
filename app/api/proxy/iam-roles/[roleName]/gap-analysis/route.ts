@@ -1,17 +1,19 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
-import { backendError, fromCaughtError } from "@/lib/server/proxy-error"
+import { ERROR_ORIGIN_HEADER, fromCaughtError, reviewProxyStatus } from "@/lib/server/proxy-error"
+import { previewProofFor, previewProofNotConfigured } from "@/lib/server/lp-preview-proof"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 export const maxDuration = 60
 
-const BACKEND_URL = getBackendBaseUrl()
-
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ roleName: string }> }
 ) {
+  const proof = previewProofFor(req)
+  if (proof.kind === "not_configured") return previewProofNotConfigured()
+
   const { roleName } = await params
   const url = new URL(req.url)
   const days = url.searchParams.get("days") ?? "90"
@@ -23,12 +25,23 @@ export async function GET(
   const timeoutId = setTimeout(() => controller.abort(), 55000) // 55s timeout
 
   try {
-    const backendUrl = `${BACKEND_URL}/api/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=${days}${envelope ? "&envelope=true" : ""}`
+    // The operator's scope claims ride along so the BACKEND can refuse a mismatch
+    // (403 REVIEW_SCOPE_MISMATCH) against its server-owned binding. They only
+    // narrow; without them the backend serves its pinned scope. Dropping them
+    // here meant a second registered tenant's selection was silently served the
+    // pinned tenant's Review.
+    const claims = new URLSearchParams({ days })
+    if (envelope) claims.set("envelope", "true")
+    for (const name of ["customer_id", "account_id", "region"]) {
+      const value = url.searchParams.get(name)?.trim()
+      if (value) claims.set(name, value)
+    }
+    const backendUrl = `${getBackendBaseUrl()}/api/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?${claims.toString()}`
     console.log(`[IAM Proxy] Calling: ${backendUrl}`)
 
     const res = await fetch(backendUrl, {
       signal: controller.signal,
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...proof.headers },
     })
 
     clearTimeout(timeoutId)
@@ -36,18 +49,30 @@ export async function GET(
     if (!res.ok) {
       const errorText = await res.text().catch(() => "")
       console.error(`[IAM Proxy] Backend error ${res.status}: ${errorText.slice(0, 200)}`)
-      // Fail closed: propagate a typed non-2xx (never 200-with-zeros). Returning
-      // 200 {used:0, unused:0} on a backend fault is the forbidden anti-pattern
-      // documented in lib/server/proxy-error.ts — the LP UI cannot tell "backend
-      // down" from "role is genuinely clean" and renders the removal/clean state
-      // for both. Every consumer of this route already guards on `res.ok`
-      // (or `fetchWithEnvelope`, which throws on non-2xx), so a typed error
-      // surfaces an honest error/empty state instead of a fabricated zero.
-      return backendError({
-        status: res.status,
-        message: `IAM gap-analysis backend returned ${res.status}`,
-        detail: errorText.slice(0, 500),
-      })
+      let parsed: unknown = null
+      try {
+        parsed = errorText ? JSON.parse(errorText) : null
+      } catch {
+        parsed = null
+      }
+      // The backend's typed body (its refusal code) is kept whatever the status;
+      // only the status is mapped, so a backend 504 never reads as this proxy's
+      // own timeout (see reviewProxyStatus).
+      const status = reviewProxyStatus(res.status)
+      const headers = { "Cache-Control": "no-store", [ERROR_ORIGIN_HEADER]: "backend" }
+      if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
+        const body = status === res.status ? parsed : { ...(parsed as Record<string, unknown>), backendStatus: res.status }
+        return NextResponse.json(body, { status, headers })
+      }
+      return NextResponse.json(
+        {
+          error: `IAM gap-analysis backend returned ${res.status}`,
+          detail: errorText.slice(0, 500),
+          backendStatus: res.status,
+          origin: "backend",
+        },
+        { status, headers },
+      )
     }
 
     const data = await res.json()
@@ -62,6 +87,8 @@ export async function GET(
     console.error(`[IAM Proxy] Error for ${roleName}:`, e?.name, e?.message)
     // Fail closed on timeout/unreachable too: AbortError -> 504, else -> 503.
     // Never a 200-with-zeros (see the !res.ok branch above).
-    return fromCaughtError(error)
+    const failed = fromCaughtError(error)
+    failed.headers.set(ERROR_ORIGIN_HEADER, "proxy")
+    return failed
   }
 }

@@ -292,7 +292,133 @@ export function insightsFromCurrentSection(section: Record<string, unknown>): In
 }
 
 /** Observed activity block (CloudTrail / flow logs). */
+/** Least privilege's used-action answer (``lp-used-actions/v1``) carried in an inspector's observed section. */
+type LpUsedActions = {
+  contract: "lp-used-actions/v1"
+  basis: "ROLE" | "INSTANCE_PROFILE_ROLE"
+  state: "ACTIVE_POPULATED" | "ACTIVE_EMPTY" | "UNAVAILABLE"
+  reason: string | null
+  scope?: { role_arn?: string }
+  receipt: { projection_generation?: number; projected_through?: string | null } | null
+  coverage: { configured_set?: { closed?: boolean; open_reasons?: string[] } } | null
+  actions: Record<"observed" | "denied_only" | "not_observed" | "unknown" | "undecided", { action: string }[]> | null
+  totals: Record<"observed" | "denied_only" | "not_observed" | "unknown" | "undecided", number> | null
+  complete: boolean
+}
+
+/** The section's LP block, or null: only the exact contract is read (anything else keeps today's rendering). */
+export function lpUsedActionsOf(section: Record<string, unknown> | null | undefined): LpUsedActions | null {
+  const block = section?.role_actions as Record<string, unknown> | undefined
+  return block && block.contract === "lp-used-actions/v1" ? (block as unknown as LpUsedActions) : null
+}
+
+function roleName(arn: string | undefined): string {
+  return arn ? arn.split("/").pop() || arn : "its role"
+}
+
+/** Where the answer comes from, stated every time: the decision generation, never a lookback window. */
+function generationLabel(block: LpUsedActions): string {
+  const through = block.receipt?.projected_through?.slice(0, 10)
+  const generation = block.receipt?.projection_generation
+  return `decision generation ${generation ?? "?"}${through ? `, projected through ${through}` : ""}; no lookback window or call counts`
+}
+
+function sampleOf(items: { action: string }[]): string {
+  const sample = items.slice(0, 4).map((item) => actionToPlain(item.action)).join(", ")
+  return items.length > 4 ? `${sample} and ${items.length - 4} more` : sample
+}
+
+/**
+ * Cards for an ``lp-used-actions/v1`` block. A role's block is that role's own use; an instance's block is its
+ * instance-profile role's, said so on every card and never shown as the instance's own. Unknown is never unused,
+ * "not observed" is never a removal claim, and an unavailable answer shows its reason, not zero.
+ */
+export function insightsFromRoleActions(block: LpUsedActions): Insight[] {
+  const instance = block.basis === "INSTANCE_PROFILE_ROLE"
+  const whose = instance ? `Instance-profile role ${roleName(block.scope?.role_arn)}` : "This role"
+  const tags = instance ? ["Least privilege", "Role-level, not this instance"] : ["Least privilege"]
+  if (block.state === "UNAVAILABLE" || !block.actions || !block.totals) {
+    return [{
+      severity: "info",
+      title: instance ? "Instance-profile role usage not available" : "Observed usage not available",
+      detail: `Not answered (${block.reason ?? "UNAVAILABLE"}); nothing is shown as zero use.`,
+      tags,
+    }]
+  }
+  const { actions, totals } = block
+  const where = generationLabel(block)
+  const out: Insight[] = []
+  if (totals.observed > 0) {
+    out.push({
+      severity: "good",
+      title: `${whose}: ${totals.observed} action(s) observed in use`,
+      detail: `${sampleOf(actions.observed)} (${where}).${instance ? " Shared by every principal using the role; not attributed to this instance." : ""}`,
+      tags,
+    })
+  } else {
+    out.push({ severity: "info", title: `${whose}: no action observed in use`, detail: `(${where}).`, tags })
+  }
+  if (totals.unknown > 0) {
+    out.push({
+      severity: "info",
+      title: `Usage unknown for ${totals.unknown} action(s)`,
+      detail: `The decision generation could not establish usage: ${sampleOf(actions.unknown)}. Unknown is not unused.`,
+      tags,
+    })
+  }
+  if (totals.denied_only > 0) {
+    out.push({
+      severity: "info",
+      title: `${totals.denied_only} action(s) attempted but denied`,
+      detail: sampleOf(actions.denied_only),
+      tags,
+    })
+  }
+  if (totals.undecided > 0) {
+    out.push({
+      severity: "info",
+      title: `${totals.undecided} configured action(s) without a decision`,
+      detail: sampleOf(actions.undecided),
+      tags,
+    })
+  }
+  if (block.coverage?.configured_set?.closed === false) {
+    out.push({
+      severity: "info",
+      title: "Configured actions not fully enumerated",
+      detail: `Open: ${(block.coverage.configured_set.open_reasons ?? []).join(", ") || "unspecified"}. Counts cover the enumerated actions only.`,
+      tags,
+    })
+  }
+  if (!instance && block.complete && totals.not_observed > 0) {
+    out.push({
+      severity: "info",
+      title: `${totals.not_observed} configured action(s) not observed in this decision generation`,
+      detail: `${sampleOf(actions.not_observed)}. Not a removal verdict: removal is decided in the least-privilege review.`,
+      tags,
+    })
+  } else if (!instance && !block.complete) {
+    out.push({
+      severity: "info",
+      title: "Unused actions not established",
+      detail: "Only a decision-grade answer over every configured action establishes which actions went unused.",
+      tags,
+    })
+  }
+  if (!instance && block.coverage?.configured_set?.closed) {
+    out.push({
+      severity: "info",
+      title: `${Object.values(totals).reduce((sum, n) => sum + n, 0)} configured action(s)`,
+      detail: `Every grant enumerated (${where}).`,
+      tags,
+    })
+  }
+  return out
+}
+
 export function insightsFromObservedSection(section: Record<string, unknown>): Insight[] {
+  const lp = lpUsedActionsOf(section)
+  if (lp) return insightsFromRoleActions(lp)
   if (section.available === false) {
     return [
       {

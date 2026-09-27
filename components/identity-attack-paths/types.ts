@@ -268,12 +268,15 @@ export interface InfraContext {
 // `effective_damage` surfaces network/data-plane blocks.
 export interface DamageVerbs { read: number; write: number; delete: number; admin: number }
 export interface DamageGates {
-  network_reachable: boolean
+  // null = not evaluated (unknown): never read as reachable or as blocked.
+  network_reachable: boolean | null
   network_reason?: string | null
-  data_plane_reachable: boolean
+  data_plane_reachable: boolean | null
   data_plane_reason?: string | null
 }
-export type EffectiveDamage = "live" | "network_blocked" | "data_plane_blocked" | "no_jewel_perms"
+export type EffectiveDamage =
+  | "live" | "network_blocked" | "data_plane_blocked" | "no_jewel_perms"
+  | "identity_blocked" | "data_plane_unknown" | "unknown"
 export interface DamageCapability {
   state: "live" | "not_applicable" | "not_wired" | "error"
   reason?: string
@@ -674,7 +677,9 @@ export interface IdentityAttackPath {
   severity: SeverityBreakdown
   path_kind: string
   /** Absent when the backend did not declare observed vs configured. */
-  evidence_type?: "observed" | "configured"
+  evidence_type?: "observed" | "configured" | "unverified" | "blocked"
+  // Server-owned evidence contract (lib/attack-paths/path-evidence-view.ts).
+  evidence_contract?: import("@/lib/attack-paths/path-evidence-view").PathEvidenceContract | null
   hop_count: number
   // Enriched fields (optional for backward compat)
   lanes?: LaneDefinition[]

@@ -1,7 +1,6 @@
 /**
- * Canonical IAM shadow / execute remediation — single path for LP surfaces.
- * POST /api/proxy/remediation/execute → backend /api/remediation/execute
- * (mode=shadow persists ShadowIAMRemediation; legacy iam-roles/remediate does not).
+ * IAM-role writes are refused here. They belong on the guarded Apply transaction.
+ * Security-group changes stay on that family's own execute path.
  */
 
 export type IamShadowRemediationRequest = {
@@ -32,27 +31,19 @@ export type IamShadowRecord = {
 export async function postIamShadowRemediation(
   req: IamShadowRemediationRequest,
 ): Promise<IamShadowRemediationResult> {
-  const res = await fetch("/api/proxy/remediation/execute", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      role_name: req.role_name,
-      mode: "shadow",
-      dry_run: false,
-      create_snapshot: true,
-      annotation: req.annotation,
-      resource_id: req.resource_id,
-      resource_type: req.resource_type,
-      permissions: req.permissions,
-    }),
-  })
-  const data = (await res.json().catch(() => ({}))) as IamShadowRemediationResult & {
-    detail?: string
+  const family = String(req.resource_type || "iam-role")
+  if (family === "security-group" || family === "sg") {
+    return {
+      success: false,
+      error: "SECURITY_GROUP_FAMILY_SEPARATE",
+      detail: "Security-group remediation stays on its own execute path.",
+    }
   }
-  if (!res.ok) {
-    throw new Error(data.detail || data.error || `Shadow remediation failed (${res.status})`)
+  return {
+    success: false,
+    error: "IAM_ROLE_WRITE_OUTSIDE_TRANSACTION",
+    detail: "IAM-role changes go through the guarded Apply transaction only.",
   }
-  return data
 }
 
 export async function fetchIamShadowRecords(params: {

@@ -1,0 +1,826 @@
+{
+ "_source": "captured from tests/test_lp_used_action_consumers.py harness (_g3_fe_capture) at backend 998bd5034097d842ca6cc552cbb8085bb1fe6c7a (claude/cf01-lp-used-action-consumers): GET /api/inspector/{id} under CYNTRO_SERVING_READ_GUARD=enforce with CYNTRO_LP_USED_ACTIONS_SERVING_ENABLED=true -- real resource_config and lp-role-coverage publications from the real producers; role_open_set from the same harness with the role's configured set opened by an uncollected managed policy; labelled fixture tenant 'acme' / account 111111111111",
+ "ec2_served": {
+  "coverage": {
+   "generation": 4,
+   "scope": "inventory.resource_state.v1",
+   "staging_run_id": "run-4"
+  },
+  "current": {
+   "iam_role": {
+    "arn": "arn:aws:iam::111111111111:role/acme-web-role",
+    "name": "acme-web-role"
+   },
+   "network": {
+    "exfiltration_assessment": null,
+    "private_ip": "10.0.1.10",
+    "public_ip": "54.1.2.3",
+    "subnet_id": "subnet-acme",
+    "vpc_id": "vpc-acme"
+   },
+   "security_groups": [
+    {
+     "sg_id": "sg-acme"
+    }
+   ],
+   "source": "Neo4j (graph)",
+   "title": "Current Configuration"
+  },
+  "evidence": [
+   "VPC Flow Logs",
+   "CloudTrail",
+   "AWS Config"
+  ],
+  "graph_version": "inventory.resource_state.v1/4/run-4",
+  "icon": "\ud83d\udda5\ufe0f",
+  "instance_type": "t3.small",
+  "observed": {
+   "available": false,
+   "message": "Role-level: these are the instance-profile role's actions, shared by every principal that uses the role; they are not attributed to this instance.",
+   "reason": "ROLE_LEVEL_ONLY",
+   "role_actions": {
+    "actions": {
+     "denied_only": [
+      {
+       "action": "sqs:SendMessage",
+       "as_of": "2026-09-20T12:00:00+00:00"
+      }
+     ],
+     "not_observed": [
+      {
+       "action": "s3:PutObject",
+       "as_of": "2026-09-20T12:00:00+00:00"
+      }
+     ],
+     "observed": [
+      {
+       "action": "s3:GetObject",
+       "as_of": "2026-09-20T12:00:00+00:00"
+      }
+     ],
+     "undecided": [],
+     "unknown": []
+    },
+    "authority": "DECISION_GRADE",
+    "basis": "INSTANCE_PROFILE_ROLE",
+    "complete": true,
+    "contract": "lp-used-actions/v1",
+    "coverage": {
+     "configured_set": {
+      "closed": true,
+      "open_reasons": []
+     },
+     "counts": {
+      "ACTION_ABSENT": 0,
+      "DECISION_ACTIVE": 3,
+      "GENERATION_UNVERIFIED": 0,
+      "NOT_EVALUATED": 0,
+      "NO_ACTIVE_GENERATION": 0,
+      "RECEIPT_MISSING": 0
+     },
+     "decisions_outside_configuration": 0
+    },
+    "detail": "Role-level: these are the instance-profile role's actions, shared by every principal that uses the role; they are not attributed to this instance.",
+    "publication": {
+     "attempt": "f6d19a7f8cfb4f4e958727ade37de01e",
+     "published_at": "2026-09-26T10:46:54+00:00"
+    },
+    "reason": null,
+    "receipt": {
+     "account_id": "111111111111",
+     "projected_through": "2026-09-20T12:00:00+00:00",
+     "projection_generation": 4,
+     "projection_receipt_hash": "v1:7438785cbff4403848c5db2c4e1f76a60f4e8e0668a9387aa638da65c55721f7",
+     "scope": "iam.role_action_decision.v1",
+     "staging_run_id": "stage-4",
+     "tenant_id": "acme"
+    },
+    "scope": {
+     "account_id": "111111111111",
+     "role_arn": "arn:aws:iam::111111111111:role/acme-web-role",
+     "role_id": "AROAACMEWEBROLE001",
+     "tenant_id": "acme"
+    },
+    "source": {
+     "operation": "iam.role_review_detail",
+     "read_model": "lp_role_coverage"
+    },
+    "state": "ACTIVE_POPULATED",
+    "totals": {
+     "denied_only": 1,
+     "not_observed": 1,
+     "observed": 1,
+     "undecided": 0,
+     "unknown": 0
+    },
+    "window": {
+     "basis": "DECISION_AS_OF",
+     "decisions_as_of": [
+      "2026-09-20T12:00:00+00:00"
+     ],
+     "limitation": "The published coverage records, per action, the time its decision was made (as_of) and the time the generation was projected through; it carries no call count, last-used time or per-action lookback.",
+     "lookback_days": null,
+     "projected_through": "2026-09-20T12:00:00+00:00"
+    }
+   },
+   "source": "iam.role_review_detail (lp_role_coverage publication)",
+   "title": "Observed Activity",
+   "used_actions": null,
+   "used_actions_count": null,
+   "window": null
+  },
+  "published_at_epoch": 1790419614,
+  "read_model": "resource_config",
+  "remove": {
+   "count": 1,
+   "items": [
+    {
+     "message": "Public IP 54.1.2.3 is assigned; outbound-path evidence is unavailable.",
+     "severity": "info",
+     "type": "public_ip_exfiltration"
+    }
+   ],
+   "title": "Recommendations"
+  },
+  "resource_id": "i-0shared",
+  "resource_name": "acme-web",
+  "resource_type": "EC2",
+  "semantic_status": "populated",
+  "snapshot_provenance": {
+   "account_id": "111111111111",
+   "customer_id": "acme",
+   "generation_status": "pinned",
+   "graph_version": "inventory.resource_state.v1/4/run-4"
+  },
+  "source_generation": "inventory.resource_state.v1/4/run-4",
+  "state": "running",
+  "withheld_fields": {
+   "current.network.exfiltration_assessment": {
+    "read_model": "resource_config.exfiltration_assessment",
+    "reason": "READ_MODEL_MISSING",
+    "why": "computed at request time by api.workload_exfiltration's own graph reads, which this publication does not run"
+   },
+   "observed.instance_actions": {
+    "read_model": "iam.role_review_detail",
+    "reason": "READ_MODEL_MISSING",
+    "why": "the instance's used actions (the r.used_actions contract property) are least privilege's decision"
+   }
+  }
+ },
+ "ec2_unavailable": {
+  "coverage": {
+   "generation": 4,
+   "scope": "inventory.resource_state.v1",
+   "staging_run_id": "run-4"
+  },
+  "current": {
+   "iam_role": {
+    "arn": "arn:aws:iam::111111111111:role/acme-web-role",
+    "name": "acme-web-role"
+   },
+   "network": {
+    "exfiltration_assessment": null,
+    "private_ip": "10.0.1.10",
+    "public_ip": "54.1.2.3",
+    "subnet_id": "subnet-acme",
+    "vpc_id": "vpc-acme"
+   },
+   "security_groups": [
+    {
+     "sg_id": "sg-acme"
+    }
+   ],
+   "source": "Neo4j (graph)",
+   "title": "Current Configuration"
+  },
+  "evidence": [
+   "VPC Flow Logs",
+   "CloudTrail",
+   "AWS Config"
+  ],
+  "graph_version": "inventory.resource_state.v1/4/run-4",
+  "icon": "\ud83d\udda5\ufe0f",
+  "instance_type": "t3.small",
+  "observed": {
+   "available": false,
+   "message": "Role-level: these are the instance-profile role's actions, shared by every principal that uses the role; they are not attributed to this instance.",
+   "reason": "ROLE_LEVEL_ONLY",
+   "role_actions": {
+    "actions": null,
+    "authority": null,
+    "basis": "INSTANCE_PROFILE_ROLE",
+    "complete": false,
+    "contract": "lp-used-actions/v1",
+    "coverage": null,
+    "detail": "NO_PUBLICATION_RECORDED:lp_role_coverage: no LATEST_PUBLISHED#lp_role_coverage#acme#111111111111 row",
+    "publication": {
+     "attempt": null,
+     "published_at": null
+    },
+    "reason": "NOT_PUBLISHED",
+    "receipt": null,
+    "scope": {
+     "account_id": "111111111111",
+     "role_arn": "arn:aws:iam::111111111111:role/acme-web-role",
+     "role_id": null,
+     "tenant_id": "acme"
+    },
+    "source": {
+     "operation": "iam.role_review_detail",
+     "read_model": "lp_role_coverage"
+    },
+    "state": "UNAVAILABLE",
+    "totals": null,
+    "window": null
+   },
+   "source": "iam.role_review_detail (lp_role_coverage publication)",
+   "title": "Observed Activity",
+   "used_actions": null,
+   "used_actions_count": null,
+   "window": null
+  },
+  "published_at_epoch": 1790419615,
+  "read_model": "resource_config",
+  "remove": {
+   "count": 1,
+   "items": [
+    {
+     "message": "Public IP 54.1.2.3 is assigned; outbound-path evidence is unavailable.",
+     "severity": "info",
+     "type": "public_ip_exfiltration"
+    }
+   ],
+   "title": "Recommendations"
+  },
+  "resource_id": "i-0shared",
+  "resource_name": "acme-web",
+  "resource_type": "EC2",
+  "semantic_status": "populated",
+  "snapshot_provenance": {
+   "account_id": "111111111111",
+   "customer_id": "acme",
+   "generation_status": "pinned",
+   "graph_version": "inventory.resource_state.v1/4/run-4"
+  },
+  "source_generation": "inventory.resource_state.v1/4/run-4",
+  "state": "running",
+  "withheld_fields": {
+   "current.network.exfiltration_assessment": {
+    "read_model": "resource_config.exfiltration_assessment",
+    "reason": "READ_MODEL_MISSING",
+    "why": "computed at request time by api.workload_exfiltration's own graph reads, which this publication does not run"
+   },
+   "observed.instance_actions": {
+    "read_model": "iam.role_review_detail",
+    "reason": "READ_MODEL_MISSING",
+    "why": "the instance's used actions (the r.used_actions contract property) are least privilege's decision"
+   }
+  }
+ },
+ "role_open_set": {
+  "arn": "arn:aws:iam::111111111111:role/acme-web-role",
+  "coverage": {
+   "generation": 4,
+   "scope": "inventory.resource_state.v1",
+   "staging_run_id": "run-4"
+  },
+  "current": {
+   "allowed_actions_count": null,
+   "create_date": "",
+   "description": "",
+   "policies": [
+    {
+     "name": "AcmeRead",
+     "type": "Attached"
+    }
+   ],
+   "source": "Neo4j (graph)",
+   "title": "Current Permissions",
+   "total_policies": 1
+  },
+  "evidence": [
+   "CloudTrail",
+   "IAM Analysis"
+  ],
+  "graph_version": "inventory.resource_state.v1/4/run-4",
+  "icon": "\ud83d\udd11",
+  "observed": {
+   "available": true,
+   "limitation": "The published coverage records, per action, the time its decision was made (as_of) and the time the generation was projected through; it carries no call count, last-used time or per-action lookback.",
+   "role_actions": {
+    "actions": {
+     "denied_only": [],
+     "not_observed": [
+      {
+       "action": "s3:PutObject",
+       "as_of": "2026-09-20T12:00:00+00:00"
+      }
+     ],
+     "observed": [
+      {
+       "action": "s3:GetObject",
+       "as_of": "2026-09-20T12:00:00+00:00"
+      }
+     ],
+     "undecided": [],
+     "unknown": []
+    },
+    "authority": "NOT_DECISION_GRADE",
+    "basis": "ROLE",
+    "complete": false,
+    "contract": "lp-used-actions/v1",
+    "coverage": {
+     "configured_set": {
+      "closed": false,
+      "open_reasons": [
+       "managed_policy_document_missing:arn:aws:iam::aws:policy/ReadOnlyAccess"
+      ]
+     },
+     "counts": {
+      "ACTION_ABSENT": 0,
+      "DECISION_ACTIVE": 2,
+      "GENERATION_UNVERIFIED": 0,
+      "NOT_EVALUATED": 0,
+      "NO_ACTIVE_GENERATION": 0,
+      "RECEIPT_MISSING": 0
+     },
+     "decisions_outside_configuration": 0
+    },
+    "detail": "",
+    "publication": {
+     "attempt": "55248a65f915471594c71a092fd14bd3",
+     "published_at": "2026-09-26T10:50:13+00:00"
+    },
+    "reason": null,
+    "receipt": {
+     "account_id": "111111111111",
+     "projected_through": "2026-09-20T12:00:00+00:00",
+     "projection_generation": 4,
+     "projection_receipt_hash": "v1:7438785cbff4403848c5db2c4e1f76a60f4e8e0668a9387aa638da65c55721f7",
+     "scope": "iam.role_action_decision.v1",
+     "staging_run_id": "stage-4",
+     "tenant_id": "acme"
+    },
+    "scope": {
+     "account_id": "111111111111",
+     "role_arn": "arn:aws:iam::111111111111:role/acme-web-role",
+     "role_id": "AROAACMEWEBROLE001",
+     "tenant_id": "acme"
+    },
+    "source": {
+     "operation": "iam.role_review_detail",
+     "read_model": "lp_role_coverage"
+    },
+    "state": "ACTIVE_POPULATED",
+    "totals": {
+     "denied_only": 0,
+     "not_observed": 1,
+     "observed": 1,
+     "undecided": 0,
+     "unknown": 0
+    },
+    "window": {
+     "basis": "DECISION_AS_OF",
+     "decisions_as_of": [
+      "2026-09-20T12:00:00+00:00"
+     ],
+     "limitation": "The published coverage records, per action, the time its decision was made (as_of) and the time the generation was projected through; it carries no call count, last-used time or per-action lookback.",
+     "lookback_days": null,
+     "projected_through": "2026-09-20T12:00:00+00:00"
+    }
+   },
+   "source": "iam.role_review_detail (lp_role_coverage publication)",
+   "title": "Observed Usage",
+   "unused_actions": null,
+   "unused_actions_count": null,
+   "used_actions": [
+    "s3:GetObject"
+   ],
+   "used_actions_count": 1,
+   "window": null
+  },
+  "published_at_epoch": 1790419813,
+  "read_model": "resource_config",
+  "remove": null,
+  "resource_id": "arn:aws:iam::111111111111:role/acme-web-role",
+  "resource_name": "acme-web-role",
+  "resource_type": "IAMRole",
+  "semantic_status": "populated",
+  "snapshot_provenance": {
+   "account_id": "111111111111",
+   "customer_id": "acme",
+   "generation_status": "pinned",
+   "graph_version": "inventory.resource_state.v1/4/run-4"
+  },
+  "source_generation": "inventory.resource_state.v1/4/run-4",
+  "withheld_fields": {
+   "current.allowed_actions_count": {
+    "read_model": "iam.role_review_detail",
+    "reason": "READ_MODEL_MISSING",
+    "why": "least privilege's count of the role's allowed actions"
+   },
+   "observed.unused_actions": {
+    "read_model": "iam.role_review_detail",
+    "reason": "READ_MODEL_MISSING",
+    "why": "filled only for a DECISION_GRADE answer over a closed configured set; 'not observed in this decision generation' is not a removal verdict"
+   },
+   "remove.unused_permissions": {
+    "read_model": "iam.role_review_detail",
+    "reason": "READ_MODEL_MISSING",
+    "why": "unused-permission removal is least privilege's decision"
+   }
+  }
+ },
+ "role_served": {
+  "arn": "arn:aws:iam::111111111111:role/acme-web-role",
+  "coverage": {
+   "generation": 4,
+   "scope": "inventory.resource_state.v1",
+   "staging_run_id": "run-4"
+  },
+  "current": {
+   "allowed_actions_count": 3,
+   "create_date": "",
+   "description": "",
+   "policies": [
+    {
+     "name": "AcmeRead",
+     "type": "Attached"
+    }
+   ],
+   "source": "Neo4j (graph)",
+   "title": "Current Permissions",
+   "total_policies": 1
+  },
+  "evidence": [
+   "CloudTrail",
+   "IAM Analysis"
+  ],
+  "graph_version": "inventory.resource_state.v1/4/run-4",
+  "icon": "\ud83d\udd11",
+  "observed": {
+   "available": true,
+   "limitation": "The published coverage records, per action, the time its decision was made (as_of) and the time the generation was projected through; it carries no call count, last-used time or per-action lookback.",
+   "role_actions": {
+    "actions": {
+     "denied_only": [
+      {
+       "action": "sqs:SendMessage",
+       "as_of": "2026-09-20T12:00:00+00:00"
+      }
+     ],
+     "not_observed": [
+      {
+       "action": "s3:PutObject",
+       "as_of": "2026-09-20T12:00:00+00:00"
+      }
+     ],
+     "observed": [
+      {
+       "action": "s3:GetObject",
+       "as_of": "2026-09-20T12:00:00+00:00"
+      }
+     ],
+     "undecided": [],
+     "unknown": []
+    },
+    "authority": "DECISION_GRADE",
+    "basis": "ROLE",
+    "complete": true,
+    "contract": "lp-used-actions/v1",
+    "coverage": {
+     "configured_set": {
+      "closed": true,
+      "open_reasons": []
+     },
+     "counts": {
+      "ACTION_ABSENT": 0,
+      "DECISION_ACTIVE": 3,
+      "GENERATION_UNVERIFIED": 0,
+      "NOT_EVALUATED": 0,
+      "NO_ACTIVE_GENERATION": 0,
+      "RECEIPT_MISSING": 0
+     },
+     "decisions_outside_configuration": 0
+    },
+    "detail": "",
+    "publication": {
+     "attempt": "f6d19a7f8cfb4f4e958727ade37de01e",
+     "published_at": "2026-09-26T10:46:54+00:00"
+    },
+    "reason": null,
+    "receipt": {
+     "account_id": "111111111111",
+     "projected_through": "2026-09-20T12:00:00+00:00",
+     "projection_generation": 4,
+     "projection_receipt_hash": "v1:7438785cbff4403848c5db2c4e1f76a60f4e8e0668a9387aa638da65c55721f7",
+     "scope": "iam.role_action_decision.v1",
+     "staging_run_id": "stage-4",
+     "tenant_id": "acme"
+    },
+    "scope": {
+     "account_id": "111111111111",
+     "role_arn": "arn:aws:iam::111111111111:role/acme-web-role",
+     "role_id": "AROAACMEWEBROLE001",
+     "tenant_id": "acme"
+    },
+    "source": {
+     "operation": "iam.role_review_detail",
+     "read_model": "lp_role_coverage"
+    },
+    "state": "ACTIVE_POPULATED",
+    "totals": {
+     "denied_only": 1,
+     "not_observed": 1,
+     "observed": 1,
+     "undecided": 0,
+     "unknown": 0
+    },
+    "window": {
+     "basis": "DECISION_AS_OF",
+     "decisions_as_of": [
+      "2026-09-20T12:00:00+00:00"
+     ],
+     "limitation": "The published coverage records, per action, the time its decision was made (as_of) and the time the generation was projected through; it carries no call count, last-used time or per-action lookback.",
+     "lookback_days": null,
+     "projected_through": "2026-09-20T12:00:00+00:00"
+    }
+   },
+   "source": "iam.role_review_detail (lp_role_coverage publication)",
+   "title": "Observed Usage",
+   "unused_actions": [
+    "s3:PutObject"
+   ],
+   "unused_actions_count": 1,
+   "used_actions": [
+    "s3:GetObject"
+   ],
+   "used_actions_count": 1,
+   "window": null
+  },
+  "published_at_epoch": 1790419614,
+  "read_model": "resource_config",
+  "remove": null,
+  "resource_id": "arn:aws:iam::111111111111:role/acme-web-role",
+  "resource_name": "acme-web-role",
+  "resource_type": "IAMRole",
+  "semantic_status": "populated",
+  "snapshot_provenance": {
+   "account_id": "111111111111",
+   "customer_id": "acme",
+   "generation_status": "pinned",
+   "graph_version": "inventory.resource_state.v1/4/run-4"
+  },
+  "source_generation": "inventory.resource_state.v1/4/run-4",
+  "withheld_fields": {
+   "remove.unused_permissions": {
+    "read_model": "iam.role_review_detail",
+    "reason": "READ_MODEL_MISSING",
+    "why": "unused-permission removal is least privilege's decision"
+   }
+  }
+ },
+ "role_unavailable": {
+  "arn": "arn:aws:iam::111111111111:role/acme-web-role",
+  "coverage": {
+   "generation": 4,
+   "scope": "inventory.resource_state.v1",
+   "staging_run_id": "run-4"
+  },
+  "current": {
+   "allowed_actions_count": null,
+   "create_date": "",
+   "description": "",
+   "policies": [
+    {
+     "name": "AcmeRead",
+     "type": "Attached"
+    }
+   ],
+   "source": "Neo4j (graph)",
+   "title": "Current Permissions",
+   "total_policies": 1
+  },
+  "evidence": [
+   "CloudTrail",
+   "IAM Analysis"
+  ],
+  "graph_version": "inventory.resource_state.v1/4/run-4",
+  "icon": "\ud83d\udd11",
+  "observed": {
+   "available": false,
+   "limitation": "The published coverage records, per action, the time its decision was made (as_of) and the time the generation was projected through; it carries no call count, last-used time or per-action lookback.",
+   "message": "Observed usage is not available: NOT_PUBLISHED.",
+   "role_actions": {
+    "actions": null,
+    "authority": null,
+    "basis": "ROLE",
+    "complete": false,
+    "contract": "lp-used-actions/v1",
+    "coverage": null,
+    "detail": "NO_PUBLICATION_RECORDED:lp_role_coverage: no LATEST_PUBLISHED#lp_role_coverage#acme#111111111111 row",
+    "publication": {
+     "attempt": null,
+     "published_at": null
+    },
+    "reason": "NOT_PUBLISHED",
+    "receipt": null,
+    "scope": {
+     "account_id": "111111111111",
+     "role_arn": "arn:aws:iam::111111111111:role/acme-web-role",
+     "role_id": "AROAACMEWEBROLE001",
+     "tenant_id": "acme"
+    },
+    "source": {
+     "operation": "iam.role_review_detail",
+     "read_model": "lp_role_coverage"
+    },
+    "state": "UNAVAILABLE",
+    "totals": null,
+    "window": null
+   },
+   "source": "iam.role_review_detail (lp_role_coverage publication)",
+   "title": "Observed Usage",
+   "unused_actions": null,
+   "unused_actions_count": null,
+   "used_actions": null,
+   "used_actions_count": null,
+   "window": null
+  },
+  "published_at_epoch": 1790419615,
+  "read_model": "resource_config",
+  "remove": null,
+  "resource_id": "arn:aws:iam::111111111111:role/acme-web-role",
+  "resource_name": "acme-web-role",
+  "resource_type": "IAMRole",
+  "semantic_status": "populated",
+  "snapshot_provenance": {
+   "account_id": "111111111111",
+   "customer_id": "acme",
+   "generation_status": "pinned",
+   "graph_version": "inventory.resource_state.v1/4/run-4"
+  },
+  "source_generation": "inventory.resource_state.v1/4/run-4",
+  "withheld_fields": {
+   "current.allowed_actions_count": {
+    "read_model": "iam.role_review_detail",
+    "reason": "READ_MODEL_MISSING",
+    "why": "least privilege's count of the role's allowed actions"
+   },
+   "observed.role_usage": {
+    "read_model": "iam.role_review_detail",
+    "reason": "READ_MODEL_MISSING",
+    "why": "the role's used / unused actions are least privilege's decision"
+   },
+   "remove.unused_permissions": {
+    "read_model": "iam.role_review_detail",
+    "reason": "READ_MODEL_MISSING",
+    "why": "unused-permission removal is least privilege's decision"
+   }
+  }
+ },
+ "role_unknown": {
+  "arn": "arn:aws:iam::111111111111:role/acme-web-role",
+  "coverage": {
+   "generation": 4,
+   "scope": "inventory.resource_state.v1",
+   "staging_run_id": "run-4"
+  },
+  "current": {
+   "allowed_actions_count": 2,
+   "create_date": "",
+   "description": "",
+   "policies": [
+    {
+     "name": "AcmeRead",
+     "type": "Attached"
+    }
+   ],
+   "source": "Neo4j (graph)",
+   "title": "Current Permissions",
+   "total_policies": 1
+  },
+  "evidence": [
+   "CloudTrail",
+   "IAM Analysis"
+  ],
+  "graph_version": "inventory.resource_state.v1/4/run-4",
+  "icon": "\ud83d\udd11",
+  "observed": {
+   "available": true,
+   "limitation": "The published coverage records, per action, the time its decision was made (as_of) and the time the generation was projected through; it carries no call count, last-used time or per-action lookback.",
+   "role_actions": {
+    "actions": {
+     "denied_only": [],
+     "not_observed": [],
+     "observed": [],
+     "undecided": [],
+     "unknown": [
+      {
+       "action": "s3:GetObject",
+       "as_of": "2026-09-20T12:00:00+00:00"
+      },
+      {
+       "action": "s3:PutObject",
+       "as_of": "2026-09-20T12:00:00+00:00"
+      }
+     ]
+    },
+    "authority": "DECISION_GRADE",
+    "basis": "ROLE",
+    "complete": false,
+    "contract": "lp-used-actions/v1",
+    "coverage": {
+     "configured_set": {
+      "closed": true,
+      "open_reasons": []
+     },
+     "counts": {
+      "ACTION_ABSENT": 0,
+      "DECISION_ACTIVE": 2,
+      "GENERATION_UNVERIFIED": 0,
+      "NOT_EVALUATED": 0,
+      "NO_ACTIVE_GENERATION": 0,
+      "RECEIPT_MISSING": 0
+     },
+     "decisions_outside_configuration": 0
+    },
+    "detail": "",
+    "publication": {
+     "attempt": "5d0ab390143a41e1a3fbe7b46749f057",
+     "published_at": "2026-09-26T10:46:55+00:00"
+    },
+    "reason": null,
+    "receipt": {
+     "account_id": "111111111111",
+     "projected_through": "2026-09-20T12:00:00+00:00",
+     "projection_generation": 4,
+     "projection_receipt_hash": "v1:7438785cbff4403848c5db2c4e1f76a60f4e8e0668a9387aa638da65c55721f7",
+     "scope": "iam.role_action_decision.v1",
+     "staging_run_id": "stage-4",
+     "tenant_id": "acme"
+    },
+    "scope": {
+     "account_id": "111111111111",
+     "role_arn": "arn:aws:iam::111111111111:role/acme-web-role",
+     "role_id": "AROAACMEWEBROLE001",
+     "tenant_id": "acme"
+    },
+    "source": {
+     "operation": "iam.role_review_detail",
+     "read_model": "lp_role_coverage"
+    },
+    "state": "ACTIVE_POPULATED",
+    "totals": {
+     "denied_only": 0,
+     "not_observed": 0,
+     "observed": 0,
+     "undecided": 0,
+     "unknown": 2
+    },
+    "window": {
+     "basis": "DECISION_AS_OF",
+     "decisions_as_of": [
+      "2026-09-20T12:00:00+00:00"
+     ],
+     "limitation": "The published coverage records, per action, the time its decision was made (as_of) and the time the generation was projected through; it carries no call count, last-used time or per-action lookback.",
+     "lookback_days": null,
+     "projected_through": "2026-09-20T12:00:00+00:00"
+    }
+   },
+   "source": "iam.role_review_detail (lp_role_coverage publication)",
+   "title": "Observed Usage",
+   "unused_actions": null,
+   "unused_actions_count": null,
+   "used_actions": [],
+   "used_actions_count": 0,
+   "window": null
+  },
+  "published_at_epoch": 1790419615,
+  "read_model": "resource_config",
+  "remove": null,
+  "resource_id": "arn:aws:iam::111111111111:role/acme-web-role",
+  "resource_name": "acme-web-role",
+  "resource_type": "IAMRole",
+  "semantic_status": "populated",
+  "snapshot_provenance": {
+   "account_id": "111111111111",
+   "customer_id": "acme",
+   "generation_status": "pinned",
+   "graph_version": "inventory.resource_state.v1/4/run-4"
+  },
+  "source_generation": "inventory.resource_state.v1/4/run-4",
+  "withheld_fields": {
+   "observed.unused_actions": {
+    "read_model": "iam.role_review_detail",
+    "reason": "READ_MODEL_MISSING",
+    "why": "filled only for a DECISION_GRADE answer over a closed configured set; 'not observed in this decision generation' is not a removal verdict"
+   },
+   "remove.unused_permissions": {
+    "read_model": "iam.role_review_detail",
+    "reason": "READ_MODEL_MISSING",
+    "why": "unused-permission removal is least privilege's decision"
+   }
+  }
+ }
+}

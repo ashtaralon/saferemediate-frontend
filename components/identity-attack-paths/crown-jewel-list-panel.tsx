@@ -1,7 +1,8 @@
 "use client"
 
 import { useState } from "react"
-import { Shield, Globe, ChevronLeft, ChevronRight } from "lucide-react"
+import { Shield, Globe, ChevronLeft, ChevronRight, PauseCircle } from "lucide-react"
+import { iapHoldTitle, type IapHold } from "@/lib/attack-paths/path-evidence-view"
 import { MaterializedScopeBadge } from "@/components/attack-paths-v2/materialized-scope-badge"
 import { ServiceTypeBadge, getServiceMeta } from "@/lib/service-type"
 import { TARGET_STATE_CONFIG, type TargetState } from "@/lib/types"
@@ -23,6 +24,11 @@ interface CrownJewelListPanelProps {
   onSelect: (id: string) => void
   /** Notify parent so the aside can shrink when the list collapses. */
   onCollapsedChange?: (collapsed: boolean) => void
+  /** The IAP answered HELD / UNAVAILABLE (semantic_status not_recorded |
+   *  unavailable, a typed refusal, or an error with no rows) while this rail
+   *  had no authoritative SERVE catalog. An empty list is then NOT "no crown
+   *  jewels": the panel names the hold instead. Null when the IAP answered. */
+  iapHold?: IapHold | null
 }
 
 /** Explicit target state chip (AP3-104). Exact backend strings; a state the
@@ -65,7 +71,11 @@ export function CrownJewelListPanel({
   selectedJewelId,
   onSelect,
   onCollapsedChange,
+  iapHold = null,
 }: CrownJewelListPanelProps) {
+  const jewelCount = jewels?.length ?? 0
+  // Held AND empty: every count on this panel would be a zero we do not know.
+  const held = iapHold != null && jewelCount === 0
   // Collapsible per user feedback ("the page is cut off, 50% of the screen is menu").
   // Operators select a jewel once then drill into paths; the list doesn't need
   // to stay wide while they read the surface card / attack graph.
@@ -87,7 +97,7 @@ export function CrownJewelListPanel({
           <ChevronRight className="w-4 h-4 text-muted-foreground" />
         </button>
         <div className="mt-3 text-[9px] font-semibold uppercase tracking-[0.14em] text-muted-foreground" style={{ writingMode: "vertical-rl" }}>
-          {jewels?.length ?? 0} jewels
+          {held ? "held" : `${jewelCount} jewels`}
         </div>
       </div>
     )
@@ -100,15 +110,21 @@ export function CrownJewelListPanel({
           <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-amber-700/80 dark:text-amber-400/90">
             Crown Jewels
           </div>
+          {held && iapHold ? (
+            <div className="text-xs text-amber-800 dark:text-amber-300 mt-0.5" data-testid="crown-jewel-hold-header">
+              {iapHoldTitle(iapHold)}
+            </div>
+          ) : (
           <div className="text-xs text-foreground mt-0.5 whitespace-nowrap">
             <span className="font-semibold tabular-nums text-amber-800 dark:text-amber-300">
-              {jewels?.length ?? 0}
+              {jewelCount}
             </span>{" "}
             {serveState ? "targets" : "highest-risk assets"}
             {typeof totalReachable === "number" && totalReachable > jewels.length
               ? ` of ${totalReachable} reachable`
               : ""}
           </div>
+          )}
           {stateCounts && (() => {
             // Zero states are product truth: say how many targets have no
             // route, were never considered, or wait on the projection.
@@ -267,7 +283,21 @@ export function CrownJewelListPanel({
           )
         })}
 
-        {(jewels?.length ?? 0) === 0 && (
+        {held && iapHold ? (
+          <div className="text-center py-8 px-3" data-testid="crown-jewel-hold" data-hold-kind={iapHold.kind}>
+            <PauseCircle className="w-6 h-6 text-amber-600 dark:text-amber-400 mx-auto mb-2" />
+            <p className="text-xs font-medium text-foreground">{iapHoldTitle(iapHold)}</p>
+            <p className="text-[11px] text-muted-foreground mt-1">
+              The attack-path service did not answer for this system, so no crown-jewel
+              count is shown. This is not the same as &quot;no crown jewels&quot;.
+            </p>
+            {iapHold.reason ? (
+              <p className="text-[10px] font-mono text-muted-foreground/80 mt-1 break-all">
+                {iapHold.reason}
+              </p>
+            ) : null}
+          </div>
+        ) : jewelCount === 0 && (
           <div className="text-center py-8">
             <Shield className="w-6 h-6 text-muted-foreground mx-auto mb-2" />
             <p className="text-xs text-muted-foreground">

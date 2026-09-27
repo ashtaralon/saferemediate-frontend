@@ -14,6 +14,14 @@ import type {
   SeverityBreakdown,
 } from "@/components/identity-attack-paths/types"
 import type { ConvergencePath } from "./convergence-types"
+import type { LegacyPathEvidence } from "./path-evidence-view"
+
+const LEGACY_PATH_EVIDENCE: ReadonlySet<string> = new Set([
+  "observed",
+  "configured",
+  "unverified",
+  "blocked",
+])
 
 /**
  * Passthrough only. Never derive severity from score thresholds.
@@ -145,13 +153,14 @@ export function convergencePathsToIdentityAttackPaths(
     // Gates + damage MUST survive this whitelist (Zoom0 standing-access honesty).
     const pathStatus = normalizePathStatus(p.path_status)
 
-    // evidence_type only when backend confidence is explicit.
-    const evidence_type =
-      confidenceRaw === "observed"
-        ? ("observed" as const)
-        : confidenceRaw === "configured"
-          ? ("configured" as const)
-          : undefined
+    // evidence_type only when the backend's whole-path word is explicit.
+    // `evidence` (from the identity+route+data_plane gates) wins over the
+    // legacy `confidence` alias. unverified / blocked pass through as the
+    // server wrote them — never collapsed into "configured", never dropped.
+    const evidenceRaw = String(p.evidence || p.confidence || "").toLowerCase()
+    const evidence_type = LEGACY_PATH_EVIDENCE.has(evidenceRaw)
+      ? (evidenceRaw as LegacyPathEvidence)
+      : undefined
 
     return {
       id: p.path_id,

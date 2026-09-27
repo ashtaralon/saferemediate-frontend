@@ -9113,6 +9113,7 @@ export default function TrafficFlowMap({
     data: rawDepMap,
     loading: depMapLoading,
     error: depMapError,
+    hold: depMapHold,
     retry: retryDepMap,
   } = useCachedFetch<{ nodes?: any[]; edges?: any[]; relationships?: any[] }>(depMapUrl, {
     cacheKey: `tfm-depmap:${systemName}`,
@@ -11174,9 +11175,16 @@ export default function TrafficFlowMap({
   // refresh writes new data to its state.
   useEffect(() => {
     if (pathAuthorityOnly) return;
-    if (!rawDepMap) return;
+    if (!rawDepMap) {
+      // The server refused / held this read (lib/semantic-hold). A map built
+      // from an earlier answer must not stay on screen as current: drop it so
+      // the `error && !architecture` gate names the refusal. Untyped failures
+      // keep the last map (the hook keeps its data for those).
+      if (depMapHold) setRawArchitecture(null);
+      return;
+    }
     runEnrichment(rawDepMap);
-  }, [rawDepMap, runEnrichment, pathAuthorityOnly]);
+  }, [rawDepMap, runEnrichment, pathAuthorityOnly, depMapHold]);
 
   // Auto-refresh with configurable interval. retryDepMap refetches the
   // same URL → proxy edge cache may serve (matches old loadData(false)).

@@ -6,6 +6,23 @@ export interface UnwrappedResponse<T> {
 }
 
 /**
+ * A non-2xx response. The message is unchanged from the plain Error this
+ * replaced; `status` and the parsed `body` let a caller show the backend's
+ * structured refusal instead of a URL.
+ */
+export class EnvelopeRequestError extends Error {
+  readonly status: number
+  readonly body: unknown
+
+  constructor(status: number, body: unknown, url: string) {
+    super(`Request failed (${status}) for ${url}`)
+    this.name = "EnvelopeRequestError"
+    this.status = status
+    this.body = body
+  }
+}
+
+/**
  * Single shared contract for consuming envelope-aware endpoints.
  *
  * Rules:
@@ -24,7 +41,10 @@ export async function fetchWithEnvelope<T>(
   const withEnvelope = appendQuery(url, "envelope", "true")
   const res = await fetch(withEnvelope, init)
   if (!res.ok) {
-    throw new Error(`Request failed (${res.status}) for ${url}`)
+    const body = await Promise.resolve()
+      .then(() => res.json())
+      .catch(() => null)
+    throw new EnvelopeRequestError(res.status, body, url)
   }
   const raw = await res.json()
   if (isTrustEnvelope(raw)) {

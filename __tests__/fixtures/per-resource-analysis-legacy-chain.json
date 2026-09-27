@@ -1,0 +1,179 @@
+{
+ "_producer": "GET /api/remediation/per-resource-analysis/{role} at saferemediate-backend main ae872942 (BEFORE the unknown-not-number change) over the same fake graph session",
+ "mixed": {
+  "aggregated": {
+   "total_permissions": 4,
+   "used_permissions": 2
+  },
+  "analyses": [
+   {
+    "data_source": "observed",
+    "has_observed_data": true,
+    "over_permission_ratio": 50.0,
+    "permissions_granted": 4,
+    "permissions_used": [
+     {
+      "action": "s3:GetObject",
+      "call_count": 1,
+      "targets": []
+     },
+     {
+      "action": "s3:PutObject",
+      "call_count": 1,
+      "targets": []
+     }
+    ],
+    "resource_id": "arn:aws:lambda:eu-west-1:111111111111:function:worker",
+    "resource_name": "worker",
+    "resource_type": "Lambda",
+    "risk_factors": [
+     "High-risk unused: iam:CreateRole"
+    ],
+    "total_api_calls": 0,
+    "unused_permissions": [
+     "iam:CreateRole",
+     "dynamodb:GetItem"
+    ],
+    "used_count": 2,
+    "utilization_rate": 0.5
+   },
+   {
+    "data_source": "no_data",
+    "has_observed_data": false,
+    "over_permission_ratio": 100.0,
+    "permissions_granted": 4,
+    "permissions_used": [],
+    "resource_id": "arn:aws:lambda:eu-west-1:111111111111:function:idle",
+    "resource_name": "idle",
+    "resource_type": "Lambda",
+    "risk_factors": [
+     "High-risk unused: s3:PutObject",
+     "High-risk unused: iam:CreateRole"
+    ],
+    "total_api_calls": 0,
+    "unused_permissions": [
+     "s3:GetObject",
+     "s3:PutObject",
+     "iam:CreateRole",
+     "dynamodb:GetItem"
+    ],
+    "used_count": 0,
+    "utilization_rate": 0.0
+   }
+  ],
+  "role": {
+   "all_permissions": [
+    "s3:GetObject",
+    "s3:PutObject",
+    "iam:CreateRole",
+    "dynamodb:GetItem"
+   ],
+   "resources": [
+    {
+     "resource_id": "arn:aws:lambda:eu-west-1:111111111111:function:worker",
+     "resource_name": "worker",
+     "resource_type": "Lambda"
+    },
+    {
+     "resource_id": "arn:aws:lambda:eu-west-1:111111111111:function:idle",
+     "resource_name": "idle",
+     "resource_type": "Lambda"
+    }
+   ],
+   "role_arn": "arn:aws:iam::111111111111:role/shared-app-role",
+   "role_name": "shared-app-role",
+   "total_permissions": 4
+  }
+ },
+ "observed": {
+  "aggregated": {
+   "total_permissions": 4,
+   "used_permissions": 2
+  },
+  "analyses": [
+   {
+    "data_source": "observed",
+    "has_observed_data": true,
+    "over_permission_ratio": 75.0,
+    "permissions_granted": 4,
+    "permissions_used": [
+     {
+      "action": "s3:GetObject",
+      "call_count": 1,
+      "targets": []
+     }
+    ],
+    "resource_id": "arn:aws:lambda:eu-west-1:111111111111:function:worker",
+    "resource_name": "worker",
+    "resource_type": "Lambda",
+    "risk_factors": [
+     "High-risk unused: s3:PutObject",
+     "High-risk unused: iam:CreateRole"
+    ],
+    "total_api_calls": 0,
+    "unused_permissions": [
+     "s3:PutObject",
+     "iam:CreateRole",
+     "dynamodb:GetItem"
+    ],
+    "used_count": 1,
+    "utilization_rate": 0.25
+   },
+   {
+    "data_source": "observed",
+    "has_observed_data": true,
+    "over_permission_ratio": 50.0,
+    "permissions_granted": 4,
+    "permissions_used": [
+     {
+      "action": "s3:GetObject",
+      "call_count": 1,
+      "targets": []
+     },
+     {
+      "action": "dynamodb:GetItem",
+      "call_count": 1,
+      "targets": []
+     }
+    ],
+    "resource_id": "arn:aws:lambda:eu-west-1:111111111111:function:reader",
+    "resource_name": "reader",
+    "resource_type": "Lambda",
+    "risk_factors": [
+     "High-risk unused: s3:PutObject",
+     "High-risk unused: iam:CreateRole"
+    ],
+    "total_api_calls": 0,
+    "unused_permissions": [
+     "s3:PutObject",
+     "iam:CreateRole"
+    ],
+    "used_count": 2,
+    "utilization_rate": 0.5
+   }
+  ],
+  "role": {
+   "all_permissions": [
+    "s3:GetObject",
+    "s3:PutObject",
+    "iam:CreateRole",
+    "dynamodb:GetItem"
+   ],
+   "resources": [
+    {
+     "resource_id": "arn:aws:lambda:eu-west-1:111111111111:function:worker",
+     "resource_name": "worker",
+     "resource_type": "Lambda"
+    },
+    {
+     "resource_id": "arn:aws:lambda:eu-west-1:111111111111:function:reader",
+     "resource_name": "reader",
+     "resource_type": "Lambda"
+    }
+   ],
+   "role_arn": "arn:aws:iam::111111111111:role/shared-app-role",
+   "role_name": "shared-app-role",
+   "total_permissions": 4
+  }
+ }
+}

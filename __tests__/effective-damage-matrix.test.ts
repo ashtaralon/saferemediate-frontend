@@ -16,9 +16,13 @@ describe("buildEffectiveDamageMatrix", () => {
     expect(matrixToSummary(m)).toBe("Blocked")
   })
 
+  // These two cases are about a LIVE path, so they say so: a payload with no
+  // effective_damage is unknown damage, never live (CF01 evidence contract;
+  // see __tests__/cf01-attack-path-evidence-contract.test.tsx).
   it("does not mark Configured as Confirmed from path-hop alone", () => {
     const dc: DamageCapability = {
       state: "live",
+      effective_damage: "live",
       direct_verbs: { read: 2, write: 1, delete: 0, admin: 0 },
     }
     const m = buildEffectiveDamageMatrix(dc, null, true)
@@ -29,6 +33,7 @@ describe("buildEffectiveDamageMatrix", () => {
   it("upgrades S3 verbs to Observed when scope has prefix evidence", () => {
     const dc: DamageCapability = {
       state: "live",
+      effective_damage: "live",
       direct_verbs: { read: 2, write: 1, delete: 1, admin: 0 },
     }
     const m = buildEffectiveDamageMatrix(
@@ -50,5 +55,15 @@ describe("buildEffectiveDamageMatrix", () => {
     expect(m.read.confidence).toBe("Observed")
     expect(m.read.detail).toMatch(/app-logs/)
     expect(matrixToSummary(m)).toContain("READ")
+  })
+
+  it("a payload with no effective_damage is Unknown, not the grant ceiling", () => {
+    const dc: DamageCapability = {
+      state: "live",
+      direct_verbs: { read: 2, write: 1, delete: 0, admin: 0 },
+    }
+    const m = buildEffectiveDamageMatrix(dc, null, false)
+    expect(m.read).toMatchObject({ allowed: false, confidence: "Unknown" })
+    expect(matrixToSummary(m)).toBe("Unknown")
   })
 })

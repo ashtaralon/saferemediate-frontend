@@ -430,9 +430,10 @@ export interface PathListRow {
   /** True iff at least one edge is is_observed=true (regardless of hits). */
   has_observed_edge: boolean
 
-  /** PR 1 / IAP `evidence_type` — observed vs configured. Null when the
-   *  backend did not declare one (never invent "configured"). */
-  evidence_type: "observed" | "configured" | null
+  /** PR 1 / IAP `evidence_type` — the backend's legacy whole-path word
+   *  (observed | configured | unverified | blocked). Null when the backend
+   *  did not declare one (never invent "configured"). */
+  evidence_type: "observed" | "configured" | "unverified" | "blocked" | null
 
   // ---- Classifications ------------------------------------------------------
 

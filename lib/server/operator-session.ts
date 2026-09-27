@@ -55,6 +55,7 @@ export interface OperatorSession {
   name: string
   email: string
   expiresAt: number
+  nonce: string
 }
 
 export class OperatorSessionError extends Error {
@@ -341,6 +342,10 @@ export function statesMatch(left: string, right: string): boolean {
 
 export async function sealSession(claims: Record<string, unknown>, idToken: string, config: OperatorOidcConfig, now = Math.floor(Date.now() / 1000)): Promise<{ value: string; maxAge: number }> {
   const expiresAt = Math.min(Number(claims.exp), now + MAX_SESSION_SECONDS)
+  const nonce = String(claims.nonce || "").trim()
+  if (!nonce) {
+    throw new OperatorSessionError("ID_TOKEN_NONCE", "The sign-in response does not match this sign-in attempt.")
+  }
   const value = await sealJson(
     {
       v: 1,
@@ -350,6 +355,7 @@ export async function sealSession(claims: Record<string, unknown>, idToken: stri
       name: String(claims.name || ""),
       email: String(claims.email || ""),
       expiresAt,
+      nonce,
     },
     config.sessionSecret,
     OPERATOR_SESSION_COOKIE,
@@ -373,6 +379,7 @@ export async function readOperatorSession(
   const session = await unsealJson<OperatorSession & { v: number }>(sealed, config.sessionSecret, OPERATOR_SESSION_COOKIE)
   if (!session || session.v !== 1 || typeof session.expiresAt !== "number" || session.expiresAt <= now + 30) return null
   if (session.issuer.replace(/\/$/, "") !== config.issuer) return null
+  if (!String(session.nonce || "").trim()) return null
   return session
 }
 

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { backendError, fromCaughtError } from "@/lib/server/proxy-error"
+import { fromCaughtError } from "@/lib/server/proxy-error"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
 // Use Node.js runtime for longer timeout (60s on Pro, 10s on Hobby)
@@ -8,8 +8,18 @@ export const runtime = 'nodejs'
 export const dynamic = "force-dynamic"
 export const maxDuration = 60 // Maximum execution time in seconds (Vercel Pro tier)
 
-const BACKEND_URL =
-  getBackendBaseUrl()
+const SERVICE_TOKEN_HEADER = "X-Cyntro-Service-Token"
+const NOT_CONFIGURED = "DEPLOYMENT_SERVICE_TOKEN_NOT_CONFIGURED"
+
+function serverToken(): string | null {
+  const token = process.env.CYNTRO_SERVICE_TOKEN?.trim()
+  return token || null
+}
+
+function countOrUnmeasured(value: unknown): number | null {
+  if (typeof value === "boolean" || typeof value !== "number" || Number.isNaN(value)) return null
+  return value
+}
 
 // In-memory cache for gap analysis (5-minute TTL)
 const cache = new Map<string, { data: any; timestamp: number }>()
@@ -30,6 +40,19 @@ export async function GET(req: NextRequest) {
   if (!systemName) {
     return NextResponse.json({ error: "systemName query parameter is required" }, { status: 400 })
   }
+  const token = serverToken()
+  if (!token) {
+    return NextResponse.json(
+      {
+        error_code: NOT_CONFIGURED,
+        code: NOT_CONFIGURED,
+        error: "This request carries no verified identity and this deployment has no service token configured (CYNTRO_SERVICE_TOKEN), so the read cannot be authorized. Installing the token is a release prerequisite.",
+        origin: "proxy",
+      },
+      { status: 503, headers: { "Cache-Control": "no-store" } },
+    )
+  }
+
   const roleName = getRoleName(systemName)
   const forceRefresh = url.searchParams.get("refresh") === "true"
 
@@ -66,10 +89,13 @@ export async function GET(req: NextRequest) {
 
     // Use the correct endpoint: /api/iam-roles/{role_name}/gap-analysis
     const res = await fetch(
-      `${BACKEND_URL}/api/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=90`,
+      `${getBackendBaseUrl()}/api/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=90`,
       {
         signal: controller.signal,
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          [SERVICE_TOKEN_HEADER]: token,
+        },
       }
     )
 
@@ -78,29 +104,42 @@ export async function GET(req: NextRequest) {
     if (!res.ok) {
       const errorText = await res.text().catch(() => "")
       console.error(`[proxy] gap-analysis backend returned ${res.status}: ${errorText.slice(0, 200)}`)
-      return backendError({
-        status: res.status,
-        message: `gap-analysis backend returned ${res.status}`,
-        detail: errorText.slice(0, 500),
-      })
+      let parsed: unknown = null
+      try {
+        parsed = errorText ? JSON.parse(errorText) : null
+      } catch {
+        parsed = null
+      }
+      if (parsed !== null && typeof parsed === "object") {
+        return NextResponse.json(parsed, {
+          status: res.status,
+          headers: { "Cache-Control": "no-store" },
+        })
+      }
+      return NextResponse.json(
+        {
+          error: `gap-analysis backend returned ${res.status}`,
+          detail: errorText.slice(0, 500),
+          backendStatus: res.status,
+          origin: "proxy",
+        },
+        { status: res.status, headers: { "Cache-Control": "no-store" } },
+      )
     }
 
     const data = await res.json()
-
-    // Transform field names: backend uses snake_case, frontend expects different names
-    // Backend: allowed_count, used_count, unused_count
-    // Frontend: allowed_actions, used_actions, unused_actions
+    const summary = data?.summary && typeof data.summary === "object" ? data.summary : {}
+    const allowed = countOrUnmeasured(data?.allowed_count ?? summary.allowed_count ?? data?.allowedCount)
+    const used = countOrUnmeasured(data?.used_count ?? summary.used_count ?? data?.usedCount)
+    const unused = countOrUnmeasured(data?.unused_count ?? summary.unused_count ?? data?.unusedCount)
     const transformed = {
       ...data,
-      // Map the field names
-      allowed_actions: data.allowed_count ?? data.summary?.allowed_count ?? data.allowedCount ?? 0,
-      used_actions: data.used_count ?? data.summary?.used_count ?? data.usedCount ?? 0,
-      unused_actions: data.unused_count ?? data.summary?.unused_count ?? data.unusedCount ??
-        ((data.allowed_count ?? data.summary?.allowed_count ?? 0) - (data.used_count ?? data.summary?.used_count ?? 0)),
-      // Also keep original fields for backwards compatibility
-      allowed_count: data.allowed_count ?? data.summary?.allowed_count ?? 0,
-      used_count: data.used_count ?? data.summary?.used_count ?? 0,
-      unused_count: data.unused_count ?? data.summary?.unused_count ?? 0,
+      allowed_actions: allowed,
+      used_actions: used,
+      unused_actions: unused,
+      allowed_count: allowed,
+      used_count: used,
+      unused_count: unused,
     }
 
     // Store in cache
