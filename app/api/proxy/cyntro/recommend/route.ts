@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
-import { decisionAuthorityView } from "@/lib/lp-decision-authority"
+import { decisionAuthorityView, decisionBindingOf } from "@/lib/lp-decision-authority"
 import { measuredIamPlan } from "@/lib/lp-held-mutation"
 
 export const dynamic = "force-dynamic"
@@ -58,7 +58,10 @@ export async function POST(req: NextRequest) {
     //  - the Review's own server_plan is MEASURED, read by the parser LP Apply uses (measuredIamPlan) -- itself derived
     //    from observed counts on the backend, so it is necessary but not sufficient; and
     //  - the receipted decision authority (decisionAuthorityView) is DECISION_GRADE and lists every planned removal
-    //    as CLEARED.
+    //    as CLEARED; and
+    //  - that authority is about the plan's own role: decisionBindingOf, the check LP Apply uses, binds its ARN and
+    //    RoleId to the plan's. The backend assembles the plan's ARN from the Review body and the authority from
+    //    review_scope, so the proxy binds them itself rather than trusting they agree.
     // Otherwise the answer is a typed hold carrying the backend's own plan state and decision-authority state/reason.
     const num = (value: unknown): number | null => (typeof value === "number" && Number.isFinite(value) ? value : null)
     const record = (value: unknown): Record<string, unknown> | null =>
@@ -81,8 +84,10 @@ export async function POST(req: NextRequest) {
     const keep = plan ? plan.actions.filter((a) => a.effect === "keep").map((a) => a.permission) : []
     const remove = plan ? plan.actions.filter((a) => a.effect === "remove").map((a) => a.permission) : []
     const cleared = new Set(authorityView.cleared)
+    const boundToPlan = plan !== undefined
+      && decisionBindingOf(gapData.decision_authority, { roleArn: plan.roleArn, roleId: plan.roleId }) !== null
     const authorized = authorityView.kind === "populated" && authorityView.receipt !== null
-      && authorityView.coverageComplete && remove.every((permission) => cleared.has(permission))
+      && authorityView.coverageComplete && boundToPlan && remove.every((permission) => cleared.has(permission))
     const holdReason = usedCount === null ? "USAGE_NOT_MEASURED"
       : plan === undefined ? "SERVER_PLAN_NOT_MEASURED"
       : authorized ? null : "DECISION_AUTHORITY_NOT_CLEARED"

@@ -98,7 +98,7 @@ describe("recommend proxy: removal authority is the receipted decision authority
   }
   const authority = review.decision_authority as Record<string, any>
   // Labelled test input: the captured authority as it would read had it cleared every planned removal.
-  const clearing = { ...authority, removal: { ...authority.removal, cleared: removals, indeterminate: [] } }
+  const clearing: Record<string, any> = { ...authority, removal: { ...authority.removal, cleared: removals, indeterminate: [] } }
   const answer = (patch: Record<string, unknown>) =>
     recommend(new Response(JSON.stringify({ ...review, ...patch }), { status: 200 }))
 
@@ -125,6 +125,11 @@ describe("recommend proxy: removal authority is the receipted decision authority
     ["no receipt", { ...clearing, receipt: null }],
     ["one planned removal not cleared", { ...clearing, removal: { ...clearing.removal, cleared: removals.slice(1) } }],
     ["no authority reported", undefined],
+    // The Review assembles server_plan.role_arn from the Review body and the authority from review_scope
+    // (api/iam_gap_analysis.py _attach_measured_plan / _attach_decision_authority): the proxy binds them itself.
+    ["another role's ARN", { ...clearing, role: { ...clearing.role, role_arn: "arn:aws:iam::111111111111:role/other" } }],
+    ["a recreated role (other RoleId)", { ...clearing, role: { ...clearing.role, role_id: "AROARECREATED" } }],
+    ["no role named", { ...clearing, role: undefined }],
   ])("an authority with %s proposes nothing", async (_label, block) => {
     const { body } = await answer({ server_plan: measured, decision_authority: block })
     expect(body.hold_reason).toBe("DECISION_AUTHORITY_NOT_CLEARED")
