@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getBackendBaseUrl } from '@/lib/server/backend-url'
+import { refuseHeldLegacyMutation } from "@/lib/server/legacy-mutation-proxy-hold"
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ sgId: string }> }
 ) {
+  const held = refuseHeldLegacyMutation("sg_remediate")
+  if (held) return held
   const { sgId } = await params
 
   console.log(`[SG-LP] POST remediate for ${sgId}`)

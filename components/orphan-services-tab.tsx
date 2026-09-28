@@ -4,6 +4,8 @@ import type React from "react"
 import { useState, useEffect, useMemo, useCallback } from "react"
 import { riskLabel } from "@/lib/utils"
 import { ServiceTypeBadge } from "@/lib/service-type"
+import { fetchLegacyMutation, legacyControlHeld, legacyMutationHold } from "@/lib/legacy-mutation-hold"
+import { LegacyMutationHeldNotice } from "@/components/legacy-mutation-held-notice"
 import {
   Search,
   ChevronDown,
@@ -329,6 +331,9 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
     ) || null
   }, [quarantineRecords])
 
+  // Quarantine, restore and delete change AWS: a held legacy family (pre-check only records a safety score).
+  const quarantineHeld = legacyControlHeld("quarantine")
+
   // --- Pre-check ---
   const runPreCheck = async (orphan: OrphanResource) => {
     setPreCheckModal({ orphan, safetyScore: null, loading: true, error: null })
@@ -374,9 +379,10 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
 
   // --- Start Monitor ---
   const startMonitor = async (recordId: string) => {
+    if (legacyMutationHold("quarantine")) return
     setActionLoading(recordId)
     try {
-      const response = await fetch('/api/proxy/quarantine/start-monitor', {
+      const response = await fetchLegacyMutation("quarantine", '/api/proxy/quarantine/start-monitor', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ recordId, actor: 'user' }),
@@ -393,9 +399,10 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
 
   // --- Execute Quarantine ---
   const executeQuarantine = async (recordId: string) => {
+    if (legacyMutationHold("quarantine")) return
     setActionLoading(recordId)
     try {
-      const response = await fetch('/api/proxy/quarantine/execute', {
+      const response = await fetchLegacyMutation("quarantine", '/api/proxy/quarantine/execute', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ recordId, actor: 'user' }),
@@ -411,9 +418,10 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
 
   // --- Restore ---
   const restoreResource = async (recordId: string) => {
+    if (legacyMutationHold("quarantine")) return
     setActionLoading(recordId)
     try {
-      const response = await fetch('/api/proxy/quarantine/restore', {
+      const response = await fetchLegacyMutation("quarantine", '/api/proxy/quarantine/restore', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ recordId, actor: 'user' }),
@@ -429,9 +437,10 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
 
   // --- Delete Resource ---
   const deleteNow = async (recordId: string) => {
+    if (legacyMutationHold("quarantine")) return
     setActionLoading(recordId)
     try {
-      const response = await fetch('/api/proxy/quarantine/delete', {
+      const response = await fetchLegacyMutation("quarantine", '/api/proxy/quarantine/delete', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ recordId, actor: 'user', force: true }),
@@ -962,9 +971,10 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
                                 </>
                               ) : qRecord.phase === "PRE_CHECK" || qRecord.phase === "MONITOR" ? (
                                 <>
+                                  <LegacyMutationHeldNotice family="quarantine" className="text-xs text-amber-800" />
                                   <button
                                     onClick={(e) => { e.stopPropagation(); executeQuarantine(qRecord.id) }}
-                                    disabled={actionLoading === qRecord.id}
+                                    disabled={actionLoading === qRecord.id || quarantineHeld}
                                     className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-[#f97316] text-white rounded-lg hover:bg-[#ea580c] transition-colors disabled:opacity-50"
                                   >
                                     {actionLoading === qRecord.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <ShieldOff className="w-3 h-3" />}
@@ -972,7 +982,7 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
                                   </button>
                                   <button
                                     onClick={(e) => { e.stopPropagation(); deleteNow(qRecord.id) }}
-                                    disabled={actionLoading === qRecord.id}
+                                    disabled={actionLoading === qRecord.id || quarantineHeld}
                                     className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-[#ef4444] text-white rounded-lg hover:bg-[#dc2626] transition-colors disabled:opacity-50"
                                   >
                                     {actionLoading === qRecord.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
@@ -980,7 +990,7 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
                                   </button>
                                   <button
                                     onClick={(e) => { e.stopPropagation(); restoreResource(qRecord.id) }}
-                                    disabled={actionLoading === qRecord.id}
+                                    disabled={actionLoading === qRecord.id || quarantineHeld}
                                     className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-[var(--border,#e5e7eb)] rounded-lg hover:bg-gray-100 transition-colors text-[var(--muted-foreground,#6b7280)]"
                                   >
                                     <RotateCcw className="w-3 h-3" />
@@ -989,9 +999,10 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
                                 </>
                               ) : qRecord.phase === "QUARANTINE" ? (
                                 <>
+                                  <LegacyMutationHeldNotice family="quarantine" className="text-xs text-amber-800" />
                                   <button
                                     onClick={(e) => { e.stopPropagation(); restoreResource(qRecord.id) }}
-                                    disabled={actionLoading === qRecord.id}
+                                    disabled={actionLoading === qRecord.id || quarantineHeld}
                                     className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-[#22c55e] text-white rounded-lg hover:bg-[#16a34a] transition-colors disabled:opacity-50"
                                   >
                                     {actionLoading === qRecord.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <RotateCcw className="w-3 h-3" />}
@@ -999,7 +1010,7 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
                                   </button>
                                   <button
                                     onClick={(e) => { e.stopPropagation(); deleteNow(qRecord.id) }}
-                                    disabled={actionLoading === qRecord.id}
+                                    disabled={actionLoading === qRecord.id || quarantineHeld}
                                     className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-[#ef4444] text-white rounded-lg hover:bg-[#dc2626] transition-colors disabled:opacity-50"
                                   >
                                     {actionLoading === qRecord.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
@@ -1364,6 +1375,7 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
             {/* Footer */}
             {!preCheckModal.loading && preCheckModal.safetyScore && (
               <div className="flex items-center justify-end gap-2 p-5 border-t border-[var(--border,#e5e7eb)]">
+                <LegacyMutationHeldNotice family="quarantine" className="mr-auto text-xs text-amber-800" />
                 <button
                   onClick={() => setPreCheckModal(null)}
                   className="px-4 py-2 text-sm border border-[var(--border,#e5e7eb)] rounded-lg hover:bg-gray-50 transition-colors text-[var(--muted-foreground,#6b7280)]"
@@ -1375,7 +1387,7 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
                     const qr = getQuarantineStatus(preCheckModal.orphan.name)
                     if (qr) { executeQuarantine(qr.id); setPreCheckModal(null) }
                   }}
-                  disabled={!!actionLoading}
+                  disabled={!!actionLoading || quarantineHeld}
                   className="flex items-center gap-2 px-4 py-2 text-sm bg-[#f97316] text-white rounded-lg hover:bg-[#ea580c] transition-colors disabled:opacity-50"
                 >
                   {actionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldOff className="w-4 h-4" />}
@@ -1386,7 +1398,7 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
                     const qr = getQuarantineStatus(preCheckModal.orphan.name)
                     if (qr) { deleteNow(qr.id); setPreCheckModal(null) }
                   }}
-                  disabled={!!actionLoading}
+                  disabled={!!actionLoading || quarantineHeld}
                   className="flex items-center gap-2 px-4 py-2 text-sm bg-[#ef4444] text-white rounded-lg hover:bg-[#dc2626] transition-colors disabled:opacity-50"
                 >
                   {actionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}

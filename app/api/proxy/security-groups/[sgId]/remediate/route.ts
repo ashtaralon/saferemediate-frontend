@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
+import { refuseHeldLegacyMutation } from "@/lib/server/legacy-mutation-proxy-hold"
 
 export const dynamic = "force-dynamic"
 export const fetchCache = "force-no-store"
@@ -12,6 +13,8 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ sgId: string }> }
 ) {
+  const held = refuseHeldLegacyMutation("sg_remediate")
+  if (held) return held
   try {
     const { sgId } = await params
     const body = await req.json()

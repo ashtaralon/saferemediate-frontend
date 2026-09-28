@@ -1,5 +1,6 @@
 import type { SecurityFinding } from "./types"
 import { normalizeFindingIdentities } from "./security-finding-identity"
+import { fetchLegacyMutation } from "./legacy-mutation-hold"
 
 // Browser code always stays on the UI origin. The catch-all server route owns
 // customer-local backend routing and service authentication.
@@ -554,8 +555,8 @@ export async function simulateIssue(payload: any) {
  * { finding_id: "...", ... }
  */
 export async function fixIssue(payload: any) {
-  // Use Next.js proxy to avoid CORS issues
-  const res = await fetch("/api/proxy/remediate", {
+  // Use Next.js proxy to avoid CORS issues. Held legacy family: answers 423 locally without a request.
+  const res = await fetchLegacyMutation("finding_remediate", "/api/proxy/remediate", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -649,8 +650,8 @@ export async function simulateRemediation(findingId: string): Promise<Simulation
 
 export async function executeRemediation(findingId: string) {
   try {
-    // Use proxy route
-    const res = await fetch(`/api/proxy/simulate/execute`, {
+    // Use proxy route. Held legacy family: answers 423 locally without a request.
+    const res = await fetchLegacyMutation("finding_remediate", `/api/proxy/simulate/execute`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

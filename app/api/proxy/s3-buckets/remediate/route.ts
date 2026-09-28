@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
+import { refuseHeldLegacyMutation } from "@/lib/server/legacy-mutation-proxy-hold"
 
 const BACKEND_URL = getBackendBaseUrl()
 
 export async function POST(request: NextRequest) {
+  const held = refuseHeldLegacyMutation("s3_remediate")
+  if (held) return held
   console.log('[Proxy] POST /api/proxy/s3-buckets/remediate')
 
   try {

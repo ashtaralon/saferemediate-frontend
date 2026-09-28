@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
+import { refuseHeldLegacyMutation } from "@/lib/server/legacy-mutation-proxy-hold"
 
 export const dynamic = "force-dynamic"
 export const fetchCache = "force-no-store"
@@ -10,6 +11,8 @@ const BACKEND_URL = getBackendBaseUrl()
 // No demo mode - only real data from backend
 
 export async function POST(request: NextRequest) {
+  const held = refuseHeldLegacyMutation("finding_remediate")
+  if (held) return held
   try {
     const body = await request.json()
     const { finding_id, resource_id, resource_type, permissions_to_remove, ...options } = body

@@ -1,5 +1,6 @@
 "use client"
 
+import { fetchLegacyMutation } from "@/lib/legacy-mutation-hold"
 import { useState, useEffect } from "react"
 import { X, Shield, Zap, CheckCircle2, AlertTriangle, XCircle, ChevronDown, ChevronRight, Clock, RefreshCw, Loader2, Play, AlertCircle, Info } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -163,7 +164,7 @@ export function SimulateModal({ isOpen, onClose, finding, onExecute }: SimulateM
         await onExecute(findingId)
       } else {
         // Use proxy route
-        const response = await fetch(`/api/proxy/safe-remediate/execute`, {
+        const response = await fetchLegacyMutation("finding_remediate", `/api/proxy/safe-remediate/execute`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({

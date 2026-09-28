@@ -326,6 +326,8 @@ function MitigationRow({ mitigation }: { mitigation: DataLeakMitigation }) {
   const override = mitigation.requiresOverrideLineage
 
   const exec = useMitigationExecution(mitigation)
+  // A Stage/Full endpoint in a held legacy family stays disabled; its reason is shown beside the buttons.
+  const mutationHold = exec.holdFor("full") ?? exec.holdFor("stage")
   const [overrideState, setOverrideState] = useState<SharedOverrideState>(INITIAL_SHARED_OVERRIDE_STATE)
 
   // The Full button click splits into two paths:
@@ -417,6 +419,11 @@ function MitigationRow({ mitigation }: { mitigation: DataLeakMitigation }) {
           {mitigation.execution === null && (
             <span className="text-[10px] text-slate-500 italic">
               {mitigation.manualReason || "Manual change only"}
+            </span>
+          )}
+          {mutationHold && (
+            <span role="note" data-hold-code={mutationHold.code} className="text-[10px] text-amber-800">
+              {mutationHold.message}
             </span>
           )}
         </div>

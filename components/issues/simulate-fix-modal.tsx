@@ -1,5 +1,6 @@
 "use client"
 
+import { fetchLegacyMutation } from "@/lib/legacy-mutation-hold"
 import React, { useState, useEffect, useCallback, useMemo } from "react"
 import { healthLabel } from "@/lib/utils"
 import { X } from "lucide-react"
@@ -111,7 +112,7 @@ export function SimulateFixModal({ isOpen, onClose, finding }: SimulateFixModalP
 
     try {
       // Use proxy route for remediation - no direct backend calls
-      const res = await fetch('/api/proxy/simulate/execute', {
+      const res = await fetchLegacyMutation("finding_remediate", '/api/proxy/simulate/execute', {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ finding_id: finding.id, create_rollback: true }),

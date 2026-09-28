@@ -1,5 +1,6 @@
 "use client"
 
+import { fetchLegacyMutation } from "@/lib/legacy-mutation-hold"
 import { useState } from "react"
 import { healthLabel } from "@/lib/utils"
 import { TrendingDown } from "lucide-react"
@@ -37,7 +38,7 @@ export function SystemHealthSection() {
 
     try {
       setLoading(true)
-      const res = await fetch('/api/proxy/simulate/execute', {
+      const res = await fetchLegacyMutation("finding_remediate", '/api/proxy/simulate/execute', {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ finding_id: issueId, create_rollback: true, confirm: true }),

@@ -21,6 +21,8 @@ import { ConfidenceExplanationPanel } from "@/components/ConfidenceExplanationPa
 import { EnvelopeRequestError, fetchWithEnvelope } from "@/components/trust/use-trust-envelope"
 import { LpIamApplyPanel, lpIamApplyPanelKey, lpReviewIsForThisRole } from "@/components/iam-lp/LpIamApplyPanel"
 import { LP_MUTATION_APPLY_ENABLED } from "@/lib/lp-held-mutation"
+import { fetchLegacyMutation, legacyControlHeld, legacyMutationHold } from "@/lib/legacy-mutation-hold"
+import { LegacyMutationHeldNotice } from "@/components/legacy-mutation-held-notice"
 import { DecisionAuthorityPanel } from "@/components/lp-decision-authority-panel"
 import { TrustEnvelopeBadge, type Provenance } from "@/components/trust/trust-envelope-badge"
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert"
@@ -943,6 +945,47 @@ function mapGapDataToIAMLp(gapData: GapAnalysisData | null): IamGapAnalysis | nu
     service_role_analysis: gapData.service_role_analysis,
     timestamp: rawGap.timestamp || new Date().toISOString(),
   }
+}
+
+/**
+ * The APPROVED branch of the modal's human-approval footer: executes a stored approval request, which changes AWS
+ * (/api/proxy/iam-roles/approval-requests/{id}/execute). Held as the `iam_approval_execute` legacy family: disabled
+ * with its reason whatever `applyDisabled` the host passed, and the click refuses before `onExecute` is reached.
+ */
+export function ApprovedIamChangeExecuteControl({
+  requestId,
+  sharedHref,
+  busy,
+  applyDisabled,
+  onExecute,
+}: {
+  requestId: string
+  sharedHref: string
+  busy: boolean
+  applyDisabled?: boolean
+  onExecute: (requestId: string) => Promise<void>
+}) {
+  const held = legacyControlHeld("iam_approval_execute", applyDisabled)
+  return (
+    <div className="flex items-center gap-3">
+      <a href={sharedHref} className="text-sm font-semibold text-amber-800 hover:underline">
+        Review shared impact
+      </a>
+      <LegacyMutationHeldNotice family="iam_approval_execute" className="text-xs text-amber-800" />
+      <button
+        type="button"
+        onClick={() => {
+          if (legacyMutationHold("iam_approval_execute")) return
+          void onExecute(requestId)
+        }}
+        disabled={busy || held}
+        data-testid="iam-execute-approved"
+        className="rounded-lg bg-[#2D51DA] px-5 py-2.5 font-bold text-white shadow-lg hover:bg-[#2446c0] disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        Execute approved change
+      </button>
+    </div>
+  )
 }
 
 export function IAMPermissionAnalysisModal({
@@ -2165,6 +2208,12 @@ export function IAMPermissionAnalysisModal({
   }
 
   const handleIAMLpExecuteApprovedRequest = async (requestId: string) => {
+    // Held legacy family: refused here, before the execute dialog opens, whatever the host passed as applyDisabled.
+    const executeHold = legacyMutationHold("iam_approval_execute")
+    if (executeHold) {
+      toast({ title: "Execution held", description: executeHold.message, variant: "destructive" })
+      return
+    }
     if (applyDisabled || authorityHoldReason) {
       toast({
         title: "Execution blocked",
@@ -3299,6 +3348,13 @@ export function IAMPermissionAnalysisModal({
         throw new Error("No approval request selected")
       }
 
+      // Approve / reject only record a decision on the request; execute changes AWS and is a held legacy family.
+      const isExecute = approvalActionMode !== "approve" && approvalActionMode !== "reject"
+      const executeHold = isExecute ? legacyMutationHold("iam_approval_execute") : null
+      if (executeHold) {
+        throw new Error(executeHold.message)
+      }
+
       const endpoint =
         approvalActionMode === "approve"
           ? `/api/proxy/iam-roles/approval-requests/${encodeURIComponent(approvalActionRequestId)}/approve`
@@ -3313,11 +3369,14 @@ export function IAMPermissionAnalysisModal({
             ? { rejected_by: actorIdentifier, note }
             : { executed_by: actorIdentifier, note }
 
-      const response = await fetch(endpoint, {
+      const init = {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
-      })
+      }
+      const response = isExecute
+        ? await fetchLegacyMutation("iam_approval_execute", endpoint, init)
+        : await fetch(endpoint, init)
       const data = await response.json().catch(() => ({}))
       if (!response.ok || data.success === false) {
         throw new Error(
@@ -4674,20 +4733,13 @@ export function IAMPermissionAnalysisModal({
 
                   if (approval?.status === 'APPROVED') {
                     return (
-                      <div className="flex items-center gap-3">
-                        <a href={sharedHref} className="text-sm font-semibold text-amber-800 hover:underline">
-                          Review shared impact
-                        </a>
-                        <button
-                          type="button"
-                          onClick={() => void handleIAMLpExecuteApprovedRequest(approval.request_id)}
-                          disabled={applying || approvalActionBusy}
-                          data-testid="iam-execute-approved"
-                          className="rounded-lg bg-[#2D51DA] px-5 py-2.5 font-bold text-white shadow-lg hover:bg-[#2446c0] disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          Execute approved change
-                        </button>
-                      </div>
+                      <ApprovedIamChangeExecuteControl
+                        requestId={approval.request_id}
+                        sharedHref={sharedHref}
+                        busy={applying || approvalActionBusy}
+                        applyDisabled={applyDisabled}
+                        onExecute={handleIAMLpExecuteApprovedRequest}
+                      />
                     )
                   }
 
