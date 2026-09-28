@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { NextRequest } from 'next/server'
 
+// The proxy's live path is held in source (finding_remediate; proven with the real hold in
+// __tests__/legacy-mutation-hold-library-and-proxy.test.ts). This file tests the receipt verification that runs
+// only once that hold is released, so the server-side refusal is mocked OFF here.
+vi.mock('@/lib/server/legacy-mutation-proxy-hold', () => ({ refuseHeldLegacyMutation: () => null }))
+
 import { POST } from '@/app/api/proxy/cyntro/remediate/route'
 import { isVerifiedIamApplyReceipt } from '@/components/iam-permission-analysis-modal'
 

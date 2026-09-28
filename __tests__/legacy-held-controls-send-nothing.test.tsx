@@ -8,7 +8,7 @@
  * `false`), and the card directly with the prop omitted, false and true. Responses are labelled test input shaped
  * like the proxies' bodies; nothing here is product data.
  */
-import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react"
 import type { ReactElement } from "react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -19,8 +19,14 @@ import { S3RemediationModal } from "@/components/s3-remediation-modal"
 import { OrphanServicesTab } from "@/components/orphan-services-tab"
 import { SimulateFixModal } from "@/components/SimulateFixModal"
 import { ApprovedIamChangeExecuteControl } from "@/components/iam-permission-analysis-modal"
+import { QuarantineCandidatesSection } from "@/components/iam-shared-roles-detail-view"
 import { useMitigationExecution } from "@/hooks/use-mitigation-execution"
-import type { DataLeakMitigation } from "@/lib/types"
+import type { ConsumerEvidence, DataLeakMitigation } from "@/lib/types"
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }),
+  useSearchParams: () => new URLSearchParams(),
+}))
 
 const MUTATION_PATHS = [
   /\/api\/proxy\/simulate\/execute/,
@@ -190,6 +196,41 @@ describe("Orphan services tab (system-detail and /orphan-resources): quarantine 
     expect(mutations(calls)).toEqual([])
     // Read-only: the list and orphan reads still happen.
     expect(calls.some((call) => call.url === "/api/proxy/quarantine/list/fixture-sys")).toBe(true)
+  })
+})
+
+describe("IAM shared-roles plan page (/iam/shared-roles/by-plan/[plan_id]): quarantine candidate Delete", () => {
+  it("row and bulk Delete are disabled with the reason; clicks send nothing, not even the pre-check", async () => {
+    const calls = spyNetwork({ "/api/proxy/quarantine/list/fixture-sys": { records: [] } })
+    const candidate = {
+      consumer_id: "fixture-consumer-1", consumer_type: "LambdaFunction", consumer_name: "fixture-fn",
+      system_name: "fixture-sys", observed_actions: [], allowed_intersection: [], blockers: [],
+      evidence_state: "OBSERVED", last_observed_at: null,
+    } as unknown as ConsumerEvidence
+    render(<QuarantineCandidatesSection candidates={[candidate]} thresholdDays={90} />)
+    const rowDelete = (await screen.findAllByRole("button", { name: /^Delete$/, hidden: true }))[0] as HTMLButtonElement
+    expect(rowDelete.disabled).toBe(true)
+    expect(screen.getAllByTestId("legacy-mutation-held-quarantine")[0].getAttribute("data-hold-code")).toBe("QUARANTINE_HELD")
+    await clickEveryWay(rowDelete)
+    // React's onClick opens the confirm dialog even though the trigger is disabled; its enabled Delete action then
+    // runs the handler, which must refuse before the pre-check.
+    const dialog = await screen.findByRole("alertdialog")
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole("button", { name: /^Delete$/ }))
+    })
+    expect(screen.getAllByText(/Held: backend safety\/recovery contract not yet proven for quarantine/).length).toBeGreaterThan(0)
+    // Bulk: select the row, then the "Delete 1" trigger is held the same way.
+    await act(async () => {
+      fireEvent.click(screen.getByRole("checkbox", { name: /Select fixture-fn/, hidden: true }))
+    })
+    const bulkDelete = screen.getByRole("button", { name: /^Delete 1$/, hidden: true }) as HTMLButtonElement
+    expect(bulkDelete.disabled).toBe(true)
+    await clickEveryWay(bulkDelete)
+    const bulkDialog = await screen.findByRole("alertdialog")
+    await act(async () => {
+      fireEvent.click(within(bulkDialog).getByRole("button", { name: /^Delete 1$/ }))
+    })
+    expect(calls.map((call) => call.url)).toEqual(["/api/proxy/quarantine/list/fixture-sys"])
   })
 })
 

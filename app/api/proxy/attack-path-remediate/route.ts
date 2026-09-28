@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
+import { refuseHeldLegacyMutation } from "@/lib/server/legacy-mutation-proxy-hold"
+import { isExplicitDryRun } from "@/lib/legacy-mutation-hold"
 
 export const dynamic = "force-dynamic"
 export const fetchCache = "force-no-store"
@@ -28,6 +30,13 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json()
+    // Held legacy family: only an explicit boolean dry run (every branch then takes its read-only preview path and
+    // forwards no mutation body) passes; anything else is refused before any backend request.
+    const held = isExplicitDryRun(body) ? null : refuseHeldLegacyMutation("finding_remediate")
+    if (held) {
+      clearTimeout(timeoutId)
+      return held
+    }
     const {
       node_id,
       node_type,

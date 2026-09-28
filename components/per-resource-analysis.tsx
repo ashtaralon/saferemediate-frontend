@@ -24,6 +24,7 @@ import {
   Filter,
 } from "lucide-react"
 import { getServiceMeta, ServiceTypeBadge } from "@/lib/service-type"
+import { legacyMutationHold } from "@/lib/legacy-mutation-hold"
 
 // ── Types ────────────────────────────────────────────
 
@@ -478,9 +479,10 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
       setError(null)
       setStage("remediation")
 
-      const LP_LEGACY_REMEDIATE_ENABLED = false
-      if (!LP_LEGACY_REMEDIATE_ENABLED) {
-        setError("Apply is disabled until installed recovery is proven")
+      // Shared legacy hold (lib/legacy-mutation-hold.ts): /api/proxy/cyntro/remediate is a finding_remediate proxy.
+      const legacyRemediateHold = legacyMutationHold("finding_remediate")
+      if (legacyRemediateHold) {
+        setError(legacyRemediateHold.message)
         setLoading(false)
         return
       }

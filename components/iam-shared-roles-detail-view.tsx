@@ -1391,7 +1391,7 @@ function AwaitingCard({ awaiting }: { awaiting: ConsumerEvidence[] }) {
 // parent bulk-deletes a row, it marks the consumer_id in
 // `parentDeletedIds` and the row honors that as a forced terminal
 // state.
-function QuarantineCandidatesSection({
+export function QuarantineCandidatesSection({
   candidates,
   thresholdDays,
 }: {

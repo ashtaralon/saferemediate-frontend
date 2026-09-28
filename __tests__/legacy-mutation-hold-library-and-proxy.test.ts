@@ -17,6 +17,7 @@ import {
   LEGACY_S3_REMEDIATE_ENABLED,
   LEGACY_SG_REMEDIATE_ENABLED,
   fetchLegacyMutation,
+  isExplicitDryRun,
   legacyControlHeld,
   legacyFamilyForProxyRequest,
   legacyMutationHold,
@@ -37,6 +38,10 @@ import { POST as quarantineStartMonitor } from "@/app/api/proxy/quarantine/start
 import { DELETE as quarantineDelete } from "@/app/api/proxy/quarantine/delete/route"
 import { POST as quarantinePreCheck } from "@/app/api/proxy/quarantine/pre-check/route"
 import { POST as approvalExecute } from "@/app/api/proxy/iam-roles/approval-requests/[requestId]/execute/route"
+import { POST as attackPathRemediate } from "@/app/api/proxy/attack-path-remediate/route"
+import { POST as cyntroRemediate } from "@/app/api/proxy/cyntro/remediate/route"
+import { POST as remediationExecute } from "@/app/api/proxy/remediation/execute/route"
+import { POST as remediateExecute } from "@/app/api/proxy/remediate/execute/route"
 
 const CODES: Record<LegacyMutationFamily, string> = {
   finding_remediate: "FINDING_REMEDIATE_HELD",
@@ -47,18 +52,19 @@ const CODES: Record<LegacyMutationFamily, string> = {
 }
 
 let calls: string[] = []
+let methods: string[] = []
 
 beforeEach(() => {
   calls = []
-  process.env.BACKEND_URL_OVERRIDE = "http://backend.test"
-  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+  methods = []
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     calls.push(String(input))
+    methods.push(String(init?.method ?? "GET").toUpperCase())
     return new Response(JSON.stringify({ spy: "forwarded" }), { status: 200, headers: { "Content-Type": "application/json" } })
   }))
 })
 
 afterEach(() => {
-  delete process.env.BACKEND_URL_OVERRIDE
   vi.unstubAllGlobals()
 })
 
@@ -69,6 +75,8 @@ function req(path: string, body: unknown, method = "POST") {
     body: JSON.stringify(body),
   })
 }
+
+const pathOf = (url: string) => new URL(url).pathname
 
 const params = <T extends Record<string, string>>(value: T) => ({ params: Promise.resolve(value) })
 
@@ -133,6 +141,13 @@ describe("proxy paths map to their family", () => {
     ["/api/proxy/iam-roles/approval-requests/req-1/execute", undefined, "iam_approval_execute"],
     ["/api/proxy/iam-roles/approval-requests/req-1/approve", undefined, null],
     ["/api/proxy/posture-visibility/proposals/execute", undefined, null],
+    ["/api/proxy/attack-path-remediate", { dry_run: false }, "finding_remediate"],
+    ["/api/proxy/attack-path-remediate", {}, "finding_remediate"],
+    ["/api/proxy/attack-path-remediate", { dry_run: true }, null],
+    ["/api/proxy/cyntro/remediate", { dry_run: false }, "finding_remediate"],
+    ["/api/proxy/cyntro/remediate", { dry_run: true }, null],
+    ["/api/proxy/remediation/execute", undefined, "sg_remediate"],
+    ["/api/proxy/remediate/execute", undefined, "finding_remediate"],
   ])("%s %j -> %s", (path, body, family) => {
     expect(legacyFamilyForProxyRequest(path as string, body)).toBe(family)
   })
@@ -153,6 +168,12 @@ describe("server-side proxy refusal (no backend request)", () => {
     ["quarantine/start-monitor", "quarantine", () => quarantineStartMonitor(req("/api/proxy/quarantine/start-monitor", { recordId: "q-1" }))],
     ["quarantine/delete", "quarantine", () => quarantineDelete(req("/api/proxy/quarantine/delete", { recordId: "q-1", force: true }, "DELETE"))],
     ["approval-requests/{id}/execute", "iam_approval_execute", () => approvalExecute(req("/api/proxy/iam-roles/approval-requests/req-1/execute", { executed_by: "fixture" }), params({ requestId: "req-1" }))],
+    ["attack-path-remediate SecurityGroup dry_run:false", "finding_remediate", () => attackPathRemediate(req("/api/proxy/attack-path-remediate", { node_id: "sg-0fixture", node_type: "SecurityGroup", dry_run: false }))],
+    ["attack-path-remediate IAMRole dry_run:false", "finding_remediate", () => attackPathRemediate(req("/api/proxy/attack-path-remediate", { node_id: "arn:aws:iam::111111111111:role/fixture-role", node_type: "IAMRole", node_name: "fixture-role", dry_run: false, permissions_to_remove: ["s3:GetObject"] }))],
+    ["attack-path-remediate S3Bucket dry_run omitted", "finding_remediate", () => attackPathRemediate(req("/api/proxy/attack-path-remediate", { node_id: "fixture-bucket", node_type: "S3Bucket" }))],
+    ["cyntro/remediate live", "finding_remediate", () => cyntroRemediate(req("/api/proxy/cyntro/remediate", { role_name: "fixture-role", dry_run: false, permissions_to_remove: ["s3:GetObject"], resource_arn: "arn:aws:iam::111111111111:role/fixture-role", system_name: "fixture-sys" }))],
+    ["remediation/execute", "sg_remediate", () => remediationExecute(req("/api/proxy/remediation/execute", { sg_id: "sg-0fixture", rules_to_delete: ["r1"] }))],
+    ["remediate/execute", "finding_remediate", () => remediateExecute(req("/api/proxy/remediate/execute", { finding_id: "fixture-finding" }))],
   ]
 
   it.each(cases)("%s refuses 423 with the family code", async (_name, family, call) => {
@@ -167,18 +188,75 @@ describe("server-side proxy refusal (no backend request)", () => {
   })
 })
 
+// Every value that is not the boolean true on an object body -- including the ones a truthiness check or a
+// string-coercing backend would treat as a dry run -- is held.
+const NOT_DRY_RUN: Array<[string, unknown]> = [
+  ["dry_run: false", { dry_run: false }],
+  ["dry_run omitted", {}],
+  ['dry_run: "false"', { dry_run: "false" }],
+  ["dry_run: 0", { dry_run: 0 }],
+  ['dry_run: "true"', { dry_run: "true" }],
+  ["dry_run: 1", { dry_run: 1 }],
+  ["null body", null],
+  ["dryRun: true (wrong key)", { dryRun: true }],
+  ["array body", [{ dry_run: true }]],
+]
+
+describe("dry-run-aware proxies hold every body that is not an explicit boolean dry run", () => {
+  it.each(NOT_DRY_RUN)("isExplicitDryRun(%s) is false", (_name, body) => {
+    expect(isExplicitDryRun(body)).toBe(false)
+  })
+
+  const proxies: Array<[string, (body: unknown) => Promise<Response>]> = [
+    ["iam-roles/remediate", (body) => iamRolesRemediate(req("/api/proxy/iam-roles/remediate", body))],
+    ["cyntro/remediate", (body) => cyntroRemediate(req("/api/proxy/cyntro/remediate", body))],
+    ["attack-path-remediate", (body) => attackPathRemediate(req("/api/proxy/attack-path-remediate", body))],
+  ]
+  const matrix = proxies.flatMap(([proxy, call]) =>
+    NOT_DRY_RUN.map(([name, base]) => {
+      // Keep each proxy's own required fields so a refusal cannot come from validation instead of the hold.
+      const extra = proxy === "attack-path-remediate"
+        ? { node_id: "sg-0fixture", node_type: "SecurityGroup" }
+        : { role_name: "fixture-role", permissions_to_remove: ["s3:GetObject"] }
+      const body = base && typeof base === "object" && !Array.isArray(base) ? { ...extra, ...base } : base
+      return [proxy, name, call, body] as const
+    }),
+  )
+
+  it.each(matrix)("%s with %s: 423, no backend request", async (_proxy, _name, call, body) => {
+    const res = await call(body)
+    expect(res.status).toBe(423)
+    expect(await res.json()).toMatchObject({ code: "FINDING_REMEDIATE_HELD", cloud_writes: 0, origin: "proxy" })
+    expect(calls).toEqual([])
+  })
+})
+
 describe("read-only neighbours still forward", () => {
+  it("attack-path-remediate with an explicit dry run makes only its read (GET analysis), never a mutation", async () => {
+    const res = await attackPathRemediate(req("/api/proxy/attack-path-remediate", { node_id: "sg-0fixture", node_type: "SecurityGroup", dry_run: true }))
+    expect(res.status).toBe(200)
+    expect(calls.map(pathOf)).toEqual(["/api/sg-least-privilege/sg-0fixture/analysis"])
+    expect(methods).toEqual(["GET"])
+  })
+
+  it("cyntro/remediate with an explicit dry run forwards the backend preview with dry_run: true", async () => {
+    const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>
+    await cyntroRemediate(req("/api/proxy/cyntro/remediate", { role_name: "fixture-role", dry_run: true, permissions_to_remove: ["s3:GetObject"] }))
+    expect(calls.map(pathOf)).toEqual(["/api/iam-roles/remediate"])
+    expect(JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body)).dry_run).toBe(true)
+  })
+
   it("quarantine pre-check reaches the backend", async () => {
     const res = await quarantinePreCheck(req("/api/proxy/quarantine/pre-check", { resourceName: "fixture", systemName: "fixture-sys" }))
     expect(res.status).toBe(200)
-    expect(calls.map((url) => new URL(url).pathname)).toEqual(["/api/quarantine/pre-check"])
+    expect(calls.map(pathOf)).toEqual(["/api/quarantine/pre-check"])
   })
 
   it("an explicit IAM remediate dry run reaches the backend with dry_run: true", async () => {
     const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>
     const res = await iamRolesRemediate(req("/api/proxy/iam-roles/remediate", { role_name: "fixture-role", dry_run: true }))
     expect(res.status).toBe(200)
-    expect(calls.map((url) => new URL(url).pathname)).toEqual(["/api/iam-roles/remediate"])
+    expect(calls.map(pathOf)).toEqual(["/api/iam-roles/remediate"])
     const init = fetchMock.mock.calls[0][1] as RequestInit
     expect(JSON.parse(String(init.body)).dry_run).toBe(true)
   })

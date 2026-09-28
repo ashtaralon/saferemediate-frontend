@@ -10,8 +10,10 @@
  *   3. the request function (fetchLegacyMutation) returns a local 423 refusal without calling fetch, and the Next.js
  *      proxy route refuses with the same code before any backend request (lib/server/legacy-mutation-proxy-hold.ts).
  *
- * Read-only calls (simulations, previews, gap analysis, quarantine pre-check, approval request/approve/reject) are
- * not held and keep using fetch directly.
+ * Not held, and still using fetch directly: read-only calls (simulations, previews, gap analysis), the quarantine
+ * pre-check (records a safety score; no AWS write), and approval request / approve / reject (each records an approval
+ * decision; no AWS write). A proxy that accepts a dry run forwards it only when the body is an object whose `dry_run`
+ * is the boolean `true` (isExplicitDryRun); any other value, including an omitted one, is held.
  */
 
 export type LegacyMutationFamily =
@@ -21,10 +23,14 @@ export type LegacyMutationFamily =
   | "quarantine"
   | "iam_approval_execute"
 
-/** Finding / role remediation: /api/proxy/simulate/execute, /api/proxy/remediate, /api/proxy/safe-remediate/execute,
- *  and non-dry-run /api/proxy/iam-roles/remediate (backend /api/iam-roles/remediate, /api/safe-remediate/execute). */
+/** Finding / role remediation. Proxies: /api/proxy/simulate/execute, /api/proxy/remediate,
+ *  /api/proxy/safe-remediate/execute, /api/proxy/remediate/execute, and -- unless an explicit dry run --
+ *  /api/proxy/iam-roles/remediate, /api/proxy/cyntro/remediate and /api/proxy/attack-path-remediate. Backends reached:
+ *  /api/iam-roles/remediate, /api/iam-users/remediate, /api/safe-remediate/execute, /api/s3-remediation/remediate,
+ *  /api/remediate/execute. */
 export const LEGACY_FINDING_REMEDIATE_ENABLED = false
-/** Security-group rule removal: /api/proxy/security-groups/{sg}/remediate, /api/proxy/sg-least-privilege/{sg}/remediate. */
+/** Security-group rule removal: /api/proxy/security-groups/{sg}/remediate, /api/proxy/sg-least-privilege/{sg}/remediate,
+ *  /api/proxy/remediation/execute (LeastPrivilegeTab's SG execute; backend /api/remediation/execute). */
 export const LEGACY_SG_REMEDIATE_ENABLED = false
 /** S3 bucket-policy statement removal: /api/proxy/s3-buckets/remediate. */
 export const LEGACY_S3_REMEDIATE_ENABLED = false
@@ -131,8 +137,25 @@ export async function fetchLegacyMutation(
   return fetch(input, init)
 }
 
+/**
+ * True only for an object body whose `dry_run` is the boolean `true`. A string "true", 1, an omitted field, an array
+ * or a null body is not a dry run: the backends default an omitted dry_run to a live change or coerce strings.
+ */
+export function isExplicitDryRun(body: unknown): boolean {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return false
+  return (body as Record<string, unknown>).dry_run === true
+}
+
+/** Proxies that forward an explicit dry run and hold everything else. */
+const DRY_RUN_AWARE_PROXIES = new Set([
+  "/api/proxy/iam-roles/remediate",
+  "/api/proxy/cyntro/remediate",
+  "/api/proxy/attack-path-remediate",
+])
+
 const PROXY_FAMILIES: Array<[RegExp, LegacyMutationFamily]> = [
-  [/^\/api\/proxy\/(simulate\/execute|remediate|safe-remediate\/execute)$/, "finding_remediate"],
+  [/^\/api\/proxy\/(simulate\/execute|remediate|safe-remediate\/execute|remediate\/execute)$/, "finding_remediate"],
+  [/^\/api\/proxy\/remediation\/execute$/, "sg_remediate"],
   [/^\/api\/proxy\/(security-groups|sg-least-privilege)\/[^/]+\/remediate$/, "sg_remediate"],
   [/^\/api\/proxy\/s3-buckets\/remediate$/, "s3_remediate"],
   [/^\/api\/proxy\/quarantine\/(start-monitor|execute|restore|delete)$/, "quarantine"],
@@ -141,14 +164,12 @@ const PROXY_FAMILIES: Array<[RegExp, LegacyMutationFamily]> = [
 
 /**
  * The legacy family a proxy request belongs to, for callers whose endpoint is data (the data-leak mitigation executor
- * receives backend-authored paths). `/api/proxy/iam-roles/remediate` is a mutation unless the body is an explicit
- * `dry_run: true` preview -- the backend defaults an omitted dry_run to a live change.
+ * receives backend-authored paths). The dry-run-aware proxies are mutations unless isExplicitDryRun(body).
  */
 export function legacyFamilyForProxyRequest(path: string, body?: unknown): LegacyMutationFamily | null {
   const bare = path.split("?")[0].replace(/\/+$/, "")
-  if (bare === "/api/proxy/iam-roles/remediate") {
-    const dryRun = body && typeof body === "object" ? (body as Record<string, unknown>).dry_run : undefined
-    return dryRun === true ? null : "finding_remediate"
+  if (DRY_RUN_AWARE_PROXIES.has(bare)) {
+    return isExplicitDryRun(body) ? null : "finding_remediate"
   }
   for (const [pattern, family] of PROXY_FAMILIES) {
     if (pattern.test(bare)) return family

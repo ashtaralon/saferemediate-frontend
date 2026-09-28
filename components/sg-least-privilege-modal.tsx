@@ -35,6 +35,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { fetchLegacyMutation } from '@/lib/legacy-mutation-hold';
 import { ConfidenceExplanationPanel } from '@/components/ConfidenceExplanationPanel';
 import type { ConfidenceScore } from '@/lib/types';
 
@@ -497,7 +498,8 @@ export const SGLeastPrivilegeModal: React.FC<SGLeastPrivilegeModalProps> = ({
 
       console.log(`[SG-Remediate] Applying fix: ${selectedRules.length} rules on ${analysis.sg_name}`);
 
-      const response = await fetch(`/api/proxy/sg-least-privilege/${sgId}/remediate`, {
+      // No importer mounts this modal today; its Apply still goes through the shared legacy hold (sg_remediate).
+      const response = await fetchLegacyMutation('sg_remediate', `/api/proxy/sg-least-privilege/${sgId}/remediate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

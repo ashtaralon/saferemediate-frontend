@@ -1,9 +1,10 @@
 /**
  * The held controls' OWN guards, isolated: the request function (fetchLegacyMutation) is a spy here, so its internal
  * hold check cannot catch anything -- only each click handler's refusal stands between the click and the request.
- * The hold state itself stays REAL. Paired with legacy-held-controls-send-nothing.test.tsx (the whole path against a
- * network spy) and legacy-mutation-hold-library-and-proxy.test.ts (the library and proxy guards on their own): each
- * guard is tested without the others, so removing any one fails a test.
+ * The hold state itself stays REAL. Its partners: legacy-held-controls-send-nothing.test.tsx (the whole path against
+ * a network spy), legacy-held-library-guard-at-call-sites.test.tsx (each call site's request function with the
+ * handler guards released) and legacy-mutation-hold-library-and-proxy.test.ts (the library and the proxies). The
+ * handler guard and the call-site library guard are each tested without the other.
  */
 import { act, cleanup, fireEvent, render, renderHook, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"

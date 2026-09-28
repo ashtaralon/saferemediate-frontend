@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
+import { refuseHeldLegacyMutation } from "@/lib/server/legacy-mutation-proxy-hold"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 60
@@ -8,6 +9,8 @@ const BACKEND_URL =
   getBackendBaseUrl()
 
 export async function POST(request: NextRequest) {
+  const held = refuseHeldLegacyMutation("finding_remediate")
+  if (held) return held
   try {
     const body = await request.json()
 
