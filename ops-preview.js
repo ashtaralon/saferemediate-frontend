@@ -19893,6 +19893,13 @@ function ServiceIconShell({
         className: "text-[9px] font-mono text-center truncate w-full",
         style: { color: PAL.slate },
         children: sublabel
+      }) : null,
+      dense && !railChip && caption ? /* @__PURE__ */ jsx_runtime6.jsx("span", {
+        className: "text-[8px] text-center truncate w-full leading-tight",
+        style: { color: PAL.slate, maxWidth: 120 },
+        "data-testid": "topology-chip-caption",
+        title: caption,
+        children: caption
       }) : null
     ]
   });
