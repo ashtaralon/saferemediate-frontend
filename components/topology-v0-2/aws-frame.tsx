@@ -66,7 +66,7 @@ import { resolveCoverageGaps } from "./coverage-gaps"
 import { normalizeVpcTopology } from "./normalize-topology"
 import { createMap } from "./native-map"
 import type { EstateFlowMode } from "./estate-flow-edges"
-import { egressHopFlowIds, filterMergedVpcOverlayEdges } from "./estate-flow-edges"
+import { egressHopFlowIds, filterMergedVpcOverlayEdges, isPerimeterId } from "./estate-flow-edges"
 import { subnetOwnershipTooltipLine } from "./estate-ownership"
 import {
   databasePublicIpExposureLabel,
@@ -5457,6 +5457,13 @@ function FlowOverlay({
       // Neo4j NetworkEndpoint sentinels: if the dedicated anchor chip is
       // missing (stale cache / glance race), land on the regional rail so
       // workload→IGW→AWS still paints instead of dying at the IGW.
+      // A real `igw-` id lands on the IGW door, whose anchor is "__igw__".
+      if (id === IGW_CANVAS_ANCHOR_ID || id.startsWith("igw-")) {
+        const door =
+          container.querySelector<HTMLElement>(`[data-igw-id="${CSS.escape(id)}"]`) ??
+          container.querySelector<HTMLElement>(`[data-flow-id="${IGW_CANVAS_ANCHOR_ID}"]`)
+        if (door) return { el: door, grouped: false }
+      }
       if (id === AWS_S3_PUBLIC_SENTINEL_ID || id === AWS_API_PUBLIC_SENTINEL_ID) {
         const rail = container.querySelector<HTMLElement>(
           '[data-testid="topology-neo4j-dest-anchors"]',
@@ -9635,14 +9642,46 @@ export function AwsFrame({
       ...triggerTierNodes.map(n => n.id),
       ...(identityRoleNodes ?? []).map(n => n.id),
     ])
+    const natIds = new Set(topo.edges.nat_gws.map(n => n.id))
+    // Either end may be a perimeter chip (IGW door, VPCE door, NAT, regional
+    // sentinel): inbound traffic starts at the IGW, and a gateway endpoint can
+    // be a source. The old test demanded a workload source and dropped both.
     let edges = overlayEdgeList.filter(e => {
-      if (!visible.has(e.source_id)) return false
-      if (e.target_id === "__igw__") return true
-      if (e.target_id === AWS_S3_PUBLIC_SENTINEL_ID) return true
-      if (e.target_id === AWS_API_PUBLIC_SENTINEL_ID) return true
-      if (vpceIds.has(e.target_id)) return true
+      if (!visible.has(e.source_id) && !isPerimeterId(e.source_id, vpceIds, natIds)) return false
+      if (isPerimeterId(e.target_id, vpceIds, natIds)) return true
       return visible.has(e.target_id)
     })
+    // INGRESS the payload measured but never drew as a line: `external_sources`
+    // is Flow Logs' count of distinct PUBLIC source IPs that reached this
+    // edge's target on its port. Packets from the public internet enter a VPC
+    // only through its IGW, so the line IGW -> target is a route fact carrying
+    // that edge's own evidence (same authority, basis and last_seen — it
+    // animates only if the measured edge would). One line per target; an
+    // explicit IGW -> target edge in the payload wins.
+    if (topo.edges.igws.length > 0) {
+      const explicitIngress = new Set(
+        edges
+          .filter(e => e.source_id === IGW_CANVAS_ANCHOR_ID || e.source_id.startsWith("igw-"))
+          .map(e => e.target_id),
+      )
+      const ingress = new Map<string, TrafficEdge>()
+      for (const e of edges) {
+        const publicSources = e.external_sources ?? 0
+        if (publicSources <= 0) continue
+        if (!visible.has(e.target_id) || explicitIngress.has(e.target_id) || ingress.has(e.target_id)) continue
+        ingress.set(e.target_id, {
+          ...e,
+          source_id: IGW_CANVAS_ANCHOR_ID,
+          target_id: e.target_id,
+          edge_class: e.edge_class === "database" ? "database" : "internal",
+          via_vpce_id: null,
+          via_nat_id: null,
+          egress_hops: null,
+          external_destinations: null,
+        } as TrafficEdge)
+      }
+      edges = [...edges, ...ingress.values()]
+    }
     // All VPCs · Compare: one SVG over two columns — cross-VPC chip↔chip
     // edges turn the gutter into spaghetti. Keep intra-VPC + rail/IGW/VPCE.
     if (mergedVpcView) {
@@ -9707,6 +9746,8 @@ export function AwsFrame({
     externalDestinations,
     identityRoleNodes,
     identityPrincipalNodes,
+    topo.edges.nat_gws,
+    topo.edges.igws.length,
   ])
   // One frame PER VPC. Merged mode renders every VPC that owns a subnet in the
   // payload (primary first); scoped mode renders just the selected VPC. Each

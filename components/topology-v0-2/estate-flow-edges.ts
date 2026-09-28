@@ -212,6 +212,94 @@ function vpceForRegionalTarget(
   return null
 }
 
+/** Canvas anchors that are not workloads but ARE drawn: the primary-IGW
+ *  anchor and the regional sentinels. An edge may start or end on one. */
+export const PERIMETER_SENTINEL_IDS: ReadonlySet<string> = new Set(["__igw__", "__aws_s3__", "__aws_api__"])
+
+/**
+ * True for an id the canvas draws as a perimeter chip rather than a workload:
+ * the IGW (anchor or real `igw-` id — both resolve to the IGW door), the
+ * regional sentinels, a VPC endpoint, or a NAT gateway.
+ *
+ * Every visibility filter used to demand that an edge's SOURCE be a workload,
+ * so traffic that ENTERS through the IGW or starts at an endpoint was dropped
+ * before the overlay ever saw it (2026-09-28: "I can't see traffic from the
+ * IGW or VPCE"). The source test now admits these; the target test already
+ * admitted most of them.
+ */
+export function isPerimeterId(
+  id: string | null | undefined,
+  vpceIds?: ReadonlySet<string>,
+  natIds?: ReadonlySet<string>,
+): boolean {
+  if (!id) return false
+  if (PERIMETER_SENTINEL_IDS.has(id) || id.startsWith("igw-")) return true
+  return Boolean(vpceIds?.has(id) || natIds?.has(id))
+}
+
+function gatewayServiceForTarget(
+  edge: Pick<TrafficEdge, "target_id" | "destinations" | "egress_breakdown">,
+  nodeTypeById: ReadonlyMap<string, string | null | undefined>,
+): "s3" | "dynamodb" | null {
+  if (edge.target_id === "__aws_s3__") return "s3"
+  const t = nodeTypeById.get(edge.target_id) ?? ""
+  if (t === "S3" || t === "S3Bucket") return "s3"
+  if (t === "DynamoDB" || t === "DynamoDBTable") return "dynamodb"
+  const named = [
+    ...(edge.destinations ?? []).map(d => d.aws_service ?? ""),
+    ...(edge.egress_breakdown ?? []).map(b => b.aws_service ?? ""),
+  ].map(x => x.toUpperCase())
+  if (named.includes("S3")) return "s3"
+  if (named.includes("DYNAMODB")) return "dynamodb"
+  return null
+}
+
+/**
+ * Which endpoint an edge really used, when the payload says "VPCE" but not
+ * which one.
+ *
+ * `structural_route` is the source subnet's route-table verdict (the ratified
+ * S3_TRANSPORT_PROVENANCE_v1 vocabulary). When it says VPCE and the edge
+ * carries no `via_vpce_id` / `egress_hops`, the endpoint is resolved by the
+ * target's service among THIS VPC's gateway endpoints — and only when exactly
+ * one matches. Zero or several matches leave the edge untouched: a line drawn
+ * through the wrong door is worse than a line drawn through none.
+ *
+ * Edges with no route verdict (the legacy dependency graph's) are never given
+ * a hop: nothing in them says which path the traffic took.
+ */
+export function resolveStructuralVpceHop<E extends TrafficEdge>(
+  edge: E,
+  vpces: readonly EdgeVpce[],
+  nodeTypeById: ReadonlyMap<string, string | null | undefined>,
+): E {
+  if (edge.via_vpce_id || (edge.egress_hops && edge.egress_hops.length > 0)) return edge
+  if (edge.structural_route !== "VPCE") return edge
+  const service = gatewayServiceForTarget(edge, nodeTypeById)
+  if (!service) return edge
+  const matches = vpces.filter(v => {
+    const last = (v.service_name ?? "").split(".").pop()?.toLowerCase()
+    const type = (v.endpoint_type ?? "").toLowerCase()
+    return last === service && (type === "gateway" || type === "")
+  })
+  if (matches.length !== 1) return edge
+  return {
+    ...edge,
+    via_vpce_id: matches[0].id,
+    via_vpce_service_name: matches[0].service_name ?? null,
+    egress_path: edge.egress_path ?? "vpce",
+  }
+}
+
+export function resolveStructuralVpceHops<E extends TrafficEdge>(
+  edges: readonly E[],
+  vpces: readonly EdgeVpce[],
+  nodeTypeById: ReadonlyMap<string, string | null | undefined>,
+): E[] {
+  if (vpces.length === 0) return [...edges]
+  return edges.map(e => resolveStructuralVpceHop(e, vpces, nodeTypeById))
+}
+
 function edgeKey(source: string, target: string, port: number | null, protocol: string | null): string {
   return `${source}::${target}::${port ?? ""}::${protocol ?? ""}`
 }
@@ -222,11 +310,8 @@ function filterVisibleTrafficEdges(
 ): TrafficEdge[] {
   return edges.filter(
     e =>
-      visible.has(e.source_id) &&
-      (visible.has(e.target_id) ||
-        e.target_id === "__igw__" ||
-        e.target_id === "__aws_s3__" ||
-        e.target_id === "__aws_api__"),
+      (visible.has(e.source_id) || isPerimeterId(e.source_id)) &&
+      (visible.has(e.target_id) || isPerimeterId(e.target_id)),
   )
 }
 

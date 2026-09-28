@@ -12,6 +12,7 @@
  * unused shared infrastructure into Compare.
  */
 
+import { isPerimeterId } from "./estate-flow-edges"
 import type {
   AvailableVpc,
   IamRoleRollup,
@@ -139,9 +140,11 @@ export function filterTrafficEdgesForVisible(
   return edges.filter(e => {
     const src = e.source_id
     const tgt = e.target_id
-    if (!src || !visibleIds.has(src)) return false
-    if (tgt === "__igw__" || tgt === "__aws_s3__" || tgt === "__aws_api__") return true
-    if (vpceIds.has(tgt)) return true
+    // Perimeter endpoints (IGW, VPCE, regional sentinels) are drawn chips, not
+    // system workloads: traffic that ENTERS through the IGW or leaves a VPCE
+    // has one as its source and used to be dropped here.
+    if (!src || !(visibleIds.has(src) || isPerimeterId(src, vpceIds))) return false
+    if (isPerimeterId(tgt, vpceIds)) return true
     return visibleIds.has(tgt)
   })
 }

@@ -68,6 +68,7 @@ import {
   buildVisibleCanvasIds,
   attackPathEdgesToTrafficEdges,
   selectEstateFlowEdges,
+  resolveStructuralVpceHops,
   type EstateFlowMode,
 } from "@/components/topology-v0-2/estate-flow-edges"
 import {
@@ -368,7 +369,18 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
   )
 
   const scopedVpcTopology = scopedEstate?.vpcTopology ?? null
-  const scopedTrafficEdges = scopedEstate?.trafficEdges ?? data?.traffic_edges ?? []
+  // Which endpoint each edge really used: where the route verdict says VPCE
+  // but the edge names none, resolve it to this VPC's single matching gateway
+  // endpoint. Done once here so the overlay AND the boundary captions read
+  // the same edges ("VPCE · 4 workloads" must match the lines drawn through it).
+  const rawScopedTrafficEdges = scopedEstate?.trafficEdges ?? data?.traffic_edges ?? null
+  const scopedTrafficEdges = useMemo(() => {
+    const edges = rawScopedTrafficEdges ?? []
+    const vpces = scopedEstate?.vpcTopology?.edges?.vpces ?? data?.vpc_topology?.edges?.vpces ?? []
+    const types = new Map<string, string | null>()
+    for (const n of scopedEstate?.nodes ?? data?.nodes ?? []) types.set(n.id, n.type)
+    return resolveStructuralVpceHops(edges, vpces, types)
+  }, [rawScopedTrafficEdges, scopedEstate, data])
   const scopedAvailableVpcs = scopedEstate?.availableVpcs ?? data?.available_vpcs ?? []
 
   const availableAzs = useMemo(() => {
