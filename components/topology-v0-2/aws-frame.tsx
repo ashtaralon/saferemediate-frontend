@@ -77,7 +77,6 @@ import {
 import {
   FLOW_ALERT_COLOR,
   FLOW_COLOR_BY_CLASS,
-  FLOW_LEGEND_ITEMS,
   IDENTITY_MARKER_COLORS,
   IDENTITY_STROKE_DASH,
   identityLineColor,
@@ -128,6 +127,27 @@ import {
   awsServiceLabel,
 } from "./aws-architecture-icons"
 import { elideSharedPrefix } from "./chip-names"
+import {
+  EgressClassGroups,
+  IgwPerimeterDoor,
+  InternetBand,
+  LogicalGroupHulls,
+  MissingEndpointDoor,
+  NatGapMarker,
+  OpsFlowLegend,
+  OpsReadoutStrip,
+  VpceDoor,
+} from "./ops-perimeter"
+import {
+  buildOpsReadout,
+  groupExternalDestinations,
+  logicalGroupKind,
+  missingGatewayEndpoints,
+  natAzCoverage,
+  type CrossAzNatRoute,
+  type LogicalGroupHullSpec,
+  type MissingGatewayEndpoint,
+} from "./ops-perimeter-model"
 
 interface Props {
   vpcTopology: VpcTopology
@@ -1811,7 +1831,7 @@ function SubnetCell({
   tier, az, subnetsHere, workloadsHere, sgIndex, selectedNodeId, onSelect,
   compact = false, roleForWorkload, densityCollapsed = false,
   viewDensity = "glance", natGwsHere = [], displayNameForWorkload,
-  operatorPlacedIds,
+  operatorPlacedIds, natGap = null,
 }: {
   tier: SubnetTier
   az: string
@@ -1831,6 +1851,10 @@ function SubnetCell({
   displayNameForWorkload?: (nodeId: string) => string | undefined
   /** Node ids in this cell only because an engineer put them here. */
   operatorPlacedIds?: ReadonlySet<string>
+  /** Public cell of an AZ with no NAT gateway: the routes from this AZ that
+   *  name a NAT elsewhere (possibly none). null = this AZ has a NAT, or the
+   *  VPC has none at all — no marker. */
+  natGap?: readonly CrossAzNatRoute[] | null
 }) {
   void sgIndex
   void densityCollapsed
@@ -1947,6 +1971,8 @@ function SubnetCell({
           </span>
         ) : null}
       </div>
+
+      {natGap && natGwsHere.length === 0 ? <NatGapMarker az={az} crossAz={natGap} /> : null}
 
       {natGwsHere.length > 0 ? (
         <div
@@ -2475,7 +2501,7 @@ export const RAIL_LANE_MIN_PX = 154
  *  at its bottom, level with the data tier they serve. Wide enough for an
  *  "IGW · name" chip with a caption under it; narrower than the 136px "Not in
  *  this VPC" column because nothing here spells out a VPC id. */
-export const VPC_BOUNDARY_COL_W_PX = 132
+export const VPC_BOUNDARY_COL_W_PX = 156
 
 /** The narrowest the VPC card's own track may get before the canvas scrolls
  *  instead. Two AZ columns of subnet cells do not fit below this, and a track
@@ -3895,53 +3921,21 @@ function ExternalDestinationsLane({
   map,
   summary,
   compact,
+  layout = "lane",
 }: {
   map: ExternalDestinationMap
   summary: ExternalEgressSummary | null
   compact: boolean
+  /** "band" = the outbound half of the NORTH Internet band (ops layout): the
+   *  same chips and anchors, grouped by what the evidence can say about each
+   *  destination, laid out side by side instead of as a column. */
+  layout?: "lane" | "band"
 }) {
   const [moreOpen, setMoreOpen] = useState(false)
   const hiddenNodes = map.hiddenCount > 0
-  return (
-    <div
-      className="flex flex-col self-stretch min-h-0 gap-1 z-10"
-      style={{ width: `${EXTERNAL_LANE_W_PX}px` }}
-      data-testid="topology-external-destinations-lane"
-      data-scroll-region="external-destinations"
-      data-node-count={map.nodes.length}
-      data-total-named={map.totalNamed}
-      data-hidden-count={map.hiddenCount}
-      data-attributed-count={map.attributedCount}
-      data-gateway-id={map.gatewayId ?? ""}
-      data-remainder-legs={map.remainder?.legs ?? 0}
-    >
-      <div
-        className="text-[10px] uppercase tracking-[0.12em] font-semibold shrink-0"
-        style={{ color: "#B45309" }}
-        data-flow-obstacle="external-lane-header"
-        data-testid="topology-external-destinations-lane-header"
-      >
-        Outside the VPC
-      </div>
-      {/* Two provenances in one line, kept apart on purpose. Merging them into
-          "traffic to X" would let configured routing borrow the destinations'
-          evidence and read as a proven per-packet path. */}
-      <div
-        className="text-[9px] leading-tight shrink-0"
-        style={{ color: PAL.slate }}
-        data-flow-obstacle="external-lane-caption"
-        data-testid="topology-external-destinations-provenance"
-      >
-        Destinations observed this generation · NAT → IGW is configured routing
-      </div>
-      <div className="flex flex-col gap-1 min-w-0">
-        {map.nodes.map(node => (
-          <ExternalDestinationChip key={node.key} node={node} />
-        ))}
-        {/* Traffic whose destination the payload never named. Drawn, never
-            dropped: a lane showing only the named addresses would read as the
-            complete set. */}
-        {map.remainder ? (
+  // Traffic whose destination the payload never named. Drawn, never dropped:
+  // a lane showing only the named addresses would read as the complete set.
+  const remainderBlock = map.remainder ? (
           <div
             className="rounded-md px-1.5 py-1 min-w-0 w-full"
             style={{ background: "#FFFFFF", border: "1px dashed #CBD5E1" }}
@@ -3962,8 +3956,8 @@ function ExternalDestinationsLane({
               {" · no addresses recorded"}
             </div>
           </div>
-        ) : null}
-        {hiddenNodes ? (
+  ) : null
+  const moreBlock = (
           <Popover open={moreOpen} onOpenChange={setMoreOpen}>
             <PopoverTrigger asChild>
               <button
@@ -4047,7 +4041,94 @@ function ExternalDestinationsLane({
               </ul>
             </PopoverContent>
           </Popover>
-        ) : null}
+  )
+  const egressGroups = useMemo(() => groupExternalDestinations(map), [map])
+  if (layout === "band") {
+    return (
+      <div
+        className="flex flex-col min-w-0 gap-1 z-10"
+        data-testid="topology-external-destinations-lane"
+        data-layout="band"
+        data-node-count={map.nodes.length}
+        data-total-named={map.totalNamed}
+        data-hidden-count={map.hiddenCount}
+        data-attributed-count={map.attributedCount}
+        data-gateway-id={map.gatewayId ?? ""}
+        data-remainder-legs={map.remainder?.legs ?? 0}
+      >
+        <div className="flex items-baseline gap-2 flex-wrap">
+          <span
+            className="text-[9px] font-bold uppercase tracking-[0.14em]"
+            style={{ color: "#B45309" }}
+            data-flow-obstacle="external-lane-header"
+            data-testid="topology-external-destinations-lane-header"
+          >
+            ↑ Outbound · what this VPC reaches
+          </span>
+          <span
+            className="text-[9px] leading-tight"
+            style={{ color: PAL.slate }}
+            data-flow-obstacle="external-lane-caption"
+            data-testid="topology-external-destinations-provenance"
+          >
+            Destinations observed this generation · NAT → IGW is configured routing
+          </span>
+        </div>
+        <EgressClassGroups
+          groups={egressGroups}
+          renderDestination={node => <ExternalDestinationChip node={node} />}
+          remainder={remainderBlock}
+        />
+        <div className="flex items-start gap-2 flex-wrap">
+          {hiddenNodes ? <div className="w-[180px]">{moreBlock}</div> : null}
+          <div className="min-w-0 flex-1">
+            <ExternalDestinationsNode summary={summary} compact={compact} lane />
+          </div>
+        </div>
+      </div>
+    )
+  }
+  return (
+    <div
+      className="flex flex-col self-stretch min-h-0 gap-1 z-10"
+      style={{ width: `${EXTERNAL_LANE_W_PX}px` }}
+      data-testid="topology-external-destinations-lane"
+      data-scroll-region="external-destinations"
+      data-node-count={map.nodes.length}
+      data-total-named={map.totalNamed}
+      data-hidden-count={map.hiddenCount}
+      data-attributed-count={map.attributedCount}
+      data-gateway-id={map.gatewayId ?? ""}
+      data-remainder-legs={map.remainder?.legs ?? 0}
+    >
+      <div
+        className="text-[10px] uppercase tracking-[0.12em] font-semibold shrink-0"
+        style={{ color: "#B45309" }}
+        data-flow-obstacle="external-lane-header"
+        data-testid="topology-external-destinations-lane-header"
+      >
+        Outside the VPC
+      </div>
+      {/* Two provenances in one line, kept apart on purpose. Merging them into
+          "traffic to X" would let configured routing borrow the destinations'
+          evidence and read as a proven per-packet path. */}
+      <div
+        className="text-[9px] leading-tight shrink-0"
+        style={{ color: PAL.slate }}
+        data-flow-obstacle="external-lane-caption"
+        data-testid="topology-external-destinations-provenance"
+      >
+        Destinations observed this generation · NAT → IGW is configured routing
+      </div>
+      <div className="flex flex-col gap-1 min-w-0">
+        {map.nodes.map(node => (
+          <ExternalDestinationChip key={node.key} node={node} />
+        ))}
+        {/* Traffic whose destination the payload never named. Drawn, never
+            dropped: a lane showing only the named addresses would read as the
+            complete set. */}
+        {remainderBlock}
+        {hiddenNodes ? moreBlock : null}
       </div>
       {/* The evidence summary and its per-leg detail, moved off the top strip:
           one place for this fact, on the canvas where the traffic is drawn. */}
@@ -5260,81 +5341,6 @@ function FlowModeToggle({
         <ShieldAlert className="h-3 w-3" />
         Attack paths{attackPathCount > 0 ? ` (${attackPathCount})` : ""}
       </button>
-    </div>
-  )
-}
-
-function FlowLegend({ compact = false }: { compact?: boolean }) {
-  return (
-    <div
-      className={`flex flex-wrap items-center gap-x-3 gap-y-1 border-y ${
-        compact ? "px-1 py-1" : "px-2 py-1.5"
-      }`}
-      style={{ borderColor: "#E2E8F0", background: "rgba(255,255,255,0.86)" }}
-      data-testid="topology-flow-legend"
-      data-flow-obstacle="flow-legend"
-      aria-label="Dependency line colors"
-    >
-      <span
-        className="text-[9px] font-bold uppercase tracking-[0.12em]"
-        style={{ color: "#475569" }}
-      >
-        Flow colors
-      </span>
-      {FLOW_LEGEND_ITEMS.map(item => (
-        <span key={item.key} className="inline-flex items-center gap-1.5 whitespace-nowrap">
-          <svg width="28" height="8" viewBox="0 0 28 8" aria-hidden>
-            <path d="M1 4 H23" stroke={item.color} strokeWidth="2" strokeLinecap="round" />
-            <path d="M21 1 L27 4 L21 7 Z" fill={item.color} />
-          </svg>
-          <span className="text-[9px] font-medium" style={{ color: "#475569" }}>
-            {item.label}
-          </span>
-        </span>
-      ))}
-      <span className="ml-auto inline-flex items-center gap-1.5 text-[9px] font-medium" style={{ color: "#0E8B7A" }}>
-        <span className="relative block h-2 w-7 overflow-hidden">
-          <span
-            className="absolute left-0 top-[3px] h-0.5 w-full"
-            style={{ background: "#99F6E4" }}
-          />
-          <span
-            className="absolute top-0 h-2 w-2"
-            style={{
-              background: "#0E8B7A",
-              clipPath: "polygon(0 0, 100% 50%, 0 100%)",
-              animation: "topology-flow-legend 2.2s linear infinite",
-            }}
-          />
-        </span>
-        Moving = authoritative observed
-        <style>{`
-          @keyframes topology-flow-legend {
-            from { transform: translateX(0); }
-            to { transform: translateX(20px); }
-          }
-        `}</style>
-      </span>
-      <span className="inline-flex items-center gap-1.5 text-[9px] font-medium" style={{ color: "#64748B" }}>
-        <svg width="28" height="10" viewBox="0 0 28 10" aria-hidden>
-          <path d="M1 5 H27" stroke="#94A3B8" strokeWidth="1.5" strokeDasharray="4 3" />
-          <circle cx="15" cy="5" r="4" fill="white" stroke="#64748B" strokeWidth="1" strokeDasharray="2 1" />
-          <path d="M13 3 L17 5 L13 7" fill="none" stroke="#64748B" strokeWidth="1.2" />
-        </svg>
-        Outlined motion = historical direction
-      </span>
-      <span className="inline-flex items-center gap-1.5 text-[9px] font-medium" style={{ color: "#475569" }}>
-        <svg width="28" height="8" viewBox="0 0 28 8" aria-hidden>
-          <path d="M1 4 H27" stroke="#64748B" strokeWidth="2" />
-        </svg>
-        Solid = configured
-      </span>
-      <span className="inline-flex items-center gap-1.5 text-[9px] font-medium" style={{ color: "#475569" }}>
-        <svg width="28" height="8" viewBox="0 0 28 8" aria-hidden>
-          <path d="M1 4 H27" stroke="#64748B" strokeWidth="2" strokeDasharray="4 3" />
-        </svg>
-        Dashed = inferred / unverified
-      </span>
     </div>
   )
 }
@@ -8240,15 +8246,25 @@ function VpcBoundaryColumn({
   // while the Dependencies view, reading the same payload, said "egress: 3
   // workloads". Two numbers for one fact, and the quieter one was the lie.
   evidenceEdges,
+  missingEndpoints = [],
+  igwOnTopBorder = false,
   selectedNodeId,
   onSelect,
 }: {
   igws: VpcTopology["edges"]["igws"]
   vpces: VpcTopology["edges"]["vpces"]
   evidenceEdges: TrafficEdge[]
+  /** S3 / DynamoDB reached via NAT/IGW with no gateway endpoint (structural). */
+  missingEndpoints?: readonly MissingGatewayEndpoint[]
+  /** The IGW is drawn as a door on the VPC's top border (ops layout); this
+   *  column then carries only the private paths to AWS services. */
+  igwOnTopBorder?: boolean
   selectedNodeId: string | null
   onSelect: (id: string) => void
 }) {
+  // East border = the doors that face the AWS service rail. The IGW faces the
+  // internet, so in the ops layout it is on the TOP border, not here.
+  const showIgwHere = !igwOnTopBorder && igws.length > 0
   return (
     <div
       className="flex flex-col self-stretch min-h-0 z-10"
@@ -8262,12 +8278,10 @@ function VpcBoundaryColumn({
         data-flow-obstacle="vpc-boundary-header"
         data-testid="topology-vpc-boundary-column-header"
       >
-        VPC boundary
+        {igwOnTopBorder ? "Private paths to AWS →" : "VPC boundary"}
       </div>
-      {igws.length > 0 ? (
+      {showIgwHere ? (
         <div className="flex flex-col gap-1 mt-1 shrink-0" data-testid="topology-vpc-boundary-ingress">
-          {/* The IGW is, by definition, the VPC's attachment to the internet; the
-              Users → Internet strip above the cloud frame names the same path. */}
           <div
             className="text-[9px] font-semibold"
             style={{ color: PAL.slate }}
@@ -8299,37 +8313,53 @@ function VpcBoundaryColumn({
           })}
         </div>
       ) : null}
+      {/* Centred on the column, level with the App tier: the endpoints carry
+          private App/Data -> S3 / SSM / KMS paths, and a door halfway down the
+          border reads as "the side exit" rather than as a footnote. */}
       <div className="flex-1 min-h-[8px]" aria-hidden />
-      {vpces.length > 0 ? (
+      {vpces.length > 0 || missingEndpoints.length > 0 ? (
         // Scrolls rather than clips when the column is shorter than its
         // endpoints: a clipped endpoint is a device the graph reports and the
         // map silently denies.
         <div
-          className="flex flex-col gap-1 mb-0.5 min-h-0 overflow-y-auto"
+          className="flex flex-col gap-1.5 min-h-0 overflow-y-auto"
           data-testid="topology-vpc-boundary-endpoints"
         >
-          <div
-            className="text-[9px] font-semibold shrink-0"
-            style={{ color: PAL.slate }}
-            data-flow-obstacle="vpc-boundary-endpoints-header"
-          >
-            Endpoints ({vpces.length})
-          </div>
-          {vpces.map(v => (
-            <div key={v.id} className="flex flex-col gap-0.5 min-w-0 shrink-0">
-              <VpceBoundaryChip vpce={v} selected={selectedNodeId === v.id} onSelect={onSelect} fill />
-              <div
-                className="text-[8px] leading-tight truncate"
-                style={{ color: PAL.slate }}
-                data-testid="topology-boundary-caption"
-                title="Workloads reaching this endpoint, counted from the payload's edges rather than a route table. Hiding lines does not change this count."
-              >
-                {boundaryVpceCaption(evidenceEdges, v.id)}
+          {vpces.length > 0 ? (
+            <div
+              className="text-[9px] font-semibold shrink-0"
+              style={{ color: PAL.slate }}
+              data-flow-obstacle="vpc-boundary-endpoints-header"
+            >
+              Endpoints ({vpces.length})
+            </div>
+          ) : null}
+          {vpces.map(v => {
+            const meta = resolveVpceMeta(v.service_name, v.endpoint_type)
+            return (
+              <div key={v.id} className="shrink-0 min-w-0">
+                <VpceDoor
+                  vpceId={v.id}
+                  serviceLabel={meta.label}
+                  endpointType={meta.type}
+                  purpose={meta.purpose}
+                  serviceName={v.service_name}
+                  selected={selectedNodeId === v.id}
+                  onSelect={onSelect}
+                  icon={<VpceIcon size={26} />}
+                  caption={boundaryVpceCaption(evidenceEdges, v.id)}
+                />
               </div>
+            )
+          })}
+          {missingEndpoints.map(m => (
+            <div key={m.service} className="shrink-0 min-w-0">
+              <MissingEndpointDoor finding={m} />
             </div>
           ))}
         </div>
       ) : null}
+      <div className="flex-1 min-h-[8px]" aria-hidden />
     </div>
   )
 }
@@ -8353,6 +8383,11 @@ interface VpcCanvasFrameProps {
   /** The IGW and endpoints are drawn in the VPC BOUNDARY column beside this
    *  frame (single-frame canvas); the header strip stays empty of them. */
   boundaryInColumn?: boolean
+  /** Ops layout: the IGW door drawn ON this frame's top border, centred over
+   *  the load balancers it feeds. Single-frame canvas only. */
+  igwDoor?: ReactNode
+  /** AZ -> cross-AZ NAT routes, for AZs whose public subnets host no NAT. */
+  natGapByAz?: ReadonlyMap<string, readonly CrossAzNatRoute[]>
   presentationMode: boolean
   densityCollapsed: boolean
   viewDensity: ViewDensity
@@ -8380,6 +8415,8 @@ function VpcCanvasFrame({
   highlightedRoleName,
   onSelect,
   boundaryInColumn = false,
+  igwDoor,
+  natGapByAz,
   presentationMode,
   densityCollapsed,
   viewDensity,
@@ -8598,14 +8635,33 @@ function VpcCanvasFrame({
               minWidth: `${vpcGridMinWidth}px`,
               flex: "1 1 auto",
               overflow: "visible",
+              // Room for the IGW door to straddle the top border without the
+              // region grid (overflow-x: auto => overflow-y clips) cutting it.
+              marginTop: igwDoor ? 26 : undefined,
             }
       }
     >
+      {igwDoor && !presentationMode ? (
+        <div
+          className="absolute left-1/2 -translate-x-1/2 z-[40] flex flex-col items-center"
+          style={{ top: -24 }}
+          data-testid="topology-vpc-top-door"
+          data-flow-obstacle="vpc-top-door"
+        >
+          {igwDoor}
+        </div>
+      ) : null}
       {/* In-flow header (not absolute -top) so VPC id / shared badge never
           clip under the parent overflow-x-auto / border edge. */}
       <div
         className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.14em] font-semibold mb-1 px-0.5"
-        style={{ color: "#0E8B7A", gridRow: presentationMode ? 1 : undefined }}
+        style={{
+          color: "#0E8B7A",
+          gridRow: presentationMode ? 1 : undefined,
+          // The IGW door straddles the top border; the frame's name starts
+          // below it so the door never covers "VPC · vpc-…".
+          marginTop: igwDoor && !presentationMode ? 26 : undefined,
+        }}
         data-testid="topology-vpc-frame-header"
       >
         {/* Floored, because this is the frame's name. The boundary strip to the
@@ -8643,6 +8699,11 @@ function VpcCanvasFrame({
             the top border rather than in a column beside the card — on a merged
             canvas. A single-frame canvas draws them in the VPC BOUNDARY column
             instead (`boundaryInColumn`), IGW above the endpoints. */}
+        {igwDoor && presentationMode ? (
+          <div className="mx-auto shrink-0 normal-case tracking-normal" data-testid="topology-vpc-top-door">
+            {igwDoor}
+          </div>
+        ) : null}
         {boundaryStrip && !boundaryInColumn ? <div className="ml-auto min-w-0">{boundaryStrip}</div> : null}
       </div>
 
@@ -8714,6 +8775,7 @@ function VpcCanvasFrame({
                           az={az}
                           subnetsHere={subnetsHere}
                           natGwsHere={natPlacement.byCell.get(`${az}::${tier}`) ?? []}
+                          natGap={tier === "web" ? natGapByAz?.get(az) ?? null : null}
                           operatorPlacedIds={grid.operatorPlacedIds}
                           displayNameForWorkload={nameElision.displayName}
                           workloadsHere={workloadsHere}
@@ -8793,6 +8855,7 @@ function VpcCanvasFrame({
                         az={az}
                         subnetsHere={subnetsHere}
                         natGwsHere={natPlacement.byCell.get(`${az}::${tier}`) ?? []}
+                          natGap={tier === "web" ? natGapByAz?.get(az) ?? null : null}
                         operatorPlacedIds={grid.operatorPlacedIds}
                         displayNameForWorkload={nameElision.displayName}
                         workloadsHere={workloadsHere}
@@ -8854,6 +8917,7 @@ function VpcCanvasFrame({
                             az={az}
                             subnetsHere={subnetsHere}
                             natGwsHere={natPlacement.byCell.get(`${az}::${tier}`) ?? []}
+                          natGap={tier === "web" ? natGapByAz?.get(az) ?? null : null}
                             operatorPlacedIds={grid.operatorPlacedIds}
                             displayNameForWorkload={nameElision.displayName}
                             workloadsHere={workloadsHere}
@@ -9204,7 +9268,7 @@ function UnplacedNodesArea({
               style={{ color: PAL.ink }}
               data-testid="topology-logical-group-band-header"
             >
-              Logical groups · members carry the placement ({groups.length})
+              Logical groups ({groups.length}) · outlined on the map
             </span>
             <span className="text-[9px] leading-snug" style={{ color: PAL.slate }}>
               {groupsOpen ? "Hide members" : "Show members"}
@@ -9613,9 +9677,66 @@ export function AwsFrame({
   // one frame per VPC and each keeps its devices on its own header, where they
   // stay attributable to their VPC.
   const boundaryFrame = frames.length === 1 ? frames[0] : null
-  const showBoundaryColumn = Boolean(
-    boundaryFrame && (boundaryFrame.igws.length > 0 || boundaryFrame.vpces.length > 0),
+
+  // ── Ops layout (NORTH Internet band · CENTER VPC grid · EAST AWS rail) ──
+  // The IGW faces the internet, so on a single-frame canvas it is a door ON
+  // the VPC's top border, centred over the load balancers it feeds. The east
+  // border keeps only what faces the AWS rail: VPC endpoints, and a dashed
+  // door where S3 / DynamoDB traffic takes NAT/IGW for want of one.
+  const igwOnTopBorder = Boolean(boundaryFrame && boundaryFrame.igws.length > 0)
+  const natCoverage = useMemo(
+    () =>
+      natAzCoverage({
+        natGws: boundaryFrame ? boundaryFrame.natGws : topo.edges.nat_gws,
+        subnets: topo.subnets,
+        azs: boundaryFrame ? boundaryFrame.grid.azs : topo.azs,
+        edges: trafficEdgesList,
+        nodes,
+      }),
+    [boundaryFrame, topo.edges.nat_gws, topo.subnets, topo.azs, trafficEdgesList, nodes],
   )
+  const natGapByAz = useMemo(() => {
+    const m = new Map<string, CrossAzNatRoute[]>()
+    for (const az of natCoverage.azsWithoutNat) {
+      m.set(az, natCoverage.crossAzRoutes.filter(r => r.sourceAz === az))
+    }
+    return m
+  }, [natCoverage])
+  const missingEndpoints = useMemo(
+    () =>
+      identityLens
+        ? []
+        : missingGatewayEndpoints({
+            edges: trafficEdgesList,
+            vpces: boundaryFrame ? boundaryFrame.vpces : topo.edges.vpces,
+            regionalNodes: regionalTierNodes,
+          }),
+    [identityLens, trafficEdgesList, boundaryFrame, topo.edges.vpces, regionalTierNodes],
+  )
+  const showBoundaryColumn = Boolean(
+    boundaryFrame &&
+      (boundaryFrame.vpces.length > 0 ||
+        missingEndpoints.length > 0 ||
+        (!igwOnTopBorder && boundaryFrame.igws.length > 0)),
+  )
+  // Outbound destinations live in the NORTH band now, beside the inbound
+  // users: the Internet is one place with two directions. Identity lens keeps
+  // the old lane (it draws principals, not traffic, up there).
+  const externalInNorthBand = !identityLens
+  const showExternalLaneInGrid = showExternalLane && !externalInNorthBand
+  const primaryDoorIgw = boundaryFrame?.igws[0] ?? null
+  const igwDoor = primaryDoorIgw ? (
+    <IgwPerimeterDoor
+      igwId={primaryDoorIgw.id}
+      igwName={primaryDoorIgw.name || primaryDoorIgw.id}
+      selectionId={IGW_CANVAS_ANCHOR_ID}
+      selected={selectedNodeId === IGW_CANVAS_ANCHOR_ID}
+      onSelect={onSelect}
+      icon={<AwsServiceGlyph kind="igw" size={presentationMode ? 16 : 20} />}
+      caption={boundaryIgwCaption(trafficEdgesList, { id: primaryDoorIgw.id, primary: true })}
+      compact={presentationMode}
+    />
+  ) : undefined
   const accountSuffix = topo.account_id ? `· acct ${topo.account_id}` : ""
   const flowContainerRef = useRef<HTMLDivElement | null>(null)
   const railColumnRef = useRef<HTMLDivElement | null>(null)
@@ -9671,6 +9792,52 @@ export function AwsFrame({
       resources: resourceIds.size,
     }
   }, [frames, nodes, topo.subnets.length])
+
+  // One line an operator reads before the picture: In · Out · AWS deps ·
+  // Traffic evidence. Every value is counted from the same payload the canvas
+  // draws; the evidence segment replaces the full-width authority banners.
+  const awsServiceCounts = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const n of [...serverlessTierNodes, ...triggerTierNodes, ...regionalTierNodes]) {
+      const label = n.type ? awsServiceLabel(n.type) : "Unknown type"
+      counts.set(label, (counts.get(label) ?? 0) + 1)
+    }
+    return [...counts.entries()].map(([label, count]) => ({ label, count }))
+  }, [serverlessTierNodes, triggerTierNodes, regionalTierNodes])
+  const opsReadout = useMemo(() => {
+    const segments = buildOpsReadout({
+      loadBalancerCount: frames.reduce((a, f) => a + f.grid.albNodes.length, 0),
+      igwCount: topo.edges.igws.length,
+      nat: natCoverage,
+      egress: externalEgress,
+      awsServiceCounts,
+      missingEndpoints,
+      trafficAuthorityState: trafficAuthority?.state,
+    })
+    // Architecture lens draws no traffic, so it makes no traffic claim.
+    return flowMode === "all_access" ? segments : segments.filter(seg => seg.key !== "evidence")
+  }, [frames, topo.edges.igws.length, natCoverage, externalEgress, awsServiceCounts, missingEndpoints, trafficAuthority?.state, flowMode])
+
+  // Logical groups as outlines around their members on the grid. Same
+  // membership edges and scope reader the (now collapsed) band uses, so the
+  // outline and the list can never disagree.
+  const logicalGroupHulls = useMemo<LogicalGroupHullSpec[]>(() => {
+    const gridAzCount = new Set(frames.flatMap(f => f.grid.azs)).size
+    return unplacedNodes
+      .filter(u => u.reason === "logical-group")
+      .map(({ node }) => {
+        const scope = logicalGroupScope(node, trafficEdgesList, nodes, topo.subnets)
+        return {
+          groupId: node.id,
+          label: node.name,
+          kind: logicalGroupKind(node.type),
+          memberIds: scope.memberIds,
+          azs: scope.azs,
+          singleAz: scope.azs.length === 1 && gridAzCount > 1,
+        }
+      })
+      .filter(spec => spec.memberIds.length > 0)
+  }, [unplacedNodes, trafficEdgesList, nodes, topo.subnets, frames])
 
   return (
     <div
@@ -9728,43 +9895,15 @@ export function AwsFrame({
           <IdentityLensLegend lens={identityLens.lens} twin={identityLens.twin} compact={presentationMode} />
           <IdentityTwinFooter lens={identityLens.lens} twin={identityLens.twin} compact={presentationMode} />
         </>
-      ) : flowMode !== "architecture" ? (
-        <FlowLegend compact={presentationMode} />
-      ) : null}
-      {!identityLens && flowMode === "all_access" && trafficAuthority?.state === "authoritative_positive_only" ? (
-        <div
-          className="flex items-center justify-between gap-3 border-b px-2 py-1.5 text-[10px]"
-          style={{ borderColor: "#99F6E4", background: "#F0FDFA", color: "#115E59" }}
-          data-testid="topology-traffic-authority-state"
-        >
-          <span className="shrink-0 font-semibold">Confirmed TCP paths</span>
-          <span className="truncate">
-            {trafficAuthority.limitation ??
-              "Moving arrows are confirmed request paths; a missing line is not proof of no traffic."}
-          </span>
-        </div>
-      ) : null}
-      {!identityLens &&
-      flowMode === "all_access" &&
-      trafficAuthority?.state !== "authoritative" &&
-      trafficAuthority?.state !== "authoritative_positive_only" ? (
-        <div
-          className="flex items-center justify-between gap-3 border-b px-2 py-1.5 text-[10px]"
-          style={{ borderColor: "#FCD34D", background: "#FFFBEB", color: "#92400E" }}
-          data-testid="topology-traffic-authority-state"
-        >
-          <span className="font-semibold">
-            {trafficAuthority?.state === "legacy_unverified"
-              ? "Traffic evidence not yet authoritative"
-              : "Rebuilding traffic evidence"}
-          </span>
-          <span className="truncate">
-            {trafficAuthority?.state === "legacy_unverified"
-              ? "Outlined packets show historical source-to-target direction; they do not claim live traffic."
-              : (trafficAuthority?.limitation ?? "Only generation-backed observed segments animate.")}
-          </span>
-        </div>
-      ) : null}
+      ) : (
+        <>
+          <OpsReadoutStrip segments={opsReadout} compact={presentationMode} />
+          {flowMode !== "architecture" ? <OpsFlowLegend compact={presentationMode} /> : null}
+        </>
+      )}
+      {/* The two full-width traffic-authority banners folded into the
+          readout's "Traffic" segment (same test id, same wording in its
+          title): one fact, stated once, above the map. */}
       {!identityLens && flowMode === "all_access" && trafficAuthority?.lane_coverage ? (
         <LaneCoveragePill
           coverage={trafficAuthority.lane_coverage}
@@ -9780,11 +9919,24 @@ export function AwsFrame({
           evenly and the USERS block was the half that went off screen
           (independent review at 1024x720, run 34851422905). Wrapping costs one
           row at the narrowest viewport and never clips an endpoint. */}
+      <InternetBand
+        compact={presentationMode}
+        outbound={
+          externalInNorthBand && showExternalLane && externalDestinations ? (
+            <ExternalDestinationsLane
+              map={externalDestinations}
+              summary={externalEgress}
+              compact={presentationMode}
+              layout="band"
+            />
+          ) : null
+        }
+        inbound={
       <div
         className={
           presentationMode
-            ? "flex flex-wrap items-center justify-center gap-x-6 gap-y-1 py-0.5 w-full min-w-0 shrink-0"
-            : "flex flex-wrap items-center justify-center gap-x-8 gap-y-1.5 py-1 w-full min-w-0"
+            ? "flex flex-wrap items-center justify-start gap-x-6 gap-y-1 py-0.5 w-full min-w-0 shrink-0"
+            : "flex flex-wrap items-center justify-start gap-x-6 gap-y-1.5 py-1 w-full min-w-0"
         }
         data-testid="topology-users-internet-strip"
       >
@@ -9885,6 +10037,8 @@ export function AwsFrame({
             row of map height doing it — and the strip's copy was the one a
             reader could not connect to the IGW. */}
       </div>
+        }
+      />
 
       {/* AWS Cloud frame */}
       <div
@@ -9960,14 +10114,14 @@ export function AwsFrame({
                     minWidth: [
                       VPC_MIN_TRACK_W_PX,
                       showBoundaryColumn ? VPC_BOUNDARY_COL_W_PX : 0,
-                      showExternalLane ? EXTERNAL_LANE_W_PX : 0,
+                      showExternalLaneInGrid ? EXTERNAL_LANE_W_PX : 0,
                       showNetworkRail ? 136 : 0,
                       showEdgeRail ? 48 + railColumnW : 0,
                       // gap-x-3 between every pair of tracks that exists.
                       12 *
                         [
                           showBoundaryColumn,
-                          showExternalLane,
+                          showExternalLaneInGrid,
                           showNetworkRail,
                           showEdgeRail,
                           showEdgeRail,
@@ -9980,7 +10134,7 @@ export function AwsFrame({
                 // Immediately past the boundary, because that is where it is:
                 // the first thing outside the VPC, between the perimeter and
                 // the AWS services on the rail.
-                showExternalLane ? `${EXTERNAL_LANE_W_PX}px` : null,
+                showExternalLaneInGrid ? `${EXTERNAL_LANE_W_PX}px` : null,
                 showNetworkRail ? "136px" : null,
                 showEdgeRail ? "48px" : null,
                 showEdgeRail ? `${railColumnW}px` : null,
@@ -10125,7 +10279,9 @@ export function AwsFrame({
                     presentationMode={presentationMode}
                     densityCollapsed={densityCollapsed}
                     viewDensity={viewDensity}
-                    boundaryInColumn={showBoundaryColumn}
+                    boundaryInColumn={showBoundaryColumn || igwOnTopBorder}
+                    igwDoor={frames.length === 1 ? igwDoor : undefined}
+                    natGapByAz={frames.length === 1 ? natGapByAz : undefined}
                   />
                 ))}
               </div>
@@ -10151,7 +10307,9 @@ export function AwsFrame({
                   presentationMode={presentationMode}
                   densityCollapsed={densityCollapsed}
                   viewDensity={viewDensity}
-                  boundaryInColumn={showBoundaryColumn}
+                  boundaryInColumn={showBoundaryColumn || igwOnTopBorder}
+                  igwDoor={frames.length === 1 ? igwDoor : undefined}
+                  natGapByAz={frames.length === 1 ? natGapByAz : undefined}
                 />
               ))
             )}
@@ -10161,13 +10319,15 @@ export function AwsFrame({
                 igws={boundaryFrame.igws}
                 vpces={boundaryFrame.vpces}
                 evidenceEdges={trafficEdgesList}
+                missingEndpoints={missingEndpoints}
+                igwOnTopBorder={igwOnTopBorder}
                 selectedNodeId={selectedNodeId}
                 onSelect={onSelect}
               />
             ) : null}
 
             {/* What the egress reached, on the canvas rather than in a caption. */}
-            {showExternalLane && externalDestinations ? (
+            {showExternalLaneInGrid && externalDestinations ? (
               <ExternalDestinationsLane
                 map={externalDestinations}
                 summary={externalEgress}
@@ -10461,6 +10621,14 @@ export function AwsFrame({
           order paints them on top of every chip box. z-index alone was
           not enough on prod (the subnet/AZ boxes are static siblings,
           and elementsFromPoint still returned them first). */}
+      <LogicalGroupHulls
+        specs={logicalGroupHulls}
+        containerRef={flowContainerRef}
+        scale={scale}
+        remeasureKey={`${densityCollapsed}|${viewDensity}|${hiddenAzs.join(",")}|${flowMode}`}
+        selectedNodeId={selectedNodeId}
+        onSelect={onSelect}
+      />
       <FlowOverlay
         edges={visibleEdges}
         containerRef={flowContainerRef}

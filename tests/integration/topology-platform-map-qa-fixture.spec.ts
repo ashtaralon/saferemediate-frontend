@@ -713,7 +713,7 @@ test("a logical group is drawn in its own band beside the placement-gap area, li
   const band = page.getByTestId("topology-logical-group-band").first()
   await expect(band).toBeVisible()
   await expect(band.getByTestId("topology-logical-group-band-header")).toHaveText(
-    `Logical groups · members carry the placement (${groups.length})`,
+    `Logical groups (${groups.length}) · outlined on the map`,
   )
   await expect(band).toContainText("Not a collector gap")
   await expect(band).not.toContainText("does not say where")

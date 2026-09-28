@@ -113,17 +113,19 @@ describe("AwsFrame Glance density (generic)", () => {
     expect(screen.getByText("entry-alb")).toBeTruthy()
     // NAT from real edge metadata
     expect(screen.getByTestId("topology-nat-gateway-chip")).toBeTruthy()
-    // IGW + VPCEs: on a single-frame canvas they are drawn in the VPC BOUNDARY
-    // column beside the frame — IGW at the top, endpoints at the bottom — not
-    // side by side on the frame's header line (Alon, 2026-09-11), and not in the
-    // old "Not in this VPC" column. Containment is the assertion: `getByTestId`
-    // alone passes in every layout and cannot tell them apart.
+    // Ops layout (2026-09-28): the IGW faces the internet, so on a single-frame
+    // canvas it is a door ON the VPC's top border (inside the frame element,
+    // in its top-door slot), and the east boundary column keeps only what
+    // faces the AWS rail — the VPC endpoints. Containment is the assertion:
+    // `getByTestId` alone passes in every layout and cannot tell them apart.
     const boundaryColumn = screen.getByTestId("topology-vpc-boundary-column")
     const igwChip = screen.getByTestId("topology-igw-rail-chip")
-    expect(boundaryColumn.contains(igwChip)).toBe(true)
-    expect(screen.getByTestId("topology-vpc-boundary-column-header").textContent).toMatch(/VPC boundary/i)
+    expect(boundaryColumn.contains(igwChip)).toBe(false)
+    expect(screen.getByTestId("topology-vpc-top-door").contains(igwChip)).toBe(true)
+    expect(screen.getByTestId("topology-vpc-boundary-column-header").textContent).toMatch(/Private paths to AWS/i)
+    expect(boundaryColumn.querySelector('[data-testid="topology-vpce-rail-chip"]')).not.toBeNull()
     const vpcFrame = screen.getAllByTestId("topology-vpc-frame")[0]
-    expect(vpcFrame.contains(igwChip)).toBe(false)
+    expect(vpcFrame.contains(igwChip)).toBe(true)
     expect(screen.queryByTestId("topology-vpc-boundary-strip")).toBeNull()
     // The IGW keeps the flow anchor the egress edges target, wherever it is drawn.
     expect(igwChip.getAttribute("data-flow-id")).toBe("__igw__")

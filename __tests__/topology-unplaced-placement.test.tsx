@@ -588,7 +588,7 @@ describe("AwsFrame — a group is drawn in its own band, never counted as a plac
 
     const band = screen.getByTestId("topology-logical-group-band")
     expect(screen.getByTestId("topology-logical-group-band-header")).toHaveTextContent(
-      "Logical groups · members carry the placement (1)",
+      "Logical groups (1) · outlined on the map",
     )
     expect(band).toHaveTextContent("Not a collector gap")
     expect(band.textContent).not.toMatch(/run a full sync/)
