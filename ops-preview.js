@@ -17854,7 +17854,7 @@ function logicalGroupKind(type) {
     return "asg";
   if (t.includes("targetgroup"))
     return "target_group";
-  if (t.includes("cluster"))
+  if (t.includes("cluster") || /^(rds|aurora|neptune|docdb|documentdb|elasticache|redshift)/.test(t))
     return "cluster";
   return "other";
 }
@@ -18049,15 +18049,43 @@ function EvidenceSwatch({ mode }) {
   });
 }
 function OpsFlowLegend({ compact = false }) {
+  const [open, setOpen] = import_react3.useState(false);
   return /* @__PURE__ */ jsx_runtime5.jsxs("div", {
-    className: `flex flex-col gap-1 border-y ${compact ? "px-1 py-1" : "px-2 py-1.5"}`,
+    className: `flex flex-col gap-1 border-y ${compact ? "px-1 py-1" : "px-2 py-1"}`,
     style: { borderColor: "#E2E8F0", background: "rgba(255,255,255,0.86)" },
     "data-testid": "topology-flow-legend",
     "data-flow-obstacle": "flow-legend",
+    "data-open": open ? "true" : "false",
     "aria-label": "How to read the lines",
     children: [
+      !open ? /* @__PURE__ */ jsx_runtime5.jsxs("div", {
+        className: "flex flex-wrap items-center gap-x-2 gap-y-1",
+        children: [
+          FLOW_DATA_KIND_ORDER.map((kind) => /* @__PURE__ */ jsx_runtime5.jsx("span", {
+            title: `${FLOW_DATA_KIND_STYLE[kind].label} — ${FLOW_DATA_KIND_STYLE[kind].detail}`,
+            className: "inline-flex",
+            children: /* @__PURE__ */ jsx_runtime5.jsx(KindSwatch, {
+              kind
+            })
+          }, kind)),
+          /* @__PURE__ */ jsx_runtime5.jsx("span", {
+            className: "text-[10px]",
+            style: { color: "#475569" },
+            children: "filled = live · hollow = historical · faint = configured"
+          }),
+          /* @__PURE__ */ jsx_runtime5.jsx("button", {
+            type: "button",
+            onClick: () => setOpen(true),
+            className: "ml-auto text-[10px] font-semibold underline decoration-dotted",
+            style: { color: "#0E8B7A" },
+            "aria-expanded": false,
+            children: "How to read the lines"
+          })
+        ]
+      }) : null,
       /* @__PURE__ */ jsx_runtime5.jsxs("div", {
         className: "flex flex-wrap items-center gap-x-3 gap-y-1",
+        hidden: !open,
         children: [
           /* @__PURE__ */ jsx_runtime5.jsx("span", {
             className: "text-[9px] font-bold uppercase tracking-[0.12em] w-[86px] shrink-0",
@@ -18106,6 +18134,7 @@ function OpsFlowLegend({ compact = false }) {
       }),
       /* @__PURE__ */ jsx_runtime5.jsxs("div", {
         className: "flex flex-wrap items-center gap-x-3 gap-y-1",
+        hidden: !open,
         children: [
           /* @__PURE__ */ jsx_runtime5.jsx("span", {
             className: "text-[9px] font-bold uppercase tracking-[0.12em] w-[86px] shrink-0",
@@ -18150,6 +18179,14 @@ function OpsFlowLegend({ compact = false }) {
                 children: "faint, still · configured only"
               })
             ]
+          }),
+          /* @__PURE__ */ jsx_runtime5.jsx("button", {
+            type: "button",
+            onClick: () => setOpen(false),
+            className: "ml-auto text-[10px] font-semibold underline decoration-dotted",
+            style: { color: "#0E8B7A" },
+            "aria-expanded": true,
+            children: "Hide key"
           })
         ]
       })
@@ -18578,7 +18615,7 @@ function LogicalGroupHulls({
         children: /* @__PURE__ */ jsx_runtime5.jsx("button", {
           type: "button",
           onClick: () => onSelect(spec.groupId),
-          className: `pointer-events-auto absolute -top-2 left-2 px-1.5 rounded text-[9px] font-semibold whitespace-nowrap transition-opacity ${warn || selected ? "opacity-100" : "opacity-0 hover:opacity-100 focus:opacity-100"}`,
+          className: `pointer-events-auto absolute -bottom-2 right-2 px-1.5 rounded text-[9px] font-semibold whitespace-nowrap transition-opacity ${warn || selected ? "opacity-100" : "opacity-0 hover:opacity-100 focus:opacity-100"}`,
           style: { background: "#FFFFFF", color: warn ? AMBER_TEXT : color, border: `1px solid ${color}` },
           title: `${spec.label} (${spec.groupId}) — ${spec.memberIds.length} member(s)${spec.azs.length ? ` in ${spec.azs.join(", ")}` : ""}${warn ? ". All members in one AZ: losing it takes the whole group." : ""}`,
           children: logicalGroupHullLabel(spec)
@@ -19537,14 +19574,19 @@ Shared · also belongs to ${ownerChip}` : ""}${usageTitle}`,
                 foreignLine,
                 usageLine && usageLine !== "no observed access" ? ` · ${usageLine}` : ""
               ]
-            }) : identitySubtitle ?? usageLine ?? `${node.type ?? "?"}${node.id && node.id !== node.name ? ` · ${node.id.slice(0, 24)}` : ""}`
+            }) : identitySubtitle ?? usageLine ?? chipFactLine(node)
           })
         ]
       }),
-      node.score && /* @__PURE__ */ jsx_runtime6.jsx("span", {
-        className: "text-[11px] font-bold px-1.5 py-0.5 rounded shrink-0",
+      node.score && /* @__PURE__ */ jsx_runtime6.jsxs("span", {
+        className: "text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 whitespace-nowrap",
         style: { ...Object.fromEntries(tierBgChip(node.score.tier).split(";").map((p) => p.split(":"))) },
-        children: node.score.value
+        title: `Risk score ${node.score.value} (${node.score.tier}) — computed by the backend for this resource`,
+        "data-testid": "topology-chip-risk-score",
+        children: [
+          "risk ",
+          node.score.value
+        ]
       }),
       placementUnknown && /* @__PURE__ */ jsx_runtime6.jsx("span", {
         className: "text-[8px] font-bold shrink-0 px-1 py-0.5 rounded",
@@ -19559,6 +19601,21 @@ Shared · also belongs to ${ownerChip}` : ""}${usageTitle}`,
       })
     ]
   });
+}
+function chipFactLine(node) {
+  const kind = node.type ? awsServiceLabel(node.type) : "Resource";
+  const facts = [kind];
+  if ((node.subnet_ids?.length ?? 0) > 1)
+    facts.push(`${node.subnet_ids.length} subnets`);
+  if (/lambda/i.test(node.type ?? "") && !node.vpc_id)
+    facts.push("outside VPC");
+  const id = node.id ?? "";
+  if (id && id !== node.name) {
+    const tail = id.split(/[/:]/).filter(Boolean).pop() ?? id;
+    if (tail && tail !== node.name && !id.startsWith("arn:aws:lambda"))
+      facts.push(tail.length > 14 ? `…${tail.slice(-12)}` : tail);
+  }
+  return facts.join(" · ");
 }
 function selectWorstInGroup(nodes) {
   return nodes.find((n) => n.score?.tier === "WORST") ?? nodes.find((n) => n.score?.tier === "HIGH") ?? nodes[0];
@@ -19887,7 +19944,7 @@ function SubnetCell({
   const cidrHint = subnetsHere.length === 1 && subnetsHere[0]?.cidr ? subnetsHere[0].cidr : subnetsHere.length > 1 ? `${subnetsHere.length} subnets` : null;
   const ownerHint = subnetOwnershipTooltipLine(subnetsHere);
   const isForeignCell = subnetsHere.length > 0 && subnetsHere.every((s) => s.is_foreign === true);
-  const chromeTitle = [TIER_CELL_SHORT[tier], subnetTitle].filter(Boolean).join(" · ");
+  const chromeTitle = TIER_CELL_SHORT[tier];
   const renderWorkloads = () => glance ? /* @__PURE__ */ jsx_runtime6.jsx(GlanceCellWorkloads, {
     workloadsHere,
     selectedNodeId,
@@ -25355,6 +25412,43 @@ function AwsFrame({
         return true;
       return visible.has(e.target_id);
     });
+    {
+      const groupIds = new Set(nodes.filter((n) => isLogicalGroupNode(n)).map((n) => n.id));
+      if (groupIds.size > 0) {
+        const rel = (e) => (e.protocol ?? e.kind ?? "").toUpperCase();
+        const isMembership = (e) => LOGICAL_GROUP_MEMBER_EDGE_TYPES.has(rel(e)) && groupIds.has(e.source_id) !== groupIds.has(e.target_id);
+        const membersOf = new Map;
+        for (const e of edges) {
+          if (!isMembership(e))
+            continue;
+          const g = groupIds.has(e.source_id) ? e.source_id : e.target_id;
+          const m = g === e.source_id ? e.target_id : e.source_id;
+          const list = membersOf.get(g) ?? [];
+          if (!list.includes(m))
+            list.push(m);
+          membersOf.set(g, list);
+        }
+        const rewired = [];
+        for (const e of edges) {
+          if (isMembership(e))
+            continue;
+          const srcGroup = groupIds.has(e.source_id) ? membersOf.get(e.source_id) : undefined;
+          const dstGroup = groupIds.has(e.target_id) ? membersOf.get(e.target_id) : undefined;
+          if (!srcGroup?.length && !dstGroup?.length) {
+            rewired.push(e);
+            continue;
+          }
+          const sources = srcGroup?.length ? srcGroup : [e.source_id];
+          const targets = dstGroup?.length ? dstGroup : [e.target_id];
+          for (const a of sources)
+            for (const b of targets)
+              if (a !== b)
+                rewired.push({ ...e, source_id: a, target_id: b });
+        }
+        edges = rewired;
+      }
+    }
+    edges = edges.filter((e) => (e.protocol ?? "").toUpperCase() !== "ENCRYPTED_BY" || selectedNodeId != null && (e.source_id === selectedNodeId || e.target_id === selectedNodeId));
     if (topo.edges.igws.length > 0) {
       const explicitIngress = new Set(edges.filter((e) => e.source_id === IGW_CANVAS_ANCHOR_ID || e.source_id.startsWith("igw-")).map((e) => e.target_id));
       const ingress = new Map;
@@ -25411,7 +25505,8 @@ function AwsFrame({
     identityRoleNodes,
     identityPrincipalNodes,
     topo.edges.nat_gws,
-    topo.edges.igws.length
+    topo.edges.igws.length,
+    selectedNodeId
   ]);
   const { frames, staleNodes, unplacedNodes, foreignIngress } = import_react4.useMemo(() => buildVpcFrames(topo.subnets, nodes, topo.vpc_id, topo.edges.nat_gws, hiddenAzs, mergedVpcView, topo.edges.igws, placementOverrides, crossVpc, topo.edges.vpces), [
     topo.subnets,
@@ -26065,7 +26160,7 @@ function AwsFrame({
         staleCount: staleNodes.length,
         trafficCount: trafficEdgesList.length,
         children: [
-          serverlessTierNodes.length > 0 ? /* @__PURE__ */ jsx_runtime6.jsxs("div", {
+          serverlessTierNodes.length > 0 && !showServerlessLane ? /* @__PURE__ */ jsx_runtime6.jsxs("div", {
             className: "rounded-md p-3",
             style: { background: PAL.cardBg, border: "1px solid #E2E8F0" },
             children: [
