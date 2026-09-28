@@ -229,3 +229,143 @@ export function flowStroke(edge: Pick<TrafficEdge, "edge_class" | "flow_highligh
   return FLOW_COLOR_BY_CLASS[edge.edge_class ?? "internal"]
 }
 
+
+// ───────────────────────────────────────────────────────────────────────────
+// Data kind — what the traffic IS, for the Network view's lines and packets.
+//
+// Three channels, one fact each (Alon, 2026-09-28: "each color and shape of
+// the line based on the data type"):
+//   colour + line pattern + packet glyph  = the DATA KIND (redundant on
+//                                           purpose: readable without colour)
+//   packet fill and motion                = the EVIDENCE — filled packets for
+//                                           generation-backed observations,
+//                                           hollow slower packets for
+//                                           historical observations, no
+//                                           packets and a faint line for
+//                                           configured / inferred paths.
+// Motion therefore still never claims live traffic the evidence does not
+// carry; only the dash stopped meaning "unverified" on the Network view.
+// Identity lens is untouched: it keeps IDENTITY_STROKE_DASH.
+// ───────────────────────────────────────────────────────────────────────────
+
+export type FlowDataKind =
+  | "request"
+  | "database"
+  | "object"
+  | "secrets"
+  | "event"
+  | "aws_api"
+  | "egress"
+
+export interface FlowDataKindStyle {
+  label: string
+  detail: string
+  color: string
+  /** SVG stroke-dasharray at width 1; undefined = solid. */
+  dash?: string
+  width: number
+  /** A white core drawn over the stroke — the "pipe" look for databases. */
+  core?: boolean
+  /** Packet glyph, drawn centred on 0,0, pointing +x, ~10px across. */
+  glyph: string
+}
+
+export const FLOW_DATA_KIND_STYLE: Record<FlowDataKind, FlowDataKindStyle> = {
+  request: {
+    label: "Service request",
+    detail: "HTTP / app calls between workloads and load balancers",
+    color: "#0E8B7A",
+    width: 1.6,
+    glyph: "M 0 -4.5 A 4.5 4.5 0 1 1 0 4.5 A 4.5 4.5 0 1 1 0 -4.5 Z",
+  },
+  database: {
+    label: "Database query",
+    detail: "RDS, Aurora, Neptune, DocumentDB, ElastiCache, DynamoDB",
+    color: "#2E73B8",
+    width: 3,
+    core: true,
+    glyph: "M -4 -4 H 4 V 4 H -4 Z",
+  },
+  object: {
+    label: "Object storage",
+    detail: "S3 reads and writes",
+    color: "#3F8624",
+    dash: "10 4",
+    width: 2,
+    glyph: "M -4 -5 H 2 L 4.5 -2.5 V 5 H -4 Z",
+  },
+  secrets: {
+    label: "Keys & secrets",
+    detail: "KMS and Secrets Manager calls",
+    color: "#C026D3",
+    dash: "7 3 1.5 3",
+    width: 1.8,
+    glyph: "M 0 -5 L 5 0 L 0 5 L -5 0 Z",
+  },
+  event: {
+    label: "Event / trigger",
+    detail: "EventBridge, SQS, SNS, Step Functions invoking compute",
+    color: "#E7157B",
+    dash: "1.5 4",
+    width: 2.2,
+    glyph: "M -4 -5 L 5 0 L -4 5 L -1.5 0 Z",
+  },
+  aws_api: {
+    label: "AWS API",
+    detail: "Other AWS service APIs, directly or through a VPC endpoint",
+    color: "#7E57C2",
+    dash: "5 3",
+    width: 1.6,
+    glyph: "M -2.5 -4.3 H 2.5 L 5 0 L 2.5 4.3 H -2.5 L -5 0 Z",
+  },
+  egress: {
+    label: "Internet egress",
+    detail: "Leaves the VPC through NAT / IGW",
+    color: "#F59E0B",
+    dash: "12 3 2 3",
+    width: 1.8,
+    glyph: "M -5 -4.5 L 1 0 L -5 4.5 M -1 -4.5 L 5 0 L -1 4.5",
+  },
+}
+
+export const FLOW_DATA_KIND_ORDER: readonly FlowDataKind[] = [
+  "request",
+  "database",
+  "object",
+  "secrets",
+  "event",
+  "aws_api",
+  "egress",
+]
+
+const DB_PORTS = new Set([3306, 5432, 1433, 1521, 27017, 6379, 11211, 8182, 5439, 9042])
+const S3_TYPE = /^s3|s3bucket|s3prefix/i
+const SECRETS_TYPE = /kms|secret/i
+const EVENT_TYPE = /eventbridge|eventrule|eventsource|eventbus|sqs|sns|stepfunction|statemachine|scheduledtask/i
+const DB_TYPE = /rds|aurora|neptune|documentdb|docdb|dbinstance|dbcluster|redshift|elasticache|dynamo/i
+
+/**
+ * Classify one drawn line. Reads only the edge's own class / protocol / port
+ * and the TYPES of its two endpoints as the payload names them; an endpoint
+ * the payload gives no type falls back to the edge class, never a guess.
+ */
+export function flowDataKind(args: {
+  cls: TrafficEdgeClass | string
+  protocol?: string | null
+  port?: number | null
+  sourceType?: string | null
+  targetType?: string | null
+  targetId?: string | null
+}): FlowDataKind {
+  const { cls, protocol, port, sourceType, targetType, targetId } = args
+  const tgt = targetType ?? ""
+  const src = sourceType ?? ""
+  const proto = (protocol ?? "").toUpperCase()
+  if (cls === "egress" || targetId?.startsWith("extdst:") || targetId === "__igw__") return "egress"
+  if (SECRETS_TYPE.test(tgt)) return "secrets"
+  if (S3_TYPE.test(tgt) || targetId === "__aws_s3__" || proto.includes("S3")) return "object"
+  if (EVENT_TYPE.test(src) || EVENT_TYPE.test(tgt) || proto === "TRIGGERS" || proto === "INVOKES") return "event"
+  if (cls === "database" || DB_TYPE.test(tgt) || (port != null && DB_PORTS.has(port))) return "database"
+  if (cls === "edge_service" || cls === "vpce" || targetId === "__aws_api__") return "aws_api"
+  return "request"
+}

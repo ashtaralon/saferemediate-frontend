@@ -77,6 +77,10 @@ import {
 import {
   FLOW_ALERT_COLOR,
   FLOW_COLOR_BY_CLASS,
+  FLOW_DATA_KIND_ORDER,
+  FLOW_DATA_KIND_STYLE,
+  flowDataKind,
+  type FlowDataKind,
   IDENTITY_MARKER_COLORS,
   IDENTITY_STROKE_DASH,
   identityLineColor,
@@ -5354,6 +5358,7 @@ function FlowOverlay({
   selectedNodeId = null,
   flowMode = "architecture",
   lens = "network",
+  nodeTypeById,
 }: {
   edges: TrafficEdge[]
   containerRef: React.RefObject<HTMLDivElement | null>
@@ -5372,9 +5377,28 @@ function FlowOverlay({
   /** CF01 · D1 — "identity" recolours and dashes by the edge's identity
    *  annotation (plane / certainty). "network" (default) is unchanged. */
   lens?: "network" | "identity"
+  /** Node id -> payload type, so each line is drawn as its DATA KIND
+   *  (request / database / object / secrets / event / AWS API / egress). An
+   *  id missing here falls back to the edge class. Network lens only. */
+  nodeTypeById?: ReadonlyMap<string, string>
 }) {
   const [paths, setPaths] = useState<FlowPath[]>([])
   const [size, setSize] = useState({ w: 0, h: 0 })
+  // Packets park at mid-line instead of travelling when the viewer asked for
+  // less motion: the glyph (data kind) and fill (evidence) still read.
+  const [reduceMotion, setReduceMotion] = useState(false)
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return
+    const mq = window.matchMedia("(prefers-reduced-motion: reduce)")
+    const sync = () => setReduceMotion(mq.matches)
+    sync()
+    mq.addEventListener?.("change", sync)
+    return () => mq.removeEventListener?.("change", sync)
+  }, [])
+  const motionProps = (dur: string, begin: string) =>
+    reduceMotion
+      ? { dur, begin: "0s", repeatCount: "indefinite", keyPoints: "0.5;0.5", keyTimes: "0;1", calcMode: "linear" as const }
+      : { dur, begin, repeatCount: "indefinite", rotate: "auto" }
 
   // useEffect (not useLayoutEffect) + retry-until-chips-found pattern.
   // On the prod minified build the layout-effect variant fired before all
@@ -6391,6 +6415,20 @@ function FlowOverlay({
             <path d="M 0 0 L 10 5 L 0 10 z" fill={FLOW_COLOR_BY_CLASS[c]} />
           </marker>
         ))}
+        {FLOW_DATA_KIND_ORDER.map(k => (
+          <marker
+            key={`kind-${k}`}
+            id={`flow-arrow-kind-${k}`}
+            viewBox="0 0 10 10"
+            refX="9"
+            refY="5"
+            markerWidth="4"
+            markerHeight="4"
+            orient="auto-start-reverse"
+          >
+            <path d="M 0 0 L 10 5 L 0 10 z" fill={FLOW_DATA_KIND_STYLE[k].color} />
+          </marker>
+        ))}
         {lens === "identity"
           ? Object.entries(IDENTITY_MARKER_COLORS).map(([key, color]) => (
               <marker
@@ -6417,12 +6455,34 @@ function FlowOverlay({
         const identityKey: IdentityStrokeKey | null = identity
           ? identityStrokeKey({ ...identity, authority: p.authorityState })
           : null
+        const alert = p.highlight === "attack_path" || Boolean(p.isExposed)
+        // Network lens: the line is drawn as its DATA KIND. Identity lens keeps
+        // its own colour-by-access-kind grammar untouched.
+        const dataKind: FlowDataKind | null = identity
+          ? null
+          : flowDataKind({
+              cls: p.cls,
+              protocol: p.protocol,
+              port: p.port,
+              sourceType: nodeTypeById?.get(p.sourceId) ?? null,
+              targetType: nodeTypeById?.get(p.targetId) ?? null,
+              targetId: p.targetId,
+            })
+        const kindStyle = dataKind ? FLOW_DATA_KIND_STYLE[dataKind] : null
         const stroke = identity
           ? identityLineColor(identity)
-          : p.highlight === "attack_path" || p.isExposed
+          : alert
             ? FLOW_ALERT_COLOR
-            : FLOW_COLOR_BY_CLASS[p.cls]
-        const markerCls = identity ? `identity-${identityMarkerKey(identity)}` : p.isExposed ? "database" : p.cls
+            : kindStyle
+              ? kindStyle.color
+              : FLOW_COLOR_BY_CLASS[p.cls]
+        const markerCls = identity
+          ? `identity-${identityMarkerKey(identity)}`
+          : p.isExposed
+            ? "database"
+            : dataKind
+              ? `kind-${dataKind}`
+              : p.cls
         const dependencyFocusActive = flowMode === "all_access" && selectedNodeId != null
         const focusedDependency = dependencyFocusActive && p.focused
         const dimmed = dependencyFocusActive && !p.focused
@@ -6447,6 +6507,38 @@ function FlowOverlay({
           flowMode !== "architecture" &&
           !dimmed &&
           motionKind === "historical"
+        // Evidence on the Network view is carried by the PACKETS (filled =
+        // generation-backed, hollow = historical) and, for a path with no
+        // observation at all, by a faint thinner line with no packet. The dash
+        // is free to say what kind of data it is.
+        const configuredOnly = Boolean(kindStyle) && !alert && motionKind === "none"
+        const baseWidth = kindStyle ? kindStyle.width : 1.35
+        const packet = (filled: boolean, big: boolean) => {
+          const scale = big ? 1.3 : 1
+          if (!kindStyle) {
+            return (
+              <>
+                <circle r={big ? 7 : 5.5} fill="white" fillOpacity="0.96" stroke={stroke} strokeWidth="1" />
+                <path d={big ? "M -4 -4 L 5 0 L -4 4 Z" : "M -3 -3 L 4 0 L -3 3 Z"} fill={stroke} />
+              </>
+            )
+          }
+          const open = dataKind === "egress"
+          return (
+            <g transform={`scale(${scale})`}>
+              <path d={kindStyle.glyph} fill="white" stroke="white" strokeWidth="3.2" strokeLinejoin="round" />
+              <path
+                d={kindStyle.glyph}
+                fill={open ? "none" : filled ? stroke : "white"}
+                stroke={stroke}
+                strokeWidth={filled ? 1.2 : 1.3}
+                strokeDasharray={filled ? undefined : "2 1.3"}
+                strokeLinejoin="round"
+                strokeLinecap="round"
+              />
+            </g>
+          )
+        }
         return (
         <g
           key={i}
@@ -6458,6 +6550,7 @@ function FlowOverlay({
           data-flow-authority={p.authorityState ?? undefined}
           data-flow-path-basis={p.pathBasis ?? undefined}
           data-flow-motion={motionKind}
+          data-flow-data-kind={dataKind ?? undefined}
           data-flow-family={identity?.family}
           data-flow-plane={identity?.plane}
           data-flow-certainty={identity?.certainty}
@@ -6491,27 +6584,33 @@ function FlowOverlay({
             fill="none"
             stroke={stroke}
             strokeWidth={
-              p.highlight === "attack_path" || p.isExposed
+              alert
                 ? 2
                 : focusedDependency
-                  ? 2.4
-                  : 1.35
+                  ? baseWidth + 0.9
+                  : configuredOnly
+                    ? Math.max(1, baseWidth - 0.4)
+                    : baseWidth
             }
             strokeOpacity={
               dimmed
                 ? "0.18"
-                : p.highlight === "attack_path" || p.isExposed || focusedDependency
+                : alert || focusedDependency
                   ? "0.94"
-                  : "0.62"
+                  : configuredOnly
+                    ? "0.38"
+                    : "0.72"
             }
             strokeDasharray={
               identityKey
                 ? IDENTITY_STROKE_DASH[identityKey]
-                : p.highlight === "attack_path" || p.isExposed
+                : alert
                   ? "6 4"
-                  : inferredOrUnverified
-                    ? "7 5"
-                    : undefined
+                  : kindStyle
+                    ? kindStyle.dash
+                    : inferredOrUnverified
+                      ? "7 5"
+                      : undefined
             }
             strokeLinecap="round"
             markerEnd={p.arrow === false ? undefined : `url(#flow-arrow-${markerCls})`}
@@ -6526,6 +6625,19 @@ function FlowOverlay({
               />
             ) : null}
           </path>
+          {kindStyle?.core && !alert ? (
+            // Database "pipe": a white core inside the wide stroke, so a DB
+            // line reads as a different SHAPE, not only a different blue.
+            <path
+              data-flow-line="core"
+              d={p.d}
+              fill="none"
+              stroke="white"
+              strokeWidth={Math.max(0.8, baseWidth * 0.34)}
+              strokeOpacity={dimmed ? "0.3" : "0.95"}
+              strokeLinecap="round"
+            />
+          ) : null}
           </>
           ) : null}
           {/* Feeder legs: each member chip's own dotted run to the bus. Dotted
@@ -6555,50 +6667,37 @@ function FlowOverlay({
                 strokeLinecap="round"
                 data-testid="topology-flow-running-track"
               >
-                <animate
-                  attributeName="stroke-dashoffset"
-                  from={focusedDependency ? "14" : "16"}
-                  to="0"
-                  dur={focusedDependency ? "3.8s" : "5.2s"}
-                  repeatCount="indefinite"
-                />
+                {reduceMotion ? null : (
+                  <animate
+                    attributeName="stroke-dashoffset"
+                    from={focusedDependency ? "14" : "16"}
+                    to="0"
+                    dur={focusedDependency ? "3.8s" : "5.2s"}
+                    repeatCount="indefinite"
+                  />
+                )}
               </path>
               <g
                 data-testid="topology-flow-packet"
                 data-flow-focused={focusedDependency ? "true" : "false"}
               >
-                <circle
-                  r={focusedDependency ? 7 : 5.5}
-                  fill="white"
-                  fillOpacity="0.96"
-                  stroke={stroke}
-                  strokeWidth="1"
-                />
-                <path
-                  d={focusedDependency ? "M -4 -4 L 5 0 L -4 4 Z" : "M -3 -3 L 4 0 L -3 3 Z"}
-                  fill={stroke}
-                />
+                {packet(true, Boolean(focusedDependency))}
                 <animateMotion
                   path={p.d}
-                  dur={focusedDependency ? "4.8s" : "6.4s"}
-                  begin={`-${(i % 6) * 0.4}s`}
-                  repeatCount="indefinite"
-                  rotate="auto"
+                  {...motionProps(focusedDependency ? "4.8s" : "6.4s", `-${(i % 6) * 0.4}s`)}
                 />
               </g>
-              {focusedDependency ? (
-                <g opacity="0.78">
-                  <circle r="5.5" fill="white" stroke={stroke} strokeWidth="1" />
-                  <path d="M -3 -3 L 4 0 L -3 3 Z" fill={stroke} />
+              {/* A second packet half a cycle behind: a stream, not a dot.
+                  No test id — one "topology-flow-packet" per moving line. */}
+              {reduceMotion ? null : (
+                <g opacity="0.78" data-flow-packet-trail="true">
+                  {packet(true, false)}
                   <animateMotion
                     path={p.d}
-                    dur="4.8s"
-                    begin="-2.4s"
-                    repeatCount="indefinite"
-                    rotate="auto"
+                    {...motionProps(focusedDependency ? "4.8s" : "6.4s", focusedDependency ? "-2.4s" : `-${(i % 6) * 0.4 + 3.2}s`)}
                   />
                 </g>
-              ) : null}
+              )}
             </>
           ) : null}
           {animateHistoricalDirection ? (
@@ -6607,29 +6706,29 @@ function FlowOverlay({
               data-flow-direction="source-to-target"
               opacity="0.78"
             >
-              <circle
-                r="5"
-                fill="white"
-                fillOpacity="0.88"
-                stroke={stroke}
-                strokeWidth="1"
-                strokeDasharray="2 1.5"
-              />
-              <path
-                d="M -3.25 -3 L 3.75 0 L -3.25 3"
-                fill="none"
-                stroke={stroke}
-                strokeWidth="1.4"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-              <animateMotion
-                path={p.d}
-                dur="8.8s"
-                begin={`-${(i % 7) * 0.55}s`}
-                repeatCount="indefinite"
-                rotate="auto"
-              />
+              {kindStyle ? (
+                packet(false, false)
+              ) : (
+                <>
+                  <circle
+                    r="5"
+                    fill="white"
+                    fillOpacity="0.88"
+                    stroke={stroke}
+                    strokeWidth="1"
+                    strokeDasharray="2 1.5"
+                  />
+                  <path
+                    d="M -3.25 -3 L 3.75 0 L -3.25 3"
+                    fill="none"
+                    stroke={stroke}
+                    strokeWidth="1.4"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </>
+              )}
+              <animateMotion path={p.d} {...motionProps("8.8s", `-${(i % 7) * 0.55}s`)} />
             </g>
           ) : null}
           <g
@@ -9793,6 +9892,16 @@ export function AwsFrame({
     }
   }, [frames, nodes, topo.subnets.length])
 
+  // Every drawable endpoint's payload type, for the overlay's data-kind
+  // encoding (S3 -> object storage, KMS -> keys & secrets, RDS -> database …).
+  const flowNodeTypeById = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const n of [...nodes, ...serverlessTierNodes, ...triggerTierNodes, ...regionalTierNodes]) {
+      if (n.type) m.set(n.id, n.type)
+    }
+    return m
+  }, [nodes, serverlessTierNodes, triggerTierNodes, regionalTierNodes])
+
   // One line an operator reads before the picture: In · Out · AWS deps ·
   // Traffic evidence. Every value is counted from the same payload the canvas
   // draws; the evidence segment replaces the full-width authority banners.
@@ -10638,6 +10747,7 @@ export function AwsFrame({
         selectedNodeId={selectedNodeId}
         flowMode={flowMode}
         lens={identityLens ? "identity" : "network"}
+        nodeTypeById={flowNodeTypeById}
       />
     </div>
   )

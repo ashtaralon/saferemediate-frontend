@@ -4,7 +4,7 @@
  * Ops perimeter — presentational pieces of the "10-second map".
  *
  *   OpsReadoutStrip      one line: In · Out · AWS deps · Traffic evidence
- *   OpsFlowLegend        three rules instead of twelve keys
+ *   OpsFlowLegend        data type (colour + pattern + packet) and evidence
  *   InternetBand         NORTH: inbound (users) left, outbound destinations
  *                        right, grouped into four honest classes
  *   IgwPerimeterDoor     the IGW drawn ON the VPC's top border, door-sized
@@ -25,7 +25,7 @@
 
 import { useEffect, useState, type ReactNode, type RefObject } from "react"
 import { AlertTriangle } from "lucide-react"
-import { FLOW_ALERT_COLOR, FLOW_COLOR_BY_CLASS } from "./flow-visuals"
+import { FLOW_ALERT_COLOR, FLOW_DATA_KIND_ORDER, FLOW_DATA_KIND_STYLE, type FlowDataKind } from "./flow-visuals"
 import {
   EGRESS_CLASS_COPY,
   logicalGroupHullLabel,
@@ -100,56 +100,107 @@ export function OpsReadoutStrip({
 // Legend — three rules
 // ---------------------------------------------------------------------------
 
-const LEGEND_COLORS: Array<{ key: string; label: string; color: string }> = [
-  { key: "internal", label: "Inside the VPC", color: FLOW_COLOR_BY_CLASS.internal },
-  { key: "aws", label: "To AWS services", color: FLOW_COLOR_BY_CLASS.edge_service },
-  { key: "egress", label: "To the internet", color: FLOW_COLOR_BY_CLASS.egress },
-  { key: "alert", label: "Exposure", color: FLOW_ALERT_COLOR },
-]
+function KindSwatch({ kind }: { kind: FlowDataKind }) {
+  const st = FLOW_DATA_KIND_STYLE[kind]
+  return (
+    <svg width="46" height="14" viewBox="0 0 46 14" aria-hidden>
+      <path d="M 2 7 H 44" stroke={st.color} strokeWidth={st.width} strokeDasharray={st.dash} strokeLinecap="round" />
+      {st.core ? <path d="M 2 7 H 44" stroke="white" strokeWidth={Math.max(0.8, st.width * 0.34)} strokeLinecap="round" /> : null}
+      <g transform="translate(23 7)">
+        <path d={st.glyph} fill="white" stroke="white" strokeWidth="3" strokeLinejoin="round" />
+        <path
+          d={st.glyph}
+          fill={kind === "egress" ? "none" : st.color}
+          stroke={st.color}
+          strokeWidth="1.2"
+          strokeLinejoin="round"
+          strokeLinecap="round"
+        />
+      </g>
+    </svg>
+  )
+}
 
+function EvidenceSwatch({ mode }: { mode: "live" | "historical" | "configured" }) {
+  const c = "#475569"
+  const glyph = FLOW_DATA_KIND_STYLE.request.glyph
+  return (
+    <svg width="40" height="14" viewBox="0 0 40 14" aria-hidden>
+      <path d="M 2 7 H 38" stroke={c} strokeWidth={mode === "configured" ? 1.2 : 1.6} strokeOpacity={mode === "configured" ? 0.38 : 0.72} />
+      {mode === "configured" ? null : (
+        <g transform="translate(20 7)">
+          <path
+            d={glyph}
+            fill={mode === "live" ? c : "white"}
+            stroke={c}
+            strokeWidth="1.2"
+            strokeDasharray={mode === "live" ? undefined : "2 1.3"}
+          />
+        </g>
+      )}
+    </svg>
+  )
+}
+
+/**
+ * The Network view's key. Two questions, two rows:
+ *   what kind of data   — colour + line pattern + packet shape (all three,
+ *                         so it reads without colour)
+ *   how do we know      — filled packets = live, hollow = historical,
+ *                         faint line with no packet = configured only
+ * Red dashes override everything: exposure / attack path.
+ */
 export function OpsFlowLegend({ compact = false }: { compact?: boolean }) {
   return (
     <div
-      className={`flex flex-wrap items-center gap-x-4 gap-y-1 border-y ${compact ? "px-1 py-1" : "px-2 py-1.5"}`}
+      className={`flex flex-col gap-1 border-y ${compact ? "px-1 py-1" : "px-2 py-1.5"}`}
       style={{ borderColor: "#E2E8F0", background: "rgba(255,255,255,0.86)" }}
       data-testid="topology-flow-legend"
       data-flow-obstacle="flow-legend"
       aria-label="How to read the lines"
     >
-      <span className="inline-flex items-center gap-2">
-        <span className="text-[9px] font-bold uppercase tracking-[0.12em]" style={{ color: "#475569" }}>
-          Color = where
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <span className="text-[9px] font-bold uppercase tracking-[0.12em] w-[86px] shrink-0" style={{ color: "#475569" }}>
+          Data type
         </span>
-        {LEGEND_COLORS.map(item => (
-          <span key={item.key} className="inline-flex items-center gap-1 whitespace-nowrap">
-            <span className="inline-block h-[3px] w-4 rounded" style={{ background: item.color }} aria-hidden />
+        {FLOW_DATA_KIND_ORDER.map(kind => (
+          <span
+            key={kind}
+            className="inline-flex items-center gap-1 whitespace-nowrap"
+            title={FLOW_DATA_KIND_STYLE[kind].detail}
+            data-testid="topology-flow-legend-kind"
+            data-kind={kind}
+          >
+            <KindSwatch kind={kind} />
             <span className="text-[10px] font-medium" style={{ color: "#475569" }}>
-              {item.label}
+              {FLOW_DATA_KIND_STYLE[kind].label}
             </span>
           </span>
         ))}
-      </span>
-      <span className="inline-flex items-center gap-2">
-        <span className="text-[9px] font-bold uppercase tracking-[0.12em]" style={{ color: "#475569" }}>
-          Line = proof
+        <span className="inline-flex items-center gap-1 whitespace-nowrap">
+          <svg width="30" height="14" viewBox="0 0 30 14" aria-hidden>
+            <path d="M 2 7 H 28" stroke={FLOW_ALERT_COLOR} strokeWidth="2" strokeDasharray="6 4" />
+          </svg>
+          <span className="text-[10px] font-medium" style={{ color: "#475569" }}>Exposure / attack path</span>
         </span>
-        <svg width="22" height="6" viewBox="0 0 22 6" aria-hidden>
-          <path d="M1 3 H21" stroke="#475569" strokeWidth="2" />
-        </svg>
-        <span className="text-[10px] font-medium" style={{ color: "#475569" }}>observed</span>
-        <svg width="22" height="6" viewBox="0 0 22 6" aria-hidden>
-          <path d="M1 3 H21" stroke="#475569" strokeWidth="2" strokeDasharray="4 3" />
-        </svg>
-        <span className="text-[10px] font-medium" style={{ color: "#475569" }}>configured only</span>
-      </span>
-      <span className="inline-flex items-center gap-2">
-        <span className="text-[9px] font-bold uppercase tracking-[0.12em]" style={{ color: "#475569" }}>
-          Motion = live
+      </div>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <span className="text-[9px] font-bold uppercase tracking-[0.12em] w-[86px] shrink-0" style={{ color: "#475569" }}>
+          Evidence
         </span>
-        <span className="text-[10px] font-medium" style={{ color: "#475569" }}>
-          only generation-backed traffic moves
+        <span className="inline-flex items-center gap-1">
+          <EvidenceSwatch mode="live" />
+          <span className="text-[10px] font-medium" style={{ color: "#475569" }}>filled, moving · observed live</span>
         </span>
-      </span>
+        <span className="inline-flex items-center gap-1">
+          <EvidenceSwatch mode="historical" />
+          <span className="text-[10px] font-medium" style={{ color: "#475569" }}>hollow, slow · historical direction</span>
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <EvidenceSwatch mode="configured" />
+          <span className="text-[10px] font-medium" style={{ color: "#475569" }}>faint, still · configured only</span>
+        </span>
+      </div>
     </div>
   )
 }
