@@ -19953,8 +19953,9 @@ function ServiceNodeIcon({
     type: node.type,
     selected,
     label: displayName ?? node.name,
-    sublabel: ownerChip ? `shared · ${ownerChip}` : multiAz ? `${typeLabel} · Multi-AZ` : typeLabel,
-    title: ownerChip ? `${node.name} · shared — also belongs to ${ownerChip} — click for details` : `${node.name} · ${typeLabel}${multiAz ? " · Multi-AZ" : ""} — click for details`,
+    sublabel: ownerChip ? `shared · ${ownerChip}` : !railChip && caption ? caption : multiAz ? `${typeLabel} · Multi-AZ` : typeLabel,
+    title: (ownerChip ? `${node.name} · shared — also belongs to ${ownerChip} — click for details` : `${node.name} · ${typeLabel}${multiAz ? " · Multi-AZ" : ""} — click for details`) + (caption ? `
+${caption}` : ""),
     onClick: () => onSelect(node.id),
     testId: isForeignOwner ? "topology-foreign-node" : "topology-service-node-icon",
     flowId: node.id,
