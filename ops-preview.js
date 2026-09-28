@@ -25794,7 +25794,7 @@ function AwsFrame({
         }
         if (byKind.size > 0) {
           const text = `protects ${[...byKind.entries()].map(([k, n]) => n > 1 ? `${k} ×${n}` : k).join(" · ")}`;
-          captions.set(node.id, caption ? `${caption} · ${text}` : text);
+          captions.set(node.id, text);
         }
       }
       const twinCaption = identityLens?.twin.captions.get(node.id);
