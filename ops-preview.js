@@ -21140,7 +21140,7 @@ function RegionalDataServicesTier({
               dense: true,
               railChip: compact,
               displayName: displayName.get(node.id),
-              caption: compact ? inboundCaptions?.get(node.id) : undefined
+              caption: inboundCaptions?.get(node.id)
             }, `flow-${node.id}`)),
             groups ? groups.map((g) => /* @__PURE__ */ jsx_runtime6.jsx(StackTile, {
               group: g,
@@ -21157,7 +21157,7 @@ function RegionalDataServicesTier({
               dense: compact,
               railChip: compact,
               displayName: displayName.get(n.id),
-              caption: compact ? inboundCaptions?.get(n.id) : undefined
+              caption: inboundCaptions?.get(n.id)
             }, n.id))
           ]
         })
@@ -23217,6 +23217,24 @@ function FlowOverlay({
           if (compared > 0)
             p.leaderForeignClearance = clearance;
           p.leaderDiscriminates = compared > 0 && compared === comparable - 1 && clearance >= LEADER_DISCRIMINATION_MARGIN_PX;
+        }
+      }
+      {
+        const seenStub = new Map;
+        for (const p of next) {
+          if (!p.stubBadges?.length)
+            continue;
+          p.stubBadges = p.stubBadges.filter((sb) => {
+            const key = `${Math.round(sb.x / 6)}:${Math.round(sb.y / 6)}:${sb.label}`;
+            const prior = seenStub.get(key);
+            if (prior) {
+              prior.title = `${prior.title}
+${sb.title}`;
+              return false;
+            }
+            seenStub.set(key, sb);
+            return true;
+          });
         }
       }
       if (lens !== "identity") {
