@@ -4281,6 +4281,10 @@ interface FlowPath {
   stubBadges?: { x: number; y: number; label: string; title: string }[]
   /** CF01 · D1 — the identity annotation of the edge this path draws, if any. */
   identity?: TrafficEdge["identity"]
+  /** The real source node of a lane/trunk path (whose `sourceId` is a lane
+   *  id), so the data kind reads the source's payload type — an EventBridge
+   *  trunk into the Lambda lane is an EVENT, not a request. */
+  kindSourceId?: string
 }
 
 export type TrafficMotionKind = "authoritative" | "historical" | "none"
@@ -5955,6 +5959,7 @@ function FlowOverlay({
             d: wordIndex === 0 ? trunkD : "",
             cls: jobsAll[0].cls,
             sourceId: laneId,
+            kindSourceId: lead.source_id,
             targetId: `trunk:${laneKey(t.lane)}`,
             protocol: lead.protocol ?? null,
             port: lead.port ?? null,
@@ -5991,6 +5996,7 @@ function FlowOverlay({
             d,
             cls: chipJobs[0].cls,
             sourceId: laneId,
+            kindSourceId: chipLead.source_id,
             targetId: chip.id,
             protocol: chipLead.protocol ?? null,
             port: chipLead.port ?? null,
@@ -6104,6 +6110,7 @@ function FlowOverlay({
           d,
           cls: group.jobs[0].cls,
           sourceId: `lane:${laneKey(group.src)}`,
+          kindSourceId: lead.source_id,
           targetId: group.dstId,
           protocol: lead.protocol ?? null,
           port: lead.port ?? null,
@@ -6471,7 +6478,7 @@ function FlowOverlay({
               cls: p.cls,
               protocol: p.protocol,
               port: p.port,
-              sourceType: nodeTypeById?.get(p.sourceId) ?? null,
+              sourceType: nodeTypeById?.get(p.kindSourceId ?? p.sourceId) ?? null,
               targetType: nodeTypeById?.get(p.targetId) ?? null,
               targetId: p.targetId,
             })
