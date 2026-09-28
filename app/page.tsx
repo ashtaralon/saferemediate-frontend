@@ -450,12 +450,13 @@ export default function HomePage() {
   }
 
   const baseStatsData = data?.stats || {
-    avgHealthScore: 0,
+    // Scores: null = not computed. 0 would read as a measured worst score.
+    avgHealthScore: null,
     healthScoreTrend: 0,
     needAttention: 0,
     totalIssues: 0,
     criticalIssues: 0,
-    averageScore: 0,
+    averageScore: null,
     averageScoreTrend: 0,
     lastScanTime: "No scans yet",
   }

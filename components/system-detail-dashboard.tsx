@@ -72,6 +72,7 @@ import {
 import { CoveragePill } from "@/components/brss/coverage-pill"
 import { SystemBlastRadiusHero } from "@/components/system-detail/blast-radius-hero"
 import { deriveSummaryIntegrity, brssEmptyReasonFor } from "@/lib/summary-integrity"
+import { issuesSummaryBrssHold, summaryAnalyzerCodes, type BrssHold } from "@/lib/brss-held"
 import { fetchWithTransientRetry } from "@/lib/transient-retry"
 import { normalizeSecurityFinding, asCount } from "@/lib/security-finding-normalize"
 import { RequestEpoch } from "@/lib/request-epoch"
@@ -787,8 +788,10 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
   // an operator their estate is unscanned when it was in fact scanned badly,
   // which is the reassuring reading of a bad outcome.
   const [brssEmptyReason, setBrssEmptyReason] = useState<
-    "awaiting_scan" | "unavailable" | "incomplete"
+    "awaiting_scan" | "unavailable" | "incomplete" | "held"
   >("awaiting_scan")
+  // The backend's typed code(s) + reason whenever the score is withheld.
+  const [brssHold, setBrssHold] = useState<BrssHold | null>(null)
   const [overviewFetchError, setOverviewFetchError] = useState<string | null>(null)
 
   // Request identity for the Overview loader.
@@ -1033,14 +1036,29 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
         } else {
           setHealthScore(null)
         }
-        if (
+        // A READY sweep can still hold the SCORE: when some V2 IAM role's
+        // usage is not measured the backend sends `blast_radius_score.score:
+        // null` with a held_reason (and still attaches an overlay computed
+        // over the measured subset). That object used to be set as the BRSS,
+        // so the hero painted the overlay's number. Held is not a score.
+        const brssHeld =
+          summaryData.blast_radius_score && !summaryData.blast_radius_score.error
+            ? issuesSummaryBrssHold(summaryData)
+            : null
+        if (brssHeld) {
+          setBrss(null)
+          setBrssEmptyReason("held")
+          setBrssHold(brssHeld)
+        } else if (
           summaryData.blast_radius_score &&
           !summaryData.blast_radius_score.error &&
           summaryData.blast_radius_score.analysis_complete !== false
         ) {
           setBrss(summaryData.blast_radius_score as BlastRadiusScore)
           setBrssEmptyReason("awaiting_scan")
+          setBrssHold(null)
         } else {
+          setBrssHold(null)
           setBrss(null)
           // The sweep was READY overall, so reaching here means the score
           // itself was withheld. If the BRSS payload says it is incomplete or
@@ -1053,12 +1071,39 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
               : "awaiting_scan",
           )
         }
-        applyGapAnalysisFromIssuesSummary(summaryData)
-        setAccessExposureAuthority("ready")
+        // `resources.unused_permission_gaps: null` is the backend saying the
+        // unused count is not computable (V2 usage unknown): the permission
+        // sums cover measured roles only, so the number would be a floor
+        // shown as a total. Only an explicit null withholds; an older payload
+        // without the key keeps today's behaviour.
+        if (summaryData.resources && summaryData.resources.unused_permission_gaps === null) {
+          setAccessExposureAuthority("unavailable")
+          setGapAnalysis({ allowed: 0, actual: 0, gap: 0, gapPercent: 0, confidence: 0 })
+          setGapError(
+            brssHeld?.reason ??
+              "Unused-permission count not computed: usage of some IAM roles is not measured (counts_are_partial). This is not zero unused permissions.",
+          )
+        } else {
+          applyGapAnalysisFromIssuesSummary(summaryData)
+          setAccessExposureAuthority("ready")
+        }
         setLoadingGap(false)
       } else {
         setHealthScore(null)
         setBrss(null)
+        // Held / failed sweep: carry the backend's own reason and typed
+        // analyzer codes to the hero, verbatim.
+        setBrssHold(
+          summaryData
+            ? {
+                codes: summaryAnalyzerCodes(summaryData),
+                reason:
+                  typeof summaryData.integrityReason === "string"
+                    ? summaryData.integrityReason
+                    : null,
+              }
+            : null,
+        )
         // Proxy/integrity failure is not "never scanned".
         //
         // This branch is reached whenever the payload cannot carry scores, and
@@ -2094,6 +2139,7 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
               systemName={systemName}
               resourceCount={totalResourcesCount}
               emptyReason={brss ? "awaiting_scan" : brssEmptyReason}
+              hold={brss ? null : brssHold}
             />
 
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">

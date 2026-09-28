@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { backendError, fromCaughtError } from "@/lib/server/proxy-error"
 import { isCacheableSummary } from "@/lib/summary-integrity"
+import { issuesSummaryBrssHold } from "@/lib/brss-held"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
 export const runtime = "nodejs"
@@ -24,6 +25,17 @@ export const maxDuration = 60
 // Stale-cache-on-error is also removed for the same reason.
 const cache = new Map<string, { data: any; timestamp: number }>()
 const CACHE_TTL = 5 * 60 * 1000
+
+/**
+ * Scores are never replayed from the cache. A stale replay may still show the
+ * last complete COUNTS, marked stale; the health score and the BRSS are
+ * posture claims about now, and a cached number standing in for a live answer
+ * the backend could not give is exactly the fallback BRSS held-state forbids.
+ */
+const WITHHELD_SCORES = {
+  avg_health_score: null,
+  blast_radius_score: null,
+} as const
 
 function getCacheKey(systemName: string | null): string {
   return `issues-summary:${systemName || "all"}`
@@ -87,6 +99,7 @@ export async function GET(req: NextRequest) {
         return NextResponse.json(
           {
             ...cached.data,
+            ...WITHHELD_SCORES,
             fromStaleCache: true,
             staleReason: `backend_${res.status}`,
             // A cached payload was READY when captured; it cannot vouch for NOW.
@@ -118,7 +131,11 @@ export async function GET(req: NextRequest) {
     // how one transient analyzer failure becomes five minutes of confidently
     // wrong answers served to every subsequent request — the same defect the
     // backend already refuses to commit at its own cache.
-    if (isCacheableSummary(data)) {
+    // …and a READY sweep whose BRSS is held (V2 usage unknown) is not a
+    // complete answer either: the backend never persists or caches a held
+    // score, so neither does this proxy.
+    const cacheable = isCacheableSummary(data) && issuesSummaryBrssHold(data) === null
+    if (cacheable) {
       cache.set(cacheKey, { data, timestamp: now })
     } else {
       console.warn(
@@ -136,7 +153,11 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json(data, {
       headers: {
-        "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600",
+        // A held / partial answer is never CDN-cached either: the backend
+        // refuses to cache it, and a shared cache must not outlive the hold.
+        "Cache-Control": cacheable
+          ? "public, s-maxage=300, stale-while-revalidate=600"
+          : "no-store",
         "X-Cache": "MISS",
       },
     })
@@ -154,6 +175,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(
         {
           ...cached.data,
+          ...WITHHELD_SCORES,
           fromStaleCache: true,
           staleReason: "timeout",
           serve_state: "NOT_READY",

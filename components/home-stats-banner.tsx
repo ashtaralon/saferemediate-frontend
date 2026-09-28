@@ -4,12 +4,13 @@ import { Button } from "@/components/ui/button"
 import { ArrowUpRight, ScanSearch, TrendingDown, TrendingUp } from "lucide-react"
 
 interface HomeStatsBannerProps {
-  avgHealthScore?: number
+  /** Null / absent = not computed (held or unknown). Never rendered as 0. */
+  avgHealthScore?: number | null
   healthScoreTrend?: number
   needAttention?: number
   totalIssues?: number
   criticalIssues?: number
-  averageScore?: number
+  averageScore?: number | null
   averageScoreTrend?: number
   lastScanTime?: string
   resourceCount?: number
@@ -18,12 +19,12 @@ interface HomeStatsBannerProps {
 }
 
 export function HomeStatsBanner({
-  avgHealthScore = 0,
+  avgHealthScore = null,
   healthScoreTrend = 0,
   needAttention = 0,
   totalIssues = 0,
   criticalIssues = 0,
-  averageScore = 0,
+  averageScore = null,
   averageScoreTrend = 0,
   lastScanTime = "No scans yet",
   resourceCount = 0,
@@ -74,8 +75,19 @@ export function HomeStatsBanner({
       <div className="relative mt-8 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         <div className="rounded-2xl border border-white/14 bg-white/10 p-5 backdrop-blur">
           <div className="text-xs uppercase tracking-[0.2em] text-white/70">Avg Health Score</div>
-          <div className="mt-3 text-5xl font-bold">{avgHealthScore}</div>
-          {healthScoreTrend !== 0 ? (
+          {avgHealthScore == null ? (
+            <>
+              <div className="mt-3 text-2xl font-semibold" data-testid="home-avg-health-not-computed">
+                Not computed
+              </div>
+              <div className="mt-3 text-xs text-white/70">
+                The backend withheld this score (analysis held or usage unmeasured). This is not a score of 0.
+              </div>
+            </>
+          ) : (
+          <div className="mt-3 text-5xl font-bold" data-testid="home-avg-health-score">{avgHealthScore}</div>
+          )}
+          {avgHealthScore == null ? null : healthScoreTrend !== 0 ? (
             <div className="mt-3 inline-flex items-center gap-1 rounded-full bg-black/10 px-3 py-1 text-xs text-white/80">
               <TrendingDown className="h-3.5 w-3.5" />
               {Math.abs(healthScoreTrend)} from last week
@@ -104,8 +116,14 @@ export function HomeStatsBanner({
 
         <div className="rounded-2xl border border-white/14 bg-white/10 p-5 backdrop-blur">
           <div className="text-xs uppercase tracking-[0.2em] text-white/70">Average Score</div>
-          <div className="mt-3 text-5xl font-bold">{averageScore}%</div>
-          {averageScoreTrend !== 0 ? (
+          {averageScore == null ? (
+            <div className="mt-3 text-2xl font-semibold" data-testid="home-average-score-not-computed">
+              Not computed
+            </div>
+          ) : (
+            <div className="mt-3 text-5xl font-bold">{averageScore}%</div>
+          )}
+          {averageScore == null ? null : averageScoreTrend !== 0 ? (
             <div className="mt-3 inline-flex items-center gap-1 rounded-full bg-black/10 px-3 py-1 text-xs text-white/80">
               <TrendingUp className="h-3.5 w-3.5" />
               +{averageScoreTrend}% this month

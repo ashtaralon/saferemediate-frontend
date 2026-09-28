@@ -53,12 +53,14 @@ export interface InfrastructureData {
     tags?: Record<string, string>
   }>
   stats: {
-    avgHealthScore: number
+    /** issues-summary `avg_health_score`, verbatim. Null = not computed (held / unknown), never 0 or 100. */
+    avgHealthScore: number | null
     healthScoreTrend: number
     needAttention: number
     totalIssues: number
     criticalIssues: number
-    averageScore: number
+    /** No backend field backs this tile; null rather than a fabricated value. */
+    averageScore: number | null
     averageScoreTrend: number
     lastScanTime: string
   }
@@ -174,12 +176,12 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
       return {
         resources: [],
         stats: {
-          avgHealthScore: 0,
+          avgHealthScore: null,
           healthScoreTrend: 0,
           needAttention: 0,
           totalIssues: 0,
           criticalIssues: 0,
-          averageScore: 0,
+          averageScore: null,
           averageScoreTrend: 0,
           lastScanTime: new Date().toISOString(),
         },
@@ -242,12 +244,23 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
     return {
       resources,
       stats: {
-        avgHealthScore: issuesSummary?.avg_health_score ?? metrics?.avg_health_score ?? metrics?.avgHealthScore ?? metrics?.healthScore ?? 100,
+        // The issues-summary score or nothing. This used to chain
+        // `?? metrics?.avg_health_score ?? … ?? 100`: when the backend nulled
+        // the score on purpose (held analyzers, V2 usage unknown) the chain
+        // fell through to the legacy dashboard-metrics number and finally to
+        // a fabricated 100 — "perfectly healthy" for a held sweep.
+        avgHealthScore:
+          typeof issuesSummary?.avg_health_score === "number" &&
+          Number.isFinite(issuesSummary.avg_health_score)
+            ? issuesSummary.avg_health_score
+            : null,
         healthScoreTrend: metrics?.healthScoreTrend ?? 0,
         needAttention: issuesSummary?.resources?.with_issues ?? metrics?.need_attention ?? metrics?.needAttention ?? metrics?.systemsNeedingAttention ?? 0,
         totalIssues: totalIssues,
         criticalIssues: bySeverity.critical,
-        averageScore: metrics?.avg_health_score ?? metrics?.averageScore ?? metrics?.avgHealthScore ?? 100,
+        // Was `metrics?.avg_health_score ?? … ?? 100`: with issues-summary
+        // answering, `metrics` is {} and this tile read 100 unconditionally.
+        averageScore: null,
         averageScoreTrend: metrics?.averageScoreTrend ?? 0,
         lastScanTime: issuesSummary?.timestamp ?? metrics?.most_recent_scan ?? metrics?.lastScanTime ?? new Date().toISOString(),
       },
@@ -289,12 +302,12 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
     return {
       resources: [],
       stats: {
-        avgHealthScore: 0,
+        avgHealthScore: null,
         healthScoreTrend: 0,
         needAttention: 0,
         totalIssues: 0,
         criticalIssues: 0,
-        averageScore: 0,
+        averageScore: null,
         averageScoreTrend: 0,
         lastScanTime: new Date().toISOString(),
       },

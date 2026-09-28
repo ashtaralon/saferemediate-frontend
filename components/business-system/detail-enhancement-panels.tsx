@@ -2,6 +2,8 @@
 
 import Link from 'next/link'
 import { ExternalLink, Scissors, TrendingUp } from 'lucide-react'
+import { BrssHeldNotice } from '@/components/brss/brss-held-notice'
+import { detailBrssHold } from '@/lib/brss-held'
 
 export type DetailEnhancements = {
   system_name: string
@@ -23,6 +25,11 @@ export type DetailEnhancements = {
       lift_if_fixed?: number
     }>
     error?: string
+    /** api/business_system.py: a held BRSS — score null, typed code, reason. */
+    held?: boolean
+    error_code?: string
+    held_reason?: string
+    unmeasured_iam_roles?: number
   }
   brss_delta_attribution?: {
     previous_score?: number | null
@@ -64,9 +71,35 @@ function fmtDelta(n: number | null | undefined): string {
   return `${sign}${n.toFixed(1)}`
 }
 
+/** A count the backend did not send is unknown, not zero. */
+function fmtCount(n: number | null | undefined): string {
+  return typeof n === 'number' && Number.isFinite(n) ? String(n) : 'unknown'
+}
+
 export function BrssDeltaPanel({ pack }: { pack: DetailEnhancements }) {
   const d = pack.brss_delta_attribution
   const score = pack.brss?.score
+  // Held or failed: no before/after numbers at all. The previous score is a
+  // snapshot of a different state and the "current" slot has nothing real to
+  // hold, so the panel shows the typed code and the backend's reason instead.
+  const hold = detailBrssHold(pack.brss)
+  if (hold) {
+    return (
+      <div
+        className="rounded-xl border border-amber-200 bg-amber-50/50 p-4 shadow-sm"
+        data-testid="brss-held-panel"
+      >
+        <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-amber-800">
+          <TrendingUp className="h-3.5 w-3.5" />
+          BRSS {pack.brss?.held ? 'held' : 'unavailable'}
+        </div>
+        <p className="mt-2 text-sm text-slate-700">
+          No BRSS was computed for {pack.system_name}. This is not a score of 0.
+        </p>
+        <BrssHeldNotice hold={hold} testId="brss-detail-held-notice" />
+      </div>
+    )
+  }
   if (!d && score == null) return null
 
   return (
@@ -114,12 +147,12 @@ export function BrssDeltaPanel({ pack }: { pack: DetailEnhancements }) {
         <div>
           <span className="text-slate-400">Resources ±</span>
           <div className="font-medium">
-            +{d?.resources_added ?? 0} / −{d?.resources_removed ?? 0}
+            +{fmtCount(d?.resources_added)} / −{fmtCount(d?.resources_removed)}
           </div>
         </div>
         <div>
           <span className="text-slate-400">Changed</span>
-          <div className="font-medium">{d?.resources_changed ?? 0}</div>
+          <div className="font-medium">{fmtCount(d?.resources_changed)}</div>
         </div>
       </div>
       {pack.brss?.coverage_ratio != null && (
