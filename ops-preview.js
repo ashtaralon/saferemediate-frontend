@@ -17700,10 +17700,6 @@ function elideSharedPrefix(names, options2) {
   return { prefix: prefix2, labels, count };
 }
 
-// ../../../../../../home/claude/saferemediate-frontend/components/topology-v0-2/ops-perimeter.tsx
-init_lucide_react();
-var import_react3 = __toESM(require_react(), 1);
-
 // ../../../../../../home/claude/saferemediate-frontend/components/topology-v0-2/ops-perimeter-model.ts
 var AWS_S3_SENTINEL_IDS = new Set(["__aws_s3__"]);
 var EGRESS_CLASS_ORDER = [
@@ -17873,7 +17869,7 @@ function logicalGroupHullLabel(spec) {
   return `${KIND_SHORT[spec.kind]} · ${spec.label} · ${span}`;
 }
 function buildOpsReadout(args) {
-  const { loadBalancerCount, igwCount, nat, egress, awsServiceCounts, missingEndpoints, trafficAuthorityState } = args;
+  const { loadBalancerCount, igwCount, nat, egress, awsServiceCounts, missingEndpoints, trafficAuthorityState, motionCounts } = args;
   const ingress = {
     key: "ingress",
     label: "In",
@@ -17918,10 +17914,21 @@ function buildOpsReadout(args) {
     tone: authoritative ? "neutral" : "unknown",
     title: authoritative ? "Moving lines are generation-backed observations." : "Lines show configured or historical direction; a missing line is not proof of no traffic."
   };
+  if (motionCounts && (motionCounts.live > 0 || motionCounts.historical > 0)) {
+    const parts = [
+      motionCounts.live > 0 ? `${motionCounts.live} live` : null,
+      motionCounts.historical > 0 ? `${motionCounts.historical} historical` : null
+    ].filter(Boolean);
+    evidence.value = parts.join(" · ");
+    evidence.tone = motionCounts.live > 0 ? "neutral" : "unknown";
+    evidence.title = `${evidence.title} Live = generation-backed observations; historical = timestamped legacy observations. Configured-only links are not counted.`;
+  }
   return [ingress, egressSeg, aws, evidence];
 }
 
 // ../../../../../../home/claude/saferemediate-frontend/components/topology-v0-2/ops-perimeter.tsx
+init_lucide_react();
+var import_react3 = __toESM(require_react(), 1);
 var jsx_runtime5 = __toESM(require_jsx_runtime(), 1);
 "use client";
 var INK = "#1A2330";
@@ -18161,26 +18168,56 @@ function InternetBand({
   compact = false
 }) {
   return /* @__PURE__ */ jsx_runtime5.jsxs("div", {
-    className: `grid w-full min-w-0 items-start ${compact ? "gap-3 py-0.5" : "gap-4 py-1"}`,
-    style: { gridTemplateColumns: outbound ? "minmax(240px, 0.8fr) minmax(0, 2fr)" : "minmax(0, 1fr)" },
+    className: `flex flex-wrap items-center w-full min-w-0 ${compact ? "gap-2 py-0.5" : "gap-3 py-1"}`,
     "data-testid": "topology-internet-band",
     children: [
-      /* @__PURE__ */ jsx_runtime5.jsxs("div", {
+      /* @__PURE__ */ jsx_runtime5.jsx("div", {
         className: "min-w-0",
         "data-testid": "topology-internet-band-inbound",
-        children: [
-          /* @__PURE__ */ jsx_runtime5.jsx("div", {
-            className: "text-[9px] font-bold uppercase tracking-[0.14em] mb-1",
-            style: { color: SLATE },
-            children: "↓ Inbound"
-          }),
-          inbound
-        ]
+        children: inbound
       }),
       outbound ? /* @__PURE__ */ jsx_runtime5.jsx("div", {
-        className: "min-w-0",
+        className: "min-w-0 flex-1",
         children: outbound
       }) : null
+    ]
+  });
+}
+function InboundChip({ hasIgw, igwName }) {
+  return /* @__PURE__ */ jsx_runtime5.jsxs("div", {
+    className: "inline-flex items-center gap-2 rounded-md px-2 py-1",
+    style: { background: "#FFFFFF", border: "1px solid #C7D2FE" },
+    "data-testid": "topology-users-internet-strip",
+    title: hasIgw ? `Clients and operators reach this VPC from the internet through ${igwName ?? "its IGW"}` : "No IGW attached",
+    children: [
+      /* @__PURE__ */ jsx_runtime5.jsx("span", {
+        className: "text-[10px] font-bold uppercase tracking-[0.1em]",
+        style: { color: "#4338CA" },
+        children: "↓ Inbound"
+      }),
+      /* @__PURE__ */ jsx_runtime5.jsx("span", {
+        className: "text-[11px] font-semibold",
+        style: { color: INK },
+        "data-testid": "topology-users-node",
+        children: "Users"
+      }),
+      /* @__PURE__ */ jsx_runtime5.jsx("span", {
+        className: "text-[11px]",
+        style: { color: SLATE },
+        "aria-hidden": true,
+        children: "→"
+      }),
+      /* @__PURE__ */ jsx_runtime5.jsx("span", {
+        className: "text-[11px] font-semibold",
+        style: { color: INK },
+        "data-testid": "topology-internet-node",
+        children: "Internet"
+      }),
+      /* @__PURE__ */ jsx_runtime5.jsx("span", {
+        className: "text-[11px]",
+        style: { color: SLATE },
+        children: hasIgw ? "→ IGW" : "· no IGW attached"
+      })
     ]
   });
 }
@@ -18531,7 +18568,8 @@ function LogicalGroupHulls({
           width: w,
           height: h,
           border: `${selected ? 2.5 : 1.5}px dashed ${color}`,
-          background: selected ? "rgba(126,87,194,0.05)" : "transparent"
+          background: selected ? "rgba(126,87,194,0.05)" : "transparent",
+          opacity: warn || selected ? 1 : 0.45
         },
         "data-testid": "topology-logical-group-hull",
         "data-group-id": spec.groupId,
@@ -18540,7 +18578,7 @@ function LogicalGroupHulls({
         children: /* @__PURE__ */ jsx_runtime5.jsx("button", {
           type: "button",
           onClick: () => onSelect(spec.groupId),
-          className: "pointer-events-auto absolute -top-2 left-2 px-1.5 rounded text-[9px] font-semibold whitespace-nowrap",
+          className: `pointer-events-auto absolute -top-2 left-2 px-1.5 rounded text-[9px] font-semibold whitespace-nowrap transition-opacity ${warn || selected ? "opacity-100" : "opacity-0 hover:opacity-100 focus:opacity-100"}`,
           style: { background: "#FFFFFF", color: warn ? AMBER_TEXT : color, border: `1px solid ${color}` },
           title: `${spec.label} (${spec.groupId}) — ${spec.memberIds.length} member(s)${spec.azs.length ? ` in ${spec.azs.join(", ")}` : ""}${warn ? ". All members in one AZ: losing it takes the whole group." : ""}`,
           children: logicalGroupHullLabel(spec)
@@ -21454,6 +21492,7 @@ function ExternalDestinationsLane({
   layout = "lane"
 }) {
   const [moreOpen, setMoreOpen] = import_react4.useState(false);
+  const [bandOpen, setBandOpen] = import_react4.useState(false);
   const hiddenNodes = map.hiddenCount > 0;
   const remainderBlock = map.remainder ? /* @__PURE__ */ jsx_runtime6.jsxs("div", {
     className: "rounded-md px-1.5 py-1 min-w-0 w-full",
@@ -21574,10 +21613,15 @@ function ExternalDestinationsLane({
   });
   const egressGroups = import_react4.useMemo(() => groupExternalDestinations(map), [map]);
   if (layout === "band") {
+    const workloads = summary?.legs.length ?? 0;
+    const distinct = map.distinctUpperBound;
+    const classCounts = egressGroups.filter((g) => g.nodes.length > 0).map((g) => `${EGRESS_CLASS_COPY[g.cls].title} ${g.nodes.length}`);
     return /* @__PURE__ */ jsx_runtime6.jsxs("div", {
-      className: "flex flex-col min-w-0 gap-1 z-10",
+      className: "flex flex-col min-w-0 z-10 rounded-md",
+      style: { background: "#FFFFFF", border: "1px solid #FCD34D", maxWidth: 520 },
       "data-testid": "topology-external-destinations-lane",
       "data-layout": "band",
+      "data-open": bandOpen ? "true" : "false",
       "data-node-count": map.nodes.length,
       "data-total-named": map.totalNamed,
       "data-hidden-count": map.hiddenCount,
@@ -21585,47 +21629,61 @@ function ExternalDestinationsLane({
       "data-gateway-id": map.gatewayId ?? "",
       "data-remainder-legs": map.remainder?.legs ?? 0,
       children: [
-        /* @__PURE__ */ jsx_runtime6.jsxs("div", {
-          className: "flex items-baseline gap-2 flex-wrap",
+        /* @__PURE__ */ jsx_runtime6.jsxs("button", {
+          type: "button",
+          onClick: () => setBandOpen((o) => !o),
+          "aria-expanded": bandOpen,
+          className: "flex items-center gap-2 px-2 py-1 text-left w-full min-w-0",
+          "data-testid": "topology-external-destinations-lane-header",
+          "data-flow-obstacle": "external-lane-header",
+          title: "Destinations observed this generation · NAT → IGW is configured routing",
           children: [
             /* @__PURE__ */ jsx_runtime6.jsx("span", {
-              className: "text-[9px] font-bold uppercase tracking-[0.14em]",
+              className: "text-[10px] font-bold uppercase tracking-[0.1em] shrink-0",
               style: { color: "#B45309" },
-              "data-flow-obstacle": "external-lane-header",
-              "data-testid": "topology-external-destinations-lane-header",
-              children: "↑ Outbound · what this VPC reaches"
+              children: "↑ Internet egress"
+            }),
+            /* @__PURE__ */ jsx_runtime6.jsxs("span", {
+              className: "text-[11px] font-semibold truncate",
+              style: { color: PAL.ink },
+              children: [
+                workloads,
+                " workload",
+                workloads === 1 ? "" : "s",
+                " → ",
+                distinct == null ? "addresses (count not recorded)" : `up to ${distinct} addresses`,
+                classCounts.length ? ` · ${classCounts.join(" · ")}` : ""
+              ]
             }),
             /* @__PURE__ */ jsx_runtime6.jsx("span", {
-              className: "text-[9px] leading-tight",
-              style: { color: PAL.slate },
-              "data-flow-obstacle": "external-lane-caption",
-              "data-testid": "topology-external-destinations-provenance",
-              children: "Destinations observed this generation · NAT → IGW is configured routing"
+              className: "ml-auto text-[10px] font-semibold shrink-0",
+              style: { color: "#B45309" },
+              children: bandOpen ? "Hide" : "Details"
             })
           ]
         }),
-        /* @__PURE__ */ jsx_runtime6.jsx(EgressClassGroups, {
-          groups: egressGroups,
-          renderDestination: (node) => /* @__PURE__ */ jsx_runtime6.jsx(ExternalDestinationChip, {
-            node
-          }),
-          remainder: remainderBlock
-        }),
         /* @__PURE__ */ jsx_runtime6.jsxs("div", {
-          className: "flex items-start gap-2 flex-wrap",
+          className: "px-2 pb-2 flex flex-col gap-1.5",
+          hidden: !bandOpen,
+          "data-testid": "topology-external-destinations-details",
           children: [
+            /* @__PURE__ */ jsx_runtime6.jsx("span", {
+              className: "text-[9px] leading-tight",
+              style: { color: PAL.slate },
+              "data-testid": "topology-external-destinations-provenance",
+              children: "Destinations observed this generation · NAT → IGW is configured routing · sampled addresses, not an inventory"
+            }),
+            /* @__PURE__ */ jsx_runtime6.jsx(EgressClassGroups, {
+              groups: egressGroups,
+              renderDestination: (node) => /* @__PURE__ */ jsx_runtime6.jsx(ExternalDestinationChip, {
+                node
+              }),
+              remainder: remainderBlock
+            }),
             hiddenNodes ? /* @__PURE__ */ jsx_runtime6.jsx("div", {
               className: "w-[180px]",
               children: moreBlock
-            }) : null,
-            /* @__PURE__ */ jsx_runtime6.jsx("div", {
-              className: "min-w-0 flex-1",
-              children: /* @__PURE__ */ jsx_runtime6.jsx(ExternalDestinationsNode, {
-                summary,
-                compact,
-                lane: true
-              })
-            })
+            }) : null
           ]
         })
       ]
@@ -25471,7 +25529,11 @@ function AwsFrame({
       egress: externalEgress,
       awsServiceCounts,
       missingEndpoints,
-      trafficAuthorityState: trafficAuthority?.state
+      trafficAuthorityState: trafficAuthority?.state,
+      motionCounts: {
+        live: trafficEdgesList.filter((e) => trafficMotionKind(e) === "authoritative").length,
+        historical: trafficEdgesList.filter((e) => trafficMotionKind(e) === "historical").length
+      }
     });
     return flowMode === "all_access" ? segments : segments.filter((seg) => seg.key !== "evidence");
   }, [frames, topo.edges.igws.length, natCoverage, externalEgress, awsServiceCounts, missingEndpoints, trafficAuthority?.state, flowMode]);
@@ -25577,7 +25639,7 @@ function AwsFrame({
           compact: presentationMode,
           layout: "band"
         }) : null,
-        inbound: /* @__PURE__ */ jsx_runtime6.jsxs("div", {
+        inbound: identityLens ? /* @__PURE__ */ jsx_runtime6.jsxs("div", {
           className: presentationMode ? "flex flex-wrap items-center justify-start gap-x-6 gap-y-1 py-0.5 w-full min-w-0 shrink-0" : "flex flex-wrap items-center justify-start gap-x-6 gap-y-1.5 py-1 w-full min-w-0",
           "data-testid": "topology-users-internet-strip",
           children: [
@@ -25672,6 +25734,9 @@ function AwsFrame({
               ]
             })
           ]
+        }) : /* @__PURE__ */ jsx_runtime6.jsx(InboundChip, {
+          hasIgw,
+          igwName: primaryIgw?.name ?? null
         })
       }),
       /* @__PURE__ */ jsx_runtime6.jsxs("div", {
