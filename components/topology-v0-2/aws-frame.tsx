@@ -131,6 +131,7 @@ import {
   awsServiceLabel,
 } from "./aws-architecture-icons"
 import { elideSharedPrefix } from "./chip-names"
+import { clearLeg, obstaclesForLeg } from "./flow-route-clear"
 import {
   EGRESS_CLASS_COPY,
 } from "./ops-perimeter-model"
@@ -1587,6 +1588,19 @@ function ServiceIconShell({
           {sublabel}
         </span>
       ) : null}
+      {/* Dense icons drop the sublabel, but a caption is a fact the map no
+          longer draws as lines (what a KMS key protects, who reaches a
+          bucket), so it stays — one short line under the name. */}
+      {dense && !railChip && caption ? (
+        <span
+          className="text-[8px] text-center truncate w-full leading-tight"
+          style={{ color: PAL.slate, maxWidth: 120 }}
+          data-testid="topology-chip-caption"
+          title={caption}
+        >
+          {caption}
+        </span>
+      ) : null}
     </button>
   )
 }
@@ -1691,11 +1705,20 @@ function ServiceNodeIcon({
       type={node.type}
       selected={selected}
       label={displayName ?? node.name}
-      sublabel={ownerChip ? `shared · ${ownerChip}` : multiAz ? `${typeLabel} · Multi-AZ` : typeLabel}
-      title={
+      sublabel={
         ownerChip
+          ? `shared · ${ownerChip}`
+          : !railChip && caption
+            ? caption
+            : multiAz
+              ? `${typeLabel} · Multi-AZ`
+              : typeLabel
+      }
+      title={
+        (ownerChip
           ? `${node.name} · shared — also belongs to ${ownerChip} — click for details`
-          : `${node.name} · ${typeLabel}${multiAz ? " · Multi-AZ" : ""} — click for details`
+          : `${node.name} · ${typeLabel}${multiAz ? " · Multi-AZ" : ""} — click for details`) +
+        (caption ? `\n${caption}` : "")
       }
       onClick={() => onSelect(node.id)}
       testId={isForeignOwner ? "topology-foreign-node" : "topology-service-node-icon"}
@@ -3253,7 +3276,7 @@ function RegionalDataServicesTier({
             dense
             railChip={compact}
             displayName={displayName.get(node.id)}
-            caption={compact ? inboundCaptions?.get(node.id) : undefined}
+            caption={inboundCaptions?.get(node.id)}
           />
         ))}
         {groups
@@ -3277,7 +3300,7 @@ function RegionalDataServicesTier({
                 dense={compact}
                 railChip={compact}
                 displayName={displayName.get(n.id)}
-                caption={compact ? inboundCaptions?.get(n.id) : undefined}
+                caption={inboundCaptions?.get(n.id)}
               />
             ))}
       </div>
@@ -5777,6 +5800,19 @@ function FlowOverlay({
         arr.forEach((j, i) => exitSpreads.set(j, (i - (arr.length - 1) / 2) * 12))
       }
 
+      // Chips a leg must not run through — measured once. Leaf chips only (a
+      // stack tile's inner chips are skipped), nothing inside a closed
+      // disclosure. `clearLeg` re-routes a leg only when it crosses one.
+      const chipBoxes: NatRect[] = []
+      for (const el of Array.from(container.querySelectorAll<HTMLElement>("[data-flow-id], [data-flow-ids]"))) {
+        if (el.closest("[hidden]")) continue
+        if (el.querySelector("[data-flow-id], [data-flow-ids]")) continue
+        const r = el.getBoundingClientRect()
+        if (r.width <= 0 || r.height <= 0) continue
+        chipBoxes.push(toNat(r))
+      }
+      const clear = (a: NatRect, b: NatRect, pts: Pt[]): Pt[] => clearLeg(pts, a, b, obstaclesForLeg(chipBoxes, a, b))
+
       // Pass 3 — generate orthogonal paths + on-line badges.
       const next: FlowPath[] = []
       for (const j of drawJobs) {
@@ -5793,14 +5829,14 @@ function FlowOverlay({
           // first, out of the subnet grid, before it goes across (see
           // orthoLegToBoundary); the last leg lands on the destination.
           const first = j.hops[0]
-          const firstLeg = orthoLeg(j.src, first, laneX, spread)
+          const firstLeg = clear(j.src, first, orthoLeg(j.src, first, laneX, spread))
           pts = firstLeg
           let prev = first
           for (const hop of j.hops.slice(1)) {
-            pts = [...pts, ...orthoLegToBoundary(prev, hop)]
+            pts = [...pts, ...clear(prev, hop, orthoLegToBoundary(prev, hop))]
             prev = hop
           }
-          pts = [...pts, ...orthoLegToBoundary(prev, j.dst)]
+          pts = [...pts, ...clear(prev, j.dst, orthoLegToBoundary(prev, j.dst))]
           // The badge stays where a hopless edge would put it (see
           // flowBadgeAnchor): never on the hop chip the line passes through.
           badge = flowBadgeAnchor({ cls: j.cls, src: j.src, legTarget: first, laneX, firstLegPts: firstLeg })
@@ -5808,7 +5844,7 @@ function FlowOverlay({
           routedViaIgw = j.viaKinds.has("igw")
           routedViaNat = j.viaKinds.has("nat")
         } else {
-          pts = orthoLeg(j.src, j.dst, laneX, spread)
+          pts = clear(j.src, j.dst, orthoLeg(j.src, j.dst, laneX, spread))
           badge = flowBadgeAnchor({ cls: j.cls, src: j.src, legTarget: j.dst, laneX, firstLegPts: pts })
         }
         const d = orthoPath(pts)
@@ -6382,6 +6418,47 @@ function FlowOverlay({
             compared > 0 &&
             compared === comparable - 1 &&
             clearance >= LEADER_DISCRIMINATION_MARGIN_PX
+        }
+      }
+      // Feeder-leg tags ("API" at each function's leg) land on the same point
+      // when two functions share a row: one tag per spot, the titles merged.
+      {
+        const seenStub = new Map<string, { label: string; x: number; y: number; title: string }>()
+        for (const p of next) {
+          if (!p.stubBadges?.length) continue
+          p.stubBadges = p.stubBadges.filter(sb => {
+            const key = `${Math.round(sb.x / 6)}:${Math.round(sb.y / 6)}:${sb.label}`
+            const prior = seenStub.get(key)
+            if (prior) {
+              prior.title = `${prior.title}\n${sb.title}`
+              return false
+            }
+            seenStub.set(key, sb)
+            return true
+          })
+        }
+      }
+      // Network lens: two IDENTICAL words stacked on each other ("S3 access"
+      // over "S3 access" on the Lambda -> S3 feeders) read as one smudged label.
+      // Keep the first; the rest keep their line and tooltip, not a second
+      // copy of the same word. Different words are never merged.
+      if (lens !== "identity") {
+        const kept: { label: string; x: number; y: number; hw: number }[] = []
+        for (const p of next) {
+          if (!p.badgeLabel) continue
+          const hw = badgeHalfWidth(p.badgeLabel)
+          const clash = kept.some(
+            k =>
+              k.label === p.badgeLabel &&
+              Math.abs(k.x - p.badgeX) < k.hw + hw &&
+              Math.abs(k.y - p.badgeY) < BADGE_HALF_HEIGHT * 2,
+          )
+          if (clash) {
+            p.badgeLabel = ""
+            p.badgeTitle = undefined
+            continue
+          }
+          kept.push({ label: p.badgeLabel, x: p.badgeX, y: p.badgeY, hw })
         }
       }
       setPaths(next)
@@ -9995,18 +10072,39 @@ export function AwsFrame({
   const showIamLane = (identityRoleNodes?.length ?? 0) > 0
   const showEdgeRail = showServerlessLane || showIamLane || showRegionalLane
   const railLaneCount = [showServerlessLane, showIamLane, showRegionalLane].filter(Boolean).length
-  const railColumnW =
+  const railSideBySideW =
     railLaneCount > 1
       ? RAIL_LANE_W_PX * railLaneCount + RAIL_LANE_CORRIDOR_W_PX * (railLaneCount - 1)
       : RAIL_LANE_W_PX
-  const railGridTemplateColumns =
-    railLaneCount > 1
+  // Narrow canvas: when the VPC, its east doors and the lanes side by side do
+  // not fit, the lanes STACK (Lambda above Regional) instead of pushing the
+  // Regional lane past the right edge, where it was reachable only by a
+  // sideways scroll nobody knew to do. Inline page only; fullscreen fits by zoom.
+  const [canvasW, setCanvasW] = useState<number | null>(null)
+  useEffect(() => {
+    const el = flowContainerRef.current
+    if (!el || presentationMode || typeof ResizeObserver === "undefined") return
+    const ro = new ResizeObserver(entries => setCanvasW(entries[0]?.contentRect.width ?? null))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [presentationMode])
+  const stackRailLanes =
+    !presentationMode &&
+    railLaneCount > 1 &&
+    canvasW != null &&
+    canvasW < VPC_MIN_TRACK_W_PX + VPC_BOUNDARY_COL_W_PX + 48 + railSideBySideW + 80
+  const railColumnW = stackRailLanes ? RAIL_LANE_W_PX : railSideBySideW
+  const railGridTemplateColumns = stackRailLanes
+    ? `${RAIL_LANE_W_PX}px`
+    : railLaneCount > 1
       ? Array.from({ length: railLaneCount }, () => `${RAIL_LANE_W_PX}px`).join(` ${RAIL_LANE_CORRIDOR_W_PX}px `)
       : `${RAIL_LANE_W_PX}px`
   // "4 fn · service-plane access" under the bucket: the receiving end of the
   // rail feeders, stated at the chip from the same edges the overlay draws.
   const railInboundCaptions = useMemo(() => {
     const functionIds = new Set(serverlessTierNodes.map(node => node.id))
+    const nodeTypeByIdForCaptions = new Map<string, string>()
+    for (const n of [...nodes, ...serverlessTierNodes, ...regionalTierNodes]) if (n.type) nodeTypeByIdForCaptions.set(n.id, n.type)
     const captions = new Map<string, string>()
     for (const node of regionalTierNodes) {
       // "2 fn · 1 other · service-plane access" is a claim about who reaches
@@ -10016,12 +10114,29 @@ export function AwsFrame({
       // subset, so hiding a line removed a named caller from the caption.
       const caption = railInboundCaption(node.id, trafficEdgesList, id => functionIds.has(id))
       if (caption) captions.set(node.id, caption)
+      // A key says what it protects: ENCRYPTED_BY lines only draw on selection,
+      // so the fact moves onto the key itself ("protects Aurora ×2 · Neptune").
+      if (/kms/i.test(node.type ?? "")) {
+        const byKind = new Map<string, number>()
+        for (const e of trafficEdgesList) {
+          if (e.target_id !== node.id || (e.protocol ?? "").toUpperCase() !== "ENCRYPTED_BY") continue
+          const srcType = nodeTypeByIdForCaptions.get(e.source_id)
+          const label = srcType ? awsServiceLabel(srcType) : "resource"
+          byKind.set(label, (byKind.get(label) ?? 0) + 1)
+        }
+        if (byKind.size > 0) {
+          const text = `protects ${[...byKind.entries()].map(([k, n]) => (n > 1 ? `${k} ×${n}` : k)).join(" · ")}`
+          // Replaces the generic "N other · service-plane access": for a key
+          // those N ARE the resources it protects, so the count said it twice.
+          captions.set(node.id, text)
+        }
+      }
       // CF01 — a service anchor's caption is the twin's (policy rows projected).
       const twinCaption = identityLens?.twin.captions.get(node.id)
       if (twinCaption) captions.set(node.id, twinCaption)
     }
     return captions
-  }, [regionalTierNodes, serverlessTierNodes, trafficEdgesList, identityLens])
+  }, [regionalTierNodes, serverlessTierNodes, trafficEdgesList, identityLens, nodes])
 
   const attackPathEdgeCount = attackPathFlowCount
 
@@ -10718,6 +10833,7 @@ export function AwsFrame({
                     maxWidth: `${railColumnW}px`,
                     gridTemplateColumns: railGridTemplateColumns,
                     gridTemplateRows: presentationMode ? "minmax(0, 1fr)" : "auto",
+                    rowGap: stackRailLanes ? 12 : undefined,
                   }}
                   data-scroll-region="edge-services-rail"
                   data-testid="topology-edge-services-rail"
@@ -10735,7 +10851,7 @@ export function AwsFrame({
                     namedFlowNodeIds={namedFlowNodeIds}
                     s3Coverage={serverlessS3Coverage}
                   />
-                  {showServerlessLane && (showIamLane || showRegionalLane) ? (
+                  {showServerlessLane && (showIamLane || showRegionalLane) && !stackRailLanes ? (
                     <div
                       className="self-stretch"
                       style={{
@@ -10759,7 +10875,7 @@ export function AwsFrame({
                       compact={presentationMode}
                     />
                   ) : null}
-                  {showIamLane && showRegionalLane ? (
+                  {showIamLane && showRegionalLane && !stackRailLanes ? (
                     <div
                       className="self-stretch"
                       style={{
