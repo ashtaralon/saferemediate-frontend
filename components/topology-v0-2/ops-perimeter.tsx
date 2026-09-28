@@ -172,7 +172,7 @@ export function OpsFlowLegend({ compact = false }: { compact?: boolean }) {
             </span>
           ))}
           <span className="text-[10px]" style={{ color: "#475569" }}>
-            filled = live · hollow = historical · faint = configured
+            filled = confirmed · hollow = historical · faint = configured · none of it means "now"
           </span>
           <button
             type="button"
@@ -216,7 +216,7 @@ export function OpsFlowLegend({ compact = false }: { compact?: boolean }) {
         </span>
         <span className="inline-flex items-center gap-1">
           <EvidenceSwatch mode="live" />
-          <span className="text-[10px] font-medium" style={{ color: "#475569" }}>filled, moving · observed live</span>
+          <span className="text-[10px] font-medium" style={{ color: "#475569" }}>filled · confirmed observation (see its age)</span>
         </span>
         <span className="inline-flex items-center gap-1">
           <EvidenceSwatch mode="historical" />

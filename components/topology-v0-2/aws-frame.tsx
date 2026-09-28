@@ -10185,6 +10185,11 @@ export function AwsFrame({
       motionCounts: {
         live: trafficEdgesList.filter(e => trafficMotionKind(e) === "authoritative").length,
         historical: trafficEdgesList.filter(e => trafficMotionKind(e) === "historical").length,
+        newestSeenAt: trafficEdgesList
+          .filter(e => trafficMotionKind(e) !== "none" && e.last_seen)
+          .map(e => e.last_seen as string)
+          .sort()
+          .pop() ?? null,
       },
     })
     // Architecture lens draws no traffic, so it makes no traffic claim.

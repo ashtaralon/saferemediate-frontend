@@ -304,6 +304,17 @@ export interface ReadoutSegment {
   title: string
 }
 
+/** "3h ago", "4d ago" — from an ISO timestamp; null when unparseable. */
+export function ageLabel(iso: string, now: number): string | null {
+  const t = Date.parse(iso)
+  if (!Number.isFinite(t)) return null
+  const mins = Math.max(0, Math.round((now - t) / 60000))
+  if (mins < 60) return `${mins}m ago`
+  const h = Math.round(mins / 60)
+  if (h < 48) return `${h}h ago`
+  return `${Math.round(h / 24)}d ago`
+}
+
 export function buildOpsReadout(args: {
   loadBalancerCount: number
   igwCount: number
@@ -316,7 +327,7 @@ export function buildOpsReadout(args: {
   /** Lines the map will animate, counted from the same edges it draws. When
    *  given, the Traffic segment says how many are live vs historical instead
    *  of one blanket state — the account can be legacy while a lane is live. */
-  motionCounts?: { live: number; historical: number }
+  motionCounts?: { live: number; historical: number; newestSeenAt?: string | null; now?: number }
 }): ReadoutSegment[] {
   const { loadBalancerCount, igwCount, nat, egress, awsServiceCounts, missingEndpoints, trafficAuthorityState, motionCounts } = args
 
@@ -393,13 +404,18 @@ export function buildOpsReadout(args: {
   }
 
   if (motionCounts && (motionCounts.live > 0 || motionCounts.historical > 0)) {
+    // "Confirmed", never "live": authority grades the EVIDENCE (generation-
+    // backed observation), not its recency. On C1 the confirmed edges were
+    // last seen a month before this label called them live (QA 2026-09-29).
+    const age = motionCounts.newestSeenAt ? ageLabel(motionCounts.newestSeenAt, motionCounts.now ?? Date.now()) : null
     const parts = [
-      motionCounts.live > 0 ? `${motionCounts.live} live` : null,
+      motionCounts.live > 0 ? `${motionCounts.live} confirmed` : null,
       motionCounts.historical > 0 ? `${motionCounts.historical} historical` : null,
+      age ? `newest ${age}` : null,
     ].filter(Boolean)
     evidence.value = parts.join(" · ")
-    evidence.tone = motionCounts.live > 0 ? "neutral" : "unknown"
-    evidence.title = `${evidence.title} Live = generation-backed observations; historical = timestamped legacy observations. Configured-only links are not counted.`
+    evidence.tone = "unknown"
+    evidence.title = `${evidence.title} Confirmed = generation-backed observations; historical = timestamped legacy observations. Neither means current: see "newest". Configured-only links are not counted.`
   }
   return [ingress, egressSeg, aws, evidence]
 }
