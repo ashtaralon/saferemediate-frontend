@@ -272,7 +272,9 @@ export function logicalGroupKind(type: string | null | undefined): LogicalGroupH
   const t = (type ?? "").toLowerCase()
   if (t.includes("autoscaling")) return "asg"
   if (t.includes("targetgroup")) return "target_group"
-  if (t.includes("cluster")) return "cluster"
+  // Clusters arrive typed by engine ("RDS", "Neptune", "DocumentDB") as often
+  // as "…Cluster"; a group node of a database type IS its cluster.
+  if (t.includes("cluster") || /^(rds|aurora|neptune|docdb|documentdb|elasticache|redshift)/.test(t)) return "cluster"
   return "other"
 }
 

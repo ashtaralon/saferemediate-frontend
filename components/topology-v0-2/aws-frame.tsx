@@ -1310,16 +1310,18 @@ export function WorkloadChip({
           ) : (
             identitySubtitle ??
             usageLine ??
-            `${node.type ?? "?"}${node.id && node.id !== node.name ? ` · ${node.id.slice(0, 24)}` : ""}`
+            chipFactLine(node)
           )}
         </div>
       </div>
       {node.score && (
         <span
-          className="text-[11px] font-bold px-1.5 py-0.5 rounded shrink-0"
+          className="text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 whitespace-nowrap"
           style={{ ...Object.fromEntries(tierBgChip(node.score.tier).split(';').map(p => p.split(':') as [string, string])) }}
+          title={`Risk score ${node.score.value} (${node.score.tier}) — computed by the backend for this resource`}
+          data-testid="topology-chip-risk-score"
         >
-          {node.score.value}
+          risk {node.score.value}
         </span>
       )}
       {placementUnknown && (
@@ -1336,6 +1338,22 @@ export function WorkloadChip({
       )}
     </button>
   )
+}
+
+/** A chip's second line when it has nothing measured to say: what the
+ *  resource IS, in words, plus the short tail of its id — never a raw ARN,
+ *  which was cut off to "arn:aws:elasticloadbalan…" on every chip. */
+export function chipFactLine(node: Pick<TopologyNode, "type" | "id" | "name" | "subnet_ids" | "vpc_id">): string {
+  const kind = node.type ? awsServiceLabel(node.type) : "Resource"
+  const facts: string[] = [kind]
+  if ((node.subnet_ids?.length ?? 0) > 1) facts.push(`${node.subnet_ids!.length} subnets`)
+  if (/lambda/i.test(node.type ?? "") && !node.vpc_id) facts.push("outside VPC")
+  const id = node.id ?? ""
+  if (id && id !== node.name) {
+    const tail = id.split(/[/:]/).filter(Boolean).pop() ?? id
+    if (tail && tail !== node.name && !id.startsWith("arn:aws:lambda")) facts.push(tail.length > 14 ? `…${tail.slice(-12)}` : tail)
+  }
+  return facts.join(" · ")
 }
 
 function selectWorstInGroup(nodes: TopologyNode[]): TopologyNode | undefined {
@@ -1904,7 +1922,10 @@ function SubnetCell({
   const ownerHint = subnetOwnershipTooltipLine(subnetsHere)
   const isForeignCell =
     subnetsHere.length > 0 && subnetsHere.every(s => s.is_foreign === true)
-  const chromeTitle = [TIER_CELL_SHORT[tier], subnetTitle].filter(Boolean).join(" · ")
+  // The tier word only: the AZ is the column header and the CIDR sits on the
+  // right, so the subnet's name ("cyntro-tb-prod-public-eu-west-1a") repeated
+  // both and was cut off in every cell. Full name stays in the cell title.
+  const chromeTitle = TIER_CELL_SHORT[tier]
   const renderWorkloads = () =>
     glance ? (
       <GlanceCellWorkloads
@@ -9684,6 +9705,55 @@ export function AwsFrame({
       if (isPerimeterId(e.target_id, vpceIds, natIds)) return true
       return visible.has(e.target_id)
     })
+    // LOGICAL GROUPS are outlines, not stops. A target group, ASG or cluster
+    // has no subnet, so every line to it ran to the collapsed band under the
+    // map and back (LB -> TG -> EC2 crossed the whole grid twice). Membership
+    // edges (TARGETS / LAUNCHES / MEMBER_OF_CLUSTER, the same set the outline
+    // reads) are what the outline already shows, so they draw no line; any
+    // other edge into or out of a group is drawn to or from its MEMBERS, with
+    // the edge's own evidence — ALB -> web instances, via tg-web. A group whose
+    // members the payload does not name keeps its line to the group chip.
+    {
+      const groupIds = new Set(nodes.filter(n => isLogicalGroupNode(n)).map(n => n.id))
+      if (groupIds.size > 0) {
+        const rel = (e: TrafficEdge) => (e.protocol ?? e.kind ?? "").toUpperCase()
+        const isMembership = (e: TrafficEdge) =>
+          LOGICAL_GROUP_MEMBER_EDGE_TYPES.has(rel(e)) &&
+          (groupIds.has(e.source_id) !== groupIds.has(e.target_id))
+        const membersOf = new Map<string, string[]>()
+        for (const e of edges) {
+          if (!isMembership(e)) continue
+          const g = groupIds.has(e.source_id) ? e.source_id : e.target_id
+          const m = g === e.source_id ? e.target_id : e.source_id
+          const list = membersOf.get(g) ?? []
+          if (!list.includes(m)) list.push(m)
+          membersOf.set(g, list)
+        }
+        const rewired: TrafficEdge[] = []
+        for (const e of edges) {
+          if (isMembership(e)) continue
+          const srcGroup = groupIds.has(e.source_id) ? membersOf.get(e.source_id) : undefined
+          const dstGroup = groupIds.has(e.target_id) ? membersOf.get(e.target_id) : undefined
+          if (!srcGroup?.length && !dstGroup?.length) {
+            rewired.push(e)
+            continue
+          }
+          const sources = srcGroup?.length ? srcGroup : [e.source_id]
+          const targets = dstGroup?.length ? dstGroup : [e.target_id]
+          for (const a of sources) for (const b of targets) if (a !== b) rewired.push({ ...e, source_id: a, target_id: b })
+        }
+        edges = rewired
+      }
+    }
+    // ENCRYPTED_BY is configuration (which key protects which resource), not
+    // traffic. Drawn for every resource it was the longest, busiest set of
+    // lines on the map, all running to the KMS rail. It now draws only for the
+    // selected resource or key; the key's chip still lists what it protects.
+    edges = edges.filter(
+      e =>
+        (e.protocol ?? "").toUpperCase() !== "ENCRYPTED_BY" ||
+        (selectedNodeId != null && (e.source_id === selectedNodeId || e.target_id === selectedNodeId)),
+    )
     // INGRESS the payload measured but never drew as a line: `external_sources`
     // is Flow Logs' count of distinct PUBLIC source IPs that reached this
     // edge's target on its port. Packets from the public internet enter a VPC
@@ -9781,6 +9851,7 @@ export function AwsFrame({
     identityPrincipalNodes,
     topo.edges.nat_gws,
     topo.edges.igws.length,
+    selectedNodeId,
   ])
   // One frame PER VPC. Merged mode renders every VPC that owns a subnet in the
   // payload (primary first); scoped mode renders just the selected VPC. Each
@@ -10753,7 +10824,9 @@ export function AwsFrame({
           staleCount={staleNodes.length}
           trafficCount={trafficEdgesList.length}
         >
-          {serverlessTierNodes.length > 0 ? (
+          {/* The Lambda lane on the map already draws every function; the
+              second list here repeated it. Shown only when the lane is not. */}
+          {serverlessTierNodes.length > 0 && !showServerlessLane ? (
             <div
               className="rounded-md p-3"
               style={{ background: PAL.cardBg, border: "1px solid #E2E8F0" }}

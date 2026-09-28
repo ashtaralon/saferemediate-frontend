@@ -151,15 +151,41 @@ function EvidenceSwatch({ mode }: { mode: "live" | "historical" | "configured" }
  * Red dashes override everything: exposure / attack path.
  */
 export function OpsFlowLegend({ compact = false }: { compact?: boolean }) {
+  // Folded by default: one row of line swatches (hover for the name) and a
+  // button that opens the full key. The full key was two rows of chrome on
+  // every visit, above a map whose lines already carry their own shapes.
+  const [open, setOpen] = useState(false)
   return (
     <div
-      className={`flex flex-col gap-1 border-y ${compact ? "px-1 py-1" : "px-2 py-1.5"}`}
+      className={`flex flex-col gap-1 border-y ${compact ? "px-1 py-1" : "px-2 py-1"}`}
       style={{ borderColor: "#E2E8F0", background: "rgba(255,255,255,0.86)" }}
       data-testid="topology-flow-legend"
       data-flow-obstacle="flow-legend"
+      data-open={open ? "true" : "false"}
       aria-label="How to read the lines"
     >
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+      {!open ? (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          {FLOW_DATA_KIND_ORDER.map(kind => (
+            <span key={kind} title={`${FLOW_DATA_KIND_STYLE[kind].label} — ${FLOW_DATA_KIND_STYLE[kind].detail}`} className="inline-flex">
+              <KindSwatch kind={kind} />
+            </span>
+          ))}
+          <span className="text-[10px]" style={{ color: "#475569" }}>
+            filled = live · hollow = historical · faint = configured
+          </span>
+          <button
+            type="button"
+            onClick={() => setOpen(true)}
+            className="ml-auto text-[10px] font-semibold underline decoration-dotted"
+            style={{ color: "#0E8B7A" }}
+            aria-expanded={false}
+          >
+            How to read the lines
+          </button>
+        </div>
+      ) : null}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1" hidden={!open}>
         <span className="text-[9px] font-bold uppercase tracking-[0.12em] w-[86px] shrink-0" style={{ color: "#475569" }}>
           Data type
         </span>
@@ -184,7 +210,7 @@ export function OpsFlowLegend({ compact = false }: { compact?: boolean }) {
           <span className="text-[10px] font-medium" style={{ color: "#475569" }}>Exposure / attack path</span>
         </span>
       </div>
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1" hidden={!open}>
         <span className="text-[9px] font-bold uppercase tracking-[0.12em] w-[86px] shrink-0" style={{ color: "#475569" }}>
           Evidence
         </span>
@@ -200,6 +226,15 @@ export function OpsFlowLegend({ compact = false }: { compact?: boolean }) {
           <EvidenceSwatch mode="configured" />
           <span className="text-[10px] font-medium" style={{ color: "#475569" }}>faint, still · configured only</span>
         </span>
+        <button
+          type="button"
+          onClick={() => setOpen(false)}
+          className="ml-auto text-[10px] font-semibold underline decoration-dotted"
+          style={{ color: "#0E8B7A" }}
+          aria-expanded={true}
+        >
+          Hide key
+        </button>
       </div>
     </div>
   )
@@ -670,7 +705,7 @@ export function LogicalGroupHulls({
             <button
               type="button"
               onClick={() => onSelect(spec.groupId)}
-              className={`pointer-events-auto absolute -top-2 left-2 px-1.5 rounded text-[9px] font-semibold whitespace-nowrap transition-opacity ${
+              className={`pointer-events-auto absolute -bottom-2 right-2 px-1.5 rounded text-[9px] font-semibold whitespace-nowrap transition-opacity ${
                 warn || selected ? "opacity-100" : "opacity-0 hover:opacity-100 focus:opacity-100"
               }`}
               style={{ background: "#FFFFFF", color: warn ? AMBER_TEXT : color, border: `1px solid ${color}` }}
