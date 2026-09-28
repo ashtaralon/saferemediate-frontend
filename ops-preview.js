@@ -17700,6 +17700,139 @@ function elideSharedPrefix(names, options2) {
   return { prefix: prefix2, labels, count };
 }
 
+// ../../../../../../home/claude/saferemediate-frontend/components/topology-v0-2/flow-route-clear.ts
+var PAD = 3;
+function segHitsBox(a, b, o) {
+  const l = o.l + PAD;
+  const r = o.r - PAD;
+  const t = o.t + PAD;
+  const bt = o.b - PAD;
+  if (r <= l || bt <= t)
+    return false;
+  if (a.x === b.x) {
+    const y02 = Math.min(a.y, b.y);
+    const y12 = Math.max(a.y, b.y);
+    return a.x > l && a.x < r && y12 > t && y02 < bt;
+  }
+  if (a.y === b.y) {
+    const x02 = Math.min(a.x, b.x);
+    const x12 = Math.max(a.x, b.x);
+    return a.y > t && a.y < bt && x12 > l && x02 < r;
+  }
+  const x0 = Math.min(a.x, b.x);
+  const x1 = Math.max(a.x, b.x);
+  const y0 = Math.min(a.y, b.y);
+  const y1 = Math.max(a.y, b.y);
+  return x1 > l && x0 < r && y1 > t && y0 < bt;
+}
+function countCrossings(pts, obstacles) {
+  let n = 0;
+  for (const o of obstacles) {
+    for (let i = 0;i + 1 < pts.length; i++) {
+      if (segHitsBox(pts[i], pts[i + 1], o)) {
+        n++;
+        break;
+      }
+    }
+  }
+  return n;
+}
+function length(pts) {
+  let s = 0;
+  for (let i = 0;i + 1 < pts.length; i++)
+    s += Math.abs(pts[i + 1].x - pts[i].x) + Math.abs(pts[i + 1].y - pts[i].y);
+  return s;
+}
+function dedupe(pts) {
+  const out = [];
+  for (const p of pts) {
+    const last = out[out.length - 1];
+    if (last && Math.abs(last.x - p.x) < 0.5 && Math.abs(last.y - p.y) < 0.5)
+      continue;
+    out.push(p);
+  }
+  return out;
+}
+var same = (a, b) => Math.abs(a.l - b.l) < 1 && Math.abs(a.t - b.t) < 1 && Math.abs(a.r - b.r) < 1 && Math.abs(a.b - b.b) < 1;
+var contains = (outer, inner) => outer.l <= inner.l + 1 && outer.t <= inner.t + 1 && outer.r >= inner.r - 1 && outer.b >= inner.b - 1;
+function obstaclesForLeg(all, src, dst) {
+  return all.filter((o) => !same(o, src) && !same(o, dst) && !contains(o, src) && !contains(o, dst) && !contains(src, o) && !contains(dst, o));
+}
+function clearLeg(base, src, dst, obstacles, maxCandidates = 400) {
+  if (base.length < 2 || obstacles.length === 0)
+    return base;
+  const baseHits = countCrossings(base, obstacles);
+  if (baseHits === 0)
+    return base;
+  const scx = (src.l + src.r) / 2;
+  const scy = (src.t + src.b) / 2;
+  const dcx = (dst.l + dst.r) / 2;
+  const dcy = (dst.t + dst.b) / 2;
+  const G = 8;
+  const xs = new Set([scx, dcx, src.l - 14, src.r + 14, dst.l - 14, dst.r + 14]);
+  const ys = new Set([scy, dcy, src.t - 14, src.b + 14, dst.t - 14, dst.b + 14]);
+  for (const o of obstacles) {
+    xs.add(o.l - G);
+    xs.add(o.r + G);
+    ys.add(o.t - G);
+    ys.add(o.b + G);
+  }
+  const xList = [...xs];
+  const yList = [...ys];
+  const cands = [];
+  const exitsV = [
+    { x: scx, y: src.t },
+    { x: scx, y: src.b }
+  ];
+  const entersV = [
+    { x: dcx, y: dst.t },
+    { x: dcx, y: dst.b }
+  ];
+  for (const e of exitsV)
+    for (const n of entersV)
+      for (const y of yList) {
+        cands.push([e, { x: e.x, y }, { x: n.x, y }, n]);
+      }
+  const exitsH = [
+    { x: src.l, y: scy },
+    { x: src.r, y: scy }
+  ];
+  const entersH = [
+    { x: dst.l, y: dcy },
+    { x: dst.r, y: dcy }
+  ];
+  for (const e of exitsH)
+    for (const n of entersH)
+      for (const x of xList) {
+        cands.push([e, { x, y: e.y }, { x, y: n.y }, n]);
+      }
+  for (const e of exitsV)
+    for (const n of entersV) {
+      const y1 = e.y === src.t ? src.t - 12 : src.b + 12;
+      const y2 = n.y === dst.t ? dst.t - 12 : dst.b + 12;
+      for (const x of xList)
+        cands.push([e, { x: e.x, y: y1 }, { x, y: y1 }, { x, y: y2 }, { x: n.x, y: y2 }, n]);
+    }
+  let best = base;
+  let bestScore = baseHits * 1e4 + length(base) + base.length * 15;
+  let tried = 0;
+  for (const c0 of cands) {
+    if (++tried > maxCandidates * 8)
+      break;
+    const c = dedupe(c0);
+    const inner = c.slice(1, -1);
+    if (inner.length >= 2 && countCrossings(inner, [src, dst]) > 0)
+      continue;
+    const hits = countCrossings(c, obstacles);
+    const score = hits * 1e4 + length(c) + c.length * 15;
+    if (score < bestScore) {
+      best = c;
+      bestScore = score;
+    }
+  }
+  return best;
+}
+
 // ../../../../../../home/claude/saferemediate-frontend/components/topology-v0-2/ops-perimeter-model.ts
 var AWS_S3_SENTINEL_IDS = new Set(["__aws_s3__"]);
 var EGRESS_CLASS_ORDER = [
@@ -22663,6 +22796,18 @@ function FlowOverlay({
         arr.sort((a, b) => a.dst.cx - b.dst.cx);
         arr.forEach((j, i) => exitSpreads.set(j, (i - (arr.length - 1) / 2) * 12));
       }
+      const chipBoxes = [];
+      for (const el of Array.from(container.querySelectorAll("[data-flow-id], [data-flow-ids]"))) {
+        if (el.closest("[hidden]"))
+          continue;
+        if (el.querySelector("[data-flow-id], [data-flow-ids]"))
+          continue;
+        const r = el.getBoundingClientRect();
+        if (r.width <= 0 || r.height <= 0)
+          continue;
+        chipBoxes.push(toNat(r));
+      }
+      const clear = (a, b, pts) => clearLeg(pts, a, b, obstaclesForLeg(chipBoxes, a, b));
       const next = [];
       for (const j of drawJobs) {
         const laneX = corridorLane.get(j) ?? null;
@@ -22674,20 +22819,20 @@ function FlowOverlay({
         let routedViaNat = false;
         if (j.hops.length > 0) {
           const first = j.hops[0];
-          const firstLeg = orthoLeg(j.src, first, laneX, spread);
+          const firstLeg = clear(j.src, first, orthoLeg(j.src, first, laneX, spread));
           pts = firstLeg;
           let prev = first;
           for (const hop of j.hops.slice(1)) {
-            pts = [...pts, ...orthoLegToBoundary(prev, hop)];
+            pts = [...pts, ...clear(prev, hop, orthoLegToBoundary(prev, hop))];
             prev = hop;
           }
-          pts = [...pts, ...orthoLegToBoundary(prev, j.dst)];
+          pts = [...pts, ...clear(prev, j.dst, orthoLegToBoundary(prev, j.dst))];
           badge = flowBadgeAnchor({ cls: j.cls, src: j.src, legTarget: first, laneX, firstLegPts: firstLeg });
           routedViaVpce = j.viaKinds.has("vpce");
           routedViaIgw = j.viaKinds.has("igw");
           routedViaNat = j.viaKinds.has("nat");
         } else {
-          pts = orthoLeg(j.src, j.dst, laneX, spread);
+          pts = clear(j.src, j.dst, orthoLeg(j.src, j.dst, laneX, spread));
           badge = flowBadgeAnchor({ cls: j.cls, src: j.src, legTarget: j.dst, laneX, firstLegPts: pts });
         }
         const d = orthoPath(pts);
@@ -23034,11 +23179,11 @@ function FlowOverlay({
         }
       }
       if (lens === "identity") {
-        const chipBoxes = Array.from(container.querySelectorAll('[data-testid="topology-iam-roles-tier"] [data-flow-id], [data-testid="topology-identity-principal"]')).map((el) => {
+        const chipBoxes2 = Array.from(container.querySelectorAll('[data-testid="topology-iam-roles-tier"] [data-flow-id], [data-testid="topology-identity-principal"]')).map((el) => {
           const n = toNat(el.getBoundingClientRect());
           return { x0: n.l, x1: n.r, y0: n.t, y1: n.b };
         });
-        separateIdentityBadges(next, chipBoxes, { width: natW, height: natH });
+        separateIdentityBadges(next, chipBoxes2, { width: natW, height: natH });
         const curves = next.map((p) => ({
           p,
           pts: p.d && p.polyline && p.polyline.length > 1 ? roundedPathPoints(p.polyline) : null
@@ -23072,6 +23217,21 @@ function FlowOverlay({
           if (compared > 0)
             p.leaderForeignClearance = clearance;
           p.leaderDiscriminates = compared > 0 && compared === comparable - 1 && clearance >= LEADER_DISCRIMINATION_MARGIN_PX;
+        }
+      }
+      if (lens !== "identity") {
+        const kept = [];
+        for (const p of next) {
+          if (!p.badgeLabel)
+            continue;
+          const hw = badgeHalfWidth(p.badgeLabel);
+          const clash = kept.some((k) => k.label === p.badgeLabel && Math.abs(k.x - p.badgeX) < k.hw + hw && Math.abs(k.y - p.badgeY) < BADGE_HALF_HEIGHT * 2);
+          if (clash) {
+            p.badgeLabel = "";
+            p.badgeTitle = undefined;
+            continue;
+          }
+          kept.push({ label: p.badgeLabel, x: p.badgeX, y: p.badgeY, hw });
         }
       }
       setPaths(next);
@@ -25573,21 +25733,50 @@ function AwsFrame({
   const showIamLane = (identityRoleNodes?.length ?? 0) > 0;
   const showEdgeRail = showServerlessLane || showIamLane || showRegionalLane;
   const railLaneCount = [showServerlessLane, showIamLane, showRegionalLane].filter(Boolean).length;
-  const railColumnW = railLaneCount > 1 ? RAIL_LANE_W_PX * railLaneCount + RAIL_LANE_CORRIDOR_W_PX * (railLaneCount - 1) : RAIL_LANE_W_PX;
-  const railGridTemplateColumns = railLaneCount > 1 ? Array.from({ length: railLaneCount }, () => `${RAIL_LANE_W_PX}px`).join(` ${RAIL_LANE_CORRIDOR_W_PX}px `) : `${RAIL_LANE_W_PX}px`;
+  const railSideBySideW = railLaneCount > 1 ? RAIL_LANE_W_PX * railLaneCount + RAIL_LANE_CORRIDOR_W_PX * (railLaneCount - 1) : RAIL_LANE_W_PX;
+  const [canvasW, setCanvasW] = import_react4.useState(null);
+  import_react4.useEffect(() => {
+    const el = flowContainerRef.current;
+    if (!el || presentationMode || typeof ResizeObserver === "undefined")
+      return;
+    const ro = new ResizeObserver((entries) => setCanvasW(entries[0]?.contentRect.width ?? null));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [presentationMode]);
+  const stackRailLanes = !presentationMode && railLaneCount > 1 && canvasW != null && canvasW < VPC_MIN_TRACK_W_PX + VPC_BOUNDARY_COL_W_PX + 48 + railSideBySideW + 80;
+  const railColumnW = stackRailLanes ? RAIL_LANE_W_PX : railSideBySideW;
+  const railGridTemplateColumns = stackRailLanes ? `${RAIL_LANE_W_PX}px` : railLaneCount > 1 ? Array.from({ length: railLaneCount }, () => `${RAIL_LANE_W_PX}px`).join(` ${RAIL_LANE_CORRIDOR_W_PX}px `) : `${RAIL_LANE_W_PX}px`;
   const railInboundCaptions = import_react4.useMemo(() => {
     const functionIds = new Set(serverlessTierNodes.map((node) => node.id));
+    const nodeTypeByIdForCaptions = new Map;
+    for (const n of [...nodes, ...serverlessTierNodes, ...regionalTierNodes])
+      if (n.type)
+        nodeTypeByIdForCaptions.set(n.id, n.type);
     const captions = new Map;
     for (const node of regionalTierNodes) {
       const caption = railInboundCaption(node.id, trafficEdgesList, (id) => functionIds.has(id));
       if (caption)
         captions.set(node.id, caption);
+      if (/kms/i.test(node.type ?? "")) {
+        const byKind = new Map;
+        for (const e of trafficEdgesList) {
+          if (e.target_id !== node.id || (e.protocol ?? "").toUpperCase() !== "ENCRYPTED_BY")
+            continue;
+          const srcType = nodeTypeByIdForCaptions.get(e.source_id);
+          const label = srcType ? awsServiceLabel(srcType) : "resource";
+          byKind.set(label, (byKind.get(label) ?? 0) + 1);
+        }
+        if (byKind.size > 0) {
+          const text = `protects ${[...byKind.entries()].map(([k, n]) => n > 1 ? `${k} ×${n}` : k).join(" · ")}`;
+          captions.set(node.id, caption ? `${caption} · ${text}` : text);
+        }
+      }
       const twinCaption = identityLens?.twin.captions.get(node.id);
       if (twinCaption)
         captions.set(node.id, twinCaption);
     }
     return captions;
-  }, [regionalTierNodes, serverlessTierNodes, trafficEdgesList, identityLens]);
+  }, [regionalTierNodes, serverlessTierNodes, trafficEdgesList, identityLens, nodes]);
   const attackPathEdgeCount = attackPathFlowCount;
   const tierMin = presentationMode ? PRESENTATION_TIER_MIN_PX : COMPARE_TIER_MIN_PX;
   const platformSummary = import_react4.useMemo(() => {
@@ -26071,7 +26260,8 @@ function AwsFrame({
                           width: `${railColumnW}px`,
                           maxWidth: `${railColumnW}px`,
                           gridTemplateColumns: railGridTemplateColumns,
-                          gridTemplateRows: presentationMode ? "minmax(0, 1fr)" : "auto"
+                          gridTemplateRows: presentationMode ? "minmax(0, 1fr)" : "auto",
+                          rowGap: stackRailLanes ? 12 : undefined
                         },
                         "data-scroll-region": "edge-services-rail",
                         "data-testid": "topology-edge-services-rail",
@@ -26089,7 +26279,7 @@ function AwsFrame({
                             namedFlowNodeIds,
                             s3Coverage: serverlessS3Coverage
                           }),
-                          showServerlessLane && (showIamLane || showRegionalLane) ? /* @__PURE__ */ jsx_runtime6.jsx("div", {
+                          showServerlessLane && (showIamLane || showRegionalLane) && !stackRailLanes ? /* @__PURE__ */ jsx_runtime6.jsx("div", {
                             className: "self-stretch",
                             style: {
                               borderLeft: "1px dashed #CBD5E1",
@@ -26108,7 +26298,7 @@ function AwsFrame({
                             onSelect,
                             compact: presentationMode
                           }) : null,
-                          showIamLane && showRegionalLane ? /* @__PURE__ */ jsx_runtime6.jsx("div", {
+                          showIamLane && showRegionalLane && !stackRailLanes ? /* @__PURE__ */ jsx_runtime6.jsx("div", {
                             className: "self-stretch",
                             style: {
                               borderLeft: "1px dashed #CBD5E1",
