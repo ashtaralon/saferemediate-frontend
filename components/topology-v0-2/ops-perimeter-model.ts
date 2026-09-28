@@ -311,8 +311,12 @@ export function buildOpsReadout(args: {
   awsServiceCounts: ReadonlyArray<{ label: string; count: number }>
   missingEndpoints: readonly MissingGatewayEndpoint[]
   trafficAuthorityState: string | null | undefined
+  /** Lines the map will animate, counted from the same edges it draws. When
+   *  given, the Traffic segment says how many are live vs historical instead
+   *  of one blanket state — the account can be legacy while a lane is live. */
+  motionCounts?: { live: number; historical: number }
 }): ReadoutSegment[] {
-  const { loadBalancerCount, igwCount, nat, egress, awsServiceCounts, missingEndpoints, trafficAuthorityState } = args
+  const { loadBalancerCount, igwCount, nat, egress, awsServiceCounts, missingEndpoints, trafficAuthorityState, motionCounts } = args
 
   const ingress: ReadoutSegment = {
     key: "ingress",
@@ -386,5 +390,14 @@ export function buildOpsReadout(args: {
       : "Lines show configured or historical direction; a missing line is not proof of no traffic.",
   }
 
+  if (motionCounts && (motionCounts.live > 0 || motionCounts.historical > 0)) {
+    const parts = [
+      motionCounts.live > 0 ? `${motionCounts.live} live` : null,
+      motionCounts.historical > 0 ? `${motionCounts.historical} historical` : null,
+    ].filter(Boolean)
+    evidence.value = parts.join(" · ")
+    evidence.tone = motionCounts.live > 0 ? "neutral" : "unknown"
+    evidence.title = `${evidence.title} Live = generation-backed observations; historical = timestamped legacy observations. Configured-only links are not counted.`
+  }
   return [ingress, egressSeg, aws, evidence]
 }

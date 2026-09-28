@@ -132,6 +132,10 @@ import {
 } from "./aws-architecture-icons"
 import { elideSharedPrefix } from "./chip-names"
 import {
+  EGRESS_CLASS_COPY,
+} from "./ops-perimeter-model"
+import {
+  InboundChip,
   EgressClassGroups,
   IgwPerimeterDoor,
   InternetBand,
@@ -3936,6 +3940,7 @@ function ExternalDestinationsLane({
   layout?: "lane" | "band"
 }) {
   const [moreOpen, setMoreOpen] = useState(false)
+  const [bandOpen, setBandOpen] = useState(false)
   const hiddenNodes = map.hiddenCount > 0
   // Traffic whose destination the payload never named. Drawn, never dropped:
   // a lane showing only the named addresses would read as the complete set.
@@ -4048,11 +4053,24 @@ function ExternalDestinationsLane({
   )
   const egressGroups = useMemo(() => groupExternalDestinations(map), [map])
   if (layout === "band") {
+    // ONE compact line (Alon, 2026-09-29: "all this stuff makes the map very
+    // busy"). The address list, the NAT ▸ IGW chain and the evidence summary
+    // said the same fact three times; the line says it once and the rest opens
+    // on click. While closed, the destination chips are display:none, so the
+    // overlay anchors every IGW -> destination line on this card and bundles
+    // them into ONE line with a count — no evidence is dropped, it is folded.
+    const workloads = summary?.legs.length ?? 0
+    const distinct = map.distinctUpperBound
+    const classCounts = egressGroups
+      .filter(g => g.nodes.length > 0)
+      .map(g => `${EGRESS_CLASS_COPY[g.cls].title} ${g.nodes.length}`)
     return (
       <div
-        className="flex flex-col min-w-0 gap-1 z-10"
+        className="flex flex-col min-w-0 z-10 rounded-md"
+        style={{ background: "#FFFFFF", border: "1px solid #FCD34D", maxWidth: 520 }}
         data-testid="topology-external-destinations-lane"
         data-layout="band"
+        data-open={bandOpen ? "true" : "false"}
         data-node-count={map.nodes.length}
         data-total-named={map.totalNamed}
         data-hidden-count={map.hiddenCount}
@@ -4060,34 +4078,42 @@ function ExternalDestinationsLane({
         data-gateway-id={map.gatewayId ?? ""}
         data-remainder-legs={map.remainder?.legs ?? 0}
       >
-        <div className="flex items-baseline gap-2 flex-wrap">
-          <span
-            className="text-[9px] font-bold uppercase tracking-[0.14em]"
-            style={{ color: "#B45309" }}
-            data-flow-obstacle="external-lane-header"
-            data-testid="topology-external-destinations-lane-header"
-          >
-            ↑ Outbound · what this VPC reaches
+        <button
+          type="button"
+          onClick={() => setBandOpen(o => !o)}
+          aria-expanded={bandOpen}
+          className="flex items-center gap-2 px-2 py-1 text-left w-full min-w-0"
+          data-testid="topology-external-destinations-lane-header"
+          data-flow-obstacle="external-lane-header"
+          title="Destinations observed this generation · NAT → IGW is configured routing"
+        >
+          <span className="text-[10px] font-bold uppercase tracking-[0.1em] shrink-0" style={{ color: "#B45309" }}>
+            ↑ Internet egress
           </span>
+          <span className="text-[11px] font-semibold truncate" style={{ color: PAL.ink }}>
+            {workloads} workload{workloads === 1 ? "" : "s"}
+            {" → "}
+            {distinct == null ? "addresses (count not recorded)" : `up to ${distinct} addresses`}
+            {classCounts.length ? ` · ${classCounts.join(" · ")}` : ""}
+          </span>
+          <span className="ml-auto text-[10px] font-semibold shrink-0" style={{ color: "#B45309" }}>
+            {bandOpen ? "Hide" : "Details"}
+          </span>
+        </button>
+        <div className="px-2 pb-2 flex flex-col gap-1.5" hidden={!bandOpen} data-testid="topology-external-destinations-details">
           <span
             className="text-[9px] leading-tight"
             style={{ color: PAL.slate }}
-            data-flow-obstacle="external-lane-caption"
             data-testid="topology-external-destinations-provenance"
           >
-            Destinations observed this generation · NAT → IGW is configured routing
+            Destinations observed this generation · NAT → IGW is configured routing · sampled addresses, not an inventory
           </span>
-        </div>
-        <EgressClassGroups
-          groups={egressGroups}
-          renderDestination={node => <ExternalDestinationChip node={node} />}
-          remainder={remainderBlock}
-        />
-        <div className="flex items-start gap-2 flex-wrap">
+          <EgressClassGroups
+            groups={egressGroups}
+            renderDestination={node => <ExternalDestinationChip node={node} />}
+            remainder={remainderBlock}
+          />
           {hiddenNodes ? <div className="w-[180px]">{moreBlock}</div> : null}
-          <div className="min-w-0 flex-1">
-            <ExternalDestinationsNode summary={summary} compact={compact} lane />
-          </div>
         </div>
       </div>
     )
@@ -9970,6 +9996,10 @@ export function AwsFrame({
       awsServiceCounts,
       missingEndpoints,
       trafficAuthorityState: trafficAuthority?.state,
+      motionCounts: {
+        live: trafficEdgesList.filter(e => trafficMotionKind(e) === "authoritative").length,
+        historical: trafficEdgesList.filter(e => trafficMotionKind(e) === "historical").length,
+      },
     })
     // Architecture lens draws no traffic, so it makes no traffic claim.
     return flowMode === "all_access" ? segments : segments.filter(seg => seg.key !== "evidence")
@@ -10088,7 +10118,7 @@ export function AwsFrame({
             />
           ) : null
         }
-        inbound={
+        inbound={identityLens ? (
       <div
         className={
           presentationMode
@@ -10194,7 +10224,9 @@ export function AwsFrame({
             row of map height doing it — and the strip's copy was the one a
             reader could not connect to the IGW. */}
       </div>
-        }
+        ) : (
+          <InboundChip hasIgw={hasIgw} igwName={primaryIgw?.name ?? null} />
+        )}
       />
 
       {/* AWS Cloud frame */}

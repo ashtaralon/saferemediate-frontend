@@ -226,7 +226,7 @@ export function InternetBand({
   outbound,
   compact = false,
 }: {
-  /** The existing Users / Internet (or identity principals) block. */
+  /** Compact inbound chip (Network view) or the principals strip (identity lens). */
   inbound: ReactNode
   /** `ExternalDestinationsLane` in band layout, or null when nothing left. */
   outbound: ReactNode | null
@@ -234,17 +234,40 @@ export function InternetBand({
 }) {
   return (
     <div
-      className={`grid w-full min-w-0 items-start ${compact ? "gap-3 py-0.5" : "gap-4 py-1"}`}
-      style={{ gridTemplateColumns: outbound ? "minmax(240px, 0.8fr) minmax(0, 2fr)" : "minmax(0, 1fr)" }}
+      className={`flex flex-wrap items-center w-full min-w-0 ${compact ? "gap-2 py-0.5" : "gap-3 py-1"}`}
       data-testid="topology-internet-band"
     >
       <div className="min-w-0" data-testid="topology-internet-band-inbound">
-        <div className="text-[9px] font-bold uppercase tracking-[0.14em] mb-1" style={{ color: SLATE }}>
-          ↓ Inbound
-        </div>
         {inbound}
       </div>
-      {outbound ? <div className="min-w-0">{outbound}</div> : null}
+      {outbound ? <div className="min-w-0 flex-1">{outbound}</div> : null}
+    </div>
+  )
+}
+
+/** The inbound side of the Internet, in one chip: who can reach the VPC and
+ *  through what. The IGW door on the VPC border below is the same gateway. */
+export function InboundChip({ hasIgw, igwName }: { hasIgw: boolean; igwName: string | null }) {
+  return (
+    <div
+      className="inline-flex items-center gap-2 rounded-md px-2 py-1"
+      style={{ background: "#FFFFFF", border: "1px solid #C7D2FE" }}
+      data-testid="topology-users-internet-strip"
+      title={hasIgw ? `Clients and operators reach this VPC from the internet through ${igwName ?? "its IGW"}` : "No IGW attached"}
+    >
+      <span className="text-[10px] font-bold uppercase tracking-[0.1em]" style={{ color: "#4338CA" }}>
+        ↓ Inbound
+      </span>
+      <span className="text-[11px] font-semibold" style={{ color: INK }} data-testid="topology-users-node">
+        Users
+      </span>
+      <span className="text-[11px]" style={{ color: SLATE }} aria-hidden>→</span>
+      <span className="text-[11px] font-semibold" style={{ color: INK }} data-testid="topology-internet-node">
+        Internet
+      </span>
+      <span className="text-[11px]" style={{ color: SLATE }}>
+        {hasIgw ? "→ IGW" : "· no IGW attached"}
+      </span>
     </div>
   )
 }
@@ -635,6 +658,9 @@ export function LogicalGroupHulls({
               height: h,
               border: `${selected ? 2.5 : 1.5}px dashed ${color}`,
               background: selected ? "rgba(126,87,194,0.05)" : "transparent",
+              // Quiet by default: an outline that is not a finding and not the
+              // selection should not compete with the traffic lines.
+              opacity: warn || selected ? 1 : 0.45,
             }}
             data-testid="topology-logical-group-hull"
             data-group-id={spec.groupId}
@@ -644,7 +670,9 @@ export function LogicalGroupHulls({
             <button
               type="button"
               onClick={() => onSelect(spec.groupId)}
-              className="pointer-events-auto absolute -top-2 left-2 px-1.5 rounded text-[9px] font-semibold whitespace-nowrap"
+              className={`pointer-events-auto absolute -top-2 left-2 px-1.5 rounded text-[9px] font-semibold whitespace-nowrap transition-opacity ${
+                warn || selected ? "opacity-100" : "opacity-0 hover:opacity-100 focus:opacity-100"
+              }`}
               style={{ background: "#FFFFFF", color: warn ? AMBER_TEXT : color, border: `1px solid ${color}` }}
               title={`${spec.label} (${spec.groupId}) — ${spec.memberIds.length} member(s)${
                 spec.azs.length ? ` in ${spec.azs.join(", ")}` : ""
