@@ -269,12 +269,36 @@ function summaryCount(
   return null
 }
 
-function normalizeEvidenceConfidence(raw: unknown): LPEvidenceConfidence | null {
+export function normalizeEvidenceConfidence(raw: unknown): LPEvidenceConfidence | null {
   if (typeof raw !== 'string') return null
   const upper = raw.trim().toUpperCase()
   return CONFIDENCE_LEVELS.has(upper as LPEvidenceConfidence)
     ? (upper as LPEvidenceConfidence)
     : null
+}
+
+/** A role Review's evidence grade: a level the backend reported, or unknown (null) with its withheld reason. */
+export type ReviewConfidence = {
+  level: LPEvidenceConfidence | null
+  withheld_reason: string | null
+}
+
+/**
+ * Read `confidence` (a level string, or `{ level }`) and `confidence_withheld_reason` off a Review body.
+ * Absent, null, empty, an object without a level, or any value that is not HIGH/MEDIUM/LOW is unknown:
+ * the backend withholds the grade on an unverified IAM usage generation, and no default replaces it.
+ */
+export function normalizeReviewConfidence(body: unknown): ReviewConfidence {
+  const record = body !== null && typeof body === 'object' ? (body as Record<string, unknown>) : {}
+  const raw = record.confidence
+  const level = normalizeEvidenceConfidence(
+    raw !== null && typeof raw === 'object' ? (raw as Record<string, unknown>).level : raw,
+  )
+  const reason = record.confidence_withheld_reason
+  return {
+    level,
+    withheld_reason: typeof reason === 'string' && reason.trim() !== '' ? reason : null,
+  }
 }
 
 function normalizeCategory(raw: unknown): LPCategory | undefined {

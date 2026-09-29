@@ -49,6 +49,7 @@ import {
 } from "@/lib/resource-risk-preview-summary"
 import { AdvancedDrawer } from "@/components/iam-lp/AdvancedDrawer"
 import { type PreviewRefusal, refusalFromPreviewBody, reviewRefusalCopy } from "@/lib/lp-preview-refusal"
+import { type LPEvidenceConfidence, normalizeReviewConfidence } from "@/lib/lp-normalize"
 import { useOptionalAccountScope } from "@/lib/account-scope-context"
 import { reviewClaimsQuery } from "@/lib/lp-review-scope"
 import { TerraformExecutionChip } from "@/components/terraform-execution-chip"
@@ -540,7 +541,10 @@ interface GapAnalysisData {
   used_permissions: string[]
   unused_permissions: string[]
   high_risk_unused: string[]
-  confidence: string
+  /** Review evidence grade, or null = unknown (absent or withheld). Never defaulted. */
+  confidence: LPEvidenceConfidence | null
+  /** Backend's reason for withholding `confidence` (e.g. IAM_USAGE_GENERATION_UNVERIFIED), or null. */
+  confidence_withheld_reason: string | null
   confidence_groups?: {
     groups: Array<{
       group_id: string
@@ -855,7 +859,7 @@ function fallbackAnalyzeRole(
   return null
 }
 
-function mapGapDataToIAMLp(gapData: GapAnalysisData | null): IamGapAnalysis | null {
+export function mapGapDataToIAMLp(gapData: GapAnalysisData | null): IamGapAnalysis | null {
   if (!gapData) return null
 
   const rawGap = gapData as any
@@ -973,10 +977,8 @@ function mapGapDataToIAMLp(gapData: GapAnalysisData | null): IamGapAnalysis | nu
     used_permissions: gapData.used_permissions || [],
     unused_permissions: gapData.unused_permissions || [],
     high_risk_unused: gapData.high_risk_unused || [],
-    confidence:
-      typeof gapData.confidence === "string"
-        ? { level: gapData.confidence }
-        : ((gapData.confidence as unknown as Record<string, unknown>) || {}),
+    confidence: { level: gapData.confidence ?? null },
+    confidence_withheld_reason: gapData.confidence_withheld_reason ?? null,
     confidence_groups: mappedConfidenceGroups,
     safety_vector: gapData.safety_vector || null,
     evidence_breakdown: rawGap.evidence_breakdown || {},
@@ -1572,6 +1574,7 @@ export function IAMPermissionAnalysisModal({
 
       // Track whether we have actual permission names or just counts
       const hasPermissionLists = actualUsedPerms.length > 0 || actualUnusedPerms.length > 0
+      const reviewConfidence = normalizeReviewConfidence(rawData)
 
       const mappedData: GapAnalysisData = {
         role_name: rawData.role_name || roleName,
@@ -1622,7 +1625,10 @@ export function IAMPermissionAnalysisModal({
         used_permissions: actualUsedPerms,
         unused_permissions: actualUnusedPerms,
         high_risk_unused: rawData.high_risk_unused || [],
-        confidence: rawData.confidence?.level || rawData.confidence || 'HIGH',
+        // Unknown stays null: the backend withholds the grade on an unverified
+        // IAM usage generation, and no default may stand in for it.
+        confidence: reviewConfidence.level,
+        confidence_withheld_reason: reviewConfidence.withheld_reason,
         confidence_groups: rawData.confidence_groups || null,
         safety_vector: rawData.safety_vector || null,
         dependency_context: rawData.dependency_context,

@@ -29,6 +29,8 @@ export type IamGapAnalysis = {
   unused_permissions: string[] | PermissionRow[]
   high_risk_unused: string[]
   confidence: Record<string, unknown>
+  /** Backend's reason for withholding the Review confidence, or null/absent when it sent none. */
+  confidence_withheld_reason?: string | null
   confidence_groups: ConfidenceGroups
   safety_vector: Record<string, unknown> | null
   evidence_breakdown: Record<string, unknown>
