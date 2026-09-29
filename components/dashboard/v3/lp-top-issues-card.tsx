@@ -3,6 +3,8 @@
 import { ErrorCard, LoadingCard, Section, StaleIndicator } from "./card-shell"
 import { descriptorClass } from "./styles"
 import { useCachedFetch } from "@/lib/use-cached-fetch"
+import { BrssHeldNotice } from "@/components/brss/brss-held-notice"
+import { iamUsageWithheldCopy } from "@/lib/lp-readiness-copy"
 
 /**
  * Top least-privilege issues — real data, sorted by gap%.
@@ -35,7 +37,9 @@ type Resource = {
 
 type IssuesSummary = {
   totalResources?: number
-  totalExcessPermissions?: number
+  /** Null when withheld (unused counts read off unverified IAM usage). */
+  totalExcessPermissions?: number | null
+  totalExcessPermissions_withheld_reason?: string
   iamIssuesCount?: number
   networkIssuesCount?: number
   s3IssuesCount?: number
@@ -87,6 +91,17 @@ export function LPTopIssuesCard() {
     .sort((a, b) => (b.gapPercent ?? 0) - (a.gapPercent ?? 0))
     .slice(0, 6)
 
+  // Withheld excess total: never "0 excess" and never "None show excess
+  // permissions" — the sum was not computed, which is not an empty result.
+  const excessWithheld = summary.totalExcessPermissions === null
+  const excessReason = summary.totalExcessPermissions_withheld_reason || null
+  const excessHold = excessWithheld ? (
+    <BrssHeldNotice
+      hold={{ codes: excessReason ? [excessReason] : [], reason: iamUsageWithheldCopy(excessReason) }}
+      testId="lp-top-issues-excess-held"
+    />
+  ) : null
+
   const headerSummary = (
     <span className="flex items-center gap-2">
       <StaleIndicator cachedAt={cachedAt} isStale={isStale} />
@@ -96,6 +111,20 @@ export function LPTopIssuesCard() {
       </span>
     </span>
   )
+
+  if (resources.length === 0 && excessWithheld) {
+    return (
+      <Section
+        label="Top least-privilege issues"
+        descriptor="Not computed yet — this is not an all-clear"
+        className="border-l-[3px] border-l-violet-500"
+        right={headerSummary}
+      >
+        <div className={descriptorClass}>{summary.totalResources ?? 0} resources analyzed.</div>
+        {excessHold}
+      </Section>
+    )
+  }
 
   if (resources.length === 0) {
     return (
@@ -115,7 +144,7 @@ export function LPTopIssuesCard() {
   return (
     <Section
       label="Top least-privilege issues"
-      descriptor={`${summary.totalResources ?? 0} resources · ${summary.totalExcessPermissions ?? 0} excess permissions across IAM (${summary.iamIssuesCount ?? 0}) · SGs (${summary.networkIssuesCount ?? 0}) · S3 (${summary.s3IssuesCount ?? 0})`}
+      descriptor={`${summary.totalResources ?? 0} resources · ${excessWithheld ? "Unknown" : summary.totalExcessPermissions ?? 0} excess permissions across IAM (${summary.iamIssuesCount ?? 0}) · SGs (${summary.networkIssuesCount ?? 0}) · S3 (${summary.s3IssuesCount ?? 0})`}
       className="border-l-[3px] border-l-violet-500"
       right={headerSummary}
     >
@@ -150,6 +179,8 @@ export function LPTopIssuesCard() {
           )
         })}
       </ul>
+
+      {excessHold}
 
       <p className={`${descriptorClass} mt-3 border-t border-slate-100 pt-2`}>
         Sorted by gap% (unused / allowed). Higher = more reduction opportunity.

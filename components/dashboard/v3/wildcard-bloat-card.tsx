@@ -11,6 +11,7 @@ import {
 import { useCachedFetch } from "@/lib/use-cached-fetch"
 import { lpMetricsHold, type LpMetricsHeldFields } from "@/lib/brss-held"
 import { BrssHeldNotice } from "@/components/brss/brss-held-notice"
+import { iamUsageWithheldCopy } from "@/lib/lp-readiness-copy"
 
 /**
  * Wildcard Bloat — point-in-time + week-over-week delta.
@@ -43,6 +44,8 @@ type LpMetrics = LpMetricsHeldFields & {
   bloatPercentageDeltaPp?: number | null
   bloatBaselineAgeDays?: number | null
   bloatBaselineTimestamp?: string | null
+  /** Why the delta is null when it was withheld — not "no baseline yet". */
+  bloatDeltaWithheldReason?: string | null
 }
 
 export function WildcardBloatCard() {
@@ -78,6 +81,9 @@ export function WildcardBloatCard() {
 
   // Past the hold, all three are finite numbers.
   const pct = Math.round(data.averageBloatPercentage as number)
+  // A withheld delta is not a missing baseline: it says why, and shows no number.
+  const deltaWithheldReason = data.bloatDeltaWithheldReason || null
+  const deltaPp = deltaWithheldReason ? null : data.bloatPercentageDeltaPp ?? null
   // For bloat, lower is better. Invert score for color tone.
   const toneScore = 100 - pct
 
@@ -95,18 +101,18 @@ export function WildcardBloatCard() {
         {/* WoW delta. For bloat, lower is better — a NEGATIVE delta is
             an improvement (rendered green). Hides silently when the
             backend has no baseline yet (first week after install). */}
-        {data.bloatPercentageDeltaPp != null && (
+        {deltaPp != null && (
           <span
             className={`text-sm font-mono tabular-nums ${
-              data.bloatPercentageDeltaPp < 0
+              deltaPp < 0
                 ? "text-emerald-600"
-                : data.bloatPercentageDeltaPp > 0
+                : deltaPp > 0
                   ? "text-rose-600"
                   : "text-slate-500"
             }`}
           >
-            {data.bloatPercentageDeltaPp > 0 ? "+" : ""}
-            {data.bloatPercentageDeltaPp.toFixed(1)}pp
+            {deltaPp > 0 ? "+" : ""}
+            {deltaPp.toFixed(1)}pp
           </span>
         )}
       </div>
@@ -122,15 +128,20 @@ export function WildcardBloatCard() {
           </span>{" "}
           / {data.analyzedRoles} roles
         </div>
-        {data.bloatPercentageDeltaPp != null && data.bloatBaselineAgeDays != null ? (
+        {deltaPp != null && data.bloatBaselineAgeDays != null ? (
           <div className="text-slate-500">
             vs {data.bloatBaselineAgeDays}d ago
-            {data.bloatPercentageDeltaPp < 0
+            {deltaPp < 0
               ? " — narrowing"
-              : data.bloatPercentageDeltaPp > 0
+              : deltaPp > 0
                 ? " — widening"
                 : " — flat"}
           </div>
+        ) : deltaWithheldReason ? (
+          <BrssHeldNotice
+            hold={{ codes: [deltaWithheldReason], reason: iamUsageWithheldCopy(deltaWithheldReason) }}
+            testId="wildcard-bloat-delta-held"
+          />
         ) : (
           <div className="text-slate-500">
             Week-over-week delta accumulates from snapshot history; appears once

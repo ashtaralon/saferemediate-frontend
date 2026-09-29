@@ -1,5 +1,11 @@
 import { DashboardCard, DashboardEmptyState } from "./dashboard-card"
 import { StatusChip } from "./status-chip"
+import {
+  permissionTotalsWithheld,
+  unusedPermissionsWithheldReasonCopy,
+  UNUSED_PERMISSIONS_UNAVAILABLE_COPY,
+  type PermissionTotalsFields,
+} from "@/lib/brss-held"
 import { relativeTime, type IssuesSummaryData, type SourceState } from "./use-home-data"
 
 interface SeverityDistributionCardProps {
@@ -142,11 +148,18 @@ function FindingsByLayer({
   )
 }
 
-function PermissionFootnote({
-  perm,
-}: {
-  perm: { allowed?: number; used?: number; unused?: number; gap_percentage?: number }
-}) {
+function PermissionFootnote({ perm }: { perm: PermissionTotalsFields }) {
+  // Withheld totals (null, with a reason) are never read as 0 of N unused.
+  if (permissionTotalsWithheld(perm)) {
+    return (
+      <div className="border-t border-slate-100 pt-3 text-xs text-slate-600" data-testid="permission-footnote-withheld">
+        <StatusChip tone="amber">
+          {unusedPermissionsWithheldReasonCopy({ byCategory: { permissions: perm } }) ??
+            UNUSED_PERMISSIONS_UNAVAILABLE_COPY}
+        </StatusChip>
+      </div>
+    )
+  }
   const allowed = perm?.allowed ?? 0
   const unused = perm?.unused ?? 0
   const gap = perm?.gap_percentage

@@ -78,6 +78,8 @@ import {
   readyOverviewBrss,
   summaryAnalyzerCodes,
   unusedPermissionsWithheld,
+  unusedPermissionsWithheldReasonCopy,
+  UNUSED_PERMISSIONS_UNAVAILABLE_COPY,
   type BrssHold,
 } from "@/lib/brss-held"
 import { fetchWithTransientRetry } from "@/lib/transient-retry"
@@ -1057,8 +1059,11 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
         if (unusedPermissionsWithheld(summaryData)) {
           setAccessExposureAuthority("unavailable")
           setGapAnalysis({ allowed: 0, actual: 0, gap: 0, gapPercent: 0, confidence: 0 })
+          // The permissions' own typed reason first (unverified IAM usage
+          // generation), then the BRSS hold's reason, then the V2 sentence.
           setGapError(
-            overviewBrss.hold?.reason ??
+            unusedPermissionsWithheldReasonCopy(summaryData) ??
+              overviewBrss.hold?.reason ??
               "Unused-permission count not computed: usage of some IAM roles is not measured (counts_are_partial). This is not zero unused permissions.",
           )
         } else {
@@ -2270,8 +2275,7 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
                       <span className="text-sm text-[var(--muted-foreground,#6b7280)] mb-1">not available</span>
                     </div>
                     <p className="mt-3 text-xs text-slate-500 leading-snug">
-                      {gapError ||
-                        "Unused-permission counts unavailable. This is not zero unused permissions."}
+                      {gapError || UNUSED_PERMISSIONS_UNAVAILABLE_COPY}
                     </p>
                     <button
                       onClick={() => void fetchIssuesSummary()}
