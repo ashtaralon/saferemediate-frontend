@@ -58,6 +58,9 @@ export function reviewProxyStatus(backendStatus: number): number {
 /** The typed fields a backend refusal may carry through a proxy. Nothing else is forwarded. */
 export type AllowlistedBackendDetail = {
   code?: string
+  /** The off-boundary refusal's typed code (``{detail: {error, reason_code, message}}``, 409 off_boundary_mutation_refused). */
+  reason_code?: string
+  error?: string
   message?: string
   upstream_code?: string
   failing_axes?: string[]
@@ -65,9 +68,11 @@ export type AllowlistedBackendDetail = {
 }
 
 const MAX_TYPED_TEXT = 200
+/** A typed message is backend-authored prose; the off-boundary refusals run to ~450 characters. */
+const MAX_TYPED_MESSAGE = 1000
 
-function typedText(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim() ? value.slice(0, MAX_TYPED_TEXT) : undefined
+function typedText(value: unknown, max = MAX_TYPED_TEXT): string | undefined {
+  return typeof value === "string" && value.trim() ? value.slice(0, max) : undefined
 }
 
 function typedNames(value: unknown): string[] | undefined {
@@ -78,7 +83,7 @@ function typedNames(value: unknown): string[] | undefined {
 
 /**
  * The backend refusal reduced to its typed fields. A JSON ``detail`` object keeps
- * only code / message / upstream_code / failing_axes / failed_analyzers; a string
+ * only code / reason_code / error / message / upstream_code / failing_axes / failed_analyzers; a string
  * ``detail`` (the auth boundary's "service authentication required") becomes the
  * message. A non-JSON body (a load balancer page, stack text) forwards NOTHING:
  * raw upstream text is never echoed to the browser.
@@ -92,12 +97,14 @@ export function allowlistedBackendDetail(rawBody: string): AllowlistedBackendDet
   }
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined
   const detail = (parsed as Record<string, unknown>).detail
-  if (typeof detail === "string") return typedText(detail) ? { message: typedText(detail) } : undefined
+  if (typeof detail === "string") return typedText(detail) ? { message: typedText(detail, MAX_TYPED_MESSAGE) } : undefined
   if (!detail || typeof detail !== "object" || Array.isArray(detail)) return undefined
   const d = detail as Record<string, unknown>
   const out: AllowlistedBackendDetail = {
     code: typedText(d.code),
-    message: typedText(d.message),
+    reason_code: typedText(d.reason_code),
+    error: typedText(d.error),
+    message: typedText(d.message, MAX_TYPED_MESSAGE),
     upstream_code: typedText(d.upstream_code),
     failing_axes: typedNames(d.failing_axes),
     failed_analyzers: typedNames(d.failed_analyzers),
@@ -126,6 +133,38 @@ export function backendError(opts: {
   })
 }
 
+/**
+ * Relay a backend non-2xx answer through the existing error contract, so a typed refusal reaches the caller and nothing
+ * else does. A 4xx keeps its status and forwards only the allowlisted typed fields as ``{detail}`` (e.g. the 409
+ * ``off_boundary_mutation_refused`` on a held snapshot delete or quarantine transition: error / reason_code / message).
+ * A 5xx is ``backendError``: 502 with a generic message and ``backendStatus``, because a 5xx body is exception text
+ * (``detail=f"Failed to delete snapshot: {str(e)}"``) and the outcome of the call is unknown. A 4xx with no typed detail
+ * is UNREADABLE, produced here, so body and header both say "proxy".
+ */
+export async function relayBackendError(response: Response): Promise<NextResponse> {
+  if (response.status >= 500) {
+    const failed = backendError({ status: response.status, message: `Backend answered HTTP ${response.status}` })
+    failed.headers.set(ERROR_ORIGIN_HEADER, "proxy")
+    return failed
+  }
+  const detail = allowlistedBackendDetail(await response.text().catch(() => ""))
+  if (detail) {
+    return NextResponse.json(
+      { detail, backendStatus: response.status, origin: "backend" },
+      { status: response.status, headers: { "Cache-Control": "no-store", [ERROR_ORIGIN_HEADER]: "backend" } },
+    )
+  }
+  return NextResponse.json(
+    {
+      error: `Backend answered HTTP ${response.status} without a typed detail`,
+      code: "UNREADABLE",
+      backendStatus: response.status,
+      origin: "proxy",
+    },
+    { status: response.status, headers: { "Cache-Control": "no-store", [ERROR_ORIGIN_HEADER]: "proxy" } },
+  )
+}
+
 /** Network/abort timeout reaching the backend. */
 export function backendTimeout(message = "Backend request timed out"): NextResponse {
   const body: ProxyErrorBody = {
@@ -152,10 +191,13 @@ export function backendUnreachable(message: string): NextResponse {
 
 /**
  * Translate a thrown error into the right proxy response.
- * AbortError → 504, anything else → 503.
+ * AbortError (an AbortController abort) or TimeoutError (an `AbortSignal.timeout()` signal, whose rejection is a
+ * DOMException named TimeoutError) → 504, anything else → 503. Matched by name: a DOMException from another realm is
+ * not always `instanceof Error`.
  */
 export function fromCaughtError(error: unknown): NextResponse {
-  if (error instanceof Error && error.name === "AbortError") {
+  const name = error && typeof error === "object" ? (error as { name?: unknown }).name : undefined
+  if (name === "AbortError" || name === "TimeoutError") {
     return backendTimeout()
   }
   const message = error instanceof Error ? error.message : "Unknown proxy error"

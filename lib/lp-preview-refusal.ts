@@ -97,6 +97,12 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null
 }
 
+/**
+ * The typed refusal in any backend or proxy error body: `detail.code`, `detail.reason_code` (the off-boundary 409's
+ * `{detail: {error, reason_code, message}}`), `error_code`, `code` (the legacy-mutation hold's local 423) or
+ * `reason_code`; the message from `detail.message`, a string `detail`, or `error`. Also read by the legacy snapshot
+ * delete and quarantine controls, so a held mutation shows its code and message instead of a generic failure.
+ */
 export function refusalFromPreviewBody(status: number, payload: unknown): PreviewRefusal {
   const body = asRecord(payload)
   const detail = body?.detail
@@ -104,8 +110,10 @@ export function refusalFromPreviewBody(status: number, payload: unknown): Previe
   const boundary401 = status === 401 && detail === AUTH_BOUNDARY_401_DETAIL
   const code =
     (typeof detailRecord?.code === "string" && detailRecord.code) ||
+    (typeof detailRecord?.reason_code === "string" && detailRecord.reason_code) ||
     (typeof body?.error_code === "string" && body.error_code) ||
     (typeof body?.code === "string" && body.code) ||
+    (typeof body?.reason_code === "string" && body.reason_code) ||
     (boundary401 ? "SERVICE_AUTHENTICATION_REQUIRED" : `HTTP_${status}`)
   const message =
     (typeof detailRecord?.message === "string" && detailRecord.message) ||
@@ -113,6 +121,15 @@ export function refusalFromPreviewBody(status: number, payload: unknown): Previe
     (typeof body?.error === "string" && body.error) ||
     `Request failed with HTTP ${status}`
   return { code, status, message }
+}
+
+/**
+ * Whether a refused mutation is KNOWN not to have happened: a 4xx carrying a typed code. A 5xx, a timeout, an unreachable
+ * backend or an untyped 4xx says nothing about whether the write committed, so its outcome is unknown and the caller
+ * must re-read the state instead of reporting "not done".
+ */
+export function isTypedRefusal(refusal: PreviewRefusal): boolean {
+  return refusal.status >= 400 && refusal.status < 500 && refusal.code !== `HTTP_${refusal.status}` && refusal.code !== "UNREADABLE"
 }
 
 export function reviewRefusalCopy(refusal: PreviewRefusal): { title: string; body: string } {

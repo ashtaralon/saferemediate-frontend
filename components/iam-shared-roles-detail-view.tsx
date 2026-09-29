@@ -40,6 +40,7 @@ import {
 import { ExecuteActions } from "@/components/iam-shared-roles-execute-actions"
 import { fetchLegacyMutation, legacyControlHeld, legacyMutationHold } from "@/lib/legacy-mutation-hold"
 import { LegacyMutationHeldNotice } from "@/components/legacy-mutation-held-notice"
+import { isTypedRefusal, refusalFromPreviewBody } from "@/lib/lp-preview-refusal"
 import { ExecutionHistory } from "@/components/iam-shared-roles-execution-history"
 import { GateReadinessPanel } from "@/components/iam-shared-roles-gate-readiness"
 import { ReplayVerifyPanel } from "@/components/iam-shared-roles-replay-verify"
@@ -1391,6 +1392,16 @@ function AwaitingCard({ awaiting }: { awaiting: ConsumerEvidence[] }) {
 // parent bulk-deletes a row, it marks the consumer_id in
 // `parentDeletedIds` and the row honors that as a forced terminal
 // state.
+/**
+ * A failed quarantine delete in words: HTTP status, the typed code (reason_code / hold code) and the message. Only a
+ * typed 4xx is a refusal; anything else may have deleted, so it reads as an unknown outcome.
+ */
+async function describeQuarantineDeleteRefusal(response: Response): Promise<string> {
+  const refusal = refusalFromPreviewBody(response.status, await response.json().catch(() => null))
+  const verdict = isTypedRefusal(refusal) ? "Delete refused" : "Delete outcome unknown"
+  return `${verdict} (HTTP ${refusal.status}, ${refusal.code}): ${refusal.message}`
+}
+
 export function QuarantineCandidatesSection({
   candidates,
   thresholdDays,
@@ -1628,7 +1639,7 @@ export function QuarantineCandidatesSection({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ recordId, actor: "user", force: true }),
         })
-        if (!del.ok) throw new Error(`delete ${del.status}`)
+        if (!del.ok) throw new Error(await describeQuarantineDeleteRefusal(del))
         setParentDeletedIds((prev) => {
           const next = new Set(prev)
           next.add(c.consumer_id)
@@ -1925,7 +1936,7 @@ function QuarantineCandidateRow({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ recordId: preData.recordId, actor: "user", force: true }),
       })
-      if (!del.ok) throw new Error(`Delete failed (${del.status})`)
+      if (!del.ok) throw new Error(await describeQuarantineDeleteRefusal(del))
       setState("deleted")
     } catch (e: any) {
       setState("idle")
