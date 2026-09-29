@@ -14,7 +14,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react"
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react"
 import { NextRequest } from "next/server"
 
 import { HeroBrssCard } from "@/components/dashboard/v3/hero-brss-card"
@@ -25,7 +25,12 @@ import {
 } from "@/components/business-system/detail-enhancement-panels"
 import { SystemBlastRadiusHero } from "@/components/system-detail/blast-radius-hero"
 import { HomeStatsBanner } from "@/components/home-stats-banner"
-import { issuesSummaryBrssHold, orgScoreHold } from "@/lib/brss-held"
+import {
+  issuesSummaryBrssHold,
+  orgScoreHold,
+  readyOverviewBrss,
+  unusedPermissionsWithheld,
+} from "@/lib/brss-held"
 import type { BlastRadiusScore } from "@/lib/types"
 
 afterEach(() => {
@@ -165,6 +170,8 @@ describe("org hero — held org score", () => {
     // The legacy fallback endpoint is never consulted.
     const urls = fetchMock.mock.calls.map((c) => String(c[0]))
     expect(urls.some((u) => /\/api\/proxy\/posture-score(\?|$)/.test(u))).toBe(false)
+    // Persisted history is never fetched in place of a score.
+    expect(urls.some((u) => u.includes("/api/proxy/posture-score/trend"))).toBe(false)
   })
 
   it("a held answer evicts a cached score instead of standing beside it", async () => {
@@ -267,7 +274,14 @@ function rankedPayload(systems: unknown[], held: typeof HELD_ROW[]) {
     positioning: "logical_blast_radius",
     positioning_copy:
       "Cyntro maps your cloud into logical systems and ranks where exploitable blast radius is highest.",
-    context_coverage: { coverage_ratio: 0, phase4_copy_unlocked: false },
+    // unified/system_business_context.py::context_coverage over `systems`.
+    context_coverage: {
+      total_rankable: systems.length,
+      with_business_tier: 0,
+      coverage_ratio: 0.0,
+      gate: 0.8,
+      phase4_copy_unlocked: false,
+    },
     scope: { customer_id: null, account_id: null },
     computed_at: "2026-09-29T08:00:00+00:00",
   }
@@ -362,9 +376,9 @@ const DETAIL_HELD: DetailEnhancements = {
     score_delta: null,
     state_change: null,
     scope_expansion: null,
-    resources_added: undefined,
-    resources_removed: undefined,
-    resources_changed: undefined,
+    resources_added: null,
+    resources_removed: null,
+    resources_changed: null,
     previous_timestamp: null,
   },
   remediation_actions: [],
@@ -661,6 +675,237 @@ describe("issues-summary proxy never replays or caches a score it cannot vouch f
     expect(res1.headers.get("Cache-Control")).toBe("no-store")
 
     await GET(new NextRequest(url))
-    expect(fetchMock).toHaveBeenCalledTimes(2) // no cache HIT for a held answer
+    expect(fetchMock).toHaveBeenCalledTimes(2) // nothing is served from the store as current
+  })
+
+  it("a held-BRSS summary is never stored as last-complete, so a later failure has nothing to replay", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {})
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    const { GET } = await import("@/app/api/proxy/issues-summary/route")
+    const url = "https://app.example/api/proxy/issues-summary?systemName=held-not-stored-case"
+
+    stubFetch(() => ({ status: 200, body: issuesSummaryV2Unknown() }))
+    await GET(new NextRequest(url))
+    stubFetch(() => ({ status: 503, body: { detail: "down" } }))
+    const res = await GET(new NextRequest(url))
+    const body = await res.json()
+    expect(res.status).not.toBe(200)
+    expect(body.fromStaleCache).toBeUndefined()
+  })
+})
+
+// ────────────────────────────────────────────────────────────────────────
+// Review round 2
+// ────────────────────────────────────────────────────────────────────────
+
+describe("org hero — a cached reading is always marked (review MAJOR 2 / probe P2)", () => {
+  it("a 10-minute-old cached score is marked 'as of …, refreshing' while the live request is pending, and unmarked once it lands", async () => {
+    const tenMinAgo = Date.now() - 10 * 60 * 1000
+    window.localStorage.setItem(
+      "cyntro:swr:global-org-score",
+      JSON.stringify({ ts: tenMinAgo, data: ORG_SCORED }),
+    )
+    let release: (() => void) | null = null
+    const gate = new Promise<void>((r) => {
+      release = r
+    })
+    stubFetch((url) =>
+      url.includes("/api/proxy/posture-score/trend") ? { status: 200, body: TREND } : null,
+    )
+    const routed = globalThis.fetch as unknown as (u: RequestInfo | URL) => Promise<Response>
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input)
+        if (url.includes("/api/proxy/global-org-score")) {
+          await gate
+          return {
+            ok: true,
+            status: 200,
+            headers: new Headers({ "Content-Type": "application/json" }),
+            json: async () => ({ ...ORG_SCORED, global_score: 74 }),
+          } as unknown as Response
+        }
+        return routed(input)
+      }),
+    )
+    render(<HeroBrssCard />)
+
+    // BEFORE: the cached 72 is on screen, and it says so.
+    const score = await screen.findByTestId("org-brss-score")
+    expect(score.textContent).toContain("72")
+    const marker = within(score).getByTestId("org-brss-cached-marker")
+    expect(marker.textContent).toMatch(/^as of .+ \(10m ago\), refreshing$/)
+
+    // AFTER: the live answer replaces it and the marker goes.
+    await act(async () => {
+      release!()
+    })
+    await waitFor(() => expect(screen.getByTestId("org-brss-score").textContent).toContain("74"))
+    expect(screen.queryByTestId("org-brss-cached-marker")).toBeNull()
+  })
+
+  it("the held hero shows how many systems failed alongside the held ones", async () => {
+    stubFetch(orgRoutes({ ...ORG_HELD, partial: { succeeded: 0, failed: 1, held: 1, discovered: 2 } }))
+    render(<HeroBrssCard />)
+    const count = await screen.findByTestId("org-brss-held-count")
+    expect(count.textContent).toBe("1 of 2 systems held · 1 failed to evaluate")
+  })
+})
+
+describe("global-org-score proxy passes the backend's status and body through (MINOR 4)", () => {
+  it("a backend 503 arrives as a 503 with the backend's own body", async () => {
+    const backendBody = { detail: "neptune serving read refused" }
+    stubFetch((url) => (url.includes("/api/global-org-score") ? { status: 503, body: backendBody } : null))
+    const { GET } = await import("@/app/api/proxy/global-org-score/route")
+    const res = await GET(new NextRequest("https://app.example/api/proxy/global-org-score"))
+    expect(res.status).toBe(503)
+    expect(await res.json()).toEqual(backendBody)
+  })
+
+  it("a held 200 is passed through verbatim", async () => {
+    stubFetch((url) => (url.includes("/api/global-org-score") ? { status: 200, body: ORG_HELD } : null))
+    const { GET } = await import("@/app/api/proxy/global-org-score/route")
+    const res = await GET(new NextRequest("https://app.example/api/proxy/global-org-score"))
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual(ORG_HELD)
+  })
+})
+
+describe("issues-summary proxy never serves a cached score as current (review MAJOR 1 / probe P1)", () => {
+  it("scored then held at +4m59s: the live held answer is served, not the cached 82", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {})
+    const { GET } = await import("@/app/api/proxy/issues-summary/route")
+    const url = "https://app.example/api/proxy/issues-summary?systemName=p1-fresh-hit-case"
+    const s = issuesSummaryV2Unknown()
+    const scored = {
+      ...s,
+      avg_health_score: 82,
+      counts_are_partial: false,
+      resources: { ...s.resources, unused_permission_gaps: 10 },
+      blast_radius_score: { ...s.blast_radius_score, score: 70, held_reason: undefined },
+    }
+
+    stubFetch(() => ({ status: 200, body: scored }))
+    const first = await GET(new NextRequest(url))
+    expect((await first.json()).avg_health_score).toBe(82) // control
+    // Score-bearing: never CDN-cacheable.
+    expect(first.headers.get("Cache-Control")).toBe("no-store")
+
+    const realNow = Date.now
+    vi.spyOn(Date, "now").mockImplementation(() => realNow() + (4 * 60 + 59) * 1000)
+    const fetchMock = stubFetch(() => ({ status: 200, body: issuesSummaryV2Unknown() }))
+    const second = await GET(new NextRequest(url))
+    const body = await second.json()
+    expect(fetchMock).toHaveBeenCalledTimes(1) // went to the backend
+    expect(second.headers.get("X-Cache")).not.toBe("HIT")
+    expect(second.headers.get("Cache-Control")).toBe("no-store")
+    expect(body.avg_health_score).toBeNull()
+    expect(body.blast_radius_score.score).toBeNull()
+    expect(body.blast_radius_score.held_reason).toBe(V2_HELD_REASON)
+  })
+})
+
+describe("system Overview BRSS wiring (MINOR 6)", () => {
+  it("a READY summary whose BRSS is held yields held — never the BRSS object", () => {
+    const st = readyOverviewBrss(issuesSummaryV2Unknown())
+    expect(st.brss).toBeNull()
+    expect(st.emptyReason).toBe("held")
+    expect(st.hold).toEqual({ codes: [], reason: V2_HELD_REASON })
+    expect(unusedPermissionsWithheld(issuesSummaryV2Unknown())).toBe(true)
+  })
+
+  it("control: a READY scored summary yields the BRSS", () => {
+    const s = issuesSummaryV2Unknown()
+    const scored = { ...s, blast_radius_score: { ...s.blast_radius_score, score: 70 } }
+    const st = readyOverviewBrss(scored)
+    expect(st.brss).toBe(scored.blast_radius_score)
+    expect(st.hold).toBeNull()
+    expect(
+      unusedPermissionsWithheld({ ...s, resources: { ...s.resources, unused_permission_gaps: 10 } }),
+    ).toBe(false)
+  })
+
+  it("an errored BRSS is incomplete, and no BRSS object is awaiting_scan", () => {
+    expect(
+      readyOverviewBrss({ blast_radius_score: { error: "boom", version: "brss-v1-failed" } as never }),
+    ).toEqual({ brss: null, emptyReason: "incomplete", hold: null })
+    expect(readyOverviewBrss({})).toEqual({ brss: null, emptyReason: "awaiting_scan", hold: null })
+  })
+
+  it("the dashboard applies exactly that decision (it does not read blast_radius_score itself)", async () => {
+    const fs = await import("node:fs")
+    const path = await import("node:path")
+    const src = fs.readFileSync(
+      path.resolve(__dirname, "..", "components/system-detail-dashboard.tsx"),
+      "utf8",
+    )
+    expect(src).toContain("const overviewBrss = readyOverviewBrss<BlastRadiusScore>(summaryData)")
+    expect(src).toContain("setBrss(overviewBrss.brss)")
+    expect(src).toContain("setBrssEmptyReason(overviewBrss.emptyReason)")
+    expect(src).toContain("setBrssHold(overviewBrss.hold)")
+    expect(src).toContain("if (unusedPermissionsWithheld(summaryData)) {")
+    // No second, direct reading of the score object in the dashboard.
+    expect(src).not.toMatch(/setBrss\(\s*summaryData/)
+  })
+})
+
+describe("legacy home banner: a held summary's counts are unknown, not 0 (MINOR 3)", () => {
+  beforeEach(() => {
+    vi.spyOn(console, "log").mockImplementation(() => {})
+    vi.spyOn(console, "warn").mockImplementation(() => {})
+  })
+
+  // api/issues_summary.py::_held_summary(code, typed_code=code).
+  const HELD_SUMMARY = {
+    total: null,
+    critical: null,
+    high: null,
+    medium: null,
+    low: null,
+    by_severity: { critical: null, high: null, medium: null, low: null },
+    by_source: { iam: null, securityGroups: null, s3: null },
+    byCategory: {},
+    avg_health_score: null,
+    serve_state: "NOT_READY",
+    analysis_complete: false,
+    counts_are_partial: true,
+    integrityReason:
+      "The issues summary could not be computed. Counts are unavailable — this is not an empty result set. IAM roles are not served (DATA_ENGINE_VERSION_MISSING).",
+    error: "DATA_ENGINE_VERSION_MISSING",
+    success: false,
+    failed_analyzers: ["iam_role"],
+    failed_analyzer_codes: { iam_role: "DATA_ENGINE_VERSION_MISSING" },
+  }
+
+  it("renders Unknown for every count and the scan time — no 0, no 'No critical issues', no 'now'", async () => {
+    stubFetch((url) => (url.includes("/api/proxy/issues-summary") ? { status: 200, body: HELD_SUMMARY } : null))
+    const { fetchInfrastructure } = await import("@/lib/api-client")
+    const infra = await fetchInfrastructure()
+    expect(infra.stats).toMatchObject({
+      avgHealthScore: null,
+      needAttention: null,
+      totalIssues: null,
+      criticalIssues: null,
+      lastScanTime: null,
+    })
+    render(<HomeStatsBanner {...infra.stats} />)
+    expect(screen.getByTestId("home-need-attention").textContent).toBe("Unknown")
+    expect(screen.getByTestId("home-total-issues").textContent).toBe("Unknown")
+    expect(screen.getByTestId("home-last-scan").textContent).toBe("Unknown")
+    expect(screen.getByTestId("home-critical-line").textContent).toContain("Critical count unknown")
+    expect(document.body.textContent).not.toContain("No critical issues detected")
+  })
+
+  it("control: a READY summary renders its real counts", async () => {
+    stubFetch((url) =>
+      url.includes("/api/proxy/issues-summary") ? { status: 200, body: issuesSummaryV2Unknown() } : null,
+    )
+    const { fetchInfrastructure } = await import("@/lib/api-client")
+    const infra = await fetchInfrastructure()
+    render(<HomeStatsBanner {...infra.stats} />)
+    expect(screen.getByTestId("home-need-attention").textContent).toBe("4")
+    expect(screen.getByTestId("home-total-issues").textContent).toBe("4")
+    expect(screen.getByTestId("home-critical-line").textContent).toBe("1 critical need immediate review")
   })
 })

@@ -453,20 +453,32 @@ export default function HomePage() {
     // Scores: null = not computed. 0 would read as a measured worst score.
     avgHealthScore: null,
     healthScoreTrend: 0,
-    needAttention: 0,
-    totalIssues: 0,
-    criticalIssues: 0,
+    // Unknown, not zero: no answer is not "no issues".
+    needAttention: null,
+    totalIssues: null,
+    criticalIssues: null,
     averageScore: null,
     averageScoreTrend: 0,
-    lastScanTime: "No scans yet",
+    lastScanTime: null,
   }
 
   // Ensure stats reflect actual findings count if backend returns zeros
   const computedFindingsStats = computeStatsFromFindings(securityFindings)
   const statsData = {
     ...baseStatsData,
-    totalIssues: baseStatsData.totalIssues > 0 ? baseStatsData.totalIssues : securityFindings.length,
-    criticalIssues: baseStatsData.criticalIssues > 0 ? baseStatsData.criticalIssues : computedFindingsStats.critical,
+    // An unknown count stays unknown; only a reported 0 may defer to findings.
+    totalIssues:
+      baseStatsData.totalIssues == null
+        ? null
+        : baseStatsData.totalIssues > 0
+          ? baseStatsData.totalIssues
+          : securityFindings.length,
+    criticalIssues:
+      baseStatsData.criticalIssues == null
+        ? null
+        : baseStatsData.criticalIssues > 0
+          ? baseStatsData.criticalIssues
+          : computedFindingsStats.critical,
   }
 
   const infrastructureStats = data?.infrastructure || {
@@ -1036,7 +1048,7 @@ export default function HomePage() {
 
   return (
     <div className="flex min-h-screen bg-gray-50">
-      <LeftSidebarNav activeItem={activeSection} onItemClick={handleSidebarClick} issuesCount={statsData.totalIssues} pendingTagsCount={pendingTagsCount} />
+      <LeftSidebarNav activeItem={activeSection} onItemClick={handleSidebarClick} issuesCount={statsData.totalIssues ?? undefined} pendingTagsCount={pendingTagsCount} />
       <div className="flex-1 p-8">{renderContent()}</div>
 
     </div>

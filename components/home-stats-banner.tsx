@@ -7,12 +7,13 @@ interface HomeStatsBannerProps {
   /** Null / absent = not computed (held or unknown). Never rendered as 0. */
   avgHealthScore?: number | null
   healthScoreTrend?: number
-  needAttention?: number
-  totalIssues?: number
-  criticalIssues?: number
+  /** Counts: null / absent = unknown, never rendered as 0. */
+  needAttention?: number | null
+  totalIssues?: number | null
+  criticalIssues?: number | null
   averageScore?: number | null
   averageScoreTrend?: number
-  lastScanTime?: string
+  lastScanTime?: string | null
   resourceCount?: number
   urgentFindings?: number
   lastRefreshLabel?: string
@@ -21,12 +22,12 @@ interface HomeStatsBannerProps {
 export function HomeStatsBanner({
   avgHealthScore = null,
   healthScoreTrend = 0,
-  needAttention = 0,
-  totalIssues = 0,
-  criticalIssues = 0,
+  needAttention = null,
+  totalIssues = null,
+  criticalIssues = null,
   averageScore = null,
   averageScoreTrend = 0,
-  lastScanTime = "No scans yet",
+  lastScanTime = null,
   resourceCount = 0,
   urgentFindings = 0,
   lastRefreshLabel = "Just now",
@@ -64,7 +65,7 @@ export function HomeStatsBanner({
 
         <div className="min-w-[260px] rounded-2xl border border-white/18 bg-white/10 p-5 backdrop-blur">
           <div className="text-xs font-semibold uppercase tracking-[0.2em] text-white/70">Most Recent Scan</div>
-          <div className="mt-3 text-2xl font-semibold leading-tight">{lastScanTime}</div>
+          <div className="mt-3 text-2xl font-semibold leading-tight" data-testid="home-last-scan">{lastScanTime ?? "Unknown"}</div>
           <div className="mt-2 text-sm text-white/75">Latest telemetry snapshot across the connected environment.</div>
           <Button size="sm" className="mt-4 bg-white text-[#2D51DA] hover:bg-gray-100">
             View Scan
@@ -99,7 +100,7 @@ export function HomeStatsBanner({
 
         <div className="rounded-2xl border border-white/14 bg-white/10 p-5 backdrop-blur">
           <div className="text-xs uppercase tracking-[0.2em] text-white/70">Need Attention</div>
-          <div className="mt-3 text-5xl font-bold">{needAttention}</div>
+          <div className="mt-3 text-5xl font-bold" data-testid="home-need-attention">{needAttention ?? "Unknown"}</div>
           <div className="mt-3 inline-flex items-center gap-1 rounded-full bg-black/10 px-3 py-1 text-xs text-white/80">
             Prioritize exposed systems
             <ArrowUpRight className="h-3.5 w-3.5" />
@@ -108,9 +109,13 @@ export function HomeStatsBanner({
 
         <div className="rounded-2xl border border-white/14 bg-white/10 p-5 backdrop-blur">
           <div className="text-xs uppercase tracking-[0.2em] text-white/70">Total Issues</div>
-          <div className="mt-3 text-5xl font-bold">{totalIssues}</div>
-          <div className="mt-3 text-xs text-white/78">
-            {criticalIssues > 0 ? `${criticalIssues} critical need immediate review` : "No critical issues detected"}
+          <div className="mt-3 text-5xl font-bold" data-testid="home-total-issues">{totalIssues ?? "Unknown"}</div>
+          <div className="mt-3 text-xs text-white/78" data-testid="home-critical-line">
+            {criticalIssues == null
+              ? "Critical count unknown — the summary was not computed"
+              : criticalIssues > 0
+                ? `${criticalIssues} critical need immediate review`
+                : "No critical issues detected"}
           </div>
         </div>
 

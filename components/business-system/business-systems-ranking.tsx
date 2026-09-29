@@ -34,7 +34,7 @@ interface RankedSystem {
   business_tier?: string | null
   owner?: string | null
   tier_multiplier?: number
-  coverage_ratio?: number
+  coverage_ratio?: number | null
   coverage_ceiling?: number
   member_count?: number
   resource_count?: number
@@ -70,7 +70,7 @@ interface RankedResponse {
   positioning?: string
   positioning_copy?: string
   context_coverage?: {
-    coverage_ratio?: number
+    coverage_ratio?: number | null
     with_business_tier?: number
     total_rankable?: number
     phase4_copy_unlocked?: boolean
@@ -188,7 +188,7 @@ export function BusinessSystemsRanking() {
           )}
           {data?.context_coverage && (
             <span>
-              context {Math.round((data.context_coverage.coverage_ratio || 0) * 100)}%
+              context {coverageLabel(data.context_coverage.coverage_ratio)}
               {data.context_coverage.phase4_copy_unlocked
                 ? ' · business-impact ranking'
                 : ' · blast-radius ranking'}

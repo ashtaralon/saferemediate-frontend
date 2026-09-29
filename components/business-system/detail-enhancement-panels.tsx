@@ -37,9 +37,9 @@ export type DetailEnhancements = {
     score_delta?: number | null
     state_change?: number | null
     scope_expansion?: number | null
-    resources_added?: number
-    resources_removed?: number
-    resources_changed?: number
+    resources_added?: number | null
+    resources_removed?: number | null
+    resources_changed?: number | null
     previous_timestamp?: string | null
   }
   remediation_actions?: Array<{

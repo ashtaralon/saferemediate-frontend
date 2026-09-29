@@ -156,3 +156,58 @@ export function issuesSummaryBrssHold(
       null,
   }
 }
+
+// ── System Overview wiring (components/system-detail-dashboard.tsx) ────
+
+export type OverviewBrssEmptyReason = "awaiting_scan" | "incomplete" | "held"
+
+export interface OverviewBrssState<B> {
+  /** Set as the hero's BRSS ONLY when the score is a finite number. */
+  brss: B | null
+  emptyReason: OverviewBrssEmptyReason
+  hold: BrssHold | null
+}
+
+/**
+ * The hero state for an issues-summary payload that integrity already allows
+ * to carry scores (READY). Pure, so the dashboard's wiring is testable
+ * without mounting it — the dashboard only applies these three values.
+ *
+ * READY does not mean scored: with V2 usage unknown the backend sends
+ * `blast_radius_score.score: null` + held_reason next to an overlay computed
+ * over the measured subset. That is held, and must never become the BRSS.
+ */
+export function readyOverviewBrss<B = unknown>(
+  payload: (IssuesSummaryBrssFields & {
+    blast_radius_score?: (IssuesSummaryBrssFields["blast_radius_score"] & {
+      analysis_complete?: boolean
+    }) | null
+  }) | null | undefined,
+): OverviewBrssState<B> {
+  const brss = payload?.blast_radius_score
+  if (brss && !brss.error) {
+    const hold = issuesSummaryBrssHold(payload)
+    if (hold) return { brss: null, emptyReason: "held", hold }
+    if (brss.analysis_complete !== false) {
+      return { brss: brss as unknown as B, emptyReason: "awaiting_scan", hold: null }
+    }
+  }
+  // READY overall, yet the score itself was withheld: an error or an
+  // incomplete BRSS is a held/partial computation, not a never-scanned system.
+  return {
+    brss: null,
+    emptyReason: brss && (brss.error || brss.analysis_complete === false) ? "incomplete" : "awaiting_scan",
+    hold: null,
+  }
+}
+
+/**
+ * `resources.unused_permission_gaps: null` — the backend saying the unused
+ * count is not computable (V2 usage unknown). Only an explicit null withholds;
+ * a payload without the key (older backend) does not.
+ */
+export function unusedPermissionsWithheld(
+  payload: { resources?: { unused_permission_gaps?: number | null } | null } | null | undefined,
+): boolean {
+  return !!payload?.resources && payload.resources.unused_permission_gaps === null
+}

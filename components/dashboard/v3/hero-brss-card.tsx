@@ -7,8 +7,8 @@ import {
   orgScoreHold,
   type OrgHeldSystem,
 } from "@/lib/brss-held"
-import { useCachedFetch } from "@/lib/use-cached-fetch"
-import { ErrorCard, LoadingCard, NotWiredCard, Section, StaleIndicator } from "./card-shell"
+import { STALE_BACKEND_RECOVERING, useCachedFetch } from "@/lib/use-cached-fetch"
+import { ErrorCard, LoadingCard, NotWiredCard, Section } from "./card-shell"
 import {
   accentByCategory,
   descriptorClass,
@@ -123,13 +123,55 @@ function TrendSpark({ series }: { series: TrendPoint[] }) {
   )
 }
 
+function ageLabel(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000))
+  if (s < 60) return `${s}s ago`
+  const m = Math.floor(s / 60)
+  if (m < 60) return `${m}m ago`
+  const h = Math.floor(m / 60)
+  return h < 24 ? `${h}h ago` : `${Math.floor(h / 24)}d ago`
+}
+
+/**
+ * Marks ANY reading that did not come from this session's live answer.
+ *
+ * useCachedFetch paints a localStorage entry younger than maxStaleMs (24h)
+ * with `isStale: false` while its live request is still in flight — so the
+ * shared StaleIndicator (which keys on isStale) showed a 10-minute-old score
+ * as current for the whole proxy budget. `cachedAt` is the reliable signal:
+ * it is the cached entry's timestamp for any cache-sourced reading and null
+ * once a live answer lands. Local to this card on purpose; the hook's
+ * semantics for its other callers are unchanged.
+ */
+function CachedReadingMarker({
+  cachedAt,
+  staleReason,
+}: {
+  cachedAt: number | null
+  staleReason: string | null
+}) {
+  if (cachedAt === null) return null
+  const when = new Date(cachedAt).toLocaleTimeString()
+  const state = staleReason === STALE_BACKEND_RECOVERING ? "live request failed" : "refreshing"
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 rounded bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700"
+      data-testid="org-brss-cached-marker"
+      title="Cached reading from an earlier visit — not the live score."
+    >
+      <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500" />
+      as of {when} ({ageLabel(Date.now() - cachedAt)}), {state}
+    </span>
+  )
+}
+
 export function HeroBrssCard() {
   const {
     data: orgData,
     loading: orgLoading,
     error: orgError,
-    isStale,
     cachedAt,
+    staleReason,
     retry: orgRetry,
   } = useCachedFetch<GlobalOrgScore>(
     "/api/proxy/global-org-score",
@@ -144,9 +186,11 @@ export function HeroBrssCard() {
 
   // Trend is a secondary fetch — never blocks the hero score from
   // rendering. If the trend endpoint is slow or empty, the card still
-  // shows the live score; we just skip the spark.
+  // shows the live score; we just skip the spark. Only requested beside a
+  // real org score: persisted history is never shown in place of one, so
+  // a held or failed answer does not fetch it at all.
   const { data: trend } = useCachedFetch<PostureTrend>(
-    "/api/proxy/posture-score/trend?days=30",
+    isOrgScoreReading(orgData) ? "/api/proxy/posture-score/trend?days=30" : null,
     { cacheKey: "posture-trend-30d", fetchInit: { cache: "no-store" } }
   )
 
@@ -166,6 +210,9 @@ export function HeroBrssCard() {
           {partial && typeof partial.held === "number" && typeof partial.discovered === "number" ? (
             <p className={`${descriptorClass} mt-2`} data-testid="org-brss-held-count">
               {partial.held} of {partial.discovered} system{partial.discovered === 1 ? "" : "s"} held
+              {typeof partial.failed === "number" && partial.failed > 0
+                ? ` · ${partial.failed} failed to evaluate`
+                : ""}
             </p>
           ) : null}
           {heldSystems.length > 0 ? (
@@ -252,10 +299,10 @@ export function HeroBrssCard() {
           {data.overall_score.toFixed(0)}
         </span>
         <span className={unitClass}>/100</span>
-        {/* A cached reading shown while the live request is in flight or
-            the backend is unreachable says so; it is never presented as
-            current. A held answer evicts it (isCacheable above). */}
-        <StaleIndicator cachedAt={cachedAt} isStale={isStale} />
+        {/* Any cache-sourced reading — fresh-looking or aged, while the
+            live request is pending or after it failed on transport — is
+            marked with its time. A held answer evicts it (isCacheable). */}
+        <CachedReadingMarker cachedAt={cachedAt} staleReason={staleReason} />
       </div>
 
       {/* Trend block. Renders only when at least 2 days of snapshot

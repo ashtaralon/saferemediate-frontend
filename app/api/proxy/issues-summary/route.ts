@@ -18,19 +18,29 @@ export const maxDuration = 60
 // the identical URL in Vercel prod (no override set), and additionally fails
 // loud if a deploy is ever pointed at localhost.
 
-// In-memory cache with 5-minute TTL — only stores SUCCESSFUL responses.
-// Backend errors no longer return 200-with-empty (which masked the
-// 5-minute outage on 2026-05-04 by making every dashboard render the
-// "system is clean" green-checkmark even though the backend was down).
-// Stale-cache-on-error is also removed for the same reason.
+// Last-complete store — NOT a serving cache.
+//
+// Every summary carries posture SCORES (avg_health_score, blast_radius_score),
+// and a score is a claim about now. This used to be a 5-minute fresh-hit cache
+// that answered "X-Cache: HIT" with the stored body verbatim — so after the
+// backend started HOLDING a score, the proxy kept serving the earlier real
+// score, unmarked, for up to five minutes (and told the CDN to keep it for
+// fifteen more). Nothing is served from here as current any more: every
+// request goes to the backend.
+//
+// The store is kept for one purpose only: when the live request FAILS, the
+// last complete COUNTS may be replayed, marked stale (fromStaleCache,
+// NOT_READY), with the scores withheld — see WITHHELD_SCORES. It only ever
+// holds authoritative, score-complete answers (isCacheableSummary and no BRSS
+// hold); a held or failed response is never written.
 const cache = new Map<string, { data: any; timestamp: number }>()
 const CACHE_TTL = 5 * 60 * 1000
 
 /**
- * Scores are never replayed from the cache. A stale replay may still show the
- * last complete COUNTS, marked stale; the health score and the BRSS are
- * posture claims about now, and a cached number standing in for a live answer
- * the backend could not give is exactly the fallback BRSS held-state forbids.
+ * Scores are never replayed from the store: a stale replay shows the last
+ * complete COUNTS, marked stale, and these score fields as null. A cached
+ * number standing in for a live answer the backend could not give is exactly
+ * the fallback BRSS held-state forbids.
  */
 const WITHHELD_SCORES = {
   avg_health_score: null,
@@ -47,17 +57,8 @@ export async function GET(req: NextRequest) {
   const cacheKey = getCacheKey(systemName)
   const now = Date.now()
 
+  // Read only for the failure replay below — never served as current.
   const cached = cache.get(cacheKey)
-  if (cached && (now - cached.timestamp) < CACHE_TTL) {
-    const cacheAge = Math.round((now - cached.timestamp) / 1000)
-    return NextResponse.json(cached.data, {
-      headers: {
-        "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600",
-        "X-Cache": "HIT",
-        "X-Cache-Age": String(cacheAge),
-      },
-    })
-  }
 
   const controller = new AbortController()
   // 55s, the house cold-build budget for a maxDuration=60 route.
@@ -153,11 +154,9 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json(data, {
       headers: {
-        // A held / partial answer is never CDN-cached either: the backend
-        // refuses to cache it, and a shared cache must not outlive the hold.
-        "Cache-Control": cacheable
-          ? "public, s-maxage=300, stale-while-revalidate=600"
-          : "no-store",
+        // Score-bearing: never CDN-cacheable. A shared cache holding a score
+        // would serve it as current after the backend starts holding it.
+        "Cache-Control": "no-store",
         "X-Cache": "MISS",
       },
     })
