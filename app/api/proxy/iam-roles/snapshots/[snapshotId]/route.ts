@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
-import { relayBackendError } from "@/lib/server/proxy-error"
+import { fromCaughtError, relayBackendError } from "@/lib/server/proxy-error"
 
 const BACKEND_URL = getBackendBaseUrl();
 
@@ -64,10 +64,8 @@ export async function DELETE(
     
   } catch (error: any) {
     console.error(`[IAM-SNAPSHOT] Delete exception:`, error);
-    return NextResponse.json(
-      { error: error.message || 'Internal server error' },
-      { status: 500 }
-    );
+    // Timeout (504) or unreachable (503): the delete may or may not have committed.
+    return fromCaughtError(error);
   }
 }
 

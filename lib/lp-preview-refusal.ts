@@ -123,6 +123,15 @@ export function refusalFromPreviewBody(status: number, payload: unknown): Previe
   return { code, status, message }
 }
 
+/**
+ * Whether a refused mutation is KNOWN not to have happened: a 4xx carrying a typed code. A 5xx, a timeout, an unreachable
+ * backend or an untyped 4xx says nothing about whether the write committed, so its outcome is unknown and the caller
+ * must re-read the state instead of reporting "not done".
+ */
+export function isTypedRefusal(refusal: PreviewRefusal): boolean {
+  return refusal.status >= 400 && refusal.status < 500 && refusal.code !== `HTTP_${refusal.status}` && refusal.code !== "UNREADABLE"
+}
+
 export function reviewRefusalCopy(refusal: PreviewRefusal): { title: string; body: string } {
   const known = COPY[refusal.code]
   if (known) return { title: known.title, body: known.body ?? refusal.message }

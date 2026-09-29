@@ -6,7 +6,7 @@ import { riskLabel } from "@/lib/utils"
 import { ServiceTypeBadge } from "@/lib/service-type"
 import { fetchLegacyMutation, legacyControlHeld, legacyMutationHold } from "@/lib/legacy-mutation-hold"
 import { LegacyMutationHeldNotice } from "@/components/legacy-mutation-held-notice"
-import { refusalFromPreviewBody } from "@/lib/lp-preview-refusal"
+import { isTypedRefusal, refusalFromPreviewBody } from "@/lib/lp-preview-refusal"
 import {
   Search,
   ChevronDown,
@@ -389,9 +389,19 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
     if (hold) refuseQuarantineAction(action, recordId, hold.code, hold.message)
     return hold !== null
   }
+  // A typed 4xx is a refusal (the record kept its phase). A 5xx, timeout or unreachable backend says nothing about
+  // whether AWS was touched: report the outcome as unknown and re-read the records instead of guessing.
+  const quarantineOutcomeUnknown = async (action: string, recordId: string, why: string) => {
+    setQuarantineRefusal(`${action} outcome unknown for ${recordId} — re-checking: ${why}`)
+    await fetchQuarantineRecords()
+  }
   const readQuarantineRefusal = async (action: string, recordId: string, response: Response) => {
     const refusal = refusalFromPreviewBody(response.status, await response.json().catch(() => null))
-    refuseQuarantineAction(action, recordId, refusal.code, refusal.message, refusal.status)
+    if (isTypedRefusal(refusal)) {
+      refuseQuarantineAction(action, recordId, refusal.code, refusal.message, refusal.status)
+    } else {
+      await quarantineOutcomeUnknown(action, recordId, `(HTTP ${refusal.status}, ${refusal.code}) - ${refusal.message}`)
+    }
   }
 
   // --- Start Monitor ---
@@ -414,7 +424,7 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
       setPreCheckModal(null)
     } catch (err: any) {
       console.error("[StartMonitor] Error:", err)
-      setQuarantineRefusal(`Start monitor failed for ${recordId}: ${err?.message || "request failed"}`)
+      await quarantineOutcomeUnknown("Start monitor", recordId, err?.message || "request failed")
     } finally {
       setActionLoading(null)
     }
@@ -439,7 +449,7 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
       await fetchQuarantineRecords()
     } catch (err: any) {
       console.error("[ExecuteQuarantine] Error:", err)
-      setQuarantineRefusal(`Quarantine failed for ${recordId}: ${err?.message || "request failed"}`)
+      await quarantineOutcomeUnknown("Quarantine", recordId, err?.message || "request failed")
     } finally {
       setActionLoading(null)
     }
@@ -464,7 +474,7 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
       await fetchQuarantineRecords()
     } catch (err: any) {
       console.error("[Restore] Error:", err)
-      setQuarantineRefusal(`Restore failed for ${recordId}: ${err?.message || "request failed"}`)
+      await quarantineOutcomeUnknown("Restore", recordId, err?.message || "request failed")
     } finally {
       setActionLoading(null)
     }
@@ -489,7 +499,7 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
       await fetchQuarantineRecords()
     } catch (err: any) {
       console.error("[Delete] Error:", err)
-      setQuarantineRefusal(`Delete failed for ${recordId}: ${err?.message || "request failed"}`)
+      await quarantineOutcomeUnknown("Delete", recordId, err?.message || "request failed")
     } finally {
       setActionLoading(null)
     }

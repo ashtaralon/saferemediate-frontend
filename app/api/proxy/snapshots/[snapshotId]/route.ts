@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
-import { relayBackendError } from "@/lib/server/proxy-error"
+import { fromCaughtError, relayBackendError } from "@/lib/server/proxy-error"
 
 export const dynamic = "force-dynamic"
 export const fetchCache = "force-no-store"
@@ -100,6 +100,7 @@ export async function DELETE(
     return NextResponse.json({ success: true, deleted: snapshotId, ...data }, { status: 200 })
   } catch (error: any) {
     console.error("[proxy] delete snapshot error:", error)
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    // Timeout (504) or unreachable (503): the delete may or may not have committed.
+    return fromCaughtError(error)
   }
 }
