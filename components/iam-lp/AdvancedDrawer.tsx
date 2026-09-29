@@ -2,6 +2,8 @@
 
 import { ChevronDown, ChevronUp } from "lucide-react"
 import { useMemo, useState } from "react"
+import { normalizeReviewConfidence } from "@/lib/lp-normalize"
+import { lpConfidenceWithheldCopy } from "@/lib/lp-readiness-copy"
 import type { IamGapAnalysis } from "./types"
 
 type AdvancedDrawerProps = {
@@ -18,6 +20,11 @@ export function AdvancedDrawer({ gap, defaultOpen = false }: AdvancedDrawerProps
   }, [gap])
 
   if (!gap) return null
+
+  const reviewConfidence = normalizeReviewConfidence({
+    confidence: gap.confidence,
+    confidence_withheld_reason: gap.confidence_withheld_reason,
+  })
 
   return (
     <section className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
@@ -51,12 +58,23 @@ export function AdvancedDrawer({ gap, defaultOpen = false }: AdvancedDrawerProps
                 {reductionPct === null ? "—" : `${reductionPct}%`}
               </div>
             </div>
+            {/* The Review's evidence grade as sent, or Unknown: a withheld or absent grade is never defaulted. */}
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4" data-testid="review-confidence">
+              <div className="text-xs uppercase tracking-[0.16em] text-slate-500">Review confidence</div>
+              <div className="mt-2 text-2xl font-bold text-slate-950">{reviewConfidence.level ?? "Unknown"}</div>
+              {reviewConfidence.level === null && reviewConfidence.withheld_reason && (
+                <div className="mt-1 text-xs text-slate-600">
+                  {lpConfidenceWithheldCopy(reviewConfidence.withheld_reason)}
+                </div>
+              )}
+            </div>
           </div>
 
           <pre className="overflow-x-auto rounded-2xl border border-slate-200 bg-slate-950 p-4 text-xs text-slate-100">
             {JSON.stringify(
               {
                 confidence: gap.confidence,
+                confidence_withheld_reason: gap.confidence_withheld_reason ?? null,
                 confidence_groups: gap.confidence_groups,
                 safety_vector: gap.safety_vector,
                 permissions_analysis: gap.permissions_analysis,
