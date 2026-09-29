@@ -442,6 +442,11 @@ export interface SimulateFixSimulation {
   removed_permissions: number
   kept_examples: string[]
   removed_examples: string[]
+  /** Count of not-observed permissions held out of the candidates (protected + investigate). */
+  excluded_unsafe_count?: number
+  /** Held-out permissions by category, e.g. `attribution_unverified` (backend 616c67744). */
+  excluded_by_category?: Record<string, string[]>
+  dependency_checks?: Record<string, boolean>
 }
 
 export interface SimulateFixProjectedEffect {
@@ -553,7 +558,8 @@ export interface SimulateFixDecisionPersistence {
  */
 export interface SimulateFixAttributionUnverifiedPermission {
   action: string
-  reason_code: "EVENT_ATTRIBUTION_INCOMPLETE" | "EVENT_ATTRIBUTION_UNKNOWN"
+  /** Backend model types this as str; these two are the codes it emits today. */
+  reason_code: "EVENT_ATTRIBUTION_INCOMPLETE" | "EVENT_ATTRIBUTION_UNKNOWN" | (string & {})
   unmapped_events: string[]
 }
 
@@ -566,7 +572,8 @@ export interface SimulateFixResponse {
   safety: SimulateFixSafety
   decision_persistence: SimulateFixDecisionPersistence
   /** Absent on backends that do not run the attribution check: the candidates are then NOT attribution-verified. */
-  attribution_unverified_permissions?: SimulateFixAttributionUnverifiedPermission[]
+  attribution_unverified_permissions?: SimulateFixAttributionUnverifiedPermission[]  /** backend unified/lp/permission_disposition.py RemediationState value; may be NEEDS_EVIDENCE. */
+  final_remediation_state?: string | null
 }
 
 // ============================================================================

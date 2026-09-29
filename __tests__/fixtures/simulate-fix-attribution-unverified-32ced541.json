@@ -1,0 +1,2241 @@
+{
+ "_producer": "saferemediate-backend claude/cf01-lp-attribution-unverified 32ced5417d5cc5ff06ce5bd511acd823b07a0ecd: POST /api/least-privilege/simulate-fix through the real route, scorer and attribution tables, driven by tests/test_simulate_fix_attribution_unverified.py::_client/_post (wire_lp + make_role; evidence-complete-looking role, used_events=['s3:HeadObject']). mixed: unused=[s3:GetObject, s3:GetObjectAcl, dynamodb:PartiQLSelect]; all_held: unused=[s3:GetObject]. Serialized response.json(), unedited.",
+ "mixed": {
+  "attribution_unverified_permissions": [
+   {
+    "action": "dynamodb:PartiQLSelect",
+    "reason_code": "EVENT_ATTRIBUTION_UNKNOWN",
+    "unmapped_events": []
+   },
+   {
+    "action": "s3:GetObject",
+    "reason_code": "EVENT_ATTRIBUTION_INCOMPLETE",
+    "unmapped_events": [
+     "HeadObject",
+     "SelectObjectContent"
+    ]
+   }
+  ],
+  "authorization_disposition": {
+   "authorized": false,
+   "reasons": [
+    "ACTIVE_GENERATION_UNKNOWN",
+    "TRAFFIC_INGEST_NOT_INCREMENTAL",
+    "NEGATIVE_AUTHORITY_NOT_PERMITTED",
+    "DECISION_READINESS_NOT_READY"
+   ],
+   "state": "NOT_AUTHORIZED"
+  },
+  "decision_authority": null,
+  "decision_persistence": {
+   "decision_key": "ebf2360e613ca0182357f024ffd08c20bbff0ac2e41fda95ea095ef89ecce3b2",
+   "evaluated_at": "2026-09-29T01:02:09.236886Z",
+   "expires_at": "2026-09-29T01:17:09.236886Z",
+   "persisted": false,
+   "warning": "Decision persistence failed: AttributeError"
+  },
+  "evidence": {
+   "caveats": [],
+   "completeness": "complete",
+   "confidence": "unknown",
+   "evidence_sources": [
+    "cloudtrail",
+    "access_advisor",
+    "neptune_graph"
+   ],
+   "last_sync": "2026-04-23T00:00:00",
+   "observation_window_days": 30,
+   "visibility_signals": {
+    "data_layer_complete": true,
+    "decision_evidence_ready": true,
+    "observation_days": 30,
+    "planes_active": [
+     "cloudtrail",
+     "config",
+     "access_advisor",
+     "behavioral_pu"
+    ],
+    "signal_coverage": "complete",
+    "telemetry_plane_coverage": "complete",
+    "time_requirement_met": true,
+    "trust_graph_integrity": "high"
+   }
+  },
+  "evidence_disposition": {
+   "authorization_state": "NOT_ASSESSED",
+   "block_reason": "Mutation process is not ready to sign a plan (missing CYNTRO_REMEDIATION_ROLE_ARN, CYNTRO_REMEDIATION_EXTERNAL_ID, CYNTRO_USE_ASSUME_ROLE, IAM_MUTATION_NOT_DECLARED, RELEASE_TIER_REFUSES_MUTATION, PRODUCTION_CONTROL_BUNDLE_INCOMPLETE, WEB_GRAPH_READ_ONLY_BOUNDARY_UNPROVEN, LIFECYCLE_CONFIGURATION_INCOMPLETE, CANONICAL_INCREMENTAL_GENERATION_NOT_READY)",
+   "evidence_state": "READY",
+   "groups": {
+    "CANNOT_ASSESS": [],
+    "CONFLICT": [],
+    "PROTECTED": [],
+    "UNUSED_CANDIDATE": [
+     "s3:GetObjectAcl"
+    ],
+    "USED": [],
+    "VERIFY_FIRST": [
+     "dynamodb:PartiQLSelect",
+     "s3:GetObject"
+    ]
+   },
+   "investigate_count": 2,
+   "investigate_permissions": [
+    "dynamodb:PartiQLSelect",
+    "s3:GetObject"
+   ],
+   "observed_unused_count": 3,
+   "protected_count": 0,
+   "protected_permissions": [],
+   "reason_counts": {
+    "attribution_unverified": 2
+   },
+   "remediation_state": "READY",
+   "removable_count": 1,
+   "removable_permissions": [
+    "s3:GetObjectAcl"
+   ]
+  },
+  "final_remediation_state": "NOT_READY",
+  "permission_disposition": {
+   "authorization_state": "NOT_AUTHORIZED",
+   "block_reason": "ACTIVE_GENERATION_UNKNOWN",
+   "evidence_state": "READY",
+   "groups": {
+    "CANNOT_ASSESS": [],
+    "CONFLICT": [],
+    "PROTECTED": [],
+    "UNUSED_CANDIDATE": [
+     "s3:GetObjectAcl"
+    ],
+    "USED": [],
+    "VERIFY_FIRST": [
+     "dynamodb:PartiQLSelect",
+     "s3:GetObject"
+    ]
+   },
+   "investigate_count": 2,
+   "investigate_permissions": [
+    "dynamodb:PartiQLSelect",
+    "s3:GetObject"
+   ],
+   "observed_unused_count": 3,
+   "protected_count": 0,
+   "protected_permissions": [],
+   "reason_counts": {
+    "attribution_unverified": 2
+   },
+   "remediation_state": "NOT_READY",
+   "removable_count": 1,
+   "removable_permissions": [
+    "s3:GetObjectAcl"
+   ]
+  },
+  "plan": null,
+  "plan_issuance_error": null,
+  "problem": {
+   "gap_percent": 75,
+   "summary": "Role has 3 unused permissions (75% over-privileged)",
+   "top_risk_reasons": [
+    "Unused admin-capable permissions"
+   ],
+   "unused_count": 3,
+   "used_count": 1
+  },
+  "projected_effect": {
+   "approximate": false,
+   "blast_radius_score_after": null,
+   "blast_radius_score_before": 15,
+   "blast_radius_score_delta": null,
+   "caveats": [
+    "BRS confidence=MEDIUM (observation/plane data partial).",
+    "Projection unavailable \u2014 post-remediation blast-radius requires rescoring against a hypothetical post-mutation graph; not yet implemented. _after / _delta are null."
+   ],
+   "current_state_available": true,
+   "current_state_confidence": "MEDIUM",
+   "family_scores_after": null,
+   "family_scores_before": {
+    "doc": 0,
+    "ips": 40,
+    "lms": 0,
+    "nes": 20
+   },
+   "projection_available": false,
+   "resource_risk_contribution_after": null,
+   "resource_risk_contribution_before": null
+  },
+  "removal_safety": {
+   "groups": [
+    {
+     "band": "STRONG",
+     "count": 3,
+     "permissions": [
+      "dynamodb:PartiQLSelect",
+      "s3:GetObject",
+      "s3:GetObjectAcl"
+     ]
+    }
+   ],
+   "insufficient_evidence_count": 0,
+   "permissions": [
+    {
+     "band": "STRONG",
+     "consequence_class": "ROUTINE",
+     "disposition": "REMOVAL_CANDIDATE",
+     "evidence_channel": "DIRECT_RUNTIME",
+     "evidence_envelope": {
+      "assertions": [
+       {
+        "coverage": 1.0,
+        "family": "POLICY_INVENTORY",
+        "fresh": true,
+        "granularity": "ACTION",
+        "graph_fact_ids": [],
+        "independent_origin": "aws_iam_policy_api",
+        "reason": "Permission is present in the evaluated policy set.",
+        "required": true,
+        "source_id": "iam_policy_inventory",
+        "source_name": "Live IAM policy inventory",
+        "verdict": "COVERAGE_ONLY"
+       },
+       {
+        "coverage": 1.0,
+        "family": "RUNTIME_AUDIT",
+        "fresh": true,
+        "granularity": "ACTION",
+        "graph_fact_ids": [
+         "fixture:cloudtrail_action_usage"
+        ],
+        "independent_origin": "cloudtrail_action_usage",
+        "reason": "fixture: a current NO_OBSERVED_USE assertion",
+        "required": true,
+        "source_id": "cloudtrail_action_usage",
+        "source_name": "cloudtrail_action_usage",
+        "verdict": "SUPPORTS_NON_USE"
+       },
+       {
+        "coverage": 0.0,
+        "family": "RUNTIME_AUDIT",
+        "fresh": null,
+        "granularity": "RESOURCE",
+        "graph_fact_ids": [],
+        "independent_origin": "cloudtrail_event_selector_collector",
+        "reason": "No Lambda/S3 data-event edges in graph",
+        "required": false,
+        "source_id": "cloudtrail_data_event_coverage",
+        "source_name": "CloudTrail data-event selector coverage",
+        "verdict": "MISSING"
+       },
+       {
+        "coverage": 0.0,
+        "family": "AWS_ADVISORY",
+        "fresh": null,
+        "granularity": "SERVICE",
+        "graph_fact_ids": [],
+        "independent_origin": "iam_access_advisor",
+        "reason": "Access Advisor has not been synced for this role.",
+        "required": false,
+        "source_id": "access_advisor_last_used",
+        "source_name": "IAM Access Advisor",
+        "verdict": "MISSING"
+       },
+       {
+        "coverage": 0.0,
+        "family": "AWS_ADVISORY",
+        "fresh": null,
+        "granularity": "ACTION",
+        "graph_fact_ids": [],
+        "independent_origin": "iam_access_analyzer",
+        "reason": "No Access Analyzer findings on graph",
+        "required": false,
+        "source_id": "access_analyzer_findings",
+        "source_name": "IAM Access Analyzer",
+        "verdict": "MISSING"
+       },
+       {
+        "coverage": 1.0,
+        "family": "CONFIGURATION_STATE",
+        "fresh": true,
+        "granularity": "ACTION",
+        "graph_fact_ids": [
+         "fixture:aws_config_history"
+        ],
+        "independent_origin": "aws_config_history",
+        "reason": "fixture: a current NO_OBSERVED_USE assertion",
+        "required": true,
+        "source_id": "aws_config_history",
+        "source_name": "aws_config_history",
+        "verdict": "COVERAGE_ONLY"
+       },
+       {
+        "coverage": 1.0,
+        "family": "RUNTIME_AUDIT",
+        "fresh": null,
+        "granularity": "ORGANIZATION",
+        "graph_fact_ids": [],
+        "independent_origin": "organization_cloudtrail",
+        "reason": "Single-account context \u2014 org trail not required",
+        "required": true,
+        "source_id": "org_trail_session_lineage",
+        "source_name": "Organization-trail STS session lineage",
+        "verdict": "COVERAGE_ONLY"
+       },
+       {
+        "coverage": 1.0,
+        "family": "POLICY_INVENTORY",
+        "fresh": true,
+        "granularity": "ACTION",
+        "graph_fact_ids": [
+         "fixture:resource_policy_inventory"
+        ],
+        "independent_origin": "resource_policy_inventory",
+        "reason": "fixture: a current NO_OBSERVED_USE assertion",
+        "required": true,
+        "source_id": "resource_policy_inventory",
+        "source_name": "resource_policy_inventory",
+        "verdict": "COVERAGE_ONLY"
+       },
+       {
+        "coverage": 1.0,
+        "family": "POLICY_EVALUATION",
+        "fresh": null,
+        "granularity": "ACTION",
+        "graph_fact_ids": [],
+        "independent_origin": "policy_simulation_materializer",
+        "reason": "Standalone account \u2014 no organization SCP applies",
+        "required": true,
+        "source_id": "scp_boundary_simulation",
+        "source_name": "SCP and permission-boundary evaluation",
+        "verdict": "COVERAGE_ONLY"
+       },
+       {
+        "coverage": 1.0,
+        "family": "CONFIGURATION_STATE",
+        "fresh": null,
+        "granularity": "ROLE",
+        "graph_fact_ids": [
+         "policy-set:aaaaaaaaaaaaaaaa"
+        ],
+        "independent_origin": "iam_policy_collector",
+        "reason": "The analysis is bound to the current graph policy generation; live state is rechecked before Apply.",
+        "required": true,
+        "source_id": "policy_set_hash",
+        "source_name": "Policy-state binding",
+        "verdict": "COVERAGE_ONLY"
+       },
+       {
+        "coverage": 1.0,
+        "family": "TOPOLOGY",
+        "fresh": null,
+        "granularity": "ROLE",
+        "graph_fact_ids": [],
+        "independent_origin": "aws_config_and_attachment_collectors",
+        "reason": "Role consumers were enumerated.",
+        "required": true,
+        "source_id": "consumer_inventory",
+        "source_name": "Role consumer inventory",
+        "verdict": "COVERAGE_ONLY"
+       },
+       {
+        "coverage": 1.0,
+        "family": "RUNTIME_AUDIT",
+        "fresh": null,
+        "granularity": "ROLE",
+        "graph_fact_ids": [],
+        "independent_origin": "cloudtrail",
+        "reason": "Runtime principals were attributed to an enumerated consumer.",
+        "required": true,
+        "source_id": "runtime_consumer_attribution",
+        "source_name": "Runtime principal-to-consumer attribution",
+        "verdict": "COVERAGE_ONLY"
+       },
+       {
+        "coverage": 1.0,
+        "family": "TOPOLOGY",
+        "fresh": true,
+        "granularity": "ACTION",
+        "graph_fact_ids": [
+         "fixture:implicit_dependency_graph"
+        ],
+        "independent_origin": "implicit_dependency_graph",
+        "reason": "fixture: a current NO_OBSERVED_USE assertion",
+        "required": true,
+        "source_id": "implicit_dependency_graph",
+        "source_name": "implicit_dependency_graph",
+        "verdict": "COVERAGE_ONLY"
+       },
+       {
+        "coverage": 0.0,
+        "family": "WORKLOAD_BEHAVIOR",
+        "fresh": null,
+        "granularity": "ROLE",
+        "graph_fact_ids": [],
+        "independent_origin": "workload_schedule_collectors",
+        "reason": "AWS-native schedule inventory has not been collected for this role",
+        "required": false,
+        "source_id": "cadence_workload_inventory",
+        "source_name": "Workload cadence inventory",
+        "verdict": "MISSING"
+       },
+       {
+        "coverage": 0.0,
+        "family": "TOPOLOGY",
+        "fresh": null,
+        "granularity": "ROLE",
+        "graph_fact_ids": [],
+        "independent_origin": "identity_and_trust_collectors",
+        "reason": "No materialized fact is available in the Neo4j decision view.",
+        "required": false,
+        "source_id": "trust_identity_classification",
+        "source_name": "Trust and identity classification",
+        "verdict": "MISSING"
+       },
+       {
+        "coverage": 0.0,
+        "family": "WORKLOAD_BEHAVIOR",
+        "fresh": null,
+        "granularity": "RESOURCE",
+        "graph_fact_ids": [],
+        "independent_origin": "cloudwatch_xray_and_service_telemetry",
+        "reason": "No materialized fact is available in the Neo4j decision view.",
+        "required": false,
+        "source_id": "workload_runtime_telemetry",
+        "source_name": "Workload runtime telemetry",
+        "verdict": "MISSING"
+       },
+       {
+        "coverage": 0.0,
+        "family": "ACTIVE_VALIDATION",
+        "fresh": null,
+        "granularity": "RESOURCE",
+        "graph_fact_ids": [],
+        "independent_origin": "cyntro_canary",
+        "reason": "No materialized fact is available in the Neo4j decision view.",
+        "required": false,
+        "source_id": "synthetic_canary",
+        "source_name": "Synthetic consumer canary",
+        "verdict": "MISSING"
+       }
+      ],
+      "conflicts": [],
+      "consulted_source_count": 10,
+      "handshakes": [
+       {
+        "handshake_id": "configured_vs_observed",
+        "independent_families": [
+         "POLICY_INVENTORY",
+         "RUNTIME_AUDIT"
+        ],
+        "independent_origins": [
+         "aws_iam_policy_api",
+         "cloudtrail_action_usage"
+        ],
+        "reason": "The granted action was evaluated against action-level runtime evidence.",
+        "source_ids": [
+         "iam_policy_inventory",
+         "cloudtrail_action_usage"
+        ],
+        "status": "PASS",
+        "title": "Configured permission \u00d7 observed action"
+       },
+       {
+        "handshake_id": "runtime_vs_advisor",
+        "independent_families": [
+         "AWS_ADVISORY",
+         "RUNTIME_AUDIT"
+        ],
+        "independent_origins": [
+         "cloudtrail_action_usage",
+         "iam_access_advisor"
+        ],
+        "reason": "Access Advisor is missing or only confirms service-level activity; it does not corroborate this action's non-use.",
+        "source_ids": [
+         "cloudtrail_action_usage",
+         "access_advisor_last_used"
+        ],
+        "status": "UNVERIFIED",
+        "title": "CloudTrail \u00d7 Access Advisor"
+       },
+       {
+        "handshake_id": "consumer_attribution",
+        "independent_families": [
+         "RUNTIME_AUDIT",
+         "TOPOLOGY"
+        ],
+        "independent_origins": [
+         "aws_config_and_attachment_collectors",
+         "cloudtrail"
+        ],
+        "reason": "An enumerated consumer is linked to runtime principal evidence.",
+        "source_ids": [
+         "consumer_inventory",
+         "runtime_consumer_attribution"
+        ],
+        "status": "PASS",
+        "title": "Consumer inventory \u00d7 runtime identity"
+       },
+       {
+        "handshake_id": "dependency_exclusion",
+        "independent_families": [
+         "TOPOLOGY"
+        ],
+        "independent_origins": [
+         "implicit_dependency_graph"
+        ],
+        "reason": "All applicable registered dependency checks completed.",
+        "source_ids": [
+         "implicit_dependency_graph"
+        ],
+        "status": "PASS",
+        "title": "Permission \u00d7 implicit dependencies"
+       },
+       {
+        "handshake_id": "cadence_coverage",
+        "independent_families": [
+         "RUNTIME_AUDIT",
+         "WORKLOAD_BEHAVIOR"
+        ],
+        "independent_origins": [
+         "cloudtrail_action_usage",
+         "workload_schedule_collectors"
+        ],
+        "reason": "The workload's legitimate maximum gap between uses is unknown.",
+        "source_ids": [
+         "cloudtrail_action_usage",
+         "cadence_workload_inventory"
+        ],
+        "status": "UNVERIFIED",
+        "title": "Observation window \u00d7 workload cadence"
+       }
+      ],
+      "independent_family_count": 5,
+      "independent_origin_count": 10,
+      "missing_required_sources": [],
+      "non_use_supporting_family_count": 1,
+      "non_use_supporting_origin_count": 1,
+      "permission": "dynamodb:PartiQLSelect",
+      "source_catalog_count": 17
+     },
+     "factors": {
+      "consumer_attribution": 20.0,
+      "dependency_certainty": 20.0,
+      "evidence_coverage": 30.0,
+      "independent_corroboration": 0.0,
+      "observation_adequacy": 20.0,
+      "raw_score": 90.0
+     },
+     "limiting_factors": [
+      "Evidence handshakes not proven: runtime_vs_advisor, cadence_coverage."
+     ],
+     "observation_days": 30,
+     "permission": "dynamodb:PartiQLSelect",
+     "reason": "No usage was observed and the available action-level evidence supports removal.",
+     "required_observation_days": 7,
+     "score": 90,
+     "score_ceiling": 99,
+     "scorer_version": "2.1.0-shadow"
+    },
+    {
+     "band": "STRONG",
+     "consequence_class": "ROUTINE",
+     "disposition": "REMOVAL_CANDIDATE",
+     "evidence_channel": "DIRECT_RUNTIME",
+     "evidence_envelope": {
+      "assertions": [
+       {
+        "coverage": 1.0,
+        "family": "POLICY_INVENTORY",
+        "fresh": true,
+        "granularity": "ACTION",
+        "graph_fact_ids": [],
+        "independent_origin": "aws_iam_policy_api",
+        "reason": "Permission is present in the evaluated policy set.",
+        "required": true,
+        "source_id": "iam_policy_inventory",
+        "source_name": "Live IAM policy inventory",
+        "verdict": "COVERAGE_ONLY"
+       },
+       {
+        "coverage": 1.0,
+        "family": "RUNTIME_AUDIT",
+        "fresh": true,
+        "granularity": "ACTION",
+        "graph_fact_ids": [
+         "fixture:cloudtrail_action_usage"
+        ],
+        "independent_origin": "cloudtrail_action_usage",
+        "reason": "fixture: a current NO_OBSERVED_USE assertion",
+        "required": true,
+        "source_id": "cloudtrail_action_usage",
+        "source_name": "cloudtrail_action_usage",
+        "verdict": "SUPPORTS_NON_USE"
+       },
+       {
+        "coverage": 0.0,
+        "family": "RUNTIME_AUDIT",
+        "fresh": null,
+        "granularity": "RESOURCE",
+        "graph_fact_ids": [],
+        "independent_origin": "cloudtrail_event_selector_collector",
+        "reason": "No Lambda/S3 data-event edges in graph",
+        "required": false,
+        "source_id": "cloudtrail_data_event_coverage",
+        "source_name": "CloudTrail data-event selector coverage",
+        "verdict": "MISSING"
+       },
+       {
+        "coverage": 0.0,
+        "family": "AWS_ADVISORY",
+        "fresh": null,
+        "granularity": "SERVICE",
+        "graph_fact_ids": [],
+        "independent_origin": "iam_access_advisor",
+        "reason": "Access Advisor has not been synced for this role.",
+        "required": false,
+        "source_id": "access_advisor_last_used",
+        "source_name": "IAM Access Advisor",
+        "verdict": "MISSING"
+       },
+       {
+        "coverage": 0.0,
+        "family": "AWS_ADVISORY",
+        "fresh": null,
+        "granularity": "ACTION",
+        "graph_fact_ids": [],
+        "independent_origin": "iam_access_analyzer",
+        "reason": "No Access Analyzer findings on graph",
+        "required": false,
+        "source_id": "access_analyzer_findings",
+        "source_name": "IAM Access Analyzer",
+        "verdict": "MISSING"
+       },
+       {
+        "coverage": 1.0,
+        "family": "CONFIGURATION_STATE",
+        "fresh": true,
+        "granularity": "ACTION",
+        "graph_fact_ids": [
+         "fixture:aws_config_history"
+        ],
+        "independent_origin": "aws_config_history",
+        "reason": "fixture: a current NO_OBSERVED_USE assertion",
+        "required": true,
+        "source_id": "aws_config_history",
+        "source_name": "aws_config_history",
+        "verdict": "COVERAGE_ONLY"
+       },
+       {
+        "coverage": 1.0,
+        "family": "RUNTIME_AUDIT",
+        "fresh": null,
+        "granularity": "ORGANIZATION",
+        "graph_fact_ids": [],
+        "independent_origin": "organization_cloudtrail",
+        "reason": "Single-account context \u2014 org trail not required",
+        "required": true,
+        "source_id": "org_trail_session_lineage",
+        "source_name": "Organization-trail STS session lineage",
+        "verdict": "COVERAGE_ONLY"
+       },
+       {
+        "coverage": 1.0,
+        "family": "POLICY_INVENTORY",
+        "fresh": true,
+        "granularity": "ACTION",
+        "graph_fact_ids": [
+         "fixture:resource_policy_inventory"
+        ],
+        "independent_origin": "resource_policy_inventory",
+        "reason": "fixture: a current NO_OBSERVED_USE assertion",
+        "required": true,
+        "source_id": "resource_policy_inventory",
+        "source_name": "resource_policy_inventory",
+        "verdict": "COVERAGE_ONLY"
+       },
+       {
+        "coverage": 1.0,
+        "family": "POLICY_EVALUATION",
+        "fresh": null,
+        "granularity": "ACTION",
+        "graph_fact_ids": [],
+        "independent_origin": "policy_simulation_materializer",
+        "reason": "Standalone account \u2014 no organization SCP applies",
+        "required": true,
+        "source_id": "scp_boundary_simulation",
+        "source_name": "SCP and permission-boundary evaluation",
+        "verdict": "COVERAGE_ONLY"
+       },
+       {
+        "coverage": 1.0,
+        "family": "CONFIGURATION_STATE",
+        "fresh": null,
+        "granularity": "ROLE",
+        "graph_fact_ids": [
+         "policy-set:aaaaaaaaaaaaaaaa"
+        ],
+        "independent_origin": "iam_policy_collector",
+        "reason": "The analysis is bound to the current graph policy generation; live state is rechecked before Apply.",
+        "required": true,
+        "source_id": "policy_set_hash",
+        "source_name": "Policy-state binding",
+        "verdict": "COVERAGE_ONLY"
+       },
+       {
+        "coverage": 1.0,
+        "family": "TOPOLOGY",
+        "fresh": null,
+        "granularity": "ROLE",
+        "graph_fact_ids": [],
+        "independent_origin": "aws_config_and_attachment_collectors",
+        "reason": "Role consumers were enumerated.",
+        "required": true,
+        "source_id": "consumer_inventory",
+        "source_name": "Role consumer inventory",
+        "verdict": "COVERAGE_ONLY"
+       },
+       {
+        "coverage": 1.0,
+        "family": "RUNTIME_AUDIT",
+        "fresh": null,
+        "granularity": "ROLE",
+        "graph_fact_ids": [],
+        "independent_origin": "cloudtrail",
+        "reason": "Runtime principals were attributed to an enumerated consumer.",
+        "required": true,
+        "source_id": "runtime_consumer_attribution",
+        "source_name": "Runtime principal-to-consumer attribution",
+        "verdict": "COVERAGE_ONLY"
+       },
+       {
+        "coverage": 1.0,
+        "family": "TOPOLOGY",
+        "fresh": true,
+        "granularity": "ACTION",
+        "graph_fact_ids": [
+         "fixture:implicit_dependency_graph"
+        ],
+        "independent_origin": "implicit_dependency_graph",
+        "reason": "fixture: a current NO_OBSERVED_USE assertion",
+        "required": true,
+        "source_id": "implicit_dependency_graph",
+        "source_name": "implicit_dependency_graph",
+        "verdict": "COVERAGE_ONLY"
+       },
+       {
+        "coverage": 0.0,
+        "family": "WORKLOAD_BEHAVIOR",
+        "fresh": null,
+        "granularity": "ROLE",
+        "graph_fact_ids": [],
+        "independent_origin": "workload_schedule_collectors",
+        "reason": "AWS-native schedule inventory has not been collected for this role",
+        "required": false,
+        "source_id": "cadence_workload_inventory",
+        "source_name": "Workload cadence inventory",
+        "verdict": "MISSING"
+       },
+       {
+        "coverage": 0.0,
+        "family": "TOPOLOGY",
+        "fresh": null,
+        "granularity": "ROLE",
+        "graph_fact_ids": [],
+        "independent_origin": "identity_and_trust_collectors",
+        "reason": "No materialized fact is available in the Neo4j decision view.",
+        "required": false,
+        "source_id": "trust_identity_classification",
+        "source_name": "Trust and identity classification",
+        "verdict": "MISSING"
+       },
+       {
+        "coverage": 0.0,
+        "family": "WORKLOAD_BEHAVIOR",
+        "fresh": null,
+        "granularity": "RESOURCE",
+        "graph_fact_ids": [],
+        "independent_origin": "cloudwatch_xray_and_service_telemetry",
+        "reason": "No materialized fact is available in the Neo4j decision view.",
+        "required": false,
+        "source_id": "workload_runtime_telemetry",
+        "source_name": "Workload runtime telemetry",
+        "verdict": "MISSING"
+       },
+       {
+        "coverage": 0.0,
+        "family": "ACTIVE_VALIDATION",
+        "fresh": null,
+        "granularity": "RESOURCE",
+        "graph_fact_ids": [],
+        "independent_origin": "cyntro_canary",
+        "reason": "No materialized fact is available in the Neo4j decision view.",
+        "required": false,
+        "source_id": "synthetic_canary",
+        "source_name": "Synthetic consumer canary",
+        "verdict": "MISSING"
+       }
+      ],
+      "conflicts": [],
+      "consulted_source_count": 10,
+      "handshakes": [
+       {
+        "handshake_id": "configured_vs_observed",
+        "independent_families": [
+         "POLICY_INVENTORY",
+         "RUNTIME_AUDIT"
+        ],
+        "independent_origins": [
+         "aws_iam_policy_api",
+         "cloudtrail_action_usage"
+        ],
+        "reason": "The granted action was evaluated against action-level runtime evidence.",
+        "source_ids": [
+         "iam_policy_inventory",
+         "cloudtrail_action_usage"
+        ],
+        "status": "PASS",
+        "title": "Configured permission \u00d7 observed action"
+       },
+       {
+        "handshake_id": "runtime_vs_advisor",
+        "independent_families": [
+         "AWS_ADVISORY",
+         "RUNTIME_AUDIT"
+        ],
+        "independent_origins": [
+         "cloudtrail_action_usage",
+         "iam_access_advisor"
+        ],
+        "reason": "Access Advisor is missing or only confirms service-level activity; it does not corroborate this action's non-use.",
+        "source_ids": [
+         "cloudtrail_action_usage",
+         "access_advisor_last_used"
+        ],
+        "status": "UNVERIFIED",
+        "title": "CloudTrail \u00d7 Access Advisor"
+       },
+       {
+        "handshake_id": "consumer_attribution",
+        "independent_families": [
+         "RUNTIME_AUDIT",
+         "TOPOLOGY"
+        ],
+        "independent_origins": [
+         "aws_config_and_attachment_collectors",
+         "cloudtrail"
+        ],
+        "reason": "An enumerated consumer is linked to runtime principal evidence.",
+        "source_ids": [
+         "consumer_inventory",
+         "runtime_consumer_attribution"
+        ],
+        "status": "PASS",
+        "title": "Consumer inventory \u00d7 runtime identity"
+       },
+       {
+        "handshake_id": "dependency_exclusion",
+        "independent_families": [
+         "TOPOLOGY"
+        ],
+        "independent_origins": [
+         "implicit_dependency_graph"
+        ],
+        "reason": "All applicable registered dependency checks completed.",
+        "source_ids": [
+         "implicit_dependency_graph"
+        ],
+        "status": "PASS",
+        "title": "Permission \u00d7 implicit dependencies"
+       },
+       {
+        "handshake_id": "cadence_coverage",
+        "independent_families": [
+         "RUNTIME_AUDIT",
+         "WORKLOAD_BEHAVIOR"
+        ],
+        "independent_origins": [
+         "cloudtrail_action_usage",
+         "workload_schedule_collectors"
+        ],
+        "reason": "The workload's legitimate maximum gap between uses is unknown.",
+        "source_ids": [
+         "cloudtrail_action_usage",
+         "cadence_workload_inventory"
+        ],
+        "status": "UNVERIFIED",
+        "title": "Observation window \u00d7 workload cadence"
+       }
+      ],
+      "independent_family_count": 5,
+      "independent_origin_count": 10,
+      "missing_required_sources": [],
+      "non_use_supporting_family_count": 1,
+      "non_use_supporting_origin_count": 1,
+      "permission": "s3:GetObject",
+      "source_catalog_count": 17
+     },
+     "factors": {
+      "consumer_attribution": 20.0,
+      "dependency_certainty": 20.0,
+      "evidence_coverage": 30.0,
+      "independent_corroboration": 0.0,
+      "observation_adequacy": 20.0,
+      "raw_score": 90.0
+     },
+     "limiting_factors": [
+      "Evidence handshakes not proven: runtime_vs_advisor, cadence_coverage."
+     ],
+     "observation_days": 30,
+     "permission": "s3:GetObject",
+     "reason": "No usage was observed and the available action-level evidence supports removal.",
+     "required_observation_days": 7,
+     "score": 90,
+     "score_ceiling": 99,
+     "scorer_version": "2.1.0-shadow"
+    },
+    {
+     "band": "STRONG",
+     "consequence_class": "ROUTINE",
+     "disposition": "REMOVAL_CANDIDATE",
+     "evidence_channel": "DIRECT_RUNTIME",
+     "evidence_envelope": {
+      "assertions": [
+       {
+        "coverage": 1.0,
+        "family": "POLICY_INVENTORY",
+        "fresh": true,
+        "granularity": "ACTION",
+        "graph_fact_ids": [],
+        "independent_origin": "aws_iam_policy_api",
+        "reason": "Permission is present in the evaluated policy set.",
+        "required": true,
+        "source_id": "iam_policy_inventory",
+        "source_name": "Live IAM policy inventory",
+        "verdict": "COVERAGE_ONLY"
+       },
+       {
+        "coverage": 1.0,
+        "family": "RUNTIME_AUDIT",
+        "fresh": true,
+        "granularity": "ACTION",
+        "graph_fact_ids": [
+         "fixture:cloudtrail_action_usage"
+        ],
+        "independent_origin": "cloudtrail_action_usage",
+        "reason": "fixture: a current NO_OBSERVED_USE assertion",
+        "required": true,
+        "source_id": "cloudtrail_action_usage",
+        "source_name": "cloudtrail_action_usage",
+        "verdict": "SUPPORTS_NON_USE"
+       },
+       {
+        "coverage": 0.0,
+        "family": "RUNTIME_AUDIT",
+        "fresh": null,
+        "granularity": "RESOURCE",
+        "graph_fact_ids": [],
+        "independent_origin": "cloudtrail_event_selector_collector",
+        "reason": "No Lambda/S3 data-event edges in graph",
+        "required": false,
+        "source_id": "cloudtrail_data_event_coverage",
+        "source_name": "CloudTrail data-event selector coverage",
+        "verdict": "MISSING"
+       },
+       {
+        "coverage": 0.0,
+        "family": "AWS_ADVISORY",
+        "fresh": null,
+        "granularity": "SERVICE",
+        "graph_fact_ids": [],
+        "independent_origin": "iam_access_advisor",
+        "reason": "Access Advisor has not been synced for this role.",
+        "required": false,
+        "source_id": "access_advisor_last_used",
+        "source_name": "IAM Access Advisor",
+        "verdict": "MISSING"
+       },
+       {
+        "coverage": 0.0,
+        "family": "AWS_ADVISORY",
+        "fresh": null,
+        "granularity": "ACTION",
+        "graph_fact_ids": [],
+        "independent_origin": "iam_access_analyzer",
+        "reason": "No Access Analyzer findings on graph",
+        "required": false,
+        "source_id": "access_analyzer_findings",
+        "source_name": "IAM Access Analyzer",
+        "verdict": "MISSING"
+       },
+       {
+        "coverage": 1.0,
+        "family": "CONFIGURATION_STATE",
+        "fresh": true,
+        "granularity": "ACTION",
+        "graph_fact_ids": [
+         "fixture:aws_config_history"
+        ],
+        "independent_origin": "aws_config_history",
+        "reason": "fixture: a current NO_OBSERVED_USE assertion",
+        "required": true,
+        "source_id": "aws_config_history",
+        "source_name": "aws_config_history",
+        "verdict": "COVERAGE_ONLY"
+       },
+       {
+        "coverage": 1.0,
+        "family": "RUNTIME_AUDIT",
+        "fresh": null,
+        "granularity": "ORGANIZATION",
+        "graph_fact_ids": [],
+        "independent_origin": "organization_cloudtrail",
+        "reason": "Single-account context \u2014 org trail not required",
+        "required": true,
+        "source_id": "org_trail_session_lineage",
+        "source_name": "Organization-trail STS session lineage",
+        "verdict": "COVERAGE_ONLY"
+       },
+       {
+        "coverage": 1.0,
+        "family": "POLICY_INVENTORY",
+        "fresh": true,
+        "granularity": "ACTION",
+        "graph_fact_ids": [
+         "fixture:resource_policy_inventory"
+        ],
+        "independent_origin": "resource_policy_inventory",
+        "reason": "fixture: a current NO_OBSERVED_USE assertion",
+        "required": true,
+        "source_id": "resource_policy_inventory",
+        "source_name": "resource_policy_inventory",
+        "verdict": "COVERAGE_ONLY"
+       },
+       {
+        "coverage": 1.0,
+        "family": "POLICY_EVALUATION",
+        "fresh": null,
+        "granularity": "ACTION",
+        "graph_fact_ids": [],
+        "independent_origin": "policy_simulation_materializer",
+        "reason": "Standalone account \u2014 no organization SCP applies",
+        "required": true,
+        "source_id": "scp_boundary_simulation",
+        "source_name": "SCP and permission-boundary evaluation",
+        "verdict": "COVERAGE_ONLY"
+       },
+       {
+        "coverage": 1.0,
+        "family": "CONFIGURATION_STATE",
+        "fresh": null,
+        "granularity": "ROLE",
+        "graph_fact_ids": [
+         "policy-set:aaaaaaaaaaaaaaaa"
+        ],
+        "independent_origin": "iam_policy_collector",
+        "reason": "The analysis is bound to the current graph policy generation; live state is rechecked before Apply.",
+        "required": true,
+        "source_id": "policy_set_hash",
+        "source_name": "Policy-state binding",
+        "verdict": "COVERAGE_ONLY"
+       },
+       {
+        "coverage": 1.0,
+        "family": "TOPOLOGY",
+        "fresh": null,
+        "granularity": "ROLE",
+        "graph_fact_ids": [],
+        "independent_origin": "aws_config_and_attachment_collectors",
+        "reason": "Role consumers were enumerated.",
+        "required": true,
+        "source_id": "consumer_inventory",
+        "source_name": "Role consumer inventory",
+        "verdict": "COVERAGE_ONLY"
+       },
+       {
+        "coverage": 1.0,
+        "family": "RUNTIME_AUDIT",
+        "fresh": null,
+        "granularity": "ROLE",
+        "graph_fact_ids": [],
+        "independent_origin": "cloudtrail",
+        "reason": "Runtime principals were attributed to an enumerated consumer.",
+        "required": true,
+        "source_id": "runtime_consumer_attribution",
+        "source_name": "Runtime principal-to-consumer attribution",
+        "verdict": "COVERAGE_ONLY"
+       },
+       {
+        "coverage": 1.0,
+        "family": "TOPOLOGY",
+        "fresh": true,
+        "granularity": "ACTION",
+        "graph_fact_ids": [
+         "fixture:implicit_dependency_graph"
+        ],
+        "independent_origin": "implicit_dependency_graph",
+        "reason": "fixture: a current NO_OBSERVED_USE assertion",
+        "required": true,
+        "source_id": "implicit_dependency_graph",
+        "source_name": "implicit_dependency_graph",
+        "verdict": "COVERAGE_ONLY"
+       },
+       {
+        "coverage": 0.0,
+        "family": "WORKLOAD_BEHAVIOR",
+        "fresh": null,
+        "granularity": "ROLE",
+        "graph_fact_ids": [],
+        "independent_origin": "workload_schedule_collectors",
+        "reason": "AWS-native schedule inventory has not been collected for this role",
+        "required": false,
+        "source_id": "cadence_workload_inventory",
+        "source_name": "Workload cadence inventory",
+        "verdict": "MISSING"
+       },
+       {
+        "coverage": 0.0,
+        "family": "TOPOLOGY",
+        "fresh": null,
+        "granularity": "ROLE",
+        "graph_fact_ids": [],
+        "independent_origin": "identity_and_trust_collectors",
+        "reason": "No materialized fact is available in the Neo4j decision view.",
+        "required": false,
+        "source_id": "trust_identity_classification",
+        "source_name": "Trust and identity classification",
+        "verdict": "MISSING"
+       },
+       {
+        "coverage": 0.0,
+        "family": "WORKLOAD_BEHAVIOR",
+        "fresh": null,
+        "granularity": "RESOURCE",
+        "graph_fact_ids": [],
+        "independent_origin": "cloudwatch_xray_and_service_telemetry",
+        "reason": "No materialized fact is available in the Neo4j decision view.",
+        "required": false,
+        "source_id": "workload_runtime_telemetry",
+        "source_name": "Workload runtime telemetry",
+        "verdict": "MISSING"
+       },
+       {
+        "coverage": 0.0,
+        "family": "ACTIVE_VALIDATION",
+        "fresh": null,
+        "granularity": "RESOURCE",
+        "graph_fact_ids": [],
+        "independent_origin": "cyntro_canary",
+        "reason": "No materialized fact is available in the Neo4j decision view.",
+        "required": false,
+        "source_id": "synthetic_canary",
+        "source_name": "Synthetic consumer canary",
+        "verdict": "MISSING"
+       }
+      ],
+      "conflicts": [],
+      "consulted_source_count": 10,
+      "handshakes": [
+       {
+        "handshake_id": "configured_vs_observed",
+        "independent_families": [
+         "POLICY_INVENTORY",
+         "RUNTIME_AUDIT"
+        ],
+        "independent_origins": [
+         "aws_iam_policy_api",
+         "cloudtrail_action_usage"
+        ],
+        "reason": "The granted action was evaluated against action-level runtime evidence.",
+        "source_ids": [
+         "iam_policy_inventory",
+         "cloudtrail_action_usage"
+        ],
+        "status": "PASS",
+        "title": "Configured permission \u00d7 observed action"
+       },
+       {
+        "handshake_id": "runtime_vs_advisor",
+        "independent_families": [
+         "AWS_ADVISORY",
+         "RUNTIME_AUDIT"
+        ],
+        "independent_origins": [
+         "cloudtrail_action_usage",
+         "iam_access_advisor"
+        ],
+        "reason": "Access Advisor is missing or only confirms service-level activity; it does not corroborate this action's non-use.",
+        "source_ids": [
+         "cloudtrail_action_usage",
+         "access_advisor_last_used"
+        ],
+        "status": "UNVERIFIED",
+        "title": "CloudTrail \u00d7 Access Advisor"
+       },
+       {
+        "handshake_id": "consumer_attribution",
+        "independent_families": [
+         "RUNTIME_AUDIT",
+         "TOPOLOGY"
+        ],
+        "independent_origins": [
+         "aws_config_and_attachment_collectors",
+         "cloudtrail"
+        ],
+        "reason": "An enumerated consumer is linked to runtime principal evidence.",
+        "source_ids": [
+         "consumer_inventory",
+         "runtime_consumer_attribution"
+        ],
+        "status": "PASS",
+        "title": "Consumer inventory \u00d7 runtime identity"
+       },
+       {
+        "handshake_id": "dependency_exclusion",
+        "independent_families": [
+         "TOPOLOGY"
+        ],
+        "independent_origins": [
+         "implicit_dependency_graph"
+        ],
+        "reason": "All applicable registered dependency checks completed.",
+        "source_ids": [
+         "implicit_dependency_graph"
+        ],
+        "status": "PASS",
+        "title": "Permission \u00d7 implicit dependencies"
+       },
+       {
+        "handshake_id": "cadence_coverage",
+        "independent_families": [
+         "RUNTIME_AUDIT",
+         "WORKLOAD_BEHAVIOR"
+        ],
+        "independent_origins": [
+         "cloudtrail_action_usage",
+         "workload_schedule_collectors"
+        ],
+        "reason": "The workload's legitimate maximum gap between uses is unknown.",
+        "source_ids": [
+         "cloudtrail_action_usage",
+         "cadence_workload_inventory"
+        ],
+        "status": "UNVERIFIED",
+        "title": "Observation window \u00d7 workload cadence"
+       }
+      ],
+      "independent_family_count": 5,
+      "independent_origin_count": 10,
+      "missing_required_sources": [],
+      "non_use_supporting_family_count": 1,
+      "non_use_supporting_origin_count": 1,
+      "permission": "s3:GetObjectAcl",
+      "source_catalog_count": 17
+     },
+     "factors": {
+      "consumer_attribution": 20.0,
+      "dependency_certainty": 20.0,
+      "evidence_coverage": 30.0,
+      "independent_corroboration": 0.0,
+      "observation_adequacy": 20.0,
+      "raw_score": 90.0
+     },
+     "limiting_factors": [
+      "Evidence handshakes not proven: runtime_vs_advisor, cadence_coverage."
+     ],
+     "observation_days": 30,
+     "permission": "s3:GetObjectAcl",
+     "reason": "No usage was observed and the available action-level evidence supports removal.",
+     "required_observation_days": 7,
+     "score": 90,
+     "score_ceiling": 99,
+     "scorer_version": "2.1.0-shadow"
+    },
+    {
+     "band": null,
+     "consequence_class": "ROUTINE",
+     "disposition": "USED",
+     "evidence_channel": "NONE",
+     "evidence_envelope": null,
+     "factors": null,
+     "limiting_factors": [],
+     "observation_days": 0,
+     "permission": "s3:ListBucket",
+     "reason": "Observed in use; Cyntro will keep this permission.",
+     "required_observation_days": 365,
+     "score": null,
+     "score_ceiling": null,
+     "scorer_version": "2.1.0-shadow"
+    }
+   ],
+   "plan_score": 90,
+   "protected_count": 0,
+   "scored_candidate_count": 3,
+   "scorer_version": "2.1.0-shadow",
+   "shadow_only": true,
+   "used_count": 1
+  },
+  "resource": {
+   "consumers": [
+    {
+     "id": "i-0fixture",
+     "name": "app",
+     "type": "ec2_instance"
+    }
+   ],
+   "id": "test-role",
+   "severity": "LOW",
+   "shared": false,
+   "shared_confidence": "high",
+   "system": "test-sys",
+   "type": "IAMRole"
+  },
+  "review_scope": {
+   "account_id": "000000000000",
+   "account_match_mode": "EXACT",
+   "authority": "SERVER_DEPLOYMENT_CONFIG",
+   "graph_nodes_for_arn": 1,
+   "region_context": null,
+   "role_arn": "arn:aws:iam::000000000000:role/test-role",
+   "role_id": "AROATESTROLE000000000",
+   "role_name": "test-role",
+   "tenant_id": "testbed-webshop"
+  },
+  "safety": {
+   "completeness": "complete",
+   "consumer_count": 1,
+   "data_layer_complete": true,
+   "data_layer_gaps": [],
+   "decision": "blocked",
+   "decision_bundle_hash": "7f7b9cf4ed7623002fb347d5c81d197f961539574bdb0a9328fef22eb6bc0a1b",
+   "decision_canonical": "BLOCK",
+   "decision_envelope_hashes": [
+    "39e12bebe3416e3eae3feec7f80b855d7ea3907de075c74b336ebc02d0831325"
+   ],
+   "decision_reason_codes": [
+    "CUSTOMER_IN_SHADOW_BOOTSTRAP"
+   ],
+   "engine_decision": "SHADOW_ONLY",
+   "engine_version": "0.1.0",
+   "execution_adapter": "aws_api",
+   "execution_status": "preview_only",
+   "iac_binding_id": null,
+   "iac_binding_status": null,
+   "iac_managed": false,
+   "iac_manager": "manual",
+   "missing_evidence_sources": [],
+   "mutation_readiness": {
+    "apply_declared": false,
+    "apply_enabled": false,
+    "assume_role_enabled": false,
+    "authority_blockers": [
+     "IAM_MUTATION_NOT_DECLARED",
+     "RELEASE_TIER_REFUSES_MUTATION",
+     "PRODUCTION_CONTROL_BUNDLE_INCOMPLETE",
+     "WEB_GRAPH_READ_ONLY_BOUNDARY_UNPROVEN",
+     "LIFECYCLE_CONFIGURATION_INCOMPLETE",
+     "CANONICAL_INCREMENTAL_GENERATION_NOT_READY"
+    ],
+    "break_glass_operational_blockers": [
+     "CUSTOMER_REMEDIATOR_NOT_CONFIGURED",
+     "REMEDIATION_ASSUME_ROLE_DISABLED",
+     "IAM_MUTATION_NOT_DECLARED",
+     "WEB_GRAPH_READ_ONLY_BOUNDARY_UNPROVEN",
+     "TENANT_LIFECYCLE_STATE_NOT_READY",
+     "RELEASE_TIER_REFUSES_MUTATION"
+    ],
+    "break_glass_operational_ready": false,
+    "can_apply": false,
+    "can_issue_plan": false,
+    "canonical": {
+     "action": {
+      "blockers": [
+       "ACTIVE_GENERATION_UNKNOWN",
+       "NO_UNUSED_CANDIDATE",
+       "IAM_MUTATION_NOT_DECLARED",
+       "RELEASE_TIER_REFUSES_MUTATION",
+       "PRODUCTION_CONTROL_BUNDLE_INCOMPLETE",
+       "WEB_GRAPH_READ_ONLY_BOUNDARY_UNPROVEN",
+       "LIFECYCLE_CONFIGURATION_INCOMPLETE",
+       "CANONICAL_INCREMENTAL_GENERATION_NOT_READY",
+       "GENERATION_REFUSES_NEGATIVE_AUTHORITY"
+      ],
+      "can_apply": false,
+      "can_issue_plan": false,
+      "remediable": false
+     },
+     "analysis_complete": null,
+     "cached": true,
+     "engine": {
+      "attestation_matches_build": false,
+      "blockers": [
+       "BUILD_SHA_UNKNOWN",
+       "ENGINE_NOT_CERTIFIED"
+      ],
+      "build_sha": null,
+      "certified": false
+     },
+     "expires_at": "2026-09-29T01:02:39.139227+00:00",
+     "fingerprint": "65016e3c28bcd1dff0c25631a1ad2203",
+     "generation": {
+      "active_generation_id": null,
+      "blockers": [
+       "ACTIVE_GENERATION_UNKNOWN",
+       "TRAFFIC_INGEST_NOT_INCREMENTAL",
+       "NEGATIVE_AUTHORITY_NOT_PERMITTED",
+       "DECISION_READINESS_NOT_READY"
+      ],
+      "coverage_state": "UNKNOWN",
+      "decision_family": "iam",
+      "known": false,
+      "lane": "cloudtrail_iam_usage",
+      "negative_authority_permitted": false,
+      "projection_lag_seconds": null,
+      "readiness_failures": [
+       "READINESS_CACHE_EMPTY"
+      ],
+      "traffic_ingest_mode": "legacy"
+     },
+     "probed_at": "2026-09-29T01:02:09.139227+00:00",
+     "schema": "canonical-readiness/v1",
+     "serve_state": "NOT_READY"
+    },
+    "canonical_evidence_ready": false,
+    "control_bundle_declared": false,
+    "customer_plane": false,
+    "graph_boundary_ready": false,
+    "lifecycle_state_ready": false,
+    "missing": [
+     "CYNTRO_REMEDIATION_ROLE_ARN",
+     "CYNTRO_REMEDIATION_EXTERNAL_ID",
+     "CYNTRO_USE_ASSUME_ROLE",
+     "IAM_MUTATION_NOT_DECLARED",
+     "RELEASE_TIER_REFUSES_MUTATION",
+     "PRODUCTION_CONTROL_BUNDLE_INCOMPLETE",
+     "WEB_GRAPH_READ_ONLY_BOUNDARY_UNPROVEN",
+     "LIFECYCLE_CONFIGURATION_INCOMPLETE",
+     "CANONICAL_INCREMENTAL_GENERATION_NOT_READY"
+    ],
+    "mutation_pipeline_ready": true,
+    "plan_secret_configured": false,
+    "production_certification_verified": false,
+    "production_control_bundle_ready": false,
+    "remediator_configured": false
+   },
+   "observation_days": 30,
+   "ownership_status": "declared",
+   "ownership_warning": null,
+   "policy_pack_versions": [
+    "0.1.0"
+   ],
+   "preflight_required": true,
+   "rollback_available": false,
+   "rollback_ready": {
+    "account_id": "000000000000",
+    "detail": "LifecycleReadConfigurationError",
+    "listing_complete": null,
+    "operation_id": null,
+    "reason_code": "ROLLBACK_EVIDENCE_UNAVAILABLE",
+    "resource_arn": "arn:aws:iam::000000000000:role/test-role",
+    "resource_incarnation": "AROATESTROLE000000000",
+    "restored_by_operation_id": null,
+    "snapshot_id": null,
+    "source": "operation_ledger",
+    "status": "unknown",
+    "tenant_id": "testbed-webshop"
+   },
+   "rollback_ready_status": "unknown",
+   "shared": false,
+   "shared_confidence": "high",
+   "shared_resource": null,
+   "snapshot_required": true,
+   "telemetry_coverage": 1.0,
+   "telemetry_planes_active": [
+    "cloudtrail",
+    "config",
+    "access_advisor",
+    "behavioral_pu"
+   ],
+   "telemetry_planes_missing": [],
+   "telemetry_planes_required": [
+    "cloudtrail",
+    "config",
+    "access_advisor",
+    "behavioral_pu"
+   ],
+   "time_requirement_only": false,
+   "unsafe_reasons": [
+    "Mutation process is not ready to sign a plan (missing CYNTRO_REMEDIATION_ROLE_ARN, CYNTRO_REMEDIATION_EXTERNAL_ID, CYNTRO_USE_ASSUME_ROLE, IAM_MUTATION_NOT_DECLARED, RELEASE_TIER_REFUSES_MUTATION, PRODUCTION_CONTROL_BUNDLE_INCOMPLETE, WEB_GRAPH_READ_ONLY_BOUNDARY_UNPROVEN, LIFECYCLE_CONFIGURATION_INCOMPLETE, CANONICAL_INCREMENTAL_GENERATION_NOT_READY)"
+   ],
+   "would_be_decision_if_active": "APPROVAL_REQUIRED"
+  },
+  "simulation": {
+   "action_type": "PERMISSION_NARROWING_IN_PLACE",
+   "dependency_checks": {},
+   "excluded_by_category": {
+    "attribution_unverified": [
+     "dynamodb:PartiQLSelect",
+     "s3:GetObject"
+    ]
+   },
+   "excluded_unsafe_count": 2,
+   "kept_examples": [
+    "s3:ListBucket"
+   ],
+   "kept_permissions": 3,
+   "removed_examples": [
+    "s3:GetObjectAcl"
+   ],
+   "removed_permissions": 1,
+   "summary": "1 permission(s) are evidence-qualified for removal; execution remains gated. 2 unused-looking permission(s) are not evidence-qualified: their CloudTrail attribution is incomplete."
+  }
+ },
+ "all_held": {
+  "attribution_unverified_permissions": [
+   {
+    "action": "s3:GetObject",
+    "reason_code": "EVENT_ATTRIBUTION_INCOMPLETE",
+    "unmapped_events": [
+     "HeadObject",
+     "SelectObjectContent"
+    ]
+   }
+  ],
+  "authorization_disposition": {
+   "authorized": false,
+   "reasons": [
+    "ACTIVE_GENERATION_UNKNOWN",
+    "TRAFFIC_INGEST_NOT_INCREMENTAL",
+    "NEGATIVE_AUTHORITY_NOT_PERMITTED",
+    "DECISION_READINESS_NOT_READY"
+   ],
+   "state": "NOT_AUTHORIZED"
+  },
+  "decision_authority": null,
+  "decision_persistence": {
+   "decision_key": "ebf2360e613ca0182357f024ffd08c20bbff0ac2e41fda95ea095ef89ecce3b2",
+   "evaluated_at": "2026-09-29T01:02:09.250969Z",
+   "expires_at": "2026-09-29T01:17:09.250969Z",
+   "persisted": false,
+   "warning": "Decision persistence failed: AttributeError"
+  },
+  "evidence": {
+   "caveats": [],
+   "completeness": "complete",
+   "confidence": "unknown",
+   "evidence_sources": [
+    "cloudtrail",
+    "access_advisor",
+    "neptune_graph"
+   ],
+   "last_sync": "2026-04-23T00:00:00",
+   "observation_window_days": 30,
+   "visibility_signals": {
+    "data_layer_complete": true,
+    "decision_evidence_ready": true,
+    "observation_days": 30,
+    "planes_active": [
+     "cloudtrail",
+     "config",
+     "access_advisor",
+     "behavioral_pu"
+    ],
+    "signal_coverage": "complete",
+    "telemetry_plane_coverage": "complete",
+    "time_requirement_met": true,
+    "trust_graph_integrity": "high"
+   }
+  },
+  "evidence_disposition": {
+   "authorization_state": "NOT_ASSESSED",
+   "block_reason": "Mutation process is not ready to sign a plan (missing CYNTRO_REMEDIATION_ROLE_ARN, CYNTRO_REMEDIATION_EXTERNAL_ID, CYNTRO_USE_ASSUME_ROLE, IAM_MUTATION_NOT_DECLARED, RELEASE_TIER_REFUSES_MUTATION, PRODUCTION_CONTROL_BUNDLE_INCOMPLETE, WEB_GRAPH_READ_ONLY_BOUNDARY_UNPROVEN, LIFECYCLE_CONFIGURATION_INCOMPLETE, CANONICAL_INCREMENTAL_GENERATION_NOT_READY)",
+   "evidence_state": "NEEDS_EVIDENCE",
+   "groups": {
+    "CANNOT_ASSESS": [],
+    "CONFLICT": [],
+    "PROTECTED": [],
+    "UNUSED_CANDIDATE": [],
+    "USED": [],
+    "VERIFY_FIRST": [
+     "s3:GetObject"
+    ]
+   },
+   "investigate_count": 1,
+   "investigate_permissions": [
+    "s3:GetObject"
+   ],
+   "observed_unused_count": 1,
+   "protected_count": 0,
+   "protected_permissions": [],
+   "reason_counts": {
+    "attribution_unverified": 1
+   },
+   "remediation_state": "NEEDS_EVIDENCE",
+   "removable_count": 0,
+   "removable_permissions": []
+  },
+  "final_remediation_state": "NOT_READY",
+  "permission_disposition": {
+   "authorization_state": "NOT_AUTHORIZED",
+   "block_reason": "ACTIVE_GENERATION_UNKNOWN",
+   "evidence_state": "NEEDS_EVIDENCE",
+   "groups": {
+    "CANNOT_ASSESS": [],
+    "CONFLICT": [],
+    "PROTECTED": [],
+    "UNUSED_CANDIDATE": [],
+    "USED": [],
+    "VERIFY_FIRST": [
+     "s3:GetObject"
+    ]
+   },
+   "investigate_count": 1,
+   "investigate_permissions": [
+    "s3:GetObject"
+   ],
+   "observed_unused_count": 1,
+   "protected_count": 0,
+   "protected_permissions": [],
+   "reason_counts": {
+    "attribution_unverified": 1
+   },
+   "remediation_state": "NOT_READY",
+   "removable_count": 0,
+   "removable_permissions": []
+  },
+  "plan": null,
+  "plan_issuance_error": null,
+  "problem": {
+   "gap_percent": 50,
+   "summary": "Role has 1 unused permissions (50% over-privileged)",
+   "top_risk_reasons": [
+    "Unused admin-capable permissions"
+   ],
+   "unused_count": 1,
+   "used_count": 1
+  },
+  "projected_effect": {
+   "approximate": false,
+   "blast_radius_score_after": null,
+   "blast_radius_score_before": 14,
+   "blast_radius_score_delta": null,
+   "caveats": [
+    "BRS confidence=MEDIUM (observation/plane data partial).",
+    "Projection unavailable \u2014 post-remediation blast-radius requires rescoring against a hypothetical post-mutation graph; not yet implemented. _after / _delta are null."
+   ],
+   "current_state_available": true,
+   "current_state_confidence": "MEDIUM",
+   "family_scores_after": null,
+   "family_scores_before": {
+    "doc": 0,
+    "ips": 35,
+    "lms": 0,
+    "nes": 20
+   },
+   "projection_available": false,
+   "resource_risk_contribution_after": null,
+   "resource_risk_contribution_before": null
+  },
+  "removal_safety": {
+   "groups": [
+    {
+     "band": "STRONG",
+     "count": 1,
+     "permissions": [
+      "s3:GetObject"
+     ]
+    }
+   ],
+   "insufficient_evidence_count": 0,
+   "permissions": [
+    {
+     "band": "STRONG",
+     "consequence_class": "ROUTINE",
+     "disposition": "REMOVAL_CANDIDATE",
+     "evidence_channel": "DIRECT_RUNTIME",
+     "evidence_envelope": {
+      "assertions": [
+       {
+        "coverage": 1.0,
+        "family": "POLICY_INVENTORY",
+        "fresh": true,
+        "granularity": "ACTION",
+        "graph_fact_ids": [],
+        "independent_origin": "aws_iam_policy_api",
+        "reason": "Permission is present in the evaluated policy set.",
+        "required": true,
+        "source_id": "iam_policy_inventory",
+        "source_name": "Live IAM policy inventory",
+        "verdict": "COVERAGE_ONLY"
+       },
+       {
+        "coverage": 1.0,
+        "family": "RUNTIME_AUDIT",
+        "fresh": true,
+        "granularity": "ACTION",
+        "graph_fact_ids": [
+         "fixture:cloudtrail_action_usage"
+        ],
+        "independent_origin": "cloudtrail_action_usage",
+        "reason": "fixture: a current NO_OBSERVED_USE assertion",
+        "required": true,
+        "source_id": "cloudtrail_action_usage",
+        "source_name": "cloudtrail_action_usage",
+        "verdict": "SUPPORTS_NON_USE"
+       },
+       {
+        "coverage": 0.0,
+        "family": "RUNTIME_AUDIT",
+        "fresh": null,
+        "granularity": "RESOURCE",
+        "graph_fact_ids": [],
+        "independent_origin": "cloudtrail_event_selector_collector",
+        "reason": "No Lambda/S3 data-event edges in graph",
+        "required": false,
+        "source_id": "cloudtrail_data_event_coverage",
+        "source_name": "CloudTrail data-event selector coverage",
+        "verdict": "MISSING"
+       },
+       {
+        "coverage": 0.0,
+        "family": "AWS_ADVISORY",
+        "fresh": null,
+        "granularity": "SERVICE",
+        "graph_fact_ids": [],
+        "independent_origin": "iam_access_advisor",
+        "reason": "Access Advisor has not been synced for this role.",
+        "required": false,
+        "source_id": "access_advisor_last_used",
+        "source_name": "IAM Access Advisor",
+        "verdict": "MISSING"
+       },
+       {
+        "coverage": 0.0,
+        "family": "AWS_ADVISORY",
+        "fresh": null,
+        "granularity": "ACTION",
+        "graph_fact_ids": [],
+        "independent_origin": "iam_access_analyzer",
+        "reason": "No Access Analyzer findings on graph",
+        "required": false,
+        "source_id": "access_analyzer_findings",
+        "source_name": "IAM Access Analyzer",
+        "verdict": "MISSING"
+       },
+       {
+        "coverage": 1.0,
+        "family": "CONFIGURATION_STATE",
+        "fresh": true,
+        "granularity": "ACTION",
+        "graph_fact_ids": [
+         "fixture:aws_config_history"
+        ],
+        "independent_origin": "aws_config_history",
+        "reason": "fixture: a current NO_OBSERVED_USE assertion",
+        "required": true,
+        "source_id": "aws_config_history",
+        "source_name": "aws_config_history",
+        "verdict": "COVERAGE_ONLY"
+       },
+       {
+        "coverage": 1.0,
+        "family": "RUNTIME_AUDIT",
+        "fresh": null,
+        "granularity": "ORGANIZATION",
+        "graph_fact_ids": [],
+        "independent_origin": "organization_cloudtrail",
+        "reason": "Single-account context \u2014 org trail not required",
+        "required": true,
+        "source_id": "org_trail_session_lineage",
+        "source_name": "Organization-trail STS session lineage",
+        "verdict": "COVERAGE_ONLY"
+       },
+       {
+        "coverage": 1.0,
+        "family": "POLICY_INVENTORY",
+        "fresh": true,
+        "granularity": "ACTION",
+        "graph_fact_ids": [
+         "fixture:resource_policy_inventory"
+        ],
+        "independent_origin": "resource_policy_inventory",
+        "reason": "fixture: a current NO_OBSERVED_USE assertion",
+        "required": true,
+        "source_id": "resource_policy_inventory",
+        "source_name": "resource_policy_inventory",
+        "verdict": "COVERAGE_ONLY"
+       },
+       {
+        "coverage": 1.0,
+        "family": "POLICY_EVALUATION",
+        "fresh": null,
+        "granularity": "ACTION",
+        "graph_fact_ids": [],
+        "independent_origin": "policy_simulation_materializer",
+        "reason": "Standalone account \u2014 no organization SCP applies",
+        "required": true,
+        "source_id": "scp_boundary_simulation",
+        "source_name": "SCP and permission-boundary evaluation",
+        "verdict": "COVERAGE_ONLY"
+       },
+       {
+        "coverage": 1.0,
+        "family": "CONFIGURATION_STATE",
+        "fresh": null,
+        "granularity": "ROLE",
+        "graph_fact_ids": [
+         "policy-set:aaaaaaaaaaaaaaaa"
+        ],
+        "independent_origin": "iam_policy_collector",
+        "reason": "The analysis is bound to the current graph policy generation; live state is rechecked before Apply.",
+        "required": true,
+        "source_id": "policy_set_hash",
+        "source_name": "Policy-state binding",
+        "verdict": "COVERAGE_ONLY"
+       },
+       {
+        "coverage": 1.0,
+        "family": "TOPOLOGY",
+        "fresh": null,
+        "granularity": "ROLE",
+        "graph_fact_ids": [],
+        "independent_origin": "aws_config_and_attachment_collectors",
+        "reason": "Role consumers were enumerated.",
+        "required": true,
+        "source_id": "consumer_inventory",
+        "source_name": "Role consumer inventory",
+        "verdict": "COVERAGE_ONLY"
+       },
+       {
+        "coverage": 1.0,
+        "family": "RUNTIME_AUDIT",
+        "fresh": null,
+        "granularity": "ROLE",
+        "graph_fact_ids": [],
+        "independent_origin": "cloudtrail",
+        "reason": "Runtime principals were attributed to an enumerated consumer.",
+        "required": true,
+        "source_id": "runtime_consumer_attribution",
+        "source_name": "Runtime principal-to-consumer attribution",
+        "verdict": "COVERAGE_ONLY"
+       },
+       {
+        "coverage": 1.0,
+        "family": "TOPOLOGY",
+        "fresh": true,
+        "granularity": "ACTION",
+        "graph_fact_ids": [
+         "fixture:implicit_dependency_graph"
+        ],
+        "independent_origin": "implicit_dependency_graph",
+        "reason": "fixture: a current NO_OBSERVED_USE assertion",
+        "required": true,
+        "source_id": "implicit_dependency_graph",
+        "source_name": "implicit_dependency_graph",
+        "verdict": "COVERAGE_ONLY"
+       },
+       {
+        "coverage": 0.0,
+        "family": "WORKLOAD_BEHAVIOR",
+        "fresh": null,
+        "granularity": "ROLE",
+        "graph_fact_ids": [],
+        "independent_origin": "workload_schedule_collectors",
+        "reason": "AWS-native schedule inventory has not been collected for this role",
+        "required": false,
+        "source_id": "cadence_workload_inventory",
+        "source_name": "Workload cadence inventory",
+        "verdict": "MISSING"
+       },
+       {
+        "coverage": 0.0,
+        "family": "TOPOLOGY",
+        "fresh": null,
+        "granularity": "ROLE",
+        "graph_fact_ids": [],
+        "independent_origin": "identity_and_trust_collectors",
+        "reason": "No materialized fact is available in the Neo4j decision view.",
+        "required": false,
+        "source_id": "trust_identity_classification",
+        "source_name": "Trust and identity classification",
+        "verdict": "MISSING"
+       },
+       {
+        "coverage": 0.0,
+        "family": "WORKLOAD_BEHAVIOR",
+        "fresh": null,
+        "granularity": "RESOURCE",
+        "graph_fact_ids": [],
+        "independent_origin": "cloudwatch_xray_and_service_telemetry",
+        "reason": "No materialized fact is available in the Neo4j decision view.",
+        "required": false,
+        "source_id": "workload_runtime_telemetry",
+        "source_name": "Workload runtime telemetry",
+        "verdict": "MISSING"
+       },
+       {
+        "coverage": 0.0,
+        "family": "ACTIVE_VALIDATION",
+        "fresh": null,
+        "granularity": "RESOURCE",
+        "graph_fact_ids": [],
+        "independent_origin": "cyntro_canary",
+        "reason": "No materialized fact is available in the Neo4j decision view.",
+        "required": false,
+        "source_id": "synthetic_canary",
+        "source_name": "Synthetic consumer canary",
+        "verdict": "MISSING"
+       }
+      ],
+      "conflicts": [],
+      "consulted_source_count": 10,
+      "handshakes": [
+       {
+        "handshake_id": "configured_vs_observed",
+        "independent_families": [
+         "POLICY_INVENTORY",
+         "RUNTIME_AUDIT"
+        ],
+        "independent_origins": [
+         "aws_iam_policy_api",
+         "cloudtrail_action_usage"
+        ],
+        "reason": "The granted action was evaluated against action-level runtime evidence.",
+        "source_ids": [
+         "iam_policy_inventory",
+         "cloudtrail_action_usage"
+        ],
+        "status": "PASS",
+        "title": "Configured permission \u00d7 observed action"
+       },
+       {
+        "handshake_id": "runtime_vs_advisor",
+        "independent_families": [
+         "AWS_ADVISORY",
+         "RUNTIME_AUDIT"
+        ],
+        "independent_origins": [
+         "cloudtrail_action_usage",
+         "iam_access_advisor"
+        ],
+        "reason": "Access Advisor is missing or only confirms service-level activity; it does not corroborate this action's non-use.",
+        "source_ids": [
+         "cloudtrail_action_usage",
+         "access_advisor_last_used"
+        ],
+        "status": "UNVERIFIED",
+        "title": "CloudTrail \u00d7 Access Advisor"
+       },
+       {
+        "handshake_id": "consumer_attribution",
+        "independent_families": [
+         "RUNTIME_AUDIT",
+         "TOPOLOGY"
+        ],
+        "independent_origins": [
+         "aws_config_and_attachment_collectors",
+         "cloudtrail"
+        ],
+        "reason": "An enumerated consumer is linked to runtime principal evidence.",
+        "source_ids": [
+         "consumer_inventory",
+         "runtime_consumer_attribution"
+        ],
+        "status": "PASS",
+        "title": "Consumer inventory \u00d7 runtime identity"
+       },
+       {
+        "handshake_id": "dependency_exclusion",
+        "independent_families": [
+         "TOPOLOGY"
+        ],
+        "independent_origins": [
+         "implicit_dependency_graph"
+        ],
+        "reason": "All applicable registered dependency checks completed.",
+        "source_ids": [
+         "implicit_dependency_graph"
+        ],
+        "status": "PASS",
+        "title": "Permission \u00d7 implicit dependencies"
+       },
+       {
+        "handshake_id": "cadence_coverage",
+        "independent_families": [
+         "RUNTIME_AUDIT",
+         "WORKLOAD_BEHAVIOR"
+        ],
+        "independent_origins": [
+         "cloudtrail_action_usage",
+         "workload_schedule_collectors"
+        ],
+        "reason": "The workload's legitimate maximum gap between uses is unknown.",
+        "source_ids": [
+         "cloudtrail_action_usage",
+         "cadence_workload_inventory"
+        ],
+        "status": "UNVERIFIED",
+        "title": "Observation window \u00d7 workload cadence"
+       }
+      ],
+      "independent_family_count": 5,
+      "independent_origin_count": 10,
+      "missing_required_sources": [],
+      "non_use_supporting_family_count": 1,
+      "non_use_supporting_origin_count": 1,
+      "permission": "s3:GetObject",
+      "source_catalog_count": 17
+     },
+     "factors": {
+      "consumer_attribution": 20.0,
+      "dependency_certainty": 20.0,
+      "evidence_coverage": 30.0,
+      "independent_corroboration": 0.0,
+      "observation_adequacy": 20.0,
+      "raw_score": 90.0
+     },
+     "limiting_factors": [
+      "Evidence handshakes not proven: runtime_vs_advisor, cadence_coverage."
+     ],
+     "observation_days": 30,
+     "permission": "s3:GetObject",
+     "reason": "No usage was observed and the available action-level evidence supports removal.",
+     "required_observation_days": 7,
+     "score": 90,
+     "score_ceiling": 99,
+     "scorer_version": "2.1.0-shadow"
+    },
+    {
+     "band": null,
+     "consequence_class": "ROUTINE",
+     "disposition": "USED",
+     "evidence_channel": "NONE",
+     "evidence_envelope": null,
+     "factors": null,
+     "limiting_factors": [],
+     "observation_days": 0,
+     "permission": "s3:ListBucket",
+     "reason": "Observed in use; Cyntro will keep this permission.",
+     "required_observation_days": 365,
+     "score": null,
+     "score_ceiling": null,
+     "scorer_version": "2.1.0-shadow"
+    }
+   ],
+   "plan_score": 90,
+   "protected_count": 0,
+   "scored_candidate_count": 1,
+   "scorer_version": "2.1.0-shadow",
+   "shadow_only": true,
+   "used_count": 1
+  },
+  "resource": {
+   "consumers": [
+    {
+     "id": "i-0fixture",
+     "name": "app",
+     "type": "ec2_instance"
+    }
+   ],
+   "id": "test-role",
+   "severity": "LOW",
+   "shared": false,
+   "shared_confidence": "high",
+   "system": "test-sys",
+   "type": "IAMRole"
+  },
+  "review_scope": {
+   "account_id": "000000000000",
+   "account_match_mode": "EXACT",
+   "authority": "SERVER_DEPLOYMENT_CONFIG",
+   "graph_nodes_for_arn": 1,
+   "region_context": null,
+   "role_arn": "arn:aws:iam::000000000000:role/test-role",
+   "role_id": "AROATESTROLE000000000",
+   "role_name": "test-role",
+   "tenant_id": "testbed-webshop"
+  },
+  "safety": {
+   "completeness": "complete",
+   "consumer_count": 1,
+   "data_layer_complete": true,
+   "data_layer_gaps": [],
+   "decision": "blocked",
+   "decision_bundle_hash": "e8fe5399b09a2c99863b0a0f920427f03b2edd89bf9a84c021187058d2f0a733",
+   "decision_canonical": "BLOCK",
+   "decision_envelope_hashes": [
+    "7354773a1c0071580abb8fe88b50e5f7ce9c078f5e313100070a888743d8d1cc"
+   ],
+   "decision_reason_codes": [
+    "CUSTOMER_IN_SHADOW_BOOTSTRAP"
+   ],
+   "engine_decision": "SHADOW_ONLY",
+   "engine_version": "0.1.0",
+   "execution_adapter": "aws_api",
+   "execution_status": "preview_only",
+   "iac_binding_id": null,
+   "iac_binding_status": null,
+   "iac_managed": false,
+   "iac_manager": "manual",
+   "missing_evidence_sources": [],
+   "mutation_readiness": {
+    "apply_declared": false,
+    "apply_enabled": false,
+    "assume_role_enabled": false,
+    "authority_blockers": [
+     "IAM_MUTATION_NOT_DECLARED",
+     "RELEASE_TIER_REFUSES_MUTATION",
+     "PRODUCTION_CONTROL_BUNDLE_INCOMPLETE",
+     "WEB_GRAPH_READ_ONLY_BOUNDARY_UNPROVEN",
+     "LIFECYCLE_CONFIGURATION_INCOMPLETE",
+     "CANONICAL_INCREMENTAL_GENERATION_NOT_READY"
+    ],
+    "break_glass_operational_blockers": [
+     "CUSTOMER_REMEDIATOR_NOT_CONFIGURED",
+     "REMEDIATION_ASSUME_ROLE_DISABLED",
+     "IAM_MUTATION_NOT_DECLARED",
+     "WEB_GRAPH_READ_ONLY_BOUNDARY_UNPROVEN",
+     "TENANT_LIFECYCLE_STATE_NOT_READY",
+     "RELEASE_TIER_REFUSES_MUTATION"
+    ],
+    "break_glass_operational_ready": false,
+    "can_apply": false,
+    "can_issue_plan": false,
+    "canonical": {
+     "action": {
+      "blockers": [
+       "ACTIVE_GENERATION_UNKNOWN",
+       "NO_UNUSED_CANDIDATE",
+       "IAM_MUTATION_NOT_DECLARED",
+       "RELEASE_TIER_REFUSES_MUTATION",
+       "PRODUCTION_CONTROL_BUNDLE_INCOMPLETE",
+       "WEB_GRAPH_READ_ONLY_BOUNDARY_UNPROVEN",
+       "LIFECYCLE_CONFIGURATION_INCOMPLETE",
+       "CANONICAL_INCREMENTAL_GENERATION_NOT_READY",
+       "GENERATION_REFUSES_NEGATIVE_AUTHORITY"
+      ],
+      "can_apply": false,
+      "can_issue_plan": false,
+      "remediable": false
+     },
+     "analysis_complete": null,
+     "cached": true,
+     "engine": {
+      "attestation_matches_build": false,
+      "blockers": [
+       "BUILD_SHA_UNKNOWN",
+       "ENGINE_NOT_CERTIFIED"
+      ],
+      "build_sha": null,
+      "certified": false
+     },
+     "expires_at": "2026-09-29T01:02:39.249945+00:00",
+     "fingerprint": "65016e3c28bcd1dff0c25631a1ad2203",
+     "generation": {
+      "active_generation_id": null,
+      "blockers": [
+       "ACTIVE_GENERATION_UNKNOWN",
+       "TRAFFIC_INGEST_NOT_INCREMENTAL",
+       "NEGATIVE_AUTHORITY_NOT_PERMITTED",
+       "DECISION_READINESS_NOT_READY"
+      ],
+      "coverage_state": "UNKNOWN",
+      "decision_family": "iam",
+      "known": false,
+      "lane": "cloudtrail_iam_usage",
+      "negative_authority_permitted": false,
+      "projection_lag_seconds": null,
+      "readiness_failures": [
+       "READINESS_CACHE_EMPTY"
+      ],
+      "traffic_ingest_mode": "legacy"
+     },
+     "probed_at": "2026-09-29T01:02:09.249945+00:00",
+     "schema": "canonical-readiness/v1",
+     "serve_state": "NOT_READY"
+    },
+    "canonical_evidence_ready": false,
+    "control_bundle_declared": false,
+    "customer_plane": false,
+    "graph_boundary_ready": false,
+    "lifecycle_state_ready": false,
+    "missing": [
+     "CYNTRO_REMEDIATION_ROLE_ARN",
+     "CYNTRO_REMEDIATION_EXTERNAL_ID",
+     "CYNTRO_USE_ASSUME_ROLE",
+     "IAM_MUTATION_NOT_DECLARED",
+     "RELEASE_TIER_REFUSES_MUTATION",
+     "PRODUCTION_CONTROL_BUNDLE_INCOMPLETE",
+     "WEB_GRAPH_READ_ONLY_BOUNDARY_UNPROVEN",
+     "LIFECYCLE_CONFIGURATION_INCOMPLETE",
+     "CANONICAL_INCREMENTAL_GENERATION_NOT_READY"
+    ],
+    "mutation_pipeline_ready": true,
+    "plan_secret_configured": false,
+    "production_certification_verified": false,
+    "production_control_bundle_ready": false,
+    "remediator_configured": false
+   },
+   "observation_days": 30,
+   "ownership_status": "declared",
+   "ownership_warning": null,
+   "policy_pack_versions": [
+    "0.1.0"
+   ],
+   "preflight_required": true,
+   "rollback_available": false,
+   "rollback_ready": {
+    "account_id": "000000000000",
+    "detail": "LifecycleReadConfigurationError",
+    "listing_complete": null,
+    "operation_id": null,
+    "reason_code": "ROLLBACK_EVIDENCE_UNAVAILABLE",
+    "resource_arn": "arn:aws:iam::000000000000:role/test-role",
+    "resource_incarnation": "AROATESTROLE000000000",
+    "restored_by_operation_id": null,
+    "snapshot_id": null,
+    "source": "operation_ledger",
+    "status": "unknown",
+    "tenant_id": "testbed-webshop"
+   },
+   "rollback_ready_status": "unknown",
+   "shared": false,
+   "shared_confidence": "high",
+   "shared_resource": null,
+   "snapshot_required": true,
+   "telemetry_coverage": 1.0,
+   "telemetry_planes_active": [
+    "cloudtrail",
+    "config",
+    "access_advisor",
+    "behavioral_pu"
+   ],
+   "telemetry_planes_missing": [],
+   "telemetry_planes_required": [
+    "cloudtrail",
+    "config",
+    "access_advisor",
+    "behavioral_pu"
+   ],
+   "time_requirement_only": false,
+   "unsafe_reasons": [
+    "Mutation process is not ready to sign a plan (missing CYNTRO_REMEDIATION_ROLE_ARN, CYNTRO_REMEDIATION_EXTERNAL_ID, CYNTRO_USE_ASSUME_ROLE, IAM_MUTATION_NOT_DECLARED, RELEASE_TIER_REFUSES_MUTATION, PRODUCTION_CONTROL_BUNDLE_INCOMPLETE, WEB_GRAPH_READ_ONLY_BOUNDARY_UNPROVEN, LIFECYCLE_CONFIGURATION_INCOMPLETE, CANONICAL_INCREMENTAL_GENERATION_NOT_READY)"
+   ],
+   "would_be_decision_if_active": "APPROVAL_REQUIRED"
+  },
+  "simulation": {
+   "action_type": "PERMISSION_NARROWING_IN_PLACE",
+   "dependency_checks": {},
+   "excluded_by_category": {
+    "attribution_unverified": [
+     "s3:GetObject"
+    ]
+   },
+   "excluded_unsafe_count": 1,
+   "kept_examples": [
+    "s3:ListBucket"
+   ],
+   "kept_permissions": 2,
+   "removed_examples": [],
+   "removed_permissions": 0,
+   "summary": "No executable permission change was prepared; protected and unproven permissions remain unchanged. 1 unused-looking permission(s) are not evidence-qualified: their CloudTrail attribution is incomplete."
+  }
+ }
+}

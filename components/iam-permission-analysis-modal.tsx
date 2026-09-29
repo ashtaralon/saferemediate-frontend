@@ -71,6 +71,8 @@ import { REMEDIATION_MODAL_BACKDROP_STYLE } from "@/components/remediation-modal
 import {
   type AttributionCheck,
   attributionReasonCopy,
+  attributionUnverifiedAmong,
+  remediationStateView,
   readAttributionCheck,
   removalCandidatesHeading,
   rollbackReadyView,
@@ -246,9 +248,23 @@ export const HELD_BY_POLICY_TITLE =
 export const HELD_BY_POLICY_NOTE =
   "Held by policy is a configured hold, not evidence: Cyntro keeps these by rule and did not measure their use."
 
-export function RemovalSafetyPanel({ bundle }: { bundle: RemovalSafetyBundle }) {
+/**
+ * The scorer's bundle still marks attribution-unverified actions REMOVAL_CANDIDATE (it is scoring output and the
+ * backend leaves it unchanged); every consumer subtracts `attribution_unverified_permissions`.
+ */
+function attributionHeldCandidates(bundle: RemovalSafetyBundle, attribution: AttributionCheck | undefined) {
+  const scored = bundle.permissions.filter(item => item.disposition === "REMOVAL_CANDIDATE")
+  const held = attributionUnverifiedAmong(scored.map(item => item.permission), attribution)
+  const candidates = attribution ? withoutAttributionUnverified(scored, attribution, item => item.permission) : scored
+  // The count is the scorer's, minus what attribution holds back; never below zero.
+  const candidateCount = Math.max(0, bundle.scored_candidate_count - held.length)
+  return { candidates, held, candidateCount }
+}
+
+export function RemovalSafetyPanel({ bundle, attribution }: { bundle: RemovalSafetyBundle; attribution?: AttributionCheck }) {
   const byPermission = new Map(bundle.permissions.map(item => [item.permission, item]))
-  const candidates = bundle.permissions.filter(item => item.disposition === "REMOVAL_CANDIDATE")
+  const { candidates, held, candidateCount } = attributionHeldCandidates(bundle, attribution)
+  const heldKeys = new Set(held.map(item => item.action.toLowerCase()))
   const distinctScores = Array.from(new Set(
     candidates.map(item => item.score).filter((score): score is number => typeof score === "number"),
   ))
@@ -267,7 +283,7 @@ export function RemovalSafetyPanel({ bundle }: { bundle: RemovalSafetyBundle }) 
           <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Removal safety</div>
           <h3 className="mt-1 flex flex-wrap items-baseline gap-x-2 text-lg font-bold text-slate-900">
             <span data-testid="removal-safety-observed">
-              {bundle.scored_candidate_count} verified for removal · {bundle.insufficient_evidence_count} awaiting evidence · {bundle.used_count} in use
+              {candidateCount} {attribution && !attribution.reported ? "removal candidates (unverified: attribution check not reported)" : "verified for removal"}{held.length > 0 ? ` · ${held.length} attribution unverified — kept` : ""} · {bundle.insufficient_evidence_count} awaiting evidence · {bundle.used_count} in use
             </span>
             <span
               className="rounded-full border border-slate-300 bg-slate-100 px-2.5 py-0.5 text-sm font-semibold text-slate-600"
@@ -322,6 +338,20 @@ export function RemovalSafetyPanel({ bundle }: { bundle: RemovalSafetyBundle }) 
         </div>
       )}
 
+      {held.length > 0 && (
+        <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950" data-testid="removal-safety-attribution-unverified">
+          <div className="font-semibold">Attribution unverified — kept ({held.length})</div>
+          <ul className="mt-1 space-y-0.5 text-xs">
+            {held.map(item => (
+              <li key={item.action}>
+                <span className="font-mono">{item.action}</span> — {attributionReasonCopy(item.reason_code)}
+                {item.unmapped_events.length > 0 && <> · unmapped events: <span className="font-mono">{item.unmapped_events.join(", ")}</span></>}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {bundle.insufficient_evidence_count > 0 && (
         <div className="mt-3 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-700">
           <strong>{bundle.insufficient_evidence_count} cannot be assessed.</strong>{" "}
@@ -341,7 +371,8 @@ export function RemovalSafetyPanel({ bundle }: { bundle: RemovalSafetyBundle }) 
               <div className="divide-y divide-slate-100 bg-white">
                 {group.permissions.map(permission => {
                   const item = byPermission.get(permission)
-                  const candidate = item?.disposition === "REMOVAL_CANDIDATE"
+                  const attributionHeld = heldKeys.has(permission.toLowerCase())
+                  const candidate = item?.disposition === "REMOVAL_CANDIDATE" && !attributionHeld
                   return (
                     <div key={permission} className="flex items-start gap-3 px-3 py-2">
                       {candidate
@@ -349,6 +380,7 @@ export function RemovalSafetyPanel({ bundle }: { bundle: RemovalSafetyBundle }) 
                         : <Lock className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />}
                       <div className="min-w-0 flex-1">
                         <div className={`truncate font-mono text-xs ${candidate ? "text-red-700" : "text-slate-700"}`}>{permission}</div>
+                        {attributionHeld && <div className="mt-0.5 text-xs font-semibold text-amber-700">Attribution unverified — kept</div>}
                         {item?.reason && <div className="mt-0.5 text-xs text-slate-500">{item.reason}</div>}
                         {candidate && item?.consequence_class && (
                           <div className="mt-0.5 text-[11px] text-slate-500">
@@ -375,12 +407,14 @@ export function IamRemediationAvailability({
   bundle,
   applyDisabled,
   disabledReason,
+  attribution,
 }: {
   bundle: RemovalSafetyBundle
   applyDisabled: boolean
   disabledReason?: string | null
+  attribution?: AttributionCheck
 }) {
-  const hasCandidates = bundle.scored_candidate_count > 0
+  const hasCandidates = attributionHeldCandidates(bundle, attribution).candidateCount > 0
 
   if (hasCandidates && !applyDisabled) return null
 
@@ -1129,6 +1163,8 @@ export function IAMPermissionAnalysisModal({
   // Which removal candidates the same Preview could not attribute. Null until a
   // Preview resolves; a null or unreported check never makes a list "verified".
   const [attributionCheck, setAttributionCheck] = useState<AttributionCheck | null>(null)
+  // The same Preview's final_remediation_state (READY / NEEDS_EVIDENCE / NOT_READY / ...); null until reported.
+  const [finalRemediationState, setFinalRemediationState] = useState<string | null>(null)
   // Counts from the same state-bound Preview response as SafetyVector. This
   // prevents the headline from disagreeing with the Resource Risk row when an
   // older gap-analysis snapshot is still cached.
@@ -1310,6 +1346,7 @@ export function IAMPermissionAnalysisModal({
     setSafetyContext(null)
     setRemovalSafety(null)
     setAttributionCheck(null)
+    setFinalRemediationState(null)
     setPreviewProblem(null)
     setPreviewRefusal(null)
     setPreviewObservationDays(null)
@@ -1367,6 +1404,7 @@ export function IAMPermissionAnalysisModal({
           : null,
       )
       setAttributionCheck(readAttributionCheck(data))
+      setFinalRemediationState(typeof data?.final_remediation_state === 'string' ? data.final_remediation_state : null)
       setPreviewProblem(data?.problem ?? null)
       setPreviewDecisionAuthority(data?.decision_authority ?? null)
       const observedDays = data?.evidence?.observation_window_days ?? data?.safety?.observation_days
@@ -3151,6 +3189,7 @@ export function IAMPermissionAnalysisModal({
     (p) => p.permission,
   )
   const rollbackReady = safetyContext ? rollbackReadyView(safetyContext) : null
+  const remediationState = remediationStateView(finalRemediationState)
   const warnPerms = removalSafety
     ? permissionView.review
     : unusedPermissions.filter(p => warnSet.has(p.permission))
@@ -3248,7 +3287,7 @@ export function IAMPermissionAnalysisModal({
           </p>
         </section>
 
-        {removalSafety ? <RemovalSafetyPanel bundle={removalSafety} /> : renderChangeStatusCard()}
+        {removalSafety ? <RemovalSafetyPanel bundle={removalSafety} attribution={attribution} /> : renderChangeStatusCard()}
       </div>
     )
   }
@@ -3905,7 +3944,7 @@ export function IAMPermissionAnalysisModal({
                       / SUGGEST / INSUFFICIENT_DATA). The cfg.label / cfg.bg
                       typed-verdict styling is no longer applied; the
                       confidence card has its own per-state styling. */}
-                  {removalSafety ? <RemovalSafetyPanel bundle={removalSafety} /> : renderChangeStatusCard()}
+                  {removalSafety ? <RemovalSafetyPanel bundle={removalSafety} attribution={attribution} /> : renderChangeStatusCard()}
                   {false && (
                   <div
                     className="p-4 rounded-xl border-2"
@@ -5040,7 +5079,7 @@ export function IAMPermissionAnalysisModal({
           </div>
 
           {analysisTab === 'summary' && gapData && (
-            <DecisionAuthorityPanel review={gapData.decision_authority} preview={previewDecisionAuthority} />
+            <DecisionAuthorityPanel review={gapData.decision_authority} preview={previewDecisionAuthority} attribution={attributionCheck} />
           )}
 
           {analysisTab === 'summary' && gapData && lpReviewIsForThisRole(lpReview, roleName, roleArn) && (
@@ -5066,12 +5105,13 @@ export function IAMPermissionAnalysisModal({
 
           {analysisTab === 'summary' && !safetyLoading && iamLpGap && (
             <div className="space-y-3">
-              {removalSafety && <RemovalSafetyPanel bundle={removalSafety} />}
+              {removalSafety && <RemovalSafetyPanel bundle={removalSafety} attribution={attribution} />}
               {removalSafety && (
                 <IamRemediationAvailability
                   bundle={removalSafety}
                   applyDisabled={applyDisabled}
                   disabledReason={authorityHoldReason}
+                  attribution={attribution}
                 />
               )}
               {!removalSafety && (
@@ -5534,6 +5574,11 @@ export function IAMPermissionAnalysisModal({
                 : "none. Every not-observed permission is either awaiting evidence or held by policy."}
               {!attribution.reported && removableCount > 0 && " Unverified: attribution check not reported."}
             </div>
+            {remediationState && (
+              <div className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700" data-testid="iam-final-remediation-state" data-state={remediationState.state}>
+                <strong>Remediation state: {remediationState.label}.</strong> {remediationState.sentence}
+              </div>
+            )}
             {rollbackReady && (
               <div className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700" data-testid="iam-rollback-ready">
                 <strong>Rollback-ready: {rollbackReady.label}.</strong> {rollbackReady.sentence}

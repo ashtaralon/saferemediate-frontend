@@ -8,12 +8,18 @@ import {
   type DecisionAuthorityView,
   type PreviewDecisionGrade,
 } from "@/lib/lp-decision-authority"
+import { type AttributionCheck, attributionUnverifiedAmong } from "@/lib/lp-preview-truth"
 
 type Props = {
   /** The Review's raw `decision_authority` block. */
   review: unknown
   /** The Preview's raw `decision_authority` block, once a Preview has run; undefined before. */
   preview?: unknown
+  /**
+   * The same Preview's attribution check. The backend leaves `cleared` verbatim (it is the join Apply admission
+   * evaluates) and names cleared actions with incomplete CloudTrail attribution separately; they are subtracted here.
+   */
+  attribution?: AttributionCheck | null
 }
 
 function Receipt({ view }: { view: DecisionAuthorityView }) {
@@ -51,8 +57,9 @@ function PreviewGrade({ grade }: { grade: PreviewDecisionGrade }) {
  * separately: complete coverage is not a removal verdict, and nothing is shown as removable unless the
  * backend listed it as CLEARED.
  */
-export function DecisionAuthorityPanel({ review, preview }: Props) {
+export function DecisionAuthorityPanel({ review, preview, attribution }: Props) {
   const view = decisionAuthorityView(review)
+  const held = attributionUnverifiedAmong(view.cleared, attribution)
   const grade = previewDecisionGrade(preview)
   return (
     <div className="rounded-md border border-slate-200 bg-white px-3 py-2" data-testid="decision-authority" data-kind={view.kind}>
@@ -66,8 +73,14 @@ export function DecisionAuthorityPanel({ review, preview }: Props) {
             {view.configuredSetClosed === false ? " (the configured set is open: wildcards or unreadable policies)" : ""}
           </div>
           <div data-testid="decision-authority-removal">
-            Cleared for removal: {view.cleared.length} · In use: {view.inUse.length} · Cannot determine: {view.indeterminate.length}
+            Cleared for removal: {view.cleared.length - held.length} · In use: {view.inUse.length} · Cannot determine: {view.indeterminate.length}
+            {held.length > 0 ? ` · Attribution unverified — kept: ${held.length}` : ""}
           </div>
+          {held.length > 0 && (
+            <div className="text-amber-700" data-testid="decision-authority-attribution-unverified">
+              Attribution unverified — kept: {held.map((item) => item.action).join(", ")}
+            </div>
+          )}
           {view.indeterminate.length > 0 && (
             <div className="text-slate-500">
               Why not cleared: {Array.from(new Set(view.indeterminate.map((e) => e.reason))).join(", ")}

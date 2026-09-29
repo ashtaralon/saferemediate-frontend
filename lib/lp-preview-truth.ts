@@ -43,24 +43,27 @@ function parseItem(raw: unknown): SimulateFixAttributionUnverifiedPermission | n
 }
 
 /**
- * Read `attribution_unverified_permissions` from a simulate-fix response. The backend lane that adds it names
- * the field, not its nesting, so the response root, `simulation` and `permission_disposition` are read in that
- * order. Missing everywhere is `reported: false` — never an empty verified list.
+ * Read the top-level `attribution_unverified_permissions` of a simulate-fix response (SimulateFixResponse,
+ * backend 616c67744). Missing is `reported: false` — never an empty verified list.
  */
 export function readAttributionCheck(response: unknown): AttributionCheck {
   const root = response && typeof response === "object" ? (response as Record<string, unknown>) : {}
-  const holders = [root, root.simulation, root.permission_disposition]
-  for (const holder of holders) {
-    if (!holder || typeof holder !== "object") continue
-    const field = (holder as Record<string, unknown>).attribution_unverified_permissions
-    if (Array.isArray(field)) {
-      const unverified = field
-        .map(parseItem)
-        .filter((item): item is SimulateFixAttributionUnverifiedPermission => item !== null)
-      return { reported: true, unverified }
-    }
-  }
-  return { reported: false, unverified: [] }
+  const field = root.attribution_unverified_permissions
+  if (!Array.isArray(field)) return { reported: false, unverified: [] }
+  const unverified = field
+    .map(parseItem)
+    .filter((item): item is SimulateFixAttributionUnverifiedPermission => item !== null)
+  return { reported: true, unverified }
+}
+
+/** The attribution-unverified entries among `permissions` (case-insensitive), in the backend's order. */
+export function attributionUnverifiedAmong(
+  permissions: ReadonlyArray<string>,
+  check: AttributionCheck | null | undefined,
+): SimulateFixAttributionUnverifiedPermission[] {
+  if (!check || check.unverified.length === 0) return []
+  const present = new Set(permissions.map((permission) => String(permission ?? "").toLowerCase()))
+  return check.unverified.filter((item) => present.has(item.action.toLowerCase()))
 }
 
 /** Removal candidates minus every attribution-unverified action (case-insensitive). Never counts them. */
@@ -145,4 +148,30 @@ export function rollbackReadyView(safety: unknown): RollbackReadyView {
       ? `Rollback readiness unknown: this backend did not report it${because}.`
       : `Rollback readiness unknown: the restore evidence could not be read or did not settle${because}.`,
   }
+}
+
+export type RemediationStateView = { state: string; label: string; sentence: string }
+
+const REMEDIATION_STATE_COPY: Record<string, { label: string; sentence: string }> = {
+  READY: {
+    label: "Ready (preview only)",
+    sentence: "Evidence-qualified removal candidates exist. This is a preview; execution is gated separately.",
+  },
+  NEEDS_EVIDENCE: {
+    label: "Needs evidence",
+    sentence: "No permission is evidence-qualified for removal yet; the not-observed permissions need more evidence first.",
+  },
+  NOT_READY: { label: "Not ready", sentence: "This change is not authorized to proceed." },
+  NO_CANDIDATES: { label: "No candidates", sentence: "No permission was found to remove." },
+  BLOCKED: { label: "Blocked", sentence: "This change is blocked." },
+}
+
+/**
+ * `final_remediation_state` (backend unified/lp/permission_disposition.py RemediationState). Absent → null (not
+ * rendered, never assumed READY). An unrecognised value is shown verbatim.
+ */
+export function remediationStateView(state: unknown): RemediationStateView | null {
+  if (typeof state !== "string" || !state.trim()) return null
+  const known = REMEDIATION_STATE_COPY[state]
+  return known ? { state, ...known } : { state, label: state, sentence: `Remediation state reported as ${state}.` }
 }

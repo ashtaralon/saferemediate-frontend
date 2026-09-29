@@ -11,8 +11,9 @@
  *
  * Bodies: the simulate-fix Preview and Review are the captured install-chain bodies
  * (fixtures/lp-review-preview-install-chain.json); rollback_ready shapes come from the backend module at 42f7b16b
- * (fixtures/simulate-fix-rollback-ready-42f7b16b.json). `attribution_unverified_permissions` has no backend producer
- * yet: its items follow the declared contract `{action, reason_code, unmapped_events}` exactly.
+ * (fixtures/simulate-fix-rollback-ready-42f7b16b.json); the attribution bodies are real simulate-fix responses from the
+ * backend attribution lane (fixtures/simulate-fix-attribution-unverified-32ced541.json). Edits to a captured body are
+ * marked where they are made.
  */
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -21,13 +22,15 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 
 import full from '../fixtures/lp-review-preview-install-chain.json'
 import rollbackShapes from '../fixtures/simulate-fix-rollback-ready-42f7b16b.json'
+import attributionCapture from '../fixtures/simulate-fix-attribution-unverified-32ced541.json'
 import LeastPrivilegeTab, { ImpactTab, lpImpactCountsVerified } from '@/components/LeastPrivilegeTab'
 import { IAMSimulateFixModal } from '@/components/IAMSimulateFixModal'
-import { IAMPermissionAnalysisModal } from '@/components/iam-permission-analysis-modal'
+import { IAMPermissionAnalysisModal, IamRemediationAvailability, RemovalSafetyPanel } from '@/components/iam-permission-analysis-modal'
+import { DecisionAuthorityPanel } from '@/components/lp-decision-authority-panel'
 import { LP_DRAWER_PREVIEW_SUPPORT, resolveLPDrawerPreview } from '@/lib/lp-review-routing'
 import { requestLPDrawerPreview } from '@/lib/lp-drawer-preview'
 import { normalizeLPResponse } from '@/lib/lp-normalize'
-import { readAttributionCheck, rollbackReadyView } from '@/lib/lp-preview-truth'
+import { readAttributionCheck, remediationStateView, rollbackReadyView } from '@/lib/lp-preview-truth'
 import type { SimulateFixResponse } from '@/lib/types'
 
 vi.mock('@/lib/account-scope-context', () => ({
@@ -207,10 +210,16 @@ describe('Impact tab counts follow the IAM usage generation', () => {
 
 // ─── 3/4. simulate-fix: attribution and rollback-ready ───────────────────────
 
-const ATTRIBUTION_UNVERIFIED = [
-  { action: 'dynamodb:Query', reason_code: 'EVENT_ATTRIBUTION_INCOMPLETE', unmapped_events: ['ExecuteStatement'] },
-  { action: 'kms:Encrypt', reason_code: 'EVENT_ATTRIBUTION_UNKNOWN', unmapped_events: [] },
-] as const
+// Captured simulate-fix bodies from the backend attribution lane (32ced5417): see `_producer` in the fixture.
+// mixed: s3:GetObject (HeadObject-only use) and dynamodb:PartiQLSelect held, s3:GetObjectAcl the control.
+const mixed = attributionCapture.mixed as unknown as SimulateFixResponse & Record<string, any>
+const allHeld = attributionCapture.all_held as unknown as SimulateFixResponse & Record<string, any>
+const clone = <T,>(body: T): T => JSON.parse(JSON.stringify(body))
+const withoutAttributionField = (body: Record<string, any>) => {
+  const copy = clone(body)
+  delete copy.attribution_unverified_permissions
+  return copy as SimulateFixResponse
+}
 
 function preview(overrides: { safety?: Record<string, unknown>; simulation?: Record<string, unknown>; attribution?: unknown } = {}): SimulateFixResponse {
   const base = JSON.parse(JSON.stringify(full.preview))
@@ -221,14 +230,6 @@ function preview(overrides: { safety?: Record<string, unknown>; simulation?: Rec
   }
   if (overrides.attribution !== undefined) body.attribution_unverified_permissions = overrides.attribution
   return body as SimulateFixResponse
-}
-
-// A Preview that issued candidates. The backend drops attribution-unverified actions from removed_examples; the
-// captured body issued none, so the candidate numbers here are the only non-captured values besides the field.
-const withCandidates = {
-  action_type: 'PERMISSION_NARROWING_IN_PLACE', kept_permissions: 10, removed_permissions: 2,
-  kept_examples: ['s3:GetObject'], removed_examples: ['iam:PassRole', 'sqs:ReceiveMessage'],
-  summary: '2 permission(s) are evidence-qualified for removal; execution remains gated.',
 }
 
 describe('rollback-ready tri-state', () => {
@@ -287,31 +288,106 @@ describe('rollback-ready tri-state', () => {
   })
 })
 
-describe('IAMSimulateFixModal removal candidates', () => {
-  it('lists attribution-unverified actions as kept and never among the candidates', () => {
-    render(<IAMSimulateFixModal isOpen onClose={() => {}} applyDisabled
-      result={preview({ simulation: withCandidates, attribution: ATTRIBUTION_UNVERIFIED })} />)
+describe('IAMSimulateFixModal on the captured attribution body', () => {
+  it('the capture is the defect case: the scorer still marks the held actions REMOVAL_CANDIDATE', () => {
+    expect(mixed.attribution_unverified_permissions).toEqual([
+      { action: 'dynamodb:PartiQLSelect', reason_code: 'EVENT_ATTRIBUTION_UNKNOWN', unmapped_events: [] },
+      { action: 's3:GetObject', reason_code: 'EVENT_ATTRIBUTION_INCOMPLETE', unmapped_events: ['HeadObject', 'SelectObjectContent'] },
+    ])
+    const scored = mixed.removal_safety.permissions
+      .filter((p: { disposition: string }) => p.disposition === 'REMOVAL_CANDIDATE').map((p: { permission: string }) => p.permission)
+    expect(scored).toEqual(['dynamodb:PartiQLSelect', 's3:GetObject', 's3:GetObjectAcl'])
+    expect(readAttributionCheck(mixed)).toMatchObject({ reported: true })
+  })
+
+  it('lists them as kept with their unmapped events, and renders the summary suffix and held categories verbatim', () => {
+    render(<IAMSimulateFixModal isOpen onClose={() => {}} applyDisabled result={mixed} />)
     const kept = screen.getByTestId('simulate-fix-attribution-unverified')
     expect(kept.textContent).toContain('Attribution unverified — kept (2)')
-    expect(kept.textContent).toContain('dynamodb:Query')
-    expect(kept.textContent).toContain('ExecuteStatement')
-    expect(kept.textContent).toContain('kms:Encrypt')
+    expect(kept.textContent).toContain('s3:GetObject')
+    expect(kept.textContent).toContain('HeadObject, SelectObjectContent')
+    expect(kept.textContent).toContain('dynamodb:PartiQLSelect')
     expect(screen.getByTestId('simulate-fix-candidates-heading').textContent).toBe('Removal candidates (preview only; execution held)')
-    expect(screen.getByText(/e\.g\. iam:PassRole, sqs:ReceiveMessage/)).toBeInTheDocument()
+    expect(screen.getByText('e.g. s3:GetObjectAcl')).toBeInTheDocument()
+    expect(screen.getByTestId('simulate-fix-summary').textContent).toContain(
+      '2 unused-looking permission(s) are not evidence-qualified: their CloudTrail attribution is incomplete.')
+    expect(screen.getByTestId('simulate-fix-excluded-by-category').textContent).toContain(
+      'Attribution unverified — kept (2): dynamodb:PartiQLSelect, s3:GetObject')
+    expect(screen.getByTestId('simulate-fix-remediation-state').getAttribute('data-state')).toBe('NOT_READY')
   })
 
   it('an attribution-unverified action that still reaches removed_examples is not shown as a candidate', () => {
-    render(<IAMSimulateFixModal isOpen onClose={() => {}} applyDisabled
-      result={preview({ simulation: { ...withCandidates, removed_examples: ['dynamodb:Query', 'iam:PassRole'] }, attribution: ATTRIBUTION_UNVERIFIED })} />)
-    expect(screen.getByText(/e\.g\. iam:PassRole/)).toBeInTheDocument()
-    expect(screen.queryByText(/e\.g\..*dynamodb:Query/)).toBeNull()
+    const body = clone(mixed)
+    body.simulation.removed_examples = ['s3:GetObject', 's3:GetObjectAcl'] // edited: an older backend's list
+    render(<IAMSimulateFixModal isOpen onClose={() => {}} applyDisabled result={body} />)
+    expect(screen.getByText('e.g. s3:GetObjectAcl')).toBeInTheDocument()
+    expect(screen.queryByText(/e\.g\..*s3:GetObject,/)).toBeNull()
   })
 
   it('an absent field labels the candidates unverified', () => {
-    render(<IAMSimulateFixModal isOpen onClose={() => {}} applyDisabled result={preview({ simulation: withCandidates })} />)
+    render(<IAMSimulateFixModal isOpen onClose={() => {}} applyDisabled result={withoutAttributionField(mixed)} />)
     expect(readAttributionCheck(full.preview)).toEqual({ reported: false, unverified: [] })
     expect(screen.getByTestId('simulate-fix-candidates-heading').textContent).toContain('unverified: attribution check not reported')
     expect(screen.queryByTestId('simulate-fix-attribution-unverified')).toBeNull()
+  })
+
+  it('NEEDS_EVIDENCE renders as needs evidence; an absent state renders nothing', () => {
+    // all_held: the backend's own withhold moved the only candidate out; its evidence_disposition is NEEDS_EVIDENCE.
+    // This BLOCK harness reports final NOT_READY, so the final state is set from that captured value.
+    expect(allHeld.evidence_disposition.remediation_state).toBe('NEEDS_EVIDENCE')
+    const body = { ...clone(allHeld), final_remediation_state: allHeld.evidence_disposition.remediation_state }
+    render(<IAMSimulateFixModal isOpen onClose={() => {}} applyDisabled result={body} />)
+    const state = screen.getByTestId('simulate-fix-remediation-state')
+    expect(state.getAttribute('data-state')).toBe('NEEDS_EVIDENCE')
+    expect(state.textContent).toContain('Needs evidence')
+    expect(state.textContent).not.toMatch(/Ready/)
+    cleanup()
+    render(<IAMSimulateFixModal isOpen onClose={() => {}} applyDisabled result={full.preview as unknown as SimulateFixResponse} />)
+    expect(screen.queryByTestId('simulate-fix-remediation-state')).toBeNull()
+    expect(remediationStateView('SOMETHING_NEW')).toMatchObject({ label: 'SOMETHING_NEW' })
+  })
+})
+
+describe('the scorer bundle and the decision authority subtract attribution-unverified actions', () => {
+  it('RemovalSafetyPanel: 1 candidate, 2 kept (positive control: without the check it counts 3)', () => {
+    render(<RemovalSafetyPanel bundle={mixed.removal_safety} />)
+    expect(screen.getByTestId('removal-safety-observed').textContent).toMatch(/^3 verified for removal/)
+    cleanup()
+    render(<RemovalSafetyPanel bundle={mixed.removal_safety} attribution={readAttributionCheck(mixed)} />)
+    expect(screen.getByTestId('removal-safety-observed').textContent).toMatch(/^1 verified for removal · 2 attribution unverified — kept/)
+    const kept = screen.getByTestId('removal-safety-attribution-unverified')
+    expect(kept.textContent).toContain('s3:GetObject')
+    expect(kept.textContent).toContain('HeadObject, SelectObjectContent')
+    // The row itself is not drawn as a candidate.
+    const row = screen.getAllByText('s3:GetObject').find((el) => el.className.includes('font-mono') && el.className.includes('truncate'))
+    expect(row?.className).not.toContain('text-red-700')
+    const control = screen.getAllByText('s3:GetObjectAcl').find((el) => el.className.includes('truncate'))
+    expect(control?.className).toContain('text-red-700')
+  })
+
+  it('RemovalSafetyPanel without the field says the count is unverified', () => {
+    render(<RemovalSafetyPanel bundle={mixed.removal_safety} attribution={readAttributionCheck(withoutAttributionField(mixed))} />)
+    expect(screen.getByTestId('removal-safety-observed').textContent).toContain('removal candidates (unverified: attribution check not reported)')
+  })
+
+  it('IamRemediationAvailability: all held means nothing to remove, not a preview-only plan', () => {
+    render(<IamRemediationAvailability bundle={allHeld.removal_safety} applyDisabled attribution={readAttributionCheck(allHeld)} />)
+    expect(screen.getByTestId('iam-remediation-availability').textContent).not.toContain('This plan is preview-only')
+    cleanup()
+    render(<IamRemediationAvailability bundle={allHeld.removal_safety} applyDisabled />)
+    expect(screen.getByTestId('iam-remediation-availability').textContent).toContain('This plan is preview-only')
+  })
+
+  it('DecisionAuthorityPanel subtracts them from cleared', () => {
+    // Edited capture: no captured Review has a non-empty cleared list, so the install-chain block is given one.
+    const review = clone(full.review_envelope.result.decision_authority) as Record<string, any>
+    review.removal = { ...(review.removal ?? {}), cleared: ['s3:GetObject', 's3:GetObjectAcl'] }
+    render(<DecisionAuthorityPanel review={review} attribution={readAttributionCheck(mixed)} />)
+    expect(screen.getByTestId('decision-authority-removal').textContent).toContain('Cleared for removal: 1 ')
+    expect(screen.getByTestId('decision-authority-attribution-unverified').textContent).toContain('s3:GetObject')
+    cleanup()
+    render(<DecisionAuthorityPanel review={review} />)
+    expect(screen.getByTestId('decision-authority-removal').textContent).toContain('Cleared for removal: 2 ')
   })
 })
 
@@ -334,28 +410,24 @@ describe('the mounted IAM Permissions modal', () => {
     return screen.findByTestId('iam-removal-candidates-heading', {}, { timeout: 5000 })
   }
 
-  it('keeps attribution-unverified actions out of the candidates and shows them with their unmapped events', async () => {
-    const withoutField = await openPermissions(preview({ safety: rollbackShapes.unverified }))
-    // Positive control: without the field, dynamodb:Query IS a listed candidate.
-    const beforeCount = Number(/\((\d+)\)$/.exec(withoutField.textContent || '')?.[1])
-    expect(beforeCount).toBeGreaterThan(0)
-    const candidatesBefore = withoutField.closest('div.rounded-xl') as HTMLElement
-    expect(within(candidatesBefore).queryByText('dynamodb:Query')).not.toBeNull()
-    // Only the reported actions that were candidates can leave the count.
-    const wereCandidates = ATTRIBUTION_UNVERIFIED.filter((item) => within(candidatesBefore).queryByText(item.action) !== null).length
-    expect(wereCandidates).toBeGreaterThan(0)
-    expect(withoutField.textContent).toContain('unverified: attribution check not reported')
+  it('keeps attribution-unverified actions out of the candidates list and renders the final state', async () => {
+    // Positive control: the same captured body without the field lists all 3 scorer candidates.
+    const withoutField = await openPermissions(withoutAttributionField(mixed))
+    expect(withoutField.textContent).toBe('Removal candidates (preview only; execution held) — unverified: attribution check not reported (3)')
+    expect(within(withoutField.closest('div.rounded-xl') as HTMLElement).queryByText('s3:GetObject')).not.toBeNull()
     cleanup()
 
-    const heading = await openPermissions(preview({ safety: rollbackShapes.unverified, attribution: ATTRIBUTION_UNVERIFIED }))
+    const heading = await openPermissions(mixed)
     await waitFor(() => expect(screen.getByTestId('iam-attribution-unverified')).toBeInTheDocument())
-    expect(heading.textContent).toBe(`Removal candidates (preview only; execution held) (${beforeCount - wereCandidates})`)
+    expect(heading.textContent).toBe('Removal candidates (preview only; execution held) (1)')
     const candidates = heading.closest('div.rounded-xl') as HTMLElement
-    expect(within(candidates).queryByText('dynamodb:Query')).toBeNull()
-    expect(within(candidates).queryByText('kms:Encrypt')).toBeNull()
+    expect(within(candidates).getByText('s3:GetObjectAcl')).toBeInTheDocument()
+    expect(within(candidates).queryByText('s3:GetObject')).toBeNull()
+    expect(within(candidates).queryByText('dynamodb:PartiQLSelect')).toBeNull()
     const kept = screen.getByTestId('iam-attribution-unverified')
     expect(kept.textContent).toContain('Attribution unverified — kept (2)')
-    expect(kept.textContent).toContain('ExecuteStatement')
+    expect(kept.textContent).toContain('HeadObject, SelectObjectContent')
+    expect(screen.getByTestId('iam-final-remediation-state').getAttribute('data-state')).toBe('NOT_READY')
     expect(screen.queryByText(/Verified Removal Candidates|Eligible for plan/)).toBeNull()
   })
 
@@ -387,6 +459,15 @@ describe('untraced removal wording', () => {
     const remediationButtons = perResource.match(/onClick=\{\(\) => runRemediation\((true|false)\)\}[^>]*>/g) ?? []
     expect(remediationButtons.length).toBe(5)
     for (const button of remediationButtons) expect(button).toContain('disabled={loading || remediateHeld}')
+  })
+
+  it('the legacy confidence-group panel (Review safe_to_remove / auto_remediable) stays hidden', () => {
+    const modal = readFileSync(join(process.cwd(), 'components/iam-permission-analysis-modal.tsx'), 'utf8')
+    const hidden = modal.indexOf('<div className="hidden" aria-hidden="true">')
+    expect(hidden).toBeGreaterThan(0)
+    const grouped = modal.indexOf('Permissions to Remove — Grouped by Backend Confidence Engine')
+    expect(grouped).toBeGreaterThan(hidden)
+    expect(modal.slice(hidden, grouped)).not.toMatch(/<\/div>/)
   })
 
   it('the node detail panel does not tell the operator to remove unverified permissions', () => {

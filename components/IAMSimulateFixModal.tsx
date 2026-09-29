@@ -19,6 +19,7 @@ import type { DecisionOutcomeCanonical, SimulateFixResponse, SimulateFixSafetyDe
 import {
   attributionReasonCopy,
   readAttributionCheck,
+  remediationStateView,
   removalCandidatesHeading,
   rollbackReadyView,
   withoutAttributionUnverified,
@@ -181,6 +182,9 @@ export function IAMSimulateFixModal({
   const attribution = readAttributionCheck(result)
   // Attribution-unverified actions are kept by the backend; never show one as a candidate.
   const removedExamples = withoutAttributionUnverified(simulation.removed_examples, attribution, (action) => action)
+  const remediationState = remediationStateView(result.final_remediation_state)
+  const heldByCategory = Object.entries(simulation.excluded_by_category ?? {})
+    .filter((entry): entry is [string, string[]] => Array.isArray(entry[1]) && entry[1].length > 0)
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
@@ -313,7 +317,12 @@ export function IAMSimulateFixModal({
 
               {/* Simulation - What Will Change */}
               <Section title="Proposed Changes" icon={<Shield className="w-4 h-4 text-indigo-400" />}>
-                <p className="text-sm text-slate-300 mb-3">{simulation.summary}</p>
+                <p className="text-sm text-slate-300 mb-3" data-testid="simulate-fix-summary">{simulation.summary}</p>
+                {remediationState && (
+                  <p className="text-xs text-slate-300 mb-3" data-testid="simulate-fix-remediation-state" data-state={remediationState.state}>
+                    <span className="font-semibold">Remediation state: {remediationState.label}.</span> {remediationState.sentence}
+                  </p>
+                )}
                 {simulation.action_type === 'none' ? (
                   <p className="text-xs text-slate-400">No removal plan was issued.</p>
                 ) : (
@@ -345,6 +354,19 @@ export function IAMSimulateFixModal({
                     )}
                   </div>
                 </div>
+                )}
+                {heldByCategory.length > 0 && (
+                  <div className="mt-3 text-[11px] text-slate-400" data-testid="simulate-fix-excluded-by-category">
+                    <div className="text-xs text-slate-300 mb-1">Held out of the candidates, by category:</div>
+                    <ul className="space-y-0.5">
+                      {heldByCategory.map(([category, actions]) => (
+                        <li key={category}>
+                          <span className="text-slate-300">{category === 'attribution_unverified' ? 'Attribution unverified — kept' : category.replace(/_/g, ' ')}</span>
+                          {' '}({actions.length}): <span className="font-mono">{actions.join(', ')}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                 )}
                 {attribution.unverified.length > 0 && (
                   <div className="mt-3 rounded-lg border border-amber-500/40 bg-amber-900/20 p-3" data-testid="simulate-fix-attribution-unverified">
