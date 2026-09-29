@@ -142,6 +142,12 @@ function ageLabel(ms: number): string {
  * it is the cached entry's timestamp for any cache-sourced reading and null
  * once a live answer lands. Local to this card on purpose; the hook's
  * semantics for its other callers are unchanged.
+ *
+ * "refreshing" is only ever true: with `failClosedOnError` (below) a
+ * non-transient failure (4xx/500) discards the cached reading, so the only
+ * cache-sourced states left are "request in flight" and "transport failure"
+ * (STALE_BACKEND_RECOVERING → "live request failed"). Without it, a 500 left
+ * the cached score up marked "refreshing" with nothing refreshing.
  */
 function CachedReadingMarker({
   cachedAt,
@@ -181,6 +187,11 @@ export function HeroBrssCard() {
       // A held / failed answer evicts the last good score instead of
       // standing beside it, and is never written as one.
       isCacheable: isOrgScoreReading,
+      // An authoritative failure (non-transient status) is not a reason to
+      // keep presenting an older score: it discards the cache and the card
+      // shows the failure. Transport failures still keep the reading, marked
+      // "live request failed".
+      failClosedOnError: true,
     },
   )
 

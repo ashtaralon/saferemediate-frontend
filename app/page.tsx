@@ -320,8 +320,12 @@ export default function HomePage() {
       // Handle infrastructure data
       if (infrastructureData.status === 'fulfilled') {
         setData(infrastructureData.value)
-        setCachedData(CACHE_KEYS.INFRASTRUCTURE, infrastructureData.value) // Cache for instant load
-        console.log("[page] Loaded and cached infrastructure data")
+        // A failure replay is an older state: shown (as unknown counts), but
+        // never persisted as the reading the next visit paints first.
+        if (!infrastructureData.value.staleReplay) {
+          setCachedData(CACHE_KEYS.INFRASTRUCTURE, infrastructureData.value) // Cache for instant load
+          console.log("[page] Loaded and cached infrastructure data")
+        }
       } else {
         console.error("Infrastructure fetch failed:", infrastructureData.reason)
         // Keep existing data on error (don't wipe cache)

@@ -35,6 +35,11 @@ export const maxDuration = 60
 // hold); a held or failed response is never written.
 const cache = new Map<string, { data: any; timestamp: number }>()
 const CACHE_TTL = 5 * 60 * 1000
+// A replay older than this is not offered at all: past it the "last complete
+// summary" describes a different estate, and staleness marking stops being a
+// sufficient warning. The replay body also carries `capturedAt` so a consumer
+// can say how old it is.
+const REPLAY_MAX_AGE_MS = 15 * 60 * 1000
 
 /**
  * Scores are never replayed from the store: a stale replay shows the last
@@ -57,8 +62,10 @@ export async function GET(req: NextRequest) {
   const cacheKey = getCacheKey(systemName)
   const now = Date.now()
 
-  // Read only for the failure replay below — never served as current.
-  const cached = cache.get(cacheKey)
+  // Read only for the failure replay below — never served as current, and
+  // only within REPLAY_MAX_AGE_MS of its capture.
+  const stored = cache.get(cacheKey)
+  const cached = stored && now - stored.timestamp <= REPLAY_MAX_AGE_MS ? stored : null
 
   const controller = new AbortController()
   // 55s, the house cold-build budget for a maxDuration=60 route.
@@ -102,6 +109,7 @@ export async function GET(req: NextRequest) {
             ...cached.data,
             ...WITHHELD_SCORES,
             fromStaleCache: true,
+            capturedAt: new Date(cached.timestamp).toISOString(),
             staleReason: `backend_${res.status}`,
             // A cached payload was READY when captured; it cannot vouch for NOW.
             // Replaying its serve_state would re-grant authority the live
@@ -139,6 +147,10 @@ export async function GET(req: NextRequest) {
     if (cacheable) {
       cache.set(cacheKey, { data, timestamp: now })
     } else {
+      // A newer live answer (held, partial, failed) supersedes whatever was
+      // stored: replaying pre-hold counts after it would put an OLDER state
+      // in front of a newer one the backend already gave.
+      cache.delete(cacheKey)
       console.warn(
         `[issues-summary proxy] not caching — serve_state=${data?.serve_state ?? "absent"} ` +
         `analysis_complete=${data?.analysis_complete ?? "absent"} success=${data?.success ?? "absent"}`,
@@ -176,6 +188,7 @@ export async function GET(req: NextRequest) {
           ...cached.data,
           ...WITHHELD_SCORES,
           fromStaleCache: true,
+          capturedAt: new Date(cached.timestamp).toISOString(),
           staleReason: "timeout",
           serve_state: "NOT_READY",
           analysis_complete: false,

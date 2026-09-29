@@ -42,6 +42,12 @@ async function fetchWithRetry(
 }
 
 export interface InfrastructureData {
+  /**
+   * True when issues-summary answered with the proxy's failure replay
+   * (`fromStaleCache`). Its counts are an OLDER state, so they are returned as
+   * unknown here, and the result must not be persisted as a reading.
+   */
+  staleReplay?: boolean
   resources: Array<{
     id: string
     name: string
@@ -238,8 +244,14 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
     // Counts from issues-summary are taken verbatim: a held / NOT_READY
     // summary sends null totals ON PURPOSE, and `?? 0` rendered them as
     // "0 issues, no critical issues detected" beside a withheld score.
+    //
+    // A proxy failure replay (`fromStaleCache: true`) carries the last complete
+    // counts from before the failure — possibly from before a newer HELD answer.
+    // Presented as the current count (the sidebar Issues badge, the banner) it
+    // is an older state shown as now, so every count is unknown instead.
+    const staleReplay = issuesSummary?.fromStaleCache === true
     const countOrNull = (v: unknown): number | null =>
-      typeof v === "number" && Number.isFinite(v) ? v : null
+      !staleReplay && typeof v === "number" && Number.isFinite(v) ? v : null
     const totalIssues: number | null = issuesSummary
       ? countOrNull(issuesSummary.total)
       : countOrNull(metrics?.total_issues ?? metrics?.totalIssues ?? metrics?.issuesCount)
@@ -251,6 +263,7 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
     }
 
     return {
+      staleReplay,
       resources,
       stats: {
         // The issues-summary score or nothing. This used to chain
@@ -259,6 +272,7 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
         // fell through to the legacy dashboard-metrics number and finally to
         // a fabricated 100 — "perfectly healthy" for a held sweep.
         avgHealthScore:
+          !staleReplay &&
           typeof issuesSummary?.avg_health_score === "number" &&
           Number.isFinite(issuesSummary.avg_health_score)
             ? issuesSummary.avg_health_score

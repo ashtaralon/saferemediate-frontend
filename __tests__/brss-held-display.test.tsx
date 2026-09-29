@@ -909,3 +909,128 @@ describe("legacy home banner: a held summary's counts are unknown, not 0 (MINOR 
     expect(screen.getByTestId("home-critical-line").textContent).toBe("1 critical need immediate review")
   })
 })
+
+// ────────────────────────────────────────────────────────────────────────
+// Review round 3
+// ────────────────────────────────────────────────────────────────────────
+
+describe("failure replay never reaches a count as current (round-3 MINOR)", () => {
+  function scoredTotal4() {
+    const s = issuesSummaryV2Unknown()
+    return {
+      ...s,
+      avg_health_score: 82,
+      counts_are_partial: false,
+      resources: { ...s.resources, unused_permission_gaps: 10 },
+      blast_radius_score: { ...s.blast_radius_score, score: 70, held_reason: undefined },
+    }
+  }
+  const heldTotal9 = () => ({ ...issuesSummaryV2Unknown(), total: 9 })
+
+  beforeEach(() => {
+    vi.spyOn(console, "log").mockImplementation(() => {})
+    vi.spyOn(console, "warn").mockImplementation(() => {})
+    vi.spyOn(console, "error").mockImplementation(() => {})
+  })
+
+  it("P1b→P5: scored (4) stored → held (9) → 503: no pre-hold replay, and the badge count is unknown, not 4", async () => {
+    const { GET } = await import("@/app/api/proxy/issues-summary/route")
+    const url = "https://app.example/api/proxy/issues-summary?systemName=p1b-p5-case"
+    stubFetch(() => ({ status: 200, body: scoredTotal4() }))
+    await GET(new NextRequest(url))
+    stubFetch(() => ({ status: 200, body: heldTotal9() }))
+    expect((await (await GET(new NextRequest(url))).json()).total).toBe(9)
+    stubFetch(() => ({ status: 503, body: { detail: "down" } }))
+    const failed = await GET(new NextRequest(url))
+    const failedBody = await failed.json()
+    expect(failed.status).not.toBe(200)
+    expect(failedBody.fromStaleCache).toBeUndefined()
+    expect(failedBody.total).toBeUndefined()
+
+    // What the landing page's badge reads (statsData.totalIssues ← stats.totalIssues).
+    stubFetch((u) => (u.includes("/api/proxy/issues-summary") ? { status: failed.status, body: failedBody } : null))
+    const { fetchInfrastructure } = await import("@/lib/api-client")
+    const infra = await fetchInfrastructure()
+    expect(infra.stats.totalIssues).toBeNull()
+  })
+
+  it("a replay (no hold in between) is dated, and api-client returns its counts as unknown and flags it", async () => {
+    const { GET } = await import("@/app/api/proxy/issues-summary/route")
+    const url = "https://app.example/api/proxy/issues-summary?systemName=replay-dated-case"
+    stubFetch(() => ({ status: 200, body: scoredTotal4() }))
+    await GET(new NextRequest(url))
+    stubFetch(() => ({ status: 503, body: { detail: "down" } }))
+    const replay = await (await GET(new NextRequest(url))).json()
+    expect(replay.fromStaleCache).toBe(true)
+    expect(replay.total).toBe(4) // the proxy's replay itself is marked, not hidden
+    expect(Number.isNaN(Date.parse(replay.capturedAt))).toBe(false)
+
+    stubFetch((u) => (u.includes("/api/proxy/issues-summary") ? { status: 200, body: replay } : null))
+    const { fetchInfrastructure } = await import("@/lib/api-client")
+    const infra = await fetchInfrastructure()
+    expect(infra.staleReplay).toBe(true)
+    expect(infra.stats).toMatchObject({
+      totalIssues: null,
+      criticalIssues: null,
+      needAttention: null,
+      avgHealthScore: null,
+    })
+    render(<HomeStatsBanner {...infra.stats} />)
+    expect(screen.getByTestId("home-total-issues").textContent).toBe("Unknown")
+  })
+
+  it("a replay older than the age limit is not offered", async () => {
+    const { GET } = await import("@/app/api/proxy/issues-summary/route")
+    const url = "https://app.example/api/proxy/issues-summary?systemName=replay-aged-case"
+    stubFetch(() => ({ status: 200, body: scoredTotal4() }))
+    await GET(new NextRequest(url))
+    const realNow = Date.now
+    vi.spyOn(Date, "now").mockImplementation(() => realNow() + 16 * 60 * 1000)
+    stubFetch(() => ({ status: 503, body: { detail: "down" } }))
+    const res = await GET(new NextRequest(url))
+    expect((await res.json()).fromStaleCache).toBeUndefined()
+  })
+
+  it("the landing page never persists a stale replay", async () => {
+    const fs = await import("node:fs")
+    const path = await import("node:path")
+    const src = fs.readFileSync(path.resolve(__dirname, "..", "app/page.tsx"), "utf8")
+    expect(src).toMatch(
+      /if \(!infrastructureData\.value\.staleReplay\) \{\s*setCachedData\(CACHE_KEYS\.INFRASTRUCTURE/,
+    )
+    expect(src.match(/setCachedData\(CACHE_KEYS\.INFRASTRUCTURE/g)?.length).toBe(1)
+  })
+})
+
+describe("org hero never says 'refreshing' when nothing is (round-3 NIT)", () => {
+  function seedCache() {
+    window.localStorage.setItem(
+      "cyntro:swr:global-org-score",
+      JSON.stringify({ ts: Date.now() - 10 * 60 * 1000, data: ORG_SCORED }),
+    )
+  }
+
+  it("a non-transient 500 discards the cached score and shows the failure", async () => {
+    seedCache()
+    stubFetch((u) =>
+      u.includes("/api/proxy/global-org-score") ? { status: 500, body: { detail: "Internal Server Error" } } : null,
+    )
+    render(<HeroBrssCard />)
+    await screen.findByText(/HTTP 500/)
+    expect(screen.queryByTestId("org-brss-score")).toBeNull()
+    expect(document.body.textContent).not.toContain("refreshing")
+    expect(window.localStorage.getItem("cyntro:swr:global-org-score")).toBeNull()
+  })
+
+  it("a transport failure keeps the reading, marked 'live request failed'", async () => {
+    seedCache()
+    stubFetch((u) =>
+      u.includes("/api/proxy/global-org-score") ? { status: 504, body: { detail: "Gateway Timeout" } } : null,
+    )
+    render(<HeroBrssCard />)
+    await waitFor(() =>
+      expect(screen.getByTestId("org-brss-cached-marker").textContent).toMatch(/live request failed$/),
+    )
+    expect(screen.getByTestId("org-brss-score").textContent).toContain("72")
+  })
+})
