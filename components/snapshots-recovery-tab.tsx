@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react'
 import { Shield, Calendar, User, ArrowDownToLine, ArrowUpFromLine, RotateCcw, RefreshCw, Trash2, MapPin, Server, Key, Lock, Database } from 'lucide-react'
 import { IAM_RESTORE_UNAVAILABLE, commitIamRestore, iamRestoreTarget, prepareIamRestore } from '@/lib/iam-restore-control'
+import { isTypedRefusal, refusalFromPreviewBody } from '@/lib/lp-preview-refusal'
+import { preferSnapshotCopy, sameSnapshotCopy } from '@/lib/snapshot-copy-selection'
 
 interface Snapshot {
   snapshot_id: string
@@ -48,6 +50,13 @@ interface Snapshot {
   resource_id?: string
 }
 
+// One visible line per snapshot whose delete did not succeed, keyed by its delete endpoint (unique per snapshot).
+type DeleteLine = { key: string; text: string }
+// refused: a typed 4xx, so the snapshot was NOT deleted. unknown: 5xx / timeout / unreachable / untyped, so it may have
+// been; the list is re-read from the server.
+type DeleteOutcomes = { refused: DeleteLine[]; unknown: DeleteLine[] }
+type DeleteResult = { kind: 'deleted' } | { kind: 'refused' | 'unknown'; line: DeleteLine }
+
 interface RecoveryTabProps {
   systemName?: string
 }
@@ -60,6 +69,8 @@ export default function RecoveryTab({ systemName }: RecoveryTabProps) {
   const [deletingAll, setDeletingAll] = useState(false)
   const [selectedSnapshots, setSelectedSnapshots] = useState<Set<string>>(new Set())
   const [deletingSnapshot, setDeletingSnapshot] = useState<string | null>(null)
+  // Failed deletes stay on screen (the backend holds snapshot deletion with a typed 409); cleared only by the next delete.
+  const [deleteOutcomes, setDeleteOutcomes] = useState<DeleteOutcomes | null>(null)
 
   useEffect(() => {
     loadSnapshots()
@@ -153,13 +164,23 @@ export default function RecoveryTab({ systemName }: RecoveryTabProps) {
         setError('IAM History is unavailable; IAM restore cannot be verified. Other resource snapshots remain visible.')
       }
 
-      // Combine all snapshots
-      let allSnapshots = [...sgSnapshots, ...iamSnapshots]
-
       // A selected system may only show IAM rows with that exact producer
       // binding, even when the separate resource-index read failed or is empty.
-      if (systemName) {
-        allSnapshots = allSnapshots.filter(s => s.type !== 'IAMRole' || s.system_name === systemName)
+      // Applied to each source's copy BEFORE merging, so a copy the filter keeps
+      // is never displaced by one it drops.
+      const inScope = (s: Snapshot) => !systemName || s.type !== 'IAMRole' || s.system_name === systemName
+
+      // Merge the two sources. The aggregate list also carries IAM checkpoints,
+      // so one snapshot can arrive twice: copies of the same snapshot collapse to
+      // the complete one by the aggregate proxy's own rule (preferSnapshotCopy).
+      // Two copies whose identifying fields disagree are different snapshots
+      // sharing an id, and both are kept.
+      let allSnapshots: Snapshot[] = []
+      for (const candidate of [...sgSnapshots, ...iamSnapshots].filter(inScope)) {
+        const index = allSnapshots.findIndex((kept) =>
+          kept.type === candidate.type && kept.snapshot_id === candidate.snapshot_id && sameSnapshotCopy(kept, candidate))
+        if (index < 0) allSnapshots.push(candidate)
+        else if (preferSnapshotCopy(allSnapshots[index], candidate)) allSnapshots[index] = candidate
       }
 
       // Filter by system if systemName is provided and resources were fetched
@@ -201,6 +222,23 @@ export default function RecoveryTab({ systemName }: RecoveryTabProps) {
     return `/api/proxy/snapshots/${snapshot.snapshot_id}`
   }
 
+  // Delete one snapshot and classify the answer. Only a typed 4xx is a refusal (known not deleted).
+  async function deleteOne(snapshot: Snapshot): Promise<DeleteResult> {
+    const key = getDeleteEndpoint(snapshot)
+    try {
+      const res = await fetch(key, { method: 'DELETE' })
+      if (res.ok) return { kind: 'deleted' }
+      const refusal = refusalFromPreviewBody(res.status, await res.json().catch(() => null))
+      const detail = `(HTTP ${refusal.status}, ${refusal.code}) - ${refusal.message}`
+      return isTypedRefusal(refusal)
+        ? { kind: 'refused', line: { key, text: `${snapshot.snapshot_id}: refused ${detail}` } }
+        : { kind: 'unknown', line: { key, text: `${snapshot.snapshot_id}: outcome unknown ${detail}` } }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'network error'
+      return { kind: 'unknown', line: { key, text: `${snapshot.snapshot_id}: outcome unknown - request failed: ${message}` } }
+    }
+  }
+
   // Delete a single snapshot
   async function handleDeleteSnapshot(snapshot: Snapshot) {
     if (!confirm(`⚠️ Delete this snapshot?\n\nResource: ${snapshot.type === 'IAMRole' ? snapshot.role_name : snapshot.sg_name}\nSnapshot ID: ${snapshot.snapshot_id}\n\nThis action cannot be undone!`)) {
@@ -210,14 +248,21 @@ export default function RecoveryTab({ systemName }: RecoveryTabProps) {
     try {
       setDeletingSnapshot(snapshot.snapshot_id)
       setError(null)
+      setDeleteOutcomes(null)
 
-      const res = await fetch(getDeleteEndpoint(snapshot), {
-        method: 'DELETE',
-      })
-
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}))
-        throw new Error(errorData.error || errorData.detail || `Delete failed: ${res.status}`)
+      const result = await deleteOne(snapshot)
+      if (result.kind === 'refused') {
+        // Known not deleted: the row stays, and the refusal is shown until the next delete.
+        setDeleteOutcomes({ refused: [result.line], unknown: [] })
+        alert(`❌ Delete refused: ${result.line.text}`)
+        return
+      }
+      if (result.kind === 'unknown') {
+        // The backend may have committed: say so and re-read the list rather than guess.
+        setDeleteOutcomes({ refused: [], unknown: [result.line] })
+        alert(`❌ Delete outcome unknown — re-checking: ${result.line.text}`)
+        await loadSnapshots()
+        return
       }
 
       // Remove from local state
@@ -227,14 +272,33 @@ export default function RecoveryTab({ systemName }: RecoveryTabProps) {
         newSet.delete(snapshot.snapshot_id)
         return newSet
       })
-
-    } catch (err) {
-      console.error('Delete snapshot error:', err)
-      const message = err instanceof Error ? err.message : 'Delete failed'
-      setError(message)
-      alert(`❌ Failed: ${message}`)
     } finally {
       setDeletingSnapshot(null)
+    }
+  }
+
+  // Delete each endpoint once (two distinct snapshots can share an id, and so an endpoint). Success is reported only
+  // when every delete succeeded; refusals and unknown outcomes are listed and stay on screen. The list is always
+  // re-read from the server, never pruned locally.
+  async function deleteEach(listed: Snapshot[]) {
+    const targets = [...new Map(listed.map((s) => [getDeleteEndpoint(s), s] as const)).values()]
+    let deleted = 0
+    const outcomes: DeleteOutcomes = { refused: [], unknown: [] }
+    for (const snapshot of targets) {
+      const result = await deleteOne(snapshot)
+      if (result.kind === 'deleted') deleted++
+      else outcomes[result.kind].push(result.line)
+    }
+
+    setSelectedSnapshots(new Set())
+    await loadSnapshots()
+    const failed = outcomes.refused.length + outcomes.unknown.length
+    if (failed > 0) {
+      setDeleteOutcomes(outcomes)
+      const unknownNote = outcomes.unknown.length > 0 ? `; ${outcomes.unknown.length} outcome unknown — re-checked` : ''
+      alert(`❌ ${outcomes.refused.length} of ${targets.length} snapshot deletes refused (${deleted} deleted)${unknownNote}`)
+    } else {
+      alert(`✅ Deleted ${deleted} of ${targets.length} snapshots`)
     }
   }
 
@@ -253,23 +317,9 @@ export default function RecoveryTab({ systemName }: RecoveryTabProps) {
       setDeletingAll(true)
       setError(null)
 
-      let deleted = 0
+      setDeleteOutcomes(null)
       const selectedList = snapshots.filter(s => selectedSnapshots.has(s.snapshot_id))
-      
-      for (const snapshot of selectedList) {
-        try {
-          const res = await fetch(getDeleteEndpoint(snapshot), {
-            method: 'DELETE',
-          })
-          if (res.ok) deleted++
-        } catch {
-          // Continue with next
-        }
-      }
-
-      alert(`✅ Deleted ${deleted} of ${selectedSnapshots.size} snapshots`)
-      setSelectedSnapshots(new Set())
-      await loadSnapshots()
+      await deleteEach(selectedList)
       
     } catch (err) {
       console.error('Delete selected error:', err)
@@ -290,22 +340,8 @@ export default function RecoveryTab({ systemName }: RecoveryTabProps) {
       setDeletingAll(true)
       setError(null)
 
-      // Delete each snapshot individually with correct endpoint
-      let deleted = 0
-      for (const snapshot of snapshots) {
-        try {
-          const res = await fetch(getDeleteEndpoint(snapshot), {
-            method: 'DELETE',
-          })
-          if (res.ok) deleted++
-        } catch {
-          // Continue with next
-        }
-      }
-
-      alert(`✅ Deleted ${deleted} of ${snapshots.length} snapshots`)
-      setSelectedSnapshots(new Set())
-      await loadSnapshots()
+      setDeleteOutcomes(null)
+      await deleteEach(snapshots)
       
     } catch (err) {
       console.error('Delete all error:', err)
@@ -476,6 +512,15 @@ export default function RecoveryTab({ systemName }: RecoveryTabProps) {
     )
   }
 
+  // Stable unique card keys: two distinct snapshots may share an id, so the key carries an ordinal within that id.
+  const keyCounts = new Map<string, number>()
+  const cardKeys = snapshots.map((s) => {
+    const base = `${s.type}:${s.snapshot_id}`
+    const n = keyCounts.get(base) ?? 0
+    keyCounts.set(base, n + 1)
+    return n === 0 ? base : `${base}#${n}`
+  })
+
   if (error && snapshots.length === 0) {
     return (
       <div className="bg-[#ef444410] border border-[#ef444440] rounded-lg p-6">
@@ -559,6 +604,24 @@ export default function RecoveryTab({ systemName }: RecoveryTabProps) {
         </div>
       )}
 
+      {/* Failed deletes: persistent until the next delete */}
+      {deleteOutcomes && deleteOutcomes.refused.length > 0 && (
+        <div role="alert" data-testid="snapshot-delete-refused" className="bg-[#ef444410] border border-[#ef444440] rounded-lg p-4">
+          <p className="text-[#ef4444] font-semibold">Snapshot delete refused. These snapshots were not deleted.</p>
+          {deleteOutcomes.refused.map((line) => (
+            <p key={line.key} className="text-sm text-[#ef4444] mt-1">{line.text}</p>
+          ))}
+        </div>
+      )}
+      {deleteOutcomes && deleteOutcomes.unknown.length > 0 && (
+        <div role="alert" data-testid="snapshot-delete-unknown" className="bg-[#eab30810] border border-[#eab30840] rounded-lg p-4">
+          <p className="text-[#b45309] font-semibold">Snapshot delete outcome unknown — re-checking. These deletes may have completed; the list is re-read from the server.</p>
+          {deleteOutcomes.unknown.map((line) => (
+            <p key={line.key} className="text-sm text-[#b45309] mt-1">{line.text}</p>
+          ))}
+        </div>
+      )}
+
       {/* Empty State */}
       {snapshots.length === 0 ? (
         <div className="bg-gray-50 border border-[var(--border,#e5e7eb)] rounded-lg p-12 text-center">
@@ -571,9 +634,9 @@ export default function RecoveryTab({ systemName }: RecoveryTabProps) {
       ) : (
         /* Snapshot Cards Grid */
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
-          {snapshots.map((snapshot) => (
+          {snapshots.map((snapshot, index) => (
             <SnapshotCard
-              key={snapshot.snapshot_id}
+              key={cardKeys[index]}
               snapshot={snapshot}
               onRestore={() => handleRestore(snapshot)}
               onDelete={() => handleDeleteSnapshot(snapshot)}

@@ -320,8 +320,12 @@ export default function HomePage() {
       // Handle infrastructure data
       if (infrastructureData.status === 'fulfilled') {
         setData(infrastructureData.value)
-        setCachedData(CACHE_KEYS.INFRASTRUCTURE, infrastructureData.value) // Cache for instant load
-        console.log("[page] Loaded and cached infrastructure data")
+        // A failure replay is an older state: shown (as unknown counts), but
+        // never persisted as the reading the next visit paints first.
+        if (!infrastructureData.value.staleReplay) {
+          setCachedData(CACHE_KEYS.INFRASTRUCTURE, infrastructureData.value) // Cache for instant load
+          console.log("[page] Loaded and cached infrastructure data")
+        }
       } else {
         console.error("Infrastructure fetch failed:", infrastructureData.reason)
         // Keep existing data on error (don't wipe cache)
@@ -450,22 +454,35 @@ export default function HomePage() {
   }
 
   const baseStatsData = data?.stats || {
-    avgHealthScore: 0,
+    // Scores: null = not computed. 0 would read as a measured worst score.
+    avgHealthScore: null,
     healthScoreTrend: 0,
-    needAttention: 0,
-    totalIssues: 0,
-    criticalIssues: 0,
-    averageScore: 0,
+    // Unknown, not zero: no answer is not "no issues".
+    needAttention: null,
+    totalIssues: null,
+    criticalIssues: null,
+    averageScore: null,
     averageScoreTrend: 0,
-    lastScanTime: "No scans yet",
+    lastScanTime: null,
   }
 
   // Ensure stats reflect actual findings count if backend returns zeros
   const computedFindingsStats = computeStatsFromFindings(securityFindings)
   const statsData = {
     ...baseStatsData,
-    totalIssues: baseStatsData.totalIssues > 0 ? baseStatsData.totalIssues : securityFindings.length,
-    criticalIssues: baseStatsData.criticalIssues > 0 ? baseStatsData.criticalIssues : computedFindingsStats.critical,
+    // An unknown count stays unknown; only a reported 0 may defer to findings.
+    totalIssues:
+      baseStatsData.totalIssues == null
+        ? null
+        : baseStatsData.totalIssues > 0
+          ? baseStatsData.totalIssues
+          : securityFindings.length,
+    criticalIssues:
+      baseStatsData.criticalIssues == null
+        ? null
+        : baseStatsData.criticalIssues > 0
+          ? baseStatsData.criticalIssues
+          : computedFindingsStats.critical,
   }
 
   const infrastructureStats = data?.infrastructure || {
@@ -1035,7 +1052,7 @@ export default function HomePage() {
 
   return (
     <div className="flex min-h-screen bg-gray-50">
-      <LeftSidebarNav activeItem={activeSection} onItemClick={handleSidebarClick} issuesCount={statsData.totalIssues} pendingTagsCount={pendingTagsCount} />
+      <LeftSidebarNav activeItem={activeSection} onItemClick={handleSidebarClick} issuesCount={statsData.totalIssues ?? undefined} pendingTagsCount={pendingTagsCount} />
       <div className="flex-1 p-8">{renderContent()}</div>
 
     </div>

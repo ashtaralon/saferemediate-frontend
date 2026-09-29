@@ -43,6 +43,12 @@ async function fetchWithRetry(
 }
 
 export interface InfrastructureData {
+  /**
+   * True when issues-summary answered with the proxy's failure replay
+   * (`fromStaleCache`). Its counts are an OLDER state, so they are returned as
+   * unknown here, and the result must not be persisted as a reading.
+   */
+  staleReplay?: boolean
   resources: Array<{
     id: string
     name: string
@@ -54,14 +60,18 @@ export interface InfrastructureData {
     tags?: Record<string, string>
   }>
   stats: {
-    avgHealthScore: number
+    /** issues-summary `avg_health_score`, verbatim. Null = not computed (held / unknown), never 0 or 100. */
+    avgHealthScore: number | null
     healthScoreTrend: number
-    needAttention: number
-    totalIssues: number
-    criticalIssues: number
-    averageScore: number
+    /** Counts: null = unknown (held / NOT_READY / no answer), never 0. */
+    needAttention: number | null
+    totalIssues: number | null
+    criticalIssues: number | null
+    /** No backend field backs this tile; null rather than a fabricated value. */
+    averageScore: number | null
     averageScoreTrend: number
-    lastScanTime: string
+    /** Null when no backend field carries it — never "now". */
+    lastScanTime: string | null
   }
   infrastructure: {
     containerClusters: number
@@ -78,7 +88,7 @@ export interface InfrastructureData {
     high: number
     medium: number
     low: number
-    totalIssues: number
+    totalIssues: number | null
     todayChange: number
     cveCount: number
     threatsCount: number
@@ -175,14 +185,14 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
       return {
         resources: [],
         stats: {
-          avgHealthScore: 0,
+          avgHealthScore: null,
           healthScoreTrend: 0,
-          needAttention: 0,
-          totalIssues: 0,
-          criticalIssues: 0,
-          averageScore: 0,
+          needAttention: null,
+          totalIssues: null,
+          criticalIssues: null,
+          averageScore: null,
           averageScoreTrend: 0,
-          lastScanTime: new Date().toISOString(),
+          lastScanTime: null,
         },
         infrastructure: {
           containerClusters: 0,
@@ -199,7 +209,7 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
           high: 0,
           medium: 0,
           low: 0,
-          totalIssues: 0,
+          totalIssues: null,
           todayChange: 0,
           cveCount: 0,
           threatsCount: 0,
@@ -232,7 +242,20 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
     }
 
     // Use unified issues summary if available, otherwise fallback to metrics
-    const totalIssues = issuesSummary?.total ?? metrics?.total_issues ?? metrics?.totalIssues ?? metrics?.issuesCount ?? 0
+    // Counts from issues-summary are taken verbatim: a held / NOT_READY
+    // summary sends null totals ON PURPOSE, and `?? 0` rendered them as
+    // "0 issues, no critical issues detected" beside a withheld score.
+    //
+    // A proxy failure replay (`fromStaleCache: true`) carries the last complete
+    // counts from before the failure — possibly from before a newer HELD answer.
+    // Presented as the current count (the sidebar Issues badge, the banner) it
+    // is an older state shown as now, so every count is unknown instead.
+    const staleReplay = issuesSummary?.fromStaleCache === true
+    const countOrNull = (v: unknown): number | null =>
+      !staleReplay && typeof v === "number" && Number.isFinite(v) ? v : null
+    const totalIssues: number | null = issuesSummary
+      ? countOrNull(issuesSummary.total)
+      : countOrNull(metrics?.total_issues ?? metrics?.totalIssues ?? metrics?.issuesCount)
     const bySeverity = issuesSummary?.by_severity ?? {
       critical: metrics?.issues_by_severity?.CRITICAL ?? metrics?.issues_by_severity?.critical ?? metrics?.criticalIssues ?? metrics?.criticalCount ?? 0,
       high: metrics?.issues_by_severity?.HIGH ?? metrics?.issues_by_severity?.high ?? metrics?.highIssues ?? metrics?.highCount ?? 0,
@@ -241,16 +264,33 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
     }
 
     return {
+      staleReplay,
       resources,
       stats: {
-        avgHealthScore: issuesSummary?.avg_health_score ?? metrics?.avg_health_score ?? metrics?.avgHealthScore ?? metrics?.healthScore ?? 100,
+        // The issues-summary score or nothing. This used to chain
+        // `?? metrics?.avg_health_score ?? … ?? 100`: when the backend nulled
+        // the score on purpose (held analyzers, V2 usage unknown) the chain
+        // fell through to the legacy dashboard-metrics number and finally to
+        // a fabricated 100 — "perfectly healthy" for a held sweep.
+        avgHealthScore:
+          !staleReplay &&
+          typeof issuesSummary?.avg_health_score === "number" &&
+          Number.isFinite(issuesSummary.avg_health_score)
+            ? issuesSummary.avg_health_score
+            : null,
         healthScoreTrend: metrics?.healthScoreTrend ?? 0,
-        needAttention: issuesSummary?.resources?.with_issues ?? metrics?.need_attention ?? metrics?.needAttention ?? metrics?.systemsNeedingAttention ?? 0,
+        needAttention: issuesSummary
+          ? countOrNull(issuesSummary.resources?.with_issues)
+          : countOrNull(metrics?.need_attention ?? metrics?.needAttention ?? metrics?.systemsNeedingAttention),
         totalIssues: totalIssues,
-        criticalIssues: bySeverity.critical,
-        averageScore: metrics?.avg_health_score ?? metrics?.averageScore ?? metrics?.avgHealthScore ?? 100,
+        criticalIssues: countOrNull(bySeverity.critical),
+        // Was `metrics?.avg_health_score ?? … ?? 100`: with issues-summary
+        // answering, `metrics` is {} and this tile read 100 unconditionally.
+        averageScore: null,
         averageScoreTrend: metrics?.averageScoreTrend ?? 0,
-        lastScanTime: issuesSummary?.timestamp ?? metrics?.most_recent_scan ?? metrics?.lastScanTime ?? new Date().toISOString(),
+        // issues-summary sends no scan timestamp; the old `?? new Date()`
+        // labelled every read "scanned just now".
+        lastScanTime: issuesSummary?.timestamp ?? metrics?.most_recent_scan ?? metrics?.lastScanTime ?? null,
       },
       issuesSummary: issuesSummary ? {
         total: issuesSummary.total,
@@ -290,14 +330,14 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
     return {
       resources: [],
       stats: {
-        avgHealthScore: 0,
+        avgHealthScore: null,
         healthScoreTrend: 0,
-        needAttention: 0,
-        totalIssues: 0,
-        criticalIssues: 0,
-        averageScore: 0,
+        needAttention: null,
+        totalIssues: null,
+        criticalIssues: null,
+        averageScore: null,
         averageScoreTrend: 0,
-        lastScanTime: new Date().toISOString(),
+        lastScanTime: null,
       },
       infrastructure: {
         containerClusters: 0,
@@ -314,7 +354,7 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
         high: 0,
         medium: 0,
         low: 0,
-        totalIssues: 0,
+        totalIssues: null,
         todayChange: 0,
         cveCount: 0,
         threatsCount: 0,

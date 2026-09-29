@@ -7,7 +7,8 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
-import { AlertTriangle, ExternalLink, RefreshCw, Shield } from 'lucide-react'
+import { AlertTriangle, ExternalLink, PauseCircle, RefreshCw, Shield } from 'lucide-react'
+import { isFiniteScore } from '@/lib/brss-held'
 
 interface SharedDriver {
   type: string
@@ -33,7 +34,7 @@ interface RankedSystem {
   business_tier?: string | null
   owner?: string | null
   tier_multiplier?: number
-  coverage_ratio?: number
+  coverage_ratio?: number | null
   coverage_ceiling?: number
   member_count?: number
   resource_count?: number
@@ -42,13 +43,34 @@ interface RankedSystem {
   href: string
 }
 
+/**
+ * A system with no BRSS and a typed reason (api/business_systems_ranked.py).
+ * Listed beside the ranking, never inside it: it has no score to rank by.
+ */
+interface HeldSystem {
+  name: string
+  kind: string
+  member_count?: number
+  business_tier?: string | null
+  owner?: string | null
+  brss_score: null
+  held: true
+  error_code: string
+  held_reason: string
+  unmeasured_iam_roles?: number | null
+  href: string
+}
+
 interface RankedResponse {
   systems: RankedSystem[]
   count: number
+  held_systems?: HeldSystem[]
+  held_count?: number
+  error_codes?: string[]
   positioning?: string
   positioning_copy?: string
   context_coverage?: {
-    coverage_ratio?: number
+    coverage_ratio?: number | null
     with_business_tier?: number
     total_rankable?: number
     phase4_copy_unlocked?: boolean
@@ -69,8 +91,9 @@ interface RankedResponse {
   }
 }
 
-function coveragePercent(ratio?: number): number {
-  return Math.round((ratio ?? 0) * 100)
+/** Unknown coverage stays unknown — `?? 0` rendered it as a measured 0%. */
+function coverageLabel(ratio?: number | null): string {
+  return isFiniteScore(ratio) ? `${Math.round(ratio * 100)}%` : 'unknown'
 }
 
 function scoreTone(score: number): string {
@@ -94,7 +117,10 @@ export function BusinessSystemsRanking() {
       })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const json = (await res.json()) as RankedResponse
-      if (json.error) setError(json.error)
+      // A held ranking also carries `error` (the backend's held summary).
+      // That is an answer to render — held systems listed with reasons —
+      // not a failure that replaces the list.
+      if (json.error && !(json.held_systems?.length)) setError(json.error)
       setData(json)
     } catch (e: any) {
       setError(e?.message || 'Failed to load ranking')
@@ -117,7 +143,7 @@ export function BusinessSystemsRanking() {
     )
   }
 
-  if (error && !data?.systems?.length) {
+  if (error && !data?.systems?.length && !data?.held_systems?.length) {
     return (
       <div className="p-8">
         <div className="flex items-center gap-2 text-red-600 text-sm mb-3">
@@ -136,6 +162,7 @@ export function BusinessSystemsRanking() {
   }
 
   const systems = data?.systems ?? []
+  const heldSystems = data?.held_systems ?? []
 
   return (
     <div className="max-w-5xl mx-auto p-8 space-y-6" data-testid="bsm-ranking">
@@ -153,10 +180,15 @@ export function BusinessSystemsRanking() {
             'Logical systems ranked by exploitable blast radius. Business-impact weighting ships after authored context.'}
         </p>
         <div className="flex items-center gap-3 text-xs text-slate-500">
-          <span>{data?.count ?? 0} rankable systems</span>
+          <span>{data?.count ?? 0} ranked systems</span>
+          {heldSystems.length > 0 && (
+            <span className="text-amber-700" data-testid="bsm-held-count">
+              {heldSystems.length} held
+            </span>
+          )}
           {data?.context_coverage && (
             <span>
-              context {Math.round((data.context_coverage.coverage_ratio || 0) * 100)}%
+              context {coverageLabel(data.context_coverage.coverage_ratio)}
               {data.context_coverage.phase4_copy_unlocked
                 ? ' · business-impact ranking'
                 : ' · blast-radius ranking'}
@@ -206,6 +238,57 @@ export function BusinessSystemsRanking() {
         )}
       </header>
 
+      {heldSystems.length > 0 && (
+        <section
+          className="border border-amber-200 bg-amber-50/60 rounded-lg p-4 space-y-3"
+          data-testid="bsm-held-systems"
+        >
+          <div className="flex items-center gap-2 text-sm font-medium text-amber-900">
+            <PauseCircle className="w-4 h-4" />
+            Held — not ranked, no BRSS computed
+          </div>
+          {(data?.error_codes?.length || 0) > 0 && (
+            <p className="flex flex-wrap gap-1">
+              {data!.error_codes!.map((code) => (
+                <code
+                  key={code}
+                  className="rounded bg-white px-1.5 py-0.5 font-mono text-[11px] text-amber-800 border border-amber-200"
+                >
+                  {code}
+                </code>
+              ))}
+            </p>
+          )}
+          <ul className="space-y-2">
+            {heldSystems.map((sys) => (
+              <li
+                key={sys.name}
+                className="border border-amber-200 bg-white rounded p-3"
+                data-testid={`bsm-held-row-${sys.name}`}
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <Link
+                    href={sys.href || `/business-systems?systemName=${encodeURIComponent(sys.name)}`}
+                    className="text-sm font-medium text-slate-900 hover:underline"
+                  >
+                    {sys.name}
+                  </Link>
+                  <span className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-100 text-amber-800">
+                    held
+                  </span>
+                  <code className="font-mono text-[11px] text-amber-800" data-testid={`bsm-held-code-${sys.name}`}>
+                    {sys.error_code}
+                  </code>
+                </div>
+                <p className="mt-1 text-xs text-slate-600" data-testid={`bsm-held-reason-${sys.name}`}>
+                  {sys.held_reason}
+                </p>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       {systems.length === 0 ? (
         <p className="text-sm text-slate-500">
           No rankable business systems yet. Complete Sprint 1 boundary cleanup /
@@ -236,9 +319,13 @@ export function BusinessSystemsRanking() {
                     </span>
                   </div>
                   <div className="mt-1 flex flex-wrap gap-3 text-xs text-slate-500">
-                    <span className={scoreTone(sys.brss_score)}>
-                      BRSS {sys.brss_score.toFixed(1)}
-                    </span>
+                    {isFiniteScore(sys.brss_score) ? (
+                      <span className={scoreTone(sys.brss_score)}>
+                        BRSS {sys.brss_score.toFixed(1)}
+                      </span>
+                    ) : (
+                      <span className="text-amber-700">BRSS not computed</span>
+                    )}
                     {sys.system_rank_score != null &&
                       sys.system_rank_score !== sys.brss_score && (
                       <span title="BRSS / tier multiplier">
@@ -256,7 +343,7 @@ export function BusinessSystemsRanking() {
                       title="Scanner coverage — thin evidence cannot look safe"
                       data-testid={`coverage-chip-${sys.name}`}
                     >
-                      Coverage {coveragePercent(sys.coverage_ratio)}%
+                      Coverage {coverageLabel(sys.coverage_ratio)}
                       {sys.coverage_ceiling != null && (
                         <span className="text-slate-400 ml-1">
                           (ceiling {sys.coverage_ceiling})

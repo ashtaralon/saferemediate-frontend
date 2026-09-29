@@ -7,7 +7,8 @@ interface SecurityIssuesOverviewProps {
   high?: number
   medium?: number
   low?: number
-  totalIssues?: number
+  /** Null = unknown (summary not computed), never rendered as 0. */
+  totalIssues?: number | null
   todayChange?: number
   cveCount?: number
   threatsCount?: number
@@ -21,7 +22,7 @@ export function SecurityIssuesOverview({
   high = 0,
   medium = 0,
   low = 0,
-  totalIssues = 0,
+  totalIssues = null,
   todayChange = 0,
   cveCount = 0,
   threatsCount = 0,
@@ -56,7 +57,7 @@ export function SecurityIssuesOverview({
         </div>
 
         <div className="text-right">
-          <div className="text-4xl font-bold text-[var(--foreground,#111827)]">{totalIssues}</div>
+          <div className="text-4xl font-bold text-[var(--foreground,#111827)]">{totalIssues ?? "Unknown"}</div>
           <div className="text-sm text-[var(--muted-foreground,#4b5563)]">Total Open Issues</div>
           {todayChange !== 0 && (
             <div className="text-xs text-[var(--muted-foreground,#6b7280)] mt-1">

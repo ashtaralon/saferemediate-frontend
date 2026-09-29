@@ -1,5 +1,6 @@
 "use client"
 
+import type { BrssHold } from "@/lib/brss-held"
 import { useCachedFetch } from "@/lib/use-cached-fetch"
 import { ErrorCard, LoadingCard, Section } from "./card-shell"
 import {
@@ -62,7 +63,19 @@ const GRID_COLS_BY_COUNT: Record<number, string> = {
  * localStorage on mount, so the second consumer renders from cache
  * without an extra HTTP roundtrip on the warm path.
  */
-export function FamilyStrip({ families }: { families?: string[] } = {}) {
+export function FamilyStrip({
+  families,
+  orgBrssHold = null,
+}: {
+  families?: string[]
+  /**
+   * The org BRSS hold, when the hero beside this strip is held. These plane
+   * scores come from service_risk_scores, which has no hold logic, so beside
+   * a held BRSS they must say they are a different metric — never stand in
+   * for the held score.
+   */
+  orgBrssHold?: BrssHold | null
+} = {}) {
   // Preserve the order the caller passed in (`families` is the source
   // of truth for ordering). Falling back to DISPLAY's natural order
   // when no prop is given.
@@ -100,7 +113,18 @@ export function FamilyStrip({ families }: { families?: string[] } = {}) {
 
   if (!data) return null
 
-  return (
+  const heldNote = orgBrssHold ? (
+    <p
+      className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900"
+      data-testid="family-strip-brss-held-note"
+    >
+      Plane scores below are service risk scores (resource-weighted average across systems) — a
+      different metric from the Blast Radius Score. They do not reflect the org BRSS, which is held
+      {orgBrssHold.codes.length > 0 ? ` (${orgBrssHold.codes.join(", ")})` : ""}.
+    </p>
+  ) : null
+
+  const strip = (
     <section className={`grid gap-5 ${gridCols}`}>
       {tiles.map(({ key, label, accent, pip }) => {
         const labelWithPip = (
@@ -154,5 +178,13 @@ export function FamilyStrip({ families }: { families?: string[] } = {}) {
         )
       })}
     </section>
+  )
+
+  if (!heldNote) return strip
+  return (
+    <div className="flex flex-col gap-2">
+      {heldNote}
+      {strip}
+    </div>
   )
 }

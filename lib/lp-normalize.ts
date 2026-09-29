@@ -34,6 +34,12 @@ export type LPCategory = 'removable' | 'coverage' | 'audit'
 export type LPEvidenceConfidence = 'HIGH' | 'MEDIUM' | 'LOW'
 export type LPVerificationState = 'applied_verifying' | 'verify_failed' | null
 export type LPCoverageState = 'COMPLETE' | 'PARTIAL' | 'MISSING' | 'UNKNOWN'
+/** Authority of the CloudTrail evidence behind an iam.escalation.* rule. */
+export type LPEscalationEvidenceAuthority = 'VERIFIED_GENERATION' | 'LEGACY_EDGES_UNVERIFIED'
+
+/** `blastRadius.rationale[0]` when the band is withheld on an unverified IAM usage generation. */
+export const IAM_USAGE_BAND_WITHHELD_RATIONALE =
+  'IAM usage generation not verified: band withheld (IPS was scored from legacy usage input)'
 
 export type HighRiskUnusedItem = {
   permission: string
@@ -113,11 +119,19 @@ export interface NormalizedGapResource {
     flowlogs?: unknown
     resourcePolicies?: unknown
     confidence_breakdown?: unknown
+    /** Backend provenance for `confidence`; copied literally when sent. */
+    confidence_basis?: string | null
+    /** Why `confidence` is null, e.g. IAM_USAGE_GENERATION_UNVERIFIED; copied literally when sent. */
+    confidence_withheld_reason?: string | null
+    escalation_evidence_authority?: LPEscalationEvidenceAuthority | string | null
+    /** Each iam.escalation.* entry carries `evidence_authority` once normalized. */
     violatedRules?: unknown
   }
   /** Bucket lowercase, known raw (e.g. INFO), or null when unknown. */
   severity: string | null
   confidence: number | null
+  confidence_basis?: string | null
+  confidence_withheld_reason?: string | null
   observationDays: number | null
   title: string
   description: string
@@ -137,6 +151,8 @@ export interface NormalizedGapResource {
    * Absent means not proven: an older payload without readiness_by_lane is not a verification.
    */
   usageGenerationVerified?: boolean
+  /** Why, as `readiness_by_lane.cloudtrail_iam_usage.generation.blockers`; set with the flag. */
+  usageGenerationBlockers?: string[]
 }
 
 export interface NormalizedLPSummary {
@@ -204,6 +220,8 @@ export interface NormalizedLPResponse extends LPIntegrityFields {
   /** Snake_case alias — copied literally when present on the wire. */
   failed_analyzers?: string[]
   capabilities: ResourceRiskCapability[]
+  /** `readiness_by_lane.cloudtrail_iam_usage.generation.blockers`; [] when the lane sent none. */
+  usageGenerationBlockers: string[]
 }
 
 /**
@@ -231,6 +249,11 @@ function normalizeSeverityField(raw: unknown): string | null {
 
 function asFiniteNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+/** A wire field that is a string, an explicit null, or absent — never coerced. */
+function asStringOrNull(value: unknown): string | null | undefined {
+  return typeof value === 'string' || value === null ? value : undefined
 }
 
 /** Missing summary counts stay null — never invent 0. */
@@ -487,11 +510,16 @@ export function normalizeGapResource(raw: any): NormalizedGapResource {
       flowlogs: evidenceIn.flowlogs ?? null,
       resourcePolicies: evidenceIn.resourcePolicies ?? null,
       confidence_breakdown: evidenceIn.confidence_breakdown ?? null,
+      confidence_basis: asStringOrNull(evidenceIn.confidence_basis),
+      confidence_withheld_reason: asStringOrNull(evidenceIn.confidence_withheld_reason),
+      escalation_evidence_authority: asStringOrNull(evidenceIn.escalation_evidence_authority),
       rule_states: evidenceIn.rule_states ?? null,
       violatedRules: evidenceIn.violatedRules ?? undefined,
     },
     severity: normalizeSeverityField(r.severity),
     confidence: asFiniteNumber(r.confidence),
+    confidence_basis: asStringOrNull(r.confidence_basis),
+    confidence_withheld_reason: asStringOrNull(r.confidence_withheld_reason),
     observationDays: resourceObsDays,
     title,
     description: typeof r.description === 'string' ? r.description : '',
@@ -551,6 +579,78 @@ export function normalizeGapResource(raw: any): NormalizedGapResource {
   }
 }
 
+const IAM_ESCALATION_RULE_PREFIX = 'iam.escalation.'
+
+/**
+ * Label each iam.escalation.* rule with the authority of the evidence behind
+ * it when the backend has not already. Other rules and non-array inputs pass
+ * through untouched.
+ */
+function labelEscalationEvidenceAuthority(
+  rules: unknown,
+  authority: LPEscalationEvidenceAuthority,
+): unknown {
+  if (!Array.isArray(rules)) return rules
+  return rules.map((entry) => {
+    if (!entry || typeof entry !== 'object') return entry
+    const rule = entry as Record<string, unknown>
+    if (typeof rule.rule !== 'string' || !rule.rule.startsWith(IAM_ESCALATION_RULE_PREFIX)) return entry
+    if (rule.evidence_authority != null) return entry
+    return { ...rule, evidence_authority: authority }
+  })
+}
+
+/**
+ * Withhold the blast-radius band and its confidence: IPS was scored from
+ * legacy usage input, so the composite cannot be classified. The score and
+ * components stay as sent; a backend that already withheld is left as is.
+ */
+function withholdBlastRadiusBand(raw: unknown): unknown {
+  if (!raw || typeof raw !== 'object') return raw
+  const blast = raw as Record<string, unknown>
+  const rationaleIn: unknown[] = Array.isArray(blast.rationale) ? blast.rationale : []
+  const rationale =
+    rationaleIn[0] === IAM_USAGE_BAND_WITHHELD_RATIONALE
+      ? rationaleIn
+      : [IAM_USAGE_BAND_WITHHELD_RATIONALE, ...rationaleIn]
+  return { ...blast, band: null, confidence: null, rationale }
+}
+
+/**
+ * An IAM row under an unverified usage generation. Allowed permissions and
+ * risk classification remain valid. Usage counts, scores, lists, the
+ * confidence scored from that usage and the blast-radius band require a
+ * verified generation, whether or not the backend already withheld them —
+ * a backend that still sends them must not have them presented as verified.
+ */
+function withholdUnverifiedIamUsage(
+  resource: NormalizedGapResource,
+  blockers: string[],
+): NormalizedGapResource {
+  return {
+    ...resource,
+    usageGenerationUnverified: true,
+    usageGenerationBlockers: blockers,
+    usedCount: null,
+    gapCount: null,
+    gapPercent: null,
+    lpScore: null,
+    usedList: [],
+    unusedList: [],
+    highRiskUnused: [],
+    confidence: null,
+    evidence: {
+      ...resource.evidence,
+      confidence: null,
+      violatedRules: labelEscalationEvidenceAuthority(
+        resource.evidence.violatedRules,
+        'LEGACY_EDGES_UNVERIFIED',
+      ),
+    },
+    blastRadius: withholdBlastRadiusBand(resource.blastRadius),
+  }
+}
+
 export function normalizeLPResponse(result: any): NormalizedLPResponse {
   const input = result && typeof result === 'object' ? result : {}
   const summaryIn =
@@ -565,23 +665,14 @@ export function normalizeLPResponse(result: any): NormalizedLPResponse {
   // The same signal, positively: only a reported generation that passes it is verified.
   const iamUsageGenerationVerified = Boolean(iamGeneration && typeof iamGeneration === 'object')
     && !iamUsageGenerationUnverified
+  const usageGenerationBlockers: string[] = Array.isArray(iamGeneration?.blockers)
+    ? (iamGeneration.blockers as unknown[]).filter((code): code is string => typeof code === 'string')
+    : []
   const resources = rawResources
     .map((r) => {
       const resource = normalizeGapResource(r)
       if (iamUsageGenerationUnverified && resource.resourceType === 'IAMRole') {
-        return {
-          ...resource,
-          usageGenerationUnverified: true,
-          // Allowed permissions and risk classification remain valid. Usage
-          // counts, scores and lists require a verified IAM usage generation.
-          usedCount: null,
-          gapCount: null,
-          gapPercent: null,
-          lpScore: null,
-          usedList: [],
-          unusedList: [],
-          highRiskUnused: [],
-        }
+        return withholdUnverifiedIamUsage(resource, usageGenerationBlockers)
       }
       if (iamUsageGenerationVerified && resource.resourceType === 'IAMRole') {
         return { ...resource, usageGenerationVerified: true }
@@ -641,6 +732,7 @@ export function normalizeLPResponse(result: any): NormalizedLPResponse {
     capabilities: Array.isArray(input.capabilities)
       ? (input.capabilities as ResourceRiskCapability[])
       : [],
+    usageGenerationBlockers,
     timestamp: typeof input.timestamp === 'string' ? input.timestamp : null,
     fromCache: !!input.fromCache,
     cacheAge: asFiniteNumber(input.cacheAge) ?? undefined,

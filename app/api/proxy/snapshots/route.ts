@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
+import { preferSnapshotCopy } from "@/lib/snapshot-copy-selection"
 
 export const dynamic = "force-dynamic"
 export const fetchCache = "force-no-store"
@@ -170,45 +171,14 @@ export async function GET(req: NextRequest) {
     }
 
     // Deduplicate by snapshot_id, keeping the most complete entry
-    // Prefer entries with rollback_available field (from unified snapshots) as they have more data
     const snapshotMap = new Map<string, any>()
     for (const snap of allSnapshots) {
       const id = snap.snapshot_id || snap.id
       if (!id) continue
 
       const existing = snapshotMap.get(id)
-      if (!existing) {
-        snapshotMap.set(id, snap)
-      } else {
-        // A canonical scoped ledger row outranks an older graph/name row even
-        // when its offer is withheld. A stale legacy true is not authority.
-        const existingCanonical = existing.source === 'lifecycle_checkpoint' &&
-          existing.scope_proof === 'PROVEN_TENANT_ACCOUNT'
-        const newCanonical = snap.source === 'lifecycle_checkpoint' &&
-          snap.scope_proof === 'PROVEN_TENANT_ACCOUNT'
-        if (newCanonical && !existingCanonical) {
-          snapshotMap.set(id, snap)
-          continue
-        }
-        if (existingCanonical && !newCanonical) continue
-        // Prefer entries with rollback_available field (indicates more complete data)
-        const existingHasRollback = existing.rollback_available !== undefined
-        const newHasRollback = snap.rollback_available !== undefined
-
-        if (newHasRollback && !existingHasRollback) {
-          // New entry has rollback info, prefer it
-          snapshotMap.set(id, snap)
-        } else if (!newHasRollback && !existingHasRollback) {
-          // Neither has rollback info - prefer the one with original_role or more complete data
-          const existingHasRole = existing.original_role || existing.current_state?.role_name
-          const newHasRole = snap.original_role || snap.current_state?.role_name
-
-          if (newHasRole && !existingHasRole) {
-            snapshotMap.set(id, snap)
-          }
-        }
-        // If existing has rollback info, keep it (don't replace)
-      }
+      // One selection rule, shared with the Recovery tab (lib/snapshot-copy-selection.ts).
+      if (!existing || preferSnapshotCopy(existing, snap)) snapshotMap.set(id, snap)
     }
 
     const deduplicatedSnapshots = Array.from(snapshotMap.values())

@@ -40,6 +40,7 @@ import { lpSeverityColor, lpSeverityLabel } from '@/lib/lp-severity'
 import { BackToDashboard } from '@/components/back-to-dashboard'
 import { TrustDormancyLens } from '@/components/trust-dormancy-lens'
 import { iamInventoryRowCopy, iamObservationCopy } from '@/lib/iam-observation-copy'
+import { iamUsageUnknownCopy, lpConfidenceWithheldCopy } from '@/lib/lp-readiness-copy'
 import {
   belongsInOpenRiskQueue,
   resourceRiskDecision,
@@ -113,7 +114,8 @@ interface GapResource {
     // depends on could not be read (e.g. the IAM permissions sync failed).
     // Distinct from the whole object being absent, which means no BRS at all.
     band: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | null
-    confidence: 'HIGH' | 'MEDIUM' | 'LOW'
+    // null alongside a null band: withheld with it (unverified IAM usage generation).
+    confidence: 'HIGH' | 'MEDIUM' | 'LOW' | null
     components: { doc: number; ips: number; nes: number; lms: number }
     amplifier: number
     doc_floor_applied: boolean
@@ -197,6 +199,11 @@ interface GapResource {
       flows?: number
       resources_checked?: number
     }> | null
+    /** Backend provenance for `confidence`, and why it is null when withheld. */
+    confidence_basis?: string | null
+    confidence_withheld_reason?: string | null
+    /** Authority of the CloudTrail evidence behind iam.escalation.* rules. */
+    escalation_evidence_authority?: 'VERIFIED_GENERATION' | 'LEGACY_EDGES_UNVERIFIED' | string | null
     // Posture findings (RDS, S3 public policy, EC2 workload exposure):
     // each entry is a rule violation with its own severity. Carried by
     // the backend in evidence.violatedRules per finding_class='posture'.
@@ -211,6 +218,9 @@ interface GapResource {
       confidence?: string
       severity_bump?: number
       detector_version?: string
+      // Per-rule evidence authority; lib/lp-normalize labels an unverified
+      // row's escalation rules LEGACY_EDGES_UNVERIFIED when the backend did not.
+      evidence_authority?: 'VERIFIED_GENERATION' | 'LEGACY_EDGES_UNVERIFIED' | string
     }>
   }
   // Backend sends CAPS (CRITICAL/HIGH/MEDIUM/LOW/INFO). Missing stays null —
@@ -238,6 +248,8 @@ interface GapResource {
   usageGenerationUnverified?: boolean
   /** Only a reported, verified IAM usage generation (lib/lp-normalize.ts) sets this. */
   usageGenerationVerified?: boolean
+  /** Readiness blockers behind usageGenerationUnverified — the row copy names the first. */
+  usageGenerationBlockers?: string[]
 }
 
 /** Mutation boundary not shipped — Apply stays off on every LP surface. */
@@ -268,6 +280,14 @@ const decisionActionLabel = (decision: ResourceRiskDecision) => {
   if (decision === 'PENDING') return 'Preview'
   return 'View decision'
 }
+
+/**
+ * Confidence withheld for this row (unverified IAM usage generation, or the
+ * backend's own withheld reason) — distinct from a server that never sent one.
+ */
+const isConfidenceWithheld = (resource: GapResource): boolean =>
+  resource.evidence?.confidence == null &&
+  (resource.usageGenerationUnverified === true || resource.evidence?.confidence_withheld_reason != null)
 
 interface LeastPrivilegeSummary {
   totalResources: number
@@ -319,6 +339,8 @@ interface LeastPrivilegeResponse {
   counts_are_partial?: boolean
   /** Resource Risk capability table (unified/lp/capabilities.py); [] when the backend sent none. */
   capabilities?: ResourceRiskCapability[]
+  /** IAM usage lane readiness blockers (lib/lp-normalize); [] when none. */
+  usageGenerationBlockers?: string[]
 }
 
 export default function LeastPrivilegeTab({ systemName }: { systemName?: string }) {
@@ -1115,7 +1137,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       return {
         kind: 'na',
         title: resource.usageGenerationUnverified
-          ? 'Usage unknown — the IAM usage generation is not verified. No non-use percentage can be reported.'
+          ? `${iamUsageUnknownCopy(resource.usageGenerationBlockers)}. No non-use percentage can be reported.`
           :
           'Usage not computed for this resource — no evidence was collected in the '
           + 'observation window. This is not the same as "no unused permissions".',
@@ -1191,8 +1213,18 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
 
   const getPosturePanelDescription = (resource: GapResource): string => {
     const rules = resource.evidence?.violatedRules ?? []
-    if (rules.some((v) => isIamEscalationRule(v.rule))) {
-      return 'Toxic privilege combinations observed in CloudTrail — the role actually used these together. Narrow or split to bound blast radius if compromised.'
+    const escalationRules = rules.filter((v) => isIamEscalationRule(v.rule))
+    if (escalationRules.length > 0) {
+      // "Actually used these together" is a claim about verified evidence.
+      // Escalation detections read CloudTrail edges; only a rule the backend
+      // labelled VERIFIED_GENERATION, on a row whose usage generation is
+      // verified, may be stated as confirmed use.
+      const verified =
+        !resource.usageGenerationUnverified &&
+        escalationRules.every((v) => v.evidence_authority === 'VERIFIED_GENERATION')
+      return verified
+        ? 'Toxic privilege combinations observed in CloudTrail — the role actually used these together. Narrow or split to bound blast radius if compromised.'
+        : 'Toxic privilege combinations observed in CloudTrail evidence that is not generation-verified — treat as a signal, not a confirmed use. Narrow or split to bound blast radius if compromised.'
     }
     const resourceType = resource.resourceType
     if (resourceType === 'SecurityGroup') {
@@ -1918,7 +1950,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       default:         return '#6b7280'
     }
   }
-  const getConfidenceColor = (conf?: string) => {
+  const getConfidenceColor = (conf?: string | null) => {
     switch ((conf || '').toUpperCase()) {
       case 'HIGH':   return '#22c55e'
       case 'MEDIUM': return '#eab308'
@@ -2335,7 +2367,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
               const sevLabel = getSeverityLabel(resource)
               const metrics = getUsageMetricsForResource(resource)
               const inventoryDescription = resource.usageGenerationUnverified
-                ? 'Usage unknown — IAM usage generation is not verified; review required'
+                ? iamUsageUnknownCopy(resource.usageGenerationBlockers, 'Usage unknown — IAM usage generation is not verified; review required')
                 : resource.resourceType === 'IAMRole' && activeTab !== 'remediated' && metrics.measured !== false
                   ? iamInventoryRowCopy(metrics.unusedCount ?? 0, metrics.total ?? 0).summary
                   : (resource.description || resource.title || 'Risk details available')
@@ -2534,12 +2566,16 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                           !resource.blastRadius
                             ? 'No blast-radius score was returned for this finding.'
                             : resource.blastRadius.band == null
-                            // The backend withheld the band: three of the four
-                            // components are derived from this role's
-                            // permissions, and those could not be read, so the
-                            // composite is a floor rather than an estimate.
-                            ? 'Blast Radius cannot be scored — this resource\'s permissions could not be read, '
-                              + 'so the components that depend on them have no input. Re-run the sync to get a real score.'
+                            // The band was withheld. When the payload says why
+                            // (rationale[0] — e.g. IPS scored from legacy usage
+                            // input on an unverified generation) show that.
+                            // Otherwise three of the four components are
+                            // derived from this role's permissions, and those
+                            // could not be read, so the composite is a floor
+                            // rather than an estimate.
+                            ? resource.blastRadius.rationale?.[0]
+                              || ('Blast Radius cannot be scored — this resource\'s permissions could not be read, '
+                              + 'so the components that depend on them have no input. Re-run the sync to get a real score.')
                             : `BRS ${resource.blastRadius.brs} ${resource.blastRadius.band} — `
                               + `DOC ${resource.blastRadius.components.doc} / `
                               + `IPS ${resource.blastRadius.components.ips} / `
@@ -2804,7 +2840,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                               </div>
                               <p className="text-xs mb-3" style={{ color: "var(--text-secondary)" }}>
                                 {resource.usageGenerationUnverified
-                                  ? `${metrics.total ?? '—'} permissions allowed. The IAM usage generation is not verified, so observed and not-observed usage is unknown. Review the generation before relying on usage counts.`
+                                  ? `${metrics.total ?? '—'} permissions allowed. ${iamUsageUnknownCopy(resource.usageGenerationBlockers)}, so observed and not-observed usage is unknown. Review the generation before relying on usage counts.`
                                   : <>{metrics.total} permission{metrics.total === 1 ? '' : 's'} allowed. No usage evidence was
                                     collected for this resource in the observation window, so Cyntro cannot say which are
                                     unused. This is <strong>unknown</strong>, not zero — sync usage evidence before remediating.</>}
@@ -2896,7 +2932,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                               ) : metrics.measured === false ? (
                                 <p className="text-xs" style={{ color: "var(--text-muted)" }}>
                                   {resource.usageGenerationUnverified
-                                    ? 'Usage unknown — the IAM usage generation is not verified.'
+                                    ? `${iamUsageUnknownCopy(resource.usageGenerationBlockers)}.`
                                     : 'Usage not computed — Cyntro has no evidence for this role in the observation window.'}
                                 </p>
                               ) : (
@@ -3070,14 +3106,24 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                             </div>
                             <div className="flex justify-between">
                               <span>Confidence</span>
-                              <span className="font-semibold" style={{
-                                color: resource.evidence?.confidence === 'HIGH' ? '#22c55e'
-                                     : resource.evidence?.confidence === 'MEDIUM' ? '#f97316'
-                                     : resource.evidence?.confidence === 'LOW' ? '#ef4444'
-                                     : '#6b7280'
-                              }}>
-                                {resource.evidence?.confidence ?? 'UNKNOWN'}
-                              </span>
+                              {isConfidenceWithheld(resource) ? (
+                                <span
+                                  className="font-semibold"
+                                  style={{ color: '#6b7280' }}
+                                  title={lpConfidenceWithheldCopy(resource.evidence?.confidence_withheld_reason)}
+                                >
+                                  —
+                                </span>
+                              ) : (
+                                <span className="font-semibold" style={{
+                                  color: resource.evidence?.confidence === 'HIGH' ? '#22c55e'
+                                       : resource.evidence?.confidence === 'MEDIUM' ? '#f97316'
+                                       : resource.evidence?.confidence === 'LOW' ? '#ef4444'
+                                       : '#6b7280'
+                                }}>
+                                  {resource.evidence?.confidence ?? 'UNKNOWN'}
+                                </span>
+                              )}
                             </div>
                             {resource.evidence?.confidence == null && (resource.gapCount ?? 0) > 0 && (
                               <div className="mt-2 p-2 rounded text-xs" style={{ background: "#fef2f2", border: "1px solid #fecaca" }}>
@@ -4486,7 +4532,7 @@ function SummaryTab({ resource }: { resource: GapResource }) {
           </div>
         ) : usageUnknown ? (
           <div className="py-3 text-sm text-[var(--muted-foreground,#6b7280)]">
-            Usage unknown — the IAM usage generation is not verified.
+            {iamUsageUnknownCopy(resource.usageGenerationBlockers)}.
           </div>
         ) : (
           <div className="w-full h-12 bg-gray-200 rounded-lg overflow-hidden flex mb-4">
@@ -4956,7 +5002,7 @@ function RulesTab({
   if (resource.usageGenerationUnverified) {
     return (
       <p className="text-sm text-[var(--muted-foreground,#6b7280)]">
-        Usage unknown — the IAM usage generation is not verified. Permission usage and removal recommendations cannot be shown yet.
+        {iamUsageUnknownCopy(resource.usageGenerationBlockers)}. Permission usage and removal recommendations cannot be shown yet.
       </p>
     )
   }
@@ -5397,13 +5443,22 @@ function EvidenceTab({ resource }: { resource: GapResource }) {
       <div className="rounded-lg border border-[var(--border,#e5e7eb)] p-6">
         <h3 className="text-lg font-bold text-[var(--foreground,#111827)] mb-4">Confidence</h3>
         <div className="flex items-center gap-4">
-          <div className={`px-4 py-2 rounded-lg font-bold ${
-            resource.evidence?.confidence === 'HIGH' ? 'bg-[#22c55e20] text-[#22c55e]' :
-            resource.evidence?.confidence === 'MEDIUM' ? 'bg-[#f9731620] text-[#f97316]' :
-            'bg-[#eab30820] text-[#eab308]'
-          }`}>
-            {resource.evidence?.confidence || 'UNKNOWN'}
-          </div>
+          {isConfidenceWithheld(resource) ? (
+            <div
+              className="px-4 py-2 rounded-lg font-bold bg-[#6b728020] text-[#6b7280]"
+              title={lpConfidenceWithheldCopy(resource.evidence?.confidence_withheld_reason)}
+            >
+              —
+            </div>
+          ) : (
+            <div className={`px-4 py-2 rounded-lg font-bold ${
+              resource.evidence?.confidence === 'HIGH' ? 'bg-[#22c55e20] text-[#22c55e]' :
+              resource.evidence?.confidence === 'MEDIUM' ? 'bg-[#f9731620] text-[#f97316]' :
+              'bg-[#eab30820] text-[#eab308]'
+            }`}>
+              {resource.evidence?.confidence || 'UNKNOWN'}
+            </div>
+          )}
           <div className="text-sm text-[var(--muted-foreground,#4b5563)]">
             Based on {(resource.evidence?.dataSources || []).length} data source(s) and {resource.evidence?.observationDays || 0} days of observation
           </div>
@@ -5428,7 +5483,7 @@ export function ImpactTab({ resource }: { resource: GapResource }) {
   if (resource.usageGenerationUnverified) {
     return (
       <p className="text-sm text-[var(--muted-foreground,#6b7280)]">
-        Usage unknown — the IAM usage generation is not verified. Reduction and continuity estimates cannot be shown yet.
+        {iamUsageUnknownCopy(resource.usageGenerationBlockers)}. Reduction and continuity estimates cannot be shown yet.
       </p>
     )
   }
