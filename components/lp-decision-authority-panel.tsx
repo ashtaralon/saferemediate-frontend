@@ -75,6 +75,11 @@ export function DecisionAuthorityPanel({ review, preview, attribution }: Props) 
           <div data-testid="decision-authority-removal">
             Cleared for removal: {view.cleared.length - held.length} · In use: {view.inUse.length} · Cannot determine: {view.indeterminate.length}
             {held.length > 0 ? ` · Attribution unverified — kept: ${held.length}` : ""}
+            {view.cleared.length > 0 && !attribution?.reported
+              ? attribution
+                ? " (attribution check not reported)"
+                : " (attribution not checked: no Preview yet)"
+              : ""}
           </div>
           {held.length > 0 && (
             <div className="text-amber-700" data-testid="decision-authority-attribution-unverified">

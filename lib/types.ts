@@ -572,7 +572,8 @@ export interface SimulateFixResponse {
   safety: SimulateFixSafety
   decision_persistence: SimulateFixDecisionPersistence
   /** Absent on backends that do not run the attribution check: the candidates are then NOT attribution-verified. */
-  attribution_unverified_permissions?: SimulateFixAttributionUnverifiedPermission[]  /** backend unified/lp/permission_disposition.py RemediationState value; may be NEEDS_EVIDENCE. */
+  attribution_unverified_permissions?: SimulateFixAttributionUnverifiedPermission[]
+  /** backend unified/lp/permission_disposition.py RemediationState value; may be NEEDS_EVIDENCE. */
   final_remediation_state?: string | null
 }
 

@@ -10,8 +10,8 @@
  * 4. Rollback readiness is the backend's tri-state (42f7b16b); an absent status is unknown, never proven.
  *
  * Bodies: the simulate-fix Preview and Review are the captured install-chain bodies
- * (fixtures/lp-review-preview-install-chain.json); rollback_ready shapes come from the backend module at 42f7b16b
- * (fixtures/simulate-fix-rollback-ready-42f7b16b.json); the attribution bodies are real simulate-fix responses from the
+ * (fixtures/lp-review-preview-install-chain.json); rollback_ready fields are copied from real simulate-fix responses at
+ * 838f7c26 with product-written ledger rows (fixtures/simulate-fix-rollback-ready-838f7c26.json); the attribution bodies are real simulate-fix responses from the
  * backend attribution lane (fixtures/simulate-fix-attribution-unverified-32ced541.json). Edits to a captured body are
  * marked where they are made.
  */
@@ -21,7 +21,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 
 import full from '../fixtures/lp-review-preview-install-chain.json'
-import rollbackShapes from '../fixtures/simulate-fix-rollback-ready-42f7b16b.json'
+import rollbackShapes from '../fixtures/simulate-fix-rollback-ready-838f7c26.json'
 import attributionCapture from '../fixtures/simulate-fix-attribution-unverified-32ced541.json'
 import LeastPrivilegeTab, { ImpactTab, lpImpactCountsVerified } from '@/components/LeastPrivilegeTab'
 import { IAMSimulateFixModal } from '@/components/IAMSimulateFixModal'
@@ -31,6 +31,7 @@ import { LP_DRAWER_PREVIEW_SUPPORT, resolveLPDrawerPreview } from '@/lib/lp-revi
 import { requestLPDrawerPreview } from '@/lib/lp-drawer-preview'
 import { normalizeLPResponse } from '@/lib/lp-normalize'
 import { readAttributionCheck, remediationStateView, rollbackReadyView } from '@/lib/lp-preview-truth'
+import { previewEvidenceNeeds } from '@/lib/resource-risk-preview-summary'
 import type { SimulateFixResponse } from '@/lib/types'
 
 vi.mock('@/lib/account-scope-context', () => ({
@@ -244,14 +245,37 @@ describe('rollback-ready tri-state', () => {
     expect(rollbackReadyView({ rollback_available: true })).toMatchObject({ status: 'unknown', reasonCode: 'ROLLBACK_READY_NOT_REPORTED' })
   })
 
-  it('an unrecognised reason code is shown verbatim and never read as proven', () => {
+  it('the route-captured states read as the backend classified them', () => {
+    expect(rollbackReadyView(rollbackShapes.readback_unproven)).toMatchObject({ status: 'unverified', reasonCode: 'RESTORE_READBACK_UNPROVEN' })
+    expect(rollbackReadyView(rollbackShapes.proven)).toMatchObject({ status: 'proven', reasonCode: 'SAME_SCOPE_RESTORE_VERIFIED' })
+    expect(rollbackShapes.proven.rollback_ready.snapshot_id).toMatch(/^IAMRole-test-role-/)
+  })
+
+  it('the Change status needs list states unknown as unknown, never as absence, and ignores a bare true', () => {
+    const need = (safety: Record<string, unknown>) =>
+      previewEvidenceNeeds({ ...full.preview.safety, ...safety } as never).find((n) => n.id === 'rollback')
+    expect(need(rollbackShapes.proven)).toBeUndefined()
+    expect(need(rollbackShapes.unknown)?.label).toBe('Rollback readiness unknown (ROLLBACK_EVIDENCE_UNAVAILABLE)')
+    expect(need(rollbackShapes.unverified)?.label).toBe('Rollback readiness unverified (NO_SAME_SCOPE_RESTORE_POINT)')
+    // An older backend's default rollback_available=true no longer suppresses the need.
+    expect(need({ rollback_available: true })?.label).toBe('Rollback readiness unknown (ROLLBACK_READY_NOT_REPORTED)')
+    for (const state of [rollbackShapes.unknown, rollbackShapes.unverified]) {
+      expect(need(state)?.label).not.toMatch(/not ready/i)
+    }
+  })
+
+  it('RESTORE_READBACK_UNPROVEN reads unverified; an unrecognised reason code is shown verbatim as unknown', () => {
     const readbackUnproven = (status: string) => ({
       rollback_available: status === 'proven', rollback_ready_status: status,
       rollback_ready: { ...rollbackShapes.proven.rollback_ready, status, reason_code: 'RESTORE_READBACK_UNPROVEN' },
     })
-    expect(rollbackReadyView(readbackUnproven('proven'))).toMatchObject({ status: 'unknown', reasonCode: 'RESTORE_READBACK_UNPROVEN' })
-    expect(rollbackReadyView(readbackUnproven('proven')).sentence).toContain('(RESTORE_READBACK_UNPROVEN)')
+    // RESTORE_READBACK_UNPROVEN is a real `unverified` code at 838f7c26: mapped explicitly, never proven.
+    expect(rollbackReadyView(readbackUnproven('proven'))).toMatchObject({ status: 'unverified', reasonCode: 'RESTORE_READBACK_UNPROVEN' })
     expect(rollbackReadyView(readbackUnproven('unverified'))).toMatchObject({ status: 'unverified', reasonCode: 'RESTORE_READBACK_UNPROVEN' })
+    // A code nobody knows is shown verbatim as unknown.
+    const unknownCode = { ...readbackUnproven('proven'), rollback_ready: { ...readbackUnproven('proven').rollback_ready, reason_code: 'SOMETHING_NEW' } }
+    expect(rollbackReadyView(unknownCode)).toMatchObject({ status: 'unknown', reasonCode: 'SOMETHING_NEW' })
+    expect(rollbackReadyView(unknownCode).sentence).toContain('(SOMETHING_NEW)')
     // Proven says what it proves: a past restore, not a future restore point, and no drift check.
     const proven = rollbackReadyView(rollbackShapes.proven).sentence
     expect(proven).toContain('past restore on this exact role was verified with a readback')
@@ -311,8 +335,6 @@ describe('IAMSimulateFixModal on the captured attribution body', () => {
     expect(screen.getByText('e.g. s3:GetObjectAcl')).toBeInTheDocument()
     expect(screen.getByTestId('simulate-fix-summary').textContent).toContain(
       '2 unused-looking permission(s) are not evidence-qualified: their CloudTrail attribution is incomplete.')
-    expect(screen.getByTestId('simulate-fix-excluded-by-category').textContent).toContain(
-      'Attribution unverified — kept (2): dynamodb:PartiQLSelect, s3:GetObject')
     expect(screen.getByTestId('simulate-fix-remediation-state').getAttribute('data-state')).toBe('NOT_READY')
   })
 
@@ -365,6 +387,37 @@ describe('the scorer bundle and the decision authority subtract attribution-unve
     expect(control?.className).toContain('text-red-700')
   })
 
+  it('RemovalSafetyPanel labels the change score while it covers held actions (not recomputed)', () => {
+    render(<RemovalSafetyPanel bundle={mixed.removal_safety} attribution={readAttributionCheck(mixed)} />)
+    const score = screen.getByTestId('removal-safety-plan-score')
+    expect(score.textContent).toContain(String(mixed.removal_safety.plan_score))
+    expect(screen.getByTestId('removal-safety-plan-score-includes-held').textContent).toBe('includes attribution-unverified permissions')
+    cleanup()
+    render(<RemovalSafetyPanel bundle={mixed.removal_safety} attribution={readAttributionCheck(withoutAttributionField(mixed))} />)
+    expect(screen.getByTestId('removal-safety-plan-score')).toBeTruthy()
+    expect(screen.queryByTestId('removal-safety-plan-score-includes-held')).toBeNull()
+  })
+
+  it('DecisionAuthorityPanel marks cleared as attribution-not-checked before any Preview', () => {
+    const review = clone(full.review_envelope.result.decision_authority) as Record<string, any>
+    review.removal = { ...(review.removal ?? {}), cleared: ['s3:GetObjectAcl'] } // edited capture, as above
+    render(<DecisionAuthorityPanel review={review} attribution={null} />)
+    expect(screen.getByTestId('decision-authority-removal').textContent).toContain('(attribution not checked: no Preview yet)')
+    cleanup()
+    render(<DecisionAuthorityPanel review={review} attribution={readAttributionCheck(mixed)} />)
+    expect(screen.getByTestId('decision-authority-removal').textContent).not.toContain('attribution not checked')
+  })
+
+  it('IAMSimulateFixModal lists attribution-unverified actions once', () => {
+    render(<IAMSimulateFixModal isOpen onClose={() => {}} applyDisabled result={mixed} />)
+    expect(screen.queryByTestId('simulate-fix-excluded-by-category')).toBeNull()
+    expect(screen.getAllByText('s3:GetObject').length).toBe(1)
+    cleanup()
+    // Without the top-level field, the category is the only place they are named.
+    render(<IAMSimulateFixModal isOpen onClose={() => {}} applyDisabled result={withoutAttributionField(mixed)} />)
+    expect(screen.getByTestId('simulate-fix-excluded-by-category').textContent).toContain('dynamodb:PartiQLSelect, s3:GetObject')
+  })
+
   it('RemovalSafetyPanel without the field says the count is unverified', () => {
     render(<RemovalSafetyPanel bundle={mixed.removal_safety} attribution={readAttributionCheck(withoutAttributionField(mixed))} />)
     expect(screen.getByTestId('removal-safety-observed').textContent).toContain('removal candidates (unverified: attribution check not reported)')
@@ -396,19 +449,82 @@ describe('the mounted IAM Permissions modal', () => {
     return { ok: true, status: 200, json: async () => body, text: async () => JSON.stringify(body) } as Response
   }
 
-  async function openPermissions(simulate: SimulateFixResponse) {
-    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+  const requests: Array<{ url: string; body: any }> = []
+
+  function mount(simulate: SimulateFixResponse, gap: unknown = full.review_envelope, authorityHoldReason: string | null = null) {
+    requests.length = 0
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
-      if (url.includes('/gap-analysis')) return reply(full.review_envelope)
+      requests.push({ url, body: init?.body ? JSON.parse(String(init.body)) : null })
+      if (url.includes('/gap-analysis')) return reply(gap)
       if (url.includes('/simulate-fix')) return reply(simulate)
       return { ok: false, status: 404, json: async () => ({ detail: { code: 'FIXTURE_UNROUTED' } }) } as Response
     }))
     render(<IAMPermissionAnalysisModal isOpen onClose={() => {}} roleName="fixture-web-role"
-      roleArn="arn:aws:iam::111111111111:role/fixture-web-role" systemName="fixture-webshop" applyDisabled />)
-    const tab = await screen.findByRole('button', { name: /^Permissions/ }, { timeout: 5000 })
+      roleArn="arn:aws:iam::111111111111:role/fixture-web-role" systemName="fixture-webshop" applyDisabled
+      authorityHoldReason={authorityHoldReason} />)
+  }
+
+  async function openTab(name: RegExp) {
+    const tab = await screen.findByRole('button', { name }, { timeout: 5000 })
     fireEvent.click(tab)
+  }
+
+  async function openPermissions(simulate: SimulateFixResponse, gap: unknown = full.review_envelope) {
+    mount(simulate, gap)
+    await openTab(/^Permissions/)
     return screen.findByTestId('iam-removal-candidates-heading', {}, { timeout: 5000 })
   }
+
+  it('Context tab: the removal-candidate count subtracts attribution-unverified actions and is preview-only', async () => {
+    // Positive control: without the field the tile carries the scorer's 3.
+    mount(withoutAttributionField(mixed))
+    await openTab(/^Context/)
+    expect((await screen.findByTestId('context-removal-candidates', {}, { timeout: 5000 })).textContent).toBe('3')
+    cleanup()
+    mount(mixed)
+    await openTab(/^Context/)
+    const tile = await screen.findByTestId('context-removal-candidates', {}, { timeout: 5000 })
+    expect(tile.textContent).toBe('1')
+    expect(tile.parentElement?.textContent).toContain('preview only; execution held · 2 attribution unverified, kept')
+    expect(screen.queryByText('Ready to remove')).toBeNull()
+  })
+
+  it('break-glass never sends an attribution-unverified action', async () => {
+    // The host passes the hold reason that shows the override (LeastPrivilegeTab does); here the Preview's own.
+    mount(mixed, full.review_envelope, mixed.safety.unsafe_reasons[0])
+    const button = await screen.findByRole('button', { name: 'Remediate Anyway' }, { timeout: 5000 })
+    await screen.findByTestId('removal-safety-panel', {}, { timeout: 5000 })
+    fireEvent.click(button)
+    await waitFor(() => expect(requests.some((r) => r.url.includes('/break-glass-plan'))).toBe(true))
+    const sent = requests.find((r) => r.url.includes('/break-glass-plan'))?.body.permissions_to_remove
+    expect(sent).toContain('s3:GetObjectAcl') // positive control: the control permission IS sent
+    expect(sent).not.toContain('s3:GetObject')
+    expect(sent).not.toContain('dynamodb:PartiQLSelect')
+  })
+
+  it('the legacy selection (no removal_safety, not BLOCK) never selects an attribution-unverified action', async () => {
+    // Edited capture: removal_safety dropped and the decision set to REQUIRE_APPROVAL, which is the path where the
+    // modal selects gapData.unused_permissions; the Review's unused list gets the held s3:GetObject added.
+    const body = clone(mixed) as Record<string, any>
+    delete body.removal_safety
+    body.safety = { ...body.safety, decision: 'approval_required', decision_canonical: 'REQUIRE_APPROVAL', unsafe_reasons: [] }
+    const gap = clone(full.review_envelope) as Record<string, any>
+    gap.result.unused_permissions = [...gap.result.unused_permissions, 's3:GetObject']
+    gap.result.is_remediable = true // edited: otherwise the Review's evidence hold empties the selection first
+    const selected = async (simulate: SimulateFixResponse) => {
+      mount(simulate, gap)
+      await openTab(/^Permissions/)
+      const label = await screen.findByText('permissions queued for removal', {}, { timeout: 5000 })
+      return Number(label.previousElementSibling?.textContent)
+    }
+    const withHeld = await selected(withoutAttributionField(body))
+    cleanup()
+    const withoutHeld = await selected(body as SimulateFixResponse)
+    expect(withHeld).toBe(gap.result.unused_permissions.length) // positive control: the fallback path ran
+    expect(withoutHeld).toBe(withHeld - 1)
+  })
+
 
   it('keeps attribution-unverified actions out of the candidates list and renders the final state', async () => {
     // Positive control: the same captured body without the field lists all 3 scorer candidates.
@@ -468,6 +584,12 @@ describe('untraced removal wording', () => {
     const grouped = modal.indexOf('Permissions to Remove — Grouped by Backend Confidence Engine')
     expect(grouped).toBeGreaterThan(hidden)
     expect(modal.slice(hidden, grouped)).not.toMatch(/<\/div>/)
+  })
+
+  it('the recommend proxy reduction percentage is labelled attribution-not-checked where it renders', () => {
+    const at = perResource.indexOf('data-testid="per-resource-aggregated-risk-reduction"')
+    expect(at).toBeGreaterThan(0)
+    expect(perResource.slice(at, at + 900)).toContain('attribution not checked')
   })
 
   it('the node detail panel does not tell the operator to remove unverified permissions', () => {

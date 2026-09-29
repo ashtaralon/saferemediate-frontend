@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useMemo, useRef } from "react"
+import { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { createPortal } from "react-dom"
 import {
   X, Calendar, CheckCircle, AlertTriangle, Shield, ShieldCheck, Sparkles, Check,
@@ -303,10 +303,16 @@ export function RemovalSafetyPanel({ bundle, attribution }: { bundle: RemovalSaf
           )}
         </div>
         {bundle.plan_score !== null && (
-          <div className="shrink-0 rounded-lg bg-slate-900 px-3 py-2 text-center text-white">
+          <div className="shrink-0 rounded-lg bg-slate-900 px-3 py-2 text-center text-white" data-testid="removal-safety-plan-score">
             <div className="text-[10px] uppercase tracking-wide text-slate-300">Change score</div>
             <div className="text-2xl font-bold tabular-nums">{bundle.plan_score}</div>
             <div className="text-[10px] text-slate-300">lowest selected</div>
+            {/* The scorer's number is not recomputed here (scoring is patent-area); it is labelled instead. */}
+            {held.length > 0 && (
+              <div className="mt-1 max-w-[9rem] text-[10px] font-semibold text-amber-300" data-testid="removal-safety-plan-score-includes-held">
+                includes attribution-unverified permissions
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -1104,7 +1110,22 @@ export function IAMPermissionAnalysisModal({
   // Broad detachment is not a valid operation in the permission picker. The
   // operator selects exact actions; the signed plan owns the execution shape.
   const detachAllManagedPolicies = false
-  const [selectedPermissionsToRemove, setSelectedPermissionsToRemove] = useState<Set<string>>(new Set())
+  const [selectedPermissionsToRemove, setSelectedPermissionsToRemoveRaw] = useState<Set<string>>(new Set())
+  // Attribution-unverified actions of the current Preview (lower-case). Every selection path goes through
+  // setSelectedPermissionsToRemove below, so a held action can never be selected, whatever list it came from
+  // (signed plan, legacy gap-analysis unused list, break-glass plan, or a checkbox).
+  const attributionHeldKeys = useRef<Set<string>>(new Set())
+  const setSelectedPermissionsToRemove = useCallback(
+    (next: Set<string> | ((prev: Set<string>) => Set<string>)) => {
+      setSelectedPermissionsToRemoveRaw((prev) => {
+        const value = typeof next === 'function' ? next(prev) : next
+        const held = attributionHeldKeys.current
+        if (held.size === 0) return value
+        return new Set(Array.from(value).filter((permission) => !held.has(String(permission).toLowerCase())))
+      })
+    },
+    [],
+  )
   // In-app override confirmation modal. Replaces the old window.confirm
   // + window.prompt flow with a clean dialog that captures the rationale
   // + rollback acknowledgement. On submit -> handleApplyFix(true, lineage)
@@ -1346,6 +1367,7 @@ export function IAMPermissionAnalysisModal({
     setSafetyContext(null)
     setRemovalSafety(null)
     setAttributionCheck(null)
+    attributionHeldKeys.current = new Set()
     setFinalRemediationState(null)
     setPreviewProblem(null)
     setPreviewRefusal(null)
@@ -1403,7 +1425,9 @@ export function IAMPermissionAnalysisModal({
           ? data.removal_safety as RemovalSafetyBundle
           : null,
       )
-      setAttributionCheck(readAttributionCheck(data))
+      const attributionFromPreview = readAttributionCheck(data)
+      attributionHeldKeys.current = new Set(attributionFromPreview.unverified.map((item) => item.action.toLowerCase()))
+      setAttributionCheck(attributionFromPreview)
       setFinalRemediationState(typeof data?.final_remediation_state === 'string' ? data.final_remediation_state : null)
       setPreviewProblem(data?.problem ?? null)
       setPreviewDecisionAuthority(data?.decision_authority ?? null)
@@ -1736,9 +1760,11 @@ export function IAMPermissionAnalysisModal({
 
   const handlePrepareBreakGlass = async () => {
     if (!gapData || breakGlassPreparing) return
-    const permissions = resolveBreakGlassPermissionSelection(
-      removalSafety,
-      gapData.unused_permissions,
+    // Break-glass never carries an attribution-unverified action: it is kept, not an override candidate.
+    const permissions = withoutAttributionUnverified(
+      resolveBreakGlassPermissionSelection(removalSafety, gapData.unused_permissions),
+      attributionCheck ?? { reported: false, unverified: [] },
+      (permission) => permission,
     )
     if (permissions.length === 0) {
       toast({
@@ -5787,9 +5813,15 @@ export function IAMPermissionAnalysisModal({
               )}
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
                 <div className="rounded-lg border border-[var(--border,#e5e7eb)] bg-white p-4">
-                  <div className="text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground,#6b7280)]">Ready to remove</div>
-                  <div className="mt-2 text-3xl font-bold text-[var(--foreground,#111827)]">{removalSafety?.scored_candidate_count ?? 0}</div>
-                  <div className="mt-1 text-sm text-[var(--muted-foreground,#6b7280)]">permissions with an executable evidence assessment</div>
+                  <div className="text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground,#6b7280)]">Removal candidates</div>
+                  <div className="mt-2 text-3xl font-bold text-[var(--foreground,#111827)]" data-testid="context-removal-candidates">{removalSafety ? attributionHeldCandidates(removalSafety, attribution).candidateCount : 0}</div>
+                  <div className="mt-1 text-sm text-[var(--muted-foreground,#6b7280)]">
+                    preview only{LP_MUTATION_APPLY_ENABLED ? '' : '; execution held'}
+                    {removalSafety && attributionHeldCandidates(removalSafety, attribution).held.length > 0
+                      ? ` · ${attributionHeldCandidates(removalSafety, attribution).held.length} attribution unverified, kept`
+                      : ''}
+                    {!attribution.reported ? ' · attribution check not reported' : ''}
+                  </div>
                 </div>
                 <div className="rounded-lg border border-[var(--border,#e5e7eb)] bg-white p-4">
                   <div className="text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground,#6b7280)]">Needs evidence</div>

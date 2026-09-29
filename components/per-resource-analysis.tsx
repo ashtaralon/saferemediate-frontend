@@ -1906,6 +1906,13 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
                     <div className="text-right">
                       <div className="text-xs" style={{ color: "var(--text-muted)" }}>Risk reduction</div>
                       <div className="text-2xl font-bold" style={{ color: "var(--text-secondary)" }} data-testid="per-resource-aggregated-risk-reduction">{knownNumber(recommendData.aggregated_risk_reduction) ? `${Math.round(recommendData.aggregated_risk_reduction)}%` : UNKNOWN}</div>
+                      {/* The proxy derives this from the decision generation's CLEARED list, which carries no CloudTrail
+                          attribution check (/api/proxy/cyntro/recommend). */}
+                      {knownNumber(recommendData.aggregated_risk_reduction) && (
+                        <div className="text-[10px]" style={{ color: "var(--text-muted)" }} data-testid="per-resource-aggregated-risk-reduction-unverified">
+                          attribution not checked
+                        </div>
+                      )}
                     </div>
                   </div>
                   {knownNumber(recommendData.aggregated_risk_reduction) && (

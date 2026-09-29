@@ -183,8 +183,10 @@ export function IAMSimulateFixModal({
   // Attribution-unverified actions are kept by the backend; never show one as a candidate.
   const removedExamples = withoutAttributionUnverified(simulation.removed_examples, attribution, (action) => action)
   const remediationState = remediationStateView(result.final_remediation_state)
+  // attribution_unverified is listed once, in the attribution section below, when the top-level field is reported.
   const heldByCategory = Object.entries(simulation.excluded_by_category ?? {})
     .filter((entry): entry is [string, string[]] => Array.isArray(entry[1]) && entry[1].length > 0)
+    .filter(([category]) => !(category === 'attribution_unverified' && attribution.reported))
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">

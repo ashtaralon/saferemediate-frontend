@@ -7,11 +7,14 @@ import {
   simulationPlanCounts,
 } from '@/lib/resource-risk-preview-summary'
 import type { SimulateFixSafety } from '@/lib/types'
+import rollbackShapes from './fixtures/simulate-fix-rollback-ready-838f7c26.json'
 
+// Rollback readiness is the backend tri-state: a bare rollback_available=true (an older backend's default) no
+// longer suppresses the rollback need, so these cases carry a route-captured proven state to isolate other needs.
 const baseSafety: SimulateFixSafety = {
   decision: 'blocked',
   decision_canonical: 'BLOCK',
-  rollback_available: true,
+  ...(rollbackShapes.proven as Pick<SimulateFixSafety, 'rollback_available' | 'rollback_ready_status' | 'rollback_ready'>),
   snapshot_required: true,
   preflight_required: true,
   unsafe_reasons: [],

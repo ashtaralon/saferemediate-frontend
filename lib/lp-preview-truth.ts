@@ -94,10 +94,22 @@ const ROLLBACK_STATUSES: ReadonlySet<string> = new Set(["proven", "unverified", 
 
 /**
  * The one reason code the backend proves with (unified/lp/rollback_ready_status.py). "proven" with any other
- * reason, or with none, is not read as proven: an unrecognised code (e.g. RESTORE_READBACK_UNPROVEN) is shown
- * verbatim as unknown.
+ * reason, or with none, is not read as proven.
  */
 export const ROLLBACK_PROVEN_REASON = "SAME_SCOPE_RESTORE_VERIFIED"
+
+/**
+ * The backend's `unverified` reason codes at 838f7c26 (history read; no restore proven). One of these under a
+ * "proven" status reads as unverified; any other unrecognised code is shown verbatim as unknown.
+ */
+export const ROLLBACK_UNVERIFIED_REASONS: ReadonlySet<string> = new Set([
+  "NO_SAME_SCOPE_RESTORE_POINT",
+  "NO_PROVEN_RESTORE",
+  "CURRENT_CHANGE_NOT_RESTORED",
+  "RESTORE_POINT_NOT_RECORDED",
+  "RESTORE_READBACK_UNPROVEN",
+  "RESOURCE_INCARNATION_UNPROVEN",
+])
 
 /**
  * Tri-state rollback readiness from `safety`. Absent / unrecognised status is "unknown", never proven.
@@ -121,7 +133,9 @@ export function rollbackReadyView(safety: unknown): RollbackReadyView {
   let status = (raw && ROLLBACK_STATUSES.has(raw) ? raw : "unknown") as SimulateFixRollbackReadyStatus
   // The evidence block must agree with the status it explains.
   if (evidence && typeof evidence.status === "string" && evidence.status !== status) status = "unknown"
-  if (status === "proven" && reasonCode !== ROLLBACK_PROVEN_REASON) status = "unknown"
+  if (status === "proven" && reasonCode !== ROLLBACK_PROVEN_REASON) {
+    status = reasonCode && ROLLBACK_UNVERIFIED_REASONS.has(reasonCode) ? "unverified" : "unknown"
+  }
   const because = reasonCode ? ` (${reasonCode})` : ""
   if (status === "proven") {
     return {
