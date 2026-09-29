@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
+import {
+  ERROR_ORIGIN_HEADER,
+  allowlistedBackendDetail,
+  fromCaughtError,
+  reviewProxyStatus,
+} from "@/lib/server/proxy-error"
 
 export const dynamic = "force-dynamic"
 export const fetchCache = "force-no-store"
@@ -18,6 +24,10 @@ const ALLOWED_PARAMS = [
   "include_inactive",
 ] as const
 
+// A timeout used to be a 200 with shared_roles = [] and count = 0: "no shared
+// roles" presented as a successful discovery. Every failure is now the house
+// error shape (lib/server/proxy-error, as the LP issues and metrics proxies
+// answer it): a non-2xx status, allowlisted typed detail only, no rows.
 export async function GET(req: NextRequest) {
   const inUrl = new URL(req.url)
   const qs = new URLSearchParams()
@@ -39,37 +49,31 @@ export async function GET(req: NextRequest) {
     clearTimeout(timeoutId)
 
     if (!res.ok) {
-      const errorText = await res.text()
-      console.error(`[proxy] iam/shared-roles backend ${res.status}: ${errorText}`)
+      const raw = await res.text().catch(() => "")
+      const detail = allowlistedBackendDetail(raw)
+      console.error(`[proxy] iam/shared-roles backend ${res.status}: code=${detail?.code ?? "none"}`)
       return NextResponse.json(
-        { error: `Backend error: ${res.status}`, detail: errorText },
-        { status: res.status }
+        {
+          error: `Shared-roles backend returned ${res.status}`,
+          ...(detail ? { detail } : {}),
+          backendStatus: res.status,
+          origin: "backend",
+        },
+        {
+          status: reviewProxyStatus(res.status),
+          headers: { "Cache-Control": "no-store", [ERROR_ORIGIN_HEADER]: "backend" },
+        },
       )
     }
 
     const data = await res.json()
     return NextResponse.json(data)
-  } catch (error: any) {
+  } catch (error: unknown) {
     clearTimeout(timeoutId)
-    console.error("[proxy] iam/shared-roles error:", error.message)
-
-    if (error.name === "AbortError") {
-      return NextResponse.json(
-        {
-          shared_roles: [],
-          as_of: new Date().toISOString(),
-          filters: {},
-          count: 0,
-          timeout: true,
-          message: "Shared-roles discovery is taking longer than expected",
-        },
-        { status: 200 }
-      )
-    }
-
-    return NextResponse.json(
-      { error: "Backend unavailable", detail: error.message },
-      { status: 503 }
-    )
+    console.error("[proxy] iam/shared-roles error:", error instanceof Error ? error.message : error)
+    // AbortError -> 504, anything else -> 503; no rows and no count either way.
+    const failed = fromCaughtError(error)
+    failed.headers.set(ERROR_ORIGIN_HEADER, "proxy")
+    return failed
   }
 }

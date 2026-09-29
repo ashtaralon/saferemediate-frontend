@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
+import {
+  ERROR_ORIGIN_HEADER,
+  allowlistedBackendDetail,
+  fromCaughtError,
+  reviewProxyStatus,
+} from "@/lib/server/proxy-error"
 
 export const dynamic = "force-dynamic"
 export const fetchCache = "force-no-store"
@@ -8,6 +14,10 @@ export const revalidate = 0
 const BACKEND_URL =
   getBackendBaseUrl()
 
+// A timeout used to be a 200 with roles = []: an empty result presented as a
+// successful one. Every failure is now the house error shape
+// (lib/server/proxy-error, as the LP issues and metrics proxies answer it):
+// a non-2xx status, allowlisted typed detail only, no roles.
 export async function GET(req: NextRequest) {
   const url = new URL(req.url)
   // Frontend sends 'system_name' (snake_case) in query params
@@ -34,11 +44,20 @@ export async function GET(req: NextRequest) {
     clearTimeout(timeoutId)
 
     if (!res.ok) {
-      const errorText = await res.text()
-      console.error(`[LP Proxy Roles] Backend returned ${res.status}: ${errorText}`)
+      const raw = await res.text().catch(() => "")
+      const detail = allowlistedBackendDetail(raw)
+      console.error(`[LP Proxy Roles] backend ${res.status}: code=${detail?.code ?? "none"}`)
       return NextResponse.json(
-        { error: `Backend error: ${res.status}`, detail: errorText },
-        { status: res.status }
+        {
+          error: `Least-privilege roles backend returned ${res.status}`,
+          ...(detail ? { detail } : {}),
+          backendStatus: res.status,
+          origin: "backend",
+        },
+        {
+          status: reviewProxyStatus(res.status),
+          headers: { "Cache-Control": "no-store", [ERROR_ORIGIN_HEADER]: "backend" },
+        },
       )
     }
 
@@ -68,18 +87,11 @@ export async function GET(req: NextRequest) {
 
     console.log(`[LP Proxy Roles] Fetched and transformed ${roles.length} roles`)
     return NextResponse.json({ roles })
-  } catch (error: any) {
-    console.error("[LP Proxy Roles] Error:", error.message)
-
-    if (error.name === "AbortError") {
-      // Return matching shape on timeout
-      return NextResponse.json({ roles: [] }, { status: 200 })
-    }
-
-    return NextResponse.json(
-      { error: "Backend unavailable", detail: error.message },
-      { status: 503 }
-    )
+  } catch (error: unknown) {
+    console.error("[LP Proxy Roles] error:", error instanceof Error ? error.message : error)
+    // AbortError -> 504, anything else -> 503; no roles either way.
+    const failed = fromCaughtError(error)
+    failed.headers.set(ERROR_ORIGIN_HEADER, "proxy")
+    return failed
   }
 }
-
