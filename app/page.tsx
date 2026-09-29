@@ -45,6 +45,7 @@ import { HomeDashboardV2 } from "@/components/dashboard/v2/home-dashboard-v2"
 import { HomeDashboardV3 } from "@/components/dashboard/v3/home-dashboard-v3"
 import { DASHBOARD_V3_ENABLED } from "@/lib/dashboard-release"
 import { readJsonCache, writeJsonCache } from "@/lib/browser-cache"
+import { homeGapAnalysisFromSummary, type HomeGapAnalysis } from "@/lib/brss-held"
 import { normalizeFindingIdentities } from "@/lib/security-finding-identity"
 import { catalogSystemName, useScopedSystemCatalog } from "@/lib/scoped-system-catalog"
 
@@ -74,13 +75,7 @@ async function fetchWithTimeout(url: string, options: RequestInit = {}, timeout 
   }
 }
 
-interface GapAnalysisData {
-  allowed: number
-  used: number
-  unused: number
-  confidence: number
-  roleName: string
-}
+type GapAnalysisData = HomeGapAnalysis
 
 interface SecurityHubData {
   total: number
@@ -153,11 +148,12 @@ export default function HomePage() {
   // Pending-tag queue count for the sidebar badge. Polled on mount + every 60s
   // so operators see new pending items without a hard refresh.
   const [pendingTagsCount, setPendingTagsCount] = useState<number>(0)
+  // Nothing loaded yet is unknown, not 0 permissions at 99% confidence.
   const [gapData, setGapData] = useState<GapAnalysisData>({
-    allowed: 0,
-    used: 0,
-    unused: 0,
-    confidence: 99,
+    allowed: null,
+    used: null,
+    unused: null,
+    confidence: null,
     roleName: "Loading...",
   })
   const [securityHubData, setSecurityHubData] = useState<SecurityHubData>({
@@ -182,28 +178,8 @@ export default function HomePage() {
         return res.json()
       })
       .then((summaryJson) => {
-        // Use aggregate permission data from issues summary
-        const permissions = summaryJson.byCategory?.permissions || {}
-        const allowed = permissions.allowed || 0
-        const used = permissions.used || 0
-        const unused = permissions.unused || (allowed - used)
-
-        // Calculate confidence based on gap percentage
-        const gapPct = permissions.gap_percentage || 0
-        const confidence = allowed > 0 ? Math.min(99, Math.max(70, 100 - gapPct * 0.2)) : 0
-
-        // Show aggregate label
-        const roleName = `${summaryJson.resources?.iam_roles || 0} IAM Roles Analyzed`
-
-        console.log(`[Home] Gap Analysis: allowed=${allowed}, used=${used}, unused=${unused}, confidence=${confidence}`)
-
-        const newGapData = {
-          allowed: allowed,
-          used: used,
-          unused: unused,
-          confidence: Math.round(confidence),
-          roleName: roleName,
-        }
+        // Aggregate permission data from issues summary; withheld totals stay null.
+        const newGapData = homeGapAnalysisFromSummary(summaryJson)
         setGapData(newGapData)
         setCachedData(CACHE_KEYS.GAP_DATA, newGapData) // Cache for instant load
         setLastRefresh(new Date())
@@ -212,10 +188,10 @@ export default function HomePage() {
         console.warn("Gap analysis fetch failed:", err)
         // Keep default values or set to zero
         setGapData({
-          allowed: 0,
-          used: 0,
-          unused: 0,
-          confidence: 0,
+          allowed: null,
+          used: null,
+          unused: null,
+          confidence: null,
           roleName: "Error loading",
         })
       })
@@ -564,7 +540,10 @@ export default function HomePage() {
     data?.resources?.length ||
     Object.values(infrastructureStats).reduce((sum, count) => sum + Number(count || 0), 0)
   const urgentIssueCount = (securityIssuesData.critical || 0) + (securityIssuesData.high || 0)
-  const removableGapPercent = gapData.allowed > 0 ? Math.round((gapData.unused / gapData.allowed) * 100) : 0
+  const removableGapPercent =
+    gapData.allowed == null || gapData.unused == null
+      ? null
+      : gapData.allowed > 0 ? Math.round((gapData.unused / gapData.allowed) * 100) : 0
   const lastRefreshLabel = lastRefresh.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
   const securityHubHighlights = Object.entries(securityHubData.byProduct).slice(0, 3)
 
@@ -670,10 +649,10 @@ export default function HomePage() {
           // fresh visit into one specific demo system's data.
           return <HomeDashboardV2 initialSystem={selectedSystem ?? ""} onNavigateToSection={handleSidebarClick} />
         }
-        const gapAllowed = gapData?.allowed ?? 0
-        const gapUsed = gapData?.used ?? 0
-        const gapUnused = gapData?.unused ?? 0
-        const gapConfidence = gapData?.confidence ?? 99
+        const gapAllowed = gapData?.allowed ?? null
+        const gapUsed = gapData?.used ?? null
+        const gapUnused = gapData?.unused ?? null
+        const gapConfidence = gapData?.confidence ?? null
         const gapRoleName = gapData?.roleName ?? "IAM Roles"
 
         return (
@@ -733,7 +712,7 @@ export default function HomePage() {
                       </div>
                       <div className="rounded-2xl border border-[#ddd6fe] bg-[#f5f3ff] p-4">
                         <div className="text-xs uppercase tracking-[0.2em] text-[#6d28d9]">Access Gap</div>
-                        <div className="mt-2 text-3xl font-bold text-[#111827]">{removableGapPercent}%</div>
+                        <div className="mt-2 text-3xl font-bold text-[#111827]">{removableGapPercent == null ? "Unknown" : `${removableGapPercent}%`}</div>
                         <p className="mt-2 text-xs text-[#5b21b6]">Of granted permissions appear removable</p>
                       </div>
                       <div className="rounded-2xl border border-[#bfdbfe] bg-[#eff6ff] p-4">
@@ -793,26 +772,29 @@ export default function HomePage() {
                   <CardContent>
                     <div className="grid grid-cols-2 gap-3">
                       <div className="bg-white/60 rounded-lg p-3 text-center">
-                        <div className="text-2xl font-bold text-[var(--foreground,#111827)]">{gapAllowed}</div>
+                        <div className="text-2xl font-bold text-[var(--foreground,#111827)]">{gapAllowed ?? "Unknown"}</div>
                         <div className="text-xs text-[var(--muted-foreground,#4b5563)]">Allowed</div>
                       </div>
                       <div className="bg-white/60 rounded-lg p-3 text-center">
-                        <div className="text-2xl font-bold text-[#22c55e]">{gapUsed}</div>
+                        <div className="text-2xl font-bold text-[#22c55e]">{gapUsed ?? "Unknown"}</div>
                         <div className="text-xs text-[var(--muted-foreground,#4b5563)]">Used</div>
                       </div>
                       <div className="bg-white/60 rounded-lg p-3 text-center">
-                        <div className="text-2xl font-bold text-[#ef4444]">{gapUnused}</div>
+                        <div className="text-2xl font-bold text-[#ef4444]">{gapUnused ?? "Unknown"}</div>
                         <div className="text-xs text-[var(--muted-foreground,#4b5563)] flex items-center justify-center gap-1">
                           <TrendingDown className="h-3 w-3" />
                           Unused
                         </div>
                       </div>
                       <div className="bg-white/60 rounded-lg p-3 text-center">
-                        <div className="text-2xl font-bold text-[#8b5cf6]">{gapConfidence}%</div>
+                        <div className="text-2xl font-bold text-[#8b5cf6]">{gapConfidence == null ? "Unknown" : `${gapConfidence}%`}</div>
                         <div className="text-xs text-[var(--muted-foreground,#4b5563)]">Confidence</div>
                       </div>
                     </div>
-                    {gapUnused > 0 && gapAllowed > 0 && (
+                    {gapData?.withheldCopy ? (
+                      <p className="mt-3 text-xs text-slate-500" data-testid="home-gap-withheld">{gapData.withheldCopy}</p>
+                    ) : null}
+                    {gapUnused != null && gapAllowed != null && gapUnused > 0 && gapAllowed > 0 && (
                       <div className="mt-3 p-2 bg-[#f9731620] rounded-lg text-center">
                         <span className="text-xs font-medium text-[#f97316]">
                           {removableGapPercent}% permissions can be removed

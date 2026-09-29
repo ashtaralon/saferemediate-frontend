@@ -40,7 +40,7 @@ import { lpSeverityColor, lpSeverityLabel } from '@/lib/lp-severity'
 import { BackToDashboard } from '@/components/back-to-dashboard'
 import { TrustDormancyLens } from '@/components/trust-dormancy-lens'
 import { iamInventoryRowCopy, iamObservationCopy } from '@/lib/iam-observation-copy'
-import { iamUsageUnknownCopy, lpConfidenceWithheldCopy } from '@/lib/lp-readiness-copy'
+import { iamUsageUnknownCopy, iamUsageWithheldCopy, lpConfidenceWithheldCopy } from '@/lib/lp-readiness-copy'
 import {
   belongsInOpenRiskQueue,
   resourceRiskDecision,
@@ -103,20 +103,26 @@ interface GapResource {
   isOrphan?: boolean
   attachmentCount?: number
   lpScore: number | null  // null for Security Groups (use networkExposure instead)
+  /** Why lpScore is withheld (unverified IAM usage), when it is. */
+  lpScoreWithheldReason?: string | null
   allowedCount: number | null
   usedCount: number | null  // null for Security Groups
   gapCount: number | null  // null for Security Groups
   gapPercent: number | null  // null for Security Groups
   // Blast Radius Score v1.1 — breach impact (orthogonal to gap%).
   blastRadius?: {
-    brs: number
+    // null = withheld (scored from unverified IAM usage), with brs_withheld_reason.
+    brs: number | null
+    brs_withheld_reason?: string
     // null = the score exists but cannot be classified, because an input it
     // depends on could not be read (e.g. the IAM permissions sync failed).
     // Distinct from the whole object being absent, which means no BRS at all.
     band: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | null
     // null alongside a null band: withheld with it (unverified IAM usage generation).
     confidence: 'HIGH' | 'MEDIUM' | 'LOW' | null
-    components: { doc: number; ips: number; nes: number; lms: number }
+    // null = withheld, with components_withheld_reason.
+    components: { doc: number; ips: number; nes: number; lms: number } | null
+    components_withheld_reason?: string
     amplifier: number
     doc_floor_applied: boolean
     rationale: string[]
@@ -285,6 +291,28 @@ const decisionActionLabel = (decision: ResourceRiskDecision) => {
  * Confidence withheld for this row (unverified IAM usage generation, or the
  * backend's own withheld reason) — distinct from a server that never sent one.
  */
+/** A null lpScore the backend withheld, or read off an unverified usage generation — not "not applicable". */
+const lpScoreWithheld = (resource: GapResource): boolean =>
+  resource.lpScore == null && (!!resource.lpScoreWithheldReason || resource.usageGenerationUnverified === true)
+
+type BlastRadius = NonNullable<GapResource['blastRadius']>
+
+/**
+ * The blast-radius score cannot be shown: the band is unclassified, or the
+ * score or its components were withheld (null). Never `Math.round(null)` = 0.
+ */
+const isBlastRadiusHeld = (blast: BlastRadius): boolean =>
+  blast.band == null || blast.brs == null || blast.components == null
+
+/** Why a held blast radius has no score: the payload's rationale, then its withheld reason. */
+const blastRadiusHeldTitle = (blast: BlastRadius): string => {
+  const withheldReason = blast.brs_withheld_reason || blast.components_withheld_reason || null
+  return blast.rationale?.[0]
+    || (withheldReason ? iamUsageWithheldCopy(withheldReason) : null)
+    || ('Blast Radius cannot be scored — this resource\'s permissions could not be read, '
+    + 'so the components that depend on them have no input. Re-run the sync to get a real score.')
+}
+
 const isConfidenceWithheld = (resource: GapResource): boolean =>
   resource.evidence?.confidence == null &&
   (resource.usageGenerationUnverified === true || resource.evidence?.confidence_withheld_reason != null)
@@ -2565,22 +2593,21 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                         title={
                           !resource.blastRadius
                             ? 'No blast-radius score was returned for this finding.'
-                            : resource.blastRadius.band == null
-                            // The band was withheld. When the payload says why
-                            // (rationale[0] — e.g. IPS scored from legacy usage
-                            // input on an unverified generation) show that.
+                            : isBlastRadiusHeld(resource.blastRadius)
+                            // The band, score or components were withheld. When
+                            // the payload says why (rationale[0] — e.g. IPS
+                            // scored from legacy usage input on an unverified
+                            // generation — or a *_withheld_reason) show that.
                             // Otherwise three of the four components are
                             // derived from this role's permissions, and those
                             // could not be read, so the composite is a floor
                             // rather than an estimate.
-                            ? resource.blastRadius.rationale?.[0]
-                              || ('Blast Radius cannot be scored — this resource\'s permissions could not be read, '
-                              + 'so the components that depend on them have no input. Re-run the sync to get a real score.')
+                            ? blastRadiusHeldTitle(resource.blastRadius)
                             : `BRS ${resource.blastRadius.brs} ${resource.blastRadius.band} — `
-                              + `DOC ${resource.blastRadius.components.doc} / `
-                              + `IPS ${resource.blastRadius.components.ips} / `
-                              + `NES ${resource.blastRadius.components.nes} / `
-                              + `LMS ${resource.blastRadius.components.lms}`
+                              + `DOC ${resource.blastRadius.components!.doc} / `
+                              + `IPS ${resource.blastRadius.components!.ips} / `
+                              + `NES ${resource.blastRadius.components!.nes} / `
+                              + `LMS ${resource.blastRadius.components!.lms}`
                               + (resource.blastRadius.amplifier > 1 ? ` × ${resource.blastRadius.amplifier} amplifier` : '')
                               + (resource.blastRadius.doc_floor_applied ? ' (DOC floor applied)' : '')
                               + ` · Confidence ${resource.blastRadius.confidence}`
@@ -2591,7 +2618,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                             number alone would still read as "low risk", which
                             is the whole defect. Shown as "?" to match the
                             USED / UNUSED cells on the same row. */}
-                        {resource.blastRadius && resource.blastRadius.band == null ? (
+                        {resource.blastRadius && isBlastRadiusHeld(resource.blastRadius) ? (
                           <span className="text-sm" style={{ color: "var(--text-muted)" }} aria-label="Blast radius not scoreable">?</span>
                         ) : resource.blastRadius ? (
                           <>
@@ -2599,7 +2626,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                               className="text-sm font-bold tabular-nums"
                               style={{ color: getBRSColor(resource.blastRadius.band) }}
                             >
-                              {Math.round(resource.blastRadius.brs)}
+                              {Math.round(resource.blastRadius.brs as number)}
                             </span>
                             <span
                               className="px-1.5 py-0.5 rounded text-[10px] font-semibold"
@@ -4471,6 +4498,8 @@ function SummaryTab({ resource }: { resource: GapResource }) {
                   </span>
                 ) : resource.lpScore !== null && !isNaN(resource.lpScore) ? (
                   `${resource.lpScore.toFixed(0)}%`
+                ) : lpScoreWithheld(resource) ? (
+                  <span data-testid="lp-score-withheld">Unknown</span>
                 ) : (
                   'N/A'
                 )}
@@ -4480,6 +4509,10 @@ function SummaryTab({ resource }: { resource: GapResource }) {
                   'Requires traffic/access analysis'
                 ) : resource.lpScore !== null && !isNaN(resource.lpScore) ? (
                   `${(100 - resource.lpScore).toFixed(0)}% unused`
+                ) : lpScoreWithheld(resource) ? (
+                  resource.lpScoreWithheldReason
+                    ? iamUsageWithheldCopy(resource.lpScoreWithheldReason)
+                    : iamUsageUnknownCopy(resource.usageGenerationBlockers)
                 ) : (
                   'Not applicable'
                 )}
