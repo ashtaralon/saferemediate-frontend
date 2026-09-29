@@ -58,6 +58,7 @@ import { OrphanServicesTab } from "@/components/orphan-services-tab"
 import { QuarantineCandidatesSection } from "@/components/iam-shared-roles-detail-view"
 import { DELETE as iamSnapshotDelete } from "@/app/api/proxy/iam-roles/snapshots/[snapshotId]/route"
 import { DELETE as snapshotDelete } from "@/app/api/proxy/snapshots/[snapshotId]/route"
+import { GET as aggregateSnapshots } from "@/app/api/proxy/snapshots/route"
 import { POST as quarantineStartMonitor } from "@/app/api/proxy/quarantine/start-monitor/route"
 import { POST as quarantineExecute } from "@/app/api/proxy/quarantine/execute/route"
 import { POST as quarantineRestore } from "@/app/api/proxy/quarantine/restore/route"
@@ -245,6 +246,21 @@ describe("proxies relay through the typed error contract", () => {
     const text = await response.text()
     expect(response.status).toBe(502)
     expect(text).not.toContain("arn:aws")
+  })
+
+  it("/api/proxy/quarantine/execute: a real AbortSignal.timeout rejection (TimeoutError) is 504, not 503", async () => {
+    holdMode.proxyReleased = true
+    let reasonName: unknown
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      const signal = AbortSignal.timeout(1)
+      await new Promise((resolve) => setTimeout(resolve, 25))
+      reasonName = (signal.reason as { name?: unknown }).name
+      throw signal.reason
+    }))
+    const response = await quarantineExecute(body("POST", "/api/proxy/quarantine/execute"))
+    expect(reasonName).toBe("TimeoutError") // the rejection is the platform's own, not a hand-named Error
+    expect(response.status).toBe(504)
+    expect(await response.json()).toMatchObject({ error: "Backend request timed out", origin: "proxy" })
   })
 
   it("/api/proxy/quarantine/start-monitor with the FE hold in force answers its own 423 and sends nothing", async () => {
@@ -659,5 +675,116 @@ describe("IAM shared-roles quarantine candidates: a refused delete shows its rea
     await confirmIn(screen.getByRole("button", { name: /^Delete 1$/, hidden: true }), /^Delete 1$/)
     expect(await screen.findByText(`1 of 1 failed: payments-reconcile-fn: ${EXPECTED}`)).toBeTruthy()
     expect(screen.queryByText("1 of 1 failed: payments-reconcile-fn: delete 409")).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------------------------------------------------
+describe("Recovery tab: merging the aggregate list with IAM History keeps the complete copy and distinct snapshots", () => {
+  const SNAP_ID = IAM_SNAPSHOT_ID
+  const OPERATION_ID = "op-7f3a2c91-4b6e-4d0a-9c1e-2a5b8d3f6e10"
+  /** The canonical scoped ledger row as /api/proxy/iam-snapshots returns it (unscoped: the backend's array). */
+  const canonical = (role: string, systemName = "payments-prod") => ({
+    snapshot_id: SNAP_ID, operation_id: OPERATION_ID, resource_arn: `arn:aws:iam::123456789012:role/${role}`,
+    system_name: systemName, tenant_id: "tenant-payments", account_id: "123456789012",
+    scope_proof: "PROVEN_TENANT_ACCOUNT", source: "lifecycle_checkpoint", state: "VERIFIED",
+    rollback_available: true, offer_withheld_reason: null, current: { code: "CURRENT", operationId: OPERATION_ID },
+    resource_type: "IAMRole", created_at: "2026-09-27T09:41:10Z",
+  })
+
+  /**
+   * The REAL aggregate proxy, with its /api/snapshots read failing: the only IAM copy it can list is the
+   * s3-remediation checkpoint, which its transform labels system_name = the role name and gives no source.
+   */
+  function sources(opts: { iamRole: string; iamSystem?: string; legacyRows?: unknown[] }) {
+    const deletes: string[] = []
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (String(init?.method ?? "GET").toUpperCase() === "DELETE") {
+        deletes.push(url)
+        return json(relayed409("iam_role_snapshot_delete"), 409)
+      }
+      if (/^https?:\/\//.test(url)) {
+        if (url.includes("/api/s3-remediation/checkpoints")) {
+          return json({ checkpoints: [{ checkpoint_id: SNAP_ID, resource_id: "payments-api", resource_type: "IAMRole",
+            timestamp: "2026-09-27T09:41:10Z", status: "ACTIVE" }] })
+        }
+        if (url.includes("/api/sg-least-privilege/snapshots/all")) return json({ snapshots: [] })
+        if (url.includes("/api/remediation/snapshots")) return json({ snapshots: opts.legacyRows ?? [] })
+        return json({ detail: { code: "HISTORY_STORAGE_UNAVAILABLE" } }, 503) // /api/snapshots
+      }
+      if (url.startsWith("/api/proxy/iam-snapshots")) return json([canonical(opts.iamRole, opts.iamSystem)])
+      if (url.startsWith("/api/proxy/snapshots")) return aggregateSnapshots(new NextRequest(`http://localhost${url}`))
+      if (url.startsWith("/api/proxy/system-resources/")) return json({ resources: [] })
+      return json({ detail: { code: "SPY_UNROUTED" } }, 599)
+    }))
+    return deletes
+  }
+
+  const cards = () => screen.queryAllByTitle("Delete snapshot")
+  const restorable = () => screen.queryAllByRole("button", { name: /Review IAM restore/ }) as HTMLButtonElement[]
+  const unavailable = () => screen.queryAllByRole("button", { name: /IAM restore unavailable/ })
+
+  it("reviewer probe: aggregate IAM read fails, IAM History answers, systemName filter -> one card, Restore offered", async () => {
+    sources({ iamRole: "payments-api" })
+    render(<RecoveryTab systemName="payments-prod" />)
+    await screen.findByText(SNAP_ID)
+    expect(cards()).toHaveLength(1)
+    expect(restorable()).toHaveLength(1)
+    expect(restorable()[0].disabled).toBe(false)
+    expect(unavailable()).toHaveLength(0)
+  })
+
+  it("no filter: the two copies of one snapshot collapse to the complete one, Restore offered", async () => {
+    sources({ iamRole: "payments-api" })
+    render(<RecoveryTab />)
+    await screen.findByText(SNAP_ID)
+    expect(cards()).toHaveLength(1)
+    expect(restorable()).toHaveLength(1)
+    expect(unavailable()).toHaveLength(0)
+  })
+
+  it("distinct snapshots sharing an id (different roles) are both kept; only the complete one offers Restore", async () => {
+    sources({ iamRole: "ledger-writer" })
+    render(<RecoveryTab />)
+    await screen.findAllByText(SNAP_ID)
+    expect(cards()).toHaveLength(2)
+    expect(restorable()).toHaveLength(1)
+    // Positive control for the "unavailable" count above: the incomplete checkpoint copy renders it.
+    expect(unavailable()).toHaveLength(1)
+  })
+
+  it("a copy the system filter keeps is never displaced by a preferred copy the filter drops", async () => {
+    // The aggregate's legacy graph row is bound to payments-prod; IAM History's canonical copy of the same snapshot is
+    // bound to another system. With the filter, only the legacy row is in scope, and it must still render.
+    const legacy = { snapshot_id: SNAP_ID, resource_type: "IAMRole", original_role: "payments-api",
+      system_name: "payments-prod", created_at: "2026-09-27T09:41:10Z", status: "ACTIVE" }
+    sources({ iamRole: "payments-api", iamSystem: "payments-staging", legacyRows: [legacy] })
+    render(<RecoveryTab systemName="payments-prod" />)
+    await screen.findByText(SNAP_ID)
+    expect(cards()).toHaveLength(1)
+    expect(restorable()).toHaveLength(0) // the in-scope copy is not a scoped ledger row
+    expect(unavailable()).toHaveLength(1)
+  })
+
+  it("the system filter still hides a snapshot bound only to another system", async () => {
+    sources({ iamRole: "payments-api", iamSystem: "payments-staging" })
+    render(<RecoveryTab systemName="payments-prod" />)
+    // Loaded: the aggregate's IAM source is down, so with nothing in scope the tab shows that error, and no card.
+    await screen.findByText(/IAM History is unavailable or incomplete/)
+    expect(cards()).toHaveLength(0)
+  })
+
+  it("distinct snapshots sharing an id share one delete endpoint: Delete All sends it once and reports it once", async () => {
+    const deletes = sources({ iamRole: "ledger-writer" })
+    render(<RecoveryTab />)
+    await screen.findAllByText(SNAP_ID)
+    expect(cards()).toHaveLength(2)
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /^Delete All$/ }))
+    })
+    const banner = await screen.findByTestId("snapshot-delete-refused")
+    expect(deletes).toEqual([`/api/proxy/iam-roles/snapshots/${SNAP_ID}`])
+    expect(banner.querySelectorAll("p").length).toBe(2) // header + one line
+    expect(alerts()).toEqual(["\u274c 1 of 1 snapshot deletes refused (0 deleted)"])
   })
 })

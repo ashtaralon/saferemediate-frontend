@@ -191,10 +191,13 @@ export function backendUnreachable(message: string): NextResponse {
 
 /**
  * Translate a thrown error into the right proxy response.
- * AbortError → 504, anything else → 503.
+ * AbortError (an AbortController abort) or TimeoutError (an `AbortSignal.timeout()` signal, whose rejection is a
+ * DOMException named TimeoutError) → 504, anything else → 503. Matched by name: a DOMException from another realm is
+ * not always `instanceof Error`.
  */
 export function fromCaughtError(error: unknown): NextResponse {
-  if (error instanceof Error && error.name === "AbortError") {
+  const name = error && typeof error === "object" ? (error as { name?: unknown }).name : undefined
+  if (name === "AbortError" || name === "TimeoutError") {
     return backendTimeout()
   }
   const message = error instanceof Error ? error.message : "Unknown proxy error"

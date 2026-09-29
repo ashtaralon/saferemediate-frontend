@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { Shield, Calendar, User, ArrowDownToLine, ArrowUpFromLine, RotateCcw, RefreshCw, Trash2, MapPin, Server, Key, Lock, Database } from 'lucide-react'
 import { IAM_RESTORE_UNAVAILABLE, commitIamRestore, iamRestoreTarget, prepareIamRestore } from '@/lib/iam-restore-control'
 import { isTypedRefusal, refusalFromPreviewBody } from '@/lib/lp-preview-refusal'
+import { preferSnapshotCopy, sameSnapshotCopy } from '@/lib/snapshot-copy-selection'
 
 interface Snapshot {
   snapshot_id: string
@@ -163,21 +164,23 @@ export default function RecoveryTab({ systemName }: RecoveryTabProps) {
         setError('IAM History is unavailable; IAM restore cannot be verified. Other resource snapshots remain visible.')
       }
 
-      // Combine all snapshots. The aggregate list already carries IAM checkpoints, so one snapshot can arrive from both
-      // sources: keep the first (the aggregate row, with its lifecycle binding) so each snapshot renders -- and is keyed
-      // and deleted -- once.
-      const seen = new Set<string>()
-      let allSnapshots = [...sgSnapshots, ...iamSnapshots].filter((s) => {
-        const identity = `${s.type}:${s.snapshot_id}`
-        if (seen.has(identity)) return false
-        seen.add(identity)
-        return true
-      })
-
       // A selected system may only show IAM rows with that exact producer
       // binding, even when the separate resource-index read failed or is empty.
-      if (systemName) {
-        allSnapshots = allSnapshots.filter(s => s.type !== 'IAMRole' || s.system_name === systemName)
+      // Applied to each source's copy BEFORE merging, so a copy the filter keeps
+      // is never displaced by one it drops.
+      const inScope = (s: Snapshot) => !systemName || s.type !== 'IAMRole' || s.system_name === systemName
+
+      // Merge the two sources. The aggregate list also carries IAM checkpoints,
+      // so one snapshot can arrive twice: copies of the same snapshot collapse to
+      // the complete one by the aggregate proxy's own rule (preferSnapshotCopy).
+      // Two copies whose identifying fields disagree are different snapshots
+      // sharing an id, and both are kept.
+      let allSnapshots: Snapshot[] = []
+      for (const candidate of [...sgSnapshots, ...iamSnapshots].filter(inScope)) {
+        const index = allSnapshots.findIndex((kept) =>
+          kept.type === candidate.type && kept.snapshot_id === candidate.snapshot_id && sameSnapshotCopy(kept, candidate))
+        if (index < 0) allSnapshots.push(candidate)
+        else if (preferSnapshotCopy(allSnapshots[index], candidate)) allSnapshots[index] = candidate
       }
 
       // Filter by system if systemName is provided and resources were fetched
@@ -274,10 +277,11 @@ export default function RecoveryTab({ systemName }: RecoveryTabProps) {
     }
   }
 
-  // Delete each listed snapshot (the list is de-duplicated at load). Success is reported only when every delete
-  // succeeded; refusals and unknown outcomes are listed and stay on screen. The list is always re-read from the server,
-  // never pruned locally.
-  async function deleteEach(targets: Snapshot[]) {
+  // Delete each endpoint once (two distinct snapshots can share an id, and so an endpoint). Success is reported only
+  // when every delete succeeded; refusals and unknown outcomes are listed and stay on screen. The list is always
+  // re-read from the server, never pruned locally.
+  async function deleteEach(listed: Snapshot[]) {
+    const targets = [...new Map(listed.map((s) => [getDeleteEndpoint(s), s] as const)).values()]
     let deleted = 0
     const outcomes: DeleteOutcomes = { refused: [], unknown: [] }
     for (const snapshot of targets) {
@@ -508,6 +512,15 @@ export default function RecoveryTab({ systemName }: RecoveryTabProps) {
     )
   }
 
+  // Stable unique card keys: two distinct snapshots may share an id, so the key carries an ordinal within that id.
+  const keyCounts = new Map<string, number>()
+  const cardKeys = snapshots.map((s) => {
+    const base = `${s.type}:${s.snapshot_id}`
+    const n = keyCounts.get(base) ?? 0
+    keyCounts.set(base, n + 1)
+    return n === 0 ? base : `${base}#${n}`
+  })
+
   if (error && snapshots.length === 0) {
     return (
       <div className="bg-[#ef444410] border border-[#ef444440] rounded-lg p-6">
@@ -621,9 +634,9 @@ export default function RecoveryTab({ systemName }: RecoveryTabProps) {
       ) : (
         /* Snapshot Cards Grid */
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
-          {snapshots.map((snapshot) => (
+          {snapshots.map((snapshot, index) => (
             <SnapshotCard
-              key={snapshot.snapshot_id}
+              key={cardKeys[index]}
               snapshot={snapshot}
               onRestore={() => handleRestore(snapshot)}
               onDelete={() => handleDeleteSnapshot(snapshot)}
