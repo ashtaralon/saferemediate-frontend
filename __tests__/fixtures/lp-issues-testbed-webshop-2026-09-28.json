@@ -1,0 +1,97 @@
+{
+  "success": true,
+  "systemName": "testbed-webshop",
+  "requestedLookbackDays": 365,
+  "effectiveObservationDays": 44,
+  "observationDays": null,
+  "resources": [
+    {
+      "id": "arn:aws:iam::416651950952:role/cyntro-tb-prod-web-role",
+      "resourceType": "IAMRole",
+      "resourceName": "cyntro-tb-prod-web-role",
+      "resourceArn": "arn:aws:iam::416651950952:role/cyntro-tb-prod-web-role",
+      "systemName": null,
+      "allowedCount": 29,
+      "usedCount": 11,
+      "gapCount": 18,
+      "gapPercent": 62.1,
+      "observationDays": 44,
+      "title": "IAM Role: cyntro-tb-prod-web-role",
+      "remediable": false,
+      "remediateEndpoint": "/api/iam-roles/cyntro-tb-prod-web-role/remediate",
+      "environment": "prod",
+      "lpScore": 37.9,
+      "severity": "HIGH",
+      "confidence": "MEDIUM",
+      "gapCategory": "other",
+      "description": "18 unused permissions out of 29 allowed (62% bloat)",
+      "remediation": "Review recommended: 18 permissions appear unused based on partial data. Verify with service owners before removing.",
+      "evidence": {
+        "dataSources": ["Neptune", "CloudTrail"],
+        "observationDays": 44,
+        "confidence": "MEDIUM",
+        "lastUpdated": null,
+        "violatedRules": [
+          {
+            "severity": "HIGH",
+            "rule": "iam.escalation.kms_decrypt_sensitive_data",
+            "message": "Role observed using both kms:Decrypt and s3:GetObject — the canonical envelope-decrypt-then-read pattern for encrypted sensitive data. Confirm the role is the intended consumer; if it serves multiple datasets, split per-dataset to bound blast radius if compromised.",
+            "primitive": "kms_decrypt_sensitive_data",
+            "evidence_actions": ["kms:Decrypt", "s3:GetObject"],
+            "evidence_resources": ["s3", "kms"],
+            "confidence": "MEDIUM",
+            "severity_bump": 20,
+            "detector_version": "1.0.0"
+          }
+        ],
+        "escalation_total_bump": 20,
+        "escalation_primitives_fired": ["kms_decrypt_sensitive_data"]
+      },
+      "blastRadius": {
+        "brs": 14.4,
+        "band": "LOW",
+        "confidence": "MEDIUM",
+        "components": { "doc": 0, "ips": 37.4, "nes": 20, "lms": 0 },
+        "amplifier": 1,
+        "doc_floor_applied": false,
+        "rationale": []
+      },
+      "findingId": "916e7678e849c1f9a9c6bdbd65400b8b",
+      "findingClass": "permission_gap",
+      "ruleKey": "iam.unused_permissions",
+      "countsTowardSummary": true,
+      "category": "removable",
+      "coverageState": "UNKNOWN",
+      "decision_canonical": null,
+      "decisionReason": "Preview can explain this risk, but no unused candidate is authorized until evidence coverage is known and the authoritative generation permits negative-authority decisions."
+    }
+  ],
+  "emptyResources": [],
+  "source": "unified.lp",
+  "fromCache": false,
+  "readiness_by_lane": {
+    "cloudtrail_iam_usage": {
+      "generation": {
+        "known": false,
+        "active_generation_id": null,
+        "traffic_ingest_mode": "legacy",
+        "negative_authority_permitted": false,
+        "coverage_state": "UNKNOWN",
+        "blockers": [
+          "ACTIVE_GENERATION_UNKNOWN",
+          "TRAFFIC_INGEST_NOT_INCREMENTAL",
+          "NEGATIVE_AUTHORITY_NOT_PERMITTED",
+          "DECISION_READINESS_NOT_READY"
+        ],
+        "readiness_failures": ["IAP_INVENTORY_ABSENT"],
+        "lane": "cloudtrail_iam_usage",
+        "decision_family": "iam"
+      },
+      "serve_state": "NOT_READY",
+      "analysis_complete": true,
+      "schema": "canonical-readiness/v1"
+    }
+  },
+  "serve_state": "NOT_READY",
+  "analysis_complete": true
+}
