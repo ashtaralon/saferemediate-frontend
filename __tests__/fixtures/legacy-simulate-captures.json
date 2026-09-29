@@ -1,0 +1,55 @@
+{
+ "_producer": "saferemediate-backend POST /api/simulate on the REAL main_with_scheduler app (app_factory + router_registry), TestClient, graph driver None, DynamoDB a recorder. `head` = claude/remove-legacy-execute-simulate-routes efbf81ede1e44e3d4c4444a497366f8e962ad882; `legacy_*` = origin/main 43543690b53103d6f5aa74e7b764a3be0a5aa96f (the handler C1 still serves until the backend deploys). legacy_fabricated_200 is kept ONLY to prove the proxy never relays it: its numbers are the old handler's hard-coded values, not a measurement.",
+ "head_not_available": {
+  "status": 501,
+  "body": {
+   "detail": {
+    "code": "SIMULATION_NOT_AVAILABLE_ON_THIS_PATH",
+    "message": "POST /api/simulate does not run a simulation. Use the resource-specific simulate path instead.",
+    "replacement": [
+     "/api/iam/shared-roles/split-plans/{plan_id}/simulate",
+     "/api/least-privilege/simulate-fix",
+     "/api/sg-least-privilege/{sg_id}/simulate"
+    ]
+   }
+  }
+ },
+ "legacy_proxy_body_400": {
+  "request": {
+   "role_name": "fixture-role",
+   "days": 90
+  },
+  "status": 400,
+  "body": {
+   "detail": "resource_id is required"
+  }
+ },
+ "legacy_fabricated_200": {
+  "request": {
+   "role_name": "fixture-role",
+   "days": 90,
+   "resource_id": "fixture-role"
+  },
+  "status": 200,
+  "body": {
+   "simulation_id": "SIM-20260930003340",
+   "finding_id": null,
+   "status": "completed",
+   "confidence": 94,
+   "recommendation": "EXECUTE",
+   "current_state": {},
+   "proposed_state": null,
+   "impact": {
+    "blastRadius": "MINIMAL",
+    "blastRadiusPercentage": 10,
+    "affectedResources": [],
+    "connectivityChanges": [],
+    "predictedImpact": {
+     "apiEndpoints": 0,
+     "services": [],
+     "downtime": "NONE"
+    }
+   }
+  }
+ }
+}

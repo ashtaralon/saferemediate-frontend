@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
+import { relayLegacySimulate } from "@/lib/server/legacy-simulate-proxy"
 
 const BACKEND_URL =
   getBackendBaseUrl()
@@ -140,76 +141,10 @@ export async function POST(
       timeoutId = null
     }
 
-    if (res.ok) {
-      const data = await res.json()
-      console.log(`[proxy] Backend simulation response for ${issueId}`, {
-        status: data.status,
-        confidence: data.confidence,
-        success: data.success,
-        hasTimeout: data.message?.includes('timeout') || data.recommendation?.includes('timed out')
-      })
-      
-      // Check if backend indicated timeout/failure
-      if (data.success === false || data.message?.includes('timeout') || data.recommendation?.includes('timed out')) {
-        console.warn(`[proxy] Backend simulation timed out for ${issueId}`)
-        return NextResponse.json(
-          { 
-            error: "Simulation timeout", 
-            detail: data.message || data.recommendation || "Backend query took too long (25s limit)",
-            status: 504 
-          },
-          { status: 504 }
-        )
-      }
-      
-      // Transform successful response to match frontend expectations
-      const decision = data.status || "REVIEW"
-      const confidence = Math.round((data.confidence || 0) * 100) // Convert 0.94 -> 94
-      
-      return NextResponse.json({
-        success: true,
-        status: "success",
-        summary: {
-          decision: decision,
-          confidence: confidence,
-          blastRadius: {
-            affectedResources: data.affected_resources_count || 0,
-            downstream: data.affected_resources?.slice(0, 5) || [],
-            upstream: [],
-          },
-        },
-        recommendation: data.recommendation || `Simulation ${decision}: Confidence ${confidence}%`,
-        affectedResources: (data.affected_resources || []).map((r: any) => ({
-          id: r.id || r.resource_id || issueId,
-          type: r.type || resourceType,
-          impact: r.impact || r.reason || "Will be affected by remediation",
-          reason: r.reason || "Affected by remediation",
-          name: r.name || r.id || r.resource_id || r.arn || 'Unknown resource',
-        })),
-        confidence: confidence,
-        snapshot_id: data.snapshot_id, // Include snapshot_id if present
-        before_state: data.before_state_summary || `Current state of ${resourceType}`,
-        after_state: data.after_state_summary || `Proposed state after remediation`,
-        // ✅ Include REAL data for frontend
-        evidence: data.evidence || {},
-        proposed_change: proposed_change || data.proposed_change || {},
-        affected_resources: data.affected_resources || [],
-        affected_resources_count: data.affected_resources_count || 0,
-      })
-    }
-
-    // If backend returns non-OK status, read error and log
-    const errorText = await res.text().catch(() => "Unknown error")
-    console.warn(`[proxy] Backend simulate returned ${res.status}: ${errorText.substring(0, 200)}`)
-    
-    return NextResponse.json(
-      { 
-        error: `Backend error: ${res.status}`, 
-        detail: errorText.substring(0, 200),
-        status: res.status 
-      },
-      { status: res.status }
-    )
+    // Backend POST /api/simulate runs no simulation. This proxy used to reshape its hard-coded answer into a decision,
+    // a confidence (x100) and a blast radius; only the typed refusal is relayed now, and a 2xx from a backend that still
+    // serves the old handler is refused here (lib/server/legacy-simulate-proxy.ts).
+    return await relayLegacySimulate(res)
   } catch (error: any) {
     // Clear timeout if still active
     if (timeoutId) {
