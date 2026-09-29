@@ -3,14 +3,15 @@
  * The permission boundary enforcement surface is removed from the frontend.
  *
  * Its panel component was never imported by any page, so the six proxies under
- * the permission boundary proxy directory had no rendered caller. Three of them
- * forwarded IAM writes (enforce, rollback, configure) with no route-level
- * authority, and candidates, preview and health are becoming operator-only on
+ * the permission boundary proxy directory, and the three drift-detector proxies
+ * (status, sync, and the remediate mutation) it alone called, had no rendered
+ * caller. Three of the permission boundary proxies forwarded IAM writes
+ * (enforce, rollback, configure) with no route-level authority, and candidates, preview and health are becoming operator-only on
  * the backend (endpoint-protection contract rev 2.1, section C3). An operator
  * route has no customer proxy: the frontend never holds or forwards an ops
  * token.
  *
- * This fails if a route file reappears under that directory, the panel comes
+ * This fails if a route file reappears under either directory, the panel comes
  * back, or any source file builds one of the removed backend or proxy paths.
  * The needles are assembled at runtime so this file does not match itself.
  */
@@ -23,10 +24,13 @@ const ROOT = process.cwd()
 const SELF = relative(ROOT, fileURLToPath(import.meta.url))
 
 const SEGMENT = ["permission", "boundary"].join("-")
-const PROXY_DIR = join(ROOT, "app", "api", "proxy", SEGMENT)
+const DRIFT_SEGMENT = ["boundary", "drift"].join("-")
+const PROXY_DIRS = [SEGMENT, DRIFT_SEGMENT].map((s) => join(ROOT, "app", "api", "proxy", s))
 const NEEDLES = [
   `/api/proxy/${SEGMENT}`,
   `/api/${SEGMENT}`,
+  `/api/proxy/${DRIFT_SEGMENT}`,
+  `/api/${DRIFT_SEGMENT}`,
   ["Permission", "Boundary", "Panel"].join(""),
 ]
 
@@ -50,13 +54,13 @@ function sourceFiles(): string[] {
 }
 
 describe("permission boundary frontend surface is removed", () => {
-  it("has no route file under the removed proxy directory", () => {
-    const routes = walk(PROXY_DIR).map((p) => relative(ROOT, p))
+  it("has no route file under the removed proxy directories", () => {
+    const routes = PROXY_DIRS.flatMap(walk).map((p) => relative(ROOT, p))
     expect(routes).toEqual([])
   })
 
   it("has no permission boundary panel component", () => {
-    expect(existsSync(join(ROOT, "components", `${NEEDLES[2]}.tsx`))).toBe(false)
+    expect(existsSync(join(ROOT, "components", `${NEEDLES[4]}.tsx`))).toBe(false)
   })
 
   it("has no source that references the removed paths or component", () => {
