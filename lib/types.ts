@@ -442,6 +442,11 @@ export interface SimulateFixSimulation {
   removed_permissions: number
   kept_examples: string[]
   removed_examples: string[]
+  /** Count of not-observed permissions held out of the candidates (protected + investigate). */
+  excluded_unsafe_count?: number
+  /** Held-out permissions by category, e.g. `attribution_unverified` (backend 616c67744). */
+  excluded_by_category?: Record<string, string[]>
+  dependency_checks?: Record<string, boolean>
 }
 
 export interface SimulateFixProjectedEffect {
@@ -469,10 +474,33 @@ export type DecisionOutcomeCanonical =
   | "CANARY_FIRST"
   | "EXCLUDE"
 
+/** Backend unified/lp/rollback_ready_status.py STATUSES. */
+export type SimulateFixRollbackReadyStatus = "proven" | "unverified" | "unknown"
+
+/** Backend RollbackReadyStatus.to_public() (unified/lp/rollback_ready_status.py). */
+export interface SimulateFixRollbackReady {
+  status: SimulateFixRollbackReadyStatus
+  reason_code: string
+  source?: string
+  tenant_id?: string | null
+  account_id?: string | null
+  resource_arn?: string | null
+  resource_incarnation?: string | null
+  snapshot_id?: string | null
+  operation_id?: string | null
+  restored_by_operation_id?: string | null
+  listing_complete?: boolean | null
+  detail?: string | null
+}
+
 export interface SimulateFixSafety {
   decision: SimulateFixSafetyDecision
   decision_canonical?: DecisionOutcomeCanonical | null
+  /** True ONLY when rollback_ready_status is "proven" (backend 42f7b16b). Never read alone. */
   rollback_available: boolean
+  /** Absent on backends older than 42f7b16b: read as "unknown", never as proven. */
+  rollback_ready_status?: SimulateFixRollbackReadyStatus | string | null
+  rollback_ready?: SimulateFixRollbackReady | null
   snapshot_required: boolean
   preflight_required: boolean
   unsafe_reasons: string[]
@@ -524,6 +552,17 @@ export interface SimulateFixDecisionPersistence {
   warning?: string | null
 }
 
+/**
+ * An action the removal set would contain but whose CloudTrail attribution could not be
+ * completed; the backend keeps it and drops it from removable_permissions / removed_examples.
+ */
+export interface SimulateFixAttributionUnverifiedPermission {
+  action: string
+  /** Backend model types this as str; these two are the codes it emits today. */
+  reason_code: "EVENT_ATTRIBUTION_INCOMPLETE" | "EVENT_ATTRIBUTION_UNKNOWN" | (string & {})
+  unmapped_events: string[]
+}
+
 export interface SimulateFixResponse {
   resource: SimulateFixResource
   problem: SimulateFixProblem
@@ -532,6 +571,10 @@ export interface SimulateFixResponse {
   projected_effect: SimulateFixProjectedEffect
   safety: SimulateFixSafety
   decision_persistence: SimulateFixDecisionPersistence
+  /** Absent on backends that do not run the attribution check: the candidates are then NOT attribution-verified. */
+  attribution_unverified_permissions?: SimulateFixAttributionUnverifiedPermission[]
+  /** backend unified/lp/permission_disposition.py RemediationState value; may be NEEDS_EVIDENCE. */
+  final_remediation_state?: string | null
 }
 
 // ============================================================================

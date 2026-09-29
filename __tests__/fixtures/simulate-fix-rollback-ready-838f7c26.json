@@ -1,0 +1,75 @@
+{
+  "_producer": "saferemediate-backend claude/lp-rollback-ready-truthful 838f7c26d7f8998c77c9c02826590c55e2092710: POST /api/least-privilege/simulate-fix through the real route, driven as tests/test_simulate_fix_rollback_ready.py drives it (_client/_post over wire_lp; _bind_reader over the FakeLedgerDynamo ledger; ledger rows written by the product writers via _round_trip = CheckpointManager.create_checkpoint + record_operation_start/record_operation_outcome with BoundaryOutcome.from_transaction and RestoreOutcome). Each state holds safety.{rollback_available, rollback_ready_status, rollback_ready} copied verbatim from response.json(). unknown: no reader bound; unverified: reader bound, empty ledger; proven: one round trip; readback_unproven: round trip whose restore row has its outcome stripped (the test's _strip_outcome legacy shape).",
+  "proven": {
+    "rollback_available": true,
+    "rollback_ready": {
+      "account_id": "000000000000",
+      "detail": null,
+      "listing_complete": true,
+      "operation_id": "b7584a0c-29c9-46c9-802f-4ac1c94a0dd2",
+      "reason_code": "SAME_SCOPE_RESTORE_VERIFIED",
+      "resource_arn": "arn:aws:iam::000000000000:role/test-role",
+      "resource_incarnation": "AROATESTROLE000000000",
+      "restored_by_operation_id": "a935e871-2fc4-4fbb-a0d0-50b41ce58124",
+      "snapshot_id": "IAMRole-test-role-90eada40",
+      "source": "operation_ledger",
+      "status": "proven",
+      "tenant_id": "testbed-webshop"
+    },
+    "rollback_ready_status": "proven"
+  },
+  "readback_unproven": {
+    "rollback_available": false,
+    "rollback_ready": {
+      "account_id": "000000000000",
+      "detail": null,
+      "listing_complete": true,
+      "operation_id": "3ea4d601-9d86-446b-8f0c-8d31aa0044f1",
+      "reason_code": "RESTORE_READBACK_UNPROVEN",
+      "resource_arn": "arn:aws:iam::000000000000:role/test-role",
+      "resource_incarnation": "AROATESTROLE000000000",
+      "restored_by_operation_id": "f0ece689-90a6-432a-b7eb-6d6add4c5e22",
+      "snapshot_id": "IAMRole-test-role-3f735e08",
+      "source": "operation_ledger",
+      "status": "unverified",
+      "tenant_id": "testbed-webshop"
+    },
+    "rollback_ready_status": "unverified"
+  },
+  "unknown": {
+    "rollback_available": false,
+    "rollback_ready": {
+      "account_id": "000000000000",
+      "detail": "LifecycleReadConfigurationError",
+      "listing_complete": null,
+      "operation_id": null,
+      "reason_code": "ROLLBACK_EVIDENCE_UNAVAILABLE",
+      "resource_arn": "arn:aws:iam::000000000000:role/test-role",
+      "resource_incarnation": "AROATESTROLE000000000",
+      "restored_by_operation_id": null,
+      "snapshot_id": null,
+      "source": "operation_ledger",
+      "status": "unknown",
+      "tenant_id": "testbed-webshop"
+    },
+    "rollback_ready_status": "unknown"
+  },
+  "unverified": {
+    "rollback_available": false,
+    "rollback_ready": {
+      "account_id": "000000000000",
+      "detail": null,
+      "listing_complete": true,
+      "operation_id": null,
+      "reason_code": "NO_SAME_SCOPE_RESTORE_POINT",
+      "resource_arn": "arn:aws:iam::000000000000:role/test-role",
+      "resource_incarnation": "AROATESTROLE000000000",
+      "restored_by_operation_id": null,
+      "snapshot_id": null,
+      "source": "operation_ledger",
+      "status": "unverified",
+      "tenant_id": "testbed-webshop"
+    },
+    "rollback_ready_status": "unverified"
+  }
+}

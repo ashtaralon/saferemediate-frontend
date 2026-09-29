@@ -16,6 +16,20 @@
 import { useState } from 'react'
 import { X, Shield, AlertTriangle, CheckCircle2, XCircle, Clock, Eye, Users, TrendingDown, Info } from 'lucide-react'
 import type { DecisionOutcomeCanonical, SimulateFixResponse, SimulateFixSafetyDecision } from '@/lib/types'
+import {
+  attributionReasonCopy,
+  readAttributionCheck,
+  remediationStateView,
+  removalCandidatesHeading,
+  rollbackReadyView,
+  withoutAttributionUnverified,
+} from '@/lib/lp-preview-truth'
+
+const ROLLBACK_READY_COLOR: Record<'proven' | 'unverified' | 'unknown', string> = {
+  proven: '#10B981',
+  unverified: '#F59E0B',
+  unknown: '#94A3B8',
+}
 
 // =============================================================================
 // STYLE CONSTANTS
@@ -164,6 +178,15 @@ export function IAMSimulateFixModal({
   const familyScoresBefore = projected_effect.family_scores_before
 
   const totalPermissions = simulation.kept_permissions + simulation.removed_permissions
+  const rollbackReady = rollbackReadyView(safety)
+  const attribution = readAttributionCheck(result)
+  // Attribution-unverified actions are kept by the backend; never show one as a candidate.
+  const removedExamples = withoutAttributionUnverified(simulation.removed_examples, attribution, (action) => action)
+  const remediationState = remediationStateView(result.final_remediation_state)
+  // attribution_unverified is listed once, in the attribution section below, when the top-level field is reported.
+  const heldByCategory = Object.entries(simulation.excluded_by_category ?? {})
+    .filter((entry): entry is [string, string[]] => Array.isArray(entry[1]) && entry[1].length > 0)
+    .filter(([category]) => !(category === 'attribution_unverified' && attribution.reported))
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
@@ -223,9 +246,13 @@ export function IAMSimulateFixModal({
           </div>
           <div className="flex items-center gap-4 text-xs">
             <div className="flex items-center gap-1">
-              <span className="text-slate-400">Rollback:</span>
-              <span style={{ color: safety.rollback_available ? '#10B981' : '#EF4444' }}>
-                {safety.rollback_available ? 'Available' : 'Not Available'}
+              <span className="text-slate-400">Rollback-ready:</span>
+              <span
+                style={{ color: ROLLBACK_READY_COLOR[rollbackReady.status] }}
+                title={rollbackReady.sentence}
+                data-testid="simulate-fix-rollback-ready"
+              >
+                {rollbackReady.label}
               </span>
             </div>
             <div className="flex items-center gap-1">
@@ -292,7 +319,12 @@ export function IAMSimulateFixModal({
 
               {/* Simulation - What Will Change */}
               <Section title="Proposed Changes" icon={<Shield className="w-4 h-4 text-indigo-400" />}>
-                <p className="text-sm text-slate-300 mb-3">{simulation.summary}</p>
+                <p className="text-sm text-slate-300 mb-3" data-testid="simulate-fix-summary">{simulation.summary}</p>
+                {remediationState && (
+                  <p className="text-xs text-slate-300 mb-3" data-testid="simulate-fix-remediation-state" data-state={remediationState.state}>
+                    <span className="font-semibold">Remediation state: {remediationState.label}.</span> {remediationState.sentence}
+                  </p>
+                )}
                 {simulation.action_type === 'none' ? (
                   <p className="text-xs text-slate-400">No removal plan was issued.</p>
                 ) : (
@@ -311,17 +343,50 @@ export function IAMSimulateFixModal({
                   </div>
                   <div className="rounded-lg bg-slate-700/50 p-3">
                     <div className="flex items-center justify-between mb-2">
-                      <span className="text-xs text-slate-400">Removed</span>
+                      <span className="text-xs text-slate-400" data-testid="simulate-fix-candidates-heading">
+                        {removalCandidatesHeading(attribution, applyDisabled)}
+                      </span>
                       <span className="text-sm font-bold text-red-400">{simulation.removed_permissions}</span>
                     </div>
                     <ProgressBar value={simulation.removed_permissions} max={totalPermissions} color="#EF4444" />
-                    {simulation.removed_examples.length > 0 && (
+                    {removedExamples.length > 0 && (
                       <div className="mt-2 text-[10px] text-slate-500 truncate">
-                        e.g. {simulation.removed_examples.slice(0, 2).join(', ')}
+                        e.g. {removedExamples.slice(0, 2).join(', ')}
                       </div>
                     )}
                   </div>
                 </div>
+                )}
+                {heldByCategory.length > 0 && (
+                  <div className="mt-3 text-[11px] text-slate-400" data-testid="simulate-fix-excluded-by-category">
+                    <div className="text-xs text-slate-300 mb-1">Held out of the candidates, by category:</div>
+                    <ul className="space-y-0.5">
+                      {heldByCategory.map(([category, actions]) => (
+                        <li key={category}>
+                          <span className="text-slate-300">{category === 'attribution_unverified' ? 'Attribution unverified — kept' : category.replace(/_/g, ' ')}</span>
+                          {' '}({actions.length}): <span className="font-mono">{actions.join(', ')}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {attribution.unverified.length > 0 && (
+                  <div className="mt-3 rounded-lg border border-amber-500/40 bg-amber-900/20 p-3" data-testid="simulate-fix-attribution-unverified">
+                    <div className="text-xs font-semibold text-amber-300 mb-1">
+                      Attribution unverified — kept ({attribution.unverified.length})
+                    </div>
+                    <ul className="space-y-1">
+                      {attribution.unverified.map((item) => (
+                        <li key={item.action} className="text-[11px] text-slate-300">
+                          <span className="font-mono">{item.action}</span>
+                          <span className="text-slate-400"> — {attributionReasonCopy(item.reason_code)}</span>
+                          {item.unmapped_events.length > 0 && (
+                            <span className="text-slate-500"> · unmapped events: <span className="font-mono">{item.unmapped_events.join(', ')}</span></span>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                 )}
               </Section>
 
@@ -548,13 +613,13 @@ export function IAMSimulateFixModal({
               {/* Safety Details */}
               <Section title="Safety Assessment" icon={<Shield className="w-4 h-4 text-purple-400" />}>
                 <div className="grid grid-cols-2 gap-4">
-                  <div className="flex items-center gap-2">
-                    {safety.rollback_available ? (
-                      <CheckCircle2 className="w-4 h-4 text-green-400" />
+                  <div className="flex items-start gap-2 col-span-2" data-testid="simulate-fix-rollback-ready-detail">
+                    {rollbackReady.status === 'proven' ? (
+                      <CheckCircle2 className="w-4 h-4 text-green-400 shrink-0" />
                     ) : (
-                      <XCircle className="w-4 h-4 text-red-400" />
+                      <AlertTriangle className="w-4 h-4 shrink-0" style={{ color: ROLLBACK_READY_COLOR[rollbackReady.status] }} />
                     )}
-                    <span className="text-sm text-slate-300">Rollback Available</span>
+                    <span className="text-sm text-slate-300">{rollbackReady.sentence}</span>
                   </div>
                   <div className="flex items-center gap-2">
                     {safety.snapshot_required ? (

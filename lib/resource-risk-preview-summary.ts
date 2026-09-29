@@ -1,4 +1,5 @@
 import type { DecisionOutcomeCanonical, SimulateFixProblem, SimulateFixSafety } from "@/lib/types"
+import { rollbackReadyView } from "@/lib/lp-preview-truth"
 
 export interface PreviewPermissionCounts {
   usedCount: number
@@ -136,10 +137,17 @@ export function previewEvidenceNeeds(safety: SimulateFixSafety): PreviewNeed[] {
     })
   }
 
-  if (!safety.rollback_available) {
+  // The tri-state, never rollback_available alone (an older backend defaulted it to true). Unknown is not absence.
+  const rollback = rollbackReadyView(safety)
+  if (rollback.status === "unverified") {
     add("rollback", {
-      label: "Rollback is not ready",
-      action: "Create and verify a restorable IAM policy snapshot.",
+      label: `Rollback readiness unverified (${rollback.reasonCode ?? "no reason reported"})`,
+      action: "The restore history was read and proves no verified restore on this role.",
+    })
+  } else if (rollback.status === "unknown") {
+    add("rollback", {
+      label: `Rollback readiness unknown (${rollback.reasonCode ?? "no reason reported"})`,
+      action: "The restore evidence could not be read or did not settle; this does not say a restore point is missing.",
     })
   }
 

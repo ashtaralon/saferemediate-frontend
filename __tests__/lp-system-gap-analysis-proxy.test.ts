@@ -94,7 +94,9 @@ describe("system gap-analysis proxy", () => {
   it("traces Preview to the registered proxies and leaves Apply disabled", () => {
     const tab = readFileSync(join(process.cwd(), "components/LeastPrivilegeTab.tsx"), "utf8")
     expect(tab).toContain("/api/proxy/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=365")
-    expect(tab).toContain("/api/proxy/least-privilege/simulate-fix")
+    // The drawer's Preview request is dispatched by type in lib/lp-drawer-preview.ts.
+    expect(tab).toContain("requestLPDrawerPreview(selectedResource,")
+    expect(readFileSync(join(process.cwd(), "lib/lp-drawer-preview.ts"), "utf8")).toContain("/api/proxy/least-privilege/simulate-fix")
     expect(tab).toContain("const LP_MUTATION_APPLY_DISABLED = true")
     expect(tab).toContain("/api/proxy/least-privilege/apply")
     expect(tab).toContain("plan_head: selectedResource.serverPlan?.planHead")

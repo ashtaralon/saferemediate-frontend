@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 const source = readFileSync(join(process.cwd(), 'components/LeastPrivilegeTab.tsx'), 'utf8')
+const drawerPreviewSource = readFileSync(join(process.cwd(), 'lib/lp-drawer-preview.ts'), 'utf8')
 const analysisModalSource = readFileSync(
   join(process.cwd(), 'components/iam-permission-analysis-modal.tsx'),
   'utf8',
@@ -10,7 +11,9 @@ const analysisModalSource = readFileSync(
 
 describe('Resource Risk Preview persistence wiring', () => {
   it('binds Preview to the finding and refreshes only after persistence succeeds', () => {
-    expect(source).toContain('finding_id: selectedResource.findingId')
+    // The drawer's IAM body is built in lib/lp-drawer-preview.ts from the selected row.
+    expect(drawerPreviewSource).toContain('finding_id: row.findingId')
+    expect(source).toContain('requestLPDrawerPreview(selectedResource,')
     expect(source).toContain('simulateFixData.decision_persistence?.persisted')
     expect(source).toContain('void fetchGaps(true, true)')
   })
@@ -50,7 +53,9 @@ describe('Resource Risk Preview persistence wiring', () => {
     expect(analysisModalSource).toContain('Restore point required')
     expect(analysisModalSource).toContain('Calculating removal evidence...')
     expect(analysisModalSource).not.toContain('`${safetyScore}% safe to remove`')
-    expect(analysisModalSource).toContain('A restore point will be created and verified before Apply changes AWS.')
+    // Rollback readiness is the backend's tri-state (42f7b16b), never rollback_available read alone.
+    expect(analysisModalSource).toContain('rollbackReadyView(result.safety).sentence')
+    expect(analysisModalSource).not.toContain('A restore point will be created and verified before Apply changes AWS.')
   })
 
   it('replaces the complete modal snapshot with the user-triggered simulation response', () => {

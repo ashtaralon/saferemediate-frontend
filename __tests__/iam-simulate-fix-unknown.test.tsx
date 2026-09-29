@@ -83,6 +83,7 @@ describe('IAM scoped Preview truthfulness', () => {
     expect(within(metric('Gap %')).getByText('0%')).toBeInTheDocument()
     expect(within(metric('Unused Permissions')).getByText('0')).toBeInTheDocument()
     expect(within(metric('Used Permissions')).getByText('5')).toBeInTheDocument()
-    expect(screen.queryByText('Unknown')).not.toBeInTheDocument()
+    // The only Unknown left is rollback readiness, which this pre-42f7b16b body does not report.
+    expect(screen.queryAllByText('Unknown').map((el) => el.getAttribute('data-testid'))).toEqual(['simulate-fix-rollback-ready'])
   })
 })
