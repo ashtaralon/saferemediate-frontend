@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { backendError, fromCaughtError } from "@/lib/server/proxy-error"
 import { isCacheableSummary } from "@/lib/summary-integrity"
+import { issuesSummaryBrssHold } from "@/lib/brss-held"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
 export const runtime = "nodejs"
@@ -17,13 +18,39 @@ export const maxDuration = 60
 // the identical URL in Vercel prod (no override set), and additionally fails
 // loud if a deploy is ever pointed at localhost.
 
-// In-memory cache with 5-minute TTL — only stores SUCCESSFUL responses.
-// Backend errors no longer return 200-with-empty (which masked the
-// 5-minute outage on 2026-05-04 by making every dashboard render the
-// "system is clean" green-checkmark even though the backend was down).
-// Stale-cache-on-error is also removed for the same reason.
+// Last-complete store — NOT a serving cache.
+//
+// Every summary carries posture SCORES (avg_health_score, blast_radius_score),
+// and a score is a claim about now. This used to be a 5-minute fresh-hit cache
+// that answered "X-Cache: HIT" with the stored body verbatim — so after the
+// backend started HOLDING a score, the proxy kept serving the earlier real
+// score, unmarked, for up to five minutes (and told the CDN to keep it for
+// fifteen more). Nothing is served from here as current any more: every
+// request goes to the backend.
+//
+// The store is kept for one purpose only: when the live request FAILS, the
+// last complete COUNTS may be replayed, marked stale (fromStaleCache,
+// NOT_READY), with the scores withheld — see WITHHELD_SCORES. It only ever
+// holds authoritative, score-complete answers (isCacheableSummary and no BRSS
+// hold); a held or failed response is never written.
 const cache = new Map<string, { data: any; timestamp: number }>()
 const CACHE_TTL = 5 * 60 * 1000
+// A replay older than this is not offered at all: past it the "last complete
+// summary" describes a different estate, and staleness marking stops being a
+// sufficient warning. The replay body also carries `capturedAt` so a consumer
+// can say how old it is.
+const REPLAY_MAX_AGE_MS = 15 * 60 * 1000
+
+/**
+ * Scores are never replayed from the store: a stale replay shows the last
+ * complete COUNTS, marked stale, and these score fields as null. A cached
+ * number standing in for a live answer the backend could not give is exactly
+ * the fallback BRSS held-state forbids.
+ */
+const WITHHELD_SCORES = {
+  avg_health_score: null,
+  blast_radius_score: null,
+} as const
 
 function getCacheKey(systemName: string | null): string {
   return `issues-summary:${systemName || "all"}`
@@ -35,17 +62,10 @@ export async function GET(req: NextRequest) {
   const cacheKey = getCacheKey(systemName)
   const now = Date.now()
 
-  const cached = cache.get(cacheKey)
-  if (cached && (now - cached.timestamp) < CACHE_TTL) {
-    const cacheAge = Math.round((now - cached.timestamp) / 1000)
-    return NextResponse.json(cached.data, {
-      headers: {
-        "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600",
-        "X-Cache": "HIT",
-        "X-Cache-Age": String(cacheAge),
-      },
-    })
-  }
+  // Read only for the failure replay below — never served as current, and
+  // only within REPLAY_MAX_AGE_MS of its capture.
+  const stored = cache.get(cacheKey)
+  const cached = stored && now - stored.timestamp <= REPLAY_MAX_AGE_MS ? stored : null
 
   const controller = new AbortController()
   // 55s, the house cold-build budget for a maxDuration=60 route.
@@ -87,7 +107,9 @@ export async function GET(req: NextRequest) {
         return NextResponse.json(
           {
             ...cached.data,
+            ...WITHHELD_SCORES,
             fromStaleCache: true,
+            capturedAt: new Date(cached.timestamp).toISOString(),
             staleReason: `backend_${res.status}`,
             // A cached payload was READY when captured; it cannot vouch for NOW.
             // Replaying its serve_state would re-grant authority the live
@@ -118,9 +140,17 @@ export async function GET(req: NextRequest) {
     // how one transient analyzer failure becomes five minutes of confidently
     // wrong answers served to every subsequent request — the same defect the
     // backend already refuses to commit at its own cache.
-    if (isCacheableSummary(data)) {
+    // …and a READY sweep whose BRSS is held (V2 usage unknown) is not a
+    // complete answer either: the backend never persists or caches a held
+    // score, so neither does this proxy.
+    const cacheable = isCacheableSummary(data) && issuesSummaryBrssHold(data) === null
+    if (cacheable) {
       cache.set(cacheKey, { data, timestamp: now })
     } else {
+      // A newer live answer (held, partial, failed) supersedes whatever was
+      // stored: replaying pre-hold counts after it would put an OLDER state
+      // in front of a newer one the backend already gave.
+      cache.delete(cacheKey)
       console.warn(
         `[issues-summary proxy] not caching — serve_state=${data?.serve_state ?? "absent"} ` +
         `analysis_complete=${data?.analysis_complete ?? "absent"} success=${data?.success ?? "absent"}`,
@@ -136,7 +166,9 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json(data, {
       headers: {
-        "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600",
+        // Score-bearing: never CDN-cacheable. A shared cache holding a score
+        // would serve it as current after the backend starts holding it.
+        "Cache-Control": "no-store",
         "X-Cache": "MISS",
       },
     })
@@ -154,7 +186,9 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(
         {
           ...cached.data,
+          ...WITHHELD_SCORES,
           fromStaleCache: true,
+          capturedAt: new Date(cached.timestamp).toISOString(),
           staleReason: "timeout",
           serve_state: "NOT_READY",
           analysis_complete: false,

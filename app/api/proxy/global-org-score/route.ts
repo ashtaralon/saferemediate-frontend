@@ -37,21 +37,17 @@ export async function GET(req: NextRequest) {
         signal: AbortSignal.timeout(55_000),
       },
     )
-    if (!r.ok) {
-      return NextResponse.json(
-        {
-          error: "global_org_score_unavailable",
-          backend_status: r.status,
-          message: `Backend /api/global-org-score returned ${r.status}`,
-          global_score: null,
-          system_count: 0,
-        },
-        { status: 502 },
-      )
-    }
-    const data = await r.json()
-    return NextResponse.json(data, {
+    // Pass the backend's status and body through verbatim, as the ranked
+    // and detail-enhancements proxies do. Rewriting every non-200 into a
+    // generic 502 erased the backend's typed answer (a 503 serving refusal,
+    // a held body) and turned an authoritative reply into "transport
+    // failure", which the hero's cache treats as a reason to keep the last
+    // score on screen.
+    const body = await r.text()
+    return new NextResponse(body, {
+      status: r.status,
       headers: {
+        "Content-Type": r.headers.get("Content-Type") || "application/json",
         "Cache-Control": "no-store, no-cache, must-revalidate",
       },
     })

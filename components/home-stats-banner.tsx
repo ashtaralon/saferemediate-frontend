@@ -4,28 +4,30 @@ import { Button } from "@/components/ui/button"
 import { ArrowUpRight, ScanSearch, TrendingDown, TrendingUp } from "lucide-react"
 
 interface HomeStatsBannerProps {
-  avgHealthScore?: number
+  /** Null / absent = not computed (held or unknown). Never rendered as 0. */
+  avgHealthScore?: number | null
   healthScoreTrend?: number
-  needAttention?: number
-  totalIssues?: number
-  criticalIssues?: number
-  averageScore?: number
+  /** Counts: null / absent = unknown, never rendered as 0. */
+  needAttention?: number | null
+  totalIssues?: number | null
+  criticalIssues?: number | null
+  averageScore?: number | null
   averageScoreTrend?: number
-  lastScanTime?: string
+  lastScanTime?: string | null
   resourceCount?: number
   urgentFindings?: number
   lastRefreshLabel?: string
 }
 
 export function HomeStatsBanner({
-  avgHealthScore = 0,
+  avgHealthScore = null,
   healthScoreTrend = 0,
-  needAttention = 0,
-  totalIssues = 0,
-  criticalIssues = 0,
-  averageScore = 0,
+  needAttention = null,
+  totalIssues = null,
+  criticalIssues = null,
+  averageScore = null,
   averageScoreTrend = 0,
-  lastScanTime = "No scans yet",
+  lastScanTime = null,
   resourceCount = 0,
   urgentFindings = 0,
   lastRefreshLabel = "Just now",
@@ -63,7 +65,7 @@ export function HomeStatsBanner({
 
         <div className="min-w-[260px] rounded-2xl border border-white/18 bg-white/10 p-5 backdrop-blur">
           <div className="text-xs font-semibold uppercase tracking-[0.2em] text-white/70">Most Recent Scan</div>
-          <div className="mt-3 text-2xl font-semibold leading-tight">{lastScanTime}</div>
+          <div className="mt-3 text-2xl font-semibold leading-tight" data-testid="home-last-scan">{lastScanTime ?? "Unknown"}</div>
           <div className="mt-2 text-sm text-white/75">Latest telemetry snapshot across the connected environment.</div>
           <Button size="sm" className="mt-4 bg-white text-[#2D51DA] hover:bg-gray-100">
             View Scan
@@ -74,8 +76,19 @@ export function HomeStatsBanner({
       <div className="relative mt-8 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         <div className="rounded-2xl border border-white/14 bg-white/10 p-5 backdrop-blur">
           <div className="text-xs uppercase tracking-[0.2em] text-white/70">Avg Health Score</div>
-          <div className="mt-3 text-5xl font-bold">{avgHealthScore}</div>
-          {healthScoreTrend !== 0 ? (
+          {avgHealthScore == null ? (
+            <>
+              <div className="mt-3 text-2xl font-semibold" data-testid="home-avg-health-not-computed">
+                Not computed
+              </div>
+              <div className="mt-3 text-xs text-white/70">
+                The backend withheld this score (analysis held or usage unmeasured). This is not a score of 0.
+              </div>
+            </>
+          ) : (
+          <div className="mt-3 text-5xl font-bold" data-testid="home-avg-health-score">{avgHealthScore}</div>
+          )}
+          {avgHealthScore == null ? null : healthScoreTrend !== 0 ? (
             <div className="mt-3 inline-flex items-center gap-1 rounded-full bg-black/10 px-3 py-1 text-xs text-white/80">
               <TrendingDown className="h-3.5 w-3.5" />
               {Math.abs(healthScoreTrend)} from last week
@@ -87,7 +100,7 @@ export function HomeStatsBanner({
 
         <div className="rounded-2xl border border-white/14 bg-white/10 p-5 backdrop-blur">
           <div className="text-xs uppercase tracking-[0.2em] text-white/70">Need Attention</div>
-          <div className="mt-3 text-5xl font-bold">{needAttention}</div>
+          <div className="mt-3 text-5xl font-bold" data-testid="home-need-attention">{needAttention ?? "Unknown"}</div>
           <div className="mt-3 inline-flex items-center gap-1 rounded-full bg-black/10 px-3 py-1 text-xs text-white/80">
             Prioritize exposed systems
             <ArrowUpRight className="h-3.5 w-3.5" />
@@ -96,16 +109,26 @@ export function HomeStatsBanner({
 
         <div className="rounded-2xl border border-white/14 bg-white/10 p-5 backdrop-blur">
           <div className="text-xs uppercase tracking-[0.2em] text-white/70">Total Issues</div>
-          <div className="mt-3 text-5xl font-bold">{totalIssues}</div>
-          <div className="mt-3 text-xs text-white/78">
-            {criticalIssues > 0 ? `${criticalIssues} critical need immediate review` : "No critical issues detected"}
+          <div className="mt-3 text-5xl font-bold" data-testid="home-total-issues">{totalIssues ?? "Unknown"}</div>
+          <div className="mt-3 text-xs text-white/78" data-testid="home-critical-line">
+            {criticalIssues == null
+              ? "Critical count unknown — the summary was not computed"
+              : criticalIssues > 0
+                ? `${criticalIssues} critical need immediate review`
+                : "No critical issues detected"}
           </div>
         </div>
 
         <div className="rounded-2xl border border-white/14 bg-white/10 p-5 backdrop-blur">
           <div className="text-xs uppercase tracking-[0.2em] text-white/70">Average Score</div>
-          <div className="mt-3 text-5xl font-bold">{averageScore}%</div>
-          {averageScoreTrend !== 0 ? (
+          {averageScore == null ? (
+            <div className="mt-3 text-2xl font-semibold" data-testid="home-average-score-not-computed">
+              Not computed
+            </div>
+          ) : (
+            <div className="mt-3 text-5xl font-bold">{averageScore}%</div>
+          )}
+          {averageScore == null ? null : averageScoreTrend !== 0 ? (
             <div className="mt-3 inline-flex items-center gap-1 rounded-full bg-black/10 px-3 py-1 text-xs text-white/80">
               <TrendingUp className="h-3.5 w-3.5" />
               +{averageScoreTrend}% this month

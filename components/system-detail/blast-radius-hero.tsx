@@ -1,6 +1,8 @@
 "use client"
 
 import type { BlastRadiusScore } from "@/lib/types"
+import type { BrssHold } from "@/lib/brss-held"
+import { BrssHeldNotice } from "@/components/brss/brss-held-notice"
 import {
   accentByCategory,
   descriptorClass,
@@ -85,6 +87,7 @@ export function SystemBlastRadiusHero({
   systemName,
   resourceCount,
   emptyReason = "awaiting_scan",
+  hold = null,
 }: {
   brss: BlastRadiusScore | null
   brssHistory: HistoryPoint[]
@@ -96,30 +99,46 @@ export function SystemBlastRadiusHero({
    * (INTEGRITY_HELD); `awaiting_scan` = genuinely never run. Only the last of
    * those may say "awaiting first scan".
    */
-  emptyReason?: "awaiting_scan" | "unavailable" | "incomplete"
+  emptyReason?: "awaiting_scan" | "unavailable" | "incomplete" | "held"
+  /**
+   * The backend's typed code(s) and reason when the score is withheld —
+   * rendered verbatim, never replaced by a number.
+   */
+  hold?: BrssHold | null
 }) {
   // Editorial layout mirrors the global Blast Radius hero
   // (components/dashboard/v3/hero-brss-card.tsx + family-strip.tsx),
   // scoped to one system. Hero number + grade + trend on top; three
   // plane cards (Data / Permissions / Network) below at the same
   // visual weight as on the home dashboard.
-  if (!brss) {
+  // A BRSS object without a finite score is a held score (the issues-summary
+  // held branch sends `score: null` next to a still-computed overlay). It must
+  // never reach the number below — not as the overlay's score, not as 0.
+  if (!brss || typeof brss.score !== "number" || !Number.isFinite(brss.score)) {
+    // A score-less BRSS object was delivered, so this system WAS scanned:
+    // it can never read as "awaiting first scan".
+    const reason = brss && emptyReason === "awaiting_scan" ? "held" : emptyReason
     return (
       <section
         className={`rounded-[14px] border border-slate-200 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] ${accentByCategory.brss}`}
         data-testid="system-blast-radius-hero-empty"
-        data-empty-reason={emptyReason}
+        data-empty-reason={reason}
       >
         <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
           Blast Radius Score
         </div>
         <div className="mt-3 text-sm text-slate-500">
-          {emptyReason === "unavailable"
+          {reason === "held"
+            ? `Blast radius score held for ${systemName}: no score was computed. This is not a clean score of 0.`
+            : reason === "unavailable"
             ? `Blast radius score unavailable for ${systemName}. This is not a clean score of 0.`
-            : emptyReason === "incomplete"
+            : reason === "incomplete"
               ? `Analysis for ${systemName} did not complete, so no blast radius score was produced. This is not a clean score of 0, and not a system awaiting its first scan.`
               : `Awaiting first scan for ${systemName}.`}
         </div>
+        {hold && reason !== "awaiting_scan" ? (
+          <BrssHeldNotice hold={hold} testId="system-brss-held-notice" />
+        ) : null}
       </section>
     )
   }
