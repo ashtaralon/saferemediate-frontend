@@ -1,5 +1,7 @@
 "use client"
 
+import { useState } from "react"
+
 import { LiveNowStrip } from "@/components/live-now-strip"
 import { DecisionRoutingCard } from "./decision-routing-card"
 import { FamilyStrip } from "./family-strip"
@@ -8,6 +10,7 @@ import { LPTopIssuesCard } from "./lp-top-issues-card"
 import { RecentActivityCard } from "./recent-activity-card"
 import { SeverityDonutCard } from "./severity-donut-card"
 import { WildcardBloatCard } from "./wildcard-bloat-card"
+import type { BrssHold } from "@/lib/brss-held"
 
 /**
  * Operations view — the technical surface, in full.
@@ -48,6 +51,9 @@ function Group({
 }
 
 export function OperationsView() {
+  // The hero owns the /global-org-score read; the strip beside it only needs
+  // to know whether that score is held, to label its own numbers truthfully.
+  const [orgBrssHold, setOrgBrssHold] = useState<BrssHold | null>(null)
   return (
     <div className="flex flex-col gap-8">
       <LiveNowStrip />
@@ -55,11 +61,11 @@ export function OperationsView() {
       <Group title="Posture &amp; finding volume" destination="Issues">
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
           <div className="lg:col-span-2">
-            <HeroBrssCard />
+            <HeroBrssCard onHoldChange={setOrgBrssHold} />
           </div>
           <SeverityDonutCard />
         </div>
-        <FamilyStrip families={["data", "privilege", "network"]} />
+        <FamilyStrip families={["data", "privilege", "network"]} orgBrssHold={orgBrssHold} />
       </Group>
 
       {/* Evidence HEALTH is promoted to Executive as the data-trust summary
