@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
+import { relayLegacySimulate } from "@/lib/server/legacy-simulate-proxy"
 
 const BACKEND_URL = getBackendBaseUrl()
 
@@ -17,53 +18,25 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    let data: any
-
+    // Backend POST /api/simulate runs no simulation: only its typed refusal is relayed, and a 2xx from a backend that
+    // still serves the old hard-coded handler is refused here (lib/server/legacy-simulate-proxy.ts).
+    let response: Response
     try {
-      // Try to call the backend
-      const response = await fetch(`${BACKEND_URL}/api/simulate`, {
+      response = await fetch(`${BACKEND_URL}/api/simulate`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ finding_id, resource_id, resource_type }),
       })
-
-      if (response.ok) {
-        data = await response.json()
-      } else {
-        // Backend error - return error response (no mock data)
-        console.error(`Backend returned ${response.status}`)
-        return NextResponse.json(
-          { success: false, error: `Backend returned ${response.status}` },
-          { status: response.status, headers: { "X-Proxy": "simulate-error" } }
-        )
-      }
     } catch (backendError) {
-      // Backend unreachable - return error (no mock data)
       console.error("Backend unreachable:", backendError)
       return NextResponse.json(
         { success: false, error: "Backend unreachable" },
         { status: 503, headers: { "X-Proxy": "simulate-error" } }
       )
     }
-
-    // Only return real data from backend - no mock data
-    // Backend returns simulation_id on success, not a success field
-    if (!data || (!data.success && !data.simulation_id)) {
-      return NextResponse.json(
-        { success: false, error: "Backend returned invalid data" },
-        { status: 500, headers: { "X-Proxy": "simulate-error" } }
-      )
-    }
-
-    // Add X-Proxy header to prove this route was used
-    return NextResponse.json({ success: true, ...data }, {
-      headers: {
-        "X-Proxy": "simulate",
-        "X-Proxy-Timestamp": new Date().toISOString(),
-      }
-    })
+    return await relayLegacySimulate(response)
 
   } catch (error) {
     console.error("Simulation error:", error)

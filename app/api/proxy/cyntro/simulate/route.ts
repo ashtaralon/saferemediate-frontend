@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
+import { relayLegacySimulate } from "@/lib/server/legacy-simulate-proxy"
 
 export const dynamic = "force-dynamic"
 export const fetchCache = "force-no-store"
@@ -7,66 +8,27 @@ export const maxDuration = 300
 
 const BACKEND_URL = getBackendBaseUrl()
 
+/**
+ * Per-resource "Simulate Split" -> backend POST /api/simulate, which runs no simulation (see
+ * lib/server/legacy-simulate-proxy.ts). This proxy used to reshape that path's hard-coded answer into per-resource rows
+ * with `|| 0` fallbacks (0 events, 0 denied, "passed"); it now relays only the typed refusal. The request is forwarded
+ * as sent: no resource ARN is built from a hard-coded account.
+ */
 export async function POST(req: NextRequest) {
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), 295_000)
 
   try {
     const body = await req.json()
-    const { role_name, proposed_permissions, ...rest } = body
-
-    // Build resource_id from role_name if not provided
-    let resource_id = rest.resource_id
-    if (!resource_id && role_name) {
-      // Assume it's an IAM role ARN or construct one
-      resource_id = role_name.startsWith('arn:')
-        ? role_name
-        : `arn:aws:iam::745783559495:role/${role_name}`
-    }
-
-    const simulateBody = {
-      resource_id,
-      finding_id: rest.finding_id || `per-resource-${role_name}`,
-      proposed_permissions,
-      ...rest
-    }
-
     const res = await fetch(`${BACKEND_URL}/api/simulate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(simulateBody),
+      body: JSON.stringify(body),
       cache: "no-store",
       signal: controller.signal,
     })
     clearTimeout(timeoutId)
-
-    if (!res.ok) {
-      const errorText = await res.text()
-      return NextResponse.json({ error: `Engine error: ${res.status}`, detail: errorText }, { status: res.status })
-    }
-
-    const simData = await res.json()
-
-    // Transform response for per-resource analysis UI
-    const response = {
-      results: [{
-        resource_id: resource_id,
-        resource_name: role_name || simData.current_state?.id || 'Unknown',
-        proposed_role: `${role_name}-least-privilege`,
-        total_events: simData.current_state?.used_count || 0,
-        successful: simData.current_state?.used_actions_count || 0,
-        denied: 0,
-        confidence: simData.confidence || 0,
-        passed: simData.recommendation === 'EXECUTE'
-      }],
-      all_passed: simData.recommendation === 'EXECUTE',
-      simulation_id: simData.simulation_id,
-      confidence: simData.confidence,
-      recommendation: simData.recommendation,
-      current_state: simData.current_state
-    }
-
-    return NextResponse.json(response)
+    return await relayLegacySimulate(res)
   } catch (error: any) {
     clearTimeout(timeoutId)
     if (error.name === "AbortError") {
