@@ -41,6 +41,8 @@ import {
   type SharedOverrideState,
 } from "@/components/override-modal-shared"
 import { dispatchRemediationChanged } from "@/lib/remediation-events"
+import { fetchLegacyMutation, legacyControlHeld, legacyMutationHold } from "@/lib/legacy-mutation-hold"
+import { LegacyMutationHeldNotice } from "@/components/legacy-mutation-held-notice"
 
 // ── Types ─────────────────────────────────────────────────────────
 
@@ -97,7 +99,10 @@ interface S3RemediationCardProps {
     bucketName: string,
     summary: { removed: number; snapshot_id: string | null },
   ) => void
-  /** When true, hide/disable Apply mutation controls (mutation boundary not shipped). */
+  /**
+   * When true, disable Apply. This can only ADD a hold: while the `s3_remediate` family is held
+   * (lib/legacy-mutation-hold.ts) Apply stays disabled whatever the host passes, including omitting it or `false`.
+   */
   applyDisabled?: boolean
 }
 
@@ -323,8 +328,10 @@ const INITIAL_OVERRIDE: OverrideState = {
 export function S3RemediationCard({
   bucketName,
   onApplied,
-  applyDisabled = false,
+  applyDisabled: hostApplyDisabled,
 }: S3RemediationCardProps) {
+  const applyHold = legacyMutationHold("s3_remediate")
+  const applyDisabled = legacyControlHeld("s3_remediate", hostApplyDisabled)
   const [data, setData] = useState<S3GapResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
@@ -485,7 +492,7 @@ export function S3RemediationCard({
       force,
     }
     if (overrideLineage) body.override_lineage = overrideLineage
-    const res = await fetch(`/api/proxy/s3-buckets/remediate`, {
+    const res = await fetchLegacyMutation("s3_remediate", `/api/proxy/s3-buckets/remediate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -542,6 +549,7 @@ export function S3RemediationCard({
   // call the API with the captured statement selection, then update
   // the shared modal's phase based on the response.
   const submitOverride = async (lineage: OverrideLineagePayload) => {
+    if (applyDisabled) return
     try {
       const r = await callRemediate(
         overrideState.selectedStatements,
@@ -1010,6 +1018,7 @@ export function S3RemediationCard({
             ? `${selected.size} statement${selected.size === 1 ? "" : "s"} selected`
             : "Select statements to apply"}
         </div>
+        <LegacyMutationHeldNotice family="s3_remediate" className="flex-1 text-xs text-amber-800" />
         <div className="flex items-center gap-2">
           {selected.size > 0 && (
             <button
@@ -1029,7 +1038,9 @@ export function S3RemediationCard({
             data-testid="s3-apply-disabled"
             className="px-3 py-1.5 rounded-md text-xs font-semibold bg-[#8b5cf6] text-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[#7c3aed] transition-colors"
             title={
-              applyDisabled
+              applyHold
+                ? applyHold.message
+                : applyDisabled
                 ? "Apply is disabled — mutation requires a signed backend plan"
                 : "Apply the selected statement removals (override modal opens if backend blocks)"
             }

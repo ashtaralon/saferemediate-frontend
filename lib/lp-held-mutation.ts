@@ -299,3 +299,6 @@ export function lpApplyBody(review: unknown): LpApplyBody | undefined {
     decision_binding: binding,
   }
 }
+
+// Legacy (pre-boundary) mutation families are held by the same compiled-constant mechanism; one import surface.
+export * from "@/lib/legacy-mutation-hold"

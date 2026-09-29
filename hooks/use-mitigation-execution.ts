@@ -28,6 +28,12 @@ import type {
   DataLeakMitigationExecutionEndpoint,
 } from "@/lib/types"
 import type { OverrideLineagePayload } from "@/components/override-modal-shared"
+import {
+  fetchLegacyMutation,
+  legacyFamilyForProxyRequest,
+  legacyMutationHold,
+  type LegacyMutationHold,
+} from "@/lib/legacy-mutation-hold"
 
 export type MitigationStage = "simulate" | "stage" | "full"
 
@@ -82,6 +88,8 @@ export interface UseMitigationExecutionResult {
   state: MitigationExecutionState
   /** Whether the operator can click the given stage right now. */
   canRun: (stage: MitigationStage) => boolean
+  /** The legacy-mutation hold on this stage's endpoint, if any (a held stage never runs). */
+  holdFor: (stage: MitigationStage) => LegacyMutationHold | null
   /** Execute one stage. Returns the captured result. */
   run: (args: RunArgs) => Promise<MitigationStageResult | null>
   /** Reset the state machine back to idle (forgets all results). */
@@ -96,11 +104,22 @@ export function useMitigationExecution(
   // disabling the button (which would lose state during a re-render).
   const inflightRef = useRef<MitigationStage | null>(null)
 
+  const holdFor = useCallback(
+    (s: MitigationStage): LegacyMutationHold | null => {
+      const endpoint = mitigation.execution?.[s] as DataLeakMitigationExecutionEndpoint | undefined
+      if (!endpoint) return null
+      const family = legacyFamilyForProxyRequest(ensureProxyPath(endpoint.path), endpoint.body ?? {})
+      return family ? legacyMutationHold(family) : null
+    },
+    [mitigation],
+  )
+
   const canRun = useCallback(
     (s: MitigationStage): boolean => {
       if (!mitigation.applicable) return false
       const ex = mitigation.execution
       if (!ex) return false
+      if (holdFor(s)) return false
       if (state.phase === "simulating" || state.phase === "staging" || state.phase === "applying") {
         return false
       }
@@ -116,7 +135,7 @@ export function useMitigationExecution(
       }
       return false
     },
-    [mitigation, state],
+    [mitigation, state, holdFor],
   )
 
   const run = useCallback(
@@ -126,6 +145,8 @@ export function useMitigationExecution(
       if (!ex) return null
       const endpoint = ex[stage] as DataLeakMitigationExecutionEndpoint | undefined
       if (!endpoint) return null
+      // A held legacy family never runs, whoever calls run().
+      if (holdFor(stage)) return null
 
       inflightRef.current = stage
       const inflightPhase: MitigationPhase =
@@ -147,11 +168,13 @@ export function useMitigationExecution(
       let result: MitigationStageResult
       try {
         const proxyPath = ensureProxyPath(endpoint.path)
-        const res = await fetch(proxyPath, {
+        const family = legacyFamilyForProxyRequest(proxyPath, body)
+        const init = {
           method: endpoint.method || "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
-        })
+        }
+        const res = family ? await fetchLegacyMutation(family, proxyPath, init) : await fetch(proxyPath, init)
         let parsed: Record<string, unknown> | null = null
         try {
           parsed = (await res.json()) as Record<string, unknown>
@@ -198,7 +221,7 @@ export function useMitigationExecution(
 
       return result
     },
-    [mitigation],
+    [mitigation, holdFor],
   )
 
   const reset = useCallback(() => {
@@ -206,7 +229,7 @@ export function useMitigationExecution(
     inflightRef.current = null
   }, [])
 
-  return { state, canRun, run, reset }
+  return { state, canRun, holdFor, run, reset }
 }
 
 // ---------------------------------------------------------------------------

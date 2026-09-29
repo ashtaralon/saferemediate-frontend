@@ -5,6 +5,8 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Button } from '@/components/ui/button';
 import { AlertCircle, CheckCircle, Loader2 } from 'lucide-react';
 import { toRoutingDecision } from '@/lib/decision-routing';
+import { fetchLegacyMutation, legacyControlHeld, legacyMutationHold } from '@/lib/legacy-mutation-hold';
+import { LegacyMutationHeldNotice } from '@/components/legacy-mutation-held-notice';
 
 interface Finding {
   id?: string;
@@ -37,6 +39,9 @@ interface SimulateFixModalProps {
 
 type Step = "INTRO" | "SIMULATED" | "ERROR";
 
+// Apply / Execute Remediation reach /api/proxy/simulate/execute and /api/proxy/remediate: the held legacy family.
+const REMEDIATE_FAMILY = 'finding_remediate' as const;
+
 export function SimulateFixModal({ isOpen, onClose, finding, role }: SimulateFixModalProps) {
   const [step, setStep] = useState<Step>("INTRO");
   const [simulation, setSimulation] = useState<any>(null);
@@ -48,6 +53,17 @@ export function SimulateFixModal({ isOpen, onClose, finding, role }: SimulateFix
   // onto the v4.4 §11E canonical 4-state via the shared mapper. Returns
   // null when decision is absent (the live API doesn't populate this
   // field today; the display block below is gated on `decision &&`).
+  const remediateHeld = legacyControlHeld(REMEDIATE_FAMILY);
+
+  // Refuse a held remediation in the handler itself, before its request function is reached.
+  const refuseIfHeld = (): boolean => {
+    const hold = legacyMutationHold(REMEDIATE_FAMILY);
+    if (!hold) return false;
+    setError(hold.message);
+    setStep('ERROR');
+    return true;
+  };
+
   const routedDecision = useMemo(
     () => toRoutingDecision(decision?.action),
     [decision]
@@ -90,8 +106,9 @@ export function SimulateFixModal({ isOpen, onClose, finding, role }: SimulateFix
         setDecision(data.decision ?? null);
         setStep('SIMULATED');
       } else if (role) {
-        // Legacy role-based remediation (keep for backward compatibility)
-        const response = await fetch('/api/proxy/remediate', {
+        // Legacy role-based remediation (keep for backward compatibility). It changes AWS, so it is held.
+        if (refuseIfHeld()) return;
+        const response = await fetchLegacyMutation(REMEDIATE_FAMILY, '/api/proxy/remediate', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -121,6 +138,7 @@ export function SimulateFixModal({ isOpen, onClose, finding, role }: SimulateFix
   };
 
   const handleApplyFix = async () => {
+    if (refuseIfHeld()) return;
     console.log('🔥 APPLY BUTTON CLICKED');
     
     if (!finding && !role) {
@@ -151,7 +169,7 @@ export function SimulateFixModal({ isOpen, onClose, finding, role }: SimulateFix
 
     try {
       // Use proxy route for remediation execution
-      const response = await fetch('/api/proxy/simulate/execute', {
+      const response = await fetchLegacyMutation(REMEDIATE_FAMILY, '/api/proxy/simulate/execute', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -201,6 +219,7 @@ export function SimulateFixModal({ isOpen, onClose, finding, role }: SimulateFix
   };
 
   const handleRemediateClick = async () => {
+    if (refuseIfHeld()) return;
     // Legacy role-based remediation (for backward compatibility)
     if (role) {
       if (!role?.name) {
@@ -213,7 +232,7 @@ export function SimulateFixModal({ isOpen, onClose, finding, role }: SimulateFix
       setError(null);
 
       try {
-        const response = await fetch('/api/proxy/remediate', {
+        const response = await fetchLegacyMutation(REMEDIATE_FAMILY, '/api/proxy/remediate', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -342,6 +361,7 @@ export function SimulateFixModal({ isOpen, onClose, finding, role }: SimulateFix
                 </div>
               </div>
 
+              <LegacyMutationHeldNotice family={REMEDIATE_FAMILY} className="block text-xs text-amber-800" />
               <div className="flex justify-end gap-2">
                 <Button variant="outline" onClick={handleClose}>
                   Cancel
@@ -349,6 +369,7 @@ export function SimulateFixModal({ isOpen, onClose, finding, role }: SimulateFix
                 <Button 
                   onClick={handleRemediateClick}
                   className="bg-blue-600 hover:bg-blue-700"
+                  disabled={remediateHeld}
                 >
                   Execute Remediation
                 </Button>
@@ -484,6 +505,9 @@ export function SimulateFixModal({ isOpen, onClose, finding, role }: SimulateFix
                 </div>
               )}
 
+              {routedDecision !== "INSUFFICIENT_DATA" && (
+                <LegacyMutationHeldNotice family={REMEDIATE_FAMILY} className="block text-xs text-amber-800" />
+              )}
               <div className="flex justify-end gap-2">
                 <Button variant="outline" onClick={handleClose}>
                   Close
@@ -492,7 +516,7 @@ export function SimulateFixModal({ isOpen, onClose, finding, role }: SimulateFix
                   <Button 
                     className="bg-green-600 hover:bg-green-700"
                     onClick={handleApplyFix}
-                    disabled={loading}
+                    disabled={loading || remediateHeld}
                   >
                     {loading ? (
                       <>

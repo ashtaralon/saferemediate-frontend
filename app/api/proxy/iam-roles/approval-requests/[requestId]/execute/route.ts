@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
 import { approvalBackendHeaders } from "@/lib/server/approval-backend-auth"
+import { refuseHeldLegacyMutation } from "@/lib/server/legacy-mutation-proxy-hold"
 
 export const dynamic = "force-dynamic"
 export const fetchCache = "force-no-store"
@@ -50,6 +51,8 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ requestId: string }> },
 ) {
+  const held = refuseHeldLegacyMutation("iam_approval_execute")
+  if (held) return held
   try {
     const { requestId } = await params
     const body = await request.json()

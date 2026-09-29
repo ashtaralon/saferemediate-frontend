@@ -37,6 +37,8 @@ import {
   type SharedOverrideState,
 } from "@/components/override-modal-shared"
 import { dispatchRemediationChanged } from "@/lib/remediation-events"
+import { fetchLegacyMutation, legacyControlHeld, legacyMutationHold } from "@/lib/legacy-mutation-hold"
+import { LegacyMutationHeldNotice } from "@/components/legacy-mutation-held-notice"
 import {
   securityGroupReviewQuery,
   type SecurityGroupReviewTarget,
@@ -116,7 +118,10 @@ interface SGRemediationCardProps {
    * so the parent's only job here is to refresh dependent state.
    */
   onApplied?: (sgId: string, summary: { removed: number; snapshot_id: string | null }) => void
-  /** When true, hide/disable Apply mutation controls (mutation boundary not shipped). */
+  /**
+   * When true, disable Apply. This can only ADD a hold: while the `sg_remediate` family is held
+   * (lib/legacy-mutation-hold.ts) Apply stays disabled whatever the host passes, including omitting it or `false`.
+   */
   applyDisabled?: boolean
 }
 
@@ -319,8 +324,10 @@ export function SGRemediationCard({
   reviewTarget,
   onSimulate,
   onApplied,
-  applyDisabled = false,
+  applyDisabled: hostApplyDisabled,
 }: SGRemediationCardProps) {
+  const applyHold = legacyMutationHold("sg_remediate")
+  const applyDisabled = legacyControlHeld("sg_remediate", hostApplyDisabled)
   const [data, setData] = useState<SGGapResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
@@ -797,7 +804,7 @@ export function SGRemediationCard({
       force,
     }
     if (overrideLineage) body.override_lineage = overrideLineage
-    const res = await fetch(`/api/proxy/security-groups/${sgId}/remediate`, {
+    const res = await fetchLegacyMutation("sg_remediate", `/api/proxy/security-groups/${sgId}/remediate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -898,6 +905,7 @@ export function SGRemediationCard({
   // Our job: call the API with the captured rule selection, then
   // transition the shared modal's phase based on the response.
   const submitOverride = async (lineage: OverrideLineagePayload) => {
+    if (applyDisabled) return
     try {
       const r = await callRemediate(overrideState.selectedRuleIds, true, lineage)
       if (r.ok && r.body?.success !== false) {
@@ -1690,6 +1698,7 @@ export function SGRemediationCard({
             ? `${selected.size} rule${selected.size === 1 ? "" : "s"} selected`
             : "Select rules to apply"}
         </div>
+        <LegacyMutationHeldNotice family="sg_remediate" className="flex-1 text-xs text-amber-800" />
         <div className="flex items-center gap-2">
           {selected.size > 0 && (
             <button
@@ -1710,7 +1719,9 @@ export function SGRemediationCard({
             data-testid="sg-apply-disabled"
             className="px-3 py-1.5 rounded-md text-xs font-semibold bg-[#8b5cf6] text-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[#7c3aed] transition-colors"
             title={
-              applyDisabled
+              applyHold
+                ? applyHold.message
+                : applyDisabled
                 ? "Apply is disabled — mutation requires a signed backend plan"
                 : preflight.kind === "blocked"
                   ? "Preflight raised warnings — click Apply to review and override with acknowledgment"

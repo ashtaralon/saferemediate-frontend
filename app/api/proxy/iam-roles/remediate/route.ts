@@ -1,11 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getBackendBaseUrl } from "@/lib/server/backend-url";
+import { refuseHeldLegacyMutation } from "@/lib/server/legacy-mutation-proxy-hold";
+import { isExplicitDryRun } from "@/lib/legacy-mutation-hold";
 
 const BACKEND_URL = getBackendBaseUrl();
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
+
+    // A dry run is a preview (the data-leak mitigation Simulate stage sends dry_run: true) and stays open. Anything
+    // else -- including an omitted dry_run, which the backend treats as a live change -- is the held legacy mutation.
+    if (!isExplicitDryRun(body)) {
+      const held = refuseHeldLegacyMutation("finding_remediate");
+      if (held) return held;
+    }
 
     console.log(`[IAM-REMEDIATE] Remediating role: ${body.role_name}`);
     console.log(`[IAM-REMEDIATE] Removing ${body.permissions_to_remove?.length || 0} permissions`);

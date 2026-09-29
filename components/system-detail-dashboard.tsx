@@ -57,6 +57,8 @@ import { PendingApprovals } from "./pending-approvals"
 import { DecisionRoutingCard } from "./dashboard/v3/decision-routing-card"
 import { LiveNowStrip } from "./live-now-strip"
 import { PendingDecisionsPanel } from "./pending-decisions-panel"
+import { fetchLegacyMutation, legacyControlHeld, legacyMutationHold } from "@/lib/legacy-mutation-hold"
+import { LegacyMutationHeldNotice } from "@/components/legacy-mutation-held-notice"
 import { fetchSecurityFindings } from "@/lib/api-client"
 import type { SecurityFinding, BlastRadiusScore } from "@/lib/types"
 import {
@@ -1290,10 +1292,12 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
   }
 
   const handleRemediateFromModal = async (permission: string) => {
+    // Held legacy family: refuse before the request function, and change no local state.
+    if (legacyMutationHold("finding_remediate")) return
     setRemediatingPermission(permission)
 
     try {
-      const response = await fetch("/api/proxy/remediate", {
+      const response = await fetchLegacyMutation("finding_remediate", "/api/proxy/remediate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -3586,7 +3590,8 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
                             </button>
                             <button
                               onClick={() => handleRemediateFromModal(permission)}
-                              disabled={remediatingPermission === permission}
+                              disabled={remediatingPermission === permission || legacyControlHeld("finding_remediate")}
+                              title={legacyMutationHold("finding_remediate")?.message}
                               className="flex-1 px-4 py-3 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors font-medium text-sm flex items-center justify-center gap-2 shadow-sm disabled:opacity-50"
                             >
                               {remediatingPermission === permission ? (
@@ -3601,6 +3606,7 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
                                 </>
                               )}
                             </button>
+                            <LegacyMutationHeldNotice family="finding_remediate" className="self-center text-xs text-amber-800" />
                             <button className="px-4 py-3 bg-gray-100 text-[var(--foreground,#374151)] rounded-lg hover:bg-gray-200 transition-colors font-medium text-sm flex items-center justify-center gap-2">
                               <ExternalLink className="w-4 h-4" />
                               View Lambda Function

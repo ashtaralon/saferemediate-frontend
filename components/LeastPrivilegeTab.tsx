@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { lpIssuesFailure } from '@/lib/lp-issues-error'
+import { fetchLegacyMutation } from '@/lib/legacy-mutation-hold'
 import { riskLabel } from '@/lib/utils'
 import { Shield, Database, Network, AlertTriangle, CheckCircle2, XCircle, Clock, FileDown, Send, Zap, ChevronRight, ChevronDown, ExternalLink, Loader2, RefreshCw, Search, Globe, Trash2, X, Activity, BarChart3, Lightbulb, MapPin, Eye, Calendar, RotateCcw } from 'lucide-react'
 import SimulationResultsModal from '@/components/SimulationResultsModal'
@@ -3463,7 +3464,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                     new_cidrs: r.recommendation?.suggested_cidrs || []
                   })) || []
                 
-                const response = await fetch('/api/proxy/remediation/execute', {
+                const response = await fetchLegacyMutation('sg_remediate', '/api/proxy/remediation/execute', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({

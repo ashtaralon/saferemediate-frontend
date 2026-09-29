@@ -8,6 +8,7 @@ import type { SecurityFinding } from "@/lib/types"
 import { SimulateFixModal } from "@/components/SimulateFixModal"
 import { FindingCard } from "@/components/FindingCard"
 import { severityRank } from "@/lib/security-finding-normalize"
+import { fetchLegacyMutation, legacyMutationHold } from "@/lib/legacy-mutation-hold"
 
 interface SecurityFindingsListProps {
   findings: SecurityFinding[]
@@ -52,9 +53,11 @@ export function SecurityFindingsList({ findings, onRefreshFindings }: SecurityFi
   }
 
   const handleExecute = async (findingId: string, options?: { createRollback?: boolean }) => {
+    const hold = legacyMutationHold("finding_remediate")
+    if (hold) throw new Error(hold.message)
     console.log("[LIST] Executing remediation:", findingId)
     // Use proxy route - no direct backend calls
-    const response = await fetch('/api/proxy/simulate/execute', {
+    const response = await fetchLegacyMutation("finding_remediate", '/api/proxy/simulate/execute', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

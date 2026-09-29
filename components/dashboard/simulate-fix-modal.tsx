@@ -1,5 +1,6 @@
 "use client"
 
+import { fetchLegacyMutation } from "@/lib/legacy-mutation-hold"
 import React, { useState } from "react"
 import { X } from "lucide-react"
 import {
@@ -194,7 +195,7 @@ export function SimulateFixModal({ isOpen, onClose, finding }: SimulateFixModalP
       }, 500)
 
       // Use the Next.js proxy route
-      const res = await fetch(`/api/proxy/simulate/execute`, {
+      const res = await fetchLegacyMutation("finding_remediate", `/api/proxy/simulate/execute`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

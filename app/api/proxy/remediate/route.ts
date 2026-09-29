@@ -1,10 +1,13 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
+import { refuseHeldLegacyMutation } from "@/lib/server/legacy-mutation-proxy-hold"
 
 const BACKEND_URL =
   getBackendBaseUrl()
 
 export async function POST(request: NextRequest) {
+  const held = refuseHeldLegacyMutation("finding_remediate")
+  if (held) return held
   try {
     const body = await request.json()
     const { roleName, permission, action, finding_id, resource_id, resource_type, dry_run, system_name, systemName, ...rest } = body

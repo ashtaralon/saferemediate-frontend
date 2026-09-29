@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { refuseHeldLegacyMutation } from "@/lib/server/legacy-mutation-proxy-hold"
 
 const SAFE_REMEDIATE_API_BASE = process.env.SAFE_REMEDIATE_API_BASE || 'https://api.saferemediate.com';
 
 export async function POST(request: NextRequest) {
+  const held = refuseHeldLegacyMutation("finding_remediate")
+  if (held) return held
   try {
     const body = await request.json();
 

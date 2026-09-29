@@ -38,6 +38,8 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 import { ExecuteActions } from "@/components/iam-shared-roles-execute-actions"
+import { fetchLegacyMutation, legacyControlHeld, legacyMutationHold } from "@/lib/legacy-mutation-hold"
+import { LegacyMutationHeldNotice } from "@/components/legacy-mutation-held-notice"
 import { ExecutionHistory } from "@/components/iam-shared-roles-execution-history"
 import { GateReadinessPanel } from "@/components/iam-shared-roles-gate-readiness"
 import { ReplayVerifyPanel } from "@/components/iam-shared-roles-replay-verify"
@@ -1389,7 +1391,7 @@ function AwaitingCard({ awaiting }: { awaiting: ConsumerEvidence[] }) {
 // parent bulk-deletes a row, it marks the consumer_id in
 // `parentDeletedIds` and the row honors that as a forced terminal
 // state.
-function QuarantineCandidatesSection({
+export function QuarantineCandidatesSection({
   candidates,
   thresholdDays,
 }: {
@@ -1580,6 +1582,13 @@ function QuarantineCandidatesSection({
   }
 
   const handleBulkDelete = async () => {
+    // Held legacy family: refuse before the pre-check too, so no quarantine record is created for a delete that
+    // cannot run.
+    const hold = legacyMutationHold("quarantine")
+    if (hold) {
+      setBulkError(hold.message)
+      return
+    }
     setBulkBusy(true)
     setBulkError(null)
     setBulkProgress({ done: 0, total: selectedCandidates.length, failed: 0 })
@@ -1614,7 +1623,7 @@ function QuarantineCandidatesSection({
         if (preData.error) throw new Error(preData.error)
         const recordId = preData.recordId
         if (!recordId) throw new Error("no recordId")
-        const del = await fetch("/api/proxy/quarantine/delete", {
+        const del = await fetchLegacyMutation("quarantine", "/api/proxy/quarantine/delete", {
           method: "DELETE",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ recordId, actor: "user", force: true }),
@@ -1701,7 +1710,7 @@ function QuarantineCandidatesSection({
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <button
-                  disabled={bulkBusy}
+                  disabled={bulkBusy || legacyControlHeld("quarantine")}
                   className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded border border-red-300 dark:border-red-700/50 text-red-700 dark:text-red-300 hover:bg-red-50 dark:hover:bg-red-950/30 disabled:opacity-50"
                 >
                   {bulkBusy ? (
@@ -1739,6 +1748,7 @@ function QuarantineCandidatesSection({
               </AlertDialogContent>
             </AlertDialog>
 
+            <LegacyMutationHeldNotice family="quarantine" className="text-[10px] text-amber-800" />
             <button
               onClick={() => setSelectedIds(new Set())}
               disabled={bulkBusy}
@@ -1882,6 +1892,11 @@ function QuarantineCandidateRow({
   }
 
   const handleDelete = async () => {
+    const hold = legacyMutationHold("quarantine")
+    if (hold) {
+      setError(hold.message)
+      return
+    }
     setState("deleting")
     setError(null)
     try {
@@ -1905,7 +1920,7 @@ function QuarantineCandidateRow({
       const preData = await pre.json()
       if (preData.error) throw new Error(preData.error)
       if (!preData.recordId) throw new Error("Pre-check did not return a recordId")
-      const del = await fetch("/api/proxy/quarantine/delete", {
+      const del = await fetchLegacyMutation("quarantine", "/api/proxy/quarantine/delete", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ recordId: preData.recordId, actor: "user", force: true }),
@@ -1986,7 +2001,7 @@ function QuarantineCandidateRow({
               <AlertDialog>
                 <AlertDialogTrigger asChild>
                   <button
-                    disabled={effectiveState === "deleting" || disableActions}
+                    disabled={effectiveState === "deleting" || disableActions || legacyControlHeld("quarantine")}
                     className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded border border-red-300 dark:border-red-700/50 text-red-700 dark:text-red-300 hover:bg-red-50 dark:hover:bg-red-950/30 disabled:opacity-50"
                   >
                     {effectiveState === "deleting" ? (
@@ -2027,6 +2042,7 @@ function QuarantineCandidateRow({
                   </AlertDialogFooter>
                 </AlertDialogContent>
               </AlertDialog>
+              <LegacyMutationHeldNotice family="quarantine" className="text-[10px] text-amber-800" />
             </>
           )}
         </div>

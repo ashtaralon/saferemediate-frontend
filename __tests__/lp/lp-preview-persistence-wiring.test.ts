@@ -76,7 +76,10 @@ describe('Resource Risk Preview persistence wiring', () => {
     expect(approvalStart).toBeGreaterThan(0)
     expect(approvalEnd).toBeGreaterThan(approvalStart)
     expect(approvalBranch).toContain('handleIAMLpRequestApproval(selectedPermissions)')
-    expect(approvalBranch).toContain('handleIAMLpExecuteApprovedRequest(approval.request_id)')
+    // The APPROVED branch renders the held execute control, bound to the stored request and its handler.
+    expect(approvalBranch).toContain('<ApprovedIamChangeExecuteControl')
+    expect(approvalBranch).toContain('requestId={approval.request_id}')
+    expect(approvalBranch).toContain('onExecute={handleIAMLpExecuteApprovedRequest}')
     expect(approvalBranch).toContain('Request approval (${selectedTotalCount})')
     expect(approvalBranch).toContain('Approval pending')
     expect(approvalBranch).not.toContain('handleApplyFix(')

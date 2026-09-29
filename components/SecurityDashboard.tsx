@@ -1,5 +1,6 @@
 "use client"
 
+import { fetchLegacyMutation } from "@/lib/legacy-mutation-hold"
 import { useState, useEffect } from "react"
 import { Shield, Loader2, AlertTriangle, RefreshCw, Play, Zap } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -103,7 +104,7 @@ export function SecurityDashboard() {
   const handleExecute = async (findingId: string) => {
     try {
       // Use proxy route to avoid CORS issues
-      const response = await fetch(`/api/proxy/simulate/execute`, {
+      const response = await fetchLegacyMutation("finding_remediate", `/api/proxy/simulate/execute`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         cache: "no-store",
