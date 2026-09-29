@@ -1,10 +1,13 @@
 "use client"
 
+import { useEffect } from "react"
+
 import { BrssHeldNotice } from "@/components/brss/brss-held-notice"
 import {
   isFiniteScore,
   orgHeldSystemDetail,
   orgScoreHold,
+  type BrssHold,
   type OrgHeldSystem,
 } from "@/lib/brss-held"
 import { STALE_BACKEND_RECOVERING, useCachedFetch } from "@/lib/use-cached-fetch"
@@ -171,7 +174,14 @@ function CachedReadingMarker({
   )
 }
 
-export function HeroBrssCard() {
+/**
+ * `onHoldChange` reports the org hold (or null) to a parent that renders
+ * other numbers beside this card, so they can say they are not the BRSS
+ * without a second /global-org-score request.
+ */
+export function HeroBrssCard({
+  onHoldChange,
+}: { onHoldChange?: (hold: BrssHold | null) => void } = {}) {
   const {
     data: orgData,
     loading: orgLoading,
@@ -206,6 +216,9 @@ export function HeroBrssCard() {
   )
 
   const hold = orgScoreHold(orgData)
+  useEffect(() => {
+    onHoldChange?.(orgScoreHold(orgData))
+  }, [orgData, onHoldChange])
   if (hold) {
     const heldSystems = orgData?.held_systems ?? []
     const partial = orgData?.partial

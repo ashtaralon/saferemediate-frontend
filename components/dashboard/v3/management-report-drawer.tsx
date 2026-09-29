@@ -753,7 +753,7 @@ export function ManagementReportDrawer({
                 <div className="mt-5 grid gap-4 lg:grid-cols-2">
                   <div className="rounded-lg border border-slate-200 p-4">
                     <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.12em] text-slate-500"><Gauge className="h-4 w-4 text-violet-600" />Current state</div>
-                    <p className="mt-2 text-sm leading-6 text-slate-700">The primary risk concentration is in {topSystems[0]?.name ?? "systems that are not yet fully measured"}. {!topSystems[0] || topSystems[0].score === null ? "Its blast-radius score is not established, so uncertainty is treated as risk." : `Its current blast-radius score is ${topSystems[0].score.toFixed(0)}/100.`}</p>
+                    <p className="mt-2 text-sm leading-6 text-slate-700">The primary risk concentration is in {topSystems[0]?.name ?? "systems that are not yet fully measured"}. {!topSystems[0] || topSystems[0].score === null ? "Its severity health score is not established, so uncertainty is treated as risk." : <span data-testid="report-top-system-score">{`Its severity health score is ${topSystems[0].score.toFixed(0)}/100 — computed from open finding counts, not the blast-radius score.`}</span>}</p>
                   </div>
                   <div className="rounded-lg border border-slate-200 p-4">
                     <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.12em] text-slate-500"><TrendingDown className="h-4 w-4 text-emerald-600" />Direction of travel</div>
@@ -763,12 +763,12 @@ export function ManagementReportDrawer({
               </section> : null}
 
               {sections.systems ? <section id="report-systems">
-                <SectionHeading eyebrow="02 · Where risk concentrates" title="Most critical business systems" description="Unknown scores rank first; measured systems then rank by lowest blast-radius security score." />
+                <SectionHeading eyebrow="02 · Where risk concentrates" title="Most critical business systems" description="Unknown scores rank first; measured systems then rank by lowest severity health score (from open finding counts — not the blast-radius score)." />
                 {topSystems.length ? (
                   <div className="overflow-x-auto rounded-xl border border-slate-200">
                     <table className="w-full min-w-[44rem] text-left text-xs">
                       <thead className="bg-slate-50 text-[9px] font-bold uppercase tracking-[0.14em] text-slate-500">
-                        <tr><th className="px-4 py-3">Priority / system</th><th className="px-3 py-3">Environment</th><th className="px-3 py-3">Business criticality</th><th className="px-3 py-3">Current score</th>{showTechnical ? <><th className="px-3 py-3">Weakest plane</th><th className="px-3 py-3 text-right">Critical</th><th className="px-4 py-3 text-right">High</th></> : null}</tr>
+                        <tr><th className="px-4 py-3">Priority / system</th><th className="px-3 py-3">Environment</th><th className="px-3 py-3">Business criticality</th><th className="px-3 py-3">Severity health score</th>{showTechnical ? <><th className="px-3 py-3">Weakest plane</th><th className="px-3 py-3 text-right">Critical</th><th className="px-4 py-3 text-right">High</th></> : null}</tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
                         {topSystems.map((system, index) => {
@@ -855,7 +855,7 @@ export function ManagementReportDrawer({
                     <div className="mt-3 overflow-x-auto rounded-lg border border-slate-200">
                       <table className="w-full min-w-[40rem] text-left text-[11px]"><thead className="bg-slate-50 text-[9px] font-bold uppercase tracking-wider text-slate-500"><tr><th className="px-3 py-2">Data source</th><th className="px-3 py-2">Coverage</th><th className="px-3 py-2">Updated</th><th className="px-3 py-2">Note</th></tr></thead><tbody className="divide-y divide-slate-100">{report.sources.map((source) => <tr key={source.label}><td className="px-3 py-2 font-semibold text-slate-800">{source.label}</td><td className="px-3 py-2"><span className={`inline-flex rounded border px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider ${STATE_PILL[source.state]}`}>{source.state === "READY" ? "Available" : source.state === "PARTIAL" ? "Partial" : "Unavailable"}</span></td><td className="px-3 py-2 text-slate-600">{fmt(source.cachedAt)}</td><td className="px-3 py-2 text-slate-500">{source.detail ?? "No issues reported"}</td></tr>)}</tbody></table>
                     </div>
-                    <div className="mt-4 grid gap-3 text-[10px] leading-4 text-slate-500 sm:grid-cols-3"><p><b className="text-slate-700">Scores.</b> Lower system BRSS indicates greater blast-radius risk. Unmeasured systems rank above scored systems.</p><p><b className="text-slate-700">Damage.</b> Scenarios describe plausible effects from asset type and reachability. They are not financial-loss estimates.</p><p><b className="text-slate-700">Progress.</b> Permissions removed and events are execution measures. They do not independently prove risk reduction.</p></div>
+                    <div className="mt-4 grid gap-3 text-[10px] leading-4 text-slate-500 sm:grid-cols-3"><p data-testid="report-score-method"><b className="text-slate-700">Scores.</b> The system score is a severity health score computed from open finding counts; it reads 100 when a system has no findings. It is not the Blast Radius Security Score (BRSS) and does not measure blast radius. Unmeasured systems rank above scored systems.</p><p><b className="text-slate-700">Damage.</b> Scenarios describe plausible effects from asset type and reachability. They are not financial-loss estimates.</p><p><b className="text-slate-700">Progress.</b> Permissions removed and events are execution measures. They do not independently prove risk reduction.</p></div>
                   </div>
                 ) : null}
               </section> : null}
