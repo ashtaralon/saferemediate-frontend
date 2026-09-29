@@ -80,6 +80,9 @@ export async function requestLPDrawerPreview(
   if (dispatch.preview === "sg-remediation-simulate") {
     const sgId = securityGroupId(row)
     const gapData = await context.sgGapAnalysis(sgId)
+    // A failed gap-analysis read (null) is not "no rules to change": simulating
+    // an empty rule set would preview a clean no-op for an SG never analysed.
+    if (!gapData) throw new Error("Failed to load analysis")
     const rulesToDelete = gapData?.rules_analysis
       ?.filter((r: any) => r.recommendation?.action === "DELETE")
       ?.map((r: any) => r.rule_id) || []
