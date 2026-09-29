@@ -126,6 +126,36 @@ export function backendError(opts: {
   })
 }
 
+/**
+ * Relay a backend non-2xx answer to the browser with its status and JSON object body UNCHANGED, so a typed refusal
+ * (FastAPI's `{detail: {error, reason_code, message, ...}}`, e.g. the 409 `off_boundary_mutation_refused` on a held
+ * snapshot delete or quarantine transition) reaches the caller intact instead of a generic message. The same shape the
+ * IAM gap-analysis proxy keeps for its backend errors, without its status mapping. A body that is not a JSON object
+ * is not echoed (raw upstream text never reaches the browser): it becomes a typed UNREADABLE body, same status.
+ */
+export async function relayBackendError(response: Response): Promise<NextResponse> {
+  const text = await response.text().catch(() => "")
+  let parsed: unknown = null
+  try {
+    parsed = text ? JSON.parse(text) : null
+  } catch {
+    parsed = null
+  }
+  const headers = { "Cache-Control": "no-store", [ERROR_ORIGIN_HEADER]: "backend" }
+  if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
+    return NextResponse.json(parsed, { status: response.status, headers })
+  }
+  return NextResponse.json(
+    {
+      error: `Backend answered HTTP ${response.status} without a JSON body`,
+      code: "UNREADABLE",
+      backendStatus: response.status,
+      origin: "proxy",
+    },
+    { status: response.status, headers },
+  )
+}
+
 /** Network/abort timeout reaching the backend. */
 export function backendTimeout(message = "Backend request timed out"): NextResponse {
   const body: ProxyErrorBody = {

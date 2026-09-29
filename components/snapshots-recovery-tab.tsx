@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { Shield, Calendar, User, ArrowDownToLine, ArrowUpFromLine, RotateCcw, RefreshCw, Trash2, MapPin, Server, Key, Lock, Database } from 'lucide-react'
 import { IAM_RESTORE_UNAVAILABLE, commitIamRestore, iamRestoreTarget, prepareIamRestore } from '@/lib/iam-restore-control'
+import { refusalFromPreviewBody } from '@/lib/lp-preview-refusal'
 
 interface Snapshot {
   snapshot_id: string
@@ -60,6 +61,8 @@ export default function RecoveryTab({ systemName }: RecoveryTabProps) {
   const [deletingAll, setDeletingAll] = useState(false)
   const [selectedSnapshots, setSelectedSnapshots] = useState<Set<string>>(new Set())
   const [deletingSnapshot, setDeletingSnapshot] = useState<string | null>(null)
+  // Refused deletes stay on screen (the backend holds snapshot deletion with a typed 409); cleared only by the next delete.
+  const [deleteRefusals, setDeleteRefusals] = useState<string[] | null>(null)
 
   useEffect(() => {
     loadSnapshots()
@@ -201,6 +204,12 @@ export default function RecoveryTab({ systemName }: RecoveryTabProps) {
     return `/api/proxy/snapshots/${snapshot.snapshot_id}`
   }
 
+  // One visible line for a refused delete: the snapshot, the HTTP status, the backend's reason_code and its message.
+  async function describeDeleteRefusal(snapshot: Snapshot, res: Response): Promise<string> {
+    const refusal = refusalFromPreviewBody(res.status, await res.json().catch(() => null))
+    return `${snapshot.snapshot_id}: refused (HTTP ${refusal.status}, ${refusal.code}) - ${refusal.message}`
+  }
+
   // Delete a single snapshot
   async function handleDeleteSnapshot(snapshot: Snapshot) {
     if (!confirm(`⚠️ Delete this snapshot?\n\nResource: ${snapshot.type === 'IAMRole' ? snapshot.role_name : snapshot.sg_name}\nSnapshot ID: ${snapshot.snapshot_id}\n\nThis action cannot be undone!`)) {
@@ -210,14 +219,18 @@ export default function RecoveryTab({ systemName }: RecoveryTabProps) {
     try {
       setDeletingSnapshot(snapshot.snapshot_id)
       setError(null)
+      setDeleteRefusals(null)
 
       const res = await fetch(getDeleteEndpoint(snapshot), {
         method: 'DELETE',
       })
 
       if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}))
-        throw new Error(errorData.error || errorData.detail || `Delete failed: ${res.status}`)
+        // Refused: the row stays, and the refusal is shown until the next delete.
+        const line = await describeDeleteRefusal(snapshot, res)
+        setDeleteRefusals([line])
+        alert(`❌ Delete refused: ${line}`)
+        return
       }
 
       // Remove from local state
@@ -231,10 +244,37 @@ export default function RecoveryTab({ systemName }: RecoveryTabProps) {
     } catch (err) {
       console.error('Delete snapshot error:', err)
       const message = err instanceof Error ? err.message : 'Delete failed'
-      setError(message)
+      setDeleteRefusals([`${snapshot.snapshot_id}: delete request failed - ${message}`])
       alert(`❌ Failed: ${message}`)
     } finally {
       setDeletingSnapshot(null)
+    }
+  }
+
+  // Delete each snapshot individually with its endpoint. Success is reported only when every delete succeeded; any
+  // refusal (or failed request) is shown per snapshot and stays on screen. The list is re-read, never pruned locally.
+  async function deleteEach(targets: Snapshot[]) {
+    let deleted = 0
+    const refusals: string[] = []
+    for (const snapshot of targets) {
+      try {
+        const res = await fetch(getDeleteEndpoint(snapshot), {
+          method: 'DELETE',
+        })
+        if (res.ok) deleted++
+        else refusals.push(await describeDeleteRefusal(snapshot, res))
+      } catch (err) {
+        refusals.push(`${snapshot.snapshot_id}: delete request failed - ${err instanceof Error ? err.message : 'network error'}`)
+      }
+    }
+
+    setSelectedSnapshots(new Set())
+    await loadSnapshots()
+    if (refusals.length > 0) {
+      setDeleteRefusals(refusals)
+      alert(`❌ ${refusals.length} of ${targets.length} snapshot deletes refused (${deleted} deleted)`)
+    } else {
+      alert(`✅ Deleted ${deleted} of ${targets.length} snapshots`)
     }
   }
 
@@ -253,23 +293,9 @@ export default function RecoveryTab({ systemName }: RecoveryTabProps) {
       setDeletingAll(true)
       setError(null)
 
-      let deleted = 0
+      setDeleteRefusals(null)
       const selectedList = snapshots.filter(s => selectedSnapshots.has(s.snapshot_id))
-      
-      for (const snapshot of selectedList) {
-        try {
-          const res = await fetch(getDeleteEndpoint(snapshot), {
-            method: 'DELETE',
-          })
-          if (res.ok) deleted++
-        } catch {
-          // Continue with next
-        }
-      }
-
-      alert(`✅ Deleted ${deleted} of ${selectedSnapshots.size} snapshots`)
-      setSelectedSnapshots(new Set())
-      await loadSnapshots()
+      await deleteEach(selectedList)
       
     } catch (err) {
       console.error('Delete selected error:', err)
@@ -290,22 +316,8 @@ export default function RecoveryTab({ systemName }: RecoveryTabProps) {
       setDeletingAll(true)
       setError(null)
 
-      // Delete each snapshot individually with correct endpoint
-      let deleted = 0
-      for (const snapshot of snapshots) {
-        try {
-          const res = await fetch(getDeleteEndpoint(snapshot), {
-            method: 'DELETE',
-          })
-          if (res.ok) deleted++
-        } catch {
-          // Continue with next
-        }
-      }
-
-      alert(`✅ Deleted ${deleted} of ${snapshots.length} snapshots`)
-      setSelectedSnapshots(new Set())
-      await loadSnapshots()
+      setDeleteRefusals(null)
+      await deleteEach(snapshots)
       
     } catch (err) {
       console.error('Delete all error:', err)
@@ -556,6 +568,16 @@ export default function RecoveryTab({ systemName }: RecoveryTabProps) {
       {error && (
         <div className="bg-[#eab30810] border border-[#eab30840] rounded-lg p-4">
           <p className="text-[#eab308]">{error}</p>
+        </div>
+      )}
+
+      {/* Refused deletes: persistent until the next delete */}
+      {deleteRefusals && deleteRefusals.length > 0 && (
+        <div role="alert" data-testid="snapshot-delete-refused" className="bg-[#ef444410] border border-[#ef444440] rounded-lg p-4">
+          <p className="text-[#ef4444] font-semibold">Snapshot delete refused. These snapshots were not deleted.</p>
+          {deleteRefusals.map((line) => (
+            <p key={line} className="text-sm text-[#ef4444] mt-1">{line}</p>
+          ))}
         </div>
       )}
 

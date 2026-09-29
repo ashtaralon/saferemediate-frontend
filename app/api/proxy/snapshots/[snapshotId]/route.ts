@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
+import { relayBackendError } from "@/lib/server/proxy-error"
 
 export const dynamic = "force-dynamic"
 export const fetchCache = "force-no-store"
@@ -88,9 +89,9 @@ export async function DELETE(
     clearTimeout(timeoutId)
 
     if (!response.ok) {
-      const errorText = await response.text()
-      console.error("[proxy] delete snapshot error " + response.status + ": " + errorText)
-      return NextResponse.json({ error: "Failed to delete snapshot" }, { status: response.status })
+      // Status and typed body unchanged: a held delete is a 409 off_boundary_mutation_refused the UI must show.
+      console.error("[proxy] delete snapshot refused: HTTP " + response.status)
+      return relayBackendError(response)
     }
 
     const data = await response.json()

@@ -6,6 +6,7 @@ import { riskLabel } from "@/lib/utils"
 import { ServiceTypeBadge } from "@/lib/service-type"
 import { fetchLegacyMutation, legacyControlHeld, legacyMutationHold } from "@/lib/legacy-mutation-hold"
 import { LegacyMutationHeldNotice } from "@/components/legacy-mutation-held-notice"
+import { refusalFromPreviewBody } from "@/lib/lp-preview-refusal"
 import {
   Search,
   ChevronDown,
@@ -255,6 +256,8 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
   const [quarantineRecords, setQuarantineRecords] = useState<QuarantineRecord[]>([])
   const [preCheckModal, setPreCheckModal] = useState<{ orphan: OrphanResource; safetyScore: SafetyScore | null; loading: boolean; error: string | null } | null>(null)
   const [actionLoading, setActionLoading] = useState<string | null>(null) // record ID or orphan ID being acted on
+  // A refused quarantine transition (backend typed 409, or the legacy hold's 423) stays on screen until the next one.
+  const [quarantineRefusal, setQuarantineRefusal] = useState<string | null>(null)
   const [activityModal, setActivityModal] = useState<{ recordId: string; activity: any[]; loading: boolean } | null>(null)
 
   // Just-moved highlight: ids handed off via sessionStorage from the IAM
@@ -377,21 +380,41 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
     }
   }
 
+  // Every quarantine transition's refusal reads the same way: action, record, status, typed code, message.
+  const refuseQuarantineAction = (action: string, recordId: string, code: string, message: string, status?: number) => {
+    setQuarantineRefusal(`${action} refused for ${recordId} (${status ? `HTTP ${status}, ` : ""}${code}) - ${message}`)
+  }
+  const heldQuarantineAction = (action: string, recordId: string): boolean => {
+    const hold = legacyMutationHold("quarantine")
+    if (hold) refuseQuarantineAction(action, recordId, hold.code, hold.message)
+    return hold !== null
+  }
+  const readQuarantineRefusal = async (action: string, recordId: string, response: Response) => {
+    const refusal = refusalFromPreviewBody(response.status, await response.json().catch(() => null))
+    refuseQuarantineAction(action, recordId, refusal.code, refusal.message, refusal.status)
+  }
+
   // --- Start Monitor ---
   const startMonitor = async (recordId: string) => {
-    if (legacyMutationHold("quarantine")) return
+    if (heldQuarantineAction("Start monitor", recordId)) return
     setActionLoading(recordId)
+    setQuarantineRefusal(null)
     try {
       const response = await fetchLegacyMutation("quarantine", '/api/proxy/quarantine/start-monitor', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ recordId, actor: 'user' }),
       })
-      if (!response.ok) throw new Error(`Start monitor failed: ${response.status}`)
+      if (!response.ok) {
+        // Refused: the record keeps its phase and the refusal stays visible.
+        await readQuarantineRefusal("Start monitor", recordId, response)
+        return
+      }
       await fetchQuarantineRecords()
       setPreCheckModal(null)
     } catch (err: any) {
       console.error("[StartMonitor] Error:", err)
+      setQuarantineRefusal(`Start monitor failed for ${recordId}: ${err?.message || "request failed"}`)
     } finally {
       setActionLoading(null)
     }
@@ -399,18 +422,24 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
 
   // --- Execute Quarantine ---
   const executeQuarantine = async (recordId: string) => {
-    if (legacyMutationHold("quarantine")) return
+    if (heldQuarantineAction("Quarantine", recordId)) return
     setActionLoading(recordId)
+    setQuarantineRefusal(null)
     try {
       const response = await fetchLegacyMutation("quarantine", '/api/proxy/quarantine/execute', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ recordId, actor: 'user' }),
       })
-      if (!response.ok) throw new Error(`Execute quarantine failed: ${response.status}`)
+      if (!response.ok) {
+        // Refused: the record keeps its phase and the refusal stays visible.
+        await readQuarantineRefusal("Quarantine", recordId, response)
+        return
+      }
       await fetchQuarantineRecords()
     } catch (err: any) {
       console.error("[ExecuteQuarantine] Error:", err)
+      setQuarantineRefusal(`Quarantine failed for ${recordId}: ${err?.message || "request failed"}`)
     } finally {
       setActionLoading(null)
     }
@@ -418,18 +447,24 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
 
   // --- Restore ---
   const restoreResource = async (recordId: string) => {
-    if (legacyMutationHold("quarantine")) return
+    if (heldQuarantineAction("Restore", recordId)) return
     setActionLoading(recordId)
+    setQuarantineRefusal(null)
     try {
       const response = await fetchLegacyMutation("quarantine", '/api/proxy/quarantine/restore', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ recordId, actor: 'user' }),
       })
-      if (!response.ok) throw new Error(`Restore failed: ${response.status}`)
+      if (!response.ok) {
+        // Refused: the record keeps its phase and the refusal stays visible.
+        await readQuarantineRefusal("Restore", recordId, response)
+        return
+      }
       await fetchQuarantineRecords()
     } catch (err: any) {
       console.error("[Restore] Error:", err)
+      setQuarantineRefusal(`Restore failed for ${recordId}: ${err?.message || "request failed"}`)
     } finally {
       setActionLoading(null)
     }
@@ -437,18 +472,24 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
 
   // --- Delete Resource ---
   const deleteNow = async (recordId: string) => {
-    if (legacyMutationHold("quarantine")) return
+    if (heldQuarantineAction("Delete", recordId)) return
     setActionLoading(recordId)
+    setQuarantineRefusal(null)
     try {
       const response = await fetchLegacyMutation("quarantine", '/api/proxy/quarantine/delete', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ recordId, actor: 'user', force: true }),
       })
-      if (!response.ok) throw new Error(`Delete failed: ${response.status}`)
+      if (!response.ok) {
+        // Refused: the record keeps its phase and the refusal stays visible.
+        await readQuarantineRefusal("Delete", recordId, response)
+        return
+      }
       await fetchQuarantineRecords()
     } catch (err: any) {
       console.error("[Delete] Error:", err)
+      setQuarantineRefusal(`Delete failed for ${recordId}: ${err?.message || "request failed"}`)
     } finally {
       setActionLoading(null)
     }
@@ -632,6 +673,13 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
 
   return (
     <div className="space-y-6">
+      {quarantineRefusal && (
+        <div role="alert" data-testid="quarantine-action-refused" className="flex items-start gap-2 p-3 rounded-lg bg-[#ef444410] border border-[#ef444430] text-sm text-[#ef4444]">
+          <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+          <span>{quarantineRefusal}</span>
+        </div>
+      )}
+
       {/* Summary Stats Bar */}
       <div className="bg-gray-50 rounded-xl p-5 border border-[var(--border,#e5e7eb)]">
         <div className="flex gap-3 w-[38%] min-w-[520px]">

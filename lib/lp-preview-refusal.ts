@@ -97,6 +97,12 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null
 }
 
+/**
+ * The typed refusal in any backend or proxy error body: `detail.code`, `detail.reason_code` (the off-boundary 409's
+ * `{detail: {error, reason_code, message}}`), `error_code`, `code` (the legacy-mutation hold's local 423) or
+ * `reason_code`; the message from `detail.message`, a string `detail`, or `error`. Also read by the legacy snapshot
+ * delete and quarantine controls, so a held mutation shows its code and message instead of a generic failure.
+ */
 export function refusalFromPreviewBody(status: number, payload: unknown): PreviewRefusal {
   const body = asRecord(payload)
   const detail = body?.detail
@@ -104,8 +110,10 @@ export function refusalFromPreviewBody(status: number, payload: unknown): Previe
   const boundary401 = status === 401 && detail === AUTH_BOUNDARY_401_DETAIL
   const code =
     (typeof detailRecord?.code === "string" && detailRecord.code) ||
+    (typeof detailRecord?.reason_code === "string" && detailRecord.reason_code) ||
     (typeof body?.error_code === "string" && body.error_code) ||
     (typeof body?.code === "string" && body.code) ||
+    (typeof body?.reason_code === "string" && body.reason_code) ||
     (boundary401 ? "SERVICE_AUTHENTICATION_REQUIRED" : `HTTP_${status}`)
   const message =
     (typeof detailRecord?.message === "string" && detailRecord.message) ||
