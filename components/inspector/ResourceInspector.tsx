@@ -33,6 +33,7 @@ import {
 } from 'lucide-react'
 import type { ResourceInspectorData, RemoveSection } from '@/types/resource-inspector'
 import { ServiceTypeBadge } from '@/lib/service-type'
+import { SemanticReadStatus } from '@/components/semantic-read-status'
 
 // The header type glyph now comes from the canonical `@/lib/service-type`
 // badge — the old per-file `RESOURCE_ICONS` map was retired (Phase 2,
@@ -170,6 +171,9 @@ export function ResourceInspector({
   // Render resource-specific template
   return (
     <div className="bg-white rounded-xl shadow-sm border border-[var(--border,#e5e7eb)] overflow-hidden">
+      <div className="px-4 pt-3">
+        <SemanticReadStatus payload={data} />
+      </div>
       {data.resource_type === 'SecurityGroup' && (
         <SecurityGroupTemplate data={data as any} formatTime={formatRelativeTime} />
       )}

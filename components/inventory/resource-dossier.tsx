@@ -13,6 +13,7 @@ import {
   ShieldCheck,
   X,
 } from "lucide-react"
+import { SemanticReadStatus } from "@/components/semantic-read-status"
 import { ServiceTypeBadge } from "@/lib/service-type"
 import { useAccountScope } from "@/lib/account-scope-context"
 import type {
@@ -242,8 +243,9 @@ export function ResourceDossier({
           <div className="min-w-0 flex-1">
             <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-teal-300">Resource dossier · v6</div>
             <h2 className="mt-1 truncate text-lg font-bold">{resourceName ?? resourceId}</h2>
-            <div className="mt-1 truncate font-mono text-[10px] text-slate-400">{data?.identity.canonical_resource_uid ?? resourceId}</div>
-            {data ? <div className="mt-2 flex flex-wrap gap-2"><StateBadge value={data.serve_state} /><StateBadge value={data.purpose.coverage?.state ?? "UNKNOWN"} axis="coverage" /></div> : null}
+            <div className="mt-1 truncate font-mono text-[10px] text-slate-400">{data?.identity?.canonical_resource_uid ?? resourceId}</div>
+            <SemanticReadStatus payload={data} />
+            {data?.identity ? <div className="mt-2 flex flex-wrap gap-2"><StateBadge value={data.serve_state} /><StateBadge value={data.purpose.coverage?.state ?? "UNKNOWN"} axis="coverage" /></div> : null}
           </div>
           <button type="button" onClick={onClose} className="rounded p-2 text-slate-300 hover:bg-white/10 hover:text-white" aria-label="Close dossier"><X className="h-5 w-5" /></button>
         </div>
