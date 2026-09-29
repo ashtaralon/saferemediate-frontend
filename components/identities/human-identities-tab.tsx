@@ -20,6 +20,8 @@ import {
   Globe,
 } from "lucide-react"
 import { IAMPermissionAnalysisModal } from "../iam-permission-analysis-modal"
+import { HELD_LABEL, heldGrade, heldNumber, identityRowsHold } from "@/lib/usage-held"
+import { HeldValue, UsageHeldNotice } from "@/components/usage-held/held-value"
 
 interface HumanIdentity {
   arn: string
@@ -27,11 +29,13 @@ interface HumanIdentity {
   identity_type: string
   sub_type: string
   system_name: string | null
-  risk_level: string
+  /** Null when the backend withholds usage-derived values (see lib/usage-held.ts). */
+  risk_level: string | null
   permissions_count: number
-  used_permissions_count: number
-  unused_permissions_count: number
-  gap_percentage: number
+  used_permissions_count: number | null
+  unused_permissions_count: number | null
+  gap_percentage: number | null
+  usage_withheld_reason?: string | null
   last_activity: string | null
   attached_resources: string[]
   policies: string[]
@@ -89,7 +93,7 @@ export function HumanIdentitiesTab({ onRequestRemediation, systemName }: { onReq
       const q = searchQuery.toLowerCase()
       if (!i.name.toLowerCase().includes(q) && !i.arn.toLowerCase().includes(q) && !(i.system_name || "").toLowerCase().includes(q)) return false
     }
-    if (riskFilter !== "all" && i.risk_level.toLowerCase() !== riskFilter.toLowerCase()) return false
+    if (riskFilter !== "all" && (heldGrade(i.risk_level) ?? HELD_LABEL).toLowerCase() !== riskFilter.toLowerCase()) return false
     return true
   })
 
@@ -102,6 +106,8 @@ export function HumanIdentitiesTab({ onRequestRemediation, systemName }: { onReq
   const adminCount = scopedIdentities.filter(i => i.is_admin).length
   const federatedCount = scopedIdentities.filter(i => i.sub_type === "Federated User").length
   const inactiveCount = scopedIdentities.filter(i => i.last_activity === "Never" || !i.last_activity).length
+  const usageHold = identityRowsHold(scopedIdentities as unknown as Record<string, unknown>[])
+  const anyGradeHeld = scopedIdentities.some(i => heldGrade(i.risk_level) === null)
 
   if (loading) {
     return (
@@ -148,6 +154,8 @@ export function HumanIdentitiesTab({ onRequestRemediation, systemName }: { onReq
         </div>
       </div>
 
+      {usageHold && <UsageHeldNotice hold={usageHold} testId="human-usage-held" />}
+
       {/* Search */}
       <div className="rounded-lg border p-4" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
         <div className="flex items-center gap-4">
@@ -173,6 +181,7 @@ export function HumanIdentitiesTab({ onRequestRemediation, systemName }: { onReq
             <option value="high">High</option>
             <option value="medium">Medium</option>
             <option value="low">Low</option>
+            {anyGradeHeld && <option value={HELD_LABEL.toLowerCase()}>{HELD_LABEL}</option>}
           </select>
           <span className="text-sm" style={{ color: "var(--text-secondary)" }}>{filtered.length} results</span>
         </div>
@@ -204,6 +213,9 @@ export function HumanIdentitiesTab({ onRequestRemediation, systemName }: { onReq
           <div className="divide-y" style={{ borderColor: "var(--border-subtle)" }}>
             {filtered.map((identity) => {
               const isExpanded = expandedRow === identity.arn
+              const risk = heldGrade(identity.risk_level)
+              const unused = heldNumber(identity.unused_permissions_count)
+              const gap = heldNumber(identity.gap_percentage)
               return (
                 <div key={identity.arn}>
                   <div
@@ -230,11 +242,17 @@ export function HumanIdentitiesTab({ onRequestRemediation, systemName }: { onReq
                     </span>
                     <div className="text-sm truncate" style={{ color: "var(--text-secondary)" }}>{identity.system_name || "—"}</div>
                     <div className="text-center text-sm font-medium" style={{ color: "var(--text-primary)" }}>{identity.permissions_count}</div>
-                    <div className="text-center text-sm font-medium" style={{ color: identity.unused_permissions_count > 0 ? "#ef4444" : "#22c55e" }}>{identity.unused_permissions_count}</div>
+                    {unused === null
+                      ? <HeldValue testId="human-row-unused" className="text-center text-sm font-medium" />
+                      : <div className="text-center text-sm font-medium" style={{ color: unused > 0 ? "#ef4444" : "#22c55e" }}>{unused}</div>}
                     <div className="text-center">
-                      <span className="px-2 py-0.5 rounded text-xs font-semibold" style={{ background: `${getRiskColor(identity.risk_level)}20`, color: getRiskColor(identity.risk_level) }}>
-                        {identity.risk_level}
+                      {risk === null ? (
+                        <HeldValue testId="human-row-risk" className="px-2 py-0.5 rounded text-xs font-semibold" />
+                      ) : (
+                      <span className="px-2 py-0.5 rounded text-xs font-semibold" style={{ background: `${getRiskColor(risk)}20`, color: getRiskColor(risk) }}>
+                        {risk}
                       </span>
+                      )}
                     </div>
                     <div className="text-center">
                       <button
@@ -265,7 +283,7 @@ export function HumanIdentitiesTab({ onRequestRemediation, systemName }: { onReq
                         <div>
                           <h4 className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: "var(--text-secondary)" }}>Details</h4>
                           <div className="space-y-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-                            <div>Gap: {identity.gap_percentage.toFixed(1)}% · {identity.observation_days}d observed · {identity.confidence || "—"}% confidence</div>
+                            <div data-testid="human-detail-gap">Gap: {gap === null ? <HeldValue /> : `${gap.toFixed(1)}%`} · {identity.observation_days}d observed · {identity.confidence || "—"}% confidence</div>
                             <div>Last Active: {identity.last_activity || "Unknown"}</div>
                           </div>
                         </div>
