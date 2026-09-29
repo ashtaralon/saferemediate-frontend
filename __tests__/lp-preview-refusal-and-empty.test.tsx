@@ -38,7 +38,9 @@ describe("LeastPrivilegeTab refusal copy", () => {
       path.join(__dirname, "../components/LeastPrivilegeTab.tsx"),
       "utf8",
     )
-    const simulateFix = tab.slice(tab.indexOf("/api/proxy/least-privilege/simulate-fix"))
+    // The request itself is built in lib/lp-drawer-preview.ts; the tab handles its refusal.
+    expect(tab.indexOf("// IAM Role simulation - simulate-fix endpoint")).toBeGreaterThan(0)
+    const simulateFix = tab.slice(tab.indexOf("// IAM Role simulation - simulate-fix endpoint"))
     expect(simulateFix).toContain("reviewRefusalCopy(refusalFromPreviewBody(response.status, errorData))")
     expect(simulateFix.slice(0, 800)).not.toContain("Simulation failed:")
   })
@@ -58,7 +60,8 @@ describe("IAM simulate-fix preview", () => {
     expect(screen.getByText("25%")).toBeTruthy()
     expect(screen.getByText("4")).toBeTruthy()
     expect(screen.getByText("12")).toBeTruthy()
-    expect(screen.queryByText("Unknown")).toBeNull()
+    // The only Unknown left is rollback readiness, which this body does not report (absent -> unknown).
+    expect(screen.queryAllByText("Unknown").map((el) => el.getAttribute("data-testid"))).toEqual(["simulate-fix-rollback-ready"])
   })
 
   it("shows Unknown for a legitimately unmeasured preview and does not treat a null gap as zero", () => {

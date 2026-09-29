@@ -837,7 +837,7 @@ export function NodeDetailPanel({
               <div className="flex items-start gap-2">
                 <AlertTriangle className="w-3 h-3 text-amber-400 mt-0.5 flex-shrink-0" />
                 <span className="text-[10px] text-amber-300">
-                  Remove {permissions.unused} unused permissions to reduce attack surface
+                  {permissions.unused} permissions not observed in use (unverified) — review before any removal; nothing has been removed
                 </span>
               </div>
             </div>

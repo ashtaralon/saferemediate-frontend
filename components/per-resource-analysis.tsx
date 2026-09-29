@@ -24,7 +24,7 @@ import {
   Filter,
 } from "lucide-react"
 import { getServiceMeta, ServiceTypeBadge } from "@/lib/service-type"
-import { legacyMutationHold } from "@/lib/legacy-mutation-hold"
+import { legacyControlHeld, legacyMutationHold } from "@/lib/legacy-mutation-hold"
 
 // ── Types ────────────────────────────────────────────
 
@@ -239,6 +239,10 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
   const [recommendData, setRecommendData] = useState<RecommendData | null>(null)
   const [simData, setSimData] = useState<SimData | null>(null)
   const [remediateData, setRemediateData] = useState<RemediateData | null>(null)
+  // Every remediation control here posts to the held finding_remediate proxy: render them disabled, not
+  // enabled-then-refused (lib/legacy-mutation-hold.ts).
+  const remediateHeld = legacyControlHeld("finding_remediate")
+  const remediateHeldTitle = legacyMutationHold("finding_remediate")?.message
 
   // SG restructure state (analysis + proposal preview only — execution retired,
   // see /shared-resources for the plan-first flow)
@@ -1463,9 +1467,9 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
                   <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: unusedPerms > 0 ? "#ef4444" : "#f97316" }} />
                   <div className="text-sm" style={{ color: "var(--text-primary)" }}>
                     {unusedPerms > 0 && isShared ? (
-                      <><strong style={{ color: "#ef4444" }}>Over-permissioned shared role.</strong> {resourceCount} resources share {totalPermsV} permissions but only use {usedPermsV}. If any resource is compromised, the attacker gets all {unusedPerms} unused permissions across every resource.</>
+                      <><strong style={{ color: "#ef4444" }}>Over-permissioned shared role.</strong> {resourceCount} resources share {totalPermsV} permissions but only use {usedPermsV}. If any resource is compromised, the attacker gets all {unusedPerms} permissions not observed in use, across every resource.</>
                     ) : unusedPerms > 0 ? (
-                      <><strong style={{ color: "#ef4444" }}>{unusedPerms} unused permissions detected.</strong> This role has more permissions than needed. Remove unused permissions to reduce attack surface.</>
+                      <><strong style={{ color: "#ef4444" }}>{unusedPerms} permissions not observed in use (unverified).</strong> Not observed is not proof of non-use: each is a removal candidate for review, and nothing has been removed.</>
                     ) : (
                       <><strong style={{ color: "#f97316" }}>Functionally different resources sharing one role.</strong> {resourceCount} resources with different purposes share the same role. Today only {totalPermsV} permission{totalPermsV !== 1 ? "s" : ""}, but as each resource&apos;s needs grow, every permission added for one resource is exposed to all {resourceCount}. Split into per-resource roles now — before the blast radius compounds.</>
                     )}
@@ -1739,10 +1743,10 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
                         <div className="mb-3 p-3 rounded-lg border" style={{ background: "#ef444410", borderColor: "#ef444430" }}>
                           <div className="flex items-center gap-1.5 mb-2">
                             <XCircle className="w-4 h-4" style={{ color: "#ef4444" }} />
-                            <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: "#ef4444" }}>Remove access entirely ({zeroUsage.length} resource{zeroUsage.length !== 1 ? "s" : ""})</span>
+                            <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: "#ef4444" }} data-testid="per-resource-zero-usage-heading">No use observed — removal candidates, unverified ({zeroUsage.length} resource{zeroUsage.length !== 1 ? "s" : ""})</span>
                           </div>
                           <p className="text-xs mb-2" style={{ color: "var(--text-secondary)" }}>
-                            These resources never used any permissions — detach the role or assign an empty role:
+                            No permission use was observed for these resources in the window. That is a preview for review, not a verified removal; nothing has been changed:
                           </p>
                           <div className="space-y-1">
                             {zeroUsage.map((a) => (
@@ -1752,7 +1756,7 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
                                 <span style={{ color: "var(--text-muted)" }}>— 0 of {a.permissions_granted ?? UNKNOWN} used</span>
                                 {(unusedOf(a)?.length ?? 0) > 0 && (
                                   <span className="px-1.5 py-0.5 rounded font-mono" style={{ background: "#ef444415", color: "#ef4444", fontSize: "10px" }}>
-                                    remove: {(unusedOf(a) ?? []).slice(0, 3).join(", ")}{(unusedOf(a) ?? []).length > 3 ? ` +${(unusedOf(a) ?? []).length - 3} more` : ""}
+                                    not observed: {(unusedOf(a) ?? []).slice(0, 3).join(", ")}{(unusedOf(a) ?? []).length > 3 ? ` +${(unusedOf(a) ?? []).length - 3} more` : ""}
                                   </span>
                                 )}
                               </div>
@@ -1766,7 +1770,7 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
                         <div className="mb-3 p-3 rounded-lg border" style={{ background: "#f9731610", borderColor: "#f9731630" }}>
                           <div className="flex items-center gap-1.5 mb-2">
                             <AlertTriangle className="w-4 h-4" style={{ color: "#f97316" }} />
-                            <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: "#f97316" }}>Remove unused permissions ({partialUsage.length} resource{partialUsage.length !== 1 ? "s" : ""})</span>
+                            <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: "#f97316" }} data-testid="per-resource-partial-usage-heading">Not observed in use — removal candidates, unverified ({partialUsage.length} resource{partialUsage.length !== 1 ? "s" : ""})</span>
                           </div>
                           <div className="space-y-1.5">
                             {partialUsage.map((a) => (
@@ -1774,7 +1778,7 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
                                 <div className="flex items-center gap-2">
                                   <span style={{ color: "var(--text-muted)" }}>&bull;</span>
                                   <span className="font-mono" style={{ color: "#f97316" }}>{a.resource_name}</span>
-                                  <span style={{ color: "var(--text-muted)" }}>— keep {a.used_count}, remove {unusedOf(a)?.length ?? 0}</span>
+                                  <span style={{ color: "var(--text-muted)" }}>— uses {a.used_count}; {unusedOf(a)?.length ?? 0} not observed (candidates, unverified)</span>
                                 </div>
                                 <div className="ml-4 mt-0.5 flex flex-wrap gap-1">
                                   {(unusedOf(a) ?? []).slice(0, 4).map((p, i) => (
@@ -1818,7 +1822,7 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
                       <Play className="w-4 h-4" /> Simulate Split
                     </button>
                   )}
-                  <button onClick={() => runRemediation(true)} disabled={loading} className="flex items-center gap-2 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors hover:opacity-90 disabled:opacity-50" style={{ background: "#22c55e" }}>
+                  <button onClick={() => runRemediation(true)} disabled={loading || remediateHeld} title={remediateHeldTitle} className="flex items-center gap-2 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors hover:opacity-90 disabled:opacity-50" style={{ background: "#22c55e" }}>
                     Remediate Now
                   </button>
                 </div>
@@ -2011,7 +2015,7 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
                   <Play className="w-4 h-4" /> Simulate Split
                 </button>
               )}
-              <button onClick={() => runRemediation(true)} disabled={loading} className="flex items-center gap-2 text-sm font-semibold px-5 py-2.5 rounded-lg border transition-colors disabled:opacity-50" style={{ color: "var(--text-secondary)", borderColor: "var(--border-subtle)" }}>
+              <button onClick={() => runRemediation(true)} disabled={loading || remediateHeld} title={remediateHeldTitle} className="flex items-center gap-2 text-sm font-semibold px-5 py-2.5 rounded-lg border transition-colors disabled:opacity-50" style={{ color: "var(--text-secondary)", borderColor: "var(--border-subtle)" }}>
                 Aggregated Remediation
               </button>
             </div>
@@ -2091,11 +2095,11 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
             )}
 
             <div className="flex gap-3 mt-2">
-              <button onClick={() => runRemediation(true)} disabled={loading} className="flex items-center gap-2 text-white text-sm font-semibold px-5 py-2.5 rounded-lg transition-colors hover:opacity-90 disabled:opacity-50" style={{ background: "#22c55e" }}>
+              <button onClick={() => runRemediation(true)} disabled={loading || remediateHeld} title={remediateHeldTitle} className="flex items-center gap-2 text-white text-sm font-semibold px-5 py-2.5 rounded-lg transition-colors hover:opacity-90 disabled:opacity-50" style={{ background: "#22c55e" }}>
                 Execute Remediation (Dry Run)
               </button>
               {simData.all_passed && (
-                <button onClick={() => runRemediation(false)} disabled={loading} className="flex items-center gap-2 text-white text-sm font-semibold px-5 py-2.5 rounded-lg transition-colors hover:opacity-90 disabled:opacity-50" style={{ background: "#ef4444" }}>
+                <button onClick={() => runRemediation(false)} disabled={loading || remediateHeld} title={remediateHeldTitle} className="flex items-center gap-2 text-white text-sm font-semibold px-5 py-2.5 rounded-lg transition-colors hover:opacity-90 disabled:opacity-50" style={{ background: "#ef4444" }}>
                   Execute Live
                 </button>
               )}
@@ -2142,7 +2146,7 @@ export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
           </div>
           {remediateData.dry_run && (
             <div className="mt-4 flex gap-3">
-              <button onClick={() => runRemediation(false)} disabled={loading} className="flex items-center gap-2 text-white text-sm font-semibold px-5 py-2.5 rounded-lg transition-colors hover:opacity-90 disabled:opacity-50" style={{ background: "#ef4444" }}>
+              <button onClick={() => runRemediation(false)} disabled={loading || remediateHeld} title={remediateHeldTitle} className="flex items-center gap-2 text-white text-sm font-semibold px-5 py-2.5 rounded-lg transition-colors hover:opacity-90 disabled:opacity-50" style={{ background: "#ef4444" }}>
                 Execute Live Remediation
               </button>
             </div>

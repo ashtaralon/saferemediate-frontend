@@ -322,7 +322,9 @@ describe("held Apply and Restore proxy", () => {
     expect(tab).not.toContain("submitHeldLpRestore")
     expect(tab).toContain("/api/proxy/least-privilege/apply")
     expect(tab).toContain("/api/proxy/iam-roles/")
-    expect(tab).toContain("/api/proxy/least-privilege/simulate-fix")
+    // The drawer's Preview request is dispatched by type in lib/lp-drawer-preview.ts.
+    expect(tab).toContain("requestLPDrawerPreview(selectedResource,")
+    expect(readFileSync(join(process.cwd(), "lib/lp-drawer-preview.ts"), "utf8")).toContain("/api/proxy/least-privilege/simulate-fix")
     expect(tab).not.toContain("/api/proxy/cyntro/remediate")
     expect(tab).toContain("resource_family: 'iam-role'")
     expect(tab).toContain("plan_head: selectedResource.serverPlan?.planHead")

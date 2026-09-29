@@ -159,7 +159,11 @@ describe("legacy backend (numbers): still renders, and an unobserved row is unkn
 it("the legacy Remediate stays held: no remediate request is sent", async () => {
   await open(truthful.observed as Capture)
   perResourceTab()
-  fireEvent.click(screen.getByText("Remediate Now"))
+  const remediate = screen.getByText("Remediate Now") as HTMLButtonElement
+  // Rendered disabled while held, not enabled-then-refused.
+  expect(remediate.disabled).toBe(true)
+  expect(remediate.title).toContain("Held")
+  fireEvent.click(remediate)
   await waitFor(() => expect(requests.some((r) => r.url.includes("/api/proxy/cyntro/remediate"))).toBe(false))
   expect(requests.filter((r) => r.method !== "GET").map((r) => r.url)).toEqual(["/api/proxy/cyntro/analyze"])
 })

@@ -68,6 +68,14 @@ import type {
   IamGapAnalysis,
 } from "@/components/iam-lp/types"
 import { REMEDIATION_MODAL_BACKDROP_STYLE } from "@/components/remediation-modal-chrome"
+import {
+  type AttributionCheck,
+  attributionReasonCopy,
+  readAttributionCheck,
+  removalCandidatesHeading,
+  rollbackReadyView,
+  withoutAttributionUnverified,
+} from "@/lib/lp-preview-truth"
 
 export interface PermissionAnalysis {
   permission: string
@@ -1118,6 +1126,9 @@ export function IAMPermissionAnalysisModal({
   // an explainer subordinate to it. See Layer 1/2 in backend.
   const [safetyContext, setSafetyContext] = useState<SimulateFixSafety | null>(null)
   const [removalSafety, setRemovalSafety] = useState<RemovalSafetyBundle | null>(null)
+  // Which removal candidates the same Preview could not attribute. Null until a
+  // Preview resolves; a null or unreported check never makes a list "verified".
+  const [attributionCheck, setAttributionCheck] = useState<AttributionCheck | null>(null)
   // Counts from the same state-bound Preview response as SafetyVector. This
   // prevents the headline from disagreeing with the Resource Risk row when an
   // older gap-analysis snapshot is still cached.
@@ -1276,9 +1287,11 @@ export function IAMPermissionAnalysisModal({
       // action the displayed scorer marks USED, PROTECTED, or unassessed.
       // When the sets disagree we select only displayed candidates; the token
       // equality check in Apply then also prevents forwarding the stale plan.
-      setSelectedPermissionsToRemove(new Set(
+      setSelectedPermissionsToRemove(new Set(withoutAttributionUnverified(
         resolveDefaultPermissionSelection(removalSafety, planPermissions),
-      ))
+        attributionCheck ?? { reported: false, unverified: [] },
+        (permission) => permission,
+      )))
       return
     }
     if (planPermissions) {
@@ -1289,13 +1302,14 @@ export function IAMPermissionAnalysisModal({
     // bundle. The UI labels this legacy state separately and Apply remains
     // governed by the normal remediability gate.
     setSelectedPermissionsToRemove(new Set(gapData.unused_permissions))
-  }, [breakGlassPlanActive, planPermissions, planToken, removalSafety, safetyContext?.decision_canonical, safetyContext?.unsafe_reasons, gapData, safetyLoading])
+  }, [attributionCheck, breakGlassPlanActive, planPermissions, planToken, removalSafety, safetyContext?.decision_canonical, safetyContext?.unsafe_reasons, gapData, safetyLoading])
 
   const fetchSafetyContext = async (): Promise<SimulateFixSafety | null> => {
     const requestVersion = ++simulateFixRequestVersion.current
     setSafetyLoading(true)
     setSafetyContext(null)
     setRemovalSafety(null)
+    setAttributionCheck(null)
     setPreviewProblem(null)
     setPreviewRefusal(null)
     setPreviewObservationDays(null)
@@ -1352,6 +1366,7 @@ export function IAMPermissionAnalysisModal({
           ? data.removal_safety as RemovalSafetyBundle
           : null,
       )
+      setAttributionCheck(readAttributionCheck(data))
       setPreviewProblem(data?.problem ?? null)
       setPreviewDecisionAuthority(data?.decision_authority ?? null)
       const observedDays = data?.evidence?.observation_window_days ?? data?.safety?.observation_days
@@ -3125,9 +3140,17 @@ export function IAMPermissionAnalysisModal({
       .filter(g => g.warn || g.action === 'warn_before_removing')
       .flatMap(g => g.permissions.map(p => p.permission))
   )
-  const removablePerms = removalSafety
-    ? permissionView.removable
-    : unusedPermissions.filter(p => !protectedSet.has(p.permission) && !warnSet.has(p.permission))
+  // Attribution-unverified actions are kept by the backend; they are never
+  // counted or listed as removal candidates, whichever source the list came from.
+  const attribution: AttributionCheck = attributionCheck ?? { reported: false, unverified: [] }
+  const removablePerms = withoutAttributionUnverified(
+    removalSafety
+      ? permissionView.removable
+      : unusedPermissions.filter(p => !protectedSet.has(p.permission) && !warnSet.has(p.permission)),
+    attribution,
+    (p) => p.permission,
+  )
+  const rollbackReady = safetyContext ? rollbackReadyView(safetyContext) : null
   const warnPerms = removalSafety
     ? permissionView.review
     : unusedPermissions.filter(p => warnSet.has(p.permission))
@@ -5489,9 +5512,9 @@ export function IAMPermissionAnalysisModal({
                 <div className="mt-1 text-sm text-[var(--muted-foreground,#6b7280)]">permissions queued for removal</div>
               </div>
               <div className="rounded-lg border border-[#fecaca] bg-[#fff1f2] p-4">
-                <div className="text-xs uppercase tracking-[0.18em] text-[#b91c1c]">Verified candidates</div>
+                <div className="text-xs uppercase tracking-[0.18em] text-[#b91c1c]">Removal candidates</div>
                 <div className="mt-2 text-3xl font-bold text-[#ef4444]">{Math.max(0, removableCount)}</div>
-                <div className="mt-1 text-sm text-[#b91c1c]">eligible to enter a change plan</div>
+                <div className="mt-1 text-sm text-[#b91c1c]">{LP_MUTATION_APPLY_ENABLED ? 'preview' : 'preview only; execution held'}</div>
               </div>
               <div className="rounded-lg border border-[#fde68a] bg-[#fffbeb] p-4">
                 <div className="text-xs uppercase tracking-[0.18em] text-[#b45309]">Awaiting evidence</div>
@@ -5505,11 +5528,17 @@ export function IAMPermissionAnalysisModal({
               </div>
             </div>
             <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800" data-testid="permission-removal-answer">
-              <strong>What can be removed now:</strong>{" "}
+              <strong>Removal candidates (preview only):</strong>{" "}
               {removableCount > 0
-                ? `${removableCount} evidence-verified permission${removableCount === 1 ? "" : "s"}, listed below.`
-                : "nothing. Every not-observed permission is either awaiting evidence or held by policy."}
+                ? `${removableCount} permission${removableCount === 1 ? "" : "s"} passed this preview's evidence checks, listed below.${LP_MUTATION_APPLY_ENABLED ? "" : " Execution is held."}`
+                : "none. Every not-observed permission is either awaiting evidence or held by policy."}
+              {!attribution.reported && removableCount > 0 && " Unverified: attribution check not reported."}
             </div>
+            {rollbackReady && (
+              <div className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700" data-testid="iam-rollback-ready">
+                <strong>Rollback-ready: {rollbackReady.label}.</strong> {rollbackReady.sentence}
+              </div>
+            )}
             <h3 className="text-lg font-bold text-[var(--foreground,#111827)]">Permission Usage Breakdown</h3>
 
             {/* Actually Used Permissions */}
@@ -5553,10 +5582,10 @@ export function IAMPermissionAnalysisModal({
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <AlertTriangle className="w-5 h-5 text-[#ef4444]" />
-                        <span className="font-semibold text-[#ef4444]">Verified Removal Candidates ({removableCount})</span>
+                        <span className="font-semibold text-[#ef4444]" data-testid="iam-removal-candidates-heading">{removalCandidatesHeading(attribution, !LP_MUTATION_APPLY_ENABLED)} ({removableCount})</span>
                       </div>
                       <span className="px-3 py-1 bg-[#ef444420] text-[#ef4444] border border-[#ef444440] rounded-lg text-sm font-medium">
-                        {removableCount > 0 ? "Eligible for plan" : "None verified"}
+                        {removableCount > 0 ? "Preview only" : "None"}
                       </span>
                     </div>
                     {removablePerms.length > 0 ? (
@@ -5611,6 +5640,27 @@ export function IAMPermissionAnalysisModal({
                       </div>
                     )}
                   </div>
+
+                  {/* Attribution unverified — kept by the backend, never a candidate */}
+                  {attribution.unverified.length > 0 && (
+                    <div className="border-2 border-[#fcd34d] bg-[#fffbeb] rounded-xl p-4" data-testid="iam-attribution-unverified">
+                      <div className="flex items-center gap-2">
+                        <AlertTriangle className="w-5 h-5 text-[#d97706]" />
+                        <span className="font-semibold text-[#92400e]">Attribution unverified — kept ({attribution.unverified.length})</span>
+                      </div>
+                      <ul className="mt-3 space-y-1.5 max-h-48 overflow-y-auto">
+                        {attribution.unverified.map((item) => (
+                          <li key={item.action} className="text-sm text-[#78350f]">
+                            <span className="font-mono">{item.action}</span>
+                            <span> — {attributionReasonCopy(item.reason_code)}</span>
+                            {item.unmapped_events.length > 0 && (
+                              <span className="text-xs"> · unmapped events: <span className="font-mono">{item.unmapped_events.join(", ")}</span></span>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
 
                   {/* Caution permissions (logging, SLR, ECS) — selectable but warned */}
                   {warnPerms.length > 0 && (
@@ -5992,9 +6042,9 @@ export function IAMPermissionAnalysisModal({
                   decision === 'auto_eligible' ? 'Auto-eligible' :
                   decision === 'blocked'       ? 'Safety hold' :
                   'Approval required'
-                const rollbackSummary = result.safety?.rollback_available
-                  ? 'A restore point will be created and verified before Apply changes AWS.'
-                  : 'Apply remains blocked because a restore point cannot be guaranteed.'
+                // Tri-state from same-scope evidence (backend 42f7b16b). An absent
+                // status is unknown: rollback_available alone was once a default.
+                const rollbackSummary = `${rollbackReadyView(result.safety).sentence}${LP_MUTATION_APPLY_ENABLED ? '' : ' Apply remains held.'}`
                 const responseRemovalCount = Array.isArray(result.plan?.permissions_to_remove)
                   ? result.plan.permissions_to_remove.length
                   : selectedPermissionsToRemove.size

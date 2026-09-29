@@ -16,13 +16,15 @@ import { LpRestoreControl } from '@/components/iam-lp/LpRestoreControl'
 import { LpOutstandingPanel } from '@/components/iam-lp/LpOutstandingPanel'
 import { dispatchRemediationChanged, onRemediationChanged } from '@/lib/remediation-events'
 import { deriveLPIntegrity, lpEvidenceGapCopy, lpIntegrityCopy } from '@/lib/lp-integrity'
-import { resolveLPReviewSurface } from '@/lib/lp-review-routing'
+import { resolveLPDrawerPreview, resolveLPReviewSurface, type LPDrawerPreviewDispatch } from '@/lib/lp-review-routing'
+import { lpDrawerPreviewUnsupportedCopy, requestLPDrawerPreview } from '@/lib/lp-drawer-preview'
 import {
   holdUnverifiedIamUsageAggregates,
   mergeLpResourcesAfterFetch,
   markResourceVerifying,
   normalizeLPResponse,
   normalizeLPSeverityBucket,
+  type ResourceRiskCapability,
 } from '@/lib/lp-normalize'
 import { AnalysisIntegrityBanner, PartialCountMarker } from '@/components/analysis-integrity-banner'
 import {
@@ -234,6 +236,8 @@ interface GapResource {
   usageMeasured?: boolean
   usageNotComputedReason?: string | null
   usageGenerationUnverified?: boolean
+  /** Only a reported, verified IAM usage generation (lib/lp-normalize.ts) sets this. */
+  usageGenerationVerified?: boolean
 }
 
 /** Mutation boundary not shipped — Apply stays off on every LP surface. */
@@ -313,6 +317,8 @@ interface LeastPrivilegeResponse {
   integrityReason?: string
   /** Counts in this payload are a subset of unknown size. */
   counts_are_partial?: boolean
+  /** Resource Risk capability table (unified/lp/capabilities.py); [] when the backend sent none. */
+  capabilities?: ResourceRiskCapability[]
 }
 
 export default function LeastPrivilegeTab({ systemName }: { systemName?: string }) {
@@ -3236,47 +3242,31 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
             setSelectedResource(null)
             setSimulationResult(null)
           }}
+          preview={resolveLPDrawerPreview(selectedResource.resourceType, data?.capabilities)}
           onSimulate={async () => {
+            // Dispatch by the row's REAL resource type (one table:
+            // LP_DRAWER_PREVIEW_SUPPORT). A type without a drawer Preview is
+            // refused by name and sends nothing — never the IAM Preview.
+            const dispatch = resolveLPDrawerPreview(selectedResource.resourceType, data?.capabilities)
+            if (!dispatch.supported) {
+              const copy = lpDrawerPreviewUnsupportedCopy(dispatch)
+              toast({ title: copy.title, description: copy.body })
+              return
+            }
             setSimulating(true)
             try {
-              // Different simulation flow for Security Groups vs IAM Roles
-              if (selectedResource.resourceType === 'SecurityGroup') {
-                // Get SG ID from various possible fields
-                let sgId = selectedResource.id
-                if (!sgId?.startsWith('sg-')) {
-                  if (selectedResource.resourceName?.startsWith('sg-')) {
-                    sgId = selectedResource.resourceName
-                  } else if (selectedResource.resourceArn?.includes('security-group/')) {
-                    const match = selectedResource.resourceArn.match(/security-group\/(sg-[a-z0-9]+)/)
-                    if (match) sgId = match[1]
-                  }
-                }
-                
-                // Get gap analysis to find rules to delete/tighten
-                const gapData = sgGapAnalysisCache[sgId || ''] || await fetchSGGapAnalysis(sgId || '')
-                
-                const rulesToDelete = gapData?.rules_analysis
-                  ?.filter((r: any) => r.recommendation?.action === 'DELETE')
-                  ?.map((r: any) => r.rule_id) || []
-                
-                const rulesToTighten = gapData?.rules_analysis
-                  ?.filter((r: any) => r.recommendation?.action === 'TIGHTEN')
-                  ?.map((r: any) => ({
-                    rule_id: r.rule_id,
-                    new_cidrs: r.recommendation?.suggested_cidrs || []
-                  })) || []
-                
-                const response = await fetch('/api/proxy/remediation/simulate', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    sg_id: sgId,
-                    rules_to_delete: rulesToDelete,
-                    rules_to_tighten: rulesToTighten,
-                    region: selectedResource.region || 'eu-west-1'
-                  })
-                })
-                
+              const request = await requestLPDrawerPreview(selectedResource, {
+                capabilities: data?.capabilities,
+                systemName,
+                sgGapAnalysis: (sgId) => sgGapAnalysisCache[sgId] || fetchSGGapAnalysis(sgId),
+              })
+              if (request.kind === 'unsupported') {
+                const copy = lpDrawerPreviewUnsupportedCopy(request.dispatch)
+                toast({ title: copy.title, description: copy.body })
+                return
+              }
+              if (request.kind === 'security_group') {
+                const response = request.response
                 if (!response.ok) {
                   const errorData = await response.json().catch(() => ({}))
                   throw new Error(errorData.error || `Simulation failed: ${response.status}`)
@@ -3292,21 +3282,8 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                 setSimulationModalOpen(true)
                 
               } else {
-                // IAM Role simulation - use new simulate-fix endpoint
-                const effectiveSystemName = selectedResource.systemName || systemName
-                if (!effectiveSystemName) {
-                  throw new Error('System context is missing — cannot verify safety for this role. Refresh the page or select a system.')
-                }
-                const response = await fetch('/api/proxy/least-privilege/simulate-fix', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    resource_type: 'IAMRole',
-                    resource_id: selectedResource.resourceName || selectedResource.resourceArn?.split('/').pop() || selectedResource.id,
-                    system_name: effectiveSystemName,
-                    finding_id: selectedResource.findingId,
-                  })
-                })
+                // IAM Role simulation - simulate-fix endpoint (IAMRole rows only)
+                const response = request.response
 
                 if (!response.ok) {
                   const errorData = await response.json().catch(() => ({}))
@@ -4255,7 +4232,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
 
 
 // Remediation Drawer Component
-function RemediationDrawer({ 
+export function RemediationDrawer({ 
   resource, 
   cachedFetch,
   cache,
@@ -4263,7 +4240,8 @@ function RemediationDrawer({
   iamCache,
   onClose, 
   onSimulate,
-  simulating = false
+  simulating = false,
+  preview,
 }: { 
   resource: GapResource
   cachedFetch?: (sgId: string, forceRefresh?: boolean) => Promise<any>
@@ -4273,7 +4251,10 @@ function RemediationDrawer({
   onClose: () => void
   onSimulate?: () => void
   simulating?: boolean
+  /** Drawer Preview dispatch for this row's real type (resolveLPDrawerPreview). */
+  preview: LPDrawerPreviewDispatch
 }) {
+  const previewUnsupported = preview.supported ? null : lpDrawerPreviewUnsupportedCopy(preview)
   const [activeTab, setActiveTab] = useState<'summary' | 'rules' | 'evidence' | 'impact'>('summary')
 
   return (
@@ -4341,9 +4322,19 @@ function RemediationDrawer({
           >
             Cancel
           </button>
+          {previewUnsupported && (
+            <span className="mr-auto text-sm text-[var(--muted-foreground,#6b7280)]" data-testid="lp-drawer-preview-unsupported">
+              {previewUnsupported.title}
+            </span>
+          )}
           <button 
-            onClick={onSimulate}
-            disabled={simulating}
+            onClick={() => {
+              if (previewUnsupported) return
+              onSimulate?.()
+            }}
+            disabled={simulating || previewUnsupported !== null}
+            title={previewUnsupported?.body}
+            data-testid="lp-drawer-simulate"
             className="px-4 py-2 bg-[#8b5cf6] text-white rounded-lg hover:bg-[#7c3aed] disabled:opacity-50 text-sm font-medium flex items-center gap-2"
           >
             {simulating ? (
@@ -5422,7 +5413,18 @@ function EvidenceTab({ resource }: { resource: GapResource }) {
   )
 }
 
-function ImpactTab({ resource }: { resource: GapResource }) {
+/**
+ * Counts on the Impact tab are verified only when they come from a verified IAM usage generation
+ * (lib/lp-normalize.ts sets usageGenerationVerified from readiness_by_lane.cloudtrail_iam_usage).
+ * Nothing on this tab asserts continuity: no preview or evidence check has run here.
+ */
+export function lpImpactCountsVerified(resource: Pick<GapResource, 'resourceType' | 'usageGenerationVerified' | 'usageMeasured'>): boolean {
+  return resource.resourceType === 'IAMRole' &&
+    resource.usageGenerationVerified === true &&
+    resource.usageMeasured !== false
+}
+
+export function ImpactTab({ resource }: { resource: GapResource }) {
   if (resource.usageGenerationUnverified) {
     return (
       <p className="text-sm text-[var(--muted-foreground,#6b7280)]">
@@ -5430,51 +5432,74 @@ function ImpactTab({ resource }: { resource: GapResource }) {
       </p>
     )
   }
+  const verified = lpImpactCountsVerified(resource)
+  const unverifiedTag = verified ? null : (
+    <span
+      className="ml-2 rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-amber-700"
+      data-testid="lp-impact-unverified"
+    >
+      unverified
+    </span>
+  )
+  const unusedList = resource.unusedList || []
+  const usedList = resource.usedList || []
+  // A share of allowed permissions is shown only from verified counts, and it
+  // is a share of what is allowed — not a promised reduction.
+  const unusedShare = verified && typeof resource.gapPercent === 'number' && Number.isFinite(resource.gapPercent)
+    ? resource.gapPercent
+    : null
   return (
     <div className="space-y-6">
-      <div className="rounded-lg border border-[#22c55e40] bg-[#22c55e10] p-6">
+      <div className="rounded-lg border border-[var(--border,#e5e7eb)] p-6">
         <h3 className="text-lg font-bold text-[var(--foreground,#111827)] mb-4">Impact Analysis</h3>
-        <div className="space-y-3">
-          {[
-            'No service disruption expected',
-            'All active workflows will continue',
-            `Reduces attack surface by ${(resource.gapPercent ?? 0).toFixed(0)}%`,
-            'Achieves least privilege compliance'
-          ].map((impact, idx) => (
-            <div key={idx} className="flex items-center gap-2">
-              <CheckCircle2 className="w-5 h-5 text-[#22c55e] flex-shrink-0" />
-              <span className="text-sm text-[var(--foreground,#374151)]">{impact}</span>
-            </div>
-          ))}
+        <div className="space-y-3 text-sm text-[var(--foreground,#374151)]">
+          <p data-testid="lp-impact-continuity">
+            Service continuity has not been assessed here. Run Simulate for a preview; Apply remains held.
+          </p>
+          <p data-testid="lp-impact-share">
+            {unusedShare !== null
+              ? `Not observed in use: ${unusedShare.toFixed(0)}% of allowed permissions (verified IAM usage generation). Nothing has been removed.`
+              : 'Reduction not computed — usage counts for this resource are not verified.'}
+          </p>
         </div>
       </div>
 
       <div className="rounded-lg border border-[var(--border,#e5e7eb)] p-6">
-        <h3 className="text-lg font-bold text-[var(--foreground,#111827)] mb-4">What Will Continue Working</h3>
+        <h3 className="text-lg font-bold text-[var(--foreground,#111827)] mb-4 flex items-center">
+          Observed in use{unverifiedTag}
+        </h3>
         <div className="space-y-2">
-          {(resource.usedList || []).slice(0, 5).map((perm, idx) => (
+          {usedList.length === 0 && (
+            <div className="text-sm text-[var(--muted-foreground,#6b7280)]">No observed permissions reported.</div>
+          )}
+          {usedList.slice(0, 5).map((perm, idx) => (
             <div key={idx} className="flex items-center gap-2 text-sm">
               <CheckCircle2 className="w-4 h-4 text-[#22c55e]" />
               <span className="font-mono text-[var(--foreground,#374151)]">{perm}</span>
             </div>
           ))}
-          {(resource.usedList?.length || 0) > 5 && (
-            <div className="text-sm text-[var(--muted-foreground,#6b7280)]">...and {(resource.usedList?.length || 0) - 5} more used permissions</div>
+          {usedList.length > 5 && (
+            <div className="text-sm text-[var(--muted-foreground,#6b7280)]">...and {usedList.length - 5} more used permissions</div>
           )}
         </div>
       </div>
 
       <div className="rounded-lg border border-[#ef444440] bg-[#ef444410] p-6">
-        <h3 className="text-lg font-bold text-[var(--foreground,#111827)] mb-4">What Will Be Removed</h3>
+        <h3 className="text-lg font-bold text-[var(--foreground,#111827)] mb-4 flex items-center">
+          Removal candidates (preview only; execution held){unverifiedTag}
+        </h3>
         <div className="space-y-2">
-          {(resource.unusedList || []).slice(0, 5).map((perm, idx) => (
+          {unusedList.length === 0 && (
+            <div className="text-sm text-[var(--muted-foreground,#6b7280)]">No removal candidates reported.</div>
+          )}
+          {unusedList.slice(0, 5).map((perm, idx) => (
             <div key={idx} className="flex items-center gap-2 text-sm">
               <XCircle className="w-4 h-4 text-[#ef4444]" />
               <span className="font-mono text-[var(--foreground,#374151)]">{perm}</span>
             </div>
           ))}
-          {(resource.unusedList?.length || 0) > 5 && (
-            <div className="text-sm text-[var(--muted-foreground,#6b7280)]">...and {(resource.unusedList?.length || 0) - 5} more unused permissions</div>
+          {unusedList.length > 5 && (
+            <div className="text-sm text-[var(--muted-foreground,#6b7280)]">...and {unusedList.length - 5} more not observed in use</div>
           )}
         </div>
       </div>

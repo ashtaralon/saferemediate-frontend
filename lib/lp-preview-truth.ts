@@ -1,0 +1,148 @@
+/**
+ * What an IAM Preview (POST /api/least-privilege/simulate-fix) actually proved, read once for every surface
+ * that renders it (iam-permission-analysis-modal.tsx, IAMSimulateFixModal.tsx).
+ *
+ * Two facts, each defaulting to NOT proven:
+ *  - attribution: which removal candidates had every CloudTrail event attributed. The backend lists the rest in
+ *    `attribution_unverified_permissions` and keeps them. An absent field is an older backend that did not run the
+ *    check, so no candidate list may be called attribution-verified.
+ *  - rollback-ready: `safety.rollback_ready_status` (backend 42f7b16b, unified/lp/rollback_ready_status.py).
+ *    Absent is "unknown". `safety.rollback_available` alone is never read as proof: before 42f7b16b it was an
+ *    echoed default of true.
+ */
+import type {
+  SimulateFixAttributionUnverifiedPermission,
+  SimulateFixRollbackReadyStatus,
+} from "@/lib/types"
+
+export type AttributionCheck =
+  | { reported: true; unverified: SimulateFixAttributionUnverifiedPermission[] }
+  | { reported: false; unverified: [] }
+
+const ATTRIBUTION_REASON_COPY: Record<string, string> = {
+  EVENT_ATTRIBUTION_INCOMPLETE: "some CloudTrail events could not be attributed to an action",
+  EVENT_ATTRIBUTION_UNKNOWN: "whether CloudTrail events map to this action is unknown",
+}
+
+export function attributionReasonCopy(reasonCode: string): string {
+  return ATTRIBUTION_REASON_COPY[reasonCode] ?? reasonCode
+}
+
+function parseItem(raw: unknown): SimulateFixAttributionUnverifiedPermission | null {
+  if (!raw || typeof raw !== "object") return null
+  const item = raw as Record<string, unknown>
+  const action = typeof item.action === "string" ? item.action.trim() : ""
+  if (!action) return null
+  return {
+    action,
+    reason_code: String(item.reason_code ?? "") as SimulateFixAttributionUnverifiedPermission["reason_code"],
+    unmapped_events: Array.isArray(item.unmapped_events)
+      ? item.unmapped_events.filter((event): event is string => typeof event === "string")
+      : [],
+  }
+}
+
+/**
+ * Read `attribution_unverified_permissions` from a simulate-fix response. The backend lane that adds it names
+ * the field, not its nesting, so the response root, `simulation` and `permission_disposition` are read in that
+ * order. Missing everywhere is `reported: false` — never an empty verified list.
+ */
+export function readAttributionCheck(response: unknown): AttributionCheck {
+  const root = response && typeof response === "object" ? (response as Record<string, unknown>) : {}
+  const holders = [root, root.simulation, root.permission_disposition]
+  for (const holder of holders) {
+    if (!holder || typeof holder !== "object") continue
+    const field = (holder as Record<string, unknown>).attribution_unverified_permissions
+    if (Array.isArray(field)) {
+      const unverified = field
+        .map(parseItem)
+        .filter((item): item is SimulateFixAttributionUnverifiedPermission => item !== null)
+      return { reported: true, unverified }
+    }
+  }
+  return { reported: false, unverified: [] }
+}
+
+/** Removal candidates minus every attribution-unverified action (case-insensitive). Never counts them. */
+export function withoutAttributionUnverified<T>(
+  candidates: ReadonlyArray<T>,
+  check: AttributionCheck,
+  actionOf: (candidate: T) => string,
+): T[] {
+  if (check.unverified.length === 0) return [...candidates]
+  const held = new Set(check.unverified.map((item) => item.action.toLowerCase()))
+  return candidates.filter((candidate) => !held.has(String(actionOf(candidate) ?? "").toLowerCase()))
+}
+
+/** Heading for the candidate list: preview only while Apply is held, and never "verified" without the check. */
+export function removalCandidatesHeading(check: AttributionCheck, executionHeld = true): string {
+  const base = executionHeld ? "Removal candidates (preview only; execution held)" : "Removal candidates (preview)"
+  return check.reported ? base : `${base} — unverified: attribution check not reported`
+}
+
+export type RollbackReadyView = {
+  status: SimulateFixRollbackReadyStatus
+  reasonCode: string | null
+  label: string
+  sentence: string
+}
+
+const ROLLBACK_STATUSES: ReadonlySet<string> = new Set(["proven", "unverified", "unknown"])
+
+/**
+ * The one reason code the backend proves with (unified/lp/rollback_ready_status.py). "proven" with any other
+ * reason, or with none, is not read as proven: an unrecognised code (e.g. RESTORE_READBACK_UNPROVEN) is shown
+ * verbatim as unknown.
+ */
+export const ROLLBACK_PROVEN_REASON = "SAME_SCOPE_RESTORE_VERIFIED"
+
+/**
+ * Tri-state rollback readiness from `safety`. Absent / unrecognised status is "unknown", never proven.
+ *
+ * "proven" is a PAST restore on this exact role (tenant, account, ARN, incarnation) verified with a readback. It is
+ * not the restore point a future Apply will create, and it does not check drift since that restore. "unverified":
+ * the history was read and proves no restore. "unknown": the evidence could not be read or did not settle — never
+ * rendered as an absence.
+ */
+export function rollbackReadyView(safety: unknown): RollbackReadyView {
+  const record = safety && typeof safety === "object" ? (safety as Record<string, unknown>) : {}
+  const raw = typeof record.rollback_ready_status === "string" ? record.rollback_ready_status : null
+  const evidence = record.rollback_ready && typeof record.rollback_ready === "object"
+    ? (record.rollback_ready as Record<string, unknown>)
+    : null
+  const reasonCode = typeof evidence?.reason_code === "string" && evidence.reason_code
+    ? evidence.reason_code
+    : raw === null
+      ? "ROLLBACK_READY_NOT_REPORTED"
+      : null
+  let status = (raw && ROLLBACK_STATUSES.has(raw) ? raw : "unknown") as SimulateFixRollbackReadyStatus
+  // The evidence block must agree with the status it explains.
+  if (evidence && typeof evidence.status === "string" && evidence.status !== status) status = "unknown"
+  if (status === "proven" && reasonCode !== ROLLBACK_PROVEN_REASON) status = "unknown"
+  const because = reasonCode ? ` (${reasonCode})` : ""
+  if (status === "proven") {
+    return {
+      status,
+      reasonCode,
+      label: "Proven",
+      sentence: `Rollback readiness proven: a past restore on this exact role was verified with a readback${because}. `
+        + "It does not check drift since that restore, and it is not the restore point a future Apply would create.",
+    }
+  }
+  if (status === "unverified") {
+    return {
+      status,
+      reasonCode,
+      label: "Unverified",
+      sentence: `Rollback readiness unverified: the restore history was read and proves no restore on this role${because}.`,
+    }
+  }
+  return {
+    status,
+    reasonCode,
+    label: "Unknown",
+    sentence: raw === null
+      ? `Rollback readiness unknown: this backend did not report it${because}.`
+      : `Rollback readiness unknown: the restore evidence could not be read or did not settle${because}.`,
+  }
+}

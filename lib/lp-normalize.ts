@@ -132,6 +132,11 @@ export interface NormalizedGapResource {
   usageNotComputedReason?: string | null
   /** The IAM usage lane cannot authorize observations from this generation. */
   usageGenerationUnverified?: boolean
+  /**
+   * The IAM usage generation was reported AND verified (known, negative authority permitted).
+   * Absent means not proven: an older payload without readiness_by_lane is not a verification.
+   */
+  usageGenerationVerified?: boolean
 }
 
 export interface NormalizedLPSummary {
@@ -557,6 +562,9 @@ export function normalizeLPResponse(result: any): NormalizedLPResponse {
   const iamGeneration = input.readiness_by_lane?.cloudtrail_iam_usage?.generation
   const iamUsageGenerationUnverified = iamGeneration && typeof iamGeneration === 'object'
     && (iamGeneration.known === false || iamGeneration.negative_authority_permitted !== true)
+  // The same signal, positively: only a reported generation that passes it is verified.
+  const iamUsageGenerationVerified = Boolean(iamGeneration && typeof iamGeneration === 'object')
+    && !iamUsageGenerationUnverified
   const resources = rawResources
     .map((r) => {
       const resource = normalizeGapResource(r)
@@ -574,6 +582,9 @@ export function normalizeLPResponse(result: any): NormalizedLPResponse {
           unusedList: [],
           highRiskUnused: [],
         }
+      }
+      if (iamUsageGenerationVerified && resource.resourceType === 'IAMRole') {
+        return { ...resource, usageGenerationVerified: true }
       }
       return resource
     })
