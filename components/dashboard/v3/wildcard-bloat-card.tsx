@@ -9,6 +9,8 @@ import {
   unitClass,
 } from "./styles"
 import { useCachedFetch } from "@/lib/use-cached-fetch"
+import { lpMetricsHold, type LpMetricsHeldFields } from "@/lib/brss-held"
+import { BrssHeldNotice } from "@/components/brss/brss-held-notice"
 
 /**
  * Wildcard Bloat — point-in-time + week-over-week delta.
@@ -24,14 +26,19 @@ import { useCachedFetch } from "@/lib/use-cached-fetch"
  * Negative = bloat shrank (improvement); positive = bloat grew.
  * Null on fresh installs that don't have 7 days of history yet —
  * card hides the delta block silently in that case.
+ *
+ * Held: the backend nulls averageBloatPercentage / rolesWithBloat /
+ * totalUnusedPermissions when the IAM usage they are read off is not
+ * verified (lib/brss-held.ts::lpMetricsHold). The card then shows the typed
+ * code and reason and none of the three values — never 0 or 0%.
  */
 
-type LpMetrics = {
+type LpMetrics = LpMetricsHeldFields & {
   totalRoles: number
   analyzedRoles: number
-  rolesWithBloat: number
-  averageBloatPercentage: number
-  totalUnusedPermissions: number
+  rolesWithBloat: number | null
+  averageBloatPercentage: number | null
+  totalUnusedPermissions: number | null
   lastAnalysisDate: string
   bloatPercentageDeltaPp?: number | null
   bloatBaselineAgeDays?: number | null
@@ -48,7 +55,29 @@ export function WildcardBloatCard() {
   if (error && !data) return <ErrorCard label="Wildcard bloat" error={error} onRetry={retry} />
   if (!data) return null
 
-  const pct = Math.round(data.averageBloatPercentage)
+  const hold = lpMetricsHold(data)
+  if (hold) {
+    // No value, no delta: a week-over-week change beside a withheld current
+    // value would be read as a measurement of it.
+    return (
+      <Section
+        label="Wildcard bloat"
+        descriptor="Not computed yet — this is not an all-clear"
+        className={`${accentByCategory.bloat} bg-gradient-to-br from-amber-50/70 via-white to-white`}
+      >
+        <div data-testid="wildcard-bloat-held">
+          <div className="flex items-center gap-3 py-2">
+            <span className={`${heroNumberClass} text-slate-400`}>—</span>
+            <span className="text-sm text-slate-500">not available</span>
+          </div>
+          <BrssHeldNotice hold={hold} testId="wildcard-bloat-held-notice" />
+        </div>
+      </Section>
+    )
+  }
+
+  // Past the hold, all three are finite numbers.
+  const pct = Math.round(data.averageBloatPercentage as number)
   // For bloat, lower is better. Invert score for color tone.
   const toneScore = 100 - pct
 
@@ -85,7 +114,7 @@ export function WildcardBloatCard() {
       <div className={`${descriptorClass} mt-3 space-y-1`}>
         <div>
           <span className="font-semibold text-slate-700">
-            {data.totalUnusedPermissions.toLocaleString()}
+            {(data.totalUnusedPermissions as number).toLocaleString()}
           </span>{" "}
           unused permissions across{" "}
           <span className="font-semibold text-slate-700">

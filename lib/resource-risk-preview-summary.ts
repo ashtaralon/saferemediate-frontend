@@ -17,11 +17,12 @@ export function previewPermissionCounts(
     && (problem?.used_count ?? -1) >= 0
     && (problem?.unused_count ?? -1) >= 0
 
-  const usedCount = hasPreviewCounts ? problem!.used_count : fallback.usedCount
-  const unusedCount = hasPreviewCounts ? problem!.unused_count : fallback.unusedCount
+  // hasPreviewCounts proved both counts finite; a null count takes the fallback.
+  const usedCount = hasPreviewCounts ? (problem!.used_count as number) : fallback.usedCount
+  const unusedCount = hasPreviewCounts ? (problem!.unused_count as number) : fallback.unusedCount
   const totalCount = hasPreviewCounts ? usedCount + unusedCount : fallback.totalCount
   const unusedPercent = hasPreviewCounts && Number.isFinite(problem?.gap_percent)
-    ? Math.max(0, Math.min(100, Math.round(problem!.gap_percent)))
+    ? Math.max(0, Math.min(100, Math.round(problem!.gap_percent as number)))
     : totalCount > 0
       ? Math.round((unusedCount / totalCount) * 100)
       : 0

@@ -24,7 +24,8 @@
  *
  *   GET /api/issues/summary
  *     api/issues_summary.py — { blast_radius_score: { score: null,
- *       held_reason, ... }, integrityReason?, failed_analyzer_codes? }
+ *       error_code?, held_reason, ... }, integrityReason?,
+ *       failed_analyzer_codes? }
  *
  * The rule every consumer follows: when the score is not a finite number,
  * render the typed code(s) and the backend's own reason. Never a previous
@@ -123,6 +124,8 @@ export interface IssuesSummaryBrssFields {
   failed_analyzer_codes?: Record<string, string>
   blast_radius_score?: {
     score?: number | null
+    /** IAM_USAGE_NOT_MEASURED / IAM_USAGE_GENERATION_UNVERIFIED on a held score. */
+    error_code?: string
     held_reason?: string
     error?: string
   } | null
@@ -139,8 +142,10 @@ export function summaryAnalyzerCodes(payload: IssuesSummaryBrssFields | null | u
  * servable: a `blast_radius_score` object whose `score` is not a number.
  * Null when the score is real, or when there is no BRSS object at all.
  *
- * The V2-usage-unknown branch of api/issues_summary.py sends a reason but no
- * typed code; `codes` is then empty rather than a code guessed from prose.
+ * The typed code is the score's own `error_code` (IAM_USAGE_NOT_MEASURED,
+ * IAM_USAGE_GENERATION_UNVERIFIED), then the failed analyzers' codes. A
+ * payload that sends a reason but no code gets empty `codes` — never a code
+ * guessed from prose.
  */
 export function issuesSummaryBrssHold(
   payload: IssuesSummaryBrssFields | null | undefined,
@@ -149,7 +154,7 @@ export function issuesSummaryBrssHold(
   if (!brss || typeof brss !== "object") return null
   if (isFiniteScore(brss.score)) return null
   return {
-    codes: summaryAnalyzerCodes(payload),
+    codes: uniqueStrings([brss.error_code, ...summaryAnalyzerCodes(payload)]),
     reason:
       (typeof brss.held_reason === "string" && brss.held_reason) ||
       (typeof payload?.integrityReason === "string" && payload.integrityReason) ||
@@ -210,4 +215,39 @@ export function unusedPermissionsWithheld(
   payload: { resources?: { unused_permission_gaps?: number | null } | null } | null | undefined,
 ): boolean {
   return !!payload?.resources && payload.resources.unused_permission_gaps === null
+}
+
+// ── /api/least-privilege/metrics ───────────────────────────────────────
+
+/**
+ * The usage-derived fields of `MetricsResponse` (api/least_privilege.py). The
+ * backend nulls them when the IAM usage they are read off is not verified, and
+ * says why with the same `error_code` / `held_reason` pair a held BRSS uses.
+ */
+export interface LpMetricsHeldFields {
+  averageBloatPercentage?: number | null
+  rolesWithBloat?: number | null
+  totalUnusedPermissions?: number | null
+  error_code?: string | null
+  held_reason?: string | null
+}
+
+/**
+ * Held when any usage-derived value is not a finite number — the Wildcard
+ * Bloat card then renders none of them (never 0 or 0%). Null when all three
+ * are real numbers.
+ */
+export function lpMetricsHold(payload: LpMetricsHeldFields | null | undefined): BrssHold | null {
+  if (!payload) return null
+  if (
+    isFiniteScore(payload.averageBloatPercentage) &&
+    isFiniteScore(payload.rolesWithBloat) &&
+    isFiniteScore(payload.totalUnusedPermissions)
+  ) {
+    return null
+  }
+  return {
+    codes: uniqueStrings([payload.error_code]),
+    reason: typeof payload.held_reason === "string" && payload.held_reason ? payload.held_reason : null,
+  }
 }

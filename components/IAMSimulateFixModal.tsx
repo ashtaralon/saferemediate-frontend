@@ -24,6 +24,8 @@ import {
   rollbackReadyView,
   withoutAttributionUnverified,
 } from '@/lib/lp-preview-truth'
+import { lpConfidenceWithheldCopy } from '@/lib/lp-readiness-copy'
+import { lpSeverityLabel } from '@/lib/lp-severity'
 
 const ROLLBACK_READY_COLOR: Record<'proven' | 'unverified' | 'unknown', string> = {
   proven: '#10B981',
@@ -166,12 +168,28 @@ export function IAMSimulateFixModal({
   const safetyStyle = safety.decision_canonical
     ? CANONICAL_SAFETY_STYLE[safety.decision_canonical]
     : SAFETY_STYLE[safety.decision]
-  const severityStyle = SEVERITY_STYLE[resource.severity] || SEVERITY_STYLE.INFO
-  const confidenceStyle = CONFIDENCE_STYLE[evidence.confidence] || CONFIDENCE_STYLE.unknown
+  // A null severity / confidence / count is WITHHELD by the backend (unverified
+  // IAM usage), never a LOW / INFO / 0: it renders Unknown with the reason sent.
+  const severityHeld = typeof resource.severity !== 'string' || !resource.severity
+  const severityStyle = severityHeld
+    ? { color: '#94A3B8', bg: 'rgba(148, 163, 184, 0.15)' }
+    : SEVERITY_STYLE[resource.severity as string] || SEVERITY_STYLE.INFO
+  const severityWithheldReason = severityHeld ? resource.severity_withheld_reason || null : null
+  const confidenceHeld = evidence.confidence == null
+  const confidenceStyle = confidenceHeld
+    ? CONFIDENCE_STYLE.unknown
+    : CONFIDENCE_STYLE[evidence.confidence as string] || CONFIDENCE_STYLE.unknown
+  const confidenceLabel = confidenceHeld && evidence.confidence_withheld_reason
+    ? lpConfidenceWithheldCopy(evidence.confidence_withheld_reason)
+    : confidenceStyle.label
   const dataConfidence = evidence.visibility_signals?.data_confidence
   // An installed role review only measured usage when confidence is OBSERVED.
   // Older previews have no marker and retain their existing display.
   const usageUnmeasured = dataConfidence != null && dataConfidence !== 'OBSERVED'
+  // Null = not measured or withheld; rendered Unknown below, never 0 or "null%".
+  const gapPercent = usageUnmeasured ? null : problem.gap_percent
+  const unusedCount = usageUnmeasured ? null : problem.unused_count
+  const usedCount = usageUnmeasured ? null : problem.used_count
   const booleanVisibilitySignals = Object.entries(evidence.visibility_signals || {}).filter(
     (entry): entry is [string, boolean] => typeof entry[1] === 'boolean'
   )
@@ -200,9 +218,16 @@ export function IAMSimulateFixModal({
               </p>
               <h2 className="text-lg font-bold text-white">{resourceName || resource.id}</h2>
               <div className="flex items-center gap-2 mt-1">
-                <Chip color={severityStyle.color} bg={severityStyle.bg}>
-                  {resource.severity}
-                </Chip>
+                <span data-testid="simulate-fix-severity" data-held={severityHeld ? 'true' : undefined}>
+                  <Chip color={severityStyle.color} bg={severityStyle.bg}>
+                    {severityHeld ? lpSeverityLabel(null) : resource.severity}
+                  </Chip>
+                </span>
+                {severityWithheldReason && (
+                  <code className="font-mono text-[10px] text-slate-400" data-testid="simulate-fix-severity-withheld-reason">
+                    {severityWithheldReason}
+                  </code>
+                )}
                 <span className="text-sm text-slate-400">{resource.system}</span>
                 {resource.shared && (
                   <Chip color="#F59E0B" bg="rgba(245, 158, 11, 0.15)">
@@ -296,11 +321,11 @@ export function IAMSimulateFixModal({
                 <div className="grid grid-cols-3 gap-4 mb-3">
                   <Metric
                     label="Gap %"
-                    value={usageUnmeasured ? 'Unknown' : `${problem.gap_percent}%`}
-                    color={usageUnmeasured ? '#94A3B8' : problem.gap_percent > 50 ? '#EF4444' : problem.gap_percent > 20 ? '#F59E0B' : '#10B981'}
+                    value={gapPercent == null ? 'Unknown' : `${gapPercent}%`}
+                    color={gapPercent == null ? '#94A3B8' : gapPercent > 50 ? '#EF4444' : gapPercent > 20 ? '#F59E0B' : '#10B981'}
                   />
-                  <Metric label="Unused Permissions" value={usageUnmeasured ? 'Unknown' : problem.unused_count} color={usageUnmeasured ? '#94A3B8' : '#EF4444'} />
-                  <Metric label="Used Permissions" value={usageUnmeasured ? 'Unknown' : problem.used_count} color={usageUnmeasured ? '#94A3B8' : '#10B981'} />
+                  <Metric label="Unused Permissions" value={unusedCount ?? 'Unknown'} color={unusedCount == null ? '#94A3B8' : '#EF4444'} />
+                  <Metric label="Used Permissions" value={usedCount ?? 'Unknown'} color={usedCount == null ? '#94A3B8' : '#10B981'} />
                 </div>
                 {problem.top_risk_reasons.length > 0 && (
                   <div className="mt-3 pt-3 border-t border-slate-700">
@@ -421,7 +446,7 @@ export function IAMSimulateFixModal({
                 <div className="grid grid-cols-2 gap-4 mb-4">
                   <Metric
                     label="Confidence"
-                    value={confidenceStyle.label}
+                    value={confidenceLabel}
                     color={confidenceStyle.color}
                   />
                   <Metric
