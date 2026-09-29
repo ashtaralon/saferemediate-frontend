@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
+import {
+  ERROR_ORIGIN_HEADER,
+  allowlistedBackendDetail,
+  fromCaughtError,
+  reviewProxyStatus,
+} from "@/lib/server/proxy-error"
 
 export const dynamic = "force-dynamic"
 export const fetchCache = "force-no-store"
@@ -8,6 +14,10 @@ export const revalidate = 0
 const BACKEND_URL =
   getBackendBaseUrl()
 
+// A timeout used to be a 200 with roles = [] and total = 0: an empty result
+// presented as a successful one. Every failure is now the house error shape
+// (lib/server/proxy-error, as the LP issues and metrics proxies answer it):
+// a non-2xx status, allowlisted typed detail only, no roles and no count.
 export async function GET(req: NextRequest) {
   const url = new URL(req.url)
   const systemName = url.searchParams.get("systemName")
@@ -30,32 +40,30 @@ export async function GET(req: NextRequest) {
     clearTimeout(timeoutId)
 
     if (!res.ok) {
-      const errorText = await res.text()
-      console.error(`[proxy] least-privilege backend returned ${res.status}: ${errorText}`)
+      const raw = await res.text().catch(() => "")
+      const detail = allowlistedBackendDetail(raw)
+      console.error(`[proxy] least-privilege backend ${res.status}: code=${detail?.code ?? "none"}`)
       return NextResponse.json(
-        { error: `Backend error: ${res.status}`, detail: errorText },
-        { status: res.status }
+        {
+          error: `Least-privilege roles backend returned ${res.status}`,
+          ...(detail ? { detail } : {}),
+          backendStatus: res.status,
+          origin: "backend",
+        },
+        {
+          status: reviewProxyStatus(res.status),
+          headers: { "Cache-Control": "no-store", [ERROR_ORIGIN_HEADER]: "backend" },
+        },
       )
     }
 
     const data = await res.json()
     return NextResponse.json(data)
-  } catch (error: any) {
-    console.error("[proxy] least-privilege error:", error.message)
-
-    if (error.name === "AbortError") {
-      // Return empty data instead of error
-      return NextResponse.json({
-        roles: [],
-        total: 0,
-        timeout: true,
-        message: "Analysis is taking longer than expected"
-      }, { status: 200 })
-    }
-
-    return NextResponse.json(
-      { error: "Backend unavailable", detail: error.message },
-      { status: 503 }
-    )
+  } catch (error: unknown) {
+    console.error("[proxy] least-privilege error:", error instanceof Error ? error.message : error)
+    // AbortError -> 504, anything else -> 503; no roles and no count either way.
+    const failed = fromCaughtError(error)
+    failed.headers.set(ERROR_ORIGIN_HEADER, "proxy")
+    return failed
   }
 }

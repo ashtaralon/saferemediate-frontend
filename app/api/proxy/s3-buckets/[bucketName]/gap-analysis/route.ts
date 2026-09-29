@@ -1,7 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
+import {
+  ERROR_ORIGIN_HEADER,
+  allowlistedBackendDetail,
+  fromCaughtError,
+  reviewProxyStatus,
+} from "@/lib/server/proxy-error"
 
 const BACKEND_URL = getBackendBaseUrl()
+
+// Errors carry NO action counts. A backend 404 used to become a 200 with
+// allowed/used/unused = 0, which the S3 policy card rendered as a bucket with
+// nothing to remediate. Every failure, the 404 included, is now the house
+// error shape (lib/server/proxy-error, as the LP issues and metrics proxies
+// answer it): a non-2xx status, allowlisted typed detail only, no values.
 
 export async function GET(
   request: NextRequest,
@@ -27,39 +39,30 @@ export async function GET(
     )
     
     if (!response.ok) {
-      // For 404, return empty data instead of error to prevent UI crashes
-      if (response.status === 404) {
-        console.log('[Proxy] Backend returned 404, returning empty data')
-        return NextResponse.json({
-          bucket_name: bucketName,
-          allowed_actions: 0,
-          used_actions: 0,
-          unused_actions: 0,
-          allowed_count: 0,
-          used_count: 0,
-          unused_count: 0,
-          not_found: true
-        }, { status: 200 })
-      }
-      
-      const errorText = await response.text()
-      console.error('[Proxy] Backend error:', response.status, errorText)
+      const raw = await response.text().catch(() => "")
+      const detail = allowlistedBackendDetail(raw)
+      console.error(`[Proxy] S3 gap-analysis backend ${response.status}: code=${detail?.code ?? "none"}`)
       return NextResponse.json(
-        { error: `Backend returned ${response.status}`, details: errorText },
-        { status: response.status }
+        {
+          error: `S3 gap-analysis backend returned ${response.status}`,
+          ...(detail ? { detail } : {}),
+          backendStatus: response.status,
+          origin: "backend",
+        },
+        {
+          status: reviewProxyStatus(response.status),
+          headers: { "Cache-Control": "no-store", [ERROR_ORIGIN_HEADER]: "backend" },
+        },
       )
     }
-    
+
     const data = await response.json()
     return NextResponse.json(data)
-  } catch (error: any) {
-    console.error('[Proxy] Fetch error:', error.message)
-    return NextResponse.json(
-      { error: 'Failed to connect to backend', details: error.message },
-      { status: 500 }
-    )
+  } catch (error: unknown) {
+    console.error('[Proxy] S3 gap-analysis fetch error:', error instanceof Error ? error.message : error)
+    // An unreachable backend is a 503 proxy error; no values.
+    const failed = fromCaughtError(error)
+    failed.headers.set(ERROR_ORIGIN_HEADER, "proxy")
+    return failed
   }
 }
-
-
-
