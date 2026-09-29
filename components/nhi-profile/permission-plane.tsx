@@ -7,6 +7,8 @@ import {
   CheckCircle, XCircle, RefreshCw, ChevronDown, ChevronRight, Target, Wrench,
 } from "lucide-react"
 import { IAMPermissionAnalysisModal } from "../iam-permission-analysis-modal"
+import { heldNumber } from "@/lib/usage-held"
+import { HeldValue } from "@/components/usage-held/held-value"
 
 interface PermissionPlaneProps {
   identityName: string
@@ -35,8 +37,17 @@ export function PermissionPlane({ identityName, detail, identity, onRemediate }:
   const allowedActions = ensureStringArray(permAnalysis?.allowed_actions)
   const usedActions = new Set(ensureStringArray(permAnalysis?.used_actions))
   const totalCount = permAnalysis?.allowed_count || allowedActions.length
-  const unusedCount = permAnalysis?.unused_count || (totalCount - usedActions.size)
-  const usedCount = permAnalysis?.used_count || usedActions.size
+  // The backend withholds the used/unused split (null + usage_withheld_reason)
+  // while the IAM usage generation is unverified. Do not re-derive it from the
+  // action lists then: that is the same unverified usage.
+  const usageWithheld =
+    !!permAnalysis &&
+    (typeof permAnalysis.usage_withheld_reason === "string" ||
+      permAnalysis.unused_count === null ||
+      permAnalysis.used_count === null)
+  const unusedCount: number | null = usageWithheld ? null : permAnalysis?.unused_count || (totalCount - usedActions.size)
+  const usedCount: number | null = usageWithheld ? null : permAnalysis?.used_count || usedActions.size
+  const damageHeld = !!damage && heldNumber(damage.damage_score) === null
   const managedPolicyExpanded = totalCount > allowedActions.length ? totalCount - allowedActions.length : 0
 
   return (
@@ -55,13 +66,16 @@ export function PermissionPlane({ identityName, detail, identity, onRemediate }:
             <span className="text-xs px-2 py-0.5 rounded" style={{ background: "#8b5cf615", color: "#8b5cf6" }}>IAM</span>
           </div>
           <div className="flex items-center gap-4 text-sm">
-            {damage && (
+            {damage && (damageHeld ? (
+              <span data-testid="permission-plane-damage">Damage: <HeldValue /></span>
+            ) : (
               <span style={{ color: riskLabel(damage.damage_score).color }}>
                 Damage: {riskLabel(damage.damage_score).label}
               </span>
-            )}
-            <span style={{ color: "var(--text-secondary, #64748b)" }}>{usedCount} used / {totalCount} total</span>
-            {unusedCount > 0 && (
+            ))}
+            <span style={{ color: "var(--text-secondary, #64748b)" }} data-testid="permission-plane-used">{usedCount === null ? <HeldValue /> : usedCount} used / {totalCount} total</span>
+            {unusedCount === null && <HeldValue testId="permission-plane-unused" className="px-2 py-0.5 rounded text-xs font-medium" />}
+            {unusedCount !== null && unusedCount > 0 && (
               <span className="px-2 py-0.5 rounded text-xs font-medium" style={{ background: "#ef444420", color: "#ef4444" }}>{unusedCount} unused</span>
             )}
           </div>
@@ -82,7 +96,9 @@ export function PermissionPlane({ identityName, detail, identity, onRemediate }:
                     return (
                       <div key={i} className="flex items-center justify-between py-1.5 px-3 rounded text-sm" style={{ background: "var(--bg-secondary, #f8fafc)" }}>
                         <code className="text-xs font-mono" style={{ color: "var(--text-primary, #334155)" }}>{action}</code>
-                        {isUsed ? (
+                        {usageWithheld ? (
+                          <HeldValue className="text-[10px] px-1.5 py-0.5 rounded" />
+                        ) : isUsed ? (
                           <span className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded" style={{ background: "#22c55e15", color: "#22c55e" }}>
                             <CheckCircle className="w-3 h-3" /> Used
                           </span>
@@ -112,7 +128,9 @@ export function PermissionPlane({ identityName, detail, identity, onRemediate }:
                   <div className="rounded-lg p-3 mb-3 border" style={{ background: "var(--bg-secondary, #f8fafc)", borderColor: "var(--border, #e2e8f0)" }}>
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-xs font-medium flex items-center gap-1" style={{ color: "var(--text-secondary, #64748b)" }}><Target className="w-3 h-3" /> Damage Potential</span>
-                      <span className="text-lg font-bold" style={{ color: riskLabel(damage.damage_score).color }}>{riskLabel(damage.damage_score).label}</span>
+                      {damageHeld
+                        ? <HeldValue testId="permission-plane-damage-score" className="text-lg font-bold" />
+                        : <span className="text-lg font-bold" style={{ color: riskLabel(damage.damage_score).color }}>{riskLabel(damage.damage_score).label}</span>}
                     </div>
                     <div className="space-y-1.5">
                       {Object.entries(damage.details || {}).map(([cat, actions]) => {
@@ -152,7 +170,7 @@ export function PermissionPlane({ identityName, detail, identity, onRemediate }:
             </div>
 
             {/* Remediate Button — opens existing IAM Permission Analysis Modal */}
-            {unusedCount > 0 && (
+            {unusedCount !== null && unusedCount > 0 && (
               <div className="flex items-center justify-between pt-3 border-t" style={{ borderColor: "var(--border, #e2e8f0)" }}>
                 <div className="text-sm" style={{ color: "var(--text-secondary, #64748b)" }}>
                   <span className="font-medium" style={{ color: "#ef4444" }}>{unusedCount}</span> unused permission(s) can be removed

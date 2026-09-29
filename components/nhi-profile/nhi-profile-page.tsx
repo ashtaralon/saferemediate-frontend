@@ -9,6 +9,8 @@ import {
 import { PermissionPlane } from "./permission-plane"
 import { NetworkPlane } from "./network-plane"
 import { DataPlane } from "./data-plane"
+import { HELD_COLOR, firstOrHeld, heldGrade, heldNumber } from "@/lib/usage-held"
+import { HeldValue } from "@/components/usage-held/held-value"
 
 interface NHIProfilePageProps {
   identityName: string
@@ -73,7 +75,14 @@ export function NHIProfilePage({ identityName }: NHIProfilePageProps) {
     )
   }
 
-  const riskColor = identity?.risk_level === 'Critical' ? '#ef4444' : identity?.risk_level === 'High' ? '#f97316' : identity?.risk_level === 'Medium' ? '#eab308' : '#22c55e'
+  // A withheld (or absent) grade is Unknown in the Unknown color — never the Low green.
+  const riskGrade = heldGrade(identity?.risk_level)
+  const riskColor = riskGrade === null ? HELD_COLOR : riskGrade === 'Critical' ? '#ef4444' : riskGrade === 'High' ? '#f97316' : riskGrade === 'Medium' ? '#eab308' : '#22c55e'
+  // The detail endpoint's counts first, then the list row's, as before; null
+  // (held) where the old chain fell through to a made-up 0.
+  const confidenceValue = firstOrHeld([identity?.confidence, detail?.basic_info?.risk_score])
+  const unusedValue = firstOrHeld([detail?.permission_analysis?.unused_count, identity?.unused_permissions_count])
+  const gapValue = heldNumber(detail?.permission_analysis?.gap_percentage ?? identity?.gap_percentage)
   const SubIcon = SUB_TYPE_ICONS[identity?.sub_type] || Bot
   const systemName = identity?.system_name || detail?.basic_info?.system_name || ''
 
@@ -98,7 +107,7 @@ export function NHIProfilePage({ identityName }: NHIProfilePageProps) {
                 <div className="flex items-center gap-3">
                   <h1 className="text-xl font-bold" style={{ color: "var(--text-primary, #0f172a)" }}>{identityName}</h1>
                   <span className="text-xs px-2 py-0.5 rounded font-medium" style={{ background: `${riskColor}20`, color: riskColor }}>
-                    {identity?.risk_level || 'Unknown'} Risk
+                    {riskGrade || 'Unknown'} Risk
                   </span>
                   {identity?.is_admin && <span className="text-xs px-2 py-0.5 rounded font-medium" style={{ background: "#ef444420", color: "#ef4444" }}>Admin</span>}
                   {identity?.has_wildcard && <span className="text-xs px-2 py-0.5 rounded font-medium" style={{ background: "#f9731620", color: "#f97316" }}>Wildcard</span>}
@@ -109,7 +118,7 @@ export function NHIProfilePage({ identityName }: NHIProfilePageProps) {
                   <span>|</span>
                   <span>{identity?.observation_days || 90} days observed</span>
                   <span>|</span>
-                  <span>{identity?.confidence || detail?.basic_info?.risk_score || 0}% confidence</span>
+                  <span data-testid="nhi-profile-confidence">{confidenceValue === null ? <HeldValue /> : `${confidenceValue}%`} confidence</span>
                 </div>
               </div>
             </div>
@@ -121,13 +130,19 @@ export function NHIProfilePage({ identityName }: NHIProfilePageProps) {
                 <div className="text-[10px] uppercase tracking-wide" style={{ color: "var(--text-muted, #94a3b8)" }}>Permissions</div>
               </div>
               <div className="text-center px-4">
-                <div className="text-2xl font-bold" style={{ color: "#ef4444" }}>{detail?.permission_analysis?.unused_count || identity?.unused_permissions_count || 0}</div>
+                {unusedValue === null
+                  ? <HeldValue testId="nhi-profile-unused" className="text-2xl font-bold block" />
+                  : <div className="text-2xl font-bold" style={{ color: "#ef4444" }}>{unusedValue}</div>}
                 <div className="text-[10px] uppercase tracking-wide" style={{ color: "var(--text-muted, #94a3b8)" }}>Unused</div>
               </div>
               <div className="text-center px-4">
+                {gapValue === null ? (
+                  <HeldValue testId="nhi-profile-gap" className="text-2xl font-bold block" />
+                ) : (
                 <div className="text-2xl font-bold" style={{ color: (detail?.permission_analysis?.gap_percentage || identity?.gap_percentage || 0) >= 70 ? '#ef4444' : (detail?.permission_analysis?.gap_percentage || identity?.gap_percentage || 0) >= 40 ? '#f97316' : '#22c55e' }}>
-                  {(detail?.permission_analysis?.gap_percentage ?? identity?.gap_percentage ?? 0).toFixed?.(0) || Math.round(detail?.permission_analysis?.gap_percentage || identity?.gap_percentage || 0)}%
+                  {gapValue.toFixed(0)}%
                 </div>
+                )}
                 <div className="text-[10px] uppercase tracking-wide" style={{ color: "var(--text-muted, #94a3b8)" }}>Gap</div>
               </div>
               <button

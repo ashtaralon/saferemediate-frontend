@@ -14,6 +14,8 @@ import {
   Building2,
 } from "lucide-react"
 import { IAMPermissionAnalysisModal } from "../iam-permission-analysis-modal"
+import { heldGrade, heldNumber, identityRowsHold } from "@/lib/usage-held"
+import { HeldValue, UsageHeldNotice } from "@/components/usage-held/held-value"
 
 interface ThirdPartyIdentity {
   arn: string
@@ -21,11 +23,13 @@ interface ThirdPartyIdentity {
   identity_type: string
   sub_type: string
   system_name: string | null
-  risk_level: string
+  /** Null when the backend withholds usage-derived values (see lib/usage-held.ts). */
+  risk_level: string | null
   permissions_count: number
-  used_permissions_count: number
-  unused_permissions_count: number
-  gap_percentage: number
+  used_permissions_count: number | null
+  unused_permissions_count: number | null
+  gap_percentage: number | null
+  usage_withheld_reason?: string | null
   last_activity: string | null
   attached_resources: string[]
   policies: string[]
@@ -87,6 +91,8 @@ export function ThirdPartyTab({ onRequestRemediation, systemName }: { onRequestR
     setSelectedIdentity({ roleName: identity.name, systemName: identity.system_name || "", identityType: identity.sub_type || "IAMRole" })
     setShowPermissionModal(true)
   }
+
+  const usageHold = identityRowsHold(scopedIdentities as unknown as Record<string, unknown>[])
 
   // Extract unique external account IDs from trust principals
   const externalAccounts = new Set<string>()
@@ -151,6 +157,8 @@ export function ThirdPartyTab({ onRequestRemediation, systemName }: { onRequestR
         </div>
       )}
 
+      {usageHold && <UsageHeldNotice hold={usageHold} testId="third-party-usage-held" />}
+
       {/* Search */}
       <div className="rounded-lg border p-4" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
         <div className="flex items-center gap-4">
@@ -192,6 +200,9 @@ export function ThirdPartyTab({ onRequestRemediation, systemName }: { onRequestR
           <div className="divide-y" style={{ borderColor: "var(--border-subtle)" }}>
             {filtered.map((identity) => {
               const isExpanded = expandedRow === identity.arn
+              const risk = heldGrade(identity.risk_level)
+              const unused = heldNumber(identity.unused_permissions_count)
+              const gap = heldNumber(identity.gap_percentage)
               return (
                 <div key={identity.arn}>
                   <div
@@ -215,9 +226,13 @@ export function ThirdPartyTab({ onRequestRemediation, systemName }: { onRequestR
                     <div className="text-sm truncate" style={{ color: "var(--text-secondary)" }}>{identity.system_name || "—"}</div>
                     <div className="text-center text-sm font-medium" style={{ color: "var(--text-primary)" }}>{identity.permissions_count}</div>
                     <div className="text-center">
-                      <span className="px-2 py-0.5 rounded text-xs font-semibold" style={{ background: `${getRiskColor(identity.risk_level)}20`, color: getRiskColor(identity.risk_level) }}>
-                        {identity.risk_level}
+                      {risk === null ? (
+                        <HeldValue testId="third-party-row-risk" className="px-2 py-0.5 rounded text-xs font-semibold" />
+                      ) : (
+                      <span className="px-2 py-0.5 rounded text-xs font-semibold" style={{ background: `${getRiskColor(risk)}20`, color: getRiskColor(risk) }}>
+                        {risk}
                       </span>
+                      )}
                     </div>
                     <div className="text-center">
                       <button
@@ -244,8 +259,8 @@ export function ThirdPartyTab({ onRequestRemediation, systemName }: { onRequestR
                         <div>
                           <h4 className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: "var(--text-secondary)" }}>Details</h4>
                           <div className="space-y-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-                            <div>Permissions: {identity.permissions_count} ({identity.unused_permissions_count} unused)</div>
-                            <div>Gap: {identity.gap_percentage.toFixed(1)}%</div>
+                            <div data-testid="third-party-detail-unused">Permissions: {identity.permissions_count} ({unused === null ? <HeldValue /> : unused} unused)</div>
+                            <div data-testid="third-party-detail-gap">Gap: {gap === null ? <HeldValue /> : `${gap.toFixed(1)}%`}</div>
                             <div>Last Active: {identity.last_activity || "Unknown"}</div>
                             {identity.is_admin && <span className="inline-block px-2 py-0.5 rounded mt-1" style={{ background: "#ef444420", color: "#ef4444" }}>Admin</span>}
                             {identity.has_wildcard && <span className="inline-block px-2 py-0.5 rounded mt-1 ml-1" style={{ background: "#f9731620", color: "#f97316" }}>Wildcard</span>}

@@ -18,6 +18,8 @@ import {
   TrendingDown,
 } from "lucide-react"
 import { IAMPermissionAnalysisModal } from "../iam-permission-analysis-modal"
+import { heldNumber, identityRowsHold, sumOrHeld } from "@/lib/usage-held"
+import { HeldValue, UsageHeldNotice } from "@/components/usage-held/held-value"
 
 interface PrivilegedIdentity {
   arn: string
@@ -25,11 +27,13 @@ interface PrivilegedIdentity {
   identity_type: string
   sub_type: string
   system_name: string | null
-  risk_level: string
+  /** Null when the backend withholds usage-derived values (see lib/usage-held.ts). */
+  risk_level: string | null
   permissions_count: number
-  used_permissions_count: number
-  unused_permissions_count: number
-  gap_percentage: number
+  used_permissions_count: number | null
+  unused_permissions_count: number | null
+  gap_percentage: number | null
+  usage_withheld_reason?: string | null
   last_activity: string | null
   attached_resources: string[]
   policies: string[]
@@ -114,7 +118,9 @@ export function PrivilegedAccessTab({ onRequestRemediation, systemName }: { onRe
   const adminCount = scopedIdentities.filter(i => i.is_admin).length
   const wildcardCount = scopedIdentities.filter(i => i.has_wildcard).length
   const nhiPriv = scopedIdentities.filter(i => i.identity_type === "NHI").length
-  const totalUnused = scopedIdentities.reduce((s, i) => s + i.unused_permissions_count, 0)
+  // Any withheld row withholds the total: a sum over the measured rows is not the total.
+  const totalUnused = sumOrHeld(scopedIdentities.map(i => i.unused_permissions_count))
+  const usageHold = identityRowsHold(scopedIdentities as unknown as Record<string, unknown>[])
 
   if (loading) {
     return (
@@ -161,6 +167,8 @@ export function PrivilegedAccessTab({ onRequestRemediation, systemName }: { onRe
         </div>
       </div>
 
+      {usageHold && <UsageHeldNotice hold={usageHold} testId="privileged-usage-held" />}
+
       {/* Warning */}
       {scopedIdentities.length > 0 && (
         <div className="rounded-xl p-5 border-2" style={{ background: "#ef444410", borderColor: "#ef4444" }}>
@@ -171,7 +179,7 @@ export function PrivilegedAccessTab({ onRequestRemediation, systemName }: { onRe
               <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
                 {scopedIdentities.length} identities have admin-level or wildcard permissions.
                 {nhiPriv > 0 && ` ${nhiPriv} are non-human (machine) identities — high-priority for review.`}
-                {totalUnused > 0 && ` ${totalUnused.toLocaleString()} unused privileged permissions can be removed.`}
+                {totalUnused !== null && totalUnused > 0 && ` ${totalUnused.toLocaleString()} unused privileged permissions can be removed.`}
               </p>
             </div>
           </div>
@@ -234,6 +242,8 @@ export function PrivilegedAccessTab({ onRequestRemediation, systemName }: { onRe
               const Icon = getTypeIcon(identity)
               const typeColor = getTypeColor(identity)
               const isExpanded = expandedRow === identity.arn
+              const unused = heldNumber(identity.unused_permissions_count)
+              const gap = heldNumber(identity.gap_percentage)
 
               return (
                 <div key={identity.arn}>
@@ -256,7 +266,9 @@ export function PrivilegedAccessTab({ onRequestRemediation, systemName }: { onRe
                     </span>
                     <div className="text-sm truncate" style={{ color: "var(--text-secondary)" }}>{identity.system_name || "—"}</div>
                     <div className="text-center text-sm font-medium" style={{ color: "var(--text-primary)" }}>{identity.permissions_count}</div>
-                    <div className="text-center text-sm font-medium" style={{ color: identity.unused_permissions_count > 0 ? "#ef4444" : "#22c55e" }}>{identity.unused_permissions_count}</div>
+                    {unused === null
+                      ? <HeldValue testId="privileged-row-unused" className="text-center text-sm font-medium" />
+                      : <div className="text-center text-sm font-medium" style={{ color: unused > 0 ? "#ef4444" : "#22c55e" }}>{unused}</div>}
                     <div className="flex items-center justify-center gap-1 flex-wrap">
                       {identity.is_admin && (
                         <span className="px-1.5 py-0.5 rounded text-[10px] font-bold" style={{ background: "#ef444420", color: "#ef4444" }}>ADMIN</span>
@@ -294,7 +306,7 @@ export function PrivilegedAccessTab({ onRequestRemediation, systemName }: { onRe
                         <div>
                           <h4 className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: "var(--text-secondary)" }}>Risk Details</h4>
                           <div className="space-y-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-                            <div>Gap: {identity.gap_percentage.toFixed(1)}%</div>
+                            <div data-testid="privileged-detail-gap">Gap: {gap === null ? <HeldValue /> : `${gap.toFixed(1)}%`}</div>
                             <div>Observed: {identity.observation_days} days</div>
                             <div>Confidence: {identity.confidence}%</div>
                             <div>Last Active: {identity.last_activity || "Unknown"}</div>
