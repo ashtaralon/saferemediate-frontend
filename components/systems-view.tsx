@@ -30,9 +30,12 @@ interface System {
   criticality: number
   criticalityLabel: string
   environment: string
-  health: number
-  critical: number
-  high: number
+  // null = not computed for this system (a fresh install serves the systems
+  // list from the published collection before any LP findings exist; the
+  // backend then sends null, never 0). Rendered as "—", never as a score.
+  health: number | null
+  critical: number | null
+  high: number | null
   total: number
   lastScan: string
   // ISO timestamp from backend (or null if never scanned). Used to compute
@@ -196,8 +199,9 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
             const systemName = sys.SystemName || sys.name || "Unknown"  // Only SystemName format
             const resourceCount = sys.resourceCount || sys.resource_count || sys.resources?.length || 0
             
-            // Use criticality and environment from backend (Neo4j source of truth)
-            const rawCriticality = sys.criticality || "STANDARD"
+            // Use criticality and environment from backend (Neo4j source of truth).
+            // Absent = not classified: never a default tier.
+            const rawCriticality = sys.criticality || ""
             const criticalityMap: Record<string, { score: number; label: string }> = {
               "MISSION CRITICAL": { score: 5, label: "MISSION CRITICAL" },
               "CRITICAL": { score: 5, label: "MISSION CRITICAL" },
@@ -208,21 +212,24 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
               "STANDARD": { score: 2, label: "STANDARD" },
               "LOW": { score: 2, label: "STANDARD" },
             }
-            const critInfo = criticalityMap[rawCriticality] || { score: 3, label: rawCriticality }
+            const critInfo = rawCriticality
+              ? criticalityMap[rawCriticality] || { score: 3, label: rawCriticality }
+              : { score: 0, label: "Not classified" }
 
             return {
               name: systemName,
               criticality: critInfo.score,
               criticalityLabel: critInfo.label,
-              environment: sys.environment || "Production",
-              // Use real data from backend, no hardcoded fallbacks
-              health: sys.health_score ?? sys.healthScore ?? 0,
-              critical: sys.critical_count ?? sys.criticalIssues ?? 0,
-              high: sys.high_count ?? sys.highIssues ?? 0,
+              // Real data only: an environment, owner or scan time the backend did
+              // not send is shown as unknown, never as a plausible default.
+              environment: sys.environment || "Unknown",
+              health: sys.health_score ?? sys.healthScore ?? null,
+              critical: sys.critical_count ?? sys.criticalIssues ?? null,
+              high: sys.high_count ?? sys.highIssues ?? null,
               total: resourceCount,
-              lastScan: sys.lastScan || "Just now",
+              lastScan: sys.lastScan || "Unknown",
               lastScanAt: sys.lastScanAt ?? null,
-              owner: sys.owner || "Platform Team",
+              owner: sys.owner || "Unassigned",
             }
           })
 
@@ -506,20 +513,27 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
   const filteredSystems = localSystems.filter((system) => system.name.toLowerCase().includes(searchQuery.toLowerCase()))
 
   const totalSystems = localSystems.length
-  const missionCriticalAtRisk = localSystems.filter((s) => s.criticality >= 5 && s.critical > 0).length
-  const totalCriticalIssues = localSystems.reduce((sum, s) => sum + s.critical, 0)
+  const missionCriticalAtRisk = localSystems.filter((s) => s.criticality >= 5 && (s.critical ?? 0) > 0).length
+  // Systems whose findings were not computed are excluded from the sums and the
+  // average, and counted, so the KPIs never present "0 findings" for them.
+  const systemsWithFindings = localSystems.filter((s) => s.critical !== null)
+  const systemsWithoutFindings = localSystems.length - systemsWithFindings.length
+  const totalCriticalIssues = systemsWithFindings.reduce((sum, s) => sum + (s.critical ?? 0), 0)
+  const scoredSystems = localSystems.filter((s) => s.health !== null)
   const avgHealthScore =
-    localSystems.length > 0
-      ? Math.round(localSystems.reduce((sum, s) => sum + (s.health || 0), 0) / localSystems.length)
-      : 0
+    scoredSystems.length > 0
+      ? Math.round(scoredSystems.reduce((sum, s) => sum + (s.health ?? 0), 0) / scoredSystems.length)
+      : null
 
   // ── Panels below KPIs ──
-  // Top at-risk: rank by (critical desc, high desc, health asc). Cap at 3.
+  // Top at-risk: rank by (critical desc, high desc, health asc); a system with no
+  // computed findings ranks after every measured one. Cap at 3.
+  const rank = (value: number | null, missing: number) => (value === null ? missing : value)
   const topAtRiskSystems = [...localSystems]
     .sort((a, b) => {
-      if (b.critical !== a.critical) return b.critical - a.critical
-      if (b.high !== a.high) return b.high - a.high
-      return (a.health || 0) - (b.health || 0)
+      if (rank(b.critical, -1) !== rank(a.critical, -1)) return rank(b.critical, -1) - rank(a.critical, -1)
+      if (rank(b.high, -1) !== rank(a.high, -1)) return rank(b.high, -1) - rank(a.high, -1)
+      return rank(a.health, 101) - rank(b.health, 101)
     })
     .slice(0, 3)
 
@@ -553,7 +567,8 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
     return "bg-[#22c55e]"
   }
 
-  const getHealthColor = (health: number) => {
+  const getHealthColor = (health: number | null) => {
+    if (health === null) return "text-[#6b7280]"
     if (health >= 90) return "text-[#22c55e]"
     if (health >= 70) return "text-yellow-600"
     if (health >= 50) return "text-orange-600"
@@ -951,31 +966,33 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
                             : undefined
                         }
                       >
-                        {system.health || "--"}
+                        {system.health ?? "--"}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-center">
                       <span
                         className="inline-flex items-center justify-center px-1.5 py-0.5 rounded-full text-xs font-semibold"
                         style={
-                          system.critical > 0
+                          (system.critical ?? 0) > 0
                             ? { background: "#ef444420", color: "#ef4444" }
                             : { background: "var(--bg-primary)", color: "var(--text-muted)" }
                         }
+                        title={system.critical === null ? "Findings not computed for this system yet" : undefined}
                       >
-                        {system.critical}
+                        {system.critical ?? "—"}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-center">
                       <span
                         className="inline-flex items-center justify-center px-1.5 py-0.5 rounded-full text-xs font-semibold"
                         style={
-                          system.high > 0
+                          (system.high ?? 0) > 0
                             ? { background: "#f9731620", color: "#f97316" }
                             : { background: "var(--bg-primary)", color: "var(--text-muted)" }
                         }
+                        title={system.high === null ? "Findings not computed for this system yet" : undefined}
                       >
-                        {system.high}
+                        {system.high ?? "—"}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-center">
@@ -1060,7 +1077,14 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
             <AlertTriangle className="w-5 h-5" style={{ color: "#ef4444" }} />
             <span className="text-sm" style={{ color: "var(--text-secondary)" }}>Total Critical Issues</span>
           </div>
-          <div className="text-2xl font-bold" style={{ color: "#ef4444" }}>{totalCriticalIssues}</div>
+          <div className="text-2xl font-bold" style={{ color: "#ef4444" }}>
+            {systemsWithFindings.length === 0 ? "—" : totalCriticalIssues}
+          </div>
+          {systemsWithoutFindings > 0 && (
+            <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
+              {systemsWithoutFindings} of {localSystems.length} systems not computed yet
+            </div>
+          )}
         </div>
 
         <div
@@ -1153,7 +1177,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
               {topAtRiskSystems.map((sys, idx) => {
                 const healthColor = getHealthColor(sys.health).match(/#[0-9a-fA-F]+/)?.[0] || "#6b7280"
                 const critHex =
-                  sys.critical > 0 ? "#ef4444" : sys.high > 0 ? "#f97316" : "#22c55e"
+                  sys.critical === null ? "#6b7280" : sys.critical > 0 ? "#ef4444" : (sys.high ?? 0) > 0 ? "#f97316" : "#22c55e"
                 return (
                   <div
                     key={sys.name + idx}
@@ -1199,13 +1223,13 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
                     <div className="flex flex-col items-end shrink-0">
                       <span className="text-[9px] uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>Health</span>
                       <span className="text-sm font-bold" style={{ color: healthColor }}>
-                        {sys.health || "--"}
+                        {sys.health ?? "--"}
                       </span>
                     </div>
 
                     {/* Critical/High pills */}
                     <div className="flex items-center gap-1.5 shrink-0">
-                      {sys.critical > 0 && (
+                      {(sys.critical ?? 0) > 0 && (
                         <span
                           className="px-1.5 py-0.5 rounded-full text-xs font-semibold"
                           style={{ background: "#ef444420", color: "#ef4444" }}
@@ -1214,7 +1238,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
                           {sys.critical}C
                         </span>
                       )}
-                      {sys.high > 0 && (
+                      {(sys.high ?? 0) > 0 && (
                         <span
                           className="px-1.5 py-0.5 rounded-full text-xs font-semibold"
                           style={{ background: "#f9731620", color: "#f97316" }}

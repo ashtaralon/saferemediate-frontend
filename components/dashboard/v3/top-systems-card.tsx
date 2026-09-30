@@ -29,16 +29,16 @@ type SystemRow = {
   name?: string
   displayName?: string
   SystemName?: string
-  health_score?: number
-  healthScore?: number
+  health_score?: number | null
+  healthScore?: number | null
   resourceCount?: number
   criticality?: string
   environment?: string
   region?: string
-  critical_count?: number
-  criticalIssues?: number
-  high_count?: number
-  highIssues?: number
+  critical_count?: number | null
+  criticalIssues?: number | null
+  high_count?: number | null
+  highIssues?: number | null
   layers?: LayerMap | null
 }
 
@@ -58,12 +58,12 @@ function rowScore(s: SystemRow): number | null {
   return null
 }
 
-function rowCritical(s: SystemRow): number {
-  return s.critical_count ?? s.criticalIssues ?? 0
+function rowCritical(s: SystemRow): number | null {
+  return s.critical_count ?? s.criticalIssues ?? null
 }
 
-function rowHigh(s: SystemRow): number {
-  return s.high_count ?? s.highIssues ?? 0
+function rowHigh(s: SystemRow): number | null {
+  return s.high_count ?? s.highIssues ?? null
 }
 
 const FAMILY_COLOR: Record<string, string> = {

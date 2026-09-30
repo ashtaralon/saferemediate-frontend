@@ -1,0 +1,4 @@
+AWS Architecture Icons, as published by theSVG (https://thesvg.org/icons), licence CC BY-ND 4.0
+(https://creativecommons.org/licenses/by-nd/4.0/). Copied unchanged by scripts/vendor-aws-icons.sh
+from https://thesvg.org/icons/<slug>/default.svg. AWS and the AWS architecture icons are trademarks of Amazon.com, Inc.
+or its affiliates; their use here is nominative, to draw a customer's own AWS resources.

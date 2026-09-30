@@ -37,16 +37,16 @@ type System = {
   criticality?: string
   resourceCount?: number
   resource_count?: number
-  health_score?: number
-  healthScore?: number
-  critical_count?: number
-  criticalIssues?: number
-  high_count?: number
-  highIssues?: number
-  medium_count?: number
-  mediumIssues?: number
-  low_count?: number
-  lowIssues?: number
+  health_score?: number | null
+  healthScore?: number | null
+  critical_count?: number | null
+  criticalIssues?: number | null
+  high_count?: number | null
+  highIssues?: number | null
+  medium_count?: number | null
+  mediumIssues?: number | null
+  low_count?: number | null
+  lowIssues?: number | null
   totalFindings?: number
   lastScan?: string
   lastScanAt?: string | null
@@ -214,8 +214,10 @@ export function DenseSystemsTable() {
               const name = s.SystemName ?? s.name ?? "—"
               const stale = isStale(s.lastScanAt)
               const lastScanLabel = s.lastScan ?? "—"
-              const critical = s.critical_count ?? s.criticalIssues ?? 0
-              const high = s.high_count ?? s.highIssues ?? 0
+              // null = findings not computed for this system (a fresh install
+              // serves the list before LP findings exist): shown as "—", never "0".
+              const critical = s.critical_count ?? s.criticalIssues ?? null
+              const high = s.high_count ?? s.highIssues ?? null
               const resources = s.resource_count ?? s.resourceCount ?? 0
               const layers = s.layers ?? {}
               return (
@@ -239,16 +241,18 @@ export function DenseSystemsTable() {
                   </td>
                   <td className="px-3 py-2.5 text-right">
                     <span
-                      className={`inline-flex min-w-[1.75rem] items-center justify-center rounded border px-1.5 py-0.5 font-mono text-xs font-semibold tabular-nums ${severityChipClass(critical, "critical")}`}
+                      className={`inline-flex min-w-[1.75rem] items-center justify-center rounded border px-1.5 py-0.5 font-mono text-xs font-semibold tabular-nums ${severityChipClass(critical ?? 0, "critical")}`}
+                      title={critical === null ? "Findings not computed for this system yet" : undefined}
                     >
-                      {critical || "0"}
+                      {critical === null ? "—" : critical || "0"}
                     </span>
                   </td>
                   <td className="px-3 py-2.5 text-right">
                     <span
-                      className={`inline-flex min-w-[1.75rem] items-center justify-center rounded border px-1.5 py-0.5 font-mono text-xs font-semibold tabular-nums ${severityChipClass(high, "high")}`}
+                      className={`inline-flex min-w-[1.75rem] items-center justify-center rounded border px-1.5 py-0.5 font-mono text-xs font-semibold tabular-nums ${severityChipClass(high ?? 0, "high")}`}
+                      title={high === null ? "Findings not computed for this system yet" : undefined}
                     >
-                      {high || "0"}
+                      {high === null ? "—" : high || "0"}
                     </span>
                   </td>
                   <td className="px-3 py-2.5">

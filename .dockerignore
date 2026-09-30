@@ -6,3 +6,6 @@ test-results
 *.bak
 *.backup
 .env*
+# Agent worktrees and session state live under the checkout but are not the tree: a local build
+# from a checkout that has them would copy every other branch into the build context.
+.claude/

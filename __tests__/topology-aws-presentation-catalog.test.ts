@@ -202,7 +202,7 @@ describe("the Neptune retype regression", () => {
   it.each(["Neptune", "NeptuneCluster", "NeptuneInstance", "DocumentDB"])(
     "%s has an icon, so the retype never loses one",
     (type) => {
-      expect(awsIconUrl(type)).toContain("https://thesvg.org/icons/")
+      expect(awsIconUrl(type)).toMatch(/^\/aws-icons\/[a-z0-9-]+\.svg$/)
       expect(awsIconSlug(type)).not.toBeNull()
     },
   )

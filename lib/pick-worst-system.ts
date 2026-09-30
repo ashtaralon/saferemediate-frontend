@@ -16,19 +16,23 @@ export interface RankableSystem {
   name?: string
   rankable?: boolean
   rejected?: boolean
-  health_score?: number
-  healthScore?: number
-  critical_count?: number
-  criticalIssues?: number
-  high_count?: number
-  highIssues?: number
+  health_score?: number | null
+  healthScore?: number | null
+  critical_count?: number | null
+  criticalIssues?: number | null
+  high_count?: number | null
+  highIssues?: number | null
 }
 
 function severity(s: RankableSystem): { critical: number; high: number; health: number } {
+  // A system whose findings were not computed (null from the backend, e.g. a
+  // fresh install before LP findings exist) is not "0 criticals, health 0":
+  // it ranks AFTER every measured system, so the auto-picked landing system is
+  // one the operator can actually act on.
   return {
-    critical: s?.critical_count ?? s?.criticalIssues ?? 0,
-    high: s?.high_count ?? s?.highIssues ?? 0,
-    health: s?.health_score ?? s?.healthScore ?? 0,
+    critical: s?.critical_count ?? s?.criticalIssues ?? -1,
+    high: s?.high_count ?? s?.highIssues ?? -1,
+    health: s?.health_score ?? s?.healthScore ?? 101,
   }
 }
 
