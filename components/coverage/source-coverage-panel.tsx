@@ -217,6 +217,11 @@ function SourceCoverageRow({ source }: { source: SourceCoverage }) {
           ) : (
             <p className="mt-1 text-xs text-slate-500">No completed windows recorded.</p>
           )}
+          {source.windowsTruncated ? (
+            <p className="mt-1 text-xs text-slate-500" data-testid="coverage-windows-truncated">
+              Only part of the list is shown; more completed windows were recorded.
+            </p>
+          ) : null}
         </div>
         <div>
           <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">
@@ -234,6 +239,11 @@ function SourceCoverageRow({ source }: { source: SourceCoverage }) {
           ) : (
             <p className="mt-1 text-xs text-slate-500">No gaps recorded inside the covered period.</p>
           )}
+          {source.gapsTruncated ? (
+            <p className="mt-1 text-xs text-amber-800" data-testid="coverage-gaps-truncated">
+              Only part of the list is shown; more gaps were recorded.
+            </p>
+          ) : null}
         </div>
       </div>
     </div>

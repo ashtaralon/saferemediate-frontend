@@ -48,8 +48,11 @@ export interface SourceCoverage {
   firstVerifiedCollectionAt: string | null
   verifiedThrough: string | null
   completedWindows: CoverageWindow[]
+  /** The backend sent only part of the list (it bounds the published record); never read as complete. */
+  windowsTruncated: boolean
   gaps: CoverageGap[]
-  /** VERIFIED | PARTIAL | NOT_STARTED, whatever else the backend sent, or UNKNOWN when it sent none. */
+  gapsTruncated: boolean
+  /** VERIFIED | PARTIAL | NOT_STARTED | UNREADABLE, whatever else the backend sent, or UNKNOWN when it sent none. */
   status: string
 }
 
@@ -263,7 +266,8 @@ function sourceCoverage(value: unknown): SourceCoverage | null {
   return {
     source,
     region: text(row.region),
-    scope: text(row.scope),
+    // The backend names it source_scope (GET /api/coverage/sources); scope is accepted as a fallback.
+    scope: text(row.source_scope) ?? text(row.scope),
     earliestVerifiedAt: text(row.earliest_verified_at),
     earliestVerifiedBasis: text(row.earliest_verified_basis),
     sourceBeganAt: text(row.source_began_at),
@@ -271,7 +275,9 @@ function sourceCoverage(value: unknown): SourceCoverage | null {
     firstVerifiedCollectionAt: text(row.first_verified_collection_at),
     verifiedThrough: text(row.verified_through),
     completedWindows: windows(row.completed_windows),
+    windowsTruncated: row.windows_truncated === true,
     gaps: gaps(row.gaps),
+    gapsTruncated: row.gaps_truncated === true,
     // A row without a status is shown as "status not recorded", never as a guessed state.
     status: text(row.status) ?? "UNKNOWN",
   }

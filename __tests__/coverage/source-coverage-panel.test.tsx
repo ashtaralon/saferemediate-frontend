@@ -36,7 +36,7 @@ const PUBLISHED = {
         {
           source: "cloudtrail",
           region: "eu-west-1",
-          scope: "organization",
+          source_scope: "organization",
           earliest_verified_at: "2026-09-28T10:00:00Z",
           earliest_verified_basis: "FIRST_SIGNED_DIGEST",
           source_began_at: null,
@@ -59,7 +59,7 @@ const PUBLISHED = {
         {
           source: "vpc_flow_logs",
           region: "eu-west-1",
-          scope: "vpc-0abc",
+          source_scope: "vpc-0abc",
           earliest_verified_at: "2026-09-30T00:00:00Z",
           earliest_verified_basis: "FIRST_DELIVERED_OBJECT",
           source_began_at: "2026-09-30T00:00:00Z",
@@ -74,7 +74,7 @@ const PUBLISHED = {
         {
           source: "aws_config",
           region: "eu-west-1",
-          scope: null,
+          source_scope: null,
           earliest_verified_at: null,
           earliest_verified_basis: null,
           source_began_at: null,
@@ -188,6 +188,31 @@ describe("SourceCoveragePanel", () => {
     render(<SourceCoveragePanel />)
 
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("not in a recognized shape"))
+  })
+})
+
+describe("backend field names and truncation", () => {
+  it("reads source_scope and says when the backend sent only part of a list", async () => {
+    const body = {
+      ...PUBLISHED,
+      accounts: [{
+        account_id: "111122223333",
+        sources: [{
+          source: "vpc_flow", region: "eu-west-1", source_scope: "/vpc/flowlogs/a", status: "PARTIAL",
+          earliest_verified_at: "2026-10-01T00:05:00Z", verified_through: "2026-10-01T12:00:00Z",
+          history_before: "UNKNOWN",
+          completed_windows: [{ from: "2026-10-01T00:05:00Z", to: "2026-10-01T06:00:00Z" }], windows_truncated: true,
+          gaps: [{ from: "2026-10-01T06:00:00Z", to: "2026-10-01T07:00:00Z", reason: "acquisition_held" }], gaps_truncated: true,
+        }],
+      }],
+    }
+    const report = normalizeSourceCoverage(body)
+    expect(report?.accounts[0].sources[0].scope).toBe("/vpc/flowlogs/a")
+    expect(report?.accounts[0].sources[0].windowsTruncated).toBe(true)
+    vi.stubGlobal("fetch", vi.fn(async () => json(body)))
+    render(<SourceCoveragePanel />)
+    await waitFor(() => expect(screen.getByTestId("coverage-gaps-truncated")).toBeTruthy())
+    expect(screen.getByTestId("coverage-windows-truncated").textContent).toContain("Only part of the list")
   })
 })
 
