@@ -23,7 +23,7 @@ import {
   XCircle,
 } from "lucide-react"
 import { LeftSidebarNav } from "@/components/left-sidebar-nav"
-import { ConnectAccountPanel, MemberStatusBadge } from "@/components/settings/connect-account-panel"
+import { AccountCoverageChips, ConnectAccountPanel, MemberStatusBadge } from "@/components/settings/connect-account-panel"
 import { useAccountScope } from "@/lib/account-scope-context"
 import { COVERAGE_PAGE_PATH, READY_MEANS_OPERATIONAL, coveragePageHref } from "@/lib/observation-coverage"
 import {
@@ -673,6 +673,7 @@ function MemberAccountRow({
         {account.validation_message && account.onboarding_status !== "REGISTERING" ? <p className="text-xs text-slate-600">{account.validation_message}</p> : null}
         {summary ? <p className="text-[11px] text-slate-500">{summary}</p> : null}
         {caveats.map((caveat) => <p key={caveat} className="text-[11px] text-amber-800">{caveat}</p>)}
+        <AccountCoverageChips accountId={account.account_id} coverage={account.coverage} />
         {pending ? (
           <p className="inline-flex items-center gap-1 text-[11px] text-slate-500">
             <Loader2 className="h-3 w-3 animate-spin" aria-hidden />

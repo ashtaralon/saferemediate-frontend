@@ -59,6 +59,17 @@ export interface AccountSources {
   discovery_errors?: string[]
 }
 
+/** A list row's per-feature coverage across the account's registered regions (absent until discovered). */
+export type AccountFeatureCoverageStatus = "COVERED" | "PARTIAL" | "LACKING"
+
+export interface AccountFeatureCoverage {
+  feature: string
+  label: string
+  /** PARTIAL = covered in some registered regions, lacking in others. */
+  status: AccountFeatureCoverageStatus | string
+  regions_lacking?: string[] | null
+}
+
 export interface ManagedAccount {
   customer_id: string
   account_id: string
@@ -80,6 +91,7 @@ export interface ManagedAccount {
   sources?: AccountSources | null
   pending_request?: PendingAccountRequest | null
   is_platform_account?: boolean
+  coverage?: AccountFeatureCoverage[] | null
 }
 
 export interface FailedAccountRequest {
@@ -110,12 +122,143 @@ export interface AccountListResponse {
   }
 }
 
+// ── per-region source discovery (`notes.regions` on GET /{account_id}/connect) ──
+
+export type FeatureCoverageStatus = "COVERED" | "LACKING"
+
+/** One source a feature needs but this region lacks, and the connector's reason. */
+export interface FeatureLack {
+  source: string
+  reason: string
+}
+
+/** One product feature in one region: covered, or lacking with every missing source named. */
+export interface FeatureCoverage {
+  feature: string
+  label: string
+  status: FeatureCoverageStatus | string
+  lacking?: FeatureLack[] | null
+}
+
+/** Fields every per-region source status carries; `detail` is the backend's sentence. */
+export interface SourceStatus {
+  status: string
+  detail?: string | null
+}
+
+export interface VpcFlowSourceStatus extends SourceStatus {
+  status: "PRESENT" | "PARTIAL" | "ABSENT" | "UNREADABLE" | string
+  usable_groups?: string[] | null
+  vpcs_without?: string[] | null
+}
+
+export interface CloudTrailSourceStatus extends SourceStatus {
+  status: "PRESENT" | "ABSENT" | "NOT_LOGGING" | "UNREADABLE" | string
+  trail?: string | null
+  /** The ENI history read (cloudtrail:LookupEvents). */
+  lookup_events?: "READABLE" | "DENIED" | "UNREADABLE" | string | null
+}
+
+export interface ConfigEniBaseline {
+  interfaces: number
+  recorded: number
+  complete: boolean
+}
+
+export interface ConfigEniSourceStatus extends SourceStatus {
+  status: "RECORDING" | "RECORDING_DAILY" | "NOT_RECORDED" | "NO_RECORDER" | "STOPPED" | "FAILING" | "UNREADABLE" | string
+  recorder?: string | null
+  managed_by?: "CUSTOMER" | "CONTROL_TOWER" | "CYNTRO" | string | null
+  /** Set by the backend ONLY when recording is proven (RECORDING + complete baseline); never inferred here. */
+  proven_coverage_start?: string | null
+  baseline?: ConfigEniBaseline | null
+}
+
+export interface RegionSourceStatuses {
+  vpc_flow?: VpcFlowSourceStatus | null
+  cloudtrail?: CloudTrailSourceStatus | null
+  config_eni?: ConfigEniSourceStatus | null
+}
+
+/** The fixed source keys, in display order. */
+export const REGION_SOURCE_KEYS = ["vpc_flow", "cloudtrail", "config_eni"] as const
+export type RegionSourceKey = (typeof REGION_SOURCE_KEYS)[number]
+
+/** UI names for the backend's source keys; an unlisted key is shown as the backend sent it. */
+export const REGION_SOURCE_LABELS: Record<RegionSourceKey, string> = {
+  vpc_flow: "VPC Flow Logs",
+  cloudtrail: "CloudTrail",
+  config_eni: "AWS Config (network interfaces)",
+}
+
+export function regionSourceLabel(source: string): string {
+  return (REGION_SOURCE_LABELS as Record<string, string>)[source] ?? source
+}
+
+export interface ConfigPrice {
+  usd_per_item: string
+  unit: string
+  usage_type?: string | null
+  effective?: string | null
+  source?: string | null
+}
+
+/** The backend's cost estimate for a scoped Config recorder; every number is the backend's. */
+export interface ConfigCost {
+  /** null when no price could be read; `price_unavailable` then says why and no dollar amount is shown. */
+  price?: ConfigPrice | null
+  price_unavailable?: string | null
+  baseline_items?: number | null
+  baseline_usd?: string | null
+  changes_last_7_days?: number | null
+  /** false => the 7-day count is a lower bound ("at least"). */
+  changes_complete?: boolean | null
+  monthly_items_estimate?: number | null
+  monthly_usd_estimate?: string | null
+  basis?: string | null
+}
+
+export type ConfigEnablementOffer =
+  | "CYNTRO_STACK"
+  | "ADJUST_EXISTING_RECORDER"
+  | "CONTROL_TOWER_MANAGED"
+  | "NONE_NEEDED"
+  | "UNREADABLE"
+
+export interface ConfigEnablement {
+  offer: ConfigEnablementOffer | string
+  detail?: string | null
+  /** For ADJUST_EXISTING_RECORDER / CONTROL_TOWER_MANAGED / UNREADABLE. */
+  instructions?: string[] | null
+  features_affected?: string[] | null
+  scope_statement?: string | null
+  extracted_fields?: string[] | null
+  // Only for offer === "CYNTRO_STACK":
+  stack_name?: string | null
+  template_path?: string | null
+  console_url?: string | null
+  parameters?: Record<string, string> | null
+  cli?: string | null
+  cost?: ConfigCost | null
+}
+
+/** One registered region of a member account, as the connector read it. */
+export interface RegionDiscovery {
+  region: string
+  discovered_at?: string | null
+  features?: FeatureCoverage[] | null
+  sources?: RegionSourceStatuses | null
+  config_enablement?: ConfigEnablement | null
+}
+
 export interface ConnectionNotes {
   flow_log_groups_found?: number
   flow_log_groups_usable?: number
   flow_log_groups_without_required_fields?: (string | null)[]
   eks_clusters?: (string | null)[]
   discovered?: boolean
+  /** One entry per registered region; empty (or absent, on an older backend) until discovered. */
+  regions?: RegionDiscovery[] | null
 }
 
 /** `GET /{account_id}/connect`: the connection stack to deploy in the member account, every value filled in. */
@@ -134,13 +277,21 @@ export interface ConnectionInstructions {
 /** The connection-stack parameters the operator may leave blank (the stack's own defaults are ""). */
 export const OPTIONAL_CONNECTION_PARAMETERS = ["ExistingFlowLogGroupArns", "FlowLogVpcId", "EksClusterName"] as const
 
+/**
+ * The proxied path for a backend account-admin path (`/api/admin/accounts/...`), or null when the
+ * backend sent no such path. No fallback: a template the backend did not name is not offered.
+ */
+export function proxiedAccountAdminPath(backendPath?: string | null): string | null {
+  const backendPrefix = "/api/admin/accounts/"
+  if (typeof backendPath === "string" && backendPath.startsWith(backendPrefix) && backendPath.length > backendPrefix.length) {
+    return `/api/proxy/admin/accounts/${backendPath.slice(backendPrefix.length)}`
+  }
+  return null
+}
+
 /** The proxied download for the backend's `template_path` (`/api/admin/accounts/connect/template`). */
 export function proxiedTemplatePath(templatePath?: string | null): string {
-  const backendPrefix = "/api/admin/accounts/"
-  if (templatePath && templatePath.startsWith(backendPrefix)) {
-    return `/api/proxy/admin/accounts/${templatePath.slice(backendPrefix.length)}`
-  }
-  return "/api/proxy/admin/accounts/connect/template"
+  return proxiedAccountAdminPath(templatePath) ?? "/api/proxy/admin/accounts/connect/template"
 }
 
 /**
@@ -343,4 +494,44 @@ export function registrationFailed(
   return (failedRequests || []).some(
     (request) => request.account_id === accountId && request.action === "register" && atOrAfter(request.finished_at, requestedAt),
   )
+}
+
+/** The regions to render from `notes.regions`; an older backend sends none, which renders nothing. */
+export function regionDiscoveries(notes?: ConnectionNotes | null): RegionDiscovery[] {
+  const regions = notes?.regions
+  if (!Array.isArray(regions)) return []
+  return regions.filter(
+    (entry): entry is RegionDiscovery =>
+      Boolean(entry) && typeof entry === "object" && typeof entry.region === "string" && entry.region !== "",
+  )
+}
+
+/** A count the backend sent (a finite number), or null so the line is left out. */
+export function backendCount(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null
+}
+
+/**
+ * The 7-day network-interface change count as worded: exact only when the backend says the count is
+ * complete (`changes_complete: true`); otherwise it is a floor, "at least N".
+ */
+export function changeCountText(count: number, complete?: boolean | null): string {
+  return complete === true ? String(count) : `at least ${count}`
+}
+
+/** "$0.51" from the backend's decimal string; null when it sent none. Never computed here. */
+export function usdText(value?: string | null): string | null {
+  return typeof value === "string" && value.trim() !== "" ? `$${value.trim()}` : null
+}
+
+/**
+ * "2026-10-01 20:31:12 UTC" (milliseconds kept when present). For a proven coverage start the
+ * instant is shown at the precision the backend sent, never rounded down to an earlier minute.
+ */
+export function formatUtcInstantExact(value: string): string {
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return value
+  const iso = parsed.toISOString()
+  const millis = iso.slice(19, 23)
+  return `${iso.slice(0, 19).replace("T", " ")}${millis === ".000" ? "" : millis} UTC`
 }
