@@ -91,8 +91,19 @@ export function typedReaderUnavailable(body: unknown): SemanticHold | null {
     : null
 }
 
+/**
+ * Server hold reasons that are a defined STATE of the install, not a fault, with their plain words.
+ * NO_DATA_ACCOUNTS (backend estate_read): a control-plane install with no workload account connected.
+ */
+const STATE_HOLDS: Readonly<Record<string, string>> = {
+  NO_DATA_ACCOUNTS: "No workload account is connected yet — connect one in Settings › Accounts",
+}
+
 /** One operator-facing line for a hold, used as the fetch hook's `error`. */
 export function semanticHoldMessage(hold: SemanticHold): string {
+  if (hold.kind === "not_recorded" && hold.reason && STATE_HOLDS[hold.reason]) {
+    return STATE_HOLDS[hold.reason]
+  }
   const head =
     hold.kind === "not_recorded"
       ? "Not recorded yet"
