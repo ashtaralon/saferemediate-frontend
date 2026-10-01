@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import {
   AlertTriangle,
   Building2,
@@ -9,6 +9,7 @@ import {
   Cloud,
   KeyRound,
   Layers3,
+  Link2,
   Loader2,
   Plus,
   RefreshCw,
@@ -17,38 +18,25 @@ import {
   ShieldCheck,
   Users,
   X,
+  XCircle,
 } from "lucide-react"
 import { LeftSidebarNav } from "@/components/left-sidebar-nav"
+import { ConnectAccountPanel, MemberStatusBadge } from "@/components/settings/connect-account-panel"
 import { useAccountScope } from "@/lib/account-scope-context"
-
-interface ManagedAccount {
-  customer_id: string
-  account_id: string
-  display_name: string
-  environment: string
-  regions: string[]
-  onboarding_status: string
-  collection_mode: string
-  read_enabled: boolean
-  verification_enabled: boolean
-  mutation_enabled: boolean
-  install_method: string
-  evidence_source_count: number
-  last_evidence_at?: string | null
-  validation_message?: string | null
-}
-
-interface AccountResponse {
-  accounts: ManagedAccount[]
-  total: number
-  registry_available: boolean
-  summary: {
-    connected: number
-    needs_attention: number
-    discovered: number
-    mutation_enabled: number
-  }
-}
+import {
+  AWS_REGION_PATTERN,
+  MEMBER_ACCOUNTS_MODE,
+  accountAdminFailure,
+  connectionCheckOutcome,
+  discoveryCaveats,
+  discoverySummary,
+  parseRegions,
+  registrationFailed,
+  registryUnavailableDetail,
+  type AccountListResponse,
+  type FailedAccountRequest,
+  type ManagedAccount,
+} from "@/lib/account-admin"
 
 interface AccountGroup {
   customer_id: string
@@ -56,6 +44,12 @@ interface AccountGroup {
   name: string
   description: string
   account_ids: string[]
+}
+
+interface ListError {
+  message: string
+  /** Set only when the list call itself answered 503 because the registry is unavailable. */
+  registry: { message: string; reason: string | null } | null
 }
 
 const settingsNav = [
@@ -69,11 +63,34 @@ const settingsNav = [
 
 const emptySummary = { connected: 0, needs_attention: 0, discovered: 0, mutation_enabled: 0 }
 
+/** While a registration or connection check is open, the list is re-read this often. */
+const POLL_INTERVAL_MS = 4000
+/** A check this page asked for is watched at most this long if the list never shows it open. */
+const CHECK_WATCH_MS = 120_000
+/** Form default only, used when the platform account's region is unknown. */
+const FALLBACK_REGION = "eu-west-1"
+/** Member statuses from which the connection stack can be (re)deployed and checked. */
+const CONNECTABLE = new Set(["AWAITING_CONNECTION", "CONNECTION_FAILED", "CONNECTED"])
+/** A new registration opens the Connect panel once its row reaches one of these. */
+const OPEN_CONNECT_ON = new Set(["AWAITING_CONNECTION", "CONNECTED"])
+
+const REQUEST_ACTION_LABEL: Record<string, string> = { register: "Registration", validate: "Connection check" }
+
 function statusStyle(status: string) {
   if (["CONNECTED", "READY"].includes(status)) return "bg-emerald-50 text-emerald-700 border-emerald-200"
   if (["DEGRADED", "VALIDATION_HELD"].includes(status)) return "bg-amber-50 text-amber-800 border-amber-200"
   if (status === "DISCOVERED") return "bg-blue-50 text-blue-700 border-blue-200"
   return "bg-slate-50 text-slate-600 border-slate-200"
+}
+
+function formatTimestamp(value?: string | null): string | null {
+  if (!value) return null
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString()
+}
+
+function failureKey(failure: FailedAccountRequest): string {
+  return `${failure.account_id}|${failure.action}|${failure.finished_at || ""}`
 }
 
 function AccessPill({ enabled, children }: { enabled: boolean; children: React.ReactNode }) {
@@ -88,72 +105,201 @@ function AccessPill({ enabled, children }: { enabled: boolean; children: React.R
 
 export default function AccountSettingsPage() {
   const scope = useAccountScope()
-  const [data, setData] = useState<AccountResponse | null>(null)
+  const customerId = scope.customerId
+  const [data, setData] = useState<AccountListResponse | null>(null)
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [listError, setListError] = useState<ListError | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
   const [search, setSearch] = useState("")
   const [showAdd, setShowAdd] = useState(false)
   const [validating, setValidating] = useState<string | null>(null)
   const [activeSection, setActiveSection] = useState<"accounts" | "groups">("accounts")
   const [groups, setGroups] = useState<AccountGroup[]>([])
+  const [groupsError, setGroupsError] = useState<string | null>(null)
   const [showAddGroup, setShowAddGroup] = useState(false)
+  const [connectFor, setConnectFor] = useState<string | null>(null)
+  const [awaitingConnect, setAwaitingConnect] = useState<{ accountId: string; requestedAt: string } | null>(null)
+  const [checks, setChecks] = useState<Record<string, { requestedAt: string; startedAt: number }>>({})
+  const [dismissedFailures, setDismissedFailures] = useState<string[]>([])
 
-  async function load() {
-    if (!scope.customerId) {
+  const mounted = useRef(true)
+  const loadSeq = useRef(0)
+  const listBusy = useRef(false)
+
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+    }
+  }, [])
+
+  /**
+   * spinner: first load and the Refresh button. quiet: after an action, never skipped.
+   * poll: the background re-read, skipped while another read is still in flight.
+   */
+  const load = useCallback(async (mode: "spinner" | "quiet" | "poll" = "spinner") => {
+    if (!customerId) {
       setLoading(false)
       return
     }
-    setLoading(true)
-    setError(null)
+    if (mode === "poll" && listBusy.current) return
+    listBusy.current = true
+    const seq = ++loadSeq.current
+    if (mode === "spinner") setLoading(true)
     try {
       const response = await fetch(
-        `/api/proxy/admin/accounts?customer_id=${encodeURIComponent(scope.customerId)}`,
+        `/api/proxy/admin/accounts?customer_id=${encodeURIComponent(customerId)}`,
         { cache: "no-store" },
       )
-      if (!response.ok) throw new Error(`Account registry returned ${response.status}`)
-      const accountData = await response.json()
+      if (!response.ok) throw await accountAdminFailure(response, "Account registry")
+      const accountData = (await response.json()) as AccountListResponse
+      if (!mounted.current || seq !== loadSeq.current) return
       setData(accountData)
-      const groupResponse = await fetch(
-        `/api/proxy/admin/accounts/groups/all?customer_id=${encodeURIComponent(scope.customerId)}`,
+      setListError(null)
+    } catch (reason) {
+      if (!mounted.current || seq !== loadSeq.current) return
+      setListError({
+        message: reason instanceof Error ? reason.message : String(reason),
+        registry: registryUnavailableDetail(reason),
+      })
+    } finally {
+      if (seq === loadSeq.current) {
+        listBusy.current = false
+        if (mounted.current) setLoading(false)
+      }
+    }
+  }, [customerId])
+
+  const loadGroups = useCallback(async () => {
+    if (!customerId) return
+    try {
+      const response = await fetch(
+        `/api/proxy/admin/accounts/groups/all?customer_id=${encodeURIComponent(customerId)}`,
         { cache: "no-store" },
       )
-      if (!groupResponse.ok) throw new Error(`Account groups returned ${groupResponse.status}`)
-      const groupData = await groupResponse.json()
+      if (!response.ok) throw await accountAdminFailure(response, "Account groups")
+      const groupData = await response.json()
+      if (!mounted.current) return
       setGroups(groupData.groups || [])
+      setGroupsError(null)
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason))
-    } finally {
-      setLoading(false)
+      if (mounted.current) setGroupsError(reason instanceof Error ? reason.message : String(reason))
     }
-  }
+  }, [customerId])
 
   useEffect(() => {
+    setData(null)
+    setListError(null)
+    setChecks({})
+    setAwaitingConnect(null)
+    setConnectFor(null)
     void load()
-  }, [scope.customerId])
+    void loadGroups()
+  }, [load, loadGroups])
+
+  const memberMode = data?.mode === MEMBER_ACCOUNTS_MODE
+  const allAccounts = data?.accounts || []
+  const failedRequests = data?.failed_requests || []
+
+  // Re-read while the connector has work open for this page: a registration, an open
+  // request on any row, or a check this page asked for. Stops when none; stops on unmount.
+  const needsPolling =
+    allAccounts.some((account) => account.onboarding_status === "REGISTERING" || Boolean(account.pending_request)) ||
+    awaitingConnect !== null ||
+    Object.keys(checks).length > 0
+  useEffect(() => {
+    if (!needsPolling || !customerId) return
+    const timer = window.setInterval(() => void load("poll"), POLL_INTERVAL_MS)
+    return () => window.clearInterval(timer)
+  }, [needsPolling, customerId, load])
+
+  // Retire the checks this page asked for once the connector closed them (or after CHECK_WATCH_MS).
+  useEffect(() => {
+    if (!data) return
+    const settled = Object.entries(checks).filter(([accountId, check]) => {
+      const row = data.accounts.find((account) => account.account_id === accountId)
+      return (
+        connectionCheckOutcome(accountId, row, data.failed_requests, check.requestedAt).state !== "PENDING" ||
+        Date.now() - check.startedAt > CHECK_WATCH_MS
+      )
+    })
+    if (!settled.length) return
+    setChecks((current) => {
+      const next = { ...current }
+      for (const [accountId] of settled) delete next[accountId]
+      return next
+    })
+  }, [data, checks])
+
+  // A new registration opens its Connect panel as soon as the connector has created the row.
+  useEffect(() => {
+    if (!awaitingConnect || !data) return
+    const row = data.accounts.find((account) => account.account_id === awaitingConnect.accountId)
+    if (row && OPEN_CONNECT_ON.has(row.onboarding_status)) {
+      setConnectFor(row.account_id)
+      setAwaitingConnect(null)
+    } else if (row && row.onboarding_status !== "REGISTERING" && !row.pending_request) {
+      setAwaitingConnect(null)
+    } else if (!row && registrationFailed(data.failed_requests, awaitingConnect.accountId, awaitingConnect.requestedAt)) {
+      setAwaitingConnect(null)
+    }
+  }, [data, awaitingConnect])
+
+  /** Member mode: queue a connection check; resolves the backend's requested_at. */
+  async function requestConnectionCheck(accountId: string): Promise<string> {
+    if (!customerId) throw new Error("No organization is selected")
+    const response = await fetch(
+      `/api/proxy/admin/accounts/${encodeURIComponent(accountId)}/validate?customer_id=${encodeURIComponent(customerId)}`,
+      { method: "POST" },
+    )
+    if (!response.ok) throw await accountAdminFailure(response, "Check connection")
+    const body = await response.json().catch(() => ({}))
+    const requestedAt =
+      typeof body?.requested_at === "string" && body.requested_at ? body.requested_at : new Date().toISOString()
+    setChecks((current) => ({ ...current, [accountId]: { requestedAt, startedAt: Date.now() } }))
+    void load("quiet")
+    return requestedAt
+  }
 
   async function validate(accountId: string) {
-    if (!scope.customerId) return
+    if (!customerId) return
     setValidating(accountId)
+    setActionError(null)
     try {
-      const response = await fetch(
-        `/api/proxy/admin/accounts/${accountId}/validate?customer_id=${encodeURIComponent(scope.customerId)}`,
-        { method: "POST" },
-      )
-      if (!response.ok) throw new Error(`Validation returned ${response.status}`)
-      await load()
+      if (memberMode) {
+        await requestConnectionCheck(accountId)
+      } else {
+        const response = await fetch(
+          `/api/proxy/admin/accounts/${encodeURIComponent(accountId)}/validate?customer_id=${encodeURIComponent(customerId)}`,
+          { method: "POST" },
+        )
+        if (!response.ok) throw await accountAdminFailure(response, "Validation")
+        await load("quiet")
+      }
       scope.refresh()
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason))
+      setActionError(reason instanceof Error ? reason.message : String(reason))
     } finally {
       setValidating(null)
     }
   }
 
-  const accounts = (data?.accounts || []).filter((account) => {
-    const value = `${account.display_name} ${account.account_id} ${account.environment}`.toLowerCase()
-    return value.includes(search.toLowerCase())
-  })
+  const platformAccount = allAccounts.find((account) => account.is_platform_account)
+  const accounts = allAccounts
+    .filter((account) => {
+      const value = `${account.display_name} ${account.account_id} ${account.environment}`.toLowerCase()
+      return value.includes(search.toLowerCase())
+    })
+    // The platform account leads in member mode (the backend sorts it first too).
+    .sort((a, b) => Number(Boolean(b.is_platform_account)) - Number(Boolean(a.is_platform_account)))
   const summary = data?.summary || emptySummary
+  const visibleFailures = failedRequests.filter((failure) => !dismissedFailures.includes(failureKey(failure)))
+  const accountNames = new Map(allAccounts.map((account) => [account.account_id, account.display_name]))
+  const legacyRegistryUnprovisioned = Boolean(data) && !memberMode && data?.registry_available === false
+  const tableColumns = memberMode
+    ? "grid-cols-[minmax(240px,1.3fr)_120px_minmax(240px,1.5fr)_190px_250px]"
+    : "grid-cols-[minmax(260px,1.5fr)_150px_140px_230px_130px]"
 
   return (
     <div className="flex min-h-[calc(100vh-44px)] bg-[#f3f6f7] text-slate-900">
@@ -165,14 +311,17 @@ export default function AccountSettingsPage() {
               <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.22em] text-teal-700">Customer estate</p>
               <h1 className="text-3xl font-semibold tracking-tight">{activeSection === "accounts" ? "Accounts" : "Account Groups"}</h1>
               <p className="mt-2 max-w-2xl text-sm text-slate-500">
-                {activeSection === "accounts"
-                  ? "Enroll AWS accounts, verify customer-plane evidence, and control where Cyntro may analyze or execute changes."
-                  : "Organize accounts into operational cohorts for investigation and reporting without weakening account-level execution boundaries."}
+                {activeSection === "groups"
+                  ? "Organize accounts into operational cohorts for investigation and reporting without weakening account-level execution boundaries."
+                  : memberMode
+                    ? "Connect the AWS accounts this install reads. Each account runs the Cyntro connection stack; Cyntro checks it and lists the evidence it found there."
+                    : "Enroll AWS accounts, verify customer-plane evidence, and control where Cyntro may analyze or execute changes."}
               </p>
             </div>
             <button
               onClick={() => activeSection === "accounts" ? setShowAdd(true) : setShowAddGroup(true)}
-              disabled={!scope.customerId}
+              disabled={!customerId || (activeSection === "accounts" && !data)}
+              title={activeSection === "accounts" && customerId && !data ? "Available once the account list has loaded" : undefined}
               className="inline-flex items-center gap-2 rounded-lg bg-[#008f7d] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#007c6d] disabled:cursor-not-allowed disabled:opacity-40"
             >
               <Plus className="h-4 w-4" /> {activeSection === "accounts" ? "Add AWS account" : "Create account group"}
@@ -206,19 +355,29 @@ export default function AccountSettingsPage() {
           <section className="min-w-0 space-y-6">
             {activeSection === "groups" ? (
               <AccountGroupsPanel
-                accounts={data?.accounts || []}
+                accounts={allAccounts}
                 groups={groups}
                 loading={loading}
+                error={groupsError}
+                onRetry={() => void loadGroups()}
                 onCreate={() => setShowAddGroup(true)}
               />
             ) : <>
             <div className="grid grid-cols-4 gap-4">
-              {[
-                ["Accounts", data?.total || 0, "Registered and discovered"],
-                ["Connected", summary.connected, "Evidence verified"],
-                ["Needs attention", summary.needs_attention, "Validation held"],
-                ["Mutation enabled", summary.mutation_enabled, "Explicitly approved"],
-              ].map(([label, value, note]) => (
+              {(memberMode
+                ? [
+                    ["Accounts", data?.total || 0, "Platform and member accounts"],
+                    ["Connected", summary.connected, "Connection verified"],
+                    ["Needs attention", summary.needs_attention, "Awaiting or failed connection"],
+                    ["Mutation enabled", summary.mutation_enabled, "Explicitly approved"],
+                  ]
+                : [
+                    ["Accounts", data?.total || 0, "Registered and discovered"],
+                    ["Connected", summary.connected, "Evidence verified"],
+                    ["Needs attention", summary.needs_attention, "Validation held"],
+                    ["Mutation enabled", summary.mutation_enabled, "Explicitly approved"],
+                  ]
+              ).map(([label, value, note]) => (
                 <div key={label} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
                   <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">{label}</p>
                   <p className="mt-2 text-3xl font-semibold tracking-tight">{value}</p>
@@ -227,7 +386,19 @@ export default function AccountSettingsPage() {
               ))}
             </div>
 
-            {!data?.registry_available && !loading ? (
+            {listError?.registry ? (
+              <div role="alert" className="flex items-start justify-between gap-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                <div className="flex gap-3">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <div>
+                    <p className="font-semibold">Account registry unavailable</p>
+                    <p className="mt-1 text-amber-800">{listError.registry.message}</p>
+                    {listError.registry.reason ? <p className="mt-1 font-mono text-xs text-amber-800">{listError.registry.reason}</p> : null}
+                  </div>
+                </div>
+                <button onClick={() => void load()} className="shrink-0 font-semibold">Retry</button>
+              </div>
+            ) : legacyRegistryUnprovisioned ? (
               <div className="flex gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                 <div>
@@ -237,12 +408,61 @@ export default function AccountSettingsPage() {
               </div>
             ) : null}
 
-            {error ? (
-              <div className="flex items-center justify-between rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
-                <span>{error}</span>
-                <button onClick={() => void load()} className="font-semibold">Retry</button>
+            {listError && !listError.registry ? (
+              <div role="alert" className="flex items-center justify-between gap-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+                <span>{listError.message}</span>
+                <button onClick={() => void load()} className="shrink-0 font-semibold">Retry</button>
               </div>
             ) : null}
+
+            {actionError ? (
+              <div role="alert" className="flex items-center justify-between gap-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+                <span>{actionError}</span>
+                <button onClick={() => setActionError(null)} aria-label="Dismiss error" className="shrink-0 rounded p-1 hover:bg-red-100"><X className="h-4 w-4" /></button>
+              </div>
+            ) : null}
+
+            {notice ? (
+              <div role="status" className="flex items-center justify-between gap-4 rounded-xl border border-teal-200 bg-teal-50 p-4 text-sm text-teal-900">
+                <span>{notice}</span>
+                <button onClick={() => setNotice(null)} aria-label="Dismiss notice" className="shrink-0 rounded p-1 hover:bg-teal-100"><X className="h-4 w-4" /></button>
+              </div>
+            ) : null}
+
+            {memberMode && data?.member_trust && !data.member_trust.ready ? (
+              <div className="flex gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                <div>
+                  <p className="font-semibold">Member trust is not established yet</p>
+                  <p className="mt-1 text-amber-800">The account connector sets it up once it can read this install&apos;s AWS Organization. Until then, accounts can be registered but their connection stack parameters are not available.</p>
+                </div>
+              </div>
+            ) : null}
+
+            {memberMode ? visibleFailures.map((failure) => {
+              const name = accountNames.get(failure.account_id)
+              return (
+                <div key={failureKey(failure)} role="alert" className="flex items-start justify-between gap-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+                  <div className="flex gap-3">
+                    <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                    <div>
+                      <p className="font-semibold">
+                        {REQUEST_ACTION_LABEL[failure.action] || failure.action} for {name && name !== failure.account_id ? `${name} (${failure.account_id})` : failure.account_id} failed
+                      </p>
+                      <p className="mt-1">{failure.detail || "The account connector recorded no detail."}</p>
+                      {formatTimestamp(failure.finished_at) ? <p className="mt-1 text-xs text-red-600">Finished {formatTimestamp(failure.finished_at)}</p> : null}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setDismissedFailures((current) => [...current, failureKey(failure)])}
+                    aria-label={`Dismiss failed ${(REQUEST_ACTION_LABEL[failure.action] || failure.action).toLowerCase()} for ${failure.account_id}`}
+                    className="shrink-0 rounded p-1 hover:bg-red-100"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              )
+            }) : null}
 
             <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
               <div className="flex items-center justify-between border-b border-slate-200 p-4">
@@ -255,24 +475,37 @@ export default function AccountSettingsPage() {
                     className="w-full rounded-lg border border-slate-200 py-2 pl-9 pr-3 text-sm outline-none focus:border-teal-500"
                   />
                 </div>
-                <button onClick={() => void load()} className="rounded-lg border border-slate-200 p-2 text-slate-500 hover:bg-slate-50" title="Refresh accounts">
+                <button onClick={() => { void load(); void loadGroups() }} className="rounded-lg border border-slate-200 p-2 text-slate-500 hover:bg-slate-50" title="Refresh accounts" aria-label="Refresh accounts">
                   <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
                 </button>
               </div>
 
-              <div className="grid grid-cols-[minmax(260px,1.5fr)_150px_140px_230px_130px] gap-3 border-b border-slate-200 bg-slate-50 px-5 py-3 text-[10px] font-bold uppercase tracking-[0.15em] text-slate-500">
-                <span>Account</span><span>Environment</span><span>Status</span><span>Access</span><span className="text-right">Action</span>
+              <div className={`grid ${tableColumns} gap-3 border-b border-slate-200 bg-slate-50 px-5 py-3 text-[10px] font-bold uppercase tracking-[0.15em] text-slate-500`}>
+                <span>Account</span><span>Environment</span><span>Status</span><span>Access</span><span className="text-right">{memberMode ? "Actions" : "Action"}</span>
               </div>
-              {loading ? (
+              {loading && !data ? (
                 <div className="flex h-48 items-center justify-center gap-2 text-sm text-slate-500"><Loader2 className="h-4 w-4 animate-spin" /> Loading account estate</div>
               ) : accounts.length === 0 ? (
                 <div className="p-12 text-center">
                   <Cloud className="mx-auto h-9 w-9 text-slate-300" />
                   <p className="mt-3 font-semibold">No AWS accounts in this view</p>
-                  <p className="mt-1 text-sm text-slate-500">Add an account or deploy the read-only spoke to discover organization evidence.</p>
+                  <p className="mt-1 text-sm text-slate-500">
+                    {memberMode
+                      ? "Add an AWS account to connect it to this install."
+                      : "Add an account or deploy the read-only spoke to discover organization evidence."}
+                  </p>
                 </div>
-              ) : accounts.map((account) => (
-                <div key={account.account_id} className="grid grid-cols-[minmax(260px,1.5fr)_150px_140px_230px_130px] items-center gap-3 border-b border-slate-100 px-5 py-4 last:border-b-0 hover:bg-slate-50/70">
+              ) : memberMode ? accounts.map((account) => (
+                <MemberAccountRow
+                  key={account.account_id}
+                  account={account}
+                  columns={tableColumns}
+                  checking={validating === account.account_id || Boolean(checks[account.account_id]) || account.pending_request?.action === "validate"}
+                  onConnect={() => setConnectFor(account.account_id)}
+                  onCheck={() => void validate(account.account_id)}
+                />
+              )) : accounts.map((account) => (
+                <div key={account.account_id} className={`grid ${tableColumns} items-center gap-3 border-b border-slate-100 px-5 py-4 last:border-b-0 hover:bg-slate-50/70`}>
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="truncate text-sm font-semibold">{account.display_name}</span>
@@ -311,9 +544,22 @@ export default function AccountSettingsPage() {
           </section>
         </div>
       </main>
-      {showAdd ? (
+      {showAdd && memberMode ? (
+        <MemberAddAccountDialog
+          customerId={customerId}
+          defaultRegion={platformAccount?.regions?.[0] || FALLBACK_REGION}
+          onClose={() => setShowAdd(false)}
+          onRequested={({ accountId, requestedAt, alreadyOpen }) => {
+            setShowAdd(false)
+            setAwaitingConnect({ accountId, requestedAt })
+            setNotice(alreadyOpen ? `A registration for ${accountId} was already open; Cyntro is still working on it.` : null)
+            void load("quiet")
+            scope.refresh()
+          }}
+        />
+      ) : showAdd ? (
         <AddAccountDialog
-          customerId={scope.customerId}
+          customerId={customerId}
           onClose={() => setShowAdd(false)}
           onCreated={async () => {
             setShowAdd(false)
@@ -324,16 +570,102 @@ export default function AccountSettingsPage() {
       ) : null}
       {showAddGroup ? (
         <AddGroupDialog
-          customerId={scope.customerId}
-          accounts={data?.accounts || []}
+          customerId={customerId}
+          accounts={allAccounts.filter((account) => account.onboarding_status !== "REGISTERING")}
           onClose={() => setShowAddGroup(false)}
           onCreated={async () => {
             setShowAddGroup(false)
-            await load()
+            await Promise.all([load(), loadGroups()])
             scope.refresh()
           }}
         />
       ) : null}
+      {connectFor && customerId ? (
+        <ConnectAccountPanel
+          customerId={customerId}
+          accountId={connectFor}
+          account={allAccounts.find((account) => account.account_id === connectFor) || null}
+          failedRequests={failedRequests}
+          onClose={() => setConnectFor(null)}
+          onCheckConnection={requestConnectionCheck}
+        />
+      ) : null}
+    </div>
+  )
+}
+
+function MemberAccountRow({
+  account,
+  columns,
+  checking,
+  onConnect,
+  onCheck,
+}: {
+  account: ManagedAccount
+  columns: string
+  checking: boolean
+  onConnect: () => void
+  onCheck: () => void
+}) {
+  const platform = Boolean(account.is_platform_account)
+  const connectable = !platform && CONNECTABLE.has(account.onboarding_status)
+  const summary = account.onboarding_status === "CONNECTED" ? discoverySummary(account.sources) : null
+  const caveats = account.onboarding_status === "CONNECTED" ? discoveryCaveats(account.sources) : []
+  const pending = account.pending_request
+  return (
+    <div data-testid={`account-row-${account.account_id}`} className={`grid ${columns} items-start gap-3 border-b border-slate-100 px-5 py-4 last:border-b-0 hover:bg-slate-50/70`}>
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="truncate text-sm font-semibold">{account.display_name}</span>
+          {platform ? <span className="rounded bg-teal-50 px-1.5 py-0.5 text-[10px] font-bold text-teal-800">Cyntro platform account</span> : null}
+        </div>
+        <p className="mt-1 font-mono text-xs text-slate-500">{account.account_id}</p>
+        <p className="mt-1 truncate text-[11px] text-slate-400">{account.regions?.length ? account.regions.join(", ") : "No regions recorded"}</p>
+      </div>
+      <span className="text-xs font-semibold text-slate-600">{account.environment}</span>
+      <div className="min-w-0 space-y-1.5">
+        <MemberStatusBadge status={account.onboarding_status} />
+        {platform && account.collection_mode === "LOCAL_CUSTOMER_PLANE" ? (
+          <p className="text-xs text-slate-500">The account Cyntro is installed in; read directly, no connection stack.</p>
+        ) : null}
+        {/* A REGISTERING row's message only repeats its badge; the open request line says the rest. */}
+        {account.validation_message && account.onboarding_status !== "REGISTERING" ? <p className="text-xs text-slate-600">{account.validation_message}</p> : null}
+        {summary ? <p className="text-[11px] text-slate-500">{summary}</p> : null}
+        {caveats.map((caveat) => <p key={caveat} className="text-[11px] text-amber-800">{caveat}</p>)}
+        {pending ? (
+          <p className="inline-flex items-center gap-1 text-[11px] text-slate-500">
+            <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
+            {REQUEST_ACTION_LABEL[pending.action] || pending.action} {pending.status === "running" ? "running" : "queued"}
+          </p>
+        ) : null}
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        <AccessPill enabled={account.read_enabled}>Read</AccessPill>
+        <AccessPill enabled={account.verification_enabled}>Verify</AccessPill>
+        <AccessPill enabled={account.mutation_enabled}>Mutate</AccessPill>
+      </div>
+      <div className="flex flex-wrap justify-end gap-2">
+        {connectable ? (
+          <>
+            <button
+              onClick={onConnect}
+              aria-label={`Connect ${account.display_name}`}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-teal-200 px-3 py-1.5 text-xs font-semibold text-teal-700 hover:bg-teal-50"
+            >
+              <Link2 className="h-3 w-3" /> Connect
+            </button>
+            <button
+              onClick={onCheck}
+              disabled={checking}
+              aria-label={`Check connection for ${account.display_name}`}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-white disabled:opacity-50"
+            >
+              {checking ? <Loader2 className="h-3 w-3 animate-spin" /> : <ShieldCheck className="h-3 w-3" />}
+              Check connection
+            </button>
+          </>
+        ) : null}
+      </div>
     </div>
   )
 }
@@ -342,11 +674,15 @@ function AccountGroupsPanel({
   accounts,
   groups,
   loading,
+  error,
+  onRetry,
   onCreate,
 }: {
   accounts: ManagedAccount[]
   groups: AccountGroup[]
   loading: boolean
+  error: string | null
+  onRetry: () => void
   onCreate: () => void
 }) {
   const names = new Map(accounts.map((account) => [account.account_id, account.display_name]))
@@ -359,6 +695,12 @@ function AccountGroupsPanel({
         </div>
         <button onClick={onCreate} className="rounded-lg border border-teal-200 px-3 py-2 text-xs font-semibold text-teal-700 hover:bg-teal-50">Create group</button>
       </div>
+      {error ? (
+        <div role="alert" className="flex items-center justify-between gap-4 border-b border-red-200 bg-red-50 p-4 text-sm text-red-800">
+          <span>{error}</span>
+          <button onClick={onRetry} className="shrink-0 font-semibold">Retry</button>
+        </div>
+      ) : null}
       {loading ? (
         <div className="flex h-40 items-center justify-center gap-2 text-sm text-slate-500"><Loader2 className="h-4 w-4 animate-spin" /> Loading account groups</div>
       ) : groups.length === 0 ? (
@@ -403,7 +745,7 @@ function AddGroupDialog({ customerId, accounts, onClose, onCreated }: { customer
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ customer_id: customerId, group_id: groupId, name: displayName, description, account_ids: selected }),
       })
-      if (!response.ok) throw new Error(`Create account group returned ${response.status}`)
+      if (!response.ok) throw await accountAdminFailure(response, "Create account group")
       onCreated()
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
@@ -414,9 +756,9 @@ function AddGroupDialog({ customerId, accounts, onClose, onCreated }: { customer
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/45 p-6 backdrop-blur-sm">
-      <div className="w-full max-w-xl rounded-2xl border border-slate-200 bg-white shadow-2xl">
+      <div role="dialog" aria-modal="true" aria-labelledby="create-account-group-title" className="w-full max-w-xl rounded-2xl border border-slate-200 bg-white shadow-2xl">
         <div className="flex items-start justify-between border-b border-slate-200 p-6">
-          <div><p className="text-[10px] font-bold uppercase tracking-[0.18em] text-teal-700">Account scope</p><h2 className="mt-1 text-xl font-semibold">Create account group</h2></div>
+          <div><p className="text-[10px] font-bold uppercase tracking-[0.18em] text-teal-700">Account scope</p><h2 id="create-account-group-title" className="mt-1 text-xl font-semibold">Create account group</h2></div>
           <button onClick={onClose} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100"><X className="h-5 w-5" /></button>
         </div>
         <div className="space-y-4 p-6">
@@ -436,9 +778,100 @@ function AddGroupDialog({ customerId, accounts, onClose, onCreated }: { customer
               ))}
             </div>
           </fieldset>
-          {error ? <p className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p> : null}
+          {error ? <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p> : null}
         </div>
         <div className="flex justify-end gap-3 border-t border-slate-200 p-5"><button onClick={onClose} className="rounded-lg px-4 py-2 text-sm font-semibold text-slate-600">Cancel</button><button onClick={() => void create()} disabled={submitting || !groupId || !displayName || selected.length === 0} className="inline-flex items-center gap-2 rounded-lg bg-[#008f7d] px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">{submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Layers3 className="h-4 w-4" />} Create group</button></div>
+      </div>
+    </div>
+  )
+}
+
+const ENVIRONMENTS = ["PRODUCTION", "STAGING", "DEVELOPMENT", "SHARED_SERVICES"]
+
+/**
+ * Member-account mode: record the operator's intent to add an account (202). The account
+ * connector creates the row within seconds; the page then opens its Connect panel.
+ */
+function MemberAddAccountDialog({
+  customerId,
+  defaultRegion,
+  onClose,
+  onRequested,
+}: {
+  customerId: string | null
+  defaultRegion: string
+  onClose: () => void
+  onRequested: (request: { accountId: string; requestedAt: string; alreadyOpen: boolean }) => void
+}) {
+  const [displayName, setDisplayName] = useState("")
+  const [accountId, setAccountId] = useState("")
+  const [environment, setEnvironment] = useState("PRODUCTION")
+  const [regions, setRegions] = useState(defaultRegion)
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const regionList = parseRegions(regions)
+  const badRegions = regionList.filter((region) => !AWS_REGION_PATTERN.test(region))
+  const ready = Boolean(customerId) && displayName.trim() !== "" && /^\d{12}$/.test(accountId) && regionList.length > 0 && badRegions.length === 0
+
+  async function submit() {
+    if (!customerId || !ready) return
+    setSubmitting(true)
+    setError(null)
+    try {
+      const response = await fetch("/api/proxy/admin/accounts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          customer_id: customerId,
+          account_id: accountId,
+          display_name: displayName.trim(),
+          environment,
+          regions: regionList,
+        }),
+      })
+      if (!response.ok) throw await accountAdminFailure(response, "Registration")
+      const body = await response.json().catch(() => ({}))
+      onRequested({
+        accountId,
+        requestedAt: typeof body?.requested_at === "string" && body.requested_at ? body.requested_at : new Date().toISOString(),
+        alreadyOpen: body?.already_open === true,
+      })
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/45 p-6 backdrop-blur-sm">
+      <div role="dialog" aria-modal="true" aria-labelledby="add-member-account-title" className="w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-2xl">
+        <div className="flex items-start justify-between border-b border-slate-200 p-6">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-teal-700">Account onboarding</p>
+            <h2 id="add-member-account-title" className="mt-1 text-xl font-semibold">Add an AWS account</h2>
+            <p className="mt-1 text-sm text-slate-500">Cyntro registers the account, then shows the connection stack to deploy in it. Read access only; mutation needs a separate approval.</p>
+          </div>
+          <button onClick={onClose} aria-label="Close" className="rounded-lg p-2 text-slate-400 hover:bg-slate-100"><X className="h-5 w-5" /></button>
+        </div>
+        <div className="grid grid-cols-2 gap-4 p-6">
+          <label className="col-span-2 text-sm font-semibold text-slate-700">Account name<input value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="Payments production" className="mt-2 w-full rounded-lg border border-slate-200 p-3 font-normal outline-none focus:border-teal-500" /></label>
+          <label className="text-sm font-semibold text-slate-700">AWS account ID<input value={accountId} onChange={(event) => setAccountId(event.target.value.replace(/\D/g, "").slice(0, 12))} placeholder="12-digit account ID" inputMode="numeric" className="mt-2 w-full rounded-lg border border-slate-200 p-3 font-mono font-normal outline-none focus:border-teal-500" /></label>
+          <label className="text-sm font-semibold text-slate-700">Environment<select value={environment} onChange={(event) => setEnvironment(event.target.value)} className="mt-2 w-full rounded-lg border border-slate-200 bg-white p-3 font-normal outline-none focus:border-teal-500">{ENVIRONMENTS.map((value) => <option key={value}>{value}</option>)}</select></label>
+          <label className="col-span-2 text-sm font-semibold text-slate-700">Regions<input value={regions} onChange={(event) => setRegions(event.target.value)} placeholder="Comma-separated AWS regions" className="mt-2 w-full rounded-lg border border-slate-200 p-3 font-normal outline-none focus:border-teal-500" />
+            <span className="mt-1.5 block text-xs font-normal text-slate-500">
+              {badRegions.length ? `Not an AWS region: ${badRegions.join(", ")}` : "Regions Cyntro reads in this account. The connection stack is deployed in the first one."}
+            </span>
+          </label>
+          {error ? <div role="alert" className="col-span-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div> : null}
+        </div>
+        <div className="flex items-center justify-between border-t border-slate-200 bg-slate-50 px-6 py-4">
+          <button onClick={onClose} className="text-sm font-semibold text-slate-500">Cancel</button>
+          <button disabled={!ready || submitting} onClick={() => void submit()} className="inline-flex items-center gap-2 rounded-lg bg-teal-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">
+            {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Add account
+          </button>
+        </div>
       </div>
     </div>
   )
@@ -474,10 +907,7 @@ function AddAccountDialog({ customerId, onClose, onCreated }: { customerId: stri
           mutation_enabled: false,
         }),
       })
-      if (!response.ok) {
-        const body = await response.json().catch(() => ({}))
-        throw new Error(typeof body.detail === "string" ? body.detail : `Registration returned ${response.status}`)
-      }
+      if (!response.ok) throw await accountAdminFailure(response, "Registration")
       setStep(3)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
