@@ -28,6 +28,7 @@ import {
   connectionCheckOutcome,
   discoveryCaveats,
   discoverySummary,
+  floorUnlessComplete,
   formatUtcInstantExact,
   memberTrustNotReadyMessage,
   proxiedAccountAdminPath,
@@ -365,10 +366,12 @@ function ConfigCostLines({ cost }: { cost: ConfigCost }) {
           Last 7 days: {changeCountText(changes, cost.changes_complete)} network-interface {changes === 1 ? "change" : "changes"} in CloudTrail
         </li>
       ) : null}
+      {/* Derived from the 7-day count, so it is a floor whenever that count is (changes_complete not true). */}
       {monthlyItems !== null ? (
-        <li>
-          Estimated ongoing: {monthlyItems} configuration {monthlyItems === 1 ? "item" : "items"} per month
-          {monthlyUsd ? ` — ${monthlyUsd} per month` : ""}
+        <li data-testid="config-cost-monthly">
+          Estimated ongoing: {floorUnlessComplete(String(monthlyItems), cost.changes_complete)} configuration{" "}
+          {monthlyItems === 1 ? "item" : "items"} per month
+          {monthlyUsd ? ` — ${floorUnlessComplete(monthlyUsd, cost.changes_complete)} per month` : ""}
         </li>
       ) : null}
       {cost.basis ? <li className="text-slate-500">{cost.basis}</li> : null}

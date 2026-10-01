@@ -512,11 +512,16 @@ export function backendCount(value: unknown): number | null {
 }
 
 /**
- * The 7-day network-interface change count as worded: exact only when the backend says the count is
- * complete (`changes_complete: true`); otherwise it is a floor, "at least N".
+ * A value read from, or derived from, the 7-day change count: exact only when the backend says that
+ * count is complete (`changes_complete: true`); otherwise it is a floor, "at least <value>".
  */
+export function floorUnlessComplete(value: string, complete?: boolean | null): string {
+  return complete === true ? value : `at least ${value}`
+}
+
+/** The 7-day network-interface change count as worded ("40", or "at least 40"). */
 export function changeCountText(count: number, complete?: boolean | null): string {
-  return complete === true ? String(count) : `at least ${count}`
+  return floorUnlessComplete(String(count), complete)
 }
 
 /** "$0.51" from the backend's decimal string; null when it sent none. Never computed here. */

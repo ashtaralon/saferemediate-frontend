@@ -359,7 +359,10 @@ describe("Connect panel — Data sources by Region", () => {
     )
     expect(cost).toHaveTextContent("One-time baseline: 14 configuration items (one per current network interface) — $0.04")
     expect(cost).toHaveTextContent("Last 7 days: at least 40 network-interface changes in CloudTrail")
-    expect(cost).toHaveTextContent("Estimated ongoing: 171 configuration items per month — $0.51 per month")
+    // Derived from the incomplete 7-day count, so the monthly items and USD are floors too.
+    expect(within(cost).getByTestId("config-cost-monthly")).toHaveTextContent(
+      "Estimated ongoing: at least 171 configuration items per month — at least $0.51 per month",
+    )
     expect(within(cost).getByText(CONFIG_COST.basis)).toBeInTheDocument()
 
     const download = within(block).getByRole("link", { name: /Download template/ })
@@ -385,7 +388,7 @@ describe("Connect panel — Data sources by Region", () => {
     expect(within(block).queryByRole("link")).not.toBeInTheDocument()
   })
 
-  it("states an exact 7-day count only when the backend says it is complete", async () => {
+  it("states an exact 7-day count and monthly estimate only when the backend says the count is complete", async () => {
     const dialog = await openPanel(
       connectBody({ regions: [regionLacking(cyntroStack({ cost: { ...CONFIG_COST, changes_complete: true } }))] }),
     )
@@ -393,7 +396,22 @@ describe("Connect panel — Data sources by Region", () => {
     fireEvent.click(within(block).getByRole("button", { name: /Enable AWS Config/ }))
     const cost = within(block).getByTestId("config-cost")
     expect(cost).toHaveTextContent("Last 7 days: 40 network-interface changes in CloudTrail")
+    expect(within(cost).getByTestId("config-cost-monthly")).toHaveTextContent(
+      "Estimated ongoing: 171 configuration items per month — $0.51 per month",
+    )
     expect(cost).not.toHaveTextContent("at least")
+  })
+
+  it("treats a missing changes_complete as incomplete: the 7-day count and the monthly estimate are floors", async () => {
+    const { changes_complete: _omitted, ...withoutCompleteness } = CONFIG_COST
+    const dialog = await openPanel(connectBody({ regions: [regionLacking(cyntroStack({ cost: withoutCompleteness }))] }))
+    const block = within(regionGroup(dialog, "eu-west-1")).getByTestId("config-enablement-eu-west-1")
+    fireEvent.click(within(block).getByRole("button", { name: /Enable AWS Config/ }))
+    const cost = within(block).getByTestId("config-cost")
+    expect(cost).toHaveTextContent("Last 7 days: at least 40 network-interface changes in CloudTrail")
+    expect(within(cost).getByTestId("config-cost-monthly")).toHaveTextContent(
+      "Estimated ongoing: at least 171 configuration items per month — at least $0.51 per month",
+    )
   })
 
   it("with cost.price null shows price_unavailable verbatim and no dollar amount at all", async () => {
@@ -419,7 +437,25 @@ describe("Connect panel — Data sources by Region", () => {
     // Item counts are not dollar amounts and stay.
     const cost = within(block).getByTestId("config-cost")
     expect(cost).toHaveTextContent("One-time baseline: 14 configuration items (one per current network interface)")
-    expect(cost).toHaveTextContent("Estimated ongoing: 171 configuration items per month")
+    expect(within(cost).getByTestId("config-cost-monthly")).toHaveTextContent(/^Estimated ongoing: 171 configuration items per month$/)
+  })
+
+  it("with cost.price null and an incomplete count, the monthly item estimate is a floor and still has no dollar amount", async () => {
+    const dialog = await openPanel(
+      connectBody({
+        regions: [
+          regionLacking(
+            cyntroStack({ cost: { ...CONFIG_COST, price: null, price_unavailable: "No price for this Region", changes_complete: false } }),
+          ),
+        ],
+      }),
+    )
+    const block = within(regionGroup(dialog, "eu-west-1")).getByTestId("config-enablement-eu-west-1")
+    fireEvent.click(within(block).getByRole("button", { name: /Enable AWS Config/ }))
+    expect(within(block).getByTestId("config-cost-monthly")).toHaveTextContent(
+      /^Estimated ongoing: at least 171 configuration items per month$/,
+    )
+    expect(block.textContent).not.toContain("$")
   })
 
   it("offers no Download template link when the backend named no Config template (never the connection template)", async () => {
