@@ -6874,7 +6874,7 @@ export function unplacedSubnetReason(
   hasSubnet: (id: string) => SubnetMeta | undefined,
 ): UnplacedReason {
   // A group never had a subnet to lose; asking the collector for one would
-  // send the operator after a gap that does not exist (2026-09-11 review).
+  // send the operator after a gap that is not there (2026-09-11 review).
   if (isLogicalGroupNode(n)) return "logical-group"
   const ids = workloadSubnetIds(n)
   if (ids.length === 0) return "no-subnet-in-graph"
@@ -9609,8 +9609,8 @@ export function AwsFrame({
       crossVpc,
     ],
   )
-  // Cells the frames ACTUALLY draw, so the picker can never offer a column that
-  // does not exist. `f.grid.azs` is already hidden-AZ filtered, which is the
+  // Cells the frames ACTUALLY draw, so the picker can never offer a column the
+  // frames do not draw. `f.grid.azs` is already hidden-AZ filtered, which is the
   // behaviour we want: an operator who hid a zone is not offered it.
   const placeableCells = useMemo<PlaceableCell[]>(
     () =>

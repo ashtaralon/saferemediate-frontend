@@ -7,7 +7,7 @@
 //
 // Wording is deliberately candidate-grade. We say "configured path exists, no
 // observed traffic requires it — candidate for blast-radius reduction." We never
-// say "safe to remove" — that waits on hard gates + rollback/clone-reassociate.
+// call a removal risk-free — that waits on hard gates + rollback/clone-reassociate.
 
 import { useCallback, useEffect, useState } from "react"
 import {

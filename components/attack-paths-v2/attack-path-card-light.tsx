@@ -162,7 +162,7 @@ function gateMeta(g?: GateState): { answer: string; bar: string; ink: string; de
 }
 
 const MICRO_LABEL: Record<MicroPlane, { title: string; bar: string; fallback: string }> = {
-  micro_permissions: { title: "Micro-permission", bar: C.pinkBar, fallback: "Strip the IAM actions never used in the observed window." },
+  micro_permissions: { title: "Micro-permission", bar: C.pinkBar, fallback: "Strip the IAM actions not observed in use in the observed window (removal candidates)." },
   micro_segmentation: { title: "Micro-segmentation", bar: C.purpleBar, fallback: "Keep the network blast radius contained." },
   micro_access: { title: "Micro-access", bar: C.greenBar, fallback: "Scope data access to what's actually touched." },
 }

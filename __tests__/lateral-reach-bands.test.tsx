@@ -48,13 +48,26 @@ function renderBands(overrides: Partial<Parameters<typeof LateralReachBands>[0]>
 test('renders all three bands from the real payload', () => {
   renderBands()
   const root = screen.getByTestId('lateral-reach-bands')
-  expect(within(root).getByText(/Never used — safe to cut/)).toBeTruthy()
+  // Absence in the window is a removal candidate, never "never used — safe to cut".
+  expect(within(root).getByText(/Not observed in the recorded window — removal candidate/)).toBeTruthy()
+  expect(root.textContent).toMatch(/2 not observed using it in the recorded window/)
+  expect(root.textContent).not.toMatch(/never used|safe to cut/i)
   expect(within(root).getByText(/Reachable — cannot judge/)).toBeTruthy()
   expect(within(root).getByText(/In use — keep/)).toBeTruthy()
 })
 
+test('the cut band names the observed window when the payload carries one', () => {
+  // `observation` is a test input shaped like the backend's observation block.
+  renderBands({
+    data: { ...FIXTURE, observation: { from: '2026-09-01T00:00:00Z', to: '2026-10-01T00:00:00Z', sources: [] } } as LateralReachPayload,
+  })
+  const root = screen.getByTestId('lateral-reach-bands')
+  expect(within(root).getByText(/Not observed in use between 2026-09-01 00:00 UTC and 2026-10-01 00:00 UTC — removal candidate/)).toBeTruthy()
+  expect(root.textContent).toMatch(/2 not observed using it between 2026-09-01 00:00 UTC and 2026-10-01 00:00 UTC/)
+})
+
 test('the unjudged count is always visible, never collapsed away', () => {
-  // The failure this guards: showing "2 never used it" as though that were the
+  // The failure this guards: showing "2 not observed using it" as though that were the
   // whole story, when 13 of 17 roles were not evaluated at all.
   renderBands()
   const unjudged = screen.getByTestId('lateral-reach-unjudgeable')

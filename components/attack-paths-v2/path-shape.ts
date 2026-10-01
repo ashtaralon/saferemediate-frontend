@@ -145,7 +145,7 @@ function describeAssumeHop(path: IdentityAttackPath): AssumeHopFacts | null {
  * @param excessActions  authoritative "unused actions to strip" signal — in the
  *                       frontend this is the closure diff's removed_actions.
  *                       Omit (or pass undefined) when unavailable → excess is
- *                       reported UNKNOWN and never used to promote to Shape C.
+ *                       reported UNKNOWN and never consulted to promote to Shape C.
  */
 export function classifyPathShape(
   path: IdentityAttackPath,

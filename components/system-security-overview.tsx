@@ -756,7 +756,7 @@ export function SystemSecurityOverview({ systemName, onViewOnMap }: SystemSecuri
             }
           })
           
-          console.log(`[SG] Final: ${sgResults.length} SGs with ${usedRules} used + ${unusedRules} unused rules`)
+          console.log(`[SG] Final: ${sgResults.length} SGs with ${usedRules} observed-in-use + ${unusedRules} not-observed rules`)
         } else {
           console.warn("[SG] No security groups in list!")
         }
@@ -1286,7 +1286,7 @@ export function SystemSecurityOverview({ systemName, onViewOnMap }: SystemSecuri
               })()}
               
               {/* ============================================= */}
-              {/* UNUSED RULES (evidence-based) - renamed from "Gaps" */}
+              {/* RULES NOT OBSERVED IN USE (evidence-based removal candidates) - renamed from "Gaps" */}
               {/* ============================================= */}
               {selectedSG.eni_count > 0 && (() => {
                 const unusedRules = selectedSG.rules_analysis.filter(r => 
@@ -1785,7 +1785,7 @@ export function SystemSecurityOverview({ systemName, onViewOnMap }: SystemSecuri
                               connectionDetail.recommendation.category === 'shadowed' ? 'bg-[#8b5cf615] text-[#7c3aed]' :
                               'bg-[#22c55e20] text-[#22c55e]'
                             }`}>
-                              {connectionDetail.recommendation.category === 'unused' && 'Unused Rule'}
+                              {connectionDetail.recommendation.category === 'unused' && 'Not observed in use'}
                               {connectionDetail.recommendation.category === 'overly_broad' && 'Overly Broad'}
                               {connectionDetail.recommendation.category === 'public_exposure' && 'Public Exposure'}
                               {connectionDetail.recommendation.category === 'used' && 'Active & Appropriate'}

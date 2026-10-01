@@ -97,7 +97,7 @@ export function Zoom0LateralLensPanel({
     router.push(`${pathname}?${params.toString()}`)
   }
 
-  // Fan-IN: who can reach THIS jewel and has never used it. Distinct from the
+  // Fan-IN: who can reach THIS jewel and was not observed using it. Distinct from the
   // fan-OUT list below (what else the pinned identity can reach) and not
   // derivable from it — lateral-moves reads :AttackPath, which only ever
   // contains pairs something was OBSERVED using, so never-used routes are

@@ -9,7 +9,7 @@
  *
  * 1. CURRENT STATE - What's configured today
  * 2. OBSERVED - What's actually being used (evidence)
- * 3. REMOVE - What's unused and safe to remove
+ * 3. REMOVE - Removal candidates: configured but not observed in use in the window
  *
  * Shows REAL data only - no mocks.
  */
@@ -357,7 +357,7 @@ function SecurityGroupTemplate({
       {/* Remove Section */}
       {hasRecommendations && (
         <RemoveSectionUI
-          title="Unused Rules to Remove"
+          title="Removal candidates — rules not observed in use"
           items={data.recommendations}
         />
       )}

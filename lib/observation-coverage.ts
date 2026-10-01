@@ -151,6 +151,26 @@ export function notObservedCopy(window?: { from: string | null; to: string | nul
 }
 
 /**
+ * Absent-use copy (owner wording): "Not observed in use between <from> and <to>"
+ * when the window is known, else "Not observed in the recorded window". LP and
+ * remediation views append "removal candidate"; nothing says "unused" as fact.
+ */
+export function notObservedInUseCopy(window?: { from: string | null; to: string | null } | null): string {
+  if (window?.from && window?.to) {
+    return `Not observed in use between ${formatCoverageInstant(window.from)} and ${formatCoverageInstant(window.to)}`
+  }
+  return NOT_OBSERVED_IN_RECORDED_WINDOW
+}
+
+/** notObservedInUseCopy for use mid-sentence ("3 rules not observed in the recorded window"). */
+export function notObservedInUsePhrase(window?: { from: string | null; to: string | null } | null): string {
+  const copy = notObservedInUseCopy(window)
+  return copy.charAt(0).toLowerCase() + copy.slice(1)
+}
+
+export const REMOVAL_CANDIDATE = "removal candidate"
+
+/**
  * LP / remediation surfaces carry an analysis length in days from their own
  * evidence (e.g. `observation_days`). Keep that number, but state absence as
  * absence in the window, never as non-use.

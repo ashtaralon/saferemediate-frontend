@@ -444,7 +444,7 @@ export function IamRemediationAvailability({
           {!hasCandidates && (
             <p className="mt-1 text-sm">
               {bundle.insufficient_evidence_count > 0
-                ? `Cyntro observed no use for ${bundle.insufficient_evidence_count} permissions, but has not verified them as safe to remove. Open Permissions to see every action and its blocker.`
+                ? `Cyntro observed no use for ${bundle.insufficient_evidence_count} permissions in the recorded window, but their evidence does not qualify them as removal candidates. Open Permissions to see every action and its blocker.`
                 : "Cyntro did not find an eligible permission to remove from this role."}
             </p>
           )}
@@ -4426,9 +4426,14 @@ export function IAMPermissionAnalysisModal({
                                         )
                                         .join(', ')
                                     : ''
+                                  // Same evidence-gated thresholds; ≥70 is a removal candidate on
+                                  // its execution evidence, never a statement that the action is unused.
+                                  const band = execution >= 70
+                                    ? `Removal candidate (execution evidence ${execution}% ≥70 — auto-eligible)`
+                                    : execution >= 40 ? 'Verify first (40-69 — needs override)' : 'Investigate first (<40 — high risk)'
                                   const tooltip = hasCalibration
-                                    ? `Evidence: ${evidence}% × role calibration (${perm.calibration_factor}) = Execution: ${execution}%\nReasons: ${reasonsLabel}\n${execution >= 70 ? 'Safe to remove (≥70 — auto-eligible)' : execution >= 40 ? 'Verify first (40-69 — needs override)' : 'Investigate first (<40 — high risk)'}`
-                                    : (execution >= 70 ? 'Safe to remove (≥70 — auto-eligible)' : execution >= 40 ? 'Verify first (40-69 — needs override)' : 'Investigate first (<40 — high risk)')
+                                    ? `Evidence: ${evidence}% × role calibration (${perm.calibration_factor}) = Execution: ${execution}%\nReasons: ${reasonsLabel}\n${band}`
+                                    : band
                                   return (
                                     <span className="flex items-center gap-1 flex-shrink-0" title={tooltip}>
                                       {hasCalibration && evidence !== execution && (
@@ -5753,7 +5758,7 @@ export function IAMPermissionAnalysisModal({
                         </span>
                       </div>
                       <p className="text-xs mt-2 text-[#a16207]">
-                        No use was observed, but Cyntro cannot yet prove these actions are safe to remove. Each action shows its current evidence blocker.
+                        {notObservedInDaysCopy(observationDays)}, but the evidence does not qualify these actions as removal candidates. Each action shows its current evidence blocker.
                       </p>
                       <div className="mt-3 grid grid-cols-2 gap-2 max-h-32 overflow-y-auto">
                         {warnPerms.map((perm, i) => (

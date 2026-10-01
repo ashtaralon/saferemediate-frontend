@@ -35,7 +35,7 @@ interface RefreshEvidenceButtonProps {
  *   so up front — rather than launching a real collection round, waiting, and
  *   only then admitting the lane was never refreshed.
  * - The timestamp comes from a backend activation receipt covering every
- *   required lane, or it is not shown. The browser clock is never used.
+ *   required lane, or it is not shown. The browser clock is never consulted.
  */
 export function RefreshEvidenceButton({
   surface,

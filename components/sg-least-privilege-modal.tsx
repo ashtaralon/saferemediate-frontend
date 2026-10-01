@@ -267,7 +267,8 @@ const RuleDisplay: React.FC<{
         rule.status === 'UNUSED' ? 'bg-[#ef444415] text-[#ef4444]' :
         'bg-gray-100 text-[var(--muted-foreground,#6b7280)]'
       }`}>
-        {rule.status === 'OVERLY_BROAD' ? 'OVERLY BROAD' : rule.status}
+        {/* The backend's UNUSED means "no traffic observed in the analysis window". */}
+        {rule.status === 'OVERLY_BROAD' ? 'OVERLY BROAD' : rule.status === 'UNUSED' ? 'NOT OBSERVED' : rule.status}
       </span>
     )}
   </div>
@@ -713,7 +714,7 @@ ${analysis.recommendations.delete.map(r => `  # REMOVE: ${r.protocol}/${r.port_r
           <div className="space-y-4">
             {[
               { title: "Loading traffic history...", subtitle: `Analyzing VPC Flow Log data`, done: true },
-              { title: "Identifying unused rules...", subtitle: `Found ${unusedRules} unused rules`, done: true },
+              { title: "Identifying rules not observed in use...", subtitle: `Found ${unusedRules} removal candidate${unusedRules !== 1 ? 's' : ''} not observed in use`, done: true },
               { title: "Checking overly broad rules...", subtitle: `Found ${overlyBroadRules} rules to tighten`, done: true },
               { title: "Calculating safety score...", subtitle: `${safetyScore}% confidence`, done: false },
             ].map((step, i) => (
@@ -838,7 +839,7 @@ ${analysis.recommendations.delete.map(r => `  # REMOVE: ${r.protocol}/${r.port_r
                 {deleteRules.length > 0 && (
                   <div className="flex items-center gap-3 p-3 rounded-lg" style={{ background: "var(--background, #f8f9fa)" }}>
                     <Check className="w-5 h-5 text-[#22c55e] flex-shrink-0" />
-                    <span>Remove <strong>{deleteRules.filter(r => selectedRulesToRemediate.has(r.rule_id)).length}</strong> unused rules</span>
+                    <span>Remove <strong>{deleteRules.filter(r => selectedRulesToRemediate.has(r.rule_id)).length}</strong> removal-candidate rules (not observed in use)</span>
                   </div>
                 )}
                 {tightenRules.length > 0 && (
@@ -917,7 +918,7 @@ ${analysis.recommendations.delete.map(r => `  # REMOVE: ${r.protocol}/${r.port_r
                         <span className="font-semibold text-sm" style={{ color: "var(--foreground, #111827)" }}>
                           Rules to Delete ({deleteRules.length})
                         </span>
-                        <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-[#ef444420] text-[#ef4444]">UNUSED</span>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-[#ef444420] text-[#ef4444]">NOT OBSERVED</span>
                       </div>
                       <button
                         onClick={() => selectGroup(deleteRules)}
@@ -1493,7 +1494,7 @@ ${analysis.recommendations.delete.map(r => `  # REMOVE: ${r.protocol}/${r.port_r
                     <div className="mx-6 mb-6 p-5 border rounded-2xl" style={{ borderColor: "var(--border, #e5e7eb)", background: "#fafafa" }}>
                       <h3 className="font-bold text-base" style={{ color: "var(--foreground, #111827)" }}>Recommended Action</h3>
                       <p className="mt-1 text-sm" style={{ color: "var(--muted-foreground, #4b5563)" }}>
-                        {unusedRules > 0 && `Remove ${unusedRules} unused rule${unusedRules !== 1 ? 's' : ''}`}
+                        {unusedRules > 0 && `Remove ${unusedRules} removal-candidate rule${unusedRules !== 1 ? 's' : ''} not observed in use`}
                         {unusedRules > 0 && overlyBroadRules > 0 && ' and '}
                         {overlyBroadRules > 0 && `tighten ${overlyBroadRules} overly broad rule${overlyBroadRules !== 1 ? 's' : ''}`}
                         {' '}to reduce attack surface by {remediatePercent}%.
@@ -1602,12 +1603,12 @@ ${analysis.recommendations.delete.map(r => `  # REMOVE: ${r.protocol}/${r.port_r
                   </div>
                 )}
 
-                {/* Unused Rules — Delete */}
+                {/* Removal candidates (no traffic observed in the window) — Delete */}
                 <div className="border-2 border-[#ef444440] bg-[#ef444410] rounded-xl p-4">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <XCircle className="w-5 h-5 text-[#ef4444]" />
-                      <span className="font-semibold text-[#ef4444]">Unused Rules ({unusedRules})</span>
+                      <span className="font-semibold text-[#ef4444]">Removal candidates — not observed in use ({unusedRules})</span>
                     </div>
                     <span className="px-3 py-1 bg-[#ef444420] text-[#ef4444] border border-[#ef444440] rounded-lg text-sm font-medium">
                       Delete these
@@ -1628,7 +1629,7 @@ ${analysis.recommendations.delete.map(r => `  # REMOVE: ${r.protocol}/${r.port_r
                       ))}
                     </div>
                   ) : (
-                    <p className="mt-3 text-sm" style={{ color: "var(--muted-foreground, #9ca3af)" }}>No unused rules found</p>
+                    <p className="mt-3 text-sm" style={{ color: "var(--muted-foreground, #9ca3af)" }}>No removal candidates: no rule went unobserved in the analysis window</p>
                   )}
                 </div>
                 </div>

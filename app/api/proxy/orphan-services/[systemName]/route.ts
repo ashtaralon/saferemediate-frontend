@@ -356,7 +356,8 @@ function classifyOrphan(
   // ── Recommendation ──
   // "What should you do about it?"
   //
-  //  DELETE       = 180+ days, 0 connections → safe to remove
+  //  DELETE       = 180+ days, 0 connections observed → removal candidate
+  //                 (absence in the window is not proof the resource is unused)
   //  DECOMMISSION = 150+ days → schedule removal after dependency check
   //  REVIEW       = 100–149 days → investigate, don't act yet
   //
@@ -373,13 +374,13 @@ function classifyOrphan(
     recommendationReason = `Detected ${seasonalInfo.pattern} usage pattern. Next expected activity: ${seasonalInfo.nextRun ? new Date(seasonalInfo.nextRun).toLocaleDateString() : 'unknown'}. Verify this is intentional.`
   } else if (idleDays >= DELETE_THRESHOLD_DAYS && edgeCount === 0) {
     recommendation = 'DELETE'
-    recommendationReason = `No activity for ${idleDays} days and zero connections across all evidence planes (CloudTrail, flow logs, IAM Access Advisor). Completely isolated — safe to remove.`
+    recommendationReason = `No activity observed for ${idleDays} days and no connections observed on any evidence plane (CloudTrail, flow logs, IAM Access Advisor). Removal candidate: absence in the window is not proof the resource is unused.`
   } else if (isStopped && idleDays >= DELETE_THRESHOLD_DAYS) {
     recommendation = 'DELETE'
-    recommendationReason = `Stopped for ${idleDays} days with no observed activity. Safe to terminate and clean up associated resources.`
+    recommendationReason = `Stopped for ${idleDays} days with no observed activity. Removal candidate: verify nothing depends on it before terminating it and cleaning up associated resources.`
   } else if (idleDays >= DECOMMISSION_THRESHOLD_DAYS) {
     recommendation = 'DECOMMISSION'
-    recommendationReason = `No activity for ${idleDays} days with only ${edgeCount} connection(s). Schedule decommission after verifying no downstream dependencies.`
+    recommendationReason = `No activity observed for ${idleDays} days with only ${edgeCount} connection(s). Schedule decommission after verifying no downstream dependencies.`
   } else {
     recommendation = 'REVIEW'
     recommendationReason = `Idle for ${idleDays} days${edgeCount === 0 ? ' with zero connections' : ` but still has ${edgeCount} connection(s)`}. Investigate before taking action.`
@@ -834,7 +835,7 @@ export async function GET(
               return false
             }
             if (awsStatus?.checked && !awsStatus.exists) {
-              console.log(`[orphan-services] Removing stale orphan "${o.name}" — does not exist in AWS`)
+              console.log(`[orphan-services] Removing stale orphan "${o.name}" — the live AWS existence check did not find it`)
               return false
             }
             if (o.type === 'IAMPolicy' && awsStatus?.checked && awsStatus.exists && (awsStatus.attachment_count ?? 0) > 0) {

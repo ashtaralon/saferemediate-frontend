@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useCallback, useEffect, useState, useMemo } from 'react'
+import { notObservedInUsePhrase } from '@/lib/observation-coverage'
 import ReactFlow, {
   Node,
   Edge,
@@ -119,7 +120,7 @@ const SecurityGroupNode = ({ data }: NodeProps) => {
         {data.unusedCount !== undefined && data.unusedCount > 0 && (
           <div className="mt-2 text-xs bg-red-900/50 rounded px-2 py-1 flex items-center gap-1">
             <AlertTriangle className="w-3 h-3" />
-            {data.unusedCount} unused rules
+            {data.unusedCount} rules {notObservedInUsePhrase(null)}
           </div>
         )}
         {data.lpScore !== undefined && (
@@ -427,7 +428,7 @@ export default function SystemDependencyMap({ systemName, variant = 'full' }: Pr
             controls: [
               `Port ${edge.port || '443'} open to 0.0.0.0/0`,
               targetNode.lpScore ? `LP Score: ${targetNode.lpScore}%` : 'LP Score: N/A',
-              targetNode.gapCount > 0 ? `⚠️ ${targetNode.gapCount} unused rules` : '✅ All rules in use'
+              targetNode.gapCount > 0 ? `⚠️ ${targetNode.gapCount} rules ${notObservedInUsePhrase(null)}` : '✅ All rules observed in use'
             ],
             overallRisk: 'critical'
           })
@@ -550,7 +551,7 @@ export default function SystemDependencyMap({ systemName, variant = 'full' }: Pr
             </div>
             <div className="flex items-center gap-2">
               <div className="w-6 h-0.5 bg-[#f9731610]0" />
-              <span>Unused Rule</span>
+              <span>Rule not observed in use</span>
             </div>
           </div>
         </>

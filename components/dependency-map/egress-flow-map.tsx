@@ -3017,7 +3017,7 @@ function PathFlowMap({ row, sevColor }: { row: PathRow; sevColor: string }) {
                 {row.routeTable.recommendation.scope_workload_count === 1 ? "" : "s"} share
                 this route table. Removing the route affects all of them. Rare-use workloads
                 outside the observed window are the operator's call — this is "no observed
-                dependency," not "safe to remove."
+                dependency," a removal candidate, not proof the route is unneeded.
               </div>
               {/* Execute surface — moved here from the top-level callout
                   per user feedback ("put it in the relevant path

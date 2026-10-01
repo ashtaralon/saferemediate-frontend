@@ -4574,8 +4574,8 @@ function SummaryTab({ resource }: { resource: GapResource }) {
         {resource.evidence?.coverage?.complete !== true && (
           <p className="mt-2 text-xs text-[var(--muted-foreground,#6b7280)]">
             Not observed is not the same as unused. Evidence coverage for this
-            resource is not confirmed complete, so these counts cannot establish
-            that the unobserved permissions are safe to remove — review the
+            resource is not confirmed complete, so these counts alone do not make
+            the unobserved permissions removal candidates — review the
             Evidence tab before acting on them.
           </p>
         )}

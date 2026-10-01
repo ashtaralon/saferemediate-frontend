@@ -336,7 +336,7 @@ export default function AllServicesInventory({ systemName }: Props) {
   const [showUnusedPerms, setShowUnusedPerms] = useState(true)
 
   // Fetch inventory groups. Failed groups surface as degraded state;
-  // LP findings are never used as a substitute inventory.
+  // LP findings never stand in for inventory.
   const fetchServices = useCallback(async () => {
     setLoading(true)
     setError(null)
