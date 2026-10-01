@@ -24,6 +24,9 @@ import { BackToDashboard } from "@/components/back-to-dashboard"
 import { useAccountScope } from "@/lib/account-scope-context"
 import { withAccountScope } from "@/lib/account-scope"
 import { RefreshEvidenceButton } from "@/components/RefreshEvidenceButton"
+import Link from "next/link"
+import { ObservationChip } from "@/components/coverage/observation-chip"
+import { coveragePageHref, readObservation, type Observation } from "@/lib/observation-coverage"
 
 interface System {
   name: string
@@ -107,6 +110,9 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
   // must never masquerade as "no systems" (incident 2026-08-23: a stray
   // persisted region rendered a healthy org as data loss for hours).
   const [hiddenByScope, setHiddenByScope] = useState<number | null>(null)
+  // The range the systems list covers, from the systems response itself.
+  // undefined = no response yet; null = the backend recorded none.
+  const [observation, setObservation] = useState<Observation | null | undefined>(undefined)
   const [isLoadingData, setIsLoadingData] = useState(true)
   const [gapData, setGapData] = useState<{ allowed: number; used: number; unused: number }>({
     allowed: 0,
@@ -188,6 +194,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
       if (systemsRes.ok) {
         const systemsData = await systemsRes.json()
         const backendSystems = systemsData.systems || []
+        setObservation(readObservation(systemsData))
         setSystemsError(null)
         setBackendStatus("connected")
         
@@ -284,6 +291,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
       } else {
         console.warn(`[systems-view] Systems API returned ${systemsRes.status}`)
         setSystemsError(`Systems data is unavailable (${systemsRes.status})`)
+        setObservation((current) => current ?? null)
         setBackendStatus("offline")
       }
     } catch (fetchErr: any) {
@@ -294,6 +302,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
         console.error("[systems-view] Failed to fetch systems:", fetchErr.message)
       }
       setSystemsError("Systems data is temporarily unavailable")
+      setObservation((current) => current ?? null)
       setBackendStatus("offline")
     } finally {
       setIsLoadingData(false)
@@ -755,6 +764,23 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
          separate from the PageHeader actions slot so the dropdown's
          absolute-positioned panel doesn't fight with header layout. */}
       <div className="flex items-center justify-end gap-2">
+
+          {/* The exact range this list is observed over, and the per-source
+              record behind it. READY is "operational", not "complete history". */}
+          <div className="mr-auto flex flex-wrap items-center gap-2">
+            <ObservationChip
+              observation={observation}
+              pending={observation === undefined}
+              testId="systems-observation"
+            />
+            <Link
+              href={coveragePageHref()}
+              className="text-xs font-medium hover:underline"
+              style={{ color: "#8b5cf6" }}
+            >
+              Evidence coverage
+            </Link>
+          </div>
 
           {/* "Re-ingest Now" is retired. It POSTed /api/proxy/admin/reingest,
               which forwards to /api/v2/sync/start with NO `sources` -- so it

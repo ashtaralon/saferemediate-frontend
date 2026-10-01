@@ -1,9 +1,11 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
+import Link from "next/link"
 import {
   AlertTriangle,
   Building2,
+  CalendarClock,
   Check,
   ChevronRight,
   Cloud,
@@ -23,6 +25,7 @@ import {
 import { LeftSidebarNav } from "@/components/left-sidebar-nav"
 import { ConnectAccountPanel, MemberStatusBadge } from "@/components/settings/connect-account-panel"
 import { useAccountScope } from "@/lib/account-scope-context"
+import { COVERAGE_PAGE_PATH, READY_MEANS_OPERATIONAL, coveragePageHref } from "@/lib/observation-coverage"
 import {
   AWS_REGION_PATTERN,
   MEMBER_ACCOUNTS_MODE,
@@ -52,9 +55,10 @@ interface ListError {
   registry: { message: string; reason: string | null } | null
 }
 
-const settingsNav = [
+const settingsNav: Array<{ id?: string; label: string; icon: typeof Cloud; enabled?: boolean; href?: string }> = [
   { id: "accounts", label: "Accounts", icon: Cloud, enabled: true },
   { id: "groups", label: "Account Groups", icon: Layers3, enabled: true },
+  { label: "Evidence coverage", icon: CalendarClock, enabled: true, href: COVERAGE_PAGE_PATH },
   { label: "Users & Access", icon: Users },
   { label: "Data Sources", icon: Building2 },
   { label: "Policies & Approvals", icon: ShieldCheck },
@@ -69,6 +73,8 @@ const POLL_INTERVAL_MS = 4000
 const CHECK_WATCH_MS = 120_000
 /** Form default only, used when the platform account's region is unknown. */
 const FALLBACK_REGION = "eu-west-1"
+/** Statuses that read as "working": each gets the operational-not-complete note and a coverage link. */
+const OPERATIONAL_STATUSES = new Set(["CONNECTED", "READY"])
 /** Member statuses from which the connection stack can be (re)deployed and checked. */
 const CONNECTABLE = new Set(["AWAITING_CONNECTION", "CONNECTION_FAILED", "CONNECTED"])
 /** A new registration opens the Connect panel once its row reaches one of these. */
@@ -334,6 +340,18 @@ export default function AccountSettingsPage() {
             {settingsNav.map((item) => {
               const Icon = item.icon
               const active = item.id === activeSection
+              if (item.href) {
+                return (
+                  <Link
+                    key={item.label}
+                    href={item.href}
+                    className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-slate-600 hover:bg-slate-50"
+                  >
+                    <Icon className="h-4 w-4" />
+                    {item.label}
+                  </Link>
+                )
+              }
               return (
                 <button
                   key={item.label}
@@ -384,6 +402,15 @@ export default function AccountSettingsPage() {
                   <p className="mt-1 text-xs text-slate-500">{note}</p>
                 </div>
               ))}
+            </div>
+
+            {/* READY / Connected is "operational", never "fully supported". */}
+            <div data-testid="ready-means-operational" className="flex items-start gap-3 rounded-xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-950">
+              <CalendarClock className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+              <p>
+                {READY_MEANS_OPERATIONAL}{" "}
+                <Link href={COVERAGE_PAGE_PATH} className="font-semibold text-teal-700 hover:text-teal-800">View evidence coverage</Link>
+              </p>
             </div>
 
             {listError?.registry ? (
@@ -515,8 +542,13 @@ export default function AccountSettingsPage() {
                     <p className="mt-1 truncate text-[11px] text-slate-400">{account.regions?.join(", ") || "Region pending"} · {account.evidence_source_count || 0} evidence sources</p>
                   </div>
                   <span className="text-xs font-semibold text-slate-600">{account.environment}</span>
-                  <div>
+                  <div className="space-y-1">
                     <span className={`inline-flex rounded-full border px-2 py-1 text-[10px] font-bold ${statusStyle(account.onboarding_status)}`}>{account.onboarding_status.replaceAll("_", " ")}</span>
+                    {OPERATIONAL_STATUSES.has(account.onboarding_status) ? (
+                      <Link href={coveragePageHref(account.account_id)} className="block text-[11px] font-semibold text-teal-700 hover:text-teal-800">
+                        Operational · evidence coverage
+                      </Link>
+                    ) : null}
                   </div>
                   <div className="flex flex-wrap gap-1.5">
                     <AccessPill enabled={account.read_enabled}>Read</AccessPill>
@@ -625,6 +657,15 @@ function MemberAccountRow({
       <span className="text-xs font-semibold text-slate-600">{account.environment}</span>
       <div className="min-w-0 space-y-1.5">
         <MemberStatusBadge status={account.onboarding_status} />
+        {platform || OPERATIONAL_STATUSES.has(account.onboarding_status) ? (
+          <Link
+            href={coveragePageHref(account.account_id)}
+            aria-label={`Evidence coverage for ${account.account_id}`}
+            className="block text-[11px] font-semibold text-teal-700 hover:text-teal-800"
+          >
+            {OPERATIONAL_STATUSES.has(account.onboarding_status) ? "Operational · evidence coverage" : "Evidence coverage"}
+          </Link>
+        ) : null}
         {platform && account.collection_mode === "LOCAL_CUSTOMER_PLANE" ? (
           <p className="text-xs text-slate-500">The account Cyntro is installed in; read directly, no connection stack.</p>
         ) : null}

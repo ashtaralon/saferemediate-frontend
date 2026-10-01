@@ -9,6 +9,8 @@ import { ChevronDown, ChevronUp, LoaderCircle, Maximize2, Minimize2, ZoomIn, Zoo
 import { isTrustEnvelope } from "@/components/trust/trust-envelope-badge"
 import { clearCachedFetch, useCachedFetch } from "@/lib/use-cached-fetch"
 import { HeadlineStrip, staleNote } from "@/components/topology-v0-2/headline-strip"
+import { ObservationChip } from "@/components/coverage/observation-chip"
+import { readObservation } from "@/lib/observation-coverage"
 import { AwsFrame, dedupeLambdaServiceTwins, listTopologyAzs } from "@/components/topology-v0-2/aws-frame"
 import { CanvasPane } from "@/components/topology-v0-2/canvas-pane"
 import {
@@ -1904,6 +1906,7 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
       <div className={`flex flex-1 min-h-0 gap-2 ${ESTATE_SHELL_X} py-2`}>
         <main className="flex-1 min-w-0 min-h-0 flex flex-col">
           <div className="flex items-center justify-between gap-3 mb-1.5">
+            <div className="flex flex-wrap items-center gap-1.5">
             <div className="flex items-center gap-1.5" role="tablist" aria-label="Estate view">
               {([
                 ["inventory", "Command map"],
@@ -1944,6 +1947,17 @@ export function EstateMapView({ systemName, embedded = false, onOpenTrafficMap, 
                     : ""}
                 </span>
               ) : null}
+            </div>
+            {/* The range each payload on screen covers, from its own
+                `observation` block; "not recorded yet" when absent. */}
+            <ObservationChip observation={readObservation(data)} testId="estate-observation" />
+            {view === "map" ? (
+              <ObservationChip
+                observation={readObservation(depMapData)}
+                label="Flows"
+                testId="estate-flow-observation"
+              />
+            ) : null}
             </div>
             {view === "map" ? (
               <>

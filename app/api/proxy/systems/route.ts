@@ -128,6 +128,9 @@ export async function GET(req: NextRequest) {
       systems: disambiguated,
       total: data.total || disambiguated.length,
       timestamp: data.timestamp,
+      // The range the systems list covers (lib/observation-coverage.ts).
+      // Relayed verbatim; null when the backend recorded none.
+      observation: data.observation ?? null,
     }
 
     // Store in cache

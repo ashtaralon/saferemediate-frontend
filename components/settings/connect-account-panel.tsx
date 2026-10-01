@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState, type ReactNode } from "react"
+import Link from "next/link"
 import {
   AlertTriangle,
   Check,
@@ -30,6 +31,7 @@ import {
   type FailedAccountRequest,
   type ManagedAccount,
 } from "@/lib/account-admin"
+import { coveragePageHref } from "@/lib/observation-coverage"
 
 /** One badge per member-account `onboarding_status` (api/account_registry.py, cyntro_data/accounts/connector.py). */
 export function MemberStatusBadge({ status }: { status: string }) {
@@ -66,6 +68,18 @@ export function MemberStatusBadge({ status }: { status: string }) {
     return <span className={`${base} border-teal-200 bg-teal-50 text-teal-700`}>Registered</span>
   }
   return <span className={`${base} border-slate-200 bg-slate-50 text-slate-600`}>{status.replaceAll("_", " ")}</span>
+}
+
+/** Connected is "operational", never "every source has complete history". */
+export function OperationalNotCompleteNote({ accountId }: { accountId: string }) {
+  return (
+    <p data-testid="connected-means-operational" className="text-[11px] text-slate-500">
+      Connected means Cyntro can operate in this account, not that its history is complete.{" "}
+      <Link href={coveragePageHref(accountId)} className="font-semibold text-teal-700 hover:text-teal-800">
+        Evidence coverage
+      </Link>
+    </p>
+  )
 }
 
 export function CopyButton({ value, label }: { value: string; label: string }) {
@@ -411,6 +425,7 @@ export function ConnectAccountPanel({
                   ) : outcome?.state === "FINISHED" ? (
                     <>
                       <MemberStatusBadge status={outcome.status} />
+                      {outcome.status === "CONNECTED" ? <OperationalNotCompleteNote accountId={accountId} /> : null}
                       {outcome.message ? <p className="text-xs text-slate-700">{outcome.message}</p> : null}
                       <DiscoveryLines account={account} />
                       {outcome.status === "CONNECTED" && instructions.notes?.discovered === false ? (
@@ -429,6 +444,7 @@ export function ConnectAccountPanel({
                     <>
                       <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">Current status</p>
                       <MemberStatusBadge status={account.onboarding_status} />
+                      {account.onboarding_status === "CONNECTED" ? <OperationalNotCompleteNote accountId={account.account_id} /> : null}
                       {account.validation_message ? <p className="text-xs text-slate-600">{account.validation_message}</p> : null}
                       <DiscoveryLines account={account} />
                     </>

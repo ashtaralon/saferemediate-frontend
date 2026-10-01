@@ -17,9 +17,11 @@ interface CoverageBannerProps {
   coverage: CoverageInfo
   mode: 'observed' | 'observed+potential'
   onModeChange?: (mode: 'observed' | 'observed+potential') => void
+  /** The effective window the backend served, when it reported one; else coverage.analysis_window. */
+  windowLabel?: string
 }
 
-export function CoverageBanner({ coverage, mode, onModeChange }: CoverageBannerProps) {
+export function CoverageBanner({ coverage, mode, onModeChange, windowLabel }: CoverageBannerProps) {
   const hasGoodCoverage = coverage.flow_logs_enabled_enis_pct >= 50
   const hasTraffic = coverage.observed_edges > 0
   const hasWarnings = coverage.notes.length > 0
@@ -70,7 +72,7 @@ export function CoverageBanner({ coverage, mode, onModeChange }: CoverageBannerP
           <div className="flex items-center gap-2">
             <Clock className="w-4 h-4 text-slate-500" />
             <span className="text-sm text-slate-400">
-              Window: <span className="text-slate-300">{coverage.analysis_window}</span>
+              Window: <span className="text-slate-300">{windowLabel ?? coverage.analysis_window}</span>
             </span>
           </div>
 

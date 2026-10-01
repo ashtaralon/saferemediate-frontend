@@ -32,7 +32,8 @@ import { AttackPathDetailPanel } from './attack-path-detail-panel';
 import { S3ObjectAccessExpander } from './s3-object-access-expander';
 import { StackSidebar } from './stack-sidebar';
 import { HeatmapControls } from './heatmap-controls';
-import { TimelineSlider } from './timeline-slider';
+import { ObservationChip } from '@/components/coverage/observation-chip';
+import { readObservation } from '@/lib/observation-coverage';
 import { VPCBoundaries } from './vpc-boundaries';
 import { ExportControls } from './export-controls';
 import {
@@ -9272,9 +9273,10 @@ export default function TrafficFlowMap({
     leafType: string | null;
     displayName?: string;
   } | null>(null);
-  const [timelineActive, setTimelineActive] = useState(false);
-  const [timeWindow, setTimeWindow] = useState<'7d' | '30d' | '90d'>('30d');
-  const [timePoint, setTimePoint] = useState(100);
+  // The "Time Travel" slider that lived here only moved its own thumb: no
+  // request read its window or time point, so it implied a historical view the
+  // map never rendered. Removed; the observed range the map DOES cover comes
+  // from the dep-map response's `observation` block (ObservationChip below).
   const containerRef = useRef<HTMLDivElement>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const previousArchRef = useRef<SystemArchitecture | null>(null);
@@ -11536,6 +11538,17 @@ export default function TrafficFlowMap({
             </span>
           )}
 
+          {/* The range the flows on this map cover, from the dep-map
+              response itself; "not recorded yet" when it carries none. */}
+          {!pathAuthorityOnly && (
+            <ObservationChip
+              observation={readObservation(rawDepMap)}
+              pending={depMapLoading && !rawDepMap}
+              tone="theme"
+              testId="traffic-map-observation"
+            />
+          )}
+
           {/* Enrichment-failure indicator. Surfaces honestly when an
               IAM or SG batch couldn't load, so the operator doesn't
               read the chips' build-time seed values as live data.
@@ -11900,16 +11913,6 @@ export default function TrafficFlowMap({
         )}
 
       </div>
-
-      {/* Timeline Slider */}
-      <TimelineSlider
-        currentWindow={timeWindow}
-        onWindowChange={(w) => setTimeWindow(w as '7d' | '30d' | '90d')}
-        timePoint={timePoint}
-        onTimePointChange={setTimePoint}
-        isActive={timelineActive}
-        onToggle={() => setTimelineActive(!timelineActive)}
-      />
 
       {/* Service Details Popup */}
       {selectedService && architecture && (

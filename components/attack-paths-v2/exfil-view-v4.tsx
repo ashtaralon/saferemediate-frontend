@@ -821,7 +821,7 @@ function NodeCard({
       tooltip:
         excess === 0
           ? "All allowed actions are observed in use"
-          : `${excess} action${excess === 1 ? "" : "s"} allowed but never used — gap`,
+          : `${excess} action${excess === 1 ? "" : "s"} allowed but not observed in use in the recorded window — gap`,
     })
   }
   if (node.meta?.hits !== undefined && node.meta.hits > 0) {

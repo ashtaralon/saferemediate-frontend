@@ -28,8 +28,6 @@ import {
   RefreshCw,
   EyeOff,
   ChevronDown,
-  Eye,
-  Clock,
   ExternalLink,
   Wrench,
   Bug,
@@ -85,6 +83,7 @@ import { normalizeSecurityFinding, asCount } from "@/lib/security-finding-normal
 import { RequestEpoch } from "@/lib/request-epoch"
 import { SystemExecutiveOverview } from "@/components/system-detail/system-executive-overview"
 import { useScopedSystemCatalog } from "@/lib/scoped-system-catalog"
+import { HISTORY_BEFORE_UNKNOWN, NOT_OBSERVED_IN_RECORDED_WINDOW } from "@/lib/observation-coverage"
 
 // Lazy load heavy components with dynamic imports for better performance
 const CloudGraphTab = dynamic(
@@ -3369,7 +3368,8 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
 
             <div className="p-6 overflow-y-auto max-h-[65vh]">
               <p className="text-sm text-[var(--muted-foreground,#4b5563)] mb-4">
-                These permissions are allowed but never used. Click on each to see details and take action.
+                These permissions are allowed but were not observed in use in the recorded window. Absence in the window is
+                not proof a permission is unneeded. Click on each to see its evidence before taking action.
               </p>
 
               <div className="space-y-2">
@@ -3520,7 +3520,7 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
                               )}
                             </ul>
                             <p className="text-[var(--muted-foreground,#4b5563)] mt-3 italic text-sm">
-                              Since the Lambda doesn't need this permission - why give attackers the option?
+                              If the workload does not need this permission, removing it takes the option away from an attacker.
                             </p>
                           </div>
 
@@ -3530,23 +3530,15 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
                               <CheckCircle className="w-4 h-4" />
                               Impact If Removed
                             </h4>
+                            {/* This block used to promise zero impact from a fixed seven-day
+                                window, with a fixed observed-days / last-used / confidence row:
+                                constants, not evidence. Absence in a window is not non-use. */}
                             <p className="text-[var(--foreground,#374151)]">
-                              <strong className="text-[#22c55e]">None.</strong> We observed 7 days of traffic - this
-                              permission was never used.
+                              <strong className="text-[#22c55e]">{NOT_OBSERVED_IN_RECORDED_WINDOW}.</strong> Cyntro did not
+                              observe this permission in use during the recorded window. {HISTORY_BEFORE_UNKNOWN}
                               <br />
-                              Removing it won't break anything.
+                              Check the role&apos;s least-privilege analysis for its observed days and decision evidence before removing it.
                             </p>
-                            <div className="mt-3 flex items-center gap-4 text-sm text-[var(--muted-foreground,#6b7280)]">
-                              <span className="flex items-center gap-1">
-                                <Eye className="w-3 h-3" />
-                                Observed: 7 days
-                              </span>
-                              <span className="flex items-center gap-1">
-                                <Clock className="w-3 h-3" />
-                                Last used: Never
-                              </span>
-                              <span className="flex items-center gap-1 text-[#22c55e] font-medium">99% confidence</span>
-                            </div>
                           </div>
 
                           {/* ACTIONS */}

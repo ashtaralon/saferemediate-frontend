@@ -69,6 +69,7 @@ import type {
   IamGapAnalysis,
 } from "@/components/iam-lp/types"
 import { REMEDIATION_MODAL_BACKDROP_STYLE } from "@/components/remediation-modal-chrome"
+import { notObservedInDaysCopy } from "@/lib/observation-coverage"
 import {
   type AttributionCheck,
   attributionReasonCopy,
@@ -5705,7 +5706,7 @@ export function IAMPermissionAnalysisModal({
                     ) : removableCount > 0 ? (
                       <div className="mt-3 p-3 rounded-lg bg-[#ef444408]">
                         <p className="text-sm" style={{ color: "var(--foreground, #374151)" }}>
-                          <strong>{removableCount} permission{removableCount !== 1 ? 's' : ''}</strong> are configured but were never used in {observationDays} days.
+                          <strong>{removableCount} permission{removableCount !== 1 ? 's' : ''}</strong> are configured but were {notObservedInDaysCopy(observationDays).replace(/^Not/, 'not')} (absence in the window is not proof of non-use).
                         </p>
                         <p className="text-xs mt-1 text-[#ef4444]">
                           These permissions come from managed policies attached to this role. To remediate, detach the managed policies and replace with a minimal inline policy containing only the {usedCount} used permission{usedCount !== 1 ? 's' : ''}.

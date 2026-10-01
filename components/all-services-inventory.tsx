@@ -34,6 +34,8 @@ import {
 import { useAccountScope } from '@/lib/account-scope-context'
 import { resourceAccountId, withAccountScope, type ProductScope } from '@/lib/account-scope'
 import { RefreshEvidenceButton } from "@/components/RefreshEvidenceButton"
+import { ObservationChip } from '@/components/coverage/observation-chip'
+import { readObservation, type Observation } from '@/lib/observation-coverage'
 
 type InventoryScope = Pick<ProductScope, 'customerId' | 'groupId' | 'accountId' | 'region'>
 
@@ -315,7 +317,9 @@ export default function AllServicesInventory({ systemName }: Props) {
   const [groupErrors, setGroupErrors] = useState<string[]>([])
   const [accountWideNotice, setAccountWideNotice] = useState(false)
   const [lastSync, setLastSync] = useState<string | typeof UNKNOWN | null>(null)
-  
+  // The range the inventory read covers, from /resources/all's `observation`.
+  const [observation, setObservation] = useState<Observation | null>(null)
+
   const [searchQuery, setSearchQuery] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('all')
   const [typeFilter, setTypeFilter] = useState('all')
@@ -342,6 +346,7 @@ export default function AllServicesInventory({ systemName }: Props) {
     const errors: string[] = []
     const evidenceTimestamps: Array<string | number | null | undefined> = []
     const allServices: ServiceItem[] = []
+    let inventoryObservation: Observation | null = null
 
     try {
       const regions = tenantRegionsForQuery(accountScope)
@@ -358,6 +363,7 @@ export default function AllServicesInventory({ systemName }: Props) {
         )
       } else {
         const data = await response.json()
+        inventoryObservation = readObservation(data)
         evidenceTimestamps.push(
           data.computed_at,
           data.synced_at,
@@ -434,6 +440,7 @@ export default function AllServicesInventory({ systemName }: Props) {
 
       setServices(allServices)
       setGroupErrors(errors)
+      setObservation(inventoryObservation)
       setLastSync(mapLastSyncEvidence(...evidenceTimestamps))
       if (errors.length > 0 && allServices.length === 0) {
         setError('Inventory reads failed for every group. See degraded groups below.')
@@ -442,6 +449,7 @@ export default function AllServicesInventory({ systemName }: Props) {
       console.error('Error fetching services:', err)
       setError(err.message)
       setServices([])
+      setObservation(null)
       setLastSync(UNKNOWN)
     } finally {
       setLoading(false)
@@ -679,6 +687,9 @@ export default function AllServicesInventory({ systemName }: Props) {
               {filteredServices.length} of {services.length} services •
               Last sync: {formatLastSyncLabel(lastSync)}
             </p>
+            <div className="mt-1.5">
+              <ObservationChip observation={observation} testId="inventory-observation" />
+            </div>
           </div>
         </div>
         

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { Shield, Lock, Globe, CheckCircle, XCircle, ArrowRight, Loader2, AlertTriangle, RefreshCw, X, ChevronRight, Key, FileWarning, Zap, Map as MapIcon } from "lucide-react"
+import { NOT_OBSERVED_IN_RECORDED_WINDOW } from "@/lib/observation-coverage"
 
 interface Resource {
   id: string
@@ -529,12 +530,14 @@ export function SystemSecurityOverview({ systemName, onViewOnMap }: SystemSecuri
             
             if (isUnused && isPublicRule) {
               action = 'DELETE'
-              reason = '⚠️ No traffic observed in 365 days on internet-exposed rule. REMOVE to reduce attack surface.'
+              // The window here is not the verified coverage (365 was a fixed
+              // string), so say "recorded window", and absence is not proof of non-use.
+              reason = `⚠️ ${NOT_OBSERVED_IN_RECORDED_WINDOW} on an internet-exposed rule. Review it for removal to reduce attack surface; absence in the window is not proof the rule is unused.`
               confidence = 95
               category = 'unused'
             } else if (isUnused) {
               action = 'DELETE'
-              reason = 'No traffic observed in 365 days. Consider removing this unused rule.'
+              reason = `${NOT_OBSERVED_IN_RECORDED_WINDOW}. Review whether this rule is still needed; absence in the window is not proof it is unused.`
               confidence = 85
               category = 'unused'
             } else if (canBeTightened) {
@@ -880,7 +883,7 @@ export function SystemSecurityOverview({ systemName, onViewOnMap }: SystemSecuri
                     </div>
                     <div className="text-3xl font-bold text-[#f97316]">{roleDetail.summary?.unused_count || selectedRole.unused_permissions || 0}</div>
                     <p className="text-sm text-[#f97316] mt-1">
-                      {roleDetail.summary?.unused_count || selectedRole.unused_permissions || 0} permissions are allowed but never used in 365 days
+                      {roleDetail.summary?.unused_count || selectedRole.unused_permissions || 0} permissions are allowed but were not observed in use in the recorded window
                     </p>
                   </div>
 
@@ -1121,7 +1124,7 @@ export function SystemSecurityOverview({ systemName, onViewOnMap }: SystemSecuri
                 )}
                 {selectedSG.eni_count > 0 && (
                   <div className="mt-3 text-xs text-slate-500">
-                    Observation window: 365 days • Source: VPC Flow Logs
+                    Requested window: 365 days (verified coverage can be shorter) • Source: VPC Flow Logs
                   </div>
                 )}
               </div>
@@ -1295,7 +1298,7 @@ export function SystemSecurityOverview({ systemName, onViewOnMap }: SystemSecuri
                   <div className="mb-6">
                     <h3 className="font-semibold text-[#ef4444] mb-3 flex items-center gap-2">
                       🗑️ Least-Privilege Candidates ({unusedRules.length})
-                      <span className="text-xs font-normal text-[#ef4444]">No traffic observed - safe to remove</span>
+                      <span className="text-xs font-normal text-[#ef4444]">{NOT_OBSERVED_IN_RECORDED_WINDOW} — review before removing</span>
                     </h3>
                     <div className="space-y-2">
                       {unusedRules.map((rule, idx) => (
@@ -1571,7 +1574,7 @@ export function SystemSecurityOverview({ systemName, onViewOnMap }: SystemSecuri
                         </h3>
                         <p className="text-sm text-[var(--foreground,#374151)]">
                           {connectionDetail.port_specific_traffic?.hits === 0 
-                            ? `No traffic observed on TCP:${connectionDetail.scope.port} between these security groups. Consider removing this rule if no longer needed.`
+                            ? `${NOT_OBSERVED_IN_RECORDED_WINDOW} on TCP:${connectionDetail.scope.port} between these security groups. Absence in the window is not proof the path is unused; review before removing this rule.`
                             : `${connectionDetail.port_specific_traffic?.hits.toLocaleString()} connections observed. Rule is in active use.`}
                         </p>
                       </div>
@@ -1938,10 +1941,10 @@ export function SystemSecurityOverview({ systemName, onViewOnMap }: SystemSecuri
                     <div className="bg-[#f9731610] border border-[#f9731640] rounded-xl p-4 flex items-start gap-3">
                       <AlertTriangle className="w-5 h-5 text-[#f97316] flex-shrink-0 mt-0.5" />
                       <div>
-                        <div className="font-semibold text-[#f97316]">No Traffic Observed</div>
+                        <div className="font-semibold text-[#f97316]">{NOT_OBSERVED_IN_RECORDED_WINDOW}</div>
                         <div className="text-sm text-[#f97316]">
-                          This rule has no recorded traffic in the last 365 days. 
-                          Consider removing it to improve your security posture.
+                          No traffic was recorded for this rule in the observation window. Absence in the window is
+                          not proof the rule is unused; review it before removing it.
                         </div>
                       </div>
                     </div>

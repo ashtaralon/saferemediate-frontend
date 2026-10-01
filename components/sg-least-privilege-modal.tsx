@@ -38,6 +38,7 @@ import { useToast } from '@/hooks/use-toast';
 import { fetchLegacyMutation } from '@/lib/legacy-mutation-hold';
 import { ConfidenceExplanationPanel } from '@/components/ConfidenceExplanationPanel';
 import type { ConfidenceScore } from '@/lib/types';
+import { notObservedInDaysCopy } from '@/lib/observation-coverage';
 
 // =============================================================================
 // TYPES
@@ -926,7 +927,9 @@ ${analysis.recommendations.delete.map(r => `  # REMOVE: ${r.protocol}/${r.port_r
                       </button>
                     </div>
                     <div className="px-4 py-1.5 text-xs border-b" style={{ color: "var(--muted-foreground, #6b7280)", borderColor: '#fecaca', background: '#fef2f280' }}>
-                      No traffic observed in {observationDays} days — safe to remove
+                      {/* LP evidence keeps its analysis length; absence in the window
+                          is a removal candidate, not proof the rule is unused. */}
+                      {notObservedInDaysCopy(analysis?.summary?.observation_days)} — removal candidate; absence in the window is not proof the rule is unused
                     </div>
                     <div className="p-2 space-y-1" style={{ background: "var(--card, #ffffff)" }}>
                       {deleteRules.map(rule => (
