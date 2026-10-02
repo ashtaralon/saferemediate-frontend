@@ -99,6 +99,11 @@ export async function GET(_req: NextRequest) {
 
 const EMPTY_PAYLOAD = { items: [] as ActivityItem[], total: 0, errors: [] as string[] }
 
+/** A source that refused the caller: its failure must never be covered by a replay of earlier data. */
+function refusedAuth(res: PromiseSettledResult<Response>): boolean {
+  return res.status === "fulfilled" && (res.value.status === 401 || res.value.status === 403)
+}
+
 async function computeFeed(): Promise<NextResponse> {
   const items: ActivityItem[] = []
   const errors: string[] = []
@@ -120,8 +125,9 @@ async function computeFeed(): Promise<NextResponse> {
   if (remediationRes.status === "fulfilled" && remediationRes.value.ok) {
     try {
       const data = await remediationRes.value.json()
-      const events = Array.isArray(data?.events) ? data.events : []
-      for (const ev of events) {
+      // A 200 without the expected list is not an empty source.
+      if (!Array.isArray(data?.events)) throw new Error("response carried no events list")
+      for (const ev of data.events) {
         items.push({
           kind: "remediation",
           timestamp: ev.timestamp ?? null,
@@ -149,8 +155,8 @@ async function computeFeed(): Promise<NextResponse> {
   if (snapshotsRes.status === "fulfilled" && snapshotsRes.value.ok) {
     try {
       const data = await snapshotsRes.value.json()
-      const snapshots = Array.isArray(data?.snapshots) ? data.snapshots : []
-      for (const s of snapshots) {
+      if (!Array.isArray(data?.snapshots)) throw new Error("response carried no snapshots list")
+      for (const s of data.snapshots) {
         items.push({
           kind: "snapshot",
           timestamp: s.created_at ?? null,
@@ -172,8 +178,8 @@ async function computeFeed(): Promise<NextResponse> {
   if (rollbacksRes.status === "fulfilled" && rollbacksRes.value.ok) {
     try {
       const data = await rollbacksRes.value.json()
-      const rollbacks = Array.isArray(data?.rollbacks) ? data.rollbacks : []
-      for (const rb of rollbacks) {
+      if (!Array.isArray(data?.rollbacks)) throw new Error("response carried no rollbacks list")
+      for (const rb of data.rollbacks) {
         items.push({
           kind: "rollback",
           timestamp: rb.timestamp ?? rb.rolled_back_at ?? null,
@@ -211,11 +217,12 @@ async function computeFeed(): Promise<NextResponse> {
     return NextResponse.json(payload, { headers: { "X-Cache": "MISS" } })
   }
 
-  // Zero items. This is either a genuinely-quiet account or every source failed
-  // under load (errors[] is populated). Prefer the last-good feed so a transient
-  // backend hiccup doesn't blank the strip — but only if that stale actually had
-  // activity, so we never resurrect a stale over a truly-empty account.
-  const stale = getStaleCached<typeof payload>(CACHE_KEY)
+  // Zero items. If every source answered, that is the current state and it
+  // replaces any older feed. Only a failed read may fall back to the last-good
+  // feed (stamped stale) -- and never a refused one: a 401/403 must not be
+  // covered by data read earlier under other authority.
+  const authRefused = [remediationRes, snapshotsRes, rollbacksRes].some(refusedAuth)
+  const stale = errors.length > 0 && !authRefused ? getStaleCached<typeof payload>(CACHE_KEY) : null
   if (stale && stale.items.length > 0) {
     return NextResponse.json({ ...stale, stale: true }, { headers: { "X-Cache": "STALE-EMPTY" } })
   }

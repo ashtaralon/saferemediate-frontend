@@ -19,6 +19,8 @@ export type ActivityFeedEnvelope = {
  * claims nothing about the rest; one with no items and errors read nothing.
  */
 export function activityFeedIsComplete(feed: ActivityFeedEnvelope | null | undefined): boolean {
-  if (!feed) return false
-  return (feed.errors?.length ?? 0) === 0 && feed.stale !== true
+  // The envelope the proxy builds: an items list and an errors list. Anything
+  // else (`{}`, a typed error body, a malformed answer) is no reading.
+  if (!feed || !Array.isArray(feed.items) || !Array.isArray(feed.errors)) return false
+  return feed.errors.length === 0 && feed.stale !== true
 }

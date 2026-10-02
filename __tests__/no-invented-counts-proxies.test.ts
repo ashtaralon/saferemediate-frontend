@@ -182,6 +182,40 @@ describe("recent-activity proxy", () => {
     expect(body.stale).toBe(true)
   })
 
+  const OLD_FEED = { items: [{ kind: "snapshot", timestamp: "2026-10-01T00:00:00Z" }], total: 1, errors: [] }
+  const quiet = (url: string) => ({
+    status: 200,
+    body: url.includes("/timeline") ? { events: [] } : url.includes("/snapshots") ? { snapshots: [] } : { rollbacks: [] },
+  })
+
+  it("a fresh read in which every source answered empty replaces an older feed", async () => {
+    setCached("recent-activity", OLD_FEED, -1)
+    stubBackend(quiet)
+    const { GET } = await import("@/app/api/proxy/recent-activity/route")
+    const body = await (await GET(req("/api/proxy/recent-activity"))).json()
+    expect(body.items).toEqual([])
+    expect(body.errors).toEqual([])
+    expect(body.stale).toBeUndefined()
+  })
+
+  it("a refused source (401/403) is never covered by a replay of earlier data", async () => {
+    setCached("recent-activity", OLD_FEED, -1)
+    stubBackend((url) => (url.includes("/snapshots") ? { status: 403, body: { detail: "forbidden" } } : quiet(url)))
+    const { GET } = await import("@/app/api/proxy/recent-activity/route")
+    const body = await (await GET(req("/api/proxy/recent-activity"))).json()
+    expect(body.items).toEqual([])
+    expect(body.stale).toBeUndefined()
+    expect(body.errors).toEqual(["snapshots: backend 403"])
+  })
+
+  it("a 200 without the expected list is a source error, not an empty source", async () => {
+    stubBackend((url) => (url.includes("/rollbacks") || url.includes("rollback") ? { status: 200, body: { error: "held" } } : quiet(url)))
+    const { GET } = await import("@/app/api/proxy/recent-activity/route")
+    const body = await (await GET(req("/api/proxy/recent-activity"))).json()
+    expect(body.errors).toHaveLength(1)
+    expect(body.errors[0]).toMatch(/^rollbacks parse: response carried no rollbacks list/)
+  })
+
   it("control: a feed every source answered is not stamped", async () => {
     stubBackend((url) => ({
       status: 200,

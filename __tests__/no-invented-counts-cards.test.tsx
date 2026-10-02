@@ -142,6 +142,12 @@ describe("Recent activity", () => {
     expect(text()).toContain("Last feed shown")
     expect(text()).not.toContain("1 events")
   })
+  it("a body that is not the feed envelope ({} or a typed error) is no reading", () => {
+    readings[url] = {}
+    render(<RecentActivityCard />)
+    expect(text()).toContain("Activity could not be read")
+    expect(text()).not.toContain("0 events")
+  })
   it("control: a complete empty feed is the honest 'no events'", () => {
     readings[url] = { items: [], total: 0, errors: [] }
     render(<RecentActivityCard />)
