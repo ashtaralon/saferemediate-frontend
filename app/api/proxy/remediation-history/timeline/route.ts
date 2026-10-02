@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { getCached, getStaleCached, setCached, TTL_STD } from "@/lib/server/proxy-cache"
+import { clearCached, getCached, getStaleCached, setCached, TTL_STD } from "@/lib/server/proxy-cache"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
 export const dynamic = "force-dynamic"
@@ -29,6 +29,20 @@ const DEGRADED_TIMELINE = { events: [] as unknown[], chart_data: [] as unknown[]
 // Render worker fails over to stale here instead of timing out in the component.
 const UPSTREAM_TIMEOUT_MS = 20_000
 const EMPTY_RETRY_TIMEOUT_MS = 5_000
+
+// A REFUSAL (401/403/422, or a typed hold: detail.code) is the server's answer about this caller/scope.
+// It REVOKES the key: the cached list is dropped (no later HIT or replay serves it) and the key's
+// revocation count moves, so a request that was already in flight cannot store its older list after it.
+const revocations = new Map<string, number>()
+
+function isRefusal(status: number, body: any): boolean {
+  return [401, 403, 422].includes(status) || typeof body?.detail?.code === "string"
+}
+
+function revoke(cacheKey: string): void {
+  clearCached(cacheKey)
+  revocations.set(cacheKey, (revocations.get(cacheKey) ?? 0) + 1)
+}
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
@@ -61,6 +75,11 @@ export async function GET(req: NextRequest) {
   // distinct entry from limit=200 (the history page), so one never serves the
   // other's shape.
   const cacheKey = `remediation-timeline:${canonicalQs}`
+  const revokedAtStart = revocations.get(cacheKey) ?? 0
+  // Not if the key was revoked while this request was in flight: its list is older than that refusal.
+  const storeIfCurrent = (value: unknown) => {
+    if ((revocations.get(cacheKey) ?? 0) === revokedAtStart) setCached(cacheKey, value, TTL_STD)
+  }
 
   const cached = forceRefresh ? null : getCached(cacheKey)
   if (cached) {
@@ -96,8 +115,11 @@ export async function GET(req: NextRequest) {
       // server's answer about this caller/scope, and data read earlier must not cover it.
       console.error("[Remediation Timeline Proxy] backend", response.status)
       const body = await response.json().catch(() => null)
-      const refused = [401, 403, 422].includes(response.status) || typeof body?.detail?.code === "string"
-      const stale = refused ? null : getStaleCached<Record<string, unknown>>(cacheKey)
+      if (isRefusal(response.status, body)) {
+        revoke(cacheKey)
+        return NextResponse.json(DEGRADED_TIMELINE, { headers: { "X-Cache": "ERROR-EMPTY" } })
+      }
+      const stale = getStaleCached<Record<string, unknown>>(cacheKey)
       if (stale) {
         // Stamped: an older list served over a failed read is not current.
         return NextResponse.json({ ...stale, stale: true }, { headers: { "X-Cache": "STALE-ERROR" } })
@@ -131,6 +153,13 @@ export async function GET(req: NextRequest) {
             data = retryData
             freshCount = retryCount
           }
+        } else {
+          // The retry is the NEWER answer: refused, it revokes -- older events are never put over it.
+          const retryBody = await retryResponse.json().catch(() => null)
+          if (isRefusal(retryResponse.status, retryBody)) {
+            revoke(cacheKey)
+            return NextResponse.json(DEGRADED_TIMELINE, { headers: { "X-Cache": "ERROR-EMPTY" } })
+          }
         }
       } catch {
         // The existing stale/empty fallback below remains authoritative.
@@ -140,7 +169,7 @@ export async function GET(req: NextRequest) {
     }
 
     if (freshCount > 0) {
-      setCached(cacheKey, data, TTL_STD)
+      storeIfCurrent(data)
       return NextResponse.json(data, { headers: { "X-Cache": "MISS" } })
     }
     // Backend answered 200 but with zero events. That's legitimate for a quiet
@@ -152,7 +181,7 @@ export async function GET(req: NextRequest) {
     if (staleWithEvents && Array.isArray(staleWithEvents.events) && staleWithEvents.events.length > 0) {
       return NextResponse.json({ ...staleWithEvents, stale: true }, { headers: { "X-Cache": "STALE-OVER-EMPTY" } })
     }
-    setCached(cacheKey, data, TTL_STD)
+    storeIfCurrent(data)
     return NextResponse.json(data, { headers: { "X-Cache": "MISS-EMPTY" } })
   } catch (error: any) {
     // Timeout / network / parse — same posture: last-good, else degraded. Always 200.
