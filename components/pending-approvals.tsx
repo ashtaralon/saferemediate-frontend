@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { BoundaryEvidenceDrawer } from "@/components/business-system/boundary-evidence-drawer"
+import { semanticHoldMessage, typedServingRefusal } from "@/lib/semantic-hold"
 import {
   AlertTriangle,
   CheckCircle,
@@ -106,7 +107,10 @@ export function PendingApprovals({ systemName }: { systemName?: string }) {
       // an operator-readable `message`; treat that as an inline error
       // distinct from "no pending tags" (empty pending array).
       if (data?.unavailable) {
-        setError(data.message || "Approvals service unavailable")
+        // A typed hold or refusal (an install holds this queue by name) is worded as that state; otherwise the
+        // proxy's own message.
+        const hold = data.hold?.code ? typedServingRefusal({ detail: data.hold }) : null
+        setError(hold ? semanticHoldMessage(hold) : data.message || "Approvals service unavailable")
         setPending([])
         return
       }

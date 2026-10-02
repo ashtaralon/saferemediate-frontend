@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
+import { allowlistedBackendDetail } from "@/lib/server/proxy-error"
 
 const BACKEND_URL = getBackendBaseUrl();
 
@@ -25,18 +26,19 @@ export async function GET(request: NextRequest) {
     });
 
     if (!response.ok) {
-      // Backend reachable but errored. Return 200 with a structured
-      // empty payload + diagnostic, so the UI can show "service
-      // unavailable" without the component throwing on `!res.ok`.
-      // Keeping HTTP 200 is intentional: the proxy itself is fine,
-      // it's the upstream that's degraded.
+      // Backend reachable but did not serve the queue. Return 200 with a structured payload + diagnostic, so the UI
+      // can show the state without the component throwing on `!res.ok`. Nothing was read, so there is no list and no
+      // count (null, never [] / 0). A typed refusal or hold (detail.code: SERVING_ROUTE_HELD on an install, a scope
+      // refusal) is relayed as `hold` -- the allowlisted typed fields only -- so the page can say which state it is.
+      const typed = allowlistedBackendDetail(await response.text().catch(() => ""));
       return NextResponse.json(
         {
-          pending: [],
-          count: 0,
+          pending: null,
+          count: null,
           unavailable: true,
           backend_status: response.status,
           message: `Approvals backend returned HTTP ${response.status}`,
+          ...(typed?.code ? { hold: { code: typed.code, reason: typed.reason ?? null, read_model: typed.read_model ?? null } } : {}),
         },
         { status: 200 },
       );
@@ -48,8 +50,8 @@ export async function GET(request: NextRequest) {
     const isTimeout = error?.name === 'TimeoutError' || error?.name === 'AbortError';
     return NextResponse.json(
       {
-        pending: [],
-        count: 0,
+        pending: null,
+        count: null,
         unavailable: true,
         backend_status: isTimeout ? 504 : 502,
         message: isTimeout
