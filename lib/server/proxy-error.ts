@@ -58,6 +58,10 @@ export function reviewProxyStatus(backendStatus: number): number {
 /** The typed fields a backend refusal may carry through a proxy. Nothing else is forwarded. */
 export type AllowlistedBackendDetail = {
   code?: string
+  /** The typed reason beside a code, e.g. NO_DATA_ACCOUNTS under INVENTORY_SCOPE_UNAVAILABLE. */
+  reason?: string
+  /** A READ_MODEL_MISSING hold names the read model it waits for. */
+  read_model?: string
   /** The off-boundary refusal's typed code (``{detail: {error, reason_code, message}}``, 409 off_boundary_mutation_refused). */
   reason_code?: string
   error?: string
@@ -102,6 +106,8 @@ export function allowlistedBackendDetail(rawBody: string): AllowlistedBackendDet
   const d = detail as Record<string, unknown>
   const out: AllowlistedBackendDetail = {
     code: typedText(d.code),
+    reason: typedText(d.reason),
+    read_model: typedText(d.read_model),
     reason_code: typedText(d.reason_code),
     error: typedText(d.error),
     message: typedText(d.message, MAX_TYPED_MESSAGE),
@@ -142,12 +148,24 @@ export function backendError(opts: {
  * is UNREADABLE, produced here, so body and header both say "proxy".
  */
 export async function relayBackendError(response: Response): Promise<NextResponse> {
+  const raw = await response.text().catch(() => "")
   if (response.status >= 500) {
+    // A 503 carrying a typed detail code is the server's deliberate answer about this read
+    // (INVENTORY_SCOPE_UNAVAILABLE + NO_DATA_ACCOUNTS, SERVING_ROUTE_HELD, SERVING_READ_REFUSED,
+    // ...): relayed typed, so the caller shows the state instead of "backend recovering".
+    // Every other 5xx is exception text and an unknown outcome: generic 502 as before.
+    const typed = response.status === 503 ? allowlistedBackendDetail(raw) : undefined
+    if (typed?.code) {
+      return NextResponse.json(
+        { detail: typed, backendStatus: 503, origin: "backend" },
+        { status: 503, headers: { "Cache-Control": "no-store", [ERROR_ORIGIN_HEADER]: "backend" } },
+      )
+    }
     const failed = backendError({ status: response.status, message: `Backend answered HTTP ${response.status}` })
     failed.headers.set(ERROR_ORIGIN_HEADER, "proxy")
     return failed
   }
-  const detail = allowlistedBackendDetail(await response.text().catch(() => ""))
+  const detail = allowlistedBackendDetail(raw)
   if (detail) {
     return NextResponse.json(
       { detail, backendStatus: response.status, origin: "backend" },

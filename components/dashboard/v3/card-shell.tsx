@@ -188,7 +188,7 @@ export function ErrorCard({
           Unavailable — this is not a zero.
         </div>
         <div className="mt-1 text-xs text-slate-500">
-          See the data-status banner above; use Refresh to retry every source.
+          Use Refresh above to retry every source.
         </div>
       </div>
     )

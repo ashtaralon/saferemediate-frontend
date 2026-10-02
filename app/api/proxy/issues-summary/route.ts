@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { backendError, fromCaughtError } from "@/lib/server/proxy-error"
+import { fromCaughtError, relayBackendError } from "@/lib/server/proxy-error"
 import { isCacheableSummary } from "@/lib/summary-integrity"
 import { issuesSummaryBrssHold } from "@/lib/brss-held"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
@@ -103,6 +103,19 @@ export async function GET(req: NextRequest) {
     clearTimeout(timeoutId)
 
     if (!res.ok) {
+      const raw = await res.text().catch(() => "")
+      let typedCode: unknown = null
+      try {
+        typedCode = JSON.parse(raw)?.detail?.code
+      } catch {
+        typedCode = null
+      }
+      // A REFUSAL is the server's answer about this caller/scope (401/403/422, or a typed hold:
+      // held route, no data accounts): relayed typed, and never covered by an older reading.
+      const refused = [401, 403, 422].includes(res.status) || typeof typedCode === "string"
+      if (refused) {
+        return relayBackendError(new Response(raw, { status: res.status }))
+      }
       if (cached) {
         return NextResponse.json(
           {
@@ -125,13 +138,8 @@ export async function GET(req: NextRequest) {
           { headers: { "X-Cache": "STALE", "Cache-Control": "no-store" } },
         )
       }
-      const detail = await res.text().catch(() => "")
-      console.error(`[issues-summary proxy] backend ${res.status}: ${detail.slice(0, 200)}`)
-      return backendError({
-        status: res.status,
-        message: `Issues-summary backend returned ${res.status}`,
-        detail: detail.slice(0, 500),
-      })
+      console.error(`[issues-summary proxy] backend ${res.status}`)
+      return relayBackendError(new Response(raw, { status: res.status }))
     }
 
     const data = await res.json()

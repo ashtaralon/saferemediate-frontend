@@ -110,16 +110,17 @@ describe("untyped 503 after a cached success (unchanged)", () => {
 
 describe("200 hold", () => {
   it.each([
-    ["install_not_recorded", "not_recorded", "CONSUMER_READINESS_UNOBSERVABLE"],
-    ["c1_unavailable", "unavailable", "503: Neo4j not connected"],
-  ])("%s is never cached and evicts the cached map", async (key, kind, reason) => {
+    // state: the bare hold_reason when the server sent one (it words a defined install state); null otherwise
+    ["install_not_recorded", "not_recorded", "CONSUMER_READINESS_UNOBSERVABLE", "CONSUMER_READINESS_UNOBSERVABLE"],
+    ["c1_unavailable", "unavailable", "503: Neo4j not connected", null],
+  ])("%s is never cached and evicts the cached map", async (key, kind, reason, state) => {
     seedCache(GOOD)
     vi.stubGlobal("fetch", vi.fn(() => respond(200, HOLDS[key].body)))
 
     const { result } = renderHook(() => useCachedFetch<typeof GOOD>(URL, { cacheKey: KEY }))
 
     await waitFor(() => expect(result.current.hold).not.toBeNull())
-    expect(result.current.hold).toEqual({ kind, reason })
+    expect(result.current.hold).toEqual({ kind, reason, state })
     expect(result.current.data).toBeNull()
     expect(result.current.error).toContain(reason)
     expect(cacheEntry()).toBeNull()

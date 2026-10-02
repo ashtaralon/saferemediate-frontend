@@ -8,7 +8,11 @@
  *     guard off) or 503 `detail.code: SEMANTIC_READ_UNAVAILABLE` (install);
  *   - the consumer-readiness hold → 200 `semantic_status: "not_recorded"`;
  *   - serving_read_guard → 503 `detail.code: SERVING_READ_REFUSED`;
- *   - estate_read.held_route_refusal → 503 `detail.code: SERVING_ROUTE_HELD`.
+ *   - estate_read.held_route_refusal → 503 `detail.code: SERVING_ROUTE_HELD`;
+ *   - estate_read._refuse_http (the server scope) → 503 `INVENTORY_SCOPE_UNAVAILABLE` (+ reason,
+ *     e.g. NO_DATA_ACCOUNTS), 422 `ACCOUNT_SCOPE_REQUIRED` (several workload accounts, none named),
+ *     403 `INVENTORY_SCOPE_MISMATCH` (a claim outside the server's scope); and the LP review scope's
+ *     403 `REVIEW_SCOPE_MISMATCH`.
  *
  * Two classes, handled differently by every consumer:
  *   - a REFUSAL (SERVING_READ_REFUSED, SERVING_ROUTE_HELD) and a 200 HOLD
@@ -18,12 +22,22 @@
  *     shown, labelled stale (the proxy's documented choice).
  */
 
-export type SemanticHoldKind = "not_recorded" | "unavailable" | "refused" | "route_held" | "error"
+export type SemanticHoldKind =
+  | "not_recorded"
+  | "unavailable"
+  | "refused"
+  | "route_held"
+  | "scope_unavailable"
+  | "scope_required"
+  | "scope_denied"
+  | "error"
 
 export interface SemanticHold {
   kind: SemanticHoldKind
   /** The server's own words (hold_reason / error / `CODE: reason`), verbatim. */
   reason: string | null
+  /** The bare server reason (e.g. NO_DATA_ACCOUNTS), used to word a defined install STATE. */
+  state?: string | null
 }
 
 const HOLD_SEMANTIC_STATUS: ReadonlySet<string> = new Set(["not_recorded", "unavailable"])
@@ -41,10 +55,8 @@ function nonEmpty(value: unknown): string | null {
 function statusHoldOf(body: Record<string, unknown>): SemanticHold | null {
   const status = nonEmpty(body.semantic_status)
   if (!status || !HOLD_SEMANTIC_STATUS.has(status)) return null
-  return {
-    kind: status as SemanticHoldKind,
-    reason: nonEmpty(body.hold_reason) ?? nonEmpty(body.error),
-  }
+  const reason = nonEmpty(body.hold_reason) ?? nonEmpty(body.error)
+  return { kind: status as SemanticHoldKind, reason, state: nonEmpty(body.hold_reason) }
 }
 
 /**
@@ -80,6 +92,15 @@ export function typedServingRefusal(body: unknown): SemanticHold | null {
   if (detail.code === "SERVING_ROUTE_HELD") {
     return { kind: "route_held", reason: coded(detail.code, detail.reason) }
   }
+  if (detail.code === "INVENTORY_SCOPE_UNAVAILABLE") {
+    return { kind: "scope_unavailable", reason: coded(detail.code, detail.reason), state: detail.reason }
+  }
+  if (detail.code === "ACCOUNT_SCOPE_REQUIRED") {
+    return { kind: "scope_required", reason: detail.code, state: detail.code }
+  }
+  if (detail.code === "INVENTORY_SCOPE_MISMATCH" || detail.code === "REVIEW_SCOPE_MISMATCH") {
+    return { kind: "scope_denied", reason: coded(detail.code, detail.reason), state: detail.code }
+  }
   return null
 }
 
@@ -97,12 +118,19 @@ export function typedReaderUnavailable(body: unknown): SemanticHold | null {
  */
 const STATE_HOLDS: Readonly<Record<string, string>> = {
   NO_DATA_ACCOUNTS: "No workload account is connected yet — connect one in Settings › Accounts",
+  ACCOUNT_SCOPE_REQUIRED:
+    "Several workload accounts are connected — choose one account in the scope bar to see this",
+  INVENTORY_SCOPE_MISMATCH: "The selected account is not in this install's scope",
+  REVIEW_SCOPE_MISMATCH: "The selected account is not in this review's scope",
 }
 
 /** One operator-facing line for a hold, used as the fetch hook's `error`. */
 export function semanticHoldMessage(hold: SemanticHold): string {
-  if (hold.kind === "not_recorded" && hold.reason && STATE_HOLDS[hold.reason]) {
-    return STATE_HOLDS[hold.reason]
+  const state = hold.state ?? (hold.kind === "not_recorded" ? hold.reason : null)
+  if (state && STATE_HOLDS[state]) return STATE_HOLDS[state]
+  if (state && state.startsWith("REGION_NOT_SERVED")) {
+    const region = state.split(":")[1]
+    return `${region ? `Region ${region} is` : "This Region is"} not served by this install yet`
   }
   const head =
     hold.kind === "not_recorded"
@@ -111,6 +139,8 @@ export function semanticHoldMessage(hold: SemanticHold): string {
         ? "Read refused by the server"
         : hold.kind === "route_held"
           ? "Route held by the server"
+          : hold.kind === "scope_unavailable"
+            ? "Not available for this scope"
           : hold.kind === "unavailable"
             ? "Unavailable"
             : "Read failed"

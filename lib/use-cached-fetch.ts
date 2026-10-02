@@ -510,6 +510,23 @@ export function useCachedFetch<T = unknown>(
           return
         }
         setHold(null)
+        // A refusal of the CALLER (401 session / 403 permission) is never covered by data read
+        // earlier, for any caller: the key's cached reading is dropped, nothing is replayed.
+        if (res.status === 401 || res.status === 403) {
+          clearCachedFetch(cacheKey)
+          setData(null)
+          setIsStale(false)
+          setCachedAt(null)
+          setStaleReason(null)
+          setError(
+            res.status === 401
+              ? "Your session is no longer valid — sign in again"
+              : "Not permitted for this account or scope",
+          )
+          setLoading(false)
+          clearAutoRetry()
+          return
+        }
         // TRANSPORT vs SEMANTIC. A 502/504 says the backend is unreachable;
         // it says nothing about whether the cached reading is still true. A
         // 4xx is the backend answering authoritatively that it is not.

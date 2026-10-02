@@ -559,6 +559,27 @@ export function ExecutiveCockpit({
   ) {
     return <LoadingCard label="Cloud risk and remediation overview" />
   }
+  // No workload account connected: this state answers before any catalog hold or error -- the
+  // systems proxy relays the backend's NO_DATA_ACCOUNTS hold rather than an empty list.
+  if (noAccountsInScope(accountScope)) {
+    // No workload account is connected yet (a control plane before its first
+    // account): an expected state with one way forward, not a fault to retry.
+    return (
+      <div className="rounded-[14px] border border-slate-200 bg-white p-5">
+        <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+          Cloud risk and remediation overview
+        </div>
+        <div className="mt-2 text-sm font-medium text-slate-800">{NO_ACCOUNTS_TITLE}</div>
+        <div className="mt-1 text-sm text-slate-600">{noAccountsDescription(accountScope.customerId)}</div>
+        <button
+          onClick={() => router.push("/settings/accounts")}
+          className="mt-3 rounded-md border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
+        >
+          Open Settings › Accounts
+        </button>
+      </div>
+    )
+  }
   if (accountScope.error || systemsCatalog.error) {
     return <ErrorCard
       label="Cloud risk and remediation overview"
@@ -567,25 +588,6 @@ export function ExecutiveCockpit({
     />
   }
   if (scopedSystems.length === 0) {
-    if (noAccountsInScope(accountScope)) {
-      // No workload account is connected yet (a control plane before its first
-      // account): an expected state with one way forward, not a fault to retry.
-      return (
-        <div className="rounded-[14px] border border-slate-200 bg-white p-5">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
-            Cloud risk and remediation overview
-          </div>
-          <div className="mt-2 text-sm font-medium text-slate-800">{NO_ACCOUNTS_TITLE}</div>
-          <div className="mt-1 text-sm text-slate-600">{noAccountsDescription(accountScope.customerId)}</div>
-          <button
-            onClick={() => router.push("/settings/accounts")}
-            className="mt-3 rounded-md border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
-          >
-            Open Settings › Accounts
-          </button>
-        </div>
-      )
-    }
     if (hiddenByFilters !== null && hiddenByFilters > 0) {
       // Systems exist; the narrowing filters hide them. A different situation
       // from a true empty, with a one-click way out — never the same card.

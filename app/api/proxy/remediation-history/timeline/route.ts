@@ -92,10 +92,15 @@ export async function GET(req: NextRequest) {
       }
       // Any other backend failure (500/502 under load): prefer last-good over a
       // raw error status. NEVER propagate a 5xx to a nice-to-have activity feed.
+      // Never over a REFUSAL, though: a 401/403/422 or a typed hold (detail.code) is the
+      // server's answer about this caller/scope, and data read earlier must not cover it.
       console.error("[Remediation Timeline Proxy] backend", response.status)
-      const stale = getStaleCached(cacheKey)
+      const body = await response.json().catch(() => null)
+      const refused = [401, 403, 422].includes(response.status) || typeof body?.detail?.code === "string"
+      const stale = refused ? null : getStaleCached<Record<string, unknown>>(cacheKey)
       if (stale) {
-        return NextResponse.json(stale, { headers: { "X-Cache": "STALE-ERROR" } })
+        // Stamped: an older list served over a failed read is not current.
+        return NextResponse.json({ ...stale, stale: true }, { headers: { "X-Cache": "STALE-ERROR" } })
       }
       return NextResponse.json(DEGRADED_TIMELINE, { headers: { "X-Cache": "ERROR-EMPTY" } })
     }
@@ -145,16 +150,16 @@ export async function GET(req: NextRequest) {
     // the honest empty so a truly-quiet query still reads idle.
     const staleWithEvents = getStaleCached<{ events?: unknown[] }>(cacheKey)
     if (staleWithEvents && Array.isArray(staleWithEvents.events) && staleWithEvents.events.length > 0) {
-      return NextResponse.json(staleWithEvents, { headers: { "X-Cache": "STALE-OVER-EMPTY" } })
+      return NextResponse.json({ ...staleWithEvents, stale: true }, { headers: { "X-Cache": "STALE-OVER-EMPTY" } })
     }
     setCached(cacheKey, data, TTL_STD)
     return NextResponse.json(data, { headers: { "X-Cache": "MISS-EMPTY" } })
   } catch (error: any) {
     // Timeout / network / parse — same posture: last-good, else degraded. Always 200.
     console.error("[Remediation Timeline Proxy] error:", error?.message ?? String(error))
-    const stale = getStaleCached(cacheKey)
+    const stale = getStaleCached<Record<string, unknown>>(cacheKey)
     if (stale) {
-      return NextResponse.json(stale, { headers: { "X-Cache": "STALE-ERROR" } })
+      return NextResponse.json({ ...stale, stale: true }, { headers: { "X-Cache": "STALE-ERROR" } })
     }
     return NextResponse.json(DEGRADED_TIMELINE, { headers: { "X-Cache": "ERROR-DEGRADED" } })
   }

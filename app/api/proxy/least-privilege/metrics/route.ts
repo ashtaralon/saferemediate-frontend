@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
-import { backendError, fromCaughtError } from "@/lib/server/proxy-error"
+import { fromCaughtError, relayBackendError } from "@/lib/server/proxy-error"
 
 export const dynamic = "force-dynamic"
 export const fetchCache = "force-no-store"
@@ -31,9 +31,9 @@ export async function GET(_req: NextRequest) {
     clearTimeout(timeoutId)
 
     if (!res.ok) {
-      const errorText = await res.text()
-      console.error(`[LP Proxy Metrics] Backend returned ${res.status}: ${errorText}`)
-      return backendError({ status: res.status, message: `LP metrics backend returned ${res.status}` })
+      console.error(`[LP Proxy Metrics] Backend returned ${res.status}`)
+      // The install holds this route (SERVING_ROUTE_HELD): relayed typed, never a bare 502.
+      return relayBackendError(res)
     }
 
     const data = await res.json()

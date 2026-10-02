@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { backendError, fromCaughtError } from "@/lib/server/proxy-error"
+import { backendError, fromCaughtError, relayBackendError } from "@/lib/server/proxy-error"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
 export const dynamic = "force-dynamic"
@@ -15,6 +15,31 @@ const CACHE_TTL = 5 * 60 * 1000 // 5 minutes
 // Retry configuration
 const MAX_RETRIES = 2
 const RETRY_DELAY_MS = 2000
+
+/**
+ * What the backend says about the answer's coverage, relayed verbatim (backend api/systems.py,
+ * api/system_resources.py member_account_fields / collection_not_served_answer). Dropping them
+ * turned a hold ("not recorded: NO_DATA_ACCOUNTS / REGION_NOT_SERVED") into an empty list and a
+ * partial multi-account answer into a complete one.
+ */
+const COVERAGE_KEYS = [
+  "semantic_status", "collection_status", "hold_reason", "accounts_held", "accounts_not_recorded",
+  "regions_not_served", "withheld", "scope", "generations",
+] as const
+
+function isHold(data: any): boolean {
+  return data?.semantic_status === "not_recorded" || data?.semantic_status === "unavailable"
+}
+
+async function isTypedRefusal(response: Response): Promise<boolean> {
+  if (response.status !== 503) return false
+  try {
+    const body = await response.clone().json()
+    return typeof body?.detail?.code === "string"
+  } catch {
+    return false
+  }
+}
 
 export async function GET(req: NextRequest) {
   const scope = new URLSearchParams()
@@ -53,8 +78,8 @@ export async function GET(req: NextRequest) {
         signal: AbortSignal.timeout(90000), // 90 second timeout for cold starts
       })
 
-      // Retry on 5xx errors
-      if (response.status >= 500 && attempt < MAX_RETRIES) {
+      // Retry on 5xx errors -- but a typed 503 is the server's answer, not a blip.
+      if (response.status >= 500 && attempt < MAX_RETRIES && !(await isTypedRefusal(response))) {
         console.log(`[API Proxy] Got ${response.status}, retrying (attempt ${attempt + 1}/${MAX_RETRIES})...`)
         await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS))
         return fetchWithRetry(attempt + 1)
@@ -76,13 +101,9 @@ export async function GET(req: NextRequest) {
     const response = await fetchWithRetry()
 
     if (!response.ok) {
-      const responseText = await response.text().catch(() => "")
-      console.error("[API Proxy] Backend error:", response.status, responseText.substring(0, 200))
-      return backendError({
-        status: response.status,
-        message: `Systems backend returned ${response.status}`,
-        detail: responseText.slice(0, 500),
-      })
+      console.error("[API Proxy] Backend error:", response.status)
+      // Typed refusals (scope, held, unavailable) relayed typed; raw text never echoed.
+      return relayBackendError(response)
     }
 
     const responseText = await response.text()
@@ -94,11 +115,20 @@ export async function GET(req: NextRequest) {
       return backendError({
         status: 502,
         message: "Systems backend returned non-JSON response",
-        detail: responseText.slice(0, 500),
       })
     }
 
-    const systems = data.systems || []
+    const coverage = Object.fromEntries(COVERAGE_KEYS.filter((key) => key in data).map((key) => [key, data[key]]))
+    if (isHold(data)) {
+      // A hold is a status report, not a list: systems stays null, nothing is cached.
+      return NextResponse.json(
+        { success: false, systems: data.systems ?? null, total: data.count ?? null, timestamp: data.timestamp,
+          observation: data.observation ?? null, ...coverage },
+        { headers: { "Cache-Control": "no-store", "X-Cache": "BYPASS-HOLD" } },
+      )
+    }
+
+    const systems = Array.isArray(data.systems) ? data.systems : []
 
     // Disambiguate case-insensitive name collisions for the picker UI.
     // Backend currently emits separate entries for e.g. "Payment-Production"
@@ -126,11 +156,12 @@ export async function GET(req: NextRequest) {
     const responseData = {
       success: true,
       systems: disambiguated,
-      total: data.total || disambiguated.length,
+      total: data.total ?? data.count ?? disambiguated.length,
       timestamp: data.timestamp,
       // The range the systems list covers (lib/observation-coverage.ts).
       // Relayed verbatim; null when the backend recorded none.
       observation: data.observation ?? null,
+      ...coverage,
     }
 
     // Store in cache

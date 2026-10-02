@@ -10,7 +10,7 @@ import { semanticHoldMessage, semanticStatusHold } from "@/lib/semantic-hold"
 describe("state holds", () => {
   it("no connected workload account points the operator to Settings › Accounts", () => {
     const hold = semanticStatusHold({ semantic_status: "not_recorded", hold_reason: "NO_DATA_ACCOUNTS" })
-    expect(hold).toEqual({ kind: "not_recorded", reason: "NO_DATA_ACCOUNTS" })
+    expect(hold).toEqual({ kind: "not_recorded", reason: "NO_DATA_ACCOUNTS", state: "NO_DATA_ACCOUNTS" })
     expect(semanticHoldMessage(hold!)).toBe(
       "No workload account is connected yet — connect one in Settings › Accounts",
     )

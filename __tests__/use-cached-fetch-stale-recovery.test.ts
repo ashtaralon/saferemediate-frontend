@@ -183,7 +183,14 @@ describe("semantic failure still discards — fail-closed is not weakened", () =
         }),
       )
 
-      await waitFor(() => expect(result.current.error).toBe(`HTTP ${status}`))
+      // A refusal of the CALLER (401 session / 403 permission) is worded for the person, not as a code.
+      const expected =
+        status === 401
+          ? "Your session is no longer valid — sign in again"
+          : status === 403
+            ? "Not permitted for this account or scope"
+            : `HTTP ${status}`
+      await waitFor(() => expect(result.current.error).toBe(expected))
       expect(result.current.data).toBeNull()
       expect(result.current.isStale).toBe(false)
       expect(result.current.staleReason).toBeNull()

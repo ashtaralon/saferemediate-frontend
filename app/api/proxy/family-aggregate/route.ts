@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
 import { getCached, setCached, TTL_SLOW } from "@/lib/server/proxy-cache"
-import { backendError, fromCaughtError } from "@/lib/server/proxy-error"
+import { backendError, fromCaughtError, relayBackendError } from "@/lib/server/proxy-error"
 
 const BACKEND_URL = getBackendBaseUrl()
 const CACHE_KEY = "family-aggregate"
@@ -52,7 +52,7 @@ export async function GET(_req: NextRequest) {
       signal: AbortSignal.timeout(25000),
     })
     if (!r.ok) {
-      return backendError({ status: r.status, message: "Family scores backend unavailable" })
+      return relayBackendError(r)
     }
     const data: AllSystemsResponse = await r.json()
     const errors = Array.isArray(data.errors) ? data.errors.filter((e) => typeof e === "string") : []

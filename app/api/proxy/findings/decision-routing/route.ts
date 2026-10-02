@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
 import { getCached, setCached, TTL_SLOW } from "@/lib/server/proxy-cache"
-import { backendError, fromCaughtError } from "@/lib/server/proxy-error"
+import { backendError, fromCaughtError, relayBackendError } from "@/lib/server/proxy-error"
 
 const BACKEND_URL = getBackendBaseUrl()
 
@@ -49,7 +49,7 @@ export async function GET(req: NextRequest) {
     if (!r.ok) {
       // A failed read carries no counts: the zero-filled body this used to send
       // read as "0 findings scored" wherever it was parsed.
-      return backendError({ status: r.status, message: "Decision routing backend unavailable" })
+      return relayBackendError(r)
     }
     const data = await r.json()
     setCached(cacheKey, data, TTL_SLOW)

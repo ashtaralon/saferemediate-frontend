@@ -23,6 +23,8 @@ import { PageHeader } from "@/components/ui/page-header"
 import { BackToDashboard } from "@/components/back-to-dashboard"
 import { useAccountScope } from "@/lib/account-scope-context"
 import { NO_ACCOUNTS_TITLE, noAccountsDescription, noAccountsInScope, withAccountScope } from "@/lib/account-scope"
+import { semanticHoldMessage, semanticStatusHold } from "@/lib/semantic-hold"
+import { systemsCoverageGaps } from "@/lib/systems-coverage"
 import { RefreshEvidenceButton } from "@/components/RefreshEvidenceButton"
 import Link from "next/link"
 import { ObservationChip } from "@/components/coverage/observation-chip"
@@ -105,6 +107,11 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
   const [isLoadingAvailable, setIsLoadingAvailable] = useState(false)
   const [backendStatus, setBackendStatus] = useState<"connected" | "offline" | "checking">("checking")
   const [systemsError, setSystemsError] = useState<string | null>(null)
+  // The backend's own "not recorded" answer (NO_DATA_ACCOUNTS, REGION_NOT_SERVED, ...): a state,
+  // not an empty list. And what a served answer did NOT cover (held / unrecorded accounts,
+  // unserved Regions): the list is then partial and says so.
+  const [systemsHold, setSystemsHold] = useState<string | null>(null)
+  const [systemsGaps, setSystemsGaps] = useState<string[]>([])
   // Count of systems the organization has OUTSIDE the active narrowing
   // filters, probed only when the scoped list came back empty. Filtered-empty
   // must never masquerade as "no systems" (incident 2026-08-23: a stray
@@ -193,7 +200,10 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
 
       if (systemsRes.ok) {
         const systemsData = await systemsRes.json()
-        const backendSystems = systemsData.systems || []
+        const hold = semanticStatusHold(systemsData)
+        setSystemsHold(hold ? semanticHoldMessage(hold) : null)
+        setSystemsGaps(systemsCoverageGaps(systemsData))
+        const backendSystems = Array.isArray(systemsData.systems) ? systemsData.systems : []
         setObservation(readObservation(systemsData))
         setSystemsError(null)
         setBackendStatus("connected")
@@ -436,7 +446,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
       
       if (response.ok) {
         const data = await response.json()
-        const systems = data.systems || data || []
+        const systems = Array.isArray(data?.systems) ? data.systems : []
         const existingNames = new Set(localSystems.map((s) => s.name.toLowerCase()))
         const filtered = systems.filter((sys: AvailableSystem) => {
           const name = sys.SystemName || ""  // Only SystemName format (capital S, capital N)
@@ -596,7 +606,9 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
         ? "Systems hidden by scope filters"
         : hasNoAccounts
           ? NO_ACCOUNTS_TITLE
-          : "No Tagged Systems Found"
+          : systemsHold
+            ? "Systems not recorded yet"
+            : "No Tagged Systems Found"
     const description = accountScope.error
       ? "Cyntro could not verify the organization scope. Existing systems have not been deleted. Retry the scope metadata request."
       : systemsError
@@ -605,7 +617,9 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
           ? `${hiddenByScope} ${hiddenByScope === 1 ? "system exists" : "systems exist"} in this organization outside the selected account group, account, or region filters. Nothing has been deleted.`
           : hasNoAccounts
             ? noAccountsDescription(accountScope.customerId)
-            : "No resources tagged with SystemName were found in the selected organization, account group, account, and region."
+            : systemsHold
+              ? systemsHold
+              : "No resources tagged with SystemName were found in the selected organization, account group, account, and region."
     const isUnavailable = Boolean(accountScope.error || systemsError)
     return (
       <div className="space-y-4">
@@ -757,6 +771,13 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
         <div className="inline-flex items-center gap-2 bg-[#eab30810] border border-[#eab30840] text-[#eab308] px-3 py-1 rounded-full text-xs font-medium">
           <AlertTriangle className="w-3.5 h-3.5" />
           Auto-remediation pending: {gapData.unused} permissions at 99% confidence
+        </div>
+      )}
+
+      {/* A list that did not cover every selected account / Region says so (systems-coverage). */}
+      {systemsGaps.length > 0 && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900" data-testid="systems-coverage-gaps">
+          <span className="font-semibold">Partial list.</span> {systemsGaps.join(" · ")}
         </div>
       )}
 
