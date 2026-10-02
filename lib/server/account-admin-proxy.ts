@@ -1,6 +1,43 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
-import { isSameOriginMutation, serverDerivedOperatorHeaders } from "@/lib/server/operator-session"
+import { serverDerivedOperatorHeaders } from "@/lib/server/operator-session"
+
+/** This console's own origins: the install's AllowedCorsOrigins, which the installer preflights as
+ * private HTTPS origins. Comma-separated, as the backend reads the same variable. No default. */
+function ownConsoleOrigins(): Set<string> {
+  const origins = new Set<string>()
+  for (const entry of String(process.env.CYNTRO_ALLOWED_ORIGINS || "").split(",")) {
+    try {
+      if (entry.trim()) origins.add(new URL(entry.trim()).origin)
+    } catch {
+      // an unparseable entry admits nothing
+    }
+  }
+  origins.delete("null")
+  return origins
+}
+
+/**
+ * A customer-resident account write must come from this console's own origin.
+ *
+ * Sec-Fetch-Site is authoritative when present: the browser compared the whole
+ * origin and must report same-origin. Without it, the browser's Origin must
+ * be, exactly, one of this console's own origins: same scheme, host and
+ * effective port. The addressed Host is not the reference here: it carries no
+ * scheme, and http://app.example is another origin than https://app.example.
+ * No configured origin, no Origin, or Origin "null" refuses. Reads are not gated.
+ * isSameOriginMutation (rollback, event restore) is a different contract and is
+ * not changed here.
+ */
+export function accountAdminWriteFromOwnOrigin(request: Pick<NextRequest, "method" | "headers">): boolean {
+  if (["GET", "HEAD", "OPTIONS"].includes(request.method.toUpperCase())) return true
+  const fetchSite = request.headers.get("sec-fetch-site")
+  if (fetchSite) return fetchSite === "same-origin"
+  // A browser sends the serialized origin, exactly as ownConsoleOrigins() holds it.
+  // Anything else -- absent, "null", another scheme, host or port, or not an
+  // origin at all -- matches nothing.
+  return ownConsoleOrigins().has(request.headers.get("origin") || "")
+}
 
 /**
  * Account administration's identity on a customer-resident install -- an opt-in
@@ -37,7 +74,7 @@ export async function proxyAccountAdmin(
   const resident = process.env.CYNTRO_DEPLOYMENT_MODE === "CUSTOMER_RESIDENT"
   // The ALB session is a cookie, so a write must prove it came from this origin
   // before anything is forwarded.
-  if (resident && !isSameOriginMutation(request)) {
+  if (resident && !accountAdminWriteFromOwnOrigin(request)) {
     return NextResponse.json({ detail: { code: "ACCOUNT_ADMIN_ORIGIN_REFUSED" }, success: false }, { status: 403 })
   }
   const suffix = segments.length ? `/${segments.map(encodeURIComponent).join("/")}` : ""

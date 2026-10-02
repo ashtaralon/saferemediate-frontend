@@ -41,6 +41,7 @@ function sentHeaders(upstream: { mock: { calls: unknown[][] } }, call = 0): Reco
 
 afterEach(() => {
   delete process.env.CYNTRO_DEPLOYMENT_MODE
+  delete process.env.CYNTRO_ALLOWED_ORIGINS
   vi.restoreAllMocks()
 })
 
@@ -302,18 +303,51 @@ describe("account admin proxy — a customer-resident write must come from this 
     expect(upstream).not.toHaveBeenCalled()
   })
 
-  it("forwards when the Origin equals the host the browser addressed (no Sec-Fetch-Site)", async () => {
+  it("forwards when the Origin is one of this console's own origins (no Sec-Fetch-Site)", async () => {
     process.env.CYNTRO_DEPLOYMENT_MODE = "CUSTOMER_RESIDENT"
+    process.env.CYNTRO_ALLOWED_ORIGINS = "https://other-console.example, https://cyntro.customer.example/"
     const upstream = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(Response.json({}, { status: 202 }))
     const response = await register({
       origin: "https://cyntro.customer.example",
-      "x-forwarded-host": "cyntro.customer.example",
       "x-amzn-oidc-data": ALB_DATA,
       "x-amzn-oidc-accesstoken": ALB_TOKEN,
     })
 
     expect(response.status).toBe(202)
     expect(upstream).toHaveBeenCalledTimes(1)
+  })
+
+  it("compares the normalized origin: case of the host and an explicit default port do not matter", async () => {
+    process.env.CYNTRO_DEPLOYMENT_MODE = "CUSTOMER_RESIDENT"
+    process.env.CYNTRO_ALLOWED_ORIGINS = "https://APP.example:443"
+    const upstream = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(Response.json({}, { status: 202 }))
+    const response = await register({ origin: "https://app.example", "x-amzn-oidc-data": ALB_DATA, "x-amzn-oidc-accesstoken": ALB_TOKEN })
+
+    expect(response.status).toBe(202)
+    expect(upstream).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    // Codex H5b-F1: same host, other scheme. The host-only fallback forwarded this.
+    ["another scheme on the same host", "https://app.example", { origin: "http://app.example", host: "app.example" }],
+    ["another port on the same host", "https://app.example", { origin: "https://app.example:8443", host: "app.example" }],
+    ["a foreign Origin that the forwarded host agrees with", "https://app.example",
+      { origin: "https://attacker.example", "x-forwarded-host": "attacker.example", host: "attacker.example" }],
+    ["an Origin that equals the addressed host but no configured origin", "",
+      { origin: "https://app.example", host: "app.example" }],
+    ["only unusable configured entries", "*, not a url", { origin: "https://app.example", host: "app.example" }],
+    ["Origin null although an opaque origin is configured", "file:///console", { origin: "null" }],
+    ["an Origin that is not a serialized origin (trailing slash)", "https://app.example", { origin: "https://app.example/" }],
+    ["an Origin that is not a serialized origin (upper-case host)", "https://app.example", { origin: "https://APP.example" }],
+  ])("without Sec-Fetch-Site, refuses %s", async (_label, configured, provenance) => {
+    process.env.CYNTRO_DEPLOYMENT_MODE = "CUSTOMER_RESIDENT"
+    if (configured) process.env.CYNTRO_ALLOWED_ORIGINS = configured
+    const upstream = vi.spyOn(globalThis, "fetch")
+    const response = await register({ ...provenance, "x-amzn-oidc-data": ALB_DATA, "x-amzn-oidc-accesstoken": ALB_TOKEN })
+
+    expect(response.status).toBe(403)
+    expect(await response.json()).toEqual(ORIGIN_REFUSED)
+    expect(upstream).not.toHaveBeenCalled()
   })
 
   it("does not gate reads: a cross-site GET of the stack template is still relayed", async () => {
