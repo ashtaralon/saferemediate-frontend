@@ -828,7 +828,30 @@ function AddGroupDialog({ customerId, accounts, onClose, onCreated }: { customer
   )
 }
 
-const ENVIRONMENTS = ["PRODUCTION", "STAGING", "DEVELOPMENT", "SHARED_SERVICES"]
+/**
+ * The account's environment, as the operator states it. Nothing is assumed: the default is UNCLASSIFIED (the
+ * backend's own default, api/account_registry.py CreateAccountRequest), never PRODUCTION. Values are the registry's
+ * tokens. Only the add forms offer this list; a stored value (including a custom one) is shown as recorded.
+ */
+const ENVIRONMENT_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
+  { value: "UNCLASSIFIED", label: "Unclassified" },
+  { value: "PRODUCTION", label: "Production" },
+  { value: "STAGING", label: "Staging" },
+  { value: "DEVELOPMENT", label: "Development" },
+  { value: "TEST", label: "Test" },
+  { value: "SANDBOX", label: "Sandbox" },
+  { value: "SHARED_SERVICES", label: "Shared services" },
+  { value: "MIXED", label: "Mixed" },
+]
+const DEFAULT_ENVIRONMENT = "UNCLASSIFIED"
+
+function EnvironmentSelect({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  return (
+    <label className="text-sm font-semibold text-slate-700">Environment<select value={value} onChange={(event) => onChange(event.target.value)} className="mt-2 w-full rounded-lg border border-slate-200 bg-white p-3 font-normal outline-none focus:border-teal-500">
+      {ENVIRONMENT_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+    </select></label>
+  )
+}
 
 /**
  * Member-account mode: record the operator's intent to add an account (202). The account
@@ -847,7 +870,7 @@ function MemberAddAccountDialog({
 }) {
   const [displayName, setDisplayName] = useState("")
   const [accountId, setAccountId] = useState("")
-  const [environment, setEnvironment] = useState("PRODUCTION")
+  const [environment, setEnvironment] = useState(DEFAULT_ENVIRONMENT)
   const [regions, setRegions] = useState(defaultRegion)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -900,7 +923,7 @@ function MemberAddAccountDialog({
         <div className="grid grid-cols-2 gap-4 p-6">
           <label className="col-span-2 text-sm font-semibold text-slate-700">Account name<input value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="Payments production" className="mt-2 w-full rounded-lg border border-slate-200 p-3 font-normal outline-none focus:border-teal-500" /></label>
           <label className="text-sm font-semibold text-slate-700">AWS account ID<input value={accountId} onChange={(event) => setAccountId(event.target.value.replace(/\D/g, "").slice(0, 12))} placeholder="12-digit account ID" inputMode="numeric" className="mt-2 w-full rounded-lg border border-slate-200 p-3 font-mono font-normal outline-none focus:border-teal-500" /></label>
-          <label className="text-sm font-semibold text-slate-700">Environment<select value={environment} onChange={(event) => setEnvironment(event.target.value)} className="mt-2 w-full rounded-lg border border-slate-200 bg-white p-3 font-normal outline-none focus:border-teal-500">{ENVIRONMENTS.map((value) => <option key={value}>{value}</option>)}</select></label>
+          <EnvironmentSelect value={environment} onChange={setEnvironment} />
           <label className="col-span-2 text-sm font-semibold text-slate-700">Regions<input value={regions} onChange={(event) => setRegions(event.target.value)} placeholder="Comma-separated AWS regions" className="mt-2 w-full rounded-lg border border-slate-200 p-3 font-normal outline-none focus:border-teal-500" />
             <span className="mt-1.5 block text-xs font-normal text-slate-500">
               {badRegions.length ? `Not an AWS region: ${badRegions.join(", ")}` : "Regions Cyntro reads in this account. The connection stack is deployed in the first one."}
@@ -925,7 +948,7 @@ function AddAccountDialog({ customerId, onClose, onCreated }: { customerId: stri
   const [error, setError] = useState<string | null>(null)
   const [accountId, setAccountId] = useState("")
   const [displayName, setDisplayName] = useState("")
-  const [environment, setEnvironment] = useState("PRODUCTION")
+  const [environment, setEnvironment] = useState(DEFAULT_ENVIRONMENT)
   const [regions, setRegions] = useState("eu-west-1")
 
   async function create() {
@@ -979,7 +1002,7 @@ function AddAccountDialog({ customerId, onClose, onCreated }: { customerId: stri
             <div className="grid grid-cols-2 gap-4">
               <label className="col-span-2 text-sm font-semibold text-slate-700">Account name<input value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="Payments production" className="mt-2 w-full rounded-lg border border-slate-200 p-3 font-normal outline-none focus:border-teal-500" /></label>
               <label className="text-sm font-semibold text-slate-700">AWS account ID<input value={accountId} onChange={(event) => setAccountId(event.target.value.replace(/\D/g, "").slice(0, 12))} placeholder="123456789012" className="mt-2 w-full rounded-lg border border-slate-200 p-3 font-mono font-normal outline-none focus:border-teal-500" /></label>
-              <label className="text-sm font-semibold text-slate-700">Environment<select value={environment} onChange={(event) => setEnvironment(event.target.value)} className="mt-2 w-full rounded-lg border border-slate-200 bg-white p-3 font-normal outline-none focus:border-teal-500"><option>PRODUCTION</option><option>STAGING</option><option>DEVELOPMENT</option><option>SHARED_SERVICES</option></select></label>
+              <EnvironmentSelect value={environment} onChange={setEnvironment} />
               <label className="col-span-2 text-sm font-semibold text-slate-700">Regions<input value={regions} onChange={(event) => setRegions(event.target.value)} placeholder="eu-west-1, us-east-1" className="mt-2 w-full rounded-lg border border-slate-200 p-3 font-normal outline-none focus:border-teal-500" /></label>
               <div className="col-span-2 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900"><strong>Safe default:</strong> this registration enables inventory and historical evidence only. It does not grant Cyntro mutation authority.</div>
             </div>

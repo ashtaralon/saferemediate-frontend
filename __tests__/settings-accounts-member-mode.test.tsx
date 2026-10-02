@@ -393,6 +393,61 @@ describe("Settings > Accounts — member-account mode", () => {
     expect(within(row).queryAllByRole("button")).toHaveLength(0)
   })
 
+  it("B3: Environment defaults to Unclassified -- an untouched form registers UNCLASSIFIED, never PRODUCTION", async () => {
+    const registered: Record<string, unknown>[] = []
+    installFetch({
+      list: () => json(memberList([PLATFORM, CONNECTED])),
+      register: (body) => {
+        registered.push(body)
+        return json({ customer_id: CUSTOMER, account_id: body.account_id, action: "register", request_status: "queued", already_open: false, requested_at: "2026-10-01T10:00:00.000000+00:00" }, 202)
+      },
+    })
+    render(<AccountSettingsPage />)
+    await screen.findAllByTestId(/^account-row-/)
+    fireEvent.click(screen.getByRole("button", { name: /Add AWS account/ }))
+    const dialog = await screen.findByRole("dialog", { name: "Add an AWS account" })
+    const environment = within(dialog).getByLabelText("Environment")
+    expect(environment).toHaveValue("UNCLASSIFIED")
+    expect(within(environment).getAllByRole("option").map((option) => [(option as HTMLOptionElement).value, option.textContent])).toEqual([
+      ["UNCLASSIFIED", "Unclassified"], ["PRODUCTION", "Production"], ["STAGING", "Staging"], ["DEVELOPMENT", "Development"],
+      ["TEST", "Test"], ["SANDBOX", "Sandbox"], ["SHARED_SERVICES", "Shared services"], ["MIXED", "Mixed"],
+    ])
+    fireEvent.change(within(dialog).getByLabelText("Account name"), { target: { value: "Ledger" } })
+    fireEvent.change(within(dialog).getByLabelText("AWS account ID"), { target: { value: "555566667777" } })
+    fireEvent.click(within(dialog).getByRole("button", { name: /Add account/ }))
+    await waitFor(() => expect(registered).toHaveLength(1))
+    expect(registered[0].environment).toBe("UNCLASSIFIED")
+  })
+
+  it("B3: a stored environment -- a custom one included -- is shown as recorded, never remapped", async () => {
+    installFetch({ list: () => json(memberList([PLATFORM, { ...CONNECTED, environment: "PCI_ZONE" }])) })
+    render(<AccountSettingsPage />)
+    const row = await screen.findByTestId(`account-row-${CONNECTED.account_id}`)
+    expect(within(row).getByText("PCI_ZONE")).toBeInTheDocument()
+    expect(within(row).queryByText("UNCLASSIFIED")).not.toBeInTheDocument()
+  })
+
+  it("B3: a chosen environment from the new list is sent as its registry token", async () => {
+    const registered: Record<string, unknown>[] = []
+    installFetch({
+      list: () => json(memberList([PLATFORM, CONNECTED])),
+      register: (body) => {
+        registered.push(body)
+        return json({ customer_id: CUSTOMER, account_id: body.account_id, action: "register", request_status: "queued", already_open: false, requested_at: "2026-10-01T10:00:00.000000+00:00" }, 202)
+      },
+    })
+    render(<AccountSettingsPage />)
+    await screen.findAllByTestId(/^account-row-/)
+    fireEvent.click(screen.getByRole("button", { name: /Add AWS account/ }))
+    const dialog = await screen.findByRole("dialog", { name: "Add an AWS account" })
+    fireEvent.change(within(dialog).getByLabelText("Account name"), { target: { value: "Mixed estate" } })
+    fireEvent.change(within(dialog).getByLabelText("AWS account ID"), { target: { value: "555566668888" } })
+    fireEvent.change(within(dialog).getByLabelText("Environment"), { target: { value: "MIXED" } })
+    fireEvent.click(within(dialog).getByRole("button", { name: /Add account/ }))
+    await waitFor(() => expect(registered).toHaveLength(1))
+    expect(registered[0].environment).toBe("MIXED")
+  })
+
   it("polls every 4 s while an account is REGISTERING, opens Connect once it is AWAITING_CONNECTION, then stops", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
     const NEW = { ...AWAITING, account_id: "222233334444", display_name: "Checkout staging" }
@@ -644,6 +699,19 @@ describe("Settings > Accounts — backend errors carry the backend's detail", ()
 })
 
 describe("Settings > Accounts — legacy (hosted plane) list without `mode`", () => {
+  it("B3: the legacy add dialog defaults Environment to Unclassified too", async () => {
+    installFetch({
+      list: () => json({
+        customer_id: CUSTOMER, accounts: [], total: 0, registry_available: false,
+        summary: { connected: 0, needs_attention: 0, discovered: 0, mutation_enabled: 0 },
+      }),
+    })
+    render(<AccountSettingsPage />)
+    fireEvent.click(await screen.findByRole("button", { name: /Add AWS account/ }))
+    await screen.findByText("Add an AWS account")
+    expect(screen.getByLabelText("Environment")).toHaveValue("UNCLASSIFIED")
+  })
+
   it("keeps the legacy table, Validate action and registry banner", async () => {
     installFetch({
       list: () => json({
