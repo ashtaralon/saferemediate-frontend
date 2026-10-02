@@ -168,11 +168,28 @@ describe("classification", () => {
     expect(semanticHoldMessage(typedServingRefusal(NO_DATA)!)).toBe(
       "No workload account is connected yet — connect one in Settings › Accounts")
     expect(typedServingRefusal(SCOPE_REQUIRED)!.kind).toBe("scope_required")
-    expect(semanticHoldMessage(typedServingRefusal(SCOPE_REQUIRED)!)).toMatch(/choose one account/)
+    // By default a view does not send a selected account: never point at the scope bar.
+    expect(semanticHoldMessage(typedServingRefusal(SCOPE_REQUIRED)!)).toBe(
+      "Several workload accounts are connected — this view does not read one selected account, so it cannot show this")
+    expect(semanticHoldMessage(typedServingRefusal(SCOPE_REQUIRED)!)).not.toMatch(/scope bar/)
     expect(typedServingRefusal(MISMATCH)!.kind).toBe("scope_denied")
     expect(typedServingRefusal({ detail: { code: "SOMETHING_ELSE" } })).toBeNull()
     expect(semanticHoldMessage(semanticStatusHold({ semantic_status: "not_recorded", hold_reason: "REGION_NOT_SERVED:us-east-1" })!))
       .toBe("Region us-east-1 is not served by this install yet")
+  })
+
+  it("accountSelection words ACCOUNT_SCOPE_REQUIRED only -- every other state keeps its own words", () => {
+    const required = typedServingRefusal(SCOPE_REQUIRED)!
+    expect(semanticHoldMessage(required, { accountSelection: "offer" })).toBe(
+      "Several workload accounts are connected — choose one account in the scope bar to see this")
+    expect(semanticHoldMessage(required, { accountSelection: "diagnose" })).toBe(
+      "An account is selected, but the server still asked for one (ACCOUNT_SCOPE_REQUIRED) — the selection did not reach this read")
+    for (const selection of ["offer", "diagnose"] as const) {
+      expect(semanticHoldMessage(typedServingRefusal(NO_DATA)!, { accountSelection: selection })).toBe(
+        "No workload account is connected yet — connect one in Settings › Accounts")
+      expect(semanticHoldMessage(typedServingRefusal(MISMATCH)!, { accountSelection: selection })).toBe(
+        semanticHoldMessage(typedServingRefusal(MISMATCH)!))
+    }
   })
 })
 
@@ -196,8 +213,20 @@ describe("fetch hook", () => {
     vi.stubGlobal("fetch", fetchMock)
     const { result } = renderHook(() => useCachedFetch(URL, { cacheKey: KEY, transientRetries: 2 }))
     await waitFor(() => expect(result.current.hold?.kind).toBe("scope_required"))
-    expect(result.current.error).toMatch(/choose one account/)
+    expect(result.current.error).toMatch(/does not read one selected account/)
     expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    [undefined, /does not read one selected account/],
+    ["offer", /choose one account in the scope bar/],
+    ["diagnose", /An account is selected, but the server still asked for one \(ACCOUNT_SCOPE_REQUIRED\)/],
+  ] as const)("a 422 ACCOUNT_SCOPE_REQUIRED with accountSelection=%s is worded for what the caller can do", async (selection, words) => {
+    vi.stubGlobal("fetch", vi.fn(async () => json(422, SCOPE_REQUIRED)))
+    const { result } = renderHook(() => useCachedFetch(URL, { cacheKey: KEY, accountSelection: selection }))
+    await waitFor(() => expect(result.current.hold?.kind).toBe("scope_required"))
+    expect(result.current.error).toMatch(words)
+    expect(result.current.data).toBeNull()
   })
 
   it("control: a transport 502 keeps the cached reading, marked stale", async () => {

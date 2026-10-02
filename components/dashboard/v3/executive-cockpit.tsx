@@ -446,6 +446,8 @@ export function ExecutiveCockpit({
       fetchInit: { cache: "no-store" },
       transientRetries: 1,
       autoRetryMs: RECOVERY_POLL_MS,
+      // This read carries the selected account: a refusal for want of one can point at the scope bar.
+      accountSelection: accountScope.accountId === "all" ? "offer" : "diagnose",
       isCacheable: (value) => Boolean(value && typeof value === "object" && Array.isArray((value as SystemsCatalogResponse).systems)),
     },
   )

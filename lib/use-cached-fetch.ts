@@ -5,6 +5,7 @@ import {
   semanticHoldMessage,
   semanticStatusHold,
   typedServingRefusal,
+  type AccountSelection,
   type SemanticHold,
 } from "@/lib/semantic-hold"
 import { TRANSIENT_STATUSES } from "@/lib/transient-retry"
@@ -121,6 +122,12 @@ export interface UseCachedFetchOptions {
    * offline — nobody is reading it, and an offline retry cannot succeed.
    */
   autoRetryMs?: number
+  /**
+   * Only for a read whose URL carries the selected account (withAccountScope): how its
+   * ACCOUNT_SCOPE_REQUIRED refusal is worded -- "offer" when no account is selected, "diagnose" when one
+   * is. Unset (every other caller): the neutral wording, which never points at the scope bar.
+   */
+  accountSelection?: AccountSelection
 }
 
 export interface UseCachedFetchResult<T> {
@@ -342,6 +349,7 @@ export function useCachedFetch<T = unknown>(
     isCacheable,
     failClosedOnError = false,
     autoRetryMs = 0,
+    accountSelection,
   } = options
 
   // Synchronous initial read so the first paint renders cached data
@@ -481,7 +489,7 @@ export function useCachedFetch<T = unknown>(
       setStaleReason(null)
       setIsComputing(false)
       setHold(h)
-      setError(semanticHoldMessage(h))
+      setError(semanticHoldMessage(h, { accountSelection }))
       setLoading(false)
       clearAutoRetry()
     }
@@ -748,7 +756,7 @@ export function useCachedFetch<T = unknown>(
       // If we have cached data, swallow the error — keep showing stale.
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [url, cacheKey, fetchInit, transientRetries, isCacheable, failClosedOnError])
+  }, [url, cacheKey, fetchInit, transientRetries, isCacheable, failClosedOnError, accountSelection])
 
   // Keep the ref current so scheduleAutoRetry always fires the latest closure.
   fetchFreshRef.current = fetchFresh

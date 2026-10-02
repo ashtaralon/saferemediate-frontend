@@ -118,15 +118,32 @@ export function typedReaderUnavailable(body: unknown): SemanticHold | null {
  */
 const STATE_HOLDS: Readonly<Record<string, string>> = {
   NO_DATA_ACCOUNTS: "No workload account is connected yet — connect one in Settings › Accounts",
+  // The default: this view does not send a selected account, so the scope bar would not help it.
   ACCOUNT_SCOPE_REQUIRED:
-    "Several workload accounts are connected — choose one account in the scope bar to see this",
+    "Several workload accounts are connected — this view does not read one selected account, so it cannot show this",
   INVENTORY_SCOPE_MISMATCH: "The selected account is not in this install's scope",
   REVIEW_SCOPE_MISMATCH: "The selected account is not in this review's scope",
 }
 
+/**
+ * What a view that DOES send the selected account (withAccountScope) can say about ACCOUNT_SCOPE_REQUIRED.
+ * The caller declares it -- it is never inferred from a URL:
+ *   "offer"    -- no account is selected: the scope bar is the way forward;
+ *   "diagnose" -- an account IS selected and the server still asked for one: the selection did not
+ *                 reach this read, which is a fault to look at, not a choice to make.
+ */
+export type AccountSelection = "offer" | "diagnose"
+
+const ACCOUNT_SELECTION_WORDS: Readonly<Record<AccountSelection, string>> = {
+  offer: "Several workload accounts are connected — choose one account in the scope bar to see this",
+  diagnose:
+    "An account is selected, but the server still asked for one (ACCOUNT_SCOPE_REQUIRED) — the selection did not reach this read",
+}
+
 /** One operator-facing line for a hold, used as the fetch hook's `error`. */
-export function semanticHoldMessage(hold: SemanticHold): string {
+export function semanticHoldMessage(hold: SemanticHold, opts?: { accountSelection?: AccountSelection }): string {
   const state = hold.state ?? (hold.kind === "not_recorded" ? hold.reason : null)
+  if (state === "ACCOUNT_SCOPE_REQUIRED" && opts?.accountSelection) return ACCOUNT_SELECTION_WORDS[opts.accountSelection]
   if (state && STATE_HOLDS[state]) return STATE_HOLDS[state]
   if (state && state.startsWith("REGION_NOT_SERVED")) {
     const region = state.split(":")[1]
