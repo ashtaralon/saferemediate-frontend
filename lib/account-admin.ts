@@ -92,6 +92,8 @@ export interface ManagedAccount {
   pending_request?: PendingAccountRequest | null
   is_platform_account?: boolean
   coverage?: AccountFeatureCoverage[] | null
+  /** Registered Regions this install does not serve (the serving path's own rule). Absent: not reported. */
+  regions_not_served?: string[] | null
 }
 
 export interface FailedAccountRequest {

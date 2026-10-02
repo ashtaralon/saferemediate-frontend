@@ -212,22 +212,26 @@ function nonEmptyStrings(values?: (string | null | undefined)[] | null): string[
 
 const COVERAGE_BADGE_BASE = "inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold"
 
-/** COVERED / PARTIAL / LACKING for one feature (per region in the panel, across regions on the list). */
+/**
+ * COVERED / PARTIAL / LACKING for one feature (per region in the panel, across regions on the list) -- whether the
+ * SOURCES the feature needs were found, never whether this install serves it (a Region it does not serve is named
+ * apart, ``regions_not_served``).
+ */
 export function FeatureCoverageBadge({ status }: { status: string }) {
   if (status === "COVERED") {
     return (
       <span className={`${COVERAGE_BADGE_BASE} border-emerald-200 bg-emerald-50 text-emerald-700`}>
-        <CheckCircle2 className="h-3 w-3" aria-hidden /> Covered
+        <CheckCircle2 className="h-3 w-3" aria-hidden /> Sources found
       </span>
     )
   }
   if (status === "PARTIAL") {
-    return <span className={`${COVERAGE_BADGE_BASE} border-amber-200 bg-amber-50 text-amber-800`}>Partial</span>
+    return <span className={`${COVERAGE_BADGE_BASE} border-amber-200 bg-amber-50 text-amber-800`}>Sources partial</span>
   }
   if (status === "LACKING") {
     return (
       <span className={`${COVERAGE_BADGE_BASE} border-orange-200 bg-orange-50 text-orange-800`}>
-        <AlertTriangle className="h-3 w-3" aria-hidden /> Lacking coverage
+        <AlertTriangle className="h-3 w-3" aria-hidden /> Sources lacking
       </span>
     )
   }
@@ -235,11 +239,21 @@ export function FeatureCoverageBadge({ status }: { status: string }) {
 }
 
 /** The list row's per-feature chips from `coverage`; nothing when the backend sent none. */
-export function AccountCoverageChips({ accountId, coverage }: { accountId: string; coverage?: AccountFeatureCoverage[] | null }) {
+export function AccountCoverageChips({
+  accountId,
+  coverage,
+  regionsNotServed,
+}: {
+  accountId: string
+  coverage?: AccountFeatureCoverage[] | null
+  /** The listing's ``regions_not_served``: absent = not reported, which says nothing about serving. */
+  regionsNotServed?: string[] | null
+}) {
   const items = Array.isArray(coverage)
     ? coverage.filter((item) => item && typeof item.label === "string" && item.label !== "" && typeof item.status === "string")
     : []
   if (!items.length) return null
+  const notServed = nonEmptyStrings(regionsNotServed)
   return (
     <ul aria-label={`Feature coverage for ${accountId}`} className="flex flex-col gap-1 pt-0.5">
       {items.map((item) => {
@@ -252,6 +266,11 @@ export function AccountCoverageChips({ accountId, coverage }: { accountId: strin
           </li>
         )
       })}
+      {notServed.length ? (
+        <li data-testid="coverage-not-served" className="text-[11px] font-medium text-amber-800">
+          Not served by this install: {notServed.join(", ")}
+        </li>
+      ) : null}
     </ul>
   )
 }

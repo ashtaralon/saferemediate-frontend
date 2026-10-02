@@ -292,7 +292,7 @@ describe("Connect panel — Data sources by Region", () => {
     const proven = regionGroup(dialog, "eu-central-1")
     for (const label of [INVENTORY, OBSERVED, IAM_USAGE]) {
       const feature = within(proven).getByText(label).closest("li") as HTMLElement
-      expect(within(feature).getByText("Covered")).toBeInTheDocument()
+      expect(within(feature).getByText("Sources found")).toBeInTheDocument()
     }
     expect(within(proven).getByTestId("region-source-eu-central-1-vpc_flow")).toHaveTextContent("VPC Flow Logs")
     expect(within(proven).getByText("2 of 2 VPCs have a usable flow log")).toBeInTheDocument()
@@ -317,10 +317,10 @@ describe("Connect panel — Data sources by Region", () => {
     // Lacking region: the feature names each missing source and the backend's reason.
     const lacking = regionGroup(dialog, "eu-west-1")
     const observed = within(lacking).getByTestId("region-feature-eu-west-1-observed_traffic")
-    expect(within(observed).getByText("Lacking coverage")).toBeInTheDocument()
+    expect(within(observed).getByText("Sources lacking")).toBeInTheDocument()
     expect(observed).toHaveTextContent("AWS Config (network interfaces): No AWS Config recorder in this Region")
     expect(observed).toHaveTextContent("VPC Flow Logs: 1 of 2 VPCs has no usable flow log")
-    expect(within(within(lacking).getByTestId("region-feature-eu-west-1-inventory")).getByText("Covered")).toBeInTheDocument()
+    expect(within(within(lacking).getByTestId("region-feature-eu-west-1-inventory")).getByText("Sources found")).toBeInTheDocument()
     expect(within(lacking).getByText("1 of 2 VPCs has a usable flow log")).toBeInTheDocument()
     expect(within(lacking).getByTestId("region-source-eu-west-1-vpc_flow")).toHaveTextContent("Without a usable flow log: vpc-0test0000000001")
     expect(within(lacking).getByText("No configuration recorder in eu-west-1")).toBeInTheDocument()
@@ -619,17 +619,17 @@ describe("Settings > Accounts — per-feature coverage chips", () => {
       "coverage-chip-iam_usage",
     ])
     const inventory = within(chips).getByTestId("coverage-chip-inventory")
-    expect(within(inventory).getByText("Covered")).toBeInTheDocument()
+    expect(within(inventory).getByText("Sources found")).toBeInTheDocument()
     expect(within(inventory).getByText(INVENTORY)).toBeInTheDocument()
     expect(inventory).not.toHaveTextContent("lacking in")
 
     const observed = within(chips).getByTestId("coverage-chip-observed_traffic")
-    expect(within(observed).getByText("Partial")).toBeInTheDocument()
+    expect(within(observed).getByText("Sources partial")).toBeInTheDocument()
     expect(within(observed).getByText(OBSERVED)).toBeInTheDocument()
     expect(within(observed).getByText("· lacking in eu-west-1")).toBeInTheDocument()
 
     const iam = within(chips).getByTestId("coverage-chip-iam_usage")
-    expect(within(iam).getByText("Lacking coverage")).toBeInTheDocument()
+    expect(within(iam).getByText("Sources lacking")).toBeInTheDocument()
     expect(within(iam).getByText(IAM_USAGE)).toBeInTheDocument()
     expect(within(iam).getByText("· lacking in eu-central-1, eu-west-1")).toBeInTheDocument()
 
@@ -637,5 +637,44 @@ describe("Settings > Accounts — per-feature coverage chips", () => {
     expect(within(bare).queryByRole("list", { name: /Feature coverage/ })).not.toBeInTheDocument()
     expect(within(bare).queryByTestId(/^coverage-chip-/)).not.toBeInTheDocument()
     expect(within(screen.getByTestId(`account-row-${PLATFORM_ID}`)).queryByTestId(/^coverage-chip-/)).not.toBeInTheDocument()
+  })
+  describe("B4: sources found are not the install serving them", () => {
+    const COVERAGE = [
+      { feature: "inventory", label: INVENTORY, status: "COVERED", regions_lacking: [] },
+      { feature: "observed_traffic", label: OBSERVED, status: "COVERED", regions_lacking: [] },
+    ]
+    const renderWith = async (extra: Record<string, unknown>) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL) => {
+          const url = String(input)
+          if (url.startsWith("/api/proxy/admin/accounts/groups/all?")) return json({ customer_id: CUSTOMER, groups: [] })
+          if (url === LIST_URL) return json(memberList([PLATFORM_ROW, { ...MEMBER_ROW, coverage: COVERAGE, ...extra }]))
+          return json({ detail: `unexpected ${url}` }, 404)
+        }),
+      )
+      render(<AccountSettingsPage />)
+      const row = await screen.findByTestId(`account-row-${MEMBER_ID}`)
+      return within(row).getByRole("list", { name: `Feature coverage for ${MEMBER_ID}` })
+    }
+
+    it("a Region the install does not serve is named beside the chips; the badge speaks of sources only", async () => {
+      const chips = await renderWith({ regions_not_served: ["us-east-1"] })
+      expect(within(chips).getByTestId("coverage-not-served")).toHaveTextContent("Not served by this install: us-east-1")
+      expect(within(within(chips).getByTestId("coverage-chip-inventory")).getByText("Sources found")).toBeInTheDocument()
+      expect(chips).not.toHaveTextContent(/Covered/)   // adjacent text nodes join: no \\b
+    })
+
+    it("every registered Region served: no not-served line", async () => {
+      const chips = await renderWith({ regions_not_served: [] })
+      expect(within(chips).queryByTestId("coverage-not-served")).not.toBeInTheDocument()
+    })
+
+    it("not reported (field absent): nothing is claimed about serving either way", async () => {
+      const chips = await renderWith({})
+      expect(within(chips).queryByTestId("coverage-not-served")).not.toBeInTheDocument()
+      expect(chips).not.toHaveTextContent(/\bserved\b/i)   // ("Observed traffic" is a label, not a claim)
+      expect(chips).not.toHaveTextContent(/Covered/)   // adjacent text nodes join: no \\b
+    })
   })
 })
