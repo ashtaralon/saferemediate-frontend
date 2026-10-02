@@ -604,7 +604,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
         : hiddenByFilters
           ? `${hiddenByScope} ${hiddenByScope === 1 ? "system exists" : "systems exist"} in this organization outside the selected account group, account, or region filters. Nothing has been deleted.`
           : hasNoAccounts
-            ? `The ${accountScope.customerId || "selected"} organization has no AWS accounts in scope.`
+            ? `The ${accountScope.customerId || "selected"} organization has no AWS accounts in scope. Connect a workload account in Settings › Accounts.`
             : "No resources tagged with SystemName were found in the selected organization, account group, account, and region."
     const isUnavailable = Boolean(accountScope.error || systemsError)
     return (
