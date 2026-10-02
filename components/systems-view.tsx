@@ -22,7 +22,7 @@ import { NewSystemsModal } from "./new-systems-modal"
 import { PageHeader } from "@/components/ui/page-header"
 import { BackToDashboard } from "@/components/back-to-dashboard"
 import { useAccountScope } from "@/lib/account-scope-context"
-import { withAccountScope } from "@/lib/account-scope"
+import { NO_ACCOUNTS_TITLE, noAccountsDescription, noAccountsInScope, withAccountScope } from "@/lib/account-scope"
 import { RefreshEvidenceButton } from "@/components/RefreshEvidenceButton"
 import Link from "next/link"
 import { ObservationChip } from "@/components/coverage/observation-chip"
@@ -585,7 +585,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
   }
 
   if (localSystems.length === 0 && !isLoadingData) {
-    const hasNoAccounts = !accountScope.loading && !accountScope.error && accountScope.options?.accounts.length === 0
+    const hasNoAccounts = noAccountsInScope(accountScope)
     // A filtered-empty (systems exist, the narrowing filters hide them) is a
     // different situation from a true empty and must say so — with the count
     // from the real unfiltered probe and a one-click way out.
@@ -595,7 +595,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
       : hiddenByFilters
         ? "Systems hidden by scope filters"
         : hasNoAccounts
-          ? "No AWS accounts connected"
+          ? NO_ACCOUNTS_TITLE
           : "No Tagged Systems Found"
     const description = accountScope.error
       ? "Cyntro could not verify the organization scope. Existing systems have not been deleted. Retry the scope metadata request."
@@ -604,7 +604,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
         : hiddenByFilters
           ? `${hiddenByScope} ${hiddenByScope === 1 ? "system exists" : "systems exist"} in this organization outside the selected account group, account, or region filters. Nothing has been deleted.`
           : hasNoAccounts
-            ? `The ${accountScope.customerId || "selected"} organization has no AWS accounts in scope. Connect a workload account in Settings › Accounts.`
+            ? noAccountsDescription(accountScope.customerId)
             : "No resources tagged with SystemName were found in the selected organization, account group, account, and region."
     const isUnavailable = Boolean(accountScope.error || systemsError)
     return (

@@ -160,6 +160,23 @@ export function scopeMatchesResource(
   return true
 }
 
+/**
+ * The organization has no AWS account in scope at all -- a control plane before
+ * its first workload account is connected. Known only once the options loaded:
+ * a missing or failed options read is not "no accounts".
+ */
+export function noAccountsInScope(
+  scope: { loading: boolean; error: string | null; options: AccountScopeOptions | null },
+): boolean {
+  return !scope.loading && !scope.error && Array.isArray(scope.options?.accounts) && scope.options.accounts.length === 0
+}
+
+export const NO_ACCOUNTS_TITLE = "No AWS accounts connected"
+
+export function noAccountsDescription(customerId: string | null): string {
+  return `The ${customerId || "selected"} organization has no AWS accounts in scope. Connect a workload account in Settings › Accounts.`
+}
+
 export function withAccountScope(
   url: string,
   scope: Pick<ProductScope, "customerId" | "groupId" | "accountId" | "region">,

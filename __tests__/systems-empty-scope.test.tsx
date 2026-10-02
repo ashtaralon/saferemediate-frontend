@@ -95,4 +95,29 @@ describe("SystemsView filtered-empty state", () => {
     expect(await screen.findByText("No Tagged Systems Found")).toBeInTheDocument()
     expect(screen.queryByText("Systems hidden by scope filters")).not.toBeInTheDocument()
   })
+
+  it("says no AWS account is connected when the organization has none in scope", async () => {
+    const connected = accountScope.options.accounts
+    const narrowed = accountScope.region
+    accountScope.options.accounts = []
+    accountScope.region = "all"
+    try {
+      vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input)
+        if (url.startsWith("/api/proxy/systems")) return json({ success: true, systems: [] })
+        return json({})
+      }))
+
+      render(<SystemsView />)
+
+      expect(await screen.findByText("No AWS accounts connected")).toBeInTheDocument()
+      expect(
+        screen.getByText("The testbed-webshop organization has no AWS accounts in scope. Connect a workload account in Settings › Accounts."),
+      ).toBeInTheDocument()
+      expect(screen.queryByText("No Tagged Systems Found")).not.toBeInTheDocument()
+    } finally {
+      accountScope.options.accounts = connected
+      accountScope.region = narrowed
+    }
+  })
 })
