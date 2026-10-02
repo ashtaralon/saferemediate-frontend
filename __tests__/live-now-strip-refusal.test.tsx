@@ -61,7 +61,7 @@ describe("LiveNowStrip: a refusal drops the shown event, even on a silent poll",
   it.each([
     [{ status: 403, code: null, reason: null }, "Not permitted for this account or scope"],
     [{ status: 401, code: null, reason: null }, "Your session is no longer valid — sign in again"],
-    [{ status: 422, code: "ACCOUNT_SCOPE_REQUIRED", reason: "several workload accounts are connected" },
+    [{ status: 422, code: "ACCOUNT_SCOPE_REQUIRED", reason: "several workload accounts are registered" },
      "this view does not read one selected account"],
     [{ status: 503, code: "SERVING_ROUTE_HELD", reason: "HELD_CUSTOMER_READ" },
      "Route held by the server — SERVING_ROUTE_HELD: HELD_CUSTOMER_READ"],

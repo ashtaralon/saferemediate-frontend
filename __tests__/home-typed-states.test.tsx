@@ -20,7 +20,7 @@ import { useCachedFetch } from "@/lib/use-cached-fetch"
 
 const NO_DATA = { detail: { code: "INVENTORY_SCOPE_UNAVAILABLE", reason: "NO_DATA_ACCOUNTS" } }
 const HELD = { detail: { code: "SERVING_ROUTE_HELD", reason: "READ_MODEL_MISSING", read_model: "lp_analysis_views" } }
-const SCOPE_REQUIRED = { detail: { code: "ACCOUNT_SCOPE_REQUIRED", reason: "several workload accounts are connected; name one with account_id" } }
+const SCOPE_REQUIRED = { detail: { code: "ACCOUNT_SCOPE_REQUIRED", reason: "several workload accounts are registered; name one with account_id" } }
 const MISMATCH = { detail: { code: "INVENTORY_SCOPE_MISMATCH", reason: "CLAIM_OUTSIDE_SERVER_SCOPE" } }
 
 const json = (status: number, body: unknown) =>
@@ -170,7 +170,7 @@ describe("classification", () => {
     expect(typedServingRefusal(SCOPE_REQUIRED)!.kind).toBe("scope_required")
     // By default a view does not send a selected account: never point at the scope bar.
     expect(semanticHoldMessage(typedServingRefusal(SCOPE_REQUIRED)!)).toBe(
-      "Several workload accounts are connected — this view does not read one selected account, so it cannot show this")
+      "Several workload accounts are registered — this view does not read one selected account, so it cannot show this")
     expect(semanticHoldMessage(typedServingRefusal(SCOPE_REQUIRED)!)).not.toMatch(/scope bar/)
     expect(typedServingRefusal(MISMATCH)!.kind).toBe("scope_denied")
     expect(typedServingRefusal({ detail: { code: "SOMETHING_ELSE" } })).toBeNull()
@@ -181,7 +181,7 @@ describe("classification", () => {
   it("accountSelection words ACCOUNT_SCOPE_REQUIRED only -- every other state keeps its own words", () => {
     const required = typedServingRefusal(SCOPE_REQUIRED)!
     expect(semanticHoldMessage(required, { accountSelection: "offer" })).toBe(
-      "Several workload accounts are connected — choose one account in the scope bar to see this")
+      "Several workload accounts are registered — choose one account in the scope bar to see this")
     expect(semanticHoldMessage(required, { accountSelection: "diagnose" })).toBe(
       "An account is selected, but the server still asked for one (ACCOUNT_SCOPE_REQUIRED) — the selection did not reach this read")
     for (const selection of ["offer", "diagnose"] as const) {

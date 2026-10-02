@@ -33,7 +33,7 @@ vi.mock("@/lib/account-scope-context", () => ({
 
 import { ExecutiveCockpit } from "@/components/dashboard/v3/executive-cockpit"
 
-const SCOPE_REQUIRED = { detail: { code: "ACCOUNT_SCOPE_REQUIRED", reason: "several workload accounts are connected" } }
+const SCOPE_REQUIRED = { detail: { code: "ACCOUNT_SCOPE_REQUIRED", reason: "several workload accounts are registered" } }
 let requested: string[] = []
 
 beforeEach(() => {

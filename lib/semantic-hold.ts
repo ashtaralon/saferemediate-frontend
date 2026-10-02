@@ -120,7 +120,7 @@ const STATE_HOLDS: Readonly<Record<string, string>> = {
   NO_DATA_ACCOUNTS: "No workload account is connected yet — connect one in Settings › Accounts",
   // The default: this view does not send a selected account, so the scope bar would not help it.
   ACCOUNT_SCOPE_REQUIRED:
-    "Several workload accounts are connected — this view does not read one selected account, so it cannot show this",
+    "Several workload accounts are registered — this view does not read one selected account, so it cannot show this",
   INVENTORY_SCOPE_MISMATCH: "The selected account is not in this install's scope",
   REVIEW_SCOPE_MISMATCH: "The selected account is not in this review's scope",
 }
@@ -135,7 +135,7 @@ const STATE_HOLDS: Readonly<Record<string, string>> = {
 export type AccountSelection = "offer" | "diagnose"
 
 const ACCOUNT_SELECTION_WORDS: Readonly<Record<AccountSelection, string>> = {
-  offer: "Several workload accounts are connected — choose one account in the scope bar to see this",
+  offer: "Several workload accounts are registered — choose one account in the scope bar to see this",
   diagnose:
     "An account is selected, but the server still asked for one (ACCOUNT_SCOPE_REQUIRED) — the selection did not reach this read",
 }

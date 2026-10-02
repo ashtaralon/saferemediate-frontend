@@ -17,7 +17,7 @@ import { FamilyStrip } from "@/components/dashboard/v3/family-strip"
 import { clearCached } from "@/lib/server/proxy-cache"
 
 const HELD = { detail: { code: "SERVING_ROUTE_HELD", reason: "HELD_CUSTOMER_READ" } }
-const SCOPE_REQUIRED = { detail: { code: "ACCOUNT_SCOPE_REQUIRED", reason: "several workload accounts are connected; name one with account_id" } }
+const SCOPE_REQUIRED = { detail: { code: "ACCOUNT_SCOPE_REQUIRED", reason: "several workload accounts are registered; name one with account_id" } }
 const MISMATCH = { detail: { code: "INVENTORY_SCOPE_MISMATCH", reason: "CLAIM_OUTSIDE_SERVER_SCOPE" } }
 const SERVED = {
   systems: [{ name: "payments" }], total: 1, errors: [],

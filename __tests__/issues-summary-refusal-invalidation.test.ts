@@ -15,7 +15,7 @@ const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } })
 const READY = (total: number) => ({ serve_state: "READY", analysis_complete: true, total, success: true })
 const HELD = { detail: { code: "SERVING_ROUTE_HELD", reason: "HELD_CUSTOMER_READ" } }
-const SCOPE_REQUIRED = { detail: { code: "ACCOUNT_SCOPE_REQUIRED", reason: "several workload accounts are connected" } }
+const SCOPE_REQUIRED = { detail: { code: "ACCOUNT_SCOPE_REQUIRED", reason: "several workload accounts are registered" } }
 
 type Settle = { promise: Promise<Response>; resolve: (r: Response) => void; reject: (e: unknown) => void }
 function deferred(): Settle {

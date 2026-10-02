@@ -17,7 +17,7 @@ const json = (status: number, body: unknown) =>
 const LIST = (id: string) => ({ events: [{ event_id: id, timestamp: "2026-10-01T00:00:00Z" }], chart_data: [] })
 const EMPTY = { events: [], chart_data: [] }
 const HELD = { detail: { code: "SERVING_ROUTE_HELD", reason: "HELD_CUSTOMER_READ" } }
-const SCOPE_REQUIRED = { detail: { code: "ACCOUNT_SCOPE_REQUIRED", reason: "several workload accounts are connected" } }
+const SCOPE_REQUIRED = { detail: { code: "ACCOUNT_SCOPE_REQUIRED", reason: "several workload accounts are registered" } }
 
 type Settle = { promise: Promise<Response>; resolve: (r: Response) => void }
 function deferred(): Settle {
