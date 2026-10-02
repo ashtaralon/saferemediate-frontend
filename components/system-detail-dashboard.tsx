@@ -1627,12 +1627,21 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
       })
 
       if (!response.ok) {
-        const errData = await response.json()
-        throw new Error(errData.error || `HTTP ${response.status}`)
+        // A typed refusal (409 off_boundary_mutation_refused while writeback is contained) carries
+        // its own message; show that, never a generic failure or a fabricated success.
+        const errData = await response.json().catch(() => ({}))
+        throw new Error(errData?.detail?.message || errData?.error || `HTTP ${response.status}`)
       }
 
       const data = await response.json()
-      setTagResults(data)
+      // The proxy's counts are the backend's (null when not reported): never derived from the request.
+      setTagResults({
+        success: data.success === true,
+        tagged: typeof data.taggedCount === "number" ? data.taggedCount : undefined,
+        failed: typeof data.failedCount === "number" ? data.failedCount : undefined,
+        skipped: typeof data.skippedCount === "number" ? data.skippedCount : undefined,
+        total: Array.isArray(data.results) ? data.results.length : undefined,
+      })
 
       if (data.success) {
         // Optional: Automatically close modal after successful tagging
@@ -2994,18 +3003,14 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
 
             <div className="p-6">
               <div className="mb-6 p-4 bg-[#3b82f610] rounded-lg border border-[#3b82f640]">
-                <h3 className="font-semibold text-[#3b82f6] mb-2">How it works:</h3>
-                <ol className="text-sm text-[#3b82f6] space-y-1">
-                  <li>
-                    1. Reads existing tags from your <strong>seed resource</strong>
-                  </li>
-                  <li>
-                    2. Applies tags to <strong>ALL discovered resources</strong>
-                  </li>
-                  <li>
-                    3. Result: <strong>100% consistent tagging</strong>
-                  </li>
-                </ol>
+                <h3 className="font-semibold text-[#3b82f6] mb-2">AWS tag writeback</h3>
+                {/* Truthful copy: the route writes only the SystemName key, nothing reads a seed
+                    resource here, and the write is contained until writeback is rebuilt as
+                    preview -> apply -> read-back -> restore. */}
+                <p className="text-sm text-[#3b82f6]">
+                  Writing tags into AWS is not enabled on this install. Cyntro does not change your
+                  resources&apos; tags; a request here is refused and nothing is written.
+                </p>
               </div>
 
               <div className="space-y-4 mb-6">
