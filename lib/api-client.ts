@@ -122,6 +122,7 @@ export interface InfrastructureData {
     secretsCount: number
     complianceCount: number
   }
+  /** Null when no source answered compliance systems -- not an empty list. */
   complianceSystems: Array<{
     name: string
     healthScore: number
@@ -129,7 +130,7 @@ export interface InfrastructureData {
     controlsCount: number
     owner: string
     tags: string[]
-  }>
+  }> | null
   issuesSummary?: {
     total: number
     by_severity?: {
@@ -234,7 +235,7 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
           secretsCount: 0,
           complianceCount: 0,
         },
-        complianceSystems: [],
+        complianceSystems: null,
       }
     }
 
@@ -318,7 +319,7 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
         secretsCount: metrics?.secretsCount ?? 0,
         complianceCount: metrics?.complianceCount ?? 0,
       },
-      complianceSystems: metrics.complianceSystems || [],
+      complianceSystems: Array.isArray(metrics?.complianceSystems) ? metrics.complianceSystems : null,
     }
   } catch (error) {
     console.warn("[v0] Backend not available. Error:", error)
@@ -349,7 +350,7 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
         secretsCount: 0,
         complianceCount: 0,
       },
-      complianceSystems: [],
+      complianceSystems: null,
     }
   }
 }

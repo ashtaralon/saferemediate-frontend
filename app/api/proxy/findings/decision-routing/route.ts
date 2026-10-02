@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
 import { getCached, setCached, TTL_SLOW } from "@/lib/server/proxy-cache"
+import { backendError, fromCaughtError } from "@/lib/server/proxy-error"
 
 const BACKEND_URL = getBackendBaseUrl()
 
@@ -46,42 +47,14 @@ export async function GET(req: NextRequest) {
       },
     )
     if (!r.ok) {
-      return NextResponse.json(
-        {
-          error: "decision_routing_unavailable",
-          backend_status: r.status,
-          total_findings: 0,
-          scored_count: 0,
-          unscored_count: 0,
-          unmapped_findings: 0,
-          score_failures: 0,
-          limit: Number(limit),
-          by_family: {},
-          by_decision_total: {},
-          supported_families: ["permissions", "network", "data"],
-        },
-        { status: 502 },
-      )
+      // A failed read carries no counts: the zero-filled body this used to send
+      // read as "0 findings scored" wherever it was parsed.
+      return backendError({ status: r.status, message: "Decision routing backend unavailable" })
     }
     const data = await r.json()
     setCached(cacheKey, data, TTL_SLOW)
     return NextResponse.json(data, { headers: { "X-Cache": "MISS" } })
   } catch (e) {
-    return NextResponse.json(
-      {
-        error: "decision_routing_proxy_error",
-        message: e instanceof Error ? e.message : String(e),
-        total_findings: 0,
-        scored_count: 0,
-        unscored_count: 0,
-        unmapped_findings: 0,
-        score_failures: 0,
-        limit: Number(limit),
-        by_family: {},
-        by_decision_total: {},
-        supported_families: ["permissions", "network", "data"],
-      },
-      { status: 502 },
-    )
+    return fromCaughtError(e)
   }
 }

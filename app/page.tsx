@@ -37,6 +37,7 @@ import { fetchInfrastructure, fetchSecurityFindings, type InfrastructureData } f
 import type { SecurityFinding } from "@/lib/types"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { SecurityHubCard, parseSecurityHubReading, type SecurityHubData } from "@/components/security-hub-card"
+import { parseGapReading, removableGapPercent as gapRemovablePercent, urgentIssueCount as summaryUrgentCount, type GapReading } from "@/lib/home-legacy-readings"
 import { Switch } from "@/components/ui/switch"
 import { Activity, ArrowUpRight, RefreshCw, Shield, Sparkles, TrendingDown } from "lucide-react"
 import { PostureScoreCard } from "@/components/dashboard/posture-score-card"
@@ -75,13 +76,6 @@ async function fetchWithTimeout(url: string, options: RequestInit = {}, timeout 
   }
 }
 
-interface GapAnalysisData {
-  allowed: number
-  used: number
-  unused: number
-  confidence: number
-  roleName: string
-}
 
 
 // Cache keys for localStorage
@@ -90,7 +84,8 @@ const CACHE_KEYS = {
   // fabricated zeros indistinguishable from measured ones, so they are not read.
   INFRASTRUCTURE: 'cyntro-infrastructure-cache-v2',
   FINDINGS: 'cyntro-findings-cache',
-  GAP_DATA: 'cyntro-gap-cache',
+  // v2: the reading lost its derived "confidence"; older entries are a different shape.
+  GAP_DATA: 'cyntro-gap-cache-v2',
   // v2: an unconnected hub used to be cached as a "0 findings" reading.
   SECURITY_HUB: 'cyntro-security-hub-cache-v2',
   TIMESTAMP: 'cyntro-cache-timestamp',
@@ -149,13 +144,8 @@ export default function HomePage() {
   // Pending-tag queue count for the sidebar badge. Polled on mount + every 60s
   // so operators see new pending items without a hard refresh.
   const [pendingTagsCount, setPendingTagsCount] = useState<number>(0)
-  const [gapData, setGapData] = useState<GapAnalysisData>({
-    allowed: 0,
-    used: 0,
-    unused: 0,
-    confidence: 99,
-    roleName: "Loading...",
-  })
+  // Null until issues-summary answered a permission gap: no Gap Analysis card for none.
+  const [gapData, setGapData] = useState<GapReading | null>(null)
   // Null until Security Hub answered a read: an unread or unconnected hub is not
   // "0 findings", so no Security Hub card is shown for it.
   const [securityHubData, setSecurityHubData] = useState<SecurityHubData | null>(null)
@@ -173,42 +163,16 @@ export default function HomePage() {
         return res.json()
       })
       .then((summaryJson) => {
-        // Use aggregate permission data from issues summary
-        const permissions = summaryJson.byCategory?.permissions || {}
-        const allowed = permissions.allowed || 0
-        const used = permissions.used || 0
-        const unused = permissions.unused || (allowed - used)
-
-        // Calculate confidence based on gap percentage
-        const gapPct = permissions.gap_percentage || 0
-        const confidence = allowed > 0 ? Math.min(99, Math.max(70, 100 - gapPct * 0.2)) : 0
-
-        // Show aggregate label
-        const roleName = `${summaryJson.resources?.iam_roles || 0} IAM Roles Analyzed`
-
-        console.log(`[Home] Gap Analysis: allowed=${allowed}, used=${used}, unused=${unused}, confidence=${confidence}`)
-
-        const newGapData = {
-          allowed: allowed,
-          used: used,
-          unused: unused,
-          confidence: Math.round(confidence),
-          roleName: roleName,
-        }
-        setGapData(newGapData)
-        setCachedData(CACHE_KEYS.GAP_DATA, newGapData) // Cache for instant load
+        // The summary's own permission counts, or no reading. (This used to
+        // default each to 0 and derive a "confidence" no backend computes.)
+        const reading = parseGapReading(summaryJson)
+        setGapData(reading)
+        if (reading) setCachedData(CACHE_KEYS.GAP_DATA, reading) // Cache for instant load
         setLastRefresh(new Date())
       })
       .catch((err) => {
         console.warn("Gap analysis fetch failed:", err)
-        // Keep default values or set to zero
-        setGapData({
-          allowed: 0,
-          used: 0,
-          unused: 0,
-          confidence: 0,
-          roleName: "Error loading",
-        })
+        setGapData(null)
       })
   }, [])
 
@@ -358,7 +322,7 @@ export default function HomePage() {
         `[page] Withheld ${cachedFindingResult.withheldCount} finding(s) without a canonical ID from browser cache`,
       )
     }
-    const cachedGap = getCachedData<GapAnalysisData>(CACHE_KEYS.GAP_DATA)
+    const cachedGap = getCachedData<GapReading>(CACHE_KEYS.GAP_DATA)
 
     if (cachedInfra) {
       console.log("[page] Loaded infrastructure from cache (instant)")
@@ -450,24 +414,11 @@ export default function HomePage() {
     lastScanTime: null,
   }
 
-  // Ensure stats reflect actual findings count if backend returns zeros
   const computedFindingsStats = computeStatsFromFindings(securityFindings)
-  const statsData = {
-    ...baseStatsData,
-    // An unknown count stays unknown; only a reported 0 may defer to findings.
-    totalIssues:
-      baseStatsData.totalIssues == null
-        ? null
-        : baseStatsData.totalIssues > 0
-          ? baseStatsData.totalIssues
-          : securityFindings.length,
-    criticalIssues:
-      baseStatsData.criticalIssues == null
-        ? null
-        : baseStatsData.criticalIssues > 0
-          ? baseStatsData.criticalIssues
-          : computedFindingsStats.critical,
-  }
+  // The summary's own counts, verbatim (the sidebar Issues badge reads these).
+  // A measured 0 used to be replaced by the number of findings rows this page
+  // happened to load -- a different quantity, from a different read.
+  const statsData = baseStatsData
 
   // As measured (lib/api-client measuredInfrastructure): null when no source counted anything.
   const infrastructureStats = data?.infrastructure ?? null
@@ -524,7 +475,8 @@ export default function HomePage() {
     // sees an absence rather than a wrong number.
   })
 
-  const complianceSystems = (data?.complianceSystems || []).map((system: any) => ({
+  // Null when no source answered compliance systems: no Coverage / Systems tiles and no cards.
+  const complianceSystems = data?.complianceSystems ? data.complianceSystems.map((system: any) => ({
     name: system.name,
     environment: system.environment,
     standard: system.standard,
@@ -535,7 +487,7 @@ export default function HomePage() {
       system.passedControls ??
       Math.max(0, (system.totalControls ?? system.controlsCount ?? 0) - (system.criticalGaps ?? 0)),
     owner: system.owner,
-  }))
+  })) : null
   // The sum of the kinds that were counted; null (no Telemetry tile) when none was.
   const measuredCounts = infrastructureStats
     ? Object.values(infrastructureStats).filter((count): count is number => typeof count === "number")
@@ -543,8 +495,9 @@ export default function HomePage() {
   const totalTrackedResources: number | null =
     data?.resources?.length ||
     (measuredCounts.length > 0 ? measuredCounts.reduce((sum, count) => sum + count, 0) : null)
-  const urgentIssueCount = (securityIssuesData.critical || 0) + (securityIssuesData.high || 0)
-  const removableGapPercent = gapData.allowed > 0 ? Math.round((gapData.unused / gapData.allowed) * 100) : 0
+  // The summary's own critical + high, or null (no Urgent tile, pill or sentence).
+  const urgentIssueCount = data?.staleReplay ? null : summaryUrgentCount(data?.issuesSummary)
+  const removableGapPercent = gapRemovablePercent(gapData)
   const lastRefreshLabel = lastRefresh.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
 
   const handleSystemSelect = (systemName: string) => {
@@ -649,11 +602,6 @@ export default function HomePage() {
           // fresh visit into one specific demo system's data.
           return <HomeDashboardV2 initialSystem={selectedSystem ?? ""} onNavigateToSection={handleSidebarClick} />
         }
-        const gapAllowed = gapData?.allowed ?? 0
-        const gapUsed = gapData?.used ?? 0
-        const gapUnused = gapData?.unused ?? 0
-        const gapConfidence = gapData?.confidence ?? 99
-        const gapRoleName = gapData?.roleName ?? "IAM Roles"
 
         return (
           <div className="space-y-6">
@@ -705,16 +653,21 @@ export default function HomePage() {
                   </CardHeader>
                   <CardContent className="space-y-4">
                     <div className="grid grid-cols-2 gap-3">
-                      <div className="rounded-2xl border border-[#fecaca] bg-[#fff1f2] p-4">
-                        <div className="text-xs uppercase tracking-[0.2em] text-[#b91c1c]">Urgent Issues</div>
-                        <div className="mt-2 text-3xl font-bold text-[#111827]">{urgentIssueCount}</div>
-                        <p className="mt-2 text-xs text-[#7f1d1d]">Critical and high findings needing fast triage</p>
-                      </div>
-                      <div className="rounded-2xl border border-[#ddd6fe] bg-[#f5f3ff] p-4">
-                        <div className="text-xs uppercase tracking-[0.2em] text-[#6d28d9]">Access Gap</div>
-                        <div className="mt-2 text-3xl font-bold text-[#111827]">{removableGapPercent}%</div>
-                        <p className="mt-2 text-xs text-[#5b21b6]">Of granted permissions appear removable</p>
-                      </div>
+                      {/* Each tile only for a figure a source measured; none for an unread one. */}
+                      {urgentIssueCount !== null && (
+                        <div className="rounded-2xl border border-[#fecaca] bg-[#fff1f2] p-4">
+                          <div className="text-xs uppercase tracking-[0.2em] text-[#b91c1c]">Urgent Issues</div>
+                          <div className="mt-2 text-3xl font-bold text-[#111827]">{urgentIssueCount}</div>
+                          <p className="mt-2 text-xs text-[#7f1d1d]">Critical and high findings needing fast triage</p>
+                        </div>
+                      )}
+                      {removableGapPercent !== null && (
+                        <div className="rounded-2xl border border-[#ddd6fe] bg-[#f5f3ff] p-4">
+                          <div className="text-xs uppercase tracking-[0.2em] text-[#6d28d9]">Access Gap</div>
+                          <div className="mt-2 text-3xl font-bold text-[#111827]">{removableGapPercent}%</div>
+                          <p className="mt-2 text-xs text-[#5b21b6]">Of granted permissions appear removable</p>
+                        </div>
+                      )}
                       {totalTrackedResources !== null && (
                         <div className="rounded-2xl border border-[#bfdbfe] bg-[#eff6ff] p-4">
                           <div className="text-xs uppercase tracking-[0.2em] text-[#1d4ed8]">Telemetry</div>
@@ -722,11 +675,13 @@ export default function HomePage() {
                           <p className="mt-2 text-xs text-[#1e40af]">Tracked resources contributing to the dashboard</p>
                         </div>
                       )}
-                      <div className="rounded-2xl border border-[#fde68a] bg-[#fffbeb] p-4">
-                        <div className="text-xs uppercase tracking-[0.2em] text-[#b45309]">Coverage</div>
-                        <div className="mt-2 text-3xl font-bold text-[#111827]">{complianceSystems.length}</div>
-                        <p className="mt-2 text-xs text-[#92400e]">Systems represented in compliance coverage</p>
-                      </div>
+                      {complianceSystems !== null && (
+                        <div className="rounded-2xl border border-[#fde68a] bg-[#fffbeb] p-4">
+                          <div className="text-xs uppercase tracking-[0.2em] text-[#b45309]">Coverage</div>
+                          <div className="mt-2 text-3xl font-bold text-[#111827]">{complianceSystems.length}</div>
+                          <p className="mt-2 text-xs text-[#92400e]">Systems represented in compliance coverage</p>
+                        </div>
+                      )}
                     </div>
 
                     <div className="rounded-2xl border border-slate-200 bg-white/80 p-4">
@@ -758,50 +713,48 @@ export default function HomePage() {
                 )}
               </div>
               <div className="xl:col-span-4 space-y-6">
-                <Card className="rounded-[24px] border-[#8b5cf640] bg-gradient-to-br from-indigo-50 to-purple-50 shadow-[0_20px_60px_-40px_rgba(139,92,246,0.45)]">
-                  <CardHeader className="pb-2">
-                    <div className="flex items-center justify-between">
-                      <CardTitle className="text-lg font-semibold text-[#8b5cf6] flex items-center gap-2">
-                        <Shield className="h-5 w-5 text-[#8b5cf6]" />
-                        Gap Analysis
-                      </CardTitle>
-                      <span className="text-xs bg-[#8b5cf6] text-white px-2 py-1 rounded-full font-medium">LIVE</span>
-                    </div>
-                    <p className="text-xs text-[#8b5cf6] truncate" title={gapRoleName}>
-                      {gapRoleName}
-                    </p>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="bg-white/60 rounded-lg p-3 text-center">
-                        <div className="text-2xl font-bold text-[var(--foreground,#111827)]">{gapAllowed}</div>
-                        <div className="text-xs text-[var(--muted-foreground,#4b5563)]">Allowed</div>
+                {gapData ? (
+                  <Card className="rounded-[24px] border-[#8b5cf640] bg-gradient-to-br from-indigo-50 to-purple-50 shadow-[0_20px_60px_-40px_rgba(139,92,246,0.45)]">
+                    <CardHeader className="pb-2">
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="text-lg font-semibold text-[#8b5cf6] flex items-center gap-2">
+                          <Shield className="h-5 w-5 text-[#8b5cf6]" />
+                          Gap Analysis
+                        </CardTitle>
+                        <span className="text-xs bg-[#8b5cf6] text-white px-2 py-1 rounded-full font-medium">LIVE</span>
                       </div>
-                      <div className="bg-white/60 rounded-lg p-3 text-center">
-                        <div className="text-2xl font-bold text-[#22c55e]">{gapUsed}</div>
-                        <div className="text-xs text-[var(--muted-foreground,#4b5563)]">Used</div>
-                      </div>
-                      <div className="bg-white/60 rounded-lg p-3 text-center">
-                        <div className="text-2xl font-bold text-[#ef4444]">{gapUnused}</div>
-                        <div className="text-xs text-[var(--muted-foreground,#4b5563)] flex items-center justify-center gap-1">
-                          <TrendingDown className="h-3 w-3" />
-                          Unused
+                      <p className="text-xs text-[#8b5cf6] truncate" title={gapData.roleLabel}>
+                        {gapData.roleLabel}
+                      </p>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid grid-cols-3 gap-3">
+                        <div className="bg-white/60 rounded-lg p-3 text-center">
+                          <div className="text-2xl font-bold text-[var(--foreground,#111827)]">{gapData.allowed}</div>
+                          <div className="text-xs text-[var(--muted-foreground,#4b5563)]">Allowed</div>
+                        </div>
+                        <div className="bg-white/60 rounded-lg p-3 text-center">
+                          <div className="text-2xl font-bold text-[#22c55e]">{gapData.used}</div>
+                          <div className="text-xs text-[var(--muted-foreground,#4b5563)]">Used</div>
+                        </div>
+                        <div className="bg-white/60 rounded-lg p-3 text-center">
+                          <div className="text-2xl font-bold text-[#ef4444]">{gapData.unused}</div>
+                          <div className="text-xs text-[var(--muted-foreground,#4b5563)] flex items-center justify-center gap-1">
+                            <TrendingDown className="h-3 w-3" />
+                            Unused
+                          </div>
                         </div>
                       </div>
-                      <div className="bg-white/60 rounded-lg p-3 text-center">
-                        <div className="text-2xl font-bold text-[#8b5cf6]">{gapConfidence}%</div>
-                        <div className="text-xs text-[var(--muted-foreground,#4b5563)]">Confidence</div>
-                      </div>
-                    </div>
-                    {gapUnused > 0 && gapAllowed > 0 && (
-                      <div className="mt-3 p-2 bg-[#f9731620] rounded-lg text-center">
-                        <span className="text-xs font-medium text-[#f97316]">
-                          {removableGapPercent}% permissions can be removed
-                        </span>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
+                      {gapData.unused > 0 && removableGapPercent !== null && (
+                        <div className="mt-3 p-2 bg-[#f9731620] rounded-lg text-center">
+                          <span className="text-xs font-medium text-[#f97316]">
+                            {removableGapPercent}% permissions can be removed
+                          </span>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                ) : null}
 
                 <SecurityHubCard data={securityHubData} />
 
@@ -826,11 +779,13 @@ export default function HomePage() {
                   </CardHeader>
                   <CardContent>
                     <div className="grid grid-cols-2 gap-3">
-                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                        <div className="text-xs uppercase tracking-[0.2em] text-[var(--muted-foreground,#6b7280)]">Systems</div>
-                        <div className="mt-2 text-3xl font-bold text-[var(--foreground,#111827)]">{complianceSystems.length}</div>
-                        <div className="mt-1 text-xs text-[var(--muted-foreground,#6b7280)]">Systems represented in governance</div>
-                      </div>
+                      {complianceSystems !== null && (
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                          <div className="text-xs uppercase tracking-[0.2em] text-[var(--muted-foreground,#6b7280)]">Systems</div>
+                          <div className="mt-2 text-3xl font-bold text-[var(--foreground,#111827)]">{complianceSystems.length}</div>
+                          <div className="mt-1 text-xs text-[var(--muted-foreground,#6b7280)]">Systems represented in governance</div>
+                        </div>
+                      )}
                       <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                         <div className="text-xs uppercase tracking-[0.2em] text-[var(--muted-foreground,#6b7280)]">Findings Feed</div>
                         <div className="mt-2 text-3xl font-bold text-[var(--foreground,#111827)]">{securityFindings.length}</div>
@@ -841,11 +796,14 @@ export default function HomePage() {
                       <div className="flex items-center justify-between gap-3">
                         <div>
                           <div className="text-xs uppercase tracking-[0.2em] text-[#2D51DA]">Current Focus</div>
-                          <div className="mt-1 text-sm font-medium text-slate-900">
-                            {urgentIssueCount > 0
-                              ? `${urgentIssueCount} urgent findings are leading the queue`
-                              : "No urgent findings are leading the queue right now"}
-                          </div>
+                          {/* Only from a measured count: an unread summary is not "no urgent findings". */}
+                          {urgentIssueCount !== null ? (
+                            <div className="mt-1 text-sm font-medium text-slate-900">
+                              {urgentIssueCount > 0
+                                ? `${urgentIssueCount} urgent findings are leading the queue`
+                                : "No urgent findings are leading the queue right now"}
+                            </div>
+                          ) : null}
                         </div>
                         <button
                           onClick={() => setActiveSection("systems")}
@@ -866,7 +824,7 @@ export default function HomePage() {
                 <SecurityIssuesOverview {...securityIssuesData} />
               </div>
               <div className="xl:col-span-5">
-                <ComplianceCards systems={complianceSystems} />
+                {complianceSystems !== null ? <ComplianceCards systems={complianceSystems} /> : null}
               </div>
             </div>
 

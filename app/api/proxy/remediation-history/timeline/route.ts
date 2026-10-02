@@ -17,23 +17,13 @@ const BACKEND_URL = getBackendBaseUrl()
 // last-good on ANY failure, and always return 200 with an honest empty envelope
 // when there's nothing to serve. (Matches the proxy contract in CLAUDE.md:
 // timeout + cache + stale fallback + honest error envelope.)
-const EMPTY_TIMELINE = {
-  events: [] as unknown[],
-  chart_data: [] as unknown[],
-  summary: {
-    total_events: 0,
-    permissions_removed: 0,
-    rollbacks: 0,
-    avg_confidence: 0,
-  },
-}
-
-// Same empty shape, but flagged so the consumer can tell "the backend genuinely
-// has no events" (honest idle) apart from "we failed to load and have no stale"
-// (a degraded refresh). Without this, the LIVE NOW strip would render an empty
-// error-fallback as "no remediations recorded yet" — a lie when events exist but
-// the herd-saturated backend just couldn't answer this one cold cache key.
-const DEGRADED_TIMELINE = { ...EMPTY_TIMELINE, degraded: true }
+// A failed load with nothing stale to serve. Flagged so the consumer can tell
+// "the backend genuinely has no events" (honest idle, only ever the backend's own
+// 200) apart from "we failed to load" (a degraded refresh). It carries no summary:
+// a zero `total_events` here would be a count nobody read. Every failure path --
+// a 5xx, a 404 (the endpoint is absent, which is not "no remediations"), a
+// timeout or a network error -- answers this, never an unflagged empty.
+const DEGRADED_TIMELINE = { events: [] as unknown[], chart_data: [] as unknown[], degraded: true }
 
 // Cap the upstream fetch below the browser's 25s AbortSignal so a cold/hung
 // Render worker fails over to stale here instead of timing out in the component.
@@ -95,9 +85,10 @@ export async function GET(req: NextRequest) {
     }
 
     if (!response.ok) {
-      // 404 = endpoint genuinely absent → honest empty (nothing to serve stale).
+      // 404 = the endpoint is absent: nothing was read, so this is degraded,
+      // never "no remediations recorded".
       if (response.status === 404) {
-        return NextResponse.json(EMPTY_TIMELINE, { headers: { "X-Cache": "EMPTY-404" } })
+        return NextResponse.json(DEGRADED_TIMELINE, { headers: { "X-Cache": "DEGRADED-404" } })
       }
       // Any other backend failure (500/502 under load): prefer last-good over a
       // raw error status. NEVER propagate a 5xx to a nice-to-have activity feed.
@@ -159,12 +150,12 @@ export async function GET(req: NextRequest) {
     setCached(cacheKey, data, TTL_STD)
     return NextResponse.json(data, { headers: { "X-Cache": "MISS-EMPTY" } })
   } catch (error: any) {
-    // Timeout / network / parse — same posture: last-good, else empty. Always 200.
+    // Timeout / network / parse — same posture: last-good, else degraded. Always 200.
     console.error("[Remediation Timeline Proxy] error:", error?.message ?? String(error))
     const stale = getStaleCached(cacheKey)
     if (stale) {
       return NextResponse.json(stale, { headers: { "X-Cache": "STALE-ERROR" } })
     }
-    return NextResponse.json(EMPTY_TIMELINE, { headers: { "X-Cache": "ERROR-EMPTY" } })
+    return NextResponse.json(DEGRADED_TIMELINE, { headers: { "X-Cache": "ERROR-DEGRADED" } })
   }
 }

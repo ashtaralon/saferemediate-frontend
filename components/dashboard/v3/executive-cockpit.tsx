@@ -98,8 +98,9 @@ function reportSnapshot(data: ExecutiveSnapshot, catalog?: SystemsCatalogRespons
         high: null,
         weakestPlane: null,
       }
-      if (risk.severity === "CRITICAL") row.critical = (row.critical || 0) + 1
-      if (risk.severity === "HIGH") row.high = (row.high || 0) + 1
+      // Critical / High are the system's own counts, from the catalog below. The
+      // top-risk rows are a capped sample (five), so counting them here labelled
+      // "how many of the top five are CRITICAL" as the system's Critical total.
       systemRows.set(name, row)
     }
   }

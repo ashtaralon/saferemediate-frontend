@@ -3,6 +3,7 @@
 import { ErrorCard, LoadingCard, Section, StaleIndicator } from "./card-shell"
 import { descriptorClass } from "./styles"
 import { useCachedFetch } from "@/lib/use-cached-fetch"
+import { deriveLPIntegrity, lpIntegrityCopy, type LPIntegrityFields } from "@/lib/lp-integrity"
 
 /**
  * Top least-privilege issues — real data, sorted by gap%.
@@ -43,10 +44,14 @@ type IssuesSummary = {
   highCount?: number
 }
 
-type IssuesResp = {
+type IssuesResp = LPIntegrityFields & {
   summary?: IssuesSummary
   resources?: Resource[]
   error?: string
+}
+
+function count(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null
 }
 
 const TYPE_TINT: Record<string, string> = {
@@ -74,6 +79,9 @@ export function LPTopIssuesCard() {
       cacheKey: "lp-issues",
       maxStaleMs: 60 * 60 * 1000,
       fetchInit: { cache: "no-store" },
+      // Only a READY analysis is kept for the next visit: an ERROR / held body
+      // (zero summary, no rows) replayed from storage read as an all-clear.
+      isCacheable: (value) => deriveLPIntegrity(value as IssuesResp).state === "READY",
     }
   )
 
@@ -82,22 +90,45 @@ export function LPTopIssuesCard() {
   if (!data) return null
 
   const summary = data.summary ?? {}
+  // A completed analysis may say what it found nothing of; any other state
+  // (NOT_READY, INTEGRITY_HELD, the backend's serve_state "ERROR") may not.
+  const integrity = deriveLPIntegrity(data)
+  const ready = integrity.state === "READY"
   const resources = (data.resources ?? [])
     .filter((r) => typeof r.gapPercent === "number" && r.gapPercent > 0)
     .sort((a, b) => (b.gapPercent ?? 0) - (a.gapPercent ?? 0))
     .slice(0, 6)
 
+  const critical = count(summary.criticalCount)
+  const high = count(summary.highCount)
   const headerSummary = (
     <span className="flex items-center gap-2">
       <StaleIndicator cachedAt={cachedAt} isStale={isStale} />
-      <span className="text-xs text-slate-500">
-        <span className="font-semibold text-rose-700">{summary.criticalCount ?? 0}</span> crit ·{" "}
-        <span className="font-semibold text-amber-700">{summary.highCount ?? 0}</span> high
-      </span>
+      {ready && critical !== null && high !== null ? (
+        <span className="text-xs text-slate-500">
+          <span className="font-semibold text-rose-700">{critical}</span> crit ·{" "}
+          <span className="font-semibold text-amber-700">{high}</span> high
+        </span>
+      ) : null}
     </span>
   )
 
+  if (!ready) {
+    const copy = lpIntegrityCopy(integrity)
+    return (
+      <Section
+        label="Top least-privilege issues"
+        descriptor={copy.title}
+        className="border-l-[3px] border-l-violet-500"
+        right={headerSummary}
+      >
+        <div className={descriptorClass}>{copy.body}</div>
+      </Section>
+    )
+  }
+
   if (resources.length === 0) {
+    const analyzed = count(summary.totalResources)
     return (
       <Section
         label="Top least-privilege issues"
@@ -106,16 +137,30 @@ export function LPTopIssuesCard() {
         right={headerSummary}
       >
         <div className={descriptorClass}>
-          {summary.totalResources ?? 0} resources analyzed. None show excess permissions.
+          {analyzed !== null ? `${analyzed} resources analyzed. ` : ""}None show excess permissions.
         </div>
       </Section>
     )
   }
 
+  // Each figure only when the backend sent it.
+  const descriptorParts = [
+    count(summary.totalResources) !== null ? `${summary.totalResources} resources` : null,
+    count(summary.totalExcessPermissions) !== null ? `${summary.totalExcessPermissions} excess permissions` : null,
+  ].filter(Boolean)
+  const planes = [
+    count(summary.iamIssuesCount) !== null ? `IAM (${summary.iamIssuesCount})` : null,
+    count(summary.networkIssuesCount) !== null ? `SGs (${summary.networkIssuesCount})` : null,
+    count(summary.s3IssuesCount) !== null ? `S3 (${summary.s3IssuesCount})` : null,
+  ].filter(Boolean)
+  const descriptor = [descriptorParts.join(" · "), planes.length ? `across ${planes.join(" · ")}` : ""]
+    .filter(Boolean)
+    .join(" ") || "Resources with unused permissions"
+
   return (
     <Section
       label="Top least-privilege issues"
-      descriptor={`${summary.totalResources ?? 0} resources · ${summary.totalExcessPermissions ?? 0} excess permissions across IAM (${summary.iamIssuesCount ?? 0}) · SGs (${summary.networkIssuesCount ?? 0}) · S3 (${summary.s3IssuesCount ?? 0})`}
+      descriptor={descriptor}
       className="border-l-[3px] border-l-violet-500"
       right={headerSummary}
     >
@@ -138,7 +183,10 @@ export function LPTopIssuesCard() {
                   {r.resourceName}
                 </div>
                 <div className="mt-0.5 truncate text-xs text-slate-500">
-                  {r.systemName ?? "—"} · {r.gapCount ?? 0} unused / {r.allowedCount ?? 0} total
+                  {r.systemName ?? "—"}
+                  {count(r.gapCount) !== null && count(r.allowedCount) !== null
+                    ? ` · ${r.gapCount} unused / ${r.allowedCount} total`
+                    : ""}
                 </div>
               </div>
               <span

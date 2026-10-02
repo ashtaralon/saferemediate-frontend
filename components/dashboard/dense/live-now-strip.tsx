@@ -1,5 +1,6 @@
 "use client"
 
+import { activityFeedIsComplete } from "@/lib/activity-feed"
 import { useCachedFetch } from "@/lib/use-cached-fetch"
 import { Activity, Check, RotateCcw, Zap } from "lucide-react"
 
@@ -86,10 +87,10 @@ export function LiveNowStrip() {
     )
   }
 
-  // No reading (a failed or refused read): say so. Falling through would
-  // print "Engine idle · No remediation events recorded" — a claim about the
-  // engine made from the absence of an answer.
-  if (!data) {
+  // No reading (a failed or refused read) -- or a feed in which no source
+  // answered: say so. Falling through would print "Engine idle · No remediation
+  // events recorded", a claim about the engine made from the absence of an answer.
+  if (!data || ((data.items ?? []).length === 0 && !activityFeedIsComplete(data))) {
     return (
       <div className="rounded-[14px] border border-amber-200 bg-amber-50/60 px-4 py-3" data-testid="live-now-unavailable">
         <div className="flex items-center gap-3 text-sm">

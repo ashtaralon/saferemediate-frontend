@@ -84,7 +84,8 @@ export async function GET(_req: NextRequest) {
   } catch (err) {
     const stale = getStaleCached<typeof EMPTY_PAYLOAD>(CACHE_KEY)
     if (stale) {
-      return NextResponse.json(stale, { headers: { "X-Cache": "STALE-ERROR" } })
+      // An older feed over a failed read: stamped, so no card presents it as current.
+      return NextResponse.json({ ...stale, stale: true }, { headers: { "X-Cache": "STALE-ERROR" } })
     }
     return NextResponse.json(
       {
@@ -216,11 +217,12 @@ async function computeFeed(): Promise<NextResponse> {
   // activity, so we never resurrect a stale over a truly-empty account.
   const stale = getStaleCached<typeof payload>(CACHE_KEY)
   if (stale && stale.items.length > 0) {
-    return NextResponse.json(stale, { headers: { "X-Cache": "STALE-EMPTY" } })
+    return NextResponse.json({ ...stale, stale: true }, { headers: { "X-Cache": "STALE-EMPTY" } })
   }
 
-  // Genuinely nothing to show. Cache the empty (with its errors) so we don't
-  // hammer the backend on every poll; the strip renders an honest quiet state.
+  // Nothing to show. Cache the empty (with its errors) so we don't hammer the
+  // backend on every poll. With errors it read nothing, and the cards say so
+  // (lib/activity-feed activityFeedIsComplete) instead of "no events".
   setCached(CACHE_KEY, payload, TTL_STD)
   return NextResponse.json(payload, { headers: { "X-Cache": "MISS-EMPTY" } })
 }

@@ -2,7 +2,7 @@
 
 import type { BrssHold } from "@/lib/brss-held"
 import { useCachedFetch } from "@/lib/use-cached-fetch"
-import { ErrorCard, LoadingCard, Section } from "./card-shell"
+import { ErrorCard, LoadingCard, Section, StaleIndicator } from "./card-shell"
 import {
   accentByCategory,
   descriptorClass,
@@ -31,7 +31,7 @@ import {
 
 type FamilyData = {
   families: Record<string, { score: number; weight: number; contributing_systems: number }>
-  contributing_systems: number
+  contributing_systems: number | null
   total_systems: number
   errors?: string[]
 }
@@ -92,9 +92,14 @@ export function FamilyStrip({
   // subsequent visit) renders the cached data INSTANTLY while a
   // background fetch refreshes it. The user only ever sees a real
   // skeleton on the first visit ever; thereafter it's perceived-instant.
-  const { data, loading, error, retry } = useCachedFetch<FamilyData>(
+  const { data, loading, error, retry, isStale, cachedAt } = useCachedFetch<FamilyData>(
     "/api/proxy/family-aggregate",
-    { cacheKey: "family-aggregate", fetchInit: { cache: "no-store" } }
+    {
+      cacheKey: "family-aggregate",
+      fetchInit: { cache: "no-store" },
+      // A reading with per-system errors is partial: shown, never kept as the next reading.
+      isCacheable: (value) => ((value as FamilyData | null)?.errors?.length ?? 0) === 0,
+    }
   )
 
   if (loading && !data) {
@@ -124,9 +129,20 @@ export function FamilyStrip({
     </p>
   ) : null
 
+  // Per-system errors mean some systems were not scored: a family with no score
+  // in this reading is then unknown, not "no systems contribute".
+  const errors = (data.errors ?? []).filter((e) => typeof e === "string" && e)
+  const partial = errors.length > 0
+  const partialNote = partial || isStale ? (
+    <div className="flex flex-wrap items-center gap-2 text-xs text-amber-800" data-testid="family-strip-partial-note">
+      <StaleIndicator cachedAt={cachedAt} isStale={isStale} />
+      {partial ? <span>Some systems were not scored: {errors.join(" · ")}</span> : null}
+    </div>
+  ) : null
+
   const strip = (
     <section className={`grid gap-5 ${gridCols}`}>
-      {tiles.map(({ key, label, accent, pip }) => {
+      {tiles.filter(({ key }) => !partial || Boolean(data.families[key])).map(({ key, label, accent, pip }) => {
         const labelWithPip = (
           <span className="inline-flex items-center gap-2">
             <span className={`inline-block h-2 w-2 rounded-full ${pip}`} />
@@ -180,10 +196,11 @@ export function FamilyStrip({
     </section>
   )
 
-  if (!heldNote) return strip
+  if (!heldNote && !partialNote) return strip
   return (
     <div className="flex flex-col gap-2">
       {heldNote}
+      {partialNote}
       {strip}
     </div>
   )

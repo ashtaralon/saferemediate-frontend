@@ -39,6 +39,22 @@ async function resolveActiveSystem(systemsUrl: string): Promise<string | null> {
   }
 }
 
+/**
+ * Shared IAM roles + shared SGs with narrowing available, or null. Both
+ * sources must answer with their row lists (`null` = that source failed): a
+ * failed source counted as 0 made the badge the other source's count alone,
+ * shown as the total.
+ */
+export function sharedResourcesActionableCount(iamJson: any, sgJson: any): number | null {
+  const iamRows: Array<{ headline_state?: string }> | undefined = iamJson?.shared_roles ?? iamJson?.roles
+  const sgRows: Array<{ narrowing?: { headline_state?: string } }> | undefined = sgJson?.shared_sgs ?? sgJson?.sgs
+  if (!Array.isArray(iamRows) || !Array.isArray(sgRows)) return null
+  return (
+    iamRows.filter((r) => r.headline_state === "narrowing_available").length +
+    sgRows.filter((r) => r.narrowing?.headline_state === "narrowing_available").length
+  )
+}
+
 function useSharedResourcesActionableCount(): number | null {
   const systemsCatalog = useScopedSystemCatalog()
   const [count, setCount] = useState<number | null>(null)
@@ -59,19 +75,11 @@ function useSharedResourcesActionableCount(): number | null {
           fetch(`/api/proxy/sg/shared-sgs?${qs}`, { cache: "no-store" }),
         ])
         if (cancelled) return
-        const iamJson = iamRes.ok ? await iamRes.json() : {}
-        const sgJson = sgRes.ok ? await sgRes.json() : {}
-        const iamRows: Array<{ headline_state?: string }> =
-          iamJson.shared_roles ?? iamJson.roles ?? []
-        const sgRows: Array<{ narrowing?: { headline_state?: string } }> =
-          sgJson.shared_sgs ?? sgJson.sgs ?? []
-        const iamNarrowable = iamRows.filter(
-          (r) => r.headline_state === "narrowing_available",
-        ).length
-        const sgNarrowable = sgRows.filter(
-          (r) => r.narrowing?.headline_state === "narrowing_available",
-        ).length
-        if (!cancelled) setCount(iamNarrowable + sgNarrowable)
+        const count = sharedResourcesActionableCount(
+          iamRes.ok ? await iamRes.json() : null,
+          sgRes.ok ? await sgRes.json() : null,
+        )
+        if (!cancelled) setCount(count)
       } catch {
         // Honest fallback per pattern_no_phantom_capabilities_in_ui —
         // don't fabricate a count if the endpoints fail; leave null,

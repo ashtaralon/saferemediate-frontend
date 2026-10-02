@@ -16,7 +16,8 @@ interface HomeStatsBannerProps {
   lastScanTime?: string | null
   /** The counted resources; null / absent when nothing was counted (no pill, never "0"). */
   resourceCount?: number | null
-  urgentFindings?: number
+  /** Critical + high from the summary; null / absent when unread (no pill, never "0"). */
+  urgentFindings?: number | null
   lastRefreshLabel?: string
 }
 
@@ -30,7 +31,7 @@ export function HomeStatsBanner({
   averageScoreTrend = 0,
   lastScanTime = null,
   resourceCount = null,
-  urgentFindings = 0,
+  urgentFindings = null,
   lastRefreshLabel = "Just now",
 }: HomeStatsBannerProps) {
   return (
@@ -57,9 +58,11 @@ export function HomeStatsBanner({
                 <span className="font-semibold text-white">{resourceCount}</span> tracked resources
               </div>
             )}
-            <div className="rounded-full border border-white/20 bg-white/10 px-4 py-2 text-sm text-white/90 backdrop-blur">
-              <span className="font-semibold text-white">{urgentFindings}</span> urgent findings
-            </div>
+            {urgentFindings !== null && (
+              <div className="rounded-full border border-white/20 bg-white/10 px-4 py-2 text-sm text-white/90 backdrop-blur">
+                <span className="font-semibold text-white">{urgentFindings}</span> urgent findings
+              </div>
+            )}
             <div className="rounded-full border border-white/20 bg-white/10 px-4 py-2 text-sm text-white/90 backdrop-blur">
               Refreshed {lastRefreshLabel}
             </div>

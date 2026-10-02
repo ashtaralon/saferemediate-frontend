@@ -1,6 +1,6 @@
 "use client"
 
-import { ErrorCard, LoadingCard, Section } from "./card-shell"
+import { ErrorCard, LoadingCard, Section, StaleIndicator } from "./card-shell"
 import {
   accentByCategory,
   descriptorClass,
@@ -27,28 +27,57 @@ import { useCachedFetch } from "@/lib/use-cached-fetch"
  */
 
 type LpMetrics = {
-  totalRoles: number
-  analyzedRoles: number
-  rolesWithBloat: number
-  averageBloatPercentage: number
-  totalUnusedPermissions: number
-  lastAnalysisDate: string
+  totalRoles: number | null
+  analyzedRoles: number | null
+  rolesWithBloat: number | null
+  averageBloatPercentage: number | null
+  totalUnusedPermissions: number | null
+  lastAnalysisDate: string | null
   bloatPercentageDeltaPp?: number | null
   bloatBaselineAgeDays?: number | null
   bloatBaselineTimestamp?: string | null
 }
 
+function finite(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null
+}
+
+/** A metrics reading the card may present: every figure it renders is a backend number. */
+function isMetricsReading(value: unknown): value is LpMetrics {
+  const m = value as Partial<LpMetrics> | null
+  return Boolean(m) && finite(m?.analyzedRoles) !== null && finite(m?.rolesWithBloat) !== null
+    && finite(m?.averageBloatPercentage) !== null && finite(m?.totalUnusedPermissions) !== null
+}
+
 export function WildcardBloatCard() {
-  const { data, loading, error, retry } = useCachedFetch<LpMetrics>(
+  const { data, loading, error, retry, isStale, cachedAt } = useCachedFetch<LpMetrics>(
     "/api/proxy/least-privilege/metrics",
-    { cacheKey: "lp-metrics", fetchInit: { cache: "no-store" } }
+    // Only a complete reading is cached: a body with a missing figure must not
+    // come back on the next visit as if it were one.
+    { cacheKey: "lp-metrics", fetchInit: { cache: "no-store" }, isCacheable: isMetricsReading }
   )
 
   if (loading && !data) return <LoadingCard label="Wildcard bloat" />
   if (error && !data) return <ErrorCard label="Wildcard bloat" error={error} onRetry={retry} />
   if (!data) return null
+  // A figure the backend did not send is not 0%: no number is shown for it.
+  if (!isMetricsReading(data)) {
+    return <ErrorCard label="Wildcard bloat" error="The least-privilege metrics carried no bloat figures." onRetry={retry} />
+  }
+  if (data.analyzedRoles === 0) {
+    return (
+      <Section
+        label="Wildcard bloat"
+        descriptor="Allowed actions sitting unused — point-in-time, not a delta"
+        className={`${accentByCategory.bloat} bg-gradient-to-br from-amber-50/70 via-white to-white`}
+        right={<StaleIndicator cachedAt={cachedAt} isStale={isStale} />}
+      >
+        <div className={descriptorClass}>No IAM roles have been analyzed yet, so there is no bloat figure.</div>
+      </Section>
+    )
+  }
 
-  const pct = Math.round(data.averageBloatPercentage)
+  const pct = Math.round(data.averageBloatPercentage as number)
   // For bloat, lower is better. Invert score for color tone.
   const toneScore = 100 - pct
 
@@ -57,6 +86,7 @@ export function WildcardBloatCard() {
       label="Wildcard bloat"
       descriptor="Allowed actions sitting unused — point-in-time, not a delta"
       className={`${accentByCategory.bloat} bg-gradient-to-br from-amber-50/70 via-white to-white`}
+      right={<StaleIndicator cachedAt={cachedAt} isStale={isStale} />}
     >
       <div className="flex items-baseline gap-3">
         <span className={`${heroNumberClass} ${scoreToneClass(toneScore)}`}>
@@ -85,7 +115,7 @@ export function WildcardBloatCard() {
       <div className={`${descriptorClass} mt-3 space-y-1`}>
         <div>
           <span className="font-semibold text-slate-700">
-            {data.totalUnusedPermissions.toLocaleString()}
+            {(data.totalUnusedPermissions as number).toLocaleString()}
           </span>{" "}
           unused permissions across{" "}
           <span className="font-semibold text-slate-700">

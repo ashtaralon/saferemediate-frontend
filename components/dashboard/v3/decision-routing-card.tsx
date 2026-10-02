@@ -227,8 +227,19 @@ export function DecisionRoutingCard({ systemName }: { systemName?: string } = {}
     )
   if (!data) return null
 
-  const total = data.total_findings ?? 0
-  const scored = data.scored_count ?? 0
+  // The backend always sends these counts (api/findings_decision_routing.py);
+  // a body without them is not "no findings scored", it is no reading.
+  const total = typeof data.total_findings === "number" ? data.total_findings : null
+  const scored = typeof data.scored_count === "number" ? data.scored_count : null
+  if (total === null || scored === null || !data.by_family) {
+    return (
+      <ErrorCard
+        label="Execution readiness"
+        error="The decision-routing response carried no scored counts."
+        onRetry={retry}
+      />
+    )
+  }
   const unmapped = data.unmapped_findings ?? 0
   const limit = data.limit ?? 30
   const partial = total > scored
@@ -256,7 +267,8 @@ export function DecisionRoutingCard({ systemName }: { systemName?: string } = {}
       right={<StaleIndicator cachedAt={cachedAt} isStale={isStale} />}
     >
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        {FAMILIES.map(({ key, label, accent, pip }) => (
+        {/* A family absent from the response was not scored here: no column, never a "0". */}
+        {FAMILIES.filter(({ key }) => Boolean(data.by_family?.[key])).map(({ key, label, accent, pip }) => (
           <FamilyColumn
             key={key}
             label={label}
@@ -278,9 +290,11 @@ export function DecisionRoutingCard({ systemName }: { systemName?: string } = {}
           <div className="mt-4 rounded-md border border-amber-200 bg-amber-50/50 p-3">
             <div className="mb-2 inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-amber-700">
               Awaiting more evidence
-              <span className="font-mono text-[10px] tabular-nums text-amber-600">
-                · {data.blocked_total ?? 0} blocked
-              </span>
+              {typeof data.blocked_total === "number" ? (
+                <span className="font-mono text-[10px] tabular-nums text-amber-600">
+                  · {data.blocked_total} blocked
+                </span>
+              ) : null}
             </div>
             <ul className="space-y-1">
               {Object.entries(data.blocking_reasons)
