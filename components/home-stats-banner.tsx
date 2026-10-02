@@ -14,7 +14,8 @@ interface HomeStatsBannerProps {
   averageScore?: number | null
   averageScoreTrend?: number
   lastScanTime?: string | null
-  resourceCount?: number
+  /** The counted resources; null / absent when nothing was counted (no pill, never "0"). */
+  resourceCount?: number | null
   urgentFindings?: number
   lastRefreshLabel?: string
 }
@@ -28,7 +29,7 @@ export function HomeStatsBanner({
   averageScore = null,
   averageScoreTrend = 0,
   lastScanTime = null,
-  resourceCount = 0,
+  resourceCount = null,
   urgentFindings = 0,
   lastRefreshLabel = "Just now",
 }: HomeStatsBannerProps) {
@@ -51,9 +52,11 @@ export function HomeStatsBanner({
           </p>
 
           <div className="mt-5 flex flex-wrap items-center gap-3">
-            <div className="rounded-full border border-white/20 bg-white/10 px-4 py-2 text-sm text-white/90 backdrop-blur">
-              <span className="font-semibold text-white">{resourceCount}</span> tracked resources
-            </div>
+            {resourceCount !== null && (
+              <div className="rounded-full border border-white/20 bg-white/10 px-4 py-2 text-sm text-white/90 backdrop-blur">
+                <span className="font-semibold text-white">{resourceCount}</span> tracked resources
+              </div>
+            )}
             <div className="rounded-full border border-white/20 bg-white/10 px-4 py-2 text-sm text-white/90 backdrop-blur">
               <span className="font-semibold text-white">{urgentFindings}</span> urgent findings
             </div>

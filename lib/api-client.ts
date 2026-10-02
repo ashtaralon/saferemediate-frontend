@@ -42,6 +42,37 @@ async function fetchWithRetry(
   }
 }
 
+export const INFRASTRUCTURE_KINDS = [
+  "containerClusters",
+  "kubernetesWorkloads",
+  "standaloneVMs",
+  "vmScalingGroups",
+  "relationalDatabases",
+  "blockStorage",
+  "fileStorage",
+  "objectStorage",
+] as const
+
+export type InfrastructureCounts = Record<(typeof INFRASTRUCTURE_KINDS)[number], number | null>
+
+/**
+ * The counts a source actually measured. Each kind is the source's finite
+ * number or null; a source with no counts object -- or one that measured no
+ * kind -- is null. The Home tiles used to default every missing kind to 0,
+ * which read as "0 clusters" for kinds nothing counts.
+ */
+export function measuredInfrastructure(source: unknown): InfrastructureCounts | null {
+  if (!source || typeof source !== "object") return null
+  const record = source as Record<string, unknown>
+  const counts = Object.fromEntries(
+    INFRASTRUCTURE_KINDS.map((kind) => {
+      const value = record[kind]
+      return [kind, typeof value === "number" && Number.isFinite(value) ? value : null]
+    }),
+  ) as InfrastructureCounts
+  return Object.values(counts).some((value) => value !== null) ? counts : null
+}
+
 export interface InfrastructureData {
   /**
    * True when issues-summary answered with the proxy's failure replay
@@ -73,16 +104,11 @@ export interface InfrastructureData {
     /** Null when no backend field carries it — never "now". */
     lastScanTime: string | null
   }
-  infrastructure: {
-    containerClusters: number
-    kubernetesWorkloads: number
-    standaloneVMs: number
-    vmScalingGroups: number
-    relationalDatabases: number
-    blockStorage: number
-    fileStorage: number
-    objectStorage: number
-  }
+  /**
+   * Resource counts by kind, verbatim from the source that measured them. A kind
+   * the source did not count is null, never 0; no source at all is null.
+   */
+  infrastructure: InfrastructureCounts | null
   securityIssues: {
     critical: number
     high: number
@@ -194,16 +220,7 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
           averageScoreTrend: 0,
           lastScanTime: null,
         },
-        infrastructure: {
-          containerClusters: 0,
-          kubernetesWorkloads: 0,
-          standaloneVMs: 0,
-          vmScalingGroups: 0,
-          relationalDatabases: 0,
-          blockStorage: 0,
-          fileStorage: 0,
-          objectStorage: 0,
-        },
+        infrastructure: null,
         securityIssues: {
           critical: 0,
           high: 0,
@@ -221,25 +238,9 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
       }
     }
 
-    // Use infrastructure stats from issuesSummary or metrics
-    // This avoids downloading 1000+ nodes just to count types
-    const infrastructureStats = issuesSummary?.infrastructure || metrics?.infrastructure || metrics?.infrastructure_stats || {}
-    
     // Map resources from metrics if available, otherwise empty array
     // Graph data should only be loaded when user navigates to graph tabs
     const resources: any[] = []
-    
-    // Use infrastructure stats from backend instead of counting nodes
-    const typeCounts: Record<string, number> = {
-      ecscluster: infrastructureStats.containerClusters || 0,
-      ekscluster: infrastructureStats.kubernetesWorkloads || 0,
-      ec2instance: infrastructureStats.standaloneVMs || 0,
-      autoscalinggroup: infrastructureStats.vmScalingGroups || 0,
-      rdsinstance: infrastructureStats.relationalDatabases || 0,
-      ebsvolume: infrastructureStats.blockStorage || 0,
-      efsfilesystem: infrastructureStats.fileStorage || 0,
-      s3bucket: infrastructureStats.objectStorage || 0,
-    }
 
     // Use unified issues summary if available, otherwise fallback to metrics
     // Counts from issues-summary are taken verbatim: a held / NOT_READY
@@ -299,16 +300,11 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
         cached: issuesSummary.cached,
         cache_age_seconds: issuesSummary.cache_age_seconds,
       } : null,
-      infrastructure: {
-        containerClusters: typeCounts["ecscluster"] || typeCounts["ecs"] || 0,
-        kubernetesWorkloads: typeCounts["ekscluster"] || typeCounts["eks"] || 0,
-        standaloneVMs: typeCounts["ec2instance"] || typeCounts["ec2"] || 0,
-        vmScalingGroups: typeCounts["autoscalinggroup"] || 0,
-        relationalDatabases: typeCounts["rdsinstance"] || typeCounts["rds"] || 0,
-        blockStorage: typeCounts["ebsvolume"] || 0,
-        fileStorage: typeCounts["efsfilesystem"] || typeCounts["efs"] || 0,
-        objectStorage: typeCounts["s3bucket"] || typeCounts["s3"] || 0,
-      },
+      // Counts from issues-summary (or the legacy metrics), as measured. A stale
+      // replay is an older state, so its counts are not this reading's.
+      infrastructure: staleReplay
+        ? null
+        : measuredInfrastructure(issuesSummary?.infrastructure ?? metrics?.infrastructure ?? metrics?.infrastructure_stats),
       securityIssues: {
         critical: bySeverity.critical ?? 0,
         high: bySeverity.high ?? 0,
@@ -339,16 +335,7 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
         averageScoreTrend: 0,
         lastScanTime: null,
       },
-      infrastructure: {
-        containerClusters: 0,
-        kubernetesWorkloads: 0,
-        standaloneVMs: 0,
-        vmScalingGroups: 0,
-        relationalDatabases: 0,
-        blockStorage: 0,
-        fileStorage: 0,
-        objectStorage: 0,
-      },
+      infrastructure: null,
       securityIssues: {
         critical: 0,
         high: 0,

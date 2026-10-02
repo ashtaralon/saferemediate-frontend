@@ -36,8 +36,9 @@ import { DataLeakPathsPage } from "@/components/data-leak-paths/data-leak-paths-
 import { fetchInfrastructure, fetchSecurityFindings, type InfrastructureData } from "@/lib/api-client"
 import type { SecurityFinding } from "@/lib/types"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { SecurityHubCard, parseSecurityHubReading, type SecurityHubData } from "@/components/security-hub-card"
 import { Switch } from "@/components/ui/switch"
-import { Activity, AlertOctagon, ArrowUpRight, RefreshCw, Shield, Sparkles, TrendingDown } from "lucide-react"
+import { Activity, ArrowUpRight, RefreshCw, Shield, Sparkles, TrendingDown } from "lucide-react"
 import { PostureScoreCard } from "@/components/dashboard/posture-score-card"
 import { EvidenceHealthCard } from "@/components/dashboard/evidence-health-card"
 import { MicroEnforcementScore } from "@/components/dashboard/micro-enforcement-score"
@@ -82,21 +83,16 @@ interface GapAnalysisData {
   roleName: string
 }
 
-interface SecurityHubData {
-  total: number
-  critical: number
-  high: number
-  medium: number
-  low: number
-  byProduct: Record<string, number>
-}
 
 // Cache keys for localStorage
 const CACHE_KEYS = {
-  INFRASTRUCTURE: 'cyntro-infrastructure-cache',
+  // v2: readings cached before infrastructure counts became measured-or-null carry
+  // fabricated zeros indistinguishable from measured ones, so they are not read.
+  INFRASTRUCTURE: 'cyntro-infrastructure-cache-v2',
   FINDINGS: 'cyntro-findings-cache',
   GAP_DATA: 'cyntro-gap-cache',
-  SECURITY_HUB: 'cyntro-security-hub-cache',
+  // v2: an unconnected hub used to be cached as a "0 findings" reading.
+  SECURITY_HUB: 'cyntro-security-hub-cache-v2',
   TIMESTAMP: 'cyntro-cache-timestamp',
 }
 
@@ -160,14 +156,9 @@ export default function HomePage() {
     confidence: 99,
     roleName: "Loading...",
   })
-  const [securityHubData, setSecurityHubData] = useState<SecurityHubData>({
-    total: 0,
-    critical: 0,
-    high: 0,
-    medium: 0,
-    low: 0,
-    byProduct: {},
-  })
+  // Null until Security Hub answered a read: an unread or unconnected hub is not
+  // "0 findings", so no Security Hub card is shown for it.
+  const [securityHubData, setSecurityHubData] = useState<SecurityHubData | null>(null)
   const [autoRefresh, setAutoRefresh] = useState(false)
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date())
 
@@ -228,25 +219,18 @@ export default function HomePage() {
         return res.json()
       })
       .then((data) => {
-        const summary = data.summary || {}
-        const bySeverity = summary.by_severity || {}
-
-        const newData: SecurityHubData = {
-          total: summary.total || 0,
-          critical: bySeverity.CRITICAL || 0,
-          high: bySeverity.HIGH || 0,
-          medium: bySeverity.MEDIUM || 0,
-          low: bySeverity.LOW || 0,
-          byProduct: summary.by_product || {},
-        }
+        const newData = parseSecurityHubReading(data)
+        if (!newData) throw new Error("Security Hub answered no count")
 
         console.log(`[Home] Security Hub: ${newData.total} findings (${newData.critical} critical, ${newData.high} high)`)
         setSecurityHubData(newData)
         setCachedData(CACHE_KEYS.SECURITY_HUB, newData)
       })
       .catch((err) => {
+        // Not connected (SECURITY_HUB_NOT_CONNECTED) or not read: no reading to show. A
+        // cached reading would present an older state as current, so it is dropped too.
         console.warn("Security Hub fetch failed:", err)
-        // Keep existing data on error
+        setSecurityHubData(null)
       })
   }, [])
 
@@ -485,16 +469,8 @@ export default function HomePage() {
           : computedFindingsStats.critical,
   }
 
-  const infrastructureStats = data?.infrastructure || {
-    containerClusters: 0,
-    kubernetesWorkloads: 0,
-    standaloneVMs: 0,
-    vmScalingGroups: 0,
-    relationalDatabases: 0,
-    blockStorage: 0,
-    fileStorage: 0,
-    objectStorage: 0,
-  }
+  // As measured (lib/api-client measuredInfrastructure): null when no source counted anything.
+  const infrastructureStats = data?.infrastructure ?? null
 
   const backendStats = data?.securityIssues || {
     critical: 0,
@@ -560,13 +536,16 @@ export default function HomePage() {
       Math.max(0, (system.totalControls ?? system.controlsCount ?? 0) - (system.criticalGaps ?? 0)),
     owner: system.owner,
   }))
-  const totalTrackedResources =
+  // The sum of the kinds that were counted; null (no Telemetry tile) when none was.
+  const measuredCounts = infrastructureStats
+    ? Object.values(infrastructureStats).filter((count): count is number => typeof count === "number")
+    : []
+  const totalTrackedResources: number | null =
     data?.resources?.length ||
-    Object.values(infrastructureStats).reduce((sum, count) => sum + Number(count || 0), 0)
+    (measuredCounts.length > 0 ? measuredCounts.reduce((sum, count) => sum + count, 0) : null)
   const urgentIssueCount = (securityIssuesData.critical || 0) + (securityIssuesData.high || 0)
   const removableGapPercent = gapData.allowed > 0 ? Math.round((gapData.unused / gapData.allowed) * 100) : 0
   const lastRefreshLabel = lastRefresh.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-  const securityHubHighlights = Object.entries(securityHubData.byProduct).slice(0, 3)
 
   const handleSystemSelect = (systemName: string) => {
     // Selecting a system means "show me this system's detail view".
@@ -736,11 +715,13 @@ export default function HomePage() {
                         <div className="mt-2 text-3xl font-bold text-[#111827]">{removableGapPercent}%</div>
                         <p className="mt-2 text-xs text-[#5b21b6]">Of granted permissions appear removable</p>
                       </div>
-                      <div className="rounded-2xl border border-[#bfdbfe] bg-[#eff6ff] p-4">
-                        <div className="text-xs uppercase tracking-[0.2em] text-[#1d4ed8]">Telemetry</div>
-                        <div className="mt-2 text-3xl font-bold text-[#111827]">{totalTrackedResources}</div>
-                        <p className="mt-2 text-xs text-[#1e40af]">Tracked resources contributing to the dashboard</p>
-                      </div>
+                      {totalTrackedResources !== null && (
+                        <div className="rounded-2xl border border-[#bfdbfe] bg-[#eff6ff] p-4">
+                          <div className="text-xs uppercase tracking-[0.2em] text-[#1d4ed8]">Telemetry</div>
+                          <div className="mt-2 text-3xl font-bold text-[#111827]">{totalTrackedResources}</div>
+                          <p className="mt-2 text-xs text-[#1e40af]">Tracked resources contributing to the dashboard</p>
+                        </div>
+                      )}
                       <div className="rounded-2xl border border-[#fde68a] bg-[#fffbeb] p-4">
                         <div className="text-xs uppercase tracking-[0.2em] text-[#b45309]">Coverage</div>
                         <div className="mt-2 text-3xl font-bold text-[#111827]">{complianceSystems.length}</div>
@@ -822,73 +803,7 @@ export default function HomePage() {
                   </CardContent>
                 </Card>
 
-                {securityHubData.total > 0 ? (
-                  <Card className="rounded-[24px] border-[#ef444430] bg-gradient-to-br from-red-50 to-orange-50 shadow-[0_20px_60px_-42px_rgba(239,68,68,0.4)]">
-                    <CardHeader className="pb-2">
-                      <div className="flex items-center justify-between">
-                        <CardTitle className="text-lg font-semibold text-red-900 flex items-center gap-2">
-                          <AlertOctagon className="h-5 w-5 text-[#ef4444]" />
-                          Security Hub Findings
-                        </CardTitle>
-                        <span className="text-xs bg-red-600 text-white px-2 py-1 rounded-full font-medium">
-                          {securityHubData.total} Active
-                        </span>
-                      </div>
-                      <p className="text-xs text-[#ef4444]">
-                        AWS Security Hub aggregated findings
-                      </p>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="grid grid-cols-4 gap-3">
-                        <div className="bg-white/70 rounded-xl p-3 text-center border-l-4 border-red-600">
-                          <div className="text-2xl font-bold text-[#ef4444]">{securityHubData.critical}</div>
-                          <div className="text-xs text-[var(--muted-foreground,#4b5563)]">Critical</div>
-                        </div>
-                        <div className="bg-white/70 rounded-xl p-3 text-center border-l-4 border-orange-500">
-                          <div className="text-2xl font-bold text-orange-500">{securityHubData.high}</div>
-                          <div className="text-xs text-[var(--muted-foreground,#4b5563)]">High</div>
-                        </div>
-                        <div className="bg-white/70 rounded-xl p-3 text-center border-l-4 border-amber-500">
-                          <div className="text-2xl font-bold text-amber-500">{securityHubData.medium}</div>
-                          <div className="text-xs text-[var(--muted-foreground,#4b5563)]">Medium</div>
-                        </div>
-                        <div className="bg-white/70 rounded-xl p-3 text-center border-l-4 border-blue-400">
-                          <div className="text-2xl font-bold text-blue-500">{securityHubData.low}</div>
-                          <div className="text-xs text-[var(--muted-foreground,#4b5563)]">Low</div>
-                        </div>
-                      </div>
-                      {securityHubHighlights.length > 0 && (
-                        <div className="mt-4 flex flex-wrap gap-2">
-                          {securityHubHighlights.map(([product, count]) => (
-                            <span key={product} className="rounded-full bg-white/80 px-3 py-1 text-xs text-[var(--foreground,#374151)]">
-                              {product}: {count}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-                ) : (
-                  <Card className="rounded-[24px] border-[#dbeafe] bg-gradient-to-br from-sky-50 to-white">
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-lg font-semibold text-slate-900 flex items-center gap-2">
-                        <Shield className="h-5 w-5 text-[#2D51DA]" />
-                        Security Hub Status
-                      </CardTitle>
-                      <p className="text-sm text-[var(--muted-foreground,#6b7280)]">
-                        No Security Hub findings are currently being surfaced into the dashboard.
-                      </p>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="rounded-2xl border border-[#dbeafe] bg-white p-4">
-                        <div className="text-sm font-medium text-slate-900">Hub ingestion looks quiet</div>
-                        <p className="mt-1 text-xs text-[var(--muted-foreground,#6b7280)]">
-                          Once findings arrive, this card will highlight the active products and severities here.
-                        </p>
-                      </div>
-                    </CardContent>
-                  </Card>
-                )}
+                <SecurityHubCard data={securityHubData} />
 
                 <EvidenceHealthCard />
               </div>
