@@ -171,6 +171,31 @@ export function noAccountsInScope(
   return !scope.loading && !scope.error && Array.isArray(scope.options?.accounts) && scope.options.accounts.length === 0
 }
 
+const ACCOUNT_STATUS_WORDS: Readonly<Record<string, string>> = {
+  AWAITING_CONNECTION: "not connected yet",
+  CONNECTION_FAILED: "connection failed",
+  REGISTERING: "registering",
+}
+
+/**
+ * The registry status of a scope-bar account, in plain words; null when it is connected (CONNECTED / READY).
+ * A label only: the status says what the registry records, not what this caller may read, and the options
+ * answer does not say whether a row is a registered member yet -- so every account stays selectable, and a
+ * read of a not-yet-connected account answers its own state.
+ */
+export function accountStatusLabel(status: string | null | undefined): string | null {
+  const value = String(status ?? "").trim()
+  if (value === "CONNECTED" || value === "READY") return null
+  if (!value) return "status unknown"
+  return ACCOUNT_STATUS_WORDS[value] ?? value.toLowerCase().replace(/_/g, " ")
+}
+
+/** How the scope bar names an account: display name, id, and its status when it is not connected. */
+export function accountOptionText(account: Pick<AccountScopeOption, "display_name" | "account_id" | "status">): string {
+  const label = accountStatusLabel(account.status)
+  return `${account.display_name} · ${account.account_id}${label ? ` · ${label}` : ""}`
+}
+
 export const NO_ACCOUNTS_TITLE = "No AWS accounts connected"
 
 export function noAccountsDescription(customerId: string | null): string {
