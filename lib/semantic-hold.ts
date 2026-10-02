@@ -140,6 +140,11 @@ const ACCOUNT_SELECTION_WORDS: Readonly<Record<AccountSelection, string>> = {
     "An account is selected, but the server still asked for one (ACCOUNT_SCOPE_REQUIRED) — the selection did not reach this read",
 }
 
+/** A refusal of the CALLER itself, in the person's words: 401 (the session) or 403 (the permission). */
+export function callerRefusalMessage(status: 401 | 403): string {
+  return status === 401 ? "Your session is no longer valid — sign in again" : "Not permitted for this account or scope"
+}
+
 /** One operator-facing line for a hold, used as the fetch hook's `error`. */
 export function semanticHoldMessage(hold: SemanticHold, opts?: { accountSelection?: AccountSelection }): string {
   const state = hold.state ?? (hold.kind === "not_recorded" ? hold.reason : null)

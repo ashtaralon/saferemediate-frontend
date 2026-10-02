@@ -21,6 +21,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import { Activity, AlertCircle, CheckCircle2, Clock, Loader2, RefreshCw } from "lucide-react"
+import { callerRefusalMessage, semanticHoldMessage, typedServingRefusal } from "@/lib/semantic-hold"
 
 interface RemediationEvent {
   event_id?: string
@@ -46,6 +47,14 @@ type StripState =
   | { kind: "error"; message: string }
 
 const FETCH_TIMEOUT_MS = 25_000
+
+/** The words for a refusal the timeline proxy relayed inside its envelope (``refused``). */
+function refusalMessage(refused: { status?: number; code?: string | null; reason?: string | null }): string {
+  const hold = refused.code ? typedServingRefusal({ detail: { code: refused.code, reason: refused.reason } }) : null
+  if (hold) return semanticHoldMessage(hold)
+  if (refused.status === 401 || refused.status === 403) return callerRefusalMessage(refused.status)
+  return refused.code ? `Refused by the server — ${refused.code}` : "Refused by the server"
+}
 
 function relativeTime(ts: string | undefined): string {
   if (!ts) return "unknown time"
@@ -123,6 +132,12 @@ export function LiveNowStrip({ systemName, onOpenHistory }: LiveNowStripProps) {
         signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       })
       if (superseded()) return
+      // A REFUSAL of this caller (the proxy answering 401/403 itself, e.g. an expired session) is never
+      // covered by an event read earlier -- silent poll or not.
+      if (res.status === 401 || res.status === 403) {
+        setState({ kind: "error", message: callerRefusalMessage(res.status) })
+        return
+      }
       // A background poll must never DOWNGRADE a good event already on screen:
       // the backend can transiently return an empty/degraded response on a cold
       // worker (we proved limit=1 flips empty→1-event as it warms), so a poll
@@ -137,6 +152,11 @@ export function LiveNowStrip({ systemName, onOpenHistory }: LiveNowStripProps) {
       }
       const data = await res.json()
       if (superseded()) return
+      // ...nor is a refusal the proxy relayed inside its envelope (``refused``: status + typed code).
+      if (data?.refused) {
+        setState({ kind: "error", message: refusalMessage(data.refused) })
+        return
+      }
       const events: RemediationEvent[] = Array.isArray(data?.events) ? data.events : []
       if (events.length === 0) {
         // An empty feed is honest "engine idle" ONLY when the backend actually

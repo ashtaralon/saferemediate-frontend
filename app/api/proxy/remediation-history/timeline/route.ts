@@ -44,6 +44,14 @@ function revoke(cacheKey: string): void {
   revocations.set(cacheKey, (revocations.get(cacheKey) ?? 0) + 1)
 }
 
+/** The degraded envelope, SAYING it is a refusal (status + the typed code/reason only), so a consumer can
+ *  tell "the server refused this caller/scope" from "the read failed" -- the strip drops a shown event
+ *  for the first and keeps it over the second. */
+function refusedTimeline(status: number, body: any) {
+  const text = (value: unknown) => (typeof value === "string" ? value : null)
+  return { ...DEGRADED_TIMELINE, refused: { status, code: text(body?.detail?.code), reason: text(body?.detail?.reason) } }
+}
+
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
   const startDate = searchParams.get("start_date")
@@ -117,7 +125,7 @@ export async function GET(req: NextRequest) {
       const body = await response.json().catch(() => null)
       if (isRefusal(response.status, body)) {
         revoke(cacheKey)
-        return NextResponse.json(DEGRADED_TIMELINE, { headers: { "X-Cache": "ERROR-EMPTY" } })
+        return NextResponse.json(refusedTimeline(response.status, body), { headers: { "X-Cache": "ERROR-EMPTY" } })
       }
       const stale = getStaleCached<Record<string, unknown>>(cacheKey)
       if (stale) {
@@ -158,7 +166,7 @@ export async function GET(req: NextRequest) {
           const retryBody = await retryResponse.json().catch(() => null)
           if (isRefusal(retryResponse.status, retryBody)) {
             revoke(cacheKey)
-            return NextResponse.json(DEGRADED_TIMELINE, { headers: { "X-Cache": "ERROR-EMPTY" } })
+            return NextResponse.json(refusedTimeline(retryResponse.status, retryBody), { headers: { "X-Cache": "ERROR-EMPTY" } })
           }
         }
       } catch {

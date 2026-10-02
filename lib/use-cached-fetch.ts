@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import {
+  callerRefusalMessage,
   semanticHoldMessage,
   semanticStatusHold,
   typedServingRefusal,
@@ -526,11 +527,7 @@ export function useCachedFetch<T = unknown>(
           setIsStale(false)
           setCachedAt(null)
           setStaleReason(null)
-          setError(
-            res.status === 401
-              ? "Your session is no longer valid — sign in again"
-              : "Not permitted for this account or scope",
-          )
+          setError(callerRefusalMessage(res.status))
           setLoading(false)
           clearAutoRetry()
           return
