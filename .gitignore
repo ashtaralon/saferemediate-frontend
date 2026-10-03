@@ -47,3 +47,6 @@ next-env.d.ts
 
 # Authenticated response captures stay on this machine.
 tools/local-preview/.local/
+
+# Raw browser exports may contain authentication material.
+*.har
