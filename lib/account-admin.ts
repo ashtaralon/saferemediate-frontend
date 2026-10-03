@@ -581,3 +581,70 @@ export function formatUtcInstantExact(value: string): string {
   const millis = iso.slice(19, 23)
   return `${iso.slice(0, 19).replace("T", " ")}${millis === ".000" ? "" : millis} UTC`
 }
+
+// ── optional organization discovery (backend cyntro_data/accounts/org_discovery.py) ───────────────────────────
+// GET /api/admin/accounts/organization: read_state() plus setup_parameters(). Listing registers nothing; a chosen
+// account only fills the Add form.
+
+export interface OrganizationAccount {
+  account_id: string
+  name: string
+  state: string
+  selectable: boolean
+  why_not?: string
+}
+
+export interface OrganizationDiscoverySetup {
+  template: string
+  parameters: Record<string, string>
+}
+
+export interface OrganizationDiscovery {
+  customer_id?: string
+  state: "NOT_RUN" | "RUNNING" | "AVAILABLE" | "UNAVAILABLE" | "EXPIRED" | string
+  reason?: string
+  requested_at?: string | null
+  discovered_at?: string | null
+  organization_id?: string | null
+  management_account_id?: string | null
+  truncated?: boolean
+  accounts?: OrganizationAccount[]
+  setup?: OrganizationDiscoverySetup
+}
+
+const ORGANIZATION_UNAVAILABLE: Record<string, string> = {
+  NOT_CONFIGURED: "Choosing from your organization is not set up for this installation.",
+  INSTALL_ORGANIZATION_UNKNOWN:
+    "Cyntro could not read which AWS Organization this installation belongs to, so it cannot confirm a list is your organization's.",
+  ROLE_NOT_USABLE:
+    "Cyntro could not use the organization discovery role. It may not be deployed yet, or may not trust this installation.",
+  NOT_PERMITTED: "The organization discovery role is not allowed to list the organization's accounts.",
+  OTHER_ORGANIZATION:
+    "The organization discovery role answers for a different AWS Organization than this installation's, so its accounts are not offered.",
+  DISCOVERY_FAILED: "Listing the organization's accounts failed.",
+}
+
+/** Why the organization's accounts cannot be listed, in words; an unknown reason is named, never guessed at. */
+export function organizationUnavailableText(reason?: string | null): string {
+  if (reason && Object.prototype.hasOwnProperty.call(ORGANIZATION_UNAVAILABLE, reason)) return ORGANIZATION_UNAVAILABLE[reason]
+  return `The organization's accounts cannot be listed${reason ? ` (${reason})` : ""}.`
+}
+
+const ORGANIZATION_WHY_NOT: Record<string, string> = {
+  PLATFORM_ACCOUNT: "The account Cyntro runs in",
+  MANAGEMENT_ACCOUNT: "The organization's management account",
+  ALREADY_ADDED: "Already added",
+}
+
+/** Why a listed account cannot be chosen. */
+export function organizationWhyNotText(account: Pick<OrganizationAccount, "why_not" | "state">): string {
+  const why = account.why_not || ""
+  if (Object.prototype.hasOwnProperty.call(ORGANIZATION_WHY_NOT, why)) return ORGANIZATION_WHY_NOT[why]
+  if (why.startsWith("STATE_")) return `Not active (${why.slice("STATE_".length)})`
+  return why ? `Not offered (${why})` : `Not offered (${account.state || "UNKNOWN"})`
+}
+
+/** Only an account the backend offers AND reports exactly ACTIVE can be chosen; anything else fails closed. */
+export function organizationAccountSelectable(account: OrganizationAccount): boolean {
+  return account.selectable === true && account.state === "ACTIVE" && /^\d{12}$/.test(account.account_id)
+}

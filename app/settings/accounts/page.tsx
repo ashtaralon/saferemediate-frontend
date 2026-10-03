@@ -24,6 +24,7 @@ import {
 } from "lucide-react"
 import { LeftSidebarNav } from "@/components/left-sidebar-nav"
 import { AccountCoverageChips, ConnectAccountPanel, MemberStatusBadge } from "@/components/settings/connect-account-panel"
+import { OrganizationAccountPicker } from "@/components/settings/organization-account-picker"
 import { useAccountScope } from "@/lib/account-scope-context"
 import { COVERAGE_PAGE_PATH, READY_MEANS_OPERATIONAL, coveragePageHref } from "@/lib/observation-coverage"
 import {
@@ -887,6 +888,10 @@ function MemberAddAccountDialog({
   const [error, setError] = useState<string | null>(null)
   // Adding is a deliberate step: the details are reviewed with what happens next before anything is submitted.
   const [step, setStep] = useState<"details" | "confirm">("details")
+  // Where the details come from: typed (the default) or chosen from the organization's listed accounts, which only
+  // fills this form (components/settings/organization-account-picker.tsx).
+  const [source, setSource] = useState<"manual" | "organization">("manual")
+  const [chosen, setChosen] = useState<{ accountId: string; name: string } | null>(null)
 
   const regionList = parseRegions(regions)
   const badRegions = regionList.filter((region) => !AWS_REGION_PATTERN.test(region))
@@ -934,7 +939,39 @@ function MemberAddAccountDialog({
           <button onClick={onClose} aria-label="Close" className="rounded-lg p-2 text-slate-400 hover:bg-slate-100"><X className="h-5 w-5" /></button>
         </div>
         {step === "details" ? (
+          <div role="tablist" aria-label="How to add the account" className="flex gap-2 border-b border-slate-200 px-6 pt-4">
+            {([["manual", "Enter account ID"], ["organization", "Choose from your organization"]] as const).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                role="tab"
+                aria-selected={source === value}
+                onClick={() => setSource(value)}
+                className={`border-b-2 px-2 pb-2 text-sm font-semibold ${source === value ? "border-teal-600 text-teal-700" : "border-transparent text-slate-500"}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        ) : null}
+        {step === "details" && source === "organization" ? (
+          <OrganizationAccountPicker
+            customerId={customerId}
+            onEnterManually={() => setSource("manual")}
+            onChoose={(account) => {
+              setAccountId(account.accountId)
+              setDisplayName(account.name)
+              setChosen(account)
+              setSource("manual")
+            }}
+          />
+        ) : step === "details" ? (
         <div className="grid grid-cols-2 gap-4 p-6">
+          {chosen && chosen.accountId === accountId ? (
+            <p data-testid="chosen-from-organization" className="col-span-2 rounded-lg border border-teal-200 bg-teal-50 p-3 text-xs text-teal-800">
+              Filled from your organization: {chosen.name} ({chosen.accountId}). Nothing has been added. Choose the environment and Regions, then Review.
+            </p>
+          ) : null}
           <label className="col-span-2 text-sm font-semibold text-slate-700">Account name<input value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="Payments production" className="mt-2 w-full rounded-lg border border-slate-200 p-3 font-normal outline-none focus:border-teal-500" /></label>
           <label className="text-sm font-semibold text-slate-700">AWS account ID<input value={accountId} onChange={(event) => setAccountId(event.target.value.replace(/\D/g, "").slice(0, 12))} placeholder="12-digit account ID" inputMode="numeric" className="mt-2 w-full rounded-lg border border-slate-200 p-3 font-mono font-normal outline-none focus:border-teal-500" /></label>
           <EnvironmentSelect value={environment} onChange={setEnvironment} />
@@ -954,7 +991,9 @@ function MemberAddAccountDialog({
           ) : (
             <button onClick={() => { setStep("details"); setError(null) }} disabled={submitting} className="text-sm font-semibold text-slate-500">Back</button>
           )}
-          {step === "details" ? (
+          {step === "details" && source === "organization" ? (
+            <span />
+          ) : step === "details" ? (
             <button disabled={!ready} onClick={() => setStep("confirm")} className="inline-flex items-center gap-2 rounded-lg bg-teal-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">
               Review
             </button>
