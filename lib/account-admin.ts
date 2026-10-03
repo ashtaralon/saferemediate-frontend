@@ -386,6 +386,8 @@ const ACCOUNT_ADMIN_REFUSALS: Record<string, string> = {
   PERSON_NOT_AUTHORIZED:
     "Your sign-in is not permitted to administer this account. Your identity provider's administrator grants the Cyntro operator role.",
   ALB_KEY_UNAVAILABLE: "The sign-in signing key could not be fetched. Retry shortly.",
+  PERSON_KEYS_UNAVAILABLE:
+    "Cyntro could not reach your identity provider to check your sign-in. If this continues, the installation needs a network route to the identity provider; this is an installation prerequisite.",
   ALB_TRUST_REQUIRED:
     "This installation's sign-in trust is not configured, so account administration is refused. This is an installation prerequisite.",
   ALB_TRUST_MISCONFIGURED:
