@@ -198,6 +198,7 @@ interface Handlers {
   connect?: (accountId: string) => Response
   validate?: (accountId: string) => Response
   register?: (body: Record<string, unknown>) => Response
+  groups?: () => Response
 }
 
 let fetchMock: ReturnType<typeof vi.fn>
@@ -206,7 +207,9 @@ function installFetch(handlers: Handlers) {
   fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
     const method = init?.method || "GET"
-    if (url.startsWith("/api/proxy/admin/accounts/groups/all?")) return json({ customer_id: CUSTOMER, groups: [] })
+    if (url.startsWith("/api/proxy/admin/accounts/groups/all?")) {
+      return handlers.groups ? handlers.groups() : json({ customer_id: CUSTOMER, groups: [] })
+    }
     const connect = url.match(/^\/api\/proxy\/admin\/accounts\/(\d{12})\/connect\?customer_id=acme-prod$/)
     if (connect && method === "GET" && handlers.connect) return handlers.connect(connect[1])
     const validate = url.match(/^\/api\/proxy\/admin\/accounts\/(\d{12})\/validate\?customer_id=acme-prod$/)
@@ -727,6 +730,7 @@ describe("Settings > Accounts — backend errors carry the backend's detail", ()
         unnamed("901290129012", {}),
         unnamed("345634563456", { aws_account_name_error: "ThrottlingException" }),
         unnamed("135713571357", { display_name: "typed long ago" }),   // a row as an older backend sent it
+        unnamed("246824682468", { aws_account_name_error: "NO_NAME" }),
       ])),
     })
     render(<AccountSettingsPage />)
@@ -742,7 +746,9 @@ describe("Settings > Accounts — backend errors carry the backend's detail", ()
     expect(within(waiting).getByTestId(`account-name-note-${AWAITING.account_id}`)).toHaveTextContent(
       "Its name is read from AWS once it connects.")
     expect(within(await row("123412341234")).getByTestId("account-name-note-123412341234")).toHaveTextContent(
-      "Name not readable from AWS: this account's connection stack predates the name permission (account:GetAccountInformation). Updating the stack lets Cyntro read it.")
+      "Name not readable from AWS: AWS denied permission to read it. A connection stack deployed before this release may need updating (account:GetAccountInformation).")
+    expect(within(await row("246824682468")).getByTestId("account-name-note-246824682468")).toHaveTextContent(
+      "Name not readable from AWS: AWS did not return a name.")
     expect(within(await row("567856785678")).getByTestId("account-name-note-567856785678")).toHaveTextContent(
       "Name not readable from AWS: Cyntro could not reach the AWS account API.")
     expect(within(await row("901290129012")).getByTestId("account-name-note-901290129012")).toHaveTextContent(
@@ -753,6 +759,9 @@ describe("Settings > Accounts — backend errors carry the backend's detail", ()
     const older = await row("135713571357")
     expect(older).not.toHaveTextContent("typed long ago")
     expect(older).toHaveTextContent("135713571357")
+    // ...and its actions are named the same way.
+    expect(within(older).getByRole("button", { name: "Check connection for 135713571357" })).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: /typed long ago/ })).toBeNull()
 
     const platform = await row(PLATFORM.account_id)
     expect(platform).toHaveTextContent(PLATFORM.display_name)
@@ -963,7 +972,8 @@ describe("Settings > Accounts — backend errors carry the backend's detail", ()
   })
 
   it("the group picker shows an account not yet named by AWS by its ID once, and a named one by its name", async () => {
-    installFetch({ list: () => json(memberList([PLATFORM, CONNECTED, { ...CONNECTED, account_id: "123412341234", display_name: "123412341234", aws_account_name: null }])) })
+    installFetch({ list: () => json(memberList([PLATFORM, CONNECTED, { ...CONNECTED, account_id: "123412341234", display_name: "123412341234", aws_account_name: null },
+      { ...CONNECTED, account_id: "135713571357", display_name: "typed long ago", aws_account_name: null }])) })
     render(<AccountSettingsPage />)
     await screen.findAllByTestId(/^account-row-/)
     fireEvent.click(screen.getByRole("button", { name: "Account Groups" }))
@@ -971,8 +981,42 @@ describe("Settings > Accounts — backend errors carry the backend's detail", ()
     const dialog = await screen.findByRole("dialog", { name: "Create account group" })
     const unnamed = within(dialog).getByRole("checkbox", { name: /123412341234/ }).closest("label") as HTMLElement
     expect((unnamed.textContent || "").split("123412341234").length - 1).toBe(1)
+    // An older member row's typed label is never shown: no AWS name -> its ID (accountLabel).
+    expect(dialog).not.toHaveTextContent("typed long ago")
+    const older = within(dialog).getByRole("checkbox", { name: /135713571357/ }).closest("label") as HTMLElement
+    expect((older.textContent || "").split("135713571357").length - 1).toBe(1)
     const named = within(dialog).getByRole("checkbox", { name: /Data platform/ }).closest("label") as HTMLElement
     expect(named).toHaveTextContent(`Data platform${CONNECTED.account_id}`)
+  })
+})
+
+describe("Settings > Accounts — an older member row's typed label is never shown", () => {
+  const OLDER = { ...AWAITING, account_id: "135713571357", display_name: "typed long ago", aws_account_name: null }
+
+  it("a group's chip names it by its ID", async () => {
+    installFetch({
+      list: () => json(memberList([PLATFORM, CONNECTED, OLDER])),
+      groups: () => json({ customer_id: CUSTOMER, groups: [{ customer_id: CUSTOMER, group_id: "prod-eu", name: "Production EU",
+        description: "", account_ids: [OLDER.account_id, CONNECTED.account_id] }] }),
+    })
+    render(<AccountSettingsPage />)
+    await screen.findAllByTestId(/^account-row-/)
+    fireEvent.click(screen.getByRole("button", { name: "Account Groups" }))
+    const card = (await screen.findByText("Production EU")).closest("div.border-b") as HTMLElement
+    expect(card).toHaveTextContent(OLDER.account_id)
+    expect(card).toHaveTextContent("Data platform")
+    expect(card).not.toHaveTextContent("typed long ago")
+  })
+
+  it("the connect panel is titled by its ID", async () => {
+    installFetch({
+      list: () => json(memberList([PLATFORM, OLDER])),
+      connect: () => json({ detail: "not under test" }, 409),
+    })
+    render(<AccountSettingsPage />)
+    fireEvent.click(await screen.findByRole("button", { name: `Connect ${OLDER.account_id}` }))
+    const panel = await screen.findByRole("dialog", { name: OLDER.account_id })
+    expect(panel).not.toHaveTextContent("typed long ago")
   })
 })
 

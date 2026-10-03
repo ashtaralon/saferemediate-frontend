@@ -23,6 +23,7 @@ import {
   OPTIONAL_CONNECTION_PARAMETERS,
   REGION_SOURCE_KEYS,
   accountAdminFailure,
+  accountLabel,
   backendCount,
   changeCountText,
   connectionCheckOutcome,
@@ -775,7 +776,7 @@ export function ConnectAccountPanel({
           <div className="min-w-0">
             <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-teal-700">Connect AWS account</p>
             <h2 id="connect-account-title" className="mt-1 truncate text-xl font-semibold">
-              {account?.display_name || accountId}
+              {account ? accountLabel(account) : accountId}
             </h2>
             <p className="mt-1 font-mono text-xs text-slate-500">{accountId}</p>
           </div>

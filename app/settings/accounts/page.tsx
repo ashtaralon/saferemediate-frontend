@@ -31,6 +31,7 @@ import {
   AWS_REGION_PATTERN,
   MEMBER_ACCOUNTS_MODE,
   accountAdminFailure,
+  accountLabel,
   accountNameNote,
   connectionCheckOutcome,
   discoveryCaveats,
@@ -294,14 +295,14 @@ export default function AccountSettingsPage() {
   const platformAccount = allAccounts.find((account) => account.is_platform_account)
   const accounts = allAccounts
     .filter((account) => {
-      const value = `${account.display_name} ${account.account_id} ${account.environment}`.toLowerCase()
+      const value = `${accountLabel(account)} ${account.account_id} ${account.environment}`.toLowerCase()
       return value.includes(search.toLowerCase())
     })
     // The platform account leads in member mode (the backend sorts it first too).
     .sort((a, b) => Number(Boolean(b.is_platform_account)) - Number(Boolean(a.is_platform_account)))
   const summary = data?.summary || emptySummary
   const visibleFailures = failedRequests.filter((failure) => !dismissedFailures.includes(failureKey(failure)))
-  const accountNames = new Map(allAccounts.map((account) => [account.account_id, account.display_name]))
+  const accountNames = new Map(allAccounts.map((account) => [account.account_id, accountLabel(account)]))
   const legacyRegistryUnprovisioned = Boolean(data) && !memberMode && data?.registry_available === false
   const tableColumns = memberMode
     ? "grid-cols-[minmax(240px,1.3fr)_120px_minmax(240px,1.5fr)_190px_250px]"
@@ -664,7 +665,7 @@ function MemberAccountRow({
           {/* A member account: the name AWS holds for it (the backend's display_name for a named member account), or
               its ID until that is read -- never a typed label. */}
           {platform || account.aws_account_name ? (
-            <span className="truncate text-sm font-semibold">{account.display_name}</span>
+            <span className="truncate text-sm font-semibold">{accountLabel(account)}</span>
           ) : (
             <span className="truncate font-mono text-sm font-semibold">{account.account_id}</span>
           )}
@@ -709,7 +710,7 @@ function MemberAccountRow({
           <>
             <button
               onClick={onConnect}
-              aria-label={`Connect ${account.display_name}`}
+              aria-label={`Connect ${accountLabel(account)}`}
               className="inline-flex items-center gap-1.5 rounded-lg border border-teal-200 px-3 py-1.5 text-xs font-semibold text-teal-700 hover:bg-teal-50"
             >
               <Link2 className="h-3 w-3" /> Connect
@@ -717,7 +718,7 @@ function MemberAccountRow({
             <button
               onClick={onCheck}
               disabled={checking}
-              aria-label={`Check connection for ${account.display_name}`}
+              aria-label={`Check connection for ${accountLabel(account)}`}
               className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-white disabled:opacity-50"
             >
               {checking ? <Loader2 className="h-3 w-3 animate-spin" /> : <ShieldCheck className="h-3 w-3" />}
@@ -745,7 +746,7 @@ function AccountGroupsPanel({
   onRetry: () => void
   onCreate: () => void
 }) {
-  const names = new Map(accounts.map((account) => [account.account_id, account.display_name]))
+  const names = new Map(accounts.map((account) => [account.account_id, accountLabel(account)]))
   return (
     <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
       <div className="flex items-center justify-between border-b border-slate-200 p-5">
@@ -833,7 +834,7 @@ function AddGroupDialog({ customerId, accounts, onClose, onCreated }: { customer
               {accounts.map((account) => (
                 <label key={account.account_id} className="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 hover:bg-slate-50">
                   <input type="checkbox" checked={selected.includes(account.account_id)} onChange={(event) => setSelected((current) => event.target.checked ? [...current, account.account_id] : current.filter((id) => id !== account.account_id))} className="h-4 w-4 accent-teal-600" />
-                  <span className="min-w-0 flex-1">{account.display_name !== account.account_id ? <span className="block truncate text-sm font-semibold">{account.display_name}</span> : null}<span className="font-mono text-xs text-slate-400">{account.account_id}</span></span>
+                  <span className="min-w-0 flex-1">{accountLabel(account) !== account.account_id ? <span className="block truncate text-sm font-semibold">{accountLabel(account)}</span> : null}<span className="font-mono text-xs text-slate-400">{account.account_id}</span></span>
                 </label>
               ))}
             </div>

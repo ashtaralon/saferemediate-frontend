@@ -205,7 +205,9 @@ function connectBody(notes: Record<string, unknown> = {}) {
 const MEMBER_ROW = {
   customer_id: CUSTOMER,
   account_id: MEMBER_ID,
+  // Connected: named by the name AWS holds for it (the backend sets display_name to the same value).
   display_name: "Test workload",
+  aws_account_name: "Test workload",
   environment: "PRODUCTION",
   regions: ["eu-west-1"],
   onboarding_status: "CONNECTED",
@@ -599,7 +601,7 @@ describe("Settings > Accounts — per-feature coverage chips", () => {
         { feature: "iam_usage", label: IAM_USAGE, status: "LACKING", regions_lacking: ["eu-central-1", "eu-west-1"] },
       ],
     }
-    const withoutCoverage = { ...MEMBER_ROW, account_id: "333333333333", display_name: "Test staging" }
+    const withoutCoverage = { ...MEMBER_ROW, account_id: "333333333333", display_name: "Test staging", aws_account_name: "Test staging" }
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {

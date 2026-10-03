@@ -104,15 +104,29 @@ export interface ManagedAccount {
   aws_account_name_error?: string | null
 }
 
+/** The backend's collection mode for an account connected through its own read role (member_registry.COLLECTION_MODE_MEMBER). */
+export const MEMBER_COLLECTION_MODE = "MEMBER_READ_ROLE"
+
+/**
+ * The name an account is shown by, everywhere it is named (rows, the group picker and chips, Connect / Check connection
+ * labels). A member account: the name AWS holds for it, else its ID -- never a typed label, which an account registered
+ * before names were read from AWS may still carry in display_name. Every other account (the platform account, hosted
+ * rows) keeps its own name.
+ */
+export function accountLabel(account: Pick<ManagedAccount, "account_id" | "display_name" | "aws_account_name" | "collection_mode">): string {
+  if (account.collection_mode === MEMBER_COLLECTION_MODE) return account.aws_account_name || account.account_id
+  return account.display_name || account.account_id
+}
+
 /** Why a member account has no AWS name yet, in words; null when it has one (backend connector._read_account_name). */
 export function accountNameNote(account: Pick<ManagedAccount, "aws_account_name" | "aws_account_name_error" | "onboarding_status">): string | null {
   if (account.aws_account_name) return null
   const error = account.aws_account_name_error || ""
   if (error === "NOT_PERMITTED") {
-    return "Name not readable from AWS: this account's connection stack predates the name permission (account:GetAccountInformation). Updating the stack lets Cyntro read it."
+    return "Name not readable from AWS: AWS denied permission to read it. A connection stack deployed before this release may need updating (account:GetAccountInformation)."
   }
   if (error.startsWith("UNREACHABLE")) return "Name not readable from AWS: Cyntro could not reach the AWS account API."
-  if (error === "NO_NAME") return "AWS holds no name for this account."
+  if (error === "NO_NAME") return "Name not readable from AWS: AWS did not return a name."
   if (error) return `Name not readable from AWS (${error}).`
   return account.onboarding_status === "CONNECTED" || account.onboarding_status === "READY"
     ? "Name not read from AWS yet."
