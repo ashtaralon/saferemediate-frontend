@@ -652,6 +652,10 @@ export interface OrganizationDiscovery {
   truncated?: boolean
   accounts?: OrganizationAccount[]
   setup?: OrganizationDiscoverySetup
+  /** The discovery role the LAST discovery recorded, and that role's own account (backend org_discovery._source).
+   *  History, not current configuration; never, by itself, the organization's management account. Absent before the
+   *  first discovery. */
+  source?: { role_arn: string; account_id: string } | null
 }
 
 const ORGANIZATION_UNAVAILABLE: Record<string, string> = {

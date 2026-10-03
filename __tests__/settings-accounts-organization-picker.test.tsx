@@ -65,6 +65,13 @@ const AVAILABLE = {
   ],
 }
 
+// A delegated reader: its own account is NOT the management account (999988887777).
+const DELEGATED_SOURCE = { role_arn: "arn:aws:iam::123456789012:role/cyntro-org-discovery-acme", account_id: "123456789012" }
+
+const option = (picker: HTMLElement, id: string) => within(picker).getByTestId(`organization-account-${id}`) as HTMLOptionElement
+const offeredOptions = (picker: HTMLElement) =>
+  (within(picker).getAllByRole("option") as HTMLOptionElement[]).filter((o) => o.value && !o.disabled).map((o) => o.value)
+
 const SETUP = {
   template: "deploy/organizations/cyntro-organizations-discovery.yaml",
   parameters: {
@@ -183,13 +190,25 @@ describe("Settings > Accounts — choose from your organization", () => {
     expect(within(dialog).queryByRole("button", { name: "Review" })).toBeNull()
     expect(within(dialog).queryByRole("button", { name: /Add account/ })).toBeNull()
 
-    const row = (id: string) => within(picker).getByTestId(`organization-account-${id}`)
-    expect(within(row("222233334444")).getByRole("button", { name: "Use Checkout staging (222233334444)" })).toBeInTheDocument()
-    expect(row("111122223333")).toHaveTextContent("The account Cyntro runs in")
-    expect(row("999988887777")).toHaveTextContent("The organization's management account")
-    expect(row("444455556666")).toHaveTextContent("Already added")
-    expect(row("555566667777")).toHaveTextContent("Not active (SUSPENDED)")
-    expect(within(picker).getAllByRole("button", { name: /^Use / })).toHaveLength(1)
+    // Every listed account stays in the dropdown; only the one the backend offers can be picked.
+    expect(option(picker, "222233334444")).toHaveTextContent(/^Checkout staging — 222233334444$/)
+    expect(option(picker, "222233334444").disabled).toBe(false)
+    for (const [id, why] of [
+      ["111122223333", "Security tooling — 111122223333 (The account Cyntro runs in)"],
+      ["999988887777", "Management — 999988887777 (The organization's management account)"],
+      ["444455556666", "Payments production — 444455556666 (Already added)"],
+      ["555566667777", "Old sandbox — 555566667777 (Not active (SUSPENDED))"],
+    ]) {
+      expect(option(picker, id)).toHaveTextContent(why)
+      expect(option(picker, id).disabled).toBe(true)
+    }
+    expect(offeredOptions(picker)).toEqual(["222233334444"])
+    // Nothing is chosen until the person picks one.
+    expect(within(picker).getByLabelText("AWS account")).toHaveValue("")
+    expect(within(picker).getByRole("button", { name: "Use this account" })).toBeDisabled()
+    // A disabled entry forced into the select still cannot be used.
+    fireEvent.change(within(picker).getByLabelText("AWS account"), { target: { value: "999988887777" } })
+    expect(within(picker).getByRole("button", { name: "Use this account" })).toBeDisabled()
   })
 
   it("a row the backend contradicts fails closed: offered but not ACTIVE, or ACTIVE but not offered", async () => {
@@ -205,8 +224,12 @@ describe("Settings > Accounts — choose from your organization", () => {
     })
     const { picker } = await openPicker()
     await within(picker).findByTestId("organization-account-666677778888")
-    expect(within(picker).queryAllByRole("button", { name: /^Use / })).toHaveLength(0)
-    expect(within(picker).getByTestId("organization-account-666677778888")).toHaveTextContent("Not offered (SUSPENDED)")
+    expect(offeredOptions(picker)).toEqual([])
+    expect(option(picker, "666677778888")).toHaveTextContent("Not offered (SUSPENDED)")
+    for (const id of ["666677778888", "777788889999", "888899990000"]) {
+      fireEvent.change(within(picker).getByLabelText("AWS account"), { target: { value: id } })
+      expect(within(picker).getByRole("button", { name: "Use this account" })).toBeDisabled()
+    }
   })
 
   it("choosing an account only fills the form; Review and then Add account register it, once", async () => {
@@ -220,7 +243,9 @@ describe("Settings > Accounts — choose from your organization", () => {
     })
     const { dialog, picker } = await openPicker()
     await within(picker).findByTestId("organization-account-222233334444")
-    fireEvent.click(within(picker).getByRole("button", { name: "Use Checkout staging (222233334444)" }))
+    fireEvent.change(within(picker).getByLabelText("AWS account"), { target: { value: "222233334444" } })
+    expect(registrations()).toHaveLength(0)
+    fireEvent.click(within(picker).getByRole("button", { name: "Use this account" }))
 
     expect(within(dialog).getByRole("tab", { name: "Enter account ID" })).toHaveAttribute("aria-selected", "true")
     expect(within(dialog).queryByLabelText("Account name")).toBeNull()      // the name is AWS's, never a form value
@@ -242,16 +267,66 @@ describe("Settings > Accounts — choose from your organization", () => {
     expect(registered[0]).toEqual({ customer_id: CUSTOMER, account_id: "222233334444" })
   })
 
-  it("search narrows the list by name or account ID", async () => {
-    installFetch({ organization: () => json(AVAILABLE) })
+  it("the dropdown names every listed account by name and ID, in the order listed, and says the list grants nothing", async () => {
+    installFetch({ organization: () => json({ ...AVAILABLE, accounts: [...AVAILABLE.accounts, { account_id: "333344445555", name: "", state: "ACTIVE", selectable: true }] }) })
     const { picker } = await openPicker()
     await within(picker).findByTestId("organization-account-222233334444")
-    fireEvent.change(within(picker).getByLabelText("Search accounts"), { target: { value: "checkout" } })
-    expect(within(picker).getAllByTestId(/^organization-account-/).map((row) => row.dataset.testid)).toEqual([
-      "organization-account-222233334444"])
-    fireEvent.change(within(picker).getByLabelText("Search accounts"), { target: { value: "6677" } })
-    expect(within(picker).getAllByTestId(/^organization-account-/).map((row) => row.dataset.testid)).toEqual([
-      "organization-account-555566667777"])
+    expect((within(picker).getAllByRole("option") as HTMLOptionElement[]).map((o) => o.value)).toEqual([
+      "", "111122223333", "999988887777", "444455556666", "222233334444", "555566667777", "333344445555"])
+    expect(within(picker).getAllByRole("option")[0]).toHaveTextContent("Choose an account")
+    // An account AWS holds no name for is shown by its ID, never a made-up name.
+    expect(option(picker, "333344445555")).toHaveTextContent(/^333344445555 — 333344445555$/)
+    expect(picker).toHaveTextContent(
+      "Choosing an account only fills in its ID. The listing grants Cyntro no access to any account: Cyntro reads an account only after the connection stack is deployed in it.")
+  })
+
+  it("the last discovery source is shown as recorded -- not as current configuration, and never as the management account", async () => {
+    installFetch({ organization: () => json({ ...AVAILABLE, source: DELEGATED_SOURCE }) })
+    const { picker } = await openPicker()
+    const source = await within(picker).findByTestId("organization-source")
+    expect(source).toHaveTextContent(
+      "Last discovery source: arn:aws:iam::123456789012:role/cyntro-org-discovery-acme, in account 123456789012. This is what the last discovery recorded, not a fresh read of this installation's current configuration.")
+    expect(source).not.toHaveTextContent(/management/i)
+    // The management account is its own line, only as AWS Organizations reported it.
+    expect(within(picker).getByTestId("organization-management")).toHaveTextContent(
+      "Management account, as AWS Organizations reported it: 999988887777")
+    expect(within(picker).getByTestId("organization-management")).not.toHaveTextContent("123456789012")
+  })
+
+  it("a source in the management account is still not called the management account; the two lines stay separate", async () => {
+    installFetch({ organization: () => json({ ...AVAILABLE, source: { role_arn: "arn:aws:iam::999988887777:role/cyntro-org-discovery-acme", account_id: "999988887777" } }) })
+    const { picker } = await openPicker()
+    const source = await within(picker).findByTestId("organization-source")
+    expect(source).toHaveTextContent("Last discovery source: arn:aws:iam::999988887777:role/cyntro-org-discovery-acme, in account 999988887777.")
+    expect(source).not.toHaveTextContent(/management/i)
+    expect(within(picker).getByTestId("organization-management")).toHaveTextContent("999988887777")
+  })
+
+  it.each([
+    ["absent (before the first discovery)", undefined],
+    ["null", null],
+    ["without an account", { role_arn: DELEGATED_SOURCE.role_arn, account_id: "" }],
+    ["without a role", { role_arn: "", account_id: "123456789012" }],
+  ])("a source that is %s is not shown, and nothing stands in for it", async (_label, source) => {
+    installFetch({ organization: () => json({ ...AVAILABLE, management_account_id: null, source }) })
+    const { picker } = await openPicker()
+    await within(picker).findByTestId("organization-account-222233334444")
+    expect(within(picker).queryByTestId("organization-source")).toBeNull()
+    expect(within(picker).queryByTestId("organization-management")).toBeNull()
+    expect(picker).not.toHaveTextContent(/discovery source|arn:aws/)
+  })
+
+  it.each([
+    ["UNAVAILABLE", { state: "UNAVAILABLE", reason: "ROLE_NOT_USABLE" }, "Cyntro could not use the organization discovery role."],
+    ["EXPIRED", { state: "EXPIRED", discovered_at: "2026-10-01T08:00:00.000000+00:00" }, "The last list is more than 24 hours old, so it is not offered."],
+  ])("%s names the last discovery source too, with no account offered", async (_state, body, words) => {
+    installFetch({ organization: () => json({ customer_id: CUSTOMER, ...body, source: DELEGATED_SOURCE }) })
+    const { picker } = await openPicker()
+    await within(picker).findByText(new RegExp(`^${words.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`))
+    expect(within(picker).getByTestId("organization-source")).toHaveTextContent(
+      "Last discovery source: arn:aws:iam::123456789012:role/cyntro-org-discovery-acme, in account 123456789012.")
+    expect(within(picker).queryAllByTestId(/^organization-account-/)).toHaveLength(0)
+    expect(within(picker).queryByRole("button", { name: "Use this account" })).toBeNull()
   })
 
   it("a list cut short says so, and an empty one says nothing was listed", async () => {

@@ -9,7 +9,7 @@
  * to list the organization (a verified operator's request), and choosing an account only fills the Add form, which
  * still goes through Review and the explicit Add account step.
  */
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useId, useRef, useState } from "react"
 import { Loader2 } from "lucide-react"
 import {
   accountAdminFailure,
@@ -40,7 +40,9 @@ export function OrganizationAccountPicker({
   const [asking, setAsking] = useState(false)
   // What failed, said in words first; the backend's own detail (status, refusal) stays visible beneath it.
   const [error, setError] = useState<{ title: string; detail: string } | null>(null)
-  const [search, setSearch] = useState("")
+  // The account picked in the dropdown; "Use this account" fills the Add form with it.
+  const [selected, setSelected] = useState("")
+  const selectId = useId()
   // Every completed read, answered or failed, advances `reads`: the poll below is scheduled from it, so a failed read
   // is followed by another one (a failure leaves `discovery` as it was and would otherwise stop the poll for good).
   const [reads, setReads] = useState(0)
@@ -137,10 +139,7 @@ export function OrganizationAccountPicker({
   // Rows are rendered only in the AVAILABLE block below; that is the one place they can appear.
   const listed = discovery?.accounts
   const accounts: OrganizationAccount[] = Array.isArray(listed) ? listed : []
-  const query = search.trim().toLowerCase()
-  const shown = query
-    ? accounts.filter((account) => account.account_id.includes(query) || String(account.name || "").toLowerCase().includes(query))
-    : accounts
+  const picked = accounts.find((account) => account.account_id === selected && organizationAccountSelectable(account))
 
   return (
     <div data-testid="organization-picker" className="space-y-4 p-6 text-sm text-slate-700">
@@ -194,6 +193,7 @@ export function OrganizationAccountPicker({
       {state === "EXPIRED" ? (
         <div className="space-y-3">
           <p>The last list is more than 24 hours old, so it is not offered.</p>
+          <OrganizationSource discovery={discovery} />
           <div className="flex items-center gap-4">{findButton("Find accounts")}{manualButton}</div>
         </div>
       ) : null}
@@ -201,6 +201,7 @@ export function OrganizationAccountPicker({
       {state === "UNAVAILABLE" ? (
         <div className="space-y-3" data-testid="organization-unavailable">
           <p className="font-semibold text-slate-900">{organizationUnavailableText(discovery?.reason)}</p>
+          <OrganizationSource discovery={discovery} />
           {discovery?.setup ? <DiscoverySetup setup={discovery.setup} /> : null}
           {!discovery?.setup && (discovery?.reason === "NOT_CONFIGURED" || discovery?.reason === "ROLE_NOT_USABLE") ? (
             <p className="text-xs text-slate-500">The values to set it up are not available from this installation yet; see INSTALL.md, section 8.</p>
@@ -215,46 +216,81 @@ export function OrganizationAccountPicker({
             Organization {discovery?.organization_id || "(not reported)"}
             {discovery?.discovered_at ? `, listed ${formatUtcInstantExact(discovery.discovered_at)}` : ""}.
           </p>
+          {discovery?.management_account_id ? (
+            <p data-testid="organization-management" className="text-xs text-slate-500">
+              Management account, as AWS Organizations reported it:{" "}
+              <span className="font-mono text-slate-700">{discovery.management_account_id}</span>
+            </p>
+          ) : null}
+          <OrganizationSource discovery={discovery} />
           {discovery?.truncated ? (
             <p className="text-xs text-amber-700">The list was cut short at {accounts.length} accounts; enter the ID of any account not shown.</p>
           ) : null}
           {accounts.length ? (
-            <input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search by name or account ID"
-              aria-label="Search accounts"
-              className="w-full rounded-lg border border-slate-200 p-2 outline-none focus:border-teal-500"
-            />
+            <div className="flex items-end gap-3">
+              <div className="min-w-0 flex-1">
+                <label htmlFor={selectId} className="text-sm font-semibold text-slate-700">AWS account</label>
+                <select
+                  id={selectId}
+                  value={selected}
+                  onChange={(event) => setSelected(event.target.value)}
+                  className="mt-1.5 w-full rounded-lg border border-slate-200 bg-white p-2 font-normal outline-none focus:border-teal-500"
+                >
+                  <option value="">Choose an account</option>
+                  {accounts.map((account) => {
+                    const offered = organizationAccountSelectable(account)
+                    return (
+                      <option
+                        key={account.account_id}
+                        value={account.account_id}
+                        disabled={!offered}
+                        data-testid={`organization-account-${account.account_id}`}
+                      >
+                        {`${account.name || account.account_id} — ${account.account_id}`}
+                        {offered ? "" : ` (${organizationWhyNotText(account)})`}
+                      </option>
+                    )
+                  })}
+                </select>
+              </div>
+              <button
+                type="button"
+                disabled={!picked}
+                onClick={() => picked && onChoose({ accountId: picked.account_id, name: picked.name || picked.account_id })}
+                className="shrink-0 rounded-lg bg-teal-700 px-3 py-2 text-xs font-semibold text-white disabled:opacity-40"
+              >
+                Use this account
+              </button>
+            </div>
           ) : (
             <p>No accounts were listed.</p>
           )}
-          <ul className="max-h-64 divide-y divide-slate-100 overflow-y-auto rounded-lg border border-slate-200">
-            {shown.map((account) => (
-              <li key={account.account_id} data-testid={`organization-account-${account.account_id}`} className="flex items-center justify-between gap-3 px-3 py-2">
-                <div className="min-w-0">
-                  <p className="truncate font-semibold text-slate-900">{account.name || account.account_id}</p>
-                  <p className="font-mono text-xs text-slate-500">{account.account_id} · {account.state}</p>
-                </div>
-                {organizationAccountSelectable(account) ? (
-                  <button
-                    type="button"
-                    onClick={() => onChoose({ accountId: account.account_id, name: account.name || account.account_id })}
-                    aria-label={`Use ${account.name || account.account_id} (${account.account_id})`}
-                    className="shrink-0 rounded-lg bg-teal-700 px-3 py-1 text-xs font-semibold text-white"
-                  >
-                    Use this account
-                  </button>
-                ) : (
-                  <span className="shrink-0 text-xs text-slate-500">{organizationWhyNotText(account)}</span>
-                )}
-              </li>
-            ))}
-          </ul>
+          <p className="text-xs text-slate-500">
+            Choosing an account only fills in its ID. The listing grants Cyntro no access to any account: Cyntro reads an
+            account only after the connection stack is deployed in it.
+          </p>
           <div className="flex items-center gap-4">{findButton("Find accounts again")}{manualButton}</div>
         </div>
       ) : null}
     </div>
+  )
+}
+
+/**
+ * The role the LAST discovery recorded, and that role's own account (backend org_discovery._source). It is history,
+ * not a read of this installation's current configuration: absent before the first discovery, and stale once the
+ * installer's discovery role changes. It never says what the management account is -- that is shown on its own, only
+ * as AWS Organizations reported it.
+ */
+function OrganizationSource({ discovery }: { discovery: OrganizationDiscovery | null }) {
+  const source = discovery?.source
+  if (!source?.role_arn || !source.account_id) return null
+  return (
+    <p data-testid="organization-source" className="text-xs text-slate-500">
+      Last discovery source: <span className="break-all font-mono text-slate-700">{source.role_arn}</span>, in account{" "}
+      <span className="font-mono text-slate-700">{source.account_id}</span>. This is what the last discovery recorded,
+      not a fresh read of this installation&apos;s current configuration.
+    </p>
   )
 }
 
