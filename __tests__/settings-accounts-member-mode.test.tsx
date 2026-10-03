@@ -640,6 +640,23 @@ describe("Settings > Accounts — backend errors carry the backend's detail", ()
     expect(await screen.findByText("Check connection failed (HTTP 422): account_id must be a 12-digit AWS account ID")).toBeInTheDocument()
   })
 
+  // The platform row says only what the backend reported about collecting the install's own account.
+  it.each([
+    [false, "The account Cyntro runs in, control plane only: it is not collected and needs no connection stack.", false],
+    [true, "The account Cyntro is installed in; read directly, no connection stack.", true],
+    [undefined, "The account Cyntro is installed in; it needs no connection stack.", true],
+  ])("the platform row with data_account=%s says so, and links coverage only for a collected account",
+    async (dataAccount, note, coverageLink) => {
+      installFetch({ list: () => json(memberList([{ ...PLATFORM, data_account: dataAccount }])) })
+      render(<AccountSettingsPage />)
+
+      const platform = await screen.findByTestId(`account-row-${PLATFORM.account_id}`)
+      expect(within(platform).getByText(note)).toBeInTheDocument()
+      expect(Boolean(within(platform).queryByText(/read directly/))).toBe(dataAccount === true)
+      expect(Boolean(within(platform).queryByRole("link", { name: `Evidence coverage for ${PLATFORM.account_id}` })))
+        .toBe(coverageLink)
+    })
+
   // H5: onboarding needs a verified operator; the backend's typed refusals are words, never a raw {"code": ...}.
   it.each([
     [401, "PERSON_TOKEN_REQUIRED", "Your sign-in did not reach Cyntro. Sign in again."],

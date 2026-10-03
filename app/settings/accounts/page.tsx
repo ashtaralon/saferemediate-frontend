@@ -626,6 +626,17 @@ export default function AccountSettingsPage() {
   )
 }
 
+/** What the platform row may say about collection -- only what the backend reported. */
+function PlatformNote({ account }: { account: ManagedAccount }) {
+  if (account.data_account === false) {
+    return <p className="text-xs text-slate-500">The account Cyntro runs in, control plane only: it is not collected and needs no connection stack.</p>
+  }
+  if (account.collection_mode !== "LOCAL_CUSTOMER_PLANE") return null
+  return account.data_account === true
+    ? <p className="text-xs text-slate-500">The account Cyntro is installed in; read directly, no connection stack.</p>
+    : <p className="text-xs text-slate-500">The account Cyntro is installed in; it needs no connection stack.</p>
+}
+
 function MemberAccountRow({
   account,
   columns,
@@ -640,6 +651,8 @@ function MemberAccountRow({
   onCheck: () => void
 }) {
   const platform = Boolean(account.is_platform_account)
+  // A control-plane install runs Cyntro in its own account and never collects it (CYNTRO_PLATFORM_DATA_ACCOUNT=false).
+  const controlPlane = platform && account.data_account === false
   const connectable = !platform && CONNECTABLE.has(account.onboarding_status)
   const summary = account.onboarding_status === "CONNECTED" ? discoverySummary(account.sources) : null
   const caveats = account.onboarding_status === "CONNECTED" ? discoveryCaveats(account.sources) : []
@@ -657,7 +670,7 @@ function MemberAccountRow({
       <span className="text-xs font-semibold text-slate-600">{account.environment}</span>
       <div className="min-w-0 space-y-1.5">
         <MemberStatusBadge status={account.onboarding_status} />
-        {platform || OPERATIONAL_STATUSES.has(account.onboarding_status) ? (
+        {(platform && !controlPlane) || OPERATIONAL_STATUSES.has(account.onboarding_status) ? (
           <Link
             href={coveragePageHref(account.account_id)}
             aria-label={`Evidence coverage for ${account.account_id}`}
@@ -666,9 +679,7 @@ function MemberAccountRow({
             {OPERATIONAL_STATUSES.has(account.onboarding_status) ? "Operational · evidence coverage" : "Evidence coverage"}
           </Link>
         ) : null}
-        {platform && account.collection_mode === "LOCAL_CUSTOMER_PLANE" ? (
-          <p className="text-xs text-slate-500">The account Cyntro is installed in; read directly, no connection stack.</p>
-        ) : null}
+        {platform ? <PlatformNote account={account} /> : null}
         {/* A REGISTERING row's message only repeats its badge; the open request line says the rest. */}
         {account.validation_message && account.onboarding_status !== "REGISTERING" ? <p className="text-xs text-slate-600">{account.validation_message}</p> : null}
         {summary ? <p className="text-[11px] text-slate-500">{summary}</p> : null}
