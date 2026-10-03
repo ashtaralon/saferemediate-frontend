@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { mkdtemp, mkdir, copyFile, writeFile, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -57,4 +57,21 @@ describe('captured-only preview boundary', () => {
      expect(Object.keys(captured!.responses)).toHaveLength(1)
      expect(captured!.responses['/api/proxy/admin/accounts?customer_id=localtest'].status).toBe(403)
    } finally {await rm(root,{recursive:true,force:true})}
+ })
+
+ it('launches with no inherited backend or AWS access and a refusing backend resolver', async()=>{
+   const root=await mkdtemp(path.join(tmpdir(),'cyntro-preview-env-'))
+   try {
+     await mkdir(path.join(root,'scripts'))
+     await mkdir(path.join(root,'node_modules/next/dist/bin'),{recursive:true})
+     await copyFile(path.resolve('scripts/dev-preview.mjs'),path.join(root,'scripts/dev-preview.mjs'))
+     await writeFile(path.join(root,'node_modules/next/dist/bin/next'),`console.log(JSON.stringify({mode:process.env.CYNTRO_DEPLOYMENT_MODE,backend:process.env.BACKEND_URL_OVERRIDE,aws:process.env.AWS_ACCESS_KEY_ID}));`)
+     const output=execFileSync(process.execPath,[path.join(root,'scripts/dev-preview.mjs')],{encoding:'utf8',env:{...process.env,BACKEND_URL_OVERRIDE:'https://must-not-be-used.invalid',AWS_ACCESS_KEY_ID:'MUST_NOT_BE_INHERITED'}})
+     const env=JSON.parse(output.trim().split('\n').at(-1)!)
+     expect(env).toEqual({mode:'CUSTOMER_RESIDENT'})
+     vi.stubEnv('CYNTRO_DEPLOYMENT_MODE',env.mode)
+     vi.stubEnv('BACKEND_URL_OVERRIDE',undefined)
+     const {getBackendBaseUrl}=await import('@/lib/server/backend-url')
+     expect(()=>getBackendBaseUrl()).toThrow('BACKEND_URL_OVERRIDE is unset')
+   } finally {vi.unstubAllEnvs();await rm(root,{recursive:true,force:true})}
  })
