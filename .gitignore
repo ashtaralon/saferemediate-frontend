@@ -40,3 +40,7 @@ next-env.d.ts
 
 # per-session preview dist dirs (NEXT_DIST_DIR)
 /.next-preview*/
+
+# Generated local preview build
+/tools/local-preview/.next/
+/tools/local-preview/next-env.d.ts

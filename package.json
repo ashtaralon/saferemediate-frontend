@@ -18,7 +18,9 @@
     "lint:ir-purity": "scripts/check_ir_purity.sh",
     "lint:cve-evidence": "node scripts/check-no-port-inferred-cves.mjs",
     "lint:system-scope": "node scripts/check-scoped-system-catalog.mjs",
-    "verify-next": "node -e \"const pkg=require('./package.json'); console.log('Next.js version:', pkg.dependencies.next); if(pkg.dependencies.next !== '16.3.3') { console.error('ERROR: Next.js must be pinned to patched 16.3.3'); process.exit(1); } else { console.log('Next.js version is patched'); }\""
+    "verify-next": "node -e \"const pkg=require('./package.json'); console.log('Next.js version:', pkg.dependencies.next); if(pkg.dependencies.next !== '16.3.3') { console.error('ERROR: Next.js must be pinned to patched 16.3.3'); process.exit(1); } else { console.log('Next.js version is patched'); }\"",
+    "dev:preview": "node scripts/dev-preview.mjs",
+    "test:preview": "vitest run __tests__/local-preview-contract.test.ts"
   },
   "dependencies": {
     "@antv/x6": "3.1.4",
