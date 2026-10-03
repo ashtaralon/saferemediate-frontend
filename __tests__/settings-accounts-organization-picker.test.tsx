@@ -338,14 +338,14 @@ describe("Settings > Accounts — choose from your organization", () => {
     expect(within(dialog).getByLabelText("AWS account ID")).toBeInTheDocument()
   })
 
-  it("an unreachable identity provider is said as such, never as a bad sign-in, and Try again only reads", async () => {
-    // rehearsal.25: the runtime had no route to the IdP's signing keys, so the sign-in was never checked.
+  it("signing keys that could not be loaded are said as such, never as a bad sign-in, and Try again only reads", async () => {
+    // rehearsal.25: the runtime could not fetch the IdP's signing keys, so the sign-in was never checked.
     installFetch({ organization: () => json({ detail: { code: "PERSON_KEYS_UNAVAILABLE" } }, 503) })
     const { picker } = await openPicker()
     const alert = await within(picker).findByRole("alert")
     expect(alert).toHaveTextContent("Cyntro could not read your organization's accounts.")
     expect(alert).toHaveTextContent(
-      "Organization accounts refused (HTTP 503): Cyntro could not reach your identity provider to check your sign-in.",
+      "Organization accounts refused (HTTP 503): Cyntro could not load your identity provider's signing keys, so your sign-in could not be checked.",
     )
     expect(alert).not.toHaveTextContent("Sign in again")
     fireEvent.click(within(picker).getByRole("button", { name: "Try again" }))
