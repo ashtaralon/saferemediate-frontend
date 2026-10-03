@@ -971,8 +971,9 @@ function MemberAddAccountDialog({
 
 /**
  * What adding an account does, said before it is done -- in the account connector's own terms
- * (cyntro_data/accounts/connector.py: register -> immediate validate; first CONNECTED queues the inventory bootstrap;
- * a 15-minute sweep re-checks waiting accounts). Read access only.
+ * (cyntro_data/accounts/connector.py: register -> immediate validate, which keeps the account waiting when the role
+ * cannot be used; the first CONNECTED queues the inventory bootstrap; only supported, readable sources are collected;
+ * a 15-minute sweep re-checks waiting accounts -- a check, never a promised connection). Read access only.
  */
 function AddAccountConfirmation({ displayName, accountId, environment, regions }: {
   displayName: string
@@ -988,9 +989,9 @@ function AddAccountConfirmation({ displayName, accountId, environment, regions }
         <dt className="font-semibold text-slate-500">Regions</dt><dd>{regions.join(", ")}</dd>
       </dl>
       <ul className="list-disc space-y-1.5 pl-5">
-        <li>Cyntro registers this account with this installation and checks its connection right away.</li>
-        <li>If the Cyntro connection stack is already deployed in this account, it connects at once and collection starts immediately: the account&apos;s configuration first, then its inventory and the activity logs it has (CloudTrail, VPC flow logs).</li>
-        <li>If the stack is not deployed yet, nothing is read. Once you deploy it, Cyntro connects the account at its next check, about every 15 minutes, or at once when you choose Check connection.</li>
+        <li>Cyntro registers this account with this installation and checks the connection right away.</li>
+        <li>If the Cyntro read role in this account can be used, the account connects and collection can start immediately: its configuration is read, its inventory is queued, and supported activity logs that Cyntro can read there (CloudTrail, VPC flow logs) are collected.</li>
+        <li>If the role cannot be used yet (for example, the connection stack is not deployed), nothing is read. Cyntro checks again about every 15 minutes, and Check connection checks at once; the account connects only when the role works.</li>
         <li>Read access only: nothing in the account is changed.</li>
       </ul>
     </div>

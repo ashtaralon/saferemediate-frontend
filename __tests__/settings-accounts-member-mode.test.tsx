@@ -669,14 +669,18 @@ describe("Settings > Accounts — backend errors carry the backend's detail", ()
 
     const confirmation = within(dialog).getByTestId("add-account-confirmation")
     expect(confirmation).toHaveTextContent("Add Security tooling (111122223333)?")
-    expect(confirmation).toHaveTextContent("Cyntro registers this account with this installation and checks its connection right away.")
+    // Conditional, as the connector behaves (Codex O1 review): a deployed stack does not promise a connection, and
+    // only supported, readable sources are collected; a later check is a check, not a promised success.
+    expect(confirmation).toHaveTextContent("Cyntro registers this account with this installation and checks the connection right away.")
     expect(confirmation).toHaveTextContent(
-      "If the Cyntro connection stack is already deployed in this account, it connects at once and collection starts immediately: " +
-      "the account's configuration first, then its inventory and the activity logs it has (CloudTrail, VPC flow logs).")
+      "If the Cyntro read role in this account can be used, the account connects and collection can start immediately: " +
+      "its configuration is read, its inventory is queued, and supported activity logs that Cyntro can read there " +
+      "(CloudTrail, VPC flow logs) are collected.")
     expect(confirmation).toHaveTextContent(
-      "If the stack is not deployed yet, nothing is read. Once you deploy it, Cyntro connects the account at its next check, " +
-      "about every 15 minutes, or at once when you choose Check connection.")
+      "If the role cannot be used yet (for example, the connection stack is not deployed), nothing is read. Cyntro checks " +
+      "again about every 15 minutes, and Check connection checks at once; the account connects only when the role works.")
     expect(confirmation).toHaveTextContent("Read access only: nothing in the account is changed.")
+    expect(confirmation).not.toHaveTextContent(/connects at once|collection starts immediately|the activity logs it has/)
     expect(registered).toHaveLength(0)
     expect(calls((url, method) => url === "/api/proxy/admin/accounts" && method === "POST")).toHaveLength(0)
 
