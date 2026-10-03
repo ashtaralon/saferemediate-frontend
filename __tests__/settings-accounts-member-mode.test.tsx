@@ -640,6 +640,71 @@ describe("Settings > Accounts — backend errors carry the backend's detail", ()
     expect(await screen.findByText("Check connection failed (HTTP 422): account_id must be a 12-digit AWS account ID")).toBeInTheDocument()
   })
 
+  // H5: onboarding needs a verified operator; the backend's typed refusals are words, never a raw {"code": ...}.
+  it.each([
+    [401, "PERSON_TOKEN_REQUIRED", "Your sign-in did not reach Cyntro. Sign in again."],
+    [401, "PERSON_TOKEN_INVALID", "Your sign-in could not be verified; it may have expired. Sign in again."],
+    [401, "ALB_IDENTITY_REQUIRED", "This console's signed sign-in was missing from the request. Sign in again."],
+    [401, "ALB_IDENTITY_INVALID", "This console's signed sign-in could not be verified. Sign in again."],
+    [401, "PERSON_ISSUER_MISMATCH", "The two proofs of your sign-in do not name the same person. Sign in again."],
+    [401, "PERSON_CLIENT_MISMATCH", "The two proofs of your sign-in do not name the same person. Sign in again."],
+    [401, "PERSON_SUBJECT_MISMATCH", "The two proofs of your sign-in do not name the same person. Sign in again."],
+    [403, "PERSON_NOT_AUTHORIZED",
+      "Your sign-in is not permitted to administer this account. Your identity provider's administrator grants the Cyntro operator role."],
+    [503, "ALB_KEY_UNAVAILABLE", "The sign-in signing key could not be fetched. Retry shortly."],
+    [503, "ALB_TRUST_REQUIRED",
+      "This installation's sign-in trust is not configured, so account administration is refused. This is an installation prerequisite."],
+    [503, "ALB_TRUST_MISCONFIGURED",
+      "This installation's sign-in trust is misconfigured, so account administration is refused. This is an installation prerequisite."],
+    [409, "PERSON_IDENTITY_NOT_ENFORCED",
+      "This installation does not require a verified personal sign-in, so account administration is refused."],
+    [403, "ACCOUNT_ADMIN_ORIGIN_REFUSED", "The request did not come from this console. Reload the page and try again."],
+  ])("a Check connection refused %s %s says why in words", async (status, code, words) => {
+    installFetch({
+      list: () => json(memberList([PLATFORM, AWAITING])),
+      validate: () => json({ detail: { code } }, status),
+    })
+    render(<AccountSettingsPage />)
+
+    fireEvent.click(await screen.findByRole("button", { name: "Check connection for Payments production" }))
+    expect(await screen.findByText(`Check connection refused (HTTP ${status}): ${words} Nothing was changed.`)).toBeInTheDocument()
+    expect(screen.queryByText(new RegExp(code))).not.toBeInTheDocument()
+  })
+
+  it("a registration refused for the person says so in the add dialog", async () => {
+    installFetch({
+      list: () => json(memberList([PLATFORM])),
+      register: () => json({ detail: { code: "PERSON_NOT_AUTHORIZED" } }, 403),
+    })
+    render(<AccountSettingsPage />)
+    await screen.findAllByTestId(/^account-row-/)
+
+    fireEvent.click(screen.getByRole("button", { name: /Add AWS account/ }))
+    const dialog = await screen.findByRole("dialog", { name: "Add an AWS account" })
+    fireEvent.change(within(dialog).getByLabelText("Account name"), { target: { value: "Security tooling" } })
+    fireEvent.change(within(dialog).getByLabelText("AWS account ID"), { target: { value: "111122223333" } })
+    fireEvent.click(within(dialog).getByRole("button", { name: /Add account/ }))
+
+    const alert = await within(dialog).findByRole("alert")
+    expect(alert).toHaveTextContent(
+      "Registration refused (HTTP 403): Your sign-in is not permitted to administer this account. " +
+      "Your identity provider's administrator grants the Cyntro operator role. Nothing was changed.")
+  })
+
+  it.each([
+    ["an unknown code", { code: "SOMETHING_NEW" }],
+    ["an inherited property name", { code: "toString" }],
+  ])("a detail with %s keeps the backend's own detail", async (_label, detail) => {
+    installFetch({
+      list: () => json(memberList([PLATFORM, AWAITING])),
+      validate: () => json({ detail }, 403),
+    })
+    render(<AccountSettingsPage />)
+
+    fireEvent.click(await screen.findByRole("button", { name: "Check connection for Payments production" }))
+    expect(await screen.findByText(`Check connection failed (HTTP 403): ${JSON.stringify(detail)}`)).toBeInTheDocument()
+  })
+
   it("Connect before the member trust exists shows the backend message and a Retry that refetches", async () => {
     let ready = false
     installFetch({

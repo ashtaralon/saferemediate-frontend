@@ -367,6 +367,38 @@ export class AccountAdminError extends Error {
   }
 }
 
+/**
+ * Account administration's typed refusals (H5), in words. Registering or checking a workload account needs a
+ * verified operator: the backend checks both proofs of the signed-in person and the console refuses a write that
+ * did not come from itself. Every one of these refuses before anything is queued.
+ */
+const ACCOUNT_ADMIN_REFUSALS: Record<string, string> = {
+  PERSON_TOKEN_REQUIRED: "Your sign-in did not reach Cyntro. Sign in again.",
+  PERSON_TOKEN_INVALID: "Your sign-in could not be verified; it may have expired. Sign in again.",
+  ALB_IDENTITY_REQUIRED: "This console's signed sign-in was missing from the request. Sign in again.",
+  ALB_IDENTITY_INVALID: "This console's signed sign-in could not be verified. Sign in again.",
+  PERSON_ISSUER_MISMATCH: "The two proofs of your sign-in do not name the same person. Sign in again.",
+  PERSON_CLIENT_MISMATCH: "The two proofs of your sign-in do not name the same person. Sign in again.",
+  PERSON_SUBJECT_MISMATCH: "The two proofs of your sign-in do not name the same person. Sign in again.",
+  PERSON_NOT_AUTHORIZED:
+    "Your sign-in is not permitted to administer this account. Your identity provider's administrator grants the Cyntro operator role.",
+  ALB_KEY_UNAVAILABLE: "The sign-in signing key could not be fetched. Retry shortly.",
+  ALB_TRUST_REQUIRED:
+    "This installation's sign-in trust is not configured, so account administration is refused. This is an installation prerequisite.",
+  ALB_TRUST_MISCONFIGURED:
+    "This installation's sign-in trust is misconfigured, so account administration is refused. This is an installation prerequisite.",
+  PERSON_IDENTITY_NOT_ENFORCED:
+    "This installation does not require a verified personal sign-in, so account administration is refused.",
+  ACCOUNT_ADMIN_ORIGIN_REFUSED: "The request did not come from this console. Reload the page and try again.",
+}
+
+/** The words for a typed account-administration refusal, or null when the detail carries no known code. */
+export function accountAdminRefusal(detail: unknown): string | null {
+  if (!detail || typeof detail !== "object") return null
+  const code = (detail as Record<string, unknown>).code
+  return typeof code === "string" && Object.prototype.hasOwnProperty.call(ACCOUNT_ADMIN_REFUSALS, code) ? ACCOUNT_ADMIN_REFUSALS[code] : null
+}
+
 /** Turn a non-2xx answer into an error that carries the backend's detail, not only its status code. */
 export async function accountAdminFailure(response: Response, what: string): Promise<AccountAdminError> {
   const text = await response.text().catch(() => "")
@@ -377,6 +409,10 @@ export async function accountAdminFailure(response: Response, what: string): Pro
     payload = null
   }
   const detail = payload && typeof payload === "object" ? (payload as Record<string, unknown>).detail : undefined
+  const refusal = accountAdminRefusal(detail)
+  if (refusal) {
+    return new AccountAdminError(`${what} refused (HTTP ${response.status}): ${refusal} Nothing was changed.`, response.status, detail)
+  }
   const message = backendDetailMessage(payload)
   return new AccountAdminError(
     message ? `${what} failed (HTTP ${response.status}): ${message}` : `${what} returned HTTP ${response.status}`,
