@@ -44,3 +44,6 @@ next-env.d.ts
 # Generated local preview build
 /tools/local-preview/.next/
 /tools/local-preview/next-env.d.ts
+
+# Authenticated response captures stay on this machine.
+tools/local-preview/.local/

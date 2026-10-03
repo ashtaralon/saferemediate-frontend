@@ -1,36 +1,25 @@
 # Local UI preview
 
-Run from this frontend checkout:
+Run `npm ci` then `npm run dev:preview` from this checkout. Open http://127.0.0.1:3210/settings/accounts. Edit the real files in `app/`, `components/` or `lib/`; Next refreshes them without an image build. Stop with Ctrl+C. The server binds only to loopback on port 3210.
+
+The harness imports the actual Home, Accounts and Coverage pages, providers, parsers and styles. It is separate from the release app; its middleware and API routes are not changed. Do not deploy or publicly expose this harness.
+
+## Real responses only
+
+The preview starts with an explicit capture-required screen. It never generates accounts, populated evidence or successful empty backend responses. A missing exact request returns HTTP 503 `PREVIEW_CAPTURE_UNAVAILABLE`.
+
+Capture the authenticated test installation's page GET responses with browser developer tools (HAR export), then import locally:
 
 ```sh
-npm ci
-npm run dev:preview
+npm run preview:import -- /absolute/path/capture.har <frontend-40-character-commit> <backend-40-character-commit> https://app.local-test.cyntro.io
 ```
 
-Open http://127.0.0.1:3210/settings/accounts. Use the blue preview bar to navigate Home, Accounts and Coverage and switch scenarios. Edit the real files in `app/`, `components/` or `lib/`; Next refreshes the open page without an image build. Stop with Ctrl+C. Port 3210 is deliberately fixed and loopback-only; an occupied port fails instead of silently choosing another.
+The importer copies only JSON bodies, HTTP status and timestamps from same-origin `/api/proxy/` GETs. It discards headers, cookies, authentication requests and other origins. HAR files can contain credentials: keep the original private, never commit it. Imported response bodies can still contain customer data: they remain in the gitignored `tools/local-preview/.local/responses.json`; never commit or share that directory. The importer is offline and performs no requests.
 
-The preview imports the actual product pages, providers, parsers and styles. It is a separate Next application under `tools/local-preview`, so the release application's middleware and API routes are not altered or bypassed. No production module imports this harness. Do not deploy this harness or bind it to a public interface.
+The banner shows capture time and source. These are recorded observations, not current backend state. Refresh captures after relevant backend changes. Query keys are exact (including tenant/account/region), so a request for a different scope cannot reuse another scope's answer. Do not add invented populated scenarios; wait for real workload data. Unit tests remain separate from what is displayed in the preview.
 
-## First supported slice
+No capture currently means no product page is rendered. With a capture, unsupported reads fail visibly. The harness has no live forwarding, credential loading or AWS client. Its runner strips deployment environment variables; browser CSP limits API calls to this origin. All POST/PUT/PATCH/DELETE calls return HTTP 405, so Add account cannot register anything. This does not prove real authentication or enrollment.
 
-- Home: the real no-workload state. Other Home reads without an explicit fixture fail visibly as unavailable.
-- Accounts: control-plane-only and connected-member examples; Add dialog and field validation. All submissions fail with a clear preview-only HTTP 405; they cannot enroll an account.
-- Coverage: no-workload hold, populated publication with a gap, HTTP 503 unavailable, HTTP 403 denied, and malformed-body regression state.
-- Account-group list: empty fixture. Other navigation remains product navigation; unsupported pages may return 404 and unsupported reads return `PREVIEW_ROUTE_NOT_FIXTURED`, never invented success.
+## Validation and boundaries
 
-## Data and isolation
-
-All current data is **synthetic test input**, not a recording of customer evidence. Published coverage is copied from `__tests__/coverage/source-coverage-panel.test.tsx`; account shapes follow `__tests__/settings-accounts-member-mode.test.tsx`; the no-workload body matches the backend gate response reproduced during rehearsal.23. Scenario changes clear only this preview origin's browser cache so stale fixture values cannot masquerade as a new scenario.
-
-The runner supplies a minimal process environment and inherits no AWS variables or backend URLs. The harness has no live API forwarding, credential loading or server-side AWS clients. Its catch-all API serves explicit fixtures, refuses unsupported reads, and rejects POST/PUT/PATCH/DELETE. Browser CSP limits API connections to this origin and its local hot-reload socket. It uses no real sign-in and therefore does not verify authentication.
-
-## Checks before the image build
-
-```sh
-npm run test:preview
-npm run test -- __tests__/settings-accounts-member-mode.test.tsx __tests__/coverage/source-coverage-panel.test.tsx
-```
-
-Inspect the affected page in the browser, try the relevant scenarios and capture the result; then review and checkpoint the source. Ten harness contract tests exercise the actual fixture route, existing coverage parser, refusal states, unknown-route failure and mutation rejection.
-
-Preview results establish frontend behavior only. Actual backend changes still need mounted-route tests and a separately coordinated development backend/data source. Real authentication, scoped producer data, packaging and installation still require exact-image verification in the test installation. A live-backend preview slot is a separate follow-up requiring a concrete infrastructure/identity design; this slice creates no cloud resources or grants.
+Run `npm run test:preview`, then inspect the actual page in the browser. Home, Accounts and Coverage are the first supported frontend slice. Local hot reload verifies rendering and client logic. Actual backend changes still require routed API tests and a coordinated development backend; exact-image packaging, installation, scoped producer data and authenticated end-to-end behavior remain separate checks.
