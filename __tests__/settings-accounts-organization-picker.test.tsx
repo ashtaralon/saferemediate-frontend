@@ -228,6 +228,10 @@ describe("Settings > Accounts — choose from your organization", () => {
     expect(within(dialog).getByTestId("chosen-from-organization")).toHaveTextContent(
       "Filled from your organization: Checkout staging (222233334444). Nothing has been added.")
     expect(registrations()).toHaveLength(0)
+    // The organization list carries no Regions: they stay the operator's to state.
+    expect(within(dialog).getByLabelText(/Regions/)).toHaveValue("")
+    expect(within(dialog).getByRole("button", { name: "Review" })).toBeDisabled()
+    fireEvent.click(within(dialog).getByRole("button", { name: "Use these" }))
 
     fireEvent.click(within(dialog).getByRole("button", { name: "Review" }))
     expect(within(dialog).getByTestId("add-account-confirmation")).toHaveTextContent("Add Checkout staging (222233334444)?")
@@ -327,9 +331,25 @@ describe("Settings > Accounts — choose from your organization", () => {
     installFetch({ organization: () => json({ detail: { code: "PERSON_NOT_AUTHORIZED" } }, 403) })
     const { dialog, picker } = await openPicker()
     const alert = await within(picker).findByRole("alert")
+    // Said in words first; the backend's own detail stays beneath it.
+    expect(alert).toHaveTextContent("Cyntro could not read your organization's accounts.")
     expect(alert).toHaveTextContent("Organization accounts refused (HTTP 403): Your sign-in is not permitted to administer this account.")
     fireEvent.click(within(picker).getByRole("button", { name: "Enter an account ID instead" }))
     expect(within(dialog).getByLabelText("AWS account ID")).toBeInTheDocument()
+  })
+
+  it("a failed first read offers Try again -- one more read, never a request -- and recovers", async () => {
+    let fail = true
+    installFetch({ organization: () => (fail ? new Response("upstream unavailable", { status: 503 }) : json(AVAILABLE)) })
+    const { picker } = await openPicker()
+    await within(picker).findByRole("alert")
+    expect(organizationReads()).toHaveLength(1)
+    fail = false
+    fireEvent.click(within(picker).getByRole("button", { name: "Try again" }))
+    await within(picker).findByTestId("organization-account-222233334444")
+    expect(organizationReads()).toHaveLength(2)
+    expect(discoverPosts()).toHaveLength(0)
+    expect(within(picker).queryByRole("alert")).toBeNull()
   })
 
   it("a refused Find accounts says so and changes nothing", async () => {
@@ -340,6 +360,7 @@ describe("Settings > Accounts — choose from your organization", () => {
     const { picker } = await openPicker()
     fireEvent.click(await within(picker).findByRole("button", { name: "Find accounts" }))
     const alert = await within(picker).findByRole("alert")
+    expect(alert).toHaveTextContent("Cyntro could not ask for your organization's accounts.")
     expect(alert).toHaveTextContent("Finding accounts refused (HTTP 401): Your sign-in could not be verified")
     expect(within(picker).getByText("Your organization's accounts have not been listed for this installation yet.")).toBeInTheDocument()
     expect(registrations()).toHaveLength(0)
