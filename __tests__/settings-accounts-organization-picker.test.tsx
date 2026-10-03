@@ -226,12 +226,11 @@ describe("Settings > Accounts — choose from your organization", () => {
     expect(within(dialog).queryByLabelText("Account name")).toBeNull()      // the name is AWS's, never a form value
     expect(within(dialog).getByLabelText("AWS account ID")).toHaveValue("222233334444")
     expect(within(dialog).getByTestId("chosen-from-organization")).toHaveTextContent(
-      "Filled from your organization: 222233334444, named “Checkout staging” in AWS Organizations. Nothing has been added.")
+      "Filled from your organization: 222233334444, named “Checkout staging” in AWS Organizations. Nothing has been added. Review, then add it.")
     expect(registrations()).toHaveLength(0)
-    // The organization list carries no Regions: they stay the operator's to state.
-    expect(within(dialog).getByLabelText(/Regions/)).toHaveValue("")
-    expect(within(dialog).getByRole("button", { name: "Review" })).toBeDisabled()
-    fireEvent.click(within(dialog).getByRole("button", { name: "Use these" }))
+    // Nothing else to fill in: no environment, no Regions (Alon, 2026-10-03).
+    expect(within(dialog).queryByLabelText(/Regions/)).toBeNull()
+    expect(within(dialog).queryByLabelText("Environment")).toBeNull()
 
     fireEvent.click(within(dialog).getByRole("button", { name: "Review" }))
     const confirmation = within(dialog).getByTestId("add-account-confirmation")
@@ -240,7 +239,7 @@ describe("Settings > Accounts — choose from your organization", () => {
     expect(registrations()).toHaveLength(0)
     fireEvent.click(within(dialog).getByRole("button", { name: /Add account/ }))
     await waitFor(() => expect(registered).toHaveLength(1))
-    expect(registered[0]).toEqual({ customer_id: CUSTOMER, account_id: "222233334444", environment: "UNCLASSIFIED", regions: ["eu-central-1"] })
+    expect(registered[0]).toEqual({ customer_id: CUSTOMER, account_id: "222233334444" })
   })
 
   it("search narrows the list by name or account ID", async () => {

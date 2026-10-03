@@ -223,14 +223,8 @@ function installFetch(handlers: Handlers) {
   vi.stubGlobal("fetch", fetchMock)
 }
 
-/** Regions start empty (Alon, 2026-10-03): take the install's suggestion, as an operator would, when none was typed. */
-function useInstallRegions(dialog: HTMLElement) {
-  fireEvent.click(within(dialog).getByRole("button", { name: "Use these" }))
-}
-
 /** The Add dialog is two steps: Review shows what adding does; only "Add account" there submits. */
 function reviewAndAdd(dialog: HTMLElement) {
-  if ((within(dialog).getByLabelText(/Regions/) as HTMLInputElement).value === "") useInstallRegions(dialog)
   fireEvent.click(within(dialog).getByRole("button", { name: "Review" }))
   fireEvent.click(within(dialog).getByRole("button", { name: /Add account/ }))
 }
@@ -387,30 +381,24 @@ describe("Settings > Accounts — member-account mode", () => {
     fireEvent.click(screen.getByRole("button", { name: /Add AWS account/ }))
     const dialog = await screen.findByRole("dialog", { name: "Add an AWS account" })
     expect(within(dialog).queryByText(/StackSet/)).not.toBeInTheDocument()
-    // No name is asked for -- AWS names the account once it connects (Alon, 2026-10-03) -- and no Region is guessed;
-    // the install's own Regions are only suggested.
+    // The account ID is the only input (Alon, 2026-10-03): no name (AWS names the account once it connects), no
+    // environment (a business system's, defined after it connects), no Regions (the connector's collection Region).
     expect(within(dialog).queryByLabelText("Account name")).toBeNull()
+    expect(within(dialog).queryByLabelText("Environment")).toBeNull()
+    expect(within(dialog).queryByLabelText(/Regions/)).toBeNull()
+    expect(within(dialog).queryByTestId("install-regions-suggestion")).toBeNull()
+    expect(within(dialog).getAllByRole("textbox")).toHaveLength(1)
+    expect(within(dialog).queryAllByRole("combobox")).toHaveLength(0)
     expect(within(dialog).queryByText("The name your team uses for this account.")).toBeNull()
     // A grey hint right under the account ID says where the name comes from (Alon, 2026-10-03).
     const hint = within(dialog).getByText("The account's name is read from AWS once it connects.")
     expect(within(dialog).getByLabelText("AWS account ID")).toHaveAttribute("aria-describedby", hint.id)
     expect(hint).toHaveClass("text-slate-500")
-    expect(within(dialog).getByLabelText(/Regions/)).toHaveValue("")
-    expect(within(dialog).getByTestId("install-regions-suggestion")).toHaveTextContent("This installation runs in eu-central-1.")
-    fireEvent.click(within(dialog).getByRole("button", { name: "Use these" }))
-    expect(within(dialog).getByLabelText(/Regions/)).toHaveValue("eu-central-1")
-    expect(within(dialog).queryByTestId("install-regions-suggestion")).toBeNull()
     fireEvent.change(within(dialog).getByLabelText("AWS account ID"), { target: { value: "2222-3333-4444" } })
-    fireEvent.change(within(dialog).getByLabelText("Environment"), { target: { value: "STAGING" } })
     reviewAndAdd(dialog)
 
     await waitFor(() => expect(registered).toHaveLength(1))
-    expect(registered[0]).toEqual({
-      customer_id: CUSTOMER,
-      account_id: "222233334444",
-      environment: "STAGING",
-      regions: ["eu-central-1"],
-    })
+    expect(registered[0]).toEqual({ customer_id: CUSTOMER, account_id: "222233334444" })
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Add an AWS account" })).not.toBeInTheDocument())
     const row = await screen.findByTestId("account-row-222233334444")
     expect(within(row).getByText("Registering")).toBeInTheDocument()
@@ -418,7 +406,7 @@ describe("Settings > Accounts — member-account mode", () => {
     expect(within(row).queryAllByRole("button")).toHaveLength(0)
   })
 
-  it("B3: Environment defaults to Unclassified -- an untouched form registers UNCLASSIFIED, never PRODUCTION", async () => {
+  it("a 12-digit account ID alone is enough to review and add; nothing else is sent", async () => {
     const registered: Record<string, unknown>[] = []
     installFetch({
       list: () => json(memberList([PLATFORM, CONNECTED])),
@@ -431,16 +419,14 @@ describe("Settings > Accounts — member-account mode", () => {
     await screen.findAllByTestId(/^account-row-/)
     fireEvent.click(screen.getByRole("button", { name: /Add AWS account/ }))
     const dialog = await screen.findByRole("dialog", { name: "Add an AWS account" })
-    const environment = within(dialog).getByLabelText("Environment")
-    expect(environment).toHaveValue("UNCLASSIFIED")
-    expect(within(environment).getAllByRole("option").map((option) => [(option as HTMLOptionElement).value, option.textContent])).toEqual([
-      ["UNCLASSIFIED", "Unclassified"], ["PRODUCTION", "Production"], ["STAGING", "Staging"], ["DEVELOPMENT", "Development"],
-      ["TEST", "Test"], ["SANDBOX", "Sandbox"], ["DISASTER_RECOVERY", "Disaster recovery"],
-    ])
+    const review = within(dialog).getByRole("button", { name: "Review" })
+    fireEvent.change(within(dialog).getByLabelText("AWS account ID"), { target: { value: "55556666777" } })   // 11 digits
+    expect(review).toBeDisabled()
     fireEvent.change(within(dialog).getByLabelText("AWS account ID"), { target: { value: "555566667777" } })
+    expect(review).toBeEnabled()
     reviewAndAdd(dialog)
     await waitFor(() => expect(registered).toHaveLength(1))
-    expect(registered[0].environment).toBe("UNCLASSIFIED")
+    expect(Object.keys(registered[0]).sort()).toEqual(["account_id", "customer_id"])
   })
 
   it("B3: a stored environment -- a custom one included -- is shown as recorded, never remapped", async () => {
@@ -449,26 +435,6 @@ describe("Settings > Accounts — member-account mode", () => {
     const row = await screen.findByTestId(`account-row-${CONNECTED.account_id}`)
     expect(within(row).getByText("PCI_ZONE")).toBeInTheDocument()
     expect(within(row).queryByText("UNCLASSIFIED")).not.toBeInTheDocument()
-  })
-
-  it("B3: a chosen environment from the new list is sent as its registry token", async () => {
-    const registered: Record<string, unknown>[] = []
-    installFetch({
-      list: () => json(memberList([PLATFORM, CONNECTED])),
-      register: (body) => {
-        registered.push(body)
-        return json({ customer_id: CUSTOMER, account_id: body.account_id, action: "register", request_status: "queued", already_open: false, requested_at: "2026-10-01T10:00:00.000000+00:00" }, 202)
-      },
-    })
-    render(<AccountSettingsPage />)
-    await screen.findAllByTestId(/^account-row-/)
-    fireEvent.click(screen.getByRole("button", { name: /Add AWS account/ }))
-    const dialog = await screen.findByRole("dialog", { name: "Add an AWS account" })
-    fireEvent.change(within(dialog).getByLabelText("AWS account ID"), { target: { value: "555566668888" } })
-    fireEvent.change(within(dialog).getByLabelText("Environment"), { target: { value: "DISASTER_RECOVERY" } })
-    reviewAndAdd(dialog)
-    await waitFor(() => expect(registered).toHaveLength(1))
-    expect(registered[0].environment).toBe("DISASTER_RECOVERY")
   })
 
   it("polls every 4 s while an account is REGISTERING, opens Connect once it is AWAITING_CONNECTION, then stops", async () => {
@@ -678,9 +644,6 @@ describe("Settings > Accounts — backend errors carry the backend's detail", ()
     expect(within(dialog).getByRole("button", { name: "Review" })).toBeDisabled()
     fireEvent.change(within(dialog).getByLabelText("AWS account ID"), { target: { value: "111122223333" } })
     expect(within(dialog).queryByRole("button", { name: /Add account/ })).toBeNull()
-    // Name and ID alone are not enough: the Regions are the operator's to state.
-    expect(within(dialog).getByRole("button", { name: "Review" })).toBeDisabled()
-    useInstallRegions(dialog)
     fireEvent.click(within(dialog).getByRole("button", { name: "Review" }))
 
     const confirmation = within(dialog).getByTestId("add-account-confirmation")
@@ -699,25 +662,16 @@ describe("Settings > Accounts — backend errors carry the backend's detail", ()
     // Names and business systems are separate things (Alon, 2026-10-03).
     expect(confirmation).toHaveTextContent(
       "Cyntro shows the account by the name AWS holds for it, read once it connects; until then, by its ID. " +
-      "Business systems in this account are defined after it connects; one account can hold several.")
+      "Business systems in this account, and their environments, are defined after it connects; one account can hold several.")
+    expect(confirmation).toHaveTextContent("Cyntro reads the account in this installation's own Region; the connection stack is deployed there.")
     expect(confirmation).not.toHaveTextContent(/connects at once|collection starts immediately|the activity logs it has/)
+    expect(confirmation).not.toHaveTextContent(/Environment|Regions|Unclassified/)
     expect(registered).toHaveLength(0)
     expect(calls((url, method) => url === "/api/proxy/admin/accounts" && method === "POST")).toHaveLength(0)
 
     fireEvent.click(within(dialog).getByRole("button", { name: /Add account/ }))
     await waitFor(() => expect(registered).toHaveLength(1))
-    expect(registered[0]).toEqual({ customer_id: CUSTOMER, account_id: "111122223333", environment: "UNCLASSIFIED", regions: ["eu-central-1"] })
-  })
-
-  it("the suggestion is every Region the install records, in order, and only an AWS Region", async () => {
-    installFetch({ list: () => json(memberList([{ ...PLATFORM, regions: ["eu-central-1", "not-a-region", "us-east-2"] }])) })
-    render(<AccountSettingsPage />)
-    await screen.findAllByTestId(/^account-row-/)
-    fireEvent.click(screen.getByRole("button", { name: /Add AWS account/ }))
-    const dialog = await screen.findByRole("dialog", { name: "Add an AWS account" })
-    expect(within(dialog).getByTestId("install-regions-suggestion")).toHaveTextContent("This installation runs in eu-central-1, us-east-2.")
-    useInstallRegions(dialog)
-    expect(within(dialog).getByLabelText(/Regions/)).toHaveValue("eu-central-1, us-east-2")
+    expect(registered[0]).toEqual({ customer_id: CUSTOMER, account_id: "111122223333" })
   })
 
   it("a member account is listed by the name AWS holds for it, or by its ID with the reason it has none yet", async () => {
@@ -768,30 +722,6 @@ describe("Settings > Accounts — backend errors carry the backend's detail", ()
     expect(within(platform).queryByTestId(`account-name-note-${PLATFORM.account_id}`)).toBeNull()
   })
 
-  it("with no Regions recorded for the install, nothing is suggested and nothing is guessed", async () => {
-    const registered: Record<string, unknown>[] = []
-    installFetch({
-      list: () => json(memberList([{ ...PLATFORM, regions: [] }])),
-      register: (body) => {
-        registered.push(body)
-        return json({ customer_id: CUSTOMER, account_id: body.account_id, action: "register", request_status: "queued", already_open: false, requested_at: "2026-10-01T10:00:00.000000+00:00" }, 202)
-      },
-    })
-    render(<AccountSettingsPage />)
-    await screen.findAllByTestId(/^account-row-/)
-    fireEvent.click(screen.getByRole("button", { name: /Add AWS account/ }))
-    const dialog = await screen.findByRole("dialog", { name: "Add an AWS account" })
-    expect(within(dialog).getByLabelText(/Regions/)).toHaveValue("")
-    expect(within(dialog).queryByTestId("install-regions-suggestion")).toBeNull()
-    expect(within(dialog).queryByText(/eu-west-1/)).toBeNull()
-    fireEvent.change(within(dialog).getByLabelText("AWS account ID"), { target: { value: "555566667777" } })
-    expect(within(dialog).getByRole("button", { name: "Review" })).toBeDisabled()
-    fireEvent.change(within(dialog).getByLabelText(/Regions/), { target: { value: "ap-southeast-2" } })
-    reviewAndAdd(dialog)
-    await waitFor(() => expect(registered).toHaveLength(1))
-    expect(registered[0].regions).toEqual(["ap-southeast-2"])
-  })
-
   it("Back from the review keeps what was typed and submits nothing", async () => {
     installFetch({ list: () => json(memberList([PLATFORM])), register: () => json({}, 500) })
     render(<AccountSettingsPage />)
@@ -800,13 +730,11 @@ describe("Settings > Accounts — backend errors carry the backend's detail", ()
     fireEvent.click(screen.getByRole("button", { name: /Add AWS account/ }))
     const dialog = await screen.findByRole("dialog", { name: "Add an AWS account" })
     fireEvent.change(within(dialog).getByLabelText("AWS account ID"), { target: { value: "111122223333" } })
-    useInstallRegions(dialog)
     fireEvent.click(within(dialog).getByRole("button", { name: "Review" }))
     fireEvent.click(within(dialog).getByRole("button", { name: "Back" }))
 
     expect(within(dialog).queryByTestId("add-account-confirmation")).toBeNull()
     expect(within(dialog).getByLabelText("AWS account ID")).toHaveValue("111122223333")
-    expect(within(dialog).getByLabelText(/Regions/)).toHaveValue("eu-central-1")
     expect(calls((url, method) => url === "/api/proxy/admin/accounts" && method === "POST")).toHaveLength(0)
   })
 

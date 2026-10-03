@@ -28,7 +28,6 @@ import { OrganizationAccountPicker } from "@/components/settings/organization-ac
 import { useAccountScope } from "@/lib/account-scope-context"
 import { COVERAGE_PAGE_PATH, READY_MEANS_OPERATIONAL, coveragePageHref } from "@/lib/observation-coverage"
 import {
-  AWS_REGION_PATTERN,
   MEMBER_ACCOUNTS_MODE,
   accountAdminFailure,
   accountLabel,
@@ -36,7 +35,6 @@ import {
   connectionCheckOutcome,
   discoveryCaveats,
   discoverySummary,
-  parseRegions,
   registrationFailed,
   registryUnavailableDetail,
   type AccountListResponse,
@@ -292,7 +290,6 @@ export default function AccountSettingsPage() {
     }
   }
 
-  const platformAccount = allAccounts.find((account) => account.is_platform_account)
   const accounts = allAccounts
     .filter((account) => {
       const value = `${accountLabel(account)} ${account.account_id} ${account.environment}`.toLowerCase()
@@ -580,7 +577,6 @@ export default function AccountSettingsPage() {
       {showAdd && memberMode ? (
         <MemberAddAccountDialog
           customerId={customerId}
-          installRegions={platformAccount?.regions || []}
           onClose={() => setShowAdd(false)}
           onRequested={({ accountId, requestedAt, alreadyOpen }) => {
             setShowAdd(false)
@@ -851,7 +847,8 @@ function AddGroupDialog({ customerId, accounts, onClose, onCreated }: { customer
  * The account's environment, as the operator states it. Nothing is assumed: the default is UNCLASSIFIED (the
  * backend's own default, api/account_registry.py CreateAccountRequest), never PRODUCTION. The other values are the
  * same canonical environments the tagging solution uses (backend unified/system_boundary_store.py ENVIRONMENTS), so
- * one word means one thing everywhere (Alon, 2026-10-03). Only the add forms offer this list; a stored value
+ * one word means one thing everywhere (Alon, 2026-10-03). Only the hosted add form offers this list (a member account's add
+ * asks for its ID only); a stored value
  * (including an older or custom one) is shown as recorded.
  */
 const ENVIRONMENT_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
@@ -876,25 +873,21 @@ function EnvironmentSelect({ value, onChange }: { value: string; onChange: (valu
 /**
  * Member-account mode: record the operator's intent to add an account (202). The account
  * connector creates the row within seconds; the page then opens its Connect panel.
+ *
+ * The account ID is the only input (Alon, 2026-10-03): no name (AWS names the account once it connects), no environment
+ * (that belongs to a business system or deployment, defined after the account connects), no Regions (the connector reads
+ * the account in this installation's own collection Region; cyntro_data/accounts/connector.py).
  */
 function MemberAddAccountDialog({
   customerId,
-  installRegions,
   onClose,
   onRequested,
 }: {
   customerId: string | null
-  /** The Regions this installation's own account is registered with: offered as a one-click suggestion, never pre-filled. */
-  installRegions: string[]
   onClose: () => void
   onRequested: (request: { accountId: string; requestedAt: string; alreadyOpen: boolean }) => void
 }) {
   const [accountId, setAccountId] = useState("")
-  const [environment, setEnvironment] = useState(DEFAULT_ENVIRONMENT)
-  // Empty until the operator says which Regions this account uses: the new account's Regions are not known here
-  // (Alon, 2026-10-03). The install's own Regions are a suggestion only.
-  const [regions, setRegions] = useState("")
-  const suggestedRegions = installRegions.filter((region) => AWS_REGION_PATTERN.test(region))
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // Adding is a deliberate step: the details are reviewed with what happens next before anything is submitted.
@@ -904,10 +897,7 @@ function MemberAddAccountDialog({
   const [source, setSource] = useState<"manual" | "organization">("manual")
   const [chosen, setChosen] = useState<{ accountId: string; name: string } | null>(null)
 
-  const regionList = parseRegions(regions)
-  const badRegions = regionList.filter((region) => !AWS_REGION_PATTERN.test(region))
-  // No name is asked for: the account is named by AWS once it connects (Alon, 2026-10-03).
-  const ready = Boolean(customerId) && /^\d{12}$/.test(accountId) && regionList.length > 0 && badRegions.length === 0
+  const ready = Boolean(customerId) && /^\d{12}$/.test(accountId)
 
   async function submit() {
     if (!customerId || !ready || step !== "confirm") return
@@ -917,12 +907,7 @@ function MemberAddAccountDialog({
       const response = await fetch("/api/proxy/admin/accounts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          customer_id: customerId,
-          account_id: accountId,
-          environment,
-          regions: regionList,
-        }),
+        body: JSON.stringify({ customer_id: customerId, account_id: accountId }),
       })
       if (!response.ok) throw await accountAdminFailure(response, "Registration")
       const body = await response.json().catch(() => ({}))
@@ -979,7 +964,7 @@ function MemberAddAccountDialog({
         <div className="grid grid-cols-2 gap-4 p-6">
           {chosen && chosen.accountId === accountId ? (
             <p data-testid="chosen-from-organization" className="col-span-2 rounded-lg border border-teal-200 bg-teal-50 p-3 text-xs text-teal-800">
-              Filled from your organization: {chosen.accountId}, named &ldquo;{chosen.name}&rdquo; in AWS Organizations. Nothing has been added. Choose the environment and Regions, then Review.
+              Filled from your organization: {chosen.accountId}, named &ldquo;{chosen.name}&rdquo; in AWS Organizations. Nothing has been added. Review, then add it.
             </p>
           ) : null}
           <div>
@@ -987,25 +972,9 @@ function MemberAddAccountDialog({
             {/* The account's name is AWS's, never typed (Alon, 2026-10-03). */}
             <p id="add-account-name-from-aws" className="mt-1.5 text-xs text-slate-500">The account&apos;s name is read from AWS once it connects.</p>
           </div>
-          <EnvironmentSelect value={environment} onChange={setEnvironment} />
-          <div className="col-span-2">
-            <label className="text-sm font-semibold text-slate-700">Regions<input value={regions} onChange={(event) => setRegions(event.target.value)} placeholder="Comma-separated AWS regions" className="mt-2 w-full rounded-lg border border-slate-200 p-3 font-normal outline-none focus:border-teal-500" />
-              <span className="mt-1.5 block text-xs font-normal text-slate-500">
-                {badRegions.length ? `Not an AWS region: ${badRegions.join(", ")}` : "Regions Cyntro reads in this account. The connection stack is deployed in the first one."}
-              </span>
-            </label>
-            {regions.trim() === "" && suggestedRegions.length ? (
-              <p data-testid="install-regions-suggestion" className="mt-1.5 flex items-center gap-2 text-xs text-slate-600">
-                This installation runs in {suggestedRegions.join(", ")}.
-                <button type="button" onClick={() => setRegions(suggestedRegions.join(", "))} className="font-semibold text-teal-700 underline">
-                  Use these
-                </button>
-              </p>
-            ) : null}
-          </div>
         </div>
         ) : (
-          <AddAccountConfirmation accountId={accountId} organizationName={chosen && chosen.accountId === accountId ? chosen.name : null} environment={environment} regions={regionList} />
+          <AddAccountConfirmation accountId={accountId} organizationName={chosen && chosen.accountId === accountId ? chosen.name : null} />
         )}
         {error ? <div role="alert" className="mx-6 mb-6 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div> : null}
         <div className="flex items-center justify-between border-t border-slate-200 bg-slate-50 px-6 py-4">
@@ -1037,24 +1006,23 @@ function MemberAddAccountDialog({
  * cannot be used; the first CONNECTED queues the inventory bootstrap; only supported, readable sources are collected;
  * a 15-minute sweep re-checks waiting accounts -- a check, never a promised connection). Read access only.
  */
-function AddAccountConfirmation({ accountId, organizationName, environment, regions }: {
+function AddAccountConfirmation({ accountId, organizationName }: {
   accountId: string
   /** The account's name in AWS Organizations, when it was chosen from the organization's list; shown, never sent. */
   organizationName: string | null
-  environment: string
-  regions: string[]
 }) {
   return (
     <div data-testid="add-account-confirmation" className="space-y-4 p-6 text-sm text-slate-700">
       <p className="text-base font-semibold text-slate-900">Add AWS account {accountId}?</p>
-      <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs">
-        {organizationName ? <><dt className="font-semibold text-slate-500">Name in AWS Organizations</dt><dd>{organizationName}</dd></> : null}
-        <dt className="font-semibold text-slate-500">Environment</dt><dd>{environment}</dd>
-        <dt className="font-semibold text-slate-500">Regions</dt><dd>{regions.join(", ")}</dd>
-      </dl>
+      {organizationName ? (
+        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs">
+          <dt className="font-semibold text-slate-500">Name in AWS Organizations</dt><dd>{organizationName}</dd>
+        </dl>
+      ) : null}
       <ul className="list-disc space-y-1.5 pl-5">
         <li>Cyntro registers this account with this installation and checks the connection right away.</li>
-        <li>Cyntro shows the account by the name AWS holds for it, read once it connects; until then, by its ID. Business systems in this account are defined after it connects; one account can hold several.</li>
+        <li>Cyntro shows the account by the name AWS holds for it, read once it connects; until then, by its ID. Business systems in this account, and their environments, are defined after it connects; one account can hold several.</li>
+        <li>Cyntro reads the account in this installation&apos;s own Region; the connection stack is deployed there.</li>
         <li>If the Cyntro read role in this account can be used, the account connects and collection can start immediately: its configuration is read, its inventory is queued, and supported activity logs that Cyntro can read there (CloudTrail, VPC flow logs) are collected.</li>
         <li>If the role cannot be used yet (for example, the connection stack is not deployed), nothing is read. Cyntro checks again about every 15 minutes, and Check connection checks at once; the account connects only when the role works.</li>
         <li>Read access only: nothing in the account is changed.</li>
