@@ -9,7 +9,7 @@
  * to list the organization (a verified operator's request), and choosing an account only fills the Add form, which
  * still goes through Review and the explicit Add account step.
  */
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { Loader2 } from "lucide-react"
 import {
   accountAdminFailure,
@@ -23,6 +23,8 @@ import {
 import { CopyButton } from "@/components/settings/connect-account-panel"
 
 const DISCOVERY_POLL_MS = 4000
+/** Consecutive failed reads after which reading stops on its own; "Read again" then reads once more (never re-asks). */
+const MAX_FAILED_READS = 5
 
 export function OrganizationAccountPicker({
   customerId,
@@ -38,20 +40,37 @@ export function OrganizationAccountPicker({
   const [asking, setAsking] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState("")
+  // Every completed read, answered or failed, advances `reads`: the poll below is scheduled from it, so a failed read
+  // is followed by another one (a failure leaves `discovery` as it was and would otherwise stop the poll for good).
+  const [reads, setReads] = useState(0)
+  const [failedReads, setFailedReads] = useState(0)
+  // Only the latest read may answer: an older one that answers late is dropped. (After the picker closes React ignores
+  // a late answer, and the poll's timer is cleared below.)
+  const latestRead = useRef(0)
 
   const load = useCallback(async () => {
     if (!customerId) return
+    const read = ++latestRead.current
+    const current = () => read === latestRead.current
     try {
       const response = await fetch(`/api/proxy/admin/accounts/organization?customer_id=${encodeURIComponent(customerId)}`, {
         cache: "no-store",
       })
       if (!response.ok) throw await accountAdminFailure(response, "Organization accounts")
-      setDiscovery((await response.json()) as OrganizationDiscovery)
+      const answer = (await response.json()) as OrganizationDiscovery
+      if (!current()) return
+      setDiscovery(answer)
       setError(null)
+      setFailedReads(0)
     } catch (reason) {
+      if (!current()) return
       setError(reason instanceof Error ? reason.message : String(reason))
+      setFailedReads((count) => count + 1)
     } finally {
-      setLoading(false)
+      if (current()) {
+        setLoading(false)
+        setReads((count) => count + 1)
+      }
     }
   }, [customerId])
 
@@ -59,12 +78,14 @@ export function OrganizationAccountPicker({
     void load()
   }, [load])
 
-  // The connector answers within seconds; while it works, read again.
+  // The connector answers within seconds; while it works, read again -- after each read, answered or not, until it
+  // is not RUNNING or reads keep failing.
+  const polling = discovery?.state === "RUNNING" && failedReads < MAX_FAILED_READS
   useEffect(() => {
-    if (discovery?.state !== "RUNNING") return
+    if (!polling) return
     const timer = window.setTimeout(() => void load(), DISCOVERY_POLL_MS)
     return () => window.clearTimeout(timer)
-  }, [discovery, load])
+  }, [polling, reads, load])
 
   async function findAccounts() {
     if (!customerId) return
@@ -129,7 +150,21 @@ export function OrganizationAccountPicker({
         </div>
       ) : null}
 
-      {state === "RUNNING" ? (
+      {state === "RUNNING" && !polling ? (
+        <div className="space-y-3">
+          <p>Cyntro could not read the listing&apos;s progress. It may still be listing your organization&apos;s accounts.</p>
+          <div className="flex items-center gap-4">
+            <button
+              type="button"
+              onClick={() => void load()}
+              className="rounded-lg border border-teal-700 px-3 py-1.5 text-sm font-semibold text-teal-700"
+            >
+              Read again
+            </button>
+            {manualButton}
+          </div>
+        </div>
+      ) : state === "RUNNING" ? (
         <p className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" aria-hidden /> Listing your organization&apos;s accounts…</p>
       ) : null}
 

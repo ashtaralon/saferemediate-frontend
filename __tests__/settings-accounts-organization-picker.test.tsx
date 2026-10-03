@@ -14,6 +14,7 @@ vi.mock("@/lib/account-scope-context", () => ({
 vi.mock("@/components/left-sidebar-nav", () => ({ LeftSidebarNav: () => null }))
 
 import AccountSettingsPage from "@/app/settings/accounts/page"
+import { OrganizationAccountPicker } from "@/components/settings/organization-account-picker"
 
 const CUSTOMER = "acme-prod"
 const ORGANIZATION_GET = `/api/proxy/admin/accounts/organization?customer_id=${CUSTOMER}`
@@ -342,5 +343,140 @@ describe("Settings > Accounts — choose from your organization", () => {
     expect(alert).toHaveTextContent("Finding accounts refused (HTTP 401): Your sign-in could not be verified")
     expect(within(picker).getByText("Your organization's accounts have not been listed for this installation yet.")).toBeInTheDocument()
     expect(registrations()).toHaveLength(0)
+  })
+})
+
+// ── reading while the connector lists (Codex O2d P2: one failed read stopped the poll for good) ─────────────────
+
+describe("Organization picker — reading while RUNNING", () => {
+  const RUNNING = { customer_id: CUSTOMER, state: "RUNNING", requested_at: "2026-10-03T09:15:00.000000+00:00" }
+  const LISTED = { ...AVAILABLE, accounts: [{ account_id: "222233334444", name: "Checkout staging", state: "ACTIVE", selectable: true }] }
+
+  /** Answers organization reads from `answers` in order (the last one repeats); anything else is a failure. */
+  function reads(answers: Array<() => Response | Promise<Response>>) {
+    let next = 0
+    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) !== ORGANIZATION_GET || (init?.method || "GET") !== "GET") return json({ detail: "unexpected" }, 404)
+      const answer = answers[Math.min(next, answers.length - 1)]
+      next += 1
+      return answer()
+    })
+    vi.stubGlobal("fetch", fetcher)
+    return fetcher
+  }
+
+  const picker = () => render(<OrganizationAccountPicker customerId={CUSTOMER} onChoose={() => {}} onEnterManually={() => {}} />)
+  const advance = (ms: number) => act(async () => {
+    await vi.advanceTimersByTimeAsync(ms)
+  })
+  /** Let pending reads answer and React commit (one act per step, so each answer can schedule the next read). */
+  const settle = () => act(async () => {
+    for (let i = 0; i < 10; i += 1) await Promise.resolve()
+  })
+  /** `polls` poll intervals, one act each. */
+  async function step(polls: number) {
+    for (let i = 0; i < polls; i += 1) {
+      await advance(4000)
+      await settle()
+    }
+  }
+
+  it("Codex probe: one failed read during RUNNING is followed by another, and the list arrives", async () => {
+    vi.useFakeTimers()
+    const fetcher = reads([() => json(RUNNING), () => new Response("temporary outage", { status: 503 }), () => json({ state: "AVAILABLE", accounts: [] })])
+    picker()
+    await act(async () => {
+      await Promise.resolve()
+    })
+    await advance(4000)
+    expect(screen.getByRole("alert")).toBeInTheDocument()
+    await advance(12_000)
+    expect(fetcher.mock.calls.length).toBeGreaterThan(2)
+    expect(screen.getByText("No accounts were listed.")).toBeInTheDocument()
+    expect(screen.queryByRole("alert")).toBeNull()
+  })
+
+  it("after the answer, reading stops; nothing is ever asked again (no discover POST)", async () => {
+    vi.useFakeTimers()
+    const fetcher = reads([() => json(RUNNING), () => new Response("", { status: 502 }), () => json(LISTED)])
+    picker()
+    await settle()
+    await step(2)
+    expect(screen.getByTestId("organization-account-222233334444")).toBeInTheDocument()
+    const settled = fetcher.mock.calls.length
+    await step(5)
+    expect(fetcher.mock.calls.length).toBe(settled)
+    expect(fetcher.mock.calls.every(([, init]) => ((init as RequestInit | undefined)?.method || "GET") === "GET")).toBe(true)
+  })
+
+  it("reads that keep failing stop after five; Read again reads once more -- a read, never a new request", async () => {
+    vi.useFakeTimers()
+    let failing = true
+    const fetcher = reads([() => json(RUNNING), () => (failing ? new Response("", { status: 503 }) : json(LISTED))])
+    picker()
+    await settle()
+    await step(5)
+    expect(fetcher.mock.calls.length).toBe(6)            // the first read, then five failed ones
+    await step(5)
+    expect(fetcher.mock.calls.length).toBe(6)
+    expect(screen.getByText(/could not read the listing's progress/)).toBeInTheDocument()
+
+    failing = false
+    fireEvent.click(screen.getByRole("button", { name: "Read again" }))
+    await settle()
+    expect(screen.getByTestId("organization-account-222233334444")).toBeInTheDocument()
+    expect(fetcher.mock.calls.length).toBe(7)
+    expect(fetcher.mock.calls.every(([input]) => String(input) === ORGANIZATION_GET)).toBe(true)
+  })
+
+  it("failures that are not consecutive never stop the reading", async () => {
+    vi.useFakeTimers()
+    let read = 0
+    const fetcher = reads([() => {
+      read += 1
+      if (read >= 13) return json(LISTED)
+      return read % 2 === 0 ? new Response("", { status: 503 }) : json(RUNNING)   // six failures, never two in a row
+    }])
+    picker()
+    await settle()
+    await step(12)
+    expect(fetcher.mock.calls.length).toBe(13)
+    expect(screen.getByTestId("organization-account-222233334444")).toBeInTheDocument()
+  })
+
+  it("a closed picker reads nothing more", async () => {
+    vi.useFakeTimers()
+    const fetcher = reads([() => json(RUNNING)])
+    const { unmount } = picker()
+    await settle()
+    await step(1)
+    const before = fetcher.mock.calls.length
+    expect(before).toBe(2)
+    unmount()
+    await step(5)
+    expect(fetcher.mock.calls.length).toBe(before)
+  })
+
+  it("an older read that answers last never replaces a newer answer", async () => {
+    vi.useFakeTimers()
+    let release: (value: Response) => void = () => {}
+    const slow = new Promise<Response>((resolve) => {
+      release = resolve
+    })
+    let mode: "fail" | "slow" | "listed" = "fail"
+    reads([() => json(RUNNING), () => (mode === "fail" ? new Response("", { status: 503 }) : mode === "slow" ? slow : json(LISTED))])
+    picker()
+    await settle()
+    await step(5)                                        // polling has stopped after five failed reads
+    mode = "slow"
+    fireEvent.click(screen.getByRole("button", { name: "Read again" }))   // older read, still in flight
+    mode = "listed"
+    fireEvent.click(screen.getByRole("button", { name: "Read again" }))   // newer read, answers first
+    await settle()
+    expect(screen.getByTestId("organization-account-222233334444")).toBeInTheDocument()
+    release(json(RUNNING))
+    await settle()
+    expect(screen.getByTestId("organization-account-222233334444")).toBeInTheDocument()
+    expect(screen.queryByText(/Listing your organization's accounts/)).toBeNull()
   })
 })
