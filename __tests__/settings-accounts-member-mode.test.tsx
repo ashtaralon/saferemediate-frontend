@@ -40,7 +40,7 @@ const PLATFORM = {
 const AWAITING = {
   customer_id: CUSTOMER,
   account_id: "444455556666",
-  display_name: "Payments production",
+  display_name: "444455556666",
   environment: "PRODUCTION",
   regions: ["eu-west-1"],
   onboarding_status: "AWAITING_CONNECTION",
@@ -115,6 +115,7 @@ const CONNECTED = {
   customer_id: CUSTOMER,
   account_id: "777788889999",
   display_name: "Data platform",
+  aws_account_name: "Data platform",
   environment: "PRODUCTION",
   regions: ["eu-west-1"],
   onboarding_status: "CONNECTED",
@@ -273,7 +274,7 @@ describe("Settings > Accounts — member-account mode", () => {
     expect(within(awaiting).getByText("Waiting for connection stack")).toBeInTheDocument()
     expect(within(awaiting).getByText(AWAITING.validation_message)).toBeInTheDocument()
     expect(within(awaiting).queryByText(/flow-log groups usable/)).not.toBeInTheDocument()
-    expect(within(awaiting).getByRole("button", { name: "Connect Payments production" })).toBeInTheDocument()
+    expect(within(awaiting).getByRole("button", { name: "Connect 444455556666" })).toBeInTheDocument()
 
     // The registry banner is for an unavailable registry only, never a side effect.
     expect(screen.queryByText("Registry storage is not provisioned")).not.toBeInTheDocument()
@@ -340,7 +341,7 @@ describe("Settings > Accounts — member-account mode", () => {
     })
     render(<AccountSettingsPage />)
 
-    fireEvent.click(await screen.findByRole("button", { name: "Check connection for Payments production" }))
+    fireEvent.click(await screen.findByRole("button", { name: "Check connection for 444455556666" }))
     await waitFor(() =>
       expect(calls((url, method) => method === "POST" && url === "/api/proxy/admin/accounts/444455556666/validate?customer_id=acme-prod")).toHaveLength(1),
     )
@@ -359,7 +360,7 @@ describe("Settings > Accounts — member-account mode", () => {
         list = memberList([PLATFORM, CONNECTED, {
           customer_id: CUSTOMER,
           account_id: "222233334444",
-          display_name: "Checkout staging",
+          display_name: "222233334444",
           environment: "STAGING",
           regions: ["eu-central-1"],
           onboarding_status: "REGISTERING",
@@ -383,17 +384,19 @@ describe("Settings > Accounts — member-account mode", () => {
     fireEvent.click(screen.getByRole("button", { name: /Add AWS account/ }))
     const dialog = await screen.findByRole("dialog", { name: "Add an AWS account" })
     expect(within(dialog).queryByText(/StackSet/)).not.toBeInTheDocument()
-    // Nothing is pre-filled: no example name, no guessed Region; the install's own Regions are only suggested.
-    expect(within(dialog).getByLabelText("Account name")).toHaveValue("")
-    expect(within(dialog).getByLabelText("Account name")).not.toHaveAttribute("placeholder")
-    expect(within(dialog).getByText("The name your team uses for this account.")).toBeInTheDocument()
+    // No name is asked for -- AWS names the account once it connects (Alon, 2026-10-03) -- and no Region is guessed;
+    // the install's own Regions are only suggested.
+    expect(within(dialog).queryByLabelText("Account name")).toBeNull()
+    expect(within(dialog).queryByText("The name your team uses for this account.")).toBeNull()
+    // A grey hint right under the account ID says where the name comes from (Alon, 2026-10-03).
+    const hint = within(dialog).getByText("The account's name is read from AWS once it connects.")
+    expect(within(dialog).getByLabelText("AWS account ID")).toHaveAttribute("aria-describedby", hint.id)
+    expect(hint).toHaveClass("text-slate-500")
     expect(within(dialog).getByLabelText(/Regions/)).toHaveValue("")
     expect(within(dialog).getByTestId("install-regions-suggestion")).toHaveTextContent("This installation runs in eu-central-1.")
     fireEvent.click(within(dialog).getByRole("button", { name: "Use these" }))
     expect(within(dialog).getByLabelText(/Regions/)).toHaveValue("eu-central-1")
     expect(within(dialog).queryByTestId("install-regions-suggestion")).toBeNull()
-
-    fireEvent.change(within(dialog).getByLabelText("Account name"), { target: { value: "Checkout staging" } })
     fireEvent.change(within(dialog).getByLabelText("AWS account ID"), { target: { value: "2222-3333-4444" } })
     fireEvent.change(within(dialog).getByLabelText("Environment"), { target: { value: "STAGING" } })
     reviewAndAdd(dialog)
@@ -402,7 +405,6 @@ describe("Settings > Accounts — member-account mode", () => {
     expect(registered[0]).toEqual({
       customer_id: CUSTOMER,
       account_id: "222233334444",
-      display_name: "Checkout staging",
       environment: "STAGING",
       regions: ["eu-central-1"],
     })
@@ -432,7 +434,6 @@ describe("Settings > Accounts — member-account mode", () => {
       ["UNCLASSIFIED", "Unclassified"], ["PRODUCTION", "Production"], ["STAGING", "Staging"], ["DEVELOPMENT", "Development"],
       ["TEST", "Test"], ["SANDBOX", "Sandbox"], ["DISASTER_RECOVERY", "Disaster recovery"],
     ])
-    fireEvent.change(within(dialog).getByLabelText("Account name"), { target: { value: "Ledger" } })
     fireEvent.change(within(dialog).getByLabelText("AWS account ID"), { target: { value: "555566667777" } })
     reviewAndAdd(dialog)
     await waitFor(() => expect(registered).toHaveLength(1))
@@ -460,7 +461,6 @@ describe("Settings > Accounts — member-account mode", () => {
     await screen.findAllByTestId(/^account-row-/)
     fireEvent.click(screen.getByRole("button", { name: /Add AWS account/ }))
     const dialog = await screen.findByRole("dialog", { name: "Add an AWS account" })
-    fireEvent.change(within(dialog).getByLabelText("Account name"), { target: { value: "Recovery site" } })
     fireEvent.change(within(dialog).getByLabelText("AWS account ID"), { target: { value: "555566668888" } })
     fireEvent.change(within(dialog).getByLabelText("Environment"), { target: { value: "DISASTER_RECOVERY" } })
     reviewAndAdd(dialog)
@@ -470,7 +470,7 @@ describe("Settings > Accounts — member-account mode", () => {
 
   it("polls every 4 s while an account is REGISTERING, opens Connect once it is AWAITING_CONNECTION, then stops", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
-    const NEW = { ...AWAITING, account_id: "222233334444", display_name: "Checkout staging" }
+    const NEW = { ...AWAITING, account_id: "222233334444", display_name: "222233334444" }
     const registering = {
       ...NEW,
       onboarding_status: "REGISTERING",
@@ -491,11 +491,10 @@ describe("Settings > Accounts — member-account mode", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Add AWS account/ }))
     const dialog = await screen.findByRole("dialog", { name: "Add an AWS account" })
-    fireEvent.change(within(dialog).getByLabelText("Account name"), { target: { value: NEW.display_name } })
     fireEvent.change(within(dialog).getByLabelText("AWS account ID"), { target: { value: NEW.account_id } })
     reviewAndAdd(dialog)
     await screen.findByTestId("account-row-222233334444")
-    expect(screen.queryByRole("dialog", { name: "Checkout staging" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("dialog", { name: "222233334444" })).not.toBeInTheDocument()
 
     // The connector created the row: the next poll finds it waiting for its stack.
     list = memberList([PLATFORM, NEW])
@@ -504,7 +503,7 @@ describe("Settings > Accounts — member-account mode", () => {
       await vi.advanceTimersByTimeAsync(4000)
     })
     expect(listCalls().length).toBe(before + 1)
-    const panel = await screen.findByRole("dialog", { name: "Checkout staging" })
+    const panel = await screen.findByRole("dialog", { name: "222233334444" })
     await within(panel).findByText("Download the connection stack")
     expect(calls((url) => url === "/api/proxy/admin/accounts/222233334444/connect?customer_id=acme-prod")).toHaveLength(1)
 
@@ -530,8 +529,8 @@ describe("Settings > Accounts — member-account mode", () => {
     })
     render(<AccountSettingsPage />)
 
-    fireEvent.click(await screen.findByRole("button", { name: "Connect Payments production" }))
-    const panel = await screen.findByRole("dialog", { name: "Payments production" })
+    fireEvent.click(await screen.findByRole("button", { name: "Connect 444455556666" }))
+    const panel = await screen.findByRole("dialog", { name: "444455556666" })
     fireEvent.click(await within(panel).findByRole("button", { name: "Check connection" }))
 
     await waitFor(() =>
@@ -571,11 +570,11 @@ describe("Settings > Accounts — member-account mode", () => {
     })
     render(<AccountSettingsPage />)
 
-    const notice = await screen.findByText("Connection check for Payments production (444455556666) failed")
+    const notice = await screen.findByText("Connection check for 444455556666 failed")
     const alert = notice.closest("[role=alert]") as HTMLElement
     expect(within(alert).getByText("ValueError: account 444455556666 is not a registered member account")).toBeInTheDocument()
     fireEvent.click(within(alert).getByRole("button", { name: "Dismiss failed connection check for 444455556666" }))
-    expect(screen.queryByText("Connection check for Payments production (444455556666) failed")).not.toBeInTheDocument()
+    expect(screen.queryByText("Connection check for 444455556666 failed")).not.toBeInTheDocument()
   })
 })
 
@@ -595,7 +594,6 @@ describe("Settings > Accounts — backend errors carry the backend's detail", ()
 
     fireEvent.click(screen.getByRole("button", { name: /Add AWS account/ }))
     const dialog = await screen.findByRole("dialog", { name: "Add an AWS account" })
-    fireEvent.change(within(dialog).getByLabelText("Account name"), { target: { value: "Security tooling" } })
     fireEvent.change(within(dialog).getByLabelText("AWS account ID"), { target: { value: "111122223333" } })
     reviewAndAdd(dialog)
 
@@ -616,7 +614,6 @@ describe("Settings > Accounts — backend errors carry the backend's detail", ()
 
     fireEvent.click(screen.getByRole("button", { name: /Add AWS account/ }))
     const dialog = await screen.findByRole("dialog", { name: "Add an AWS account" })
-    fireEvent.change(within(dialog).getByLabelText("Account name"), { target: { value: "Checkout" } })
     fireEvent.change(within(dialog).getByLabelText("AWS account ID"), { target: { value: "222233334444" } })
     reviewAndAdd(dialog)
 
@@ -656,7 +653,7 @@ describe("Settings > Accounts — backend errors carry the backend's detail", ()
     })
     render(<AccountSettingsPage />)
 
-    fireEvent.click(await screen.findByRole("button", { name: "Check connection for Payments production" }))
+    fireEvent.click(await screen.findByRole("button", { name: "Check connection for 444455556666" }))
     expect(await screen.findByText("Check connection failed (HTTP 422): account_id must be a 12-digit AWS account ID")).toBeInTheDocument()
   })
 
@@ -676,7 +673,6 @@ describe("Settings > Accounts — backend errors carry the backend's detail", ()
     fireEvent.click(screen.getByRole("button", { name: /Add AWS account/ }))
     const dialog = await screen.findByRole("dialog", { name: "Add an AWS account" })
     expect(within(dialog).getByRole("button", { name: "Review" })).toBeDisabled()
-    fireEvent.change(within(dialog).getByLabelText("Account name"), { target: { value: "Security tooling" } })
     fireEvent.change(within(dialog).getByLabelText("AWS account ID"), { target: { value: "111122223333" } })
     expect(within(dialog).queryByRole("button", { name: /Add account/ })).toBeNull()
     // Name and ID alone are not enough: the Regions are the operator's to state.
@@ -685,7 +681,7 @@ describe("Settings > Accounts — backend errors carry the backend's detail", ()
     fireEvent.click(within(dialog).getByRole("button", { name: "Review" }))
 
     const confirmation = within(dialog).getByTestId("add-account-confirmation")
-    expect(confirmation).toHaveTextContent("Add Security tooling (111122223333)?")
+    expect(confirmation).toHaveTextContent("Add AWS account 111122223333?")
     // Conditional, as the connector behaves (Codex O1 review): a deployed stack does not promise a connection, and
     // only supported, readable sources are collected; a later check is a check, not a promised success.
     expect(confirmation).toHaveTextContent("Cyntro registers this account with this installation and checks the connection right away.")
@@ -697,13 +693,17 @@ describe("Settings > Accounts — backend errors carry the backend's detail", ()
       "If the role cannot be used yet (for example, the connection stack is not deployed), nothing is read. Cyntro checks " +
       "again about every 15 minutes, and Check connection checks at once; the account connects only when the role works.")
     expect(confirmation).toHaveTextContent("Read access only: nothing in the account is changed.")
+    // Names and business systems are separate things (Alon, 2026-10-03).
+    expect(confirmation).toHaveTextContent(
+      "Cyntro shows the account by the name AWS holds for it, read once it connects; until then, by its ID. " +
+      "Business systems in this account are defined after it connects; one account can hold several.")
     expect(confirmation).not.toHaveTextContent(/connects at once|collection starts immediately|the activity logs it has/)
     expect(registered).toHaveLength(0)
     expect(calls((url, method) => url === "/api/proxy/admin/accounts" && method === "POST")).toHaveLength(0)
 
     fireEvent.click(within(dialog).getByRole("button", { name: /Add account/ }))
     await waitFor(() => expect(registered).toHaveLength(1))
-    expect(registered[0]).toMatchObject({ account_id: "111122223333", display_name: "Security tooling" })
+    expect(registered[0]).toEqual({ customer_id: CUSTOMER, account_id: "111122223333", environment: "UNCLASSIFIED", regions: ["eu-central-1"] })
   })
 
   it("the suggestion is every Region the install records, in order, and only an AWS Region", async () => {
@@ -715,6 +715,48 @@ describe("Settings > Accounts — backend errors carry the backend's detail", ()
     expect(within(dialog).getByTestId("install-regions-suggestion")).toHaveTextContent("This installation runs in eu-central-1, us-east-2.")
     useInstallRegions(dialog)
     expect(within(dialog).getByLabelText(/Regions/)).toHaveValue("eu-central-1, us-east-2")
+  })
+
+  it("a member account is listed by the name AWS holds for it, or by its ID with the reason it has none yet", async () => {
+    const unnamed = (id: string, fields: Record<string, unknown>) => ({ ...CONNECTED, account_id: id, display_name: id, aws_account_name: null, ...fields })
+    installFetch({
+      list: () => json(memberList([
+        PLATFORM, CONNECTED, AWAITING,
+        unnamed("123412341234", { aws_account_name_error: "NOT_PERMITTED" }),
+        unnamed("567856785678", { aws_account_name_error: "UNREACHABLE:EndpointConnectionError" }),
+        unnamed("901290129012", {}),
+        unnamed("345634563456", { aws_account_name_error: "ThrottlingException" }),
+        unnamed("135713571357", { display_name: "typed long ago" }),   // a row as an older backend sent it
+      ])),
+    })
+    render(<AccountSettingsPage />)
+    const row = async (id: string) => screen.findByTestId(`account-row-${id}`)
+    const occurrences = (element: HTMLElement, text: string) => (element.textContent || "").split(text).length - 1
+
+    const named = await row(CONNECTED.account_id)
+    expect(named).toHaveTextContent("Data platform")
+    expect(within(named).queryByTestId(`account-name-note-${CONNECTED.account_id}`)).toBeNull()
+
+    const waiting = await row(AWAITING.account_id)
+    expect(occurrences(waiting, AWAITING.account_id)).toBe(1)           // shown by its ID, once
+    expect(within(waiting).getByTestId(`account-name-note-${AWAITING.account_id}`)).toHaveTextContent(
+      "Its name is read from AWS once it connects.")
+    expect(within(await row("123412341234")).getByTestId("account-name-note-123412341234")).toHaveTextContent(
+      "Name not readable from AWS: this account's connection stack predates the name permission (account:GetAccountInformation). Updating the stack lets Cyntro read it.")
+    expect(within(await row("567856785678")).getByTestId("account-name-note-567856785678")).toHaveTextContent(
+      "Name not readable from AWS: Cyntro could not reach the AWS account API.")
+    expect(within(await row("901290129012")).getByTestId("account-name-note-901290129012")).toHaveTextContent(
+      "Name not read from AWS yet.")
+    expect(within(await row("345634563456")).getByTestId("account-name-note-345634563456")).toHaveTextContent(
+      "Name not readable from AWS (ThrottlingException).")
+    // Never a typed label for a member account, whatever a backend sends: no AWS name -> its ID.
+    const older = await row("135713571357")
+    expect(older).not.toHaveTextContent("typed long ago")
+    expect(older).toHaveTextContent("135713571357")
+
+    const platform = await row(PLATFORM.account_id)
+    expect(platform).toHaveTextContent(PLATFORM.display_name)
+    expect(within(platform).queryByTestId(`account-name-note-${PLATFORM.account_id}`)).toBeNull()
   })
 
   it("with no Regions recorded for the install, nothing is suggested and nothing is guessed", async () => {
@@ -733,7 +775,6 @@ describe("Settings > Accounts — backend errors carry the backend's detail", ()
     expect(within(dialog).getByLabelText(/Regions/)).toHaveValue("")
     expect(within(dialog).queryByTestId("install-regions-suggestion")).toBeNull()
     expect(within(dialog).queryByText(/eu-west-1/)).toBeNull()
-    fireEvent.change(within(dialog).getByLabelText("Account name"), { target: { value: "Ledger" } })
     fireEvent.change(within(dialog).getByLabelText("AWS account ID"), { target: { value: "555566667777" } })
     expect(within(dialog).getByRole("button", { name: "Review" })).toBeDisabled()
     fireEvent.change(within(dialog).getByLabelText(/Regions/), { target: { value: "ap-southeast-2" } })
@@ -749,15 +790,14 @@ describe("Settings > Accounts — backend errors carry the backend's detail", ()
 
     fireEvent.click(screen.getByRole("button", { name: /Add AWS account/ }))
     const dialog = await screen.findByRole("dialog", { name: "Add an AWS account" })
-    fireEvent.change(within(dialog).getByLabelText("Account name"), { target: { value: "Security tooling" } })
     fireEvent.change(within(dialog).getByLabelText("AWS account ID"), { target: { value: "111122223333" } })
     useInstallRegions(dialog)
     fireEvent.click(within(dialog).getByRole("button", { name: "Review" }))
     fireEvent.click(within(dialog).getByRole("button", { name: "Back" }))
 
     expect(within(dialog).queryByTestId("add-account-confirmation")).toBeNull()
-    expect(within(dialog).getByLabelText("Account name")).toHaveValue("Security tooling")
     expect(within(dialog).getByLabelText("AWS account ID")).toHaveValue("111122223333")
+    expect(within(dialog).getByLabelText(/Regions/)).toHaveValue("eu-central-1")
     expect(calls((url, method) => url === "/api/proxy/admin/accounts" && method === "POST")).toHaveLength(0)
   })
 
@@ -827,7 +867,7 @@ describe("Settings > Accounts — backend errors carry the backend's detail", ()
     })
     render(<AccountSettingsPage />)
 
-    fireEvent.click(await screen.findByRole("button", { name: "Check connection for Payments production" }))
+    fireEvent.click(await screen.findByRole("button", { name: "Check connection for 444455556666" }))
     expect(await screen.findByText(`Check connection refused (HTTP ${status}): ${words} Nothing was changed.`)).toBeInTheDocument()
     expect(screen.queryByText(new RegExp(code))).not.toBeInTheDocument()
   })
@@ -842,7 +882,6 @@ describe("Settings > Accounts — backend errors carry the backend's detail", ()
 
     fireEvent.click(screen.getByRole("button", { name: /Add AWS account/ }))
     const dialog = await screen.findByRole("dialog", { name: "Add an AWS account" })
-    fireEvent.change(within(dialog).getByLabelText("Account name"), { target: { value: "Security tooling" } })
     fireEvent.change(within(dialog).getByLabelText("AWS account ID"), { target: { value: "111122223333" } })
     reviewAndAdd(dialog)
 
@@ -862,7 +901,7 @@ describe("Settings > Accounts — backend errors carry the backend's detail", ()
     })
     render(<AccountSettingsPage />)
 
-    fireEvent.click(await screen.findByRole("button", { name: "Check connection for Payments production" }))
+    fireEvent.click(await screen.findByRole("button", { name: "Check connection for 444455556666" }))
     expect(await screen.findByText(`Check connection failed (HTTP 403): ${JSON.stringify(detail)}`)).toBeInTheDocument()
   })
 
@@ -881,8 +920,8 @@ describe("Settings > Accounts — backend errors carry the backend's detail", ()
     })
     render(<AccountSettingsPage />)
 
-    fireEvent.click(await screen.findByRole("button", { name: "Connect Payments production" }))
-    const panel = await screen.findByRole("dialog", { name: "Payments production" })
+    fireEvent.click(await screen.findByRole("button", { name: "Connect 444455556666" }))
+    const panel = await screen.findByRole("dialog", { name: "444455556666" })
     expect(await within(panel).findByText(/has not established this install's member trust yet/)).toBeInTheDocument()
 
     ready = true
@@ -921,6 +960,19 @@ describe("Settings > Accounts — backend errors carry the backend's detail", ()
     expect(alert).toHaveTextContent("Create account group failed (HTTP 503)")
     expect(alert).toHaveTextContent("read-only by design")
     expect(alert).toHaveTextContent("Run account administration where the write-capable identity lives")
+  })
+
+  it("the group picker shows an account not yet named by AWS by its ID once, and a named one by its name", async () => {
+    installFetch({ list: () => json(memberList([PLATFORM, CONNECTED, { ...CONNECTED, account_id: "123412341234", display_name: "123412341234", aws_account_name: null }])) })
+    render(<AccountSettingsPage />)
+    await screen.findAllByTestId(/^account-row-/)
+    fireEvent.click(screen.getByRole("button", { name: "Account Groups" }))
+    fireEvent.click(screen.getByRole("button", { name: /Create account group/ }))
+    const dialog = await screen.findByRole("dialog", { name: "Create account group" })
+    const unnamed = within(dialog).getByRole("checkbox", { name: /123412341234/ }).closest("label") as HTMLElement
+    expect((unnamed.textContent || "").split("123412341234").length - 1).toBe(1)
+    const named = within(dialog).getByRole("checkbox", { name: /Data platform/ }).closest("label") as HTMLElement
+    expect(named).toHaveTextContent(`Data platform${CONNECTED.account_id}`)
   })
 })
 

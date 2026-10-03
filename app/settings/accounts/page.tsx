@@ -31,6 +31,7 @@ import {
   AWS_REGION_PATTERN,
   MEMBER_ACCOUNTS_MODE,
   accountAdminFailure,
+  accountNameNote,
   connectionCheckOutcome,
   discoveryCaveats,
   discoverySummary,
@@ -660,10 +661,17 @@ function MemberAccountRow({
     <div data-testid={`account-row-${account.account_id}`} className={`grid ${columns} items-start gap-3 border-b border-slate-100 px-5 py-4 last:border-b-0 hover:bg-slate-50/70`}>
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="truncate text-sm font-semibold">{account.display_name}</span>
+          {/* A member account: the name AWS holds for it (the backend's display_name for a named member account), or
+              its ID until that is read -- never a typed label. */}
+          {platform || account.aws_account_name ? (
+            <span className="truncate text-sm font-semibold">{account.display_name}</span>
+          ) : (
+            <span className="truncate font-mono text-sm font-semibold">{account.account_id}</span>
+          )}
           {platform ? <span className="rounded bg-teal-50 px-1.5 py-0.5 text-[10px] font-bold text-teal-800">Cyntro platform account</span> : null}
         </div>
-        <p className="mt-1 font-mono text-xs text-slate-500">{account.account_id}</p>
+        {platform || account.aws_account_name ? <p className="mt-1 font-mono text-xs text-slate-500">{account.account_id}</p> : null}
+        {!platform && accountNameNote(account) ? <p data-testid={`account-name-note-${account.account_id}`} className="mt-1 text-[11px] text-slate-500">{accountNameNote(account)}</p> : null}
         <p className="mt-1 truncate text-[11px] text-slate-400">{account.regions?.length ? account.regions.join(", ") : "No regions recorded"}</p>
       </div>
       <span className="text-xs font-semibold text-slate-600">{account.environment}</span>
@@ -825,7 +833,7 @@ function AddGroupDialog({ customerId, accounts, onClose, onCreated }: { customer
               {accounts.map((account) => (
                 <label key={account.account_id} className="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 hover:bg-slate-50">
                   <input type="checkbox" checked={selected.includes(account.account_id)} onChange={(event) => setSelected((current) => event.target.checked ? [...current, account.account_id] : current.filter((id) => id !== account.account_id))} className="h-4 w-4 accent-teal-600" />
-                  <span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold">{account.display_name}</span><span className="font-mono text-xs text-slate-400">{account.account_id}</span></span>
+                  <span className="min-w-0 flex-1">{account.display_name !== account.account_id ? <span className="block truncate text-sm font-semibold">{account.display_name}</span> : null}<span className="font-mono text-xs text-slate-400">{account.account_id}</span></span>
                 </label>
               ))}
             </div>
@@ -880,7 +888,6 @@ function MemberAddAccountDialog({
   onClose: () => void
   onRequested: (request: { accountId: string; requestedAt: string; alreadyOpen: boolean }) => void
 }) {
-  const [displayName, setDisplayName] = useState("")
   const [accountId, setAccountId] = useState("")
   const [environment, setEnvironment] = useState(DEFAULT_ENVIRONMENT)
   // Empty until the operator says which Regions this account uses: the new account's Regions are not known here
@@ -898,7 +905,8 @@ function MemberAddAccountDialog({
 
   const regionList = parseRegions(regions)
   const badRegions = regionList.filter((region) => !AWS_REGION_PATTERN.test(region))
-  const ready = Boolean(customerId) && displayName.trim() !== "" && /^\d{12}$/.test(accountId) && regionList.length > 0 && badRegions.length === 0
+  // No name is asked for: the account is named by AWS once it connects (Alon, 2026-10-03).
+  const ready = Boolean(customerId) && /^\d{12}$/.test(accountId) && regionList.length > 0 && badRegions.length === 0
 
   async function submit() {
     if (!customerId || !ready || step !== "confirm") return
@@ -911,7 +919,6 @@ function MemberAddAccountDialog({
         body: JSON.stringify({
           customer_id: customerId,
           account_id: accountId,
-          display_name: displayName.trim(),
           environment,
           regions: regionList,
         }),
@@ -963,7 +970,6 @@ function MemberAddAccountDialog({
             onEnterManually={() => setSource("manual")}
             onChoose={(account) => {
               setAccountId(account.accountId)
-              setDisplayName(account.name)
               setChosen(account)
               setSource("manual")
             }}
@@ -972,14 +978,14 @@ function MemberAddAccountDialog({
         <div className="grid grid-cols-2 gap-4 p-6">
           {chosen && chosen.accountId === accountId ? (
             <p data-testid="chosen-from-organization" className="col-span-2 rounded-lg border border-teal-200 bg-teal-50 p-3 text-xs text-teal-800">
-              Filled from your organization: {chosen.name} ({chosen.accountId}). Nothing has been added. Choose the environment and Regions, then Review.
+              Filled from your organization: {chosen.accountId}, named &ldquo;{chosen.name}&rdquo; in AWS Organizations. Nothing has been added. Choose the environment and Regions, then Review.
             </p>
           ) : null}
-          <div className="col-span-2">
-            <label className="text-sm font-semibold text-slate-700">Account name<input value={displayName} onChange={(event) => setDisplayName(event.target.value)} aria-describedby="add-account-name-hint" className="mt-2 w-full rounded-lg border border-slate-200 p-3 font-normal outline-none focus:border-teal-500" /></label>
-            <p id="add-account-name-hint" className="mt-1.5 text-xs text-slate-500">The name your team uses for this account.</p>
+          <div>
+            <label className="text-sm font-semibold text-slate-700">AWS account ID<input value={accountId} onChange={(event) => setAccountId(event.target.value.replace(/\D/g, "").slice(0, 12))} placeholder="12-digit account ID" inputMode="numeric" aria-describedby="add-account-name-from-aws" className="mt-2 w-full rounded-lg border border-slate-200 p-3 font-mono font-normal outline-none focus:border-teal-500" /></label>
+            {/* The account's name is AWS's, never typed (Alon, 2026-10-03). */}
+            <p id="add-account-name-from-aws" className="mt-1.5 text-xs text-slate-500">The account&apos;s name is read from AWS once it connects.</p>
           </div>
-          <label className="text-sm font-semibold text-slate-700">AWS account ID<input value={accountId} onChange={(event) => setAccountId(event.target.value.replace(/\D/g, "").slice(0, 12))} placeholder="12-digit account ID" inputMode="numeric" className="mt-2 w-full rounded-lg border border-slate-200 p-3 font-mono font-normal outline-none focus:border-teal-500" /></label>
           <EnvironmentSelect value={environment} onChange={setEnvironment} />
           <div className="col-span-2">
             <label className="text-sm font-semibold text-slate-700">Regions<input value={regions} onChange={(event) => setRegions(event.target.value)} placeholder="Comma-separated AWS regions" className="mt-2 w-full rounded-lg border border-slate-200 p-3 font-normal outline-none focus:border-teal-500" />
@@ -998,7 +1004,7 @@ function MemberAddAccountDialog({
           </div>
         </div>
         ) : (
-          <AddAccountConfirmation displayName={displayName.trim()} accountId={accountId} environment={environment} regions={regionList} />
+          <AddAccountConfirmation accountId={accountId} organizationName={chosen && chosen.accountId === accountId ? chosen.name : null} environment={environment} regions={regionList} />
         )}
         {error ? <div role="alert" className="mx-6 mb-6 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div> : null}
         <div className="flex items-center justify-between border-t border-slate-200 bg-slate-50 px-6 py-4">
@@ -1030,21 +1036,24 @@ function MemberAddAccountDialog({
  * cannot be used; the first CONNECTED queues the inventory bootstrap; only supported, readable sources are collected;
  * a 15-minute sweep re-checks waiting accounts -- a check, never a promised connection). Read access only.
  */
-function AddAccountConfirmation({ displayName, accountId, environment, regions }: {
-  displayName: string
+function AddAccountConfirmation({ accountId, organizationName, environment, regions }: {
   accountId: string
+  /** The account's name in AWS Organizations, when it was chosen from the organization's list; shown, never sent. */
+  organizationName: string | null
   environment: string
   regions: string[]
 }) {
   return (
     <div data-testid="add-account-confirmation" className="space-y-4 p-6 text-sm text-slate-700">
-      <p className="text-base font-semibold text-slate-900">Add {displayName} ({accountId})?</p>
+      <p className="text-base font-semibold text-slate-900">Add AWS account {accountId}?</p>
       <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs">
+        {organizationName ? <><dt className="font-semibold text-slate-500">Name in AWS Organizations</dt><dd>{organizationName}</dd></> : null}
         <dt className="font-semibold text-slate-500">Environment</dt><dd>{environment}</dd>
         <dt className="font-semibold text-slate-500">Regions</dt><dd>{regions.join(", ")}</dd>
       </dl>
       <ul className="list-disc space-y-1.5 pl-5">
         <li>Cyntro registers this account with this installation and checks the connection right away.</li>
+        <li>Cyntro shows the account by the name AWS holds for it, read once it connects; until then, by its ID. Business systems in this account are defined after it connects; one account can hold several.</li>
         <li>If the Cyntro read role in this account can be used, the account connects and collection can start immediately: its configuration is read, its inventory is queued, and supported activity logs that Cyntro can read there (CloudTrail, VPC flow logs) are collected.</li>
         <li>If the role cannot be used yet (for example, the connection stack is not deployed), nothing is read. Cyntro checks again about every 15 minutes, and Check connection checks at once; the account connects only when the role works.</li>
         <li>Read access only: nothing in the account is changed.</li>

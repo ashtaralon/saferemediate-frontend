@@ -97,6 +97,26 @@ export interface ManagedAccount {
   coverage?: AccountFeatureCoverage[] | null
   /** Registered Regions this install does not serve (the serving path's own rule). Absent: not reported. */
   regions_not_served?: string[] | null
+  /** Member accounts: the name AWS holds for the account, read by the connector once it connects (read-only).
+   *  Until then display_name is the account ID; _error says why the last read failed. */
+  aws_account_name?: string | null
+  aws_account_name_read_at?: string | null
+  aws_account_name_error?: string | null
+}
+
+/** Why a member account has no AWS name yet, in words; null when it has one (backend connector._read_account_name). */
+export function accountNameNote(account: Pick<ManagedAccount, "aws_account_name" | "aws_account_name_error" | "onboarding_status">): string | null {
+  if (account.aws_account_name) return null
+  const error = account.aws_account_name_error || ""
+  if (error === "NOT_PERMITTED") {
+    return "Name not readable from AWS: this account's connection stack predates the name permission (account:GetAccountInformation). Updating the stack lets Cyntro read it."
+  }
+  if (error.startsWith("UNREACHABLE")) return "Name not readable from AWS: Cyntro could not reach the AWS account API."
+  if (error === "NO_NAME") return "AWS holds no name for this account."
+  if (error) return `Name not readable from AWS (${error}).`
+  return account.onboarding_status === "CONNECTED" || account.onboarding_status === "READY"
+    ? "Name not read from AWS yet."
+    : "Its name is read from AWS once it connects."
 }
 
 export interface FailedAccountRequest {

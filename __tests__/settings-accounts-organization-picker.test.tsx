@@ -223,10 +223,10 @@ describe("Settings > Accounts — choose from your organization", () => {
     fireEvent.click(within(picker).getByRole("button", { name: "Use Checkout staging (222233334444)" }))
 
     expect(within(dialog).getByRole("tab", { name: "Enter account ID" })).toHaveAttribute("aria-selected", "true")
-    expect(within(dialog).getByLabelText("Account name")).toHaveValue("Checkout staging")
+    expect(within(dialog).queryByLabelText("Account name")).toBeNull()      // the name is AWS's, never a form value
     expect(within(dialog).getByLabelText("AWS account ID")).toHaveValue("222233334444")
     expect(within(dialog).getByTestId("chosen-from-organization")).toHaveTextContent(
-      "Filled from your organization: Checkout staging (222233334444). Nothing has been added.")
+      "Filled from your organization: 222233334444, named “Checkout staging” in AWS Organizations. Nothing has been added.")
     expect(registrations()).toHaveLength(0)
     // The organization list carries no Regions: they stay the operator's to state.
     expect(within(dialog).getByLabelText(/Regions/)).toHaveValue("")
@@ -234,11 +234,13 @@ describe("Settings > Accounts — choose from your organization", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Use these" }))
 
     fireEvent.click(within(dialog).getByRole("button", { name: "Review" }))
-    expect(within(dialog).getByTestId("add-account-confirmation")).toHaveTextContent("Add Checkout staging (222233334444)?")
+    const confirmation = within(dialog).getByTestId("add-account-confirmation")
+    expect(confirmation).toHaveTextContent("Add AWS account 222233334444?")
+    expect(confirmation).toHaveTextContent("Name in AWS OrganizationsCheckout staging")
     expect(registrations()).toHaveLength(0)
     fireEvent.click(within(dialog).getByRole("button", { name: /Add account/ }))
     await waitFor(() => expect(registered).toHaveLength(1))
-    expect(registered[0]).toMatchObject({ account_id: "222233334444", display_name: "Checkout staging", environment: "UNCLASSIFIED" })
+    expect(registered[0]).toEqual({ customer_id: CUSTOMER, account_id: "222233334444", environment: "UNCLASSIFIED", regions: ["eu-central-1"] })
   })
 
   it("search narrows the list by name or account ID", async () => {
