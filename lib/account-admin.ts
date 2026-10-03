@@ -694,3 +694,158 @@ export function organizationWhyNotText(account: Pick<OrganizationAccount, "why_n
 export function organizationAccountSelectable(account: OrganizationAccount): boolean {
   return account.selectable === true && account.state === "ACTIVE" && /^\d{12}$/.test(account.account_id)
 }
+
+// ── the account ID in Add AWS account: one check for typed and organization-chosen IDs ─────────────────────────
+// AWS: an account ID is "a 12-digit number ... that uniquely identifies an AWS account"
+// (docs.aws.amazon.com/accounts/latest/reference/manage-acct-identifiers.html). The ID is taken exactly as typed: a wrong
+// length, a letter, a hyphen or a space is said as such, never stripped or cut down into some other ID.
+//
+// Working default (Codex, stated to Alon 2026-10-03): an ID can be reviewed and added only when this customer's
+// organization list -- read here (GET only) within the last 24 hours -- holds it as an ACTIVE account the backend
+// offers, and nothing on this page rules it out. Any other well-formed ID cannot be verified and is not added here:
+// the ID's shape proves nothing, and absence from a list never means an account does not exist. This is a gate in this
+// page, not server-enforced verification; registration itself is unchanged.
+
+/** The backend's own read-time expiry for a listing (cyntro_data/accounts/org_discovery.py RESULT_MAX_AGE). */
+export const ORGANIZATION_LIST_MAX_AGE_MS = 24 * 60 * 60 * 1000
+const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/
+
+export type AccountIdFormat = { accountId: string } | { problem: string; incomplete: boolean } | null
+
+/** The 12-digit ID exactly as typed, or what is wrong with it; null when nothing is typed. */
+export function parseAccountId(raw: string): AccountIdFormat {
+  if (raw === "") return null
+  if (/^\d{12}$/.test(raw)) return { accountId: raw }
+  if (/^\d+$/.test(raw)) {
+    return raw.length < 12
+      ? { problem: `An AWS account ID has 12 digits; ${raw.length} entered so far.`, incomplete: true }
+      : { problem: `An AWS account ID has 12 digits; this has ${raw.length}.`, incomplete: false }
+  }
+  if (/^[\d\s-]+$/.test(raw)) return { problem: "Enter the 12 digits only, without spaces or hyphens.", incomplete: false }
+  return { problem: "An AWS account ID is 12 digits; this contains letters or other characters.", incomplete: false }
+}
+
+/** What the Add dialog's organization reader holds for the current customer. */
+export interface OrganizationReadState {
+  /** The last answer read for this customer. */
+  answer: OrganizationDiscovery | null
+  /** A read is in flight: whatever was read before stops counting until it answers. */
+  reading: boolean
+  /** The latest read failed: whatever was read before no longer counts. */
+  failed: boolean
+}
+
+function listedAtText(at: string): string {
+  return formatUtcInstantExact(at)
+}
+
+/** The organization list an ID may be held to now, or why there is none -- never a claim about the ID itself. */
+export function organizationListing(
+  read: OrganizationReadState | null | undefined,
+  now: number,
+): { listing: OrganizationDiscovery; listedAt: string } | { cannotVerify: string } {
+  if (!read || read.reading) return { cannotVerify: "Cyntro is reading your organization's account list." }
+  if (read.failed) return { cannotVerify: "Cyntro could not read your organization's account list." }
+  const answer = read.answer
+  if (!answer) return { cannotVerify: "Cyntro has not read your organization's account list." }
+  switch (answer.state) {
+    case "NOT_RUN": return { cannotVerify: "Your organization's accounts have not been listed for this installation." }
+    case "RUNNING": return { cannotVerify: "Your organization's accounts are still being listed." }
+    case "EXPIRED": return { cannotVerify: "Your organization's last list is more than 24 hours old." }
+    case "UNAVAILABLE": return { cannotVerify: organizationUnavailableText(answer.reason) }
+    case "AVAILABLE": break
+    default: return { cannotVerify: `Your organization's account list is in a state Cyntro does not know (${answer.state}).` }
+  }
+  const at = typeof answer.discovered_at === "string" ? answer.discovered_at : ""
+  const listedAt = ISO_INSTANT.test(at) ? Date.parse(at) : Number.NaN
+  if (Number.isNaN(listedAt)) return { cannotVerify: "Your organization's last list has no valid listing time." }
+  if (listedAt > now) return { cannotVerify: `Your organization's last list has a listing time in the future (${listedAtText(at)}).` }
+  if (now - listedAt >= ORGANIZATION_LIST_MAX_AGE_MS) {
+    return { cannotVerify: `Your organization's last list (listed ${listedAtText(at)}) is more than 24 hours old.` }
+  }
+  return { listing: answer, listedAt: at }
+}
+
+/** The next instant at which the listing's usability changes (it comes into range, or expires); null when it never will. */
+export function organizationListingBoundary(answer: OrganizationDiscovery | null | undefined, now: number): number | null {
+  if (answer?.state !== "AVAILABLE") return null
+  const at = typeof answer.discovered_at === "string" ? answer.discovered_at : ""
+  const listedAt = ISO_INSTANT.test(at) ? Date.parse(at) : Number.NaN
+  if (Number.isNaN(listedAt)) return null
+  if (listedAt > now) return listedAt - now <= ORGANIZATION_LIST_MAX_AGE_MS ? listedAt : null
+  const expires = listedAt + ORGANIZATION_LIST_MAX_AGE_MS
+  return expires > now ? expires : null
+}
+
+export type AccountIdCheck =
+  | { state: "EMPTY" }
+  | { state: "MALFORMED"; problem: string; incomplete: boolean }
+  /** Known not addable: the platform account, one added or being added, or a restriction in the organization's
+   *  current list. `short` labels a dropdown entry; `reason` is said beside the field. */
+  | { state: "INELIGIBLE"; accountId: string; short: string; reason: string }
+  /** No current evidence for it: no usable list, or the list does not hold it. Never "does not exist". */
+  | { state: "CANNOT_VERIFY"; accountId: string; short: string; reason: string }
+  /** In the organization's current list and offered there -- found, not connected. */
+  | { state: "LISTED"; accountId: string; name: string; listedAt: string }
+
+export interface AccountIdContext {
+  accounts: Pick<ManagedAccount, "account_id" | "is_platform_account" | "onboarding_status" | "pending_request" | "display_name" | "aws_account_name" | "collection_mode">[]
+  platformAccountId?: string | null
+  organization: OrganizationReadState | null
+  /** The wall clock to judge the listing's age by. */
+  now: number
+}
+
+const ONLY_LISTED = "Only an account in your organization's account list from the last 24 hours can be added here."
+
+/** One check for a typed and a chosen ID, recomputed for the current ID every time; there is no stored "verified". */
+export function checkAccountId(raw: string, context: AccountIdContext): AccountIdCheck {
+  const format = parseAccountId(raw)
+  if (format === null) return { state: "EMPTY" }
+  if ("problem" in format) return { state: "MALFORMED", problem: format.problem, incomplete: format.incomplete }
+  const accountId = format.accountId
+  const ineligible = (short: string, reason: string): AccountIdCheck => ({ state: "INELIGIBLE", accountId, short, reason })
+  const cannotVerify = (why: string): AccountIdCheck =>
+    ({ state: "CANNOT_VERIFY", accountId, short: "Cannot be verified", reason: `Cannot verify this account. ${why} ${ONLY_LISTED}` })
+
+  if (context.platformAccountId === accountId || context.accounts.some((a) => a.is_platform_account && a.account_id === accountId)) {
+    return ineligible("The account Cyntro runs in", "This is the account Cyntro runs in; it is part of this installation already and is not added.")
+  }
+  const row = context.accounts.find((a) => a.account_id === accountId)
+  if (row) {
+    if (row.onboarding_status === "REGISTERING" || row.pending_request?.action === "register") {
+      return ineligible("Being added", "This account is being added already: Cyntro is still working on its registration.")
+    }
+    const label = accountLabel(row)
+    return ineligible("Already added", `This account is added already${label !== accountId ? ` (${label})` : ""}.`)
+  }
+
+  const found = organizationListing(context.organization, context.now)
+  if ("cannotVerify" in found) return cannotVerify(found.cannotVerify)
+  const { listing, listedAt } = found
+  const when = listedAtText(listedAt)
+  const listed = (Array.isArray(listing.accounts) ? listing.accounts : []).find((a) => a.account_id === accountId)
+  if (listed && !organizationAccountSelectable(listed)) {
+    const why = organizationWhyNotText(listed)
+    return ineligible(why, `${why}, according to your organization's list from ${when}; it cannot be added.`)
+  }
+  if (!listed && listing.management_account_id === accountId) {
+    return ineligible("The organization's management account",
+      `The organization's management account, as AWS Organizations reported it on ${when}; it cannot be added.`)
+  }
+  if (listed) return { state: "LISTED", accountId, name: listed.name || accountId, listedAt }
+  return cannotVerify(listing.truncated === true
+    ? `Your organization's last list (listed ${when}) was cut short and does not include it.`
+    : `Not found in your organization's last list (listed ${when}).`)
+}
+
+/** Review and Add account go ahead only for an ID found in the current list. */
+export function accountIdReviewable(check: AccountIdCheck): check is Extract<AccountIdCheck, { state: "LISTED" }> {
+  return check.state === "LISTED"
+}
+
+/** What a found ID's evidence shows -- and what it does not. */
+export function accountIdEvidenceText(check: Extract<AccountIdCheck, { state: "LISTED" }>): string {
+  return `Found in your organization's account list from ${listedAtText(check.listedAt)}, named \u201c${check.name}\u201d. ` +
+    "That shows it is in your organization, not that Cyntro can connect to it: the connection is checked after it is added."
+}

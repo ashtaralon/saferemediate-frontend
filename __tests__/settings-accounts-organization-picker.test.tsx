@@ -6,7 +6,7 @@
  * setup_parameters). The picker renders only what fetch returns; choosing an account only fills the Add form.
  */
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("@/lib/account-scope-context", () => ({
   useAccountScope: () => ({ customerId: "acme-prod", refresh: vi.fn() }),
@@ -134,20 +134,32 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+/** The fixtures' listing (AVAILABLE.discovered_at, 09:15:02Z) is five minutes old on this clock -- current, and it stays
+ *  current however late the suite runs. */
+const LISTING_CLOCK = new Date("2026-10-03T09:20:00Z")
+
 describe("Settings > Accounts — choose from your organization", () => {
-  it("manual entry stays the default and opening the dialog asks nothing about the organization", async () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true, now: LISTING_CLOCK })
+  })
+
+  it("manual entry stays the default; opening the dialog reads the organization once (GET) and asks nothing", async () => {
     installFetch({ organization: () => json(AVAILABLE) })
     const dialog = await openDialog()
     expect(within(dialog).getByRole("tab", { name: "Enter account ID" })).toHaveAttribute("aria-selected", "true")
     expect(within(dialog).getByRole("tab", { name: "Choose from your organization" })).toHaveAttribute("aria-selected", "false")
     expect(within(dialog).getByLabelText("AWS account ID")).toBeInTheDocument()
     expect(within(dialog).queryByTestId("organization-picker")).toBeNull()
-    expect(organizationReads()).toHaveLength(0)
+    // One reader for both ways of adding (Codex, 2026-10-03): a typed ID is held to the same list.
+    await waitFor(() => expect(organizationReads()).toHaveLength(1))
+    fireEvent.click(within(dialog).getByRole("tab", { name: "Choose from your organization" }))
+    await within(dialog).findByTestId("organization-account-222233334444")
+    expect(organizationReads()).toHaveLength(1)
     expect(discoverPosts()).toHaveLength(0)
   })
 
   it("NOT_RUN offers Find accounts, which asks once, waits for the connector, shows the list, then stops reading", async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true })
+    vi.useFakeTimers({ shouldAdvanceTime: true, now: LISTING_CLOCK })
     let answer: Record<string, unknown> = { customer_id: CUSTOMER, state: "NOT_RUN" }
     installFetch({
       organization: () => json(answer),

@@ -17,8 +17,10 @@ import {
   organizationAccountSelectable,
   organizationUnavailableText,
   organizationWhyNotText,
+  type AccountIdCheck,
   type OrganizationAccount,
   type OrganizationDiscovery,
+  type OrganizationReadState,
 } from "@/lib/account-admin"
 import { CopyButton } from "@/components/settings/connect-account-panel"
 
@@ -26,57 +28,78 @@ const DISCOVERY_POLL_MS = 4000
 /** Consecutive failed reads after which reading stops on its own; "Read again" then reads once more (never re-asks). */
 const MAX_FAILED_READS = 5
 
-export function OrganizationAccountPicker({
-  customerId,
-  onChoose,
-  onEnterManually,
-}: {
+/** The organization answer for one customer, as read so far (GET only). */
+export interface OrganizationReader extends OrganizationReadState {
+  /** No read has finished yet. */
+  loading: boolean
+  /** What failed, said in words first; the backend's own detail (status, refusal) stays visible beneath it. */
+  error: { title: string; detail: string } | null
+  /** Re-reads every few seconds while the connector is listing. */
+  polling: boolean
+  /** One more read -- a read, never a new request. */
+  reload: () => Promise<void>
+}
+
+interface ReaderState extends OrganizationReadState {
   customerId: string | null
-  onChoose: (account: { accountId: string; name: string }) => void
-  onEnterManually: () => void
-}) {
-  const [discovery, setDiscovery] = useState<OrganizationDiscovery | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [asking, setAsking] = useState(false)
-  // What failed, said in words first; the backend's own detail (status, refusal) stays visible beneath it.
-  const [error, setError] = useState<{ title: string; detail: string } | null>(null)
-  // The account picked in the dropdown; "Use this account" fills the Add form with it.
-  const [selected, setSelected] = useState("")
-  const selectId = useId()
-  // Every completed read, answered or failed, advances `reads`: the poll below is scheduled from it, so a failed read
-  // is followed by another one (a failure leaves `discovery` as it was and would otherwise stop the poll for good).
-  const [reads, setReads] = useState(0)
-  const [failedReads, setFailedReads] = useState(0)
-  // Only the latest read may answer: an older one that answers late is dropped. (After the picker closes React ignores
-  // a late answer, and the poll's timer is cleared below.)
+  error: { title: string; detail: string } | null
+  loaded: boolean
+  reads: number
+  failedReads: number
+}
+
+const unread = (customerId: string | null): ReaderState =>
+  ({ customerId, answer: null, reading: false, failed: false, error: null, loaded: false, reads: 0, failedReads: 0 })
+
+/**
+ * The one organization reader of the Add dialog (and of a picker used on its own): GET on mount, again while the
+ * connector is listing, and on Try again / Read again. It never asks for a new listing. Its state belongs to one
+ * customer: an answer that arrives after the customer changed, or that names another customer, is never kept.
+ */
+export function useOrganizationDiscovery(customerId: string | null): OrganizationReader {
+  const [stored, setStored] = useState<ReaderState>(() => unread(customerId))
+  // Kept per customer: whatever was read for another customer -- even an answer that lands after the customer
+  // changed -- is never this customer's state.
+  const state = stored.customerId === customerId ? stored : unread(customerId)
+  // Only the latest read may answer: an older one that answers late is dropped.
   const latestRead = useRef(0)
 
   const load = useCallback(async () => {
     if (!customerId) return
     const read = ++latestRead.current
+    const requested = customerId
     const current = () => read === latestRead.current
+    const update = (change: (base: ReaderState) => Partial<ReaderState>) =>
+      setStored((previous) => {
+        const base = previous.customerId === requested ? previous : unread(requested)
+        return { ...base, ...change(base) }
+      })
+    update(() => ({ reading: true }))
     try {
-      const response = await fetch(`/api/proxy/admin/accounts/organization?customer_id=${encodeURIComponent(customerId)}`, {
+      const response = await fetch(`/api/proxy/admin/accounts/organization?customer_id=${encodeURIComponent(requested)}`, {
         cache: "no-store",
       })
       if (!response.ok) throw await accountAdminFailure(response, "Organization accounts")
       const answer = (await response.json()) as OrganizationDiscovery
       if (!current()) return
-      setDiscovery(answer)
-      setError(null)
-      setFailedReads(0)
+      if (answer && typeof answer.customer_id === "string" && answer.customer_id !== requested) {
+        throw new Error(`Organization accounts answered for another customer (${answer.customer_id}), so the answer is not used.`)
+      }
+      update(() => ({ answer, failed: false, error: null, failedReads: 0 }))
     } catch (reason) {
       if (!current()) return
-      setError({
-        title: "Cyntro could not read your organization's accounts.",
-        detail: reason instanceof Error ? reason.message : String(reason),
-      })
-      setFailedReads((count) => count + 1)
+      update((base) => ({
+        failed: true,
+        error: {
+          title: "Cyntro could not read your organization's accounts.",
+          detail: reason instanceof Error ? reason.message : String(reason),
+        },
+        failedReads: base.failedReads + 1,
+      }))
     } finally {
-      if (current()) {
-        setLoading(false)
-        setReads((count) => count + 1)
-      }
+      // Every completed read, answered or failed, advances `reads`: the poll below is scheduled from it, so a failed
+      // read is followed by another one.
+      if (current()) update((base) => ({ reading: false, loaded: true, reads: base.reads + 1 }))
     }
   }, [customerId])
 
@@ -86,17 +109,54 @@ export function OrganizationAccountPicker({
 
   // The connector answers within seconds; while it works, read again -- after each read, answered or not, until it
   // is not RUNNING or reads keep failing.
-  const polling = discovery?.state === "RUNNING" && failedReads < MAX_FAILED_READS
+  const polling = state.answer?.state === "RUNNING" && state.failedReads < MAX_FAILED_READS
   useEffect(() => {
     if (!polling) return
     const timer = window.setTimeout(() => void load(), DISCOVERY_POLL_MS)
     return () => window.clearTimeout(timer)
-  }, [polling, reads, load])
+  }, [polling, state.reads, load])
+
+  return {
+    answer: state.answer,
+    reading: state.reading,
+    failed: state.failed,
+    loading: !state.loaded,
+    error: state.error,
+    polling,
+    reload: load,
+  }
+}
+
+export function OrganizationAccountPicker({
+  customerId,
+  onChoose,
+  onEnterManually,
+  reader,
+  checkAccount,
+}: {
+  customerId: string | null
+  onChoose: (account: { accountId: string; name: string }) => void
+  onEnterManually: () => void
+  /** The Add dialog's reader, so both ways of adding hold an ID to the same answer. Without it the picker reads on
+   *  its own. */
+  reader?: OrganizationReader
+  /** The Add dialog's own account ID check (lib/account-admin.ts checkAccountId): an account is offered only when that
+   *  check finds it in the current list with nothing ruling it out. */
+  checkAccount?: (accountId: string) => AccountIdCheck
+}) {
+  const own = useOrganizationDiscovery(reader ? null : customerId)
+  const { answer: discovery, loading, error, polling, reload: load } = reader ?? own
+  const [asking, setAsking] = useState(false)
+  // A refused Find accounts, said where the read errors are.
+  const [askError, setAskError] = useState<{ title: string; detail: string } | null>(null)
+  // The account picked in the dropdown; "Use this account" fills the Add form with it.
+  const [selected, setSelected] = useState("")
+  const selectId = useId()
 
   async function findAccounts() {
     if (!customerId) return
     setAsking(true)
-    setError(null)
+    setAskError(null)
     try {
       const response = await fetch(
         `/api/proxy/admin/accounts/organization/discover?customer_id=${encodeURIComponent(customerId)}`,
@@ -105,7 +165,7 @@ export function OrganizationAccountPicker({
       if (!response.ok) throw await accountAdminFailure(response, "Finding accounts")
       await load()
     } catch (reason) {
-      setError({
+      setAskError({
         title: "Cyntro could not ask for your organization's accounts.",
         detail: reason instanceof Error ? reason.message : String(reason),
       })
@@ -139,17 +199,25 @@ export function OrganizationAccountPicker({
   // Rows are rendered only in the AVAILABLE block below; that is the one place they can appear.
   const listed = discovery?.accounts
   const accounts: OrganizationAccount[] = Array.isArray(listed) ? listed : []
-  const picked = accounts.find((account) => account.account_id === selected && organizationAccountSelectable(account))
+  // Offered: the backend offers it AND the Add dialog's check finds it in the current list with nothing ruling it out
+  // (the same gate a typed ID goes through).
+  const refusal = (account: OrganizationAccount): string | null => {
+    if (!organizationAccountSelectable(account)) return organizationWhyNotText(account)
+    if (!checkAccount) return null
+    const known = checkAccount(account.account_id)
+    return known.state === "LISTED" ? null : "short" in known ? known.short : "Cannot be verified"
+  }
+  const picked = accounts.find((account) => account.account_id === selected && refusal(account) === null)
 
   return (
     <div data-testid="organization-picker" className="space-y-4 p-6 text-sm text-slate-700">
       <p className="text-xs text-slate-500">
         Cyntro lists your organization&apos;s account IDs, names and states. Nothing is added: choosing an account fills in the form, and you still review and add it.
       </p>
-      {error ? (
+      {askError || error ? (
         <div role="alert" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-          <p className="font-semibold">{error.title}</p>
-          <p className="mt-1 text-xs text-amber-800">{error.detail}</p>
+          <p className="font-semibold">{(askError || error)?.title}</p>
+          <p className="mt-1 text-xs text-amber-800">{(askError || error)?.detail}</p>
         </div>
       ) : null}
       {error && !discovery ? (
@@ -238,7 +306,8 @@ export function OrganizationAccountPicker({
                 >
                   <option value="">Choose an account</option>
                   {accounts.map((account) => {
-                    const offered = organizationAccountSelectable(account)
+                    const why = refusal(account)
+                    const offered = why === null
                     return (
                       <option
                         key={account.account_id}
@@ -247,7 +316,7 @@ export function OrganizationAccountPicker({
                         data-testid={`organization-account-${account.account_id}`}
                       >
                         {`${account.name || account.account_id} — ${account.account_id}`}
-                        {offered ? "" : ` (${organizationWhyNotText(account)})`}
+                        {offered ? "" : ` (${why})`}
                       </option>
                     )
                   })}

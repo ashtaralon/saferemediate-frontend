@@ -24,19 +24,24 @@ import {
 } from "lucide-react"
 import { LeftSidebarNav } from "@/components/left-sidebar-nav"
 import { AccountCoverageChips, ConnectAccountPanel, MemberStatusBadge } from "@/components/settings/connect-account-panel"
-import { OrganizationAccountPicker } from "@/components/settings/organization-account-picker"
+import { OrganizationAccountPicker, useOrganizationDiscovery } from "@/components/settings/organization-account-picker"
 import { useAccountScope } from "@/lib/account-scope-context"
 import { COVERAGE_PAGE_PATH, READY_MEANS_OPERATIONAL, coveragePageHref } from "@/lib/observation-coverage"
 import {
   MEMBER_ACCOUNTS_MODE,
   accountAdminFailure,
+  accountIdEvidenceText,
+  accountIdReviewable,
   accountLabel,
   accountNameNote,
+  checkAccountId,
   connectionCheckOutcome,
+  organizationListingBoundary,
   discoveryCaveats,
   discoverySummary,
   registrationFailed,
   registryUnavailableDetail,
+  type AccountIdCheck,
   type AccountListResponse,
   type FailedAccountRequest,
   type ManagedAccount,
@@ -577,6 +582,8 @@ export default function AccountSettingsPage() {
       {showAdd && memberMode ? (
         <MemberAddAccountDialog
           customerId={customerId}
+          accounts={allAccounts}
+          platformAccountId={data?.member_trust?.platform_account_id || null}
           onClose={() => setShowAdd(false)}
           onRequested={({ accountId, requestedAt, alreadyOpen }) => {
             setShowAdd(false)
@@ -877,17 +884,27 @@ function EnvironmentSelect({ value, onChange }: { value: string; onChange: (valu
  * The account ID is the only input (Alon, 2026-10-03): no name (AWS names the account once it connects), no environment
  * (that belongs to a business system or deployment, defined after the account connects), no Regions (the connector reads
  * the account in this installation's own collection Region; cyntro_data/accounts/connector.py).
+ *
+ * The ID is checked as it is typed or chosen, at Review and again at Add account, with one check for both paths
+ * (lib/account-admin.ts checkAccountId): its format exactly as typed, the platform account, accounts added or being
+ * added, and this customer's organization list, read here (GET only) when the dialog opens. Only an ID found in a list
+ * from the last 24 hours can be added; any other cannot be verified and is said so -- never said not to exist.
  */
 function MemberAddAccountDialog({
   customerId,
+  accounts,
+  platformAccountId,
   onClose,
   onRequested,
 }: {
   customerId: string | null
+  accounts: ManagedAccount[]
+  platformAccountId: string | null
   onClose: () => void
   onRequested: (request: { accountId: string; requestedAt: string; alreadyOpen: boolean }) => void
 }) {
-  const [accountId, setAccountId] = useState("")
+  // Exactly what was typed or chosen; checkAccountId reads it as it is.
+  const [raw, setRaw] = useState("")
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // Adding is a deliberate step: the details are reviewed with what happens next before anything is submitted.
@@ -896,23 +913,48 @@ function MemberAddAccountDialog({
   // fills this form (components/settings/organization-account-picker.tsx).
   const [source, setSource] = useState<"manual" | "organization">("manual")
   const [chosen, setChosen] = useState<{ accountId: string; name: string } | null>(null)
+  // The one organization reader for both ways of adding (GET only: on open, while listing, and on Try again).
+  const organization = useOrganizationDiscovery(customerId)
+  // The clock the listing's age is judged by: moved on when the listing comes into range or expires, so an open form
+  // or review changes on its own; Review and Add account read the wall clock again themselves.
+  const [now, setNow] = useState(() => Date.now())
+  const boundary = organizationListingBoundary(organization.answer, now)
+  useEffect(() => {
+    if (boundary === null) return
+    const timer = window.setTimeout(() => setNow(Date.now()), Math.min(Math.max(0, boundary - Date.now()) + 1, 2 ** 31 - 1))
+    return () => window.clearTimeout(timer)
+  }, [boundary])
 
-  const ready = Boolean(customerId) && /^\d{12}$/.test(accountId)
+  // Recomputed on every edit, registry refresh, organization read and clock change; never stored as "verified".
+  const checkAt = (at: number) => checkAccountId(raw, { accounts, platformAccountId, organization, now: at })
+  const check = checkAt(now)
+  const accountId = check.state === "EMPTY" || check.state === "MALFORMED" ? "" : check.accountId
+  const ready = Boolean(customerId) && accountIdReviewable(check)
+
+  function review() {
+    const at = Date.now()
+    setNow(at)
+    if (customerId && accountIdReviewable(checkAt(at))) setStep("confirm")
+  }
 
   async function submit() {
-    if (!customerId || !ready || step !== "confirm") return
+    // Checked again here, against what the page holds and the wall clock now; anything short of found sends nothing.
+    const at = Date.now()
+    setNow(at)
+    const current = checkAt(at)
+    if (!customerId || !accountIdReviewable(current) || step !== "confirm") return
     setSubmitting(true)
     setError(null)
     try {
       const response = await fetch("/api/proxy/admin/accounts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ customer_id: customerId, account_id: accountId }),
+        body: JSON.stringify({ customer_id: customerId, account_id: current.accountId }),
       })
       if (!response.ok) throw await accountAdminFailure(response, "Registration")
       const body = await response.json().catch(() => ({}))
       onRequested({
-        accountId,
+        accountId: current.accountId,
         requestedAt: typeof body?.requested_at === "string" && body.requested_at ? body.requested_at : new Date().toISOString(),
         alreadyOpen: body?.already_open === true,
       })
@@ -953,9 +995,11 @@ function MemberAddAccountDialog({
         {step === "details" && source === "organization" ? (
           <OrganizationAccountPicker
             customerId={customerId}
+            reader={organization}
+            checkAccount={(id) => checkAccountId(id, { accounts, platformAccountId, organization, now })}
             onEnterManually={() => setSource("manual")}
             onChoose={(account) => {
-              setAccountId(account.accountId)
+              setRaw(account.accountId)
               setChosen(account)
               setSource("manual")
             }}
@@ -967,14 +1011,30 @@ function MemberAddAccountDialog({
               Filled from your organization: {chosen.accountId}, named &ldquo;{chosen.name}&rdquo; in AWS Organizations. Nothing has been added. Review, then add it.
             </p>
           ) : null}
-          <div>
-            <label className="text-sm font-semibold text-slate-700">AWS account ID<input value={accountId} onChange={(event) => setAccountId(event.target.value.replace(/\D/g, "").slice(0, 12))} placeholder="12-digit account ID" inputMode="numeric" aria-describedby="add-account-name-from-aws" className="mt-2 w-full rounded-lg border border-slate-200 p-3 font-mono font-normal outline-none focus:border-teal-500" /></label>
+          <div className="col-span-2">
+            <label className="text-sm font-semibold text-slate-700">AWS account ID<input
+              value={raw}
+              onChange={(event) => setRaw(event.target.value)}
+              placeholder="12-digit account ID"
+              inputMode="numeric"
+              aria-invalid={check.state === "INELIGIBLE" || check.state === "CANNOT_VERIFY" || (check.state === "MALFORMED" && !check.incomplete)}
+              aria-describedby={check.state === "EMPTY" ? "add-account-name-from-aws" : "add-account-id-check add-account-name-from-aws"}
+              className="mt-2 w-full rounded-lg border border-slate-200 p-3 font-mono font-normal outline-none focus:border-teal-500"
+            /></label>
+            <AccountIdFeedback check={check} />
             {/* The account's name is AWS's, never typed (Alon, 2026-10-03). */}
             <p id="add-account-name-from-aws" className="mt-1.5 text-xs text-slate-500">The account&apos;s name is read from AWS once it connects.</p>
           </div>
         </div>
+        ) : accountIdReviewable(check) ? (
+          <AddAccountConfirmation check={check} />
         ) : (
-          <AddAccountConfirmation accountId={accountId} organizationName={chosen && chosen.accountId === accountId ? chosen.name : null} />
+          // The page learned something since Review (a registry refresh, an organization read): said, and Add is off.
+          <div className="p-6">
+            <p role="alert" data-testid="account-id-recheck" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+              {check.state === "INELIGIBLE" || check.state === "CANNOT_VERIFY" ? check.reason : check.state === "MALFORMED" ? check.problem : "Enter an AWS account ID."} Nothing was added.
+            </p>
+          </div>
         )}
         {error ? <div role="alert" className="mx-6 mb-6 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div> : null}
         <div className="flex items-center justify-between border-t border-slate-200 bg-slate-50 px-6 py-4">
@@ -986,7 +1046,7 @@ function MemberAddAccountDialog({
           {step === "details" && source === "organization" ? (
             <span />
           ) : step === "details" ? (
-            <button disabled={!ready} onClick={() => setStep("confirm")} className="inline-flex items-center gap-2 rounded-lg bg-teal-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">
+            <button disabled={!ready} onClick={review} className="inline-flex items-center gap-2 rounded-lg bg-teal-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">
               Review
             </button>
           ) : (
@@ -1006,19 +1066,19 @@ function MemberAddAccountDialog({
  * cannot be used; the first CONNECTED queues the inventory bootstrap; only supported, readable sources are collected;
  * a 15-minute sweep re-checks waiting accounts -- a check, never a promised connection). Read access only.
  */
-function AddAccountConfirmation({ accountId, organizationName }: {
-  accountId: string
-  /** The account's name in AWS Organizations, when it was chosen from the organization's list; shown, never sent. */
-  organizationName: string | null
-}) {
+function AddAccountConfirmation({ check }: { check: Extract<AccountIdCheck, { state: "LISTED" | "UNVERIFIED" }> }) {
   return (
     <div data-testid="add-account-confirmation" className="space-y-4 p-6 text-sm text-slate-700">
-      <p className="text-base font-semibold text-slate-900">Add AWS account {accountId}?</p>
-      {organizationName ? (
+      <p className="text-base font-semibold text-slate-900">Add AWS account {check.accountId}?</p>
+      {check.state === "LISTED" ? (
+        // The account's name in the organization's current list; shown, never sent.
         <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs">
-          <dt className="font-semibold text-slate-500">Name in AWS Organizations</dt><dd>{organizationName}</dd>
+          <dt className="font-semibold text-slate-500">Name in AWS Organizations</dt><dd>{check.name}</dd>
         </dl>
       ) : null}
+      <p data-testid="account-id-evidence" className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+        {accountIdEvidenceText(check)}
+      </p>
       <ul className="list-disc space-y-1.5 pl-5">
         <li>Cyntro registers this account with this installation and checks the connection right away.</li>
         <li>Cyntro shows the account by the name AWS holds for it, read once it connects; until then, by its ID. Business systems in this account, and their environments, are defined after it connects; one account can hold several.</li>
@@ -1028,6 +1088,26 @@ function AddAccountConfirmation({ accountId, organizationName }: {
         <li>Read access only: nothing in the account is changed.</li>
       </ul>
     </div>
+  )
+}
+
+/** What the account ID check found, beside the field; announced politely as it changes. */
+function AccountIdFeedback({ check }: { check: AccountIdCheck }) {
+  const refused = check.state === "INELIGIBLE" || check.state === "CANNOT_VERIFY" || (check.state === "MALFORMED" && !check.incomplete)
+  const text =
+    check.state === "MALFORMED" ? check.problem
+    : check.state === "INELIGIBLE" || check.state === "CANNOT_VERIFY" ? check.reason
+    : accountIdReviewable(check) ? accountIdEvidenceText(check)
+    : ""
+  return (
+    <p
+      id="add-account-id-check"
+      data-testid="account-id-check"
+      aria-live="polite"
+      className={`mt-1.5 text-xs ${refused ? "font-semibold text-red-700" : "text-slate-600"}`}
+    >
+      {text}
+    </p>
   )
 }
 

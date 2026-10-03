@@ -195,6 +195,8 @@ function json(body: unknown, status = 200): Response {
 
 interface Handlers {
   list: () => Response
+  /** GET /api/admin/accounts/organization; absent, the read fails and no ID can be verified. */
+  organization?: () => Response
   connect?: (accountId: string) => Response
   validate?: (accountId: string) => Response
   register?: (body: Record<string, unknown>) => Response
@@ -218,14 +220,37 @@ function installFetch(handlers: Handlers) {
       return handlers.register(JSON.parse(String(init?.body)))
     }
     if (url === "/api/proxy/admin/accounts?customer_id=acme-prod" && method === "GET") return handlers.list()
+    if (url === "/api/proxy/admin/accounts/organization?customer_id=acme-prod" && method === "GET" && handlers.organization) {
+      return handlers.organization()
+    }
     return json({ detail: `unexpected ${method} ${url}` }, 404)
   })
   vi.stubGlobal("fetch", fetchMock)
 }
 
-/** The Add dialog is two steps: Review shows what adding does; only "Add account" there submits. */
-function reviewAndAdd(dialog: HTMLElement) {
-  fireEvent.click(within(dialog).getByRole("button", { name: "Review" }))
+/**
+ * The organization's account list as the backend's read_state answers it (AVAILABLE), listed a minute before the
+ * test's clock so it is current whatever that clock says. Each account is ACTIVE and offered unless it says otherwise.
+ */
+function listing(accounts: Array<Record<string, unknown> & { account_id: string }>, extra: Record<string, unknown> = {}) {
+  return {
+    customer_id: CUSTOMER,
+    state: "AVAILABLE",
+    discovered_at: new Date(Date.now() - 60_000).toISOString(),
+    organization_id: "o-a1b2c3d4e5",
+    management_account_id: "999988887777",
+    truncated: false,
+    accounts: accounts.map((account) => ({ name: `Account ${account.account_id}`, state: "ACTIVE", selectable: true, ...account })),
+    ...extra,
+  }
+}
+
+/** The Add dialog is two steps: Review shows what adding does; only "Add account" there submits. Review opens once
+ *  the dialog's organization read has found the ID. */
+async function reviewAndAdd(dialog: HTMLElement) {
+  const review = within(dialog).getByRole("button", { name: "Review" })
+  await waitFor(() => expect(review).toBeEnabled())
+  fireEvent.click(review)
   fireEvent.click(within(dialog).getByRole("button", { name: /Add account/ }))
 }
 
@@ -374,6 +399,7 @@ describe("Settings > Accounts — member-account mode", () => {
         }])
         return json({ customer_id: CUSTOMER, account_id: body.account_id, action: "register", request_status: "queued", already_open: false, requested_at: "2026-10-01T10:00:00.000000+00:00" }, 202)
       },
+      organization: () => json(listing([{ account_id: "222233334444" }])),
     })
     render(<AccountSettingsPage />)
     await screen.findAllByTestId(/^account-row-/)
@@ -394,8 +420,8 @@ describe("Settings > Accounts — member-account mode", () => {
     const hint = within(dialog).getByText("The account's name is read from AWS once it connects.")
     expect(within(dialog).getByLabelText("AWS account ID")).toHaveAttribute("aria-describedby", hint.id)
     expect(hint).toHaveClass("text-slate-500")
-    fireEvent.change(within(dialog).getByLabelText("AWS account ID"), { target: { value: "2222-3333-4444" } })
-    reviewAndAdd(dialog)
+    fireEvent.change(within(dialog).getByLabelText("AWS account ID"), { target: { value: "222233334444" } })
+    await reviewAndAdd(dialog)
 
     await waitFor(() => expect(registered).toHaveLength(1))
     expect(registered[0]).toEqual({ customer_id: CUSTOMER, account_id: "222233334444" })
@@ -406,10 +432,11 @@ describe("Settings > Accounts — member-account mode", () => {
     expect(within(row).queryAllByRole("button")).toHaveLength(0)
   })
 
-  it("a 12-digit account ID alone is enough to review and add; nothing else is sent", async () => {
+  it("a 12-digit account ID found in the current organization list is enough to review and add; nothing else is sent", async () => {
     const registered: Record<string, unknown>[] = []
     installFetch({
       list: () => json(memberList([PLATFORM, CONNECTED])),
+      organization: () => json(listing([{ account_id: "555566667777" }])),
       register: (body) => {
         registered.push(body)
         return json({ customer_id: CUSTOMER, account_id: body.account_id, action: "register", request_status: "queued", already_open: false, requested_at: "2026-10-01T10:00:00.000000+00:00" }, 202)
@@ -423,8 +450,8 @@ describe("Settings > Accounts — member-account mode", () => {
     fireEvent.change(within(dialog).getByLabelText("AWS account ID"), { target: { value: "55556666777" } })   // 11 digits
     expect(review).toBeDisabled()
     fireEvent.change(within(dialog).getByLabelText("AWS account ID"), { target: { value: "555566667777" } })
-    expect(review).toBeEnabled()
-    reviewAndAdd(dialog)
+    await waitFor(() => expect(review).toBeEnabled())
+    await reviewAndAdd(dialog)
     await waitFor(() => expect(registered).toHaveLength(1))
     expect(Object.keys(registered[0]).sort()).toEqual(["account_id", "customer_id"])
   })
@@ -454,6 +481,7 @@ describe("Settings > Accounts — member-account mode", () => {
         return json({ customer_id: CUSTOMER, account_id: NEW.account_id, action: "register", request_status: "queued", already_open: false, requested_at: "2026-10-01T10:00:00.000000+00:00" }, 202)
       },
       connect: (accountId) => json(connectFor({ account_id: accountId })),
+      organization: () => json(listing([{ account_id: NEW.account_id }])),
     })
     render(<AccountSettingsPage />)
     await screen.findAllByTestId(/^account-row-/)
@@ -461,7 +489,7 @@ describe("Settings > Accounts — member-account mode", () => {
     fireEvent.click(screen.getByRole("button", { name: /Add AWS account/ }))
     const dialog = await screen.findByRole("dialog", { name: "Add an AWS account" })
     fireEvent.change(within(dialog).getByLabelText("AWS account ID"), { target: { value: NEW.account_id } })
-    reviewAndAdd(dialog)
+    await reviewAndAdd(dialog)
     await screen.findByTestId("account-row-222233334444")
     expect(screen.queryByRole("dialog", { name: "222233334444" })).not.toBeInTheDocument()
 
@@ -548,27 +576,25 @@ describe("Settings > Accounts — member-account mode", () => {
 })
 
 describe("Settings > Accounts — backend errors carry the backend's detail", () => {
-  it("shows detail.message when the add dialog is refused (platform account)", async () => {
+  it("shows detail.message when the add dialog is refused (registry unavailable)", async () => {
+    // The platform account never reaches the backend now (refused before Review, below); its 422 stays the backend's.
+    const message = "Account registry unavailable. If the registry table has not been provisioned for this customer, provision it; otherwise the reason below is the actual cause."
     installFetch({
       list: () => json(memberList([PLATFORM])),
-      register: () => json({
-        detail: {
-          error: "platform_account_is_not_a_member",
-          message: "This is the account Cyntro is installed in; it is read as itself and needs no connection stack.",
-        },
-      }, 422),
+      organization: () => json(listing([{ account_id: "222233334444" }])),
+      register: () => json({ detail: { error: "account_registry_unavailable", message, reason: "ResourceNotFoundException" } }, 503),
     })
     render(<AccountSettingsPage />)
     await screen.findAllByTestId(/^account-row-/)
 
     fireEvent.click(screen.getByRole("button", { name: /Add AWS account/ }))
     const dialog = await screen.findByRole("dialog", { name: "Add an AWS account" })
-    fireEvent.change(within(dialog).getByLabelText("AWS account ID"), { target: { value: "111122223333" } })
-    reviewAndAdd(dialog)
+    fireEvent.change(within(dialog).getByLabelText("AWS account ID"), { target: { value: "222233334444" } })
+    await reviewAndAdd(dialog)
 
     const alert = await within(dialog).findByRole("alert")
-    expect(alert).toHaveTextContent("HTTP 422")
-    expect(alert).toHaveTextContent("This is the account Cyntro is installed in; it is read as itself and needs no connection stack.")
+    expect(alert).toHaveTextContent("HTTP 503")
+    expect(alert).toHaveTextContent(message)
   })
 
   it("shows a pydantic validation list as field: message", async () => {
@@ -577,6 +603,7 @@ describe("Settings > Accounts — backend errors carry the backend's detail", ()
       register: () => json({
         detail: [{ type: "string_too_long", loc: ["body", "display_name"], msg: "String should have at most 120 characters", input: "x" }],
       }, 422),
+      organization: () => json(listing([{ account_id: "222233334444" }])),
     })
     render(<AccountSettingsPage />)
     await screen.findAllByTestId(/^account-row-/)
@@ -584,7 +611,7 @@ describe("Settings > Accounts — backend errors carry the backend's detail", ()
     fireEvent.click(screen.getByRole("button", { name: /Add AWS account/ }))
     const dialog = await screen.findByRole("dialog", { name: "Add an AWS account" })
     fireEvent.change(within(dialog).getByLabelText("AWS account ID"), { target: { value: "222233334444" } })
-    reviewAndAdd(dialog)
+    await reviewAndAdd(dialog)
 
     expect(await within(dialog).findByRole("alert")).toHaveTextContent("display_name: String should have at most 120 characters")
   })
@@ -631,6 +658,7 @@ describe("Settings > Accounts — backend errors carry the backend's detail", ()
     const registered: Record<string, unknown>[] = []
     installFetch({
       list: () => json(memberList([PLATFORM])),
+      organization: () => json(listing([{ account_id: "222233334444", name: "Checkout staging" }])),
       register: (body) => {
         registered.push(body)
         return json({ customer_id: CUSTOMER, account_id: body.account_id, action: "register", request_status: "queued", already_open: false, requested_at: "2026-10-01T10:00:00.000000+00:00" }, 202)
@@ -642,12 +670,16 @@ describe("Settings > Accounts — backend errors carry the backend's detail", ()
     fireEvent.click(screen.getByRole("button", { name: /Add AWS account/ }))
     const dialog = await screen.findByRole("dialog", { name: "Add an AWS account" })
     expect(within(dialog).getByRole("button", { name: "Review" })).toBeDisabled()
-    fireEvent.change(within(dialog).getByLabelText("AWS account ID"), { target: { value: "111122223333" } })
+    fireEvent.change(within(dialog).getByLabelText("AWS account ID"), { target: { value: "222233334444" } })
     expect(within(dialog).queryByRole("button", { name: /Add account/ })).toBeNull()
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: "Review" })).toBeEnabled())
     fireEvent.click(within(dialog).getByRole("button", { name: "Review" }))
 
     const confirmation = within(dialog).getByTestId("add-account-confirmation")
-    expect(confirmation).toHaveTextContent("Add AWS account 111122223333?")
+    expect(confirmation).toHaveTextContent("Add AWS account 222233334444?")
+    // Found in the list is not connected (Codex, 2026-10-03): the evidence is said, and what it does not show.
+    expect(within(confirmation).getByTestId("account-id-evidence")).toHaveTextContent(
+      /^Found in your organization's account list from .+ UTC, named “Checkout staging”\. That shows it is in your organization, not that Cyntro can connect to it: the connection is checked after it is added\.$/)
     // Conditional, as the connector behaves (Codex O1 review): a deployed stack does not promise a connection, and
     // only supported, readable sources are collected; a later check is a check, not a promised success.
     expect(confirmation).toHaveTextContent("Cyntro registers this account with this installation and checks the connection right away.")
@@ -671,7 +703,7 @@ describe("Settings > Accounts — backend errors carry the backend's detail", ()
 
     fireEvent.click(within(dialog).getByRole("button", { name: /Add account/ }))
     await waitFor(() => expect(registered).toHaveLength(1))
-    expect(registered[0]).toEqual({ customer_id: CUSTOMER, account_id: "111122223333" })
+    expect(registered[0]).toEqual({ customer_id: CUSTOMER, account_id: "222233334444" })
   })
 
   it("a member account is listed by the name AWS holds for it, or by its ID with the reason it has none yet", async () => {
@@ -723,18 +755,23 @@ describe("Settings > Accounts — backend errors carry the backend's detail", ()
   })
 
   it("Back from the review keeps what was typed and submits nothing", async () => {
-    installFetch({ list: () => json(memberList([PLATFORM])), register: () => json({}, 500) })
+    installFetch({
+      list: () => json(memberList([PLATFORM])),
+      organization: () => json(listing([{ account_id: "222233334444" }])),
+      register: () => json({}, 500),
+    })
     render(<AccountSettingsPage />)
     await screen.findAllByTestId(/^account-row-/)
 
     fireEvent.click(screen.getByRole("button", { name: /Add AWS account/ }))
     const dialog = await screen.findByRole("dialog", { name: "Add an AWS account" })
-    fireEvent.change(within(dialog).getByLabelText("AWS account ID"), { target: { value: "111122223333" } })
+    fireEvent.change(within(dialog).getByLabelText("AWS account ID"), { target: { value: "222233334444" } })
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: "Review" })).toBeEnabled())
     fireEvent.click(within(dialog).getByRole("button", { name: "Review" }))
     fireEvent.click(within(dialog).getByRole("button", { name: "Back" }))
 
     expect(within(dialog).queryByTestId("add-account-confirmation")).toBeNull()
-    expect(within(dialog).getByLabelText("AWS account ID")).toHaveValue("111122223333")
+    expect(within(dialog).getByLabelText("AWS account ID")).toHaveValue("222233334444")
     expect(calls((url, method) => url === "/api/proxy/admin/accounts" && method === "POST")).toHaveLength(0)
   })
 
@@ -813,14 +850,15 @@ describe("Settings > Accounts — backend errors carry the backend's detail", ()
     installFetch({
       list: () => json(memberList([PLATFORM])),
       register: () => json({ detail: { code: "PERSON_NOT_AUTHORIZED" } }, 403),
+      organization: () => json(listing([{ account_id: "222233334444" }])),
     })
     render(<AccountSettingsPage />)
     await screen.findAllByTestId(/^account-row-/)
 
     fireEvent.click(screen.getByRole("button", { name: /Add AWS account/ }))
     const dialog = await screen.findByRole("dialog", { name: "Add an AWS account" })
-    fireEvent.change(within(dialog).getByLabelText("AWS account ID"), { target: { value: "111122223333" } })
-    reviewAndAdd(dialog)
+    fireEvent.change(within(dialog).getByLabelText("AWS account ID"), { target: { value: "222233334444" } })
+    await reviewAndAdd(dialog)
 
     const alert = await within(dialog).findByRole("alert")
     expect(alert).toHaveTextContent(
