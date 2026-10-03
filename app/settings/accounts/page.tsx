@@ -885,13 +885,15 @@ function MemberAddAccountDialog({
   const [regions, setRegions] = useState(defaultRegion)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Adding is a deliberate step: the details are reviewed with what happens next before anything is submitted.
+  const [step, setStep] = useState<"details" | "confirm">("details")
 
   const regionList = parseRegions(regions)
   const badRegions = regionList.filter((region) => !AWS_REGION_PATTERN.test(region))
   const ready = Boolean(customerId) && displayName.trim() !== "" && /^\d{12}$/.test(accountId) && regionList.length > 0 && badRegions.length === 0
 
   async function submit() {
-    if (!customerId || !ready) return
+    if (!customerId || !ready || step !== "confirm") return
     setSubmitting(true)
     setError(null)
     try {
@@ -931,6 +933,7 @@ function MemberAddAccountDialog({
           </div>
           <button onClick={onClose} aria-label="Close" className="rounded-lg p-2 text-slate-400 hover:bg-slate-100"><X className="h-5 w-5" /></button>
         </div>
+        {step === "details" ? (
         <div className="grid grid-cols-2 gap-4 p-6">
           <label className="col-span-2 text-sm font-semibold text-slate-700">Account name<input value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="Payments production" className="mt-2 w-full rounded-lg border border-slate-200 p-3 font-normal outline-none focus:border-teal-500" /></label>
           <label className="text-sm font-semibold text-slate-700">AWS account ID<input value={accountId} onChange={(event) => setAccountId(event.target.value.replace(/\D/g, "").slice(0, 12))} placeholder="12-digit account ID" inputMode="numeric" className="mt-2 w-full rounded-lg border border-slate-200 p-3 font-mono font-normal outline-none focus:border-teal-500" /></label>
@@ -940,15 +943,56 @@ function MemberAddAccountDialog({
               {badRegions.length ? `Not an AWS region: ${badRegions.join(", ")}` : "Regions Cyntro reads in this account. The connection stack is deployed in the first one."}
             </span>
           </label>
-          {error ? <div role="alert" className="col-span-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div> : null}
         </div>
+        ) : (
+          <AddAccountConfirmation displayName={displayName.trim()} accountId={accountId} environment={environment} regions={regionList} />
+        )}
+        {error ? <div role="alert" className="mx-6 mb-6 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div> : null}
         <div className="flex items-center justify-between border-t border-slate-200 bg-slate-50 px-6 py-4">
-          <button onClick={onClose} className="text-sm font-semibold text-slate-500">Cancel</button>
-          <button disabled={!ready || submitting} onClick={() => void submit()} className="inline-flex items-center gap-2 rounded-lg bg-teal-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">
-            {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Add account
-          </button>
+          {step === "details" ? (
+            <button onClick={onClose} className="text-sm font-semibold text-slate-500">Cancel</button>
+          ) : (
+            <button onClick={() => { setStep("details"); setError(null) }} disabled={submitting} className="text-sm font-semibold text-slate-500">Back</button>
+          )}
+          {step === "details" ? (
+            <button disabled={!ready} onClick={() => setStep("confirm")} className="inline-flex items-center gap-2 rounded-lg bg-teal-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">
+              Review
+            </button>
+          ) : (
+            <button disabled={!ready || submitting} onClick={() => void submit()} className="inline-flex items-center gap-2 rounded-lg bg-teal-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">
+              {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Add account
+            </button>
+          )}
         </div>
       </div>
+    </div>
+  )
+}
+
+/**
+ * What adding an account does, said before it is done -- in the account connector's own terms
+ * (cyntro_data/accounts/connector.py: register -> immediate validate; first CONNECTED queues the inventory bootstrap;
+ * a 15-minute sweep re-checks waiting accounts). Read access only.
+ */
+function AddAccountConfirmation({ displayName, accountId, environment, regions }: {
+  displayName: string
+  accountId: string
+  environment: string
+  regions: string[]
+}) {
+  return (
+    <div data-testid="add-account-confirmation" className="space-y-4 p-6 text-sm text-slate-700">
+      <p className="text-base font-semibold text-slate-900">Add {displayName} ({accountId})?</p>
+      <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs">
+        <dt className="font-semibold text-slate-500">Environment</dt><dd>{environment}</dd>
+        <dt className="font-semibold text-slate-500">Regions</dt><dd>{regions.join(", ")}</dd>
+      </dl>
+      <ul className="list-disc space-y-1.5 pl-5">
+        <li>Cyntro registers this account with this installation and checks its connection right away.</li>
+        <li>If the Cyntro connection stack is already deployed in this account, it connects at once and collection starts immediately: the account&apos;s configuration first, then its inventory and the activity logs it has (CloudTrail, VPC flow logs).</li>
+        <li>If the stack is not deployed yet, nothing is read. Once you deploy it, Cyntro connects the account at its next check, about every 15 minutes, or at once when you choose Check connection.</li>
+        <li>Read access only: nothing in the account is changed.</li>
+      </ul>
     </div>
   )
 }

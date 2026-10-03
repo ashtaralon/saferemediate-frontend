@@ -219,6 +219,12 @@ function installFetch(handlers: Handlers) {
   vi.stubGlobal("fetch", fetchMock)
 }
 
+/** The Add dialog is two steps: Review shows what adding does; only "Add account" there submits. */
+function reviewAndAdd(dialog: HTMLElement) {
+  fireEvent.click(within(dialog).getByRole("button", { name: "Review" }))
+  fireEvent.click(within(dialog).getByRole("button", { name: /Add account/ }))
+}
+
 function calls(predicate: (url: string, method: string) => boolean) {
   return fetchMock.mock.calls.filter(([input, init]) => predicate(String(input), (init as RequestInit | undefined)?.method || "GET"))
 }
@@ -376,7 +382,7 @@ describe("Settings > Accounts — member-account mode", () => {
     fireEvent.change(within(dialog).getByLabelText("Account name"), { target: { value: "Checkout staging" } })
     fireEvent.change(within(dialog).getByLabelText("AWS account ID"), { target: { value: "2222-3333-4444" } })
     fireEvent.change(within(dialog).getByLabelText("Environment"), { target: { value: "STAGING" } })
-    fireEvent.click(within(dialog).getByRole("button", { name: /Add account/ }))
+    reviewAndAdd(dialog)
 
     await waitFor(() => expect(registered).toHaveLength(1))
     expect(registered[0]).toEqual({
@@ -414,7 +420,7 @@ describe("Settings > Accounts — member-account mode", () => {
     ])
     fireEvent.change(within(dialog).getByLabelText("Account name"), { target: { value: "Ledger" } })
     fireEvent.change(within(dialog).getByLabelText("AWS account ID"), { target: { value: "555566667777" } })
-    fireEvent.click(within(dialog).getByRole("button", { name: /Add account/ }))
+    reviewAndAdd(dialog)
     await waitFor(() => expect(registered).toHaveLength(1))
     expect(registered[0].environment).toBe("UNCLASSIFIED")
   })
@@ -443,7 +449,7 @@ describe("Settings > Accounts — member-account mode", () => {
     fireEvent.change(within(dialog).getByLabelText("Account name"), { target: { value: "Mixed estate" } })
     fireEvent.change(within(dialog).getByLabelText("AWS account ID"), { target: { value: "555566668888" } })
     fireEvent.change(within(dialog).getByLabelText("Environment"), { target: { value: "MIXED" } })
-    fireEvent.click(within(dialog).getByRole("button", { name: /Add account/ }))
+    reviewAndAdd(dialog)
     await waitFor(() => expect(registered).toHaveLength(1))
     expect(registered[0].environment).toBe("MIXED")
   })
@@ -473,7 +479,7 @@ describe("Settings > Accounts — member-account mode", () => {
     const dialog = await screen.findByRole("dialog", { name: "Add an AWS account" })
     fireEvent.change(within(dialog).getByLabelText("Account name"), { target: { value: NEW.display_name } })
     fireEvent.change(within(dialog).getByLabelText("AWS account ID"), { target: { value: NEW.account_id } })
-    fireEvent.click(within(dialog).getByRole("button", { name: /Add account/ }))
+    reviewAndAdd(dialog)
     await screen.findByTestId("account-row-222233334444")
     expect(screen.queryByRole("dialog", { name: "Checkout staging" })).not.toBeInTheDocument()
 
@@ -577,7 +583,7 @@ describe("Settings > Accounts — backend errors carry the backend's detail", ()
     const dialog = await screen.findByRole("dialog", { name: "Add an AWS account" })
     fireEvent.change(within(dialog).getByLabelText("Account name"), { target: { value: "Security tooling" } })
     fireEvent.change(within(dialog).getByLabelText("AWS account ID"), { target: { value: "111122223333" } })
-    fireEvent.click(within(dialog).getByRole("button", { name: /Add account/ }))
+    reviewAndAdd(dialog)
 
     const alert = await within(dialog).findByRole("alert")
     expect(alert).toHaveTextContent("HTTP 422")
@@ -598,7 +604,7 @@ describe("Settings > Accounts — backend errors carry the backend's detail", ()
     const dialog = await screen.findByRole("dialog", { name: "Add an AWS account" })
     fireEvent.change(within(dialog).getByLabelText("Account name"), { target: { value: "Checkout" } })
     fireEvent.change(within(dialog).getByLabelText("AWS account ID"), { target: { value: "222233334444" } })
-    fireEvent.click(within(dialog).getByRole("button", { name: /Add account/ }))
+    reviewAndAdd(dialog)
 
     expect(await within(dialog).findByRole("alert")).toHaveTextContent("display_name: String should have at most 120 characters")
   })
@@ -638,6 +644,63 @@ describe("Settings > Accounts — backend errors carry the backend's detail", ()
 
     fireEvent.click(await screen.findByRole("button", { name: "Check connection for Payments production" }))
     expect(await screen.findByText("Check connection failed (HTTP 422): account_id must be a 12-digit AWS account ID")).toBeInTheDocument()
+  })
+
+  // O1: adding an account is a deliberate step -- reviewed with what happens next, then submitted.
+  it("Review shows what adding does, sends nothing, and only Add account submits -- once", async () => {
+    const registered: Record<string, unknown>[] = []
+    installFetch({
+      list: () => json(memberList([PLATFORM])),
+      register: (body) => {
+        registered.push(body)
+        return json({ customer_id: CUSTOMER, account_id: body.account_id, action: "register", request_status: "queued", already_open: false, requested_at: "2026-10-01T10:00:00.000000+00:00" }, 202)
+      },
+    })
+    render(<AccountSettingsPage />)
+    await screen.findAllByTestId(/^account-row-/)
+
+    fireEvent.click(screen.getByRole("button", { name: /Add AWS account/ }))
+    const dialog = await screen.findByRole("dialog", { name: "Add an AWS account" })
+    expect(within(dialog).getByRole("button", { name: "Review" })).toBeDisabled()
+    fireEvent.change(within(dialog).getByLabelText("Account name"), { target: { value: "Security tooling" } })
+    fireEvent.change(within(dialog).getByLabelText("AWS account ID"), { target: { value: "111122223333" } })
+    expect(within(dialog).queryByRole("button", { name: /Add account/ })).toBeNull()
+    fireEvent.click(within(dialog).getByRole("button", { name: "Review" }))
+
+    const confirmation = within(dialog).getByTestId("add-account-confirmation")
+    expect(confirmation).toHaveTextContent("Add Security tooling (111122223333)?")
+    expect(confirmation).toHaveTextContent("Cyntro registers this account with this installation and checks its connection right away.")
+    expect(confirmation).toHaveTextContent(
+      "If the Cyntro connection stack is already deployed in this account, it connects at once and collection starts immediately: " +
+      "the account's configuration first, then its inventory and the activity logs it has (CloudTrail, VPC flow logs).")
+    expect(confirmation).toHaveTextContent(
+      "If the stack is not deployed yet, nothing is read. Once you deploy it, Cyntro connects the account at its next check, " +
+      "about every 15 minutes, or at once when you choose Check connection.")
+    expect(confirmation).toHaveTextContent("Read access only: nothing in the account is changed.")
+    expect(registered).toHaveLength(0)
+    expect(calls((url, method) => url === "/api/proxy/admin/accounts" && method === "POST")).toHaveLength(0)
+
+    fireEvent.click(within(dialog).getByRole("button", { name: /Add account/ }))
+    await waitFor(() => expect(registered).toHaveLength(1))
+    expect(registered[0]).toMatchObject({ account_id: "111122223333", display_name: "Security tooling" })
+  })
+
+  it("Back from the review keeps what was typed and submits nothing", async () => {
+    installFetch({ list: () => json(memberList([PLATFORM])), register: () => json({}, 500) })
+    render(<AccountSettingsPage />)
+    await screen.findAllByTestId(/^account-row-/)
+
+    fireEvent.click(screen.getByRole("button", { name: /Add AWS account/ }))
+    const dialog = await screen.findByRole("dialog", { name: "Add an AWS account" })
+    fireEvent.change(within(dialog).getByLabelText("Account name"), { target: { value: "Security tooling" } })
+    fireEvent.change(within(dialog).getByLabelText("AWS account ID"), { target: { value: "111122223333" } })
+    fireEvent.click(within(dialog).getByRole("button", { name: "Review" }))
+    fireEvent.click(within(dialog).getByRole("button", { name: "Back" }))
+
+    expect(within(dialog).queryByTestId("add-account-confirmation")).toBeNull()
+    expect(within(dialog).getByLabelText("Account name")).toHaveValue("Security tooling")
+    expect(within(dialog).getByLabelText("AWS account ID")).toHaveValue("111122223333")
+    expect(calls((url, method) => url === "/api/proxy/admin/accounts" && method === "POST")).toHaveLength(0)
   })
 
   // The platform row says only what the backend reported about collecting the install's own account.
@@ -715,7 +778,7 @@ describe("Settings > Accounts — backend errors carry the backend's detail", ()
     const dialog = await screen.findByRole("dialog", { name: "Add an AWS account" })
     fireEvent.change(within(dialog).getByLabelText("Account name"), { target: { value: "Security tooling" } })
     fireEvent.change(within(dialog).getByLabelText("AWS account ID"), { target: { value: "111122223333" } })
-    fireEvent.click(within(dialog).getByRole("button", { name: /Add account/ }))
+    reviewAndAdd(dialog)
 
     const alert = await within(dialog).findByRole("alert")
     expect(alert).toHaveTextContent(
