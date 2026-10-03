@@ -38,7 +38,8 @@ export function OrganizationAccountPicker({
   const [discovery, setDiscovery] = useState<OrganizationDiscovery | null>(null)
   const [loading, setLoading] = useState(true)
   const [asking, setAsking] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  // What failed, said in words first; the backend's own detail (status, refusal) stays visible beneath it.
+  const [error, setError] = useState<{ title: string; detail: string } | null>(null)
   const [search, setSearch] = useState("")
   // Every completed read, answered or failed, advances `reads`: the poll below is scheduled from it, so a failed read
   // is followed by another one (a failure leaves `discovery` as it was and would otherwise stop the poll for good).
@@ -64,7 +65,10 @@ export function OrganizationAccountPicker({
       setFailedReads(0)
     } catch (reason) {
       if (!current()) return
-      setError(reason instanceof Error ? reason.message : String(reason))
+      setError({
+        title: "Cyntro could not read your organization's accounts.",
+        detail: reason instanceof Error ? reason.message : String(reason),
+      })
       setFailedReads((count) => count + 1)
     } finally {
       if (current()) {
@@ -99,7 +103,10 @@ export function OrganizationAccountPicker({
       if (!response.ok) throw await accountAdminFailure(response, "Finding accounts")
       await load()
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason))
+      setError({
+        title: "Cyntro could not ask for your organization's accounts.",
+        detail: reason instanceof Error ? reason.message : String(reason),
+      })
     } finally {
       setAsking(false)
     }
@@ -140,8 +147,24 @@ export function OrganizationAccountPicker({
       <p className="text-xs text-slate-500">
         Cyntro lists your organization&apos;s account IDs, names and states. Nothing is added: choosing an account fills in the form, and you still review and add it.
       </p>
-      {error ? <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div> : null}
-      {error && !discovery ? <div>{manualButton}</div> : null}
+      {error ? (
+        <div role="alert" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+          <p className="font-semibold">{error.title}</p>
+          <p className="mt-1 text-xs text-amber-800">{error.detail}</p>
+        </div>
+      ) : null}
+      {error && !discovery ? (
+        <div className="flex items-center gap-4">
+          <button
+            type="button"
+            onClick={() => void load()}
+            className="rounded-lg border border-teal-700 px-3 py-1.5 text-sm font-semibold text-teal-700"
+          >
+            Try again
+          </button>
+          {manualButton}
+        </div>
+      ) : null}
 
       {state === "NOT_RUN" ? (
         <div className="space-y-3">

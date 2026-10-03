@@ -219,8 +219,14 @@ function installFetch(handlers: Handlers) {
   vi.stubGlobal("fetch", fetchMock)
 }
 
+/** Regions start empty (Alon, 2026-10-03): take the install's suggestion, as an operator would, when none was typed. */
+function useInstallRegions(dialog: HTMLElement) {
+  fireEvent.click(within(dialog).getByRole("button", { name: "Use these" }))
+}
+
 /** The Add dialog is two steps: Review shows what adding does; only "Add account" there submits. */
 function reviewAndAdd(dialog: HTMLElement) {
+  if ((within(dialog).getByLabelText(/Regions/) as HTMLInputElement).value === "") useInstallRegions(dialog)
   fireEvent.click(within(dialog).getByRole("button", { name: "Review" }))
   fireEvent.click(within(dialog).getByRole("button", { name: /Add account/ }))
 }
@@ -377,7 +383,15 @@ describe("Settings > Accounts — member-account mode", () => {
     fireEvent.click(screen.getByRole("button", { name: /Add AWS account/ }))
     const dialog = await screen.findByRole("dialog", { name: "Add an AWS account" })
     expect(within(dialog).queryByText(/StackSet/)).not.toBeInTheDocument()
-    expect(within(dialog).getByLabelText(/Regions/)).toHaveValue("eu-central-1") // the platform account's region
+    // Nothing is pre-filled: no example name, no guessed Region; the install's own Regions are only suggested.
+    expect(within(dialog).getByLabelText("Account name")).toHaveValue("")
+    expect(within(dialog).getByLabelText("Account name")).not.toHaveAttribute("placeholder")
+    expect(within(dialog).getByText("The name your team uses for this account.")).toBeInTheDocument()
+    expect(within(dialog).getByLabelText(/Regions/)).toHaveValue("")
+    expect(within(dialog).getByTestId("install-regions-suggestion")).toHaveTextContent("This installation runs in eu-central-1.")
+    fireEvent.click(within(dialog).getByRole("button", { name: "Use these" }))
+    expect(within(dialog).getByLabelText(/Regions/)).toHaveValue("eu-central-1")
+    expect(within(dialog).queryByTestId("install-regions-suggestion")).toBeNull()
 
     fireEvent.change(within(dialog).getByLabelText("Account name"), { target: { value: "Checkout staging" } })
     fireEvent.change(within(dialog).getByLabelText("AWS account ID"), { target: { value: "2222-3333-4444" } })
@@ -416,7 +430,7 @@ describe("Settings > Accounts — member-account mode", () => {
     expect(environment).toHaveValue("UNCLASSIFIED")
     expect(within(environment).getAllByRole("option").map((option) => [(option as HTMLOptionElement).value, option.textContent])).toEqual([
       ["UNCLASSIFIED", "Unclassified"], ["PRODUCTION", "Production"], ["STAGING", "Staging"], ["DEVELOPMENT", "Development"],
-      ["TEST", "Test"], ["SANDBOX", "Sandbox"], ["SHARED_SERVICES", "Shared services"], ["MIXED", "Mixed"],
+      ["TEST", "Test"], ["SANDBOX", "Sandbox"], ["DISASTER_RECOVERY", "Disaster recovery"],
     ])
     fireEvent.change(within(dialog).getByLabelText("Account name"), { target: { value: "Ledger" } })
     fireEvent.change(within(dialog).getByLabelText("AWS account ID"), { target: { value: "555566667777" } })
@@ -446,12 +460,12 @@ describe("Settings > Accounts — member-account mode", () => {
     await screen.findAllByTestId(/^account-row-/)
     fireEvent.click(screen.getByRole("button", { name: /Add AWS account/ }))
     const dialog = await screen.findByRole("dialog", { name: "Add an AWS account" })
-    fireEvent.change(within(dialog).getByLabelText("Account name"), { target: { value: "Mixed estate" } })
+    fireEvent.change(within(dialog).getByLabelText("Account name"), { target: { value: "Recovery site" } })
     fireEvent.change(within(dialog).getByLabelText("AWS account ID"), { target: { value: "555566668888" } })
-    fireEvent.change(within(dialog).getByLabelText("Environment"), { target: { value: "MIXED" } })
+    fireEvent.change(within(dialog).getByLabelText("Environment"), { target: { value: "DISASTER_RECOVERY" } })
     reviewAndAdd(dialog)
     await waitFor(() => expect(registered).toHaveLength(1))
-    expect(registered[0].environment).toBe("MIXED")
+    expect(registered[0].environment).toBe("DISASTER_RECOVERY")
   })
 
   it("polls every 4 s while an account is REGISTERING, opens Connect once it is AWAITING_CONNECTION, then stops", async () => {
@@ -665,6 +679,9 @@ describe("Settings > Accounts — backend errors carry the backend's detail", ()
     fireEvent.change(within(dialog).getByLabelText("Account name"), { target: { value: "Security tooling" } })
     fireEvent.change(within(dialog).getByLabelText("AWS account ID"), { target: { value: "111122223333" } })
     expect(within(dialog).queryByRole("button", { name: /Add account/ })).toBeNull()
+    // Name and ID alone are not enough: the Regions are the operator's to state.
+    expect(within(dialog).getByRole("button", { name: "Review" })).toBeDisabled()
+    useInstallRegions(dialog)
     fireEvent.click(within(dialog).getByRole("button", { name: "Review" }))
 
     const confirmation = within(dialog).getByTestId("add-account-confirmation")
@@ -689,6 +706,42 @@ describe("Settings > Accounts — backend errors carry the backend's detail", ()
     expect(registered[0]).toMatchObject({ account_id: "111122223333", display_name: "Security tooling" })
   })
 
+  it("the suggestion is every Region the install records, in order, and only an AWS Region", async () => {
+    installFetch({ list: () => json(memberList([{ ...PLATFORM, regions: ["eu-central-1", "not-a-region", "us-east-2"] }])) })
+    render(<AccountSettingsPage />)
+    await screen.findAllByTestId(/^account-row-/)
+    fireEvent.click(screen.getByRole("button", { name: /Add AWS account/ }))
+    const dialog = await screen.findByRole("dialog", { name: "Add an AWS account" })
+    expect(within(dialog).getByTestId("install-regions-suggestion")).toHaveTextContent("This installation runs in eu-central-1, us-east-2.")
+    useInstallRegions(dialog)
+    expect(within(dialog).getByLabelText(/Regions/)).toHaveValue("eu-central-1, us-east-2")
+  })
+
+  it("with no Regions recorded for the install, nothing is suggested and nothing is guessed", async () => {
+    const registered: Record<string, unknown>[] = []
+    installFetch({
+      list: () => json(memberList([{ ...PLATFORM, regions: [] }])),
+      register: (body) => {
+        registered.push(body)
+        return json({ customer_id: CUSTOMER, account_id: body.account_id, action: "register", request_status: "queued", already_open: false, requested_at: "2026-10-01T10:00:00.000000+00:00" }, 202)
+      },
+    })
+    render(<AccountSettingsPage />)
+    await screen.findAllByTestId(/^account-row-/)
+    fireEvent.click(screen.getByRole("button", { name: /Add AWS account/ }))
+    const dialog = await screen.findByRole("dialog", { name: "Add an AWS account" })
+    expect(within(dialog).getByLabelText(/Regions/)).toHaveValue("")
+    expect(within(dialog).queryByTestId("install-regions-suggestion")).toBeNull()
+    expect(within(dialog).queryByText(/eu-west-1/)).toBeNull()
+    fireEvent.change(within(dialog).getByLabelText("Account name"), { target: { value: "Ledger" } })
+    fireEvent.change(within(dialog).getByLabelText("AWS account ID"), { target: { value: "555566667777" } })
+    expect(within(dialog).getByRole("button", { name: "Review" })).toBeDisabled()
+    fireEvent.change(within(dialog).getByLabelText(/Regions/), { target: { value: "ap-southeast-2" } })
+    reviewAndAdd(dialog)
+    await waitFor(() => expect(registered).toHaveLength(1))
+    expect(registered[0].regions).toEqual(["ap-southeast-2"])
+  })
+
   it("Back from the review keeps what was typed and submits nothing", async () => {
     installFetch({ list: () => json(memberList([PLATFORM])), register: () => json({}, 500) })
     render(<AccountSettingsPage />)
@@ -698,6 +751,7 @@ describe("Settings > Accounts — backend errors carry the backend's detail", ()
     const dialog = await screen.findByRole("dialog", { name: "Add an AWS account" })
     fireEvent.change(within(dialog).getByLabelText("Account name"), { target: { value: "Security tooling" } })
     fireEvent.change(within(dialog).getByLabelText("AWS account ID"), { target: { value: "111122223333" } })
+    useInstallRegions(dialog)
     fireEvent.click(within(dialog).getByRole("button", { name: "Review" }))
     fireEvent.click(within(dialog).getByRole("button", { name: "Back" }))
 

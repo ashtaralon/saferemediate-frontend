@@ -72,8 +72,6 @@ const emptySummary = { connected: 0, needs_attention: 0, discovered: 0, mutation
 const POLL_INTERVAL_MS = 4000
 /** A check this page asked for is watched at most this long if the list never shows it open. */
 const CHECK_WATCH_MS = 120_000
-/** Form default only, used when the platform account's region is unknown. */
-const FALLBACK_REGION = "eu-west-1"
 /** Statuses that read as "working": each gets the operational-not-complete note and a coverage link. */
 const OPERATIONAL_STATUSES = new Set(["CONNECTED", "READY"])
 /** Member statuses from which the connection stack can be (re)deployed and checked. */
@@ -580,7 +578,7 @@ export default function AccountSettingsPage() {
       {showAdd && memberMode ? (
         <MemberAddAccountDialog
           customerId={customerId}
-          defaultRegion={platformAccount?.regions?.[0] || FALLBACK_REGION}
+          installRegions={platformAccount?.regions || []}
           onClose={() => setShowAdd(false)}
           onRequested={({ accountId, requestedAt, alreadyOpen }) => {
             setShowAdd(false)
@@ -842,8 +840,10 @@ function AddGroupDialog({ customerId, accounts, onClose, onCreated }: { customer
 
 /**
  * The account's environment, as the operator states it. Nothing is assumed: the default is UNCLASSIFIED (the
- * backend's own default, api/account_registry.py CreateAccountRequest), never PRODUCTION. Values are the registry's
- * tokens. Only the add forms offer this list; a stored value (including a custom one) is shown as recorded.
+ * backend's own default, api/account_registry.py CreateAccountRequest), never PRODUCTION. The other values are the
+ * same canonical environments the tagging solution uses (backend unified/system_boundary_store.py ENVIRONMENTS), so
+ * one word means one thing everywhere (Alon, 2026-10-03). Only the add forms offer this list; a stored value
+ * (including an older or custom one) is shown as recorded.
  */
 const ENVIRONMENT_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
   { value: "UNCLASSIFIED", label: "Unclassified" },
@@ -852,8 +852,7 @@ const ENVIRONMENT_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
   { value: "DEVELOPMENT", label: "Development" },
   { value: "TEST", label: "Test" },
   { value: "SANDBOX", label: "Sandbox" },
-  { value: "SHARED_SERVICES", label: "Shared services" },
-  { value: "MIXED", label: "Mixed" },
+  { value: "DISASTER_RECOVERY", label: "Disaster recovery" },
 ]
 const DEFAULT_ENVIRONMENT = "UNCLASSIFIED"
 
@@ -871,19 +870,23 @@ function EnvironmentSelect({ value, onChange }: { value: string; onChange: (valu
  */
 function MemberAddAccountDialog({
   customerId,
-  defaultRegion,
+  installRegions,
   onClose,
   onRequested,
 }: {
   customerId: string | null
-  defaultRegion: string
+  /** The Regions this installation's own account is registered with: offered as a one-click suggestion, never pre-filled. */
+  installRegions: string[]
   onClose: () => void
   onRequested: (request: { accountId: string; requestedAt: string; alreadyOpen: boolean }) => void
 }) {
   const [displayName, setDisplayName] = useState("")
   const [accountId, setAccountId] = useState("")
   const [environment, setEnvironment] = useState(DEFAULT_ENVIRONMENT)
-  const [regions, setRegions] = useState(defaultRegion)
+  // Empty until the operator says which Regions this account uses: the new account's Regions are not known here
+  // (Alon, 2026-10-03). The install's own Regions are a suggestion only.
+  const [regions, setRegions] = useState("")
+  const suggestedRegions = installRegions.filter((region) => AWS_REGION_PATTERN.test(region))
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // Adding is a deliberate step: the details are reviewed with what happens next before anything is submitted.
@@ -972,14 +975,27 @@ function MemberAddAccountDialog({
               Filled from your organization: {chosen.name} ({chosen.accountId}). Nothing has been added. Choose the environment and Regions, then Review.
             </p>
           ) : null}
-          <label className="col-span-2 text-sm font-semibold text-slate-700">Account name<input value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="Payments production" className="mt-2 w-full rounded-lg border border-slate-200 p-3 font-normal outline-none focus:border-teal-500" /></label>
+          <div className="col-span-2">
+            <label className="text-sm font-semibold text-slate-700">Account name<input value={displayName} onChange={(event) => setDisplayName(event.target.value)} aria-describedby="add-account-name-hint" className="mt-2 w-full rounded-lg border border-slate-200 p-3 font-normal outline-none focus:border-teal-500" /></label>
+            <p id="add-account-name-hint" className="mt-1.5 text-xs text-slate-500">The name your team uses for this account.</p>
+          </div>
           <label className="text-sm font-semibold text-slate-700">AWS account ID<input value={accountId} onChange={(event) => setAccountId(event.target.value.replace(/\D/g, "").slice(0, 12))} placeholder="12-digit account ID" inputMode="numeric" className="mt-2 w-full rounded-lg border border-slate-200 p-3 font-mono font-normal outline-none focus:border-teal-500" /></label>
           <EnvironmentSelect value={environment} onChange={setEnvironment} />
-          <label className="col-span-2 text-sm font-semibold text-slate-700">Regions<input value={regions} onChange={(event) => setRegions(event.target.value)} placeholder="Comma-separated AWS regions" className="mt-2 w-full rounded-lg border border-slate-200 p-3 font-normal outline-none focus:border-teal-500" />
-            <span className="mt-1.5 block text-xs font-normal text-slate-500">
-              {badRegions.length ? `Not an AWS region: ${badRegions.join(", ")}` : "Regions Cyntro reads in this account. The connection stack is deployed in the first one."}
-            </span>
-          </label>
+          <div className="col-span-2">
+            <label className="text-sm font-semibold text-slate-700">Regions<input value={regions} onChange={(event) => setRegions(event.target.value)} placeholder="Comma-separated AWS regions" className="mt-2 w-full rounded-lg border border-slate-200 p-3 font-normal outline-none focus:border-teal-500" />
+              <span className="mt-1.5 block text-xs font-normal text-slate-500">
+                {badRegions.length ? `Not an AWS region: ${badRegions.join(", ")}` : "Regions Cyntro reads in this account. The connection stack is deployed in the first one."}
+              </span>
+            </label>
+            {regions.trim() === "" && suggestedRegions.length ? (
+              <p data-testid="install-regions-suggestion" className="mt-1.5 flex items-center gap-2 text-xs text-slate-600">
+                This installation runs in {suggestedRegions.join(", ")}.
+                <button type="button" onClick={() => setRegions(suggestedRegions.join(", "))} className="font-semibold text-teal-700 underline">
+                  Use these
+                </button>
+              </p>
+            ) : null}
+          </div>
         </div>
         ) : (
           <AddAccountConfirmation displayName={displayName.trim()} accountId={accountId} environment={environment} regions={regionList} />
