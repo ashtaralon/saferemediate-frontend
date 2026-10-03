@@ -670,7 +670,7 @@ function MemberAccountRow({
       <span className="text-xs font-semibold text-slate-600">{account.environment}</span>
       <div className="min-w-0 space-y-1.5">
         <MemberStatusBadge status={account.onboarding_status} />
-        {(platform && !controlPlane) || OPERATIONAL_STATUSES.has(account.onboarding_status) ? (
+        {!controlPlane && (platform || OPERATIONAL_STATUSES.has(account.onboarding_status)) ? (
           <Link
             href={coveragePageHref(account.account_id)}
             aria-label={`Evidence coverage for ${account.account_id}`}

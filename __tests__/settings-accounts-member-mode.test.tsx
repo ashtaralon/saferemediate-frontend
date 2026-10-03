@@ -657,6 +657,21 @@ describe("Settings > Accounts — backend errors carry the backend's detail", ()
         .toBe(coverageLink)
     })
 
+  it.each(["READY", "CONNECTED", "REGISTERED"])(
+    "a control-plane platform row never links coverage, even when its status is %s (Codex P1 review)",
+    async (status) => {
+      installFetch({ list: () => json(memberList([
+        { ...PLATFORM, data_account: false, onboarding_status: status },
+        { ...AWAITING, onboarding_status: "READY" },
+      ])) })
+      render(<AccountSettingsPage />)
+
+      const platform = await screen.findByTestId(`account-row-${PLATFORM.account_id}`)
+      expect(within(platform).queryByRole("link", { name: /^Evidence coverage for/ })).toBeNull()
+      const member = screen.getByTestId(`account-row-${AWAITING.account_id}`)
+      expect(within(member).getByRole("link", { name: `Evidence coverage for ${AWAITING.account_id}` })).toBeInTheDocument()
+    })
+
   // H5: onboarding needs a verified operator; the backend's typed refusals are words, never a raw {"code": ...}.
   it.each([
     [401, "PERSON_TOKEN_REQUIRED", "Your sign-in did not reach Cyntro. Sign in again."],
