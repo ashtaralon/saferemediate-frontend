@@ -1,3 +1,5 @@
+import { semanticStatusHold, type SemanticHold } from "@/lib/semantic-hold"
+
 /**
  * Observation coverage: what time range Cyntro has VERIFIED evidence for, per
  * account and source, and the window a given response actually covers.
@@ -72,6 +74,8 @@ export interface SourceCoverageReport {
 export type SourceCoverageResult =
   | { kind: "PUBLISHED"; report: SourceCoverageReport }
   | { kind: "NOT_RECORDED"; report: SourceCoverageReport }
+  /** The serving gate answered for the route (lib/semantic-hold): a typed state, never empty coverage. */
+  | { kind: "HELD"; hold: SemanticHold }
   | { kind: "ERROR"; status: number | null; message: string }
 
 export interface ObservationSource {
@@ -410,6 +414,11 @@ export async function fetchSourceCoverage(
   const payload = await response.json().catch(() => null)
   if (!response.ok) return { kind: "ERROR", status: response.status, message: backendMessage(payload, response.status) }
   const report = normalizeSourceCoverage(payload)
-  if (!report) return { kind: "ERROR", status: response.status, message: "The coverage response was not in a recognized shape." }
-  return report.status === "PUBLISHED" ? { kind: "PUBLISHED", report } : { kind: "NOT_RECORDED", report }
+  if (report) return report.status === "PUBLISHED" ? { kind: "PUBLISHED", report } : { kind: "NOT_RECORDED", report }
+  // When there is nothing to read yet the serving gate answers in the route's place -- e.g. NO_DATA_ACCOUNTS: a
+  // control plane with no workload account connected. Shown as that state (semantic-hold), never as empty coverage;
+  // any other shape is still not recognized.
+  const hold = semanticStatusHold(payload)
+  if (hold) return { kind: "HELD", hold }
+  return { kind: "ERROR", status: response.status, message: "The coverage response was not in a recognized shape." }
 }

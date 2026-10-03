@@ -17,6 +17,7 @@ import {
   type SourceCoverage,
   type SourceCoverageResult,
 } from "@/lib/observation-coverage"
+import { semanticHoldMessage } from "@/lib/semantic-hold"
 
 /**
  * Per account → per source: the exact range Cyntro has verified evidence for.
@@ -72,6 +73,15 @@ export function SourceCoveragePanel({ accountId }: { accountId?: string | null }
             </div>
           </div>
           <button onClick={() => void load()} className="shrink-0 font-semibold">Retry</button>
+        </div>
+      ) : result?.kind === "HELD" ? (
+        <div data-testid="coverage-held" className="rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center">
+          <CalendarClock className="mx-auto h-8 w-8 text-slate-300" aria-hidden />
+          <p className="mt-3 font-semibold text-slate-800">{semanticHoldMessage(result.hold)}</p>
+          <p className="mx-auto mt-1 max-w-xl text-sm text-slate-500">
+            Nothing was read, so no coverage is shown. This is the server's answer, not an empty record.
+          </p>
+          <button onClick={() => void load()} className="mt-3 text-sm font-semibold text-teal-700">Retry</button>
         </div>
       ) : result?.kind === "NOT_RECORDED" ? (
         <div data-testid="coverage-not-recorded" className="rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center">

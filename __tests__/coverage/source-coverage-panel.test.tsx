@@ -5,7 +5,7 @@
  * (`GET /api/coverage/sources`, saferemediate-backend branch
  * claude/source-coverage-record); the panel renders only what fetch returns.
  */
-import { render, screen, waitFor, within } from "@testing-library/react"
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { SourceCoveragePanel } from "@/components/coverage/source-coverage-panel"
@@ -188,6 +188,52 @@ describe("SourceCoveragePanel", () => {
     render(<SourceCoveragePanel />)
 
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("not in a recognized shape"))
+  })
+})
+
+// The serving gate answers in the route's place when there is nothing to read yet. Bodies below are the backend's
+// exact answers (api/source_coverage.py behind estate_read.gate_snapshot_read, executed on a control-plane web).
+const NO_WORKLOADS = {
+  coverage: null, graph_version: null, hold_reason: "NO_DATA_ACCOUNTS", semantic_status: "not_recorded", source_generation: null,
+}
+
+describe("SourceCoveragePanel -- the serving gate's own answers", () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it("a control plane with no workload account says so, not 'unrecognized shape' and not empty coverage", async () => {
+    const fetchMock = vi.fn(async () => json(NO_WORKLOADS))
+    vi.stubGlobal("fetch", fetchMock)
+    render(<SourceCoveragePanel />)
+
+    const held = await screen.findByTestId("coverage-held")
+    expect(held).toHaveTextContent("No workload account is connected yet — connect one in Settings › Accounts")
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+    expect(screen.queryByText(/not in a recognized shape/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/No accounts are recorded in the coverage record/)).not.toBeInTheDocument()
+    fireEvent.click(within(held).getByRole("button", { name: "Retry" }))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+  })
+
+  it("an unavailable read is shown as unavailable, never as an empty record", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => json({ semantic_status: "unavailable", hold_reason: "graph read failed" })))
+    render(<SourceCoveragePanel />)
+    expect(await screen.findByTestId("coverage-held")).toHaveTextContent("Unavailable — graph read failed")
+  })
+
+  it.each([
+    ["a semantic_status that is not a hold", { semantic_status: "ok", accounts: [] }],
+    ["a hold_reason without semantic_status", { hold_reason: "NO_DATA_ACCOUNTS" }],
+  ])("%s is still not recognized", async (_label, body) => {
+    vi.stubGlobal("fetch", vi.fn(async () => json(body)))
+    render(<SourceCoveragePanel />)
+    expect(await screen.findByRole("alert")).toHaveTextContent("The coverage response was not in a recognized shape.")
+  })
+
+  it("a foreign or platform scope stays a refusal", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => json({ detail: { code: "INVENTORY_SCOPE_MISMATCH", reason: "CLAIM_OUTSIDE_SERVER_SCOPE" } }, 403)))
+    render(<SourceCoveragePanel accountId="999999999999" />)
+    expect(await screen.findByRole("alert")).toHaveTextContent("Evidence coverage is unavailable")
+    expect(screen.queryByTestId("coverage-held")).not.toBeInTheDocument()
   })
 })
 
