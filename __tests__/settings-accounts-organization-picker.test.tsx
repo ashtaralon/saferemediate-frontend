@@ -170,7 +170,7 @@ describe("Settings > Accounts — choose from your organization", () => {
     })
     const { picker } = await openPicker()
     await within(picker).findByText("Your organization's accounts have not been listed for this installation yet. Adding an account needs that list.")
-    expect(within(picker).queryByRole("button", { name: "Enter an account ID instead" })).toBeNull()   // no list yet, so no way around it
+    expect(within(picker).queryByRole("button", { name: "Enter an account ID instead" })).toBeNull()   // no rows to type beside; the Enter account ID tab is the unverified path
     expect(discoverPosts()).toHaveLength(0)
 
     fireEvent.click(within(picker).getByRole("button", { name: "Find accounts" }))
@@ -364,7 +364,7 @@ describe("Settings > Accounts — choose from your organization", () => {
     const { picker } = await openPicker()
     await within(picker).findByText("Choosing from your organization is not set up for this installation.")
     expect(within(picker).getByTestId("organization-dependency")).toHaveTextContent(
-      "Adding an account needs your organization's account list, so no account can be added here until one is available. " +
+      "Without your organization's account list, an account can be added only as unverified: Cyntro reads nothing in it until you check access and confirm. " +
       "Listing it needs a read-only role in your AWS organization, which your installation administrator sets up.")
     // The backend still sends the setup values; they are the administrator's, not this form's.
     expect(within(picker).queryByTestId("organization-setup")).toBeNull()
@@ -376,7 +376,7 @@ describe("Settings > Accounts — choose from your organization", () => {
     expect(picker).not.toHaveTextContent(/ORG_DISCOVERY_ROLE_ARN|install\.env|INSTALL\.md|\.yaml|ExternalId/)
     expect(within(picker).queryAllByRole("button", { name: /^Copy / })).toHaveLength(0)
     expect(within(picker).queryByRole("button", { name: "Check again" })).toBeNull()
-    // Typing an ID is not offered as a way around it: the same check needs the list.
+    // The picker offers no typing of its own here; the Enter account ID tab is the guarded unverified path (option C).
     expect(within(picker).queryByRole("button", { name: "Enter an account ID instead" })).toBeNull()
 
     // Refresh status only reads.
@@ -390,7 +390,7 @@ describe("Settings > Accounts — choose from your organization", () => {
     expect(registrations()).toHaveLength(0)
   })
 
-  const NEEDS = "Adding an account needs your organization's account list, so no account can be added here until one is available."
+  const NEEDS = "Without your organization's account list, an account can be added only as unverified: Cyntro reads nothing in it until you check access and confirm."
   const ADMIN = `${NEEDS} Your installation administrator needs to check this installation's organization listing role.`
   it.each([
     ["INSTALL_ORGANIZATION_UNKNOWN", "Cyntro could not read which AWS Organization this installation belongs to", ADMIN],
@@ -399,7 +399,7 @@ describe("Settings > Accounts — choose from your organization", () => {
     ["OTHER_ORGANIZATION", "answers for a different AWS Organization than this installation's", ADMIN],
     ["DISCOVERY_FAILED", "Listing the organization's accounts failed.", `${NEEDS} The list can be asked for again.`],
     ["SOMETHING_NEW", "The organization's accounts cannot be listed (SOMETHING_NEW).", `${NEEDS} The list can be asked for again.`],
-  ])("UNAVAILABLE %s is said in words with what it means for adding; no rows, and no way around it offered", async (reason, words, dependency) => {
+  ])("UNAVAILABLE %s is said in words with what it means for adding; no rows, and typing leads only to the unverified path", async (reason, words, dependency) => {
     installFetch({ organization: () => json({ customer_id: CUSTOMER, state: "UNAVAILABLE", reason }) })
     const { dialog, picker } = await openPicker()
     await within(picker).findByText(new RegExp(words.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")))
@@ -409,7 +409,7 @@ describe("Settings > Accounts — choose from your organization", () => {
     // The manual tab says the same before anything is typed.
     fireEvent.click(within(dialog).getByRole("tab", { name: "Enter account ID" }))
     expect(within(dialog).getByTestId("account-id-dependency")).toHaveTextContent(
-      "An account can be added only when it is in your organization's account list from the last 24 hours.")
+      "Without a current organization list, an account can be added only as unverified: Cyntro reads nothing in it until you check access and confirm.")
   })
 
   it("an expired list is not offered, even rows sent with it; a fresh one can be asked for", async () => {
@@ -426,7 +426,7 @@ describe("Settings > Accounts — choose from your organization", () => {
     await waitFor(() => expect(discoverPosts()).toHaveLength(1))
   })
 
-  it("a refused read says why; typing an ID is not offered as a way around it", async () => {
+  it("a refused read says why; the picker offers no rows and no typing of its own", async () => {
     installFetch({ organization: () => json({ detail: { code: "PERSON_NOT_AUTHORIZED" } }, 403) })
     const { dialog, picker } = await openPicker()
     const alert = await within(picker).findByRole("alert")

@@ -144,8 +144,9 @@ export function OrganizationAccountPicker({
   /** The Add dialog's own account ID check (lib/account-admin.ts checkAccountId): an account is offered only when that
    *  check finds it in the current list with nothing ruling it out. */
   checkAccount?: (accountId: string) => AccountIdCheck
-  /** Whether a typed ID can pass the Add dialog's check now (a current list is held). When it cannot, typing an ID is
-   *  not offered as an alternative. */
+  /** Whether typing an ID is offered beside the list. Under option C a typed ID can always be added -- as listed when a
+   *  current list holds it, else only as unverified with the operator's acknowledgement -- so the Add dialog no longer
+   *  turns it off; the prop stays for a caller that must. */
   manualEntryUsable?: boolean
 }) {
   const own = useOrganizationDiscovery(reader ? null : customerId)
@@ -189,7 +190,7 @@ export function OrganizationAccountPicker({
       {label}
     </button>
   )
-  // Offered only beside a current list: typing an ID goes through the same check, which needs that list.
+  // Typing an ID goes through the same check: listed when the current list holds it, else the guarded unverified path.
   const manualButton = (
     <button type="button" onClick={onEnterManually} className="text-sm font-semibold text-slate-600 underline">
       Enter an account ID instead

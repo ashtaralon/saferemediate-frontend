@@ -86,6 +86,24 @@ export function MemberStatusBadge({ status }: { status: string }) {
   if (status === "REGISTERED") {
     return <span className={`${base} border-teal-200 bg-teal-50 text-teal-700`}>Registered</span>
   }
+  // Option C: the pending registration's states, in words (none of them reads or collects anything yet).
+  const pending: Record<string, string> = {
+    LISTED_ADMITTED: "Registering",
+    PENDING_UNVERIFIED: "Pending: not verified",
+    CHECKING: "Checking access",
+    ACCESS_CONFIRMABLE: "Access reached: confirm",
+    ACTIVATING: "Activating",
+  }
+  if (status in pending) {
+    return <span className={`${base} border-blue-200 bg-blue-50 text-blue-700`}>{pending[status]}</span>
+  }
+  if (status === "ACTIVATION_FAILED") {
+    return (
+      <span className={`${base} border-red-200 bg-red-50 text-red-700`}>
+        <XCircle className="h-3 w-3" aria-hidden /> Activation failed
+      </span>
+    )
+  }
   return <span className={`${base} border-slate-200 bg-slate-50 text-slate-600`}>{status.replaceAll("_", " ")}</span>
 }
 
@@ -658,6 +676,7 @@ export function ConnectAccountPanel({
   failedRequests,
   onClose,
   onCheckConnection,
+  accessStep = null,
 }: {
   customerId: string
   accountId: string
@@ -667,6 +686,9 @@ export function ConnectAccountPanel({
   onClose: () => void
   /** POST validate; resolves the backend's `requested_at` for the request. */
   onCheckConnection: (accountId: string) => Promise<string>
+  /** Option C: for a registration not yet activated, the last step is its access check (and confirmation), never Check
+   *  connection -- the page passes that step here. */
+  accessStep?: ReactNode
 }) {
   const [instructions, setInstructions] = useState<ConnectionInstructions | null>(null)
   const [loading, setLoading] = useState(true)
@@ -888,6 +910,12 @@ export function ConnectAccountPanel({
                 <p>Then acknowledge that CloudFormation might create IAM resources with custom names, and choose Create stack.</p>
               </Step>
 
+              {accessStep ? (
+                <Step number={4} title="Check access, then confirm">
+                  <p>When the stack reaches CREATE_COMPLETE, ask Cyntro to check access. Nothing is collected until you confirm the account it reached.</p>
+                  <div role="status">{accessStep}</div>
+                </Step>
+              ) : (
               <Step number={4} title="Check connection">
                 <p>When the stack reaches CREATE_COMPLETE, ask Cyntro to check the account. The account connector runs the check within seconds.</p>
                 <button
@@ -943,6 +971,7 @@ export function ConnectAccountPanel({
                   ) : null}
                 </div>
               </Step>
+              )}
 
               {instructions.cli ? (
                 <details className="rounded-xl border border-slate-200 p-4">

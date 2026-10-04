@@ -2,8 +2,10 @@
  * Settings > Accounts, Add an AWS account: the account ID is checked as it is typed or chosen (Alon, 2026-10-03; the
  * working default Codex stated to him: codex-settings-account-validation-2026-10-03.txt).
  *
- * Only an ID found in this customer's organization list from the last 24 hours, with nothing ruling it out, can be
- * reviewed and added; any other well-formed ID cannot be verified -- never said not to exist. The responses below are
+ * An ID found in this customer's organization list from the last 24 hours, with nothing ruling it out, is reviewed and
+ * added as listed. Option C (Alon, 2026-10-04): any other well-formed ID cannot be verified -- never said not to exist --
+ * and can be added only as UNVERIFIED, through its own review and the operator's explicit acknowledgement; an ID ruled
+ * out stays refused. The responses below are
  * TEST INPUTS shaped like the backend contract (api/account_registry.py `_member_listing`;
  * cyntro_data/accounts/org_discovery.py read_state). Nothing is asked for an ID: the only organization request a test
  * may see is the GET read.
@@ -79,7 +81,8 @@ function listing(at: number, age = MINUTE, extra: Partial<OrganizationDiscovery>
   }
 }
 
-const ONLY_LISTED = "Only an account in your organization's account list from the last 24 hours can be added here."
+const UNVERIFIED_ONLY =
+  "It can still be added as unverified, with your acknowledgement: Cyntro then reads nothing in it until you check access and confirm."
 
 // ── the check itself ────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -151,7 +154,7 @@ describe("checkAccountId", () => {
     const check = checkAccountId(UNKNOWN, current)
     expect(check).toEqual({
       state: "CANNOT_VERIFY", accountId: UNKNOWN, short: "Cannot be verified",
-      reason: `Cannot verify this account. Not found in your organization's last list (listed 2026-10-03 09:19:00 UTC). ${ONLY_LISTED}`,
+      reason: `Cannot verify this account. Not found in your organization's last list (listed 2026-10-03 09:19:00 UTC). ${UNVERIFIED_ONLY}`,
     })
     expect(JSON.stringify(check)).not.toMatch(/does not exist|not exist|invalid|no such/i)
   })
@@ -160,7 +163,7 @@ describe("checkAccountId", () => {
     const answer = listing(CLOCK, MINUTE, { truncated: true })
     expect(checkAccountId(UNKNOWN, context(read(answer)))).toMatchObject({
       state: "CANNOT_VERIFY",
-      reason: `Cannot verify this account. Your organization's last list (listed 2026-10-03 09:19:00 UTC) was cut short and does not include it. ${ONLY_LISTED}`,
+      reason: `Cannot verify this account. Your organization's last list (listed 2026-10-03 09:19:00 UTC) was cut short and does not include it. ${UNVERIFIED_ONLY}`,
     })
     // A row the cut-short list does hold is still found.
     expect(checkAccountId("222233334444", context(read(answer)))).toMatchObject({ state: "LISTED" })
@@ -179,7 +182,7 @@ describe("checkAccountId", () => {
   ])("%s: the ID cannot be verified, and the reason is the list's, not the ID's", (_label, organization, why) => {
     for (const id of ["222233334444", UNKNOWN]) {
       expect(checkAccountId(id, context(organization))).toMatchObject({
-        state: "CANNOT_VERIFY", reason: `Cannot verify this account. ${why} ${ONLY_LISTED}`,
+        state: "CANNOT_VERIFY", reason: `Cannot verify this account. ${why} ${UNVERIFIED_ONLY}`,
       })
     }
   })
@@ -198,7 +201,7 @@ describe("checkAccountId", () => {
   ])("a listing time that is %s never verifies a listed ID", (_label, discoveredAt, why) => {
     const answer = { ...listing(CLOCK), discovered_at: discoveredAt as string }
     expect(checkAccountId("222233334444", context(read(answer)))).toMatchObject({
-      state: "CANNOT_VERIFY", reason: `Cannot verify this account. ${why} ${ONLY_LISTED}`,
+      state: "CANNOT_VERIFY", reason: `Cannot verify this account. ${why} ${UNVERIFIED_ONLY}`,
     })
   })
 
@@ -276,17 +279,18 @@ afterEach(() => {
 })
 
 describe("Add AWS account — the ID is checked before Review", () => {
-  it("Alon's 454545454545 with no organization answer (the local preview): cannot verify, Review off, nothing sent", async () => {
+  it("Alon's 454545454545 with no organization answer: cannot verify -- its review is the unverified one, and nothing is sent", async () => {
     installFetch({ organization: () => json({ detail: { code: "PREVIEW_CAPTURE_UNAVAILABLE" } }, 503) })
     const dialog = await openDialog()
     typeId(dialog, UNKNOWN)
     await waitFor(() => expect(feedback(dialog)).toHaveTextContent(
-      `Cannot verify this account. Cyntro could not read your organization's account list. ${ONLY_LISTED}`))
-    expect(review(dialog)).toBeDisabled()
-    expect(within(dialog).getByLabelText("AWS account ID")).toHaveAttribute("aria-invalid", "true")
+      `Cannot verify this account. Cyntro could not read your organization's account list. ${UNVERIFIED_ONLY}`))
+    expect(within(dialog).getByLabelText("AWS account ID")).toHaveAttribute("aria-invalid", "false")
     expect(within(dialog).getByLabelText("AWS account ID").getAttribute("aria-describedby")).toContain("add-account-id-check")
     fireEvent.click(review(dialog))
-    expect(within(dialog).queryByTestId("add-account-confirmation")).toBeNull()
+    expect(within(dialog).queryByTestId("add-account-confirmation")).toBeNull()      // never the listed review
+    expect(within(dialog).getByTestId("add-account-unverified-confirmation")).toBeInTheDocument()
+    expect(within(dialog).getByRole("button", { name: /Add as unverified/ })).toBeDisabled()   // no acknowledgement yet
     expect(writes()).toHaveLength(0)
   })
 
@@ -294,13 +298,14 @@ describe("Add AWS account — the ID is checked before Review", () => {
     installFetch({ organization: () => json({ detail: { code: "PREVIEW_CAPTURE_UNAVAILABLE" } }, 503) })
     const dialog = await openDialog()
     await waitFor(() => expect(within(dialog).getByTestId("account-id-dependency")).toHaveTextContent(
-      "An account can be added only when it is in your organization's account list from the last 24 hours. " +
-      "Cyntro could not read your organization's account list. “Choose from your organization” shows the list's status."))
+      "Without a current organization list, an account can be added only as unverified: Cyntro reads nothing in it until you " +
+      "check access and confirm. Cyntro could not read your organization's account list. “Choose from your organization” " +
+      "shows the list's status."))
     expect(within(dialog).getByLabelText("AWS account ID")).toHaveValue("")
     expect(writes()).toHaveLength(0)
   })
 
-  it("a current list removes that notice, and the picker offers typing an ID only beside a list this page can use", async () => {
+  it("a current list removes that notice, and the picker offers typing an ID", async () => {
     installFetch({ organization: () => json(listing(CLOCK)) })
     const dialog = await openDialog()
     await waitFor(() => expect(within(dialog).queryByTestId("account-id-dependency")).toBeNull())
@@ -309,23 +314,31 @@ describe("Add AWS account — the ID is checked before Review", () => {
     expect(within(dialog).getByRole("button", { name: "Enter an account ID instead" })).toBeInTheDocument()
   })
 
-  it("a list the backend still calls AVAILABLE but this page finds 24 hours old offers no way to type around it", async () => {
+  it("a list the backend still calls AVAILABLE but this page finds 24 hours old: typing leads only to the unverified path", async () => {
     installFetch({ organization: () => json(listing(CLOCK, ORGANIZATION_LIST_MAX_AGE_MS + MINUTE)) })
     const dialog = await openDialog()
     await waitFor(() => expect(within(dialog).getByTestId("account-id-dependency")).toHaveTextContent("is more than 24 hours old."))
+    expect(within(dialog).getByTestId("account-id-dependency")).toHaveTextContent("can be added only as unverified")
     fireEvent.click(within(dialog).getByRole("tab", { name: "Choose from your organization" }))
     await within(dialog).findByTestId("organization-account-222233334444")
-    expect(within(dialog).queryByRole("button", { name: "Enter an account ID instead" })).toBeNull()
+    expect(within(dialog).getByRole("button", { name: "Enter an account ID instead" })).toBeInTheDocument()
     expect(within(dialog).getByRole("button", { name: "Find accounts again" })).toBeInTheDocument()
+    fireEvent.click(within(dialog).getByRole("button", { name: "Enter an account ID instead" }))
+    typeId(dialog, "222233334444")          // listed, but the list is too old: never added as listed
+    fireEvent.click(review(dialog))
+    expect(within(dialog).queryByTestId("add-account-confirmation")).toBeNull()
+    expect(within(dialog).getByTestId("add-account-unverified-confirmation")).toBeInTheDocument()
   })
 
-  it("454545454545 when the current list does not hold it: not found in that list, Review off", async () => {
+  it("454545454545 when the current list does not hold it: not found in that list, and only its unverified review opens", async () => {
     installFetch({ organization: () => json(listing(CLOCK)) })
     const dialog = await openDialog()
     typeId(dialog, UNKNOWN)
     await waitFor(() => expect(feedback(dialog)).toHaveTextContent(
-      `Cannot verify this account. Not found in your organization's last list (listed 2026-10-03 09:19:00 UTC). ${ONLY_LISTED}`))
-    expect(review(dialog)).toBeDisabled()
+      `Cannot verify this account. Not found in your organization's last list (listed 2026-10-03 09:19:00 UTC). ${UNVERIFIED_ONLY}`))
+    fireEvent.click(review(dialog))
+    expect(within(dialog).getByTestId("add-account-unverified-confirmation")).toHaveTextContent(
+      "Not found in your organization's last list (listed 2026-10-03 09:19:00 UTC).")
     expect(writes()).toHaveLength(0)
   })
 
@@ -413,9 +426,12 @@ describe("Add AWS account — the ID is checked before Review", () => {
     typeId(dialog, UNKNOWN)
     expect(within(dialog).queryByTestId("chosen-from-organization")).toBeNull()
     expect(feedback(dialog)).toHaveTextContent("Cannot verify this account. Not found in your organization's last list")
-    expect(review(dialog)).toBeDisabled()
     typeId(dialog, "2222333344445")
     expect(review(dialog)).toBeDisabled()
+    typeId(dialog, UNKNOWN)
+    fireEvent.click(review(dialog))          // the list's evidence is gone: its review is the unverified one
+    expect(within(dialog).queryByTestId("add-account-confirmation")).toBeNull()
+    expect(within(dialog).getByTestId("add-account-unverified-confirmation")).toBeInTheDocument()
   })
 
   it("a refresh that fails takes back what the earlier list allowed", async () => {
@@ -432,12 +448,14 @@ describe("Add AWS account — the ID is checked before Review", () => {
     fireEvent.click(within(dialog).getByRole("tab", { name: "Choose from your organization" }))
     fireEvent.click(await within(dialog).findByRole("button", { name: "Find accounts again" }))   // an explicit ask
     await waitFor(() => expect(organizationReads()).toHaveLength(2))
-    // The failed refresh also withdraws the picker's "Enter an account ID instead": the same check would refuse it.
-    await waitFor(() => expect(within(dialog).queryByRole("button", { name: "Enter an account ID instead" })).toBeNull())
+    // Typing stays offered (option C): it now leads only to the unverified path.
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: "Enter an account ID instead" })).toBeInTheDocument())
     fireEvent.click(within(dialog).getByRole("tab", { name: "Enter account ID" }))
     await waitFor(() => expect(feedback(dialog)).toHaveTextContent(
-      `Cannot verify this account. Cyntro could not read your organization's account list. ${ONLY_LISTED}`))
-    expect(review(dialog)).toBeDisabled()
+      `Cannot verify this account. Cyntro could not read your organization's account list. ${UNVERIFIED_ONLY}`))
+    fireEvent.click(review(dialog))
+    expect(within(dialog).queryByTestId("add-account-confirmation")).toBeNull()
+    expect(within(dialog).getByTestId("add-account-unverified-confirmation")).toBeInTheDocument()
     expect(calls((url) => url === DISCOVER_POST)).toHaveLength(1)
   })
 
@@ -461,7 +479,7 @@ describe("Add AWS account — the ID is checked before Review", () => {
     })
     expect(within(dialog).queryByTestId("add-account-confirmation")).toBeNull()
     expect(within(dialog).getByTestId("account-id-recheck")).toHaveTextContent(
-      "is more than 24 hours old. Only an account in your organization's account list from the last 24 hours can be added here. Nothing was added.")
+      `is more than 24 hours old. ${UNVERIFIED_ONLY} Nothing was added.`)
     expect(within(dialog).getByRole("button", { name: /Add account/ })).toBeDisabled()
     expect(registered).toHaveLength(0)
   })
@@ -473,8 +491,8 @@ describe("Add AWS account — the ID is checked before Review", () => {
     await waitFor(() => expect(review(dialog)).toBeEnabled())
     vi.setSystemTime(CLOCK + ORGANIZATION_LIST_MAX_AGE_MS)   // the clock moves; no timer has run
     fireEvent.click(review(dialog))
-    expect(within(dialog).queryByTestId("add-account-confirmation")).toBeNull()
-    await waitFor(() => expect(feedback(dialog)).toHaveTextContent("is more than 24 hours old."))
+    expect(within(dialog).queryByTestId("add-account-confirmation")).toBeNull()        // never the listed review
+    expect(within(dialog).getByTestId("add-account-unverified-confirmation")).toHaveTextContent("is more than 24 hours old.")
     expect(writes()).toHaveLength(0)
   })
 
@@ -509,6 +527,71 @@ describe("Add AWS account — the ID is checked before Review", () => {
     })
     expect(registered).toHaveLength(0)
     expect(writes()).toHaveLength(0)
+  })
+})
+
+describe("Add AWS account — the guarded unverified path (option C)", () => {
+  function registering(registered: Record<string, unknown>[]) {
+    return (body: Record<string, unknown>) => {
+      registered.push(body)
+      return json({ customer_id: CUSTOMER, account_id: body.account_id, action: "register", request_status: "queued", already_open: false, requested_at: "2026-10-03T09:20:01.000000+00:00" }, 202)
+    }
+  }
+
+  it("an unverifiable ID is sent only with the operator's acknowledgement, given in its own review, never pre-ticked", async () => {
+    const registered: Record<string, unknown>[] = []
+    installFetch({ organization: () => json(listing(CLOCK)), register: registering(registered) })
+    const dialog = await openDialog()
+    typeId(dialog, UNKNOWN)
+    fireEvent.click(review(dialog))
+    const confirmation = within(dialog).getByTestId("add-account-unverified-confirmation")
+    expect(confirmation).toHaveTextContent("Cyntro registers the account as pending and makes no AWS call: nothing in it is read.")
+    expect(confirmation).toHaveTextContent("Then check access: Cyntro assumes CyntroRead-acme-prod there")
+    expect(confirmation).toHaveTextContent("Only your confirmation turns reading on and starts collection.")
+    const acknowledgement = within(dialog).getByRole("checkbox")
+    expect(acknowledgement).not.toBeChecked()
+    fireEvent.click(within(dialog).getByRole("button", { name: /Add as unverified/ }))
+    await act(async () => { await Promise.resolve() })
+    expect(registered).toHaveLength(0)
+    fireEvent.click(acknowledgement)
+    fireEvent.click(within(dialog).getByRole("button", { name: /Add as unverified/ }))
+    await waitFor(() => expect(registered).toEqual([{ customer_id: CUSTOMER, account_id: UNKNOWN, acknowledge_unverified: true }]))
+    expect(calls((url) => url === DISCOVER_POST)).toHaveLength(0)
+  })
+
+  it("an ID ruled out is still refused -- never an unverified escape", async () => {
+    installFetch({ organization: () => json(listing(CLOCK)) })
+    const dialog = await openDialog()
+    await waitFor(() => expect(organizationReads()).toHaveLength(1))
+    for (const id of ["111122223333", "777788889999", "333344445555", "999988887777", "555566667777"]) {
+      typeId(dialog, id)
+      expect(review(dialog)).toBeDisabled()
+    }
+    expect(writes()).toHaveLength(0)
+  })
+
+  it("a reviewed unverified ID that the list comes to hold is not sent as either kind: it is reviewed again", async () => {
+    const registered: Record<string, unknown>[] = []
+    // A list stamped 5 s in the future: not usable at Review, usable once the clock reaches it (the page's own boundary).
+    installFetch({ organization: () => json(listing(CLOCK + 5_000, 0)), register: registering(registered) })
+    const dialog = await openDialog()
+    typeId(dialog, "222233334444")
+    await waitFor(() => expect(feedback(dialog)).toHaveTextContent("listing time in the future"))
+    fireEvent.click(review(dialog))
+    fireEvent.click(within(dialog).getByRole("checkbox"))
+    expect(within(dialog).getByRole("button", { name: /Add as unverified/ })).toBeEnabled()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6_000)
+    })
+    expect(within(dialog).getByTestId("account-id-recheck")).toHaveTextContent(
+      "Your organization's list now holds this account. Go back and review it again. Nothing was added.")
+    expect(within(dialog).getByRole("button", { name: /Add as unverified/ })).toBeDisabled()
+    expect(registered).toHaveLength(0)
+    fireEvent.click(within(dialog).getByRole("button", { name: "Back" }))
+    fireEvent.click(review(dialog))
+    expect(within(dialog).getByTestId("add-account-confirmation")).toBeInTheDocument()     // now the listed review
+    fireEvent.click(within(dialog).getByRole("button", { name: /Add account/ }))
+    await waitFor(() => expect(registered).toEqual([{ customer_id: CUSTOMER, account_id: "222233334444" }]))
   })
 })
 

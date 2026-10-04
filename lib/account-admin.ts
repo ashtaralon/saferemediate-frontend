@@ -102,6 +102,9 @@ export interface ManagedAccount {
   aws_account_name?: string | null
   aws_account_name_read_at?: string | null
   aws_account_name_error?: string | null
+  /** Member accounts registered under option C: the registration's progress (backend api/account_registry.py
+   *  _registration_progress). Absent or null for rows registered before it. Provisional, not a frozen contract. */
+  registration?: RegistrationProgress | null
 }
 
 /** The backend's collection mode for an account connected through its own read role (member_registry.COLLECTION_MODE_MEMBER). */
@@ -344,6 +347,262 @@ export function safeExternalUrl(value?: string | null): string | null {
   } catch {
     return null
   }
+}
+
+// ── option C: the first account's journey (backend S1b-S3b; api/account_registry.py _registration_progress) ─────────
+// add (listed, or unverified with an acknowledgement) -> check access -> confirm -> collection starts. Every value below is
+// the backend's; this file only names what each one means and which ONE next step the operator may ask for.
+
+/** The last access check on a pending registration (cyntro_data/accounts/access_check.py). A name is a label AWS holds,
+ *  never proof; REACHED proves configured access through the read role, not ownership. */
+export interface RegistrationAccessCheck {
+  check_id?: string | null
+  outcome?: "REACHED" | "REFUSED" | string | null
+  refusal?: string | null
+  answered_account?: string | null
+  name_in_aws?: string | null
+  name_unreadable?: string | null
+  identity_observed_at?: string | null
+  completed_at?: string | null
+  requested_by?: string | null
+}
+
+/** The write-once activation marker: who turned reads on for this registration, on which check. */
+export interface RegistrationActivation {
+  decided_by?: string | null
+  at?: string | null
+  check_id?: string | null
+}
+
+export interface RegistrationActivationLast {
+  outcome?: string | null
+  step?: string | null
+  at?: string | null
+}
+
+/** The request that holds the row in its current step; HELD when that step could not record its own result or exit. */
+export interface RegistrationOwner {
+  action: string
+  request_status?: string | null
+  outcome?: string | null
+  held: boolean
+  held_at?: string | null
+  held_outcome?: string | null
+}
+
+/** Where the activated account's FIRST inventory dispatch stands. Dispatch is the queue accepting work items -- not
+ *  collection: ALL_QUEUED never means collected. */
+export interface FirstInventoryDispatch {
+  state: "NOT_STARTED" | "PARTIALLY_QUEUED" | "BLOCKED" | "HELD" | "ALL_QUEUED" | string
+  intended: number
+  queued: number
+  blocker?: string | null
+  hold?: string | null
+  checked_at?: string | null
+  completed_at?: string | null
+}
+
+export interface RegistrationProgress {
+  registration_id: string
+  registration_version: number
+  registration_path?: "LISTED" | "PENDING" | string | null
+  checking: boolean
+  access_check?: RegistrationAccessCheck | null
+  activation?: RegistrationActivation | null
+  activating: boolean
+  activation_last?: RegistrationActivationLast | null
+  owner?: RegistrationOwner | null
+  first_inventory_dispatch?: FirstInventoryDispatch | null
+}
+
+/** The backend's ACTIVATION_CHECK_MAX_AGE: a confirmation consumes a check whose identity was observed STRICTLY less than
+ *  15 minutes before the connector admits it. The page judges it by the wall clock; the connector decides. */
+export const ACTIVATION_CHECK_MAX_AGE_MS = 15 * 60 * 1000
+
+export type RegistrationAction = "access_check" | "activate" | "release"
+
+/** The proxied route for one journey request. */
+export function registrationActionPath(action: RegistrationAction, accountId: string, customerId: string): string {
+  const route = action === "access_check" ? "access-check" : action
+  return `/api/proxy/admin/accounts/${encodeURIComponent(accountId)}/${route}?customer_id=${encodeURIComponent(customerId)}`
+}
+
+/** What a journey request names: exactly the registration and version the operator is looking at (and, to confirm, the
+ *  check they confirm). The connector refuses a request for anything else. */
+export function registrationRequestBody(
+  registration: Pick<RegistrationProgress, "registration_id" | "registration_version">,
+  checkId?: string,
+): Record<string, string | number> {
+  const body: Record<string, string | number> = {
+    registration_id: registration.registration_id,
+    registration_version: registration.registration_version,
+  }
+  if (checkId !== undefined) body.check_id = checkId
+  return body
+}
+
+const HEX32 = /^[0-9a-f]{32}$/
+
+/** The instant an access check observed the account's identity, or NaN when it is missing or not an exact zoned instant. */
+function observedAt(check: RegistrationAccessCheck | null | undefined): number {
+  const at = typeof check?.identity_observed_at === "string" ? check.identity_observed_at : ""
+  return ISO_INSTANT.test(at) ? Date.parse(at) : Number.NaN
+}
+
+/**
+ * The ONE thing the operator can do next for an option-C registration, from the backend's row only (null for rows without
+ * a registration, and for the connected lifecycle, which keeps Connect / Check connection):
+ * - HELD: the step's request is kept as the proof of the row's state; only a release moves it on.
+ * - CHECK_ACCESS (PENDING_UNVERIFIED): no access has been proven yet; `refused` is the last check, if it was refused.
+ * - CONFIRM (ACCESS_CONFIRMABLE, its check REACHED and younger than the bound by the wall clock): confirm that check.
+ * - CHECK_EXPIRED: confirmable no longer (older than the bound, or its time is not provable): check access again.
+ * - ACTIVATION_FAILED: the step it stopped at; a retry continues the SAME confirmed check (the marker's).
+ * - FIRST_CHECK / CHECKING / ACTIVATING: the connector is working; nothing to ask.
+ */
+export type RegistrationStep =
+  | { kind: "HELD"; owner: RegistrationOwner }
+  | { kind: "FIRST_CHECK" }
+  | { kind: "CHECK_ACCESS"; refused: RegistrationAccessCheck | null }
+  | { kind: "CHECKING" }
+  | { kind: "CONFIRM"; check: RegistrationAccessCheck; checkId: string; confirmableUntil: number }
+  | { kind: "CHECK_EXPIRED"; check: RegistrationAccessCheck | null }
+  | { kind: "ACTIVATING" }
+  | { kind: "ACTIVATION_FAILED"; step: string | null; checkId: string | null }
+
+export function registrationStep(
+  account: Pick<ManagedAccount, "onboarding_status" | "registration">,
+  now: number,
+): RegistrationStep | null {
+  const registration = account.registration
+  if (!registration) return null
+  if (registration.owner?.held === true) return { kind: "HELD", owner: registration.owner }
+  const check = registration.access_check ?? null
+  switch (account.onboarding_status) {
+    case "LISTED_ADMITTED": return { kind: "FIRST_CHECK" }
+    case "PENDING_UNVERIFIED": return { kind: "CHECK_ACCESS", refused: check && check.outcome === "REFUSED" ? check : null }
+    case "CHECKING": return { kind: "CHECKING" }
+    case "ACTIVATING": return { kind: "ACTIVATING" }
+    case "ACTIVATION_FAILED": {
+      const marker = registration.activation?.check_id
+      return { kind: "ACTIVATION_FAILED", step: registration.activation_last?.step ?? null,
+               checkId: typeof marker === "string" && HEX32.test(marker) ? marker : null }
+    }
+    case "ACCESS_CONFIRMABLE": {
+      const at = observedAt(check)
+      const checkId = check?.check_id
+      if (check?.outcome === "REACHED" && typeof checkId === "string" && HEX32.test(checkId) && !Number.isNaN(at)
+          && at <= now && now - at < ACTIVATION_CHECK_MAX_AGE_MS) {
+        return { kind: "CONFIRM", check, checkId, confirmableUntil: at + ACTIVATION_CHECK_MAX_AGE_MS }
+      }
+      return { kind: "CHECK_EXPIRED", check }
+    }
+    default: return null
+  }
+}
+
+/** The next instant a CONFIRM step stops being confirmable, so an open page changes on its own; null otherwise. */
+export function registrationStepBoundary(step: RegistrationStep | null, now: number): number | null {
+  return step?.kind === "CONFIRM" && step.confirmableUntil > now ? step.confirmableUntil : null
+}
+
+const STEP_LABEL: Record<string, string> = { register: "registration", access_check: "access check", activate: "activation" }
+
+/** "the access check" -- the step a held request belongs to, in words. */
+export function registrationStepLabel(action: string): string {
+  return STEP_LABEL[action] ?? action
+}
+
+/** The read role an access check assumes in a member account (cyntro_data/accounts/member_registry.py member_role_name). */
+export function memberReadRoleName(customerId: string): string {
+  return `CyntroRead-${customerId}`
+}
+
+/** Why the AWS name of an account was not read by its access check, in words. */
+export function nameUnreadableText(reason?: string | null): string {
+  const why = reason || ""
+  if (why === "NOT_PERMITTED") return "AWS denied permission to read it"
+  if (why === "NO_NAME") return "AWS returned no name"
+  if (why === "DEFERRED") return "the check left too little time to read it"
+  if (why.startsWith("UNREACHABLE")) return "Cyntro could not reach the AWS account API"
+  return why ? `not read (${why})` : "not read"
+}
+
+/** "Name in AWS: prod-payments" or "Name in AWS: not readable (...)": a label AWS holds, read by THIS check -- never a
+ *  typed name, a list's name or an earlier check's. */
+export function nameInAwsText(check: RegistrationAccessCheck | null | undefined): string {
+  if (check?.name_in_aws) return `Name in AWS: ${check.name_in_aws}`
+  return `Name in AWS: not readable (${nameUnreadableText(check?.name_unreadable)})`
+}
+
+/** Why an access check did not reach the account, in words (the connector's refusal codes). */
+export function accessRefusalText(refusal: string | null | undefined, customerId: string): string {
+  const code = refusal || ""
+  const role = memberReadRoleName(customerId)
+  if (code.startsWith("ROLE_NOT_ASSUMABLE")) {
+    const why = code.split(":")[1]
+    return `Cyntro could not use ${role} in that account${why ? ` (${why})` : ""}. Deploy the connection stack there, then check access again.`
+  }
+  if (code === "IDENTITY_MISMATCH") return `${role} answered as a different account. Check the account ID and the stack that was deployed.`
+  if (code.startsWith("UNREACHABLE")) return `Cyntro could not reach AWS to check access${code.includes(":") ? ` (${code.split(":")[1]})` : ""}. Check access again.`
+  if (code === "REGIONS_INVALID") return "The account has no valid Region recorded, so nothing was called."
+  if (code === "MEMBER_TRUST_MISSING") return "This installation's member trust is not established, so nothing was called."
+  return code ? `The access check did not reach the account (${code}).` : "The access check did not reach the account."
+}
+
+/** Where an activation stopped, in words (activation_last.step). */
+export function activationStepText(step: string | null | undefined): string {
+  const code = step || ""
+  if (code.startsWith("READ_ROLE:")) return `Cyntro could not use its read role in the account (${code.slice("READ_ROLE:".length)}).`
+  if (code === "MEMBER_TRUST_MISSING") return "This installation's member trust is not established."
+  if (code === "REGIONS_INVALID") return "The account has no valid Region recorded."
+  if (code === "RESULT_WRITE_REJECTED") return "Cyntro could not record the activation's result."
+  if (code === "ACQUISITION_BOUND_REACHED") return "The activation was attempted the maximum number of times without recording a result."
+  if (code === "ACQUISITION_COUNT_UNPROVEN") return "Cyntro could not prove how many times the activation had been attempted, so it stopped."
+  if (code === "REGISTRATION_STATE_CHANGED") return "The account changed while it was being activated."
+  return code ? `The activation stopped (${code}).` : "The activation stopped."
+}
+
+const DISPATCH_BLOCKERS: Record<string, string> = {
+  QUEUE_NOT_CONFIGURED: "this installation has no inventory queue configured; an installation administrator must configure one",
+  DEFERRED_LOW_BUDGET: "deferred because too little time was left; Cyntro retries on a later pass",
+  MALFORMED_RESPONSE: "the queue's answer could not be read; Cyntro retries on a later pass",
+  MISSING_FROM_RESPONSE: "the queue's answer did not cover every item; Cyntro retries on a later pass",
+  SCOPE_REVISION_UNKNOWN: "the account's scope revision could not be read",
+  ACTIVATION_MARKER_MISSING: "the account has no activation record",
+  REGISTRATION_IDENTITY_MALFORMED: "the account's registration identity is malformed",
+}
+
+/**
+ * The first collection's state, in words -- what the queue has accepted, never what has been collected. Null before
+ * activation, where there is no first inventory to speak of.
+ */
+export function firstInventoryText(dispatch: FirstInventoryDispatch | null | undefined): { tone: "pending" | "blocked" | "queued"; text: string } | null {
+  if (!dispatch) return null
+  const counted = `${dispatch.queued} of ${dispatch.intended} inventory work items queued`
+  switch (dispatch.state) {
+    case "NOT_STARTED": return { tone: "pending", text: "First collection not started: no inventory work is queued yet." }
+    case "PARTIALLY_QUEUED": return { tone: "pending", text: `First collection being queued: ${counted}.` }
+    case "BLOCKED": {
+      const code = dispatch.blocker || ""
+      const why = DISPATCH_BLOCKERS[code] ?? (code ? `the queue refused the work (${code})` : "no reason was recorded")
+      return { tone: "blocked", text: `First collection blocked: ${counted}; ${why}.` }
+    }
+    case "HELD": return { tone: "blocked", text: `First collection held (${dispatch.hold || "no reason recorded"}): its plan changed after work was queued.` }
+    case "ALL_QUEUED": {
+      const at = dispatch.completed_at ? ` on ${formatUtcInstantExact(dispatch.completed_at)}` : ""
+      return { tone: "queued", text: `First collection queued: the queue accepted all ${dispatch.intended} inventory work items${at}. Queued is not collected yet.` }
+    }
+    default: return { tone: "blocked", text: `First collection in a state Cyntro does not know (${dispatch.state}).` }
+  }
+}
+
+/** The last recorded connection check -- dated, and never a claim about access now. */
+export function lastConnectionCheckText(account: Pick<ManagedAccount, "last_validated_at" | "onboarding_status">): string | null {
+  if (!account.last_validated_at) return null
+  const at = formatUtcInstantExact(account.last_validated_at)
+  return account.onboarding_status === "CONNECTED"
+    ? `Last connection check ${at} reached the account. That is when access was last proven, not a live check.`
+    : `Last connection check ${at}.`
 }
 
 /** The connector's region rule (cyntro_data/accounts/connector.py REGION_RE). */
@@ -682,10 +941,10 @@ const ADMINISTRATOR_FIXES = new Set(["ROLE_NOT_USABLE", "NOT_PERMITTED", "OTHER_
 /**
  * What an unavailable listing means for adding an account, and who can change it -- in the person's terms, never the
  * setup itself (templates, role ARNs, external IDs and install settings belong to the installation administrator).
- * Adding an account needs the list (checkAccountId), so this never offers typing an ID as a way around it.
+ * Without the list an account can be added only on the guarded unverified path (option C), never as listed.
  */
 export function organizationDependencyText(reason?: string | null): string {
-  const needs = "Adding an account needs your organization's account list, so no account can be added here until one is available."
+  const needs = "Without your organization's account list, an account can be added only as unverified: Cyntro reads nothing in it until you check access and confirm."
   if (reason === "NOT_CONFIGURED") {
     return `${needs} Listing it needs a read-only role in your AWS organization, which your installation administrator sets up.`
   }
@@ -717,11 +976,13 @@ export function organizationAccountSelectable(account: OrganizationAccount): boo
 // (docs.aws.amazon.com/accounts/latest/reference/manage-acct-identifiers.html). The ID is taken exactly as typed: a wrong
 // length, a letter, a hyphen or a space is said as such, never stripped or cut down into some other ID.
 //
-// Working default (Codex, stated to Alon 2026-10-03): an ID can be reviewed and added only when this customer's
-// organization list -- read here (GET only) within the last 24 hours -- holds it as an ACTIVE account the backend
-// offers, and nothing on this page rules it out. Any other well-formed ID cannot be verified and is not added here:
-// the ID's shape proves nothing, and absence from a list never means an account does not exist. This is a gate in this
-// page, not server-enforced verification; registration itself is unchanged.
+// Option C (Alon, 2026-10-04: "picker plus guarded pending manual path"). An ID this customer's organization list -- read
+// here (GET only) within the last 24 hours -- holds as an ACTIVE account the backend offers is added as LISTED. A
+// well-formed ID with NO current evidence (no usable list, or a list that does not hold it) can be added only as
+// UNVERIFIED, with the operator's explicit acknowledgement: the connector then registers it without any AWS call, and
+// nothing is read until the operator checks access and confirms. An ID explicitly ruled out stays refused -- it is never
+// an unverified escape. The ID's shape proves nothing, and absence from a list never means an account does not exist. The
+// connector re-decides the evidence itself (the server's stamp, not this page's).
 
 /** The backend's own read-time expiry for a listing (cyntro_data/accounts/org_discovery.py RESULT_MAX_AGE). */
 export const ORGANIZATION_LIST_MAX_AGE_MS = 24 * 60 * 60 * 1000
@@ -813,7 +1074,8 @@ export interface AccountIdContext {
   now: number
 }
 
-const ONLY_LISTED = "Only an account in your organization's account list from the last 24 hours can be added here."
+const UNVERIFIED_ONLY =
+  "It can still be added as unverified, with your acknowledgement: Cyntro then reads nothing in it until you check access and confirm."
 
 /** One check for a typed and a chosen ID, recomputed for the current ID every time; there is no stored "verified". */
 export function checkAccountId(raw: string, context: AccountIdContext): AccountIdCheck {
@@ -823,7 +1085,7 @@ export function checkAccountId(raw: string, context: AccountIdContext): AccountI
   const accountId = format.accountId
   const ineligible = (short: string, reason: string): AccountIdCheck => ({ state: "INELIGIBLE", accountId, short, reason })
   const cannotVerify = (why: string): AccountIdCheck =>
-    ({ state: "CANNOT_VERIFY", accountId, short: "Cannot be verified", reason: `Cannot verify this account. ${why} ${ONLY_LISTED}` })
+    ({ state: "CANNOT_VERIFY", accountId, short: "Cannot be verified", reason: `Cannot verify this account. ${why} ${UNVERIFIED_ONLY}` })
 
   if (context.platformAccountId === accountId || context.accounts.some((a) => a.is_platform_account && a.account_id === accountId)) {
     return ineligible("The account Cyntro runs in", "This is the account Cyntro runs in; it is part of this installation already and is not added.")
@@ -856,9 +1118,21 @@ export function checkAccountId(raw: string, context: AccountIdContext): AccountI
     : `Not found in your organization's last list (listed ${when}).`)
 }
 
-/** Review and Add account go ahead only for an ID found in the current list. */
+/** An ID found in the current list: reviewed and added as LISTED, with no acknowledgement. */
 export function accountIdReviewable(check: AccountIdCheck): check is Extract<AccountIdCheck, { state: "LISTED" }> {
   return check.state === "LISTED"
+}
+
+/** An ID with no current evidence: reviewed and added only as UNVERIFIED, and only with the operator's acknowledgement. */
+export function accountIdUnverified(check: AccountIdCheck): check is Extract<AccountIdCheck, { state: "CANNOT_VERIFY" }> {
+  return check.state === "CANNOT_VERIFY"
+}
+
+/** Review goes ahead for a listed ID, or for an unverified one on the guarded path; never for a refused or malformed ID. */
+export function accountIdAddable(
+  check: AccountIdCheck,
+): check is Extract<AccountIdCheck, { state: "LISTED" }> | Extract<AccountIdCheck, { state: "CANNOT_VERIFY" }> {
+  return accountIdReviewable(check) || accountIdUnverified(check)
 }
 
 /** What a found ID's evidence shows -- and what it does not. */

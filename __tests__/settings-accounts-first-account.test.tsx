@@ -1,0 +1,269 @@
+/**
+ * Settings > Accounts, option C (S4): the first account's journey on the page -- check access, the explicit confirmation,
+ * the first collection while it is pending or blocked, the dated last check, and the recovery its states need (retry,
+ * release). Every row below is the REAL backend's listing, captured by executing the producer at saferemediate-backend
+ * b7a01033 (__tests__/fixtures/settings-c-producer/README.md); nothing is hand-written. The page sends only the requests
+ * asserted here, each naming exactly the registration and version the row shows.
+ */
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
+import { afterEach, describe, expect, it, vi } from "vitest"
+
+vi.mock("@/lib/account-scope-context", () => ({
+  useAccountScope: () => ({ customerId: "acme", refresh: vi.fn() }),
+}))
+vi.mock("@/components/left-sidebar-nav", () => ({ LeftSidebarNav: () => null }))
+
+import AccountSettingsPage from "@/app/settings/accounts/page"
+import { ACTIVATION_CHECK_MAX_AGE_MS, formatUtcInstantExact } from "@/lib/account-admin"
+import pending from "@/__tests__/fixtures/settings-c-producer/01_pending_unverified.json"
+import refused from "@/__tests__/fixtures/settings-c-producer/02_access_refused.json"
+import checking from "@/__tests__/fixtures/settings-c-producer/03_checking.json"
+import confirmable from "@/__tests__/fixtures/settings-c-producer/04_access_confirmable.json"
+import activating from "@/__tests__/fixtures/settings-c-producer/05_activating.json"
+import partially from "@/__tests__/fixtures/settings-c-producer/06_connected_partially_queued.json"
+import allQueued from "@/__tests__/fixtures/settings-c-producer/07_connected_all_queued.json"
+import blocked from "@/__tests__/fixtures/settings-c-producer/08_connected_blocked.json"
+import activationFailed from "@/__tests__/fixtures/settings-c-producer/09_activation_failed.json"
+import held from "@/__tests__/fixtures/settings-c-producer/10_held_owner.json"
+import released from "@/__tests__/fixtures/settings-c-producer/11_released.json"
+import connectPending from "@/__tests__/fixtures/settings-c-producer/12_connect_pending.json"
+
+const CUSTOMER = "acme"
+const MEMBER = "222222222222"
+const LIST = `/api/proxy/admin/accounts?customer_id=${CUSTOMER}`
+
+type Capture = { name: string; captured_at: string; body: { accounts: Array<Record<string, any>> } & Record<string, any> } & Record<string, any>
+
+const rowOf = (capture: Capture) => capture.body.accounts.find((account) => account.account_id === MEMBER) as Record<string, any>
+const registrationOf = (capture: Capture) => rowOf(capture).registration as Record<string, any>
+
+let fetchMock: ReturnType<typeof vi.fn>
+let current: Capture
+const posts: Array<{ url: string; body: Record<string, unknown> }> = []
+
+function json(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } })
+}
+
+function install(capture: Capture, answer?: (url: string) => Response, connect?: Capture) {
+  current = capture
+  posts.length = 0
+  fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input)
+    const method = init?.method || "GET"
+    if (url.startsWith("/api/proxy/admin/accounts/groups/all?")) return json({ customer_id: CUSTOMER, groups: [] })
+    if (url === LIST && method === "GET") return json(current.body)
+    if (url === `/api/proxy/admin/accounts/organization?customer_id=${CUSTOMER}` && method === "GET") {
+      return json({ customer_id: CUSTOMER, state: "NOT_RUN" })
+    }
+    if (connect && url === `/api/proxy/admin/accounts/${MEMBER}/connect?customer_id=${CUSTOMER}` && method === "GET") {
+      return json(connect.connect_response.body)
+    }
+    if (method === "POST") {
+      posts.push({ url, body: init?.body ? JSON.parse(String(init.body)) : {} })
+      return answer ? answer(url) : json({ customer_id: CUSTOMER, account_id: MEMBER, request_status: "queued", already_open: false }, 202)
+    }
+    return json({ detail: `unexpected ${method} ${url}` }, 404)
+  })
+  vi.stubGlobal("fetch", fetchMock)
+}
+
+async function mount(capture: Capture, now: number, answer?: (url: string) => Response, connect?: Capture) {
+  vi.useFakeTimers({ shouldAdvanceTime: true, now })
+  install(capture, answer, connect)
+  render(<AccountSettingsPage />)
+  return screen.findByTestId(`account-row-${MEMBER}`)
+}
+
+const at = (capture: Capture) => Date.parse(capture.captured_at)
+const step = (row: HTMLElement) => within(row).getByTestId(`registration-step-${MEMBER}`)
+
+afterEach(() => {
+  vi.useRealTimers()
+  vi.unstubAllGlobals()
+})
+
+describe("the producer's captures are what this suite renders", () => {
+  it.each([pending, refused, checking, confirmable, activating, partially, allQueued, blocked, activationFailed, held, released] as Capture[])(
+    "$name carries the member row with its registration progress", (capture) => {
+      expect(rowOf(capture).collection_mode).toBe("MEMBER_READ_ROLE")
+      expect(registrationOf(capture).registration_id).toMatch(/^[0-9a-f]{32}$/)
+    })
+})
+
+describe("pending: nothing is read until access is checked", () => {
+  it("an unverified registration says so, offers Connect and Check access, never Check connection", async () => {
+    const row = await mount(pending as Capture, at(pending as Capture))
+    expect(step(row)).toHaveAttribute("data-step", "CHECK_ACCESS")
+    expect(step(row)).toHaveTextContent("Not verified: Cyntro has read nothing in this account.")
+    expect(step(row)).toHaveTextContent("Cyntro assumes CyntroRead-acme there and asks AWS which account answered, and its name.")
+    expect(within(row).getByRole("button", { name: `Connect ${MEMBER}` })).toBeInTheDocument()
+    expect(within(row).queryByRole("button", { name: /Check connection/ })).toBeNull()
+    expect(within(row).queryByTestId(`first-collection-${MEMBER}`)).toBeNull()
+  })
+
+  it("Check access sends exactly the registration and version the row shows, to the access-check route", async () => {
+    const row = await mount(pending as Capture, at(pending as Capture))
+    fireEvent.click(within(row).getByRole("button", { name: `Check access to ${MEMBER}` }))
+    await waitFor(() => expect(posts).toHaveLength(1))
+    const registration = registrationOf(pending as Capture)
+    expect(posts[0]).toEqual({
+      url: `/api/proxy/admin/accounts/${MEMBER}/access-check?customer_id=${CUSTOMER}`,
+      body: { registration_id: registration.registration_id, registration_version: registration.registration_version },
+    })
+  })
+
+  it("a refused check is named, and the next step is checking again", async () => {
+    const row = await mount(refused as Capture, at(refused as Capture))
+    expect(within(row).getByTestId(`access-refused-${MEMBER}`)).toHaveTextContent(
+      "Cyntro could not use CyntroRead-acme in that account (AccessDenied). Deploy the connection stack there, then check access again.")
+    expect(within(row).getByRole("button", { name: `Check access to ${MEMBER}` })).toHaveTextContent("Check access again")
+  })
+
+  it("the producer's own 409 for a held step is said in its words, and nothing else is sent", async () => {
+    const refusal = (held as Capture).refused_post
+    const row = await mount(pending as Capture, at(pending as Capture), () => json(refusal.body, refusal.status))
+    fireEvent.click(within(row).getByRole("button", { name: `Check access to ${MEMBER}` }))
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      `Check access failed (HTTP 409): ${refusal.body.detail.reason}`)
+    expect(posts).toHaveLength(1)
+  })
+})
+
+describe("while the connector works, nothing is offered", () => {
+  it.each([[checking, "CHECKING"], [activating, "ACTIVATING"]] as const)("%#: %s", async (capture, kind) => {
+    const row = await mount(capture as Capture, at(capture as Capture))
+    expect(step(row)).toHaveAttribute("data-step", kind)
+    expect(within(step(row)).queryAllByRole("button")).toHaveLength(0)
+  })
+})
+
+describe("confirmation: the check reached, the operator confirms THAT check", () => {
+  const check = registrationOf(confirmable as Capture).access_check
+  const observed = Date.parse(check.identity_observed_at)
+
+  it("shows what was reached, the name AWS holds and until when it can be confirmed; confirming sends that check", async () => {
+    const row = await mount(confirmable as Capture, observed + 60_000)
+    expect(step(row)).toHaveAttribute("data-step", "CONFIRM")
+    expect(step(row)).toHaveTextContent(`Cyntro reached account ${MEMBER} through CyntroRead-acme, which trusts this installation`)
+    expect(step(row)).toHaveTextContent("Name in AWS: prod-payments")
+    expect(step(row)).toHaveTextContent(
+      `Confirm before ${formatUtcInstantExact(new Date(observed + ACTIVATION_CHECK_MAX_AGE_MS).toISOString())}`)
+    fireEvent.click(within(row).getByRole("button", { name: `Confirm account ${MEMBER}` }))
+    const dialog = await screen.findByRole("dialog", { name: `Start collecting from ${MEMBER}?` })
+    expect(within(dialog).getByTestId("confirm-name")).toHaveTextContent("Name in AWS: prod-payments")
+    expect(dialog).toHaveTextContent("It does not prove who owns the account")
+    expect(posts).toHaveLength(0)
+    fireEvent.click(within(dialog).getByRole("button", { name: /Confirm and start collecting/ }))
+    await waitFor(() => expect(posts).toHaveLength(1))
+    const registration = registrationOf(confirmable as Capture)
+    expect(posts[0]).toEqual({
+      url: `/api/proxy/admin/accounts/${MEMBER}/activate?customer_id=${CUSTOMER}`,
+      body: { registration_id: registration.registration_id, registration_version: registration.registration_version,
+              check_id: check.check_id },
+    })
+  })
+
+  it("a check exactly 15 minutes old is not confirmable: the page offers checking again instead", async () => {
+    const row = await mount(confirmable as Capture, observed + ACTIVATION_CHECK_MAX_AGE_MS)
+    expect(step(row)).toHaveAttribute("data-step", "CHECK_EXPIRED")
+    expect(within(row).queryByRole("button", { name: `Confirm account ${MEMBER}` })).toBeNull()
+    expect(within(row).getByRole("button", { name: `Check access to ${MEMBER}` })).toHaveTextContent("Check access again")
+  })
+
+  it("an open confirmation reads the wall clock again at the click: a check that expired sends nothing", async () => {
+    const row = await mount(confirmable as Capture, observed + ACTIVATION_CHECK_MAX_AGE_MS - 1_000)
+    fireEvent.click(within(row).getByRole("button", { name: `Confirm account ${MEMBER}` }))
+    const dialog = await screen.findByRole("dialog", { name: `Start collecting from ${MEMBER}?` })
+    vi.setSystemTime(observed + ACTIVATION_CHECK_MAX_AGE_MS)       // the clock moves; no timer has run
+    fireEvent.click(within(dialog).getByRole("button", { name: /Confirm and start collecting/ }))
+    expect(await within(dialog).findByTestId("confirm-stale")).toHaveTextContent("Nothing was sent.")
+    expect(posts).toHaveLength(0)
+  })
+
+  it("an open page turns a confirmable check into check-again on its own when it expires", async () => {
+    const row = await mount(confirmable as Capture, observed + ACTIVATION_CHECK_MAX_AGE_MS - 1_000)
+    expect(step(row)).toHaveAttribute("data-step", "CONFIRM")
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000)
+    })
+    expect(step(row)).toHaveAttribute("data-step", "CHECK_EXPIRED")
+  })
+})
+
+describe("collection starts: pending or blocked, never 'collected'", () => {
+  it.each([
+    [partially, "First collection being queued: 10 of 31 inventory work items queued."],
+    [blocked, "First collection blocked: 0 of 31 inventory work items queued; this installation has no inventory queue configured; an installation administrator must configure one."],
+  ] as const)("%#: the first collection is said as the queue holds it", async (capture, text) => {
+    const row = await mount(capture as Capture, at(capture as Capture))
+    expect(within(row).getByTestId(`first-collection-${MEMBER}`)).toHaveTextContent(text)
+  })
+
+  it("all queued is dispatch, not collection, and the date is the queue's", async () => {
+    const row = await mount(allQueued as Capture, at(allQueued as Capture))
+    const dispatch = registrationOf(allQueued as Capture).first_inventory_dispatch
+    expect(within(row).getByTestId(`first-collection-${MEMBER}`)).toHaveTextContent(
+      `First collection queued: the queue accepted all 31 inventory work items on ${formatUtcInstantExact(dispatch.completed_at)}. Queued is not collected yet.`)
+  })
+
+  it.each([partially, allQueued, blocked] as const)("%#: CONNECTED is dated by its last check and never said to be live", async (capture) => {
+    const row = await mount(capture as Capture, at(capture as Capture))
+    expect(within(row).getByTestId(`last-check-${MEMBER}`)).toHaveTextContent(
+      `Last connection check ${formatUtcInstantExact(rowOf(capture as Capture).last_validated_at)} reached the account. ` +
+      "That is when access was last proven, not a live check.")
+    expect(row).not.toHaveTextContent(/fully collected|collection complete|access verified now/i)
+    expect(within(row).getByRole("button", { name: /Check connection/ })).toBeInTheDocument()   // the connected lifecycle's own check
+  })
+})
+
+describe("recovery the journey's states need", () => {
+  it("a failed activation names its step and retries the SAME confirmed check", async () => {
+    const row = await mount(activationFailed as Capture, at(activationFailed as Capture))
+    expect(step(row)).toHaveTextContent("Activation failed: Cyntro could not use its read role in the account (MEMBER_ROLE_UNAVAILABLE).")
+    expect(step(row)).toHaveTextContent("Nothing is collected and reads are off.")
+    expect(within(row).queryByTestId(`first-collection-${MEMBER}`)).toBeNull()          // no first collection before activation
+    fireEvent.click(within(row).getByRole("button", { name: `Retry activation of ${MEMBER}` }))
+    await waitFor(() => expect(posts).toHaveLength(1))
+    const registration = registrationOf(activationFailed as Capture)
+    expect(posts[0]).toEqual({
+      url: `/api/proxy/admin/accounts/${MEMBER}/activate?customer_id=${CUSTOMER}`,
+      body: { registration_id: registration.registration_id, registration_version: registration.registration_version,
+              check_id: registration.activation.check_id },
+    })
+  })
+
+  it("a held step says why and that releasing reads nothing; Release sends the registration and version", async () => {
+    const row = await mount(held as Capture, at(held as Capture))
+    expect(step(row)).toHaveAttribute("data-step", "HELD")
+    expect(step(row)).toHaveTextContent("The access check could not record its result or move the account on.")
+    expect(step(row)).toHaveTextContent("Releasing makes no AWS call: the account goes back to a pending account whose access can be checked again, with reads off.")
+    expect(screen.getByText(/could not be moved out of CHECKING/)).toBeInTheDocument()     // the producer's failed-request detail
+    fireEvent.click(within(row).getByRole("button", { name: `Release account ${MEMBER}` }))
+    await waitFor(() => expect(posts).toHaveLength(1))
+    const registration = registrationOf(held as Capture)
+    expect(posts[0]).toEqual({
+      url: `/api/proxy/admin/accounts/${MEMBER}/release?customer_id=${CUSTOMER}`,
+      body: { registration_id: registration.registration_id, registration_version: registration.registration_version },
+    })
+  })
+
+  it("after a release the account is pending again, and its access can be checked", async () => {
+    const row = await mount(released as Capture, at(released as Capture))
+    expect(step(row)).toHaveAttribute("data-step", "CHECK_ACCESS")
+    expect(within(row).getByRole("button", { name: `Check access to ${MEMBER}` })).toBeEnabled()
+  })
+})
+
+describe("the Connect panel of a pending account", () => {
+  it("shows the stack, and its last step is the access check -- never Check connection", async () => {
+    const row = await mount(connectPending as Capture, at(connectPending as Capture), undefined, connectPending as Capture)
+    fireEvent.click(within(row).getByRole("button", { name: `Connect ${MEMBER}` }))
+    const panel = await screen.findByRole("dialog", { name: MEMBER })
+    expect(await within(panel).findByText("Check access, then confirm")).toBeInTheDocument()
+    expect(within(panel).getByTestId("connect-parameter-ExternalId")).toBeInTheDocument()
+    expect(within(panel).queryByRole("button", { name: "Check connection" })).toBeNull()
+    fireEvent.click(within(panel).getByRole("button", { name: `Check access to ${MEMBER}` }))
+    await waitFor(() => expect(posts.map((post) => post.url)).toEqual([`/api/proxy/admin/accounts/${MEMBER}/access-check?customer_id=${CUSTOMER}`]))
+  })
+})

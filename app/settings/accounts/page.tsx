@@ -25,13 +25,16 @@ import {
 import { LeftSidebarNav } from "@/components/left-sidebar-nav"
 import { AccountCoverageChips, ConnectAccountPanel, MemberStatusBadge } from "@/components/settings/connect-account-panel"
 import { OrganizationAccountPicker, useOrganizationDiscovery } from "@/components/settings/organization-account-picker"
+import { FirstCollectionStatus, RegistrationJourney } from "@/components/settings/registration-journey"
 import { useAccountScope } from "@/lib/account-scope-context"
 import { COVERAGE_PAGE_PATH, READY_MEANS_OPERATIONAL, coveragePageHref } from "@/lib/observation-coverage"
 import {
   MEMBER_ACCOUNTS_MODE,
   accountAdminFailure,
+  accountIdAddable,
   accountIdEvidenceText,
   accountIdReviewable,
+  accountIdUnverified,
   accountLabel,
   accountNameNote,
   checkAccountId,
@@ -40,9 +43,14 @@ import {
   organizationListingBoundary,
   discoveryCaveats,
   discoverySummary,
+  memberReadRoleName,
+  registrationActionPath,
   registrationFailed,
+  registrationRequestBody,
+  registrationStep,
   registryUnavailableDetail,
   type AccountIdCheck,
+  type RegistrationAction,
   type AccountListResponse,
   type FailedAccountRequest,
   type ManagedAccount,
@@ -82,10 +90,19 @@ const CHECK_WATCH_MS = 120_000
 const OPERATIONAL_STATUSES = new Set(["CONNECTED", "READY"])
 /** Member statuses from which the connection stack can be (re)deployed and checked. */
 const CONNECTABLE = new Set(["AWAITING_CONNECTION", "CONNECTION_FAILED", "CONNECTED"])
+/** Option C: the pending states whose next step needs the connection stack deployed (Connect shows it; Check connection
+ *  is not offered there -- the access check is). */
+const STACK_BEFORE_ACCESS = new Set(["PENDING_UNVERIFIED", "ACCESS_CONFIRMABLE", "ACTIVATION_FAILED"])
 /** A new registration opens the Connect panel once its row reaches one of these. */
-const OPEN_CONNECT_ON = new Set(["AWAITING_CONNECTION", "CONNECTED"])
+const OPEN_CONNECT_ON = new Set(["AWAITING_CONNECTION", "CONNECTED", "PENDING_UNVERIFIED"])
 
-const REQUEST_ACTION_LABEL: Record<string, string> = { register: "Registration", validate: "Connection check" }
+const REQUEST_ACTION_LABEL: Record<string, string> = {
+  register: "Registration", validate: "Connection check", access_check: "Access check", activate: "Activation", release: "Release",
+}
+/** The journey request each action sends, named as the page says it. */
+const REGISTRATION_ACTION_LABEL: Record<RegistrationAction, string> = {
+  access_check: "Check access", activate: "Confirmation", release: "Release",
+}
 
 function statusStyle(status: string) {
   if (["CONNECTED", "READY"].includes(status)) return "bg-emerald-50 text-emerald-700 border-emerald-200"
@@ -133,6 +150,8 @@ export default function AccountSettingsPage() {
   const [awaitingConnect, setAwaitingConnect] = useState<{ accountId: string; requestedAt: string } | null>(null)
   const [checks, setChecks] = useState<Record<string, { requestedAt: string; startedAt: number }>>({})
   const [dismissedFailures, setDismissedFailures] = useState<string[]>([])
+  // Option C: the account whose journey request (check access, confirm, release) is being sent.
+  const [journeyBusy, setJourneyBusy] = useState<string | null>(null)
 
   const mounted = useRef(true)
   const loadSeq = useRef(0)
@@ -271,6 +290,43 @@ export default function AccountSettingsPage() {
     setChecks((current) => ({ ...current, [accountId]: { requestedAt, startedAt: Date.now() } }))
     void load("quiet")
     return requestedAt
+  }
+
+  /** Option C: one journey request for the registration and version the operator is looking at (and, to confirm, the
+   *  check they confirm). The connector decides it; the page then re-reads the list, which shows the open request. */
+  async function requestRegistrationAction(account: ManagedAccount, action: RegistrationAction, checkId?: string) {
+    if (!customerId || !account.registration) return
+    setJourneyBusy(account.account_id)
+    setActionError(null)
+    try {
+      const response = await fetch(registrationActionPath(action, account.account_id, customerId), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(registrationRequestBody(account.registration, checkId)),
+      })
+      if (!response.ok) throw await accountAdminFailure(response, REGISTRATION_ACTION_LABEL[action])
+      const body = await response.json().catch(() => ({}))
+      if (body?.already_open === true) {
+        setNotice(`${REGISTRATION_ACTION_LABEL[action]} for ${account.account_id} was already requested; Cyntro is still working on it.`)
+      }
+      await load("quiet")
+    } catch (reason) {
+      setActionError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setJourneyBusy(null)
+    }
+  }
+
+  function journeyFor(account: ManagedAccount) {
+    if (!customerId || !account.registration) return null
+    return (
+      <RegistrationJourney
+        account={account}
+        customerId={customerId}
+        busy={journeyBusy === account.account_id || Boolean(account.pending_request)}
+        onAction={(action, checkId) => requestRegistrationAction(account, action, checkId)}
+      />
+    )
   }
 
   async function validate(accountId: string) {
@@ -532,6 +588,7 @@ export default function AccountSettingsPage() {
                   account={account}
                   columns={tableColumns}
                   checking={validating === account.account_id || Boolean(checks[account.account_id]) || account.pending_request?.action === "validate"}
+                  journey={journeyFor(account)}
                   onConnect={() => setConnectFor(account.account_id)}
                   onCheck={() => void validate(account.account_id)}
                 />
@@ -617,16 +674,22 @@ export default function AccountSettingsPage() {
           }}
         />
       ) : null}
-      {connectFor && customerId ? (
-        <ConnectAccountPanel
-          customerId={customerId}
-          accountId={connectFor}
-          account={allAccounts.find((account) => account.account_id === connectFor) || null}
-          failedRequests={failedRequests}
-          onClose={() => setConnectFor(null)}
-          onCheckConnection={requestConnectionCheck}
-        />
-      ) : null}
+      {connectFor && customerId ? (() => {
+        const account = allAccounts.find((row) => row.account_id === connectFor) || null
+        // Option C: a registration not yet in the connected lifecycle is checked by its access check, never Check connection.
+        const preActivation = account && registrationStep(account, Date.now()) !== null && !CONNECTABLE.has(account.onboarding_status)
+        return (
+          <ConnectAccountPanel
+            customerId={customerId}
+            accountId={connectFor}
+            account={account}
+            failedRequests={failedRequests}
+            onClose={() => setConnectFor(null)}
+            onCheckConnection={requestConnectionCheck}
+            accessStep={preActivation && account ? journeyFor(account) : null}
+          />
+        )
+      })() : null}
     </div>
   )
 }
@@ -646,12 +709,15 @@ function MemberAccountRow({
   account,
   columns,
   checking,
+  journey,
   onConnect,
   onCheck,
 }: {
   account: ManagedAccount
   columns: string
   checking: boolean
+  /** Option C: the registration's next step (check access, confirm, retry, release), or null. */
+  journey: React.ReactNode
   onConnect: () => void
   onCheck: () => void
 }) {
@@ -659,6 +725,8 @@ function MemberAccountRow({
   // A control-plane install runs Cyntro in its own account and never collects it (CYNTRO_PLATFORM_DATA_ACCOUNT=false).
   const controlPlane = platform && account.data_account === false
   const connectable = !platform && CONNECTABLE.has(account.onboarding_status)
+  // Option C: before its access is proven the stack can be deployed (Connect), but the check is the access check.
+  const stackOnly = !platform && STACK_BEFORE_ACCESS.has(account.onboarding_status)
   const summary = account.onboarding_status === "CONNECTED" ? discoverySummary(account.sources) : null
   const caveats = account.onboarding_status === "CONNECTED" ? discoveryCaveats(account.sources) : []
   const pending = account.pending_request
@@ -697,6 +765,8 @@ function MemberAccountRow({
         {summary ? <p className="text-[11px] text-slate-500">{summary}</p> : null}
         {caveats.map((caveat) => <p key={caveat} className="text-[11px] text-amber-800">{caveat}</p>)}
         <AccountCoverageChips accountId={account.account_id} coverage={account.coverage} regionsNotServed={account.regions_not_served} />
+        {journey}
+        {!platform ? <FirstCollectionStatus account={account} /> : null}
         {pending ? (
           <p className="inline-flex items-center gap-1 text-[11px] text-slate-500">
             <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
@@ -710,6 +780,15 @@ function MemberAccountRow({
         <AccessPill enabled={account.mutation_enabled}>Mutate</AccessPill>
       </div>
       <div className="flex flex-wrap justify-end gap-2">
+        {stackOnly ? (
+          <button
+            onClick={onConnect}
+            aria-label={`Connect ${accountLabel(account)}`}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-teal-200 px-3 py-1.5 text-xs font-semibold text-teal-700 hover:bg-teal-50"
+          >
+            <Link2 className="h-3 w-3" /> Connect
+          </button>
+        ) : null}
         {connectable ? (
           <>
             <button
@@ -888,8 +967,10 @@ function EnvironmentSelect({ value, onChange }: { value: string; onChange: (valu
  *
  * The ID is checked as it is typed or chosen, at Review and again at Add account, with one check for both paths
  * (lib/account-admin.ts checkAccountId): its format exactly as typed, the platform account, accounts added or being
- * added, and this customer's organization list, read here (GET only) when the dialog opens. Only an ID found in a list
- * from the last 24 hours can be added; any other cannot be verified and is said so -- never said not to exist.
+ * added, and this customer's organization list, read here (GET only) when the dialog opens. Option C (Alon, 2026-10-04):
+ * an ID found in a list from the last 24 hours is added as listed; a well-formed ID with no current evidence can be added
+ * only as UNVERIFIED -- its own review, the operator's explicit acknowledgement, and no AWS call until they check access
+ * and confirm. An ID ruled out stays refused. Add account sends only the kind that was reviewed, still true at the click.
  */
 function MemberAddAccountDialog({
   customerId,
@@ -910,6 +991,10 @@ function MemberAddAccountDialog({
   const [error, setError] = useState<string | null>(null)
   // Adding is a deliberate step: the details are reviewed with what happens next before anything is submitted.
   const [step, setStep] = useState<"details" | "confirm">("details")
+  // What was reviewed: a listed ID, or an unverified one on the guarded path. Add sends only that kind, still true then.
+  const [reviewed, setReviewed] = useState<"LISTED" | "UNVERIFIED" | null>(null)
+  // The operator's acknowledgement for an unverified ID: given in its review, never carried over from another.
+  const [acknowledged, setAcknowledged] = useState(false)
   // Where the details come from: typed (the default) or chosen from the organization's listed accounts, which only
   // fills this form (components/settings/organization-account-picker.tsx).
   const [source, setSource] = useState<"manual" | "organization">("manual")
@@ -930,30 +1015,43 @@ function MemberAddAccountDialog({
   const checkAt = (at: number) => checkAccountId(raw, { accounts, platformAccountId, organization, now: at })
   const check = checkAt(now)
   const accountId = check.state === "EMPTY" || check.state === "MALFORMED" ? "" : check.accountId
-  const ready = Boolean(customerId) && accountIdReviewable(check)
-  // Said before anything is typed: without a current list, no ID can be added here (typing is not a way around it).
+  const ready = Boolean(customerId) && accountIdAddable(check)
+  // Said before anything is typed: without a current list, an ID can be added only as unverified.
   const listing = organizationListing(organization, now)
   const listingProblem = "cannotVerify" in listing ? listing.cannotVerify : null
+  const stillReviewed = (current: AccountIdCheck) =>
+    reviewed === "LISTED" ? accountIdReviewable(current) : reviewed === "UNVERIFIED" ? accountIdUnverified(current) : false
+  const addable = ready && step === "confirm" && stillReviewed(check) && (reviewed !== "UNVERIFIED" || acknowledged)
 
   function review() {
     const at = Date.now()
     setNow(at)
-    if (customerId && accountIdReviewable(checkAt(at))) setStep("confirm")
+    const current = checkAt(at)
+    if (!customerId || !accountIdAddable(current)) return
+    setReviewed(accountIdReviewable(current) ? "LISTED" : "UNVERIFIED")
+    setAcknowledged(false)
+    setStep("confirm")
   }
 
   async function submit() {
-    // Checked again here, against what the page holds and the wall clock now; anything short of found sends nothing.
+    // Checked again here, against what the page holds and the wall clock now: only the kind that was reviewed -- and, for
+    // an unverified ID, only with the acknowledgement given in its review -- is sent.
     const at = Date.now()
     setNow(at)
     const current = checkAt(at)
-    if (!customerId || !accountIdReviewable(current) || step !== "confirm") return
+    if (!customerId || step !== "confirm" || !stillReviewed(current) || !accountIdAddable(current)) return
+    const unverified = reviewed === "UNVERIFIED"
+    if (unverified && !acknowledged) return
     setSubmitting(true)
     setError(null)
     try {
       const response = await fetch("/api/proxy/admin/accounts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ customer_id: customerId, account_id: current.accountId }),
+        // The acknowledgement is the operator's; the server stamps it with the verified person and decides the evidence.
+        body: JSON.stringify(unverified
+          ? { customer_id: customerId, account_id: current.accountId, acknowledge_unverified: true }
+          : { customer_id: customerId, account_id: current.accountId }),
       })
       if (!response.ok) throw await accountAdminFailure(response, "Registration")
       const body = await response.json().catch(() => ({}))
@@ -1001,7 +1099,6 @@ function MemberAddAccountDialog({
             customerId={customerId}
             reader={organization}
             checkAccount={(id) => checkAccountId(id, { accounts, platformAccountId, organization, now })}
-            manualEntryUsable={listingProblem === null}
             onEnterManually={() => setSource("manual")}
             onChoose={(account) => {
               setRaw(account.accountId)
@@ -1013,8 +1110,9 @@ function MemberAddAccountDialog({
         <div className="grid grid-cols-2 gap-4 p-6">
           {listingProblem ? (
             <p data-testid="account-id-dependency" className="col-span-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
-              An account can be added only when it is in your organization&apos;s account list from the last 24 hours.{" "}
-              {listingProblem} &ldquo;Choose from your organization&rdquo; shows the list&apos;s status.
+              Without a current organization list, an account can be added only as unverified: Cyntro reads nothing in it
+              until you check access and confirm. {listingProblem} &ldquo;Choose from your organization&rdquo; shows the
+              list&apos;s status.
             </p>
           ) : null}
           {chosen && chosen.accountId === accountId ? (
@@ -1028,7 +1126,7 @@ function MemberAddAccountDialog({
               onChange={(event) => setRaw(event.target.value)}
               placeholder="12-digit account ID"
               inputMode="numeric"
-              aria-invalid={check.state === "INELIGIBLE" || check.state === "CANNOT_VERIFY" || (check.state === "MALFORMED" && !check.incomplete)}
+              aria-invalid={check.state === "INELIGIBLE" || (check.state === "MALFORMED" && !check.incomplete)}
               aria-describedby={check.state === "EMPTY" ? "add-account-name-from-aws" : "add-account-id-check add-account-name-from-aws"}
               className="mt-2 w-full rounded-lg border border-slate-200 p-3 font-mono font-normal outline-none focus:border-teal-500"
             /></label>
@@ -1037,13 +1135,18 @@ function MemberAddAccountDialog({
             <p id="add-account-name-from-aws" className="mt-1.5 text-xs text-slate-500">The account&apos;s name is read from AWS once it connects.</p>
           </div>
         </div>
-        ) : accountIdReviewable(check) ? (
+        ) : reviewed === "LISTED" && accountIdReviewable(check) ? (
           <AddAccountConfirmation check={check} />
+        ) : reviewed === "UNVERIFIED" && accountIdUnverified(check) ? (
+          <UnverifiedAddConfirmation check={check} role={memberReadRoleName(customerId || "")} acknowledged={acknowledged} onAcknowledge={setAcknowledged} />
         ) : (
           // The page learned something since Review (a registry refresh, an organization read): said, and Add is off.
           <div className="p-6">
             <p role="alert" data-testid="account-id-recheck" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-              {check.state === "INELIGIBLE" || check.state === "CANNOT_VERIFY" ? check.reason : check.state === "MALFORMED" ? check.problem : "Enter an AWS account ID."} Nothing was added.
+              {check.state === "INELIGIBLE" || check.state === "CANNOT_VERIFY" ? check.reason
+                : check.state === "MALFORMED" ? check.problem
+                : check.state === "LISTED" ? "Your organization's list now holds this account. Go back and review it again."
+                : "Enter an AWS account ID."} Nothing was added.
             </p>
           </div>
         )}
@@ -1061,8 +1164,8 @@ function MemberAddAccountDialog({
               Review
             </button>
           ) : (
-            <button disabled={!ready || submitting} onClick={() => void submit()} className="inline-flex items-center gap-2 rounded-lg bg-teal-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">
-              {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Add account
+            <button disabled={!addable || submitting} onClick={() => void submit()} className="inline-flex items-center gap-2 rounded-lg bg-teal-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">
+              {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} {reviewed === "UNVERIFIED" ? "Add as unverified" : "Add account"}
             </button>
           )}
         </div>
@@ -1102,9 +1205,45 @@ function AddAccountConfirmation({ check }: { check: Extract<AccountIdCheck, { st
   )
 }
 
+/**
+ * Option C: adding an ID with no current evidence, said before it is done -- in the connector's own terms (S1b: the
+ * unverified registration makes no AWS call; S2: the access check's three calls; S3a: only the confirmation turns reads on).
+ * The acknowledgement is required, given here, and never pre-ticked.
+ */
+function UnverifiedAddConfirmation({
+  check,
+  role,
+  acknowledged,
+  onAcknowledge,
+}: {
+  check: Extract<AccountIdCheck, { state: "CANNOT_VERIFY" }>
+  role: string
+  acknowledged: boolean
+  onAcknowledge: (value: boolean) => void
+}) {
+  return (
+    <div data-testid="add-account-unverified-confirmation" className="space-y-4 p-6 text-sm text-slate-700">
+      <p className="text-base font-semibold text-slate-900">Add AWS account {check.accountId} as unverified?</p>
+      <p data-testid="account-id-evidence" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">{check.reason}</p>
+      <ul className="list-disc space-y-1.5 pl-5">
+        <li>Cyntro registers the account as pending and makes no AWS call: nothing in it is read.</li>
+        <li>Next, deploy the connection stack in that account; it is shown once the account is added.</li>
+        <li>Then check access: Cyntro assumes {role} there and asks AWS which account answered, and its name. AWS may log these calls in that account. Nothing else is read.</li>
+        <li>If the check reaches the account, you confirm it. Only your confirmation turns reading on and starts collection.</li>
+        <li>Read access only: nothing in the account is changed.</li>
+      </ul>
+      <label className="flex items-start gap-2 rounded-lg border border-slate-200 p-3 text-xs">
+        <input type="checkbox" checked={acknowledged} onChange={(event) => onAcknowledge(event.target.checked)} className="mt-0.5" />
+        <span>I recognise account {check.accountId} and want to add it, although Cyntro cannot verify it against my organization&apos;s account list.</span>
+      </label>
+    </div>
+  )
+}
+
 /** What the account ID check found, beside the field; announced politely as it changes. */
 function AccountIdFeedback({ check }: { check: AccountIdCheck }) {
-  const refused = check.state === "INELIGIBLE" || check.state === "CANNOT_VERIFY" || (check.state === "MALFORMED" && !check.incomplete)
+  // Option C: an unverifiable ID is not refused -- it can be added on the guarded unverified path -- but it is said plainly.
+  const refused = check.state === "INELIGIBLE" || (check.state === "MALFORMED" && !check.incomplete)
   const text =
     check.state === "MALFORMED" ? check.problem
     : check.state === "INELIGIBLE" || check.state === "CANNOT_VERIFY" ? check.reason
