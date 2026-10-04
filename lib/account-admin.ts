@@ -500,9 +500,18 @@ export function registrationStep(
   }
 }
 
-/** The next instant a CONFIRM step stops being confirmable, so an open page changes on its own; null otherwise. */
+/**
+ * The next instant the step changes by the clock alone, so an open page changes on its own; null when it never will:
+ * a CONFIRM step stops being confirmable; a REACHED check observed ahead of this browser's clock (the server's clock leads)
+ * becomes confirmable when the browser reaches its observation.
+ */
 export function registrationStepBoundary(step: RegistrationStep | null, now: number): number | null {
-  return step?.kind === "CONFIRM" && step.confirmableUntil > now ? step.confirmableUntil : null
+  if (step?.kind === "CONFIRM") return step.confirmableUntil > now ? step.confirmableUntil : null
+  if (step?.kind === "CHECK_EXPIRED" && step.check?.outcome === "REACHED") {
+    const at = observedAt(step.check)
+    return !Number.isNaN(at) && at > now && at - now < ACTIVATION_CHECK_MAX_AGE_MS ? at : null
+  }
+  return null
 }
 
 const STEP_LABEL: Record<string, string> = { register: "registration", access_check: "access check", activate: "activation" }

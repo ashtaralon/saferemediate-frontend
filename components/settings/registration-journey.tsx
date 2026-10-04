@@ -24,14 +24,20 @@ import {
   type RegistrationStep,
 } from "@/lib/account-admin"
 
-/** The wall clock, moved on at the step's boundary (a confirmable check expiring) so an open page changes on its own. */
+/**
+ * The step judged by the CURRENT wall clock on every render -- a row the producer changed since mount (a new check result
+ * arriving through a poll or Refresh) is never judged by a stale clock (Codex S4 20fc F1) -- plus a wake-up at the step's
+ * next boundary (a confirmable check expiring, or one observed slightly ahead of this browser's clock coming into range),
+ * so an open page also changes on its own when nothing re-renders it.
+ */
 function useStep(account: ManagedAccount): [RegistrationStep | null, () => RegistrationStep | null] {
-  const [now, setNow] = useState(() => Date.now())
+  const [, wake] = useState(0)
+  const now = Date.now()
   const step = registrationStep(account, now)
   const boundary = registrationStepBoundary(step, now)
   useEffect(() => {
     if (boundary === null) return
-    const timer = window.setTimeout(() => setNow(Date.now()), Math.min(Math.max(0, boundary - Date.now()) + 1, 2 ** 31 - 1))
+    const timer = window.setTimeout(() => wake((n) => n + 1), Math.min(Math.max(0, boundary - Date.now()) + 1, 2 ** 31 - 1))
     return () => window.clearTimeout(timer)
   }, [boundary])
   // An action reads the wall clock again itself: a check that expired with no timer firing sends nothing.
@@ -106,6 +112,12 @@ export function RegistrationJourney({
             Not verified: Cyntro has read nothing in this account. Deploy the connection stack in it (Connect), then check
             access: Cyntro assumes {role} there and asks AWS which account answered, and its name. AWS may log these calls in
             that account; nothing else is read.
+          </p>
+        ) : Date.parse(step.check?.identity_observed_at ?? "") > Date.now() ? (
+          // The server's clock leads this browser's: the page wakes when it reaches the check (registrationStepBoundary).
+          <p>
+            The last access check was recorded at {at(step.check?.identity_observed_at)}, ahead of this browser&apos;s clock; it
+            can be confirmed once the clock reaches it.
           </p>
         ) : (
           <p>

@@ -5,8 +5,9 @@ These are the REAL backend's responses, captured by executing the producer, neve
 
 - Producer: saferemediate-backend `b7a010334abb228abb39c6d9cb7c4f970f59bde7` (Settings C S3b-F, source-accepted and pushed
   to `claude/settings-first-account-c`), from a detached clean tree.
-- Generator: `agent-coordinator/claude-settings-c-s4-evidence-2026-10-04/test_s4_producer_captures.py`
-  (sha256 `2a07d8c77a27327cc6284d5e1e210715f661a872af5e11893b758e5d63fa4662`). It is run with pytest inside that backend tree.
+- Generator: `agent-coordinator/claude-settings-c-s4f-evidence-2026-10-04/test_s4_producer_captures.py`
+  (sha256 `c27f4a55d4ab279ff96a4e867166464ffabdb8fafdc3e8c21b20e06d905a436c`; 01-12 were written by its earlier revision 2a07d8c7..., which
+  differs only in lacking the appended 13a/13b test; a rerun writes new timestamps, so 01-12 are kept as captured). It is run with pytest inside that backend tree.
 - Harness:
   - the backend's own API harness: the real router, the real repository on moto DynamoDB, the real person verification
     and the real connector on moto STS/SQS/Organizations;
@@ -17,6 +18,9 @@ These are the REAL backend's responses, captured by executing the producer, neve
   - definite transaction rejections at its transaction client.
 - Identifiers are the backend test harness's own: tenant `acme`, member `222222222222` and platform `111111111111`.
   The timestamps are the capture's wall clock.
+
+13a/13b are one registration checked twice, the second time with the connector's own injectable clock 20 minutes later (as
+the backend suites move it). That makes a genuine later observation with a new check_id.
 
 Each file is one state the first-account journey enters: `body` is GET /api/admin/accounts, and `*_response` is a POST or
 GET that the step made. Regenerate them; do not edit them.

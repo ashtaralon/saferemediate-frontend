@@ -27,6 +27,8 @@ import activationFailed from "@/__tests__/fixtures/settings-c-producer/09_activa
 import held from "@/__tests__/fixtures/settings-c-producer/10_held_owner.json"
 import released from "@/__tests__/fixtures/settings-c-producer/11_released.json"
 import connectPending from "@/__tests__/fixtures/settings-c-producer/12_connect_pending.json"
+import firstCheck from "@/__tests__/fixtures/settings-c-producer/13a_access_confirmable_first.json"
+import recheck from "@/__tests__/fixtures/settings-c-producer/13b_access_confirmable_rechecked.json"
 
 const CUSTOMER = "acme"
 const MEMBER = "222222222222"
@@ -84,7 +86,8 @@ afterEach(() => {
 })
 
 describe("the producer's captures are what this suite renders", () => {
-  it.each([pending, refused, checking, confirmable, activating, partially, allQueued, blocked, activationFailed, held, released] as Capture[])(
+  it.each([pending, refused, checking, confirmable, activating, partially, allQueued, blocked, activationFailed, held, released,
+             firstCheck, recheck] as Capture[])(
     "$name carries the member row with its registration progress", (capture) => {
       expect(rowOf(capture).collection_mode).toBe("MEMBER_READ_ROLE")
       expect(registrationOf(capture).registration_id).toMatch(/^[0-9a-f]{32}$/)
@@ -188,6 +191,81 @@ describe("confirmation: the check reached, the operator confirms THAT check", ()
       await vi.advanceTimersByTimeAsync(2_000)
     })
     expect(step(row)).toHaveAttribute("data-step", "CHECK_EXPIRED")
+  })
+})
+
+describe("a result arriving on the open page is judged by the clock NOW (Codex S4 20fc F1)", () => {
+  const observedOf = (capture: Capture) => Date.parse(registrationOf(capture).access_check.identity_observed_at)
+  const refresh = () => fireEvent.click(screen.getByRole("button", { name: "Refresh accounts" }))
+  const stepNow = () => step(screen.getByTestId(`account-row-${MEMBER}`))
+
+  it("pending -> a check that reached, published through Refresh on the same mounted page, is confirmable", async () => {
+    const observed = observedOf(confirmable as Capture)
+    const row = await mount(pending as Capture, observed - 60_000)
+    expect(step(row)).toHaveAttribute("data-step", "CHECK_ACCESS")
+    vi.setSystemTime(observed + 1_000)
+    current = confirmable as Capture
+    refresh()
+    await waitFor(() => expect(stepNow()).toHaveAttribute("data-step", "CONFIRM"))
+  })
+
+  it("a page opened long before the check (the stack deployed meanwhile) shows Confirm when the result arrives", async () => {
+    // More than the 15-minute bound between the page's first render and the check: no clock-boundary wake-up can bridge
+    // that, so only judging every render by the current clock shows the fresh check as confirmable.
+    const observed = observedOf(confirmable as Capture)
+    const row = await mount(pending as Capture, observed - 20 * 60_000)
+    expect(step(row)).toHaveAttribute("data-step", "CHECK_ACCESS")
+    vi.setSystemTime(observed + 1_000)
+    current = confirmable as Capture
+    refresh()
+    await waitFor(() => expect(stepNow()).toHaveAttribute("data-step", "CONFIRM"))
+    expect(stepNow()).not.toHaveTextContent("ahead of this browser's clock")
+  })
+
+  it("checking -> confirmable arrives through the page's own poll, with no Refresh and no remount", async () => {
+    const observed = observedOf(confirmable as Capture)
+    const row = await mount(checking as Capture, observed - 30_000)     // its open request keeps the page polling
+    expect(step(row)).toHaveAttribute("data-step", "CHECKING")
+    vi.setSystemTime(observed + 2_000)
+    current = confirmable as Capture
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4_500)
+    })
+    await waitFor(() => expect(stepNow()).toHaveAttribute("data-step", "CONFIRM"))
+  })
+
+  it("expiry -> a fresh re-check on the same page is confirmable again, and confirming sends the NEW check", async () => {
+    const first = observedOf(firstCheck as Capture)
+    const row = await mount(firstCheck as Capture, first + 60_000)
+    expect(step(row)).toHaveAttribute("data-step", "CONFIRM")
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ACTIVATION_CHECK_MAX_AGE_MS)
+    })
+    expect(stepNow()).toHaveAttribute("data-step", "CHECK_EXPIRED")
+    vi.setSystemTime(observedOf(recheck as Capture) + 30_000)
+    current = recheck as Capture
+    refresh()
+    await waitFor(() => expect(stepNow()).toHaveAttribute("data-step", "CONFIRM"))
+    fireEvent.click(screen.getByRole("button", { name: `Confirm account ${MEMBER}` }))
+    const dialog = await screen.findByRole("dialog", { name: `Start collecting from ${MEMBER}?` })
+    fireEvent.click(within(dialog).getByRole("button", { name: /Confirm and start collecting/ }))
+    await waitFor(() => expect(posts).toHaveLength(1))
+    const registration = registrationOf(recheck as Capture)
+    expect(registration.access_check.check_id).not.toBe(registrationOf(firstCheck as Capture).access_check.check_id)
+    expect(posts[0].body).toEqual({ registration_id: registration.registration_id,
+                                    registration_version: registration.registration_version,
+                                    check_id: registration.access_check.check_id })
+  })
+
+  it("a check recorded ahead of this browser's clock says so, then becomes confirmable on its own", async () => {
+    const observed = observedOf(confirmable as Capture)
+    const row = await mount(confirmable as Capture, observed - 2_000)
+    expect(step(row)).toHaveAttribute("data-step", "CHECK_EXPIRED")
+    expect(step(row)).toHaveTextContent("ahead of this browser's clock; it can be confirmed once the clock reaches it.")
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000)
+    })
+    expect(stepNow()).toHaveAttribute("data-step", "CONFIRM")
   })
 })
 
