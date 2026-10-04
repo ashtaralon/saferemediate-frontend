@@ -676,6 +676,23 @@ export function organizationUnavailableText(reason?: string | null): string {
   return `The organization's accounts cannot be listed${reason ? ` (${reason})` : ""}.`
 }
 
+/** The listing problems only an installation administrator can fix (the role, its permissions, its organization). */
+const ADMINISTRATOR_FIXES = new Set(["ROLE_NOT_USABLE", "NOT_PERMITTED", "OTHER_ORGANIZATION", "INSTALL_ORGANIZATION_UNKNOWN"])
+
+/**
+ * What an unavailable listing means for adding an account, and who can change it -- in the person's terms, never the
+ * setup itself (templates, role ARNs, external IDs and install settings belong to the installation administrator).
+ * Adding an account needs the list (checkAccountId), so this never offers typing an ID as a way around it.
+ */
+export function organizationDependencyText(reason?: string | null): string {
+  const needs = "Adding an account needs your organization's account list, so no account can be added here until one is available."
+  if (reason === "NOT_CONFIGURED") {
+    return `${needs} Listing it needs a read-only role in your AWS organization, which your installation administrator sets up.`
+  }
+  if (reason && ADMINISTRATOR_FIXES.has(reason)) return `${needs} Your installation administrator needs to check this installation's organization listing role.`
+  return `${needs} The list can be asked for again.`
+}
+
 const ORGANIZATION_WHY_NOT: Record<string, string> = {
   PLATFORM_ACCOUNT: "The account Cyntro runs in",
   MANAGEMENT_ACCOUNT: "The organization's management account",

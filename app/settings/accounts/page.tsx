@@ -36,6 +36,7 @@ import {
   accountNameNote,
   checkAccountId,
   connectionCheckOutcome,
+  organizationListing,
   organizationListingBoundary,
   discoveryCaveats,
   discoverySummary,
@@ -930,6 +931,9 @@ function MemberAddAccountDialog({
   const check = checkAt(now)
   const accountId = check.state === "EMPTY" || check.state === "MALFORMED" ? "" : check.accountId
   const ready = Boolean(customerId) && accountIdReviewable(check)
+  // Said before anything is typed: without a current list, no ID can be added here (typing is not a way around it).
+  const listing = organizationListing(organization, now)
+  const listingProblem = "cannotVerify" in listing ? listing.cannotVerify : null
 
   function review() {
     const at = Date.now()
@@ -997,6 +1001,7 @@ function MemberAddAccountDialog({
             customerId={customerId}
             reader={organization}
             checkAccount={(id) => checkAccountId(id, { accounts, platformAccountId, organization, now })}
+            manualEntryUsable={listingProblem === null}
             onEnterManually={() => setSource("manual")}
             onChoose={(account) => {
               setRaw(account.accountId)
@@ -1006,6 +1011,12 @@ function MemberAddAccountDialog({
           />
         ) : step === "details" ? (
         <div className="grid grid-cols-2 gap-4 p-6">
+          {listingProblem ? (
+            <p data-testid="account-id-dependency" className="col-span-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+              An account can be added only when it is in your organization&apos;s account list from the last 24 hours.{" "}
+              {listingProblem} &ldquo;Choose from your organization&rdquo; shows the list&apos;s status.
+            </p>
+          ) : null}
           {chosen && chosen.accountId === accountId ? (
             <p data-testid="chosen-from-organization" className="col-span-2 rounded-lg border border-teal-200 bg-teal-50 p-3 text-xs text-teal-800">
               Filled from your organization: {chosen.accountId}, named &ldquo;{chosen.name}&rdquo; in AWS Organizations. Nothing has been added. Review, then add it.

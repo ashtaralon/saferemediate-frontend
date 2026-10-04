@@ -15,6 +15,7 @@ import {
   accountAdminFailure,
   formatUtcInstantExact,
   organizationAccountSelectable,
+  organizationDependencyText,
   organizationUnavailableText,
   organizationWhyNotText,
   type AccountIdCheck,
@@ -22,7 +23,6 @@ import {
   type OrganizationDiscovery,
   type OrganizationReadState,
 } from "@/lib/account-admin"
-import { CopyButton } from "@/components/settings/connect-account-panel"
 
 const DISCOVERY_POLL_MS = 4000
 /** Consecutive failed reads after which reading stops on its own; "Read again" then reads once more (never re-asks). */
@@ -133,6 +133,7 @@ export function OrganizationAccountPicker({
   onEnterManually,
   reader,
   checkAccount,
+  manualEntryUsable = true,
 }: {
   customerId: string | null
   onChoose: (account: { accountId: string; name: string }) => void
@@ -143,6 +144,9 @@ export function OrganizationAccountPicker({
   /** The Add dialog's own account ID check (lib/account-admin.ts checkAccountId): an account is offered only when that
    *  check finds it in the current list with nothing ruling it out. */
   checkAccount?: (accountId: string) => AccountIdCheck
+  /** Whether a typed ID can pass the Add dialog's check now (a current list is held). When it cannot, typing an ID is
+   *  not offered as an alternative. */
+  manualEntryUsable?: boolean
 }) {
   const own = useOrganizationDiscovery(reader ? null : customerId)
   const { answer: discovery, loading, error, polling, reload: load } = reader ?? own
@@ -185,9 +189,20 @@ export function OrganizationAccountPicker({
       {label}
     </button>
   )
+  // Offered only beside a current list: typing an ID goes through the same check, which needs that list.
   const manualButton = (
     <button type="button" onClick={onEnterManually} className="text-sm font-semibold text-slate-600 underline">
       Enter an account ID instead
+    </button>
+  )
+  // Reads the status again (GET); it never asks for a new listing.
+  const refreshButton = (
+    <button
+      type="button"
+      onClick={() => void load()}
+      className="rounded-lg border border-teal-700 px-3 py-1.5 text-sm font-semibold text-teal-700"
+    >
+      Refresh status
     </button>
   )
 
@@ -229,14 +244,13 @@ export function OrganizationAccountPicker({
           >
             Try again
           </button>
-          {manualButton}
         </div>
       ) : null}
 
       {state === "NOT_RUN" ? (
         <div className="space-y-3">
-          <p>Your organization&apos;s accounts have not been listed for this installation yet.</p>
-          <div className="flex items-center gap-4">{findButton("Find accounts")}{manualButton}</div>
+          <p>Your organization&apos;s accounts have not been listed for this installation yet. Adding an account needs that list.</p>
+          <div className="flex items-center gap-4">{findButton("Find accounts")}</div>
         </div>
       ) : null}
 
@@ -251,7 +265,6 @@ export function OrganizationAccountPicker({
             >
               Read again
             </button>
-            {manualButton}
           </div>
         </div>
       ) : state === "RUNNING" ? (
@@ -260,21 +273,24 @@ export function OrganizationAccountPicker({
 
       {state === "EXPIRED" ? (
         <div className="space-y-3">
-          <p>The last list is more than 24 hours old, so it is not offered.</p>
+          <p>The last list is more than 24 hours old, so it is not offered. Adding an account needs a list from the last 24 hours.</p>
           <OrganizationSource discovery={discovery} />
-          <div className="flex items-center gap-4">{findButton("Find accounts")}{manualButton}</div>
+          <div className="flex items-center gap-4">{findButton("Find accounts")}</div>
         </div>
       ) : null}
 
       {state === "UNAVAILABLE" ? (
         <div className="space-y-3" data-testid="organization-unavailable">
           <p className="font-semibold text-slate-900">{organizationUnavailableText(discovery?.reason)}</p>
+          <p data-testid="organization-dependency">{organizationDependencyText(discovery?.reason)}</p>
           <OrganizationSource discovery={discovery} />
-          {discovery?.setup ? <DiscoverySetup setup={discovery.setup} /> : null}
-          {!discovery?.setup && (discovery?.reason === "NOT_CONFIGURED" || discovery?.reason === "ROLE_NOT_USABLE") ? (
-            <p className="text-xs text-slate-500">The values to set it up are not available from this installation yet; see INSTALL.md, section 8.</p>
-          ) : null}
-          <div className="flex items-center gap-4">{findButton("Check again")}{manualButton}</div>
+          {/* The setup values the backend sends (template, role, external ID) are the installation administrator's,
+              not this form's: they are not shown here. */}
+          <div className="flex items-center gap-4">{refreshButton}{findButton("List accounts again")}</div>
+          <p className="text-xs text-slate-500">
+            Refresh status only reads the current status. List accounts again asks Cyntro to list your organization&apos;s
+            accounts again, for after the listing has been set up or fixed; it adds nothing.
+          </p>
         </div>
       ) : null}
 
@@ -338,7 +354,7 @@ export function OrganizationAccountPicker({
             Choosing an account only fills in its ID. The listing grants Cyntro no access to any account: Cyntro reads an
             account only after the connection stack is deployed in it.
           </p>
-          <div className="flex items-center gap-4">{findButton("Find accounts again")}{manualButton}</div>
+          <div className="flex items-center gap-4">{findButton("Find accounts again")}{manualEntryUsable ? manualButton : null}</div>
         </div>
       ) : null}
     </div>
@@ -360,31 +376,5 @@ function OrganizationSource({ discovery }: { discovery: OrganizationDiscovery | 
       <span className="font-mono text-slate-700">{source.account_id}</span>. This is what the last discovery recorded,
       not a fresh read of this installation&apos;s current configuration.
     </p>
-  )
-}
-
-/** The discovery role's parameters, exactly as the backend returned them (setup_parameters); never filled in here. */
-function DiscoverySetup({ setup }: { setup: { template: string; parameters: Record<string, string> } }) {
-  const parameters = Object.entries(setup.parameters || {})
-  return (
-    <div data-testid="organization-setup" className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs">
-      <p>
-        To set it up, deploy <span className="font-mono">{setup.template}</span> (in this installation&apos;s bundle) in your
-        organization&apos;s management account, or an account delegated AWS Organizations read, with:
-      </p>
-      <dl className="space-y-1">
-        {parameters.map(([name, value]) => (
-          <div key={name} className="flex items-center gap-2">
-            <dt className="w-48 shrink-0 font-semibold text-slate-600">{name}</dt>
-            <dd className="min-w-0 flex-1 truncate font-mono text-slate-800">{value}</dd>
-            <CopyButton value={value} label={`Copy ${name}`} />
-          </div>
-        ))}
-      </dl>
-      <p>
-        Then set the stack&apos;s OrgDiscoveryRoleArn output as ORG_DISCOVERY_ROLE_ARN in this installation&apos;s install.env and
-        re-run the installer. The role can only list account IDs, names and states.
-      </p>
-    </div>
   )
 }

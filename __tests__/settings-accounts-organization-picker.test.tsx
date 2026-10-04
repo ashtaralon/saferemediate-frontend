@@ -169,7 +169,8 @@ describe("Settings > Accounts — choose from your organization", () => {
       },
     })
     const { picker } = await openPicker()
-    await within(picker).findByText("Your organization's accounts have not been listed for this installation yet.")
+    await within(picker).findByText("Your organization's accounts have not been listed for this installation yet. Adding an account needs that list.")
+    expect(within(picker).queryByRole("button", { name: "Enter an account ID instead" })).toBeNull()   // no list yet, so no way around it
     expect(discoverPosts()).toHaveLength(0)
 
     fireEvent.click(within(picker).getByRole("button", { name: "Find accounts" }))
@@ -355,51 +356,60 @@ describe("Settings > Accounts — choose from your organization", () => {
     await within(picker).findByText("No accounts were listed.")
   })
 
-  it("not configured shows the backend's setup values exactly as returned, each copyable", async () => {
+  it("not configured (Alon, rehearsal.27): says what adding needs and who sets it up -- never the setup values themselves", async () => {
     installFetch({
       organization: () => json({ customer_id: CUSTOMER, state: "UNAVAILABLE", reason: "NOT_CONFIGURED", requested_at: "2026-10-03T09:15:00.000000+00:00", setup: SETUP }),
       discover: () => json({ customer_id: CUSTOMER, request_status: "queued", requested_at: "2026-10-03T09:16:00.000000+00:00", already_open: false }, 202),
     })
     const { picker } = await openPicker()
-    const setup = await within(picker).findByTestId("organization-setup")
-    expect(picker).toHaveTextContent("Choosing from your organization is not set up for this installation.")
-    expect(setup).toHaveTextContent(SETUP.template)
+    await within(picker).findByText("Choosing from your organization is not set up for this installation.")
+    expect(within(picker).getByTestId("organization-dependency")).toHaveTextContent(
+      "Adding an account needs your organization's account list, so no account can be added here until one is available. " +
+      "Listing it needs a read-only role in your AWS organization, which your installation administrator sets up.")
+    // The backend still sends the setup values; they are the administrator's, not this form's.
+    expect(within(picker).queryByTestId("organization-setup")).toBeNull()
+    expect(picker).not.toHaveTextContent(SETUP.template)
     for (const [name, value] of Object.entries(SETUP.parameters)) {
-      expect(setup).toHaveTextContent(name)
-      expect(setup).toHaveTextContent(value)
-      expect(within(setup).getByRole("button", { name: `Copy ${name}` })).toBeInTheDocument()
+      expect(picker).not.toHaveTextContent(name)
+      expect(picker).not.toHaveTextContent(value)
     }
-    expect(within(setup).getAllByRole("button", { name: /^Copy / })).toHaveLength(3)
-    expect(setup).toHaveTextContent("ORG_DISCOVERY_ROLE_ARN")
+    expect(picker).not.toHaveTextContent(/ORG_DISCOVERY_ROLE_ARN|install\.env|INSTALL\.md|\.yaml|ExternalId/)
+    expect(within(picker).queryAllByRole("button", { name: /^Copy / })).toHaveLength(0)
+    expect(within(picker).queryByRole("button", { name: "Check again" })).toBeNull()
+    // Typing an ID is not offered as a way around it: the same check needs the list.
+    expect(within(picker).queryByRole("button", { name: "Enter an account ID instead" })).toBeNull()
 
-    fireEvent.click(within(picker).getByRole("button", { name: "Check again" }))
+    // Refresh status only reads.
+    const reads = organizationReads().length
+    fireEvent.click(within(picker).getByRole("button", { name: "Refresh status" }))
+    await waitFor(() => expect(organizationReads()).toHaveLength(reads + 1))
+    expect(discoverPosts()).toHaveLength(0)
+    // Listing again is its own, labelled, deliberate ask.
+    fireEvent.click(within(picker).getByRole("button", { name: "List accounts again" }))
     await waitFor(() => expect(discoverPosts()).toHaveLength(1))
     expect(registrations()).toHaveLength(0)
   })
 
-  it("without setup values from the backend, none are shown or made up", async () => {
-    installFetch({ organization: () => json({ customer_id: CUSTOMER, state: "UNAVAILABLE", reason: "NOT_CONFIGURED" }) })
-    const { picker } = await openPicker()
-    await within(picker).findByText("Choosing from your organization is not set up for this installation.")
-    expect(within(picker).queryByTestId("organization-setup")).toBeNull()
-    expect(picker).not.toHaveTextContent(/ExternalId|AccountConnectorRoleArn|TenantId/)
-    expect(picker).toHaveTextContent("see INSTALL.md, section 8")
-  })
-
+  const NEEDS = "Adding an account needs your organization's account list, so no account can be added here until one is available."
+  const ADMIN = `${NEEDS} Your installation administrator needs to check this installation's organization listing role.`
   it.each([
-    ["INSTALL_ORGANIZATION_UNKNOWN", "Cyntro could not read which AWS Organization this installation belongs to"],
-    ["ROLE_NOT_USABLE", "Cyntro could not use the organization discovery role."],
-    ["NOT_PERMITTED", "The organization discovery role is not allowed to list the organization's accounts."],
-    ["OTHER_ORGANIZATION", "answers for a different AWS Organization than this installation's"],
-    ["DISCOVERY_FAILED", "Listing the organization's accounts failed."],
-    ["SOMETHING_NEW", "The organization's accounts cannot be listed (SOMETHING_NEW)."],
-  ])("UNAVAILABLE %s is said in words, with no rows and manual entry one click away", async (reason, words) => {
+    ["INSTALL_ORGANIZATION_UNKNOWN", "Cyntro could not read which AWS Organization this installation belongs to", ADMIN],
+    ["ROLE_NOT_USABLE", "Cyntro could not use the organization discovery role.", ADMIN],
+    ["NOT_PERMITTED", "The organization discovery role is not allowed to list the organization's accounts.", ADMIN],
+    ["OTHER_ORGANIZATION", "answers for a different AWS Organization than this installation's", ADMIN],
+    ["DISCOVERY_FAILED", "Listing the organization's accounts failed.", `${NEEDS} The list can be asked for again.`],
+    ["SOMETHING_NEW", "The organization's accounts cannot be listed (SOMETHING_NEW).", `${NEEDS} The list can be asked for again.`],
+  ])("UNAVAILABLE %s is said in words with what it means for adding; no rows, and no way around it offered", async (reason, words, dependency) => {
     installFetch({ organization: () => json({ customer_id: CUSTOMER, state: "UNAVAILABLE", reason }) })
     const { dialog, picker } = await openPicker()
     await within(picker).findByText(new RegExp(words.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")))
+    expect(within(picker).getByTestId("organization-dependency")).toHaveTextContent(dependency)
     expect(within(picker).queryAllByTestId(/^organization-account-/)).toHaveLength(0)
-    fireEvent.click(within(picker).getByRole("button", { name: "Enter an account ID instead" }))
-    expect(within(dialog).getByLabelText("AWS account ID")).toBeInTheDocument()
+    expect(within(picker).queryByRole("button", { name: "Enter an account ID instead" })).toBeNull()
+    // The manual tab says the same before anything is typed.
+    fireEvent.click(within(dialog).getByRole("tab", { name: "Enter account ID" }))
+    expect(within(dialog).getByTestId("account-id-dependency")).toHaveTextContent(
+      "An account can be added only when it is in your organization's account list from the last 24 hours.")
   })
 
   it("an expired list is not offered, even rows sent with it; a fresh one can be asked for", async () => {
@@ -409,21 +419,23 @@ describe("Settings > Accounts — choose from your organization", () => {
       discover: () => json({ customer_id: CUSTOMER, request_status: "queued", requested_at: "2026-10-03T09:15:00.000000+00:00", already_open: false }, 202),
     })
     const { picker } = await openPicker()
-    await within(picker).findByText("The last list is more than 24 hours old, so it is not offered.")
+    await within(picker).findByText(/^The last list is more than 24 hours old, so it is not offered\./)
     expect(within(picker).queryAllByTestId(/^organization-account-/)).toHaveLength(0)
+    expect(within(picker).queryByRole("button", { name: "Enter an account ID instead" })).toBeNull()
     fireEvent.click(within(picker).getByRole("button", { name: "Find accounts" }))
     await waitFor(() => expect(discoverPosts()).toHaveLength(1))
   })
 
-  it("a refused read says why, and the account ID can still be entered", async () => {
+  it("a refused read says why; typing an ID is not offered as a way around it", async () => {
     installFetch({ organization: () => json({ detail: { code: "PERSON_NOT_AUTHORIZED" } }, 403) })
     const { dialog, picker } = await openPicker()
     const alert = await within(picker).findByRole("alert")
     // Said in words first; the backend's own detail stays beneath it.
     expect(alert).toHaveTextContent("Cyntro could not read your organization's accounts.")
     expect(alert).toHaveTextContent("Organization accounts refused (HTTP 403): Your sign-in is not permitted to administer this account.")
-    fireEvent.click(within(picker).getByRole("button", { name: "Enter an account ID instead" }))
-    expect(within(dialog).getByLabelText("AWS account ID")).toBeInTheDocument()
+    expect(within(picker).queryByRole("button", { name: "Enter an account ID instead" })).toBeNull()
+    fireEvent.click(within(dialog).getByRole("tab", { name: "Enter account ID" }))
+    expect(within(dialog).getByTestId("account-id-dependency")).toHaveTextContent("Cyntro could not read your organization's account list.")
   })
 
   it("signing keys that could not be loaded are said as such, never as a bad sign-in, and Try again only reads", async () => {
@@ -465,7 +477,7 @@ describe("Settings > Accounts — choose from your organization", () => {
     const alert = await within(picker).findByRole("alert")
     expect(alert).toHaveTextContent("Cyntro could not ask for your organization's accounts.")
     expect(alert).toHaveTextContent("Finding accounts refused (HTTP 401): Your sign-in could not be verified")
-    expect(within(picker).getByText("Your organization's accounts have not been listed for this installation yet.")).toBeInTheDocument()
+    expect(within(picker).getByText("Your organization's accounts have not been listed for this installation yet. Adding an account needs that list.")).toBeInTheDocument()
     expect(registrations()).toHaveLength(0)
   })
 })

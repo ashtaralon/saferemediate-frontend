@@ -290,6 +290,35 @@ describe("Add AWS account — the ID is checked before Review", () => {
     expect(writes()).toHaveLength(0)
   })
 
+  it("with no organization answer, the form says what adding needs before anything is typed", async () => {
+    installFetch({ organization: () => json({ detail: { code: "PREVIEW_CAPTURE_UNAVAILABLE" } }, 503) })
+    const dialog = await openDialog()
+    await waitFor(() => expect(within(dialog).getByTestId("account-id-dependency")).toHaveTextContent(
+      "An account can be added only when it is in your organization's account list from the last 24 hours. " +
+      "Cyntro could not read your organization's account list. “Choose from your organization” shows the list's status."))
+    expect(within(dialog).getByLabelText("AWS account ID")).toHaveValue("")
+    expect(writes()).toHaveLength(0)
+  })
+
+  it("a current list removes that notice, and the picker offers typing an ID only beside a list this page can use", async () => {
+    installFetch({ organization: () => json(listing(CLOCK)) })
+    const dialog = await openDialog()
+    await waitFor(() => expect(within(dialog).queryByTestId("account-id-dependency")).toBeNull())
+    fireEvent.click(within(dialog).getByRole("tab", { name: "Choose from your organization" }))
+    await within(dialog).findByTestId("organization-account-222233334444")
+    expect(within(dialog).getByRole("button", { name: "Enter an account ID instead" })).toBeInTheDocument()
+  })
+
+  it("a list the backend still calls AVAILABLE but this page finds 24 hours old offers no way to type around it", async () => {
+    installFetch({ organization: () => json(listing(CLOCK, ORGANIZATION_LIST_MAX_AGE_MS + MINUTE)) })
+    const dialog = await openDialog()
+    await waitFor(() => expect(within(dialog).getByTestId("account-id-dependency")).toHaveTextContent("is more than 24 hours old."))
+    fireEvent.click(within(dialog).getByRole("tab", { name: "Choose from your organization" }))
+    await within(dialog).findByTestId("organization-account-222233334444")
+    expect(within(dialog).queryByRole("button", { name: "Enter an account ID instead" })).toBeNull()
+    expect(within(dialog).getByRole("button", { name: "Find accounts again" })).toBeInTheDocument()
+  })
+
   it("454545454545 when the current list does not hold it: not found in that list, Review off", async () => {
     installFetch({ organization: () => json(listing(CLOCK)) })
     const dialog = await openDialog()
@@ -403,7 +432,9 @@ describe("Add AWS account — the ID is checked before Review", () => {
     fireEvent.click(within(dialog).getByRole("tab", { name: "Choose from your organization" }))
     fireEvent.click(await within(dialog).findByRole("button", { name: "Find accounts again" }))   // an explicit ask
     await waitFor(() => expect(organizationReads()).toHaveLength(2))
-    fireEvent.click(within(dialog).getByRole("button", { name: "Enter an account ID instead" }))
+    // The failed refresh also withdraws the picker's "Enter an account ID instead": the same check would refuse it.
+    await waitFor(() => expect(within(dialog).queryByRole("button", { name: "Enter an account ID instead" })).toBeNull())
+    fireEvent.click(within(dialog).getByRole("tab", { name: "Enter account ID" }))
     await waitFor(() => expect(feedback(dialog)).toHaveTextContent(
       `Cannot verify this account. Cyntro could not read your organization's account list. ${ONLY_LISTED}`))
     expect(review(dialog)).toBeDisabled()
