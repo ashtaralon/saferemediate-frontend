@@ -609,3 +609,16 @@ describe("the page's poll rule (accountNeedsPolling)", () => {
     expect(accountNeedsPolling({ onboarding_status: status, pending_request: { action: "withdraw", status: "queued" } })).toBe(true)
   })
 })
+
+describe("each member account opens its own page", () => {
+  it("the account's name links to /accounts/{id} and Inventory to its Inventory tab; the platform account has neither", async () => {
+    const row = await mount(k2Measured as Capture, at(k2Measured as Capture))
+    expect(within(row).getByRole("link", { name: `Open account ${MEMBER}` })).toHaveAttribute("href", `/accounts/${MEMBER}`)
+    expect(within(row).getByRole("link", { name: `Inventory of ${MEMBER}` })).toHaveAttribute("href", `/accounts/${MEMBER}?tab=inventory`)
+    const platform = (k2Measured as Capture).body.accounts.find((account) => account.is_platform_account)
+    if (platform) {
+      const platformRow = screen.getByTestId(`account-row-${platform.account_id}`)
+      expect(within(platformRow).queryByRole("link", { name: /Open account|Inventory of/ })).toBeNull()
+    }
+  })
+})

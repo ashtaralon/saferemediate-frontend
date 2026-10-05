@@ -744,16 +744,32 @@ function MemberAccountRow({
         <div className="flex flex-wrap items-center gap-2">
           {/* A member account: the name AWS holds for it (the backend's display_name for a named member account), or
               its ID until that is read -- never a typed label. */}
-          {platform || account.aws_account_name ? (
+          {platform ? (
             <span className="truncate text-sm font-semibold">{accountLabel(account)}</span>
           ) : (
-            <span className="truncate font-mono text-sm font-semibold">{account.account_id}</span>
+            // Its own page: overview and inventory (/accounts/{id}).
+            <Link
+              href={`/accounts/${encodeURIComponent(account.account_id)}`}
+              aria-label={`Open account ${account.account_id}`}
+              className={`truncate text-sm font-semibold text-slate-900 underline-offset-2 hover:text-teal-700 hover:underline ${account.aws_account_name ? "" : "font-mono"}`}
+            >
+              {account.aws_account_name ? accountLabel(account) : account.account_id}
+            </Link>
           )}
           {platform ? <span className="rounded bg-teal-50 px-1.5 py-0.5 text-[10px] font-bold text-teal-800">Cyntro platform account</span> : null}
         </div>
         {platform || account.aws_account_name ? <p className="mt-1 font-mono text-xs text-slate-500">{account.account_id}</p> : null}
         {!platform && accountNameNote(account) ? <p data-testid={`account-name-note-${account.account_id}`} className="mt-1 text-[11px] text-slate-500">{accountNameNote(account)}</p> : null}
         <p className="mt-1 truncate text-[11px] text-slate-400">{account.regions?.length ? account.regions.join(", ") : "No regions recorded"}</p>
+        {!platform ? (
+          <Link
+            href={`/accounts/${encodeURIComponent(account.account_id)}?tab=inventory`}
+            aria-label={`Inventory of ${account.account_id}`}
+            className="mt-1 inline-block text-[11px] font-semibold text-teal-700 hover:text-teal-800"
+          >
+            Inventory
+          </Link>
+        ) : null}
       </div>
       <span className="text-xs font-semibold text-slate-600">{account.environment}</span>
       <div className="min-w-0 space-y-1.5">

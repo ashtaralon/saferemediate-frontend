@@ -1,0 +1,102 @@
+/**
+ * The account page (/accounts/{accountId}, Alon 2026-10-05): opened from Settings > Accounts, an Overview of what the account
+ * registry knows and an Inventory tab hosting the published account inventory (T11b). Every input is a real producer capture:
+ * the listing from saferemediate-backend's own route (fixtures/settings-c-producer, README), the inventory from the real
+ * account-inventory route's goldens (fixtures/account-inventory, their _provenance).
+ */
+import { readFileSync } from "node:fs"
+import { resolve } from "node:path"
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+
+let search = new URLSearchParams()
+const replace = vi.fn((url: string) => { search = new URLSearchParams(url.split("?")[1] ?? "") })
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ replace, push: replace }),
+  usePathname: () => "/accounts/x",
+  useSearchParams: () => search,
+}))
+vi.mock("@/lib/account-scope-context", () => ({
+  useAccountScope: () => ({ customerId: "acme", region: "all", loading: false, options: { accounts: [] }, refresh: vi.fn() }),
+}))
+vi.mock("@/components/left-sidebar-nav", () => ({ LeftSidebarNav: () => null }))
+
+import AccountRoute from "@/app/accounts/[accountId]/page"
+import measured from "@/__tests__/fixtures/settings-c-producer/27_k2_collected_measured.json"
+import withdrawn from "@/__tests__/fixtures/settings-c-producer/25_withdrawn.json"
+import pending from "@/__tests__/fixtures/settings-c-producer/01_pending_unverified.json"
+
+const MEMBER = "222222222222"
+const inventory = (name: string) =>
+  JSON.parse(readFileSync(resolve(process.cwd(), "__tests__/fixtures/account-inventory", `${name}.json`), "utf8"))
+
+function serve(listing: { body: unknown }, inventoryGolden?: { status: number; body: unknown }) {
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input)
+    if (url === "/api/proxy/admin/accounts?customer_id=acme") return new Response(JSON.stringify(listing.body), { status: 200 })
+    if (url.startsWith("/api/proxy/accounts/") && inventoryGolden) {
+      return new Response(JSON.stringify(inventoryGolden.body), { status: inventoryGolden.status, headers: { "cache-control": "no-store" } })
+    }
+    return new Response(JSON.stringify({ detail: `unexpected ${url}` }), { status: 404 })
+  }))
+}
+
+async function open(accountId: string) {
+  await act(async () => { render(<AccountRoute params={Promise.resolve({ accountId })} />) })
+}
+
+beforeEach(() => { search = new URLSearchParams(); replace.mockClear() })
+afterEach(() => { vi.unstubAllGlobals() })
+
+describe("the account page's Overview", () => {
+  it("names the account as AWS does and lists its first inventory by resource type, a count only where its run measured it", async () => {
+    serve(measured as never)
+    await open(MEMBER)
+    const row = (measured as any).body.accounts.find((a: any) => a.account_id === MEMBER)
+    expect(await screen.findByTestId("account-page-title")).toHaveTextContent(row.aws_account_name)
+    const table = await screen.findByTestId("first-inventory-by-type")
+    const outcome = row.registration.first_inventory
+    expect(within(table).getAllByRole("row")).toHaveLength(outcome.items.length + 1)
+    expect(screen.getByText(new RegExp(`${outcome.facts_emitted_total} resource records in all`))).toBeInTheDocument()
+    // Largest measured first: the producer's own top item.
+    const top = [...outcome.items].sort((a: any, b: any) => b.facts_emitted - a.facts_emitted)[0]
+    expect(within(table).getAllByRole("row")[1]).toHaveTextContent(String(top.facts_emitted))
+  })
+
+  it("a registration that was never activated has no first inventory to list", async () => {
+    serve(pending as never)
+    await open(MEMBER)
+    expect(await screen.findByTestId("first-inventory-by-type-empty")).toHaveTextContent("No first inventory yet")
+  })
+
+  it("an account no longer listed (removed) is said so, not shown as empty", async () => {
+    serve(withdrawn as never)
+    await open(MEMBER)
+    expect(await screen.findByTestId("account-not-listed")).toHaveTextContent(`Account ${MEMBER} is not in this installation's account list`)
+  })
+})
+
+describe("the account page's Inventory tab", () => {
+  it("is chosen in the URL and hosts the published inventory of exactly the path account", async () => {
+    const golden = inventory("populated_page1")
+    const account = golden.body.account_id
+    serve(measured as never, golden)
+    await open(account)
+    fireEvent.click(screen.getByRole("tab", { name: "Inventory" }))
+    expect(replace).toHaveBeenCalledWith("/accounts/x?tab=inventory")
+    search = new URLSearchParams("tab=inventory")
+    await act(async () => { render(<AccountRoute params={Promise.resolve({ accountId: account })} />) })
+    const first = golden.body.rows[1]
+    await waitFor(() => expect(screen.getAllByText(first.name).length).toBeGreaterThan(0))
+    const calls = (fetch as any).mock.calls.map((call: any[]) => String(call[0]))
+    expect(calls.some((url: string) => url.startsWith(`/api/proxy/accounts/${account}/inventory`))).toBe(true)
+  })
+
+  it("leaving the Inventory tab drops its filter from the URL", async () => {
+    search = new URLSearchParams("tab=inventory&resource_type=ec2:instance")
+    serve(measured as never, inventory("populated_page1"))
+    await open(MEMBER)
+    fireEvent.click(screen.getByRole("tab", { name: "Overview" }))
+    expect(replace).toHaveBeenLastCalledWith("/accounts/x")
+  })
+})

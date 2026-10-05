@@ -678,6 +678,9 @@ export function firstInventoryText(dispatch: FirstInventoryDispatch | null | und
 }
 
 const UNAVAILABLE_REASONS: Record<string, string> = {
+  // AccountOnboarding Phase1 step 3 (f288960c): K2 binds only the stamp admission admits now.
+  PLAN_SCOPE_SUPERSEDED: "the recorded plan predates this account's scope change; the next check replaces it",
+  SCOPE_REVISION_UNKNOWN: "this account's scope revision cannot be read",
   PLAN_NOT_BOUND: "the recorded plan is not this registration's",
   RUN_STORE_NOT_CONFIGURED: "this installation's console cannot read collection runs",
   RUN_MISMATCH: "a run record does not match its work item",
@@ -747,6 +750,49 @@ export function firstInventoryOutcomeText(
       return { tone: "blocked", text: `First inventory status cannot be read now: ${unavailableReason(outcome.reason)}. This is not a result.` }
     default: return { tone: "blocked", text: `First inventory in a state Cyntro does not know (${outcome.state}).` }
   }
+}
+
+/** The inventory families' names as the account page shows them; an unlisted family is shown as the backend sent it. */
+const SOURCE_TYPE_LABELS: Record<string, string> = {
+  account_regions: "Regions", ec2_inventory: "EC2 instances", vpcs: "VPCs", subnets: "Subnets", route_tables: "Route tables",
+  internet_gateways: "Internet gateways", nat_gateways: "NAT gateways", network_acls: "Network ACLs",
+  network_interfaces: "Network interfaces", security_groups: "Security groups", vpc_endpoints: "VPC endpoints",
+  load_balancers: "Load balancers", load_balancer_listeners: "Load balancer listeners", target_groups: "Target groups",
+  lambda_functions: "Lambda functions", rds_instances: "RDS instances", rds_clusters: "RDS clusters",
+  s3_buckets: "S3 buckets", iam_roles: "IAM roles", iam_policies: "IAM policies", eks_clusters: "EKS clusters",
+  k8s_objects: "Kubernetes objects", organization_policy_context: "Organization policy context",
+  s3_authorization_controls: "S3 bucket policies", kms_authorization_controls: "KMS key policies",
+  lambda_authorization_controls: "Lambda resource policies", sqs_authorization_controls: "SQS queue policies",
+  sns_authorization_controls: "SNS topic policies", secretsmanager_authorization_controls: "Secrets Manager policies",
+  eventbridge_authorization_controls: "EventBridge policies",
+  vpc_endpoint_authorization_controls: "VPC endpoint policies",
+}
+
+export function sourceTypeLabel(sourceType: string): string {
+  return SOURCE_TYPE_LABELS[sourceType] ?? sourceType
+}
+
+/** One row of the first inventory by resource type: what its run reports, and a count only when that run measured it. */
+export interface FirstInventoryTypeRow {
+  sourceType: string
+  label: string
+  region: string | null
+  state: string
+  /** The resource records the run emitted; null when the run did not measure it (never shown as zero). */
+  records: number | null
+}
+
+/** The first inventory, one row per work item (each is one resource type in one Region), largest measured count first. */
+export function firstInventoryByType(outcome: FirstInventoryOutcome | null | undefined): FirstInventoryTypeRow[] {
+  if (!outcome) return []
+  const rows = outcome.items.map((item) => ({
+    sourceType: item.source_type,
+    label: sourceTypeLabel(item.source_type),
+    region: item.region ?? null,
+    state: item.state,
+    records: typeof item.facts_emitted === "number" && Number.isFinite(item.facts_emitted) ? item.facts_emitted : null,
+  }))
+  return rows.sort((a, b) => (b.records ?? -1) - (a.records ?? -1) || a.label.localeCompare(b.label))
 }
 
 /** "Found in your organization's list on <date>": a listed registration's evidence, said as evidence, never as a check. */
