@@ -11,9 +11,11 @@ import { AlertTriangle, CheckCircle2, Clock, Loader2, ShieldCheck, Unlock, X } f
 import {
   accessRefusalText,
   activationStepText,
+  firstInventoryOutcomeText,
   firstInventoryText,
   formatUtcInstantExact,
   lastConnectionCheckText,
+  listedEvidenceText,
   memberReadRoleName,
   nameInAwsText,
   registrationStep,
@@ -74,6 +76,8 @@ export function RegistrationJourney({
   const id = account.account_id
   const role = memberReadRoleName(customerId)
   const testid = `registration-step-${id}`
+  // Stage1B G9: a listed account waits for its check and confirmation like any other; its evidence is said, never a check.
+  const listed = listedEvidenceText(account.registration?.listed_evidence)
 
   if (step.kind === "HELD") {
     const label = registrationStepLabel(step.owner.action)
@@ -93,8 +97,9 @@ export function RegistrationJourney({
     )
   }
 
-  if (step.kind === "FIRST_CHECK" || step.kind === "CHECKING" || step.kind === "ACTIVATING") {
-    const text = step.kind === "FIRST_CHECK" ? "Cyntro is running this account's first connection check."
+  if (step.kind === "RECORDING_LISTED" || step.kind === "CHECKING" || step.kind === "ACTIVATING") {
+    const text = step.kind === "RECORDING_LISTED"
+      ? "Recording this account from your organization's list. Nothing is read in it; you check access and confirm next."
       : step.kind === "CHECKING" ? `Checking access: Cyntro is assuming ${role} in the account and asking AWS which account answered.`
       : "Activating: Cyntro is proving the account again and reading its sources; its first inventory is queued once this is recorded."
     return (
@@ -109,9 +114,10 @@ export function RegistrationJourney({
       <div data-testid={testid} data-step={step.kind} className="space-y-1.5 text-[11px] text-slate-700">
         {step.kind === "CHECK_ACCESS" ? (
           <p>
-            Not verified: Cyntro has read nothing in this account. Deploy the connection stack in it (Connect), then check
-            access: Cyntro assumes {role} there and asks AWS which account answered, and its name. AWS may log these calls in
-            that account; nothing else is read.
+            {listed ? <span data-testid={`listed-evidence-${id}`}>{listed} </span> : "Not verified: "}Cyntro has read nothing
+            in this account{listed ? " yet" : ""}. Deploy the connection stack in it (Connect), then check access: Cyntro assumes
+            {" "}{role} there and asks AWS which account answered, and its name. AWS may log these calls in that account; nothing
+            else is read. Collection starts only when you confirm.
           </p>
         ) : Date.parse(step.check?.identity_observed_at ?? "") > Date.now() ? (
           // The server's clock leads this browser's: the page wakes when it reaches the check (registrationStepBoundary).
@@ -236,7 +242,7 @@ function ConfirmActivationDialog({
           </p>
           <ul className="list-disc space-y-1.5 pl-5">
             <li>Your confirmation turns reading on for this account. Cyntro proves the account again, reads its sources in its Region, and queues its first inventory.</li>
-            <li>Queued is not collected: this page shows the first collection while it is pending or blocked.</li>
+            <li>This page then shows where its first inventory stands, from the records of that work: queued, collecting, collected or failed.</li>
             <li>Read access only: nothing in the account is changed.</li>
           </ul>
           {stale ? (
@@ -257,17 +263,30 @@ function ConfirmActivationDialog({
   )
 }
 
-/** Once activated: where the first collection stands, and when the connection was last checked -- dated, never "live". */
+/**
+ * Once activated: where the first inventory stands -- from the exact runs of THIS registration's work (Stage1B K2) when the
+ * backend reports it, else the dispatch alone ("queued", never collected) -- and when the connection was last checked,
+ * dated, never "live".
+ */
 export function FirstCollectionStatus({ account }: { account: ManagedAccount }) {
   const activated = Boolean(account.registration?.activation)
   const connectedLifecycle = ["AWAITING_CONNECTION", "CONNECTION_FAILED", "CONNECTED"].includes(account.onboarding_status)
-  const first = activated && connectedLifecycle ? firstInventoryText(account.registration?.first_inventory_dispatch) : null
+  const outcome = account.registration?.first_inventory
+  const fromRuns = activated && connectedLifecycle ? firstInventoryOutcomeText(outcome) : null
+  const first = fromRuns ?? (activated && connectedLifecycle && !outcome ? firstInventoryText(account.registration?.first_inventory_dispatch) : null)
   const checked = lastConnectionCheckText(account)
   if (!first && !checked) return null
   const tone = first?.tone === "blocked" ? "text-red-700" : first?.tone === "pending" ? "text-amber-800" : "text-slate-600"
   return (
     <div className="space-y-1">
-      {first ? <p data-testid={`first-collection-${account.account_id}`} className={`text-[11px] ${tone}`}>{first.text}</p> : null}
+      {first ? (
+        <p data-testid={`first-collection-${account.account_id}`} data-source={fromRuns ? "runs" : "dispatch"} className={`text-[11px] ${tone}`}>
+          {first.text}
+        </p>
+      ) : null}
+      {fromRuns ? (
+        <p className="text-[11px] text-slate-500">Inventory only: CloudTrail and VPC flow logs are collected on their own schedule and are not part of this status.</p>
+      ) : null}
       {checked ? <p data-testid={`last-check-${account.account_id}`} className="text-[11px] text-slate-500">{checked}</p> : null}
     </div>
   )

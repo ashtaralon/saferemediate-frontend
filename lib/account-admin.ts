@@ -150,6 +150,8 @@ export function accountNameNote(account: Pick<ManagedAccount, "aws_account_name"
 export interface FailedAccountRequest {
   account_id: string
   action: string
+  /** The connector's stable refusal code (requestOutcomeText); absent from an older backend. */
+  outcome?: string | null
   detail?: string | null
   finished_at?: string | null
 }
@@ -413,10 +415,44 @@ export interface FirstInventoryDispatch {
   completed_at?: string | null
 }
 
+/** Stage1B G9: the organization evidence a listed registration was admitted on -- shown, never treated as a check. */
+export interface ListedEvidence {
+  kind?: string | null
+  at?: string | null
+  basis?: string | null
+}
+
+/** One work item of the first inventory, judged from its own run record (Stage1B K2). No counter: the inventory producer
+ *  records none, so none is shown. */
+export interface FirstInventoryItem {
+  work_item_id: string
+  source_type: string
+  region?: string | null
+  state: string
+  reason?: string | null
+  run_status?: string | null
+  error_class?: string | null
+  started_at?: string | null
+  completed_at?: string | null
+}
+
+/** Stage1B K2: where the inventory bootstrap THIS registration's confirmation dispatched stands, from the exact runs of
+ *  that work. The inventory only: CloudTrail and flow logs are not part of it. */
+export interface FirstInventoryOutcome {
+  scope: "INVENTORY_BOOTSTRAP" | string
+  registration_id: string
+  state: string
+  reason?: string | null
+  observed_at?: string | null
+  counts: Record<string, number>
+  items: FirstInventoryItem[]
+}
+
 export interface RegistrationProgress {
   registration_id: string
   registration_version: number
   registration_path?: "LISTED" | "PENDING" | string | null
+  listed_evidence?: ListedEvidence | null
   checking: boolean
   access_check?: RegistrationAccessCheck | null
   activation?: RegistrationActivation | null
@@ -424,6 +460,7 @@ export interface RegistrationProgress {
   activation_last?: RegistrationActivationLast | null
   owner?: RegistrationOwner | null
   first_inventory_dispatch?: FirstInventoryDispatch | null
+  first_inventory?: FirstInventoryOutcome | null
 }
 
 /** The backend's ACTIVATION_CHECK_MAX_AGE: a confirmation consumes a check whose identity was observed STRICTLY less than
@@ -468,11 +505,12 @@ function observedAt(check: RegistrationAccessCheck | null | undefined): number {
  * - CONFIRM (ACCESS_CONFIRMABLE, its check REACHED and younger than the bound by the wall clock): confirm that check.
  * - CHECK_EXPIRED: confirmable no longer (older than the bound, or its time is not provable): check access again.
  * - ACTIVATION_FAILED: the step it stopped at; a retry continues the SAME confirmed check (the marker's).
- * - FIRST_CHECK / CHECKING / ACTIVATING: the connector is working; nothing to ask.
+ * - RECORDING_LISTED / CHECKING / ACTIVATING: the connector is working; nothing to ask. RECORDING_LISTED (LISTED_ADMITTED) is a
+ *   listed account being recorded as pending: it reads nothing and is checked and confirmed like any other (Stage1B G9).
  */
 export type RegistrationStep =
   | { kind: "HELD"; owner: RegistrationOwner }
-  | { kind: "FIRST_CHECK" }
+  | { kind: "RECORDING_LISTED" }
   | { kind: "CHECK_ACCESS"; refused: RegistrationAccessCheck | null }
   | { kind: "CHECKING" }
   | { kind: "CONFIRM"; check: RegistrationAccessCheck; checkId: string; confirmableUntil: number }
@@ -489,7 +527,7 @@ export function registrationStep(
   if (registration.owner?.held === true) return { kind: "HELD", owner: registration.owner }
   const check = registration.access_check ?? null
   switch (account.onboarding_status) {
-    case "LISTED_ADMITTED": return { kind: "FIRST_CHECK" }
+    case "LISTED_ADMITTED": return { kind: "RECORDING_LISTED" }
     case "PENDING_UNVERIFIED": return { kind: "CHECK_ACCESS", refused: check && check.outcome === "REFUSED" ? check : null }
     case "CHECKING": return { kind: "CHECKING" }
     case "ACTIVATING": return { kind: "ACTIVATING" }
@@ -614,6 +652,97 @@ export function firstInventoryText(dispatch: FirstInventoryDispatch | null | und
     }
     default: return { tone: "blocked", text: `First collection in a state Cyntro does not know (${dispatch.state}).` }
   }
+}
+
+const UNAVAILABLE_REASONS: Record<string, string> = {
+  PLAN_NOT_BOUND: "the recorded plan is not this registration's",
+  RUN_STORE_NOT_CONFIGURED: "this installation's console cannot read collection runs",
+  RUN_MISMATCH: "a run record does not match its work item",
+  RUN_MALFORMED: "a run record could not be read",
+}
+
+function unavailableReason(reason?: string | null): string {
+  const code = reason || ""
+  if (code.startsWith("RUN_UNREADABLE")) return `the run records could not be read${code.includes(":") ? ` (${code.split(":").slice(1).join(":")})` : ""}`
+  return UNAVAILABLE_REASONS[code] ?? (code || "no reason was recorded")
+}
+
+/** The distinct error classes of the items in `state`, verbatim (never a role name inferred from them). */
+function errorClasses(outcome: FirstInventoryOutcome, state: string): string {
+  const classes = [...new Set(outcome.items.filter((i) => i.state === state).map((i) => i.error_class || "no class recorded"))]
+  return classes.join(", ")
+}
+
+/**
+ * Stage1B K2, in words: where THIS registration's first inventory stands, from the exact runs of its work. The inventory
+ * only -- never CloudTrail or flow logs. "Collected" means the evidence is committed; it never claims the map, an empty
+ * account, a count or a retry (the inventory producer records none of those). Unavailable is never success. Null before
+ * activation.
+ */
+export function firstInventoryOutcomeText(
+  outcome: FirstInventoryOutcome | null | undefined,
+): { tone: "pending" | "blocked" | "queued" | "done"; text: string } | null {
+  if (!outcome || outcome.state === "NOT_ACTIVATED") return null
+  const n = (key: string) => outcome.counts?.[key] ?? 0
+  const total = outcome.items.length
+  const asOf = outcome.observed_at ? ` (as of ${formatUtcInstantExact(outcome.observed_at)})` : ""
+  const items = (count: number) => `${count} ${plural(count, "work item", "work items")}`
+  switch (outcome.state) {
+    case "NOT_STARTED": return { tone: "pending", text: "First inventory not started: no work is queued yet." }
+    case "HELD": return { tone: "blocked", text: `First inventory held (${outcome.reason || "no reason recorded"}): its plan changed after work was queued.` }
+    case "BLOCKED": {
+      const code = outcome.reason || ""
+      const why = DISPATCH_BLOCKERS[code] ?? (code ? `the queue refused the work (${code})` : "no reason was recorded")
+      return { tone: "blocked", text: `First inventory blocked: none of its ${items(total)} could be queued; ${why}.` }
+    }
+    case "INTENDED": return { tone: "pending", text: `First inventory being queued: ${total - n("intended")} of ${items(total)} queued${asOf}.` }
+    case "QUEUED": return { tone: "pending", text: `First inventory queued: ${items(n("queued"))} waiting to start, ${n("collected")} collected${asOf}. Queued is not collected.` }
+    case "STARTING":
+    case "COLLECTING":
+      return { tone: "pending", text: `First inventory collecting: ${n("collected")} of ${items(total)} collected, ${n("collecting") + n("starting")} in progress, ${n("queued") + n("intended")} waiting${asOf}.` }
+    case "COLLECTED":
+      return { tone: "done", text: `First inventory collected: the evidence of all ${items(total)} is committed${asOf}. Whether it appears in the map yet is not part of this status.` }
+    case "COMPLETED": return { tone: "done", text: `First inventory completed: all ${items(total)} finished${asOf}.` }
+    case "FAILED_RETRYABLE":
+      return { tone: "blocked", text: `First inventory: ${items(n("failed_retryable"))} failed with a retryable error (${errorClasses(outcome, "FAILED_RETRYABLE")})${asOf}.` }
+    case "FAILED":
+      return { tone: "blocked", text: `First inventory failed for ${items(n("failed"))} (${errorClasses(outcome, "FAILED")}); your installer or Cyntro support can act on it${asOf}.` }
+    case "PARTIAL":
+      return { tone: "blocked", text: `First inventory partly collected: ${items(n("partial"))} ended partial (${errorClasses(outcome, "PARTIAL")})${asOf}.` }
+    case "ENDED":
+      return { tone: "blocked", text: `First inventory: ${items(n("ended"))} ended without collecting (${errorClasses(outcome, "ENDED")})${asOf}.` }
+    case "UNAVAILABLE":
+      return { tone: "blocked", text: `First inventory status cannot be read now: ${unavailableReason(outcome.reason)}. This is not a result.` }
+    default: return { tone: "blocked", text: `First inventory in a state Cyntro does not know (${outcome.state}).` }
+  }
+}
+
+/** "Found in your organization's list on <date>": a listed registration's evidence, said as evidence, never as a check. */
+export function listedEvidenceText(evidence: ListedEvidence | null | undefined): string | null {
+  if (!evidence) return null
+  const at = evidence.at && ISO_INSTANT.test(evidence.at) ? ` on ${formatUtcInstantExact(evidence.at)}` : ""
+  return `Found in your organization's list${at}.`
+}
+
+/**
+ * A request the connector refused, by its stable code: what happened, who acts, what to do (Stage1B contract section 3).
+ * Null for a code with no entry here: the connector's own detail is then shown as it is.
+ */
+const REQUEST_OUTCOMES: Record<string, string> = {
+  INSTALLATION_GATE_CLOSED:
+    "This installation is not verified for new accounts. Your Cyntro installer finishes or re-runs the install; then try again. Nothing was changed.",
+  INSTALLATION_GATE_UNKNOWN:
+    "This Cyntro build does not know its installation identity. Your Cyntro installer re-runs the install; then try again. Nothing was changed.",
+  ACCOUNT_HISTORY_PRESENT:
+    "This account already has collection history in this installation, so it cannot be connected here as a new account. Do not register it again; contact Cyntro support. Nothing was changed.",
+  ACCOUNT_HISTORY_UNKNOWN:
+    "Cyntro could not read whether this account already has collection history here. Confirm again; nothing was changed.",
+  OWNER_HELD:
+    "A previous step could not record its result and is kept as the proof of where the account stands. Release the account, or wait.",
+}
+
+export function requestOutcomeText(outcome: string | null | undefined): string | null {
+  return outcome && Object.prototype.hasOwnProperty.call(REQUEST_OUTCOMES, outcome) ? REQUEST_OUTCOMES[outcome] : null
 }
 
 /** The last recorded connection check -- dated, and never a claim about access now. */

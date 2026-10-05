@@ -49,12 +49,16 @@ import {
   registrationRequestBody,
   registrationStep,
   registryUnavailableDetail,
+  requestOutcomeText,
   type AccountIdCheck,
   type RegistrationAction,
   type AccountListResponse,
   type FailedAccountRequest,
   type ManagedAccount,
 } from "@/lib/account-admin"
+
+/** Rows the connector is still moving on its own: the page re-reads until they leave these states. */
+const CONNECTOR_WORKING = new Set(["REGISTERING", "LISTED_ADMITTED", "CHECKING", "ACTIVATING"])
 
 interface AccountGroup {
   customer_id: string
@@ -233,9 +237,11 @@ export default function AccountSettingsPage() {
   const failedRequests = data?.failed_requests || []
 
   // Re-read while the connector has work open for this page: a registration, an open
-  // request on any row, or a check this page asked for. Stops when none; stops on unmount.
+  // request on any row, a row in a step the connector is still taking (a listed account being
+  // recorded, an access check, an activation), or a check this page asked for. Stops when none;
+  // stops on unmount.
   const needsPolling =
-    allAccounts.some((account) => account.onboarding_status === "REGISTERING" || Boolean(account.pending_request)) ||
+    allAccounts.some((account) => CONNECTOR_WORKING.has(account.onboarding_status) || Boolean(account.pending_request)) ||
     awaitingConnect !== null ||
     Object.keys(checks).length > 0
   useEffect(() => {
@@ -536,7 +542,12 @@ export default function AccountSettingsPage() {
                       <p className="font-semibold">
                         {REQUEST_ACTION_LABEL[failure.action] || failure.action} for {name && name !== failure.account_id ? `${name} (${failure.account_id})` : failure.account_id} failed
                       </p>
-                      <p className="mt-1">{failure.detail || "The account connector recorded no detail."}</p>
+                      {requestOutcomeText(failure.outcome) ? (
+                        <p className="mt-1" data-testid={`failure-outcome-${failure.account_id}`}>{requestOutcomeText(failure.outcome)}</p>
+                      ) : null}
+                      <p className={requestOutcomeText(failure.outcome) ? "mt-1 text-xs text-red-700" : "mt-1"}>
+                        {failure.detail || "The account connector recorded no detail."}
+                      </p>
                       {formatTimestamp(failure.finished_at) ? <p className="mt-1 text-xs text-red-600">Finished {formatTimestamp(failure.finished_at)}</p> : null}
                     </div>
                   </div>
@@ -1175,10 +1186,9 @@ function MemberAddAccountDialog({
 }
 
 /**
- * What adding an account does, said before it is done -- in the account connector's own terms
- * (cyntro_data/accounts/connector.py: register -> immediate validate, which keeps the account waiting when the role
- * cannot be used; the first CONNECTED queues the inventory bootstrap; only supported, readable sources are collected;
- * a 15-minute sweep re-checks waiting accounts -- a check, never a promised connection). Read access only.
+ * What adding a LISTED account does, said before it is done -- in the account connector's own terms (Stage1B G9: the listed
+ * registration is recorded as pending and reads nothing; S2: the access check's calls; S3a: only the confirmation turns
+ * reads on and queues the first inventory). The same journey as an unverified account, without its acknowledgement.
  */
 function AddAccountConfirmation({ check }: { check: Extract<AccountIdCheck, { state: "LISTED" | "UNVERIFIED" }> }) {
   return (
@@ -1194,11 +1204,11 @@ function AddAccountConfirmation({ check }: { check: Extract<AccountIdCheck, { st
         {accountIdEvidenceText(check)}
       </p>
       <ul className="list-disc space-y-1.5 pl-5">
-        <li>Cyntro registers this account with this installation and checks the connection right away.</li>
-        <li>Cyntro shows the account by the name AWS holds for it, read once it connects; until then, by its ID. Business systems in this account, and their environments, are defined after it connects; one account can hold several.</li>
-        <li>Cyntro reads the account in this installation&apos;s own Region; the connection stack is deployed there.</li>
-        <li>If the Cyntro read role in this account can be used, the account connects and collection can start immediately: its configuration is read, its inventory is queued, and supported activity logs that Cyntro can read there (CloudTrail, VPC flow logs) are collected.</li>
-        <li>If the role cannot be used yet (for example, the connection stack is not deployed), nothing is read. Cyntro checks again about every 15 minutes, and Check connection checks at once; the account connects only when the role works.</li>
+        <li>Cyntro registers this account with this installation as pending. Nothing in it is read yet.</li>
+        <li>Next, deploy the connection stack in that account (shown once the account is added), in this installation&apos;s own Region.</li>
+        <li>Then check access: Cyntro assumes its read role there and asks AWS which account answered, and its name. AWS may log these calls in that account. Nothing else is read.</li>
+        <li>If the check reaches the account, you confirm it. Only your confirmation turns reading on and starts collection: its configuration is read and its first inventory is queued.</li>
+        <li>Cyntro shows the account by the name AWS holds for it once it is read; until then, by its ID. Business systems in this account are defined after it connects; one account can hold several.</li>
         <li>Read access only: nothing in the account is changed.</li>
       </ul>
     </div>

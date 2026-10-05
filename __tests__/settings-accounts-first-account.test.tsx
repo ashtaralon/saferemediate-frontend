@@ -29,6 +29,15 @@ import released from "@/__tests__/fixtures/settings-c-producer/11_released.json"
 import connectPending from "@/__tests__/fixtures/settings-c-producer/12_connect_pending.json"
 import firstCheck from "@/__tests__/fixtures/settings-c-producer/13a_access_confirmable_first.json"
 import recheck from "@/__tests__/fixtures/settings-c-producer/13b_access_confirmable_rechecked.json"
+import listedPending from "@/__tests__/fixtures/settings-c-producer/14_listed_pending.json"
+import listedAdmitted from "@/__tests__/fixtures/settings-c-producer/15_listed_admitted.json"
+import k2Queued from "@/__tests__/fixtures/settings-c-producer/16_k2_queued.json"
+import k2Collecting from "@/__tests__/fixtures/settings-c-producer/17_k2_collecting.json"
+import k2Collected from "@/__tests__/fixtures/settings-c-producer/18_k2_collected.json"
+import k2Failed from "@/__tests__/fixtures/settings-c-producer/19_k2_failed.json"
+import k2Unavailable from "@/__tests__/fixtures/settings-c-producer/20_k2_run_store_not_configured.json"
+import gateClosed from "@/__tests__/fixtures/settings-c-producer/21_gate_closed_refusal.json"
+import historyPresent from "@/__tests__/fixtures/settings-c-producer/22_history_present_refusal.json"
 
 const CUSTOMER = "acme"
 const MEMBER = "222222222222"
@@ -343,5 +352,108 @@ describe("the Connect panel of a pending account", () => {
     expect(within(panel).queryByRole("button", { name: "Check connection" })).toBeNull()
     fireEvent.click(within(panel).getByRole("button", { name: `Check access to ${MEMBER}` }))
     await waitFor(() => expect(posts.map((post) => post.url)).toEqual([`/api/proxy/admin/accounts/${MEMBER}/access-check?customer_id=${CUSTOMER}`]))
+  })
+})
+
+
+// ── Stage1B (1B-3): a listed account waits for its check and confirmation (G9); the first inventory from its own runs (K2);
+// refusals worded by their stable codes. Every row below is the producer's own (fixtures 14-22, backend 28b2b7d9).
+
+const firstInventoryOf = (capture: Capture) => registrationOf(capture).first_inventory as Record<string, any>
+const asOf = (capture: Capture) => `(as of ${formatUtcInstantExact(firstInventoryOf(capture).observed_at)})`
+
+describe("1B-3: the producer's new captures are what this suite renders", () => {
+  it.each([listedPending, k2Queued, k2Collecting, k2Collected, k2Failed, k2Unavailable] as Capture[])(
+    "$name carries this registration's evidence and first inventory, bound to it", (capture) => {
+      expect(registrationOf(capture).listed_evidence.kind).toBe("ORGANIZATION_LIST")
+      expect(firstInventoryOf(capture).registration_id).toBe(registrationOf(capture).registration_id)
+      expect(firstInventoryOf(capture).scope).toBe("INVENTORY_BOOTSTRAP")
+    })
+})
+
+describe("G9: a listed account is checked and confirmed like any other", () => {
+  it("found in the list is said with its date, never as verified access; Check access is the next step", async () => {
+    const row = await mount(listedPending as Capture, at(listedPending as Capture))
+    const evidence = registrationOf(listedPending as Capture).listed_evidence
+    expect(step(row)).toHaveAttribute("data-step", "CHECK_ACCESS")
+    expect(within(row).getByTestId(`listed-evidence-${MEMBER}`)).toHaveTextContent(
+      `Found in your organization's list on ${formatUtcInstantExact(evidence.at)}.`)
+    expect(step(row)).toHaveTextContent("Cyntro has read nothing in this account yet.")
+    expect(step(row)).toHaveTextContent("Collection starts only when you confirm.")
+    expect(step(row)).not.toHaveTextContent(/Not verified|connected|collecting/)
+    expect(within(row).getByRole("button", { name: `Check access to ${MEMBER}` })).toHaveTextContent("Check access")
+    expect(within(row).queryByTestId(`first-collection-${MEMBER}`)).toBeNull()
+  })
+
+  it("while it is being recorded nothing is offered, and the page's own poll shows it pending with no Refresh", async () => {
+    const row = await mount(listedAdmitted as Capture, at(listedAdmitted as Capture))
+    expect(step(row)).toHaveAttribute("data-step", "RECORDING_LISTED")
+    expect(step(row)).toHaveTextContent(
+      "Recording this account from your organization's list. Nothing is read in it; you check access and confirm next.")
+    expect(within(row).queryByRole("button", { name: /Check access|Confirm/ })).toBeNull()
+    current = listedPending as Capture
+    await act(async () => { await vi.advanceTimersByTimeAsync(4000) })
+    await waitFor(() => expect(step(screen.getByTestId(`account-row-${MEMBER}`))).toHaveAttribute("data-step", "CHECK_ACCESS"))
+    expect(posts).toHaveLength(0)
+  })
+})
+
+describe("K2: the first inventory, from the runs of exactly this registration's work", () => {
+  const text = async (capture: Capture) => {
+    const row = await mount(capture, at(capture))
+    const status = within(row).getByTestId(`first-collection-${MEMBER}`)
+    expect(status).toHaveAttribute("data-source", "runs")
+    expect(row).toHaveTextContent("Inventory only: CloudTrail and VPC flow logs are collected on their own schedule and are not part of this status.")
+    return status
+  }
+
+  it("queued is said as queued, never collected", async () => {
+    expect(await text(k2Queued as Capture)).toHaveTextContent(
+      `First inventory queued: 31 work items waiting to start, 0 collected ${asOf(k2Queued as Capture)}. Queued is not collected.`)
+  })
+
+  it("one run collecting is counted from the runs", async () => {
+    expect(await text(k2Collecting as Capture)).toHaveTextContent(
+      `First inventory collecting: 0 of 31 work items collected, 1 in progress, 30 waiting ${asOf(k2Collecting as Capture)}.`)
+  })
+
+  it("collected means the evidence is committed: never completed, never in the map, never empty, never a count", async () => {
+    const status = await text(k2Collected as Capture)
+    expect(status).toHaveTextContent(
+      `First inventory collected: the evidence of all 31 work items is committed ${asOf(k2Collected as Capture)}. ` +
+      "Whether it appears in the map yet is not part of this status.")
+    expect(status).not.toHaveTextContent(/complete|finished|empty|nothing found|zero|facts/i)
+  })
+
+  it("a failed run outranks the rest and its class is said verbatim, with who can act -- never a role inferred from it", async () => {
+    const classes = (firstInventoryOf(k2Failed as Capture).items as Array<Record<string, any>>)
+      .filter((item) => item.state === "FAILED").map((item) => item.error_class)
+    expect(classes).toEqual(["ACCESS_DENIED"])
+    const status = await text(k2Failed as Capture)
+    expect(status).toHaveTextContent(
+      `First inventory failed for 1 work item (ACCESS_DENIED); your installer or Cyntro support can act on it ${asOf(k2Failed as Capture)}.`)
+    expect(status).not.toHaveTextContent(/CyntroRead|retries|will retry/)
+  })
+
+  it("a status that cannot be read is said so, and is never a result", async () => {
+    const status = await text(k2Unavailable as Capture)
+    expect(status).toHaveTextContent(
+      "First inventory status cannot be read now: this installation's console cannot read collection runs. This is not a result.")
+    expect(status).not.toHaveTextContent(/queued|collected|collecting/)
+  })
+})
+
+describe("refusals are worded by their stable codes: what happened, who acts, what to do", () => {
+  it.each([
+    [gateClosed, "This installation is not verified for new accounts. Your Cyntro installer finishes or re-runs the install; then try again. Nothing was changed."],
+    [historyPresent, "This account already has collection history in this installation, so it cannot be connected here as a new account. Do not register it again; contact Cyntro support. Nothing was changed."],
+  ] as const)("%#: the code's words lead, and the connector's own detail follows", async (capture, words) => {
+    vi.useFakeTimers({ shouldAdvanceTime: true, now: at(capture as Capture) })
+    install(capture as Capture)
+    render(<AccountSettingsPage />)
+    const outcome = await screen.findByTestId(`failure-outcome-${MEMBER}`)
+    expect(outcome).toHaveTextContent(words)
+    const failure = (capture as Capture).body.failed_requests[0]
+    expect(outcome.closest("[role=alert]")).toHaveTextContent(failure.detail)
   })
 })

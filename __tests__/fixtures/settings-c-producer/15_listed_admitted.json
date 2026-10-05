@@ -1,0 +1,97 @@
+{
+ "body": {
+  "accounts": [
+   {
+    "account_id": "222222222222",
+    "aws_account_name": null,
+    "aws_account_name_error": null,
+    "aws_account_name_read_at": null,
+    "collection_mode": "MEMBER_READ_ROLE",
+    "coverage": null,
+    "customer_id": "acme",
+    "display_name": "222222222222",
+    "environment": "UNCLASSIFIED",
+    "group_ids": [],
+    "install_method": "MEMBER_STACK",
+    "is_platform_account": false,
+    "last_validated_at": null,
+    "mutation_enabled": false,
+    "onboarding_status": "LISTED_ADMITTED",
+    "organization_id": "o-install",
+    "organizational_unit_ids": [],
+    "pending_request": {
+     "action": "register",
+     "requested_at": "2026-10-05T07:34:24.568183+00:00",
+     "status": "running"
+    },
+    "read_enabled": true,
+    "regions": [
+     "eu-west-1"
+    ],
+    "registered_at": "2026-10-05T07:34:24.582098+00:00",
+    "registered_by": {
+     "identity": "https://cognito-idp.eu-west-1.amazonaws.com/pool#00u-alice",
+     "verified": true
+    },
+    "registration": {
+     "access_check": null,
+     "activating": false,
+     "activation": null,
+     "activation_last": null,
+     "checking": false,
+     "first_inventory": {
+      "counts": {},
+      "items": [],
+      "observed_at": "2026-10-05T07:34:24.602385Z",
+      "reason": null,
+      "registration_id": "8e6971ea6b4966a9788da58244ac77e5",
+      "scope": "INVENTORY_BOOTSTRAP",
+      "state": "NOT_ACTIVATED"
+     },
+     "first_inventory_dispatch": null,
+     "listed_evidence": null,
+     "owner": {
+      "action": "register",
+      "held": false,
+      "held_at": null,
+      "held_outcome": null,
+      "outcome": null,
+      "request_status": "running"
+     },
+     "registration_id": "8e6971ea6b4966a9788da58244ac77e5",
+     "registration_path": "LISTED",
+     "registration_version": 1
+    },
+    "sources": {},
+    "tags": {},
+    "updated_at": "2026-10-05T07:34:24.582098+00:00",
+    "validation_message": "Found in your organization's account list; checking the connection",
+    "verification_enabled": false
+   }
+  ],
+  "customer_id": "acme",
+  "failed_requests": [],
+  "member_trust": {
+   "organization_id": "o-install",
+   "platform_account_id": "111111111111",
+   "ready": true
+  },
+  "mode": "MEMBER_ACCOUNTS",
+  "registry_available": true,
+  "summary": {
+   "connected": 0,
+   "discovered": 0,
+   "mutation_enabled": 0,
+   "needs_attention": 0
+  },
+  "total": 1
+ },
+ "captured_at": "2026-10-05T07:34:24.603334+00:00",
+ "name": "15_listed_admitted",
+ "note": "a listed account admitted, its continuation not yet written (LISTED_ADMITTED)",
+ "request": {
+  "method": "GET",
+  "path": "/api/admin/accounts?customer_id=acme"
+ },
+ "status": 200
+}

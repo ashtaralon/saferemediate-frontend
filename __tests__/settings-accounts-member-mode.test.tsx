@@ -680,22 +680,23 @@ describe("Settings > Accounts — backend errors carry the backend's detail", ()
     // Found in the list is not connected (Codex, 2026-10-03): the evidence is said, and what it does not show.
     expect(within(confirmation).getByTestId("account-id-evidence")).toHaveTextContent(
       /^Found in your organization's account list from .+ UTC, named “Checkout staging”\. That shows it is in your organization, not that Cyntro can connect to it: the connection is checked after it is added\.$/)
-    // Conditional, as the connector behaves (Codex O1 review): a deployed stack does not promise a connection, and
-    // only supported, readable sources are collected; a later check is a check, not a promised success.
-    expect(confirmation).toHaveTextContent("Cyntro registers this account with this installation and checks the connection right away.")
+    // Stage1B G9: a listed account takes the same journey as any other -- recorded as pending, nothing read; check access;
+    // only the operator's confirmation turns reading on and starts collection. Nothing is promised "right away".
+    expect(confirmation).toHaveTextContent("Cyntro registers this account with this installation as pending. Nothing in it is read yet.")
     expect(confirmation).toHaveTextContent(
-      "If the Cyntro read role in this account can be used, the account connects and collection can start immediately: " +
-      "its configuration is read, its inventory is queued, and supported activity logs that Cyntro can read there " +
-      "(CloudTrail, VPC flow logs) are collected.")
+      "Next, deploy the connection stack in that account (shown once the account is added), in this installation's own Region.")
     expect(confirmation).toHaveTextContent(
-      "If the role cannot be used yet (for example, the connection stack is not deployed), nothing is read. Cyntro checks " +
-      "again about every 15 minutes, and Check connection checks at once; the account connects only when the role works.")
+      "Then check access: Cyntro assumes its read role there and asks AWS which account answered, and its name. " +
+      "AWS may log these calls in that account. Nothing else is read.")
+    expect(confirmation).toHaveTextContent(
+      "If the check reaches the account, you confirm it. Only your confirmation turns reading on and starts collection: " +
+      "its configuration is read and its first inventory is queued.")
     expect(confirmation).toHaveTextContent("Read access only: nothing in the account is changed.")
     // Names and business systems are separate things (Alon, 2026-10-03).
     expect(confirmation).toHaveTextContent(
-      "Cyntro shows the account by the name AWS holds for it, read once it connects; until then, by its ID. " +
-      "Business systems in this account, and their environments, are defined after it connects; one account can hold several.")
-    expect(confirmation).toHaveTextContent("Cyntro reads the account in this installation's own Region; the connection stack is deployed there.")
+      "Cyntro shows the account by the name AWS holds for it once it is read; until then, by its ID. " +
+      "Business systems in this account are defined after it connects; one account can hold several.")
+    expect(confirmation).not.toHaveTextContent(/right away|start immediately|checks again about every 15 minutes|connects only when/)
     expect(confirmation).not.toHaveTextContent(/connects at once|collection starts immediately|the activity logs it has/)
     expect(confirmation).not.toHaveTextContent(/Environment|Regions|Unclassified/)
     expect(registered).toHaveLength(0)

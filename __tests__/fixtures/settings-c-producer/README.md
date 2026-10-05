@@ -24,3 +24,19 @@ the backend suites move it). That makes a genuine later observation with a new c
 
 Each file is one state the first-account journey enters: `body` is GET /api/admin/accounts, and `*_response` is a POST or
 GET that the step made. Regenerate them; do not edit them.
+
+## 14-22 (Stage1B, 1B-3)
+
+- Producer: saferemediate-backend `28b2b7d99ec071274f7de760041580f123087825` (1B-2b on 1B-2 59983a8c and 1B-1 b73049db; local
+  checkpoints), from a clean tree.
+- Generator: `agent-coordinator/claude-settings-1b3-evidence-2026-10-05/test_1b3_producer_captures.py`, the same harness
+  plus two producers:
+  - the organization-list harness (`tests/cyntro_data/registration_listing.py list_accounts`) for the listed path;
+  - the real collection envelope (`collector_session.durable_collection` over the orchestrator's DynamoDB run store, fed
+    the work items the connector actually queued) for every first-inventory state.
+- Files:
+  - 14 and 15: a listed account pending with its evidence, and while it is being recorded (LISTED_ADMITTED).
+  - 16 to 20: the first inventory from its own runs: queued, one collecting, all collected, one failed, and no run table
+    (UNAVAILABLE).
+  - 21 and 22: failed requests with their stable codes: a closed installation gate, and an account with collection
+    history.
