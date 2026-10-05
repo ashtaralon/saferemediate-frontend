@@ -125,6 +125,16 @@ describe("catalogEntryHref: the full tuple is the carrier", () => {
     expect(catalogEntryHref("/systems", first, "systemName")).toContain("systemName=checkout&customer_id=acme")
   })
 
+  it("keeps the page's other parameters and never lets a stale account or region ride along", () => {
+    const keep = new URLSearchParams("system=old&customer_id=acme&account_id=999999999999&region=us-east-1&tab=network")
+    const href = catalogEntryHref("/services", first, "system", keep)!
+    expect(Object.fromEntries(new URL(href, "https://x").searchParams)).toEqual({
+      tab: "network", system: "checkout", customer_id: "acme", account_id: "123456789012", region: "eu-west-1",
+    })
+    const legacy = catalogEntryHref("/", { name: "payments", status: "LEGACY", identity: null, repeated: false }, "system", keep)!
+    expect(Object.fromEntries(new URL(legacy, "https://x").searchParams)).toEqual({ tab: "network", system: "payments" })
+  })
+
   it("a legacy row is name-only and a malformed row has no link", () => {
     expect(catalogEntryHref("/", { name: "payments", status: "LEGACY", identity: null, repeated: false })).toBe("/?system=payments")
     expect(catalogEntryHref("/", { ...first, status: "MALFORMED", identity: null })).toBeNull()

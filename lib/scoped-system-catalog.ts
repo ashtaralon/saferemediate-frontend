@@ -158,11 +158,20 @@ export function selectCatalogSystem(
 /**
  * A link to ``path`` for this entry, or null when it may not be linked. An IDENTIFIED entry carries its FULL tuple --
  * label, tenant, account and observed region -- so the page reconstructs exactly this row from the URL. A LEGACY entry is
- * name-only, as before. A MALFORMED entry has no link. ``param`` is the page's system parameter (``system`` by default).
+ * name-only, as before. A MALFORMED entry has no link. ``param`` is the page's system parameter (``system`` by default);
+ * ``keep`` carries the current page's other query parameters into the link.
  */
-export function catalogEntryHref(path: string, entry: CatalogEntry, param = "system"): string | null {
+export function catalogEntryHref(
+  path: string,
+  entry: CatalogEntry,
+  param = "system",
+  keep?: URLSearchParams | null,
+): string | null {
   if (entry.status === "MALFORMED") return null
-  const query = new URLSearchParams()
+  // The page's other parameters (a tab, a mode) are kept; the system tuple is always rewritten whole, so a stale account or
+  // region from the current URL can never ride along with another row's label.
+  const query = new URLSearchParams(keep ? keep.toString() : "")
+  for (const name of [param, "customer_id", "account_id", "region"]) query.delete(name)
   query.set(param, entry.status === "IDENTIFIED" ? entry.identity!.label : entry.name)
   if (entry.status === "IDENTIFIED") {
     query.set("customer_id", entry.identity!.customer_id)

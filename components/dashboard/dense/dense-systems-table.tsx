@@ -12,6 +12,7 @@ import {
   type FamilyResponseScope,
 } from "@/lib/scoped-system-catalog"
 import { useAccountScope } from "@/lib/account-scope-context"
+import { AccountLinks } from "@/components/system-guard"
 
 /**
  * Dense systems table — the centerpiece of the operator-dense home.
@@ -226,6 +227,7 @@ export function DenseSystemsTable() {
     if (ar !== br) return br - ar
     return (a.SystemName ?? a.name ?? "").localeCompare(b.SystemName ?? b.name ?? "")
   })
+  const anyAttributable = systems.some((s) => sortable(s) !== null)
 
   return (
     <div className="overflow-hidden rounded-[14px] border border-slate-200 bg-white">
@@ -235,7 +237,10 @@ export function DenseSystemsTable() {
             Systems
           </div>
           <div className="text-sm text-slate-600">
-            {systems.length} systems · sorted by open findings (critical + high)
+            {systems.length} systems ·{" "}
+            {anyAttributable
+              ? "sorted by open findings (critical + high)"
+              : "values withheld until the scope is one account and region"}
           </div>
         </div>
         <StaleIndicator cachedAt={cachedAt} isStale={cacheStale} />
@@ -263,11 +268,7 @@ export function DenseSystemsTable() {
               const lastScanLabel = s.lastScan ?? "—"
               const matches = catalogueRowFor(name, catalogue.entries)
               const entry = matches.length === 1 ? matches[0] : null
-              const href = entry
-                ? catalogEntryHref("/", entry)
-                : matches.length > 1
-                  ? `/?system=${encodeURIComponent(name)}`   // the chooser: no single account is implied
-                  : null
+              const href = entry ? catalogEntryHref("/", entry) : null
               // Graph metrics only for the account they were computed for (T10 S1); otherwise withheld, never zero.
               const attributable = familyMetricsAttributable(entry, scope, data?.scope)
               // null = findings not computed for this system (a fresh install
@@ -282,7 +283,12 @@ export function DenseSystemsTable() {
                   className="border-b border-slate-50 hover:bg-slate-50/50 transition-colors"
                 >
                   <td className="px-4 py-2.5" data-attributable={attributable ? "true" : "false"}>
-                    {href ? (
+                    {matches.length > 1 ? (
+                      <>
+                        <span className="font-medium text-slate-900">{name}</span>
+                        <AccountLinks name={name} entries={matches} path="/" />
+                      </>
+                    ) : href ? (
                       <Link
                         href={href}
                         className="font-medium text-slate-900 hover:text-blue-700 hover:underline"
