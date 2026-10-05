@@ -7,7 +7,15 @@ import {
 } from "@/lib/use-cached-fetch"
 import { ErrorCard, LoadingCard, Section } from "./card-shell"
 import { descriptorClass, labelClass, scorePillClass } from "./styles"
-import { useScopedSystemCatalog } from "@/lib/scoped-system-catalog"
+import {
+  catalogEntryHref,
+  familyMetricsAttributable,
+  useScopedSystemCatalog,
+  useScopedSystemCatalogEntries,
+  type CatalogEntry,
+  type FamilyResponseScope,
+} from "@/lib/scoped-system-catalog"
+import { useAccountScope } from "@/lib/account-scope-context"
 
 /**
  * Top systems by BRSS — with mix bar.
@@ -46,7 +54,21 @@ type SystemsResponse = {
   systems?: SystemRow[]
   errors?: string[]
   error?: string
+  scope?: FamilyResponseScope | null
 }
+
+/** The row's CANONICAL label (never the decorated displayName): what the catalogue join and the link use. */
+function canonicalName(s: SystemRow): string {
+  return s.name || s.SystemName || ""
+}
+
+function catalogueMatches(s: SystemRow, entries: readonly CatalogEntry[]): CatalogEntry[] {
+  const key = canonicalName(s).trim().toLocaleLowerCase()
+  return key ? entries.filter((entry) => entry.name.trim().toLocaleLowerCase() === key) : []
+}
+
+const WITHHELD_TITLE =
+  "Not attributable to one account: narrow the scope to this system's account and region to see its values"
 
 function rowName(s: SystemRow): string {
   return s.displayName || s.name || s.SystemName || "(unnamed)"
@@ -128,6 +150,8 @@ export function TopSystemsCard({
   limit?: number
   shared?: UseCachedFetchResult<SystemsResponse>
 } = {}) {
+  const scope = useAccountScope()
+  const catalogue = useScopedSystemCatalogEntries()
   const systemsCatalog = useScopedSystemCatalog("/api/proxy/systems/with-families")
   // SWR via localStorage — N+1 fan-out endpoint, slow on cold start.
   // Skipped entirely when the parent supplies its copy (see `shared`).
@@ -149,9 +173,24 @@ export function TopSystemsCard({
   // part of the reading.
   const { data, loading, error, retry } = shared ?? own
 
-  if (loading && !data) return <LoadingCard label="Business systems by potential damage" />
+  if ((loading && !data) || catalogue.state === "loading") return <LoadingCard label="Business systems by potential damage" />
   if (error && !data) return <ErrorCard label="Business systems by potential damage" error={error} onRetry={retry} />
+  if (catalogue.state === "unavailable") {
+    return (
+      <ErrorCard
+        label="Business systems by potential damage"
+        error="The systems catalogue of this scope could not be read."
+        onRetry={catalogue.retry}
+      />
+    )
+  }
   if (!data) return null
+
+  // T10 S1: a row's graph metrics are shown only for the account they were computed for; otherwise withheld.
+  const attributable = (s: SystemRow) => {
+    const matches = catalogueMatches(s, catalogue.entries)
+    return familyMetricsAttributable(matches.length === 1 ? matches[0] : null, scope, data.scope)
+  }
 
   // EVERY system the backend returned stays visible.
   //
@@ -162,8 +201,8 @@ export function TopSystemsCard({
   // measure, which is often exactly the one worth opening. Absence of a score
   // was rendering as absence from the estate.
   const all = data.systems ?? []
-  const scored = all.filter((s) => typeof rowScore(s) === "number")
-  const unscored = all.filter((s) => typeof rowScore(s) !== "number")
+  const scored = all.filter((s) => attributable(s) && typeof rowScore(s) === "number")
+  const unscored = all.filter((s) => !(attributable(s) && typeof rowScore(s) === "number"))
 
   // Lowest BRSS first among scored; unscored pinned ABOVE them, because
   // "unknown" outranks "known and merely bad" when you are triaging.
@@ -201,24 +240,34 @@ export function TopSystemsCard({
         </thead>
         <tbody>
           {systems.map((s, i) => {
-            const score = rowScore(s)
+            const shown = attributable(s)
+            const score = shown ? rowScore(s) : null
             const unmeasured = score === null
+            const matches = catalogueMatches(s, catalogue.entries)
+            const href = matches.length === 1
+              ? catalogEntryHref("/systems", matches[0], "systemName")
+              : matches.length > 1
+                ? `/systems?systemName=${encodeURIComponent(canonicalName(s))}`   // the chooser: no single account implied
+                : null
             return (
               <tr
                 key={`${rowName(s)}-${i}`}
                 className="border-b border-slate-50 last:border-b-0 hover:bg-slate-50/50"
               >
-                <td className="py-2.5 font-medium text-slate-900">
-                  <Link
-                    href={`/systems?systemName=${encodeURIComponent(rowName(s))}`}
-                    className="underline-offset-4 hover:text-violet-700 hover:underline"
-                  >
-                    {rowName(s)}
-                  </Link>
+                <td className="py-2.5 font-medium text-slate-900" data-attributable={shown ? "true" : "false"}>
+                  {href ? (
+                    <Link href={href} className="underline-offset-4 hover:text-violet-700 hover:underline">
+                      {rowName(s)}
+                    </Link>
+                  ) : (
+                    <span className="text-slate-500" title="This system's account identity is unavailable">{rowName(s)}</span>
+                  )}
                 </td>
                 <td className="py-2.5 text-slate-500">{s.environment ?? "—"}</td>
                 <td className="py-2.5 text-right">
-                  {unmeasured ? (
+                  {!shown ? (
+                    <span title={WITHHELD_TITLE} className="text-xs text-slate-400">—</span>
+                  ) : unmeasured ? (
                     <span
                       title="No blast-radius score could be computed for this system. Unmeasured is not low risk."
                       className="rounded-md bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700"
@@ -232,13 +281,13 @@ export function TopSystemsCard({
                   )}
                 </td>
                 <td className="py-2.5 pr-4">
-                  <MixBar layers={s.layers} />
+                  {shown ? <MixBar layers={s.layers} /> : <span title={WITHHELD_TITLE} className="text-xs text-slate-400">—</span>}
                 </td>
                 <td className="py-2.5 text-right tabular-nums text-rose-700">
-                  {rowCritical(s) || "—"}
+                  {shown ? rowCritical(s) || "—" : "—"}
                 </td>
                 <td className="py-2.5 text-right tabular-nums text-amber-700">
-                  {rowHigh(s) || "—"}
+                  {shown ? rowHigh(s) || "—" : "—"}
                 </td>
               </tr>
             )

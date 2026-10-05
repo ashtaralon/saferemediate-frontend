@@ -48,7 +48,7 @@ import { HomeDashboardV3 } from "@/components/dashboard/v3/home-dashboard-v3"
 import { DASHBOARD_V3_ENABLED } from "@/lib/dashboard-release"
 import { readJsonCache, writeJsonCache } from "@/lib/browser-cache"
 import { normalizeFindingIdentities } from "@/lib/security-finding-identity"
-import { catalogSystemName, useScopedSystemCatalog } from "@/lib/scoped-system-catalog"
+import { catalogSystemName, unrepeatedLabels, useScopedSystemCatalog } from "@/lib/scoped-system-catalog"
 
 // V2 is the default home. Set NEXT_PUBLIC_DASHBOARD_V2=false in Vercel to
 // roll back to the legacy home without a code redeploy.
@@ -236,7 +236,10 @@ export default function HomePage() {
           })
         const names = candidates.map((candidate) => candidate.name as string)
         const requested = catalogSystemName(systemFromUrl || selectedSystem, names)
-        setSelectedSystem(requested || candidates[0]?.name || null)
+        // T10 S1: a system the URL names is never swapped for another one (not found, or served by several accounts:
+        // nothing is selected); the default is the worst system whose label exactly one account serves.
+        const fallback = systemFromUrl ? null : unrepeatedLabels(names)[0] ?? null
+        setSelectedSystem(requested || fallback)
       })
       .catch(() => {
         if (!aborted) setSelectedSystem(null)

@@ -4,7 +4,7 @@ import Image from "next/image"
 import Link from "next/link"
 import { useEffect, useState } from "react"
 import { Home, AlertTriangle, Server, Grid3x3, Fingerprint, Plug, Zap, Split, Bug, Shield, Route, Sparkles, Tag, Trash2, Users, Network, Map as MapIcon, Target, BarChart3, Settings, ClipboardList } from "lucide-react"
-import { catalogSystemName, useScopedSystemCatalog } from "@/lib/scoped-system-catalog"
+import { catalogEntries, selectCatalogSystem, useScopedSystemCatalog } from "@/lib/scoped-system-catalog"
 // ThemeToggle import held until dark-mode migration lands:
 // import { ThemeToggle } from "@/components/theme-toggle"
 
@@ -22,18 +22,20 @@ interface LeftSidebarNavProps {
  *  alon-prod (3 IAM + 1 SG, empirically verified 2026-06-01). Honest
  *  small number per the spec's substrate-honesty contract. */
 /** Resolve the active system without pinning an environment: the URL's
- *  ?system= param when present, else the first system from /api/systems.
- *  Null = unknown (callers skip their fetch and render without a count). */
-async function resolveActiveSystem(systemsUrl: string): Promise<string | null> {
+ *  ?system= tuple when present, else the first system whose label is not
+ *  repeated in the scoped catalogue (T10 S1 selectCatalogSystem). Null =
+ *  unknown, ambiguous or not found (callers skip their fetch and render
+ *  without a count -- never the first of several accounts' systems). */
+async function resolveActiveSystem(systemsUrl: string, customerId: string | null): Promise<string | null> {
   try {
-    const fromUrl = new URLSearchParams(window.location.search).get("system")
+    const params = new URLSearchParams(window.location.search)
     const res = await fetch(systemsUrl, { cache: "no-store" })
     if (!res.ok) return null
-    const json = await res.json()
-    const names = (json.systems ?? [])
-      .map((system: any) => String(system?.name || system?.SystemName || ""))
-      .filter(Boolean)
-    return catalogSystemName(fromUrl, names) || names[0] || null
+    const selection = selectCatalogSystem(
+      { system: params.get("system"), accountId: params.get("account_id"), region: params.get("region") },
+      catalogEntries(await res.json(), customerId),
+    )
+    return selection.kind === "SELECTED" ? selection.entry.name : null
   } catch {
     return null
   }
@@ -57,6 +59,7 @@ export function sharedResourcesActionableCount(iamJson: any, sgJson: any): numbe
 
 function useSharedResourcesActionableCount(): number | null {
   const systemsCatalog = useScopedSystemCatalog()
+  const customerId = systemsCatalog.customerId
   const [count, setCount] = useState<number | null>(null)
   useEffect(() => {
     if (!systemsCatalog.ready) return
@@ -67,7 +70,7 @@ function useSharedResourcesActionableCount(): number | null {
     let cancelled = false
     ;(async () => {
       try {
-        const system = await resolveActiveSystem(systemsCatalog.url!)
+        const system = await resolveActiveSystem(systemsCatalog.url!, customerId)
         if (cancelled || !system) return
         const qs = `system_name=${encodeURIComponent(system)}`
         const [iamRes, sgRes] = await Promise.all([
@@ -90,7 +93,7 @@ function useSharedResourcesActionableCount(): number | null {
     return () => {
       cancelled = true
     }
-  }, [systemsCatalog.ready, systemsCatalog.url])
+  }, [systemsCatalog.ready, systemsCatalog.url, customerId])
   return count
 }
 

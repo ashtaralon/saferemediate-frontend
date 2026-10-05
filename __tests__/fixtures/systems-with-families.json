@@ -1,0 +1,140 @@
+{
+  "_provenance": {
+    "backend_commit": "59ddebdff3433ede1e6d8cf38211ad8634f6ec52",
+    "harness": "the injection shape of tests/test_scoped_account_and_family_reads.py::test_family_aggregate_reuses_scoped_catalog_and_scope_specific_cache",
+    "inputs_injected": "scoped catalogue rows and per-system layer evaluations for the checkout_3_5 estate; every answer field is the handler's",
+    "producer": "GET /api/service-risk-scores/all-systems -> api/service_risk_scores.py::get_all_systems_with_layers (the /api/proxy/systems/with-families backend)",
+    "scopes": "answers[<account>]: the deployment resident in <account>, asked for (acme, <account>, eu-west-1); answers['all']: resident 123456789012, asked for account_id=all, region=all (the graph path resolves to the resident account, region none)",
+    "volatile_removed": [
+      "computed_at"
+    ]
+  },
+  "answers": {
+    "123456789012": {
+      "aggregate_layers": {
+        "network": {
+          "contributing_systems": 1,
+          "score": 90.0,
+          "weight": 1.0
+        },
+        "privilege": {
+          "contributing_systems": 1,
+          "score": 72.0,
+          "weight": 2.0
+        }
+      },
+      "errors": [],
+      "scope": {
+        "account_id": "123456789012",
+        "authoritative": true,
+        "customer_id": "acme",
+        "region": "eu-west-1"
+      },
+      "systems": [
+        {
+          "SystemName": "checkout",
+          "criticality": null,
+          "environment": null,
+          "layers": {
+            "network": {
+              "resource_count": 1,
+              "score": 90.0
+            },
+            "privilege": {
+              "resource_count": 2,
+              "score": 72.0
+            }
+          },
+          "name": "checkout",
+          "resource_count": 3,
+          "system_score": null
+        }
+      ],
+      "total": 1
+    },
+    "222222222222": {
+      "aggregate_layers": {
+        "data": {
+          "contributing_systems": 1,
+          "score": 66.0,
+          "weight": 2.0
+        },
+        "privilege": {
+          "contributing_systems": 1,
+          "score": 41.0,
+          "weight": 3.0
+        }
+      },
+      "errors": [],
+      "scope": {
+        "account_id": "222222222222",
+        "authoritative": true,
+        "customer_id": "acme",
+        "region": "eu-west-1"
+      },
+      "systems": [
+        {
+          "SystemName": "checkout",
+          "criticality": null,
+          "environment": null,
+          "layers": {
+            "data": {
+              "resource_count": 2,
+              "score": 66.0
+            },
+            "privilege": {
+              "resource_count": 3,
+              "score": 41.0
+            }
+          },
+          "name": "checkout",
+          "resource_count": 5,
+          "system_score": null
+        }
+      ],
+      "total": 1
+    },
+    "all": {
+      "aggregate_layers": {
+        "network": {
+          "contributing_systems": 1,
+          "score": 90.0,
+          "weight": 1.0
+        },
+        "privilege": {
+          "contributing_systems": 1,
+          "score": 72.0,
+          "weight": 2.0
+        }
+      },
+      "errors": [],
+      "scope": {
+        "account_id": "123456789012",
+        "authoritative": true,
+        "customer_id": "acme",
+        "region": null
+      },
+      "systems": [
+        {
+          "SystemName": "checkout",
+          "criticality": null,
+          "environment": null,
+          "layers": {
+            "network": {
+              "resource_count": 1,
+              "score": 90.0
+            },
+            "privilege": {
+              "resource_count": 2,
+              "score": 72.0
+            }
+          },
+          "name": "checkout",
+          "resource_count": 3,
+          "system_score": null
+        }
+      ],
+      "total": 1
+    }
+  }
+}
