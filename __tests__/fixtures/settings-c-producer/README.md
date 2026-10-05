@@ -60,3 +60,26 @@ GET that the step made. Regenerate them; do not edit them.
   - 28: every item measured at zero (COLLECTED_ZERO_FACTS). The real handler cannot produce this -- every account has Regions
     and a default VPC -- so the counts are passed into the real collection envelope exactly as the handler passes them; the
     reader and the listing that judge them are the real ones.
+
+## 29-37 (the organization listing role set up from Settings; the connection stack's instructions)
+
+- Producer: saferemediate-backend `037f3244ee838628d19b5efecab6ce8302556c5d` (R3d, on 64068f32), from a detached tree carrying exactly that commit's diff.
+- Generator: `agent-coordinator/claude-settings-r3-evidence-2026-10-05/test_r3_producer_captures.py` (sha256 in
+  `generator-sha256.txt` beside it). The backend's own API harness (real router, real repository on moto DynamoDB, real
+  person verification) and the real account connector. The connector's organization reads are the real ones on moto: its
+  own Organizations read for the member trust, then the discovery role assumed through its own STS AssumeRole with this
+  installation's ExternalId, DescribeOrganization and ListAccounts. moto keeps organization membership per account, so a
+  role in an account outside the organization answers AWSOrganizationsNotInUseException as AWS does. moto's management
+  account is its default account, so the platform account is that account here (it is listed as the platform account).
+- Files:
+  - 29: not configured: the setup values, the role's exact name and the output to copy.
+  - 30: the role ARN pasted in Settings, asked for (202: the request that will run carries it).
+  - 31: listed through that role (it was proven against this installation's organization and remembered).
+  - 32: a role from Settings that could not be assumed: the setup again, with no installer role.
+  - 33: the installer's role could not be assumed: the setup says the installer names the role.
+    32 and 33 answer AssumeRole with AWS's own AccessDenied at botocore's call site (moto never refuses AssumeRole); the
+    connector records only that AssumeRole failed. Every other call is real.
+  - 34: a role in an account outside the organization: OTHER_ORGANIZATION, no setup.
+  - 35: another installation's role name, refused by the API (422, nothing asked).
+  - 36: the connection stack's instructions once the member trust exists (the Add form's stack step).
+  - 37: a second ask while a request with another role is open: the open request keeps its own role.

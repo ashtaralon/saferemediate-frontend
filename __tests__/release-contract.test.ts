@@ -6,12 +6,25 @@
 import { describe, expect, it } from "vitest"
 
 import declaration from "@/lib/release-contract.json"
-import { REQUIRED_ACCOUNT_REGISTRATION_CONTRACT, registrationActionPath, registrationStep } from "@/lib/account-admin"
+import {
+  ORGANIZATION_DISCOVERY_TEMPLATE_PATH,
+  REQUIRED_ACCOUNT_REGISTRATION_CONTRACT,
+  registrationActionPath,
+  registrationStep,
+} from "@/lib/account-admin"
 
 describe("the release contract this frontend requires", () => {
-  it("is exactly the shape the backend's bundle builder reads, at level 3", () => {
-    expect(declaration).toEqual({ schema: "cyntro-release-contract/v1", requires: { account_registration: 3 } })
-    expect(REQUIRED_ACCOUNT_REGISTRATION_CONTRACT).toBe(3)
+  it("is exactly the shape the backend's bundle builder reads, at level 4", () => {
+    expect(declaration).toEqual({ schema: "cyntro-release-contract/v1", requires: { account_registration: 4 } })
+    expect(REQUIRED_ACCOUNT_REGISTRATION_CONTRACT).toBe(4)
+  })
+
+  it("is level 4 because this frontend sends what only level 4 serves: the read role ARN, the stack instructions, the listing role", () => {
+    // Level 4 = level 3 + POST /accounts {read_role_arn} checked against the account, GET /connect/instructions before any
+    // account, POST /organization/discover {role_arn} and GET /organization/template (agent-coordinator/
+    // claude-settings-stage1b-contract-2026-10-05.txt ADDENDUM 5). A level-3 backend drops the ARN unchecked and answers
+    // the two new reads 404.
+    expect(ORGANIZATION_DISCOVERY_TEMPLATE_PATH).toBe("/api/proxy/admin/accounts/organization/template")
   })
 
   it("is level 3 because this frontend sends a removal only level 3 serves", () => {

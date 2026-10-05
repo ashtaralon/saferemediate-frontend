@@ -1,0 +1,19 @@
+{
+ "body": {
+  "detail": {
+   "code": "DISCOVERY_ROLE_ARN_NOT_THIS_INSTALL",
+   "reason": "role 'CyntroOrgDiscovery-someone-else' is not this installation's discovery role 'CyntroOrgDiscovery-acme': deploy the organization discovery template with this installation's parameters and copy its OrgDiscoveryRoleArn output"
+  }
+ },
+ "captured_at": "2026-10-05T19:04:22.245929+00:00",
+ "name": "35_org_discover_refused_not_this_install",
+ "note": "POST /organization/discover with another installation's role",
+ "request": {
+  "json": {
+   "role_arn": "arn:aws:iam::123456789012:role/CyntroOrgDiscovery-someone-else"
+  },
+  "method": "POST",
+  "path": "/api/admin/accounts/organization/discover?customer_id=acme"
+ },
+ "status": 422
+}

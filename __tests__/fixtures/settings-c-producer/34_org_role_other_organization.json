@@ -1,0 +1,20 @@
+{
+ "body": {
+  "customer_id": "acme",
+  "reason": "OTHER_ORGANIZATION",
+  "requested_at": "2026-10-05T19:04:21.608077+00:00",
+  "source": {
+   "account_id": "777777777777",
+   "role_arn": "arn:aws:iam::777777777777:role/CyntroOrgDiscovery-acme"
+  },
+  "state": "UNAVAILABLE"
+ },
+ "captured_at": "2026-10-05T19:04:21.745263+00:00",
+ "name": "34_org_role_other_organization",
+ "note": "GET /organization: the pasted role's account is not in this organization",
+ "request": {
+  "method": "GET",
+  "path": "/api/admin/accounts/organization?customer_id=acme"
+ },
+ "status": 200
+}

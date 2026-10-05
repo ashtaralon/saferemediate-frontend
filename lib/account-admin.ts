@@ -20,7 +20,10 @@ export const MEMBER_ACCOUNTS_MODE = "MEMBER_ACCOUNTS"
  * The account-registration contract this frontend requires of the backend that serves it (lib/release-contract.json).
  * Level 1 = the option-C registration: the unverified path's acknowledgement, the access check, the confirmation and the
  * S3b recovery this page offers; level 2 adds the installation gate and the first inventory from its runs; level 3 adds
- * removing a registration that was never activated (/withdraw) and the runs' measured counts. The release bundle refuses to
+ * removing a registration that was never activated (/withdraw) and the runs' measured counts; level 4 adds an account by
+ * its read role ARN (checked against the account), the connection stack's instructions before any account
+ * (/connect/instructions), and the organization listing role set up from Settings (/organization/discover {role_arn},
+ * /organization/template, setup.role). The release bundle refuses to
  * pair this frontend with a backend whose connector provides less, and the connector's installer never goes below it (saferemediate-backend deploy/customer_pilot/bin/release_bundle.py,
  * install_floor.py). Against an older connector the unverified path would promise "no AWS call" while it calls AWS.
  */
@@ -656,12 +659,15 @@ export function nameInAwsText(check: RegistrationAccessCheck | null | undefined)
 }
 
 /** Why an access check did not reach the account, in words (the connector's refusal codes). */
-export function accessRefusalText(refusal: string | null | undefined, customerId: string): string {
+export function accessRefusalText(refusal: string | null | undefined, customerId: string, accountId?: string): string {
   const code = refusal || ""
   const role = memberReadRoleName(customerId)
   if (code.startsWith("ROLE_NOT_ASSUMABLE")) {
     const why = code.split(":")[1]
-    return `Cyntro could not use ${role} in that account${why ? ` (${why})` : ""}. Deploy the connection stack there, then check access again.`
+    // Alon, joint test 2026-10-05: the stack had been deployed -- in another account. Say where it has to be.
+    return accountId
+      ? `Cyntro could not use ${role} in account ${accountId}${why ? ` (${why})` : ""}. The connection stack must be deployed in ${accountId} itself: sign in, check the account ID at the top right of the AWS console, and create the stack there if it is not. A stack in any other account does not count. Then check access again.`
+      : `Cyntro could not use ${role} in that account${why ? ` (${why})` : ""}. Deploy the connection stack there, then check access again.`
   }
   if (code === "IDENTITY_MISMATCH") return `${role} answered as a different account. Check the account ID and the stack that was deployed.`
   if (code.startsWith("UNREACHABLE")) return `Cyntro could not reach AWS to check access${code.includes(":") ? ` (${code.split(":")[1]})` : ""}. Check access again.`
@@ -1165,6 +1171,47 @@ export interface OrganizationAccount {
 export interface OrganizationDiscoverySetup {
   template: string
   parameters: Record<string, string>
+  /** The role the template creates (its exact name) and the stack output to paste into Settings; ``set_by`` is
+   *  "installation" when the installer names the role, which Settings then cannot replace (backend setup_parameters). */
+  role?: { name: string; output: string; set_by?: string }
+}
+
+/** POST /api/admin/accounts/organization/discover (202): the request that will run, and the role IT carries -- an
+ *  already-open request keeps its own, so this can differ from the role just pasted. */
+export interface OrganizationDiscoverRequest {
+  customer_id: string
+  request_status: string
+  requested_at: string
+  already_open: boolean
+  role_arn: string | null
+}
+
+/** The customer's discovery role template, as shipped in this release (backend GET /organization/template). */
+export const ORGANIZATION_DISCOVERY_TEMPLATE_PATH = "/api/proxy/admin/accounts/organization/template"
+
+export type DiscoveryRoleArnCheck =
+  | { state: "EMPTY" }
+  | { state: "INVALID"; problem: string }
+  | { state: "VALID"; arn: string; accountId: string }
+
+/**
+ * A pasted organization discovery role ARN -- the OrgDiscoveryRoleArn output of the customer's discovery role stack -- as the
+ * backend decides it (org_discovery.check_discovery_role_arn): an IAM role ARN whose role is exactly ``roleName`` (the name
+ * the backend's setup answer gives), no other name and no path. Which account it is in is the customer's choice (the
+ * management account, or one delegated Organizations read); the connector proves it answers for this installation's
+ * organization before using it.
+ */
+export function checkDiscoveryRoleArn(raw: string, roleName: string): DiscoveryRoleArnCheck {
+  const arn = raw.trim()
+  if (!arn) return { state: "EMPTY" }
+  const match = READ_ROLE_ARN.exec(arn)
+  if (!match) {
+    return { state: "INVALID", problem: `Not an IAM role ARN. Copy OrgDiscoveryRoleArn from the stack's Outputs tab (arn:aws:iam::<account>:role/${roleName}).` }
+  }
+  if (match[3] !== roleName) {
+    return { state: "INVALID", problem: `This is role ${match[3]}, not this installation's organization listing role ${roleName}. Create the stack from this installation's template with the values shown, and copy its OrgDiscoveryRoleArn output.` }
+  }
+  return { state: "VALID", arn, accountId: match[2] }
 }
 
 export interface OrganizationDiscovery {
@@ -1210,10 +1257,15 @@ const ADMINISTRATOR_FIXES = new Set(["ROLE_NOT_USABLE", "NOT_PERMITTED", "OTHER_
  * setup itself (templates, role ARNs, external IDs and install settings belong to the installation administrator).
  * Without the list an account can be added only on the guarded unverified path (option C), never as listed.
  */
-export function organizationDependencyText(reason?: string | null): string {
+export function organizationDependencyText(reason?: string | null, options: { canSetUp?: boolean } = {}): string {
   const needs = "Without your organization's account list, an account can be added only as unverified: Cyntro reads nothing in it until you check access and confirm."
   if (reason === "NOT_CONFIGURED") {
-    return `${needs} Listing it needs a read-only role in your AWS organization, which your installation administrator sets up.`
+    return options.canSetUp
+      ? `${needs} Listing it needs a read-only role in your AWS organization: set it up below.`
+      : `${needs} Listing it needs a read-only role in your AWS organization, which your installation administrator sets up.`
+  }
+  if (reason === "ROLE_NOT_USABLE" && options.canSetUp) {
+    return `${needs} Check that the role's stack was created with the values below, then verify its ARN again.`
   }
   if (reason && ADMINISTRATOR_FIXES.has(reason)) return `${needs} Your installation administrator needs to check this installation's organization listing role.`
   return `${needs} The list can be asked for again.`

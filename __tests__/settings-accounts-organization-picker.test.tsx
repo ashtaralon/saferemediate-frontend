@@ -359,7 +359,10 @@ describe("Settings > Accounts — choose from your organization", () => {
     await within(picker).findByText("No accounts were listed.")
   })
 
-  it("not configured (Alon, rehearsal.27): says what adding needs and who sets it up -- never the setup values themselves", async () => {
+  // Alon 2026-10-05 reversed rehearsal.27's "never the setup values here": the role is set up from Settings now
+  // (settings-accounts-organization-role-setup.test.tsx, on the backend's own captures). This answer is an older backend's,
+  // which sends no role name: the values are shown, no ARN is asked for, and listing again is not offered.
+  it("not configured, from a backend that names no role: the setup values, no ARN asked for, and no dead List again", async () => {
     installFetch({
       organization: () => json({ customer_id: CUSTOMER, state: "UNAVAILABLE", reason: "NOT_CONFIGURED", requested_at: "2026-10-03T09:15:00.000000+00:00", setup: SETUP }),
       discover: () => json({ customer_id: CUSTOMER, request_status: "queued", requested_at: "2026-10-03T09:16:00.000000+00:00", already_open: false }, 202),
@@ -368,17 +371,13 @@ describe("Settings > Accounts — choose from your organization", () => {
     await within(picker).findByText("Choosing from your organization is not set up for this installation.")
     expect(within(picker).getByTestId("organization-dependency")).toHaveTextContent(
       "Without your organization's account list, an account can be added only as unverified: Cyntro reads nothing in it until you check access and confirm. " +
-      "Listing it needs a read-only role in your AWS organization, which your installation administrator sets up.")
-    // The backend still sends the setup values; they are the administrator's, not this form's.
-    expect(within(picker).queryByTestId("organization-setup")).toBeNull()
-    expect(picker).not.toHaveTextContent(SETUP.template)
+      "Listing it needs a read-only role in your AWS organization: set it up below.")
+    const setup = within(picker).getByTestId("organization-setup")
     for (const [name, value] of Object.entries(SETUP.parameters)) {
-      expect(picker).not.toHaveTextContent(name)
-      expect(picker).not.toHaveTextContent(value)
+      expect(within(setup).getByTestId("organization-setup-parameters")).toHaveTextContent(`${name}${value}`)
     }
-    expect(picker).not.toHaveTextContent(/ORG_DISCOVERY_ROLE_ARN|install\.env|INSTALL\.md|\.yaml|ExternalId/)
-    expect(within(picker).queryAllByRole("button", { name: /^Copy / })).toHaveLength(0)
-    expect(within(picker).queryByRole("button", { name: "Check again" })).toBeNull()
+    expect(within(setup).queryByRole("textbox")).toBeNull()
+    expect(within(picker).queryByRole("button", { name: "List accounts again" })).toBeNull()
     // The picker offers no typing of its own here; the Enter account ID tab is the guarded unverified path (option C).
     expect(within(picker).queryByRole("button", { name: "Enter an account ID instead" })).toBeNull()
 
@@ -387,9 +386,6 @@ describe("Settings > Accounts — choose from your organization", () => {
     fireEvent.click(within(picker).getByRole("button", { name: "Refresh status" }))
     await waitFor(() => expect(organizationReads()).toHaveLength(reads + 1))
     expect(discoverPosts()).toHaveLength(0)
-    // Listing again is its own, labelled, deliberate ask.
-    fireEvent.click(within(picker).getByRole("button", { name: "List accounts again" }))
-    await waitFor(() => expect(discoverPosts()).toHaveLength(1))
     expect(registrations()).toHaveLength(0)
   })
 

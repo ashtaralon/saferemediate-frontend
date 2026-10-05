@@ -5,12 +5,14 @@
  *
  * Renders only what GET /api/admin/accounts/organization answers (backend cyntro_data/accounts/org_discovery.py):
  * its state, its reason, its listed accounts, and -- while the discovery role still has to be set up -- the exact
- * setup parameters the backend returns. Nothing here registers an account: "Find accounts" asks the account connector
- * to list the organization (a verified operator's request), and choosing an account only fills the Add form, which
- * still goes through Review and the explicit Add account step.
+ * setup values the backend returns, with the role's ARN asked for here (OrganizationRoleSetup; Alon 2026-10-05). Nothing
+ * here registers an account: "Find accounts" asks the account connector to list the organization (a verified operator's
+ * request), and choosing an account only fills the Add form, which still goes through Review and the explicit Add
+ * account step.
  */
 import { useCallback, useEffect, useId, useRef, useState } from "react"
 import { Loader2 } from "lucide-react"
+import { OrganizationRoleSetup } from "@/components/settings/organization-role-setup"
 import {
   accountAdminFailure,
   formatUtcInstantExact,
@@ -20,6 +22,7 @@ import {
   organizationWhyNotText,
   type AccountIdCheck,
   type OrganizationAccount,
+  type OrganizationDiscoverRequest,
   type OrganizationDiscovery,
   type OrganizationReadState,
 } from "@/lib/account-admin"
@@ -158,16 +161,28 @@ export function OrganizationAccountPicker({
   const [selected, setSelected] = useState("")
   const selectId = useId()
 
-  async function findAccounts() {
+  // roleArn: the organization listing role pasted in Settings (OrganizationRoleSetup); the backend checks its name and the
+  // connector proves it before using it. Without one, the role already in effect is used.
+  async function findAccounts(roleArn?: string) {
     if (!customerId) return
     setAsking(true)
     setAskError(null)
     try {
       const response = await fetch(
         `/api/proxy/admin/accounts/organization/discover?customer_id=${encodeURIComponent(customerId)}`,
-        { method: "POST" },
+        roleArn
+          ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ role_arn: roleArn }) }
+          : { method: "POST" },
       )
-      if (!response.ok) throw await accountAdminFailure(response, "Finding accounts")
+      if (!response.ok) throw await accountAdminFailure(response, roleArn ? "Verifying the role" : "Finding accounts")
+      const asked = (await response.json().catch(() => null)) as OrganizationDiscoverRequest | null
+      if (roleArn && asked?.already_open && asked.role_arn !== roleArn) {
+        // An open request keeps its own role: this one was not applied (backend enqueue_discovery).
+        setAskError({
+          title: "A listing that was already running continues without this role.",
+          detail: `It runs with ${asked.role_arn ?? "the role already in effect"}. When it finishes, verify this role again.`,
+        })
+      }
       await load()
     } catch (reason) {
       setAskError({
@@ -283,14 +298,28 @@ export function OrganizationAccountPicker({
       {state === "UNAVAILABLE" ? (
         <div className="space-y-3" data-testid="organization-unavailable">
           <p className="font-semibold text-slate-900">{organizationUnavailableText(discovery?.reason)}</p>
-          <p data-testid="organization-dependency">{organizationDependencyText(discovery?.reason)}</p>
+          <p data-testid="organization-dependency">
+            {organizationDependencyText(discovery?.reason, { canSetUp: Boolean(discovery?.setup) })}
+          </p>
           <OrganizationSource discovery={discovery} />
-          {/* The setup values the backend sends (template, role, external ID) are the installation administrator's,
-              not this form's: they are not shown here. */}
-          <div className="flex items-center gap-4">{refreshButton}{findButton("List accounts again")}</div>
+          {/* The backend sends the setup values only to a verified operator, and only while the role has to be set up. */}
+          {discovery?.setup ? (
+            <OrganizationRoleSetup
+              setup={discovery.setup}
+              asking={asking}
+              onVerify={(roleArn) => void findAccounts(roleArn)}
+              installerRoleArn={discovery.source?.role_arn}
+            />
+          ) : null}
+          {/* Not configured, listing again without a role answers the same: only the setup above changes it. */}
+          <div className="flex items-center gap-4">
+            {refreshButton}
+            {discovery?.reason === "NOT_CONFIGURED" ? null : findButton("List accounts again")}
+          </div>
           <p className="text-xs text-slate-500">
-            Refresh status only reads the current status. List accounts again asks Cyntro to list your organization&apos;s
-            accounts again, for after the listing has been set up or fixed; it adds nothing.
+            {discovery?.reason === "NOT_CONFIGURED"
+              ? "Refresh status only reads the current status; it adds nothing."
+              : "Refresh status only reads the current status. List accounts again asks Cyntro to list your organization's accounts again with the role already in effect, for after it has been fixed; it adds nothing."}
           </p>
         </div>
       ) : null}

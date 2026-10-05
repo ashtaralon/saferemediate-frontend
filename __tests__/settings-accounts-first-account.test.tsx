@@ -134,7 +134,9 @@ describe("pending: nothing is read until access is checked", () => {
   it("a refused check is named, and the next step is checking again", async () => {
     const row = await mount(refused as Capture, at(refused as Capture))
     expect(within(row).getByTestId(`access-refused-${MEMBER}`)).toHaveTextContent(
-      "Cyntro could not use CyntroRead-acme in that account (AccessDenied). Deploy the connection stack there, then check access again.")
+      `Cyntro could not use CyntroRead-acme in account ${MEMBER} (AccessDenied). The connection stack must be deployed in ${MEMBER} ` +
+      "itself: sign in, check the account ID at the top right of the AWS console, and create the stack there if it is not. A stack " +
+      "in any other account does not count. Then check access again.")
     expect(within(row).getByRole("button", { name: `Check access to ${MEMBER}` })).toHaveTextContent("Check access again")
   })
 

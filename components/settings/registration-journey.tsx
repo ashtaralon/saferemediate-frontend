@@ -135,7 +135,7 @@ export function RegistrationJourney({
         )}
         {step.kind === "CHECK_ACCESS" && step.refused ? (
           <p data-testid={`access-refused-${id}`} className="text-red-700">
-            Last check{at(step.refused.completed_at) ? ` (${at(step.refused.completed_at)})` : ""}: {accessRefusalText(step.refused.refusal, customerId)}
+            Last check{at(step.refused.completed_at) ? ` (${at(step.refused.completed_at)})` : ""}: {accessRefusalText(step.refused.refusal, customerId, id)}
           </p>
         ) : null}
         <div className="flex flex-wrap items-center gap-2">
