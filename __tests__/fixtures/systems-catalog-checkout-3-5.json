@@ -1,0 +1,166 @@
+{
+  "_provenance": {
+    "backend_commit": "59ddebdff3433ede1e6d8cf38211ad8634f6ec52",
+    "copied_from": "saferemediate-backend tests/fixtures/systems_catalog/checkout_3_5.json (byte-equal 'answer'; the backend test asserts the real route equals it)",
+    "estate": "checkout: 3 resources in 123456789012, 5 in 222222222222 (tenant acme, eu-west-1)",
+    "harness": "tests/test_member_account_serving.py::test_checkout_in_two_unrelated_accounts_is_two_entries_of_3_and_5_never_8 (real producer scripts/project_system_resources_snapshots.py over moto, real routes over HTTP)",
+    "note": "Provisional catalogue identity only: never a SystemRef or authored System id.",
+    "producer": "GET /api/systems -> api/systems.py::_systems_across_accounts (T10 S2)",
+    "volatile_removed": [
+      "published_at_epoch",
+      "timestamp"
+    ]
+  },
+  "answer": {
+    "accounts_not_recorded": {},
+    "collection_status": "served",
+    "count": 2,
+    "coverage": null,
+    "generations": {
+      "123456789012": "inventory.resource_state.v1/4/run-a",
+      "222222222222": "inventory.resource_state.v1/7/run-m"
+    },
+    "graph_version": null,
+    "observation": {
+      "from": null,
+      "hold_reason": "SOURCE_COVERAGE_PUBLICATION_UNAVAILABLE:pointer_access_error:ResourceNotFoundException",
+      "read_model": "source_coverage",
+      "sources": [],
+      "status": "UNAVAILABLE",
+      "to": null
+    },
+    "regions_not_served": {},
+    "scope": {
+      "account_id": "123456789012",
+      "account_ids": [
+        "123456789012",
+        "222222222222"
+      ],
+      "authoritative": true,
+      "customer_id": "acme",
+      "region": "eu-west-1"
+    },
+    "semantic_status": "populated",
+    "source": "system_resources_collection",
+    "source_generation": null,
+    "success": true,
+    "systems": [
+      {
+        "SystemName": "checkout",
+        "account_id": "123456789012",
+        "account_ids": [
+          "123456789012"
+        ],
+        "accounts": {
+          "123456789012": {
+            "graph_version": "inventory.resource_state.v1/4/run-a",
+            "resource_count": 3
+          }
+        },
+        "boundaryReason": "discovered_business_candidate",
+        "businessCriticality": null,
+        "catalog_id": "provisional:v1:acme:123456789012:eu-west-1:checkout",
+        "catalog_identity": {
+          "account_id": "123456789012",
+          "customer_id": "acme",
+          "kind": "provisional",
+          "label": "checkout",
+          "region": "eu-west-1",
+          "version": 1
+        },
+        "criticalIssues": null,
+        "critical_count": null,
+        "criticality": null,
+        "displayName": "checkout",
+        "environment": null,
+        "findings_state": "not_published",
+        "healthScore": null,
+        "health_score": null,
+        "highIssues": null,
+        "high_count": null,
+        "kind": "BUSINESS_SYSTEM",
+        "label_repeated": true,
+        "lastScan": "Unknown",
+        "lastScanAt": null,
+        "lastScanKind": null,
+        "lowIssues": null,
+        "low_count": null,
+        "mediumIssues": null,
+        "medium_count": null,
+        "name": "checkout",
+        "owner": null,
+        "rankable": true,
+        "region": "eu-west-1",
+        "rejected": false,
+        "resourceCount": 3,
+        "resourceMetadataAt": null,
+        "resourceTypes": null,
+        "resource_count": 3,
+        "status": "unknown",
+        "totalFindings": null
+      },
+      {
+        "SystemName": "checkout",
+        "account_id": "222222222222",
+        "account_ids": [
+          "222222222222"
+        ],
+        "accounts": {
+          "222222222222": {
+            "graph_version": "inventory.resource_state.v1/7/run-m",
+            "resource_count": 5
+          }
+        },
+        "boundaryReason": "discovered_business_candidate",
+        "businessCriticality": null,
+        "catalog_id": "provisional:v1:acme:222222222222:eu-west-1:checkout",
+        "catalog_identity": {
+          "account_id": "222222222222",
+          "customer_id": "acme",
+          "kind": "provisional",
+          "label": "checkout",
+          "region": "eu-west-1",
+          "version": 1
+        },
+        "criticalIssues": null,
+        "critical_count": null,
+        "criticality": null,
+        "displayName": "checkout",
+        "environment": null,
+        "findings_state": "not_published",
+        "healthScore": null,
+        "health_score": null,
+        "highIssues": null,
+        "high_count": null,
+        "kind": "BUSINESS_SYSTEM",
+        "label_repeated": true,
+        "lastScan": "Unknown",
+        "lastScanAt": null,
+        "lastScanKind": null,
+        "lowIssues": null,
+        "low_count": null,
+        "mediumIssues": null,
+        "medium_count": null,
+        "name": "checkout",
+        "owner": null,
+        "rankable": true,
+        "region": "eu-west-1",
+        "rejected": false,
+        "resourceCount": 5,
+        "resourceMetadataAt": null,
+        "resourceTypes": null,
+        "resource_count": 5,
+        "status": "unknown",
+        "totalFindings": null
+      }
+    ],
+    "withheld": {
+      "criticality": "system_attributes",
+      "displayName": "system_attributes",
+      "environment": "system_attributes",
+      "findings": "lp_findings_rollup",
+      "owner": "system_attributes",
+      "scan": "collection_receipt_window"
+    }
+  }
+}

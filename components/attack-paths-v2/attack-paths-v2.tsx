@@ -91,6 +91,7 @@ import { matchConvergencePathId } from "@/lib/attack-paths/iap-to-convergence"
 import { useCrownJewelConvergence } from "@/lib/attack-paths/use-crown-jewel-convergence"
 import {
   catalogSystemName,
+  unrepeatedLabels,
   scopedStorageKey,
   useScopedSystemCatalog,
 } from "@/lib/scoped-system-catalog"
@@ -329,6 +330,13 @@ export function AttackPathsV2({
           setAutoRedirectDone(true)
           return
         }
+        // T10 S1: a URL that already names a system -- even one several accounts serve, or one outside this scope -- is
+        // never redirected away from. Redirecting it to a default would open ANOTHER system, and redirecting a repeated
+        // label to itself would loop.
+        if (requestedSystemName) {
+          setAutoRedirectDone(true)
+          return
+        }
 
         // Pick the target system: last-used (if still in the list) →
         // first available. localStorage-resume is the dominant UX
@@ -341,7 +349,8 @@ export function AttackPathsV2({
         } catch {
           /* private mode */
         }
-        if (!target) target = names[0]
+        // The first label exactly one account serves -- never the first of several accounts' systems.
+        if (!target) target = unrepeatedLabels(names)[0]
 
         if (target) {
           const params = new URLSearchParams(searchParams?.toString() ?? "")
@@ -357,7 +366,7 @@ export function AttackPathsV2({
     return () => {
       aborted = true
     }
-  }, [lastSystemStorageKey, pathname, router, searchParams, systemName, systemsCatalog.ready, systemsCatalog.url])
+  }, [lastSystemStorageKey, pathname, requestedSystemName, router, searchParams, systemName, systemsCatalog.ready, systemsCatalog.url])
 
   // Progressive load (P0 perf):
   //   1. /targets — inventory-first target catalog (AP3-104): every in-scope
