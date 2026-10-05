@@ -37,7 +37,7 @@ export type RosterState =
 export interface AccountInventoryViewProps {
   accountId: string
   customerId: string | null
-  /** The global scope's Region ("all" when not narrowed); shown, never used to filter. */
+  /** The global scope's Region ("all" when not narrowed); shown only -- it does not filter the inventory. */
   region: string
   resourceType: string | null
   roster: RosterState
