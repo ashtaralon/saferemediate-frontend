@@ -24,11 +24,22 @@ function refuse(status: number, code: string): NextResponse {
   return NextResponse.json({ error: code }, { status, headers: NO_STORE })
 }
 
+/**
+ * The backend URL for this account, or null for a configured base this proxy will not use. The base is parsed and
+ * validated FIRST (http / https only; no credentials, query or fragment -- even an empty "?" or "#"), and the endpoint
+ * is appended through its pathname, so a base with a path prefix keeps it and nothing can move the endpoint into a
+ * query or fragment.
+ */
 function backendTarget(accountId: string, query: URLSearchParams): URL | null {
   try {
-    const base = getBackendBaseUrl().replace(/\/+$/, "")
-    const target = new URL(`${base}/api/accounts/${encodeURIComponent(accountId)}/inventory`)
-    if (!["http:", "https:"].includes(target.protocol) || target.username || target.password) return null
+    const configured = getBackendBaseUrl()
+    const base = new URL(configured)
+    if (!["http:", "https:"].includes(base.protocol) || base.username || base.password || base.search || base.hash
+      || configured.includes("?") || configured.includes("#")) {
+      return null
+    }
+    const target = new URL(base.origin)
+    target.pathname = `${base.pathname.replace(/\/+$/, "")}/api/accounts/${encodeURIComponent(accountId)}/inventory`
     query.forEach((value, key) => target.searchParams.set(key, value))
     return target
   } catch {

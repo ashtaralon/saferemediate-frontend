@@ -14,6 +14,7 @@ import {
   firstPageRequest,
   isCursorRestart,
   nextPageRequest,
+  PAGE_PROGRESSION_INVALID,
   parseInventoryResponse,
   RESPONSE_MALFORMED,
   RESPONSE_NOT_CONTRACT,
@@ -122,6 +123,8 @@ describe("the strict reader refuses anything it cannot read exactly", () => {
     ["a row name over its byte cap", "populated_page1", (b) => { b.rows[0].name = "x".repeat(1025) }],
     ["a global row with a regional scope", "populated_page1", (b) => { b.rows[0].scope_kind = "regional" }],
     ["a row without eligibility data", "populated_page1", (b) => { delete b.rows[0].eligibility }],
+    ["a row repeated within one page", "populated_page1", (b) => { b.rows[1] = structuredClone(b.rows[0]) }],
+    ["more rows than the filter total", "populated_page1", (b) => { b.totals.filter_total = b.rows.length - 1 }],
     ["complete_empty that has more", "complete_empty", (b) => { b.has_more = true }],
     ["filter_empty with no account rows", "filter_empty", (b) => { b.totals.account_total = 0 }],
     ["a hold that carries rows", "held_authority_changed", (b) => { b.rows = body("populated_page1").rows }],
@@ -216,5 +219,67 @@ describe("the state machine binds every page to one epoch, key, cursor and publi
     }
     const page1Again = applyInventoryResponse(first, firstPageRequest(first), parse("not_published")).model
     expect(page1Again.kind).toBe("evidence")
+  })
+})
+
+describe("one publication must be walked forward (bounded progression cases, each a golden with one field broken)", () => {
+  function firstPage(): InventoryModel {
+    const model = startRead(1, KEY)
+    return applyInventoryResponse(model, firstPageRequest(model), parse("populated_page1")).model
+  }
+
+  function append(model: InventoryModel, mutate: (b: Record<string, any>) => void) {
+    const request = nextPageRequest(model)!
+    return applyInventoryResponse(model, request, parse("populated_page2", mutate)).model
+  }
+
+  function invalid(model: InventoryModel): boolean {
+    return model.kind === "unavailable" && model.reasonCode === PAGE_PROGRESSION_INVALID && !("rows" in model)
+  }
+
+  it("a legitimate short page continues: has_more decides, never the row count", () => {
+    const second = append(firstPage(), () => {})
+    expect(second.kind === "data" && [second.rows.length, second.hasMore]).toEqual([8, true])
+  })
+
+  it("a cursor that does not advance (an echo of the request) is refused, rows cleared", () => {
+    const first = firstPage()
+    const echoed = (first as { nextCursor: string }).nextCursor
+    expect(invalid(append(first, (b) => { b.next_cursor = echoed }))).toBe(true)
+  })
+
+  it("a cursor seen earlier in this read (a cycle) is refused", () => {
+    const first = firstPage()
+    const firstCursor = (first as { nextCursor: string }).nextCursor
+    const second = append(first, () => {})
+    expect(second.kind).toBe("data")
+    expect(invalid(append(second, (b) => { b.next_cursor = firstCursor }))).toBe(true)
+  })
+
+  it("rows seen on an earlier page are refused even with an advancing cursor", () => {
+    expect(invalid(append(firstPage(), (b) => { b.rows = body("populated_page1").rows }))).toBe(true)
+  })
+
+  it("changed totals within one publication are refused", () => {
+    expect(invalid(append(firstPage(), (b) => {
+      b.totals.account_total += 1
+      b.totals.filter_total += 1
+    }))).toBe(true)
+  })
+
+  it("an end of the walk with fewer rows than the publication's count is refused", () => {
+    expect(invalid(append(firstPage(), (b) => {
+      b.has_more = false
+      b.next_cursor = null
+    }))).toBe(true)
+  })
+
+  it("a first page that is also the last must hold exactly the count", () => {
+    const model = startRead(1, KEY)
+    const terminal = parse("populated_page1", (b) => {
+      b.has_more = false
+      b.next_cursor = null
+    })
+    expect(invalid(applyInventoryResponse(model, firstPageRequest(model), terminal).model)).toBe(true)
   })
 })

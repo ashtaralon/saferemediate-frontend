@@ -115,6 +115,28 @@ describe("the account inventory proxy", () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
+  it.each([
+    ["a query in the configured base", "https://backend.example/?x=1"],
+    ["a fragment in the configured base", "https://backend.example/#frag"],
+    ["an empty query marker", "https://backend.example?"],
+    ["an empty fragment marker", "https://backend.example/#"],
+  ])("refuses %s before any request: the endpoint can never move into a query or fragment", async (_why, configured) => {
+    backend = configured
+    const fetchMock = backendAnswers(new Response("{}", { status: 200 }))
+    const response = await call(`/api/proxy/accounts/${ACCOUNT}/inventory`)
+    expect([response.status, response.headers.get("cache-control"), await response.json()]).toEqual(
+      [503, "no-store", { error: "PROXY_BACKEND_UNCONFIGURED" }])
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it("keeps a configured base path prefix and appends the endpoint to it", async () => {
+    backend = "https://backend.example/cyntro/"
+    const fetchMock = backendAnswers(new Response(JSON.stringify(golden("not_published").body), { status: 200 }))
+    await call(`/api/proxy/accounts/${ACCOUNT}/inventory?limit=5`)
+    expect(String(fetchMock.mock.calls[0][0])).toBe(
+      `https://backend.example/cyntro/api/accounts/${ACCOUNT}/inventory?limit=5`)
+  })
+
   it("never follows a redirect with the person's credentials", async () => {
     backendAnswers(new Response(null, { status: 302, headers: { location: "https://elsewhere.example/" } }))
     const response = await call(`/api/proxy/accounts/${ACCOUNT}/inventory`)

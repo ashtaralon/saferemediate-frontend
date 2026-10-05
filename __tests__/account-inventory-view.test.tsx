@@ -7,7 +7,7 @@
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { act, fireEvent, render, screen } from "@testing-library/react"
-import type { ComponentProps } from "react"
+import { useLayoutEffect, type ComponentProps, type ReactNode } from "react"
 import { describe, expect, it, vi } from "vitest"
 import { AccountInventoryView, type RosterState } from "@/components/accounts/account-inventory-view"
 import type { InventoryFetchResult, InventoryFetcher } from "@/lib/account-inventory"
@@ -193,5 +193,50 @@ describe("the inventory view", () => {
     fireEvent.change(screen.getByLabelText("Resource type"), { target: { value: "s3:bucket" } })
     fireEvent.click(screen.getByRole("button", { name: "Filter" }))
     expect(onResourceTypeChange).toHaveBeenCalledWith("s3:bucket")
+  })
+
+  it("the commit that applies a new account or filter already shows none of the previous rows (before any effect)", async () => {
+    // A layout effect in a parent runs after the children's DOM of the SAME commit, before passive effects: it sees
+    // exactly what the prop change committed, which a plain rerender's act() would otherwise flush past.
+    const commits: Array<{ heading: string; rows: number }> = []
+    function Probe({ children }: { children: ReactNode }) {
+      useLayoutEffect(() => {
+        commits.push({ heading: screen.queryByRole("heading")?.textContent ?? "", rows: tableRows() })
+      })
+      return <>{children}</>
+    }
+    const { calls, fetchPage, release } = controllable()
+    const roster: RosterState = { status: "ready", displayName: null }
+    const props = { customerId: "acme", region: "all", roster, onResourceTypeChange: vi.fn(), fetchPage }
+    const { rerender } = render(<Probe><AccountInventoryView accountId={ACCOUNT} resourceType={null} {...props} /></Probe>)
+    await release(0, answer("populated_page1"))
+    expect(tableRows()).toBe(PAGE1_NAMES.length)
+
+    commits.length = 0
+    rerender(<Probe><AccountInventoryView accountId={OTHER} resourceType={null} {...props} /></Probe>)
+    expect(commits[0]).toEqual({ heading: `Inventory — ${OTHER}`, rows: 0 })
+
+    rerender(<Probe><AccountInventoryView accountId={ACCOUNT} resourceType={null} {...props} /></Probe>)
+    await release(2, answer("populated_page1"))
+    expect(tableRows()).toBe(PAGE1_NAMES.length)
+    commits.length = 0
+    rerender(<Probe><AccountInventoryView accountId={ACCOUNT} resourceType="s3:bucket" {...props} /></Probe>)
+    expect(commits[0].rows).toBe(0)
+    expect(calls[calls.length - 1].params).toEqual({ resourceType: "s3:bucket", cursor: null })
+    await release(1, answer("populated_page1"))              // the superseded OTHER reader's late answer
+    expect(tableRows()).toBe(0)
+  })
+
+  it("a page that does not advance the cursor clears the rows and is named, with no further load", async () => {
+    const { calls, fetchPage, release } = controllable()
+    view({ fetchPage })
+    await release(0, answer("populated_page1"))
+    fireEvent.click(screen.getByRole("button", { name: "Load more" }))
+    const echoed = golden("populated_page1").body.next_cursor
+    await release(1, answer("populated_page2", (b) => { b.next_cursor = echoed }))
+    expect(tableRows()).toBe(0)
+    expect(screen.getByRole("status").textContent).toContain("PAGE_PROGRESSION_INVALID")
+    expect(screen.queryByRole("button", { name: "Load more" })).toBeNull()
+    expect(calls).toHaveLength(2)
   })
 })

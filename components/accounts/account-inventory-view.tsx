@@ -4,8 +4,11 @@
  * One account's published resource inventory, read-only (T11b). Browse only: no selection, assignment or
  * "add to system" control; authoring is not available here.
  *
- * Every page request is issued under the current EPOCH and KEY and checked against them again when it completes
- * (lib/account-inventory.ts), so a late answer for another account, filter, refresh or retry can never render.
+ * The reader is KEYED by (customer, account, filter): a change of any of them mounts a fresh reader, so the very first
+ * committed output after the change already belongs to the new key -- no row of the previous account or filter is ever
+ * committed under the new heading, even before effects run. Inside one reader, every page request is issued under the
+ * current EPOCH and checked again when it completes (lib/account-inventory.ts), so a same-key refresh, restart or retry
+ * never revives an earlier answer; a superseded reader's completions are ignored outright.
  * The inventory is account-wide: the global Region selection does not filter it, and the page says so.
  */
 
@@ -66,7 +69,12 @@ function outcomeCopy(model: InventoryModel): string {
   return ""
 }
 
-export function AccountInventoryView({
+export function AccountInventoryView(props: AccountInventoryViewProps) {
+  const readerKey = JSON.stringify([props.customerId, props.accountId, props.resourceType])
+  return <InventoryReader key={readerKey} {...props} />
+}
+
+function InventoryReader({
   accountId,
   customerId,
   region,
@@ -76,6 +84,7 @@ export function AccountInventoryView({
   fetchPage = fetchInventoryPage,
 }: AccountInventoryViewProps) {
   const epochRef = useRef(0)
+  const alive = useRef(true)
   const controllers = useRef<AbortController[]>([])
   const [model, setModel] = useState<InventoryModel>(() => startRead(0, { customerId, accountId, resourceType }))
   // The model every response is judged against: written only through commit(), synchronously, so a completion always
@@ -93,6 +102,7 @@ export function AccountInventoryView({
     controllers.current.push(controller)
     void fetchPage(request.key.accountId, { resourceType: request.key.resourceType, cursor: request.cursor },
       controller.signal).then(({ status, body }) => {
+      if (!alive.current) return      // a superseded reader (another key, or unmounted): never touches state
       const current = modelRef.current
       const { model: next, effect } = applyInventoryResponse(current, request, parseInventoryResponse(status, body,
         request.key.accountId))
@@ -116,14 +126,16 @@ export function AccountInventoryView({
     issue(firstPageRequest(fresh))
   }, [issue, commit])
 
+  // One reader per key: read on mount; on unmount (a key change remounts) abort and ignore everything in flight.
   useEffect(() => {
+    alive.current = true
     read({ customerId, accountId, resourceType })
-    setFilterDraft(resourceType ?? "")
+    return () => {
+      alive.current = false
+      for (const controller of controllers.current) controller.abort()
+      controllers.current = []
+    }
   }, [customerId, accountId, resourceType, read])
-
-  useEffect(() => () => {
-    for (const controller of controllers.current) controller.abort()
-  }, [])
 
   const loadMore = () => {
     const current = modelRef.current

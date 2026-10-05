@@ -35,6 +35,9 @@ export const PROXY_CODES = [
 export const RESPONSE_MALFORMED = "RESPONSE_MALFORMED"
 export const RESPONSE_NOT_CONTRACT = "RESPONSE_NOT_CONTRACT"
 export const CURSOR_RESTART_REQUIRED = "CURSOR_RESTART_REQUIRED"
+/** Pages of one publication that cannot be a real walk of it: a cursor that does not advance or repeats, a row seen
+ * before, changed totals, or more (or, at the end, other) rows than the publication's own count. */
+export const PAGE_PROGRESSION_INVALID = "PAGE_PROGRESSION_INVALID"
 
 // Producer bounds (account_inventory_rows.py / account_inventory_collection.py).
 const ROW_FIELD_MAX_BYTES = {
@@ -107,6 +110,11 @@ export type ParsedInventory = InventoryData | InventoryOutcome
 
 function bytes(value: string): number {
   return new TextEncoder().encode(value).length
+}
+
+/** A row's identity in its publication: the producer orders and keys rows by (resource_type, resource_uid). */
+export function rowKey(row: Pick<InventoryRow, "resource_type" | "resource_uid">): string {
+  return JSON.stringify([row.resource_type, row.resource_uid])
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -190,12 +198,14 @@ export function parseInventoryResponse(status: number, body: unknown, accountId:
     }
     const rows = body.rows
     if (rows.length > PAGE_LIMIT_MAX || !rows.every(validRow)) return malformed(status)
+    if (new Set((rows as InventoryRow[]).map(rowKey)).size !== rows.length) return malformed(status)
     const cursorOk = body.has_more
       ? boundedText(body.next_cursor, CURSOR_MAX_BYTES)
       : body.next_cursor === null
     if (!cursorOk) return malformed(status)
     const accountTotal = totals.account_total as number
     const filterTotal = totals.filter_total as number
+    if (rows.length > filterTotal) return malformed(status)
     if (state === "populated" && (rows.length < 1 || filterTotal < 1)) return malformed(status)
     if (state === "complete_empty" && (rows.length !== 0 || accountTotal !== 0 || body.has_more)) return malformed(status)
     if (state === "filter_empty" && (rows.length !== 0 || filterTotal !== 0 || accountTotal < 1 || body.has_more)) {
@@ -271,7 +281,7 @@ export interface InventoryRequest {
 
 export type InventoryModel =
   | { kind: "loading"; epoch: number; key: InventoryKey; restarts: number }
-  | ({ epoch: number; key: InventoryKey; restarts: number; loadingMore: boolean } & InventoryData)
+  | ({ epoch: number; key: InventoryKey; restarts: number; loadingMore: boolean; seenCursors: string[] } & InventoryData)
   | ({ epoch: number; key: InventoryKey; restarts: number } & InventoryOutcome)
   | { kind: "republishing"; epoch: number; key: InventoryKey; restarts: number }
 
@@ -320,9 +330,17 @@ export function applyInventoryResponse(
       ? { model: { kind: "republishing", ...base }, effect: "none" }
       : { model, effect: "restart" }
 
+  const invalid = (status: number): { model: InventoryModel; effect: InventoryEffect } => ({
+    model: { ...base, kind: "unavailable", status, state: "unavailable", reasonCode: PAGE_PROGRESSION_INVALID },
+    effect: "none",
+  })
+
   if (request.cursor === null) {
-    if (parsed.kind === "data") return { model: { ...base, ...parsed, loadingMore: false }, effect: "none" }
-    return { model: { ...base, ...parsed }, effect: "none" }
+    if (parsed.kind !== "data") return { model: { ...base, ...parsed }, effect: "none" }
+    // A first page that is also the last must hold exactly the publication's own count.
+    if (!parsed.hasMore && parsed.rows.length !== parsed.totals.filterTotal) return invalid(parsed.status)
+    const seenCursors = parsed.nextCursor === null ? [] : [parsed.nextCursor]
+    return { model: { ...base, ...parsed, loadingMore: false, seenCursors }, effect: "none" }
   }
   // An appended page.
   if (model.kind !== "data" || model.nextCursor !== request.cursor || request.expectedPublication === null
@@ -334,15 +352,29 @@ export function applyInventoryResponse(
   if (!publicationsEqual(parsed.publication, request.expectedPublication) || parsed.state !== model.state) {
     return restart()
   }
+  // The same publication must walk forward: the same totals, a cursor never seen in this read, no row seen before, and
+  // never more rows than its count -- exactly its count at the end. A short page is legitimate: has_more decides.
+  if (parsed.totals.accountTotal !== model.totals.accountTotal || parsed.totals.filterTotal !== model.totals.filterTotal) {
+    return invalid(parsed.status)
+  }
+  if (parsed.nextCursor !== null && (parsed.nextCursor === request.cursor || model.seenCursors.includes(parsed.nextCursor))) {
+    return invalid(parsed.status)
+  }
+  const seen = new Set(model.rows.map(rowKey))
+  if (parsed.rows.some((row) => seen.has(rowKey(row)))) return invalid(parsed.status)
+  const accumulated = model.rows.length + parsed.rows.length
+  if (accumulated > model.totals.filterTotal || (!parsed.hasMore && accumulated !== model.totals.filterTotal)) {
+    return invalid(parsed.status)
+  }
   return {
     model: {
       ...model,
       rows: model.rows.concat(parsed.rows),
       nextCursor: parsed.nextCursor,
       hasMore: parsed.hasMore,
-      totals: parsed.totals,
       inventoryComplete: parsed.inventoryComplete,
       loadingMore: false,
+      seenCursors: parsed.nextCursor === null ? model.seenCursors : model.seenCursors.concat(parsed.nextCursor),
     },
     effect: "none",
   }
