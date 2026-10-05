@@ -37,6 +37,7 @@ import {
   accountIdUnverified,
   accountLabel,
   accountNameNote,
+  accountNeedsPolling,
   checkAccountId,
   connectionCheckOutcome,
   organizationListing,
@@ -56,9 +57,6 @@ import {
   type FailedAccountRequest,
   type ManagedAccount,
 } from "@/lib/account-admin"
-
-/** Rows the connector is still moving on its own: the page re-reads until they leave these states. */
-const CONNECTOR_WORKING = new Set(["REGISTERING", "LISTED_ADMITTED", "CHECKING", "ACTIVATING"])
 
 interface AccountGroup {
   customer_id: string
@@ -102,10 +100,11 @@ const OPEN_CONNECT_ON = new Set(["AWAITING_CONNECTION", "CONNECTED", "PENDING_UN
 
 const REQUEST_ACTION_LABEL: Record<string, string> = {
   register: "Registration", validate: "Connection check", access_check: "Access check", activate: "Activation", release: "Release",
+  withdraw: "Removal",
 }
 /** The journey request each action sends, named as the page says it. */
 const REGISTRATION_ACTION_LABEL: Record<RegistrationAction, string> = {
-  access_check: "Check access", activate: "Confirmation", release: "Release",
+  access_check: "Check access", activate: "Confirmation", release: "Release", withdraw: "Remove account",
 }
 
 function statusStyle(status: string) {
@@ -236,12 +235,11 @@ export default function AccountSettingsPage() {
   const allAccounts = data?.accounts || []
   const failedRequests = data?.failed_requests || []
 
-  // Re-read while the connector has work open for this page: a registration, an open
-  // request on any row, a row in a step the connector is still taking (a listed account being
-  // recorded, an access check, an activation), or a check this page asked for. Stops when none;
-  // stops on unmount.
+  // Re-read while the connector has work open for this page: a row it is still moving or with an
+  // open request (accountNeedsPolling), or a check this page asked for. Stops when none; stops on
+  // unmount.
   const needsPolling =
-    allAccounts.some((account) => CONNECTOR_WORKING.has(account.onboarding_status) || Boolean(account.pending_request)) ||
+    allAccounts.some(accountNeedsPolling) ||
     awaitingConnect !== null ||
     Object.keys(checks).length > 0
   useEffect(() => {

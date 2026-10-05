@@ -42,3 +42,21 @@ GET that the step made. Regenerate them; do not edit them.
     history.
   - 23: a partly refused dispatch (the queue accepted the first batch and refused the second): BLOCKED by that reason,
     with the queued work's own runs counted beside it.
+
+## 24-28 (gaps: Remove, measured counts)
+
+- Producer: saferemediate-backend `c51a8075745f9d68586cf310caa34a0805972670` (R2c, on R2b 067df5d7 and R2 583af607; local
+  checkpoints), from a clean detached tree.
+- Generator: `agent-coordinator/claude-settings-gaps-evidence-2026-10-05/test_gaps_producer_captures.py` (sha256 in
+  `generator-sha256.txt` beside it). It imports the 1B-3 generator's harness and adds:
+  - the withdraw route and the real connector's `withdraw`;
+  - the REAL inventory handler (`sources/handler.lambda_handler`) run over every work item the connector queued, reading the
+    member account through its own CyntroRead session on moto, with the evidence store on local disk.
+- Files:
+  - 24: Remove asked for the registration and version shown (`withdraw_response` is the POST's answer); not yet processed.
+  - 25: withdrawn: the account is no longer listed.
+  - 26: a removal overtaken by an access check: refused by its own reason, the account still listed and confirmable.
+  - 27: the first inventory as the real handler measured it: every item counted, the total summed.
+  - 28: every item measured at zero (COLLECTED_ZERO_FACTS). The real handler cannot produce this -- every account has Regions
+    and a default VPC -- so the counts are passed into the real collection envelope exactly as the handler passes them; the
+    reader and the listing that judge them are the real ones.

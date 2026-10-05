@@ -14,7 +14,7 @@ vi.mock("@/lib/account-scope-context", () => ({
 vi.mock("@/components/left-sidebar-nav", () => ({ LeftSidebarNav: () => null }))
 
 import AccountSettingsPage from "@/app/settings/accounts/page"
-import { ACTIVATION_CHECK_MAX_AGE_MS, formatUtcInstantExact } from "@/lib/account-admin"
+import { ACTIVATION_CHECK_MAX_AGE_MS, accountNeedsPolling, formatUtcInstantExact } from "@/lib/account-admin"
 import pending from "@/__tests__/fixtures/settings-c-producer/01_pending_unverified.json"
 import refused from "@/__tests__/fixtures/settings-c-producer/02_access_refused.json"
 import checking from "@/__tests__/fixtures/settings-c-producer/03_checking.json"
@@ -39,6 +39,11 @@ import k2Unavailable from "@/__tests__/fixtures/settings-c-producer/20_k2_run_st
 import gateClosed from "@/__tests__/fixtures/settings-c-producer/21_gate_closed_refusal.json"
 import historyPresent from "@/__tests__/fixtures/settings-c-producer/22_history_present_refusal.json"
 import k2Blocked from "@/__tests__/fixtures/settings-c-producer/23_k2_partially_blocked.json"
+import withdrawRequested from "@/__tests__/fixtures/settings-c-producer/24_withdraw_requested.json"
+import withdrawn from "@/__tests__/fixtures/settings-c-producer/25_withdrawn.json"
+import withdrawRefused from "@/__tests__/fixtures/settings-c-producer/26_withdraw_refused_state_changed.json"
+import k2Measured from "@/__tests__/fixtures/settings-c-producer/27_k2_collected_measured.json"
+import k2ZeroFacts from "@/__tests__/fixtures/settings-c-producer/28_k2_collected_zero_facts.json"
 
 const CUSTOMER = "acme"
 const MEMBER = "222222222222"
@@ -423,7 +428,7 @@ describe("K2: the first inventory, from the runs of exactly this registration's 
     expect(status).toHaveTextContent(
       `First inventory collected: the evidence of all 31 work items is committed ${asOf(k2Collected as Capture)}. ` +
       "Whether it appears in the map yet is not part of this status.")
-    expect(status).not.toHaveTextContent(/complete|finished|empty|nothing found|zero|facts/i)
+    expect(status).not.toHaveTextContent(/complete|finished|empty|nothing found|zero|facts|resource record/i)
   })
 
   it("a failed run outranks the rest and its class is said verbatim, with who can act -- never a role inferred from it", async () => {
@@ -465,5 +470,121 @@ describe("refusals are worded by their stable codes: what happened, who acts, wh
     expect(outcome).toHaveTextContent(words)
     const failure = (capture as Capture).body.failed_requests[0]
     expect(outcome.closest("[role=alert]")).toHaveTextContent(failure.detail)
+  })
+})
+
+
+// ── Gaps (Alon 2026-10-05): removing a registration that was never activated; the first inventory's measured count; the
+// page's poll rule. Rows 24-28 are the producer's own (backend c51a8075, fixtures README).
+
+const removeButton = (row: HTMLElement) => within(row).queryByRole("button", { name: `Remove account ${MEMBER}` })
+
+describe("Remove: only a registration that was never activated, after saying what removing does", () => {
+  it.each([
+    ["pending", pending, 0],
+    ["confirmable", confirmable, 0],
+    ["confirmable no longer (checked more than 15 minutes ago)", confirmable, ACTIVATION_CHECK_MAX_AGE_MS + 60_000],
+  ] as const)("%s: the dialog says it, and Remove sends exactly the row's registration and version", async (_label, capture, later) => {
+    const row = await mount(capture as Capture, at(capture as Capture) + later)
+    fireEvent.click(removeButton(row) as HTMLElement)
+    const dialog = await screen.findByRole("dialog", { name: `Remove ${MEMBER} from Cyntro?` })
+    expect(dialog).toHaveTextContent("This account was never confirmed: reading is off and nothing has been collected from it.")
+    expect(dialog).toHaveTextContent(
+      "Removing makes no AWS call and changes nothing in the account. A connection stack deployed there stays until it is deleted in that account.")
+    expect(dialog).toHaveTextContent("The account leaves this list. Cyntro keeps the registration as a record of who removed it and when.")
+    expect(dialog).toHaveTextContent("You can add the account again later; it starts as a new registration.")
+    expect(posts).toHaveLength(0)
+    fireEvent.click(within(dialog).getByRole("button", { name: "Remove account" }))
+    await waitFor(() => expect(posts).toHaveLength(1))
+    const registration = registrationOf(capture as Capture)
+    expect(posts[0]).toEqual({
+      url: `/api/proxy/admin/accounts/${MEMBER}/withdraw?customer_id=${CUSTOMER}`,
+      body: { registration_id: registration.registration_id, registration_version: registration.registration_version },
+    })
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: `Remove ${MEMBER} from Cyntro?` })).toBeNull())
+  })
+
+  it("Cancel sends nothing", async () => {
+    const row = await mount(pending as Capture, at(pending as Capture))
+    fireEvent.click(removeButton(row) as HTMLElement)
+    const dialog = await screen.findByRole("dialog", { name: `Remove ${MEMBER} from Cyntro?` })
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }))
+    expect(screen.queryByRole("dialog", { name: `Remove ${MEMBER} from Cyntro?` })).toBeNull()
+    expect(posts).toHaveLength(0)
+  })
+
+  it.each([checking, activating, activationFailed, held, allQueued, k2Collected, listedAdmitted] as Capture[])(
+    "$name: not offered (checking, activating, activated, held or being recorded)", async (capture) => {
+      const row = await mount(capture, at(capture))
+      expect(removeButton(row)).toBeNull()
+    })
+
+  it("while the removal is open the row says so and offers nothing; once recorded the account leaves the list", async () => {
+    expect((withdrawRequested as Capture).withdraw_response.status).toBe(202)
+    const row = await mount(withdrawRequested as Capture, at(withdrawRequested as Capture))
+    expect(row).toHaveTextContent("Removal queued")
+    expect(removeButton(row)).toBeDisabled()
+    expect(within(row).getByRole("button", { name: `Check access to ${MEMBER}` })).toBeDisabled()
+    expect((withdrawn as Capture).body.accounts.some((account) => account.account_id === MEMBER)).toBe(false)
+    current = withdrawn as Capture
+    await act(async () => { await vi.advanceTimersByTimeAsync(4000) })
+    await waitFor(() => expect(screen.queryByTestId(`account-row-${MEMBER}`)).toBeNull())
+    expect(posts).toHaveLength(0)
+  })
+
+  it("a removal overtaken by an access check is said by its own reason; the account stays, confirmable", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true, now: at(withdrawRefused as Capture) })
+    install(withdrawRefused as Capture)
+    render(<AccountSettingsPage />)
+    const failure = (withdrawRefused as Capture).body.failed_requests[0]
+    const alert = (await screen.findByText(`Removal for ${MEMBER} failed`)).closest("[role=alert]") as HTMLElement
+    expect(alert).toHaveTextContent(failure.detail)
+    expect(failure.detail).toMatch(/^account 222222222222 changed after the removal was asked for \(version 1, now 3\)/)
+    const row = screen.getByTestId(`account-row-${MEMBER}`)
+    expect(step(row)).toHaveAttribute("data-step", "CONFIRM")
+    expect(removeButton(row)).toBeEnabled()
+  })
+})
+
+describe("K2: a count only from runs that measured it", () => {
+  const status = async (capture: Capture) => {
+    const row = await mount(capture, at(capture))
+    return within(row).getByTestId(`first-collection-${MEMBER}`)
+  }
+
+  it("every item measured by the inventory handler itself: the resource records it emitted are counted", async () => {
+    const outcome = firstInventoryOutcomeOf(k2Measured as Capture)
+    const items = outcome.items as Array<Record<string, any>>
+    expect(items.every((item) => typeof item.facts_emitted === "number")).toBe(true)
+    expect(outcome.facts_emitted_total).toBe(items.reduce((sum, item) => sum + item.facts_emitted, 0))
+    expect(await status(k2Measured as Capture)).toHaveTextContent(
+      `First inventory collected: the evidence of all 31 work items is committed, ${outcome.facts_emitted_total} resource records ` +
+      `${asOf(k2Measured as Capture)}. Whether it appears in the map yet is not part of this status.`)
+  })
+
+  it("all measured at zero is said as what the reads returned, never as an empty account", async () => {
+    expect(firstInventoryOutcomeOf(k2ZeroFacts as Capture).state).toBe("COLLECTED_ZERO_FACTS")
+    const text = await status(k2ZeroFacts as Capture)
+    expect(text).toHaveTextContent(
+      `First inventory collected: all 31 work items committed their evidence and recorded no resources ${asOf(k2ZeroFacts as Capture)}. ` +
+      "That is what these inventory reads returned in the account's Regions, not a claim that the account holds nothing.")
+    expect(text).not.toHaveTextContent(/state Cyntro does not know|is empty|nothing found/)
+  })
+})
+
+describe("the page's poll rule (accountNeedsPolling)", () => {
+  const WORKING = ["REGISTERING", "LISTED_ADMITTED", "CHECKING", "ACTIVATING"]
+  const SETTLED = ["PENDING_UNVERIFIED", "ACCESS_CONFIRMABLE", "ACTIVATION_FAILED", "AWAITING_CONNECTION", "CONNECTION_FAILED",
+                   "CONNECTED", "READY", "DEGRADED", "VALIDATION_HELD", "DISCOVERED"]
+
+  it.each(WORKING)("%s is polled with or without an open request", (status) => {
+    expect(accountNeedsPolling({ onboarding_status: status, pending_request: null })).toBe(true)
+    expect(accountNeedsPolling({ onboarding_status: status, pending_request: { action: "register", status: "queued" } })).toBe(true)
+  })
+
+  it.each(SETTLED)("%s is polled only while a request for it is open", (status) => {
+    expect(accountNeedsPolling({ onboarding_status: status, pending_request: null })).toBe(false)
+    expect(accountNeedsPolling({ onboarding_status: status })).toBe(false)
+    expect(accountNeedsPolling({ onboarding_status: status, pending_request: { action: "withdraw", status: "queued" } })).toBe(true)
   })
 })

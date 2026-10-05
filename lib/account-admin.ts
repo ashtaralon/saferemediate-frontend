@@ -422,8 +422,8 @@ export interface ListedEvidence {
   basis?: string | null
 }
 
-/** One work item of the first inventory, judged from its own run record (Stage1B K2). No counter: the inventory producer
- *  records none, so none is shown. */
+/** One work item of the first inventory, judged from its own run record (Stage1B K2). The counts are present only when
+ *  that run MEASURED them (what it read from AWS and the resource records it normalized); absent, nothing was measured. */
 export interface FirstInventoryItem {
   work_item_id: string
   source_type: string
@@ -434,6 +434,8 @@ export interface FirstInventoryItem {
   error_class?: string | null
   started_at?: string | null
   completed_at?: string | null
+  records_read?: number
+  facts_emitted?: number
 }
 
 /** Stage1B K2: where the inventory bootstrap THIS registration's confirmation dispatched stands, from the exact runs of
@@ -445,6 +447,9 @@ export interface FirstInventoryOutcome {
   reason?: string | null
   observed_at?: string | null
   counts: Record<string, number>
+  /** The resource records every item emitted, summed -- null unless EVERY item measured its own (a partial sum would read
+   *  as the whole). */
+  facts_emitted_total?: number | null
   items: FirstInventoryItem[]
 }
 
@@ -467,7 +472,7 @@ export interface RegistrationProgress {
  *  15 minutes before the connector admits it. The page judges it by the wall clock; the connector decides. */
 export const ACTIVATION_CHECK_MAX_AGE_MS = 15 * 60 * 1000
 
-export type RegistrationAction = "access_check" | "activate" | "release"
+export type RegistrationAction = "access_check" | "activate" | "release" | "withdraw"
 
 /** The proxied route for one journey request. */
 export function registrationActionPath(action: RegistrationAction, accountId: string, customerId: string): string {
@@ -561,6 +566,16 @@ export function registrationStepBoundary(step: RegistrationStep | null, now: num
     return !Number.isNaN(at) && at > now && at - now < ACTIVATION_CHECK_MAX_AGE_MS ? at : null
   }
   return null
+}
+
+/** Rows the connector is still moving on its own: a registration, a listed account being recorded, an access check, an
+ *  activation. */
+const CONNECTOR_WORKING = new Set(["REGISTERING", "LISTED_ADMITTED", "CHECKING", "ACTIVATING"])
+
+/** Whether the page must keep re-reading the list for this row: the connector is still moving it, or a request for it is
+ *  open (a removal the connector has not recorded yet included). */
+export function accountNeedsPolling(account: Pick<ManagedAccount, "onboarding_status" | "pending_request">): boolean {
+  return CONNECTOR_WORKING.has(account.onboarding_status) || Boolean(account.pending_request)
 }
 
 const STEP_LABEL: Record<string, string> = { register: "registration", access_check: "access check", activate: "activation" }
@@ -673,11 +688,17 @@ function errorClasses(outcome: FirstInventoryOutcome, state: string): string {
   return classes.join(", ")
 }
 
+/** "10 resource records" when every item measured its own, else nothing (a partial sum would read as the whole). */
+function recordedTotal(outcome: FirstInventoryOutcome): string {
+  const total = outcome.facts_emitted_total
+  return typeof total === "number" && Number.isFinite(total) ? `, ${total} ${plural(total, "resource record", "resource records")}` : ""
+}
+
 /**
  * Stage1B K2, in words: where THIS registration's first inventory stands, from the exact runs of its work. The inventory
- * only -- never CloudTrail or flow logs. "Collected" means the evidence is committed; it never claims the map, an empty
- * account, a count or a retry (the inventory producer records none of those). Unavailable is never success. Null before
- * activation.
+ * only -- never CloudTrail or flow logs. "Collected" means the evidence is committed; it never claims the map or a retry.
+ * A count is said only when every run measured its own, and zero records is what those reads returned -- never a claim that
+ * the account holds nothing. Unavailable is never success. Null before activation.
  */
 export function firstInventoryOutcomeText(
   outcome: FirstInventoryOutcome | null | undefined,
@@ -702,8 +723,10 @@ export function firstInventoryOutcomeText(
     case "COLLECTING":
       return { tone: "pending", text: `First inventory collecting: ${n("collected")} of ${items(total)} collected, ${n("collecting") + n("starting")} in progress, ${n("queued") + n("intended")} waiting${asOf}.` }
     case "COLLECTED":
-      return { tone: "done", text: `First inventory collected: the evidence of all ${items(total)} is committed${asOf}. Whether it appears in the map yet is not part of this status.` }
-    case "COMPLETED": return { tone: "done", text: `First inventory completed: all ${items(total)} finished${asOf}.` }
+      return { tone: "done", text: `First inventory collected: the evidence of all ${items(total)} is committed${recordedTotal(outcome)}${asOf}. Whether it appears in the map yet is not part of this status.` }
+    case "COLLECTED_ZERO_FACTS":
+      return { tone: "done", text: `First inventory collected: all ${items(total)} committed their evidence and recorded no resources${asOf}. That is what these inventory reads returned in the account's Regions, not a claim that the account holds nothing.` }
+    case "COMPLETED": return { tone: "done", text: `First inventory completed: all ${items(total)} finished${recordedTotal(outcome)}${asOf}.` }
     case "FAILED_RETRYABLE":
       return { tone: "blocked", text: `First inventory: ${items(n("failed_retryable"))} failed with a retryable error (${errorClasses(outcome, "FAILED_RETRYABLE")})${asOf}.` }
     case "FAILED":

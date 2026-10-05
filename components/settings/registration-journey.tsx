@@ -2,13 +2,14 @@
 
 /**
  * Settings > Accounts, option C (S4): a registration's next step on the way to its first collection -- check access,
- * confirm, and the recovery its states need (a retry, a release) -- and, once activated, where its first collection stands.
+ * confirm, and the recovery its states need (a retry, a release), or removing a registration that was never activated --
+ * and, once activated, where its first collection stands.
  * Every fact is the backend's row (lib/account-admin.ts registrationStep, firstInventoryOutcomeText, firstInventoryText);
  * this file only says it and offers the ONE request the connector would admit next. The connector decides every request
  * again on its own.
  */
 import { useEffect, useState } from "react"
-import { AlertTriangle, CheckCircle2, Clock, Loader2, ShieldCheck, Unlock, X } from "lucide-react"
+import { AlertTriangle, CheckCircle2, Clock, Loader2, ShieldCheck, Trash2, Unlock, X } from "lucide-react"
 import {
   accessRefusalText,
   activationStepText,
@@ -137,11 +138,14 @@ export function RegistrationJourney({
             Last check{at(step.refused.completed_at) ? ` (${at(step.refused.completed_at)})` : ""}: {accessRefusalText(step.refused.refusal, customerId)}
           </p>
         ) : null}
-        <button className={`${button} border-teal-200 bg-white text-teal-700 hover:bg-teal-50`} disabled={busy}
-          onClick={() => void onAction("access_check")} aria-label={`Check access to ${id}`}>
-          {busy ? <Loader2 className="h-3 w-3 animate-spin" aria-hidden /> : <ShieldCheck className="h-3 w-3" aria-hidden />}
-          {step.kind === "CHECK_EXPIRED" || step.refused ? "Check access again" : "Check access"}
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button className={`${button} border-teal-200 bg-white text-teal-700 hover:bg-teal-50`} disabled={busy}
+            onClick={() => void onAction("access_check")} aria-label={`Check access to ${id}`}>
+            {busy ? <Loader2 className="h-3 w-3 animate-spin" aria-hidden /> : <ShieldCheck className="h-3 w-3" aria-hidden />}
+            {step.kind === "CHECK_EXPIRED" || step.refused ? "Check access again" : "Check access"}
+          </button>
+          <RemoveAccount account={account} busy={busy} onRemove={() => onAction("withdraw")} />
+        </div>
       </div>
     )
   }
@@ -155,10 +159,13 @@ export function RegistrationJourney({
         </p>
         <p>{nameInAwsText(step.check)}</p>
         <p className="inline-flex items-center gap-1 text-emerald-900"><Clock className="h-3 w-3" aria-hidden />Confirm before {formatUtcInstantExact(new Date(step.confirmableUntil).toISOString())}, or check again.</p>
-        <button className={`${button} border-emerald-300 bg-white text-emerald-800 hover:bg-emerald-100`} disabled={busy}
-          onClick={() => setConfirming(true)} aria-label={`Confirm account ${id}`}>
-          <ShieldCheck className="h-3 w-3" aria-hidden /> Confirm account…
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button className={`${button} border-emerald-300 bg-white text-emerald-800 hover:bg-emerald-100`} disabled={busy}
+            onClick={() => setConfirming(true)} aria-label={`Confirm account ${id}`}>
+            <ShieldCheck className="h-3 w-3" aria-hidden /> Confirm account…
+          </button>
+          <RemoveAccount account={account} busy={busy} onRemove={() => onAction("withdraw")} />
+        </div>
         {confirming ? (
           <ConfirmActivationDialog account={account} role={role} recheck={recheck} onClose={() => setConfirming(false)}
             onConfirm={async (checkId) => { await onAction("activate", checkId); setConfirming(false) }} />
@@ -261,6 +268,65 @@ function ConfirmActivationDialog({
         </div>
       </div>
     </div>
+  )
+}
+
+/**
+ * Remove (withdraw) a registration that was never activated, after saying exactly what removing does and does not do. Offered
+ * only in the steps of the connector's registration_states.WITHDRAWABLE -- CHECK_ACCESS (pending), CONFIRM and CHECK_EXPIRED
+ * (checked, not confirmed) -- never while a step is in flight, held, failed or activated. The request names the registration
+ * and version shown; the connector decides again and refuses it by name if the account moved on meanwhile.
+ */
+function RemoveAccount({ account, busy, onRemove }: { account: ManagedAccount; busy: boolean; onRemove: () => Promise<void> }) {
+  const [open, setOpen] = useState(false)
+  const [sending, setSending] = useState(false)
+  const id = account.account_id
+
+  async function remove() {
+    setSending(true)
+    try {
+      await onRemove()
+      setOpen(false)
+    } finally {
+      setSending(false)
+    }
+  }
+
+  return (
+    <>
+      <button className={`${button} border-slate-200 bg-white text-slate-600 hover:bg-slate-50`} disabled={busy}
+        onClick={() => setOpen(true)} aria-label={`Remove account ${id}`}>
+        <Trash2 className="h-3 w-3" aria-hidden /> Remove account…
+      </button>
+      {open ? (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/45 p-6 backdrop-blur-sm">
+          <div role="dialog" aria-modal="true" aria-labelledby={`remove-account-${id}`} className="w-full max-w-xl overflow-hidden rounded-2xl bg-white text-sm text-slate-700 shadow-2xl">
+            <div className="flex items-start justify-between border-b border-slate-200 p-6">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">Remove account</p>
+                <h2 id={`remove-account-${id}`} className="mt-1 text-xl font-semibold text-slate-900">Remove {id} from Cyntro?</h2>
+              </div>
+              <button onClick={() => setOpen(false)} aria-label="Close" className="rounded-lg p-2 text-slate-400 hover:bg-slate-100"><X className="h-5 w-5" /></button>
+            </div>
+            <div className="space-y-3 p-6">
+              <p>This account was never confirmed: reading is off and nothing has been collected from it.</p>
+              <ul className="list-disc space-y-1.5 pl-5">
+                <li>Removing makes no AWS call and changes nothing in the account. A connection stack deployed there stays until it is deleted in that account.</li>
+                <li>The account leaves this list. Cyntro keeps the registration as a record of who removed it and when.</li>
+                <li>You can add the account again later; it starts as a new registration.</li>
+              </ul>
+            </div>
+            <div className="flex items-center justify-between border-t border-slate-200 bg-slate-50 px-6 py-4">
+              <button onClick={() => setOpen(false)} disabled={sending} className="text-sm font-semibold text-slate-500">Cancel</button>
+              <button onClick={() => void remove()} disabled={sending}
+                className="inline-flex items-center gap-2 rounded-lg bg-red-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">
+                {sending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Trash2 className="h-4 w-4" aria-hidden />} Remove account
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </>
   )
 }
 
