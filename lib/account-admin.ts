@@ -19,8 +19,9 @@ export const MEMBER_ACCOUNTS_MODE = "MEMBER_ACCOUNTS"
 /**
  * The account-registration contract this frontend requires of the backend that serves it (lib/release-contract.json).
  * Level 1 = the option-C registration: the unverified path's acknowledgement, the access check, the confirmation and the
- * S3b recovery this page offers. The release bundle refuses to pair this frontend with a backend whose connector provides
- * less, and the connector's installer never goes below it (saferemediate-backend deploy/customer_pilot/bin/release_bundle.py,
+ * S3b recovery this page offers; level 2 adds the installation gate and the first inventory from its runs; level 3 adds
+ * removing a registration that was never activated (/withdraw) and the runs' measured counts. The release bundle refuses to
+ * pair this frontend with a backend whose connector provides less, and the connector's installer never goes below it (saferemediate-backend deploy/customer_pilot/bin/release_bundle.py,
  * install_floor.py). Against an older connector the unverified path would promise "no AWS call" while it calls AWS.
  */
 export const REQUIRED_ACCOUNT_REGISTRATION_CONTRACT: number = releaseContract.requires.account_registration

@@ -6,12 +6,18 @@
 import { describe, expect, it } from "vitest"
 
 import declaration from "@/lib/release-contract.json"
-import { REQUIRED_ACCOUNT_REGISTRATION_CONTRACT, registrationStep } from "@/lib/account-admin"
+import { REQUIRED_ACCOUNT_REGISTRATION_CONTRACT, registrationActionPath, registrationStep } from "@/lib/account-admin"
 
 describe("the release contract this frontend requires", () => {
-  it("is exactly the shape the backend's bundle builder reads, at level 2", () => {
-    expect(declaration).toEqual({ schema: "cyntro-release-contract/v1", requires: { account_registration: 2 } })
-    expect(REQUIRED_ACCOUNT_REGISTRATION_CONTRACT).toBe(2)
+  it("is exactly the shape the backend's bundle builder reads, at level 3", () => {
+    expect(declaration).toEqual({ schema: "cyntro-release-contract/v1", requires: { account_registration: 3 } })
+    expect(REQUIRED_ACCOUNT_REGISTRATION_CONTRACT).toBe(3)
+  })
+
+  it("is level 3 because this frontend sends a removal only level 3 serves", () => {
+    // Level 3 = level 2 + removing a registration that was never activated (POST .../withdraw) and the runs' measured counts
+    // (agent-coordinator/claude-settings-stage1b-contract-2026-10-05.txt ADDENDUM 4). A level-2 backend answers 404.
+    expect(registrationActionPath("withdraw", "222222222222", "acme")).toBe("/api/proxy/admin/accounts/222222222222/withdraw?customer_id=acme")
   })
 
   it("is level 2 because this frontend reads what only level 2 provides: a listed account's evidence and the first inventory from its runs", () => {
