@@ -8,13 +8,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
 
-const backend = vi.hoisted(() => ({ fail: false }))
-vi.mock("@/lib/server/backend-url", () => ({
-  getBackendBaseUrl: () => {
-    if (backend.fail) throw new Error("[backend-url] FATAL: not configured")
-    return "https://customer-backend.example"
-  },
-}))
+const backend = vi.hoisted(() => ({ fail: false, real: false }))
+vi.mock("@/lib/server/backend-url", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/server/backend-url")>("@/lib/server/backend-url")
+  return {
+    getBackendBaseUrl: () => {
+      if (backend.real) return actual.getBackendBaseUrl()          // the real helper, for its own edge cases
+      if (backend.fail) throw new Error("[backend-url] FATAL: not configured")
+      return "https://customer-backend.example"
+    },
+  }
+})
 
 import { GET, POST } from "@/app/api/proxy/system-boundary/[...path]/route"
 import { AUTHORING_MAX_BODY_BYTES, AUTHORING_MAX_CURSOR } from "@/lib/server/authoring-proxy"
@@ -55,7 +59,9 @@ function backendAnswers(response: Response = Response.json({ ok: true })) {
 afterEach(() => {
   delete process.env.CYNTRO_DEPLOYMENT_MODE
   delete process.env.CYNTRO_ALLOWED_ORIGINS
+  delete process.env.BACKEND_URL_OVERRIDE
   backend.fail = false
+  backend.real = false
   vi.restoreAllMocks()
 })
 
@@ -337,6 +343,18 @@ describe("authoring proxy -- the backend's answer, and no answer", () => {
     backendAnswers(new Response(null, { status: 204 }))
     const response = await send("GET", "declarations/view")
     expect([response.status, await response.text(), response.headers.get("cache-control")]).toEqual([204, "", "no-store"])
+  })
+
+  it("refuses by name, forwarding nothing, when the configured backend is not a URL (the real helper)", async () => {
+    resident()
+    backend.real = true
+    process.env.BACKEND_URL_OVERRIDE = "customer-backend-without-scheme"   // non-empty, so the helper returns it
+    const upstream = vi.spyOn(globalThis, "fetch")
+    const response = await send("GET", "declarations/view")
+    expect(response.status).toBe(503)
+    expect(await response.json()).toEqual({ detail: { code: "AUTHORING_BACKEND_NOT_CONFIGURED" } })
+    expect(response.headers.get("cache-control")).toBe("no-store")
+    expect(upstream).not.toHaveBeenCalled()
   })
 
   it("refuses by name, forwarding nothing, when this install names no backend", async () => {

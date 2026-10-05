@@ -125,13 +125,14 @@ export async function proxyAuthoring(request: NextRequest): Promise<NextResponse
     body = bounded
   }
 
-  let base: string
+  // The configured backend is ONE boundary: missing, refused or not a URL is the same named refusal. The helper
+  // returns any non-empty override, so the URL is constructed inside that boundary, never after it.
+  let target: URL
   try {
-    base = getBackendBaseUrl()
+    target = new URL(`${getBackendBaseUrl()}/api/system-boundary/${request.nextUrl.pathname.slice(AUTHORING_PROXY_PREFIX.length)}`)
   } catch {
     return refused(503, { code: "AUTHORING_BACKEND_NOT_CONFIGURED" })
   }
-  const target = new URL(`${base}/api/system-boundary/${request.nextUrl.pathname.slice(AUTHORING_PROXY_PREFIX.length)}`)
   query.forEach((value, name) => target.searchParams.set(name, value))
 
   const headers: Record<string, string> = { Accept: "application/json" }
