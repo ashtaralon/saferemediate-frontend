@@ -97,7 +97,7 @@ function EstateView() {
   if (!systemName) {
     return (
       <div className="min-h-screen p-8" style={{ background: "#F4F6F8", color: "#5A6B7A" }}>
-        No systems available yet. Run a sync, then open a system from the dashboard.
+        No systems available yet. Systems appear after an account's first inventory has been collected and projected; Settings &gt; Accounts shows its progress.
       </div>
     )
   }

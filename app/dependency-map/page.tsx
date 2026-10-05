@@ -44,7 +44,7 @@ function DependencyMapView() {
     // Honest empty state — no systems discovered, nothing to fabricate.
     return (
       <div className="flex h-screen w-full items-center justify-center bg-slate-50 text-sm text-slate-500">
-        No systems available yet. Run a sync, then open a system from the dashboard.
+        No systems available yet. Systems appear after an account's first inventory has been collected and projected; Settings &gt; Accounts shows its progress.
       </div>
     )
   }
