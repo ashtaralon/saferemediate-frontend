@@ -18,6 +18,8 @@ vi.mock("@/components/left-sidebar-nav", () => ({ LeftSidebarNav: () => null }))
 import AccountSettingsPage from "@/app/settings/accounts/page"
 
 const CUSTOMER = "acme-prod"
+/** The read role ARN the connection stack's Outputs name in account `id` (Alon 2026-10-05: an account is added by it). */
+const readRoleArn = (id: string) => `arn:aws:iam::${id}:role/CyntroRead-${CUSTOMER}`
 
 const PLATFORM = {
   customer_id: CUSTOMER,
@@ -413,7 +415,9 @@ describe("Settings > Accounts — member-account mode", () => {
     expect(within(dialog).queryByLabelText("Environment")).toBeNull()
     expect(within(dialog).queryByLabelText(/Regions/)).toBeNull()
     expect(within(dialog).queryByTestId("install-regions-suggestion")).toBeNull()
-    expect(within(dialog).getAllByRole("textbox")).toHaveLength(1)
+    // The read role ARN (from the stack the operator deployed) and the account ID: nothing else is asked for.
+    expect(within(dialog).getAllByRole("textbox")).toHaveLength(2)
+    expect(within(dialog).getByLabelText(/Read role ARN/)).toBeInTheDocument()
     expect(within(dialog).queryAllByRole("combobox")).toHaveLength(0)
     expect(within(dialog).queryByText("The name your team uses for this account.")).toBeNull()
     // A grey hint right under the account ID says where the name comes from (Alon, 2026-10-03).
@@ -421,10 +425,11 @@ describe("Settings > Accounts — member-account mode", () => {
     expect(within(dialog).getByLabelText("AWS account ID")).toHaveAttribute("aria-describedby", hint.id)
     expect(hint).toHaveClass("text-slate-500")
     fireEvent.change(within(dialog).getByLabelText("AWS account ID"), { target: { value: "222233334444" } })
+    fireEvent.change(within(dialog).getByLabelText(/Read role ARN/), { target: { value: readRoleArn("222233334444") } })
     await reviewAndAdd(dialog)
 
     await waitFor(() => expect(registered).toHaveLength(1))
-    expect(registered[0]).toEqual({ customer_id: CUSTOMER, account_id: "222233334444" })
+    expect(registered[0]).toEqual({ customer_id: CUSTOMER, account_id: "222233334444", read_role_arn: readRoleArn("222233334444") })
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Add an AWS account" })).not.toBeInTheDocument())
     const row = await screen.findByTestId("account-row-222233334444")
     expect(within(row).getByText("Registering")).toBeInTheDocument()
@@ -450,10 +455,11 @@ describe("Settings > Accounts — member-account mode", () => {
     fireEvent.change(within(dialog).getByLabelText("AWS account ID"), { target: { value: "55556666777" } })   // 11 digits
     expect(review).toBeDisabled()
     fireEvent.change(within(dialog).getByLabelText("AWS account ID"), { target: { value: "555566667777" } })
+    fireEvent.change(within(dialog).getByLabelText(/Read role ARN/), { target: { value: readRoleArn("555566667777") } })
     await waitFor(() => expect(review).toBeEnabled())
     await reviewAndAdd(dialog)
     await waitFor(() => expect(registered).toHaveLength(1))
-    expect(Object.keys(registered[0]).sort()).toEqual(["account_id", "customer_id"])
+    expect(Object.keys(registered[0]).sort()).toEqual(["account_id", "customer_id", "read_role_arn"])
   })
 
   it("B3: a stored environment -- a custom one included -- is shown as recorded, never remapped", async () => {
@@ -489,6 +495,7 @@ describe("Settings > Accounts — member-account mode", () => {
     fireEvent.click(screen.getByRole("button", { name: /Add AWS account/ }))
     const dialog = await screen.findByRole("dialog", { name: "Add an AWS account" })
     fireEvent.change(within(dialog).getByLabelText("AWS account ID"), { target: { value: NEW.account_id } })
+    fireEvent.change(within(dialog).getByLabelText(/Read role ARN/), { target: { value: readRoleArn(NEW.account_id) } })
     await reviewAndAdd(dialog)
     await screen.findByTestId("account-row-222233334444")
     expect(screen.queryByRole("dialog", { name: "222233334444" })).not.toBeInTheDocument()
@@ -590,6 +597,7 @@ describe("Settings > Accounts — backend errors carry the backend's detail", ()
     fireEvent.click(screen.getByRole("button", { name: /Add AWS account/ }))
     const dialog = await screen.findByRole("dialog", { name: "Add an AWS account" })
     fireEvent.change(within(dialog).getByLabelText("AWS account ID"), { target: { value: "222233334444" } })
+    fireEvent.change(within(dialog).getByLabelText(/Read role ARN/), { target: { value: readRoleArn("222233334444") } })
     await reviewAndAdd(dialog)
 
     const alert = await within(dialog).findByRole("alert")
@@ -611,6 +619,7 @@ describe("Settings > Accounts — backend errors carry the backend's detail", ()
     fireEvent.click(screen.getByRole("button", { name: /Add AWS account/ }))
     const dialog = await screen.findByRole("dialog", { name: "Add an AWS account" })
     fireEvent.change(within(dialog).getByLabelText("AWS account ID"), { target: { value: "222233334444" } })
+    fireEvent.change(within(dialog).getByLabelText(/Read role ARN/), { target: { value: readRoleArn("222233334444") } })
     await reviewAndAdd(dialog)
 
     expect(await within(dialog).findByRole("alert")).toHaveTextContent("display_name: String should have at most 120 characters")
@@ -671,6 +680,7 @@ describe("Settings > Accounts — backend errors carry the backend's detail", ()
     const dialog = await screen.findByRole("dialog", { name: "Add an AWS account" })
     expect(within(dialog).getByRole("button", { name: "Review" })).toBeDisabled()
     fireEvent.change(within(dialog).getByLabelText("AWS account ID"), { target: { value: "222233334444" } })
+    fireEvent.change(within(dialog).getByLabelText(/Read role ARN/), { target: { value: readRoleArn("222233334444") } })
     expect(within(dialog).queryByRole("button", { name: /Add account/ })).toBeNull()
     await waitFor(() => expect(within(dialog).getByRole("button", { name: "Review" })).toBeEnabled())
     fireEvent.click(within(dialog).getByRole("button", { name: "Review" }))
@@ -684,7 +694,7 @@ describe("Settings > Accounts — backend errors carry the backend's detail", ()
     // only the operator's confirmation turns reading on and starts collection. Nothing is promised "right away".
     expect(confirmation).toHaveTextContent("Cyntro registers this account with this installation as pending. Nothing in it is read yet.")
     expect(confirmation).toHaveTextContent(
-      "Next, deploy the connection stack in that account (shown once the account is added), in this installation's own Region.")
+      `The connection stack is deployed in it: Cyntro will use the read role ${readRoleArn("222233334444")}.`)
     expect(confirmation).toHaveTextContent(
       "Then check access: Cyntro assumes its read role there and asks AWS which account answered, and its name. " +
       "AWS may log these calls in that account. Nothing else is read.")
@@ -704,7 +714,7 @@ describe("Settings > Accounts — backend errors carry the backend's detail", ()
 
     fireEvent.click(within(dialog).getByRole("button", { name: /Add account/ }))
     await waitFor(() => expect(registered).toHaveLength(1))
-    expect(registered[0]).toEqual({ customer_id: CUSTOMER, account_id: "222233334444" })
+    expect(registered[0]).toEqual({ customer_id: CUSTOMER, account_id: "222233334444", read_role_arn: readRoleArn("222233334444") })
   })
 
   it("a member account is listed by the name AWS holds for it, or by its ID with the reason it has none yet", async () => {
@@ -767,6 +777,7 @@ describe("Settings > Accounts — backend errors carry the backend's detail", ()
     fireEvent.click(screen.getByRole("button", { name: /Add AWS account/ }))
     const dialog = await screen.findByRole("dialog", { name: "Add an AWS account" })
     fireEvent.change(within(dialog).getByLabelText("AWS account ID"), { target: { value: "222233334444" } })
+    fireEvent.change(within(dialog).getByLabelText(/Read role ARN/), { target: { value: readRoleArn("222233334444") } })
     await waitFor(() => expect(within(dialog).getByRole("button", { name: "Review" })).toBeEnabled())
     fireEvent.click(within(dialog).getByRole("button", { name: "Review" }))
     fireEvent.click(within(dialog).getByRole("button", { name: "Back" }))
@@ -859,6 +870,7 @@ describe("Settings > Accounts — backend errors carry the backend's detail", ()
     fireEvent.click(screen.getByRole("button", { name: /Add AWS account/ }))
     const dialog = await screen.findByRole("dialog", { name: "Add an AWS account" })
     fireEvent.change(within(dialog).getByLabelText("AWS account ID"), { target: { value: "222233334444" } })
+    fireEvent.change(within(dialog).getByLabelText(/Read role ARN/), { target: { value: readRoleArn("222233334444") } })
     await reviewAndAdd(dialog)
 
     const alert = await within(dialog).findByRole("alert")

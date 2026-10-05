@@ -26,6 +26,7 @@ import { LeftSidebarNav } from "@/components/left-sidebar-nav"
 import { AccountCoverageChips, ConnectAccountPanel, MemberStatusBadge } from "@/components/settings/connect-account-panel"
 import { OrganizationAccountPicker, useOrganizationDiscovery } from "@/components/settings/organization-account-picker"
 import { FirstCollectionStatus, RegistrationJourney } from "@/components/settings/registration-journey"
+import { AddAccountStackStep, useInstallationStack } from "@/components/settings/add-account-stack-step"
 import { useAccountScope } from "@/lib/account-scope-context"
 import { COVERAGE_PAGE_PATH, READY_MEANS_OPERATIONAL, coveragePageHref } from "@/lib/observation-coverage"
 import {
@@ -39,6 +40,7 @@ import {
   accountNameNote,
   accountNeedsPolling,
   checkAccountId,
+  checkReadRoleArn,
   connectionCheckOutcome,
   organizationListing,
   organizationListingBoundary,
@@ -96,7 +98,7 @@ const CONNECTABLE = new Set(["AWAITING_CONNECTION", "CONNECTION_FAILED", "CONNEC
  *  is not offered there -- the access check is). */
 const STACK_BEFORE_ACCESS = new Set(["PENDING_UNVERIFIED", "ACCESS_CONFIRMABLE", "ACTIVATION_FAILED"])
 /** A new registration opens the Connect panel once its row reaches one of these. */
-const OPEN_CONNECT_ON = new Set(["AWAITING_CONNECTION", "CONNECTED", "PENDING_UNVERIFIED"])
+const OPEN_CONNECT_ON = new Set(["AWAITING_CONNECTION", "CONNECTED"])
 
 const REQUEST_ACTION_LABEL: Record<string, string> = {
   register: "Registration", validate: "Connection check", access_check: "Access check", activate: "Activation", release: "Release",
@@ -1011,6 +1013,11 @@ function MemberAddAccountDialog({
 }) {
   // Exactly what was typed or chosen; checkAccountId reads it as it is.
   const [raw, setRaw] = useState("")
+  // Alon 2026-10-05: the account is added by the read role ARN its connection stack created (the stack's ReadRoleArn output).
+  // The account ID fills from it while the operator has not typed another one.
+  const [arn, setArn] = useState("")
+  const [filledFromArn, setFilledFromArn] = useState("")
+  const stack = useInstallationStack(customerId)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // Adding is a deliberate step: the details are reviewed with what happens next before anything is submitted.
@@ -1039,7 +1046,22 @@ function MemberAddAccountDialog({
   const checkAt = (at: number) => checkAccountId(raw, { accounts, platformAccountId, organization, now: at })
   const check = checkAt(now)
   const accountId = check.state === "EMPTY" || check.state === "MALFORMED" ? "" : check.accountId
-  const ready = Boolean(customerId) && accountIdAddable(check)
+  const arnCheck = checkReadRoleArn(arn, customerId || "")
+  const arnMismatch = arnCheck.state === "VALID" && accountId && arnCheck.accountId !== accountId
+    ? { arnAccount: arnCheck.accountId, formAccount: accountId } : null
+  // The read role ARN is required, and names exactly the account being added.
+  const arnMatches = (id: string) => { const now = checkReadRoleArn(arn, customerId || ""); return now.state === "VALID" && now.accountId === id }
+  const ready = Boolean(customerId) && accountIdAddable(check) && arnMatches(accountId)
+
+  function onArn(value: string) {
+    setArn(value)
+    const parsed = checkReadRoleArn(value, customerId || "")
+    if (parsed.state === "VALID" && (raw === "" || raw === filledFromArn)) {
+      setRaw(parsed.accountId)
+      setFilledFromArn(parsed.accountId)
+      setChosen((current) => (current && current.accountId !== parsed.accountId ? null : current))
+    }
+  }
   // Said before anything is typed: without a current list, an ID can be added only as unverified.
   const listing = organizationListing(organization, now)
   const listingProblem = "cannotVerify" in listing ? listing.cannotVerify : null
@@ -1051,7 +1073,7 @@ function MemberAddAccountDialog({
     const at = Date.now()
     setNow(at)
     const current = checkAt(at)
-    if (!customerId || !accountIdAddable(current)) return
+    if (!customerId || !accountIdAddable(current) || !arnMatches(current.accountId)) return
     setReviewed(accountIdReviewable(current) ? "LISTED" : "UNVERIFIED")
     setAcknowledged(false)
     setStep("confirm")
@@ -1064,6 +1086,8 @@ function MemberAddAccountDialog({
     setNow(at)
     const current = checkAt(at)
     if (!customerId || step !== "confirm" || !stillReviewed(current) || !accountIdAddable(current)) return
+    const readRole = checkReadRoleArn(arn, customerId)
+    if (readRole.state !== "VALID" || readRole.accountId !== current.accountId) return
     const unverified = reviewed === "UNVERIFIED"
     if (unverified && !acknowledged) return
     setSubmitting(true)
@@ -1074,8 +1098,8 @@ function MemberAddAccountDialog({
         headers: { "Content-Type": "application/json" },
         // The acknowledgement is the operator's; the server stamps it with the verified person and decides the evidence.
         body: JSON.stringify(unverified
-          ? { customer_id: customerId, account_id: current.accountId, acknowledge_unverified: true }
-          : { customer_id: customerId, account_id: current.accountId }),
+          ? { customer_id: customerId, account_id: current.accountId, read_role_arn: readRole.arn, acknowledge_unverified: true }
+          : { customer_id: customerId, account_id: current.accountId, read_role_arn: readRole.arn }),
       })
       if (!response.ok) throw await accountAdminFailure(response, "Registration")
       const body = await response.json().catch(() => ({}))
@@ -1098,7 +1122,7 @@ function MemberAddAccountDialog({
           <div>
             <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-teal-700">Account onboarding</p>
             <h2 id="add-member-account-title" className="mt-1 text-xl font-semibold">Add an AWS account</h2>
-            <p className="mt-1 text-sm text-slate-500">Cyntro registers the account, then shows the connection stack to deploy in it. Read access only; mutation needs a separate approval.</p>
+            <p className="mt-1 text-sm text-slate-500">Deploy Cyntro&apos;s connection stack in the account, then add the account by the read role it created. Read access only; mutation needs a separate approval.</p>
           </div>
           <button onClick={onClose} aria-label="Close" className="rounded-lg p-2 text-slate-400 hover:bg-slate-100"><X className="h-5 w-5" /></button>
         </div>
@@ -1144,6 +1168,7 @@ function MemberAddAccountDialog({
               Filled from your organization: {chosen.accountId}, named &ldquo;{chosen.name}&rdquo; in AWS Organizations. Nothing has been added. Review, then add it.
             </p>
           ) : null}
+          <AddAccountStackStep load={stack} arn={arn} onArn={onArn} arnCheck={arnCheck} mismatch={arnMismatch} />
           <div className="col-span-2">
             <label className="text-sm font-semibold text-slate-700">AWS account ID<input
               value={raw}
@@ -1160,9 +1185,9 @@ function MemberAddAccountDialog({
           </div>
         </div>
         ) : reviewed === "LISTED" && accountIdReviewable(check) ? (
-          <AddAccountConfirmation check={check} />
+          <AddAccountConfirmation check={check} readRoleArn={arn.trim()} />
         ) : reviewed === "UNVERIFIED" && accountIdUnverified(check) ? (
-          <UnverifiedAddConfirmation check={check} role={memberReadRoleName(customerId || "")} acknowledged={acknowledged} onAcknowledge={setAcknowledged} />
+          <UnverifiedAddConfirmation check={check} role={memberReadRoleName(customerId || "")} readRoleArn={arn.trim()} acknowledged={acknowledged} onAcknowledge={setAcknowledged} />
         ) : (
           // The page learned something since Review (a registry refresh, an organization read): said, and Add is off.
           <div className="p-6">
@@ -1203,7 +1228,7 @@ function MemberAddAccountDialog({
  * registration is recorded as pending and reads nothing; S2: the access check's calls; S3a: only the confirmation turns
  * reads on and queues the first inventory). The same journey as an unverified account, without its acknowledgement.
  */
-function AddAccountConfirmation({ check }: { check: Extract<AccountIdCheck, { state: "LISTED" | "UNVERIFIED" }> }) {
+function AddAccountConfirmation({ check, readRoleArn }: { check: Extract<AccountIdCheck, { state: "LISTED" | "UNVERIFIED" }>; readRoleArn: string }) {
   return (
     <div data-testid="add-account-confirmation" className="space-y-4 p-6 text-sm text-slate-700">
       <p className="text-base font-semibold text-slate-900">Add AWS account {check.accountId}?</p>
@@ -1218,7 +1243,7 @@ function AddAccountConfirmation({ check }: { check: Extract<AccountIdCheck, { st
       </p>
       <ul className="list-disc space-y-1.5 pl-5">
         <li>Cyntro registers this account with this installation as pending. Nothing in it is read yet.</li>
-        <li>Next, deploy the connection stack in that account (shown once the account is added), in this installation&apos;s own Region.</li>
+        <li>The connection stack is deployed in it: Cyntro will use the read role <code data-testid="confirm-read-role-arn" className="break-all font-mono text-xs">{readRoleArn}</code>.</li>
         <li>Then check access: Cyntro assumes its read role there and asks AWS which account answered, and its name. AWS may log these calls in that account. Nothing else is read.</li>
         <li>If the check reaches the account, you confirm it. Only your confirmation turns reading on and starts collection: its configuration is read and its first inventory is queued.</li>
         <li>Cyntro shows the account by the name AWS holds for it once it is read; until then, by its ID. Business systems in this account are defined after it connects; one account can hold several.</li>
@@ -1236,11 +1261,13 @@ function AddAccountConfirmation({ check }: { check: Extract<AccountIdCheck, { st
 function UnverifiedAddConfirmation({
   check,
   role,
+  readRoleArn,
   acknowledged,
   onAcknowledge,
 }: {
   check: Extract<AccountIdCheck, { state: "CANNOT_VERIFY" }>
   role: string
+  readRoleArn: string
   acknowledged: boolean
   onAcknowledge: (value: boolean) => void
 }) {
@@ -1250,7 +1277,7 @@ function UnverifiedAddConfirmation({
       <p data-testid="account-id-evidence" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">{check.reason}</p>
       <ul className="list-disc space-y-1.5 pl-5">
         <li>Cyntro registers the account as pending and makes no AWS call: nothing in it is read.</li>
-        <li>Next, deploy the connection stack in that account; it is shown once the account is added.</li>
+        <li>The connection stack is deployed in it: Cyntro will use the read role <code data-testid="confirm-read-role-arn" className="break-all font-mono text-xs">{readRoleArn}</code>.</li>
         <li>Then check access: Cyntro assumes {role} there and asks AWS which account answered, and its name. AWS may log these calls in that account. Nothing else is read.</li>
         <li>If the check reaches the account, you confirm it. Only your confirmation turns reading on and starts collection.</li>
         <li>Read access only: nothing in the account is changed.</li>

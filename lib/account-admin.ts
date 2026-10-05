@@ -593,6 +593,46 @@ export function registrationStepLabel(action: string): string {
   return STEP_LABEL[action] ?? action
 }
 
+/** GET /api/admin/accounts/connect/instructions: the connection stack for an account not added yet -- this installation's
+ *  parameters (the same for every account), its collection Region, and the stack output that names the read role. */
+export interface InstallationStackInstructions {
+  customer_id?: string
+  stack_name: string
+  region: string
+  template_path?: string
+  console_url?: string
+  parameters: Record<string, string>
+  cli?: string
+  read_role_name: string
+  read_role_output: string
+}
+
+const READ_ROLE_ARN = /^arn:(aws|aws-us-gov|aws-cn):iam::([0-9]{12}):role\/(.+)$/
+
+export type ReadRoleArnCheck =
+  | { state: "EMPTY" }
+  | { state: "INVALID"; problem: string }
+  | { state: "VALID"; arn: string; accountId: string }
+
+/**
+ * The account a pasted read role ARN names -- the ReadRoleArn output of this installation's connection stack, deployed in
+ * the account being added -- exactly as the backend decides it (member_registry.member_read_role_account): an IAM role ARN
+ * whose role is this installation's read role, no other name and no path. The account ID comes from AWS's own output.
+ */
+export function checkReadRoleArn(raw: string, customerId: string): ReadRoleArnCheck {
+  const arn = raw.trim()
+  if (!arn) return { state: "EMPTY" }
+  const role = memberReadRoleName(customerId)
+  const match = READ_ROLE_ARN.exec(arn)
+  if (!match) {
+    return { state: "INVALID", problem: `Not an IAM role ARN. Copy ReadRoleArn from the connection stack's Outputs tab (arn:aws:iam::<account>:role/${role}).` }
+  }
+  if (match[3] !== role) {
+    return { state: "INVALID", problem: `This is role ${match[3]}, not this installation's read role ${role}. Deploy this installation's connection stack in the account and copy its ReadRoleArn output.` }
+  }
+  return { state: "VALID", arn, accountId: match[2] }
+}
+
 /** The read role an access check assumes in a member account (cyntro_data/accounts/member_registry.py member_role_name). */
 export function memberReadRoleName(customerId: string): string {
   return `CyntroRead-${customerId}`
@@ -679,7 +719,7 @@ export function firstInventoryText(dispatch: FirstInventoryDispatch | null | und
 
 const UNAVAILABLE_REASONS: Record<string, string> = {
   // AccountOnboarding Phase1 step 3 (f288960c): K2 binds only the stamp admission admits now.
-  PLAN_SCOPE_SUPERSEDED: "the recorded plan predates this account's scope change; the next check replaces it",
+  PLAN_SCOPE_SUPERSEDED: "the recorded plan predates this account's scope change; its work is not this scope's progress",
   SCOPE_REVISION_UNKNOWN: "this account's scope revision cannot be read",
   PLAN_NOT_BOUND: "the recorded plan is not this registration's",
   RUN_STORE_NOT_CONFIGURED: "this installation's console cannot read collection runs",

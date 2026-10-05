@@ -17,6 +17,8 @@ import AccountSettingsPage from "@/app/settings/accounts/page"
 import { OrganizationAccountPicker } from "@/components/settings/organization-account-picker"
 
 const CUSTOMER = "acme-prod"
+/** The read role ARN the connection stack's Outputs name in account `id` (Alon 2026-10-05: an account is added by it). */
+const readRoleArn = (id: string) => `arn:aws:iam::${id}:role/CyntroRead-${CUSTOMER}`
 const ORGANIZATION_GET = `/api/proxy/admin/accounts/organization?customer_id=${CUSTOMER}`
 const DISCOVER_POST = `/api/proxy/admin/accounts/organization/discover?customer_id=${CUSTOMER}`
 
@@ -270,6 +272,7 @@ describe("Settings > Accounts — choose from your organization", () => {
     expect(within(dialog).queryByLabelText(/Regions/)).toBeNull()
     expect(within(dialog).queryByLabelText("Environment")).toBeNull()
 
+    fireEvent.change(within(dialog).getByLabelText(/Read role ARN/), { target: { value: readRoleArn("222233334444") } })
     fireEvent.click(within(dialog).getByRole("button", { name: "Review" }))
     const confirmation = within(dialog).getByTestId("add-account-confirmation")
     expect(confirmation).toHaveTextContent("Add AWS account 222233334444?")
@@ -277,7 +280,7 @@ describe("Settings > Accounts — choose from your organization", () => {
     expect(registrations()).toHaveLength(0)
     fireEvent.click(within(dialog).getByRole("button", { name: /Add account/ }))
     await waitFor(() => expect(registered).toHaveLength(1))
-    expect(registered[0]).toEqual({ customer_id: CUSTOMER, account_id: "222233334444" })
+    expect(registered[0]).toEqual({ customer_id: CUSTOMER, account_id: "222233334444", read_role_arn: readRoleArn("222233334444") })
   })
 
   it("the dropdown names every listed account by name and ID, in the order listed, and says the list grants nothing", async () => {

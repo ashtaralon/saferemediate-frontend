@@ -264,8 +264,15 @@ async function openDialog() {
   return screen.findByRole("dialog", { name: "Add an AWS account" })
 }
 
-const typeId = (dialog: HTMLElement, value: string) =>
+/** The read role ARN the connection stack's Outputs name in account `id` (Alon 2026-10-05: an account is added by it). */
+const readRoleArn = (id: string) => `arn:aws:iam::${id}:role/CyntroRead-${CUSTOMER}`
+const typeArn = (dialog: HTMLElement, id: string) =>
+  fireEvent.change(within(dialog).getByLabelText(/Read role ARN/), { target: { value: readRoleArn(id) } })
+/** Types the ID; a well-formed one also gets its read role ARN, as the operator pastes it from the stack it deployed. */
+const typeId = (dialog: HTMLElement, value: string) => {
   fireEvent.change(within(dialog).getByLabelText("AWS account ID"), { target: { value } })
+  if (/^[0-9]{12}$/.test(value)) typeArn(dialog, value)
+}
 const feedback = (dialog: HTMLElement) => within(dialog).getByTestId("account-id-check")
 const review = (dialog: HTMLElement) => within(dialog).getByRole("button", { name: "Review" })
 
@@ -393,7 +400,8 @@ describe("Add AWS account — the ID is checked before Review", () => {
     expect(within(dialog).getByTestId("add-account-confirmation")).toHaveTextContent("Name in AWS OrganizationsCheckout staging")
     expect(registered).toHaveLength(0)
     fireEvent.click(within(dialog).getByRole("button", { name: /Add account/ }))
-    await waitFor(() => expect(registered).toEqual([{ customer_id: CUSTOMER, account_id: "222233334444" }]))
+    await waitFor(() => expect(registered).toEqual([
+      { customer_id: CUSTOMER, account_id: "222233334444", read_role_arn: readRoleArn("222233334444") }]))
     expect(calls((url) => url === DISCOVER_POST)).toHaveLength(0)
   })
 
@@ -421,6 +429,8 @@ describe("Add AWS account — the ID is checked before Review", () => {
     fireEvent.change(within(dialog).getByLabelText("AWS account"), { target: { value: "222233334444" } })
     fireEvent.click(within(dialog).getByRole("button", { name: "Use this account" }))
     expect(within(dialog).getByTestId("chosen-from-organization")).toBeInTheDocument()
+    expect(review(dialog)).toBeDisabled()            // chosen, but its read role ARN is not given yet
+    typeArn(dialog, "222233334444")
     expect(review(dialog)).toBeEnabled()
 
     typeId(dialog, UNKNOWN)
@@ -555,7 +565,8 @@ describe("Add AWS account — the guarded unverified path (option C)", () => {
     expect(registered).toHaveLength(0)
     fireEvent.click(acknowledgement)
     fireEvent.click(within(dialog).getByRole("button", { name: /Add as unverified/ }))
-    await waitFor(() => expect(registered).toEqual([{ customer_id: CUSTOMER, account_id: UNKNOWN, acknowledge_unverified: true }]))
+    await waitFor(() => expect(registered).toEqual([
+      { customer_id: CUSTOMER, account_id: UNKNOWN, read_role_arn: readRoleArn(UNKNOWN), acknowledge_unverified: true }]))
     expect(calls((url) => url === DISCOVER_POST)).toHaveLength(0)
   })
 
@@ -591,7 +602,8 @@ describe("Add AWS account — the guarded unverified path (option C)", () => {
     fireEvent.click(review(dialog))
     expect(within(dialog).getByTestId("add-account-confirmation")).toBeInTheDocument()     // now the listed review
     fireEvent.click(within(dialog).getByRole("button", { name: /Add account/ }))
-    await waitFor(() => expect(registered).toEqual([{ customer_id: CUSTOMER, account_id: "222233334444" }]))
+    await waitFor(() => expect(registered).toEqual([
+      { customer_id: CUSTOMER, account_id: "222233334444", read_role_arn: readRoleArn("222233334444") }]))
   })
 })
 
@@ -664,5 +676,47 @@ describe("useOrganizationDiscovery", () => {
     release(json(listing(CLOCK)))
     await waitFor(() => expect(result.current.reading).toBe(false))
     expect(organizationListing(result.current, CLOCK)).toHaveProperty("listing")
+  })
+})
+
+describe("Add AWS account — by the read role ARN of the stack deployed in it (Alon 2026-10-05)", () => {
+  const arnInput = (dialog: HTMLElement) => within(dialog).getByLabelText(/Read role ARN/)
+  const arnCheck = (dialog: HTMLElement) => within(dialog).getByTestId("read-role-arn-check")
+
+  it("an ARN alone fills the account ID from AWS's own output", async () => {
+    installFetch({ organization: () => json({ detail: { code: "PREVIEW_CAPTURE_UNAVAILABLE" } }, 503) })
+    const dialog = await openDialog()
+    fireEvent.change(arnInput(dialog), { target: { value: readRoleArn(UNKNOWN) } })
+    expect(within(dialog).getByLabelText("AWS account ID")).toHaveValue(UNKNOWN)
+    expect(arnCheck(dialog)).toHaveTextContent(`Account ${UNKNOWN}, from the ARN.`)
+    expect(review(dialog)).toBeEnabled()
+    expect(writes()).toHaveLength(0)
+  })
+
+  it("a stack deployed in another account than the one typed is said, and nothing can be added (the 2026-10-05 mix-up)", async () => {
+    installFetch({ organization: () => json({ detail: { code: "PREVIEW_CAPTURE_UNAVAILABLE" } }, 503) })
+    const dialog = await openDialog()
+    fireEvent.change(within(dialog).getByLabelText("AWS account ID"), { target: { value: UNKNOWN } })
+    fireEvent.change(arnInput(dialog), { target: { value: readRoleArn("999988887777") } })
+    expect(within(dialog).getByLabelText("AWS account ID")).toHaveValue(UNKNOWN)       // never overwritten
+    expect(arnCheck(dialog)).toHaveTextContent(
+      `This read role is in account 999988887777, not ${UNKNOWN}: the stack was deployed in 999988887777. Add 999988887777, or deploy the stack in ${UNKNOWN}.`)
+    expect(arnInput(dialog)).toHaveAttribute("aria-invalid", "true")
+    expect(review(dialog)).toBeDisabled()
+    fireEvent.click(review(dialog))
+    expect(writes()).toHaveLength(0)
+  })
+
+  it.each([
+    [`arn:aws:iam::${"4".repeat(12)}:role/CyntroRead-other`, "is role CyntroRead-other, not this installation's read role"],
+    [`arn:aws:iam::${"4".repeat(12)}:user/CyntroRead-acme-prod`, "Not an IAM role ARN"],
+    ["454545454545", "Not an IAM role ARN"],
+  ])("%s is not this installation's read role ARN: refused by name, nothing can be added", async (value, words) => {
+    installFetch({ organization: () => json({ detail: { code: "PREVIEW_CAPTURE_UNAVAILABLE" } }, 503) })
+    const dialog = await openDialog()
+    fireEvent.change(within(dialog).getByLabelText("AWS account ID"), { target: { value: "4".repeat(12) } })
+    fireEvent.change(arnInput(dialog), { target: { value } })
+    expect(arnCheck(dialog)).toHaveTextContent(words)
+    expect(review(dialog)).toBeDisabled()
   })
 })

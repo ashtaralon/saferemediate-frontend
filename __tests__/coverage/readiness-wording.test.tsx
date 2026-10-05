@@ -80,7 +80,8 @@ describe("Settings > Accounts: READY means operational", () => {
 
     // An account that is not connected gets no operational claim.
     const awaiting = screen.getByTestId("account-row-444455556666")
-    expect(within(awaiting).queryByRole("link")).not.toBeInTheDocument()
+    // (Its own account page is linked, like every member account's; the coverage link is not.)
+    expect(within(awaiting).queryByRole("link", { name: /Evidence coverage/ })).not.toBeInTheDocument()
   })
 
   it("the connect panel's Connected outcome carries the same clarification", () => {
