@@ -4,13 +4,14 @@ import { useSystem } from "@/lib/system-context"
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert"
 import { AlertTriangle } from "lucide-react"
 import type { ReactNode } from "react"
-import { usePathname } from "next/navigation"
+import { usePathname, useSearchParams } from "next/navigation"
 import { BackToDashboard } from "@/components/back-to-dashboard"
 import {
   catalogEntryHref,
   selectCatalogSystem,
   usePinnedSystemRequest,
   useScopedSystemCatalogEntries,
+  type CatalogEntry,
   type CatalogSelection,
 } from "@/lib/scoped-system-catalog"
 
@@ -47,6 +48,7 @@ function GuardMessage({ title, children, back = true }: { title: string; childre
 export function SystemGuard({ children, fallback }: SystemGuardProps) {
   const { systemName, hasSystem } = useSystem()
   const requested = usePinnedSystemRequest()
+  const searchParams = useSearchParams()
   const pathname = usePathname() || "/"
   const catalog = useScopedSystemCatalogEntries()
 
@@ -74,7 +76,14 @@ export function SystemGuard({ children, fallback }: SystemGuardProps) {
 
   const selection = selectCatalogSystem(requested, catalog.entries)
   if (selection.kind === "SELECTED") return <>{children}</>
-  return <CatalogSelectionNotice selection={selection} systemName={systemName} pathname={pathname} />
+  return (
+    <CatalogSelectionNotice
+      selection={selection}
+      systemName={systemName}
+      pathname={pathname}
+      keep={searchParams ? new URLSearchParams(searchParams.toString()) : null}
+    />
+  )
 }
 
 /**
@@ -87,11 +96,14 @@ export function CatalogSelectionNotice({
   systemName,
   pathname,
   back = true,
+  keep = null,
 }: {
   selection: Exclude<CatalogSelection, { kind: "SELECTED" }>
   systemName: string | null
   pathname: string
   back?: boolean
+  /** The current page's query: its other parameters (a tab, a mode) are kept on the chooser's links. */
+  keep?: URLSearchParams | null
 }) {
   if (selection.kind === "AMBIGUOUS") {
     return (
@@ -101,7 +113,7 @@ export function CatalogSelectionNotice({
         </span>
         <ul className="mt-2 space-y-1" aria-label="Accounts serving this system">
           {selection.entries.map((entry, index) => {
-            const href = catalogEntryHref(pathname, entry)
+            const href = catalogEntryHref(pathname, entry, "system", keep)
             const label = entry.identity
               ? `${entry.identity.account_id} · ${entry.identity.region}`
               : entry.name
@@ -141,5 +153,33 @@ export function CatalogSelectionNotice({
       <strong>{systemName}</strong> is not a system of the selected organization, account and region. Go to{" "}
       <a href="/systems" className="underline font-medium">Systems</a> to select one.
     </GuardMessage>
+  )
+}
+
+/**
+ * Inline chooser for a label several accounts serve (T10 S1): one link per IDENTIFIED row, each carrying that row's full
+ * tuple to ``path``; a row whose identity cannot be verified is named, never linked. Used where a single link would imply
+ * one account -- the dashboard cards.
+ */
+export function AccountLinks({ name, entries, path, param = "system" }: {
+  name: string
+  entries: readonly CatalogEntry[]
+  path: string
+  param?: string
+}) {
+  return (
+    <span className="mt-0.5 flex flex-wrap gap-x-2 text-[11px] text-slate-500" aria-label={`Accounts serving ${name}`}>
+      <span>in {entries.length} accounts:</span>
+      {entries.map((entry, index) => {
+        const href = entry.status === "IDENTIFIED" ? catalogEntryHref(path, entry, param) : null
+        return href ? (
+          <a key={index} href={href} className="underline hover:text-blue-700">
+            {entry.identity!.account_id} · {entry.identity!.region}
+          </a>
+        ) : (
+          <span key={index} title="This row's identity is unavailable, so it cannot be opened on its own">identity unavailable</span>
+        )
+      })}
+    </span>
   )
 }

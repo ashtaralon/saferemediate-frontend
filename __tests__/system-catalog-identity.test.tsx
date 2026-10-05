@@ -133,6 +133,17 @@ describe("SystemGuard", () => {
     expect(screen.queryByTestId("system-page")).not.toBeInTheDocument()
   })
 
+  it("the chooser's links keep the page's other parameters and carry only the chosen row's tuple", async () => {
+    setUrl("/services", "system=checkout&customer_id=acme&tab=network")
+    mount(<SystemGuard><Page /></SystemGuard>)
+    const list = await screen.findByRole("list", { name: "Accounts serving this system" })
+    const href = within(list).getAllByRole("link")[1].getAttribute("href")!
+    expect(new URL(href, "http://x").pathname).toBe("/services")
+    expect(Object.fromEntries(new URL(href, "http://x").searchParams)).toEqual({
+      tab: "network", system: "checkout", customer_id: "acme", account_id: B, region: "eu-west-1",
+    })
+  })
+
   it("the URL tuple opens exactly that account, over a different stored scope, on a fresh or a bookmarked load", async () => {
     for (const stored of [null, { customerId: "acme", groupId: "all", accountId: A, region: "all" }]) {
       window.localStorage.clear()
@@ -255,14 +266,22 @@ function cardRow(name: string) {
 }
 
 describe("dashboard cards", () => {
-  it("under all accounts the dense table links checkout to the chooser and withholds its graph values", async () => {
+  it("under all accounts the dense table offers checkout per account, each with its tuple, and withholds its values", async () => {
     setUrl("/", "customer_id=acme")
     mount(<DenseSystemsTable />)
     await screen.findByText("checkout")
     const row = cardRow("checkout")
-    expect(within(row).getByRole("link", { name: "checkout" })).toHaveAttribute("href", "/?system=checkout")
+    expect(within(row).queryByRole("link", { name: "checkout" })).not.toBeInTheDocument()   // no single-account link
+    const links = within(within(row).getByLabelText("Accounts serving checkout")).getAllByRole("link")
+    expect(links.map((link) => Object.fromEntries(new URL(link.getAttribute("href")!, "http://x").searchParams))).toEqual([
+      { system: "checkout", customer_id: "acme", account_id: A, region: "eu-west-1" },
+      { system: "checkout", customer_id: "acme", account_id: B, region: "eu-west-1" },
+    ])
+    expect(links.every((link) => new URL(link.getAttribute("href")!, "http://x").pathname === "/")).toBe(true)
     expect(row.querySelector("[data-attributable]")).toHaveAttribute("data-attributable", "false")
     expect(within(row).queryByText("3")).not.toBeInTheDocument()
+    expect(screen.getByText(/values withheld until the scope is one account and region/)).toBeInTheDocument()
+    expect(screen.queryByText(/sorted by open findings/)).not.toBeInTheDocument()
   })
 
   it("narrowed to the account and region it was computed for, the dense table shows its values and the full tuple", async () => {
@@ -276,6 +295,7 @@ describe("dashboard cards", () => {
     })
     expect(row.querySelector("[data-attributable]")).toHaveAttribute("data-attributable", "true")
     expect(within(row).getByText("3")).toBeInTheDocument()
+    expect(screen.getByText(/sorted by open findings/)).toBeInTheDocument()
   })
 
   it("after a scope change, a previous scope's values never appear under the new one", async () => {
@@ -301,7 +321,12 @@ describe("dashboard cards", () => {
     const wide = mount(<TopSystemsCard />)
     await screen.findByText("checkout")
     expect(cardRow("checkout").querySelector("[data-attributable]")).toHaveAttribute("data-attributable", "false")
-    expect(within(cardRow("checkout")).getByRole("link", { name: "checkout" })).toHaveAttribute("href", "/systems?systemName=checkout")
+    expect(within(cardRow("checkout")).queryByRole("link", { name: "checkout" })).not.toBeInTheDocument()
+    const chooser = within(within(cardRow("checkout")).getByLabelText("Accounts serving checkout")).getAllByRole("link")
+    expect(chooser.map((link) => link.getAttribute("href"))).toEqual([
+      `/systems?systemName=checkout&customer_id=acme&account_id=${A}&region=eu-west-1`,
+      `/systems?systemName=checkout&customer_id=acme&account_id=${B}&region=eu-west-1`,
+    ])
     wide.unmount()
 
     window.localStorage.clear()

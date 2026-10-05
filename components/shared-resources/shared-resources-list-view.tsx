@@ -231,6 +231,7 @@ export function SharedResourcesListView({ systemName: systemNameProp, embedded =
     selection: Exclude<CatalogSelection, { kind: "SELECTED" }>
     requested: string | null
     pathname: string
+    keep: URLSearchParams
   } | null>(null)
   const [rows, setRows] = useState<SharedResourceRow[] | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -271,7 +272,7 @@ export function SharedResourcesListView({ systemName: systemNameProp, embedded =
           setSelectionNotice(null)
           setResolvedSystemName(selection.entry.name)
         } else {
-          setSelectionNotice({ selection, requested: fromUrl, pathname: window.location.pathname })
+          setSelectionNotice({ selection, requested: fromUrl, pathname: window.location.pathname, keep: params })
           setLoading(false)
         }
       } catch {
@@ -446,6 +447,7 @@ export function SharedResourcesListView({ systemName: systemNameProp, embedded =
             selection={selectionNotice.selection}
             systemName={selectionNotice.requested}
             pathname={selectionNotice.pathname}
+            keep={selectionNotice.keep}
             back={false}
           />
         )}

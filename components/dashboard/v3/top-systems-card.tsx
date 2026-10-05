@@ -16,6 +16,7 @@ import {
   type FamilyResponseScope,
 } from "@/lib/scoped-system-catalog"
 import { useAccountScope } from "@/lib/account-scope-context"
+import { AccountLinks } from "@/components/system-guard"
 
 /**
  * Top systems by BRSS — with mix bar.
@@ -244,18 +245,19 @@ export function TopSystemsCard({
             const score = shown ? rowScore(s) : null
             const unmeasured = score === null
             const matches = catalogueMatches(s, catalogue.entries)
-            const href = matches.length === 1
-              ? catalogEntryHref("/systems", matches[0], "systemName")
-              : matches.length > 1
-                ? `/systems?systemName=${encodeURIComponent(canonicalName(s))}`   // the chooser: no single account implied
-                : null
+            const href = matches.length === 1 ? catalogEntryHref("/systems", matches[0], "systemName") : null
             return (
               <tr
                 key={`${rowName(s)}-${i}`}
                 className="border-b border-slate-50 last:border-b-0 hover:bg-slate-50/50"
               >
                 <td className="py-2.5 font-medium text-slate-900" data-attributable={shown ? "true" : "false"}>
-                  {href ? (
+                  {matches.length > 1 ? (
+                    <>
+                      <span>{rowName(s)}</span>
+                      <AccountLinks name={rowName(s)} entries={matches} path="/systems" param="systemName" />
+                    </>
+                  ) : href ? (
                     <Link href={href} className="underline-offset-4 hover:text-violet-700 hover:underline">
                       {rowName(s)}
                     </Link>
