@@ -582,6 +582,27 @@ describe("the page's poll rule (accountNeedsPolling)", () => {
     expect(accountNeedsPolling({ onboarding_status: status, pending_request: { action: "register", status: "queued" } })).toBe(true)
   })
 
+  it.each([k2Queued, k2Collecting] as Capture[])("$name: a first inventory still being collected keeps the page re-reading", (capture) => {
+    const row = rowOf(capture)
+    expect([row.onboarding_status, row.pending_request ?? null]).toEqual(["CONNECTED", null])
+    expect(accountNeedsPolling(row as any)).toBe(true)
+  })
+
+  it.each([k2Collected, k2Failed, k2Blocked, k2Unavailable, k2Measured, k2ZeroFacts] as Capture[])(
+    "$name: a first inventory that has stopped moving is not polled", (capture) => {
+      expect(accountNeedsPolling(rowOf(capture) as any)).toBe(false)
+    })
+
+  it("the page itself follows a first inventory from queued to collected with no Refresh", async () => {
+    const row = await mount(k2Queued as Capture, at(k2Queued as Capture))
+    expect(within(row).getByTestId(`first-collection-${MEMBER}`)).toHaveTextContent("First inventory queued")
+    current = k2Collected as Capture
+    await act(async () => { await vi.advanceTimersByTimeAsync(4000) })
+    await waitFor(() => expect(within(screen.getByTestId(`account-row-${MEMBER}`)).getByTestId(`first-collection-${MEMBER}`))
+      .toHaveTextContent("First inventory collected"))
+    expect(posts).toHaveLength(0)
+  })
+
   it.each(SETTLED)("%s is polled only while a request for it is open", (status) => {
     expect(accountNeedsPolling({ onboarding_status: status, pending_request: null })).toBe(false)
     expect(accountNeedsPolling({ onboarding_status: status })).toBe(false)

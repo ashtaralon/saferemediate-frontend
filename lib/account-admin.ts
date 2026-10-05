@@ -573,10 +573,17 @@ export function registrationStepBoundary(step: RegistrationStep | null, now: num
  *  activation. */
 const CONNECTOR_WORKING = new Set(["REGISTERING", "LISTED_ADMITTED", "CHECKING", "ACTIVATING"])
 
-/** Whether the page must keep re-reading the list for this row: the connector is still moving it, or a request for it is
- *  open (a removal the connector has not recorded yet included). */
-export function accountNeedsPolling(account: Pick<ManagedAccount, "onboarding_status" | "pending_request">): boolean {
+/** First-inventory states whose runs are still moving (Stage1B K2); every other state stays put until something new
+ *  happens (collected, failed, blocked by configuration, held, unavailable). */
+const FIRST_INVENTORY_MOVING = new Set(["INTENDED", "QUEUED", "STARTING", "COLLECTING"])
+
+/** Whether the page must keep re-reading the list for this row: the connector is still moving it, a request for it is
+ *  open (a removal the connector has not recorded yet included), or its first inventory is still being collected. */
+export function accountNeedsPolling(
+  account: Pick<ManagedAccount, "onboarding_status" | "pending_request" | "registration">,
+): boolean {
   return CONNECTOR_WORKING.has(account.onboarding_status) || Boolean(account.pending_request)
+    || FIRST_INVENTORY_MOVING.has(account.registration?.first_inventory?.state ?? "")
 }
 
 const STEP_LABEL: Record<string, string> = { register: "registration", access_check: "access check", activate: "activation" }
