@@ -534,6 +534,7 @@ export default function AccountSettingsPage() {
 
             {memberMode ? visibleFailures.map((failure) => {
               const name = accountNames.get(failure.account_id)
+              const worded = requestOutcomeText(failure.outcome)
               return (
                 <div key={failureKey(failure)} role="alert" className="flex items-start justify-between gap-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
                   <div className="flex gap-3">
@@ -542,10 +543,8 @@ export default function AccountSettingsPage() {
                       <p className="font-semibold">
                         {REQUEST_ACTION_LABEL[failure.action] || failure.action} for {name && name !== failure.account_id ? `${name} (${failure.account_id})` : failure.account_id} failed
                       </p>
-                      {requestOutcomeText(failure.outcome) ? (
-                        <p className="mt-1" data-testid={`failure-outcome-${failure.account_id}`}>{requestOutcomeText(failure.outcome)}</p>
-                      ) : null}
-                      <p className={requestOutcomeText(failure.outcome) ? "mt-1 text-xs text-red-700" : "mt-1"}>
+                      {worded ? <p className="mt-1" data-testid={`failure-outcome-${failure.account_id}`}>{worded}</p> : null}
+                      <p className={worded ? "mt-1 text-xs text-red-700" : "mt-1"}>
                         {failure.detail || "The account connector recorded no detail."}
                       </p>
                       {formatTimestamp(failure.finished_at) ? <p className="mt-1 text-xs text-red-600">Finished {formatTimestamp(failure.finished_at)}</p> : null}

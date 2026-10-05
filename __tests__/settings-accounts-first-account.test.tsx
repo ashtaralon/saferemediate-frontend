@@ -38,6 +38,7 @@ import k2Failed from "@/__tests__/fixtures/settings-c-producer/19_k2_failed.json
 import k2Unavailable from "@/__tests__/fixtures/settings-c-producer/20_k2_run_store_not_configured.json"
 import gateClosed from "@/__tests__/fixtures/settings-c-producer/21_gate_closed_refusal.json"
 import historyPresent from "@/__tests__/fixtures/settings-c-producer/22_history_present_refusal.json"
+import k2Blocked from "@/__tests__/fixtures/settings-c-producer/23_k2_partially_blocked.json"
 
 const CUSTOMER = "acme"
 const MEMBER = "222222222222"
@@ -359,15 +360,15 @@ describe("the Connect panel of a pending account", () => {
 // ── Stage1B (1B-3): a listed account waits for its check and confirmation (G9); the first inventory from its own runs (K2);
 // refusals worded by their stable codes. Every row below is the producer's own (fixtures 14-22, backend 28b2b7d9).
 
-const firstInventoryOf = (capture: Capture) => registrationOf(capture).first_inventory as Record<string, any>
-const asOf = (capture: Capture) => `(as of ${formatUtcInstantExact(firstInventoryOf(capture).observed_at)})`
+const firstInventoryOutcomeOf = (capture: Capture) => registrationOf(capture).first_inventory as Record<string, any>
+const asOf = (capture: Capture) => `(as of ${formatUtcInstantExact(firstInventoryOutcomeOf(capture).observed_at)})`
 
 describe("1B-3: the producer's new captures are what this suite renders", () => {
   it.each([listedPending, k2Queued, k2Collecting, k2Collected, k2Failed, k2Unavailable] as Capture[])(
     "$name carries this registration's evidence and first inventory, bound to it", (capture) => {
       expect(registrationOf(capture).listed_evidence.kind).toBe("ORGANIZATION_LIST")
-      expect(firstInventoryOf(capture).registration_id).toBe(registrationOf(capture).registration_id)
-      expect(firstInventoryOf(capture).scope).toBe("INVENTORY_BOOTSTRAP")
+      expect(firstInventoryOutcomeOf(capture).registration_id).toBe(registrationOf(capture).registration_id)
+      expect(firstInventoryOutcomeOf(capture).scope).toBe("INVENTORY_BOOTSTRAP")
     })
 })
 
@@ -426,13 +427,22 @@ describe("K2: the first inventory, from the runs of exactly this registration's 
   })
 
   it("a failed run outranks the rest and its class is said verbatim, with who can act -- never a role inferred from it", async () => {
-    const classes = (firstInventoryOf(k2Failed as Capture).items as Array<Record<string, any>>)
+    const classes = (firstInventoryOutcomeOf(k2Failed as Capture).items as Array<Record<string, any>>)
       .filter((item) => item.state === "FAILED").map((item) => item.error_class)
     expect(classes).toEqual(["ACCESS_DENIED"])
     const status = await text(k2Failed as Capture)
     expect(status).toHaveTextContent(
       `First inventory failed for 1 work item (ACCESS_DENIED); your installer or Cyntro support can act on it ${asOf(k2Failed as Capture)}.`)
     expect(status).not.toHaveTextContent(/CyntroRead|retries|will retry/)
+  })
+
+  it("work the queue refused is blocked by the dispatch's reason, with what was queued counted beside it", async () => {
+    const outcome = firstInventoryOutcomeOf(k2Blocked as Capture)
+    expect([outcome.counts.collected, outcome.counts.intended]).toEqual([10, 21])
+    const status = await text(k2Blocked as Capture)
+    expect(status).toHaveTextContent(
+      `First inventory blocked: 21 of 31 work items could not be queued; the queue refused the work (${outcome.reason}).`)
+    expect(outcome.reason).toMatch(/^SEND_FAILED:/)
   })
 
   it("a status that cannot be read is said so, and is never a result", async () => {

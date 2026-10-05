@@ -3,8 +3,9 @@
 /**
  * Settings > Accounts, option C (S4): a registration's next step on the way to its first collection -- check access,
  * confirm, and the recovery its states need (a retry, a release) -- and, once activated, where its first collection stands.
- * Every fact is the backend's row (lib/account-admin.ts registrationStep, firstInventoryText); this file only says it and
- * offers the ONE request the connector would admit next. The connector decides every request again on its own.
+ * Every fact is the backend's row (lib/account-admin.ts registrationStep, firstInventoryOutcomeText, firstInventoryText);
+ * this file only says it and offers the ONE request the connector would admit next. The connector decides every request
+ * again on its own.
  */
 import { useEffect, useState } from "react"
 import { AlertTriangle, CheckCircle2, Clock, Loader2, ShieldCheck, Unlock, X } from "lucide-react"

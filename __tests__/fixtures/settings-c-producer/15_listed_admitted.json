@@ -21,14 +21,14 @@
     "organizational_unit_ids": [],
     "pending_request": {
      "action": "register",
-     "requested_at": "2026-10-05T07:34:24.568183+00:00",
+     "requested_at": "2026-10-05T07:58:17.222054+00:00",
      "status": "running"
     },
     "read_enabled": true,
     "regions": [
      "eu-west-1"
     ],
-    "registered_at": "2026-10-05T07:34:24.582098+00:00",
+    "registered_at": "2026-10-05T07:58:17.234610+00:00",
     "registered_by": {
      "identity": "https://cognito-idp.eu-west-1.amazonaws.com/pool#00u-alice",
      "verified": true
@@ -42,9 +42,9 @@
      "first_inventory": {
       "counts": {},
       "items": [],
-      "observed_at": "2026-10-05T07:34:24.602385Z",
+      "observed_at": "2026-10-05T07:58:17.252237Z",
       "reason": null,
-      "registration_id": "8e6971ea6b4966a9788da58244ac77e5",
+      "registration_id": "471aed03b5d913e7ad5356ffac8b2564",
       "scope": "INVENTORY_BOOTSTRAP",
       "state": "NOT_ACTIVATED"
      },
@@ -58,13 +58,13 @@
       "outcome": null,
       "request_status": "running"
      },
-     "registration_id": "8e6971ea6b4966a9788da58244ac77e5",
+     "registration_id": "471aed03b5d913e7ad5356ffac8b2564",
      "registration_path": "LISTED",
      "registration_version": 1
     },
     "sources": {},
     "tags": {},
-    "updated_at": "2026-10-05T07:34:24.582098+00:00",
+    "updated_at": "2026-10-05T07:58:17.234610+00:00",
     "validation_message": "Found in your organization's account list; checking the connection",
     "verification_enabled": false
    }
@@ -86,7 +86,7 @@
   },
   "total": 1
  },
- "captured_at": "2026-10-05T07:34:24.603334+00:00",
+ "captured_at": "2026-10-05T07:58:17.253422+00:00",
  "name": "15_listed_admitted",
  "note": "a listed account admitted, its continuation not yet written (LISTED_ADMITTED)",
  "request": {

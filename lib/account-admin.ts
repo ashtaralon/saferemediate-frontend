@@ -691,9 +691,10 @@ export function firstInventoryOutcomeText(
     case "NOT_STARTED": return { tone: "pending", text: "First inventory not started: no work is queued yet." }
     case "HELD": return { tone: "blocked", text: `First inventory held (${outcome.reason || "no reason recorded"}): its plan changed after work was queued.` }
     case "BLOCKED": {
+      // Work the queue has not accepted, with the dispatch's own reason; what WAS queued is counted beside it.
       const code = outcome.reason || ""
       const why = DISPATCH_BLOCKERS[code] ?? (code ? `the queue refused the work (${code})` : "no reason was recorded")
-      return { tone: "blocked", text: `First inventory blocked: none of its ${items(total)} could be queued; ${why}.` }
+      return { tone: "blocked", text: `First inventory blocked: ${n("intended")} of ${items(total)} could not be queued; ${why}.` }
     }
     case "INTENDED": return { tone: "pending", text: `First inventory being queued: ${total - n("intended")} of ${items(total)} queued${asOf}.` }
     case "QUEUED": return { tone: "pending", text: `First inventory queued: ${items(n("queued"))} waiting to start, ${n("collected")} collected${asOf}. Queued is not collected.` }

@@ -5,7 +5,7 @@
     "account_id": "222222222222",
     "aws_account_name": "prod-payments",
     "aws_account_name_error": null,
-    "aws_account_name_read_at": "2026-10-05T07:34:25.834777+00:00",
+    "aws_account_name_read_at": "2026-10-05T07:58:18.349719+00:00",
     "collection_mode": "MEMBER_READ_ROLE",
     "coverage": [
      {
@@ -37,7 +37,7 @@
     "group_ids": [],
     "install_method": "MEMBER_STACK",
     "is_platform_account": false,
-    "last_validated_at": "2026-10-05T07:34:25.727549+00:00",
+    "last_validated_at": "2026-10-05T07:58:18.255109+00:00",
     "mutation_enabled": false,
     "onboarding_status": "CONNECTED",
     "organization_id": "o-install",
@@ -47,7 +47,7 @@
     "regions": [
      "eu-west-1"
     ],
-    "registered_at": "2026-10-05T07:34:24.768181+00:00",
+    "registered_at": "2026-10-05T07:58:17.412212+00:00",
     "registered_by": {
      "identity": "https://cognito-idp.eu-west-1.amazonaws.com/pool#00u-alice",
      "verified": true
@@ -55,9 +55,9 @@
     "registration": {
      "access_check": {
       "answered_account": "222222222222",
-      "check_id": "a6b954d9a76177db5d6c90a1dce096e6",
-      "completed_at": "2026-10-05T07:34:24.908754+00:00",
-      "identity_observed_at": "2026-10-05T07:34:24.906717+00:00",
+      "check_id": "c1746ed82146605c01a504cb06723705",
+      "completed_at": "2026-10-05T07:58:17.595351+00:00",
+      "identity_observed_at": "2026-10-05T07:58:17.593827+00:00",
       "name_in_aws": "prod-payments",
       "name_unreadable": null,
       "outcome": "REACHED",
@@ -66,12 +66,12 @@
      },
      "activating": false,
      "activation": {
-      "at": "2026-10-05T07:34:24.948937+00:00",
-      "check_id": "a6b954d9a76177db5d6c90a1dce096e6",
+      "at": "2026-10-05T07:58:17.633107+00:00",
+      "check_id": "c1746ed82146605c01a504cb06723705",
       "decided_by": "CONFIRMATION"
      },
      "activation_last": {
-      "at": "2026-10-05T07:34:25.727549+00:00",
+      "at": "2026-10-05T07:58:18.255109+00:00",
       "outcome": "ACTIVATED",
       "step": null
      },
@@ -96,10 +96,10 @@
         "error_class": null,
         "region": "eu-west-1",
         "run_status": "EVIDENCE_COMMITTED",
-        "source_type": "load_balancer_listeners",
-        "started_at": "2026-10-05T07:34:25.939325+00:00",
+        "source_type": "account_regions",
+        "started_at": "2026-10-05T07:58:18.450238+00:00",
         "state": "COLLECTED",
-        "work_item_id": "work_item:113a19065c0c2340abf05455f27252f3bf5fbe046ed0775b72c0ebaa543a087a"
+        "work_item_id": "work_item:01de33484de4d209e1e2db56cab7e5f9f58a99fd1b16853f2618a4aa20b9118f"
        },
        {
         "completed_at": null,
@@ -107,289 +107,9 @@
         "region": "eu-west-1",
         "run_status": "EVIDENCE_COMMITTED",
         "source_type": "subnets",
-        "started_at": "2026-10-05T07:34:25.994502+00:00",
+        "started_at": "2026-10-05T07:58:18.496717+00:00",
         "state": "COLLECTED",
-        "work_item_id": "work_item:1e0655c5636e6cc3daefd5dd138750ff300bc101a23ee3dbcb2f030f3ae45fe1"
-       },
-       {
-        "completed_at": null,
-        "error_class": null,
-        "region": "eu-west-1",
-        "run_status": "EVIDENCE_COMMITTED",
-        "source_type": "sns_authorization_controls",
-        "started_at": "2026-10-05T07:34:26.023024+00:00",
-        "state": "COLLECTED",
-        "work_item_id": "work_item:1f6ff32712b27220ab1ab5986fe0d055a6a898f9f632980f352b9b135cc698d3"
-       },
-       {
-        "completed_at": null,
-        "error_class": null,
-        "region": "eu-west-1",
-        "run_status": "EVIDENCE_COMMITTED",
-        "source_type": "vpc_endpoint_authorization_controls",
-        "started_at": "2026-10-05T07:34:26.051264+00:00",
-        "state": "COLLECTED",
-        "work_item_id": "work_item:20a9ca1dcf69a995569d542898165668860a9db7fcc5b6745779b98990dbce27"
-       },
-       {
-        "completed_at": null,
-        "error_class": null,
-        "region": "eu-west-1",
-        "run_status": "EVIDENCE_COMMITTED",
-        "source_type": "secretsmanager_authorization_controls",
-        "started_at": "2026-10-05T07:34:26.079617+00:00",
-        "state": "COLLECTED",
-        "work_item_id": "work_item:21a3c7eddd899fb30ca5d03b206cc4e0c75a6c5b42d4f8a09e594ede3bc5bccb"
-       },
-       {
-        "completed_at": null,
-        "error_class": null,
-        "region": "eu-west-1",
-        "run_status": "EVIDENCE_COMMITTED",
-        "source_type": "sqs_authorization_controls",
-        "started_at": "2026-10-05T07:34:26.109985+00:00",
-        "state": "COLLECTED",
-        "work_item_id": "work_item:2616ad0f492988fb234d004568417f861ac6384f8046b399127773a23b0e7e6c"
-       },
-       {
-        "completed_at": null,
-        "error_class": null,
-        "region": "eu-west-1",
-        "run_status": "EVIDENCE_COMMITTED",
-        "source_type": "vpcs",
-        "started_at": "2026-10-05T07:34:26.140438+00:00",
-        "state": "COLLECTED",
-        "work_item_id": "work_item:2a19e7cfd5fb2519514c04eff510a6daee559b6c63c75163af1c4241c76a2145"
-       },
-       {
-        "completed_at": null,
-        "error_class": null,
-        "region": "eu-west-1",
-        "run_status": "EVIDENCE_COMMITTED",
-        "source_type": "internet_gateways",
-        "started_at": "2026-10-05T07:34:26.170643+00:00",
-        "state": "COLLECTED",
-        "work_item_id": "work_item:47fd3d74c737266e6a33f5a70a40bb40f30b54302c39fab797e48f046e7d8cc8"
-       },
-       {
-        "completed_at": null,
-        "error_class": null,
-        "region": "eu-west-1",
-        "run_status": "EVIDENCE_COMMITTED",
-        "source_type": "kms_authorization_controls",
-        "started_at": "2026-10-05T07:34:26.198467+00:00",
-        "state": "COLLECTED",
-        "work_item_id": "work_item:4baf9d8ec8ca7fe6deebf8fd9402c0f0ca009ded663a642cd65cde868f4cf025"
-       },
-       {
-        "completed_at": null,
-        "error_class": null,
-        "region": "eu-west-1",
-        "run_status": "EVIDENCE_COMMITTED",
-        "source_type": "network_acls",
-        "started_at": "2026-10-05T07:34:26.227352+00:00",
-        "state": "COLLECTED",
-        "work_item_id": "work_item:53fc5a71341eae1f64927b1d77fe03303f098fe0f24017fbabd5a778e451a275"
-       },
-       {
-        "completed_at": null,
-        "error_class": null,
-        "region": "eu-west-1",
-        "run_status": "EVIDENCE_COMMITTED",
-        "source_type": "rds_clusters",
-        "started_at": "2026-10-05T07:34:26.254868+00:00",
-        "state": "COLLECTED",
-        "work_item_id": "work_item:5530fb3a2b366c210bc19f943769d5e1a5343c148050340284859707bf29fec2"
-       },
-       {
-        "completed_at": null,
-        "error_class": null,
-        "region": "eu-west-1",
-        "run_status": "EVIDENCE_COMMITTED",
-        "source_type": "lambda_authorization_controls",
-        "started_at": "2026-10-05T07:34:26.282566+00:00",
-        "state": "COLLECTED",
-        "work_item_id": "work_item:638a4ac375be25b362ef67d4c3ebdcebaa1c0513ebd3e470422f40d74862e148"
-       },
-       {
-        "completed_at": null,
-        "error_class": null,
-        "region": "eu-west-1",
-        "run_status": "EVIDENCE_COMMITTED",
-        "source_type": "target_groups",
-        "started_at": "2026-10-05T07:34:26.310427+00:00",
-        "state": "COLLECTED",
-        "work_item_id": "work_item:65a77f1610b71b61d2f7bee29a297324c51a524b69ec219570398f9ed7458ec2"
-       },
-       {
-        "completed_at": null,
-        "error_class": null,
-        "region": "eu-west-1",
-        "run_status": "EVIDENCE_COMMITTED",
-        "source_type": "s3_authorization_controls",
-        "started_at": "2026-10-05T07:34:26.339398+00:00",
-        "state": "COLLECTED",
-        "work_item_id": "work_item:6dc5ce3126776b9dbbeb4373554beeacef012ba4a2181c94e58d8ca752346bac"
-       },
-       {
-        "completed_at": null,
-        "error_class": null,
-        "region": "eu-west-1",
-        "run_status": "EVIDENCE_COMMITTED",
-        "source_type": "organization_policy_context",
-        "started_at": "2026-10-05T07:34:26.369258+00:00",
-        "state": "COLLECTED",
-        "work_item_id": "work_item:7fd4666a3d8568daf1a2240a46a3514774298a5ee8902daf92c47a159fdf0a1f"
-       },
-       {
-        "completed_at": null,
-        "error_class": null,
-        "region": "eu-west-1",
-        "run_status": "EVIDENCE_COMMITTED",
-        "source_type": "route_tables",
-        "started_at": "2026-10-05T07:34:26.398081+00:00",
-        "state": "COLLECTED",
-        "work_item_id": "work_item:8782a465b58d6001d1b1cbad55c57348170835ab6f0ca3b86a776cf216df9fb1"
-       },
-       {
-        "completed_at": null,
-        "error_class": null,
-        "region": "eu-west-1",
-        "run_status": "EVIDENCE_COMMITTED",
-        "source_type": "eventbridge_authorization_controls",
-        "started_at": "2026-10-05T07:34:26.427671+00:00",
-        "state": "COLLECTED",
-        "work_item_id": "work_item:8ac126ef5c418fb11f0d6d427f057d35b64bea9f52693ab9a9f063fa17e10972"
-       },
-       {
-        "completed_at": null,
-        "error_class": null,
-        "region": "eu-west-1",
-        "run_status": "EVIDENCE_COMMITTED",
-        "source_type": "eks_clusters",
-        "started_at": "2026-10-05T07:34:26.455916+00:00",
-        "state": "COLLECTED",
-        "work_item_id": "work_item:991fcbb4e87008bb7fc6b0afc6d4c80a0ad3646630de2547c322c9538a880ff5"
-       },
-       {
-        "completed_at": null,
-        "error_class": null,
-        "region": "eu-west-1",
-        "run_status": "EVIDENCE_COMMITTED",
-        "source_type": "security_groups",
-        "started_at": "2026-10-05T07:34:26.484096+00:00",
-        "state": "COLLECTED",
-        "work_item_id": "work_item:9ce74746124f669c9c924e14e81d081aa7d237db262a530e0a15ab0e5c815560"
-       },
-       {
-        "completed_at": null,
-        "error_class": null,
-        "region": "eu-west-1",
-        "run_status": "EVIDENCE_COMMITTED",
-        "source_type": "vpc_endpoints",
-        "started_at": "2026-10-05T07:34:26.512668+00:00",
-        "state": "COLLECTED",
-        "work_item_id": "work_item:a57e1ca4ead6e310b70d49bcfbd79fb1f14571f12c591220e119dd97e1d6cdec"
-       },
-       {
-        "completed_at": null,
-        "error_class": null,
-        "region": "eu-west-1",
-        "run_status": "EVIDENCE_COMMITTED",
-        "source_type": "k8s_objects",
-        "started_at": "2026-10-05T07:34:26.687266+00:00",
-        "state": "COLLECTED",
-        "work_item_id": "work_item:b823630f6d5a7d218af11913f216f966daffb66668494a8dc857a7904d84e69d"
-       },
-       {
-        "completed_at": null,
-        "error_class": null,
-        "region": "eu-west-1",
-        "run_status": "EVIDENCE_COMMITTED",
-        "source_type": "iam_policies",
-        "started_at": "2026-10-05T07:34:26.715530+00:00",
-        "state": "COLLECTED",
-        "work_item_id": "work_item:ba0fa8e84073ac184cc8cea39c598c63253acd2c6dd4e77767bad87fabc74257"
-       },
-       {
-        "completed_at": null,
-        "error_class": null,
-        "region": "eu-west-1",
-        "run_status": "EVIDENCE_COMMITTED",
-        "source_type": "load_balancers",
-        "started_at": "2026-10-05T07:34:26.744520+00:00",
-        "state": "COLLECTED",
-        "work_item_id": "work_item:bba245c09227ec945a8caf81dbddb43bb9a632148f626eb6cc8544a1d3edb26a"
-       },
-       {
-        "completed_at": null,
-        "error_class": null,
-        "region": "eu-west-1",
-        "run_status": "EVIDENCE_COMMITTED",
-        "source_type": "iam_roles",
-        "started_at": "2026-10-05T07:34:26.773031+00:00",
-        "state": "COLLECTED",
-        "work_item_id": "work_item:c893ad1a4a55a8815322ee37b8fc9a492689257fb3672874278f2ff0efbacb93"
-       },
-       {
-        "completed_at": null,
-        "error_class": null,
-        "region": "eu-west-1",
-        "run_status": "EVIDENCE_COMMITTED",
-        "source_type": "network_interfaces",
-        "started_at": "2026-10-05T07:34:26.804441+00:00",
-        "state": "COLLECTED",
-        "work_item_id": "work_item:cf76a00f5aafd3c431fb15cafcfd63974c61313be44d89a34f1a3b44a1306400"
-       },
-       {
-        "completed_at": null,
-        "error_class": null,
-        "region": "eu-west-1",
-        "run_status": "EVIDENCE_COMMITTED",
-        "source_type": "nat_gateways",
-        "started_at": "2026-10-05T07:34:26.834350+00:00",
-        "state": "COLLECTED",
-        "work_item_id": "work_item:d328ef0b237bbe22fad5bf89a3d4adf61ee4f5582c7443610b14f62f330e34aa"
-       },
-       {
-        "completed_at": null,
-        "error_class": null,
-        "region": "eu-west-1",
-        "run_status": "EVIDENCE_COMMITTED",
-        "source_type": "s3_buckets",
-        "started_at": "2026-10-05T07:34:26.864078+00:00",
-        "state": "COLLECTED",
-        "work_item_id": "work_item:e4a0055a163b3a5ad780381e4b8de5ec9e68b2ffb4a45b2a8f81747d5040fb38"
-       },
-       {
-        "completed_at": null,
-        "error_class": null,
-        "region": "eu-west-1",
-        "run_status": "EVIDENCE_COMMITTED",
-        "source_type": "lambda_functions",
-        "started_at": "2026-10-05T07:34:26.892963+00:00",
-        "state": "COLLECTED",
-        "work_item_id": "work_item:e665b7e37621fe0dc4cc91915700d6ce0f8cad7e42aaa937041837c9bd51ad7a"
-       },
-       {
-        "completed_at": null,
-        "error_class": null,
-        "region": "eu-west-1",
-        "run_status": "EVIDENCE_COMMITTED",
-        "source_type": "rds_instances",
-        "started_at": "2026-10-05T07:34:26.921223+00:00",
-        "state": "COLLECTED",
-        "work_item_id": "work_item:f23390e00bf1e0d4d9118f65c6537b300ea5f4782aefd1b4fae253749d4fd62d"
-       },
-       {
-        "completed_at": null,
-        "error_class": null,
-        "region": "eu-west-1",
-        "run_status": "EVIDENCE_COMMITTED",
-        "source_type": "account_regions",
-        "started_at": "2026-10-05T07:34:26.949601+00:00",
-        "state": "COLLECTED",
-        "work_item_id": "work_item:f4c27b120e73d77d033c178993e267cd55d0a2ed0bfe9e0d98adc20fad11b5c9"
+        "work_item_id": "work_item:044c502a5022d7406813404fe9fc365c098be8a6a11393e5646d6f0431eeec97"
        },
        {
         "completed_at": null,
@@ -397,33 +117,313 @@
         "region": "eu-west-1",
         "run_status": "EVIDENCE_COMMITTED",
         "source_type": "ec2_inventory",
-        "started_at": "2026-10-05T07:34:26.978145+00:00",
+        "started_at": "2026-10-05T07:58:18.523013+00:00",
         "state": "COLLECTED",
-        "work_item_id": "work_item:fcb2e0d4ee73c619a456d2e8b35d6dea739098d416d46fc96da787e76c540327"
+        "work_item_id": "work_item:0c5468869a0ffda497b4d084156b2cb6b0739efd7cf9c6954f03421c2500e64a"
+       },
+       {
+        "completed_at": null,
+        "error_class": null,
+        "region": "eu-west-1",
+        "run_status": "EVIDENCE_COMMITTED",
+        "source_type": "network_interfaces",
+        "started_at": "2026-10-05T07:58:18.548688+00:00",
+        "state": "COLLECTED",
+        "work_item_id": "work_item:158decbe6beaeff3fafacaf8b081f9d17aa61d87f8eec3ce4eb36bc622cd77ce"
+       },
+       {
+        "completed_at": null,
+        "error_class": null,
+        "region": "eu-west-1",
+        "run_status": "EVIDENCE_COMMITTED",
+        "source_type": "eks_clusters",
+        "started_at": "2026-10-05T07:58:18.576083+00:00",
+        "state": "COLLECTED",
+        "work_item_id": "work_item:18bf2fb24098ab8885410a6185b82bbcea9f73733275fa2ada1536de21e1e2e3"
+       },
+       {
+        "completed_at": null,
+        "error_class": null,
+        "region": "eu-west-1",
+        "run_status": "EVIDENCE_COMMITTED",
+        "source_type": "vpc_endpoint_authorization_controls",
+        "started_at": "2026-10-05T07:58:18.722419+00:00",
+        "state": "COLLECTED",
+        "work_item_id": "work_item:1b7a2a7cc965d195627db05bea611ccc7a1171bb445344ad6750c70897833c02"
+       },
+       {
+        "completed_at": null,
+        "error_class": null,
+        "region": "eu-west-1",
+        "run_status": "EVIDENCE_COMMITTED",
+        "source_type": "lambda_functions",
+        "started_at": "2026-10-05T07:58:18.748479+00:00",
+        "state": "COLLECTED",
+        "work_item_id": "work_item:2a3f127bb3e6f769f9f2132134ee72838f62df826547a8edb5868d5f4265f862"
+       },
+       {
+        "completed_at": null,
+        "error_class": null,
+        "region": "eu-west-1",
+        "run_status": "EVIDENCE_COMMITTED",
+        "source_type": "k8s_objects",
+        "started_at": "2026-10-05T07:58:18.775087+00:00",
+        "state": "COLLECTED",
+        "work_item_id": "work_item:3d549d4031f8f5d6a5f78568be62165f87d9b3b575141bc7254c4979bf011b1a"
+       },
+       {
+        "completed_at": null,
+        "error_class": null,
+        "region": "eu-west-1",
+        "run_status": "EVIDENCE_COMMITTED",
+        "source_type": "iam_policies",
+        "started_at": "2026-10-05T07:58:18.803869+00:00",
+        "state": "COLLECTED",
+        "work_item_id": "work_item:4f2dcadc2171338f39f26b9ec41e97d68808b9347f09d1bde31c7847313bab60"
+       },
+       {
+        "completed_at": null,
+        "error_class": null,
+        "region": "eu-west-1",
+        "run_status": "EVIDENCE_COMMITTED",
+        "source_type": "s3_authorization_controls",
+        "started_at": "2026-10-05T07:58:18.833165+00:00",
+        "state": "COLLECTED",
+        "work_item_id": "work_item:512bffa12840e3209ea9b02a6121e0d62a47375a2bf2552d34f25e7466dffb29"
+       },
+       {
+        "completed_at": null,
+        "error_class": null,
+        "region": "eu-west-1",
+        "run_status": "EVIDENCE_COMMITTED",
+        "source_type": "rds_clusters",
+        "started_at": "2026-10-05T07:58:18.861449+00:00",
+        "state": "COLLECTED",
+        "work_item_id": "work_item:6654fd4d53eb939f9e151afbad327b69de5a9172820425202d47f78fa216a8ee"
+       },
+       {
+        "completed_at": null,
+        "error_class": null,
+        "region": "eu-west-1",
+        "run_status": "EVIDENCE_COMMITTED",
+        "source_type": "vpcs",
+        "started_at": "2026-10-05T07:58:18.888030+00:00",
+        "state": "COLLECTED",
+        "work_item_id": "work_item:72a65ae518a4aedb54395d54afc2d290f86e36211375510bed68c5f5ebf47f0c"
+       },
+       {
+        "completed_at": null,
+        "error_class": null,
+        "region": "eu-west-1",
+        "run_status": "EVIDENCE_COMMITTED",
+        "source_type": "target_groups",
+        "started_at": "2026-10-05T07:58:18.914628+00:00",
+        "state": "COLLECTED",
+        "work_item_id": "work_item:72e9068d08ab4043b4e159982932fd17eca0e84f513cd94e7acc1bfacd7967a3"
+       },
+       {
+        "completed_at": null,
+        "error_class": null,
+        "region": "eu-west-1",
+        "run_status": "EVIDENCE_COMMITTED",
+        "source_type": "s3_buckets",
+        "started_at": "2026-10-05T07:58:18.941538+00:00",
+        "state": "COLLECTED",
+        "work_item_id": "work_item:776c49d1fb6eab312f76f772a10c735866d4cce3d375f81e58f12e9af1aba098"
+       },
+       {
+        "completed_at": null,
+        "error_class": null,
+        "region": "eu-west-1",
+        "run_status": "EVIDENCE_COMMITTED",
+        "source_type": "nat_gateways",
+        "started_at": "2026-10-05T07:58:18.968361+00:00",
+        "state": "COLLECTED",
+        "work_item_id": "work_item:7f60898e2dc6c34c335db67c7093bb4c2df84bcf705aa891d8cf756bee13376a"
+       },
+       {
+        "completed_at": null,
+        "error_class": null,
+        "region": "eu-west-1",
+        "run_status": "EVIDENCE_COMMITTED",
+        "source_type": "iam_roles",
+        "started_at": "2026-10-05T07:58:18.994912+00:00",
+        "state": "COLLECTED",
+        "work_item_id": "work_item:8753a55b5558fbdbbf3141d5bae5fc67af8b819727b65d68a2724091838beaf9"
+       },
+       {
+        "completed_at": null,
+        "error_class": null,
+        "region": "eu-west-1",
+        "run_status": "EVIDENCE_COMMITTED",
+        "source_type": "rds_instances",
+        "started_at": "2026-10-05T07:58:19.022420+00:00",
+        "state": "COLLECTED",
+        "work_item_id": "work_item:87e721cd11ba2b9078d9e4afd511a83256e8e5e1e3bdd0c7360eb962bf5f7f1e"
+       },
+       {
+        "completed_at": null,
+        "error_class": null,
+        "region": "eu-west-1",
+        "run_status": "EVIDENCE_COMMITTED",
+        "source_type": "vpc_endpoints",
+        "started_at": "2026-10-05T07:58:19.048793+00:00",
+        "state": "COLLECTED",
+        "work_item_id": "work_item:8872785d95a224f220669ed698d15241674cd7ddb3f1378bc744384381df699b"
+       },
+       {
+        "completed_at": null,
+        "error_class": null,
+        "region": "eu-west-1",
+        "run_status": "EVIDENCE_COMMITTED",
+        "source_type": "secretsmanager_authorization_controls",
+        "started_at": "2026-10-05T07:58:19.075260+00:00",
+        "state": "COLLECTED",
+        "work_item_id": "work_item:8a8c9f3fd58331ae28600c78be7a6cdaea6e0c34d794c3bd36463e06b1b24c4a"
+       },
+       {
+        "completed_at": null,
+        "error_class": null,
+        "region": "eu-west-1",
+        "run_status": "EVIDENCE_COMMITTED",
+        "source_type": "sns_authorization_controls",
+        "started_at": "2026-10-05T07:58:19.102291+00:00",
+        "state": "COLLECTED",
+        "work_item_id": "work_item:97ef35433f1bcb8d0777ab9ec99f9e49f6b9c538b5c9cc33c6ce07e7d4613376"
+       },
+       {
+        "completed_at": null,
+        "error_class": null,
+        "region": "eu-west-1",
+        "run_status": "EVIDENCE_COMMITTED",
+        "source_type": "internet_gateways",
+        "started_at": "2026-10-05T07:58:19.128574+00:00",
+        "state": "COLLECTED",
+        "work_item_id": "work_item:9f0c1f46ff81ed9c9b4b8b23e70faf4f0fd51ebf04cbf0f2c8bbfdb2accadb51"
+       },
+       {
+        "completed_at": null,
+        "error_class": null,
+        "region": "eu-west-1",
+        "run_status": "EVIDENCE_COMMITTED",
+        "source_type": "network_acls",
+        "started_at": "2026-10-05T07:58:19.155159+00:00",
+        "state": "COLLECTED",
+        "work_item_id": "work_item:a9e277e8bf933f6a38e0c9ae49d332470f5b1bac876f6adc573bfc01b9465b47"
+       },
+       {
+        "completed_at": null,
+        "error_class": null,
+        "region": "eu-west-1",
+        "run_status": "EVIDENCE_COMMITTED",
+        "source_type": "eventbridge_authorization_controls",
+        "started_at": "2026-10-05T07:58:19.182623+00:00",
+        "state": "COLLECTED",
+        "work_item_id": "work_item:b24c706a1fae008c9bc9d9a7aa801feef4e02b2edfa8f8fc2b6606ecd7ef16f8"
+       },
+       {
+        "completed_at": null,
+        "error_class": null,
+        "region": "eu-west-1",
+        "run_status": "EVIDENCE_COMMITTED",
+        "source_type": "organization_policy_context",
+        "started_at": "2026-10-05T07:58:19.208426+00:00",
+        "state": "COLLECTED",
+        "work_item_id": "work_item:b342cd444d933d9cf890c004645afa31c4ad3eaa0ef6a8f53ba43e0512c28ffc"
+       },
+       {
+        "completed_at": null,
+        "error_class": null,
+        "region": "eu-west-1",
+        "run_status": "EVIDENCE_COMMITTED",
+        "source_type": "load_balancer_listeners",
+        "started_at": "2026-10-05T07:58:19.234438+00:00",
+        "state": "COLLECTED",
+        "work_item_id": "work_item:ca3602a61c8daea164154e27beb1b25098e0ef3b500793677f07e95786e2a95c"
+       },
+       {
+        "completed_at": null,
+        "error_class": null,
+        "region": "eu-west-1",
+        "run_status": "EVIDENCE_COMMITTED",
+        "source_type": "route_tables",
+        "started_at": "2026-10-05T07:58:19.261399+00:00",
+        "state": "COLLECTED",
+        "work_item_id": "work_item:cf5c35a4e6f10996f34e9456749782db6fd0b230db1460b44cedd22872050d5a"
+       },
+       {
+        "completed_at": null,
+        "error_class": null,
+        "region": "eu-west-1",
+        "run_status": "EVIDENCE_COMMITTED",
+        "source_type": "sqs_authorization_controls",
+        "started_at": "2026-10-05T07:58:19.287294+00:00",
+        "state": "COLLECTED",
+        "work_item_id": "work_item:db96f7a20661c2cba45067a820ade25f1f89a257713c8b8cfd21290186e21eaa"
+       },
+       {
+        "completed_at": null,
+        "error_class": null,
+        "region": "eu-west-1",
+        "run_status": "EVIDENCE_COMMITTED",
+        "source_type": "lambda_authorization_controls",
+        "started_at": "2026-10-05T07:58:19.313495+00:00",
+        "state": "COLLECTED",
+        "work_item_id": "work_item:e020e5d19cf9803ff7ec1d64f136794c286f44d50aeec90eac19d879f236223f"
+       },
+       {
+        "completed_at": null,
+        "error_class": null,
+        "region": "eu-west-1",
+        "run_status": "EVIDENCE_COMMITTED",
+        "source_type": "kms_authorization_controls",
+        "started_at": "2026-10-05T07:58:19.341194+00:00",
+        "state": "COLLECTED",
+        "work_item_id": "work_item:ec81346cee8817aec3e12e3aacd676e0c6dfb906b9ea024895591235efb4c571"
+       },
+       {
+        "completed_at": null,
+        "error_class": null,
+        "region": "eu-west-1",
+        "run_status": "EVIDENCE_COMMITTED",
+        "source_type": "load_balancers",
+        "started_at": "2026-10-05T07:58:19.367692+00:00",
+        "state": "COLLECTED",
+        "work_item_id": "work_item:f6bc1b42ae697a33344dd2b21159183548f6c86e0831ca1d338c52568b748ab7"
+       },
+       {
+        "completed_at": null,
+        "error_class": null,
+        "region": "eu-west-1",
+        "run_status": "EVIDENCE_COMMITTED",
+        "source_type": "security_groups",
+        "started_at": "2026-10-05T07:58:19.394354+00:00",
+        "state": "COLLECTED",
+        "work_item_id": "work_item:f886877dfb7ed9566bf5e7ac2845635bc70670b5bc91f943ff1e091f82beceeb"
        }
       ],
-      "observed_at": "2026-10-05T07:34:27.010893Z",
+      "observed_at": "2026-10-05T07:58:19.423155Z",
       "reason": null,
-      "registration_id": "643d453428cea35afe294d9737aabf53",
+      "registration_id": "1b8c6c5fdff7d5b1a4883efdb3a53846",
       "scope": "INVENTORY_BOOTSTRAP",
       "state": "COLLECTED"
      },
      "first_inventory_dispatch": {
       "blocker": null,
-      "checked_at": "2026-10-05T07:34:25.829876+00:00",
-      "completed_at": "2026-10-05T07:34:25.829876+00:00",
+      "checked_at": "2026-10-05T07:58:18.345144+00:00",
+      "completed_at": "2026-10-05T07:58:18.345144+00:00",
       "hold": null,
       "intended": 31,
       "queued": 31,
       "state": "ALL_QUEUED"
      },
      "listed_evidence": {
-      "at": "2026-10-05T07:34:24.778237+00:00",
+      "at": "2026-10-05T07:58:17.421687+00:00",
       "basis": "TIMELY_COMMIT",
       "kind": "ORGANIZATION_LIST"
      },
      "owner": null,
-     "registration_id": "643d453428cea35afe294d9737aabf53",
+     "registration_id": "1b8c6c5fdff7d5b1a4883efdb3a53846",
      "registration_path": "LISTED",
      "registration_version": 6
     },
@@ -443,7 +443,7 @@
         "delivery_channels": [],
         "recorders": []
        },
-       "discovered_at": "2026-10-05T07:34:25.122610+00:00",
+       "discovered_at": "2026-10-05T07:58:17.787788+00:00",
        "eni_history": {
         "error": "NotImplementedError",
         "lookup_events": "UNREADABLE"
@@ -454,7 +454,7 @@
        "region": "eu-west-1",
        "vpcs": {
         "ids": [
-         "vpc-d2eb4b1e0fe385bf7"
+         "vpc-8ceb052e64dc159f2"
         ]
        }
       }
@@ -466,7 +466,7 @@
      "trails": []
     },
     "tags": {},
-    "updated_at": "2026-10-05T07:34:25.727549+00:00",
+    "updated_at": "2026-10-05T07:58:18.255109+00:00",
     "validation_message": "Connected. Found 0 CloudTrail trail(s), 0 usable flow-log group(s) of 0, 0 EKS cluster(s).",
     "verification_enabled": false
    }
@@ -488,7 +488,7 @@
   },
   "total": 1
  },
- "captured_at": "2026-10-05T07:34:27.032876+00:00",
+ "captured_at": "2026-10-05T07:58:19.445232+00:00",
  "name": "18_k2_collected",
  "note": "every work item's evidence committed: COLLECTED (never 'completed')",
  "request": {

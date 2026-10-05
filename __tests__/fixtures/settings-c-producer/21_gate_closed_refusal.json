@@ -7,7 +7,7 @@
     "account_id": "222222222222",
     "action": "register",
     "detail": "the installation's activation gate is not open for this build; nothing was registered -- try again once the installation is verified",
-    "finished_at": "2026-10-05T07:34:27.842749+00:00",
+    "finished_at": "2026-10-05T07:58:20.339632+00:00",
     "outcome": "INSTALLATION_GATE_CLOSED"
    }
   ],
@@ -26,7 +26,7 @@
   },
   "total": 0
  },
- "captured_at": "2026-10-05T07:34:27.849374+00:00",
+ "captured_at": "2026-10-05T07:58:20.345904+00:00",
  "name": "21_gate_closed_refusal",
  "note": "a registration refused by a closed installation gate: listed failed with its code",
  "request": {

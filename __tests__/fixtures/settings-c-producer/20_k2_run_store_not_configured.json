@@ -5,7 +5,7 @@
     "account_id": "222222222222",
     "aws_account_name": "prod-payments",
     "aws_account_name_error": null,
-    "aws_account_name_read_at": "2026-10-05T07:34:25.834777+00:00",
+    "aws_account_name_read_at": "2026-10-05T07:58:18.349719+00:00",
     "collection_mode": "MEMBER_READ_ROLE",
     "coverage": [
      {
@@ -37,7 +37,7 @@
     "group_ids": [],
     "install_method": "MEMBER_STACK",
     "is_platform_account": false,
-    "last_validated_at": "2026-10-05T07:34:25.727549+00:00",
+    "last_validated_at": "2026-10-05T07:58:18.255109+00:00",
     "mutation_enabled": false,
     "onboarding_status": "CONNECTED",
     "organization_id": "o-install",
@@ -47,7 +47,7 @@
     "regions": [
      "eu-west-1"
     ],
-    "registered_at": "2026-10-05T07:34:24.768181+00:00",
+    "registered_at": "2026-10-05T07:58:17.412212+00:00",
     "registered_by": {
      "identity": "https://cognito-idp.eu-west-1.amazonaws.com/pool#00u-alice",
      "verified": true
@@ -55,9 +55,9 @@
     "registration": {
      "access_check": {
       "answered_account": "222222222222",
-      "check_id": "a6b954d9a76177db5d6c90a1dce096e6",
-      "completed_at": "2026-10-05T07:34:24.908754+00:00",
-      "identity_observed_at": "2026-10-05T07:34:24.906717+00:00",
+      "check_id": "c1746ed82146605c01a504cb06723705",
+      "completed_at": "2026-10-05T07:58:17.595351+00:00",
+      "identity_observed_at": "2026-10-05T07:58:17.593827+00:00",
       "name_in_aws": "prod-payments",
       "name_unreadable": null,
       "outcome": "REACHED",
@@ -66,12 +66,12 @@
      },
      "activating": false,
      "activation": {
-      "at": "2026-10-05T07:34:24.948937+00:00",
-      "check_id": "a6b954d9a76177db5d6c90a1dce096e6",
+      "at": "2026-10-05T07:58:17.633107+00:00",
+      "check_id": "c1746ed82146605c01a504cb06723705",
       "decided_by": "CONFIRMATION"
      },
      "activation_last": {
-      "at": "2026-10-05T07:34:25.727549+00:00",
+      "at": "2026-10-05T07:58:18.255109+00:00",
       "outcome": "ACTIVATED",
       "step": null
      },
@@ -79,28 +79,28 @@
      "first_inventory": {
       "counts": {},
       "items": [],
-      "observed_at": "2026-10-05T07:34:25.909374Z",
+      "observed_at": "2026-10-05T07:58:18.422994Z",
       "reason": "RUN_STORE_NOT_CONFIGURED",
-      "registration_id": "643d453428cea35afe294d9737aabf53",
+      "registration_id": "1b8c6c5fdff7d5b1a4883efdb3a53846",
       "scope": "INVENTORY_BOOTSTRAP",
       "state": "UNAVAILABLE"
      },
      "first_inventory_dispatch": {
       "blocker": null,
-      "checked_at": "2026-10-05T07:34:25.829876+00:00",
-      "completed_at": "2026-10-05T07:34:25.829876+00:00",
+      "checked_at": "2026-10-05T07:58:18.345144+00:00",
+      "completed_at": "2026-10-05T07:58:18.345144+00:00",
       "hold": null,
       "intended": 31,
       "queued": 31,
       "state": "ALL_QUEUED"
      },
      "listed_evidence": {
-      "at": "2026-10-05T07:34:24.778237+00:00",
+      "at": "2026-10-05T07:58:17.421687+00:00",
       "basis": "TIMELY_COMMIT",
       "kind": "ORGANIZATION_LIST"
      },
      "owner": null,
-     "registration_id": "643d453428cea35afe294d9737aabf53",
+     "registration_id": "1b8c6c5fdff7d5b1a4883efdb3a53846",
      "registration_path": "LISTED",
      "registration_version": 6
     },
@@ -120,7 +120,7 @@
         "delivery_channels": [],
         "recorders": []
        },
-       "discovered_at": "2026-10-05T07:34:25.122610+00:00",
+       "discovered_at": "2026-10-05T07:58:17.787788+00:00",
        "eni_history": {
         "error": "NotImplementedError",
         "lookup_events": "UNREADABLE"
@@ -131,7 +131,7 @@
        "region": "eu-west-1",
        "vpcs": {
         "ids": [
-         "vpc-d2eb4b1e0fe385bf7"
+         "vpc-8ceb052e64dc159f2"
         ]
        }
       }
@@ -143,7 +143,7 @@
      "trails": []
     },
     "tags": {},
-    "updated_at": "2026-10-05T07:34:25.727549+00:00",
+    "updated_at": "2026-10-05T07:58:18.255109+00:00",
     "validation_message": "Connected. Found 0 CloudTrail trail(s), 0 usable flow-log group(s) of 0, 0 EKS cluster(s).",
     "verification_enabled": false
    }
@@ -165,7 +165,7 @@
   },
   "total": 1
  },
- "captured_at": "2026-10-05T07:34:25.910524+00:00",
+ "captured_at": "2026-10-05T07:58:18.423971+00:00",
  "name": "20_k2_run_store_not_configured",
  "note": "confirmed and queued; this web has no run table: UNAVAILABLE, never a guess",
  "request": {
