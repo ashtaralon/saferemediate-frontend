@@ -1,0 +1,38 @@
+{
+  "_provenance": {
+    "route": "GET /api/accounts/{account_id}/inventory (api/account_inventory.py)",
+    "request": {
+      "method": "GET",
+      "path": "/api/accounts/111122223333/inventory",
+      "query": {}
+    },
+    "harness": "tests/cyntro_data/test_account_inventory_captures.py::test_the_real_route_answers_are_exactly_the_captures",
+    "fixed_clock_epoch": 1800000000,
+    "facts": "REAL normalizers: tests/cyntro_data/account_inventory_capture_facts.py (capture account only)",
+    "publication": "this commit's projector and P3a2 publisher (row contract v3) at the production budget (none passed, as scripts/project_account_inventory.py passes none), uuid4 pinned to 00000000000000000000000000000004",
+    "readiness": "the T11-0 harness provider answering (True, 'pass') -- a stand-in for a READY consumer pass",
+    "pinned": [
+      "time.time",
+      "LocalEvidenceStore.bucket (recorded identity only)",
+      "cyntro_data.projection.receipt clock"
+    ],
+    "note": "The real route's answer over a real publication; nothing removed. Not installed or live evidence.",
+    "backend_commit": "dd5d0d76beb63e2040f39ba5ffc0e0ee06f490ce",
+    "backend_path": "tests/fixtures/account_inventory_captures/refused_scope_mismatch_403.json",
+    "copied_unchanged": "status, cache_control and body are byte-for-byte the backend capture's"
+  },
+  "status": 403,
+  "cache_control": "no-store",
+  "body": {
+    "contract": "account_inventory/v1",
+    "account_id": "111122223333",
+    "state": "refused",
+    "reason_code": "INVENTORY_SCOPE_MISMATCH",
+    "account_authority": null,
+    "publication": null,
+    "totals": null,
+    "rows": [],
+    "next_cursor": null,
+    "has_more": false
+  }
+}

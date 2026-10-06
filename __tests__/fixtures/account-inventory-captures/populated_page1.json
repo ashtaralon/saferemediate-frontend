@@ -1,0 +1,713 @@
+{
+  "_provenance": {
+    "route": "GET /api/accounts/{account_id}/inventory (api/account_inventory.py)",
+    "request": {
+      "method": "GET",
+      "path": "/api/accounts/111122223333/inventory",
+      "query": {
+        "limit": "20"
+      }
+    },
+    "harness": "tests/cyntro_data/test_account_inventory_captures.py::test_the_real_route_answers_are_exactly_the_captures",
+    "fixed_clock_epoch": 1800000000,
+    "facts": "REAL normalizers: tests/cyntro_data/account_inventory_capture_facts.py (capture account only)",
+    "publication": "this commit's projector and P3a2 publisher (row contract v3) at the production budget (none passed, as scripts/project_account_inventory.py passes none), uuid4 pinned to 00000000000000000000000000000004",
+    "readiness": "the T11-0 harness provider answering (True, 'pass') -- a stand-in for a READY consumer pass",
+    "pinned": [
+      "time.time",
+      "LocalEvidenceStore.bucket (recorded identity only)",
+      "cyntro_data.projection.receipt clock"
+    ],
+    "note": "The real route's answer over a real publication; nothing removed. Not installed or live evidence.",
+    "backend_commit": "dd5d0d76beb63e2040f39ba5ffc0e0ee06f490ce",
+    "backend_path": "tests/fixtures/account_inventory_captures/populated_page1.json",
+    "copied_unchanged": "status, cache_control and body are byte-for-byte the backend capture's"
+  },
+  "status": 200,
+  "cache_control": "no-store",
+  "body": {
+    "contract": "account_inventory/v1",
+    "account_id": "111122223333",
+    "state": "populated",
+    "reason_code": null,
+    "account_authority": {
+      "registration_id": "0123456789abcdef0123456789abcdef"
+    },
+    "publication": {
+      "attempt": "00000000000000000000000000000004",
+      "generation": 1,
+      "source_identity": "v1:a23e19ff9dc8bdbfb5efe1b3690bb538d8a5747a758d43ec36e79b10371c843c",
+      "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
+      "published_at_epoch": 1800000000,
+      "inventory_complete": true,
+      "row_contract": "account_inventory_row/v3"
+    },
+    "totals": {
+      "account_total": 25,
+      "filter_total": 25,
+      "by_type": {
+        "account:regions": 1,
+        "ec2:instance": 2,
+        "ec2:internet-gateway": 1,
+        "ec2:nat-gateway": 1,
+        "ec2:network-acl": 1,
+        "ec2:network-interface": 1,
+        "ec2:route-table": 1,
+        "ec2:security-group": 1,
+        "ec2:subnet": 1,
+        "ec2:vpc": 1,
+        "ec2:vpc-endpoint": 1,
+        "eks:cluster": 1,
+        "elasticloadbalancing:load-balancer": 1,
+        "elasticloadbalancing:target-group": 1,
+        "iam:policy": 1,
+        "iam:role": 2,
+        "k8s:deployment": 1,
+        "k8s:namespace": 1,
+        "kms:key-authorization": 1,
+        "lambda:function": 1,
+        "rds:db-cluster": 1,
+        "rds:db-instance": 1,
+        "s3:bucket": 1
+      },
+      "by_region": {
+        "eu-west-1": 20,
+        "global": 5
+      }
+    },
+    "rows": [
+      {
+        "resource_uid": "aws://aws/111122223333/global/account/regions/111122223333",
+        "resource_type": "account:regions",
+        "scope_kind": "global",
+        "region": "global",
+        "native_id": "111122223333",
+        "arn": null,
+        "name": "111122223333",
+        "state": "ACTIVE",
+        "observation": {
+          "configuration_hash": "v1:c7ccd47607bf699da215e6c35ae27b255415431836ebda94be10fa1704fca64a",
+          "last_verified_at": "2026-09-01T12:00:00+00:00"
+        },
+        "observed_incarnation": {
+          "status": "not_provided"
+        },
+        "assignment": {
+          "status": "not_evaluated"
+        },
+        "details": {},
+        "eligibility": {
+          "selectable": false,
+          "reason": "INCARNATION_NOT_PROVIDED"
+        }
+      },
+      {
+        "resource_uid": "aws://aws/111122223333/eu-west-1/ec2/instance/i-0a1b2c3d4e5f60718",
+        "resource_type": "ec2:instance",
+        "scope_kind": "regional",
+        "region": "eu-west-1",
+        "native_id": "i-0a1b2c3d4e5f60718",
+        "arn": "arn:aws:ec2:eu-west-1:111122223333:instance/i-0a1b2c3d4e5f60718",
+        "name": "checkout-api-1",
+        "state": "ACTIVE",
+        "observation": {
+          "configuration_hash": "v1:a3933eb2635881fe7a603370a30c31ef97955bc623841b48eb37b79c4a0bebb8",
+          "last_verified_at": "2026-09-01T12:00:00+00:00"
+        },
+        "observed_incarnation": {
+          "status": "not_provided"
+        },
+        "assignment": {
+          "status": "not_evaluated"
+        },
+        "tags": {
+          "Environment": "prod",
+          "Name": "checkout-api-1",
+          "SystemName": "checkout"
+        },
+        "details": {
+          "instance_state": "running",
+          "instance_type": "t3.micro",
+          "vpc_id": "vpc-1",
+          "subnet_id": "subnet-abc",
+          "private_ip": "10.20.1.14",
+          "iam_instance_profile": "arn:aws:iam::111122223333:instance-profile/checkout-api",
+          "launch_time": "2026-08-03T07:15:00+00:00"
+        },
+        "eligibility": {
+          "selectable": false,
+          "reason": "INCARNATION_NOT_PROVIDED"
+        }
+      },
+      {
+        "resource_uid": "aws://aws/111122223333/eu-west-1/ec2/instance/i-0f9e8d7c6b5a40312",
+        "resource_type": "ec2:instance",
+        "scope_kind": "regional",
+        "region": "eu-west-1",
+        "native_id": "i-0f9e8d7c6b5a40312",
+        "arn": "arn:aws:ec2:eu-west-1:111122223333:instance/i-0f9e8d7c6b5a40312",
+        "name": null,
+        "state": "ACTIVE",
+        "observation": {
+          "configuration_hash": "v1:38661227ccadcbae9840eb2b48b5a8cb275ef9085ea80efb0989027d0e45fbbc",
+          "last_verified_at": "2026-09-01T12:00:00+00:00"
+        },
+        "observed_incarnation": {
+          "status": "not_provided"
+        },
+        "assignment": {
+          "status": "not_evaluated"
+        },
+        "tags_withheld": {
+          "reason": "TAGS_OVER_CAP",
+          "count": 50
+        },
+        "details": {
+          "instance_state": "running",
+          "instance_type": "t3.micro",
+          "vpc_id": "vpc-1",
+          "subnet_id": "subnet-abc",
+          "private_ip": "10.20.1.15",
+          "iam_instance_profile": "arn:aws:iam::111122223333:instance-profile/checkout-api",
+          "launch_time": "2026-08-03T07:15:00+00:00"
+        },
+        "eligibility": {
+          "selectable": false,
+          "reason": "INCARNATION_NOT_PROVIDED"
+        }
+      },
+      {
+        "resource_uid": "aws://aws/111122223333/eu-west-1/ec2/internet-gateway/igw-abc",
+        "resource_type": "ec2:internet-gateway",
+        "scope_kind": "regional",
+        "region": "eu-west-1",
+        "native_id": "igw-abc",
+        "arn": "arn:aws:ec2:eu-west-1:111122223333:internet-gateway/igw-abc",
+        "name": "igw-abc",
+        "state": "ACTIVE",
+        "observation": {
+          "configuration_hash": "v1:8168c795b7b191b3eb0c66f405c918b35e6e2fe4e8013f5014ba06832327639c",
+          "last_verified_at": "2026-09-01T12:00:00+00:00"
+        },
+        "observed_incarnation": {
+          "status": "not_provided"
+        },
+        "assignment": {
+          "status": "not_evaluated"
+        },
+        "tags": {},
+        "details": {
+          "attached_vpc_count": 1
+        },
+        "eligibility": {
+          "selectable": false,
+          "reason": "INCARNATION_NOT_PROVIDED"
+        }
+      },
+      {
+        "resource_uid": "aws://aws/111122223333/eu-west-1/ec2/natgateway/nat-abc",
+        "resource_type": "ec2:nat-gateway",
+        "scope_kind": "regional",
+        "region": "eu-west-1",
+        "native_id": "nat-abc",
+        "arn": "arn:aws:ec2:eu-west-1:111122223333:natgateway/nat-abc",
+        "name": "nat-abc",
+        "state": "ACTIVE",
+        "observation": {
+          "configuration_hash": "v1:d38ce65648a1525f9b1a8b0d57f1750bdc279b0f3aeee4528c02d2ded6daae23",
+          "last_verified_at": "2026-09-01T12:00:00+00:00"
+        },
+        "observed_incarnation": {
+          "status": "not_provided"
+        },
+        "assignment": {
+          "status": "not_evaluated"
+        },
+        "tags": {},
+        "details": {
+          "connectivity_type": "public",
+          "vpc_id": "vpc-1",
+          "subnet_id": "subnet-abc",
+          "aws_state": "available"
+        },
+        "eligibility": {
+          "selectable": false,
+          "reason": "INCARNATION_NOT_PROVIDED"
+        }
+      },
+      {
+        "resource_uid": "aws://aws/111122223333/eu-west-1/ec2/network-acl/acl-01234567",
+        "resource_type": "ec2:network-acl",
+        "scope_kind": "regional",
+        "region": "eu-west-1",
+        "native_id": "acl-01234567",
+        "arn": "arn:aws:ec2:eu-west-1:111122223333:network-acl/acl-01234567",
+        "name": "app-boundary",
+        "state": "ACTIVE",
+        "observation": {
+          "configuration_hash": "v1:04f95d274dda97827cb09c423cc7b126fc9f45f00fb198dd2642500b2f8c00e7",
+          "last_verified_at": "2026-09-01T12:00:00+00:00"
+        },
+        "observed_incarnation": {
+          "status": "not_provided"
+        },
+        "assignment": {
+          "status": "not_evaluated"
+        },
+        "tags": {
+          "Name": "app-boundary"
+        },
+        "details": {
+          "vpc_id": "vpc-1",
+          "is_default": false,
+          "ingress_entry_count": 0,
+          "egress_entry_count": 0,
+          "association_count": 0
+        },
+        "eligibility": {
+          "selectable": false,
+          "reason": "INCARNATION_NOT_PROVIDED"
+        }
+      },
+      {
+        "resource_uid": "aws://aws/111122223333/eu-west-1/ec2/network-interface/eni-abc",
+        "resource_type": "ec2:network-interface",
+        "scope_kind": "regional",
+        "region": "eu-west-1",
+        "native_id": "eni-abc",
+        "arn": "arn:aws:ec2:eu-west-1:111122223333:network-interface/eni-abc",
+        "name": "primary",
+        "state": "ACTIVE",
+        "observation": {
+          "configuration_hash": "v1:5f63b8096c4b8a3204f9ddc182977e9c5f16bddaded1dcf6114b04d71dbd55ef",
+          "last_verified_at": "2026-09-01T12:00:00+00:00"
+        },
+        "observed_incarnation": {
+          "status": "not_provided"
+        },
+        "assignment": {
+          "status": "not_evaluated"
+        },
+        "tags": {},
+        "details": {
+          "interface_type": "interface",
+          "vpc_id": "vpc-1",
+          "subnet_id": "subnet-abc",
+          "availability_zone": "eu-west-1a"
+        },
+        "eligibility": {
+          "selectable": false,
+          "reason": "INCARNATION_NOT_PROVIDED"
+        }
+      },
+      {
+        "resource_uid": "aws://aws/111122223333/eu-west-1/ec2/route-table/rtb-abc",
+        "resource_type": "ec2:route-table",
+        "scope_kind": "regional",
+        "region": "eu-west-1",
+        "native_id": "rtb-abc",
+        "arn": "arn:aws:ec2:eu-west-1:111122223333:route-table/rtb-abc",
+        "name": "rtb-abc",
+        "state": "ACTIVE",
+        "observation": {
+          "configuration_hash": "v1:7259b3daaee8918c421299d0b59a161f9e60fc552755b98833529adc36174f64",
+          "last_verified_at": "2026-09-01T12:00:00+00:00"
+        },
+        "observed_incarnation": {
+          "status": "not_provided"
+        },
+        "assignment": {
+          "status": "not_evaluated"
+        },
+        "tags": {},
+        "details": {
+          "vpc_id": "vpc-1",
+          "route_count": 0,
+          "has_igw_route": false,
+          "has_nat_route": false,
+          "is_main": false,
+          "association_count": 1
+        },
+        "eligibility": {
+          "selectable": false,
+          "reason": "INCARNATION_NOT_PROVIDED"
+        }
+      },
+      {
+        "resource_uid": "aws://aws/111122223333/eu-west-1/ec2/security-group/sg-0a1b2c3d4e5f60718",
+        "resource_type": "ec2:security-group",
+        "scope_kind": "regional",
+        "region": "eu-west-1",
+        "native_id": "sg-0a1b2c3d4e5f60718",
+        "arn": "arn:aws:ec2:eu-west-1:111122223333:security-group/sg-0a1b2c3d4e5f60718",
+        "name": "checkout-web",
+        "state": "ACTIVE",
+        "observation": {
+          "configuration_hash": "v1:a05d1997cac95a978788514925ecaca0db61e9ff0f674148ae877f75240eb3ec",
+          "last_verified_at": "2026-09-01T12:00:00+00:00"
+        },
+        "observed_incarnation": {
+          "status": "not_provided"
+        },
+        "assignment": {
+          "status": "not_evaluated"
+        },
+        "tags": {
+          "SystemName": "checkout"
+        },
+        "details": {
+          "vpc_id": "vpc-1",
+          "description": "checkout web tier",
+          "ingress_rule_count": 0,
+          "egress_rule_count": 0
+        },
+        "eligibility": {
+          "selectable": false,
+          "reason": "INCARNATION_NOT_PROVIDED"
+        }
+      },
+      {
+        "resource_uid": "aws://aws/111122223333/eu-west-1/ec2/subnet/subnet-abc",
+        "resource_type": "ec2:subnet",
+        "scope_kind": "regional",
+        "region": "eu-west-1",
+        "native_id": "subnet-abc",
+        "arn": "arn:aws:ec2:eu-west-1:111122223333:subnet/subnet-abc",
+        "name": "app-a",
+        "state": "ACTIVE",
+        "observation": {
+          "configuration_hash": "v1:f59c69c9308756871b4d95eef91df46bb30497b602c7c5b20ce77089d04089c7",
+          "last_verified_at": "2026-09-01T12:00:00+00:00"
+        },
+        "observed_incarnation": {
+          "status": "not_provided"
+        },
+        "assignment": {
+          "status": "not_evaluated"
+        },
+        "tags": {
+          "Name": "app-a"
+        },
+        "details": {
+          "vpc_id": "vpc-1",
+          "cidr_block": "10.0.1.0/24",
+          "availability_zone": "eu-west-1a",
+          "map_public_ip_on_launch": false,
+          "available_ip_address_count": 250,
+          "default_for_az": false
+        },
+        "eligibility": {
+          "selectable": false,
+          "reason": "INCARNATION_NOT_PROVIDED"
+        }
+      },
+      {
+        "resource_uid": "aws://aws/111122223333/eu-west-1/ec2/vpc/vpc-1",
+        "resource_type": "ec2:vpc",
+        "scope_kind": "regional",
+        "region": "eu-west-1",
+        "native_id": "vpc-1",
+        "arn": "arn:aws:ec2:eu-west-1:111122223333:vpc/vpc-1",
+        "name": "vpc-1",
+        "state": "ACTIVE",
+        "observation": {
+          "configuration_hash": "v1:f380751dfa0bad6bff4974927ce86a2a44271e89e49d88e55803a5a0cb0c41d7",
+          "last_verified_at": "2026-09-01T12:00:00+00:00"
+        },
+        "observed_incarnation": {
+          "status": "not_provided"
+        },
+        "assignment": {
+          "status": "not_evaluated"
+        },
+        "tags": {},
+        "details": {
+          "cidr_block": "10.0.0.0/16",
+          "is_default": false,
+          "instance_tenancy": "default"
+        },
+        "eligibility": {
+          "selectable": false,
+          "reason": "INCARNATION_NOT_PROVIDED"
+        }
+      },
+      {
+        "resource_uid": "aws://aws/111122223333/eu-west-1/ec2/vpc-endpoint/vpce-abc",
+        "resource_type": "ec2:vpc-endpoint",
+        "scope_kind": "regional",
+        "region": "eu-west-1",
+        "native_id": "vpce-abc",
+        "arn": "arn:aws:ec2:eu-west-1:111122223333:vpc-endpoint/vpce-abc",
+        "name": "com.amazonaws.eu-west-1.secretsmanager",
+        "state": "ACTIVE",
+        "observation": {
+          "configuration_hash": "v1:03ff82e8fb06cf47cd92ef13c4b8950615f4a5ac7632b926e97bf028d8f521d8",
+          "last_verified_at": "2026-09-01T12:00:00+00:00"
+        },
+        "observed_incarnation": {
+          "status": "not_provided"
+        },
+        "assignment": {
+          "status": "not_evaluated"
+        },
+        "tags": {},
+        "details": {
+          "vpc_endpoint_type": "Interface",
+          "service_name": "com.amazonaws.eu-west-1.secretsmanager",
+          "vpc_id": "vpc-1",
+          "private_dns_enabled": true,
+          "aws_state": "Available"
+        },
+        "eligibility": {
+          "selectable": false,
+          "reason": "INCARNATION_NOT_PROVIDED"
+        }
+      },
+      {
+        "resource_uid": "aws://aws/111122223333/eu-west-1/eks/cluster/payments",
+        "resource_type": "eks:cluster",
+        "scope_kind": "regional",
+        "region": "eu-west-1",
+        "native_id": "payments",
+        "arn": "arn:aws:eks:eu-west-1:111122223333:cluster/payments",
+        "name": "payments",
+        "state": "ACTIVE",
+        "observation": {
+          "configuration_hash": "v1:a57cbb0acf890e59ce59e0bcca4516946b2f0ddabec6a90d890324b8c7a6c8b2",
+          "last_verified_at": "2026-09-01T12:00:00+00:00"
+        },
+        "observed_incarnation": {
+          "status": "not_provided"
+        },
+        "assignment": {
+          "status": "not_evaluated"
+        },
+        "details": {
+          "version": "1.31",
+          "status": "ACTIVE",
+          "vpc_id": "vpc-0a1b2c3d4e5f60718",
+          "endpoint_public_access": false,
+          "endpoint_private_access": true
+        },
+        "eligibility": {
+          "selectable": false,
+          "reason": "INCARNATION_NOT_PROVIDED"
+        }
+      },
+      {
+        "resource_uid": "aws://aws/111122223333/eu-west-1/elasticloadbalancing/load-balancer/app/checkout-alb/50dc6c495c0c9188",
+        "resource_type": "elasticloadbalancing:load-balancer",
+        "scope_kind": "regional",
+        "region": "eu-west-1",
+        "native_id": "app/checkout-alb/50dc6c495c0c9188",
+        "arn": "arn:aws:elasticloadbalancing:eu-west-1:111122223333:loadbalancer/app/checkout-alb/50dc6c495c0c9188",
+        "name": "my-lb",
+        "state": "ACTIVE",
+        "observation": {
+          "configuration_hash": "v1:47acdb88f00304b5f5b75f1bcc64bf07cd7744c6b8b4a9ceb7322366aa67948e",
+          "last_verified_at": "2026-09-01T12:00:00+00:00"
+        },
+        "observed_incarnation": {
+          "status": "not_provided"
+        },
+        "assignment": {
+          "status": "not_evaluated"
+        },
+        "details": {
+          "scheme": "internet-facing",
+          "load_balancer_type": "application",
+          "dns_name": "my-lb-123.eu-west-1.elb.amazonaws.com",
+          "vpc_id": "vpc-1",
+          "aws_state": "active"
+        },
+        "eligibility": {
+          "selectable": false,
+          "reason": "INCARNATION_NOT_PROVIDED"
+        }
+      },
+      {
+        "resource_uid": "aws://aws/111122223333/eu-west-1/elasticloadbalancing/target-group/checkout-tg/73e2d6bc24d8a067",
+        "resource_type": "elasticloadbalancing:target-group",
+        "scope_kind": "regional",
+        "region": "eu-west-1",
+        "native_id": "checkout-tg/73e2d6bc24d8a067",
+        "arn": "arn:aws:elasticloadbalancing:eu-west-1:111122223333:targetgroup/checkout-tg/73e2d6bc24d8a067",
+        "name": "my-tg",
+        "state": "ACTIVE",
+        "observation": {
+          "configuration_hash": "v1:0db34980aed44c2c667e3a823d2cc7d7557e989adf7b8f36fe1f941cd2fa6ce1",
+          "last_verified_at": "2026-09-01T12:00:00+00:00"
+        },
+        "observed_incarnation": {
+          "status": "not_provided"
+        },
+        "assignment": {
+          "status": "not_evaluated"
+        },
+        "details": {
+          "target_type": "instance",
+          "protocol": "HTTP",
+          "port": 8080,
+          "vpc_id": "vpc-1"
+        },
+        "eligibility": {
+          "selectable": false,
+          "reason": "INCARNATION_NOT_PROVIDED"
+        }
+      },
+      {
+        "resource_uid": "aws://aws/111122223333/global/iam/policy/ANPAXCAPTUREEXAMPLE01",
+        "resource_type": "iam:policy",
+        "scope_kind": "global",
+        "region": "global",
+        "native_id": "ANPAXCAPTUREEXAMPLE01",
+        "arn": "arn:aws:iam::111122223333:policy/checkout-read",
+        "name": "checkout-read",
+        "state": "ACTIVE",
+        "observation": {
+          "configuration_hash": "v1:20f764beaad772421350d6ad66e0f56e5efad0ab5cfd01af0c7a144ff2e4b4d1",
+          "last_verified_at": "2026-09-01T12:00:00+00:00"
+        },
+        "observed_incarnation": {
+          "status": "provided",
+          "value": "ANPAXCAPTUREEXAMPLE01",
+          "source": "policy_id"
+        },
+        "assignment": {
+          "status": "not_evaluated"
+        },
+        "details": {
+          "aws_managed": false,
+          "attachment_count": 2,
+          "update_date": "2025-11-20T14:05:00+00:00"
+        },
+        "eligibility": {
+          "selectable": true,
+          "reason": "SUPPORTED"
+        }
+      },
+      {
+        "resource_uid": "aws://aws/111122223333/global/iam/role/checkout-api",
+        "resource_type": "iam:role",
+        "scope_kind": "global",
+        "region": "global",
+        "native_id": "checkout-api",
+        "arn": "arn:aws:iam::111122223333:role/checkout-api",
+        "name": "checkout-api",
+        "state": "ACTIVE",
+        "observation": {
+          "configuration_hash": "v1:f7e6136ff4c24db05f47f0628b1ba07e991e0bd2d72a3b86f5890092b41f4e7b",
+          "last_verified_at": "2026-09-01T12:00:00+00:00"
+        },
+        "observed_incarnation": {
+          "status": "provided",
+          "value": "AROAXCAPTUREEXAMPLE01",
+          "source": "role_id"
+        },
+        "assignment": {
+          "status": "not_evaluated"
+        },
+        "tags": {
+          "SystemName": "checkout"
+        },
+        "details": {
+          "create_date": "2025-11-20T14:05:00+00:00",
+          "path": "/",
+          "max_session_duration": 3600
+        },
+        "eligibility": {
+          "selectable": true,
+          "reason": "SUPPORTED"
+        }
+      },
+      {
+        "resource_uid": "aws://aws/111122223333/global/iam/role/checkout-worker",
+        "resource_type": "iam:role",
+        "scope_kind": "global",
+        "region": "global",
+        "native_id": "checkout-worker",
+        "arn": "arn:aws:iam::111122223333:role/checkout-worker",
+        "name": "checkout-worker",
+        "state": "ACTIVE",
+        "observation": {
+          "configuration_hash": "v1:3556c263e969597bbce575833094d0d3ed94a41e1641cef56e40e54912b0e13e",
+          "last_verified_at": "2026-09-01T12:00:00+00:00"
+        },
+        "observed_incarnation": {
+          "status": "provided",
+          "value": "AROAXCAPTUREEXAMPLE02",
+          "source": "role_id"
+        },
+        "assignment": {
+          "status": "not_evaluated"
+        },
+        "tags": {},
+        "details": {
+          "create_date": "2025-11-20T14:05:00+00:00",
+          "path": "/",
+          "max_session_duration": 3600
+        },
+        "eligibility": {
+          "selectable": true,
+          "reason": "SUPPORTED"
+        }
+      },
+      {
+        "resource_uid": "k8s://111122223333/eu-west-1/payments/checkout/deployment/checkout-api",
+        "resource_type": "k8s:deployment",
+        "scope_kind": "regional",
+        "region": "eu-west-1",
+        "native_id": "checkout-api",
+        "arn": null,
+        "name": "checkout-api",
+        "state": "ACTIVE",
+        "observation": {
+          "configuration_hash": "v1:f6bf1cd8ee71f08e1eec9886b57ec57c56623ed2f4d250d52f80b25421d0495d",
+          "last_verified_at": "2026-09-01T12:00:00+00:00"
+        },
+        "observed_incarnation": {
+          "status": "provided",
+          "value": "4f1c9e2a-deployment",
+          "source": "k8s_object_uid"
+        },
+        "assignment": {
+          "status": "not_evaluated"
+        },
+        "tags": {},
+        "details": {},
+        "eligibility": {
+          "selectable": true,
+          "reason": "SUPPORTED"
+        }
+      },
+      {
+        "resource_uid": "k8s://111122223333/eu-west-1/payments/_cluster/namespace/checkout",
+        "resource_type": "k8s:namespace",
+        "scope_kind": "regional",
+        "region": "eu-west-1",
+        "native_id": "checkout",
+        "arn": null,
+        "name": "checkout",
+        "state": "ACTIVE",
+        "observation": {
+          "configuration_hash": "v1:8a26b0925e1274654d288db3b811499e86450a04e341da4bc41df8ac5fe40718",
+          "last_verified_at": "2026-09-01T12:00:00+00:00"
+        },
+        "observed_incarnation": {
+          "status": "not_provided"
+        },
+        "assignment": {
+          "status": "not_evaluated"
+        },
+        "tags": {},
+        "details": {},
+        "eligibility": {
+          "selectable": false,
+          "reason": "INCARNATION_NOT_PROVIDED"
+        }
+      }
+    ],
+    "next_cursor": "eyJjIjowLCJkIjoidjE6M2ZjMWM1ZGRiMTA0YzQwNGRiYzk5ZWEzZTE1YmE1YWUxMTZmNDJjZjhjNTUyYTU3MjA2MzE4MzFiZWQ3MDVhNyIsImYiOm51bGwsImciOjEsImkiOjIwLCJsIjoidjE6N2Q5YzQ3YjVjY2Y5ZTA1OGI0Y2IxYTMwYzA0MjkzNTFlMWZhOTBhOTYxYzI4OTZkMTVjYzM2YTY4YzhjZTdhZiIsIm8iOiJyZXNvdXJjZV90eXBlLHJlc291cmNlX3VpZCIsInAiOiIwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwNCIsInMiOiJ2MTpmNGFjNThhNGUxN2UyNmMwODA2OTlmOWRkM2I2ODU2YWY1MTczYjcyMjcyNzA2NDIwZjE2NzY3YjE5OWU5NjY2IiwidiI6ImFjY291bnRfaW52ZW50b3J5L3YxIn0=",
+    "has_more": true
+  }
+}

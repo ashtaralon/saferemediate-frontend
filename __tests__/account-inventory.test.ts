@@ -132,18 +132,6 @@ describe("row v3 (I1): tags and details exactly as the producer serves them", ()
     })
   })
 
-  it("MUTATED (a publication written before the upgrade, served as stored): v2 rows, no Region counts", () => {
-    const p = parse("populated_page1", (b) => {
-      b.publication.row_contract = "account_inventory_row/v2"
-      delete b.totals.by_region
-      for (const row of b.rows) {
-        delete row.tags
-        delete row.details
-      }
-    })
-    expect(p).toMatchObject({ kind: "data", rowContract: "account_inventory_row/v2", byRegion: null })
-  })
-
   it("MUTATED (an older backend): no counts and no row contract still read, as unknown", () => {
     const p = parse("populated_page1", (b) => {
       delete b.totals.by_type
@@ -272,6 +260,61 @@ describe("I2(b2): the publication's account-wide counts and its row contract", (
   it("refuses the filtered answer as the answer to an unfiltered request (its total is not the account's)", () => {
     expect(parseInventoryResponse(200, body("filter_empty"), ACCOUNT, null))
       .toMatchObject({ kind: "unavailable", reasonCode: RESPONSE_MALFORMED })
+  })
+})
+
+/** I2(d): the real route over real publications (backend dd5d0d76, fixtures/account-inventory-captures). Each capture names the
+ *  request it answers (_provenance.request); these tests replay exactly that filter and cursor sequence. */
+describe("I2(d) captures: the real route over a real v3 publication, and a genuine v2 one", () => {
+  type Capture = Golden & { _provenance: { request: { query: Record<string, string>; cursor?: { from: string } } } }
+  const capture = (name: string): Capture =>
+    JSON.parse(readFileSync(resolve(process.cwd(), "__tests__/fixtures/account-inventory-captures", `${name}.json`), "utf8"))
+  const parsed = (name: string) => {
+    const c = capture(name)
+    expect(c._provenance.backend_commit).toBe("dd5d0d76beb63e2040f39ba5ffc0e0ee06f490ce")
+    return parseInventoryResponse(c.status, structuredClone(c.body), ACCOUNT, c._provenance.request.query.resource_type ?? null)
+  }
+  function walk(first: string, second: string, resourceType: string | null) {
+    expect(capture(second)._provenance.request.cursor?.from).toBe(first)
+    const model = startRead(1, { ...KEY, resourceType })
+    const one = applyInventoryResponse(model, firstPageRequest(model), parsed(first)).model
+    const request = nextPageRequest(one)
+    expect(request?.cursor).toBe(capture(first).body.next_cursor)
+    return applyInventoryResponse(one, request!, parsed(second)).model
+  }
+
+  it("walks the whole publication by cursor: 20 + 5 rows, every type counted, every Region counted", () => {
+    const all = walk("populated_page1", "populated_page2", null)
+    if (all.kind !== "data") throw new Error(`expected data, got ${all.kind}`)
+    expect([all.rows.length, all.hasMore, all.totals.accountTotal]).toEqual([25, false, 25])
+    expect(all.rowContract).toBe("account_inventory_row/v3")
+    const counted = new Map<string, number>()
+    for (const row of all.rows) counted.set(row.resource_type, (counted.get(row.resource_type) ?? 0) + 1)
+    expect(Object.fromEntries(counted)).toEqual(all.byType)
+    expect(all.byRegion).toEqual({ "eu-west-1": 20, global: 5 })
+    expect(all.rows.every((row) => row.details !== undefined)).toBe(true)
+  })
+
+  it("walks one type by cursor under its filter: its count is by_type's", () => {
+    const one = walk("filtered_page1", "filtered_page2", "ec2:instance")
+    if (one.kind !== "data") throw new Error(`expected data, got ${one.kind}`)
+    expect(one.rows.map((row) => row.resource_type)).toEqual(["ec2:instance", "ec2:instance"])
+    expect(one.totals.filterTotal).toBe(one.byType!["ec2:instance"])
+    expect(one.rows.some((row) => row.tags_withheld?.reason === "TAGS_OVER_CAP")).toBe(true)
+  })
+
+  it("reads a genuine v2 publication served as stored: no Region counts, no v3 member on a row", () => {
+    const p = parsed("v2_publication_served")
+    expect(p).toMatchObject({ kind: "data", rowContract: "account_inventory_row/v2", byRegion: null })
+    if (p.kind !== "data") throw new Error("expected data")
+    expect(p.rows.some((row) => "details" in row || "tags" in row)).toBe(false)
+  })
+
+  it("reads the scope refusal and the lifecycle hold as the route answers them", () => {
+    expect(parsed("refused_scope_mismatch_403")).toMatchObject({ kind: "refused", status: 403, reasonCode: "INVENTORY_SCOPE_MISMATCH" })
+    expect(parsed("held_lifecycle_not_active")).toMatchObject({
+      kind: "evidence", state: "held", reasonCode: "111122223333:CONSUMER_NOT_READY:lifecycle_not_active:BOOTSTRAPPING",
+    })
   })
 })
 

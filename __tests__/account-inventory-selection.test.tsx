@@ -3,11 +3,11 @@
  * declare-from-inventory flow hands it. The view offers a box only where the ROUTE marked a row selectable, says why any other
  * row is not, names the publication each pick is made under, and holds no picks of its own.
  *
- * Envelopes are the PRODUCER goldens (fixtures/account-inventory, served states at backend fa2edd53). Their rows are all
- * INCARNATION_NOT_PROVIDED (the harness's facts carry no role_id), and the captured pages hold no iam:role row at all. So a
- * SELECTABLE row is explicitly MUTATED until AccountOnboarding's I2(d) capture of "the selectable iam:role row Phase 2
- * needs": page one's ec2:instance row given the verdict the route stamps for a verified identity
- * (account_inventory_collection.judge_row: SELECTABLE / SUPPORTED). The view reads only that verdict, never the type.
+ * Every answer is the REAL route's (AccountOnboarding's I2(d) captures, backend dd5d0d76): its selectable rows are the ones
+ * the route judged SUPPORTED -- the two IAM roles, the IAM policy and the Kubernetes deployment, whose immutable identity is
+ * verified -- and every other row carries the route's own reason. Two cases are explicitly MUTATED and named so, because no
+ * capture holds them: a republished inventory (another publication attempt), and a selectable row inside an opened group
+ * (the filtered capture is of ec2:instance, which is never selectable).
  */
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
@@ -22,34 +22,28 @@ import {
   type InventorySelection,
   type PublicationIdentity,
 } from "@/lib/account-inventory"
+import { inventoryTypeMeta } from "@/lib/inventory-types"
 
-function golden(name: string): { status: number; body: Record<string, any> } {
-  return JSON.parse(readFileSync(resolve(process.cwd(), "__tests__/fixtures/account-inventory", `${name}.json`), "utf8"))
+function capture(name: string): { status: number; body: Record<string, any> } {
+  return JSON.parse(readFileSync(resolve(process.cwd(), "__tests__/fixtures/account-inventory-captures", `${name}.json`), "utf8"))
 }
 
 function answer(name: string, mutate?: (b: Record<string, any>) => void): InventoryFetchResult {
-  const g = golden(name)
-  const body = structuredClone(g.body)
+  const c = capture(name)
+  const body = structuredClone(c.body)
   mutate?.(body)
-  return { status: g.status, body }
+  return { status: c.status, body }
 }
 
-const PAGE1 = golden("populated_page1").body
+const PAGE1 = capture("populated_page1").body
 const ACCOUNT: string = PAGE1.account_id
 const SHOWN: PublicationIdentity = {
   attempt: PAGE1.publication.attempt, generation: PAGE1.publication.generation,
   source_identity: PAGE1.publication.source_identity, authority_digest: PAGE1.publication.authority_digest,
   registration_id: PAGE1.account_authority.registration_id,
 }
-
-const PICKABLE_TYPE = "ec2:instance"
-
-/** MUTATED until I2(d): page one's ec2:instance row with the route's verdict for a verified identity. */
-function markSelectable(b: Record<string, any>) {
-  for (const row of b.rows) {
-    if (row.resource_type === PICKABLE_TYPE) row.eligibility = { selectable: true, reason: "SUPPORTED" }
-  }
-}
+const SELECTABLE = PAGE1.rows.filter((r: any) => r.eligibility.selectable === true)
+const ROLE = PAGE1.rows.find((r: any) => r.resource_type === "iam:role")
 
 function controllable() {
   const calls: Array<{ params: { resourceType: string | null; cursor: string | null }; resolve: (r: InventoryFetchResult) => void }> = []
@@ -74,12 +68,35 @@ function hook(selected: ReadonlyMap<string, PublicationIdentity> = new Map()) {
   return { selected, onToggle: vi.fn(), onPublication: vi.fn() }
 }
 
+/** The list row of one capture row: two resources may share a name (the IAM role and the deployment "checkout-api"). */
+function rowOf(r: any): HTMLElement {
+  const name = r.name ?? r.native_id
+  const label = inventoryTypeMeta(r.resource_type).label
+  const rows = screen.getAllByRole("row").filter((tr) => within(tr).queryByRole("button", { name }) !== null
+    && within(tr).queryByText(label) !== null)
+  expect(rows).toHaveLength(1)
+  return rows[0]
+}
+
+async function listed(selection?: InventorySelection) {
+  const { fetchPage, release, calls } = controllable()
+  view(fetchPage, selection)
+  await release(0, answer("populated_page1"))
+  fireEvent.click(screen.getByRole("button", { name: "List" }))
+  return { release, calls }
+}
+
+describe("the route's own verdicts in the capture", () => {
+  it("are SUPPORTED exactly for the types with a verified identity, and a reason for every other row", () => {
+    expect(SELECTABLE.map((r: any) => r.resource_type).sort())
+      .toEqual(["iam:policy", "iam:role", "iam:role", "k8s:deployment"])
+    expect(SELECTABLE.every((r: any) => r.eligibility.reason === "SUPPORTED")).toBe(true)
+  })
+})
+
 describe("without a selection hook", () => {
   it("is browse only: no box, no Root column, no eligibility words", async () => {
-    const { fetchPage, release } = controllable()
-    view(fetchPage)
-    await release(0, answer("populated_page1", markSelectable))
-    fireEvent.click(screen.getByRole("button", { name: "List" }))
+    await listed()
     expect(screen.queryByRole("checkbox")).toBeNull()
     expect(screen.queryByRole("columnheader", { name: "Root" })).toBeNull()
     expect(screen.queryAllByTestId("inventory-not-selectable")).toHaveLength(0)
@@ -87,15 +104,34 @@ describe("without a selection hook", () => {
 })
 
 describe("with a selection hook", () => {
-  it("offers no box where the route marked no row selectable, and says why in words", async () => {
-    const { fetchPage, release } = controllable()
-    view(fetchPage, hook())
-    await release(0, answer("populated_page1"))
-    fireEvent.click(screen.getByRole("button", { name: "List" }))
-    expect(screen.queryByRole("checkbox")).toBeNull()
+  it("offers a box exactly where the route allows one, and says why in words everywhere else", async () => {
+    await listed(hook())
+    expect(screen.getAllByRole("checkbox")).toHaveLength(SELECTABLE.length)
+    for (const r of SELECTABLE) expect(within(rowOf(r)).getByRole("checkbox")).toBeInTheDocument()
     const reasons = screen.getAllByTestId("inventory-not-selectable").map((node) => node.textContent)
-    expect(reasons).toEqual(PAGE1.rows.map(() => ELIGIBILITY_COPY.INCARNATION_NOT_PROVIDED))
+    expect(reasons).toEqual(PAGE1.rows.filter((r: any) => r.eligibility.selectable !== true)
+      .map((r: any) => ELIGIBILITY_COPY[r.eligibility.reason]))
     expect(screen.queryByText(/INCARNATION_NOT_PROVIDED/)).toBeNull()
+  })
+
+  it("a box hands its owner the row and the publication it was served from, and holds no pick itself", async () => {
+    const selection = hook()
+    await listed(selection)
+    const box = within(rowOf(ROLE)).getByRole("checkbox") as HTMLInputElement
+    fireEvent.click(box)
+    expect(selection.onToggle).toHaveBeenCalledTimes(1)
+    const [picked, publication] = selection.onToggle.mock.calls[0]
+    expect(rowKey(picked)).toBe(rowKey(ROLE))
+    expect(picked.observed_incarnation).toEqual(ROLE.observed_incarnation)
+    expect(publication).toEqual(SHOWN)
+    expect(box.checked).toBe(false)
+  })
+
+  it("shows the owner's picks, and marks one the owner made under another publication", async () => {
+    const other = { ...SHOWN, attempt: "e".repeat(32) }               // the owner's own record of an earlier pick
+    await listed(hook(new Map([[rowKey(ROLE), other], [rowKey(SELECTABLE[0]), SHOWN]])))
+    expect((within(rowOf(ROLE)).getByRole("checkbox") as HTMLInputElement).checked).toBe(true)
+    expect(screen.getAllByTestId("inventory-pick-other-publication")).toHaveLength(1)
   })
 
   it("tells its owner the shown publication once, and again only when it changes", async () => {
@@ -109,58 +145,40 @@ describe("with a selection hook", () => {
     await release(1, answer("populated_page1"))
     expect(selection.onPublication).toHaveBeenCalledTimes(1)
     fireEvent.click(screen.getByRole("button", { name: "Refresh" }))
-    // MUTATED: a republished inventory (another publication attempt).
+    // MUTATED: a republished inventory (another publication attempt; no capture holds two publications).
     await release(2, answer("populated_page1", (b) => { b.publication.attempt = "f".repeat(32) }))
     expect(selection.onPublication).toHaveBeenCalledTimes(2)
     expect(selection.onPublication).toHaveBeenLastCalledWith({ ...SHOWN, attempt: "f".repeat(32) })
   })
 
-  it("MUTATED until I2(d): a selectable row's box hands its owner the row and the publication it was served from", async () => {
-    const { fetchPage, release } = controllable()
-    const selection = hook()
-    view(fetchPage, selection)
-    await release(0, answer("populated_page1", markSelectable))
-    fireEvent.click(screen.getByRole("button", { name: "List" }))
-    const pickable = PAGE1.rows.find((r: any) => r.resource_type === PICKABLE_TYPE)
-    const boxes = screen.getAllByRole("checkbox")
-    expect(boxes).toHaveLength(1)
-    fireEvent.click(screen.getByRole("checkbox", { name: `Pick ${pickable.name} as a root` }))
-    expect(selection.onToggle).toHaveBeenCalledTimes(1)
-    const [row, publication] = selection.onToggle.mock.calls[0]
-    expect(rowKey(row)).toBe(rowKey(pickable))
-    expect(publication).toEqual(SHOWN)
-    expect((boxes[0] as HTMLInputElement).checked).toBe(false)          // the view holds no pick of its own
-  })
-
-  it("MUTATED until I2(d): shows the owner's picks, and marks one made under another publication", async () => {
-    const pickable = PAGE1.rows.find((r: any) => r.resource_type === PICKABLE_TYPE)
-    const { fetchPage, release } = controllable()
-    view(fetchPage, hook(new Map([[rowKey(pickable), { ...SHOWN, attempt: "e".repeat(32) }]])))
-    await release(0, answer("populated_page1", markSelectable))
-    fireEvent.click(screen.getByRole("button", { name: "List" }))
-    expect((screen.getByRole("checkbox") as HTMLInputElement).checked).toBe(true)
-    expect(screen.getByTestId("inventory-pick-other-publication")).toHaveTextContent("picked in another publication")
-  })
-
-  it("MUTATED until I2(d): a pick in an opened type group names that group's own publication", async () => {
+  it("an opened group's rows say why they are not selectable, and its read is never the shown publication", async () => {
     const { calls, fetchPage, release } = controllable()
     const selection = hook()
     view(fetchPage, selection)
     await release(0, answer("populated_page1"))
-    const group = screen.getAllByTestId("inventory-group").find((node) => within(node).queryByText(PICKABLE_TYPE) !== null)!
+    const group = screen.getAllByTestId("inventory-group").find((node) => within(node).queryByText("ec2:instance") !== null)!
     fireEvent.click(within(group).getByRole("button", { expanded: false }))
-    expect(calls[1].params).toEqual({ resourceType: PICKABLE_TYPE, cursor: null })
-    // The group's own read, of a republished inventory: that type only, selectable, under another attempt.
-    await release(1, answer("populated_page1", (b) => {
-      markSelectable(b)
-      b.rows = b.rows.filter((r: any) => r.resource_type === PICKABLE_TYPE)
-      b.totals.filter_total = b.totals.by_type[PICKABLE_TYPE]
-      b.has_more = false
-      b.next_cursor = null
+    expect(calls[1].params).toEqual({ resourceType: "ec2:instance", cursor: null })
+    await release(1, answer("filtered_page1"))
+    expect(within(group).queryByRole("checkbox")).toBeNull()
+    expect(within(group).getByTestId("inventory-not-selectable")).toHaveTextContent(ELIGIBILITY_COPY.INCARNATION_NOT_PROVIDED)
+    expect(selection.onPublication).toHaveBeenCalledTimes(1)
+  })
+
+  it("MUTATED (no capture holds a selectable row in a group): a pick in an opened group names that group's own read", async () => {
+    const { calls, fetchPage, release } = controllable()
+    const selection = hook()
+    view(fetchPage, selection)
+    await release(0, answer("populated_page1"))
+    const group = screen.getAllByTestId("inventory-group").find((node) => within(node).queryByText("ec2:instance") !== null)!
+    fireEvent.click(within(group).getByRole("button", { expanded: false }))
+    expect(calls[1].params).toEqual({ resourceType: "ec2:instance", cursor: null })
+    await release(1, answer("filtered_page1", (b) => {
+      b.rows[0].eligibility = { selectable: true, reason: "SUPPORTED" }
       b.publication.attempt = "d".repeat(32)
     }))
-    fireEvent.click(screen.getByRole("checkbox"))
+    fireEvent.click(within(group).getByRole("checkbox"))
     expect(selection.onToggle.mock.calls[0][1]).toEqual({ ...SHOWN, attempt: "d".repeat(32) })
-    expect(selection.onPublication).toHaveBeenCalledTimes(1)                // a group's read is not the shown publication
+    expect(selection.onPublication).toHaveBeenCalledTimes(1)
   })
 })

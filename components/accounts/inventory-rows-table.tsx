@@ -83,7 +83,8 @@ export function InventoryRowsTable({
   const selecting = selection !== undefined && publication !== undefined
   const columns = resourceType ? SUMMARY_COLUMNS[resourceType] ?? [] : []
   const dateAttribute = resourceType ? DATE_ATTRIBUTE[resourceType] : undefined
-  const showTags = resourceType !== null && rows.some((row) => row.tags !== undefined || row.tags_withheld !== undefined)
+  // Tags whenever any row carries them: "None" = read, none; "—" = this type's tags are not collected.
+  const showTags = rows.some((row) => row.tags !== undefined || row.tags_withheld !== undefined)
 
   return (
     <Table>

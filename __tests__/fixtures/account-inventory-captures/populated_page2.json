@@ -1,0 +1,251 @@
+{
+  "_provenance": {
+    "route": "GET /api/accounts/{account_id}/inventory (api/account_inventory.py)",
+    "request": {
+      "method": "GET",
+      "path": "/api/accounts/111122223333/inventory",
+      "query": {
+        "limit": "20"
+      },
+      "cursor": {
+        "from": "populated_page1",
+        "field": "body.next_cursor"
+      }
+    },
+    "harness": "tests/cyntro_data/test_account_inventory_captures.py::test_the_real_route_answers_are_exactly_the_captures",
+    "fixed_clock_epoch": 1800000000,
+    "facts": "REAL normalizers: tests/cyntro_data/account_inventory_capture_facts.py (capture account only)",
+    "publication": "this commit's projector and P3a2 publisher (row contract v3) at the production budget (none passed, as scripts/project_account_inventory.py passes none), uuid4 pinned to 00000000000000000000000000000004",
+    "readiness": "the T11-0 harness provider answering (True, 'pass') -- a stand-in for a READY consumer pass",
+    "pinned": [
+      "time.time",
+      "LocalEvidenceStore.bucket (recorded identity only)",
+      "cyntro_data.projection.receipt clock"
+    ],
+    "note": "The real route's answer over a real publication; nothing removed. Not installed or live evidence.",
+    "backend_commit": "dd5d0d76beb63e2040f39ba5ffc0e0ee06f490ce",
+    "backend_path": "tests/fixtures/account_inventory_captures/populated_page2.json",
+    "copied_unchanged": "status, cache_control and body are byte-for-byte the backend capture's"
+  },
+  "status": 200,
+  "cache_control": "no-store",
+  "body": {
+    "contract": "account_inventory/v1",
+    "account_id": "111122223333",
+    "state": "populated",
+    "reason_code": null,
+    "account_authority": {
+      "registration_id": "0123456789abcdef0123456789abcdef"
+    },
+    "publication": {
+      "attempt": "00000000000000000000000000000004",
+      "generation": 1,
+      "source_identity": "v1:a23e19ff9dc8bdbfb5efe1b3690bb538d8a5747a758d43ec36e79b10371c843c",
+      "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
+      "published_at_epoch": 1800000000,
+      "inventory_complete": true,
+      "row_contract": "account_inventory_row/v3"
+    },
+    "totals": {
+      "account_total": 25,
+      "filter_total": 25,
+      "by_type": {
+        "account:regions": 1,
+        "ec2:instance": 2,
+        "ec2:internet-gateway": 1,
+        "ec2:nat-gateway": 1,
+        "ec2:network-acl": 1,
+        "ec2:network-interface": 1,
+        "ec2:route-table": 1,
+        "ec2:security-group": 1,
+        "ec2:subnet": 1,
+        "ec2:vpc": 1,
+        "ec2:vpc-endpoint": 1,
+        "eks:cluster": 1,
+        "elasticloadbalancing:load-balancer": 1,
+        "elasticloadbalancing:target-group": 1,
+        "iam:policy": 1,
+        "iam:role": 2,
+        "k8s:deployment": 1,
+        "k8s:namespace": 1,
+        "kms:key-authorization": 1,
+        "lambda:function": 1,
+        "rds:db-cluster": 1,
+        "rds:db-instance": 1,
+        "s3:bucket": 1
+      },
+      "by_region": {
+        "eu-west-1": 20,
+        "global": 5
+      }
+    },
+    "rows": [
+      {
+        "resource_uid": "aws://aws/111122223333/eu-west-1/kms/key-authorization/1234abcd-12ab-34cd-56ef-1234567890ab",
+        "resource_type": "kms:key-authorization",
+        "scope_kind": "regional",
+        "region": "eu-west-1",
+        "native_id": "1234abcd-12ab-34cd-56ef-1234567890ab",
+        "arn": "arn:aws:kms:eu-west-1:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab",
+        "name": "1234abcd-12ab-34cd-56ef-1234567890ab",
+        "state": "ACTIVE",
+        "observation": {
+          "configuration_hash": "v1:d8e6a9af964c72f941e0c46e66e51707c16eda95fdf1e2594ae9367d54e7b143",
+          "last_verified_at": "2026-09-01T12:00:00+00:00"
+        },
+        "observed_incarnation": {
+          "status": "not_provided"
+        },
+        "assignment": {
+          "status": "not_evaluated"
+        },
+        "details": {
+          "key_state": "Enabled",
+          "key_manager": "CUSTOMER",
+          "creation_date": "2025-11-20T14:05:00+00:00"
+        },
+        "eligibility": {
+          "selectable": false,
+          "reason": "INCARNATION_NOT_PROVIDED"
+        }
+      },
+      {
+        "resource_uid": "aws://aws/111122223333/eu-west-1/lambda/function/checkout-worker",
+        "resource_type": "lambda:function",
+        "scope_kind": "regional",
+        "region": "eu-west-1",
+        "native_id": "checkout-worker",
+        "arn": "arn:aws:lambda:eu-west-1:111122223333:function:checkout-worker",
+        "name": "checkout-worker",
+        "state": "ACTIVE",
+        "observation": {
+          "configuration_hash": "v1:39975bd715e998a35ae59313b6365b7956118df567cbf546203c382c2272876c",
+          "last_verified_at": "2026-09-01T12:00:00+00:00"
+        },
+        "observed_incarnation": {
+          "status": "not_provided"
+        },
+        "assignment": {
+          "status": "not_evaluated"
+        },
+        "tags": {
+          "SystemName": "checkout"
+        },
+        "details": {
+          "runtime": "python3.13",
+          "memory_size": 512,
+          "timeout": 30,
+          "is_vpc_attached": false,
+          "last_modified": "2026-08-12T10:41:03+00:00"
+        },
+        "eligibility": {
+          "selectable": false,
+          "reason": "INCARNATION_NOT_PROVIDED"
+        }
+      },
+      {
+        "resource_uid": "aws://aws/111122223333/eu-west-1/rds/cluster/shop-cluster",
+        "resource_type": "rds:db-cluster",
+        "scope_kind": "regional",
+        "region": "eu-west-1",
+        "native_id": "shop-cluster",
+        "arn": "arn:aws:rds:eu-west-1:111122223333:cluster:shop-cluster",
+        "name": "shop-cluster",
+        "state": "ACTIVE",
+        "observation": {
+          "configuration_hash": "v1:67c75506dd9240f9f862c45cd57ce291c93b638912e9961ca5c5d759d745743d",
+          "last_verified_at": "2026-09-01T12:00:00+00:00"
+        },
+        "observed_incarnation": {
+          "status": "not_provided"
+        },
+        "assignment": {
+          "status": "not_evaluated"
+        },
+        "tags": {},
+        "details": {
+          "engine": "aurora-mysql",
+          "engine_version": "8.0.mysql_aurora.3.05.2",
+          "engine_mode": "provisioned",
+          "publicly_accessible": false,
+          "storage_encrypted": true,
+          "aws_state": "available",
+          "cluster_create_time": "2025-11-20T14:05:00+00:00"
+        },
+        "eligibility": {
+          "selectable": false,
+          "reason": "INCARNATION_NOT_PROVIDED"
+        }
+      },
+      {
+        "resource_uid": "aws://aws/111122223333/eu-west-1/rds/db/shop-db",
+        "resource_type": "rds:db-instance",
+        "scope_kind": "regional",
+        "region": "eu-west-1",
+        "native_id": "shop-db",
+        "arn": "arn:aws:rds:eu-west-1:111122223333:db:shop-db",
+        "name": "shop-db",
+        "state": "ACTIVE",
+        "observation": {
+          "configuration_hash": "v1:f9bc914e376ab515f264af07e420762121a131ab549b691b4b773c3b2a974189",
+          "last_verified_at": "2026-09-01T12:00:00+00:00"
+        },
+        "observed_incarnation": {
+          "status": "not_provided"
+        },
+        "assignment": {
+          "status": "not_evaluated"
+        },
+        "tags": {},
+        "details": {
+          "engine": "aurora-mysql",
+          "engine_version": "8.0.mysql_aurora.3.05.2",
+          "db_instance_class": "db.r6g.large",
+          "multi_az": true,
+          "publicly_accessible": false,
+          "storage_encrypted": true,
+          "vpc_id": "vpc-1",
+          "aws_state": "available",
+          "instance_create_time": "2025-11-20T14:05:00+00:00"
+        },
+        "eligibility": {
+          "selectable": false,
+          "reason": "INCARNATION_NOT_PROVIDED"
+        }
+      },
+      {
+        "resource_uid": "aws://aws/111122223333/global/s3/bucket/checkout-artifacts-111122223333",
+        "resource_type": "s3:bucket",
+        "scope_kind": "global",
+        "region": "global",
+        "native_id": "checkout-artifacts-111122223333",
+        "arn": "arn:aws:s3:::checkout-artifacts-111122223333",
+        "name": "checkout-artifacts-111122223333",
+        "state": "ACTIVE",
+        "observation": {
+          "configuration_hash": "v1:36a2d9192b4c710272e9ee3ea1d6746d8749e4c0807cf7580c5736f16967ebbe",
+          "last_verified_at": "2026-09-01T12:00:00+00:00"
+        },
+        "observed_incarnation": {
+          "status": "not_provided"
+        },
+        "assignment": {
+          "status": "not_evaluated"
+        },
+        "tags": {
+          "SystemName": "checkout"
+        },
+        "details": {
+          "region": "eu-west-1",
+          "creation_date": "2025-11-20T14:05:00+00:00"
+        },
+        "eligibility": {
+          "selectable": false,
+          "reason": "INCARNATION_NOT_PROVIDED"
+        }
+      }
+    ],
+    "next_cursor": null,
+    "has_more": false
+  }
+}
