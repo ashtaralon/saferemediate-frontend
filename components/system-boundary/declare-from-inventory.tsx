@@ -17,6 +17,7 @@
  */
 import { useCallback, useEffect, useState, type ReactNode } from "react"
 import { DeclarationForm } from "@/components/system-boundary/declaration-form"
+import { DeclaredSystems } from "@/components/system-boundary/declared-systems"
 import { PendingSaves } from "@/components/system-boundary/pending-saves"
 import { Button } from "@/components/ui/button"
 import { rowKey, type InventoryRow, type PublicationIdentity } from "@/lib/account-inventory"
@@ -24,6 +25,7 @@ import {
   readOwnGrant,
   readView,
   rootFromInventory,
+  type CorrectionEnvelope,
   type CreateEnvelope,
   type DeclarationsView,
   type OwnGrant,
@@ -87,6 +89,12 @@ function Declarer({ accountId, renderInventory, readDeclarations = readView, rea
     if (actor) store.put({ version: 1, actor, accountId, kind: "CREATE", envelope, startedAt: new Date().toISOString() })
     onEnvelope?.(envelope)
   }, [actor, accountId, store, onEnvelope])
+  const keepCorrection = useCallback((envelope: CorrectionEnvelope) => {
+    if (actor) store.put({ version: 1, actor, accountId, kind: "CORRECT", envelope, startedAt: new Date().toISOString() })
+  }, [actor, accountId, store])
+  const settled = useCallback((envelope: CreateEnvelope | CorrectionEnvelope, outcome: { kind: string }) => {
+    if (outcome.kind !== "resend") store.remove(envelope.request_id)        // definite: saved, or nothing saved
+  }, [store])
 
   const onToggle = useCallback((row: InventoryRow, publication: PublicationIdentity) => {
     setSavedRevision(null)
@@ -147,9 +155,7 @@ function Declarer({ accountId, renderInventory, readDeclarations = readView, rea
               roots={[...picks.values()]}
               save={save}
               onEnvelope={keep}
-              onOutcome={(envelope, outcome) => {
-                if (outcome.kind !== "resend") store.remove(envelope.request_id)   // definite: saved, or nothing saved
-              }}
+              onOutcome={settled}
               onCancel={() => setDeclaring(false)}
               onSaved={(revision) => {
                 setSavedRevision(revision)
@@ -157,6 +163,14 @@ function Declarer({ accountId, renderInventory, readDeclarations = readView, rea
                 load()
               }}
             />
+          ) : null}
+          {view.kind === "OK" ? (
+            <DeclaredSystems view={view.value} accountId={accountId} picks={[...picks.values()]} onEnvelope={keepCorrection}
+              onOutcome={settled} onSaved={(revision, usedPicks) => {
+                setSavedRevision(revision)
+                if (usedPicks) setPicks(new Map())
+                load()
+              }} />
           ) : null}
         </div>
       ) : null}

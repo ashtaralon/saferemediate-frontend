@@ -2,7 +2,7 @@
 
 These are the real answers of the backend's System Boundary authoring routes, plus the request bodies that produced them.
 Each file is a byte-for-byte copy of `tests/fixtures/system_boundary_authoring/` at saferemediate-backend
-**2ac7753a25c804ac95c8ed66c92ad2f5fe62ba25**. That commit's
+**472d41052fab563b23e90a1825ac6b66d7a3203f**. That commit's
 `tests/cyntro_data/test_system_boundary_root_admission.py::test_r6_the_authoring_answers_are_exactly_the_producer_goldens`
 asserts the real route still answers exactly these.
 
