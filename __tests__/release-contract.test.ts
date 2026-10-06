@@ -9,14 +9,23 @@ import declaration from "@/lib/release-contract.json"
 import {
   ORGANIZATION_DISCOVERY_TEMPLATE_PATH,
   REQUIRED_ACCOUNT_REGISTRATION_CONTRACT,
+  offboardRequestBody,
   registrationActionPath,
   registrationStep,
 } from "@/lib/account-admin"
 
 describe("the release contract this frontend requires", () => {
-  it("is exactly the shape the backend's bundle builder reads, at level 4", () => {
-    expect(declaration).toEqual({ schema: "cyntro-release-contract/v1", requires: { account_registration: 4 } })
-    expect(REQUIRED_ACCOUNT_REGISTRATION_CONTRACT).toBe(4)
+  it("is exactly the shape the backend's bundle builder reads, at level 5", () => {
+    expect(declaration).toEqual({ schema: "cyntro-release-contract/v1", requires: { account_registration: 5 } })
+    expect(REQUIRED_ACCOUNT_REGISTRATION_CONTRACT).toBe(5)
+  })
+
+  it("is level 5 because this frontend removes an ACTIVATED account, which only level 5 serves", () => {
+    // Level 5 = level 4 + POST .../{id}/offboard {registration_id, registration_version, confirm_account_id} and the listing's
+    // removed audit (agent-coordinator/claude-settings-account-offboarding-spec-2026-10-06.txt). A level-4 backend answers 404.
+    expect(registrationActionPath("offboard", "222222222222", "acme")).toBe("/api/proxy/admin/accounts/222222222222/offboard?customer_id=acme")
+    expect(offboardRequestBody({ registration_id: "a".repeat(32), registration_version: 5 }, " 222222222222 ")).toEqual({
+      registration_id: "a".repeat(32), registration_version: 5, confirm_account_id: "222222222222" })
   })
 
   it("is level 4 because this frontend sends what only level 4 serves: the read role ARN, the stack instructions, the listing role", () => {

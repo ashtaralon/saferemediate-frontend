@@ -83,3 +83,19 @@ GET that the step made. Regenerate them; do not edit them.
   - 35: another installation's role name, refused by the API (422, nothing asked).
   - 36: the connection stack's instructions once the member trust exists (the Add form's stack step).
   - 37: a second ask while a request with another role is open: the open request keeps its own role.
+
+## 38-43 (removing an ACTIVATED account: offboarding)
+
+- Producer: saferemediate-backend `3d87edbca` (O-S2/S4 on O-S1 e126b1cc; local, not yet pushed), from a clean detached tree at
+  exactly that commit.
+- Generator: `agent-coordinator/claude-settings-offboard-evidence-2026-10-06/test_offboard_producer_captures.py` (sha256 in
+  `generator-sha256.txt` beside it). The backend's own API harness (real router, real repository on moto DynamoDB, real person
+  verification) and the real account connector; the account is added, checked and confirmed through the same routes first.
+  moto has no Account Management, so GetAccountInformation is answered at botocore's call site with the account's name.
+- Files:
+  - 38: the account activated (CONNECTED, reads on, activation marker).
+  - 39: POST /offboard with the registration shown and the account id typed (202).
+  - 40: the listing while the removal is queued.
+  - 41: the listing after the connector removed it: no longer an account; one entry under `removed` (OFFBOARDED).
+  - 42: another account id typed: 422 OFFBOARD_CONFIRMATION_MISMATCH, nothing queued.
+  - 43: a removal asked for an older version: refused by its own reason (REGISTRATION_STATE_CHANGED), the account stays.

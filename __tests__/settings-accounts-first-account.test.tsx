@@ -44,6 +44,11 @@ import withdrawn from "@/__tests__/fixtures/settings-c-producer/25_withdrawn.jso
 import withdrawRefused from "@/__tests__/fixtures/settings-c-producer/26_withdraw_refused_state_changed.json"
 import k2Measured from "@/__tests__/fixtures/settings-c-producer/27_k2_collected_measured.json"
 import k2ZeroFacts from "@/__tests__/fixtures/settings-c-producer/28_k2_collected_zero_facts.json"
+import offActivated from "@/__tests__/fixtures/settings-c-producer/38_activated_listing.json"
+import offRequested from "@/__tests__/fixtures/settings-c-producer/39_offboard_requested.json"
+import offPending from "@/__tests__/fixtures/settings-c-producer/40_offboard_pending_listing.json"
+import offDone from "@/__tests__/fixtures/settings-c-producer/41_offboarded_listing.json"
+import offStale from "@/__tests__/fixtures/settings-c-producer/43_offboard_refused_state_changed.json"
 
 const CUSTOMER = "acme"
 const MEMBER = "222222222222"
@@ -515,10 +520,19 @@ describe("Remove: only a registration that was never activated, after saying wha
     expect(posts).toHaveLength(0)
   })
 
-  it.each([checking, activating, activationFailed, held, allQueued, k2Collected, listedAdmitted] as Capture[])(
-    "$name: not offered (checking, activating, activated, held or being recorded)", async (capture) => {
+  it.each([checking, activating, held, listedAdmitted] as Capture[])(
+    "$name: not offered (checking, activating, held or being recorded)", async (capture) => {
       const row = await mount(capture, at(capture))
       expect(removeButton(row)).toBeNull()
+    })
+
+  it.each([activationFailed, allQueued, k2Collected] as Capture[])(
+    "$name: an activated account is removed by the offboarding dialog, never by this one", async (capture) => {
+      const row = await mount(capture, at(capture))
+      fireEvent.click(removeButton(row) as HTMLElement)
+      expect(await screen.findByRole("dialog", { name: /^Remove .*222222222222.* from Cyntro\?$/ })).toHaveTextContent(
+        "Type the account ID to confirm")
+      expect(screen.queryByText("This account was never confirmed: reading is off and nothing has been collected from it.")).toBeNull()
     })
 
   it("while the removal is open the row says so and offers nothing; once recorded the account leaves the list", async () => {
@@ -622,5 +636,74 @@ describe("each member account opens its own page", () => {
       const platformRow = screen.getByTestId(`account-row-${platform.account_id}`)
       expect(within(platformRow).queryByRole("link", { name: /Open account|Inventory of/ })).toBeNull()
     }
+  })
+})
+
+
+// ── Offboarding (Alon 2026-10-06 sign-off): removing an ACTIVATED account. Rows 38-43 are the producer's own (backend
+// 3d87edbc, fixtures README).
+
+describe("Remove an activated account: what removing does, the account id typed, and the removed audit", () => {
+  const dialogOf = () => screen.findByRole("dialog", { name: "Remove prod-payments (222222222222) from Cyntro?" })
+
+  it("the dialog says what removing does; Remove waits for the account id typed exactly, then sends exactly the row's", async () => {
+    const row = await mount(offActivated as Capture, at(offActivated as Capture))
+    expect(rowOf(offActivated as Capture).onboarding_status).toBe("CONNECTED")
+    fireEvent.click(removeButton(row) as HTMLElement)
+    const dialog = await dialogOf()
+    const explanation = within(dialog).getByTestId(`offboard-explanation-${MEMBER}`)
+    expect(explanation).toHaveTextContent("Stops reading it: reading is turned off, and nothing more is collected or queued for it.")
+    expect(explanation).toHaveTextContent("Takes its data out of Cyntro: it no longer appears in systems, maps or inventory.")
+    expect(explanation).toHaveTextContent("Keeps what was collected as a record. Nothing is deleted.")
+    expect(explanation).toHaveTextContent(
+      "Changes nothing in the AWS account. The connection stack stays there and still trusts this installation: delete it in that account to revoke Cyntro's access.")
+    const remove = within(dialog).getByRole("button", { name: "Remove account" })
+    const input = within(dialog).getByRole("textbox", { name: `Type ${MEMBER} to confirm` })
+    expect(remove).toBeDisabled()
+    fireEvent.change(input, { target: { value: "22222222222" } })
+    expect(remove).toBeDisabled()
+    fireEvent.change(input, { target: { value: ` ${MEMBER} ` } })
+    expect(remove).toBeEnabled()
+    fireEvent.click(remove)
+    await waitFor(() => expect(posts).toHaveLength(1))
+    const sent = (offRequested as unknown as { request: { json: Record<string, unknown> } }).request
+    expect(posts[0]).toEqual({ url: `/api/proxy/admin/accounts/${MEMBER}/offboard?customer_id=${CUSTOMER}`, body: sent.json })
+    expect(sent.json.registration_version).toBe(registrationOf(offActivated as Capture).registration_version)
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: /from Cyntro\?$/ })).toBeNull())
+  })
+
+  it("Cancel sends nothing", async () => {
+    const row = await mount(offActivated as Capture, at(offActivated as Capture))
+    fireEvent.click(removeButton(row) as HTMLElement)
+    const dialog = await dialogOf()
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }))
+    expect(posts).toHaveLength(0)
+  })
+
+  it("while the removal is queued nothing is offered; once recorded the account leaves the list for the removed audit", async () => {
+    const row = await mount(offPending as Capture, at(offPending as Capture))
+    expect(row).toHaveTextContent("Removal queued")
+    expect(removeButton(row)).toBeNull()
+    current = offDone as Capture
+    await act(async () => { await vi.advanceTimersByTimeAsync(4000) })
+    await waitFor(() => expect(screen.queryByTestId(`account-row-${MEMBER}`)).toBeNull())
+    const removed = (offDone as Capture).body.removed[0]
+    const audit = screen.getByTestId("removed-accounts")
+    expect(audit).toHaveTextContent("Removed accounts (1)")
+    expect(within(audit).getByTestId(`removed-${MEMBER}`)).toHaveTextContent(
+      `prod-payments · ${MEMBER}Removed after it was connected by ${removed.by} · ${formatUtcInstantExact(removed.at)}. ` +
+      "Its collected evidence is kept; its connection stack may still be in the account.")
+    expect(posts).toHaveLength(0)
+  })
+
+  it("a removal asked for an older version is said by its own reason; the account stays, removable", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true, now: at(offStale as Capture) })
+    install(offStale as Capture)
+    render(<AccountSettingsPage />)
+    const failure = (offStale as Capture).body.failed_requests[0]
+    const alert = (await screen.findByText(`Removal for prod-payments (${MEMBER}) failed`)).closest("[role=alert]") as HTMLElement
+    expect(alert).toHaveTextContent(failure.detail)
+    expect(failure.outcome).toBe("REGISTRATION_STATE_CHANGED")
+    expect(removeButton(screen.getByTestId(`account-row-${MEMBER}`))).toBeEnabled()
   })
 })

@@ -26,6 +26,7 @@ import { LeftSidebarNav } from "@/components/left-sidebar-nav"
 import { AccountCoverageChips, ConnectAccountPanel, MemberStatusBadge } from "@/components/settings/connect-account-panel"
 import { OrganizationAccountPicker, useOrganizationDiscovery } from "@/components/settings/organization-account-picker"
 import { FirstCollectionStatus, RegistrationJourney } from "@/components/settings/registration-journey"
+import { OffboardAccount } from "@/components/settings/offboard-account"
 import { AddAccountStackStep, useInstallationStack } from "@/components/settings/add-account-stack-step"
 import { useAccountScope } from "@/lib/account-scope-context"
 import { COVERAGE_PAGE_PATH, READY_MEANS_OPERATIONAL, coveragePageHref } from "@/lib/observation-coverage"
@@ -48,6 +49,10 @@ import {
   discoverySummary,
   memberReadRoleName,
   registrationActionPath,
+  accountOffboardable,
+  formatUtcInstantExact,
+  offboardRequestBody,
+  type RemovedAccount,
   registrationFailed,
   registrationRequestBody,
   registrationStep,
@@ -103,10 +108,12 @@ const OPEN_CONNECT_ON = new Set(["AWAITING_CONNECTION", "CONNECTED"])
 const REQUEST_ACTION_LABEL: Record<string, string> = {
   register: "Registration", validate: "Connection check", access_check: "Access check", activate: "Activation", release: "Release",
   withdraw: "Removal",
+  offboard: "Removal",
 }
 /** The journey request each action sends, named as the page says it. */
 const REGISTRATION_ACTION_LABEL: Record<RegistrationAction, string> = {
   access_check: "Check access", activate: "Confirmation", release: "Release", withdraw: "Remove account",
+  offboard: "Remove account",
 }
 
 function statusStyle(status: string) {
@@ -321,6 +328,37 @@ export default function AccountSettingsPage() {
     } finally {
       setJourneyBusy(null)
     }
+  }
+
+  /** Remove an ACTIVATED account (offboard): the registration and version shown, and the account id the operator typed. */
+  async function requestOffboard(account: ManagedAccount, typedAccountId: string) {
+    if (!customerId || !account.registration) return
+    setJourneyBusy(account.account_id)
+    setActionError(null)
+    try {
+      const response = await fetch(registrationActionPath("offboard", account.account_id, customerId), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(offboardRequestBody(account.registration, typedAccountId)),
+      })
+      if (!response.ok) throw await accountAdminFailure(response, REGISTRATION_ACTION_LABEL.offboard)
+      await load("quiet")
+    } catch (reason) {
+      setActionError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setJourneyBusy(null)
+    }
+  }
+
+  function offboardFor(account: ManagedAccount) {
+    if (!customerId || !accountOffboardable(account)) return null
+    return (
+      <OffboardAccount
+        account={account}
+        busy={journeyBusy === account.account_id}
+        onRemove={(typed) => requestOffboard(account, typed)}
+      />
+    )
   }
 
   function journeyFor(account: ManagedAccount) {
@@ -599,6 +637,7 @@ export default function AccountSettingsPage() {
                   columns={tableColumns}
                   checking={validating === account.account_id || Boolean(checks[account.account_id]) || account.pending_request?.action === "validate"}
                   journey={journeyFor(account)}
+                  offboard={offboardFor(account)}
                   onConnect={() => setConnectFor(account.account_id)}
                   onCheck={() => void validate(account.account_id)}
                 />
@@ -643,6 +682,7 @@ export default function AccountSettingsPage() {
                 </div>
               ))}
             </div>
+            {memberMode && data?.removed?.length ? <RemovedAccounts removed={data.removed} /> : null}
             </>}
           </section>
         </div>
@@ -720,6 +760,7 @@ function MemberAccountRow({
   columns,
   checking,
   journey,
+  offboard,
   onConnect,
   onCheck,
 }: {
@@ -728,6 +769,8 @@ function MemberAccountRow({
   checking: boolean
   /** Option C: the registration's next step (check access, confirm, retry, release), or null. */
   journey: React.ReactNode
+  /** Remove an activated account (offboard), or null when it is not offered. */
+  offboard?: React.ReactNode
   onConnect: () => void
   onCheck: () => void
 }) {
@@ -835,8 +878,35 @@ function MemberAccountRow({
             </button>
           </>
         ) : null}
+        {offboard}
       </div>
     </div>
+  )
+}
+
+/** The audit of closed registrations: who removed which account, when, and from what state. Collapsed by default; nothing
+ *  here can be acted on (adding the account again starts a new registration). */
+function RemovedAccounts({ removed }: { removed: RemovedAccount[] }) {
+  return (
+    <details data-testid="removed-accounts" className="rounded-xl border border-slate-200 bg-white text-sm shadow-sm">
+      <summary className="cursor-pointer px-5 py-3 font-semibold text-slate-700">Removed accounts ({removed.length})</summary>
+      <ul className="divide-y divide-slate-100 border-t border-slate-200">
+        {removed.map((item) => (
+          <li key={`${item.account_id}-${item.removal_id || item.at}`} data-testid={`removed-${item.account_id}`} className="px-5 py-3">
+            <p className="font-semibold text-slate-800">
+              {item.display_name && item.display_name !== item.account_id ? `${item.display_name} · ` : ""}
+              <span className="font-mono">{item.account_id}</span>
+            </p>
+            <p className="mt-0.5 text-xs text-slate-500">
+              {item.status === "OFFBOARDED" ? "Removed after it was connected" : "Removed before it was confirmed"}
+              {item.by ? ` by ${item.by}` : ""}
+              {item.at ? ` · ${formatUtcInstantExact(item.at)}` : ""}
+              {item.status === "OFFBOARDED" ? ". Its collected evidence is kept; its connection stack may still be in the account." : "."}
+            </p>
+          </li>
+        ))}
+      </ul>
+    </details>
   )
 }
 

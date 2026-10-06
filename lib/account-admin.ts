@@ -23,7 +23,8 @@ export const MEMBER_ACCOUNTS_MODE = "MEMBER_ACCOUNTS"
  * removing a registration that was never activated (/withdraw) and the runs' measured counts; level 4 adds an account by
  * its read role ARN (checked against the account), the connection stack's instructions before any account
  * (/connect/instructions), and the organization listing role set up from Settings (/organization/discover {role_arn},
- * /organization/template, setup.role). The release bundle refuses to
+ * /organization/template, setup.role); level 5 adds removing an ACTIVATED account (/offboard with the account id typed) and
+ * the listing's removed audit. The release bundle refuses to
  * pair this frontend with a backend whose connector provides less, and the connector's installer never goes below it (saferemediate-backend deploy/customer_pilot/bin/release_bundle.py,
  * install_floor.py). Against an older connector the unverified path would promise "no AWS call" while it calls AWS.
  */
@@ -166,9 +167,23 @@ export interface MemberTrust {
   ready: boolean
 }
 
+/** A closed registration as the listing's audit reports it (backend api/account_registry._removed_view): never an account to
+ *  act on. OFFBOARDED = removed after activation; WITHDRAWN = removed before it. */
+export interface RemovedAccount {
+  account_id: string
+  display_name: string
+  status: "OFFBOARDED" | "WITHDRAWN" | string
+  by?: string | null
+  at?: string | null
+  from_status?: string | null
+  removal_id?: string | null
+}
+
 export interface AccountListResponse {
   mode?: string
   accounts: ManagedAccount[]
+  /** The audit of closed registrations, newest first (level 5). An older backend sends none. */
+  removed?: RemovedAccount[]
   total: number
   registry_available: boolean
   member_trust?: MemberTrust
@@ -476,7 +491,7 @@ export interface RegistrationProgress {
  *  15 minutes before the connector admits it. The page judges it by the wall clock; the connector decides. */
 export const ACTIVATION_CHECK_MAX_AGE_MS = 15 * 60 * 1000
 
-export type RegistrationAction = "access_check" | "activate" | "release" | "withdraw"
+export type RegistrationAction = "access_check" | "activate" | "release" | "withdraw" | "offboard"
 
 /** The proxied route for one journey request. */
 export function registrationActionPath(action: RegistrationAction, accountId: string, customerId: string): string {
@@ -496,6 +511,32 @@ export function registrationRequestBody(
   }
   if (checkId !== undefined) body.check_id = checkId
   return body
+}
+
+/** The connection states an ACTIVATED account lives in, from which it can be removed (backend
+ *  registration_states.OFFBOARDABLE). */
+const OFFBOARDABLE = new Set(["AWAITING_CONNECTION", "CONNECTION_FAILED", "CONNECTED", "ACTIVATION_FAILED"])
+
+/**
+ * Whether Remove is offered for an ACTIVATED account (offboard; level 5): a workload account whose registration carries its
+ * activation, in a state an activated account lives in, with nothing in flight. A never-activated registration is removed by
+ * withdraw instead. The connector decides again and refuses by name if the account moved on meanwhile.
+ */
+export function accountOffboardable(
+  account: Pick<ManagedAccount, "onboarding_status" | "pending_request" | "registration" | "is_platform_account">,
+): boolean {
+  if (account.is_platform_account || account.pending_request) return false
+  const registration = account.registration
+  if (!registration?.activation || registration.activating) return false
+  return OFFBOARDABLE.has(account.onboarding_status)
+}
+
+/** A removal of an activated account names the registration and version shown AND the account id the operator typed. */
+export function offboardRequestBody(
+  registration: Pick<RegistrationProgress, "registration_id" | "registration_version">,
+  typedAccountId: string,
+): Record<string, string | number> {
+  return { ...registrationRequestBody(registration), confirm_account_id: typedAccountId.trim() }
 }
 
 const HEX32 = /^[0-9a-f]{32}$/
