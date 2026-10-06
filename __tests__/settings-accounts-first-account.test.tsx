@@ -705,6 +705,9 @@ describe("Remove an activated account: what removing does, the account id typed,
     const alert = (await screen.findByText(`Removal for prod-payments (${MEMBER}) failed`)).closest("[role=alert]") as HTMLElement
     expect(alert).toHaveTextContent(failure.detail)
     expect(failure.outcome).toBe("REGISTRATION_STATE_CHANGED")
+    // QA-05c: the finish time reads in UTC with its zone, like every other time on the page -- not the browser's local time.
+    expect(alert).toHaveTextContent(`Finished ${formatUtcInstantExact(failure.finished_at)}`)
+    expect(formatUtcInstantExact(failure.finished_at)).toMatch(/ UTC$/)
     expect(removeButton(screen.getByTestId(`account-row-${MEMBER}`))).toBeEnabled()
   })
 

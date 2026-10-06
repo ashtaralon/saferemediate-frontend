@@ -50,6 +50,7 @@ import {
   memberReadRoleName,
   registrationActionPath,
   accountOffboardable,
+  formatUtcInstantExact,
   offboardRequestBody,
   removedAccountSentence,
   type RemovedAccount,
@@ -123,10 +124,9 @@ function statusStyle(status: string) {
   return "bg-slate-50 text-slate-600 border-slate-200"
 }
 
+/** A request's finish time as every other time on this page reads: UTC, with its zone (never the browser's local time). */
 function formatTimestamp(value?: string | null): string | null {
-  if (!value) return null
-  const parsed = new Date(value)
-  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString()
+  return value ? formatUtcInstantExact(value) : null
 }
 
 function failureKey(failure: FailedAccountRequest): string {
