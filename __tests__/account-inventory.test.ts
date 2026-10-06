@@ -2,8 +2,9 @@
  * T11b: the strict account_inventory/v1 reader and its epoch / cursor / publication-bound state machine.
  *
  * Every envelope is a PRODUCER golden: the real backend route's answer, copied byte-for-byte from backend commit
- * 92b2c54f7ea6fbf09b50ae06cec98f9c268bedd0 (tests/fixtures/account_inventory_api/); the two populated pages are the row v3
- * re-captures of 9e17d639b01b034405eec480b531d4efe63e9aef (I2(b1): tags + details). A malformed case is one of those
+ * 92b2c54f7ea6fbf09b50ae06cec98f9c268bedd0 (tests/fixtures/account_inventory_api/); the four SERVED states are the
+ * re-captures of fa2edd53e6743df08e38b15bb35f0d6215ce14ae (I2(b1) row v3 tags + details, I2(b2) account-wide by_type /
+ * by_region and publication.row_contract). A malformed case is one of those
  * goldens with ONE field broken, named as such. The single "inventory_complete: false" case is an explicitly MUTATED
  * robustness case: the producer at that commit never emits it (a SERVED page is always complete).
  */
@@ -29,9 +30,13 @@ const PRODUCER_COMMIT = "92b2c54f7ea6fbf09b50ae06cec98f9c268bedd0"
 /** The tenth golden (the route held by its readiness gate) was added by a later backend commit, which asserts all ten. */
 const PRODUCER_COMMIT_OF: Partial<Record<string, string>> = {
   held_consumer_not_recorded: "95dea3288a8b713b37be95114060c227ff5d0af8",
-  populated_page1: "9e17d639b01b034405eec480b531d4efe63e9aef",
-  populated_page2: "9e17d639b01b034405eec480b531d4efe63e9aef",
+  populated_page1: "fa2edd53e6743df08e38b15bb35f0d6215ce14ae",
+  populated_page2: "fa2edd53e6743df08e38b15bb35f0d6215ce14ae",
+  filter_empty: "fa2edd53e6743df08e38b15bb35f0d6215ce14ae",
+  complete_empty: "fa2edd53e6743df08e38b15bb35f0d6215ce14ae",
 }
+/** The type filter each golden's request carried (the backend harness: filter_empty asked for "ec2:no-such-type"). */
+const FILTER_OF: Partial<Record<string, string>> = { filter_empty: "ec2:no-such-type" }
 const NAMES = [
   "populated_page1", "populated_page2", "complete_empty", "filter_empty", "not_published", "held_authority_changed",
   "refused_cursor_restart_publication_moved", "refused_not_authorized_403", "unavailable_registry_unreadable",
@@ -60,7 +65,7 @@ const KEY: InventoryKey = { customerId: "acme", accountId: ACCOUNT, resourceType
 function parse(name: Name, mutate?: (b: Record<string, any>) => void, status?: number): ParsedInventory {
   const b = body(name)
   mutate?.(b)
-  return parseInventoryResponse(status ?? golden(name).status, b, ACCOUNT)
+  return parseInventoryResponse(status ?? golden(name).status, b, ACCOUNT, FILTER_OF[name] ?? null)
 }
 
 describe("the producer goldens", () => {
@@ -127,14 +132,25 @@ describe("row v3 (I1): tags and details exactly as the producer serves them", ()
     })
   })
 
-  it("still reads a v2 row (a publication written before the upgrade) with neither member", () => {
+  it("MUTATED (a publication written before the upgrade, served as stored): v2 rows, no Region counts", () => {
     const p = parse("populated_page1", (b) => {
+      b.publication.row_contract = "account_inventory_row/v2"
+      delete b.totals.by_region
       for (const row of b.rows) {
         delete row.tags
         delete row.details
       }
     })
-    expect(p.kind).toBe("data")
+    expect(p).toMatchObject({ kind: "data", rowContract: "account_inventory_row/v2", byRegion: null })
+  })
+
+  it("MUTATED (an older backend): no counts and no row contract still read, as unknown", () => {
+    const p = parse("populated_page1", (b) => {
+      delete b.totals.by_type
+      delete b.totals.by_region
+      delete b.publication.row_contract
+    })
+    expect(p).toMatchObject({ kind: "data", byType: null, byRegion: null, rowContract: null })
   })
 
   it("accepts a detail text of exactly the producer's 512 characters, counted as Python counts them", () => {
@@ -176,6 +192,86 @@ describe("row v3 (I1): tags and details exactly as the producer serves them", ()
   ]
   it.each(brokenV3)("refuses %s", (_why, mutate) => {
     expect(parse("populated_page1", mutate)).toMatchObject({ kind: "unavailable", reasonCode: RESPONSE_MALFORMED })
+  })
+})
+
+describe("I2(b2): the publication's account-wide counts and its row contract", () => {
+  it("reads by_type and by_region exactly, both summing to the account's total", () => {
+    const first = parse("populated_page1")
+    if (first.kind !== "data") throw new Error("expected data")
+    expect(first.rowContract).toBe("account_inventory_row/v3")
+    expect(Object.keys(first.byType!)).toHaveLength(30)
+    expect(first.byRegion).toEqual({ "eu-west-1": 24, global: 6 })
+    expect(Object.values(first.byType!).reduce((a, b) => a + b, 0)).toBe(first.totals.accountTotal)
+  })
+
+  it("keeps the counts account-wide under a filter, and a complete-empty publication has empty counts", () => {
+    const filtered = parse("filter_empty")
+    expect(filtered.kind === "data" && [filtered.totals.filterTotal, Object.keys(filtered.byType!).length]).toEqual([0, 30])
+    expect(parse("complete_empty")).toMatchObject({ kind: "data", byType: {}, byRegion: {} })
+  })
+
+  it("binds a filtered page to its type: its total is that type's count and every row is of it", () => {
+    const one = (b: Record<string, any>) => {
+      b.rows = b.rows.filter((row: { resource_type: string }) => row.resource_type === "ec2:instance")
+      b.totals.filter_total = 1
+      b.has_more = false
+      b.next_cursor = null
+    }
+    const asked = (filter: string, mutate: (b: Record<string, any>) => void) => {
+      const b = body("populated_page1")
+      mutate(b)
+      return parseInventoryResponse(200, b, ACCOUNT, filter)
+    }
+    expect(asked("ec2:instance", one).kind).toBe("data")
+    expect(asked("s3:bucket", one)).toMatchObject({ kind: "unavailable", reasonCode: RESPONSE_MALFORMED })
+    expect(asked("ec2:instance", (b) => { one(b); b.totals.filter_total = 2 }).kind).toBe("unavailable")
+    expect(parse("filter_empty", (b) => { b.totals.filter_total = 1 }).kind).toBe("unavailable")
+  })
+
+  const brokenCounts: Array<[string, Name, (b: Record<string, any>) => void]> = [
+    ["by_type not summing to the account", "populated_page1", (b) => { b.totals.by_type["s3:bucket"] += 1 }],
+    ["by_region not summing to the account", "populated_page1", (b) => { b.totals.by_region.global += 1 }],
+    ["a zero count (the manifest never records one)", "populated_page1", (b) => {
+      b.totals.by_type["s3:bucket"] -= 1
+      b.totals.by_type["iam:role"] += 1
+      b.totals.by_type["s3:bucket"] = 0
+    }],
+    ["a count that is not an integer", "populated_page1", (b) => { b.totals.by_region.global = "6" }],
+    ["counts that are not a map", "populated_page1", (b) => { b.totals.by_type = [] }],
+    ["an unnamed type", "populated_page1", (b) => {
+      b.totals.by_type[""] = b.totals.by_type["s3:bucket"]
+      delete b.totals.by_type["s3:bucket"]
+    }],
+    ["a row contract the producer has none of (otherwise shaped as an older one)", "populated_page1", (b) => {
+      b.publication.row_contract = "account_inventory_row/v4"
+      delete b.totals.by_region
+      for (const row of b.rows) {
+        delete row.tags
+        delete row.details
+      }
+    }],
+    ["a v3 publication without Region counts", "populated_page1", (b) => { delete b.totals.by_region }],
+    ["a v3 row without details", "populated_page1", (b) => { delete b.rows[1].details }],
+    ["an older publication with Region counts", "populated_page1", (b) => {
+      b.publication.row_contract = "account_inventory_row/v2"
+      for (const row of b.rows) {
+        delete row.tags
+        delete row.details
+      }
+    }],
+    ["an older publication whose rows carry v3 members", "populated_page1", (b) => {
+      b.publication.row_contract = "account_inventory_row/v2"
+      delete b.totals.by_region
+    }],
+  ]
+  it.each(brokenCounts)("refuses %s", (_why, name, mutate) => {
+    expect(parse(name, mutate)).toMatchObject({ kind: "unavailable", reasonCode: RESPONSE_MALFORMED })
+  })
+
+  it("refuses the filtered answer as the answer to an unfiltered request (its total is not the account's)", () => {
+    expect(parseInventoryResponse(200, body("filter_empty"), ACCOUNT, null))
+      .toMatchObject({ kind: "unavailable", reasonCode: RESPONSE_MALFORMED })
   })
 })
 
@@ -338,6 +434,20 @@ describe("one publication must be walked forward (bounded progression cases, eac
     expect(invalid(append(firstPage(), (b) => {
       b.totals.account_total += 1
       b.totals.filter_total += 1
+      b.totals.by_type["s3:bucket"] += 1
+      b.totals.by_region["eu-west-1"] += 1
+    }))).toBe(true)
+  })
+
+  it("changed counts within one publication are refused even when every total still adds up", () => {
+    expect(invalid(append(firstPage(), (b) => {
+      b.totals.by_type["s3:bucket"] += 1
+      b.totals.by_type["iam:role"] -= 1
+      delete b.totals.by_type["iam:role"]
+    }))).toBe(true)
+    expect(invalid(append(firstPage(), (b) => {
+      b.totals.by_region["eu-west-1"] -= 1
+      b.totals.by_region.global += 1
     }))).toBe(true)
   })
 

@@ -102,6 +102,12 @@ export interface InventoryData {
   publishedAtEpoch: number
   inventoryComplete: boolean
   totals: { accountTotal: number; filterTotal: number }
+  /** The publication's count per resource_type, ACCOUNT-WIDE whatever the filter (I2(b2)); null from an older backend. */
+  byType: Record<string, number> | null
+  /** Its count per Region ("global" for account-wide types); recorded by every v3 publication, null otherwise. */
+  byRegion: Record<string, number> | null
+  /** The row contract the publication was written under; v3 rows carry tags and details. Null from an older backend. */
+  rowContract: RowContract | null
   rows: InventoryRow[]
   nextCursor: string | null
   hasMore: boolean
@@ -115,6 +121,12 @@ export interface InventoryOutcome {
 }
 
 export type ParsedInventory = InventoryData | InventoryOutcome
+
+/** account_inventory_rows.py ROW_CONTRACTS. */
+export const ROW_CONTRACT_V3 = "account_inventory_row/v3"
+const ROW_CONTRACTS = ["account_inventory_row/v1", "account_inventory_row/v2", ROW_CONTRACT_V3] as const
+export type RowContract = (typeof ROW_CONTRACTS)[number]
+const V3_ROW_MEMBERS = ["tags", "tags_withheld", "details", "details_withheld"] as const
 
 function bytes(value: string): number {
   return new TextEncoder().encode(value).length
@@ -204,11 +216,32 @@ function validRowV3(row: Record<string, unknown>): boolean {
 }
 
 /**
+ * A publication's account-wide count map (manifest type_counts / region_counts, validate_manifest): each key named, each
+ * count a positive integer, the counts summing to exactly the publication's own total. Absent -> null.
+ */
+function countMap(value: unknown, total: number, keyMaxBytes: number): Record<string, number> | null | false {
+  if (value === undefined) return null
+  if (!isObject(value)) return false
+  let sum = 0
+  for (const [key, count] of Object.entries(value)) {
+    if (!key || bytes(key) > keyMaxBytes || !safeInt(count, 1)) return false
+    sum += count
+  }
+  return sum === total ? (value as Record<string, number>) : false
+}
+
+/**
  * The ONE strict reading of an answer, for the account the page asked for. `status` is the HTTP status: a data
  * or evidence answer must be 200, a refusal 4xx and an unavailable answer 5xx, so an error can never carry
  * accepted data.
  */
-export function parseInventoryResponse(status: number, body: unknown, accountId: string): ParsedInventory {
+export function parseInventoryResponse(
+  status: number,
+  body: unknown,
+  accountId: string,
+  /** The type filter the request carried: a filtered page holds only that type, and its total is that type's count. */
+  resourceType: string | null = null,
+): ParsedInventory {
   if (!ACCOUNT_ID.test(accountId)) return malformed(status)
   if (!isObject(body)) return { kind: "unavailable", status, state: "unavailable", reasonCode: RESPONSE_NOT_CONTRACT }
   if (body.contract !== INVENTORY_CONTRACT) {
@@ -250,6 +283,23 @@ export function parseInventoryResponse(status: number, body: unknown, accountId:
     const accountTotal = totals.account_total as number
     const filterTotal = totals.filter_total as number
     if (rows.length > filterTotal) return malformed(status)
+    // I2(b2): the account-wide counts and the row contract. A v3 publication always records its Region counts and every
+    // v3 row carries details; an older one has neither Region counts nor any v3 member on a row.
+    const byType = countMap(totals.by_type, accountTotal, ROW_FIELD_MAX_BYTES.resource_type)
+    const byRegion = countMap(totals.by_region, accountTotal, ROW_FIELD_MAX_BYTES.region)
+    if (byType === false || byRegion === false) return malformed(status)
+    const rowContract = publication.row_contract === undefined ? null : publication.row_contract
+    if (rowContract !== null && !(ROW_CONTRACTS as readonly unknown[]).includes(rowContract)) return malformed(status)
+    const served = rows as InventoryRow[]
+    if (rowContract === ROW_CONTRACT_V3) {
+      if (byRegion === null || !served.every((row) => row.details !== undefined)) return malformed(status)
+    } else if (rowContract !== null) {
+      if (byRegion !== null || served.some((row) => V3_ROW_MEMBERS.some((member) => member in row))) return malformed(status)
+    }
+    if (resourceType !== null && served.some((row) => row.resource_type !== resourceType)) return malformed(status)
+    if (byType !== null && filterTotal !== (resourceType === null ? accountTotal : (byType[resourceType] ?? 0))) {
+      return malformed(status)
+    }
     if (state === "populated" && (rows.length < 1 || filterTotal < 1)) return malformed(status)
     if (state === "complete_empty" && (rows.length !== 0 || accountTotal !== 0 || body.has_more)) return malformed(status)
     if (state === "filter_empty" && (rows.length !== 0 || filterTotal !== 0 || accountTotal < 1 || body.has_more)) {
@@ -270,6 +320,9 @@ export function parseInventoryResponse(status: number, body: unknown, accountId:
       publishedAtEpoch: publication.published_at_epoch as number,
       inventoryComplete: publication.inventory_complete,
       totals: { accountTotal, filterTotal },
+      byType,
+      byRegion,
+      rowContract: rowContract as RowContract | null,
       rows: rows as InventoryRow[],
       nextCursor: (body.next_cursor as string | null) ?? null,
       hasMore: body.has_more,
@@ -362,6 +415,12 @@ export type InventoryEffect = "none" | "restart"
  * restart) the read restarts from page 1 once, and a second move in that chain is "republishing". Every non-data
  * outcome replaces the model, so no earlier row stays visible as current.
  */
+function countsEqual(a: Record<string, number> | null, b: Record<string, number> | null): boolean {
+  if (a === null || b === null) return a === b
+  const keys = Object.keys(a)
+  return keys.length === Object.keys(b).length && keys.every((key) => Object.prototype.hasOwnProperty.call(b, key) && a[key] === b[key])
+}
+
 export function applyInventoryResponse(
   model: InventoryModel,
   request: InventoryRequest,
@@ -398,7 +457,9 @@ export function applyInventoryResponse(
   }
   // The same publication must walk forward: the same totals, a cursor never seen in this read, no row seen before, and
   // never more rows than its count -- exactly its count at the end. A short page is legitimate: has_more decides.
-  if (parsed.totals.accountTotal !== model.totals.accountTotal || parsed.totals.filterTotal !== model.totals.filterTotal) {
+  if (parsed.totals.accountTotal !== model.totals.accountTotal || parsed.totals.filterTotal !== model.totals.filterTotal
+    || parsed.rowContract !== model.rowContract || !countsEqual(parsed.byType, model.byType)
+    || !countsEqual(parsed.byRegion, model.byRegion)) {
     return invalid(parsed.status)
   }
   if (parsed.nextCursor !== null && (parsed.nextCursor === request.cursor || model.seenCursors.includes(parsed.nextCursor))) {

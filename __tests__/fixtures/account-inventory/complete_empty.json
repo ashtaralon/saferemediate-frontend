@@ -15,7 +15,7 @@
       "cyntro_data.projection.receipt clock"
     ],
     "note": "The real route's answer, captured by the harness; nothing removed. Not installed or live evidence.",
-    "backend_commit": "92b2c54f7ea6fbf09b50ae06cec98f9c268bedd0",
+    "backend_commit": "fa2edd53e6743df08e38b15bb35f0d6215ce14ae",
     "backend_path": "tests/fixtures/account_inventory_api/complete_empty.json",
     "copied_unchanged": "status, cache_control and body are byte-for-byte the backend golden's"
   },
@@ -35,11 +35,14 @@
       "source_identity": "v1:583d7f43094983d2b38a8d75e6115df646d6f02b7758f761294e2c9cf98f135c",
       "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
       "published_at_epoch": 1800000000,
-      "inventory_complete": true
+      "inventory_complete": true,
+      "row_contract": "account_inventory_row/v3"
     },
     "totals": {
       "account_total": 0,
-      "filter_total": 0
+      "filter_total": 0,
+      "by_type": {},
+      "by_region": {}
     },
     "rows": [],
     "next_cursor": null,

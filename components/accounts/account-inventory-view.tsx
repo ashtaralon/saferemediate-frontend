@@ -112,7 +112,7 @@ function useInventoryRead(customerId: string | null, accountId: string, resource
       if (!alive.current) return      // a superseded reader (another key, or unmounted): never touches state
       const current = modelRef.current
       const { model: next, effect } = applyInventoryResponse(current, request, parseInventoryResponse(status, body,
-        request.key.accountId))
+        request.key.accountId, request.key.resourceType))
       if (effect === "restart") {
         epochRef.current += 1
         const fresh = startRead(epochRef.current, current.key, current.restarts + 1)

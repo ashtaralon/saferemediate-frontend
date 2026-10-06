@@ -15,7 +15,7 @@
       "cyntro_data.projection.receipt clock"
     ],
     "note": "The real route's answer, captured by the harness; nothing removed. Not installed or live evidence.",
-    "backend_commit": "9e17d639b01b034405eec480b531d4efe63e9aef",
+    "backend_commit": "fa2edd53e6743df08e38b15bb35f0d6215ce14ae",
     "backend_path": "tests/fixtures/account_inventory_api/populated_page2.json",
     "copied_unchanged": "status, cache_control and body are byte-for-byte the backend golden's"
   },
@@ -35,11 +35,48 @@
       "source_identity": "v1:51c2bdacb1d97362138456565f90bf6fabd1b80c6374cc94ee4aad4a4bf1c7e6",
       "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
       "published_at_epoch": 1800000000,
-      "inventory_complete": true
+      "inventory_complete": true,
+      "row_contract": "account_inventory_row/v3"
     },
     "totals": {
       "account_total": 30,
-      "filter_total": 30
+      "filter_total": 30,
+      "by_type": {
+        "account:regions": 1,
+        "ec2:instance": 1,
+        "ec2:internet-gateway": 1,
+        "ec2:nat-gateway": 1,
+        "ec2:network-acl": 1,
+        "ec2:network-interface": 1,
+        "ec2:route-table": 1,
+        "ec2:security-group": 1,
+        "ec2:subnet": 1,
+        "ec2:vpc": 1,
+        "ec2:vpc-endpoint": 1,
+        "ec2:vpc-endpoint-authorization": 1,
+        "eks:cluster": 1,
+        "elasticloadbalancing:listener": 1,
+        "elasticloadbalancing:load-balancer": 1,
+        "elasticloadbalancing:target-group": 1,
+        "events:event-bus-authorization": 1,
+        "iam:policy": 1,
+        "iam:role": 1,
+        "kms:key-authorization": 1,
+        "lambda:function": 1,
+        "lambda:function-authorization": 1,
+        "organizations:account-policy-context": 1,
+        "rds:db-cluster": 1,
+        "rds:db-instance": 1,
+        "s3:bucket": 1,
+        "s3:bucket-authorization": 1,
+        "secretsmanager:secret-authorization": 1,
+        "sns:topic-authorization": 1,
+        "sqs:queue-authorization": 1
+      },
+      "by_region": {
+        "eu-west-1": 24,
+        "global": 6
+      }
     },
     "rows": [
       {
