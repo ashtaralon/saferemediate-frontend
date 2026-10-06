@@ -22,8 +22,10 @@ vi.mock("@/lib/account-scope-context", () => ({
 vi.mock("@/components/left-sidebar-nav", () => ({ LeftSidebarNav: () => null }))
 
 import AccountRoute from "@/app/accounts/[accountId]/page"
+import { formatUtcInstantExact } from "@/lib/account-admin"
 import measured from "@/__tests__/fixtures/settings-c-producer/27_k2_collected_measured.json"
 import withdrawn from "@/__tests__/fixtures/settings-c-producer/25_withdrawn.json"
+import offboarded from "@/__tests__/fixtures/settings-c-producer/41_offboarded_listing.json"
 import pending from "@/__tests__/fixtures/settings-c-producer/01_pending_unverified.json"
 
 const MEMBER = "222222222222"
@@ -69,10 +71,34 @@ describe("the account page's Overview", () => {
     expect(await screen.findByTestId("first-inventory-by-type-empty")).toHaveTextContent("No first inventory yet")
   })
 
-  it("an account no longer listed (removed) is said so, not shown as empty", async () => {
+  it("an account no longer listed is said so, not shown as empty (a backend before level 5 sends no removed audit)", async () => {
     serve(withdrawn as never)
     await open(MEMBER)
     expect(await screen.findByTestId("account-not-listed")).toHaveTextContent(`Account ${MEMBER} is not in this installation's account list`)
+    expect(screen.queryByTestId("account-removed")).toBeNull()
+  })
+
+  it("a removed account says who removed it, when, and what removing kept, from the listing's removed audit", async () => {
+    serve(offboarded as never)
+    await open(MEMBER)
+    const removed = (offboarded as any).body.removed[0]
+    const panel = await screen.findByTestId("account-removed")
+    expect(panel).toHaveTextContent("This account was removed from Cyntro.")
+    expect(panel).toHaveTextContent(
+      `Removed after it was connected by ${removed.by} · ${formatUtcInstantExact(removed.at)}. ` +
+        "Its collected evidence is kept; its connection stack may still be in the account.",
+    )
+    expect(panel).toHaveTextContent("Adding it again in Settings › Accounts starts a new registration that collects afresh.")
+    expect(screen.getByTestId("account-page-title")).toHaveTextContent(removed.display_name)
+    expect(screen.getByText(MEMBER)).toBeInTheDocument()
+    expect(screen.queryByTestId("account-not-listed")).toBeNull()
+  })
+
+  it("another account's removal is not this account's", async () => {
+    serve(offboarded as never)
+    await open("444444444444")
+    expect(await screen.findByTestId("account-not-listed")).toBeInTheDocument()
+    expect(screen.queryByTestId("account-removed")).toBeNull()
   })
 })
 

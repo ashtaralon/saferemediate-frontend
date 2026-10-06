@@ -1,0 +1,48 @@
+{
+ "body": {
+  "accounts": [],
+  "customer_id": "acme",
+  "failed_requests": [
+   {
+    "account_id": "222222222222",
+    "action": "register",
+    "detail": "account 222222222222 was removed from this installation and that removal is still being finished; nothing was registered -- add it again once it has finished",
+    "finished_at": "2026-10-06T05:36:42.125613+00:00",
+    "outcome": "ACCOUNT_REMOVAL_NOT_FINISHED"
+   }
+  ],
+  "member_trust": {
+   "organization_id": null,
+   "platform_account_id": "111111111111",
+   "ready": false
+  },
+  "mode": "MEMBER_ACCOUNTS",
+  "registry_available": true,
+  "removed": [
+   {
+    "account_id": "222222222222",
+    "at": "2026-10-06T05:36:42.090950+00:00",
+    "by": "https://cognito-idp.eu-west-1.amazonaws.com/pool#00u-alice",
+    "display_name": "prod-payments",
+    "from_status": "CONNECTED",
+    "removal_id": "db60f09474950cc54360c1fd180d48f9",
+    "status": "OFFBOARDED"
+   }
+  ],
+  "summary": {
+   "connected": 0,
+   "discovered": 0,
+   "mutation_enabled": 0,
+   "needs_attention": 0
+  },
+  "total": 0
+ },
+ "captured_at": "2026-10-06T05:36:42.134239+00:00",
+ "name": "45_re_add_refused_removal_not_finished",
+ "note": "GET /accounts after the connector refused the early Add: the refusal, and the removal still listed",
+ "request": {
+  "method": "GET",
+  "path": "/api/admin/accounts?customer_id=acme"
+ },
+ "status": 200
+}

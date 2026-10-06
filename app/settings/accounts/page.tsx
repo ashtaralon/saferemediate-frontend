@@ -50,8 +50,8 @@ import {
   memberReadRoleName,
   registrationActionPath,
   accountOffboardable,
-  formatUtcInstantExact,
   offboardRequestBody,
+  removedAccountSentence,
   type RemovedAccount,
   registrationFailed,
   registrationRequestBody,
@@ -405,7 +405,11 @@ export default function AccountSettingsPage() {
     .sort((a, b) => Number(Boolean(b.is_platform_account)) - Number(Boolean(a.is_platform_account)))
   const summary = data?.summary || emptySummary
   const visibleFailures = failedRequests.filter((failure) => !dismissedFailures.includes(failureKey(failure)))
-  const accountNames = new Map(allAccounts.map((account) => [account.account_id, accountLabel(account)]))
+  // A listed account's name; else the newest removal's (a refused Add for a removed account names it as it was).
+  const accountNames = new Map<string, string>([
+    ...[...(data?.removed || [])].reverse().map((item) => [item.account_id, item.display_name || item.account_id] as const),
+    ...allAccounts.map((account) => [account.account_id, accountLabel(account)] as const),
+  ])
   const legacyRegistryUnprovisioned = Boolean(data) && !memberMode && data?.registry_available === false
   const tableColumns = memberMode
     ? "grid-cols-[minmax(240px,1.3fr)_120px_minmax(240px,1.5fr)_190px_250px]"
@@ -897,12 +901,7 @@ function RemovedAccounts({ removed }: { removed: RemovedAccount[] }) {
               {item.display_name && item.display_name !== item.account_id ? `${item.display_name} · ` : ""}
               <span className="font-mono">{item.account_id}</span>
             </p>
-            <p className="mt-0.5 text-xs text-slate-500">
-              {item.status === "OFFBOARDED" ? "Removed after it was connected" : "Removed before it was confirmed"}
-              {item.by ? ` by ${item.by}` : ""}
-              {item.at ? ` · ${formatUtcInstantExact(item.at)}` : ""}
-              {item.status === "OFFBOARDED" ? ". Its collected evidence is kept; its connection stack may still be in the account." : "."}
-            </p>
+            <p className="mt-0.5 text-xs text-slate-500">{removedAccountSentence(item)}</p>
           </li>
         ))}
       </ul>

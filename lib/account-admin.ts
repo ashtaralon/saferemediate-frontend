@@ -901,7 +901,9 @@ const REQUEST_OUTCOMES: Record<string, string> = {
   ACCOUNT_HISTORY_PRESENT:
     "This account already has collection history in this installation, so it cannot be connected here as a new account. Do not register it again; contact Cyntro support. Nothing was changed.",
   ACCOUNT_HISTORY_UNKNOWN:
-    "Cyntro could not read whether this account already has collection history here. Confirm again; nothing was changed.",
+    "Cyntro could not read whether this account already has collection history here. Try again; nothing was changed.",
+  ACCOUNT_REMOVAL_NOT_FINISHED:
+    "This account was removed recently and Cyntro is still finishing that removal, setting its earlier collection aside so it can start afresh. Add it again once that has finished. Nothing was changed.",
   OWNER_HELD:
     "A previous step could not record its result and is kept as the proof of where the account stands. Release the account, or wait.",
 }
@@ -1195,6 +1197,20 @@ export function formatUtcInstantExact(value: string): string {
   const iso = parsed.toISOString()
   const millis = iso.slice(19, 23)
   return `${iso.slice(0, 19).replace("T", " ")}${millis === ".000" ? "" : millis} UTC`
+}
+
+/**
+ * One closed registration from the listing's removed audit (level 5), in words: how it was removed, by whom, when, and what
+ * removing kept. Settings' removed list and the account page say it the same way.
+ */
+export function removedAccountSentence(item: Pick<RemovedAccount, "status" | "by" | "at">): string {
+  const offboarded = item.status === "OFFBOARDED"
+  return (
+    (offboarded ? "Removed after it was connected" : "Removed before it was confirmed") +
+    (item.by ? ` by ${item.by}` : "") +
+    (item.at ? ` · ${formatUtcInstantExact(item.at)}` : "") +
+    (offboarded ? ". Its collected evidence is kept; its connection stack may still be in the account." : ".")
+  )
 }
 
 // ── optional organization discovery (backend cyntro_data/accounts/org_discovery.py) ───────────────────────────

@@ -49,6 +49,7 @@ import offRequested from "@/__tests__/fixtures/settings-c-producer/39_offboard_r
 import offPending from "@/__tests__/fixtures/settings-c-producer/40_offboard_pending_listing.json"
 import offDone from "@/__tests__/fixtures/settings-c-producer/41_offboarded_listing.json"
 import offStale from "@/__tests__/fixtures/settings-c-producer/43_offboard_refused_state_changed.json"
+import reAddEarly from "@/__tests__/fixtures/settings-c-producer/45_re_add_refused_removal_not_finished.json"
 
 const CUSTOMER = "acme"
 const MEMBER = "222222222222"
@@ -640,8 +641,8 @@ describe("each member account opens its own page", () => {
 })
 
 
-// ── Offboarding (Alon 2026-10-06 sign-off): removing an ACTIVATED account. Rows 38-43 are the producer's own (backend
-// 3d87edbc, fixtures README).
+// ── Offboarding (Alon 2026-10-06 sign-off): removing an ACTIVATED account. Rows 38-45 are the producer's own (backend
+// d7b46ae7, fixtures README).
 
 describe("Remove an activated account: what removing does, the account id typed, and the removed audit", () => {
   const dialogOf = () => screen.findByRole("dialog", { name: "Remove prod-payments (222222222222) from Cyntro?" })
@@ -705,5 +706,20 @@ describe("Remove an activated account: what removing does, the account id typed,
     expect(alert).toHaveTextContent(failure.detail)
     expect(failure.outcome).toBe("REGISTRATION_STATE_CHANGED")
     expect(removeButton(screen.getByTestId(`account-row-${MEMBER}`))).toBeEnabled()
+  })
+
+  it("adding a removed account again before its removal has finished is refused by name, and the removal stays listed", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true, now: at(reAddEarly as Capture) })
+    install(reAddEarly as Capture)
+    render(<AccountSettingsPage />)
+    const failure = (reAddEarly as Capture).body.failed_requests[0]
+    expect(failure.outcome).toBe("ACCOUNT_REMOVAL_NOT_FINISHED")
+    const alert = (await screen.findByText(`Registration for prod-payments (${MEMBER}) failed`)).closest("[role=alert]") as HTMLElement
+    expect(within(alert).getByTestId(`failure-outcome-${MEMBER}`)).toHaveTextContent(
+      "This account was removed recently and Cyntro is still finishing that removal, setting its earlier collection aside so it " +
+      "can start afresh. Add it again once that has finished. Nothing was changed.")
+    expect(alert).toHaveTextContent(failure.detail)
+    expect(screen.queryByTestId(`account-row-${MEMBER}`)).toBeNull()
+    expect(within(screen.getByTestId("removed-accounts")).getByTestId(`removed-${MEMBER}`)).toBeInTheDocument()
   })
 })

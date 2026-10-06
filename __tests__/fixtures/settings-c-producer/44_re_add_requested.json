@@ -1,0 +1,23 @@
+{
+ "body": {
+  "account_id": "222222222222",
+  "action": "register",
+  "already_open": false,
+  "customer_id": "acme",
+  "request_status": "queued",
+  "requested_at": "2026-10-06T05:36:42.103698+00:00"
+ },
+ "captured_at": "2026-10-06T05:36:42.105584+00:00",
+ "name": "44_re_add_requested",
+ "note": "POST /accounts for the removed account again, before its removal finished",
+ "request": {
+  "json": {
+   "account_id": "222222222222",
+   "acknowledge_unverified": true,
+   "customer_id": "acme"
+  },
+  "method": "POST",
+  "path": "/api/admin/accounts"
+ },
+ "status": 202
+}

@@ -5,15 +5,15 @@
   "already_open": false,
   "customer_id": "acme",
   "request_status": "queued",
-  "requested_at": "2026-10-06T05:12:50.589014+00:00"
+  "requested_at": "2026-10-06T05:36:40.026347+00:00"
  },
- "captured_at": "2026-10-06T05:12:50.590673+00:00",
+ "captured_at": "2026-10-06T05:36:40.028179+00:00",
  "name": "39_offboard_requested",
  "note": "POST /offboard with the registration shown and the account id typed",
  "request": {
   "json": {
    "confirm_account_id": "222222222222",
-   "registration_id": "e2d96b7de2b88dccff0644e6772948d4",
+   "registration_id": "0f80cda5935afaae1747cf76c77d1c03",
    "registration_version": 5
   },
   "method": "POST",

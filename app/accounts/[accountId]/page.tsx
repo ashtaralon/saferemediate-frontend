@@ -6,6 +6,7 @@
  * facts, its first inventory by resource type). Inventory: its published inventory (T11b), read-only.
  *
  * The PATH account is authoritative; the tab is in the URL (?tab=inventory) so a link or reload opens the same view.
+ * A removed account is no longer listed; the listing's removed audit (level 5) says who removed it and when.
  * Nothing is fetched for the platform account's own collection here: the page reads the same listing Settings reads.
  */
 import { Suspense, use, useCallback, useEffect, useState } from "react"
@@ -19,8 +20,10 @@ import { useAccountScope } from "@/lib/account-scope-context"
 import {
   accountAdminFailure,
   accountLabel,
+  removedAccountSentence,
   type AccountListResponse,
   type ManagedAccount,
+  type RemovedAccount,
 } from "@/lib/account-admin"
 
 const TABS = [["overview", "Overview"], ["inventory", "Inventory"]] as const
@@ -30,7 +33,10 @@ interface Props {
   params: Promise<{ accountId: string }>
 }
 
-type Listing = { state: "loading" } | { state: "error"; message: string } | { state: "ready"; account: ManagedAccount | null }
+type Listing =
+  | { state: "loading" }
+  | { state: "error"; message: string }
+  | { state: "ready"; account: ManagedAccount | null; removed: RemovedAccount | null }
 
 function AccountPage({ accountId }: { accountId: string }) {
   const scope = useAccountScope()
@@ -47,7 +53,12 @@ function AccountPage({ accountId }: { accountId: string }) {
       const response = await fetch(`/api/proxy/admin/accounts?customer_id=${encodeURIComponent(customerId)}`)
       if (!response.ok) throw await accountAdminFailure(response, "Accounts")
       const body = (await response.json()) as AccountListResponse
-      setListing({ state: "ready", account: (body.accounts || []).find((a) => a.account_id === accountId) ?? null })
+      setListing({
+        state: "ready",
+        account: (body.accounts || []).find((a) => a.account_id === accountId) ?? null,
+        // Newest first: the latest removal of this account, when it is not listed again.
+        removed: (body.removed || []).find((r) => r.account_id === accountId) ?? null,
+      })
     } catch (reason) {
       setListing({ state: "error", message: reason instanceof Error ? reason.message : String(reason) })
     }
@@ -65,7 +76,9 @@ function AccountPage({ accountId }: { accountId: string }) {
   }, [router, pathname, searchParams])
 
   const account = listing.state === "ready" ? listing.account : null
-  const title = account ? accountLabel(account) : accountId
+  const removed = listing.state === "ready" && !account ? listing.removed : null
+  const removedName = removed?.display_name && removed.display_name !== accountId ? removed.display_name : null
+  const title = account ? accountLabel(account) : removedName ?? accountId
 
   return (
     <div className="flex min-h-[calc(100vh-44px)] bg-[#f3f6f7] text-slate-900">
@@ -77,7 +90,7 @@ function AccountPage({ accountId }: { accountId: string }) {
           </Link>
           <p className="mt-3 text-[10px] font-bold uppercase tracking-[0.18em] text-teal-700">AWS account</p>
           <h1 data-testid="account-page-title" className="mt-1 text-2xl font-semibold">{title}</h1>
-          {account && title !== account.account_id ? <p className="mt-1 font-mono text-sm text-slate-500">{account.account_id}</p> : null}
+          {title !== accountId ? <p className="mt-1 font-mono text-sm text-slate-500">{accountId}</p> : null}
           <div role="tablist" aria-label="Account views" className="mt-5 flex gap-4">
             {TABS.map(([value, label]) => (
               <button
@@ -100,6 +113,12 @@ function AccountPage({ accountId }: { accountId: string }) {
             <p className="flex items-center gap-2 text-sm text-slate-500"><Loader2 className="h-4 w-4 animate-spin" aria-hidden /> Loading the account…</p>
           ) : listing.state === "error" ? (
             <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{listing.message}</p>
+          ) : removed ? (
+            <div data-testid="account-removed" className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600">
+              <p className="font-semibold text-slate-800">This account was removed from Cyntro.</p>
+              <p className="mt-1">{removedAccountSentence(removed)}</p>
+              <p className="mt-1">Adding it again in Settings › Accounts starts a new registration that collects afresh.</p>
+            </div>
           ) : account === null ? (
             <p data-testid="account-not-listed" className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600">
               Account {accountId} is not in this installation&apos;s account list. It may have been removed; Settings › Accounts lists the accounts this installation reads.
