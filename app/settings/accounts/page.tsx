@@ -696,6 +696,7 @@ export default function AccountSettingsPage() {
           customerId={customerId}
           accounts={allAccounts}
           platformAccountId={data?.member_trust?.platform_account_id || null}
+          removed={data?.removed || []}
           onClose={() => setShowAdd(false)}
           onRequested={({ accountId, requestedAt, alreadyOpen }) => {
             setShowAdd(false)
@@ -1071,12 +1072,15 @@ function MemberAddAccountDialog({
   customerId,
   accounts,
   platformAccountId,
+  removed,
   onClose,
   onRequested,
 }: {
   customerId: string | null
   accounts: ManagedAccount[]
   platformAccountId: string | null
+  /** The listing's removed audit, newest first (QA-05d: Review says when an account being added again was removed). */
+  removed: RemovedAccount[]
   onClose: () => void
   onRequested: (request: { accountId: string; requestedAt: string; alreadyOpen: boolean }) => void
 }) {
@@ -1137,6 +1141,8 @@ function MemberAddAccountDialog({
   const stillReviewed = (current: AccountIdCheck) =>
     reviewed === "LISTED" ? accountIdReviewable(current) : reviewed === "UNVERIFIED" ? accountIdUnverified(current) : false
   const addable = ready && step === "confirm" && stillReviewed(check) && (reviewed !== "UNVERIFIED" || acknowledged)
+  // QA-05d: an account being added again after it was removed -- its latest removal, from the listing's own audit.
+  const removedBefore = step === "confirm" && accountId ? removed.find((item) => item.account_id === accountId) ?? null : null
 
   function review() {
     const at = Date.now()
@@ -1210,6 +1216,12 @@ function MemberAddAccountDialog({
               </button>
             ))}
           </div>
+        ) : null}
+        {removedBefore ? (
+          <p data-testid="add-account-removed-before" className="mx-6 mt-6 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
+            This account was removed from Cyntro before. {removedAccountSentence(removedBefore)} Adding it again starts a new
+            registration that collects afresh; the earlier removal stays listed under Removed accounts.
+          </p>
         ) : null}
         {step === "details" && source === "organization" ? (
           <OrganizationAccountPicker
