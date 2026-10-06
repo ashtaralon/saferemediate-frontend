@@ -15,7 +15,7 @@ import type { InventoryFetchResult, InventoryFetcher } from "@/lib/account-inven
 type Name =
   | "populated_page1" | "populated_page2" | "complete_empty" | "filter_empty" | "not_published"
   | "held_authority_changed" | "refused_cursor_restart_publication_moved" | "refused_not_authorized_403"
-  | "unavailable_registry_unreadable"
+  | "unavailable_registry_unreadable" | "held_consumer_not_recorded"
 
 function golden(name: Name): { status: number; body: Record<string, any> } {
   return JSON.parse(readFileSync(resolve(process.cwd(), "__tests__/fixtures/account-inventory", `${name}.json`), "utf8"))
@@ -146,10 +146,20 @@ describe("the inventory view", () => {
     expect(calls[4].params.cursor).toBeNull()
   })
 
+  it("the readiness gate's hold reads as words, never as the raw code", async () => {
+    // The route's REAL answer (backend golden held_consumer_not_recorded): "<account>:CONSUMER_NOT_READY:not_recorded".
+    const { fetchPage, release } = controllable()
+    view({ fetchPage })
+    await release(0, answer("held_consumer_not_recorded"))
+    expect(screen.getByText("Inventory is not shown yet: this account's readiness check has not been recorded.")).toBeTruthy()
+    expect(screen.queryByText(/CONSUMER_NOT_READY/)).toBeNull()
+  })
+
   it("refusals and holds clear the rows and say what happened", async () => {
     const cases: Array<[Name, string]> = [
       ["refused_not_authorized_403", "not authorized"],
       ["held_authority_changed", "registration changed"],
+      ["held_consumer_not_recorded", "readiness check has not been recorded"],
       ["unavailable_registry_unreadable", "INVENTORY_SCOPE_UNAVAILABLE"],
     ]
     for (const [name, copy] of cases) {
