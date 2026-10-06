@@ -75,6 +75,14 @@ export interface InventoryRow {
   assignment: Record<string, unknown>
   /** The authoring judgement, kept as data only; NEVER shown or used as selectable on this screen. */
   eligibility: Record<string, unknown>
+  /** Row v3 (I1): the fact's tags, ONLY for a type whose collector reads tags ({} = read, none); absent otherwise. */
+  tags?: Record<string, string>
+  /** Row v3: tags too large (or not text) to serve -- how many, and why; never truncated. */
+  tags_withheld?: { reason: string; count: number }
+  /** Row v3: the type's allowed attributes the fact carries as display-safe scalars (lib/inventory-details.ts reads them). */
+  details?: Record<string, string | number | boolean>
+  /** Row v3: allowed attributes the fact carries but that could not be shown (their names). */
+  details_withheld?: string[]
 }
 
 export interface PublicationIdentity {
@@ -156,6 +164,42 @@ function validRow(row: unknown): row is InventoryRow {
   if (!isObject(incarnation) || typeof incarnation.status !== "string") return false
   if (!isObject(assignment) || typeof assignment.status !== "string") return false
   if (!isObject(row.eligibility)) return false
+  return validRowV3(row)
+}
+
+// Row v3 (account_inventory_rows.py _tags / _details): a tag is text -> text, the whole set bounded by the producer's
+// budget (over it the row carries tags_withheld instead); a detail is a boolean, an integer or a text of at most
+// DETAIL_TEXT_MAX characters (Python counts code points, so this does too).
+const TAGS_WITHHELD_REASONS = new Set(["TAGS_OVER_CAP", "TAGS_NOT_TEXT"])
+const DETAIL_TEXT_MAX = 512
+
+/** Row v3's members, each strictly shaped WHEN present (a v2 row has none of them). */
+function validRowV3(row: Record<string, unknown>): boolean {
+  if ("tags" in row && "tags_withheld" in row) return false
+  if ("tags" in row) {
+    if (!isObject(row.tags) || !Object.values(row.tags).every((value) => typeof value === "string")) return false
+  }
+  if ("tags_withheld" in row) {
+    const withheld = row.tags_withheld
+    if (!isObject(withheld) || typeof withheld.reason !== "string" || !TAGS_WITHHELD_REASONS.has(withheld.reason)
+      || !safeInt(withheld.count, 0)) {
+      return false
+    }
+  }
+  if ("details" in row) {
+    if (!isObject(row.details)) return false
+    for (const value of Object.values(row.details)) {
+      const ok = typeof value === "boolean" || safeInt(value, Number.MIN_SAFE_INTEGER)
+        || (typeof value === "string" && [...value].length <= DETAIL_TEXT_MAX)
+      if (!ok) return false
+    }
+  }
+  if ("details_withheld" in row) {
+    const names = row.details_withheld
+    if (!Array.isArray(names) || !names.every((name) => typeof name === "string" && name.length > 0)) return false
+    const shown = "details" in row ? (row.details as object) : {}
+    if (names.some((name) => Object.prototype.hasOwnProperty.call(shown, name))) return false
+  }
   return true
 }
 

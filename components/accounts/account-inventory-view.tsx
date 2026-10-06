@@ -85,15 +85,12 @@ export function AccountInventoryView(props: AccountInventoryViewProps) {
   return <InventoryReader key={readerKey} {...props} />
 }
 
-function InventoryReader({
-  accountId,
-  customerId,
-  region,
-  resourceType,
-  roster,
-  onResourceTypeChange,
-  fetchPage = fetchInventoryPage,
-}: AccountInventoryViewProps) {
+/**
+ * The ONE reader of an account's published inventory for one key (customer, account, resource-type filter): epoch-guarded,
+ * restarts on a moved publication, never revives an earlier answer. A component that uses it is KEYED by that key, so a new
+ * key mounts a fresh reader. Shared by the page's own reader and each expanded type group.
+ */
+function useInventoryRead(customerId: string | null, accountId: string, resourceType: string | null, fetchPage: InventoryFetcher) {
   const epochRef = useRef(0)
   const alive = useRef(true)
   const controllers = useRef<AbortController[]>([])
@@ -101,7 +98,6 @@ function InventoryReader({
   // The model every response is judged against: written only through commit(), synchronously, so a completion always
   // compares with the latest state (never a stale render's).
   const modelRef = useRef<InventoryModel>(model)
-  const [filterDraft, setFilterDraft] = useState(resourceType ?? "")
 
   const commit = useCallback((next: InventoryModel) => {
     modelRef.current = next
@@ -156,6 +152,21 @@ function InventoryReader({
     issue(request)
   }
 
+  return { model, loadMore, refresh: () => read({ customerId, accountId, resourceType }) }
+}
+
+function InventoryReader({
+  accountId,
+  customerId,
+  region,
+  resourceType,
+  roster,
+  onResourceTypeChange,
+  fetchPage = fetchInventoryPage,
+}: AccountInventoryViewProps) {
+  const { model, loadMore, refresh } = useInventoryRead(customerId, accountId, resourceType, fetchPage)
+  const [filterDraft, setFilterDraft] = useState(resourceType ?? "")
+
   const accountLabel = roster.status === "ready" && roster.displayName ? `${roster.displayName} (${accountId})` : accountId
 
   return (
@@ -191,7 +202,7 @@ function InventoryReader({
         {resourceType !== null ? (
           <Button type="button" variant="ghost" size="sm" onClick={() => onResourceTypeChange(null)}>Clear</Button>
         ) : null}
-        <Button type="button" variant="ghost" size="sm" onClick={() => read({ customerId, accountId, resourceType })}>
+        <Button type="button" variant="ghost" size="sm" onClick={refresh}>
           Refresh
         </Button>
       </form>
@@ -201,7 +212,7 @@ function InventoryReader({
       {model.kind === "republishing" ? (
         <div className="flex items-center gap-3 text-sm text-slate-700" role="status">
           <span>This inventory is being republished.</span>
-          <Button type="button" variant="outline" size="sm" onClick={() => read({ customerId, accountId, resourceType })}>
+          <Button type="button" variant="outline" size="sm" onClick={refresh}>
             Retry
           </Button>
         </div>

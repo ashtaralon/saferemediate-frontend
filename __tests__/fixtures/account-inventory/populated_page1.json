@@ -15,7 +15,7 @@
       "cyntro_data.projection.receipt clock"
     ],
     "note": "The real route's answer, captured by the harness; nothing removed. Not installed or live evidence.",
-    "backend_commit": "92b2c54f7ea6fbf09b50ae06cec98f9c268bedd0",
+    "backend_commit": "9e17d639b01b034405eec480b531d4efe63e9aef",
     "backend_path": "tests/fixtures/account_inventory_api/populated_page1.json",
     "copied_unchanged": "status, cache_control and body are byte-for-byte the backend golden's"
   },
@@ -61,6 +61,7 @@
         "assignment": {
           "status": "not_evaluated"
         },
+        "details": {},
         "eligibility": {
           "selectable": false,
           "reason": "INCARNATION_NOT_PROVIDED"
@@ -84,6 +85,10 @@
         },
         "assignment": {
           "status": "not_evaluated"
+        },
+        "tags": {},
+        "details": {
+          "iam_instance_profile": "arn:aws:iam::111122223333:instance-profile/app-role"
         },
         "eligibility": {
           "selectable": false,
@@ -109,6 +114,8 @@
         "assignment": {
           "status": "not_evaluated"
         },
+        "tags": {},
+        "details": {},
         "eligibility": {
           "selectable": false,
           "reason": "INCARNATION_NOT_PROVIDED"
@@ -133,6 +140,8 @@
         "assignment": {
           "status": "not_evaluated"
         },
+        "tags": {},
+        "details": {},
         "eligibility": {
           "selectable": false,
           "reason": "INCARNATION_NOT_PROVIDED"

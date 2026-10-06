@@ -2,7 +2,8 @@
  * T11b: the strict account_inventory/v1 reader and its epoch / cursor / publication-bound state machine.
  *
  * Every envelope is a PRODUCER golden: the real backend route's answer, copied byte-for-byte from backend commit
- * 92b2c54f7ea6fbf09b50ae06cec98f9c268bedd0 (tests/fixtures/account_inventory_api/). A malformed case is one of those
+ * 92b2c54f7ea6fbf09b50ae06cec98f9c268bedd0 (tests/fixtures/account_inventory_api/); the two populated pages are the row v3
+ * re-captures of 9e17d639b01b034405eec480b531d4efe63e9aef (I2(b1): tags + details). A malformed case is one of those
  * goldens with ONE field broken, named as such. The single "inventory_complete: false" case is an explicitly MUTATED
  * robustness case: the producer at that commit never emits it (a SERVED page is always complete).
  */
@@ -28,6 +29,8 @@ const PRODUCER_COMMIT = "92b2c54f7ea6fbf09b50ae06cec98f9c268bedd0"
 /** The tenth golden (the route held by its readiness gate) was added by a later backend commit, which asserts all ten. */
 const PRODUCER_COMMIT_OF: Partial<Record<string, string>> = {
   held_consumer_not_recorded: "95dea3288a8b713b37be95114060c227ff5d0af8",
+  populated_page1: "9e17d639b01b034405eec480b531d4efe63e9aef",
+  populated_page2: "9e17d639b01b034405eec480b531d4efe63e9aef",
 }
 const NAMES = [
   "populated_page1", "populated_page2", "complete_empty", "filter_empty", "not_published", "held_authority_changed",
@@ -108,6 +111,71 @@ describe("the producer goldens", () => {
       expect(row.assignment).toEqual({ status: "not_evaluated" })
       expect(row.observed_incarnation).toBeTypeOf("object")
     }
+  })
+})
+
+describe("row v3 (I1): tags and details exactly as the producer serves them", () => {
+  it("reads the re-captured page's tags and details, and no tags for a type whose collector reads none", () => {
+    const first = parse("populated_page1")
+    if (first.kind !== "data") throw new Error("expected data")
+    const byType = Object.fromEntries(first.rows.map((row) => [row.resource_type, row]))
+    expect(byType["account:regions"].details).toEqual({})
+    expect("tags" in byType["account:regions"]).toBe(false)
+    expect(byType["ec2:instance"].tags).toEqual({})
+    expect(byType["ec2:instance"].details).toEqual({
+      iam_instance_profile: "arn:aws:iam::111122223333:instance-profile/app-role",
+    })
+  })
+
+  it("still reads a v2 row (a publication written before the upgrade) with neither member", () => {
+    const p = parse("populated_page1", (b) => {
+      for (const row of b.rows) {
+        delete row.tags
+        delete row.details
+      }
+    })
+    expect(p.kind).toBe("data")
+  })
+
+  it("accepts a detail text of exactly the producer's 512 characters, counted as Python counts them", () => {
+    const astral = "\u{1F600}".repeat(512)
+    expect(astral.length).toBe(1024)
+    expect(parse("populated_page1", (b) => { b.rows[1].details.description = astral }).kind).toBe("data")
+    expect(parse("populated_page1", (b) => { b.rows[1].details.description = `${astral}x` }).kind).toBe("unavailable")
+  })
+
+  it("accepts withheld tags and withheld detail names in the producer's shape", () => {
+    const p = parse("populated_page1", (b) => {
+      delete b.rows[1].tags
+      b.rows[1].tags_withheld = { reason: "TAGS_OVER_CAP", count: 51 }
+      b.rows[1].details_withheld = ["private_ip"]
+    })
+    expect(p.kind === "data" && p.rows[1]).toMatchObject({
+      tags_withheld: { reason: "TAGS_OVER_CAP", count: 51 }, details_withheld: ["private_ip"],
+    })
+  })
+
+  const brokenV3: Array<[string, (b: Record<string, any>) => void]> = [
+    ["a tag value that is not text", (b) => { b.rows[1].tags = { team: 7 } }],
+    ["tags that are not an object", (b) => { b.rows[1].tags = ["team"] }],
+    ["tags and withheld tags together", (b) => { b.rows[1].tags_withheld = { reason: "TAGS_OVER_CAP", count: 1 } }],
+    ["a withheld-tags reason the producer never gives", (b) => {
+      delete b.rows[1].tags
+      b.rows[1].tags_withheld = { reason: "TOO_MANY", count: 1 }
+    }],
+    ["a withheld-tags count that is not a count", (b) => {
+      delete b.rows[1].tags
+      b.rows[1].tags_withheld = { reason: "TAGS_NOT_TEXT", count: -1 }
+    }],
+    ["a detail that is an object", (b) => { b.rows[1].details.vpc_id = { id: "vpc-1" } }],
+    ["a detail that is null (the producer omits it)", (b) => { b.rows[1].details.vpc_id = null }],
+    ["a detail that is a fraction", (b) => { b.rows[1].details.memory_size = 1.5 }],
+    ["details that are not an object", (b) => { b.rows[1].details = "i-1" }],
+    ["withheld detail names that are not a list", (b) => { b.rows[1].details_withheld = "private_ip" }],
+    ["a detail both shown and withheld", (b) => { b.rows[1].details_withheld = ["iam_instance_profile"] }],
+  ]
+  it.each(brokenV3)("refuses %s", (_why, mutate) => {
+    expect(parse("populated_page1", mutate)).toMatchObject({ kind: "unavailable", reasonCode: RESPONSE_MALFORMED })
   })
 })
 
