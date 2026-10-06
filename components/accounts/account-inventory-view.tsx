@@ -51,12 +51,23 @@ const HELD_COPY: Record<string, string> = {
     "This account's registration changed after the inventory was published, so it is not shown. A new publication is needed.",
 }
 
+/** The route's readiness gate names its hold under the account: ``<account>:CONSUMER_NOT_READY:not_recorded`` when the
+ *  account's consumer readiness check has not been recorded (backend semantic_onboarding.consumer_pass_verdict). */
+const CONSUMER_PASS_NOT_RECORDED = /^[0-9]{12}:CONSUMER_NOT_READY:not_recorded$/
+
+function heldCopy(reasonCode: string | null): string {
+  const code = reasonCode ?? ""
+  if (HELD_COPY[code]) return HELD_COPY[code]
+  if (CONSUMER_PASS_NOT_RECORDED.test(code)) {
+    return "Inventory is not shown yet: this account's readiness check has not been recorded."
+  }
+  return `Inventory is held and not shown (${reasonCode ?? "no reason given"}).`
+}
+
 function outcomeCopy(model: InventoryModel): string {
   if (model.kind === "evidence") {
     if (model.state === "not_published") return "Inventory has not been published for this account yet."
-    if (model.state === "held") {
-      return HELD_COPY[model.reasonCode ?? ""] ?? `Inventory is held and not shown (${model.reasonCode ?? "no reason given"}).`
-    }
+    if (model.state === "held") return heldCopy(model.reasonCode)
     if (model.state === "stale") return "The published inventory is older than allowed, so it is not shown."
     return "The published inventory could not be validated, so it is not shown."
   }

@@ -25,9 +25,14 @@ import {
 } from "@/lib/account-inventory"
 
 const PRODUCER_COMMIT = "92b2c54f7ea6fbf09b50ae06cec98f9c268bedd0"
+/** The tenth golden (the route held by its readiness gate) was added by a later backend commit, which asserts all ten. */
+const PRODUCER_COMMIT_OF: Partial<Record<string, string>> = {
+  held_consumer_not_recorded: "95dea3288a8b713b37be95114060c227ff5d0af8",
+}
 const NAMES = [
   "populated_page1", "populated_page2", "complete_empty", "filter_empty", "not_published", "held_authority_changed",
   "refused_cursor_restart_publication_moved", "refused_not_authorized_403", "unavailable_registry_unreadable",
+  "held_consumer_not_recorded",
 ] as const
 type Name = (typeof NAMES)[number]
 
@@ -59,7 +64,7 @@ describe("the producer goldens", () => {
   it("are the backend's own answers, pinned to the producing commit, all no-store", () => {
     for (const name of NAMES) {
       const g = golden(name)
-      expect(g._provenance.backend_commit).toBe(PRODUCER_COMMIT)
+      expect(g._provenance.backend_commit).toBe(PRODUCER_COMMIT_OF[name] ?? PRODUCER_COMMIT)
       expect(g._provenance.backend_path).toBe(`tests/fixtures/account_inventory_api/${name}.json`)
       expect(g.cache_control).toBe("no-store")
       expect(g.body.contract).toBe("account_inventory/v1")
@@ -81,6 +86,7 @@ describe("the producer goldens", () => {
       refused_cursor_restart_publication_moved: ["refused", "refused", "CURSOR_RESTART_REQUIRED:publication_moved"],
       refused_not_authorized_403: ["refused", "refused", "PERSON_NOT_AUTHORIZED"],
       unavailable_registry_unreadable: ["unavailable", "unavailable", "INVENTORY_SCOPE_UNAVAILABLE"],
+      held_consumer_not_recorded: ["evidence", "held", "111122223333:CONSUMER_NOT_READY:not_recorded"],
     })
     expect(isCursorRestart(parse("refused_cursor_restart_publication_moved"))).toBe(true)
     expect(isCursorRestart(parse("refused_not_authorized_403"))).toBe(false)
