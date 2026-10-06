@@ -994,8 +994,8 @@ function AddGroupDialog({ customerId, accounts, onClose, onCreated }: { customer
   }
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/45 p-6 backdrop-blur-sm">
-      <div role="dialog" aria-modal="true" aria-labelledby="create-account-group-title" className="w-full max-w-xl rounded-2xl border border-slate-200 bg-white shadow-2xl">
+    <div className="fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto bg-slate-950/45 p-6 backdrop-blur-sm">
+      <div role="dialog" aria-modal="true" aria-labelledby="create-account-group-title" className="my-auto w-full max-w-xl rounded-2xl border border-slate-200 bg-white shadow-2xl">
         <div className="flex items-start justify-between border-b border-slate-200 p-6">
           <div><p className="text-[10px] font-bold uppercase tracking-[0.18em] text-teal-700">Account scope</p><h2 id="create-account-group-title" className="mt-1 text-xl font-semibold">Create account group</h2></div>
           <button onClick={onClose} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100"><X className="h-5 w-5" /></button>
@@ -1185,8 +1185,8 @@ function MemberAddAccountDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/45 p-6 backdrop-blur-sm">
-      <div role="dialog" aria-modal="true" aria-labelledby="add-member-account-title" className="w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-2xl">
+    <div className="fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto bg-slate-950/45 p-6 backdrop-blur-sm">
+      <div role="dialog" aria-modal="true" aria-labelledby="add-member-account-title" className="my-auto w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-2xl">
         <div className="flex items-start justify-between border-b border-slate-200 p-6">
           <div>
             <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-teal-700">Account onboarding</p>
@@ -1420,8 +1420,8 @@ function AddAccountDialog({ customerId, onClose, onCreated }: { customerId: stri
   }
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/45 p-6 backdrop-blur-sm">
-      <div className="w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-2xl">
+    <div className="fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto bg-slate-950/45 p-6 backdrop-blur-sm">
+      <div className="my-auto w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-2xl">
         <div className="flex items-start justify-between border-b border-slate-200 p-6">
           <div>
             <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-teal-700">Account onboarding</p>

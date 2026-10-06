@@ -53,8 +53,8 @@ export function OffboardAccount({
         <Trash2 className="h-3 w-3" aria-hidden /> Remove account…
       </button>
       {open ? (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/45 p-6 backdrop-blur-sm">
-          <div role="dialog" aria-modal="true" aria-labelledby={`offboard-account-${id}`} className="w-full max-w-xl overflow-hidden rounded-2xl bg-white text-sm text-slate-700 shadow-2xl">
+        <div className="fixed inset-0 z-[110] flex items-start justify-center overflow-y-auto bg-slate-950/45 p-6 backdrop-blur-sm">
+          <div role="dialog" aria-modal="true" aria-labelledby={`offboard-account-${id}`} className="my-auto w-full max-w-xl overflow-hidden rounded-2xl bg-white text-sm text-slate-700 shadow-2xl">
             <div className="flex items-start justify-between border-b border-slate-200 p-6">
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">Remove account</p>
