@@ -75,8 +75,11 @@ describe("the inventory by type", () => {
     expect(screen.getAllByTestId("inventory-group")).toHaveLength(Object.keys(BY_TYPE).length)
     for (const [resourceType, count] of Object.entries(BY_TYPE)) {
       expect(within(group(resourceType)).getByTestId("inventory-group-count")).toHaveTextContent(String(count))
-      expect(within(group(resourceType)).getByTestId("inventory-type-tile")).toHaveAttribute("aria-label",
-        inventoryTypeMeta(resourceType).label)
+      // The tile is the type's icon and colors; beside its visible label it is hidden from assistive technology.
+      const tile = within(group(resourceType)).getByTestId("inventory-type-tile")
+      expect(tile).toHaveAttribute("data-resource-type", resourceType)
+      expect(tile).toHaveAttribute("aria-hidden", "true")
+      expect(within(group(resourceType)).getByRole("button")).toHaveTextContent(inventoryTypeMeta(resourceType).label)
     }
     expect(BY_TYPE["ec2:instance"]).toBe(2)                               // a type of many resources
     expect(screen.getByTestId("inventory-card-all")).toHaveTextContent(`All resources${PAGE1.totals.account_total}`)
@@ -194,6 +197,7 @@ describe("the drill-down", () => {
     const instance = row("checkout-api-1")
     const drawer = await opened(instance.name)
     expect(drawer).toHaveTextContent(`Payments prod (${ACCOUNT})`)
+    expect(document.activeElement).toBe(within(drawer).getByRole("button", { name: "Close" }))
     expect(drawer).toHaveTextContent(instance.arn)
     const details = within(drawer).getByTestId("inventory-details")
     for (const [attribute, value] of Object.entries(instance.details as Record<string, string | number | boolean>)) {

@@ -6,7 +6,7 @@
  * verdict), its tags, and when it was last verified. Read-only. Everything shown is the row as served; nothing is inferred.
  * Customer free text (a tag, a security group's description) is rendered as text only.
  */
-import { useEffect } from "react"
+import { useEffect, useRef } from "react"
 import { X } from "lucide-react"
 import { InventoryTypeTile } from "@/components/accounts/inventory-type-tile"
 import { formatUtcInstantExact } from "@/lib/account-admin"
@@ -47,6 +47,11 @@ export function InventoryResourceDrawer({
   accountLabel: string
   onClose: () => void
 }) {
+  // Focus moves into the drill-down when it opens, so a keyboard user is in it (and Escape closes it).
+  const close = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    close.current?.focus()
+  }, [])
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose()
@@ -77,7 +82,7 @@ export function InventoryResourceDrawer({
               {meta.label} <span className="font-mono text-slate-400">{row.resource_type}</span>
             </p>
           </div>
-          <button type="button" aria-label="Close" onClick={onClose} className="rounded p-1 text-slate-500 hover:bg-slate-100">
+          <button ref={close} type="button" aria-label="Close" onClick={onClose} className="rounded p-1 text-slate-500 hover:bg-slate-100">
             <X className="h-4 w-4" aria-hidden />
           </button>
         </header>
