@@ -1,0 +1,130 @@
+/**
+ * Declaring from the account inventory (components/system-boundary/declare-from-inventory.tsx): the selection hook it
+ * hands the inventory view (Settings' I3 interface, sent 2026-10-06), the picks it owns, and the save, over the PRODUCER
+ * goldens of the authoring routes (__tests__/fixtures/system-boundary, backend 61c2cd9d).
+ *
+ * The inventory view is Settings' and not here: ``renderInventory`` records what it is handed. The picked row carries the
+ * golden request's own root values (identity, type, Region, observed incarnation) and the name its uid encodes; the
+ * wrapper reads nothing else. Once I3's view and AccountOnboarding's v3 inventory golden land, a mounted test of the two
+ * together replaces this stand-in row.
+ */
+import { readFileSync } from "node:fs"
+import { resolve } from "node:path"
+import { act, fireEvent, render, screen } from "@testing-library/react"
+import { afterEach, describe, expect, it, vi } from "vitest"
+import { DeclareFromInventory } from "@/components/system-boundary/declare-from-inventory"
+import { rowKey, type InventoryRow, type PublicationIdentity } from "@/lib/account-inventory"
+import type { CreateEnvelope, DeclarationsView, ReadResult } from "@/lib/system-boundary-authoring"
+import type { InventorySelection } from "@/lib/system-boundary-declaration"
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function golden(name: string): any {
+  return JSON.parse(readFileSync(resolve(process.cwd(), "__tests__/fixtures/system-boundary", `${name}.json`), "utf8"))
+}
+
+const CREATE: CreateEnvelope = golden("requests").create
+const VIEW0: DeclarationsView = golden("view_initial").body
+const ROOT = CREATE.declaration.roots[0]
+const ROW = {
+  resource_uid: ROOT.resource_uid, resource_type: ROOT.selection.resource_type, region: ROOT.region,
+  observed_incarnation: ROOT.selection.observed_incarnation, name: ROOT.resource_uid.split("/").pop(),
+  native_id: ROOT.resource_uid.split("/").pop(),
+} as unknown as InventoryRow
+const PUBLICATION: PublicationIdentity = {
+  ...ROOT.selection.publication,
+  registration_id: (golden("view_after_save").body.roots[0].body.provenance as { registration_id: string }).registration_id,
+}
+
+function mount(readDeclarations: () => Promise<ReadResult<DeclarationsView>>, accountId = "111122223333") {
+  const handed: (InventorySelection | undefined)[] = []
+  const renderInventory = (selection: InventorySelection | undefined) => {
+    handed.push(selection)
+    return <div data-testid="inventory" />
+  }
+  const utils = render(<DeclareFromInventory accountId={accountId} customerId="acme" renderInventory={renderInventory}
+    readDeclarations={readDeclarations} />)
+  return { handed, latest: () => handed[handed.length - 1], utils, renderInventory }
+}
+
+const ok = (view: DeclarationsView) => vi.fn(async (): Promise<ReadResult<DeclarationsView>> => ({ kind: "OK", value: view }))
+
+async function settle() {
+  await act(async () => {})
+}
+
+afterEach(() => vi.restoreAllMocks())
+
+describe("declaring from the inventory", () => {
+  it("hands the view no selection -- browse only, nothing added -- when the declarations cannot be read", async () => {
+    const { latest } = mount(async () => ({ kind: "REFUSED", status: 403, code: "PERSON_NOT_AUTHORIZED", detail: {} }))
+    await settle()
+    expect(latest()).toBeUndefined()
+    expect(screen.queryByTestId("declare-toolbar")).toBeNull()
+    expect(screen.queryByRole("status")).toBeNull()
+  })
+
+  it("says declaring is not enabled when saving is not active (the producer's view, explicitly MUTATED to another phase)", async () => {
+    const { latest } = mount(ok({ ...VIEW0, protocol_phase: "INITIALIZED" }))
+    await settle()
+    expect(latest()).toBeUndefined()
+    expect(screen.getByRole("status").textContent).toBe("Declaring systems from this inventory is not enabled on this installation yet.")
+  })
+
+  it("picks a row with the publication it was read from, and declares it as one Saved request", async () => {
+    const read = ok(VIEW0)
+    const { latest } = mount(read)
+    await settle()
+    expect(latest()).toBeDefined()
+    await act(async () => latest()!.onToggle(ROW, PUBLICATION))
+    expect(screen.getByTestId("declare-toolbar").textContent).toContain("1 picked as roots")
+    expect(latest()!.selected).toEqual(new Map([[rowKey(ROW), PUBLICATION]]))
+    vi.spyOn(globalThis.crypto, "randomUUID").mockReturnValueOnce(CREATE.request_id as `${string}-${string}-${string}-${string}-${string}`)
+    const spy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(Response.json(golden("save_saved").body, { status: 201 }))
+    fireEvent.click(screen.getByRole("button", { name: "Declare a system" }))
+    fireEvent.change(screen.getByLabelText("System name"), { target: { value: "Payments" } })
+    fireEvent.change(screen.getByLabelText("Criticality"), { target: { value: "LOW" } })
+    fireEvent.change(screen.getByLabelText("Deployment key"), { target: { value: "prod" } })
+    fireEvent.change(screen.getByLabelText("Environment"), { target: { value: "PRODUCTION" } })
+    fireEvent.change(screen.getByLabelText("Your own environment word"), { target: { value: "prd" } })
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Review" })))
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Save" })))
+    expect(JSON.parse((spy.mock.calls[0][1] as RequestInit).body as string)).toEqual(CREATE)   // the request the real route saved
+    expect(screen.getByTestId("declare-toolbar").textContent).toContain("0 picked as roots")
+    expect(screen.getByTestId("declare-toolbar").textContent).toContain(
+      "Saved as revision 2. Cyntro is preparing this system's membership; nothing is applied yet.")
+    expect(read).toHaveBeenCalledTimes(2)                                 // the declarations are read again after a save
+  })
+
+  it("marks a pick made in an earlier publication than the one shown, and clears such picks on request", async () => {
+    const { latest } = mount(ok(VIEW0))
+    await settle()
+    await act(async () => latest()!.onToggle(ROW, PUBLICATION))
+    await act(async () => latest()!.onPublication!(PUBLICATION))
+    expect(screen.queryByText(/earlier publication/)).toBeNull()
+    await act(async () => latest()!.onPublication!({ ...PUBLICATION, generation: PUBLICATION.generation + 1 }))
+    expect(screen.getByText(/1 pick was made in an earlier publication of this inventory; it will be checked again/)).toBeTruthy()
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Clear earlier picks" })))
+    expect(screen.getByTestId("declare-toolbar").textContent).toContain("0 picked as roots")
+  })
+
+  it("keys picks by the producer's row identity (type and uid), never the uid alone, and toggles them off", async () => {
+    const { latest } = mount(ok(VIEW0))
+    await settle()
+    const twin = { ...ROW, resource_type: "iam:policy" } as InventoryRow
+    await act(async () => latest()!.onToggle(ROW, PUBLICATION))
+    await act(async () => latest()!.onToggle(twin, PUBLICATION))
+    expect([...latest()!.selected.keys()]).toEqual([rowKey(ROW), rowKey(twin)])
+    await act(async () => latest()!.onToggle(ROW, PUBLICATION))
+    expect([...latest()!.selected.keys()]).toEqual([rowKey(twin)])
+  })
+
+  it("another account mounts a fresh picker: no pick crosses accounts", async () => {
+    const read = ok(VIEW0)
+    const { latest, utils, renderInventory } = mount(read)
+    await settle()
+    await act(async () => latest()!.onToggle(ROW, PUBLICATION))
+    utils.rerender(<DeclareFromInventory accountId="444455556666" customerId="acme" renderInventory={renderInventory} readDeclarations={read} />)
+    await settle()
+    expect(latest()!.selected.size).toBe(0)
+  })
+})
