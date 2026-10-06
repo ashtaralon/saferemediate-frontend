@@ -40,6 +40,8 @@ export interface DeclarationFormProps {
   save?: (envelope: CreateEnvelope) => Promise<SaveResult>
   /** Called with the envelope before it is first sent (durable submission identity: T18). */
   onEnvelope?: (envelope: CreateEnvelope) => void
+  /** Called with every answer to that envelope (a resend included). */
+  onOutcome?: (envelope: CreateEnvelope, outcome: SaveOutcome) => void
 }
 
 type Step = { kind: "edit"; problems: string[] } | { kind: "review"; declaration: CreateDeclaration } | { kind: "sent" }
@@ -48,7 +50,7 @@ function recordLabel(body: Record<string, unknown>, field: string): string {
   return typeof body[field] === "string" ? (body[field] as string) : "(unnamed)"
 }
 
-export function DeclarationForm({ view, roots, onCancel, onSaved, save = saveDeclaration, onEnvelope }: DeclarationFormProps) {
+export function DeclarationForm({ view, roots, onCancel, onSaved, save = saveDeclaration, onEnvelope, onOutcome }: DeclarationFormProps) {
   const systems = useMemo(() => reusableSystems(view), [view])
   const [systemMode, setSystemMode] = useState<"new" | "existing">("new")
   const [displayName, setDisplayName] = useState("")
@@ -91,6 +93,7 @@ export function DeclarationForm({ view, roots, onCancel, onSaved, save = saveDec
     setSending(false)
     const described = describeResult(result)
     setOutcome(described)
+    onOutcome?.(target, described)
     if (described.kind === "saved") onSaved(described.revision)
   }
 

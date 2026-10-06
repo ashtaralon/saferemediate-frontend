@@ -9,19 +9,28 @@
  * Picks belong to THIS account (a new account mounts a fresh picker), are keyed by the producer's row identity, and keep
  * the publication of the page each was read from. A pick from an earlier publication than the one on screen is shown
  * as such, never silently kept as current: the backend's resolver judges every root again when it is saved.
+ *
+ * T18: each envelope is kept in the browser (lib/system-boundary-pending.ts) just before its first send, under the
+ * verified person (the subject /authoring-grants/self names) and this account, until its outcome is definite; the
+ * person's unresolved saves are reconciled by request id when this account's page opens (pending-saves.tsx). Without
+ * a verified subject nothing is kept: the save still works, only its resume is unavailable.
  */
 import { useCallback, useEffect, useState, type ReactNode } from "react"
 import { DeclarationForm } from "@/components/system-boundary/declaration-form"
+import { PendingSaves } from "@/components/system-boundary/pending-saves"
 import { Button } from "@/components/ui/button"
 import { rowKey, type InventoryRow, type PublicationIdentity } from "@/lib/account-inventory"
 import {
+  readOwnGrant,
   readView,
   rootFromInventory,
   type CreateEnvelope,
   type DeclarationsView,
+  type OwnGrant,
   type ReadResult,
   type SaveResult,
 } from "@/lib/system-boundary-authoring"
+import { pendingStore, type PendingStore } from "@/lib/system-boundary-pending"
 import { samePublication, type InventorySelection, type PickedRoot } from "@/lib/system-boundary-declaration"
 
 export interface DeclareFromInventoryProps {
@@ -31,8 +40,11 @@ export interface DeclareFromInventoryProps {
   renderInventory: (selection: InventorySelection | undefined) => ReactNode
   /** Injectable for tests; default: the authoring proxy. */
   readDeclarations?: () => Promise<ReadResult<DeclarationsView>>
+  readGrant?: () => Promise<ReadResult<OwnGrant>>
   save?: (envelope: CreateEnvelope) => Promise<SaveResult>
   onEnvelope?: (envelope: CreateEnvelope) => void
+  /** Injectable for tests; default: this browser's localStorage. Created once per picker. */
+  store?: PendingStore
 }
 
 type ViewState = { kind: "loading" } | ReadResult<DeclarationsView>
@@ -41,8 +53,11 @@ export function DeclareFromInventory(props: DeclareFromInventoryProps) {
   return <Declarer key={JSON.stringify([props.customerId, props.accountId])} {...props} />
 }
 
-function Declarer({ accountId, renderInventory, readDeclarations = readView, save, onEnvelope }: DeclareFromInventoryProps) {
+function Declarer({ accountId, renderInventory, readDeclarations = readView, readGrant = readOwnGrant, save, onEnvelope,
+                    store: injected }: DeclareFromInventoryProps) {
   const [view, setView] = useState<ViewState>({ kind: "loading" })
+  const [store] = useState<PendingStore>(() => injected ?? pendingStore())
+  const [actor, setActor] = useState<string | null>(null)
   const [picks, setPicks] = useState<ReadonlyMap<string, PickedRoot>>(() => new Map())
   const [shown, setShown] = useState<PublicationIdentity | null>(null)
   const [declaring, setDeclaring] = useState(false)
@@ -58,6 +73,20 @@ function Declarer({ accountId, renderInventory, readDeclarations = readView, sav
     }
   }, [readDeclarations])
   useEffect(load, [load])
+  useEffect(() => {
+    let live = true
+    void readGrant().then((result) => {
+      if (live && result.kind === "OK") setActor(result.value.subject)
+    })
+    return () => {
+      live = false
+    }
+  }, [readGrant])
+
+  const keep = useCallback((envelope: CreateEnvelope) => {
+    if (actor) store.put({ version: 1, actor, accountId, kind: "CREATE", envelope, startedAt: new Date().toISOString() })
+    onEnvelope?.(envelope)
+  }, [actor, accountId, store, onEnvelope])
 
   const onToggle = useCallback((row: InventoryRow, publication: PublicationIdentity) => {
     setSavedRevision(null)
@@ -106,6 +135,7 @@ function Declarer({ accountId, renderInventory, readDeclarations = readView, sav
               })}>Clear earlier picks</button>
             </p>
           ) : null}
+          {actor ? <PendingSaves accountId={accountId} actor={actor} store={store} /> : null}
           {savedRevision !== null ? (
             <p className="text-sm text-teal-800" role="status">
               Saved as revision {savedRevision}. Cyntro is preparing this system&apos;s membership; nothing is applied yet.
@@ -116,7 +146,10 @@ function Declarer({ accountId, renderInventory, readDeclarations = readView, sav
               view={view.value}
               roots={[...picks.values()]}
               save={save}
-              onEnvelope={onEnvelope}
+              onEnvelope={keep}
+              onOutcome={(envelope, outcome) => {
+                if (outcome.kind !== "resend") store.remove(envelope.request_id)   // definite: saved, or nothing saved
+              }}
               onCancel={() => setDeclaring(false)}
               onSaved={(revision) => {
                 setSavedRevision(revision)
