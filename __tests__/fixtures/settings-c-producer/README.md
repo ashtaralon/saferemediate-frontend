@@ -84,10 +84,10 @@ GET that the step made. Regenerate them; do not edit them.
   - 36: the connection stack's instructions once the member trust exists (the Add form's stack step).
   - 37: a second ask while a request with another role is open: the open request keeps its own role.
 
-## 38-45 (removing an ACTIVATED account: offboarding; adding it again too early)
+## 38-46 (removing an ACTIVATED account: offboarding; adding it again at once)
 
-- Producer: saferemediate-backend `d7b46ae74694fde8dcafd22b1d9924ed23f095fe` (O-S2b on O-S1b 3ab81da17 and the S3a fix; local,
-  not yet pushed), from a clean detached tree at exactly that commit. All eight are one run of the generator.
+- Producer: saferemediate-backend `ee36564700413d9f9d15d0b711023dde7b41360a` (R1-S on R1-1, with QA-11 U1.b; local, not yet
+  pushed), from a clean detached tree at exactly that commit. All nine are one run of the generator.
 - Generator: `agent-coordinator/claude-settings-offboard-evidence-2026-10-06/test_offboard_producer_captures.py` (sha256 in
   `generator-sha256.txt` beside it). The backend's own API harness (real router, real repository on moto DynamoDB, real person
   verification) and the real account connector; the account is added, checked and confirmed through the same routes first.
@@ -99,6 +99,8 @@ GET that the step made. Regenerate them; do not edit them.
   - 41: the listing after the connector removed it: no longer an account; one entry under `removed` (OFFBOARDED).
   - 42: another account id typed: 422 OFFBOARD_CONFIRMATION_MISMATCH, nothing queued.
   - 43: a removal asked for an older version: refused by its own reason (REGISTRATION_STATE_CHANGED), the account stays.
-  - 44: POST /accounts for the removed account again, before its removal finished (202: queued; the connector decides).
-  - 45: the listing after the connector refused that Add: `failed_requests` names ACCOUNT_REMOVAL_NOT_FINISHED with the
-    connector's detail, the account is still not listed, and its removal is still under `removed`.
+  - 44: POST /accounts for the removed account again, at once (202: queued; the connector decides).
+  - 45: the listing after the immediate re-add: the new registration (PENDING_UNVERIFIED) and, under `removed`, the removal
+    it replaced (QA-11: carried on the new row).
+  - 46: an Add of the removed account refused by the installation gate (INSTALLATION_GATE_CLOSED): the account is not
+    listed, its removal is, and the banner names the account as the removal does.

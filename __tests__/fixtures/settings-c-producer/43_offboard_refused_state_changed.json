@@ -5,7 +5,7 @@
     "account_id": "222222222222",
     "aws_account_name": "prod-payments",
     "aws_account_name_error": null,
-    "aws_account_name_read_at": "2026-10-06T05:36:41.159225+00:00",
+    "aws_account_name_read_at": "2026-10-06T13:38:11.538893+00:00",
     "collection_mode": "MEMBER_READ_ROLE",
     "coverage": [
      {
@@ -37,7 +37,7 @@
     "group_ids": [],
     "install_method": "MEMBER_STACK",
     "is_platform_account": false,
-    "last_validated_at": "2026-10-06T05:36:41.134651+00:00",
+    "last_validated_at": "2026-10-06T13:38:11.506708+00:00",
     "mutation_enabled": false,
     "onboarding_status": "CONNECTED",
     "organization_id": null,
@@ -47,7 +47,7 @@
     "regions": [
      "eu-west-1"
     ],
-    "registered_at": "2026-10-06T05:36:40.388565+00:00",
+    "registered_at": "2026-10-06T13:38:10.890062+00:00",
     "registered_by": {
      "identity": "https://cognito-idp.eu-west-1.amazonaws.com/pool#00u-alice",
      "verified": true
@@ -55,9 +55,9 @@
     "registration": {
      "access_check": {
       "answered_account": "222222222222",
-      "check_id": "16970f38976e7cc6a6c516a95a3fbec1",
-      "completed_at": "2026-10-06T05:36:40.477183+00:00",
-      "identity_observed_at": "2026-10-06T05:36:40.474186+00:00",
+      "check_id": "473c397f3fc72a2d1af7d721f80a8605",
+      "completed_at": "2026-10-06T13:38:10.977880+00:00",
+      "identity_observed_at": "2026-10-06T13:38:10.974950+00:00",
       "name_in_aws": "prod-payments",
       "name_unreadable": null,
       "outcome": "REACHED",
@@ -66,12 +66,12 @@
      },
      "activating": false,
      "activation": {
-      "at": "2026-10-06T05:36:40.510228+00:00",
-      "check_id": "16970f38976e7cc6a6c516a95a3fbec1",
+      "at": "2026-10-06T13:38:11.009992+00:00",
+      "check_id": "473c397f3fc72a2d1af7d721f80a8605",
       "decided_by": "CONFIRMATION"
      },
      "activation_last": {
-      "at": "2026-10-06T05:36:41.134651+00:00",
+      "at": "2026-10-06T13:38:11.506708+00:00",
       "outcome": "ACTIVATED",
       "step": null
      },
@@ -94,200 +94,200 @@
       "items": [
        {
         "region": "eu-west-1",
-        "source_type": "vpc_endpoints",
-        "state": "INTENDED",
-        "work_item_id": "work_item:00549c6fc98c14651c360ce5e86c25dbdf33dac850f46ec6dafffd3e0099ca06"
-       },
-       {
-        "region": "eu-west-1",
-        "source_type": "lambda_authorization_controls",
-        "state": "INTENDED",
-        "work_item_id": "work_item:016922292785131e26ea57b3119ca329dc205e0ba752d3a122dcf856fb99a9f5"
-       },
-       {
-        "region": "eu-west-1",
-        "source_type": "load_balancers",
-        "state": "INTENDED",
-        "work_item_id": "work_item:055ee2b8b807c6ac64e402bcd5b81a9a7de46659c396fb21902b55deb848ca9a"
-       },
-       {
-        "region": "eu-west-1",
-        "source_type": "iam_policies",
-        "state": "INTENDED",
-        "work_item_id": "work_item:0965abadf11b95fb2fe9995ff2211beb3e739e8ab0460a52848a79c3dfb5d985"
-       },
-       {
-        "region": "eu-west-1",
-        "source_type": "secretsmanager_authorization_controls",
-        "state": "INTENDED",
-        "work_item_id": "work_item:16a73c209948634170fd42e5c36638e2294efc1e3de93b501bc30e9491af2608"
-       },
-       {
-        "region": "eu-west-1",
-        "source_type": "route_tables",
-        "state": "INTENDED",
-        "work_item_id": "work_item:18256737a5604144951df7461a4c05d26f36ac9914043a18a92aaa583bc50c3a"
-       },
-       {
-        "region": "eu-west-1",
-        "source_type": "security_groups",
-        "state": "INTENDED",
-        "work_item_id": "work_item:22956ef41eee409da1c3074d33be3cdd19aa0317706241e22030ac788cc2cd5e"
-       },
-       {
-        "region": "eu-west-1",
-        "source_type": "vpc_endpoint_authorization_controls",
-        "state": "INTENDED",
-        "work_item_id": "work_item:40609a6b3e65afc612339730083c07d1abb5ef600f97b595f6b7e4bbc3d62f9d"
-       },
-       {
-        "region": "eu-west-1",
-        "source_type": "rds_instances",
-        "state": "INTENDED",
-        "work_item_id": "work_item:412f8c0d9f672c498254150e9dad8c7dcfefb6a57342265ca1bbd492047870c5"
-       },
-       {
-        "region": "eu-west-1",
-        "source_type": "rds_clusters",
-        "state": "INTENDED",
-        "work_item_id": "work_item:4619dc475534245970779a89e01f3e57ef0254645a7c0c8a235b25d5e146de03"
-       },
-       {
-        "region": "eu-west-1",
-        "source_type": "eventbridge_authorization_controls",
-        "state": "INTENDED",
-        "work_item_id": "work_item:4b2b9b19ae4c9a1be980abdbfb520bf119302b5a3c493c87d958c1204566b99b"
-       },
-       {
-        "region": "eu-west-1",
-        "source_type": "eks_clusters",
-        "state": "INTENDED",
-        "work_item_id": "work_item:4b54d192ecd018110067524462b1900b4ae03d51d2ce5938c9c78805ba7ea1ba"
-       },
-       {
-        "region": "eu-west-1",
         "source_type": "network_interfaces",
         "state": "INTENDED",
-        "work_item_id": "work_item:614fc85fbfd43e79e005b411e41d49a0f71c0052eca5ef56bbfb264cae2feb2d"
-       },
-       {
-        "region": "eu-west-1",
-        "source_type": "k8s_objects",
-        "state": "INTENDED",
-        "work_item_id": "work_item:6371882a60833c3e32f45156e123c2b0f1732946afb1462c727ce57a2b20f8ce"
-       },
-       {
-        "region": "eu-west-1",
-        "source_type": "organization_policy_context",
-        "state": "INTENDED",
-        "work_item_id": "work_item:6ed5f91b82ad7296b5331039b7e0e76550d15f8cc4062822c8d3f1108592e533"
-       },
-       {
-        "region": "eu-west-1",
-        "source_type": "lambda_functions",
-        "state": "INTENDED",
-        "work_item_id": "work_item:7032b4d32bfafdadfad03924ef0e200258bb36882fdecd2baef4069266417348"
-       },
-       {
-        "region": "eu-west-1",
-        "source_type": "target_groups",
-        "state": "INTENDED",
-        "work_item_id": "work_item:88604d8699d40bd4718fed335ec0db129608d2cb1d964a73838824d184714eac"
-       },
-       {
-        "region": "eu-west-1",
-        "source_type": "kms_authorization_controls",
-        "state": "INTENDED",
-        "work_item_id": "work_item:898fb1cf1d7ce5900d215c5c27565f1de07deca578f478931e355961f764d372"
-       },
-       {
-        "region": "eu-west-1",
-        "source_type": "ec2_inventory",
-        "state": "INTENDED",
-        "work_item_id": "work_item:91584251a723c56be8d253b03f973e01e11f4ffce20b2d774fcb9a2b4b5a9a0d"
-       },
-       {
-        "region": "eu-west-1",
-        "source_type": "subnets",
-        "state": "INTENDED",
-        "work_item_id": "work_item:a5b8f649c8f9c7a9316fedfe88fc43478a2461948dbc764124b970d7582ce630"
-       },
-       {
-        "region": "eu-west-1",
-        "source_type": "sqs_authorization_controls",
-        "state": "INTENDED",
-        "work_item_id": "work_item:a6a7f587f95c981a15891ec578a43a49137421ac5ce17133a65190722cd0bd5e"
+        "work_item_id": "work_item:0b7e5cc15607378eccefed76f8706511c6d032843caad36a30fbb570106b6a4f"
        },
        {
         "region": "eu-west-1",
         "source_type": "s3_authorization_controls",
         "state": "INTENDED",
-        "work_item_id": "work_item:a95071ad00322a92b71fa0e1889127305d8f51c086e59410b11faa49a823193f"
-       },
-       {
-        "region": "eu-west-1",
-        "source_type": "s3_buckets",
-        "state": "INTENDED",
-        "work_item_id": "work_item:ad3bfa5c179a99557835320922392fd0685699c5ac2eadb9b0bb795ffece34c2"
-       },
-       {
-        "region": "eu-west-1",
-        "source_type": "network_acls",
-        "state": "INTENDED",
-        "work_item_id": "work_item:be681b15eb51f29de54b05655e52dd7e3813c482b97fa65b480dfeb55e535b65"
-       },
-       {
-        "region": "eu-west-1",
-        "source_type": "iam_roles",
-        "state": "INTENDED",
-        "work_item_id": "work_item:c6ee9d0baea246aa324844b88d8ff274824d31469f0c5a162c3850a0dc038159"
+        "work_item_id": "work_item:19ea2b2e44c9d7dc0ede5fd7202ebcb068777cd7de4b411e15372dc57df839f0"
        },
        {
         "region": "eu-west-1",
         "source_type": "internet_gateways",
         "state": "INTENDED",
-        "work_item_id": "work_item:c85e5fda37665a832cb5c4c406baa56cd49b6d694628e2fe7350a5e13ab6d154"
+        "work_item_id": "work_item:21d82797c9dde9d204606ae444f6fa680569ba42d1af1becdbf00c01409e7840"
        },
        {
         "region": "eu-west-1",
-        "source_type": "load_balancer_listeners",
+        "source_type": "lambda_authorization_controls",
         "state": "INTENDED",
-        "work_item_id": "work_item:d22aa83107cba8f446c79c4fdd5db4c7e3a3b6aa442faff22adc511ce8c8194d"
+        "work_item_id": "work_item:236add1cff4ebb65b61dd2e6b7cb11be27e65e4cf1f01455ee9fcc583944ea0d"
        },
        {
         "region": "eu-west-1",
-        "source_type": "sns_authorization_controls",
+        "source_type": "vpc_endpoint_authorization_controls",
         "state": "INTENDED",
-        "work_item_id": "work_item:f422577c614c79923e358920dc0e482bf20ca5b3d8730400a790e3ecd19166a2"
-       },
-       {
-        "region": "eu-west-1",
-        "source_type": "vpcs",
-        "state": "INTENDED",
-        "work_item_id": "work_item:f5443e5b6c07f221f01714588bba36f8ec93f6978640d5925b0241d653e8625a"
-       },
-       {
-        "region": "eu-west-1",
-        "source_type": "account_regions",
-        "state": "INTENDED",
-        "work_item_id": "work_item:f676bd17556bf17755f6dac16f13b392943a1686f555e3751170c2e6a4c3fbbd"
+        "work_item_id": "work_item:2b2a67ce93ad43705f403adc2a643a3c6e3451ccf609501d378f1cb1cd8667c4"
        },
        {
         "region": "eu-west-1",
         "source_type": "nat_gateways",
         "state": "INTENDED",
-        "work_item_id": "work_item:f68baabb247ab3221c2d1241c35f8c3eac3f0b21227bcd091a181ec8ec81d359"
+        "work_item_id": "work_item:2c412662dd17737bcfb171a6804756be75182b0bde22ec95965ccbbece1ab277"
+       },
+       {
+        "region": "eu-west-1",
+        "source_type": "network_acls",
+        "state": "INTENDED",
+        "work_item_id": "work_item:3770db2d0b760defcc7355bce5444366ca91c5fc8dc98bd71bfb53813cda15ab"
+       },
+       {
+        "region": "eu-west-1",
+        "source_type": "security_groups",
+        "state": "INTENDED",
+        "work_item_id": "work_item:414d30ca5c2d503dc7cb3a0e3838b2bfc7e91fe8a5fcca1adc1b96526d74d6ab"
+       },
+       {
+        "region": "eu-west-1",
+        "source_type": "vpc_endpoints",
+        "state": "INTENDED",
+        "work_item_id": "work_item:52bcc04801413e16488cb14f1499e5c2377fb7eae59cb3d6a91f140ece64d3a0"
+       },
+       {
+        "region": "eu-west-1",
+        "source_type": "account_regions",
+        "state": "INTENDED",
+        "work_item_id": "work_item:56c4c9960c98348f5a547582ac934f42947c28138f33bb40ceaf72cb41167d95"
+       },
+       {
+        "region": "eu-west-1",
+        "source_type": "kms_authorization_controls",
+        "state": "INTENDED",
+        "work_item_id": "work_item:5fcbd53ca7a1778af44f42b5cccec95a53d31469cffc00a1474d174217b742e0"
+       },
+       {
+        "region": "eu-west-1",
+        "source_type": "rds_clusters",
+        "state": "INTENDED",
+        "work_item_id": "work_item:63e3d38d867c1eb83260e4aee566746319c82980655e0668abf750b493d5e389"
+       },
+       {
+        "region": "eu-west-1",
+        "source_type": "eks_clusters",
+        "state": "INTENDED",
+        "work_item_id": "work_item:6912e40e1732c2b52c0ca8d86966855d73f7bcd97e474b0a24cb8ca5df7d70d2"
+       },
+       {
+        "region": "eu-west-1",
+        "source_type": "iam_policies",
+        "state": "INTENDED",
+        "work_item_id": "work_item:6ce8f774f6aab81ba6a453c7f5cab012b01a598789a5532fa2486224760972e9"
+       },
+       {
+        "region": "eu-west-1",
+        "source_type": "secretsmanager_authorization_controls",
+        "state": "INTENDED",
+        "work_item_id": "work_item:7ceac346aa5f8b33806da966cf5a2537e5e734ce99a5bb2ae78438a48a646f7b"
+       },
+       {
+        "region": "eu-west-1",
+        "source_type": "subnets",
+        "state": "INTENDED",
+        "work_item_id": "work_item:82f82bfc747698dd22777c97b8e7988673e455ea894114319c6180629f5c3aea"
+       },
+       {
+        "region": "eu-west-1",
+        "source_type": "lambda_functions",
+        "state": "INTENDED",
+        "work_item_id": "work_item:9747baea938af04f623a8930278fae642a53034c0d2da7586fc81dfa5a5de243"
+       },
+       {
+        "region": "eu-west-1",
+        "source_type": "load_balancers",
+        "state": "INTENDED",
+        "work_item_id": "work_item:9789c903ae2177e227411a9fa58ecf6301f0a1a1116d93f6e3dbd084984d3290"
+       },
+       {
+        "region": "eu-west-1",
+        "source_type": "eventbridge_authorization_controls",
+        "state": "INTENDED",
+        "work_item_id": "work_item:9b36d6bb1269aff7075caa2aa437fc6e412f8f01d49c0f95ee40d2704f97f5ca"
+       },
+       {
+        "region": "eu-west-1",
+        "source_type": "organization_policy_context",
+        "state": "INTENDED",
+        "work_item_id": "work_item:a9476ce61a78cc3342b3b0186dd45123c55a5f1a1fa36be010af2f5949389ba1"
+       },
+       {
+        "region": "eu-west-1",
+        "source_type": "route_tables",
+        "state": "INTENDED",
+        "work_item_id": "work_item:ada6cee343b34041e2f906fee3f56c20ba6c70a7fbfeddfa1e77d3d2ab48fb1b"
+       },
+       {
+        "region": "eu-west-1",
+        "source_type": "iam_roles",
+        "state": "INTENDED",
+        "work_item_id": "work_item:af68ba2c2abdda0a3019642c5b5540fe338a078d0cbc865181cbd2721b1648a2"
+       },
+       {
+        "region": "eu-west-1",
+        "source_type": "s3_buckets",
+        "state": "INTENDED",
+        "work_item_id": "work_item:c52f9c23efa6e425ab6f836637c7ead510b46f969e002451e0a6c3e7d3017a14"
+       },
+       {
+        "region": "eu-west-1",
+        "source_type": "target_groups",
+        "state": "INTENDED",
+        "work_item_id": "work_item:c76f312e11b1fb0fda3822ce023d6d76e8c425ef83400b2d3cd16fa47d8acc7c"
+       },
+       {
+        "region": "eu-west-1",
+        "source_type": "vpcs",
+        "state": "INTENDED",
+        "work_item_id": "work_item:d5601ffd9633262d70bd2b32f090632b3059812a8453fd60002db351f54447c9"
+       },
+       {
+        "region": "eu-west-1",
+        "source_type": "sns_authorization_controls",
+        "state": "INTENDED",
+        "work_item_id": "work_item:e737d8a27004db8d6b6fc256a4c97b30c746917bb5c527d325f463e4034c16b5"
+       },
+       {
+        "region": "eu-west-1",
+        "source_type": "rds_instances",
+        "state": "INTENDED",
+        "work_item_id": "work_item:f3c5e8372369cb953f9c3604069c7f2acbdfa6a9f5e96f3e10b6e913f6d9b75f"
+       },
+       {
+        "region": "eu-west-1",
+        "source_type": "load_balancer_listeners",
+        "state": "INTENDED",
+        "work_item_id": "work_item:fb89b18f62b48ad033952a7d1ea8cc925375db475a7f912ad7a4bc0d19493298"
+       },
+       {
+        "region": "eu-west-1",
+        "source_type": "sqs_authorization_controls",
+        "state": "INTENDED",
+        "work_item_id": "work_item:fd08b865c7861cee9041af8c7eda0ee0f2b9f798d874d3c6f381b62c7f5c871d"
+       },
+       {
+        "region": "eu-west-1",
+        "source_type": "ec2_inventory",
+        "state": "INTENDED",
+        "work_item_id": "work_item:fd990df96a0deae69003ecd0b0a532c77c86116d40ac16f169a58da342dd2114"
+       },
+       {
+        "region": "eu-west-1",
+        "source_type": "k8s_objects",
+        "state": "INTENDED",
+        "work_item_id": "work_item:fdb3514eba54b02259c5a5a90a221375846590d9278d1d22bded0d0d5bc4cc18"
        }
       ],
-      "observed_at": "2026-10-06T05:36:41.199563Z",
+      "observed_at": "2026-10-06T13:38:11.581605Z",
       "reason": "QUEUE_NOT_CONFIGURED",
-      "registration_id": "697aaa459247b1249e4723bda6e4eb06",
+      "registration_id": "0da978b148a221d1896c8cfd2a5c10ba",
       "scope": "INVENTORY_BOOTSTRAP",
       "state": "BLOCKED"
      },
      "first_inventory_dispatch": {
       "blocker": "QUEUE_NOT_CONFIGURED",
-      "checked_at": "2026-10-06T05:36:41.152160+00:00",
+      "checked_at": "2026-10-06T13:38:11.530897+00:00",
       "completed_at": null,
       "hold": null,
       "intended": 31,
@@ -296,7 +296,7 @@
      },
      "listed_evidence": null,
      "owner": null,
-     "registration_id": "697aaa459247b1249e4723bda6e4eb06",
+     "registration_id": "0da978b148a221d1896c8cfd2a5c10ba",
      "registration_path": "PENDING",
      "registration_version": 5
     },
@@ -316,7 +316,7 @@
         "delivery_channels": [],
         "recorders": []
        },
-       "discovered_at": "2026-10-06T05:36:40.847588+00:00",
+       "discovered_at": "2026-10-06T13:38:11.207099+00:00",
        "eni_history": {
         "error": "NotImplementedError",
         "lookup_events": "UNREADABLE"
@@ -327,7 +327,7 @@
        "region": "eu-west-1",
        "vpcs": {
         "ids": [
-         "vpc-baeb2dcb96f460663"
+         "vpc-9dc2da913139ef1a7"
         ]
        }
       }
@@ -339,7 +339,7 @@
      "trails": []
     },
     "tags": {},
-    "updated_at": "2026-10-06T05:36:41.134651+00:00",
+    "updated_at": "2026-10-06T13:38:11.506708+00:00",
     "validation_message": "Connected. Found 0 CloudTrail trail(s), 0 usable flow-log group(s) of 0, 0 EKS cluster(s).",
     "verification_enabled": false
    }
@@ -350,7 +350,7 @@
     "account_id": "222222222222",
     "action": "offboard",
     "detail": "account 222222222222 changed after the removal was asked for (version 8, now 5); look at it again and remove it again if you still want to; nothing was changed",
-    "finished_at": "2026-10-06T05:36:41.192016+00:00",
+    "finished_at": "2026-10-06T13:38:11.573535+00:00",
     "outcome": "REGISTRATION_STATE_CHANGED"
    }
   ],
@@ -370,7 +370,7 @@
   },
   "total": 1
  },
- "captured_at": "2026-10-06T05:36:41.200929+00:00",
+ "captured_at": "2026-10-06T13:38:11.583063+00:00",
  "name": "43_offboard_refused_state_changed",
  "note": "GET /accounts after a removal asked for an older version: refused by name",
  "request": {

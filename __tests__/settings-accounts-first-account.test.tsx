@@ -49,7 +49,8 @@ import offRequested from "@/__tests__/fixtures/settings-c-producer/39_offboard_r
 import offPending from "@/__tests__/fixtures/settings-c-producer/40_offboard_pending_listing.json"
 import offDone from "@/__tests__/fixtures/settings-c-producer/41_offboarded_listing.json"
 import offStale from "@/__tests__/fixtures/settings-c-producer/43_offboard_refused_state_changed.json"
-import reAddEarly from "@/__tests__/fixtures/settings-c-producer/45_re_add_refused_removal_not_finished.json"
+import reAdded from "@/__tests__/fixtures/settings-c-producer/45_re_added_listing.json"
+import reAddGateClosed from "@/__tests__/fixtures/settings-c-producer/46_re_add_refused_gate_closed.json"
 
 const CUSTOMER = "acme"
 const MEMBER = "222222222222"
@@ -711,16 +712,27 @@ describe("Remove an activated account: what removing does, the account id typed,
     expect(removeButton(screen.getByTestId(`account-row-${MEMBER}`))).toBeEnabled()
   })
 
-  it("adding a removed account again before its removal has finished is refused by name, and the removal stays listed", async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true, now: at(reAddEarly as Capture) })
-    install(reAddEarly as Capture)
+  it("a removed account is added again at once: it is listed as a new registration and its removal stays in the audit (QA-11)",
+    async () => {
+      const row = await mount(reAdded as Capture, at(reAdded as Capture))
+      expect(rowOf(reAdded as Capture).onboarding_status).toBe("PENDING_UNVERIFIED")
+      expect(row).toHaveTextContent(MEMBER)
+      const removed = (reAdded as Capture).body.removed[0]
+      expect(removed.status).toBe("OFFBOARDED")
+      const audit = screen.getByTestId("removed-accounts")
+      expect(audit).toHaveTextContent("Removed accounts (1)")
+      expect(within(audit).getByTestId(`removed-${MEMBER}`)).toHaveTextContent(
+        `Removed after it was connected by ${removed.by} · ${formatUtcInstantExact(removed.at)}.`)
+    })
+
+  it("an Add of a removed account refused for another reason names the account as its removal does", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true, now: at(reAddGateClosed as Capture) })
+    install(reAddGateClosed as Capture)
     render(<AccountSettingsPage />)
-    const failure = (reAddEarly as Capture).body.failed_requests[0]
-    expect(failure.outcome).toBe("ACCOUNT_REMOVAL_NOT_FINISHED")
+    const failure = (reAddGateClosed as Capture).body.failed_requests[0]
+    expect(failure.outcome).toBe("INSTALLATION_GATE_CLOSED")
     const alert = (await screen.findByText(`Registration for prod-payments (${MEMBER}) failed`)).closest("[role=alert]") as HTMLElement
-    expect(within(alert).getByTestId(`failure-outcome-${MEMBER}`)).toHaveTextContent(
-      "This account was removed recently and Cyntro is still finishing that removal, setting its earlier collection aside so it " +
-      "can start afresh. Add it again once that has finished. Nothing was changed.")
+    expect(within(alert).getByTestId(`failure-outcome-${MEMBER}`)).toHaveTextContent("This installation is not verified for new accounts.")
     expect(alert).toHaveTextContent(failure.detail)
     expect(screen.queryByTestId(`account-row-${MEMBER}`)).toBeNull()
     expect(within(screen.getByTestId("removed-accounts")).getByTestId(`removed-${MEMBER}`)).toBeInTheDocument()

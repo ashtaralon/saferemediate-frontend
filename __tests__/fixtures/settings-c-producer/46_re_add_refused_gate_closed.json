@@ -6,9 +6,9 @@
    {
     "account_id": "222222222222",
     "action": "register",
-    "detail": "account 222222222222 was removed from this installation and that removal is still being finished; nothing was registered -- add it again once it has finished",
-    "finished_at": "2026-10-06T05:36:42.125613+00:00",
-    "outcome": "ACCOUNT_REMOVAL_NOT_FINISHED"
+    "detail": "the installation's activation gate is not open for this build; nothing was registered -- try again once the installation is verified",
+    "finished_at": "2026-10-06T13:38:13.780341+00:00",
+    "outcome": "INSTALLATION_GATE_CLOSED"
    }
   ],
   "member_trust": {
@@ -21,11 +21,11 @@
   "removed": [
    {
     "account_id": "222222222222",
-    "at": "2026-10-06T05:36:42.090950+00:00",
+    "at": "2026-10-06T13:38:13.748260+00:00",
     "by": "https://cognito-idp.eu-west-1.amazonaws.com/pool#00u-alice",
     "display_name": "prod-payments",
     "from_status": "CONNECTED",
-    "removal_id": "db60f09474950cc54360c1fd180d48f9",
+    "removal_id": "9c6487dd0b9d9f992dbc3102381219bb",
     "status": "OFFBOARDED"
    }
   ],
@@ -37,9 +37,9 @@
   },
   "total": 0
  },
- "captured_at": "2026-10-06T05:36:42.134239+00:00",
- "name": "45_re_add_refused_removal_not_finished",
- "note": "GET /accounts after the connector refused the early Add: the refusal, and the removal still listed",
+ "captured_at": "2026-10-06T13:38:13.788679+00:00",
+ "name": "46_re_add_refused_gate_closed",
+ "note": "GET /accounts after an Add of the removed account was refused (installation gate not open): the refusal, the account not listed, its removal listed",
  "request": {
   "method": "GET",
   "path": "/api/admin/accounts?customer_id=acme"

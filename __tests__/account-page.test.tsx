@@ -26,6 +26,7 @@ import { formatUtcInstantExact } from "@/lib/account-admin"
 import measured from "@/__tests__/fixtures/settings-c-producer/27_k2_collected_measured.json"
 import withdrawn from "@/__tests__/fixtures/settings-c-producer/25_withdrawn.json"
 import offboarded from "@/__tests__/fixtures/settings-c-producer/41_offboarded_listing.json"
+import reAdded from "@/__tests__/fixtures/settings-c-producer/45_re_added_listing.json"
 import pending from "@/__tests__/fixtures/settings-c-producer/01_pending_unverified.json"
 
 const MEMBER = "222222222222"
@@ -91,6 +92,15 @@ describe("the account page's Overview", () => {
     expect(panel).toHaveTextContent("Adding it again in Settings › Accounts starts a new registration that collects afresh.")
     expect(screen.getByTestId("account-page-title")).toHaveTextContent(removed.display_name)
     expect(screen.getByText(MEMBER)).toBeInTheDocument()
+    expect(screen.queryByTestId("account-not-listed")).toBeNull()
+  })
+
+  it("an account added again is its live registration, not its earlier removal", async () => {
+    serve(reAdded as never)
+    await open(MEMBER)
+    expect((reAdded as any).body.removed.map((r: any) => r.account_id)).toContain(MEMBER)
+    expect(await screen.findByText("Connection")).toBeInTheDocument()
+    expect(screen.queryByTestId("account-removed")).toBeNull()
     expect(screen.queryByTestId("account-not-listed")).toBeNull()
   })
 

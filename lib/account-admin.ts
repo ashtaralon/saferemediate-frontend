@@ -902,8 +902,6 @@ const REQUEST_OUTCOMES: Record<string, string> = {
     "This account already has collection history in this installation, so it cannot be connected here as a new account. Do not register it again; contact Cyntro support. Nothing was changed.",
   ACCOUNT_HISTORY_UNKNOWN:
     "Cyntro could not read whether this account already has collection history here. Try again; nothing was changed.",
-  ACCOUNT_REMOVAL_NOT_FINISHED:
-    "This account was removed recently and Cyntro is still finishing that removal, setting its earlier collection aside so it can start afresh. Add it again once that has finished. Nothing was changed.",
   OWNER_HELD:
     "A previous step could not record its result and is kept as the proof of where the account stands. Release the account, or wait.",
 }
