@@ -20,7 +20,7 @@ import { DeclarationForm } from "@/components/system-boundary/declaration-form"
 import { DeclaredSystems } from "@/components/system-boundary/declared-systems"
 import { PendingSaves } from "@/components/system-boundary/pending-saves"
 import { Button } from "@/components/ui/button"
-import { rowKey, type InventoryRow, type PublicationIdentity } from "@/lib/account-inventory"
+import { rowKey, type InventoryRow, type InventorySelection, type PublicationIdentity } from "@/lib/account-inventory"
 import {
   readOwnGrant,
   readView,
@@ -33,7 +33,7 @@ import {
   type SaveResult,
 } from "@/lib/system-boundary-authoring"
 import { pendingStore, type PendingStore } from "@/lib/system-boundary-pending"
-import { samePublication, type InventorySelection, type PickedRoot } from "@/lib/system-boundary-declaration"
+import { samePublication, type PickedRoot } from "@/lib/system-boundary-declaration"
 
 export interface DeclareFromInventoryProps {
   accountId: string

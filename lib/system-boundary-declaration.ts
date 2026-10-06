@@ -17,29 +17,15 @@ import type {
   SaveResult,
 } from "@/lib/system-boundary-authoring"
 import { refusedRoots } from "@/lib/system-boundary-authoring"
-import type { InventoryRow, PublicationIdentity } from "@/lib/account-inventory"
+import type { PublicationIdentity } from "@/lib/account-inventory"
 
 /** A root picked in the inventory: the root, what the person saw it as, and the full publication identity of the page
- *  it was picked from (what the inventory view compares with the publication it shows). */
+ *  it was picked from (what the inventory view compares with the publication it shows). The view's selection hook is
+ *  lib/account-inventory.ts InventorySelection -- one contract, the view's. */
 export interface PickedRoot {
   root: DeclaredRoot
   label: string
   publication: PublicationIdentity
-}
-
-/**
- * The selection hook Settings' I3 account inventory view accepts (components/accounts/account-inventory-view.tsx; the
- * interface Settings sent 2026-10-06). TEMPORARY structural copy: when that view lands, import its InventorySelection and
- * delete this one -- one contract, not two. The view renders a box per row the inventory marks selectable, says why a
- * row is not, marks a pick whose publication differs from the one shown, and holds no selection state: the caller owns
- * every pick.
- */
-export interface InventorySelection {
-  /** rowKey(row) -> the publication identity the pick was made under. */
-  selected: ReadonlyMap<string, PublicationIdentity>
-  onToggle(row: InventoryRow, publication: PublicationIdentity): void
-  /** Called when the shown publication is first shown or changes. */
-  onPublication?(publication: PublicationIdentity): void
 }
 
 /** Whether a pick was made under exactly the publication now shown. */
