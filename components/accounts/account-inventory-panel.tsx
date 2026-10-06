@@ -11,9 +11,11 @@
 import { useCallback } from "react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { AccountInventoryView, type RosterState } from "@/components/accounts/account-inventory-view"
+import type { InventorySelection } from "@/lib/account-inventory"
 import { useAccountScope } from "@/lib/account-scope-context"
 
-export function AccountInventoryPanel({ accountId }: { accountId: string }) {
+/** ``selection``: the caller's picks when declaring a system from this inventory (absent: browse only). */
+export function AccountInventoryPanel({ accountId, selection }: { accountId: string; selection?: InventorySelection }) {
   const scope = useAccountScope()
   const router = useRouter()
   const pathname = usePathname()
@@ -45,6 +47,7 @@ export function AccountInventoryPanel({ accountId }: { accountId: string }) {
       resourceType={resourceType}
       roster={roster}
       onResourceTypeChange={onResourceTypeChange}
+      selection={selection}
     />
   )
 }

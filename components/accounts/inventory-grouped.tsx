@@ -16,7 +16,7 @@ import { InventoryRowsTable } from "@/components/accounts/inventory-rows-table"
 import { InventoryTypeTile } from "@/components/accounts/inventory-type-tile"
 import { useInventoryRead } from "@/components/accounts/use-inventory-read"
 import { Button } from "@/components/ui/button"
-import type { InventoryFetcher, InventoryRow } from "@/lib/account-inventory"
+import type { InventoryFetcher, InventoryRow, InventorySelection } from "@/lib/account-inventory"
 import { inventoryOutcomeCopy } from "@/lib/inventory-copy"
 import { INVENTORY_CATEGORY_LABEL, inventoryTypeMeta, type InventoryCategory } from "@/lib/inventory-types"
 
@@ -30,10 +30,11 @@ interface GroupedInventoryProps {
   accountTotal: number
   fetchPage: InventoryFetcher
   onOpen: (row: InventoryRow) => void
+  selection?: InventorySelection
 }
 
 export function GroupedInventory({
-  customerId, accountId, byType, byRegion, accountTotal, fetchPage, onOpen,
+  customerId, accountId, byType, byRegion, accountTotal, fetchPage, onOpen, selection,
 }: GroupedInventoryProps) {
   const [category, setCategory] = useState<InventoryCategory | null>(null)
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set())
@@ -114,6 +115,7 @@ export function GroupedInventory({
                     resourceType={meta.resourceType}
                     fetchPage={fetchPage}
                     onOpen={onOpen}
+                    selection={selection}
                   />
                 </div>
               ) : null}
@@ -127,13 +129,14 @@ export function GroupedInventory({
 
 /** One opened type: its own reader (the route's type filter), paged by cursor; its own answer, worded like the page's. */
 function TypeGroup({
-  customerId, accountId, resourceType, fetchPage, onOpen,
+  customerId, accountId, resourceType, fetchPage, onOpen, selection,
 }: {
   customerId: string | null
   accountId: string
   resourceType: string
   fetchPage: InventoryFetcher
   onOpen: (row: InventoryRow) => void
+  selection?: InventorySelection
 }) {
   const { model, loadMore, refresh } = useInventoryRead(customerId, accountId, resourceType, fetchPage)
   if (model.kind === "loading") return <p className="text-xs text-slate-500">Loading…</p>
@@ -151,7 +154,9 @@ function TypeGroup({
   }
   return (
     <div className="space-y-2">
-      <InventoryRowsTable rows={model.rows} resourceType={resourceType} onOpen={onOpen} />
+      {/* A pick names the publication THIS group's rows came from (its own read). */}
+      <InventoryRowsTable rows={model.rows} resourceType={resourceType} onOpen={onOpen}
+        selection={selection} publication={model.publication} />
       {model.hasMore ? (
         <Button type="button" variant="outline" size="sm" onClick={loadMore} disabled={model.loadingMore}>
           {model.loadingMore ? "Loading…" : `Load more (${model.rows.length} of ${model.totals.filterTotal})`}

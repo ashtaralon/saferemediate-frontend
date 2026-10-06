@@ -3,9 +3,10 @@
  * (GET /api/accounts/{account_id}/inventory, through /api/proxy/accounts/{accountId}/inventory) and the
  * pure state machine that keeps paging bound to ONE account and ONE publication.
  *
- * Browse only. Each row's `eligibility`, `assignment` and `observed_incarnation` are kept as data for later
- * consumers and never rendered or used as selectable here: authoring roots and SystemRef are not this
- * contract (`account_inventory_roots/v2` is the server-side resolver's, never this one).
+ * Browse first. Each row's `eligibility`, `assignment` and `observed_incarnation` are kept as data. Only when a caller
+ * hands the view a selection hook (InventorySelection, below) is `eligibility` shown -- a box for a selectable row, the
+ * reason in words for any other -- and the picks are the caller's. Authoring roots and SystemRef are not this contract
+ * (`account_inventory_roots/v2` is the server-side resolver's, never this one).
  *
  * The inventory is ACCOUNT-WIDE: the API has no Region filter, so every page is the whole account (all its
  * published Regions plus global resources), whatever Region the global scope names.
@@ -73,7 +74,7 @@ export interface InventoryRow {
   observed_incarnation: Record<string, unknown>
   /** Kept as data only (an unknown status is preserved); never rendered here. */
   assignment: Record<string, unknown>
-  /** The authoring judgement, kept as data only; NEVER shown or used as selectable on this screen. */
+  /** The authoring judgement: kept as data, shown only to a caller that hands the view a selection hook. */
   eligibility: Record<string, unknown>
   /** Row v3 (I1): the fact's tags, ONLY for a type whose collector reads tags ({} = read, none); absent otherwise. */
   tags?: Record<string, string>
@@ -381,6 +382,34 @@ export type InventoryModel =
   | ({ epoch: number; key: InventoryKey; restarts: number; loadingMore: boolean; seenCursors: string[] } & InventoryData)
   | ({ epoch: number; key: InventoryKey; restarts: number } & InventoryOutcome)
   | { kind: "republishing"; epoch: number; key: InventoryKey; restarts: number }
+
+/**
+ * The selection hook the account inventory view accepts (I3; the interface Settings sent AccountOnboardingPhase2 on
+ * 2026-10-06 -- its declare-from-inventory flow is the one caller). The view renders a box for each row the inventory marks
+ * selectable, says in words why a row is not, marks a pick made under a publication other than the one its table shows, and
+ * holds no selection state: the caller owns every pick.
+ */
+export interface InventorySelection {
+  /** rowKey(row) -> the publication identity the pick was made under. */
+  selected: ReadonlyMap<string, PublicationIdentity>
+  onToggle(row: InventoryRow, publication: PublicationIdentity): void
+  /** Called when the page's shown publication is first shown or changes (an opened type group's own read is not "shown"). */
+  onPublication?(publication: PublicationIdentity): void
+}
+
+/** The browse eligibility the route stamps on each row (account_inventory_collection.judge_row), in words. */
+export const ELIGIBILITY_COPY: Record<string, string> = {
+  INCARNATION_NOT_PROVIDED: "No verified identity for this resource",
+  ROOT_DELETED: "Deleted",
+  ROOT_STATE_UNVERIFIED: "Its state is not verified",
+  PUBLICATION_INCOMPLETE: "This inventory publication is partial",
+  ROOT_INCARNATION_RECORD_INVALID: "Its identity record could not be verified",
+}
+
+export function eligibilityCopy(eligibility: Record<string, unknown>): string {
+  const reason = typeof eligibility.reason === "string" ? eligibility.reason : ""
+  return ELIGIBILITY_COPY[reason] ?? `Not selectable (${reason || "no reason given"})`
+}
 
 export function keysEqual(a: InventoryKey, b: InventoryKey): boolean {
   return a.customerId === b.customerId && a.accountId === b.accountId && a.resourceType === b.resourceType

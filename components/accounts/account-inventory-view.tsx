@@ -1,8 +1,9 @@
 "use client"
 
 /**
- * One account's published resource inventory, read-only (T11b; grouped by type in I3). Browse only: no selection,
- * assignment or "add to system" control; authoring is not available here.
+ * One account's published resource inventory, read-only (T11b; grouped by type in I3). Browse only, unless a caller hands
+ * it a selection hook (`selection`, lib/account-inventory.ts InventorySelection): then each table offers a box per
+ * selectable row and the caller owns every pick. Nothing is ever assigned or changed from here.
  *
  * The reader is KEYED by (customer, account, filter): a change of any of them mounts a fresh reader, so the very first
  * committed output after the change already belongs to the new key -- no row of the previous account or filter is ever
@@ -16,14 +17,21 @@
  * (no counts) only that. A type filter shows that type's own columns. Any resource's name opens its drill-down.
  */
 
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { GroupedInventory } from "@/components/accounts/inventory-grouped"
 import { InventoryResourceDrawer } from "@/components/accounts/inventory-resource-drawer"
 import { InventoryRowsTable } from "@/components/accounts/inventory-rows-table"
 import { useInventoryRead } from "@/components/accounts/use-inventory-read"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { fetchInventoryPage, type InventoryFetcher, type InventoryRow } from "@/lib/account-inventory"
+import {
+  fetchInventoryPage,
+  publicationsEqual,
+  type InventoryFetcher,
+  type InventoryRow,
+  type InventorySelection,
+  type PublicationIdentity,
+} from "@/lib/account-inventory"
 import { inventoryOutcomeCopy } from "@/lib/inventory-copy"
 import { inventoryTypeMeta } from "@/lib/inventory-types"
 
@@ -44,6 +52,8 @@ export interface AccountInventoryViewProps {
   onResourceTypeChange: (resourceType: string | null) => void
   /** Injectable for tests; defaults to this console's proxy. */
   fetchPage?: InventoryFetcher
+  /** Declaring from the inventory (AccountOnboardingPhase2's flow): the caller's picks. Absent: browse only. */
+  selection?: InventorySelection
 }
 
 export function AccountInventoryView(props: AccountInventoryViewProps) {
@@ -61,10 +71,21 @@ function InventoryReader({
   roster,
   onResourceTypeChange,
   fetchPage = fetchInventoryPage,
+  selection,
   layout,
   onLayoutChange,
 }: AccountInventoryViewProps & { layout: InventoryLayout; onLayoutChange: (layout: InventoryLayout) => void }) {
   const { model, loadMore, refresh } = useInventoryRead(customerId, accountId, resourceType, fetchPage)
+  // The shown publication, told to the selection's owner when it is first shown or changes.
+  const told = useRef<PublicationIdentity | null>(null)
+  const shownPublication = model.kind === "data" ? model.publication : null
+  const onPublication = selection?.onPublication
+  useEffect(() => {
+    if (shownPublication === null || !onPublication) return
+    if (told.current !== null && publicationsEqual(told.current, shownPublication)) return
+    told.current = shownPublication
+    onPublication(shownPublication)
+  }, [shownPublication, onPublication])
   const [filterDraft, setFilterDraft] = useState(resourceType ?? "")
   const [opened, setOpened] = useState<InventoryRow | null>(null)
 
@@ -167,6 +188,7 @@ function InventoryReader({
               accountTotal={model.totals.accountTotal}
               fetchPage={fetchPage}
               onOpen={setOpened}
+              selection={selection}
             />
           ) : null}
           {model.state === "populated" && !grouped ? (
@@ -176,7 +198,8 @@ function InventoryReader({
                 {resourceType !== null ? ` ${inventoryTypeMeta(resourceType).label} (${resourceType})` : ""} resources
                 {resourceType !== null ? ` (${model.totals.accountTotal} in the account)` : ""}.
               </p>
-              <InventoryRowsTable rows={model.rows} resourceType={resourceType} onOpen={setOpened} />
+              <InventoryRowsTable rows={model.rows} resourceType={resourceType} onOpen={setOpened}
+                selection={selection} publication={model.publication} />
               {model.hasMore ? (
                 <Button type="button" variant="outline" size="sm" onClick={loadMore} disabled={model.loadingMore}>
                   {model.loadingMore ? "Loading…" : "Load more"}
