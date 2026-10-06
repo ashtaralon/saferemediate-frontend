@@ -1,7 +1,7 @@
 "use client"
 
 import { Suspense, use } from "react"
-import { AccountInventoryPanel } from "@/components/accounts/account-inventory-panel"
+import { DeclarableAccountInventory } from "@/components/system-boundary/declarable-account-inventory"
 
 /**
  * /accounts/{accountId}/inventory (T11b): one account's published inventory, read-only. The same panel is the account
@@ -16,7 +16,7 @@ export default function AccountInventoryRoute({ params }: Props) {
   const { accountId } = use(params)
   return (
     <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">Loading inventory…</div>}>
-      <AccountInventoryPanel accountId={accountId} />
+      <DeclarableAccountInventory accountId={accountId} />
     </Suspense>
   )
 }

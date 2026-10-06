@@ -11,11 +11,11 @@
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { act, fireEvent, render, screen } from "@testing-library/react"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { DeclareFromInventory } from "@/components/system-boundary/declare-from-inventory"
-import { rowKey, type InventoryRow, type PublicationIdentity } from "@/lib/account-inventory"
-import type { CreateEnvelope, DeclarationsView, ReadResult } from "@/lib/system-boundary-authoring"
-import type { InventorySelection } from "@/lib/system-boundary-declaration"
+import { rowKey, type InventoryRow, type InventorySelection, type PublicationIdentity } from "@/lib/account-inventory"
+import type { CreateEnvelope, DeclarationsView, OwnGrant, ReadResult } from "@/lib/system-boundary-authoring"
+import { pendingStore } from "@/lib/system-boundary-pending"
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function golden(name: string): any {
@@ -35,15 +35,20 @@ const PUBLICATION: PublicationIdentity = {
   registration_id: (golden("view_after_save").body.roots[0].body.provenance as { registration_id: string }).registration_id,
 }
 
+// The person's own grant, as the real /authoring-grants/self answered (producer golden). Nothing here reaches a network:
+// the resume store is the no-storage one (resume is the resume suite's), and any fetch not stubbed by a test fails it.
+const readGrant = async (): Promise<ReadResult<OwnGrant>> => ({ kind: "OK", value: golden("grant_self").body })
+
 function mount(readDeclarations: () => Promise<ReadResult<DeclarationsView>>, accountId = "111122223333") {
   const handed: (InventorySelection | undefined)[] = []
   const renderInventory = (selection: InventorySelection | undefined) => {
     handed.push(selection)
     return <div data-testid="inventory" />
   }
+  const store = pendingStore(null)
   const utils = render(<DeclareFromInventory accountId={accountId} customerId="acme" renderInventory={renderInventory}
-    readDeclarations={readDeclarations} />)
-  return { handed, latest: () => handed[handed.length - 1], utils, renderInventory }
+    readDeclarations={readDeclarations} readGrant={readGrant} store={store} />)
+  return { handed, latest: () => handed[handed.length - 1], utils, renderInventory, store }
 }
 
 const ok = (view: DeclarationsView) => vi.fn(async (): Promise<ReadResult<DeclarationsView>> => ({ kind: "OK", value: view }))
@@ -52,7 +57,20 @@ async function settle() {
   await act(async () => {})
 }
 
-afterEach(() => vi.restoreAllMocks())
+let unstubbed: string[] = []
+
+beforeEach(() => {
+  unstubbed = []
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    unstubbed.push(String(input instanceof Request ? input.url : input))
+    throw new TypeError("unstubbed fetch")
+  })
+})
+
+afterEach(() => {
+  vi.restoreAllMocks()
+  expect(unstubbed).toEqual([])
+})
 
 describe("declaring from the inventory", () => {
   it("hands the view no selection -- browse only, nothing added -- when the declarations cannot be read", async () => {
@@ -120,10 +138,11 @@ describe("declaring from the inventory", () => {
 
   it("another account mounts a fresh picker: no pick crosses accounts", async () => {
     const read = ok(VIEW0)
-    const { latest, utils, renderInventory } = mount(read)
+    const { latest, utils, renderInventory, store } = mount(read)
     await settle()
     await act(async () => latest()!.onToggle(ROW, PUBLICATION))
-    utils.rerender(<DeclareFromInventory accountId="444455556666" customerId="acme" renderInventory={renderInventory} readDeclarations={read} />)
+    utils.rerender(<DeclareFromInventory accountId="444455556666" customerId="acme" renderInventory={renderInventory} readDeclarations={read}
+      readGrant={readGrant} store={store} />)
     await settle()
     expect(latest()!.selected.size).toBe(0)
   })

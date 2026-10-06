@@ -12,7 +12,7 @@ import { DeclareFromInventory } from "@/components/system-boundary/declare-from-
 import { PendingSaves } from "@/components/system-boundary/pending-saves"
 import type { InventoryRow, PublicationIdentity } from "@/lib/account-inventory"
 import type { CreateEnvelope, DeclarationsView, OwnGrant, ReadResult } from "@/lib/system-boundary-authoring"
-import type { InventorySelection } from "@/lib/system-boundary-declaration"
+import type { InventorySelection } from "@/lib/account-inventory"
 import { PENDING_KEY, pendingFor, pendingStore, type PendingSave } from "@/lib/system-boundary-pending"
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

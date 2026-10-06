@@ -17,7 +17,7 @@ import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { ArrowLeft, Loader2 } from "lucide-react"
 import { LeftSidebarNav } from "@/components/left-sidebar-nav"
-import { AccountInventoryPanel } from "@/components/accounts/account-inventory-panel"
+import { DeclarableAccountInventory } from "@/components/system-boundary/declarable-account-inventory"
 import { AccountOverview } from "@/components/accounts/account-overview"
 import { useAccountScope } from "@/lib/account-scope-context"
 import {
@@ -111,7 +111,7 @@ function AccountPage({ accountId }: { accountId: string }) {
         </div>
         <div className="px-8 py-6">
           {tab === "inventory" && listing.state !== "loading" && removed === null ? (
-            <AccountInventoryPanel accountId={accountId} />
+            <DeclarableAccountInventory accountId={accountId} />
           ) : listing.state === "loading" ? (
             <p className="flex items-center gap-2 text-sm text-slate-500"><Loader2 className="h-4 w-4 animate-spin" aria-hidden /> Loading the account…</p>
           ) : listing.state === "error" ? (
