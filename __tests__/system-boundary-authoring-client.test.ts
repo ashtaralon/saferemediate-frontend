@@ -1,5 +1,5 @@
 /**
- * Typed System Boundary authoring client (lib/system-boundary-authoring.ts) -- the contract of backend a3c945b0.
+ * Typed System Boundary authoring client (lib/system-boundary-authoring.ts) -- the contract of backend 9af2ca3a (N2).
  *
  * A success is believed only when it names THIS request; a named refusal is never "saved"; anything unproven asks
  * for the SAME envelope again; an envelope is frozen and never changed by a later one.
@@ -16,6 +16,8 @@ import {
   readOwnGrant,
   readRequest,
   readView,
+  refusedRoots,
+  rootFromInventory,
   saveCorrection,
   saveDeclaration,
 } from "@/lib/system-boundary-authoring"
@@ -23,13 +25,19 @@ import {
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 const SYSTEM = "authored_system:" + "1".repeat(64)
 const KEY = `SYSTEM#${SYSTEM}`
+const PUBLICATION = { attempt: "a".repeat(32), generation: 3, source_identity: "sha256:" + "1".repeat(64),
+                      authority_digest: "sha256:" + "2".repeat(64), registration_id: "5".repeat(32) }
+/** An IAM role row in the producer's spellings (uid scheme aws://<partition>/<account>/global/iam/role/<name>; the IAM
+ *  normalizer's RoleId carried as source "role_id"); the values are this test's own. */
+const ROLE_ROW = { resource_uid: "aws://aws/111111111111/global/iam/role/app-role", resource_type: "iam:role", region: "global",
+                   observed_incarnation: { status: "provided", source: "role_id", value: "AROAAPPROLE000000002" } }
 
 function draft(): CreateDeclaration {
   return {
     system: { mode: "new", display_name: "Payments", criticality: "LOW" },
     deployment: { mode: "new", deployment_key: "prod", environment: "PRODUCTION", environment_raw: "prd",
                   scopes: [{ account_id: "111111111111", region: "eu-west-1" }] },
-    roots: [{ account_id: "111111111111", region: "eu-west-1", resource_uid: "arn:aws:ec2:eu-west-1:111111111111:instance/i-1" }],
+    roots: [rootFromInventory("111111111111", ROLE_ROW, PUBLICATION)],
   }
 }
 
@@ -60,19 +68,56 @@ describe("authoring client -- envelopes", () => {
   it("mints one request id per envelope over a frozen copy: later edits and later envelopes change nothing", () => {
     const declaration = draft()
     const first = newCreateEnvelope(4, declaration)
-    declaration.roots.push({ account_id: "222222222222", region: "eu-west-1", resource_uid: "later" })
+    declaration.roots.push(rootFromInventory("222222222222", { ...ROLE_ROW, resource_uid: "later" }, PUBLICATION))
     const second = newCreateEnvelope(4, declaration)
 
     expect(first.request_id).toMatch(UUID)
     expect(second.request_id).not.toBe(first.request_id)
     expect([first.base_revision, first.declaration.roots.length, second.declaration.roots.length]).toEqual([4, 1, 2])
-    expect(Object.isFrozen(first) && Object.isFrozen(first.declaration.roots) && Object.isFrozen(first.declaration.roots[0])).toBe(true)
+    expect(Object.isFrozen(first) && Object.isFrozen(first.declaration.roots) && Object.isFrozen(first.declaration.roots[0])
+           && Object.isFrozen(first.declaration.roots[0].selection.observed_incarnation)).toBe(true)
     expect(() => {
       (first.declaration.roots as unknown as unknown[]).push("x")
     }).toThrow()
     const correction = newCorrectionEnvelope(2, criticalityOnly)
     expect(correction.correction).toEqual(criticalityOnly)
     expect(correction.correction).not.toBe(criticalityOnly)
+  })
+})
+
+describe("authoring client -- roots (N2)", () => {
+  it("builds a root from one inventory page: the row's identity, type and incarnation, and that page's publication pins", () => {
+    const row = structuredClone(ROLE_ROW)
+    const root = rootFromInventory("111111111111", row, PUBLICATION)
+    expect(root).toEqual({
+      account_id: "111111111111", region: "global", resource_uid: ROLE_ROW.resource_uid,
+      selection: { resource_type: "iam:role",
+                   publication: { attempt: PUBLICATION.attempt, generation: 3, source_identity: PUBLICATION.source_identity,
+                                  authority_digest: PUBLICATION.authority_digest },
+                   observed_incarnation: ROLE_ROW.observed_incarnation },
+    })
+    expect("registration_id" in root.selection.publication).toBe(false)       // the resolver's contract: four pins, no more
+    ;(row.observed_incarnation as Record<string, unknown>).value = "changed later"
+    expect(root.selection.observed_incarnation).toEqual(ROLE_ROW.observed_incarnation)   // copied, never aliased
+  })
+
+  it("names the roots a ROOT_NOT_ADMITTED refusal names, and nothing for anything else or anything malformed", () => {
+    const named = { account_id: "111111111111", region: "global", resource_uid: ROLE_ROW.resource_uid, status: "CHANGED",
+                    reason_code: "INCARNATION_CHANGED" }
+    expect(refusedRoots({ kind: "REFUSED", status: 409, code: "ROOT_NOT_ADMITTED", detail: { roots: [named] } })).toEqual([named])
+    expect(refusedRoots({ kind: "REFUSED", status: 409, code: "ROOT_NOT_ADMITTED", detail: { roots: [{ ...named, status: 7 }] } })).toEqual([])
+    expect(refusedRoots({ kind: "REFUSED", status: 409, code: "ACCOUNT_AUTHORITY_CHANGED", detail: { roots: [named] } })).toEqual([])
+    expect(refusedRoots({ kind: "RESEND_SAME", status: 503, code: "OUTCOME_UNKNOWN", detail: {} })).toEqual([])
+  })
+
+  it("a refusal of the roots is a named refusal carrying every refused root, never saved and never resent", async () => {
+    const envelope = newCreateEnvelope(1, draft())
+    const roots = [{ account_id: "111111111111", region: "global", resource_uid: ROLE_ROW.resource_uid, status: "ABSENT",
+                     reason_code: "NOT_IN_PUBLICATION" }]
+    answers(Response.json({ detail: { code: "ROOT_NOT_ADMITTED", roots } }, { status: 409 }))
+    const result = await saveDeclaration(envelope)
+    expect(result).toEqual({ kind: "REFUSED", status: 409, code: "ROOT_NOT_ADMITTED", detail: { roots } })
+    expect(refusedRoots(result)).toEqual(roots)
   })
 })
 

@@ -1,7 +1,7 @@
 /**
- * Typed client for System Boundary authoring (Phase 2 F1) -- the contract of saferemediate-backend a3c945b0
- * (api/system_boundary.py, unified/system_boundary_save.py), reached only through this console's named proxy
- * (lib/server/authoring-proxy.ts). No React and no form: nothing here is exposed in the UI yet.
+ * Typed client for System Boundary authoring (Phase 2 F1; roots N2) -- the contract of saferemediate-backend
+ * 9af2ca3a (api/system_boundary.py, unified/system_boundary_save.py, unified/system_boundary_admission.py),
+ * reached only through this console's named proxy (lib/server/authoring-proxy.ts). No React here.
  *
  * A save is answered in exactly one of three ways, and nothing in between is invented:
  *  - SAVED: a success response that names THIS request (request id, kind, outcome) -- a commit or its replay;
@@ -11,8 +11,11 @@
  *    find it in the request history -- never read it as saved or as not saved, never mint a new request id for it.
  * Keeping the envelope until its outcome is known is the caller's job; durable pre-send persistence is F2's.
  *
- * Roots are the identity a declaration carries TODAY ({account_id, region, resource_uid}). That is not a root
- * selection or an admission: the selection and provenance fields come with the current-root resolver and N2.
+ * A root a save attaches (a create's roots, a correction's adds) is its identity {account_id, region, resource_uid}
+ * plus the SELECTION the person saw in the account inventory (``rootFromInventory``): the row's type and observed
+ * incarnation and the publication it was read from. A selection is expected values only, never authority: the
+ * backend's current-root resolver judges every such root against the CURRENT registration and publication before the
+ * save, and refuses the whole save as ROOT_NOT_ADMITTED naming each root it did not admit (``refusedRoots``).
  * The own-grant read is not the person's whole authority either; the backend decides each request.
  */
 
@@ -60,12 +63,38 @@ export interface DeclarationsHead {
   limits: AuthoringLimits
 }
 
-/** The identity a declaration carries today -- NOT a root selection or admission (see the module note). */
+/** A root's identity: what a removal or a move names. */
 export interface SeedIdentity {
   account_id: string
   region: string
   resource_uid: string
 }
+
+/** The observed incarnation exactly as the inventory row states it: a verified proof, or explicitly none. */
+export type ObservedIncarnation = { status: "not_provided" } | { status: "provided"; source: string; value: string }
+
+/** What the person SAW when they picked a root (see the module note): expected values, never authority. */
+export interface RootSelection {
+  resource_type: string
+  publication: { attempt: string; generation: number; source_identity: string; authority_digest: string }
+  observed_incarnation: ObservedIncarnation
+}
+
+/** A root a save attaches: its identity and the selection it was picked under. */
+export type DeclaredRoot = SeedIdentity & { selection: RootSelection }
+
+/** What the backend stored of a root's admission on its seed (N2): what the resolver judged it against and found. */
+export interface RootProvenance {
+  resolver_contract: string
+  registration_id: string
+  authority_digest: string
+  publication: { attempt: string; generation: number; source_identity: string }
+  resource_type: string
+  incarnation: ObservedIncarnation
+}
+
+/** One root a ROOT_NOT_ADMITTED refusal names, with the current-root resolver's own status and reason. */
+export type RefusedRoot = SeedIdentity & { status: string; reason_code: string | null }
 
 export type NewSystem = { mode: "new"; display_name: string; criticality?: string | null }
 export type SystemRef = { mode: "ref"; system_id: string; expected_version: number }
@@ -81,7 +110,7 @@ export type DeploymentRef = { mode: "ref"; deployment_id: string; expected_versi
 export interface CreateDeclaration {
   system: NewSystem | SystemRef
   deployment: NewDeployment | DeploymentRef
-  roots: SeedIdentity[]
+  roots: DeclaredRoot[]
 }
 
 export type RootAtVersion = SeedIdentity & { expected_version: number }
@@ -100,7 +129,7 @@ export interface Correction {
     expected_version: number
     set?: { environment?: string; environment_raw?: string | null }
   }
-  roots?: { add?: SeedIdentity[]; remove?: RootAtVersion[]; move?: RootMove[] }
+  roots?: { add?: DeclaredRoot[]; remove?: RootAtVersion[]; move?: RootMove[] }
 }
 
 type DeepReadonly<T> = T extends (infer U)[] ? ReadonlyArray<DeepReadonly<U>> : T extends object ? { readonly [K in keyof T]: DeepReadonly<T[K]> } : T
@@ -169,6 +198,36 @@ function deepFreeze<T>(value: T): T {
 
 function freshRequestId(): string {
   return globalThis.crypto.randomUUID()
+}
+
+/** A root picked from ONE page of the account inventory: the row's identity and type, its observed incarnation, and the
+ * publication that page was read from -- copied, so a later page or edit never changes it. */
+export function rootFromInventory(
+  accountId: string,
+  row: { resource_uid: string; resource_type: string; region: string; observed_incarnation: Record<string, unknown> },
+  publication: { attempt: string; generation: number; source_identity: string; authority_digest: string },
+): DeclaredRoot {
+  return {
+    account_id: accountId,
+    region: row.region,
+    resource_uid: row.resource_uid,
+    selection: {
+      resource_type: row.resource_type,
+      publication: { attempt: publication.attempt, generation: publication.generation, source_identity: publication.source_identity,
+                     authority_digest: publication.authority_digest },
+      observed_incarnation: structuredClone(row.observed_incarnation) as ObservedIncarnation,
+    },
+  }
+}
+
+/** The roots a ROOT_NOT_ADMITTED refusal names, or [] for any other result. Anything malformed names nothing. */
+export function refusedRoots(result: SaveResult): RefusedRoot[] {
+  if (result.kind !== "REFUSED" || result.code !== "ROOT_NOT_ADMITTED" || !Array.isArray(result.detail.roots)) return []
+  const roots = result.detail.roots as unknown[]
+  const valid = roots.every((r) => isRecord(r) && typeof r.account_id === "string" && typeof r.region === "string"
+    && typeof r.resource_uid === "string" && typeof r.status === "string" && (r.reason_code === null || typeof r.reason_code === "string"))
+  return valid ? (roots as RefusedRoot[]).map((r) => ({ account_id: r.account_id, region: r.region, resource_uid: r.resource_uid,
+                                                          status: r.status, reason_code: r.reason_code })) : []
 }
 
 /** A NEW envelope with a NEW request id over a frozen copy of the declaration: later edits to the draft, or a
