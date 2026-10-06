@@ -13,11 +13,12 @@
   "removed": [
    {
     "account_id": "222222222222",
-    "at": "2026-10-06T13:38:10.528384+00:00",
+    "at": "2026-10-06T13:46:42.894288+00:00",
     "by": "https://cognito-idp.eu-west-1.amazonaws.com/pool#00u-alice",
+    "by_display": "Alice Operator",
     "display_name": "prod-payments",
     "from_status": "CONNECTED",
-    "removal_id": "a566516313c58654c0c81cbdf70429b1",
+    "removal_id": "56bbe791eb5cdaccec79f37f370bb76e",
     "status": "OFFBOARDED"
    }
   ],
@@ -29,7 +30,7 @@
   },
   "total": 0
  },
- "captured_at": "2026-10-06T13:38:10.546215+00:00",
+ "captured_at": "2026-10-06T13:46:43.024926+00:00",
  "name": "41_offboarded_listing",
  "note": "GET /accounts after the connector removed it: gone, and in removed",
  "request": {

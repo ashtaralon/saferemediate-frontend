@@ -174,6 +174,8 @@ export interface RemovedAccount {
   display_name: string
   status: "OFFBOARDED" | "WITHDRAWN" | string
   by?: string | null
+  /** How the remover reads for people (their verified token's name, else email; QA-01). `by` stays the actor. */
+  by_display?: string | null
   at?: string | null
   from_status?: string | null
   removal_id?: string | null
@@ -1201,11 +1203,11 @@ export function formatUtcInstantExact(value: string): string {
  * One closed registration from the listing's removed audit (level 5), in words: how it was removed, by whom, when, and what
  * removing kept. Settings' removed list and the account page say it the same way.
  */
-export function removedAccountSentence(item: Pick<RemovedAccount, "status" | "by" | "at">): string {
+export function removedAccountSentence(item: Pick<RemovedAccount, "status" | "by" | "by_display" | "at">): string {
   const offboarded = item.status === "OFFBOARDED"
   return (
     (offboarded ? "Removed after it was connected" : "Removed before it was confirmed") +
-    (item.by ? ` by ${item.by}` : "") +
+    (item.by_display || item.by ? ` by ${item.by_display || item.by}` : "") +
     (item.at ? ` · ${formatUtcInstantExact(item.at)}` : "") +
     (offboarded ? ". Its collected evidence is kept; its connection stack may still be in the account." : ".")
   )

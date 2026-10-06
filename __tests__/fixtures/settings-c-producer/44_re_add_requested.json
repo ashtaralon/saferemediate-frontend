@@ -5,9 +5,9 @@
   "already_open": false,
   "customer_id": "acme",
   "request_status": "queued",
-  "requested_at": "2026-10-06T13:38:12.696294+00:00"
+  "requested_at": "2026-10-06T13:46:45.007252+00:00"
  },
- "captured_at": "2026-10-06T13:38:12.698325+00:00",
+ "captured_at": "2026-10-06T13:46:45.009228+00:00",
  "name": "44_re_add_requested",
  "note": "POST /accounts for the removed account again, immediately (a new registration)",
  "request": {

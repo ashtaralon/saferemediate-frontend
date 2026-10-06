@@ -86,10 +86,13 @@ describe("the account page's Overview", () => {
     const panel = await screen.findByTestId("account-removed")
     expect(panel).toHaveTextContent("This account was removed from Cyntro.")
     expect(panel).toHaveTextContent(
-      `Removed after it was connected by ${removed.by} · ${formatUtcInstantExact(removed.at)}. ` +
+      `Removed after it was connected by Alice Operator · ${formatUtcInstantExact(removed.at)}. ` +
         "Its collected evidence is kept; its connection stack may still be in the account.",
     )
     expect(panel).toHaveTextContent("Adding it again in Settings › Accounts starts a new registration that collects afresh.")
+    // QA-01: the remover is named as their verified token named them; the raw actor id is the record, not the label.
+    expect(removed.by_display).toBe("Alice Operator")
+    expect(panel).not.toHaveTextContent(removed.by)
     expect(screen.getByTestId("account-page-title")).toHaveTextContent(removed.display_name)
     expect(screen.getByText(MEMBER)).toBeInTheDocument()
     expect(screen.queryByTestId("account-not-listed")).toBeNull()

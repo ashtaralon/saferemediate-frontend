@@ -86,15 +86,16 @@ GET that the step made. Regenerate them; do not edit them.
 
 ## 38-46 (removing an ACTIVATED account: offboarding; adding it again at once)
 
-- Producer: saferemediate-backend `ee36564700413d9f9d15d0b711023dde7b41360a` (R1-S on R1-1, with QA-11 U1.b; local, not yet
-  pushed), from a clean detached tree at exactly that commit. All nine are one run of the generator.
+- Producer: saferemediate-backend `be2aad8ce6612b56a5947e4c731a1d4c9b25a677` (b1 merge on ID-2, R1-S, QA-11 U1.b; local, not
+  yet pushed), from a clean detached tree at exactly that commit. All nine are one run of the generator.
 - Generator: `agent-coordinator/claude-settings-offboard-evidence-2026-10-06/test_offboard_producer_captures.py` (sha256 in
   `generator-sha256.txt` beside it). The backend's own API harness (real router, real repository on moto DynamoDB, real person
   verification) and the real account connector; the account is added, checked and confirmed through the same routes first.
   moto has no Account Management, so GetAccountInformation is answered at botocore's call site with the account's name.
 - Files:
   - 38: the account activated (CONNECTED, reads on, activation marker).
-  - 39: POST /offboard with the registration shown and the account id typed (202).
+  - 39: POST /offboard with the registration shown and the account id typed (202), by a person whose verified token
+    carries their name (ID-1): 41's removal lists `by_display` beside the actor `by`; 46's removal carries none.
   - 40: the listing while the removal is queued.
   - 41: the listing after the connector removed it: no longer an account; one entry under `removed` (OFFBOARDED).
   - 42: another account id typed: 422 OFFBOARD_CONFIRMATION_MISMATCH, nothing queued.

@@ -693,7 +693,7 @@ describe("Remove an activated account: what removing does, the account id typed,
     const audit = screen.getByTestId("removed-accounts")
     expect(audit).toHaveTextContent("Removed accounts (1)")
     expect(within(audit).getByTestId(`removed-${MEMBER}`)).toHaveTextContent(
-      `prod-payments · ${MEMBER}Removed after it was connected by ${removed.by} · ${formatUtcInstantExact(removed.at)}. ` +
+      `prod-payments · ${MEMBER}Removed after it was connected by Alice Operator · ${formatUtcInstantExact(removed.at)}. ` +
       "Its collected evidence is kept; its connection stack may still be in the account.")
     expect(posts).toHaveLength(0)
   })
@@ -721,6 +721,8 @@ describe("Remove an activated account: what removing does, the account id typed,
       expect(removed.status).toBe("OFFBOARDED")
       const audit = screen.getByTestId("removed-accounts")
       expect(audit).toHaveTextContent("Removed accounts (1)")
+      // This removal carried no name (the remover's token named nobody): the actor is shown, as before.
+      expect(removed.by_display ?? null).toBeNull()
       expect(within(audit).getByTestId(`removed-${MEMBER}`)).toHaveTextContent(
         `Removed after it was connected by ${removed.by} · ${formatUtcInstantExact(removed.at)}.`)
     })
