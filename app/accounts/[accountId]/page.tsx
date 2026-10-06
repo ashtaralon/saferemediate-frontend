@@ -6,7 +6,10 @@
  * facts, its first inventory by resource type). Inventory: its published inventory (T11b), read-only.
  *
  * The PATH account is authoritative; the tab is in the URL (?tab=inventory) so a link or reload opens the same view.
- * A removed account is no longer listed; the listing's removed audit (level 5) says who removed it and when.
+ * A removed account is no longer listed; the listing's removed audit (level 5) says who removed it and when. Its Inventory
+ * tab says the same instead of reading an inventory this installation no longer serves (QA-04: that read is refused as
+ * INVENTORY_SCOPE_MISMATCH, which is not "you are not authorized"). Only that positive record hides the read: an account
+ * merely absent from the listing is still read, and a refusal is worded by its own code (lib/inventory-copy.ts).
  * Nothing is fetched for the platform account's own collection here: the page reads the same listing Settings reads.
  */
 import { Suspense, use, useCallback, useEffect, useState } from "react"
@@ -107,7 +110,7 @@ function AccountPage({ accountId }: { accountId: string }) {
           </div>
         </div>
         <div className="px-8 py-6">
-          {tab === "inventory" ? (
+          {tab === "inventory" && listing.state !== "loading" && removed === null ? (
             <AccountInventoryPanel accountId={accountId} />
           ) : listing.state === "loading" ? (
             <p className="flex items-center gap-2 text-sm text-slate-500"><Loader2 className="h-4 w-4 animate-spin" aria-hidden /> Loading the account…</p>

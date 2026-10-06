@@ -125,10 +125,20 @@ describe("the account page's Inventory tab", () => {
     expect(replace).toHaveBeenCalledWith("/accounts/x?tab=inventory")
     search = new URLSearchParams("tab=inventory")
     await act(async () => { render(<AccountRoute params={Promise.resolve({ accountId: account })} />) })
-    const first = golden.body.rows[1]
-    await waitFor(() => expect(screen.getAllByText(first.name).length).toBeGreaterThan(0))
+    // By type (the publication carries its counts): one group per type the publication counts.
+    await waitFor(() => expect(screen.getAllByTestId("inventory-group")).toHaveLength(Object.keys(golden.body.totals.by_type).length))
     const calls = (fetch as any).mock.calls.map((call: any[]) => String(call[0]))
     expect(calls.some((url: string) => url.startsWith(`/api/proxy/accounts/${account}/inventory`))).toBe(true)
+  })
+
+  it("QA-04: a removed account's Inventory tab says it was removed, and reads no inventory", async () => {
+    search = new URLSearchParams("tab=inventory")
+    serve(offboarded as never, inventory("refused_not_authorized_403"))
+    await open(MEMBER)
+    expect(await screen.findByTestId("account-removed")).toHaveTextContent("This account was removed from Cyntro.")
+    const calls = (fetch as any).mock.calls.map((call: any[]) => String(call[0]))
+    expect(calls.some((url: string) => url.startsWith("/api/proxy/accounts/"))).toBe(false)
+    expect(screen.queryByText(/not authorized/)).toBeNull()
   })
 
   it("leaving the Inventory tab drops its filter from the URL", async () => {

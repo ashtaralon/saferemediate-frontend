@@ -1,8 +1,8 @@
 "use client"
 
 /**
- * One account's published resource inventory, read-only (T11b). Browse only: no selection, assignment or
- * "add to system" control; authoring is not available here.
+ * One account's published resource inventory, read-only (T11b; grouped by type in I3). Browse only: no selection,
+ * assignment or "add to system" control; authoring is not available here.
  *
  * The reader is KEYED by (customer, account, filter): a change of any of them mounts a fresh reader, so the very first
  * committed output after the change already belongs to the new key -- no row of the previous account or filter is ever
@@ -10,29 +10,29 @@
  * current EPOCH and checked again when it completes (lib/account-inventory.ts), so a same-key refresh, restart or retry
  * never revives an earlier answer; a superseded reader's completions are ignored outright.
  * The inventory is account-wide: the global Region selection does not filter it, and the page says so.
+ *
+ * Unfiltered, a publication that records its account-wide counts (I2(b2) totals.by_type) is shown BY TYPE
+ * (components/accounts/inventory-grouped.tsx); "List" shows every resource in one cursor-paged table, and an older backend
+ * (no counts) only that. A type filter shows that type's own columns. Any resource's name opens its drill-down.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useState } from "react"
+import { GroupedInventory } from "@/components/accounts/inventory-grouped"
+import { InventoryResourceDrawer } from "@/components/accounts/inventory-resource-drawer"
+import { InventoryRowsTable } from "@/components/accounts/inventory-rows-table"
+import { useInventoryRead } from "@/components/accounts/use-inventory-read"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import {
-  applyInventoryResponse,
-  fetchInventoryPage,
-  firstPageRequest,
-  nextPageRequest,
-  parseInventoryResponse,
-  startRead,
-  type InventoryFetcher,
-  type InventoryKey,
-  type InventoryModel,
-  type InventoryRequest,
-} from "@/lib/account-inventory"
+import { fetchInventoryPage, type InventoryFetcher, type InventoryRow } from "@/lib/account-inventory"
+import { inventoryOutcomeCopy } from "@/lib/inventory-copy"
+import { inventoryTypeMeta } from "@/lib/inventory-types"
 
 export type RosterState =
   | { status: "loading" }
   | { status: "unavailable" }
   | { status: "ready"; displayName: string | null }
+
+export type InventoryLayout = "grouped" | "list"
 
 export interface AccountInventoryViewProps {
   accountId: string
@@ -46,113 +46,11 @@ export interface AccountInventoryViewProps {
   fetchPage?: InventoryFetcher
 }
 
-const HELD_COPY: Record<string, string> = {
-  AUTHORITY_CHANGED:
-    "This account's registration changed after the inventory was published, so it is not shown. A new publication is needed.",
-}
-
-/** The route's readiness gate names its hold under the account: ``<account>:CONSUMER_NOT_READY:not_recorded`` when the
- *  account's consumer readiness check has not been recorded (backend semantic_onboarding.consumer_pass_verdict). */
-const CONSUMER_PASS_NOT_RECORDED = /^[0-9]{12}:CONSUMER_NOT_READY:not_recorded$/
-
-function heldCopy(reasonCode: string | null): string {
-  const code = reasonCode ?? ""
-  if (HELD_COPY[code]) return HELD_COPY[code]
-  if (CONSUMER_PASS_NOT_RECORDED.test(code)) {
-    return "Inventory is not shown yet: this account's readiness check has not been recorded."
-  }
-  return `Inventory is held and not shown (${reasonCode ?? "no reason given"}).`
-}
-
-function outcomeCopy(model: InventoryModel): string {
-  if (model.kind === "evidence") {
-    if (model.state === "not_published") return "Inventory has not been published for this account yet."
-    if (model.state === "held") return heldCopy(model.reasonCode)
-    if (model.state === "stale") return "The published inventory is older than allowed, so it is not shown."
-    return "The published inventory could not be validated, so it is not shown."
-  }
-  if (model.kind === "refused") {
-    if (model.status === 401) return "Sign in again to view this inventory."
-    if (model.status === 403) return "You are not authorized to view this account's inventory."
-    return `The request was refused (${model.reasonCode ?? model.status}).`
-  }
-  if (model.kind === "unavailable") return `Inventory is unavailable right now (${model.reasonCode ?? model.status}).`
-  return ""
-}
-
 export function AccountInventoryView(props: AccountInventoryViewProps) {
+  // The layout is the person's choice, kept across account and filter changes (outside the keyed reader).
+  const [layout, setLayout] = useState<InventoryLayout>("grouped")
   const readerKey = JSON.stringify([props.customerId, props.accountId, props.resourceType])
-  return <InventoryReader key={readerKey} {...props} />
-}
-
-/**
- * The ONE reader of an account's published inventory for one key (customer, account, resource-type filter): epoch-guarded,
- * restarts on a moved publication, never revives an earlier answer. A component that uses it is KEYED by that key, so a new
- * key mounts a fresh reader. Shared by the page's own reader and each expanded type group.
- */
-function useInventoryRead(customerId: string | null, accountId: string, resourceType: string | null, fetchPage: InventoryFetcher) {
-  const epochRef = useRef(0)
-  const alive = useRef(true)
-  const controllers = useRef<AbortController[]>([])
-  const [model, setModel] = useState<InventoryModel>(() => startRead(0, { customerId, accountId, resourceType }))
-  // The model every response is judged against: written only through commit(), synchronously, so a completion always
-  // compares with the latest state (never a stale render's).
-  const modelRef = useRef<InventoryModel>(model)
-
-  const commit = useCallback((next: InventoryModel) => {
-    modelRef.current = next
-    setModel(next)
-  }, [])
-
-  const issue = useCallback((request: InventoryRequest) => {
-    const controller = new AbortController()
-    controllers.current.push(controller)
-    void fetchPage(request.key.accountId, { resourceType: request.key.resourceType, cursor: request.cursor },
-      controller.signal).then(({ status, body }) => {
-      if (!alive.current) return      // a superseded reader (another key, or unmounted): never touches state
-      const current = modelRef.current
-      const { model: next, effect } = applyInventoryResponse(current, request, parseInventoryResponse(status, body,
-        request.key.accountId, request.key.resourceType))
-      if (effect === "restart") {
-        epochRef.current += 1
-        const fresh = startRead(epochRef.current, current.key, current.restarts + 1)
-        commit(fresh)
-        issue(firstPageRequest(fresh))
-      } else if (next !== current) {
-        commit(next)
-      }
-    })
-  }, [fetchPage, commit])
-
-  const read = useCallback((readKey: InventoryKey) => {
-    for (const controller of controllers.current) controller.abort()
-    controllers.current = []
-    epochRef.current += 1
-    const fresh = startRead(epochRef.current, readKey)
-    commit(fresh)
-    issue(firstPageRequest(fresh))
-  }, [issue, commit])
-
-  // One reader per key: read on mount; on unmount (a key change remounts) abort and ignore everything in flight.
-  useEffect(() => {
-    alive.current = true
-    read({ customerId, accountId, resourceType })
-    return () => {
-      alive.current = false
-      for (const controller of controllers.current) controller.abort()
-      controllers.current = []
-    }
-  }, [customerId, accountId, resourceType, read])
-
-  const loadMore = () => {
-    const current = modelRef.current
-    const request = nextPageRequest(current)
-    if (request === null || current.kind !== "data") return
-    commit({ ...current, loadingMore: true })
-    issue(request)
-  }
-
-  return { model, loadMore, refresh: () => read({ customerId, accountId, resourceType }) }
+  return <InventoryReader key={readerKey} {...props} layout={layout} onLayoutChange={setLayout} />
 }
 
 function InventoryReader({
@@ -163,11 +61,16 @@ function InventoryReader({
   roster,
   onResourceTypeChange,
   fetchPage = fetchInventoryPage,
-}: AccountInventoryViewProps) {
+  layout,
+  onLayoutChange,
+}: AccountInventoryViewProps & { layout: InventoryLayout; onLayoutChange: (layout: InventoryLayout) => void }) {
   const { model, loadMore, refresh } = useInventoryRead(customerId, accountId, resourceType, fetchPage)
   const [filterDraft, setFilterDraft] = useState(resourceType ?? "")
+  const [opened, setOpened] = useState<InventoryRow | null>(null)
 
   const accountLabel = roster.status === "ready" && roster.displayName ? `${roster.displayName} (${accountId})` : accountId
+  const grouping = model.kind === "data" && resourceType === null && model.byType !== null
+  const grouped = grouping && layout === "grouped"
 
   return (
     <div className="space-y-4 p-6">
@@ -184,7 +87,7 @@ function InventoryReader({
       </div>
 
       <form
-        className="flex items-center gap-2"
+        className="flex flex-wrap items-center gap-2"
         onSubmit={(event) => {
           event.preventDefault()
           const next = filterDraft.trim()
@@ -205,6 +108,21 @@ function InventoryReader({
         <Button type="button" variant="ghost" size="sm" onClick={refresh}>
           Refresh
         </Button>
+        {grouping ? (
+          <div role="group" aria-label="Layout" className="ml-auto flex overflow-hidden rounded-md border border-slate-200">
+            {(["grouped", "list"] as const).map((value) => (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={layout === value}
+                onClick={() => onLayoutChange(value)}
+                className={`px-3 py-1 text-xs font-semibold ${layout === value ? "bg-slate-800 text-white" : "bg-white text-slate-600 hover:bg-slate-50"}`}
+              >
+                {value === "grouped" ? "By type" : "List"}
+              </button>
+            ))}
+          </div>
+        ) : null}
       </form>
 
       {model.kind === "loading" ? <p className="text-sm text-slate-500">Loading inventory…</p> : null}
@@ -219,7 +137,7 @@ function InventoryReader({
       ) : null}
 
       {model.kind === "evidence" || model.kind === "refused" || model.kind === "unavailable" ? (
-        <p className="text-sm text-slate-700" role="status">{outcomeCopy(model)}</p>
+        <p className="text-sm text-slate-700" role="status">{inventoryOutcomeCopy(model)}</p>
       ) : null}
 
       {model.kind === "data" ? (
@@ -240,35 +158,25 @@ function InventoryReader({
               ({model.totals.accountTotal} resources in total).
             </p>
           ) : null}
-          {model.state === "populated" ? (
+          {model.state === "populated" && grouped && model.byType !== null ? (
+            <GroupedInventory
+              customerId={customerId}
+              accountId={accountId}
+              byType={model.byType}
+              byRegion={model.byRegion}
+              accountTotal={model.totals.accountTotal}
+              fetchPage={fetchPage}
+              onOpen={setOpened}
+            />
+          ) : null}
+          {model.state === "populated" && !grouped ? (
             <>
               <p className="text-xs text-slate-500">
                 Showing {model.rows.length} of {model.totals.filterTotal}
-                {resourceType !== null ? ` ${resourceType}` : ""} resources
+                {resourceType !== null ? ` ${inventoryTypeMeta(resourceType).label} (${resourceType})` : ""} resources
                 {resourceType !== null ? ` (${model.totals.accountTotal} in the account)` : ""}.
               </p>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Region</TableHead>
-                    <TableHead>State</TableHead>
-                    <TableHead>Last verified</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {model.rows.map((row) => (
-                    <TableRow key={`${row.resource_type}|${row.resource_uid}`}>
-                      <TableCell className="font-mono text-xs">{row.name ?? row.native_id}</TableCell>
-                      <TableCell className="text-xs">{row.resource_type}</TableCell>
-                      <TableCell className="text-xs">{row.region}</TableCell>
-                      <TableCell className="text-xs">{row.state}</TableCell>
-                      <TableCell className="text-xs">{row.observation.last_verified_at ?? "—"}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+              <InventoryRowsTable rows={model.rows} resourceType={resourceType} onOpen={setOpened} />
               {model.hasMore ? (
                 <Button type="button" variant="outline" size="sm" onClick={loadMore} disabled={model.loadingMore}>
                   {model.loadingMore ? "Loading…" : "Load more"}
@@ -277,6 +185,10 @@ function InventoryReader({
             </>
           ) : null}
         </div>
+      ) : null}
+
+      {opened !== null ? (
+        <InventoryResourceDrawer row={opened} accountLabel={accountLabel} onClose={() => setOpened(null)} />
       ) : null}
     </div>
   )

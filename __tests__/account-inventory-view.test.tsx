@@ -1,6 +1,7 @@
 /**
- * T11b: the mounted inventory view. Answers are the PRODUCER goldens (backend commit
- * 92b2c54f7ea6fbf09b50ae06cec98f9c268bedd0), delivered by a controllable fetcher so a late or out-of-order answer can
+ * T11b / I3: the mounted inventory view. Answers are the PRODUCER goldens (backend commit
+ * 92b2c54f7ea6fbf09b50ae06cec98f9c268bedd0; the served states re-captured at fa2edd53 with row v3 and the account-wide
+ * counts -- each fixture's _provenance), delivered by a controllable fetcher so a late or out-of-order answer can
  * be released exactly when an account switch, refresh or retry has already moved on. The one partial-inventory case is
  * an explicitly MUTATED robustness case: the producer never emits it.
  */
@@ -66,6 +67,11 @@ function view(props: Partial<ComponentProps<typeof AccountInventoryView>> & { fe
   return { ...utils, rerender, onResourceTypeChange }
 }
 
+/** The cursor-paged table of every resource (the grouped layout is the default once a publication carries its counts). */
+function asList() {
+  fireEvent.click(screen.getByRole("button", { name: "List" }))
+}
+
 function tableRows(): number {
   return Math.max(0, screen.queryAllByRole("row").length - 1)   // minus the header row
 }
@@ -76,6 +82,7 @@ describe("the inventory view", () => {
     view({ fetchPage })
     expect(calls[0].params).toEqual({ resourceType: null, cursor: null })
     await release(0, answer("populated_page1"))
+    asList()
     expect(tableRows()).toBe(PAGE1_NAMES.length)
     fireEvent.click(screen.getByRole("button", { name: "Load more" }))
     expect(calls[1].params.cursor).toBe(golden("populated_page1").body.next_cursor)
@@ -114,6 +121,7 @@ describe("the inventory view", () => {
     expect(screen.getByRole("status").textContent).toContain("unavailable")
     rerender({ accountId: ACCOUNT })                              // back to A: a NEW read
     await release(2, answer("populated_page1"))
+    asList()
     expect(tableRows()).toBe(PAGE1_NAMES.length)
   })
 
@@ -133,6 +141,7 @@ describe("the inventory view", () => {
     const { calls, fetchPage, release } = controllable()
     view({ fetchPage })
     await release(0, answer("populated_page1"))
+    asList()
     fireEvent.click(screen.getByRole("button", { name: "Load more" }))
     await release(1, answer("refused_cursor_restart_publication_moved"))
     expect(calls[2].params.cursor).toBeNull()                     // the one automatic restart
@@ -166,6 +175,7 @@ describe("the inventory view", () => {
       const { calls, fetchPage, release } = controllable()
       const { unmount } = view({ fetchPage })
       await release(0, answer("populated_page1"))
+      asList()
       fireEvent.click(screen.getByRole("button", { name: "Load more" }))
       await release(1, answer(name))
       expect(calls).toHaveLength(2)
@@ -189,6 +199,7 @@ describe("the inventory view", () => {
     view({ fetchPage })
     await release(0, answer("populated_page1", (b) => { b.publication.inventory_complete = false }))
     expect(screen.getByText(/This inventory is partial/)).toBeInTheDocument()
+    asList()
     expect(tableRows()).toBe(PAGE1_NAMES.length)
   })
 
@@ -220,6 +231,7 @@ describe("the inventory view", () => {
     const props = { customerId: "acme", region: "all", roster, onResourceTypeChange: vi.fn(), fetchPage }
     const { rerender } = render(<Probe><AccountInventoryView accountId={ACCOUNT} resourceType={null} {...props} /></Probe>)
     await release(0, answer("populated_page1"))
+    asList()                                                   // kept across the account and filter changes below
     expect(tableRows()).toBe(PAGE1_NAMES.length)
 
     commits.length = 0
@@ -241,6 +253,7 @@ describe("the inventory view", () => {
     const { calls, fetchPage, release } = controllable()
     view({ fetchPage })
     await release(0, answer("populated_page1"))
+    asList()
     fireEvent.click(screen.getByRole("button", { name: "Load more" }))
     const echoed = golden("populated_page1").body.next_cursor
     await release(1, answer("populated_page2", (b) => { b.next_cursor = echoed }))
