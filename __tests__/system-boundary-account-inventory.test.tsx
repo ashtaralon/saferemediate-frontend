@@ -2,11 +2,11 @@
  * Phase 2 E2b: declaring from the account page's Inventory tab -- the REAL page (/accounts/{accountId}), the REAL inventory
  * view (Settings' I3) and the declaration picker, wired by components/system-boundary/declarable-account-inventory.tsx.
  *
- * Every response is a producer capture: the listing (fixtures/settings-c-producer), the inventory (fixtures/account-inventory)
- * and the authoring routes (fixtures/system-boundary). One exception is labelled, as in Settings' selection suite: the
- * inventory goldens hold no selectable row until AccountOnboarding's I2(d) capture, so page one's ec2:instance row is MUTATED
- * to the verdict the route stamps for a verified identity. The save itself runs on the real goldens in
- * system-boundary-declare-from-inventory.test.tsx; here, the wiring.
+ * Every response is a producer capture, unmutated: the listing (fixtures/settings-c-producer), the inventory -- the REAL
+ * account-inventory route's answer with its own SUPPORTED rows (fixtures/account-inventory-captures, AccountOnboarding's
+ * I2(d), backend dd5d0d76) -- and the authoring routes (fixtures/system-boundary). Two of those rows share the name
+ * "checkout-api" (an IAM role and a k8s deployment): each box is named with its type. The save itself runs on the real
+ * goldens in system-boundary-declare-from-inventory.test.tsx; here, the wiring up to the reviewed declaration.
  */
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
@@ -33,16 +33,14 @@ function fixture(directory: string, name: string): any {
   return JSON.parse(readFileSync(resolve(process.cwd(), "__tests__/fixtures", directory, `${name}.json`), "utf8"))
 }
 
-const PAGE1 = fixture("account-inventory", "populated_page1")
+type Row = { resource_type: string; name?: string | null; native_id: string; eligibility: { selectable: boolean } }
+const PAGE1 = fixture("account-inventory-captures", "populated_page1")
 const ACCOUNT: string = PAGE1.body.account_id
-const PICKABLE = PAGE1.body.rows.find((row: { resource_type: string }) => row.resource_type === "ec2:instance")
-
-/** MUTATED until I2(d): page one's ec2:instance row with the route's verdict for a verified identity. */
-function withSelectableRow() {
-  const body = structuredClone(PAGE1.body)
-  for (const row of body.rows) if (row.resource_type === "ec2:instance") row.eligibility = { selectable: true, reason: "SUPPORTED" }
-  return body
-}
+const ROWS: Row[] = PAGE1.body.rows
+const SELECTABLE = ROWS.filter((row) => row.eligibility.selectable === true)
+const ROLE = ROWS.find((row) => row.resource_type === "iam:role" && row.name === "checkout-api")!
+const NAMESAKE = ROWS.find((row) => row.resource_type === "k8s:deployment" && row.name === "checkout-api")!
+const box = (row: Row) => `Pick ${row.name ?? row.native_id} (${row.resource_type}) as a root`
 
 let unexpected: string[] = []
 
@@ -79,20 +77,36 @@ afterEach(() => {
 })
 
 describe("the account page's Inventory tab, with declaring", () => {
-  it("hands the inventory the picker when saving is active: a box only where the route allows it, and the pick is counted", async () => {
-    serve({ inventory: withSelectableRow(), declarations: fixture("system-boundary", "view_initial").body })
+  it("hands the inventory the picker when saving is active: a box exactly where the route allows it, each named with its type", async () => {
+    serve({ inventory: PAGE1.body, declarations: fixture("system-boundary", "view_initial").body })
     await openInventory()
     await waitFor(() => expect(screen.getByTestId("declare-toolbar").textContent).toContain("0 picked as roots"))
-    expect(screen.getAllByRole("checkbox")).toHaveLength(1)
-    expect(screen.getAllByTestId("inventory-not-selectable")).toHaveLength(PAGE1.body.rows.length - 1)
-    await act(async () => { fireEvent.click(screen.getByRole("checkbox", { name: `Pick ${PICKABLE.name} as a root` })) })
+    expect(SELECTABLE.map((row) => row.resource_type).sort()).toEqual(["iam:policy", "iam:role", "iam:role", "k8s:deployment"])
+    expect(screen.getAllByRole("checkbox")).toHaveLength(SELECTABLE.length)
+    expect(screen.getAllByTestId("inventory-not-selectable")).toHaveLength(ROWS.length - SELECTABLE.length)
+    await act(async () => { fireEvent.click(screen.getByRole("checkbox", { name: box(ROLE) })) })
     expect(screen.getByTestId("declare-toolbar").textContent).toContain("1 picked as roots")
-    expect((screen.getByRole("checkbox", { name: `Pick ${PICKABLE.name} as a root` }) as HTMLInputElement).checked).toBe(true)
-    expect(screen.getByRole("button", { name: "Declare a system" })).not.toBeDisabled()
+    expect((screen.getByRole("checkbox", { name: box(ROLE) }) as HTMLInputElement).checked).toBe(true)
+    expect((screen.getByRole("checkbox", { name: box(NAMESAKE) }) as HTMLInputElement).checked).toBe(false)
+  })
+
+  it("a picked REAL role reaches the reviewed declaration as that role, verified", async () => {
+    serve({ inventory: PAGE1.body, declarations: fixture("system-boundary", "view_initial").body })
+    await openInventory()
+    await act(async () => { fireEvent.click(await screen.findByRole("checkbox", { name: box(ROLE) })) })
+    fireEvent.click(screen.getByRole("button", { name: "Declare a system" }))
+    fireEvent.change(screen.getByLabelText("System name"), { target: { value: "Checkout" } })
+    fireEvent.change(screen.getByLabelText("Criticality"), { target: { value: "LOW" } })
+    fireEvent.change(screen.getByLabelText("Deployment key"), { target: { value: "prod" } })
+    fireEvent.change(screen.getByLabelText("Environment"), { target: { value: "PRODUCTION" } })
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Review" })))
+    const review = screen.getByTestId("declaration-review")
+    const cells = [...review.querySelectorAll("tbody td")].map((cell) => cell.textContent)
+    expect(cells).toEqual(["checkout-api", "iam:role", `${ACCOUNT} / global`, "verified"])
   })
 
   it("is the browse-only inventory, unchanged, when the declarations cannot be read", async () => {
-    serve({ inventory: withSelectableRow(), declarations: "network-error" })
+    serve({ inventory: PAGE1.body, declarations: "network-error" })
     await openInventory()
     expect(screen.queryByTestId("declare-toolbar")).toBeNull()
     expect(screen.queryByRole("checkbox")).toBeNull()
@@ -101,16 +115,16 @@ describe("the account page's Inventory tab, with declaring", () => {
   })
 
   it("the direct inventory route offers the same declaring", async () => {
-    serve({ inventory: withSelectableRow(), declarations: fixture("system-boundary", "view_initial").body })
+    serve({ inventory: PAGE1.body, declarations: fixture("system-boundary", "view_initial").body })
     await act(async () => { render(<AccountInventoryRoute params={Promise.resolve({ accountId: ACCOUNT })} />) })
     await waitFor(() => expect(screen.getAllByTestId("inventory-group").length).toBeGreaterThan(0))
     fireEvent.click(screen.getByRole("button", { name: "List" }))
     await waitFor(() => expect(screen.getByTestId("declare-toolbar").textContent).toContain("0 picked as roots"))
-    expect(screen.getAllByRole("checkbox")).toHaveLength(1)
+    expect(screen.getAllByRole("checkbox")).toHaveLength(SELECTABLE.length)
   })
 
   it("says declaring is not enabled when saving is not active, and offers no box (the view's phase explicitly MUTATED)", async () => {
-    serve({ inventory: withSelectableRow(), declarations: { ...fixture("system-boundary", "view_initial").body, protocol_phase: "INITIALIZED" } })
+    serve({ inventory: PAGE1.body, declarations: { ...fixture("system-boundary", "view_initial").body, protocol_phase: "INITIALIZED" } })
     await openInventory()
     expect(await screen.findByText("Declaring systems from this inventory is not enabled on this installation yet.")).toBeTruthy()
     expect(screen.queryByRole("checkbox")).toBeNull()

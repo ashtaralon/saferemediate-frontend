@@ -48,7 +48,7 @@ function RootCell({ row, selection, publication }: {
       {row.eligibility.selectable === true ? (
         <input
           type="checkbox"
-          aria-label={`Pick ${name} as a root`}
+          aria-label={`Pick ${name} (${row.resource_type}) as a root`}
           checked={pickedUnder !== undefined}
           onChange={() => selection.onToggle(row, publication)}
         />
