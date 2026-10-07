@@ -1,6 +1,7 @@
 {
   "schema": "cyntro-release-contract/v1",
   "requires": {
+    "account_census_read": 1,
     "account_registration": 5
   }
 }

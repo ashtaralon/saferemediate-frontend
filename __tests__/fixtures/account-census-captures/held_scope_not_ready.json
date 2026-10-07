@@ -1,0 +1,38 @@
+{
+  "_provenance": {
+    "route": "GET /api/accounts/{account_id}/census (api/account_census.py)",
+    "harness": "tests/cyntro_data/test_account_census_captures.py",
+    "fixed_clock_epoch": 1800000000,
+    "census": "REAL writer (cyntro_data.sources.account_census.commit_census_listing) from the REAL acquirers over Stubber-validated responses; REAL dispatch markers; REAL census pass (services.account_census_producer)",
+    "inventory": "REAL P3a2 publication over a real projector activation (test_account_inventory_api._activated)",
+    "estate": "mirrors the cyntro-local-test platform account read 2026-10-06 through the read-only wrapper: no Config recorder, no Resource Explorer index, CloudFormation stacks incl. a deleted one, Tagging lists tagged only",
+    "readiness": "the S1c-4 harness provider answering (True, 'pass') for scope account_census -- a stand-in for a READY pass",
+    "pinned": [
+      "time.time",
+      "LocalEvidenceStore.bucket (recorded identity only)",
+      "cyntro_data.projection.receipt clock",
+      "uuid.uuid4 (a counter)"
+    ],
+    "request": {
+      "method": "GET",
+      "path": "/api/accounts/111122223333/census",
+      "query": {}
+    }
+  },
+  "status": 200,
+  "cache_control": "no-store",
+  "body": {
+    "contract": "account_census_read/v1",
+    "account_id": "111122223333",
+    "state": "held",
+    "reason_code": "111122223333:CONSUMER_NOT_READY:PRODUCER_HELD",
+    "account_authority": null,
+    "publication": null,
+    "coverage": null,
+    "totals": null,
+    "outcome": null,
+    "rows": [],
+    "next_cursor": null,
+    "has_more": false
+  }
+}

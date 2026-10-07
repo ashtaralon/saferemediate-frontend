@@ -1,0 +1,256 @@
+{
+  "_provenance": {
+    "route": "GET /api/accounts/{account_id}/census (api/account_census.py)",
+    "harness": "tests/cyntro_data/test_account_census_captures.py",
+    "fixed_clock_epoch": 1800000000,
+    "census": "REAL writer (cyntro_data.sources.account_census.commit_census_listing) from the REAL acquirers over Stubber-validated responses; REAL dispatch markers; REAL census pass (services.account_census_producer)",
+    "inventory": "REAL P3a2 publication over a real projector activation (test_account_inventory_api._activated)",
+    "estate": "mirrors the cyntro-local-test platform account read 2026-10-06 through the read-only wrapper: no Config recorder, no Resource Explorer index, CloudFormation stacks incl. a deleted one, Tagging lists tagged only",
+    "readiness": "the S1c-4 harness provider answering (True, 'pass') for scope account_census -- a stand-in for a READY pass",
+    "pinned": [
+      "time.time",
+      "LocalEvidenceStore.bucket (recorded identity only)",
+      "cyntro_data.projection.receipt clock",
+      "uuid.uuid4 (a counter)"
+    ],
+    "request": {
+      "method": "GET",
+      "path": "/api/accounts/111122223333/census",
+      "query": {
+        "limit": "4",
+        "cursor": "eyJjIjowLCJkIjoidjE6M2ZjMWM1ZGRiMTA0YzQwNGRiYzk5ZWEzZTE1YmE1YWUxMTZmNDJjZjhjNTUyYTU3MjA2MzE4MzFiZWQ3MDVhNyIsImYiOm51bGwsImciOjEsImkiOjQsImwiOiJ2MTo4YmVkMDgwYmU2OGIyYjYyNTNiMmZiZTI2ZmMzYmYyYTA0MjEyMmE3ZWRiZWQxNTgwOTdmYWZlOTY5YWNkNDcxIiwibyI6InJlc291cmNlX3R5cGUscm93X2tleSIsInAiOiIwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDBkOSIsInMiOiJ2MTpmNGFjNThhNGUxN2UyNmMwODA2OTlmOWRkM2I2ODU2YWY1MTczYjcyMjcyNzA2NDIwZjE2NzY3YjE5OWU5NjY2IiwidiI6ImFjY291bnRfY2Vuc3VzL3YxIn0="
+      }
+    }
+  },
+  "status": 200,
+  "cache_control": "no-store",
+  "body": {
+    "contract": "account_census_read/v1",
+    "account_id": "111122223333",
+    "state": "populated",
+    "reason_code": null,
+    "account_authority": {
+      "registration_id": "0123456789abcdef0123456789abcdef",
+      "install_account": false
+    },
+    "publication": {
+      "attempt": "000000000000000000000000000000d9",
+      "generation": 1,
+      "source_identity": "v1:860b6b600e3a4aedaf70a6940e9818ea51845e576711cade6bcd2684f1886535",
+      "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
+      "published_at_epoch": 1800000000,
+      "confirmed_at_epoch": 1800000000,
+      "marker": {
+        "dispatched_at": "2027-01-15T07:00:00+00:00",
+        "schedule": "rate(1 day)",
+        "regions": [
+          "eu-west-1"
+        ],
+        "global_region": "eu-west-1"
+      },
+      "inventory": {
+        "status": "not_recorded",
+        "reason": "no_publication_recorded",
+        "generation": null,
+        "source_identity": null
+      }
+    },
+    "coverage": {
+      "account_state": "PARTIAL",
+      "gaps": [
+        "eu-west-1/config:UNAVAILABLE_NO_RECORDER",
+        "eu-west-1/resource_explorer:UNAVAILABLE_NO_INDEX"
+      ],
+      "not_recorded": [],
+      "not_observable": true,
+      "not_observable_regions": [
+        "eu-west-1"
+      ],
+      "scopes": [
+        {
+          "region": "eu-west-1",
+          "source": "config",
+          "state": "UNAVAILABLE_NO_RECORDER",
+          "manifest_coverage": "UNAVAILABLE",
+          "action": "config:DescribeConfigurationRecorders",
+          "detail_code": null,
+          "error_category": null,
+          "count": 0,
+          "deleted_count": 0,
+          "stacks_listed": 0,
+          "stacks_in_progress": 0,
+          "stacks_deleted": 0,
+          "pagination_complete": true,
+          "collected_at": "2027-01-15T08:00:00+00:00",
+          "view_filter": null,
+          "includes_global": false,
+          "recording": null,
+          "per_type": []
+        },
+        {
+          "region": "eu-west-1",
+          "source": "tagging",
+          "state": "PARTIAL_BY_DESIGN",
+          "manifest_coverage": "PARTIAL",
+          "action": "tag:GetResources",
+          "detail_code": null,
+          "error_category": null,
+          "count": 6,
+          "deleted_count": 0,
+          "stacks_listed": 0,
+          "stacks_in_progress": 0,
+          "stacks_deleted": 0,
+          "pagination_complete": true,
+          "collected_at": "2027-01-15T08:00:00+00:00",
+          "view_filter": null,
+          "includes_global": false,
+          "recording": null,
+          "per_type": []
+        },
+        {
+          "region": "eu-west-1",
+          "source": "cloudformation",
+          "state": "COMPLETE",
+          "manifest_coverage": "COMPLETE",
+          "action": "cloudformation:ListStackResources",
+          "detail_code": null,
+          "error_category": null,
+          "count": 1,
+          "deleted_count": 1,
+          "stacks_listed": 1,
+          "stacks_in_progress": 0,
+          "stacks_deleted": 1,
+          "pagination_complete": true,
+          "collected_at": "2027-01-15T08:00:00+00:00",
+          "view_filter": null,
+          "includes_global": false,
+          "recording": null,
+          "per_type": []
+        },
+        {
+          "region": "eu-west-1",
+          "source": "resource_explorer",
+          "state": "UNAVAILABLE_NO_INDEX",
+          "manifest_coverage": "UNAVAILABLE",
+          "action": "resource-explorer-2:ListIndexes",
+          "detail_code": null,
+          "error_category": null,
+          "count": 0,
+          "deleted_count": 0,
+          "stacks_listed": 0,
+          "stacks_in_progress": 0,
+          "stacks_deleted": 0,
+          "pagination_complete": true,
+          "collected_at": "2027-01-15T08:00:00+00:00",
+          "view_filter": null,
+          "includes_global": false,
+          "recording": null,
+          "per_type": []
+        }
+      ]
+    },
+    "totals": {
+      "rows_total": 7,
+      "present": 6,
+      "deleted": 1,
+      "by_type": {
+        "dynamodb:table": 3,
+        "ec2:instance": 1,
+        "iam:role": 1,
+        "lambda:function": 1
+      },
+      "by_depth": {
+        "collected": 0,
+        "listed_only": 3,
+        "inventory_pending": 3
+      },
+      "by_source": {
+        "config": 0,
+        "tagging": 6,
+        "cloudformation": 1,
+        "resource_explorer": 0,
+        "certified": 0
+      },
+      "by_region": {
+        "eu-west-1": 5,
+        "global": 1
+      }
+    },
+    "outcome": {
+      "outcome": "CURRENT",
+      "detail": "published",
+      "attempt": "000000000000000000000000000000d9",
+      "recorded_at_epoch": 1800000000
+    },
+    "rows": [
+      {
+        "row_key": "arn:aws:ec2:eu-west-1:111122223333:instance/i-1",
+        "resource_type": "ec2:instance",
+        "identity_basis": "arn",
+        "arn": "arn:aws:ec2:eu-west-1:111122223333:instance/i-1",
+        "native_id": "i-1",
+        "region": "eu-west-1",
+        "name": null,
+        "depth": "inventory_pending",
+        "eligibility": {
+          "selectable": false,
+          "reason": "INVENTORY_NOT_SERVED"
+        },
+        "sources": [
+          "tagging"
+        ],
+        "cfn": null,
+        "deleted": false,
+        "tags": {
+          "team": "shop"
+        }
+      },
+      {
+        "row_key": "arn:aws:iam::111122223333:role/app-role",
+        "resource_type": "iam:role",
+        "identity_basis": "arn",
+        "arn": "arn:aws:iam::111122223333:role/app-role",
+        "native_id": "app-role",
+        "region": "global",
+        "name": null,
+        "depth": "inventory_pending",
+        "eligibility": {
+          "selectable": false,
+          "reason": "INVENTORY_NOT_SERVED"
+        },
+        "sources": [
+          "tagging"
+        ],
+        "cfn": null,
+        "deleted": false,
+        "tags": {
+          "team": "shop"
+        }
+      },
+      {
+        "row_key": "arn:aws:lambda:eu-west-1:111122223333:function:fn-1",
+        "resource_type": "lambda:function",
+        "identity_basis": "arn",
+        "arn": "arn:aws:lambda:eu-west-1:111122223333:function:fn-1",
+        "native_id": "fn-1",
+        "region": "eu-west-1",
+        "name": null,
+        "depth": "inventory_pending",
+        "eligibility": {
+          "selectable": false,
+          "reason": "INVENTORY_NOT_SERVED"
+        },
+        "sources": [
+          "tagging"
+        ],
+        "cfn": null,
+        "deleted": false,
+        "tags": {
+          "team": "shop"
+        }
+      }
+    ],
+    "next_cursor": null,
+    "has_more": false
+  }
+}

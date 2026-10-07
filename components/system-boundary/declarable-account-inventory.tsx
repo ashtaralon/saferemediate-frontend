@@ -6,8 +6,10 @@
  * (declare-from-inventory.tsx): when the authored declarations can be read and saving is active, rows the inventory marks
  * selectable can be picked as roots and declared as a System; otherwise the panel is browse-only, exactly as without this.
  * Mounted wherever the account's inventory is shown -- the direct route and the account page's Inventory tab -- so both
- * behave one way.
+ * behave one way. The account census (A7 S1c) frames it: what each source answered first, the inventory itself second,
+ * and what only the census names last (components/accounts/account-census-bands.tsx).
  */
+import { AccountCensusBands } from "@/components/accounts/account-census-bands"
 import { AccountInventoryPanel } from "@/components/accounts/account-inventory-panel"
 import { DeclareFromInventory } from "@/components/system-boundary/declare-from-inventory"
 import { useAccountScope } from "@/lib/account-scope-context"
@@ -15,10 +17,12 @@ import { useAccountScope } from "@/lib/account-scope-context"
 export function DeclarableAccountInventory({ accountId }: { accountId: string }) {
   const scope = useAccountScope()
   return (
-    <DeclareFromInventory
-      accountId={accountId}
-      customerId={scope.customerId}
-      renderInventory={(selection) => <AccountInventoryPanel accountId={accountId} selection={selection} />}
-    />
+    <AccountCensusBands accountId={accountId}>
+      <DeclareFromInventory
+        accountId={accountId}
+        customerId={scope.customerId}
+        renderInventory={(selection) => <AccountInventoryPanel accountId={accountId} selection={selection} />}
+      />
+    </AccountCensusBands>
   )
 }

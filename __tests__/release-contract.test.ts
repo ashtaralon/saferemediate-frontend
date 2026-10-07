@@ -6,6 +6,7 @@
 import { describe, expect, it } from "vitest"
 
 import declaration from "@/lib/release-contract.json"
+import { CENSUS_CONTRACT, censusPath } from "@/lib/account-census"
 import {
   ORGANIZATION_DISCOVERY_TEMPLATE_PATH,
   REQUIRED_ACCOUNT_REGISTRATION_CONTRACT,
@@ -15,9 +16,18 @@ import {
 } from "@/lib/account-admin"
 
 describe("the release contract this frontend requires", () => {
-  it("is exactly the shape the backend's bundle builder reads, at level 5", () => {
-    expect(declaration).toEqual({ schema: "cyntro-release-contract/v1", requires: { account_registration: 5 } })
+  it("is exactly the shape the backend's bundle builder reads: account registration at level 5, the census read at 1", () => {
+    expect(declaration).toEqual({ schema: "cyntro-release-contract/v1",
+      requires: { account_census_read: 1, account_registration: 5 } })
     expect(REQUIRED_ACCOUNT_REGISTRATION_CONTRACT).toBe(5)
+    expect(CENSUS_CONTRACT).toBe("account_census_read/v1")
+  })
+
+  it("requires the census read at level 1 because the account inventory page reads GET /api/accounts/{id}/census", () => {
+    // Level 1 = the account_census_read/v1 envelope (A7 S1c; backend api/account_census.py). A backend without it answers
+    // 404, which the page could only call unavailable; the bundle builder refuses that pair instead, by name.
+    expect(censusPath("222222222222", { depth: "listed_only", cursor: null })).toBe(
+      "/api/proxy/accounts/222222222222/census?depth=listed_only&limit=200")
   })
 
   it("is level 5 because this frontend removes an ACTIVATED account, which only level 5 serves", () => {

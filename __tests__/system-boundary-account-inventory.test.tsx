@@ -6,7 +6,9 @@
  * account-inventory route's answer with its own SUPPORTED rows (fixtures/account-inventory-captures, AccountOnboarding's
  * I2(d), backend dd5d0d76, page 1 re-captured at 8b492146) -- and the authoring routes (fixtures/system-boundary). Two of those rows share the name
  * "checkout-api" (an IAM role and a k8s deployment): each box is named with its type. The save itself runs on the real
- * goldens in system-boundary-declare-from-inventory.test.tsx; here, the wiring up to the reviewed declaration.
+ * goldens in system-boundary-declare-from-inventory.test.tsx; here, the wiring up to the reviewed declaration. The account
+ * census around it (A7 S1c) answers with the REAL census route's captures (fixtures/account-census-captures): census not
+ * enabled, unless a test serves a published census.
  */
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
@@ -44,12 +46,22 @@ const box = (row: Row) => `Pick ${row.name ?? row.native_id} (${row.resource_typ
 
 let unexpected: string[] = []
 
-function serve({ inventory, declarations }: { inventory: unknown; declarations: unknown | "network-error" }) {
+function serve({ inventory, declarations, census = { listed_only: "not_published_census_disabled",
+  inventory_pending: "not_published_census_disabled" } }: {
+  inventory: unknown
+  declarations: unknown | "network-error"
+  census?: { listed_only: string; inventory_pending: string }
+}) {
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input)
     const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status })
     if (url === "/api/proxy/admin/accounts?customer_id=acme") return json(measured.body)
     if (url.startsWith(`/api/proxy/accounts/${ACCOUNT}/inventory`)) return json(inventory)
+    if (url.startsWith(`/api/proxy/accounts/${ACCOUNT}/census?`)) {
+      const depth = new URLSearchParams(url.split("?")[1]).get("depth") as "listed_only" | "inventory_pending"
+      const captured = fixture("account-census-captures", census[depth])
+      return json(captured.body, captured.status)
+    }
     if (url.startsWith("/api/proxy/system-boundary/declarations/view")) {
       if (declarations === "network-error") throw new TypeError("network error")
       return json(declarations)
@@ -135,5 +147,25 @@ describe("the account page's Inventory tab, with declaring", () => {
     expect(await screen.findByText("Declaring systems from this inventory is not enabled on this installation yet.")).toBeTruthy()
     expect(screen.queryByRole("checkbox")).toBeNull()
     expect(screen.queryByTestId("declare-toolbar")).toBeNull()
+  })
+
+  it("frames the inventory with the account census: coverage first, the inventory, then what only the census names", async () => {
+    serve({ inventory: PAGE1.body, declarations: fixture("system-boundary", "view_initial").body,
+      census: { listed_only: "depth_listed_only_page1", inventory_pending: "depth_inventory_pending_served" } })
+    await openInventory()
+    const coverage = await screen.findByRole("region", { name: "Census coverage" })
+    expect(coverage.textContent).toContain("Coverage: partial")
+    const listed = screen.getByRole("region", { name: "Listed only" })
+    expect(listed.querySelectorAll("input[type=checkbox]")).toHaveLength(0)
+    expect(screen.getAllByRole("checkbox")).toHaveLength(SELECTABLE.length)
+  })
+
+  it("says the census is not enabled, and the inventory and declaring are unchanged", async () => {
+    serve({ inventory: PAGE1.body, declarations: fixture("system-boundary", "view_initial").body })
+    await openInventory()
+    expect((await screen.findByRole("region", { name: "Census coverage" })).textContent).toContain(
+      "Census is not enabled on this install.")
+    expect(screen.queryByRole("region", { name: "Listed only" })).toBeNull()
+    expect(screen.getAllByRole("checkbox")).toHaveLength(SELECTABLE.length)
   })
 })
