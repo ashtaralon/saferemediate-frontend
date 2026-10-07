@@ -125,8 +125,12 @@ export type ParsedInventory = InventoryData | InventoryOutcome
 
 /** account_inventory_rows.py ROW_CONTRACTS. */
 export const ROW_CONTRACT_V3 = "account_inventory_row/v3"
-const ROW_CONTRACTS = ["account_inventory_row/v1", "account_inventory_row/v2", ROW_CONTRACT_V3] as const
+/** A7 P2-ID rule 2: v3 plus an ``unproven`` identity for name-identified types (selectable, lineage unproven). */
+export const ROW_CONTRACT_V4 = "account_inventory_row/v4"
+const ROW_CONTRACTS = ["account_inventory_row/v1", "account_inventory_row/v2", ROW_CONTRACT_V3, ROW_CONTRACT_V4] as const
 export type RowContract = (typeof ROW_CONTRACTS)[number]
+/** The contracts whose publication records Region counts and whose every row carries details (v3 onward). */
+const DETAILED_ROW_CONTRACTS: readonly string[] = [ROW_CONTRACT_V3, ROW_CONTRACT_V4]
 const V3_ROW_MEMBERS = ["tags", "tags_withheld", "details", "details_withheld"] as const
 
 function bytes(value: string): number {
@@ -284,15 +288,15 @@ export function parseInventoryResponse(
     const accountTotal = totals.account_total as number
     const filterTotal = totals.filter_total as number
     if (rows.length > filterTotal) return malformed(status)
-    // I2(b2): the account-wide counts and the row contract. A v3 publication always records its Region counts and every
-    // v3 row carries details; an older one has neither Region counts nor any v3 member on a row.
+    // I2(b2): the account-wide counts and the row contract. A v3+ publication always records its Region counts and every
+    // v3+ row carries details; an older one has neither Region counts nor any v3 member on a row.
     const byType = countMap(totals.by_type, accountTotal, ROW_FIELD_MAX_BYTES.resource_type)
     const byRegion = countMap(totals.by_region, accountTotal, ROW_FIELD_MAX_BYTES.region)
     if (byType === false || byRegion === false) return malformed(status)
     const rowContract = publication.row_contract === undefined ? null : publication.row_contract
     if (rowContract !== null && !(ROW_CONTRACTS as readonly unknown[]).includes(rowContract)) return malformed(status)
     const served = rows as InventoryRow[]
-    if (rowContract === ROW_CONTRACT_V3) {
+    if (rowContract !== null && (DETAILED_ROW_CONTRACTS as readonly unknown[]).includes(rowContract)) {
       if (byRegion === null || !served.every((row) => row.details !== undefined)) return malformed(status)
     } else if (rowContract !== null) {
       if (byRegion !== null || served.some((row) => V3_ROW_MEMBERS.some((member) => member in row))) return malformed(status)
@@ -396,6 +400,11 @@ export interface InventorySelection {
   /** Called when the page's shown publication is first shown or changes (an opened type group's own read is not "shown"). */
   onPublication?(publication: PublicationIdentity): void
 }
+
+/** A SELECTABLE row's reason when its identity is only its name (A7 P2-ID rule 2, row contract v4). */
+export const LINEAGE_UNPROVEN = "LINEAGE_UNPROVEN"
+/** What such a row says next to its box: pickable, but a same-name re-creation cannot be told apart. */
+export const NAME_ONLY_NOTE = "Identified by name only: if it was deleted and re-created, Cyntro cannot tell"
 
 /** The browse eligibility the route stamps on each row (account_inventory_collection.judge_row), in words. */
 export const ELIGIBILITY_COPY: Record<string, string> = {

@@ -166,6 +166,18 @@ describe("the declaration model -- what the person is told", () => {
     }
   })
 
+  it("names a root whose creation marker moved since it was picked (A7 P2-ID v4) as a re-confirm, in words", async () => {
+    // MUTATED (named): the real ROOT_NOT_ADMITTED golden with its one root's reason set to the v4 resolver's
+    // INCARNATION_MARKER_CHANGED -- no authoring golden holds a name-identified root yet.
+    const { status, body } = golden("save_root_not_admitted")
+    const mutated = structuredClone(body)
+    mutated.detail.roots[0] = { ...mutated.detail.roots[0], status: "CHANGED", reason_code: "INCARNATION_MARKER_CHANGED" }
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(Response.json(mutated, { status }))
+    const refused = describeResult(await saveDeclaration(REFUSED))
+    expect(refused.kind === "refused" && refused.roots.map((named) => named.reason)).toEqual([
+      "its creation time changed after you picked it, so it may have been re-created; reload the inventory and pick it again"])
+  })
+
   it("an unconfirmed save asks for the SAME request again", async () => {
     vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(new TypeError("Failed to fetch"))
     expect(describeResult(await saveDeclaration(CREATE))).toEqual({ kind: "resend", code: "NETWORK_ERROR",

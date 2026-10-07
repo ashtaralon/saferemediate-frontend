@@ -150,6 +150,8 @@ const ROOT_REASONS: Record<string, string> = {
   AUTHORITY_CHANGED_SINCE_SELECTION: "the account's registration changed after you picked it; reload the inventory and pick it again",
   AUTHORITY_CHANGED: "the account's registration changed; reload the inventory and pick it again",
   INCARNATION_CHANGED: "the resource was recreated after you picked it; reload the inventory and pick it again",
+  INCARNATION_MARKER_CHANGED:
+    "its creation time changed after you picked it, so it may have been re-created; reload the inventory and pick it again",
   INCARNATION_NOT_PINNED: "it was picked without its identity; reload the inventory and pick it again",
   INCARNATION_UNVERIFIABLE: "its identity can no longer be verified",
   PUBLICATION_BEHIND_SELECTION: "the inventory is being republished; try again shortly",

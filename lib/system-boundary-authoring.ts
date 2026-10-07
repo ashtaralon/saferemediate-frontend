@@ -70,8 +70,26 @@ export interface SeedIdentity {
   resource_uid: string
 }
 
-/** The observed incarnation exactly as the inventory row states it: a verified proof, or explicitly none. */
-export type ObservedIncarnation = { status: "not_provided" } | { status: "provided"; source: string; value: string }
+/** A name-identified resource's creation time (A7 P2-ID rule 2): it can only raise a question, never prove identity. */
+export interface CreationMarker {
+  source: string
+  value: string
+  stability: "hint" | "stable"
+}
+
+/** The observed incarnation exactly as the inventory row states it: a verified proof, an UNPROVEN identity (row contract v4:
+ *  a name-identified resource selected by its ARN, a same-name re-creation not provable), or explicitly none. */
+export type ObservedIncarnation =
+  | { status: "not_provided" }
+  | { status: "provided"; source: string; value: string }
+  | { status: "unproven"; source: string; value: string; marker?: CreationMarker }
+
+/** A root's identity, in words: a verified id, a name only (re-creation not provable), or none. */
+export function identityLabel(status: ObservedIncarnation["status"]): string {
+  if (status === "provided") return "verified"
+  if (status === "unproven") return "name only (re-creation not provable)"
+  return "not provided"
+}
 
 /** What the person SAW when they picked a root (see the module note): expected values, never authority. */
 export interface RootSelection {

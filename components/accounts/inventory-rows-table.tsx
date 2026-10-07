@@ -13,6 +13,8 @@ import { InventoryTypeTile } from "@/components/accounts/inventory-type-tile"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { formatUtcInstantExact } from "@/lib/account-admin"
 import {
+  LINEAGE_UNPROVEN,
+  NAME_ONLY_NOTE,
   eligibilityCopy,
   publicationsEqual,
   rowKey,
@@ -55,6 +57,11 @@ function RootCell({ row, selection, publication }: {
       ) : (
         <span className="text-slate-500" data-testid="inventory-not-selectable">{eligibilityCopy(row.eligibility)}</span>
       )}
+      {row.eligibility.selectable === true && row.eligibility.reason === LINEAGE_UNPROVEN ? (
+        <span className="ml-1 text-[10px] text-slate-500" data-testid="inventory-identity-name-only">
+          {NAME_ONLY_NOTE}
+        </span>
+      ) : null}
       {pickedUnder !== undefined && !publicationsEqual(pickedUnder, publication) ? (
         <span className="ml-1 text-[10px] text-amber-800" data-testid="inventory-pick-other-publication">
           picked in another publication

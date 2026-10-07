@@ -9,7 +9,7 @@
     "harness": "tests/cyntro_data/test_account_inventory_captures.py::test_the_real_route_answers_are_exactly_the_captures",
     "fixed_clock_epoch": 1800000000,
     "facts": "REAL normalizers: tests/cyntro_data/account_inventory_capture_facts.py (capture account only)",
-    "publication": "this commit's projector and P3a2 publisher (row contract v3) at the production budget (none passed, as scripts/project_account_inventory.py passes none), uuid4 pinned to 00000000000000000000000000000004",
+    "publication": "this commit's projector and P3a2 publisher (row contract v4) at the production budget (none passed, as scripts/project_account_inventory.py passes none), uuid4 pinned to 00000000000000000000000000000004",
     "readiness": "DEPLOYED wiring: app_factory._install_consumer_readiness over a CustomerConfigRepository record and the account lifecycle the real OnboardingWorkflow left at BOOTSTRAPPING (a failed bootstrap_inventory rung)",
     "pinned": [
       "time.time",
@@ -17,7 +17,7 @@
       "cyntro_data.projection.receipt clock"
     ],
     "note": "The real route's answer over a real publication; nothing removed. Not installed or live evidence.",
-    "backend_commit": "dd5d0d76beb63e2040f39ba5ffc0e0ee06f490ce",
+    "backend_commit": "ed2a3847bd2bc28685a4aba7353e13cd7f1ad05d",
     "backend_path": "tests/fixtures/account_inventory_captures/held_lifecycle_not_active.json",
     "copied_unchanged": "status, cache_control and body are byte-for-byte the backend capture's"
   },

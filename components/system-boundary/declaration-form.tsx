@@ -12,6 +12,7 @@
 import { useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
 import {
+  identityLabel,
   newCreateEnvelope,
   saveDeclaration,
   type CreateDeclaration,
@@ -264,7 +265,7 @@ export function DeclarationForm({ view, roots, onCancel, onSaved, save = saveDec
                     === root.selection.resource_type)?.label ?? root.resource_uid}</td>
                   <td>{root.selection.resource_type}</td>
                   <td>{root.account_id} / {root.region}</td>
-                  <td>{root.selection.observed_incarnation.status === "provided" ? "verified" : "not provided"}</td>
+                  <td>{identityLabel(root.selection.observed_incarnation.status)}</td>
                 </tr>
               ))}
             </tbody>

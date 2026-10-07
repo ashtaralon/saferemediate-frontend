@@ -3,11 +3,12 @@
  * declare-from-inventory flow hands it. The view offers a box only where the ROUTE marked a row selectable, says why any other
  * row is not, names the publication each pick is made under, and holds no picks of its own.
  *
- * Every answer is the REAL route's (AccountOnboarding's I2(d) captures, re-captured at backend 8b492146, A7 P2-ID (a)-1): its
- * selectable rows are the ones the route judged SUPPORTED -- the IAM roles and policy, the Kubernetes deployment, and since
- * P2-ID (a)-1 every EC2 resource (its AWS-generated id) and load balancer / target group (its ARN), whose immutable identity
- * is verified -- and every other row (the account's Regions, the EKS cluster, the Kubernetes namespace) carries the route's
- * own reason. Three cases are explicitly MUTATED and named so, because no capture holds them: a republished inventory
+ * Every answer is the REAL route's (AccountOnboarding's I2(d) captures, re-captured at the A7 P2-ID (a)-2 backend commit, row
+ * contract v4): its selectable rows are the ones the route judged SUPPORTED -- the IAM roles and policy, the Kubernetes
+ * deployment, and since P2-ID (a)-1 every EC2 resource (its AWS-generated id) and load balancer / target group (its ARN), whose
+ * immutable identity is verified -- plus, since (a)-2, the EKS cluster as LINEAGE_UNPROVEN (selectable by its ARN; a same-name
+ * re-creation cannot be told apart, and its row says so). Every other row (the account's Regions, the Kubernetes namespace)
+ * carries the route's own reason. Three cases are explicitly MUTATED and named so, because no capture holds them: a republished inventory
  * (another publication attempt), an opened group served from another publication, and an opened group whose rows are not
  * selectable (the filtered capture is of ec2:instance, which is selectable since P2-ID).
  */
@@ -18,6 +19,8 @@ import { describe, expect, it, vi } from "vitest"
 import { AccountInventoryView } from "@/components/accounts/account-inventory-view"
 import {
   ELIGIBILITY_COPY,
+  LINEAGE_UNPROVEN,
+  NAME_ONLY_NOTE,
   rowKey,
   type InventoryFetchResult,
   type InventoryFetcher,
@@ -46,6 +49,8 @@ const SHOWN: PublicationIdentity = {
 }
 const SELECTABLE = PAGE1.rows.filter((r: any) => r.eligibility.selectable === true)
 const ROLE = PAGE1.rows.find((r: any) => r.resource_type === "iam:role")
+/** The capture's one row the route judged selectable by name only (the EKS cluster, row contract v4). */
+const NAME_ONLY = PAGE1.rows.find((r: any) => r.eligibility.reason === LINEAGE_UNPROVEN)
 
 function controllable() {
   const calls: Array<{ params: { resourceType: string | null; cursor: string | null }; resolve: (r: InventoryFetchResult) => void }> = []
@@ -89,16 +94,18 @@ async function listed(selection?: InventorySelection) {
 }
 
 describe("the route's own verdicts in the capture", () => {
-  it("are SUPPORTED exactly for the types with a verified identity, and a reason for every other row", () => {
+  it("are SUPPORTED exactly for the types with a verified identity, LINEAGE_UNPROVEN for the name-identified cluster, and a reason for every other row", () => {
     expect(SELECTABLE.map((r: any) => r.resource_type).sort()).toEqual([
       "ec2:instance", "ec2:instance", "ec2:internet-gateway", "ec2:nat-gateway", "ec2:network-acl", "ec2:network-interface",
-      "ec2:route-table", "ec2:security-group", "ec2:subnet", "ec2:vpc", "ec2:vpc-endpoint",
+      "ec2:route-table", "ec2:security-group", "ec2:subnet", "ec2:vpc", "ec2:vpc-endpoint", "eks:cluster",
       "elasticloadbalancing:load-balancer", "elasticloadbalancing:target-group",
       "iam:policy", "iam:role", "iam:role", "k8s:deployment",
     ])
-    expect(SELECTABLE.every((r: any) => r.eligibility.reason === "SUPPORTED")).toBe(true)
+    expect(SELECTABLE.filter((r: any) => r.eligibility.reason !== "SUPPORTED").map((r: any) => [r.resource_type, r.eligibility.reason]))
+      .toEqual([["eks:cluster", LINEAGE_UNPROVEN]])
+    expect(NAME_ONLY.observed_incarnation.status).toBe("unproven")
     const held = PAGE1.rows.filter((r: any) => r.eligibility.selectable !== true)
-    expect(held.map((r: any) => r.resource_type).sort()).toEqual(["account:regions", "eks:cluster", "k8s:namespace"])
+    expect(held.map((r: any) => r.resource_type).sort()).toEqual(["account:regions", "k8s:namespace"])
     expect(held.every((r: any) => r.eligibility.reason === "INCARNATION_NOT_PROVIDED")).toBe(true)
   })
 })
@@ -109,6 +116,7 @@ describe("without a selection hook", () => {
     expect(screen.queryByRole("checkbox")).toBeNull()
     expect(screen.queryByRole("columnheader", { name: "Root" })).toBeNull()
     expect(screen.queryAllByTestId("inventory-not-selectable")).toHaveLength(0)
+    expect(screen.queryAllByTestId("inventory-identity-name-only")).toHaveLength(0)
   })
 })
 
@@ -121,6 +129,17 @@ describe("with a selection hook", () => {
     expect(reasons).toEqual(PAGE1.rows.filter((r: any) => r.eligibility.selectable !== true)
       .map((r: any) => ELIGIBILITY_COPY[r.eligibility.reason]))
     expect(screen.queryByText(/INCARNATION_NOT_PROVIDED/)).toBeNull()
+  })
+
+  it("says next to the box, on exactly the rows the route marked LINEAGE_UNPROVEN, that the identity is the name only", async () => {
+    await listed(hook())
+    const notes = screen.getAllByTestId("inventory-identity-name-only")
+    expect(notes).toHaveLength(1)
+    expect(notes[0]).toHaveTextContent(NAME_ONLY_NOTE)
+    const row = rowOf(NAME_ONLY)
+    expect(within(row).getByRole("checkbox")).toBeInTheDocument()
+    expect(within(row).getByTestId("inventory-identity-name-only")).toBe(notes[0])
+    expect(screen.queryByText(/LINEAGE_UNPROVEN/)).toBeNull()
   })
 
   it("a box hands its owner the row and the publication it was served from, and holds no pick itself", async () => {

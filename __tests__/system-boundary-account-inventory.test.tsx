@@ -3,8 +3,9 @@
  * view (Settings' I3) and the declaration picker, wired by components/system-boundary/declarable-account-inventory.tsx.
  *
  * Every response is a producer capture, unmutated: the listing (fixtures/settings-c-producer), the inventory -- the REAL
- * account-inventory route's answer with its own SUPPORTED rows (fixtures/account-inventory-captures, AccountOnboarding's
- * I2(d), backend dd5d0d76, page 1 re-captured at 8b492146) -- and the authoring routes (fixtures/system-boundary). Two of those rows share the name
+ * account-inventory route's answer with its own selectable rows (fixtures/account-inventory-captures, AccountOnboarding's
+ * I2(d), re-captured at the A7 P2-ID (a)-2 backend commit, row contract v4) -- and the authoring routes
+ * (fixtures/system-boundary). Two of those rows share the name
  * "checkout-api" (an IAM role and a k8s deployment): each box is named with its type. The save itself runs on the real
  * goldens in system-boundary-declare-from-inventory.test.tsx; here, the wiring up to the reviewed declaration. The account
  * census around it (A7 S1c) answers with the REAL census route's captures (fixtures/account-census-captures): census not
@@ -93,10 +94,11 @@ describe("the account page's Inventory tab, with declaring", () => {
     serve({ inventory: PAGE1.body, declarations: fixture("system-boundary", "view_initial").body })
     await openInventory()
     await waitFor(() => expect(screen.getByTestId("declare-toolbar").textContent).toContain("0 picked as roots"))
-    // A7 P2-ID (a)-1 (backend 8b492146): EC2 resources and load balancers / target groups carry their AWS-generated identity.
+    // A7 P2-ID (a)-1 (backend 8b492146): EC2 resources and load balancers / target groups carry their AWS-generated identity;
+    // (a)-2 (row contract v4): the EKS cluster is selectable by its ARN, lineage unproven.
     expect(SELECTABLE.map((row) => row.resource_type).sort()).toEqual([
       "ec2:instance", "ec2:instance", "ec2:internet-gateway", "ec2:nat-gateway", "ec2:network-acl", "ec2:network-interface",
-      "ec2:route-table", "ec2:security-group", "ec2:subnet", "ec2:vpc", "ec2:vpc-endpoint",
+      "ec2:route-table", "ec2:security-group", "ec2:subnet", "ec2:vpc", "ec2:vpc-endpoint", "eks:cluster",
       "elasticloadbalancing:load-balancer", "elasticloadbalancing:target-group",
       "iam:policy", "iam:role", "iam:role", "k8s:deployment",
     ])
@@ -121,6 +123,23 @@ describe("the account page's Inventory tab, with declaring", () => {
     const review = screen.getByTestId("declaration-review")
     const cells = [...review.querySelectorAll("tbody td")].map((cell) => cell.textContent)
     expect(cells).toEqual(["checkout-api", "iam:role", `${ACCOUNT} / global`, "verified"])
+  })
+
+  it("a picked REAL EKS cluster reaches the reviewed declaration as that cluster, identified by name only", async () => {
+    // Row contract v4 (A7 P2-ID rule 2): the route marks the cluster selectable with its lineage unproven.
+    const cluster = ROWS.find((row) => row.resource_type === "eks:cluster")!
+    serve({ inventory: PAGE1.body, declarations: fixture("system-boundary", "view_initial").body })
+    await openInventory()
+    await act(async () => { fireEvent.click(await screen.findByRole("checkbox", { name: box(cluster) })) })
+    fireEvent.click(screen.getByRole("button", { name: "Declare a system" }))
+    fireEvent.change(screen.getByLabelText("System name"), { target: { value: "Payments" } })
+    fireEvent.change(screen.getByLabelText("Criticality"), { target: { value: "LOW" } })
+    fireEvent.change(screen.getByLabelText("Deployment key"), { target: { value: "prod" } })
+    fireEvent.change(screen.getByLabelText("Environment"), { target: { value: "PRODUCTION" } })
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Review" })))
+    const review = screen.getByTestId("declaration-review")
+    const cells = [...review.querySelectorAll("tbody td")].map((cell) => cell.textContent)
+    expect(cells).toEqual([cluster.name, "eks:cluster", `${ACCOUNT} / eu-west-1`, "name only (re-creation not provable)"])
   })
 
   it("is the browse-only inventory, unchanged, when the declarations cannot be read", async () => {

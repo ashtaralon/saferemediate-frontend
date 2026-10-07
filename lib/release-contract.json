@@ -6,6 +6,6 @@
   },
   "accepts": {
     "account_census_read": 1,
-    "account_inventory_rows": 3
+    "account_inventory_rows": 4
   }
 }

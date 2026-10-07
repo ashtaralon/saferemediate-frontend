@@ -16,7 +16,7 @@
     "harness": "tests/cyntro_data/test_account_inventory_captures.py::test_the_real_route_answers_are_exactly_the_captures",
     "fixed_clock_epoch": 1800000000,
     "facts": "REAL normalizers: tests/cyntro_data/account_inventory_capture_facts.py (capture account only)",
-    "publication": "this commit's projector and P3a2 publisher (row contract v3) at the production budget (none passed, as scripts/project_account_inventory.py passes none), uuid4 pinned to 00000000000000000000000000000004",
+    "publication": "this commit's projector and P3a2 publisher (row contract v4) at the production budget (none passed, as scripts/project_account_inventory.py passes none), uuid4 pinned to 00000000000000000000000000000004",
     "readiness": "the T11-0 harness provider answering (True, 'pass') -- a stand-in for a READY consumer pass",
     "pinned": [
       "time.time",
@@ -24,7 +24,7 @@
       "cyntro_data.projection.receipt clock"
     ],
     "note": "The real route's answer over a real publication; nothing removed. Not installed or live evidence.",
-    "backend_commit": "8b492146e2906767aa44ecd9158a40b0e12f6e3c",
+    "backend_commit": "ed2a3847bd2bc28685a4aba7353e13cd7f1ad05d",
     "backend_path": "tests/fixtures/account_inventory_captures/filtered_page2.json",
     "copied_unchanged": "status, cache_control and body are byte-for-byte the backend capture's"
   },
@@ -41,11 +41,11 @@
     "publication": {
       "attempt": "00000000000000000000000000000004",
       "generation": 1,
-      "source_identity": "v1:a23e19ff9dc8bdbfb5efe1b3690bb538d8a5747a758d43ec36e79b10371c843c",
+      "source_identity": "v1:cb374b0afc8c7eecb7f42ec856858dcf1155c9d40463965de520aaeb207219c6",
       "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
       "published_at_epoch": 1800000000,
       "inventory_complete": true,
-      "row_contract": "account_inventory_row/v3"
+      "row_contract": "account_inventory_row/v4"
     },
     "totals": {
       "account_total": 25,

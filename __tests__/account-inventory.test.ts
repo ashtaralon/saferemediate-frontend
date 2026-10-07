@@ -4,8 +4,9 @@
  * Every envelope is a PRODUCER golden: the real backend route's answer, copied byte-for-byte from backend commit
  * 92b2c54f7ea6fbf09b50ae06cec98f9c268bedd0 (tests/fixtures/account_inventory_api/); the four SERVED states are the
  * re-captures of fa2edd53e6743df08e38b15bb35f0d6215ce14ae (I2(b1) row v3 tags + details, I2(b2) account-wide by_type /
- * by_region and publication.row_contract), and the two populated pages again of 8b492146e2906767aa44ecd9158a40b0e12f6e3c
- * (A7 P2-ID (a)-1: an AWS-generated id is a row's incarnation). A malformed case is one of those
+ * by_region and publication.row_contract), and those four again of the A7 P2-ID (a)-2 commit (P2ID_V4_COMMIT: row contract v4,
+ * where a name-identified row -- S3 bucket, Lambda function, EKS cluster -- is selectable with its lineage unproven; before
+ * that, 8b492146 made an AWS-generated id a row's incarnation). A malformed case is one of those
  * goldens with ONE field broken, named as such. The single "inventory_complete: false" case is an explicitly MUTATED
  * robustness case: the producer at that commit never emits it (a SERVED page is always complete).
  */
@@ -28,13 +29,15 @@ import {
 } from "@/lib/account-inventory"
 
 const PRODUCER_COMMIT = "92b2c54f7ea6fbf09b50ae06cec98f9c268bedd0"
+/** The backend commit of A7 P2-ID (a)-2 (row contract v4): every golden and capture it re-captured is pinned to it. */
+const P2ID_V4_COMMIT = "ed2a3847bd2bc28685a4aba7353e13cd7f1ad05d"
 /** The tenth golden (the route held by its readiness gate) was added by a later backend commit, which asserts all ten. */
 const PRODUCER_COMMIT_OF: Partial<Record<string, string>> = {
   held_consumer_not_recorded: "95dea3288a8b713b37be95114060c227ff5d0af8",
-  populated_page1: "8b492146e2906767aa44ecd9158a40b0e12f6e3c",
-  populated_page2: "8b492146e2906767aa44ecd9158a40b0e12f6e3c",
-  filter_empty: "fa2edd53e6743df08e38b15bb35f0d6215ce14ae",
-  complete_empty: "fa2edd53e6743df08e38b15bb35f0d6215ce14ae",
+  populated_page1: P2ID_V4_COMMIT,
+  populated_page2: P2ID_V4_COMMIT,
+  filter_empty: P2ID_V4_COMMIT,
+  complete_empty: P2ID_V4_COMMIT,
 }
 /** The type filter each golden's request carried (the backend harness: filter_empty asked for "ec2:no-such-type"). */
 const FILTER_OF: Partial<Record<string, string>> = { filter_empty: "ec2:no-such-type" }
@@ -188,7 +191,7 @@ describe("I2(b2): the publication's account-wide counts and its row contract", (
   it("reads by_type and by_region exactly, both summing to the account's total", () => {
     const first = parse("populated_page1")
     if (first.kind !== "data") throw new Error("expected data")
-    expect(first.rowContract).toBe("account_inventory_row/v3")
+    expect(first.rowContract).toBe("account_inventory_row/v4")
     expect(Object.keys(first.byType!)).toHaveLength(30)
     expect(first.byRegion).toEqual({ "eu-west-1": 24, global: 6 })
     expect(Object.values(first.byType!).reduce((a, b) => a + b, 0)).toBe(first.totals.accountTotal)
@@ -233,15 +236,15 @@ describe("I2(b2): the publication's account-wide counts and its row contract", (
       delete b.totals.by_type["s3:bucket"]
     }],
     ["a row contract the producer has none of (otherwise shaped as an older one)", "populated_page1", (b) => {
-      b.publication.row_contract = "account_inventory_row/v4"
+      b.publication.row_contract = "account_inventory_row/v5"
       delete b.totals.by_region
       for (const row of b.rows) {
         delete row.tags
         delete row.details
       }
     }],
-    ["a v3 publication without Region counts", "populated_page1", (b) => { delete b.totals.by_region }],
-    ["a v3 row without details", "populated_page1", (b) => { delete b.rows[1].details }],
+    ["a v4 publication without Region counts", "populated_page1", (b) => { delete b.totals.by_region }],
+    ["a v4 row without details", "populated_page1", (b) => { delete b.rows[1].details }],
     ["an older publication with Region counts", "populated_page1", (b) => {
       b.publication.row_contract = "account_inventory_row/v2"
       for (const row of b.rows) {
@@ -268,12 +271,16 @@ describe("I2(b2): the publication's account-wide counts and its row contract", (
  *  (a)-1 changed were re-captured at backend 8b492146 (the rest still answer exactly as captured, which that commit's own
  *  harness asserts). Each capture names the request it answers (_provenance.request); these tests replay exactly that filter
  *  and cursor sequence. */
-describe("I2(d) captures: the real route over a real v3 publication, and a genuine v2 one", () => {
+describe("I2(d) captures: the real route over a real v4 publication, and genuine v3 and v2 ones", () => {
   type Capture = Golden & { _provenance: { request: { query: Record<string, string>; cursor?: { from: string } } } }
   const CAPTURED_AT: Partial<Record<string, string>> = {
-    populated_page1: "8b492146e2906767aa44ecd9158a40b0e12f6e3c",
-    filtered_page1: "8b492146e2906767aa44ecd9158a40b0e12f6e3c",
-    filtered_page2: "8b492146e2906767aa44ecd9158a40b0e12f6e3c",
+    populated_page1: P2ID_V4_COMMIT,
+    populated_page2: P2ID_V4_COMMIT,
+    filtered_page1: P2ID_V4_COMMIT,
+    filtered_page2: P2ID_V4_COMMIT,
+    refused_scope_mismatch_403: P2ID_V4_COMMIT,
+    held_lifecycle_not_active: P2ID_V4_COMMIT,
+    v3_publication_served: P2ID_V4_COMMIT,
   }
   const capture = (name: string): Capture =>
     JSON.parse(readFileSync(resolve(process.cwd(), "__tests__/fixtures/account-inventory-captures", `${name}.json`), "utf8"))
@@ -295,7 +302,11 @@ describe("I2(d) captures: the real route over a real v3 publication, and a genui
     const all = walk("populated_page1", "populated_page2", null)
     if (all.kind !== "data") throw new Error(`expected data, got ${all.kind}`)
     expect([all.rows.length, all.hasMore, all.totals.accountTotal]).toEqual([25, false, 25])
-    expect(all.rowContract).toBe("account_inventory_row/v3")
+    expect(all.rowContract).toBe("account_inventory_row/v4")
+    // Row contract v4: the name-identified rows are the route's LINEAGE_UNPROVEN picks, read as data like any other.
+    expect(all.rows.filter((row) => row.eligibility.reason === "LINEAGE_UNPROVEN")
+      .map((row) => [row.resource_type, row.eligibility.selectable, row.observed_incarnation.status]).sort())
+      .toEqual([["eks:cluster", true, "unproven"], ["lambda:function", true, "unproven"], ["s3:bucket", true, "unproven"]])
     const counted = new Map<string, number>()
     for (const row of all.rows) counted.set(row.resource_type, (counted.get(row.resource_type) ?? 0) + 1)
     expect(Object.fromEntries(counted)).toEqual(all.byType)
@@ -309,6 +320,15 @@ describe("I2(d) captures: the real route over a real v3 publication, and a genui
     expect(one.rows.map((row) => row.resource_type)).toEqual(["ec2:instance", "ec2:instance"])
     expect(one.totals.filterTotal).toBe(one.byType!["ec2:instance"])
     expect(one.rows.some((row) => row.tags_withheld?.reason === "TAGS_OVER_CAP")).toBe(true)
+  })
+
+  it("reads a genuine v3 publication served by the v4 backend (an upgraded install, before its first v4 cycle)", () => {
+    const p = parsed("v3_publication_served")
+    expect(p).toMatchObject({ kind: "data", rowContract: "account_inventory_row/v3" })
+    if (p.kind !== "data") throw new Error("expected data")
+    expect(Object.values(p.byRegion!).reduce((a, b) => a + b, 0)).toBe(p.totals.accountTotal)
+    expect(p.rows.length > 0 && p.rows.every((row) => row.details !== undefined)).toBe(true)
+    expect(p.rows.some((row) => row.eligibility.reason === "LINEAGE_UNPROVEN")).toBe(false)
   })
 
   it("reads a genuine v2 publication served as stored: no Region counts, no v3 member on a row", () => {
