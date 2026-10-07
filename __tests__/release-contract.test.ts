@@ -3,10 +3,13 @@
  * builder from this checkout: it must be exactly a cyntro-release-contract/v1 `requires` declaration, and the page's own
  * requirement is that same value (Settings C, agent-coordinator/codex-settings-c-release-gate-ack-review-2026-10-04.txt).
  */
+import { readFileSync } from "node:fs"
+import { resolve } from "node:path"
 import { describe, expect, it } from "vitest"
 
 import declaration from "@/lib/release-contract.json"
-import { CENSUS_CONTRACT, censusPath } from "@/lib/account-census"
+import { CENSUS_CONTRACT, censusPath, parseCensusResponse } from "@/lib/account-census"
+import { parseInventoryResponse, RESPONSE_MALFORMED } from "@/lib/account-inventory"
 import {
   ORGANIZATION_DISCOVERY_TEMPLATE_PATH,
   REQUIRED_ACCOUNT_REGISTRATION_CONTRACT,
@@ -18,7 +21,8 @@ import {
 describe("the release contract this frontend requires", () => {
   it("is exactly the shape the backend's bundle builder reads: account registration at level 5, the census read at 1", () => {
     expect(declaration).toEqual({ schema: "cyntro-release-contract/v1",
-      requires: { account_census_read: 1, account_registration: 5 } })
+      requires: { account_census_read: 1, account_registration: 5 },
+      accepts: { account_census_read: 1, account_inventory_rows: 3 } })
     expect(REQUIRED_ACCOUNT_REGISTRATION_CONTRACT).toBe(5)
     expect(CENSUS_CONTRACT).toBe("account_census_read/v1")
   })
@@ -65,5 +69,38 @@ describe("the release contract this frontend requires", () => {
     expect(registrationStep({ onboarding_status: "PENDING_UNVERIFIED", registration: {
       registration_id: "a".repeat(32), registration_version: 1, checking: false, activating: false } }, Date.now()))
       .toEqual({ kind: "CHECK_ACCESS", refused: null })
+  })
+})
+
+/** The upper bound (r40, agent-coordinator/claude-settings-fe-accepts-spec-2026-10-07.txt): `accepts` is what this frontend's
+ *  parsers can READ, pinned to the parsers themselves by running them -- the backend bundle builder refuses a backend that
+ *  publishes newer, so this declaration must never claim more (or less) than the code accepts. */
+describe("what this frontend can read (accepts)", () => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const capture = (dir: string, name: string): { status: number; body: any } =>
+    JSON.parse(readFileSync(resolve(process.cwd(), "__tests__/fixtures", dir, `${name}.json`), "utf8"))
+
+  it("reads inventory rows up to exactly its declared level: that row contract parses, the next one is malformed", () => {
+    const n = declaration.accepts.account_inventory_rows
+    const page = capture("account-inventory-captures", "populated_page1")
+    const at = (level: number) => {
+      const body = structuredClone(page.body)
+      body.publication.row_contract = `account_inventory_row/v${level}`
+      return parseInventoryResponse(page.status, body, body.account_id)
+    }
+    expect(at(n)).not.toMatchObject({ reasonCode: RESPONSE_MALFORMED })
+    expect(at(n).kind).toBe("data")
+    expect(at(n + 1)).toMatchObject({ kind: "unavailable", reasonCode: RESPONSE_MALFORMED })
+  })
+
+  it("reads the census answer at exactly its declared level: that contract parses, the next one is not read", () => {
+    const n = declaration.accepts.account_census_read
+    expect(CENSUS_CONTRACT).toBe(`account_census_read/v${n}`)
+    const page = capture("account-census-captures", "populated_page1")
+    const at = (level: number) =>
+      parseCensusResponse(page.status, { ...structuredClone(page.body), contract: `account_census_read/v${level}` },
+        page.body.account_id)
+    expect(at(n).state).not.toBe("unavailable")
+    expect(at(n + 1).state).toBe("unavailable")
   })
 })

@@ -3,5 +3,9 @@
   "requires": {
     "account_census_read": 1,
     "account_registration": 5
+  },
+  "accepts": {
+    "account_census_read": 1,
+    "account_inventory_rows": 3
   }
 }
