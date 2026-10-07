@@ -2,7 +2,7 @@
  * A7 S1c: the census proxy route (app/api/proxy/accounts/[accountId]/census/route.ts) on the shared per-account read rules
  * (lib/server/account-read-proxy.ts), called directly with a recording fetch: the exact backend target, the route's own
  * query keys only, the relayed identity, status relay, no-store, and a closed answer for every refusal and failure. The
- * relayed body is a REAL census route answer (backend f329ca131f1602847ece7b6d2ef2ea56b0b6c315,
+ * relayed body is a REAL census route answer (backend 7de67d81afd0c9c85e190af78e182043252bb7b4,
  * tests/cyntro_data/test_account_census_captures.py).
  */
 import { readFileSync } from "node:fs"

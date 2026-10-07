@@ -34,7 +34,7 @@
       "install_account": false
     },
     "publication": {
-      "attempt": "0000000000000000000000000000016b",
+      "attempt": "0000000000000000000000000000014d",
       "generation": 2,
       "source_identity": "v1:0eed8b8bfce17770157811fc21049939ca2704748f9d2043920befad525f2a15",
       "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
@@ -206,8 +206,10 @@
     "outcome": {
       "outcome": "CURRENT",
       "detail": "published",
-      "attempt": "0000000000000000000000000000016b",
-      "recorded_at_epoch": 1800000000
+      "attempt": "0000000000000000000000000000014d",
+      "recorded_at_epoch": 1800000000,
+      "registration_id": "0123456789abcdef0123456789abcdef",
+      "registration_recorded": true
     },
     "rows": [
       {
@@ -260,7 +262,7 @@
         }
       }
     ],
-    "next_cursor": "eyJjIjowLCJkIjoidjE6M2ZjMWM1ZGRiMTA0YzQwNGRiYzk5ZWEzZTE1YmE1YWUxMTZmNDJjZjhjNTUyYTU3MjA2MzE4MzFiZWQ3MDVhNyIsImYiOiJ2MTo0NmQxZjk4MWY3N2Y3Yzk2MWY3NzU3OGM2MGYwYWEyMDE0NThhYzMyZDllZDczNDMzYzhmYmU3NjhhNjg0NTk5IiwiZyI6MiwiaSI6MywibCI6InYxOjY5NmI4NTM1YjdmN2JmMzMwZWQ2NzU5OTEyMGUwZTYwMTZkZmFjZjI5MGU3ZGVhMmRhZmNmOWFlY2JkOWVmNGEiLCJvIjoicmVzb3VyY2VfdHlwZSxyb3dfa2V5IiwicCI6IjAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMTZiIiwicyI6InYxOmY0YWM1OGE0ZTE3ZTI2YzA4MDY5OWY5ZGQzYjY4NTZhZjUxNzNiNzIyNzI3MDY0MjBmMTY3NjdiMTk5ZTk2NjYiLCJ2IjoiYWNjb3VudF9jZW5zdXMvdjEifQ==",
+    "next_cursor": "eyJjIjowLCJkIjoidjE6M2ZjMWM1ZGRiMTA0YzQwNGRiYzk5ZWEzZTE1YmE1YWUxMTZmNDJjZjhjNTUyYTU3MjA2MzE4MzFiZWQ3MDVhNyIsImYiOiJ2MTo0NmQxZjk4MWY3N2Y3Yzk2MWY3NzU3OGM2MGYwYWEyMDE0NThhYzMyZDllZDczNDMzYzhmYmU3NjhhNjg0NTk5IiwiZyI6MiwiaSI6MywibCI6InYxOjY5NmI4NTM1YjdmN2JmMzMwZWQ2NzU5OTEyMGUwZTYwMTZkZmFjZjI5MGU3ZGVhMmRhZmNmOWFlY2JkOWVmNGEiLCJvIjoicmVzb3VyY2VfdHlwZSxyb3dfa2V5IiwicCI6IjAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMTRkIiwicyI6InYxOmY0YWM1OGE0ZTE3ZTI2YzA4MDY5OWY5ZGQzYjY4NTZhZjUxNzNiNzIyNzI3MDY0MjBmMTY3NjdiMTk5ZTk2NjYiLCJ2IjoiYWNjb3VudF9jZW5zdXMvdjEifQ==",
     "has_more": true
   }
 }

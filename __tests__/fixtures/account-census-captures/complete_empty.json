@@ -106,7 +106,9 @@
       "outcome": "CURRENT",
       "detail": "published",
       "attempt": "00000000000000000000000000000012",
-      "recorded_at_epoch": 1800000000
+      "recorded_at_epoch": 1800000000,
+      "registration_id": "0123456789abcdef0123456789abcdef",
+      "registration_recorded": true
     },
     "rows": [],
     "next_cursor": null,

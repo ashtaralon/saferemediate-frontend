@@ -1,6 +1,7 @@
 /**
  * A7 S1c: the census bands around the account's inventory, on the REAL route's answers (backend
- * tests/cyntro_data/test_account_census_captures.py at f329ca131f1602847ece7b6d2ef2ea56b0b6c315; each capture's _provenance), delivered by a fetcher keyed on what
+ * tests/cyntro_data/test_account_census_captures.py at 7de67d81afd0c9c85e190af78e182043252bb7b4; each capture's
+ * _provenance -- the not-published ones through the install's REAL readiness chain), delivered by a fetcher keyed on what
  * the page asks: one depth, one cursor. The page's three bands (agent-coordinator/claude-a7-s1c-page-semantics-2026-10-06.txt):
  * coverage first, the inventory itself second (the children), what only the census names last.
  */
@@ -138,6 +139,7 @@ describe("the census bands when there are no rows to show", () => {
     ["not_published_census_not_run", "Census has not run yet for this account's current registration."],
     ["not_published_census_stopped", "Census has stopped (last dispatched 2027-01-12T08:00:00+00:00)."],
     ["held_authority_changed", "This account was registered again since the census was published; the next census pass replaces it."],
+    ["held_no_census_rows", "The census for this account is not ready to be shown yet."],
     ["unavailable_store_503", "The census could not be read (store_unavailable)."],
   ])("%s: says why in words and still shows the inventory", async (name, sentence) => {
     const { fetchPage } = served({ "listed_only|first": name, "inventory_pending|first": name })

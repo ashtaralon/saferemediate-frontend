@@ -6,7 +6,7 @@
     "census": "REAL writer (cyntro_data.sources.account_census.commit_census_listing) from the REAL acquirers over Stubber-validated responses; REAL dispatch markers; REAL census pass (services.account_census_producer)",
     "inventory": "REAL P3a2 publication over a real projector activation (test_account_inventory_api._activated)",
     "estate": "mirrors the cyntro-local-test platform account read 2026-10-06 through the read-only wrapper: no Config recorder, no Resource Explorer index, CloudFormation stacks incl. a deleted one, Tagging lists tagged only",
-    "readiness": "the S1c-4 harness provider answering (True, 'pass') for scope account_census -- a stand-in for a READY pass",
+    "readiness": "DEPLOYED: app_factory._install_consumer_readiness over a consumer pass the REAL OnboardingWorkflow recorded from a signed run of the REAL census checks (tests/cyntro_data/test_account_census_readiness.py chain; the harness seam is never consulted)",
     "pinned": [
       "time.time",
       "LocalEvidenceStore.bucket (recorded identity only)",
@@ -37,7 +37,9 @@
       "outcome": "CENSUS_STOPPED",
       "detail": "last dispatched 2027-01-12T08:00:00+00:00",
       "attempt": "",
-      "recorded_at_epoch": 1800000000
+      "recorded_at_epoch": 1800000000,
+      "registration_id": "0123456789abcdef0123456789abcdef",
+      "registration_recorded": true
     },
     "rows": [],
     "next_cursor": null,

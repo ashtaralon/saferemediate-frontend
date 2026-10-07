@@ -1,7 +1,7 @@
 /**
  * A7 S1c: the census client (lib/account-census.ts) on the REAL route's answers -- backend
- * tests/cyntro_data/test_account_census_captures.py at f329ca131f1602847ece7b6d2ef2ea56b0b6c315, every capture with its _provenance (fixed clock, real writer, real
- * acquirers over Stubber-validated responses, real census pass, real P3a2 inventory). Each mutated case below is named
+ * tests/cyntro_data/test_account_census_captures.py at 7de67d81afd0c9c85e190af78e182043252bb7b4, every capture with its _provenance (fixed clock, real writer, real
+ * acquirers over Stubber-validated responses, real census pass, real P3a2 inventory; the not-published answers through the install's REAL readiness chain). Each mutated case below is named
  * MUTATED: the producer never emits it; it proves a contradiction is refused, never shown.
  */
 import { readdirSync, readFileSync } from "node:fs"
@@ -55,7 +55,7 @@ function outcome(name: string): CensusOutcome {
 describe("the census client on the real route's answers", () => {
   it("accepts every capture the route produced, each as the state it was taken in", () => {
     const names = readdirSync(DIR).filter((f) => f.endsWith(".json")).map((f) => f.slice(0, -5)).sort()
-    expect(names).toHaveLength(24)
+    expect(names).toHaveLength(23)
     for (const name of names) {
       const c = capture(name)
       expect(c.body.contract).toBe(CENSUS_CONTRACT)
@@ -106,16 +106,18 @@ describe("the census client on the real route's answers", () => {
     expect(data("depth_inventory_pending_served", "inventory_pending").state).toBe("filter_empty")
   })
 
-  it("says every answer without rows in words", () => {
-    expect(outcomeSentence(outcome("not_published_no_publication_recorded"))).toBe(
-      "The census has not been published for this account yet.")
+  it("says every answer without rows in words -- the not-published ones as an INSTALL reaches them (the real readiness chain)", () => {
+    for (const name of ["not_published_census_disabled", "not_published_census_not_run", "not_published_census_stopped",
+      "held_no_census_rows"]) {
+      expect(capture(name)._provenance.readiness, name).toContain("DEPLOYED")
+    }
     expect(outcomeSentence(outcome("not_published_census_disabled"))).toBe("Census is not enabled on this install.")
     expect(outcomeSentence(outcome("not_published_census_not_run"))).toBe(
       "Census has not run yet for this account's current registration.")
     expect(outcomeSentence(outcome("not_published_census_stopped"))).toBe(
       "Census has stopped (last dispatched 2027-01-12T08:00:00+00:00).")
     expect(outcomeSentence(outcome("held_authority_changed"))).toContain("registered again")
-    expect(outcomeSentence(outcome("held_scope_not_ready"))).toBe("The census for this account is not ready to be shown yet.")
+    expect(outcomeSentence(outcome("held_no_census_rows"))).toBe("The census for this account is not ready to be shown yet.")
     expect(outcomeSentence(outcome("refused_not_authorized_403"))).toBe("You are not authorized to read this account's census.")
     expect(outcomeSentence(outcome("unavailable_store_503"))).toBe("The census could not be read (store_unavailable).")
     expect(outcome("refused_cursor_restart_409").reasonCode).toBe("CURSOR_RESTART_REQUIRED:publication_moved")

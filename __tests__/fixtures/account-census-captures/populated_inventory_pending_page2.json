@@ -18,7 +18,7 @@
       "path": "/api/accounts/111122223333/census",
       "query": {
         "limit": "4",
-        "cursor": "eyJjIjowLCJkIjoidjE6M2ZjMWM1ZGRiMTA0YzQwNGRiYzk5ZWEzZTE1YmE1YWUxMTZmNDJjZjhjNTUyYTU3MjA2MzE4MzFiZWQ3MDVhNyIsImYiOm51bGwsImciOjEsImkiOjQsImwiOiJ2MTo4YmVkMDgwYmU2OGIyYjYyNTNiMmZiZTI2ZmMzYmYyYTA0MjEyMmE3ZWRiZWQxNTgwOTdmYWZlOTY5YWNkNDcxIiwibyI6InJlc291cmNlX3R5cGUscm93X2tleSIsInAiOiIwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDBkOSIsInMiOiJ2MTpmNGFjNThhNGUxN2UyNmMwODA2OTlmOWRkM2I2ODU2YWY1MTczYjcyMjcyNzA2NDIwZjE2NzY3YjE5OWU5NjY2IiwidiI6ImFjY291bnRfY2Vuc3VzL3YxIn0="
+        "cursor": "eyJjIjowLCJkIjoidjE6M2ZjMWM1ZGRiMTA0YzQwNGRiYzk5ZWEzZTE1YmE1YWUxMTZmNDJjZjhjNTUyYTU3MjA2MzE4MzFiZWQ3MDVhNyIsImYiOm51bGwsImciOjEsImkiOjQsImwiOiJ2MTo4YmVkMDgwYmU2OGIyYjYyNTNiMmZiZTI2ZmMzYmYyYTA0MjEyMmE3ZWRiZWQxNTgwOTdmYWZlOTY5YWNkNDcxIiwibyI6InJlc291cmNlX3R5cGUscm93X2tleSIsInAiOiIwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDBiYiIsInMiOiJ2MTpmNGFjNThhNGUxN2UyNmMwODA2OTlmOWRkM2I2ODU2YWY1MTczYjcyMjcyNzA2NDIwZjE2NzY3YjE5OWU5NjY2IiwidiI6ImFjY291bnRfY2Vuc3VzL3YxIn0="
       }
     }
   },
@@ -34,7 +34,7 @@
       "install_account": false
     },
     "publication": {
-      "attempt": "000000000000000000000000000000d9",
+      "attempt": "000000000000000000000000000000bb",
       "generation": 1,
       "source_identity": "v1:860b6b600e3a4aedaf70a6940e9818ea51845e576711cade6bcd2684f1886535",
       "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
@@ -179,8 +179,10 @@
     "outcome": {
       "outcome": "CURRENT",
       "detail": "published",
-      "attempt": "000000000000000000000000000000d9",
-      "recorded_at_epoch": 1800000000
+      "attempt": "000000000000000000000000000000bb",
+      "recorded_at_epoch": 1800000000,
+      "registration_id": "0123456789abcdef0123456789abcdef",
+      "registration_recorded": true
     },
     "rows": [
       {
