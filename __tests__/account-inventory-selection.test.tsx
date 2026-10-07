@@ -3,11 +3,13 @@
  * declare-from-inventory flow hands it. The view offers a box only where the ROUTE marked a row selectable, says why any other
  * row is not, names the publication each pick is made under, and holds no picks of its own.
  *
- * Every answer is the REAL route's (AccountOnboarding's I2(d) captures, backend dd5d0d76): its selectable rows are the ones
- * the route judged SUPPORTED -- the two IAM roles, the IAM policy and the Kubernetes deployment, whose immutable identity is
- * verified -- and every other row carries the route's own reason. Two cases are explicitly MUTATED and named so, because no
- * capture holds them: a republished inventory (another publication attempt), and a selectable row inside an opened group
- * (the filtered capture is of ec2:instance, which is never selectable).
+ * Every answer is the REAL route's (AccountOnboarding's I2(d) captures, re-captured at backend 8b492146, A7 P2-ID (a)-1): its
+ * selectable rows are the ones the route judged SUPPORTED -- the IAM roles and policy, the Kubernetes deployment, and since
+ * P2-ID (a)-1 every EC2 resource (its AWS-generated id) and load balancer / target group (its ARN), whose immutable identity
+ * is verified -- and every other row (the account's Regions, the EKS cluster, the Kubernetes namespace) carries the route's
+ * own reason. Three cases are explicitly MUTATED and named so, because no capture holds them: a republished inventory
+ * (another publication attempt), an opened group served from another publication, and an opened group whose rows are not
+ * selectable (the filtered capture is of ec2:instance, which is selectable since P2-ID).
  */
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
@@ -88,9 +90,16 @@ async function listed(selection?: InventorySelection) {
 
 describe("the route's own verdicts in the capture", () => {
   it("are SUPPORTED exactly for the types with a verified identity, and a reason for every other row", () => {
-    expect(SELECTABLE.map((r: any) => r.resource_type).sort())
-      .toEqual(["iam:policy", "iam:role", "iam:role", "k8s:deployment"])
+    expect(SELECTABLE.map((r: any) => r.resource_type).sort()).toEqual([
+      "ec2:instance", "ec2:instance", "ec2:internet-gateway", "ec2:nat-gateway", "ec2:network-acl", "ec2:network-interface",
+      "ec2:route-table", "ec2:security-group", "ec2:subnet", "ec2:vpc", "ec2:vpc-endpoint",
+      "elasticloadbalancing:load-balancer", "elasticloadbalancing:target-group",
+      "iam:policy", "iam:role", "iam:role", "k8s:deployment",
+    ])
     expect(SELECTABLE.every((r: any) => r.eligibility.reason === "SUPPORTED")).toBe(true)
+    const held = PAGE1.rows.filter((r: any) => r.eligibility.selectable !== true)
+    expect(held.map((r: any) => r.resource_type).sort()).toEqual(["account:regions", "eks:cluster", "k8s:namespace"])
+    expect(held.every((r: any) => r.eligibility.reason === "INCARNATION_NOT_PROVIDED")).toBe(true)
   })
 })
 
@@ -151,7 +160,7 @@ describe("with a selection hook", () => {
     expect(selection.onPublication).toHaveBeenLastCalledWith({ ...SHOWN, attempt: "f".repeat(32) })
   })
 
-  it("an opened group's rows say why they are not selectable, and its read is never the shown publication", async () => {
+  it("an opened group offers a box where the route allows one, and its read is never the shown publication", async () => {
     const { calls, fetchPage, release } = controllable()
     const selection = hook()
     view(fetchPage, selection)
@@ -160,12 +169,32 @@ describe("with a selection hook", () => {
     fireEvent.click(within(group).getByRole("button", { expanded: false }))
     expect(calls[1].params).toEqual({ resourceType: "ec2:instance", cursor: null })
     await release(1, answer("filtered_page1"))
+    const [instance] = capture("filtered_page1").body.rows
+    expect(instance.eligibility).toEqual({ selectable: true, reason: "SUPPORTED" })
+    fireEvent.click(within(group).getByRole("checkbox"))
+    const [picked, publication] = selection.onToggle.mock.calls[0]
+    expect(rowKey(picked)).toBe(rowKey(instance))
+    expect(publication).toEqual(SHOWN)                                   // the capture's group read is the shown publication
+    expect(within(group).queryByTestId("inventory-not-selectable")).toBeNull()
+    expect(selection.onPublication).toHaveBeenCalledTimes(1)
+  })
+
+  it("MUTATED (no capture holds a not-selectable group): an opened group's rows say why they are not selectable", async () => {
+    const { calls, fetchPage, release } = controllable()
+    const selection = hook()
+    view(fetchPage, selection)
+    await release(0, answer("populated_page1"))
+    const group = screen.getAllByTestId("inventory-group").find((node) => within(node).queryByText("ec2:instance") !== null)!
+    fireEvent.click(within(group).getByRole("button", { expanded: false }))
+    await release(1, answer("filtered_page1", (b) => {
+      b.rows[0].eligibility = { selectable: false, reason: "INCARNATION_NOT_PROVIDED" }
+    }))
     expect(within(group).queryByRole("checkbox")).toBeNull()
     expect(within(group).getByTestId("inventory-not-selectable")).toHaveTextContent(ELIGIBILITY_COPY.INCARNATION_NOT_PROVIDED)
     expect(selection.onPublication).toHaveBeenCalledTimes(1)
   })
 
-  it("MUTATED (no capture holds a selectable row in a group): a pick in an opened group names that group's own read", async () => {
+  it("MUTATED (no capture holds two publications): a pick in an opened group names that group's own read", async () => {
     const { calls, fetchPage, release } = controllable()
     const selection = hook()
     view(fetchPage, selection)
@@ -173,10 +202,7 @@ describe("with a selection hook", () => {
     const group = screen.getAllByTestId("inventory-group").find((node) => within(node).queryByText("ec2:instance") !== null)!
     fireEvent.click(within(group).getByRole("button", { expanded: false }))
     expect(calls[1].params).toEqual({ resourceType: "ec2:instance", cursor: null })
-    await release(1, answer("filtered_page1", (b) => {
-      b.rows[0].eligibility = { selectable: true, reason: "SUPPORTED" }
-      b.publication.attempt = "d".repeat(32)
-    }))
+    await release(1, answer("filtered_page1", (b) => { b.publication.attempt = "d".repeat(32) }))
     fireEvent.click(within(group).getByRole("checkbox"))
     expect(selection.onToggle.mock.calls[0][1]).toEqual({ ...SHOWN, attempt: "d".repeat(32) })
     expect(selection.onPublication).toHaveBeenCalledTimes(1)

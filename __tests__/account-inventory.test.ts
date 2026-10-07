@@ -4,7 +4,8 @@
  * Every envelope is a PRODUCER golden: the real backend route's answer, copied byte-for-byte from backend commit
  * 92b2c54f7ea6fbf09b50ae06cec98f9c268bedd0 (tests/fixtures/account_inventory_api/); the four SERVED states are the
  * re-captures of fa2edd53e6743df08e38b15bb35f0d6215ce14ae (I2(b1) row v3 tags + details, I2(b2) account-wide by_type /
- * by_region and publication.row_contract). A malformed case is one of those
+ * by_region and publication.row_contract), and the two populated pages again of 8b492146e2906767aa44ecd9158a40b0e12f6e3c
+ * (A7 P2-ID (a)-1: an AWS-generated id is a row's incarnation). A malformed case is one of those
  * goldens with ONE field broken, named as such. The single "inventory_complete: false" case is an explicitly MUTATED
  * robustness case: the producer at that commit never emits it (a SERVED page is always complete).
  */
@@ -30,8 +31,8 @@ const PRODUCER_COMMIT = "92b2c54f7ea6fbf09b50ae06cec98f9c268bedd0"
 /** The tenth golden (the route held by its readiness gate) was added by a later backend commit, which asserts all ten. */
 const PRODUCER_COMMIT_OF: Partial<Record<string, string>> = {
   held_consumer_not_recorded: "95dea3288a8b713b37be95114060c227ff5d0af8",
-  populated_page1: "fa2edd53e6743df08e38b15bb35f0d6215ce14ae",
-  populated_page2: "fa2edd53e6743df08e38b15bb35f0d6215ce14ae",
+  populated_page1: "8b492146e2906767aa44ecd9158a40b0e12f6e3c",
+  populated_page2: "8b492146e2906767aa44ecd9158a40b0e12f6e3c",
   filter_empty: "fa2edd53e6743df08e38b15bb35f0d6215ce14ae",
   complete_empty: "fa2edd53e6743df08e38b15bb35f0d6215ce14ae",
 }
@@ -263,15 +264,22 @@ describe("I2(b2): the publication's account-wide counts and its row contract", (
   })
 })
 
-/** I2(d): the real route over real publications (backend dd5d0d76, fixtures/account-inventory-captures). Each capture names the
- *  request it answers (_provenance.request); these tests replay exactly that filter and cursor sequence. */
+/** I2(d): the real route over real publications (backend dd5d0d76, fixtures/account-inventory-captures); the captures A7 P2-ID
+ *  (a)-1 changed were re-captured at backend 8b492146 (the rest still answer exactly as captured, which that commit's own
+ *  harness asserts). Each capture names the request it answers (_provenance.request); these tests replay exactly that filter
+ *  and cursor sequence. */
 describe("I2(d) captures: the real route over a real v3 publication, and a genuine v2 one", () => {
   type Capture = Golden & { _provenance: { request: { query: Record<string, string>; cursor?: { from: string } } } }
+  const CAPTURED_AT: Partial<Record<string, string>> = {
+    populated_page1: "8b492146e2906767aa44ecd9158a40b0e12f6e3c",
+    filtered_page1: "8b492146e2906767aa44ecd9158a40b0e12f6e3c",
+    filtered_page2: "8b492146e2906767aa44ecd9158a40b0e12f6e3c",
+  }
   const capture = (name: string): Capture =>
     JSON.parse(readFileSync(resolve(process.cwd(), "__tests__/fixtures/account-inventory-captures", `${name}.json`), "utf8"))
   const parsed = (name: string) => {
     const c = capture(name)
-    expect(c._provenance.backend_commit).toBe("dd5d0d76beb63e2040f39ba5ffc0e0ee06f490ce")
+    expect(c._provenance.backend_commit).toBe(CAPTURED_AT[name] ?? "dd5d0d76beb63e2040f39ba5ffc0e0ee06f490ce")
     return parseInventoryResponse(c.status, structuredClone(c.body), ACCOUNT, c._provenance.request.query.resource_type ?? null)
   }
   function walk(first: string, second: string, resourceType: string | null) {

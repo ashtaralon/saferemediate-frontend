@@ -19,7 +19,7 @@
       "cyntro_data.projection.receipt clock"
     ],
     "note": "The real route's answer over a real publication; nothing removed. Not installed or live evidence.",
-    "backend_commit": "dd5d0d76beb63e2040f39ba5ffc0e0ee06f490ce",
+    "backend_commit": "8b492146e2906767aa44ecd9158a40b0e12f6e3c",
     "backend_path": "tests/fixtures/account_inventory_captures/populated_page1.json",
     "copied_unchanged": "status, cache_control and body are byte-for-byte the backend capture's"
   },
@@ -115,7 +115,9 @@
           "last_verified_at": "2026-09-01T12:00:00+00:00"
         },
         "observed_incarnation": {
-          "status": "not_provided"
+          "status": "provided",
+          "value": "i-0a1b2c3d4e5f60718",
+          "source": "instance_id"
         },
         "assignment": {
           "status": "not_evaluated"
@@ -135,8 +137,8 @@
           "launch_time": "2026-08-03T07:15:00+00:00"
         },
         "eligibility": {
-          "selectable": false,
-          "reason": "INCARNATION_NOT_PROVIDED"
+          "selectable": true,
+          "reason": "SUPPORTED"
         }
       },
       {
@@ -153,7 +155,9 @@
           "last_verified_at": "2026-09-01T12:00:00+00:00"
         },
         "observed_incarnation": {
-          "status": "not_provided"
+          "status": "provided",
+          "value": "i-0f9e8d7c6b5a40312",
+          "source": "instance_id"
         },
         "assignment": {
           "status": "not_evaluated"
@@ -172,8 +176,8 @@
           "launch_time": "2026-08-03T07:15:00+00:00"
         },
         "eligibility": {
-          "selectable": false,
-          "reason": "INCARNATION_NOT_PROVIDED"
+          "selectable": true,
+          "reason": "SUPPORTED"
         }
       },
       {
@@ -190,7 +194,9 @@
           "last_verified_at": "2026-09-01T12:00:00+00:00"
         },
         "observed_incarnation": {
-          "status": "not_provided"
+          "status": "provided",
+          "value": "igw-abc",
+          "source": "internet_gateway_id"
         },
         "assignment": {
           "status": "not_evaluated"
@@ -200,8 +206,8 @@
           "attached_vpc_count": 1
         },
         "eligibility": {
-          "selectable": false,
-          "reason": "INCARNATION_NOT_PROVIDED"
+          "selectable": true,
+          "reason": "SUPPORTED"
         }
       },
       {
@@ -218,7 +224,9 @@
           "last_verified_at": "2026-09-01T12:00:00+00:00"
         },
         "observed_incarnation": {
-          "status": "not_provided"
+          "status": "provided",
+          "value": "nat-abc",
+          "source": "nat_gateway_id"
         },
         "assignment": {
           "status": "not_evaluated"
@@ -231,8 +239,8 @@
           "aws_state": "available"
         },
         "eligibility": {
-          "selectable": false,
-          "reason": "INCARNATION_NOT_PROVIDED"
+          "selectable": true,
+          "reason": "SUPPORTED"
         }
       },
       {
@@ -249,7 +257,9 @@
           "last_verified_at": "2026-09-01T12:00:00+00:00"
         },
         "observed_incarnation": {
-          "status": "not_provided"
+          "status": "provided",
+          "value": "acl-01234567",
+          "source": "network_acl_id"
         },
         "assignment": {
           "status": "not_evaluated"
@@ -265,8 +275,8 @@
           "association_count": 0
         },
         "eligibility": {
-          "selectable": false,
-          "reason": "INCARNATION_NOT_PROVIDED"
+          "selectable": true,
+          "reason": "SUPPORTED"
         }
       },
       {
@@ -283,7 +293,9 @@
           "last_verified_at": "2026-09-01T12:00:00+00:00"
         },
         "observed_incarnation": {
-          "status": "not_provided"
+          "status": "provided",
+          "value": "eni-abc",
+          "source": "network_interface_id"
         },
         "assignment": {
           "status": "not_evaluated"
@@ -296,8 +308,8 @@
           "availability_zone": "eu-west-1a"
         },
         "eligibility": {
-          "selectable": false,
-          "reason": "INCARNATION_NOT_PROVIDED"
+          "selectable": true,
+          "reason": "SUPPORTED"
         }
       },
       {
@@ -314,7 +326,9 @@
           "last_verified_at": "2026-09-01T12:00:00+00:00"
         },
         "observed_incarnation": {
-          "status": "not_provided"
+          "status": "provided",
+          "value": "rtb-abc",
+          "source": "route_table_id"
         },
         "assignment": {
           "status": "not_evaluated"
@@ -329,8 +343,8 @@
           "association_count": 1
         },
         "eligibility": {
-          "selectable": false,
-          "reason": "INCARNATION_NOT_PROVIDED"
+          "selectable": true,
+          "reason": "SUPPORTED"
         }
       },
       {
@@ -347,7 +361,9 @@
           "last_verified_at": "2026-09-01T12:00:00+00:00"
         },
         "observed_incarnation": {
-          "status": "not_provided"
+          "status": "provided",
+          "value": "sg-0a1b2c3d4e5f60718",
+          "source": "group_id"
         },
         "assignment": {
           "status": "not_evaluated"
@@ -362,8 +378,8 @@
           "egress_rule_count": 0
         },
         "eligibility": {
-          "selectable": false,
-          "reason": "INCARNATION_NOT_PROVIDED"
+          "selectable": true,
+          "reason": "SUPPORTED"
         }
       },
       {
@@ -380,7 +396,9 @@
           "last_verified_at": "2026-09-01T12:00:00+00:00"
         },
         "observed_incarnation": {
-          "status": "not_provided"
+          "status": "provided",
+          "value": "subnet-abc",
+          "source": "subnet_id"
         },
         "assignment": {
           "status": "not_evaluated"
@@ -397,8 +415,8 @@
           "default_for_az": false
         },
         "eligibility": {
-          "selectable": false,
-          "reason": "INCARNATION_NOT_PROVIDED"
+          "selectable": true,
+          "reason": "SUPPORTED"
         }
       },
       {
@@ -415,7 +433,9 @@
           "last_verified_at": "2026-09-01T12:00:00+00:00"
         },
         "observed_incarnation": {
-          "status": "not_provided"
+          "status": "provided",
+          "value": "vpc-1",
+          "source": "vpc_id"
         },
         "assignment": {
           "status": "not_evaluated"
@@ -427,8 +447,8 @@
           "instance_tenancy": "default"
         },
         "eligibility": {
-          "selectable": false,
-          "reason": "INCARNATION_NOT_PROVIDED"
+          "selectable": true,
+          "reason": "SUPPORTED"
         }
       },
       {
@@ -445,7 +465,9 @@
           "last_verified_at": "2026-09-01T12:00:00+00:00"
         },
         "observed_incarnation": {
-          "status": "not_provided"
+          "status": "provided",
+          "value": "vpce-abc",
+          "source": "vpc_endpoint_id"
         },
         "assignment": {
           "status": "not_evaluated"
@@ -459,8 +481,8 @@
           "aws_state": "Available"
         },
         "eligibility": {
-          "selectable": false,
-          "reason": "INCARNATION_NOT_PROVIDED"
+          "selectable": true,
+          "reason": "SUPPORTED"
         }
       },
       {
@@ -508,7 +530,9 @@
           "last_verified_at": "2026-09-01T12:00:00+00:00"
         },
         "observed_incarnation": {
-          "status": "not_provided"
+          "status": "provided",
+          "value": "arn:aws:elasticloadbalancing:eu-west-1:111122223333:loadbalancer/app/checkout-alb/50dc6c495c0c9188",
+          "source": "arn"
         },
         "assignment": {
           "status": "not_evaluated"
@@ -521,8 +545,8 @@
           "aws_state": "active"
         },
         "eligibility": {
-          "selectable": false,
-          "reason": "INCARNATION_NOT_PROVIDED"
+          "selectable": true,
+          "reason": "SUPPORTED"
         }
       },
       {
@@ -539,7 +563,9 @@
           "last_verified_at": "2026-09-01T12:00:00+00:00"
         },
         "observed_incarnation": {
-          "status": "not_provided"
+          "status": "provided",
+          "value": "arn:aws:elasticloadbalancing:eu-west-1:111122223333:targetgroup/checkout-tg/73e2d6bc24d8a067",
+          "source": "arn"
         },
         "assignment": {
           "status": "not_evaluated"
@@ -551,8 +577,8 @@
           "vpc_id": "vpc-1"
         },
         "eligibility": {
-          "selectable": false,
-          "reason": "INCARNATION_NOT_PROVIDED"
+          "selectable": true,
+          "reason": "SUPPORTED"
         }
       },
       {

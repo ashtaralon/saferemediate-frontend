@@ -4,7 +4,7 @@
  *
  * Every response is a producer capture, unmutated: the listing (fixtures/settings-c-producer), the inventory -- the REAL
  * account-inventory route's answer with its own SUPPORTED rows (fixtures/account-inventory-captures, AccountOnboarding's
- * I2(d), backend dd5d0d76) -- and the authoring routes (fixtures/system-boundary). Two of those rows share the name
+ * I2(d), backend dd5d0d76, page 1 re-captured at 8b492146) -- and the authoring routes (fixtures/system-boundary). Two of those rows share the name
  * "checkout-api" (an IAM role and a k8s deployment): each box is named with its type. The save itself runs on the real
  * goldens in system-boundary-declare-from-inventory.test.tsx; here, the wiring up to the reviewed declaration.
  */
@@ -81,7 +81,13 @@ describe("the account page's Inventory tab, with declaring", () => {
     serve({ inventory: PAGE1.body, declarations: fixture("system-boundary", "view_initial").body })
     await openInventory()
     await waitFor(() => expect(screen.getByTestId("declare-toolbar").textContent).toContain("0 picked as roots"))
-    expect(SELECTABLE.map((row) => row.resource_type).sort()).toEqual(["iam:policy", "iam:role", "iam:role", "k8s:deployment"])
+    // A7 P2-ID (a)-1 (backend 8b492146): EC2 resources and load balancers / target groups carry their AWS-generated identity.
+    expect(SELECTABLE.map((row) => row.resource_type).sort()).toEqual([
+      "ec2:instance", "ec2:instance", "ec2:internet-gateway", "ec2:nat-gateway", "ec2:network-acl", "ec2:network-interface",
+      "ec2:route-table", "ec2:security-group", "ec2:subnet", "ec2:vpc", "ec2:vpc-endpoint",
+      "elasticloadbalancing:load-balancer", "elasticloadbalancing:target-group",
+      "iam:policy", "iam:role", "iam:role", "k8s:deployment",
+    ])
     expect(screen.getAllByRole("checkbox")).toHaveLength(SELECTABLE.length)
     expect(screen.getAllByTestId("inventory-not-selectable")).toHaveLength(ROWS.length - SELECTABLE.length)
     await act(async () => { fireEvent.click(screen.getByRole("checkbox", { name: box(ROLE) })) })

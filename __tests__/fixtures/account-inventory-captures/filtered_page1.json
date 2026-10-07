@@ -20,7 +20,7 @@
       "cyntro_data.projection.receipt clock"
     ],
     "note": "The real route's answer over a real publication; nothing removed. Not installed or live evidence.",
-    "backend_commit": "dd5d0d76beb63e2040f39ba5ffc0e0ee06f490ce",
+    "backend_commit": "8b492146e2906767aa44ecd9158a40b0e12f6e3c",
     "backend_path": "tests/fixtures/account_inventory_captures/filtered_page1.json",
     "copied_unchanged": "status, cache_control and body are byte-for-byte the backend capture's"
   },
@@ -91,7 +91,9 @@
           "last_verified_at": "2026-09-01T12:00:00+00:00"
         },
         "observed_incarnation": {
-          "status": "not_provided"
+          "status": "provided",
+          "value": "i-0a1b2c3d4e5f60718",
+          "source": "instance_id"
         },
         "assignment": {
           "status": "not_evaluated"
@@ -111,8 +113,8 @@
           "launch_time": "2026-08-03T07:15:00+00:00"
         },
         "eligibility": {
-          "selectable": false,
-          "reason": "INCARNATION_NOT_PROVIDED"
+          "selectable": true,
+          "reason": "SUPPORTED"
         }
       }
     ],

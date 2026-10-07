@@ -15,7 +15,7 @@
       "cyntro_data.projection.receipt clock"
     ],
     "note": "The real route's answer, captured by the harness; nothing removed. Not installed or live evidence.",
-    "backend_commit": "fa2edd53e6743df08e38b15bb35f0d6215ce14ae",
+    "backend_commit": "8b492146e2906767aa44ecd9158a40b0e12f6e3c",
     "backend_path": "tests/fixtures/account_inventory_api/populated_page1.json",
     "copied_unchanged": "status, cache_control and body are byte-for-byte the backend golden's"
   },
@@ -118,7 +118,9 @@
           "last_verified_at": "2026-08-06T10:00:00+00:00"
         },
         "observed_incarnation": {
-          "status": "not_provided"
+          "status": "provided",
+          "value": "i-1",
+          "source": "instance_id"
         },
         "assignment": {
           "status": "not_evaluated"
@@ -128,8 +130,8 @@
           "iam_instance_profile": "arn:aws:iam::111122223333:instance-profile/app-role"
         },
         "eligibility": {
-          "selectable": false,
-          "reason": "INCARNATION_NOT_PROVIDED"
+          "selectable": true,
+          "reason": "SUPPORTED"
         }
       },
       {
@@ -146,7 +148,9 @@
           "last_verified_at": "2026-08-06T10:00:00+00:00"
         },
         "observed_incarnation": {
-          "status": "not_provided"
+          "status": "provided",
+          "value": "igw-1",
+          "source": "internet_gateway_id"
         },
         "assignment": {
           "status": "not_evaluated"
@@ -154,8 +158,8 @@
         "tags": {},
         "details": {},
         "eligibility": {
-          "selectable": false,
-          "reason": "INCARNATION_NOT_PROVIDED"
+          "selectable": true,
+          "reason": "SUPPORTED"
         }
       },
       {
@@ -172,7 +176,9 @@
           "last_verified_at": "2026-08-06T10:00:00+00:00"
         },
         "observed_incarnation": {
-          "status": "not_provided"
+          "status": "provided",
+          "value": "nat-1",
+          "source": "nat_gateway_id"
         },
         "assignment": {
           "status": "not_evaluated"
@@ -180,8 +186,8 @@
         "tags": {},
         "details": {},
         "eligibility": {
-          "selectable": false,
-          "reason": "INCARNATION_NOT_PROVIDED"
+          "selectable": true,
+          "reason": "SUPPORTED"
         }
       }
     ],
