@@ -1,5 +1,5 @@
 /**
- * A7 rev 4: the wizard's three strict readers -- stacks (C-A), applied (C-C), capability -- on synthetic answers in the
+ * A7 rev 4: the wizard's strict readers -- stacks (C-A), applied (C-C), capability, result (C-D) -- on synthetic answers in the
  * backend's exact shapes (api/account_census_stacks.py, unified/system_boundary_applied.py, unified/system_boundary_wizard.py),
  * and on the REAL route captures once the backend harness has written them (tests/cyntro_data/
  * test_system_boundary_wizard_captures.py, copied into __tests__/fixtures/system-boundary-captures/).
@@ -17,6 +17,13 @@ import {
   capabilitySentence,
   parseCapabilityResponse,
 } from "@/lib/system-boundary-capability"
+import {
+  MEMBERSHIP_V2_NOT_SERVED,
+  RESULT_CONTRACT,
+  parseResultResponse,
+  proofSentence,
+  savedSystemKey,
+} from "@/lib/system-boundary-result"
 import { STACKS_CONTRACT, parseStackArn, parseStacksResponse, stackCaveat } from "@/lib/system-boundary-stacks"
 
 const ACCOUNT = "111111111111"
@@ -172,5 +179,67 @@ describe("the capability reader", () => {
     expect(parseCapabilityResponse(real.status, real.body).kind).toBe("disabled")
     expect(parseCapabilityResponse(real.status, { ...(real.body as object), contract: "system_boundary_wizard_capability/v2" }).kind)
       .toBe("unavailable")
+  })
+})
+
+
+// ── the result reader (C-D): cyntro_data/semantic/system_boundary_result.py's envelope ─────────────────────────────────
+
+const SYSTEM = "authored_system:" + "1".repeat(64)
+
+function resultBody(overrides: Record<string, unknown> = {}) {
+  return {
+    contract: RESULT_CONTRACT, state: "served", reason_code: null, account_id: ACCOUNT, system_key: SYSTEM,
+    generation: 41, published_at: "2027-01-15T08:00:00+00:00", system_name: "Payments",
+    members: [{ resource_uid: "uid:web", resource_type: "ec2:instance", state: "ACTIVE",
+                proof: { source: "stack", stack_id: PARENT, logical_id: "Web", proof: "stack_listing" } },
+              { resource_uid: "uid:old", state: "STALE", stale_reason: "SUPPORT_CHECK_INCOMPLETE",
+                proof: { source: "rule", origin: "derived" } }],
+    dependencies: [], held: [{ resource_uid: "uid:db", state: "PENDING_REVIEW", kind: "CANDIDATE", reason: "root_conflict" }],
+    not_members: [],
+    counts: { members: 3, stale_members: 1, dependencies: 0, held: 1, not_members: 0 },
+    omitted: { members: 1 }, ...overrides,
+  }
+}
+
+describe("the result reader (C-D)", () => {
+  it("reads a served result exactly: lists, exact counts, what the cap left out", () => {
+    const parsed = parseResultResponse(200, resultBody(), ACCOUNT)
+    expect(parsed.kind).toBe("served")
+    if (parsed.kind !== "served") return
+    expect([parsed.generation, parsed.counts.members, parsed.lists.members.length, parsed.omitted.members]).toEqual([41, 3, 2, 1])
+    expect(proofSentence(parsed.lists.members[0])).toBe(`is listed by stack ${PARENT} as Web`)
+  })
+
+  it("refuses a list that disagrees with its count, another account's answer, and a served answer without a generation", () => {
+    expect(parseResultResponse(200, resultBody({ omitted: {} }), ACCOUNT).kind).toBe("unavailable")
+    expect(parseResultResponse(200, resultBody(), "222222222222").kind).toBe("unavailable")
+    expect(parseResultResponse(200, resultBody({ generation: null }), ACCOUNT).kind).toBe("unavailable")
+    expect(parseResultResponse(200, resultBody({ counts: { members: 3, stale_members: 4, dependencies: 0, held: 1,
+                                                           not_members: 0 } }), ACCOUNT).kind).toBe("unavailable")
+  })
+
+  it("says a hold as itself, never as an empty system", () => {
+    const held = parseResultResponse(200, resultBody({ state: "held", reason_code: MEMBERSHIP_V2_NOT_SERVED, generation: null,
+                                                      published_at: null, system_name: null, members: [], held: [],
+                                                      counts: null, omitted: {} }), ACCOUNT)
+    expect(held).toMatchObject({ kind: "held", reasonCode: MEMBERSHIP_V2_NOT_SERVED })
+    expect(parseResultResponse(503, resultBody({ state: "unavailable", reason_code: "X" }), ACCOUNT).kind).toBe("unavailable")
+    expect(parseResultResponse(403, { detail: { code: "PERSON_NOT_AUTHORIZED" } }, ACCOUNT)).toMatchObject({ kind: "refused" })
+  })
+
+  it("takes the system key from the ONE SYSTEM record a save names, never one of several", () => {
+    expect(savedSystemKey({ written: [{ key: `SYSTEM#${SYSTEM}` }, { key: "DEPLOYMENT#d" }], references: [] })).toBe(SYSTEM)
+    expect(savedSystemKey({ written: [], references: [] })).toBeNull()
+    expect(savedSystemKey({ written: [{ key: `SYSTEM#${SYSTEM}` }], references: [{ key: "SYSTEM#authored_system:2" }] })).toBeNull()
+  })
+
+  it.each([["result", "served"], ["result_v1_held", "held"]])("reads the REAL %s capture as %s", (name, kind) => {
+    const taken = capture(name)
+    expect(taken, `capture ${name} not copied yet (test phase)`).not.toBeNull()
+    if (taken === null) return
+    // The account the harness asked for, from the capture's own provenance (never this file's constant).
+    const asked = (taken as unknown as { _provenance: { request: { query: Record<string, string> } } })._provenance.request.query
+    expect(parseResultResponse(taken.status, taken.body, asked.account_id).kind).toBe(kind)
   })
 })

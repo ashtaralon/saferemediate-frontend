@@ -12,12 +12,15 @@
  *    backend only for a resource a stack bound to THIS system names (S2) -- the save says so by name if not.
  * 3. Save (C-B): the declaration form (system, deployment, review) with these stacks and decisions; ONE envelope.
  * 4. Applied (C-C): applied-status.tsx for the account.
+ * 5. Result (C-D): system-result.tsx -- what the served membership says about the system this save wrote (its key is the
+ *    one SYSTEM record the save's receipt names; a receipt naming none or several shows no result rather than a guess).
  *
  * Shown only where the capability read says the wizard may write here (lib/system-boundary-capability.ts) and the protocol
  * is ACTIVE; the caller decides. Nothing here fetches in the background or retries by itself.
  */
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { AppliedStatus } from "@/components/system-boundary/applied-status"
+import { SystemResult } from "@/components/system-boundary/system-result"
 import { DeclarationForm } from "@/components/system-boundary/declaration-form"
 import { Button } from "@/components/ui/button"
 import {
@@ -29,6 +32,8 @@ import {
   type CensusRow,
 } from "@/lib/account-census"
 import type { CreateEnvelope, DeclarationsView, ResourceDecision, SaveResult } from "@/lib/system-boundary-authoring"
+import { saveDeclaration } from "@/lib/system-boundary-authoring"
+import { savedSystemKey as systemKeyOfSave } from "@/lib/system-boundary-result"
 import type { PickedDecision, PickedStack, SaveOutcome } from "@/lib/system-boundary-declaration"
 import {
   BINDING_KINDS,
@@ -57,6 +62,7 @@ export interface StackBindingWizardProps {
   readCensus?: CensusFetcher
   save?: (envelope: CreateEnvelope) => Promise<SaveResult>
   readApplied?: (accountId: string) => Promise<{ status: number; body: unknown }>
+  readResult?: (accountId: string, systemKey: string) => Promise<{ status: number; body: unknown }>
   onEnvelope?: (envelope: CreateEnvelope) => void
   onOutcome?: (envelope: CreateEnvelope, outcome: SaveOutcome) => void
 }
@@ -80,7 +86,7 @@ async function stackResources(readCensus: CensusFetcher, accountId: string, stac
 }
 
 export function StackBindingWizard({ accountId, view, onClose, onSaved, readStacks = fetchStacks,
-  readCensus = fetchCensusPage, save, readApplied, onEnvelope, onOutcome }: StackBindingWizardProps) {
+  readCensus = fetchCensusPage, save, readApplied, readResult, onEnvelope, onOutcome }: StackBindingWizardProps) {
   const [parsed, setParsed] = useState<ParsedStacks | null>(null)
   const [picks, setPicks] = useState<ReadonlyMap<string, BindingKind>>(() => new Map())
   const [resources, setResources] = useState<Record<string, Resources>>({})
@@ -88,6 +94,13 @@ export function StackBindingWizard({ accountId, view, onClose, onSaved, readStac
     () => new Map())
   const [step, setStep] = useState<Step>("stacks")
   const [savedRevision, setSavedRevision] = useState<number | null>(null)
+  const [savedKey, setSavedKey] = useState<string | null>(null)
+  // The save, remembering which System its receipt wrote: that key is what the result screen reads.
+  const saveRemembering = useCallback(async (envelope: CreateEnvelope): Promise<SaveResult> => {
+    const result = await (save ?? saveDeclaration)(envelope)
+    if (result.kind === "SAVED") setSavedKey(systemKeyOfSave(result.saved))
+    return result
+  }, [save])
 
   useEffect(() => {
     let live = true
@@ -258,7 +271,7 @@ export function StackBindingWizard({ accountId, view, onClose, onSaved, readStac
       ) : null}
 
       {data !== null && step === "save" ? (
-        <DeclarationForm view={view} roots={[]} stacks={pickedStacks} decisions={pickedDecisions} save={save}
+        <DeclarationForm view={view} roots={[]} stacks={pickedStacks} decisions={pickedDecisions} save={saveRemembering}
           onEnvelope={onEnvelope} onOutcome={onOutcome} onCancel={() => setStep("decisions")}
           onSaved={(revision) => {
             setSavedRevision(revision)
@@ -269,6 +282,12 @@ export function StackBindingWizard({ accountId, view, onClose, onSaved, readStac
 
       {step === "applied" && savedRevision !== null ? (
         <AppliedStatus revision={savedRevision} accountIds={accountIds} fetcher={readApplied} />
+      ) : null}
+
+      {step === "applied" && savedRevision !== null ? (
+        savedKey !== null
+          ? <SystemResult systemKey={savedKey} accountIds={accountIds} fetcher={readResult} />
+          : <p className="text-xs text-slate-600">The save does not name one system, so no result is shown here.</p>
       ) : null}
     </section>
   )

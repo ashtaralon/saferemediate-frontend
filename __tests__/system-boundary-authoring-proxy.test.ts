@@ -1,7 +1,7 @@
 /**
  * System Boundary authoring proxy (lib/server/authoring-proxy.ts), through the mounted route handlers.
  *
- * Exactly nine backend routes (F1's seven + A7 rev 4's capability and applied reads); the console's own origin for a write (the imported account-admin predicate, both of
+ * Exactly ten backend routes (F1's seven + A7 rev 4's capability, applied and result reads); the console's own origin for a write (the imported account-admin predicate, both of
  * its branches); only the load balancer's two headers on a customer-resident install; a JSON body bounded in bytes
  * before it is materialized; no cache, no redirect, no retry; the backend's answer relayed byte for byte.
  */
@@ -70,7 +70,7 @@ function resident() {
   process.env.CYNTRO_ALLOWED_ORIGINS = APP
 }
 
-describe("authoring proxy -- exactly the nine routes", () => {
+describe("authoring proxy -- exactly the ten routes", () => {
   it.each([
     ["GET", "declarations/view", "declarations/view"],
     ["GET", "declarations/head", "declarations/head"],
@@ -82,6 +82,8 @@ describe("authoring proxy -- exactly the nine routes", () => {
     ["GET", "authoring-grants/self", "authoring-grants/self"],
     ["GET", "wizard/capability", "wizard/capability"],
     ["GET", "declarations/applied?account_id=111111111111", "declarations/applied?account_id=111111111111"],
+    ["GET", "result?account_id=111111111111&system_key=authored_system%3Aab",
+      "result?account_id=111111111111&system_key=authored_system%3Aab"],
   ] as const)("%s %s reaches exactly its backend route, uncached, never following a redirect", async (method, path, target) => {
     resident()
     const upstream = backendAnswers()
@@ -114,6 +116,8 @@ describe("authoring proxy -- exactly the nine routes", () => {
     ["POST", "wizard/capability"],
     ["GET", "wizard"],
     ["POST", "declarations/applied"],
+    ["POST", "result"],
+    ["GET", "result/x"],
   ] as const)("refuses %s %s by name and forwards nothing", async (method, path) => {
     resident()
     const upstream = vi.spyOn(globalThis, "fetch")
