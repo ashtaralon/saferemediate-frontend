@@ -69,6 +69,8 @@ interface System {
 // out-of-date for security posture purposes. Tunable; if/when we surface
 // per-tenant scan SLOs we should drive this from config.
 const STALE_THRESHOLD_DAYS = 7
+/** B5: a Systems list contract newer than this page reads. Shown as the reason, never read as the v1 shape. */
+const NEWER_SYSTEMS_LIST = "This Systems list comes from a newer backend than this page can read"
 
 function daysSinceScan(lastScanAt: string | null): number | null {
   if (!lastScanAt) return null
@@ -225,7 +227,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
         const listLevel = systemsListLevel(systemsData)
         if (listLevel === null) {
           // A Systems list contract newer than this page reads (B5): never read as the v1 shape.
-          setSystemsError("This Systems list comes from a newer backend than this page can read")
+          setSystemsError(NEWER_SYSTEMS_LIST)
           setLocalSystems([])
           setObservation(readObservation(systemsData))
           setBackendStatus("connected")
@@ -671,6 +673,9 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
             : "No Tagged Systems Found"
     const description = accountScope.error
       ? "Cyntro could not verify the organization scope. Existing systems have not been deleted. Retry the scope metadata request."
+      : systemsError === NEWER_SYSTEMS_LIST
+        // B5: a retry cannot help -- the page must be updated to read the backend's list. Say exactly that.
+        ? `${NEWER_SYSTEMS_LIST}. Existing systems have not been deleted.`
       : systemsError
         ? "Cyntro could not verify the systems inventory. Existing systems have not been deleted. Retry the request."
         : hiddenByFilters
