@@ -10,6 +10,7 @@ import {
   type SemanticHold,
 } from "@/lib/semantic-hold"
 import { TRANSIENT_STATUSES } from "@/lib/transient-retry"
+import { ambiguousSystemCandidates, type SystemCandidate } from "@/lib/scoped-system-catalog"
 
 /**
  * useCachedFetch — fetch with localStorage stale-while-revalidate (SWR).
@@ -163,6 +164,10 @@ export interface UseCachedFetchResult<T> {
   /** The server's typed refusal or hold for this read, verbatim (kind +
    *  reason). Null otherwise. When set, `data` is null and `error` is set. */
   hold: SemanticHold | null
+  /** A7 B5: the server answered 409 SYSTEM_NAME_AMBIGUOUS / SYSTEM_KEY_NEEDS_ACCOUNT -- the request stands for several
+   *  systems. The candidates to offer (components/system-name-choice); null otherwise. When set, `data` is null and this
+   *  key's cached reading was dropped: a reading of "the" system by that name is never shown over the choice. */
+  choice: SystemCandidate[] | null
   /** Manual re-fetch. */
   retry: () => void
 }
@@ -378,6 +383,7 @@ export function useCachedFetch<T = unknown>(
   const [isComputing, setIsComputing] = useState<boolean>(false)
   const [error, setError] = useState<string | null>(null)
   const [hold, setHold] = useState<SemanticHold | null>(null)
+  const [choice, setChoice] = useState<SystemCandidate[] | null>(null)
   const [staleReason, setStaleReason] = useState<string | null>(
     initial !== null && fresh === null ? STALE_AGED_OUT : null,
   )
@@ -454,6 +460,7 @@ export function useCachedFetch<T = unknown>(
     setIsComputing(false)
     setError(null)
     setHold(null)
+    setChoice(null)
     // The new key is a different question; any retry pending for the old one
     // must not fire against it.
     clearAutoRetry()
@@ -490,6 +497,7 @@ export function useCachedFetch<T = unknown>(
       setStaleReason(null)
       setIsComputing(false)
       setHold(h)
+      setChoice(null)
       setError(semanticHoldMessage(h, { accountSelection }))
       setLoading(false)
       clearAutoRetry()
@@ -519,6 +527,23 @@ export function useCachedFetch<T = unknown>(
           return
         }
         setHold(null)
+        // A7 B5: several systems answer to this request. An answer, not an outage: the key's cached reading (of "the"
+        // system by that name) is dropped and never re-presented; the caller offers the choice.
+        const candidates = ambiguousSystemCandidates(res.status, failBody)
+        if (candidates) {
+          clearCachedFetch(cacheKey)
+          setData(null)
+          setIsStale(false)
+          setCachedAt(null)
+          setStaleReason(null)
+          setIsComputing(false)
+          setChoice(candidates)
+          setError("SYSTEM_NAME_AMBIGUOUS")
+          setLoading(false)
+          clearAutoRetry()
+          return
+        }
+        setChoice(null)
         // A refusal of the CALLER (401 session / 403 permission) is never covered by data read
         // earlier, for any caller: the key's cached reading is dropped, nothing is replayed.
         if (res.status === 401 || res.status === 403) {
@@ -620,6 +645,7 @@ export function useCachedFetch<T = unknown>(
         return
       }
       setHold(null)
+      setChoice(null)
       // Wave D computing envelopes are HTTP 200 with null payloads — never
       // write them into client cache or Estate Map sticks on "No system_kpis".
       const envelope = sanitized as { status?: string; system_kpis?: unknown }
@@ -777,5 +803,5 @@ export function useCachedFetch<T = unknown>(
     fetchFresh()
   }, [fetchFresh, clearAutoRetry])
 
-  return { data, isStale, cachedAt, staleReason, loading, isComputing, error, hold, retry }
+  return { data, isStale, cachedAt, staleReason, loading, isComputing, error, hold, choice, retry }
 }

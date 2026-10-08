@@ -1,7 +1,8 @@
 'use client'
 
 import React, { useState, useCallback, useEffect, useMemo } from 'react'
-import { systemScopeQuery } from "@/lib/scoped-system-catalog"
+import { ambiguousSystemCandidates, systemScopeQuery, type SystemCandidate } from "@/lib/scoped-system-catalog"
+import { SystemNameChoice } from "@/components/system-name-choice"
 import { Map as MapIcon, Search, RefreshCw, Network, Cloud, GitBranch, Activity, CheckCircle, XCircle } from 'lucide-react'
 import dynamic from 'next/dynamic'
 import GraphView from './dependency-map/graph-view'
@@ -420,6 +421,9 @@ export default function DependencyMapTab({
   const [resourcesLoading, setResourcesLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchInput, setSearchInput] = useState('')
+  // A7 B5 / reader 4: the request stands for several systems (409) -- the person chooses one; no reading of "the" system
+  // by that name is kept or shown meanwhile.
+  const [ambiguous, setAmbiguous] = useState<SystemCandidate[] | null>(null)
 
   // Fetch graph data
   const fetchGraphData = useCallback(async () => {
@@ -456,6 +460,7 @@ export default function DependencyMapTab({
       clearTimeout(timeoutId)
       console.log('[DependencyMapTab] Response status:', res.status, res.ok)
       if (res.ok) {
+        setAmbiguous(null)
         const data = await res.json()
         console.log('[DependencyMapTab] Graph data received:', {
           nodesCount: data.nodes?.length || 0,
@@ -493,6 +498,18 @@ export default function DependencyMapTab({
       } else {
         const errorText = await res.text()
         console.error('[DependencyMapTab] Response not OK:', res.status, errorText)
+        let errorBody: unknown = null
+        try { errorBody = JSON.parse(errorText) } catch { errorBody = null }
+        const candidates = ambiguousSystemCandidates(res.status, errorBody)
+        if (candidates) {
+          // A7 B5: an answer, not an outage -- hold the view on the choice and drop any earlier reading.
+          setAmbiguous(candidates)
+          setGraphData(null)
+          setResources([])
+          setIsLoading(false)
+          setResourcesLoading(false)
+          return
+        }
         
         // Set empty data structure to prevent infinite loading
         setGraphData({ nodes: [], edges: [] })
@@ -551,7 +568,16 @@ export default function DependencyMapTab({
         cache: 'no-store',
         signal: AbortSignal.timeout(30000),
       })
+      if (!res.ok) {
+        const candidates = ambiguousSystemCandidates(res.status, await res.json().catch(() => null))
+        if (candidates) {
+          setAmbiguous(candidates)
+          setGraphData(null)
+          setResources([])
+        }
+      }
       if (res.ok) {
+        setAmbiguous(null)
         const data = await res.json()
         const resourceList: Resource[] = (data.nodes || []).map((n: any) => ({
           id: n.id,
@@ -609,6 +635,16 @@ export default function DependencyMapTab({
   const handleBackToGraph = useCallback(() => {
     setActiveView('graph')
   }, [])
+
+  if (ambiguous) {
+    // A7 B5 / reader 4: no view of this tab -- Estate, Traffic, Resources -- may show "the" system by a name several
+    // systems share. The choice opens one system's page by key.
+    return (
+      <div className="flex flex-col h-full min-h-[200px] p-4">
+        <SystemNameChoice systemName={systemName} candidates={ambiguous} purpose="dependency map" />
+      </div>
+    )
+  }
 
   return (
     <div className="flex flex-col h-full min-h-[700px]">
@@ -775,6 +811,8 @@ export default function DependencyMapTab({
               <div className="flex-1 min-h-0">
                 <TrafficFlowMap
                   systemName={systemName}
+                  systemKey={systemKey}
+                  systemAccountId={systemAccountId}
                   onCrownJewelSpotlight={handleCrownJewelClick}
                   spotlightPaths={spotlightConvergence.data?.paths}
                   spotlightPathId={spotlightPathId}
@@ -797,6 +835,8 @@ export default function DependencyMapTab({
           <ErrorBoundary componentName="Estate map">
             <EstateMapView
               systemName={systemName}
+              systemKey={systemKey}
+              systemAccountId={systemAccountId}
               embedded
               onOpenTrafficMap={() => setActiveView("graph")}
             />

@@ -127,3 +127,68 @@ describe("the Estate proxies", () => {
   })
 })
 /* eslint-enable @typescript-eslint/no-explicit-any */
+
+// ── S8 completion (review of 74c84d6a, 2026-10-08): the nested Estate readers name the identity and show the choice ──
+
+describe("useCachedFetch answers a 409 system choice as a choice", () => {
+  it("drops the key's cached reading, returns no data, and exposes the candidates", async () => {
+    const { renderHook, waitFor } = await import("@testing-library/react")
+    const { status, body } = capture(AMBIGUOUS)
+    const key = "estate-dep-map:300:payments"
+    window.localStorage.setItem(`cyntro:swr:${key}`, JSON.stringify({ ts: Date.now(), data: { nodes: [{ id: "old" }] } }))
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json(body, status)))
+    const { useCachedFetch } = await import("@/lib/use-cached-fetch")
+    const { result } = renderHook(() => useCachedFetch("/api/proxy/dependency-map/full?systemName=payments", { cacheKey: key }))
+    await waitFor(() => expect(result.current.choice).not.toBeNull())
+    expect(result.current.data).toBeNull()
+    expect(result.current.choice?.map((c) => c.systemKey)).toEqual(ambiguousSystemCandidates(409, body)?.map((c) => c.systemKey))
+    expect(window.localStorage.getItem(`cyntro:swr:${key}`)).toBeNull()
+  })
+})
+
+describe("the nested Estate readers carry the identity", () => {
+  it("TrafficFlowMap requests and caches the dependency map by key", async () => {
+    const React = await import("react")
+    const { render, waitFor } = await import("@testing-library/react")
+    const urls: string[] = []
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => { urls.push(String(input)); return json({ nodes: [], edges: [] }) }))
+    const TrafficFlowMap = (await import("@/components/dependency-map/traffic-flow-map")).default
+    render(React.createElement(TrafficFlowMap, { systemName: "payments", systemKey: KEY, systemAccountId: ACCOUNT }))
+    await waitFor(() => expect(urls.some((u) => u.includes("/api/proxy/dependency-map/full"))).toBe(true))
+    const depMap = urls.find((u) => u.includes("/api/proxy/dependency-map/full"))!
+    const sent = new URL(`https://x${depMap}`).searchParams
+    expect([sent.get("system_key"), sent.get("account_id")]).toEqual([KEY, ACCOUNT])
+  })
+
+  it("EstateMapView's dependency companion is requested by the same key as its topology", async () => {
+    const React = await import("react")
+    const { render, waitFor } = await import("@testing-library/react")
+    const urls: string[] = []
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => { urls.push(String(input)); return json({}, 404) }))
+    const { EstateMapView } = await import("@/components/topology-v0-2/estate-map-view")
+    render(React.createElement(EstateMapView, { systemName: "payments", systemKey: KEY, systemAccountId: ACCOUNT, embedded: true }))
+    await waitFor(() => expect(urls.some((u) => u.includes("/api/proxy/dependency-map/full"))).toBe(true))
+    const depMap = new URL(`https://x${urls.find((u) => u.includes("/api/proxy/dependency-map/full"))!}`).searchParams
+    expect(depMap.get("system_key")).toBe(KEY)
+    const topology = urls.find((u) => u.includes("/api/proxy/topology-risk/"))
+    if (topology) expect(new URL(`https://x${topology}`).searchParams.get("system_key")).toBe(KEY)
+  })
+})
+
+describe("the Estate / dependency-map views show the choice, never a map of one same-name system", () => {
+  it.each([
+    ["DependencyMapTab", async () => (await import("@/components/dependency-map-tab")).default],
+    ["EstateMapView", async () => (await import("@/components/topology-v0-2/estate-map-view")).EstateMapView],
+    ["TrafficFlowMap", async () => (await import("@/components/dependency-map/traffic-flow-map")).default],
+  ])("%s", async (_name, load) => {
+    const React = await import("react")
+    const { render, screen } = await import("@testing-library/react")
+    const { status, body } = capture(AMBIGUOUS)
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => json(body, status)))
+    const View = (await load()) as any
+    render(React.createElement(View, { systemName: body.detail.system_name, embedded: true }))
+    const choice = await screen.findByTestId("system-name-ambiguous")
+    expect(choice.querySelectorAll("a").length).toBe(ambiguousSystemCandidates(409, body)!.length)
+    expect(screen.queryByText(/Topology risk unavailable/)).not.toBeInTheDocument()
+  })
+})
