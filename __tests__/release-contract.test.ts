@@ -124,9 +124,12 @@ describe("what this frontend can read (accepts)", () => {
     expect(at(n + 1).state).toBe("unavailable")
   })
 
-  // The wizard's reads (A7 rev-4). Their captures come from Phase 2's generator (scripts/generate_system_boundary_captures.py,
-  // the real route handlers): at the time this was written (2026-10-08, build-only phase) the generator had not run, so these
-  // read files that exist only once it has -- run it first in the test phase.
+  // The wizard's reads (A7 rev-4). Their captures come from the backend's real-route harness, as the census captures do:
+  // CYNTRO_REWRITE_WIZARD_CAPTURES=1 pytest tests/cyntro_data/test_system_boundary_wizard_captures.py writes
+  // tests/fixtures/system_boundary_wizard_captures/<name>.json ({_provenance, status, cache_control, body}), copied here
+  // pinned to that backend SHA. capability.json is the install default (enabled false), so it parses as "disabled": the
+  // v{n+1} case below then also proves the parser checks the contract BEFORE it reads `enabled`. At the time this was written
+  // (2026-10-08, build-only phase) the harness had not run, so these read files that exist only once it has.
   /* eslint-disable @typescript-eslint/no-explicit-any -- a capture's body is untyped JSON, as in `capture` above */
   it.each([
     ["account_census_stacks_read", "stacks", (status: number, body: any) => parseStacksResponse(status, body, body.account_id)],
