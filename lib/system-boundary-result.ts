@@ -242,7 +242,9 @@ export function resultSentence(answer: ParsedResult): string {
     if (answer.reasonCode === "COHORT_NOT_BUILT") return "No membership has been published for this account yet."
     return `The result is held (${answer.reasonCode}).`
   }
-  if (answer.kind === "not_recorded") {
+  // Only "not_recorded" and "served" are left here. Testing against "served" lets TypeScript narrow what follows to
+  // ResultServed: the earlier checks never remove ResultHeld / ResultUnavailable, whose kinds are unions.
+  if (answer.kind !== "served") {
     if (answer.reasonCode === SYSTEM_NOT_IN_RESULT) return "The published membership does not name this system in this account."
     return `No result is recorded (${answer.reasonCode}).`
   }
