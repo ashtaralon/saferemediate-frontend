@@ -2,12 +2,14 @@
  * The declaration form's model (lib/system-boundary-declaration.ts) over the PRODUCER goldens of the authoring routes
  * (__tests__/fixtures/system-boundary, backend 61c2cd9d): the view and limits the server served, the roots a real picker
  * selected and the answers the real routes gave. Answers reach the model through the real client (saveDeclaration over
- * a fetch that returns the golden), never as a hand-built result.
+ * a fetch that returns the golden), never as a hand-built result. The one regional root (the goldens' roots are all
+ * account-wide) is a row of the real account-inventory route's capture, picked as the inventory picks it.
  */
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import {
+  rootFromInventory,
   saveDeclaration,
   type CreateEnvelope,
   type DeclarationsView,
@@ -76,8 +78,8 @@ describe("the declaration model -- what is sent", () => {
 
   it("builds the mixed create the resolver refused, too: the refusal is the server's, by name, never guessed here", () => {
     expect(buildDeclaration(draftOf(REFUSED), VIEW0)).toEqual({ ok: true, declaration: REFUSED.declaration })
-    expect(cellsOf(REFUSED.declaration.roots as DeclaredRoot[])).toEqual([
-      { account_id: "111122223333", region: "eu-west-1" }, { account_id: "111122223333", region: "global" }])
+    // Both roots are account-wide (an IAM role, and the S3 bucket the resolver refused): ONE cell, the request's own scopes.
+    expect(cellsOf(REFUSED.declaration.roots as DeclaredRoot[])).toEqual([{ account_id: "111122223333", region: "global" }])
   })
 
   it("accepts each of the seven served criticality tiers, and none at all (omitted, never null)", () => {
@@ -133,10 +135,20 @@ describe("the declaration model -- reusing what exists", () => {
   it("names a picked root outside an existing Deployment's cells (its global role is inside, a regional instance is not)", () => {
     const [system] = reusableSystems(VIEW1)
     const [deployment] = deploymentsOf(VIEW1, system.key)
-    const [instance, role] = [REFUSED.declaration.roots[0], REFUSED.declaration.roots[1]].sort((a) => (a.region === "global" ? 1 : -1)) as DeclaredRoot[]
+    // Every authoring golden's root is account-wide, so the regional root comes from the REAL inventory route's answer for
+    // the same account (fixtures/account-inventory-captures), picked by the real rootFromInventory with its publication.
+    const page = JSON.parse(readFileSync(resolve(process.cwd(), "__tests__/fixtures/account-inventory-captures/populated_page1.json"), "utf8")).body
+    const pick = (type: string) => rootFromInventory(page.account_id, page.rows.find(
+      (row: { resource_type: string; eligibility: { selectable: boolean } }) => row.resource_type === type && row.eligibility.selectable), page.publication)
+    const [role, instance] = [pick("iam:role"), pick("ec2:instance")]
+    expect([role.region, instance.region]).toEqual(["global", "eu-west-1"])
+    expect(deployment.body.scopes).toEqual([{ account_id: page.account_id, region: "global" }])   // outside by Region, not account
     expect([deploymentCovers(deployment, role), deploymentCovers(deployment, instance)]).toEqual([true, false])
-    const built = buildDeclaration(draftOf(REFUSED, { system: { mode: "existing", systemKey: system.key },
-                                                      deployment: { mode: "existing", deploymentKey: deployment.key } }), VIEW1)
+    expect(cellsOf([instance, role])).toEqual([
+      { account_id: page.account_id, region: "eu-west-1" }, { account_id: page.account_id, region: "global" }])
+    const built = buildDeclaration(draftOf(CREATE, { roots: [picked(role), picked(instance)],
+                                                     system: { mode: "existing", systemKey: system.key },
+                                                     deployment: { mode: "existing", deploymentKey: deployment.key } }), VIEW1)
     expect(built.ok ? [] : built.problems).toEqual(["1 picked root(s) are outside this deployment's accounts and Regions."])
   })
 })
