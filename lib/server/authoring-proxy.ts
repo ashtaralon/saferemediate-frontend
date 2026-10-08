@@ -3,8 +3,8 @@ import { accountAdminIdentityHeaders, accountAdminWriteFromOwnOrigin } from "@/l
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
 
 /**
- * The System Boundary authoring proxy (Phase 2 F1): a NAMED proxy for exactly nine backend routes, never a relay -- F1's
- * seven, and (A7 rev 4) the wizard's capability read and the declarations' applied status.
+ * The System Boundary authoring proxy (Phase 2 F1): a NAMED proxy for exactly ten backend routes, never a relay -- F1's
+ * seven, and (A7 rev 4) the wizard's capability read, the declarations' applied status and one system's result.
  *
  * The backend verifies the person on these routes by the console transport (api/system_boundary.py::_console_person,
  * backend a3c945b0): the IdP access token alone, against the keys installed on the issuer's trust block, else its
@@ -15,7 +15,8 @@ import { getBackendBaseUrl } from "@/lib/server/backend-url"
  * unchanged; nothing of account administration's privilege is involved -- the backend decides read / classify.
  *
  * Everything else is refused here by name with nothing forwarded: another path or method, any query parameter but
- * the request list's cursor and limit or the applied status's account_id, a body that is not JSON or exceeds the
+ * the request list's cursor and limit, the applied status's account_id, or the result's account_id and system_key, a
+ * body that is not JSON or exceeds the
  * backend's own cap. Upstream calls are
  * never cached and never follow a redirect (the identity headers must not reach another destination), and nothing
  * is retried: the caller keeps the exact request to resend. Responses -- the backend's, relayed byte for byte, and
@@ -31,7 +32,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 type Route = { method: "GET" | "POST"; matches: (suffix: string) => boolean; query: readonly string[] }
 
-/** The nine routes, by exact method and path below /api/system-boundary/, with the query each may carry. */
+/** The ten routes, by exact method and path below /api/system-boundary/, with the query each may carry. */
 const ROUTES: readonly Route[] = [
   { method: "GET", matches: (s) => s === "declarations/view", query: [] },
   { method: "GET", matches: (s) => s === "declarations/head", query: [] },
@@ -47,6 +48,8 @@ const ROUTES: readonly Route[] = [
   // A7 rev 4: the wizard reads whether it may write (C-B), and whether a save is applied in one account (C-C).
   { method: "GET", matches: (s) => s === "wizard/capability", query: [] },
   { method: "GET", matches: (s) => s === "declarations/applied", query: ["account_id"] },
+  // A7 rev 4 C-D: what the served membership says about one system in one account (the wizard's result screen).
+  { method: "GET", matches: (s) => s === "result", query: ["account_id", "system_key"] },
 ]
 
 function refused(status: number, detail: Record<string, unknown>): NextResponse {
