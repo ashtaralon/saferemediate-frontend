@@ -1,0 +1,58 @@
+{
+  "_provenance": {
+    "harness": "tests/cyntro_data/test_systems_b5_identity.py",
+    "request": {
+      "method": "GET",
+      "path": "/api/system-resources/payments",
+      "query": {
+        "lite": "true"
+      }
+    }
+  },
+  "status": 409,
+  "body": {
+    "detail": {
+      "code": "SYSTEM_NAME_AMBIGUOUS",
+      "system_name": "payments",
+      "reason": "several systems answer to this name; name one (system_key)",
+      "candidate_keys": [
+        {
+          "system_key": "authored_system:pay",
+          "system_name": "Payments",
+          "account_id": null,
+          "deployments": [
+            {
+              "key": "dep-dev",
+              "kind": "deployment",
+              "account_id": "416651950952",
+              "region": "eu-west-1",
+              "member_count": 1
+            },
+            {
+              "key": "dep-prod",
+              "kind": "deployment",
+              "account_id": "416651950952",
+              "region": "eu-west-1",
+              "member_count": 1
+            }
+          ]
+        },
+        {
+          "system_key": "payments",
+          "system_name": "Payments",
+          "account_id": "416651950952",
+          "deployments": [
+            {
+              "key": "eu-west-1",
+              "kind": "cell",
+              "account_id": "416651950952",
+              "region": "eu-west-1",
+              "member_count": 1
+            }
+          ]
+        }
+      ],
+      "retryable": false
+    }
+  }
+}

@@ -1,0 +1,77 @@
+{
+  "_provenance": {
+    "harness": "tests/cyntro_data/test_system_boundary_wizard_captures.py",
+    "request": {
+      "method": "GET",
+      "path": "/api/accounts/111122223333/census/stacks",
+      "query": {}
+    }
+  },
+  "status": 200,
+  "cache_control": "no-store",
+  "body": {
+    "contract": "account_census_stacks_read/v1",
+    "account_id": "111122223333",
+    "state": "populated",
+    "reason_code": null,
+    "account_authority": {
+      "registration_id": "0123456789abcdef0123456789abcdef",
+      "install_account": false
+    },
+    "publication": {
+      "attempt": "00000000000000000000000000000158",
+      "generation": 1,
+      "source_identity": "v1:8f5996424fde80dd38356ae749513e388660a4f73639e1e28833c20a572e45d1",
+      "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
+      "published_at_epoch": 1800000000,
+      "confirmed_at_epoch": 1800000000
+    },
+    "stacks": [
+      {
+        "stack_id": "arn:aws:cloudformation:eu-west-1:111122223333:stack/shop/0f0f0f0f-1111-4222-8333-444455556666",
+        "stack_name": "shop",
+        "region": "eu-west-1",
+        "stack_status": "UPDATE_COMPLETE",
+        "settled": true,
+        "parent_stack_id": null,
+        "read_outcome": "COMPLETE",
+        "resources": {
+          "total": 1,
+          "by_type": {
+            "cloudformation:stack": 1
+          },
+          "collected": 0,
+          "listed_only": 1,
+          "inventory_pending": 0,
+          "deleted": 0,
+          "not_a_resource": null
+        },
+        "tagged_for_other_systems": [],
+        "bound": null
+      },
+      {
+        "stack_id": "arn:aws:cloudformation:eu-west-1:111122223333:stack/shop-Db-1ABC/0f0f0f0f-1111-4222-8333-777788889999",
+        "stack_name": "shop-Db-1ABC",
+        "region": "eu-west-1",
+        "stack_status": "CREATE_COMPLETE",
+        "settled": true,
+        "parent_stack_id": "arn:aws:cloudformation:eu-west-1:111122223333:stack/shop/0f0f0f0f-1111-4222-8333-444455556666",
+        "read_outcome": "COMPLETE",
+        "resources": {
+          "total": 1,
+          "by_type": {
+            "dynamodb:table": 1
+          },
+          "collected": 0,
+          "listed_only": 1,
+          "inventory_pending": 0,
+          "deleted": 0,
+          "not_a_resource": null
+        },
+        "tagged_for_other_systems": [],
+        "bound": null
+      }
+    ],
+    "bindings_state": "not_configured"
+  }
+}

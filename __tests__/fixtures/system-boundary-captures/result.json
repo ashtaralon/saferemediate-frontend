@@ -1,0 +1,132 @@
+{
+  "_provenance": {
+    "harness": "tests/cyntro_data/test_system_boundary_wizard_captures.py",
+    "request": {
+      "method": "GET",
+      "path": "/api/system-boundary/result",
+      "query": {
+        "account_id": "111111111111",
+        "system_key": "authored_system:1111111111111111111111111111111111111111111111111111111111111111"
+      }
+    }
+  },
+  "status": 200,
+  "cache_control": "no-store",
+  "body": {
+    "contract": "system_boundary_result_read/v1",
+    "state": "served",
+    "reason_code": null,
+    "account_id": "111111111111",
+    "system_key": "authored_system:1111111111111111111111111111111111111111111111111111111111111111",
+    "generation": 41,
+    "published_at": "2027-01-15T08:00:00+00:00",
+    "system_name": "Payments",
+    "members": [
+      {
+        "resource_uid": "uid:fn",
+        "resource_type": "lambda:function",
+        "state": "ACTIVE",
+        "proof": {
+          "source": "rule",
+          "origin": "derived",
+          "lineage_unproven": true
+        },
+        "valid_from": null
+      },
+      {
+        "resource_uid": "uid:old",
+        "resource_type": null,
+        "state": "STALE",
+        "proof": {
+          "source": "rule",
+          "origin": null
+        },
+        "valid_from": null,
+        "stale_reason": "SUPPORT_CHECK_INCOMPLETE"
+      },
+      {
+        "resource_uid": "uid:web",
+        "resource_type": "ec2:instance",
+        "state": "ACTIVE",
+        "proof": {
+          "source": "stack",
+          "stack_id": "arn:aws:cloudformation:eu-west-1:111122223333:stack/shop/0f0f0f0f-1111-4222-8333-444455556666",
+          "listing_stack": "arn:aws:cloudformation:eu-west-1:111122223333:stack/shop/0f0f0f0f-1111-4222-8333-444455556666",
+          "logical_id": "Web",
+          "proof": "stack_listing"
+        },
+        "valid_from": null
+      }
+    ],
+    "dependencies": [
+      {
+        "resource_uid": "uid:role",
+        "resource_type": null,
+        "state": "ACTIVE",
+        "owner_system_key": null,
+        "consumers": [
+          "uid:fn"
+        ]
+      }
+    ],
+    "held": [
+      {
+        "resource_uid": "arn:aws:cloudformation:eu-west-1:111122223333:stack/shop/0f0f0f0f-1111-4222-8333-444455556666",
+        "kind": "BINDING_OUTCOME",
+        "state": "STALE",
+        "reason": "NOT_SETTLED",
+        "unusable": "NOT_SETTLED",
+        "stack_id": "arn:aws:cloudformation:eu-west-1:111122223333:stack/shop/0f0f0f0f-1111-4222-8333-444455556666",
+        "waiting_members": 2
+      },
+      {
+        "resource_uid": "uid:db",
+        "resource_type": null,
+        "kind": "CANDIDATE",
+        "state": "PENDING_REVIEW",
+        "reason": "root_conflict",
+        "competing": [
+          "tag:ledger"
+        ],
+        "decidable": true,
+        "pending_id": "p1"
+      }
+    ],
+    "not_members": [
+      {
+        "resource_uid": "arn:aws:sqs:q",
+        "kind": "BINDING_OUTCOME",
+        "state": "TARGET_UNAVAILABLE",
+        "reason": "cannot be a member yet (listed only)",
+        "detail": "cannot be a member yet (listed only)",
+        "depth": "listed_only",
+        "stack_id": "arn:aws:cloudformation:eu-west-1:111122223333:stack/shop/0f0f0f0f-1111-4222-8333-444455556666"
+      },
+      {
+        "resource_uid": "uid:excluded",
+        "kind": "BINDING_OUTCOME",
+        "state": "APPLIED",
+        "reason": "EXCLUDED_BY_DECISION",
+        "stack_id": "arn:aws:cloudformation:eu-west-1:111122223333:stack/shop/0f0f0f0f-1111-4222-8333-444455556666",
+        "excluded_by_decision": true
+      },
+      {
+        "resource_uid": "uid:gone",
+        "resource_type": null,
+        "kind": "RETIRED",
+        "state": "RETIRED",
+        "reason": "RESOURCE_LEFT_SOURCE",
+        "prior_kind": "MEMBER",
+        "valid_to": null
+      }
+    ],
+    "counts": {
+      "members": 3,
+      "stale_members": 1,
+      "dependencies": 1,
+      "held": 2,
+      "not_members": 3
+    },
+    "omitted": {}
+  }
+}

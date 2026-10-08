@@ -35,7 +35,7 @@
     "publication": {
       "attempt": "0000000000000000000000000000014d",
       "generation": 2,
-      "source_identity": "v1:0eed8b8bfce17770157811fc21049939ca2704748f9d2043920befad525f2a15",
+      "source_identity": "v1:26605d3ba703e964a94b86db39b95c2b1ebe54a312627a467c9821b5b509b005",
       "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
       "published_at_epoch": 1800000000,
       "confirmed_at_epoch": 1800000000,
@@ -124,7 +124,8 @@
           "view_filter": null,
           "includes_global": false,
           "recording": null,
-          "per_type": []
+          "per_type": [],
+          "stacks_unasked": 0
         },
         {
           "region": "eu-west-1",
@@ -261,7 +262,9 @@
         "cfn": {
           "stack_id": "arn:aws:cloudformation:eu-west-1:111122223333:stack/shop/a1",
           "logical_id": "Orders",
-          "stack_status": "UPDATE_COMPLETE"
+          "stack_status": "UPDATE_COMPLETE",
+          "last_updated": "2026-10-06T12:00:00+00:00",
+          "read_outcome": "COMPLETE"
         },
         "deleted": false,
         "tags": {

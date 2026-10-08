@@ -33,7 +33,7 @@
     "publication": {
       "attempt": "00000000000000000000000000000012",
       "generation": 1,
-      "source_identity": "v1:945fefc2dbc6bae36c3fa6fa5c7f00df19a291da27b93b3dcae51b767d5f9aef",
+      "source_identity": "v1:a3d8b575eb09a54425c4e81c3f6e5b356ee1025219a5a21c7a8c772b92302eee",
       "authority_digest": "v1:3fc1c5ddb104c404dbc99ea3e15ba5ae116f42cf8c552a5720631831bed705a7",
       "published_at_epoch": 1800000000,
       "confirmed_at_epoch": 1800000000,

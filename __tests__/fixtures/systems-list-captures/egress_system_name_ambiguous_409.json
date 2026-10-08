@@ -1,0 +1,33 @@
+{
+  "_provenance": {
+    "harness": "tests/cyntro_data/test_systems_b5_identity.py",
+    "request": {
+      "method": "GET",
+      "path": "/api/egress/system/Payments",
+      "query": {}
+    }
+  },
+  "status": 409,
+  "body": {
+    "detail": {
+      "candidate_keys": [
+        {
+          "account_id": null,
+          "deployments": [],
+          "system_key": "authored_system:pay",
+          "system_name": "Payments"
+        },
+        {
+          "account_id": "416651950952",
+          "deployments": [],
+          "system_key": "payments",
+          "system_name": "Payments"
+        }
+      ],
+      "code": "SYSTEM_NAME_AMBIGUOUS",
+      "reason": "several systems answer to this name; name one (system_key)",
+      "system_name": "Payments",
+      "retryable": false
+    }
+  }
+}

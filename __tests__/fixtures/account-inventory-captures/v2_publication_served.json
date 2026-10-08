@@ -18,10 +18,7 @@
       "LocalEvidenceStore.bucket (recorded identity only)",
       "cyntro_data.projection.receipt clock"
     ],
-    "note": "The real route's answer over a real publication; nothing removed. Not installed or live evidence.",
-    "backend_commit": "dd5d0d76beb63e2040f39ba5ffc0e0ee06f490ce",
-    "backend_path": "tests/fixtures/account_inventory_captures/v2_publication_served.json",
-    "copied_unchanged": "status, cache_control and body are byte-for-byte the backend capture's"
+    "note": "The real route's answer over a real publication; nothing removed. Not installed or live evidence."
   },
   "status": 200,
   "cache_control": "no-store",

@@ -261,10 +261,6 @@
         "scopes": [
           {
             "account_id": "111122223333",
-            "region": "eu-west-1"
-          },
-          {
-            "account_id": "111122223333",
             "region": "global"
           }
         ]
@@ -291,8 +287,8 @@
         },
         {
           "account_id": "111122223333",
-          "region": "eu-west-1",
-          "resource_uid": "aws://aws/111122223333/eu-west-1/ec2/instance/i-1",
+          "region": "global",
+          "resource_uid": "aws://aws/111122223333/global/s3/bucket/bucket-02",
           "selection": {
             "observed_incarnation": {
               "status": "not_provided"
@@ -303,7 +299,7 @@
               "generation": 1,
               "source_identity": "v1:1c64ebc36b8f824d767ee0375888fb9480e7d4bd2f476ebb2d696a21cb01a929"
             },
-            "resource_type": "ec2:instance"
+            "resource_type": "s3:bucket"
           }
         }
       ],

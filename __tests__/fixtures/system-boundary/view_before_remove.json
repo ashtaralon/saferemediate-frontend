@@ -79,6 +79,11 @@
       }
     ],
     "limits": {
+      "binding_kinds": [
+        "exclusive",
+        "several_systems",
+        "shared_foundation"
+      ],
       "criticalities": [
         "MISSION CRITICAL",
         "BUSINESS CRITICAL",
@@ -88,6 +93,10 @@
         "MEDIUM",
         "LOW"
       ],
+      "decision_verdicts": [
+        "include",
+        "exclude"
+      ],
       "environments": [
         "PRODUCTION",
         "STAGING",
@@ -96,15 +105,20 @@
         "SANDBOX",
         "DISASTER_RECOVERY"
       ],
+      "max_actions": 100,
+      "max_bindings": 50,
       "max_display_name": 120,
       "max_environment_raw": 64,
       "max_move_targets": 4,
       "max_new_cells": 10,
+      "max_resource_decisions": 200,
       "max_resource_uid": 1024,
       "max_roots": 36,
-      "max_write_accounts": 10
+      "max_write_accounts": 10,
+      "save_envelope_level": 2
     },
     "protocol_phase": "ACTIVE",
+    "resource_decisions": [],
     "roots": [
       {
         "actor": "https://cognito-idp.eu-west-1.amazonaws.com/pool#00u-alice",
@@ -201,6 +215,7 @@
       }
     ],
     "source": "SNAPSHOT",
+    "stack_bindings": [],
     "systems": [
       {
         "actor": "https://cognito-idp.eu-west-1.amazonaws.com/pool#00u-alice",

@@ -1,0 +1,25 @@
+{
+  "_provenance": {
+    "harness": "tests/cyntro_data/test_system_boundary_wizard_captures.py",
+    "request": {
+      "method": "GET",
+      "path": "/api/accounts/111122223333/census/stacks",
+      "query": {}
+    }
+  },
+  "status": 200,
+  "cache_control": "no-store",
+  "body": {
+    "contract": "account_census_stacks_read/v1",
+    "account_id": "111122223333",
+    "state": "not_published",
+    "reason_code": "no_publication_recorded",
+    "account_authority": {
+      "registration_id": "0123456789abcdef0123456789abcdef",
+      "install_account": false
+    },
+    "publication": null,
+    "stacks": [],
+    "bindings_state": null
+  }
+}

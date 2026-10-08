@@ -39,8 +39,8 @@
         {
           "account_id": "111122223333",
           "reason_code": "INCARNATION_NOT_PROVIDED",
-          "region": "eu-west-1",
-          "resource_uid": "aws://aws/111122223333/eu-west-1/ec2/instance/i-1",
+          "region": "global",
+          "resource_uid": "aws://aws/111122223333/global/s3/bucket/bucket-02",
           "status": "INELIGIBLE"
         }
       ]
