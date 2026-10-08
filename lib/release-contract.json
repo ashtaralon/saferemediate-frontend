@@ -13,6 +13,7 @@
     "account_census_stacks_read": 1,
     "account_inventory_rows": 3,
     "declarations_applied": 1,
-    "system_boundary_wizard_capability": 1
+    "system_boundary_wizard_capability": 1,
+    "systems_list_read": 2
   }
 }

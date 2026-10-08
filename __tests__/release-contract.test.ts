@@ -13,6 +13,7 @@ import { STACKS_CONTRACT, parseStacksResponse } from "@/lib/system-boundary-stac
 import { APPLIED_CONTRACT, parseAppliedResponse } from "@/lib/system-boundary-applied"
 import { CAPABILITY_CONTRACT, REQUIRED_SAVE_ENVELOPE_LEVEL, parseCapabilityResponse } from "@/lib/system-boundary-capability"
 import { parseInventoryResponse, RESPONSE_MALFORMED } from "@/lib/account-inventory"
+import { SYSTEMS_LIST_ACCEPTS, SYSTEMS_LIST_CONTRACT, systemsListLevel } from "@/lib/scoped-system-catalog"
 import {
   ORGANIZATION_DISCOVERY_TEMPLATE_PATH,
   REQUIRED_ACCOUNT_REGISTRATION_CONTRACT,
@@ -27,7 +28,7 @@ describe("the release contract this frontend requires", () => {
       requires: { account_census_read: 1, account_census_stacks_read: 1, account_registration: 5, declarations_applied: 1,
                   system_boundary_save: 2, system_boundary_wizard_capability: 1 },
       accepts: { account_census_read: 1, account_census_stacks_read: 1, account_inventory_rows: 3, declarations_applied: 1,
-                 system_boundary_wizard_capability: 1 } })
+                 system_boundary_wizard_capability: 1, systems_list_read: 2 } })
     expect(REQUIRED_ACCOUNT_REGISTRATION_CONTRACT).toBe(5)
     expect(CENSUS_CONTRACT).toBe("account_census_read/v1")
   })
@@ -143,4 +144,22 @@ describe("what this frontend can read (accepts)", () => {
     expect(at(n + 1).kind).toBe("unavailable")
   })
   /* eslint-enable @typescript-eslint/no-explicit-any */
+
+  // A7 B5: the Systems list. Level 1 is the answer with no contract; level 2 "systems_list_read/v2" (one row per system identity,
+  // deployments beneath). The capture is the backend's real /api/systems v2 answer (Phase 2's harness writes
+  // systems_list_v2_deployments in the M3 backend commit; copied here pinned to that SHA) -- red until it has run, by design.
+  it("reads the Systems list up to exactly its declared level: v1 and v2 parse, the next one is not read", () => {
+    const n = declaration.accepts.systems_list_read
+    expect(n).toBe(SYSTEMS_LIST_ACCEPTS)
+    expect(SYSTEMS_LIST_CONTRACT).toBe(`systems_list_read/v${n}`)
+    const page = capture("systems-list-captures", "systems_list_v2_deployments")
+    const at = (level: number) => systemsListLevel({ ...structuredClone(page.body), contract: `systems_list_read/v${level}` })
+    expect(systemsListLevel(page.body)).toBe(2)
+    expect(at(1)).toBe(1)
+    expect(at(n)).toBe(n)
+    expect(at(n + 1)).toBeNull()
+    const v1Body = structuredClone(page.body)
+    delete v1Body.contract
+    expect(systemsListLevel(v1Body)).toBe(1)
+  })
 })
