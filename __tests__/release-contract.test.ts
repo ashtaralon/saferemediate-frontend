@@ -26,9 +26,9 @@ describe("the release contract this frontend requires", () => {
   it("is exactly the shape the backend's bundle builder reads: account registration at level 5, the census read at 1, the wizard's", () => {
     expect(declaration).toEqual({ schema: "cyntro-release-contract/v1",
       requires: { account_census_read: 1, account_census_stacks_read: 1, account_registration: 5, declarations_applied: 1,
-                  system_boundary_save: 2, system_boundary_wizard_capability: 1 },
+                  system_boundary_result_read: 1, system_boundary_save: 2, system_boundary_wizard_capability: 1 },
       accepts: { account_census_read: 1, account_census_stacks_read: 1, account_inventory_rows: 3, declarations_applied: 1,
-                 system_boundary_wizard_capability: 1, systems_list_read: 2 } })
+                 system_boundary_result_read: 1, system_boundary_wizard_capability: 1, systems_list_read: 2 } })
     expect(REQUIRED_ACCOUNT_REGISTRATION_CONTRACT).toBe(5)
     expect(CENSUS_CONTRACT).toBe("account_census_read/v1")
   })
