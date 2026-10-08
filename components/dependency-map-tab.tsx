@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useCallback, useEffect, useMemo } from 'react'
+import { systemScopeQuery } from "@/lib/scoped-system-catalog"
 import { Map as MapIcon, Search, RefreshCw, Network, Cloud, GitBranch, Activity, CheckCircle, XCircle } from 'lucide-react'
 import dynamic from 'next/dynamic'
 import GraphView from './dependency-map/graph-view'
@@ -166,6 +167,9 @@ interface Resource {
 
 interface Props {
   systemName: string
+  /** A7 B5: the system's KEY (+ a tag / source key's account) when opened by key; the dependency reads name ONE system. */
+  systemKey?: string | null
+  systemAccountId?: string | null
   highlightPath?: { source: string; target: string; port?: string }
   defaultGraphEngine?: 'logical' | 'architectural' | 'observed' | 'comprehensive' | 'neo4j'
   onGraphEngineChange?: (engine: 'logical' | 'architectural' | 'observed' | 'comprehensive' | 'neo4j') => void
@@ -176,6 +180,8 @@ type ViewType = 'graph' | 'resource' | 'sankey' | 'flows' | 'estate'
 
 export default function DependencyMapTab({
   systemName,
+  systemKey = null,
+  systemAccountId = null,
   highlightPath,
   defaultGraphEngine = 'neo4j',
   onGraphEngineChange,
@@ -436,7 +442,8 @@ export default function DependencyMapTab({
       // different query strings, the proxy treats them as separate
       // cache entries, and the (already-saturated) Neo4j runs the same
       // dependency-map query twice per page load. (Audit 2026-06-22 P4.)
-      let url = `/api/proxy/dependency-map/full?systemName=${encodeURIComponent(systemName)}&includeUnused=true&maxNodes=300`
+      let url = `/api/proxy/dependency-map/full?systemName=${encodeURIComponent(systemName)}&includeUnused=true&maxNodes=300${systemScopeQuery(
+        systemKey, systemAccountId)}`
       if (searchQuery) {
         url += `&search=${encodeURIComponent(searchQuery)}`
       }
@@ -515,7 +522,7 @@ export default function DependencyMapTab({
       setIsLoading(false)
       setResourcesLoading(false)
     }
-  }, [systemName, searchQuery])
+  }, [systemName, systemKey, systemAccountId, searchQuery])
 
   // No bare useSyncFromAWS here. startSync() with no `sources` runs the
   // backend's DEFAULT lane -- vulnerability_findings -- so this control
@@ -539,7 +546,8 @@ export default function DependencyMapTab({
       // proxy cache key matches and a Resource-View switch after a Graph-View
       // load gets a near-instant cache hit instead of paying the heavy query
       // a second time. (Audit 2026-06-22 P4.)
-      const res = await fetch(`/api/proxy/dependency-map/full?systemName=${encodeURIComponent(systemName)}&includeUnused=true&maxNodes=300`, {
+      const res = await fetch(`/api/proxy/dependency-map/full?systemName=${encodeURIComponent(systemName)}&includeUnused=true&maxNodes=300${systemScopeQuery(
+        systemKey, systemAccountId)}`, {
         cache: 'no-store',
         signal: AbortSignal.timeout(30000),
       })
@@ -563,7 +571,7 @@ export default function DependencyMapTab({
     } finally {
       setResourcesLoading(false)
     }
-  }, [systemName, resources.length, graphData])
+  }, [systemName, systemKey, systemAccountId, resources.length, graphData])
 
   useEffect(() => {
     // Graph view: TrafficFlowMap owns dep-map fetch via useCachedFetch.

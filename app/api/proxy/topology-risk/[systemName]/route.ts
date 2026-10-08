@@ -4,6 +4,7 @@ import { clearCached, getCached, getStaleCached, setCached, TTL_SLOW } from "@/l
 import { isPoisonousProxyPayload } from "@/lib/server/proxy-cache-hygiene"
 import { buildTopologyRiskServerCacheKey } from "@/components/topology-v0-2/topology-scope-url"
 import { TOPOLOGY_RISK_PROXY_TIMEOUT_MS } from "@/lib/server/snapshot-proxy"
+import { systemChoiceDetail } from "@/lib/server/proxy-error"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
@@ -34,11 +35,14 @@ function scopeFromRequest(req: NextRequest) {
   const accountId = req.nextUrl.searchParams.get("account_id")
   const region = req.nextUrl.searchParams.get("region")
   const vpcId = req.nextUrl.searchParams.get("vpc_id")
+  // A7 B5: a page opened by key names ONE system (backend ?system_key=); absent, everything is as before.
+  const systemKey = req.nextUrl.searchParams.get("system_key")
   return {
     customerId: customerId && /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(customerId) ? customerId : null,
     accountId: accountId && /^\d{12}$/.test(accountId) ? accountId : null,
     region: region && /^[a-z]{2}(-gov)?-[a-z]+-\d+$/.test(region) ? region : null,
     vpcId: vpcId && vpcId.startsWith("vpc-") ? vpcId : null,
+    systemKey: systemKey && systemKey.trim() && systemKey.length <= 512 ? systemKey : null,
   }
 }
 
@@ -48,6 +52,7 @@ function backendQueryString(scope: ReturnType<typeof scopeFromRequest>): string 
   if (scope.accountId) params.set("account_id", scope.accountId)
   if (scope.region) params.set("region", scope.region)
   if (scope.vpcId) params.set("vpc_id", scope.vpcId)
+  if (scope.systemKey) params.set("system_key", scope.systemKey)
   const qs = params.toString()
   return qs ? `?${qs}` : ""
 }
@@ -228,6 +233,8 @@ export async function GET(
       // concealment one TTL later.
       clearCached(cacheKey)
     }
+    // A7 B5: a 409 system choice (several systems answer to this name) is relayed, typed, so the page can offer it.
+    const choice = result.status === 409 ? systemChoiceDetail(result.body) : undefined
     return NextResponse.json(
       {
         error: `backend_${result.status}`,
@@ -235,6 +242,7 @@ export async function GET(
         scored_at: null,
         system_kpis: null,
         nodes: [],
+        ...(choice ? { detail: choice } : {}),
       },
       { status: result.status },
     )

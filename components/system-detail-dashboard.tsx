@@ -2944,7 +2944,8 @@ export function SystemDetailDashboard({ systemName, systemKey = null, systemAcco
       {activeTab === "dependency-map" && (
         <ErrorBoundary componentName="Topology">
         <div className="max-w-[1800px] mx-auto px-8 py-6">
-          <DependencyMapTab key={`${systemName}-${refreshKey}`} systemName={systemName} />
+          <DependencyMapTab key={`${systemName}-${systemKey ?? ""}-${systemAccountId ?? ""}-${refreshKey}`} systemName={systemName}
+            systemKey={systemKey} systemAccountId={systemAccountId} />
         </div>
         </ErrorBoundary>
       )}

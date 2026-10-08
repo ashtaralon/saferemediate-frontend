@@ -5,7 +5,11 @@ export interface TopologyScopeParams {
   accountId?: string | null
   region?: string | null
   vpcId?: string | null
+  /** A7 B5: the system's KEY when the page was opened by key (``systemDetailHref``); absent on v1 / by-name. */
+  systemKey?: string | null
 }
+
+const MAX_SYSTEM_KEY = 512
 
 /**
  * First topology-risk fetch must carry the product-bar / URL account and
@@ -19,11 +23,13 @@ export function scopeFromSearch(search: string): TopologyScopeParams {
   const region = q.get("region")
   const customerId = q.get("customer_id")
   const vpcId = q.get("vpc_id")
+  const systemKey = q.get("system_key")
   return {
     customerId: customerId || null,
     accountId: accountId && /^\d{12}$/.test(accountId) ? accountId : null,
     region: region && /^[a-z]{2}(-gov)?-[a-z]+-\d+$/.test(region) ? region : null,
     vpcId: vpcId && vpcId.startsWith("vpc-") ? vpcId : null,
+    ...(systemKey && systemKey.trim() && systemKey.length <= MAX_SYSTEM_KEY ? { systemKey } : {}),
   }
 }
 
@@ -39,6 +45,7 @@ export function resolveTopologyScopeParams(
     accountId: selected.accountId ?? urlScope.accountId ?? productAccount,
     region: selected.regionId ?? urlScope.region ?? productRegion,
     vpcId: selected.vpcId ?? urlScope.vpcId ?? null,
+    ...(urlScope.systemKey ? { systemKey: urlScope.systemKey } : {}),
   }
 }
 
@@ -96,6 +103,7 @@ export function buildTopologyRiskProxyUrl(
   if (scope.accountId) params.set("account_id", scope.accountId)
   if (scope.region) params.set("region", scope.region)
   if (scope.vpcId) params.set("vpc_id", scope.vpcId)
+  if (scope.systemKey) params.set("system_key", scope.systemKey)
   const qs = params.toString()
   const base = `/api/proxy/topology-risk/${encodeURIComponent(systemName)}`
   return qs ? `${base}?${qs}` : base
@@ -106,7 +114,9 @@ export function buildTopologyRiskCacheKey(
   systemName: string,
   scope: TopologyScopeParams = {},
 ): string {
-  return `topology-risk:${scope.customerId ?? ""}:${systemName}:v11:${scope.accountId ?? ""}:${scope.region ?? ""}:${scope.vpcId ?? "all"}`
+  const base = `topology-risk:${scope.customerId ?? ""}:${systemName}:v11:${scope.accountId ?? ""}:${scope.region ?? ""}:${scope.vpcId ?? "all"}`
+  // B5: another key is another system -- never one cache entry (absent: the key is byte-identical to before).
+  return scope.systemKey ? `${base}:key=${scope.systemKey}` : base
 }
 
 /** Proxy server cache key — mirrors BE {system}::{account}::{region}::{vpc}.
@@ -125,5 +135,6 @@ export function buildTopologyRiskServerCacheKey(
     !account && !region && !vpc
       ? `topology-risk:${tenant}:${systemName}`
       : `topology-risk:${tenant}:${systemName}:${account}:${region}:${vpc}`
-  return `${base}:${TOPOLOGY_RISK_SERVER_CACHE_SCHEMA}`
+  const keyed = scope.systemKey ? `${base}:key=${scope.systemKey}` : base
+  return `${keyed}:${TOPOLOGY_RISK_SERVER_CACHE_SCHEMA}`
 }
