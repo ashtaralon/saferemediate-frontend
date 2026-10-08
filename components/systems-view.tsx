@@ -29,6 +29,7 @@ import { RefreshEvidenceButton } from "@/components/RefreshEvidenceButton"
 import Link from "next/link"
 import { ObservationChip } from "@/components/coverage/observation-chip"
 import { coveragePageHref, readObservation, type Observation } from "@/lib/observation-coverage"
+import { systemRowIdentity, systemsListLevel, type SystemDeployment } from "@/lib/scoped-system-catalog"
 
 interface System {
   name: string
@@ -51,6 +52,16 @@ interface System {
   // the freshness story. Per dashboard design review (2026-04-30).
   lastScanAt: string | null
   owner: string
+  // A7 B5 (v2 install): the row's identity -- its system KEY, and for a tag / source key (one system per account) that
+  // account; rowKey names the identity exactly -- and the deployments / cells it spans, shown beneath its row. The name is
+  // display only and two rows may share it. null / [] on a v1 answer.
+  systemKey?: string | null
+  rowKey?: string | null
+  identityAccountId?: string | null
+  deployments?: SystemDeployment[]
+  // The v1 answer's provisional identity (catalog_identity): two rows of one name in two accounts are two rows.
+  accountId?: string | null
+  region?: string | null
 }
 
 // Threshold for marking a row as stale. Picked at 7 days because most
@@ -77,6 +88,14 @@ function isStale(lastScanAt: string | null): boolean {
   return d === null || d >= STALE_THRESHOLD_DAYS
 }
 
+/** The identity a Systems row stands for (A7 B5): the v2 system KEY; else the v1 provisional identity (account + Region +
+ *  name); else the name (a v1 backend that merged by name). Rows of one identity are one system; rows of two never merge. */
+function systemIdentityKey(system: Pick<System, "name" | "rowKey" | "accountId" | "region">): string {
+  if (system.rowKey) return `row:${system.rowKey}`
+  if (system.accountId) return `acct:${system.accountId}:${system.region ?? ""}:${system.name}`
+  return `name:${system.name}`
+}
+
 interface AvailableSystem {
   SystemName?: string  // Only SystemName format (capital S, capital N)
   resourceCount?: number
@@ -88,7 +107,7 @@ interface AvailableSystem {
 
 interface SystemsViewProps {
   systems?: System[]
-  onSystemSelect?: (systemName: string) => void
+  onSystemSelect?: (systemName: string, systemKey?: string | null, accountId?: string | null) => void
   systemName?: string
 }
 
@@ -132,7 +151,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
   const dropdownRef = useRef<HTMLDivElement>(null)
   const emptyDropdownRef = useRef<HTMLDivElement>(null)
   const { toast } = useToast()
-  const systemsCacheKey = `cyntro-systems:${accountScope.customerId || "unresolved"}:${accountScope.groupId}:${accountScope.accountId}:${accountScope.region}`
+  const systemsCacheKey = `cyntro-systems:v2:${accountScope.customerId || "unresolved"}:${accountScope.groupId}:${accountScope.accountId}:${accountScope.region}`
 
   // Fetch gap-analysis from real CloudTrail data
   const fetchGapAnalysisFromFindings = useCallback(async () => {
@@ -203,7 +222,27 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
         const hold = semanticStatusHold(systemsData)
         setSystemsHold(hold ? semanticHoldMessage(hold) : null)
         setSystemsGaps(systemsCoverageGaps(systemsData))
-        const backendSystems = Array.isArray(systemsData.systems) ? systemsData.systems : []
+        const listLevel = systemsListLevel(systemsData)
+        if (listLevel === null) {
+          // A Systems list contract newer than this page reads (B5): never read as the v1 shape.
+          setSystemsError("This Systems list comes from a newer backend than this page can read")
+          setLocalSystems([])
+          setObservation(readObservation(systemsData))
+          setBackendStatus("connected")
+          return
+        }
+        const servedSystems = Array.isArray(systemsData.systems) ? systemsData.systems : []
+        // A v2 row without a valid key / deployments could not be addressed: it is not listed, and the list says so.
+        const backendSystems = listLevel === 2
+          ? servedSystems.filter((sys: any) => systemRowIdentity(sys) !== null)
+          : servedSystems
+        const unreadable = servedSystems.length - backendSystems.length
+        if (unreadable > 0) {
+          setSystemsGaps((gaps) => [
+            ...gaps,
+            `${unreadable} system${unreadable === 1 ? "" : "s"} could not be read and ${unreadable === 1 ? "is" : "are"} not listed`,
+          ])
+        }
         setObservation(readObservation(systemsData))
         setSystemsError(null)
         setBackendStatus("connected")
@@ -247,16 +286,30 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
               lastScan: sys.lastScan || "Unknown",
               lastScanAt: sys.lastScanAt ?? null,
               owner: sys.owner || "Unassigned",
+              ...(() => {
+                const identity = listLevel === 2 ? systemRowIdentity(sys) : null
+                const provisional =
+                  sys.catalog_identity && typeof sys.catalog_identity === "object" ? sys.catalog_identity : null
+                return {
+                  systemKey: identity?.systemKey ?? null,
+                  rowKey: identity?.rowKey ?? null,
+                  identityAccountId: identity?.accountId ?? null,
+                  deployments: identity?.deployments ?? [],
+                  accountId: typeof provisional?.account_id === "string" ? provisional.account_id : null,
+                  region: typeof provisional?.region === "string" ? provisional.region : null,
+                }
+              })(),
             }
           })
 
-          // Deduplicate systems by name - keep the one with most resources
+          // One row per system IDENTITY (A7 B5): two systems that share a display name stay two rows. A repeated row of
+          // ONE identity keeps the one with most resources, as before.
           const deduplicatedSystems = transformedSystems.reduce((acc: typeof transformedSystems, sys) => {
-            const existing = acc.find(s => s.name === sys.name)
+            const existing = acc.find(s => systemIdentityKey(s) === systemIdentityKey(sys))
             if (existing) {
               // Keep the one with more resources/data
               if (sys.total > existing.total) {
-                return acc.map(s => s.name === sys.name ? sys : s)
+                return acc.map(s => systemIdentityKey(s) === systemIdentityKey(sys) ? sys : s)
               }
               return acc
             }
@@ -387,8 +440,8 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
   useEffect(() => {
     if (propSystems.length > 0) {
       setLocalSystems((prev) => {
-        const existingNames = new Set(prev.map((s) => s.name))
-        const newOnes = propSystems.filter((s) => !existingNames.has(s.name))
+        const existing = new Set(prev.map(systemIdentityKey))
+        const newOnes = propSystems.filter((s) => !existing.has(systemIdentityKey(s)))
         return [...prev, ...newOnes]
       })
     }
@@ -522,11 +575,18 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
     }
   }
 
-  const handleViewDashboard = (systemName: string) => {
+  const handleViewDashboard = (systemName: string, systemKey?: string | null, accountId?: string | null) => {
     if (onSystemSelect) {
-      onSystemSelect(systemName)
+      onSystemSelect(systemName, systemKey ?? null, accountId ?? null)
     }
   }
+
+  // B5: a name two listed systems share is shown with what tells them apart (the key / the account and Region).
+  const nameCounts = new Map<string, number>()
+  for (const system of localSystems) {
+    nameCounts.set(system.name.toLowerCase(), (nameCounts.get(system.name.toLowerCase()) ?? 0) + 1)
+  }
+  const nameRepeated = (name: string) => (nameCounts.get(name.toLowerCase()) ?? 0) > 1
 
 
   const filteredSystems = localSystems.filter((system) => system.name.toLowerCase().includes(searchQuery.toLowerCase()))
@@ -986,6 +1046,25 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
                   >
                     <td className="px-4 py-3">
                       <span className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>{system.name}</span>
+                      {nameRepeated(system.name) && (system.systemKey || system.accountId) && (
+                        <span className="ml-2 text-xs" style={{ color: "var(--text-secondary)" }} data-testid="system-identity-hint">
+                          {system.systemKey
+                            ? system.identityAccountId
+                              ? `account ${system.identityAccountId}`
+                              : system.systemKey
+                            : `account ${system.accountId}${system.region ? ` · ${system.region}` : ""}`}
+                        </span>
+                      )}
+                      {system.deployments && system.deployments.length > 0 && (
+                        <ul className="mt-1 space-y-0.5" data-testid="system-deployments">
+                          {system.deployments.map((deployment) => (
+                            <li key={deployment.key} className="text-xs" style={{ color: "var(--text-secondary)" }}>
+                              {deployment.kind === "deployment" ? "Deployment" : "Cell"} · {deployment.accountId} ·{" "}
+                              {deployment.region} · {deployment.memberCount} member{deployment.memberCount === 1 ? "" : "s"}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <span
@@ -1069,7 +1148,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
                     <td className="px-4 py-3 text-center">
                       <div className="flex items-center justify-center gap-1.5">
                         <button
-                          onClick={() => handleViewDashboard(system.name)}
+                          onClick={() => handleViewDashboard(system.name, system.systemKey, system.identityAccountId)}
                           className="inline-flex items-center gap-1 text-white px-3 py-1 rounded-lg text-xs font-medium transition-colors hover:opacity-90"
                           style={{ background: "#8b5cf6" }}
                         >
@@ -1298,7 +1377,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
 
                     {/* View button */}
                     <button
-                      onClick={() => handleViewDashboard(sys.name)}
+                      onClick={() => handleViewDashboard(sys.name, sys.systemKey, sys.identityAccountId)}
                       className="inline-flex items-center gap-1 text-white px-2.5 py-1 rounded-lg text-xs font-medium transition-colors hover:opacity-90 shrink-0"
                       style={{ background: "#8b5cf6" }}
                     >

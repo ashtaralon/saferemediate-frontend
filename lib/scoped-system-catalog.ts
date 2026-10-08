@@ -181,6 +181,102 @@ export function catalogEntryHref(
   return `${path}?${query.toString()}`
 }
 
+// ── A7 B5: a system is its KEY on a v2 install (one Systems row per identity; the name is display only) ─────────────
+
+/** The v2 Systems list answer (backend /api/systems on a v2 install, Phase 2 M3): one row per membership system KEY, each
+ *  with the deployments / cells it spans. The v1 answer carries no contract (or the explicit v1 name). */
+export const SYSTEMS_LIST_CONTRACT = "systems_list_read/v2"
+/** The highest Systems list contract this frontend reads (lib/release-contract.json "accepts" pins it). */
+export const SYSTEMS_LIST_ACCEPTS = 2
+
+/** 1 for the v1 answer, 2 for the v2 answer, null for any contract this frontend does not know (never read as v1). */
+export function systemsListLevel(body: unknown): 1 | 2 | null {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return null
+  const contract = (body as { contract?: unknown }).contract
+  if (contract === undefined || contract === null || contract === "systems_list_read/v1") return 1
+  return contract === SYSTEMS_LIST_CONTRACT ? 2 : null
+}
+
+/** One deployment (an authored system's deployment) or cell (a tag-only system's account + Region) of a v2 system. */
+export type SystemDeployment = {
+  key: string
+  kind: "deployment" | "cell"
+  accountId: string
+  region: string
+  memberCount: number
+}
+
+/** One v2 Systems row's identity (Phase 2 M3): an AUTHORED key is one row across accounts (accountId null); a tag / source
+ *  key is one row PER ACCOUNT (no cross-account system unless authored), so two rows may share a systemKey but never a
+ *  rowKey ("<system_key>" or "<system_key>|<account_id>"). */
+export type SystemRowIdentity = {
+  systemKey: string
+  rowKey: string
+  accountId: string | null
+  deployments: SystemDeployment[]
+}
+
+/** A v2 row's identity, or null when any part is missing or malformed -- such a row is never shown as a system (it could
+ *  not be addressed), never degraded to the name-only v1 shape. */
+export function systemRowIdentity(row: unknown): SystemRowIdentity | null {
+  if (!row || typeof row !== "object" || Array.isArray(row)) return null
+  const record = row as Record<string, unknown>
+  if (typeof record.system_key !== "string" || !record.system_key.trim()) return null
+  const identity = record.identity
+  if (!identity || typeof identity !== "object" || Array.isArray(identity)) return null
+  const { system_key: identityKey, account_id: identityAccount } = identity as Record<string, unknown>
+  if (identityKey !== record.system_key) return null
+  if (identityAccount !== null && (typeof identityAccount !== "string" || !ACCOUNT_ID.test(identityAccount))) return null
+  const expectedRowKey = identityAccount === null ? record.system_key : `${record.system_key}|${identityAccount}`
+  if (record.row_key !== expectedRowKey) return null
+  if (!Array.isArray(record.deployments)) return null
+  const deployments: SystemDeployment[] = []
+  for (const raw of record.deployments) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null
+    const d = raw as Record<string, unknown>
+    if (typeof d.key !== "string" || !d.key.trim()) return null
+    if (d.kind !== "deployment" && d.kind !== "cell") return null
+    if (typeof d.account_id !== "string" || !ACCOUNT_ID.test(d.account_id)) return null
+    if (typeof d.region !== "string" || !(AWS_REGION.test(d.region) || d.region === "global")) return null
+    if (typeof d.member_count !== "number" || !Number.isInteger(d.member_count) || d.member_count < 0) return null
+    deployments.push({ key: d.key, kind: d.kind, accountId: d.account_id, region: d.region, memberCount: d.member_count })
+  }
+  return { systemKey: record.system_key, rowKey: expectedRowKey, accountId: identityAccount as string | null, deployments }
+}
+
+/** One system a NAME may stand for when two identities share it. */
+export type SystemCandidate = { systemKey: string; systemName: string }
+
+/**
+ * The systems a name stands for, from the backend's 409 ``SYSTEM_NAME_AMBIGUOUS`` answer (``detail.candidate_keys``), or
+ * null for any other answer. A person chooses among them; the first is never taken. Fewer than two valid candidates is not
+ * an ambiguity this page can resolve: null, and the caller shows the answer as the error it is.
+ */
+export function ambiguousSystemCandidates(status: number, body: unknown): SystemCandidate[] | null {
+  if (status !== 409 || !body || typeof body !== "object") return null
+  const detail = (body as { detail?: unknown }).detail
+  if (!detail || typeof detail !== "object" || Array.isArray(detail)) return null
+  const record = detail as Record<string, unknown>
+  if (record.code !== "SYSTEM_NAME_AMBIGUOUS" || !Array.isArray(record.candidate_keys)) return null
+  const candidates: SystemCandidate[] = []
+  for (const raw of record.candidate_keys) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null
+    const candidate = raw as Record<string, unknown>
+    if (typeof candidate.system_key !== "string" || !candidate.system_key.trim()) return null
+    candidates.push({ systemKey: candidate.system_key, systemName: String(candidate.system_name || "").trim() })
+  }
+  return candidates.length >= 2 ? candidates : null
+}
+
+/** The per-system page for one system: by name, and by KEY whenever the answer carried one (B5) -- with the account for a
+ *  tag / source key, which is one system per account. Without a key the link is byte-identical to before
+ *  (``encodeURIComponent``, never URLSearchParams' "+" for a space). */
+export function systemDetailHref(systemName: string, systemKey?: string | null, accountId?: string | null): string {
+  const key = systemKey ? `&system_key=${encodeURIComponent(systemKey)}` : ""
+  const account = systemKey && accountId ? `&account_id=${encodeURIComponent(accountId)}` : ""
+  return `/systems?systemName=${encodeURIComponent(systemName)}${key}${account}`
+}
+
 /** The scope a with-families answer says it was computed for (its own ``scope`` block). */
 export type FamilyResponseScope = { customer_id?: string | null; account_id?: string | null; region?: string | null }
 

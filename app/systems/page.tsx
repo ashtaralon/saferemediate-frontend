@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation"
 import { SystemsView } from "@/components/systems-view"
 import { SystemDetailDashboard } from "@/components/system-detail-dashboard"
 import { ErrorBoundary } from "@/components/ui/error-boundary"
+import { systemDetailHref } from "@/lib/scoped-system-catalog"
 
 function SystemsPageInner() {
   // /systems supports two modes:
@@ -25,6 +26,10 @@ function SystemsPageInner() {
   const sp = useSearchParams()
   const router = useRouter()
   const systemName = sp.get("systemName") || undefined
+  // A7 B5: on a v2 install the system's KEY rides with its name -- two systems may share a name, never a key.
+  const systemKey = sp.get("system_key") || null
+  // A tag / source key is one system PER ACCOUNT: the account the row was linked under rides with its key.
+  const systemAccountId = systemKey ? sp.get("account_id") || null : null
   const rawTab = sp.get("tab") || undefined
   const jewel = sp.get("jewel")
   const path = sp.get("path")
@@ -44,6 +49,8 @@ function SystemsPageInner() {
       <ErrorBoundary componentName="System Dashboard">
         <SystemDetailDashboard
           systemName={systemName}
+          systemKey={systemKey}
+          systemAccountId={systemAccountId}
           initialTab={initialTab}
           initialAttackPathMode={initialAttackPathMode}
           onBack={() => router.push("/systems")}
@@ -55,8 +62,8 @@ function SystemsPageInner() {
   return (
     <SystemsView
       systemName={systemName}
-      onSystemSelect={(selectedSystem) =>
-        router.push(`/systems?systemName=${encodeURIComponent(selectedSystem)}`)
+      onSystemSelect={(selectedSystem, selectedKey, selectedAccount) =>
+        router.push(systemDetailHref(selectedSystem, selectedKey, selectedAccount))
       }
     />
   )

@@ -31,6 +31,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { ResourceConfigTab } from "@/components/inventory/resource-config-tab"
 import { ResourceDossier } from "@/components/inventory/resource-dossier"
 import { canonicalInventoryResourceId } from "@/lib/inventory-resource-identity"
+import { ambiguousSystemCandidates, systemDetailHref, type SystemCandidate } from "@/lib/scoped-system-catalog"
+import Link from "next/link"
 import { ServiceTypeBadge, getServiceMeta } from "@/lib/service-type"
 
 export interface ServiceNode {
@@ -87,6 +89,10 @@ export function inventoryStatusClassName(status: string): string {
 
 interface AllServicesTabProps {
   systemName: string
+  /** A7 B5: the system's KEY on a v2 install -- addresses exactly one system when two share the name. */
+  systemKey?: string | null
+  /** A7 B5: with a tag / source key, the account of its row (one system per account); null for an authored key. */
+  systemAccountId?: string | null
 }
 
 const COMPUTE_DATA_TYPES = [
@@ -143,9 +149,11 @@ function matchesTypeList(type: string, list: readonly string[]): boolean {
 // 2026-07-13). Covered types render triple-coded (color + icon + short label);
 // uncovered types fall back to the neutral `Resource` tile.
 
-export function AllServicesTab({ systemName }: AllServicesTabProps) {
+export function AllServicesTab({ systemName, systemKey = null, systemAccountId = null }: AllServicesTabProps) {
   const [services, setServices] = useState<ServiceNode[]>([])
   const [loadError, setLoadError] = useState<string | null>(null)
+  // B5: the name stands for several systems (409 SYSTEM_NAME_AMBIGUOUS): a person chooses one; none is shown meanwhile.
+  const [ambiguous, setAmbiguous] = useState<SystemCandidate[] | null>(null)
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set<string>())
@@ -165,7 +173,7 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
   useEffect(() => {
     fetchServices()
     fetchGapData()
-  }, [systemName])  // Re-fetch when systemName changes
+  }, [systemName, systemKey, systemAccountId])  // Re-fetch when the system (name, key or account) changes
 
   const mapGraphResources = (graphResources: any[]): ServiceNode[] => {
     const TYPE_NORMALIZE: Record<string, string> = {
@@ -210,10 +218,17 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
 
   const fetchServices = async (attempt = 1) => {
     setLoading(true)
-    if (attempt === 1) setLoadError(null)
+    if (attempt === 1) {
+      setLoadError(null)
+      setAmbiguous(null)
+    }
     try {
+      const keyQuery = systemKey
+        ? `?system_key=${encodeURIComponent(systemKey)}` +
+          (systemAccountId ? `&account_id=${encodeURIComponent(systemAccountId)}` : "")
+        : ""
       const graphResponse = await fetch(
-        `/api/proxy/system-resources/${encodeURIComponent(systemName)}`,
+        `/api/proxy/system-resources/${encodeURIComponent(systemName)}${keyQuery}`,
         { cache: "no-store" },
       )
 
@@ -222,6 +237,13 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
         graphData = await graphResponse.json()
       } catch {
         graphData = null
+      }
+
+      const candidates = ambiguousSystemCandidates(graphResponse.status, graphData)
+      if (candidates) {
+        setAmbiguous(candidates)
+        setServices([])
+        return
       }
 
       if (graphResponse.ok && graphData && !graphData.error) {
@@ -725,6 +747,28 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
       {loadError && (
         <div className="rounded-md border border-[#ef444440] bg-[#ef444410] px-4 py-3 text-sm text-[#ef4444]">
           Failed to load system-attributed services: {loadError}. Try Refresh — the backend can take up to 15s.
+        </div>
+      )}
+
+      {ambiguous && (
+        <div
+          role="alert"
+          data-testid="system-name-ambiguous"
+          className="rounded-md border border-[var(--border,#374151)] px-4 py-3 text-sm"
+        >
+          <p className="mb-2">
+            {ambiguous.length} systems are named &ldquo;{systemName}&rdquo;. Choose one to see its services:
+          </p>
+          <ul className="list-disc pl-5 space-y-1">
+            {ambiguous.map((candidate) => (
+              <li key={candidate.systemKey}>
+                <Link className="underline" href={systemDetailHref(candidate.systemName || systemName, candidate.systemKey)}>
+                  {candidate.systemName || systemName}
+                </Link>{" "}
+                <span className="text-[var(--muted-foreground,#9ca3af)]">({candidate.systemKey})</span>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 

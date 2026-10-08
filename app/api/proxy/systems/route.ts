@@ -119,6 +119,9 @@ export async function GET(req: NextRequest) {
     }
 
     const coverage = Object.fromEntries(COVERAGE_KEYS.filter((key) => key in data).map((key) => [key, data[key]]))
+    // A7 B5: which Systems list contract the backend answered (systems_list_read/v2: one row per system identity). Relayed
+    // only when present, so a v1 answer is byte-identical; dropping it would make the page read a v2 list as v1.
+    if (data && typeof data === "object" && "contract" in data) coverage.contract = data.contract
     if (isHold(data)) {
       // A hold is a status report, not a list: systems stays null, nothing is cached.
       return NextResponse.json(

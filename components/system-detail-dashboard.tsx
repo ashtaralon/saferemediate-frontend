@@ -603,6 +603,10 @@ const BehavioralIntelligence = dynamic(
 
 interface SystemDetailDashboardProps {
   systemName: string
+  /** A7 B5: on a v2 install the system's KEY (the name is display only; two systems may share it). Absent on a v1 answer. */
+  systemKey?: string | null
+  /** A7 B5: the account of a tag / source key's row (one system per account); null for an authored key. */
+  systemAccountId?: string | null
   onBack: () => void
   // Optional navigation callback so embedded views (Trust Boundary Map's
   // "Show the path" CTA) can deep-link into other sections without
@@ -702,7 +706,7 @@ const ENVIRONMENT_OPTIONS = [
 // COMPONENT
 // =============================================================================
 
-export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection, initialTab, initialAttackPathMode }: SystemDetailDashboardProps) {
+export function SystemDetailDashboard({ systemName, systemKey = null, systemAccountId = null, onBack, onNavigateToSection, initialTab, initialAttackPathMode }: SystemDetailDashboardProps) {
   const systemsCatalog = useScopedSystemCatalog()
   // Attacker Map lives as an internal chip next to Attack Path (not a Risk sub-tab).
   const resolvedInitialTab = initialTab === "attacker-map" ? "attack-paths" : (initialTab ?? "overview")
@@ -1362,9 +1366,14 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
       const res = await fetch(systemsCatalog.url)
       if (res.ok) {
         const data = await res.json()
-        const match = (data.systems || []).find(
-          (s: any) => (s.SystemName || s.name || s.systemName) === systemName
-        )
+        // A7 B5: by key when the link carries one; by name only when exactly ONE row has that name -- the first of several
+        // would show another system's account and region as this one's.
+        const rows: any[] = Array.isArray(data.systems) ? data.systems : []
+        const matches = systemKey
+          ? rows.filter((s: any) =>
+              s.system_key === systemKey && (s.identity?.account_id ?? null) === (systemAccountId ?? null))
+          : rows.filter((s: any) => (s.SystemName || s.name || s.systemName) === systemName)
+        const match = matches.length === 1 ? matches[0] : null
         if (match) {
           setSystemMeta({
             criticality: match.criticality || "",
@@ -1441,7 +1450,7 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
 
   useEffect(() => {
     fetchSystemMeta()
-  }, [systemName, systemsCatalog.url])
+  }, [systemName, systemKey, systemAccountId, systemsCatalog.url])
 
   // The executive Overview reads one bounded, server-composed snapshot.
   // Legacy fetchAllData remains for old helpers while they are retired, but
@@ -2913,7 +2922,7 @@ export function SystemDetailDashboard({ systemName, onBack, onNavigateToSection,
 
       {activeTab === "all-services" && (
         <div className="max-w-[1800px] mx-auto px-8 py-6">
-          <AllServicesTab key={refreshKey} systemName={systemName} />
+          <AllServicesTab key={refreshKey} systemName={systemName} systemKey={systemKey} systemAccountId={systemAccountId} />
         </div>
       )}
 
