@@ -21,7 +21,7 @@ vi.mock("@/lib/server/backend-url", async () => {
 })
 
 import { GET, POST } from "@/app/api/proxy/system-boundary/[...path]/route"
-import { AUTHORING_MAX_BODY_BYTES, AUTHORING_MAX_CURSOR } from "@/lib/server/authoring-proxy"
+import { AUTHORING_MAX_BODY_BYTES, AUTHORING_MAX_CURSOR, AUTHORING_MAX_SYSTEM_KEY_BYTES } from "@/lib/server/authoring-proxy"
 
 const APP = "https://app.example"
 const PROXY = `${APP}/api/proxy/system-boundary`
@@ -144,6 +144,11 @@ describe("authoring proxy -- exactly the ten routes", () => {
     "declarations/applied?account_id=111111111111&limit=1",
     "wizard/capability?account_id=111111111111",
     "declarations/requests?account_id=111111111111",
+    "result?account_id=111111111111&system_key=",
+    "result?account_id=111111111111&system_key=%20",
+    `result?account_id=111111111111&system_key=${"k".repeat(AUTHORING_MAX_SYSTEM_KEY_BYTES + 1)}`,
+    "result?account_id=111111111111&system_key=a&system_key=b",
+    "declarations/applied?account_id=111111111111&system_key=authored_system%3Aab",
   ])("refuses a query the route does not take (%s) and forwards nothing", async (path) => {
     resident()
     const upstream = vi.spyOn(globalThis, "fetch")
