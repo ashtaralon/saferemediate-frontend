@@ -14,7 +14,7 @@ vi.mock("@/lib/account-scope-context", () => ({
 vi.mock("@/components/left-sidebar-nav", () => ({ LeftSidebarNav: () => null }))
 
 import AccountSettingsPage from "@/app/settings/accounts/page"
-import { ACTIVATION_CHECK_MAX_AGE_MS, accountNeedsPolling, formatUtcInstantExact } from "@/lib/account-admin"
+import { ACTIVATION_CHECK_MAX_AGE_MS, accountNeedsPolling, firstInventoryOutcomeText, formatUtcInstantExact } from "@/lib/account-admin"
 import pending from "@/__tests__/fixtures/settings-c-producer/01_pending_unverified.json"
 import refused from "@/__tests__/fixtures/settings-c-producer/02_access_refused.json"
 import checking from "@/__tests__/fixtures/settings-c-producer/03_checking.json"
@@ -44,6 +44,9 @@ import withdrawn from "@/__tests__/fixtures/settings-c-producer/25_withdrawn.jso
 import withdrawRefused from "@/__tests__/fixtures/settings-c-producer/26_withdraw_refused_state_changed.json"
 import k2Measured from "@/__tests__/fixtures/settings-c-producer/27_k2_collected_measured.json"
 import k2ZeroFacts from "@/__tests__/fixtures/settings-c-producer/28_k2_collected_zero_facts.json"
+import k8sHeld from "@/__tests__/fixtures/settings-c-producer/49_k2_k8s_source_held.json"
+import k8sLegacy from "@/__tests__/fixtures/settings-c-producer/50_k2_k8s_legacy_no_scope_committed.json"
+import k8sPartly from "@/__tests__/fixtures/settings-c-producer/51_k2_k8s_partly_held.json"
 import offActivated from "@/__tests__/fixtures/settings-c-producer/38_activated_listing.json"
 import offRequested from "@/__tests__/fixtures/settings-c-producer/39_offboard_requested.json"
 import offPending from "@/__tests__/fixtures/settings-c-producer/40_offboard_pending_listing.json"
@@ -587,6 +590,68 @@ describe("K2: a count only from runs that measured it", () => {
       `First inventory collected: all 31 work items committed their evidence and recorded no resources ${asOf(k2ZeroFacts as Capture)}. ` +
       "That is what these inventory reads returned in the account's Regions, not a claim that the account holds nothing.")
     expect(text).not.toHaveTextContent(/state Cyntro does not know|is empty|nothing found/)
+  })
+})
+
+// ── First-account QA M1 (Alon 2026-10-08): held, partly collected, collected and empty are four answers, never one ──────
+describe("M1: a source Cyntro could not read is never said as collected", () => {
+  const status = async (capture: Capture) => {
+    const row = await mount(capture, at(capture))
+    const node = within(row).getByTestId(`first-collection-${MEMBER}`)
+    expect(node).toHaveAttribute("data-source", "runs")
+    return node
+  }
+  const k8sItem = (capture: Capture) =>
+    (firstInventoryOutcomeOf(capture).items as Array<Record<string, any>>).find((item) => item.source_type === "k8s_objects")!
+  const collectedCount = (capture: Capture) =>
+    (firstInventoryOutcomeOf(capture).items as Array<Record<string, any>>).filter((item) => item.state === "COLLECTED").length
+
+  it("the producer's captures are the corrected backend's: SOURCE_HELD by its class, SOURCE_HELD by what an earlier run proves, PARTIAL", () => {
+    expect([k8sHeld, k8sLegacy, k8sPartly].map((c) => [firstInventoryOutcomeOf(c as Capture).state, k8sItem(c as Capture).state]))
+      .toEqual([["SOURCE_HELD", "SOURCE_HELD"], ["SOURCE_HELD", "SOURCE_HELD"], ["PARTIAL", "PARTIAL"]])
+    expect(k8sItem(k8sHeld as Capture).error_class).toMatch(/^SOURCE_HELD:K8S_CLUSTERS_UNREADABLE:1\/1:cyntro-k8s-test=api:/)
+    expect([k8sItem(k8sLegacy as Capture).run_status, k8sItem(k8sLegacy as Capture).reason]).toEqual(["EVIDENCE_COMMITTED", "NO_SCOPE_COMMITTED"])
+    expect(k8sItem(k8sPartly as Capture).error_class).toMatch(/^K8S_CLUSTERS_PARTLY_HELD:1\/2:cyntro-k8s-test=api:/)
+    for (const capture of [k8sHeld, k8sLegacy, k8sPartly] as Capture[]) {
+      expect(firstInventoryOutcomeOf(capture).facts_emitted_total).toBeNull()
+      expect(k8sItem(capture)).not.toHaveProperty("facts_emitted")
+    }
+  })
+
+  it("held: incomplete, the collected count beside it, the held item by name with its run's own class -- never 'all committed'", async () => {
+    const node = await status(k8sHeld as Capture)
+    const klass = k8sItem(k8sHeld as Capture).error_class
+    expect(node).toHaveTextContent(
+      `First inventory incomplete: ${collectedCount(k8sHeld as Capture)} of 31 work items collected; 1 work item could not read its ` +
+      `source and committed nothing: Kubernetes objects (${klass}) ${asOf(k8sHeld as Capture)}.`)
+    expect(node).not.toHaveTextContent(/evidence of all|resource record|state Cyntro does not know/)
+  })
+
+  it("an earlier run of a held cluster says what it proves, not a class it never recorded", async () => {
+    const node = await status(k8sLegacy as Capture)
+    expect(node).toHaveTextContent(
+      "1 work item could not read its source and committed nothing: Kubernetes objects (its run committed no cluster; " +
+      "it was recorded before Cyntro recorded why)")
+    expect(node).toHaveTextContent(/^First inventory incomplete: 30 of 31 work items collected/)
+    expect(node).not.toHaveTextContent(/evidence of all|no class recorded|NO_SCOPE_COMMITTED/)
+  })
+
+  it("partly held: partly collected, by its class", async () => {
+    const node = await status(k8sPartly as Capture)
+    expect(node).toHaveTextContent(
+      `First inventory partly collected: 1 work item ended partial (${k8sItem(k8sPartly as Capture).error_class}) ${asOf(k8sPartly as Capture)}.`)
+    expect(node).not.toHaveTextContent(/evidence of all|incomplete/)
+  })
+
+  it("held, partly collected, collected and empty are four different answers", () => {
+    const said = ([k8sHeld, k8sPartly, k2Measured, k2ZeroFacts] as Capture[]).map((capture) =>
+      firstInventoryOutcomeText(firstInventoryOutcomeOf(capture) as never)!)
+    expect(said.map((s) => s.text.split(":")[0])).toEqual([
+      "First inventory incomplete", "First inventory partly collected", "First inventory collected", "First inventory collected"])
+    expect(said.map((s) => s.tone)).toEqual(["blocked", "blocked", "done", "done"])
+    // Collected and empty differ by what was measured: a count, or what the reads returned.
+    expect(said[2].text).toMatch(/is committed, \d+ resource records/)
+    expect(said[3].text).toContain("recorded no resources")
   })
 })
 

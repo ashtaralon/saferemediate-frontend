@@ -28,6 +28,7 @@ import withdrawn from "@/__tests__/fixtures/settings-c-producer/25_withdrawn.jso
 import offboarded from "@/__tests__/fixtures/settings-c-producer/41_offboarded_listing.json"
 import reAdded from "@/__tests__/fixtures/settings-c-producer/45_re_added_listing.json"
 import pending from "@/__tests__/fixtures/settings-c-producer/01_pending_unverified.json"
+import k8sHeld from "@/__tests__/fixtures/settings-c-producer/49_k2_k8s_source_held.json"
 
 const MEMBER = "222222222222"
 const inventory = (name: string) =>
@@ -64,6 +65,18 @@ describe("the account page's Overview", () => {
     // Largest measured first: the producer's own top item.
     const top = [...outcome.items].sort((a: any, b: any) => b.facts_emitted - a.facts_emitted)[0]
     expect(within(table).getAllByRole("row")[1]).toHaveTextContent(String(top.facts_emitted))
+  })
+
+  it("M1: a held source is listed as held with no count, and the inventory is said incomplete, never all committed", async () => {
+    serve(k8sHeld as never)
+    await open(MEMBER)
+    const table = await screen.findByTestId("first-inventory-by-type")
+    const k8s = within(table).getAllByRole("row").find((r) => r.textContent?.startsWith("Kubernetes objects"))!
+    expect(k8s).toHaveTextContent("source held")
+    expect(k8s).toHaveTextContent("—")
+    expect(screen.getByText(/^First inventory incomplete: 30 of 31 work items collected; 1 work item could not read its source/))
+      .toBeInTheDocument()
+    expect(screen.queryByText(/evidence of all|resource records in all/)).toBeNull()
   })
 
   it("a registration that was never activated has no first inventory to list", async () => {

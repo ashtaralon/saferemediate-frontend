@@ -117,3 +117,21 @@ GET that the step made. Regenerate them; do not edit them.
 - Files (the only first-account states 01-46 lack: a check that REACHED the account but could not read its name):
   - 47: GetAccountInformation answered AccessDenied, so the check records `name_unreadable` NOT_PERMITTED.
   - 48: GetAccountInformation answered an empty AccountName, so the check records `name_unreadable` NO_NAME.
+
+## 49-51 (first-account QA M1: a source Cyntro could not read)
+
+- Producer: saferemediate-backend `1602528651087c1f8be2c549c6dd7c4bbb0b3840` (M1 on rehearsal.41's backend ceb6a148; local, not yet
+  pushed), from that tree.
+- Generator: `agent-coordinator/claude-settings-r42-evidence-2026-10-08/m1/test_m1_producer_captures.py` (sha256 in
+  `generator-sha256.txt` beside it; how each file was written is in `README-run.txt`), copied into that tree's `tests/` and run
+  with pytest there: the gaps harness (the real router, the real repository on moto DynamoDB, the real person verification, the
+  real connector), with every queued work item run by the REAL inventory handler over the member account on moto. The member
+  holds an EKS cluster (`cyntro-k8s-test`, created on moto in that account); the handler's own k8s_objects path lists and
+  describes it and cannot read its API server (on moto the certificate authority does not decode: `api:UnicodeDecodeError`).
+- Files:
+  - 49: that run as the corrected handler records it: PARTIAL by `SOURCE_HELD:K8S_CLUSTERS_UNREADABLE:1/1:...` -> SOURCE_HELD.
+  - 50: the k8s item recorded as the installed r41 handler recorded a held outcome (the collection envelope driven as that
+    handler drove it: EVIDENCE_COMMITTED, no count, a recorded empty token); every other item the real handler's. The corrected
+    reader: SOURCE_HELD, `NO_SCOPE_COMMITTED`.
+  - 51: a second cluster (`payments-eks`) whose API server is answered at the kube transport's call site (urllib, which moto does
+    not serve) with an empty cluster: one cluster committed, one held -> PARTIAL by `K8S_CLUSTERS_PARTLY_HELD:1/2:...`.

@@ -809,6 +809,26 @@ function unavailableReason(reason?: string | null): string {
   return UNAVAILABLE_REASONS[code] ?? (code || "no reason was recorded")
 }
 
+/** Why a held item committed nothing, when its run predates the class a held source is recorded by: what that run proves. */
+const HELD_REASONS: Record<string, string> = {
+  NO_SCOPE_COMMITTED: "its run committed no cluster; it was recorded before Cyntro recorded why",
+}
+
+/** The held work items by name, each with its run's own class verbatim -- or, for an earlier run, what that run proves. */
+function heldItems(outcome: FirstInventoryOutcome): string {
+  return outcome.items
+    .filter((i) => i.state === "SOURCE_HELD")
+    .map((i) => `${sourceTypeLabel(i.source_type)} (${i.error_class || HELD_REASONS[i.reason || ""] || i.reason || "no reason recorded"})`)
+    .join(", ")
+}
+
+/** "; 1 work item could not read its source and committed nothing: Kubernetes objects (...)" -- or nothing. */
+function heldClause(outcome: FirstInventoryOutcome, count: number): string {
+  if (!count) return ""
+  const unit = `${count} ${plural(count, "work item", "work items")}`
+  return `; ${unit} could not read ${count === 1 ? "its" : "their"} source and committed nothing: ${heldItems(outcome)}`
+}
+
 /** The distinct error classes of the items in `state`, verbatim (never a role name inferred from them). */
 function errorClasses(outcome: FirstInventoryOutcome, state: string): string {
   const classes = [...new Set(outcome.items.filter((i) => i.state === state).map((i) => i.error_class || "no class recorded"))]
@@ -860,6 +880,11 @@ export function firstInventoryOutcomeText(
       return { tone: "blocked", text: `First inventory failed for ${items(n("failed"))} (${errorClasses(outcome, "FAILED")}); your installer or Cyntro support can act on it${asOf}.` }
     case "PARTIAL":
       return { tone: "blocked", text: `First inventory partly collected: ${items(n("partial"))} ended partial (${errorClasses(outcome, "PARTIAL")})${asOf}.` }
+    case "SOURCE_HELD": {
+      // A source the collector could not read committed nothing: the inventory is incomplete, never "all committed".
+      const moving = n("queued") + n("intended") + n("collecting") + n("starting")
+      return { tone: "blocked", text: `First inventory incomplete: ${n("collected") + n("completed")} of ${items(total)} collected${heldClause(outcome, n("source_held"))}${moving ? `; ${moving} still in progress` : ""}${asOf}.` }
+    }
     case "ENDED":
       return { tone: "blocked", text: `First inventory: ${items(n("ended"))} ended without collecting (${errorClasses(outcome, "ENDED")})${asOf}.` }
     case "UNAVAILABLE":
