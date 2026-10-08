@@ -26,6 +26,18 @@ import {
 import { ambiguousSystemCandidates } from "@/lib/scoped-system-catalog"
 
 vi.mock("@/lib/server/backend-url", () => ({ getBackendBaseUrl: () => "https://backend.example" }))
+// EstateMapView (and DependencyMapTab, which embeds it) reads the product scope, which the app shell's AccountScopeProvider
+// always supplies (components/providers.tsx). These tests are about the system KEY, so the scope is the un-narrowed one --
+// no customer, every group / account / Region -- and never competes with the key's account. Every other export is real.
+vi.mock("@/lib/account-scope-context", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/account-scope-context")>()),
+  useAccountScope: () => ({
+    customerId: null, groupId: "all", accountId: "all", region: "all",
+    options: null, customers: [], loading: false, error: null, scopeNotices: [],
+    dismissScopeNotices: () => {}, setCustomerId: () => {}, setGroupId: () => {}, setAccountId: () => {},
+    setRegion: () => {}, refresh: () => {},
+  }),
+}))
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- a capture's body is untyped JSON */
 const capture = (name: string): { status: number; body: any } =>
