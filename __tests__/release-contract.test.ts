@@ -12,6 +12,7 @@ import { CENSUS_CONTRACT, censusPath, parseCensusResponse } from "@/lib/account-
 import { STACKS_CONTRACT, parseStacksResponse } from "@/lib/system-boundary-stacks"
 import { APPLIED_CONTRACT, parseAppliedResponse } from "@/lib/system-boundary-applied"
 import { CAPABILITY_CONTRACT, REQUIRED_SAVE_ENVELOPE_LEVEL, parseCapabilityResponse } from "@/lib/system-boundary-capability"
+import { RESULT_CONTRACT, parseResultResponse } from "@/lib/system-boundary-result"
 import { parseInventoryResponse, RESPONSE_MALFORMED } from "@/lib/account-inventory"
 import { SYSTEMS_LIST_ACCEPTS, SYSTEMS_LIST_CONTRACT, systemsListLevel } from "@/lib/scoped-system-catalog"
 import {
@@ -39,6 +40,8 @@ describe("the release contract this frontend requires", () => {
     expect(STACKS_CONTRACT).toBe(`account_census_stacks_read/v${declaration.requires.account_census_stacks_read}`)
     expect(APPLIED_CONTRACT).toBe(`declarations_applied/v${declaration.requires.declarations_applied}`)
     expect(CAPABILITY_CONTRACT).toBe(`system_boundary_wizard_capability/v${declaration.requires.system_boundary_wizard_capability}`)
+    // C-D: the wizard's result screen (components/system-boundary/system-result.tsx) reads GET /api/system-boundary/result.
+    expect(RESULT_CONTRACT).toBe(`system_boundary_result_read/v${declaration.requires.system_boundary_result_read}`)
   })
 
   it("requires save envelope level 2 because the wizard saves stack bindings and resource decisions", () => {
@@ -140,6 +143,21 @@ describe("what this frontend can read (accepts)", () => {
     const n = declaration.accepts[name]
     const page = capture("system-boundary-captures", file)
     const at = (level: number) => parse(page.status, { ...structuredClone(page.body), contract: `${name}/v${level}` })
+    expect(at(n).kind).not.toBe("unavailable")
+    expect(at(n + 1).kind).toBe("unavailable")
+  })
+
+  // C-D (A7 rev-4): the wizard's result. The capture is the backend's real served answer ("result": a v2 publication named by
+  // a real cohort build), from the same harness as the wizard captures; the account its parser is asked for is the one the
+  // capture's own request named (_provenance.request.query.account_id), since an answer for another account is refused.
+  it("reads the result at exactly its declared level: that contract parses, the next one is not read", () => {
+    const n = declaration.accepts.system_boundary_result_read
+    expect(RESULT_CONTRACT).toBe(`system_boundary_result_read/v${n}`)
+    const page = capture("system-boundary-captures", "result") as { status: number; body: any; _provenance: any }
+    const accountId = String(page._provenance.request.query.account_id)
+    const at = (level: number) =>
+      parseResultResponse(page.status, { ...structuredClone(page.body), contract: `system_boundary_result_read/v${level}` },
+        accountId)
     expect(at(n).kind).not.toBe("unavailable")
     expect(at(n + 1).kind).toBe("unavailable")
   })
