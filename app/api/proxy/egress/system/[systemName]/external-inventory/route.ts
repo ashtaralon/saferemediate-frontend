@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
 import { systemChoiceDetail } from "@/lib/server/proxy-error"
+import { upstreamCachePolicy } from "@/lib/server/proxy-cache-hygiene"
 
 // Proxy for the External Egress Inventory endpoint — chunk #1 of the
 // alert-only egress inventory MVP. Forwards filter/pagination params
@@ -64,7 +65,9 @@ export async function GET(
         { status: res.status },
       )
     }
-    return NextResponse.json(await res.json())
+    // B5 review: a published answer is sent no-store by the backend; pass that on (this proxy never caches).
+    const noStore = upstreamCachePolicy(res.headers.get("cache-control")) === "no-store"
+    return NextResponse.json(await res.json(), noStore ? { headers: { "Cache-Control": "no-store" } } : undefined)
   } catch (err: any) {
     return NextResponse.json(
       { error: err.message || "Failed to fetch external egress inventory" },

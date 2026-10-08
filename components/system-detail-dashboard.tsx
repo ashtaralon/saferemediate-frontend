@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import dynamic from "next/dynamic"
 import {
   ArrowLeft,
@@ -388,13 +388,21 @@ function EgressTabContainer({
   const [pipelineWorkload, setPipelineWorkload] = useState<any>(null)
 
   // When the parent passes a deep-link, switch to inventory view so the
-  // operator lands on the row table immediately. The deep-link itself
-  // is owned by the dashboard so it survives this container's mount/
-  // unmount (the container isn't mounted until the Traffic tab is
-  // active, which happens AFTER the chip click fires the events).
+  // operator lands on the row table immediately. The deep-link is owned
+  // by the dashboard until this container mounts (the container isn't
+  // mounted until the Traffic tab is active, which happens AFTER the chip
+  // click fires the events); here it is CONSUMED: copied into this
+  // container's own state and cleared on the dashboard. This container is
+  // keyed by system name + key + account, so another system identity is a
+  // fresh container with no deep link -- never the previous identity's
+  // workload filter (B5 review, 2026-10-08).
+  const [activeDeepLink, setActiveDeepLink] = useState<TrafficDeepLink | null>(deepLink)
   useEffect(() => {
-    if (deepLink) setView("inventory")
-  }, [deepLink])
+    if (!deepLink) return
+    setActiveDeepLink(deepLink)
+    setView("inventory")
+    onDeepLinkConsumed()
+  }, [deepLink, onDeepLinkConsumed])
 
   return (
     <div className="space-y-4">
@@ -482,12 +490,12 @@ function EgressTabContainer({
         </div>
       ) : view === "inventory" ? (
         <EgressExternalInventory
-          key={deepLink ? `dl-${deepLink.workloadId}-${deepLink.direction}` : "default"}
+          key={activeDeepLink ? `dl-${activeDeepLink.workloadId}-${activeDeepLink.direction}` : "default"}
           systemName={systemName}
           systemKey={systemKey}
           systemAccountId={systemAccountId}
-          initialWorkloadId={deepLink?.workloadId ?? null}
-          initialDirection={deepLink?.direction}
+          initialWorkloadId={activeDeepLink?.workloadId ?? null}
+          initialDirection={activeDeepLink?.direction}
           onSelectWorkload={(id, name) => {
             setPendingDrillWorkload({ id, name })
             setView("by-workload")
@@ -729,10 +737,21 @@ export function SystemDetailDashboard({ systemName, systemKey = null, systemAcco
   // container isn't mounted until activeTab === "egress", so its own
   // useEffect would register too late and miss the event. The deep-
   // link payload is passed down as a prop instead.
-  const [trafficDeepLink, setTrafficDeepLink] = useState<{
-    workloadId?: string
-    direction?: "outbound" | "inbound"
-  } | null>(null)
+  const [trafficDeepLink, setTrafficDeepLink] = useState<(TrafficDeepLink & { identity: string }) | null>(null)
+  // B5 (review 2026-10-08): a deep link belongs to the system IDENTITY open when it arrived (name + key + account);
+  // switching to another identity -- two systems may share a name -- drops it, never carries its workload filter over.
+  const identity = `${systemName}|${systemKey ?? ""}|${systemAccountId ?? ""}`
+  const identityRef = useRef(identity)
+  identityRef.current = identity
+  useEffect(() => {
+    setTrafficDeepLink(null)
+  }, [identity])
+  const consumeTrafficDeepLink = useCallback(() => setTrafficDeepLink(null), [])
+  const currentTrafficDeepLink = useMemo<TrafficDeepLink | null>(
+    () => (trafficDeepLink && trafficDeepLink.identity === identity
+      ? { workloadId: trafficDeepLink.workloadId, direction: trafficDeepLink.direction } : null),
+    [trafficDeepLink, identity],
+  )
   useEffect(() => {
     const navHandler = (event: Event) => {
       const detail = (event as CustomEvent<{ tabId?: string }>).detail
@@ -743,7 +762,7 @@ export function SystemDetailDashboard({ systemName, systemKey = null, systemAcco
         workloadId?: string
         direction?: "outbound" | "inbound"
       }>).detail
-      if (detail) setTrafficDeepLink(detail)
+      if (detail) setTrafficDeepLink({ ...detail, identity: identityRef.current })
     }
     window.addEventListener("cyntro:navigate-tab", navHandler)
     window.addEventListener("cyntro:traffic:deep-link", deepLinkHandler)
@@ -2900,8 +2919,8 @@ export function SystemDetailDashboard({ systemName, systemKey = null, systemAcco
             systemName={systemName}
             systemKey={systemKey}
             systemAccountId={systemAccountId}
-            deepLink={trafficDeepLink}
-            onDeepLinkConsumed={() => setTrafficDeepLink(null)}
+            deepLink={currentTrafficDeepLink}
+            onDeepLinkConsumed={consumeTrafficDeepLink}
             onNavigateToSection={onNavigateToSection}
           />
         </div>

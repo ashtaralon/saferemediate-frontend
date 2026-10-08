@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
 import { clearCached, getCached, getStaleCached, setCached, TTL_SLOW } from "@/lib/server/proxy-cache"
-import { isPoisonousProxyPayload } from "@/lib/server/proxy-cache-hygiene"
+import { isPoisonousProxyPayload, upstreamCachePolicy, type UpstreamCachePolicy } from "@/lib/server/proxy-cache-hygiene"
 import { buildTopologyRiskServerCacheKey } from "@/components/topology-v0-2/topology-scope-url"
 import { TOPOLOGY_RISK_PROXY_TIMEOUT_MS } from "@/lib/server/snapshot-proxy"
 import { systemChoiceDetail } from "@/lib/server/proxy-error"
@@ -120,8 +120,14 @@ function respondOk(
   data: unknown,
   cacheLabel: string,
   scope: ReturnType<typeof scopeFromRequest>,
+  upstream: UpstreamCachePolicy = "unspecified",
 ): NextResponse {
   const stamped = stampSelectedScope(data, scope)
+  if (upstream === "no-store") {
+    // B5 review (2026-10-08): the backend sent this answer no-store (a published / cohort Estate answer is decided per
+    // request); never kept here and never offered to an edge cache.
+    return NextResponse.json(stamped, { headers: { "X-Cache": "BYPASS", "Cache-Control": "no-store" } })
+  }
   if (isPoisonousProxyPayload(stamped)) {
     const stale = serveStale(cacheKey, "peer_computing")
     if (stale) return stale
@@ -141,7 +147,7 @@ function respondOk(
 async function fetchTopology(
   url: string,
   timeoutMs: number,
-): Promise<{ ok: true; data: unknown } | { ok: false; status: number; body: string } | { ok: false; timeout: true } | { ok: false; error: string }> {
+): Promise<{ ok: true; data: unknown; cache: UpstreamCachePolicy } | { ok: false; status: number; body: string } | { ok: false; timeout: true } | { ok: false; error: string }> {
   try {
     const res = await fetch(url, {
       headers: { "Content-Type": "application/json" },
@@ -152,7 +158,7 @@ async function fetchTopology(
       const body = await res.text().catch(() => "")
       return { ok: false, status: res.status, body }
     }
-    return { ok: true, data: await res.json() }
+    return { ok: true, data: await res.json(), cache: upstreamCachePolicy(res.headers.get("cache-control")) }
   } catch (err: unknown) {
     if (isTimeoutError(err)) return { ok: false, timeout: true }
     return {
@@ -198,13 +204,13 @@ export async function GET(
   // abort early so we still have budget for a snapshot retry.
   let result = await fetchTopology(url, TOPOLOGY_WAKE_TIMEOUT_MS)
   if (result.ok === true) {
-    return respondOk(cacheKey, result.data, "MISS", scope)
+    return respondOk(cacheKey, result.data, "MISS", scope, result.cache)
   }
 
   if ("status" in result && result.status === 503) {
     await new Promise((r) => setTimeout(r, 800))
     result = await fetchTopology(url, TOPOLOGY_RETRY_TIMEOUT_MS)
-    if (result.ok === true) return respondOk(cacheKey, result.data, "MISS", scope)
+    if (result.ok === true) return respondOk(cacheKey, result.data, "MISS", scope, result.cache)
   }
 
   // Attempt 2 — after wake / timeout / 5xx, DynamoDB snapshot is usually ready.
@@ -215,7 +221,7 @@ export async function GET(
     )
     await new Promise((r) => setTimeout(r, 400))
     const retry = await fetchTopology(url, TOPOLOGY_RETRY_TIMEOUT_MS)
-    if (retry.ok === true) return respondOk(cacheKey, retry.data, "MISS-RETRY", scope)
+    if (retry.ok === true) return respondOk(cacheKey, retry.data, "MISS-RETRY", scope, retry.cache)
     result = retry
   }
 

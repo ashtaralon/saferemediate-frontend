@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { backendError, fromCaughtError, systemChoiceDetail } from "@/lib/server/proxy-error";
 import { getBackendBaseUrl } from "@/lib/server/backend-url";
+import { upstreamCachePolicy } from "@/lib/server/proxy-cache-hygiene";
 
 const BACKEND_URL = getBackendBaseUrl();
 
@@ -122,6 +123,10 @@ export async function GET(req: NextRequest) {
     }
 
     const data = await res.json();
+    if (upstreamCachePolicy(res.headers.get("cache-control")) === "no-store") {
+      // B5 review (2026-10-08): a published / cohort Estate answer is decided per request -- never kept, never edge-cached.
+      return NextResponse.json(data, { headers: { "X-Cache": "BYPASS", "Cache-Control": "no-store" } });
+    }
     cache[cacheKey] = { data, timestamp: Date.now() };
     const upstreamDurationMs = Date.now() - startedAt;
 

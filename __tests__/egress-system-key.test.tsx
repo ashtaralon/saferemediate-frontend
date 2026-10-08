@@ -165,6 +165,47 @@ describe("the egress proxies", () => {
   })
 })
 
+describe("the egress proxy never keeps a published answer (B5 review fix, 2026-10-08)", () => {
+  const withCacheControl = (value: string | null) => () => new Response(JSON.stringify(egressAlonProd), {
+    status: 200, headers: { "Content-Type": "application/json", ...(value === null ? {} : { "Cache-Control": value }) } })
+
+  it.each([
+    ["no-store", "no-store"], ["private, max-age=60", "no-store"], ["no-cache", "no-store"], ["max-age=0", "no-store"],
+    ["public, max-age=300", "cacheable"], ["s-maxage=120", "cacheable"], ["public", "cacheable"],
+    [null, "unspecified"], ["", "unspecified"], ["immutable", "unspecified"],
+  ])("upstreamCachePolicy(%s) is %s", async (value, policy) => {
+    const { upstreamCachePolicy } = await import("@/lib/server/proxy-cache-hygiene")
+    expect(upstreamCachePolicy(value)).toBe(policy)
+  })
+
+  it.each([
+    ["no-store", 2, "no-store"],              // a published / cohort answer: never kept, and no-store passed on
+    [null, 2, null],                           // unspecified: not kept either (only an explicit "cacheable" is)
+    ["public, max-age=300", 1, null],          // explicitly cacheable: the second request is a HIT
+  ])("an answer sent %s reaches the backend %i time(s) for two identical requests", async (value, calls, header) => {
+    const fetchMock = vi.fn().mockImplementation(withCacheControl(value))
+    vi.stubGlobal("fetch", fetchMock)
+    const { GET } = await import("@/app/api/proxy/egress/system/[systemName]/route")
+    const call = () => GET(new NextRequest("https://cyntro.example/api/proxy/egress/system/alon%20prod?days=30&top_n=20"),
+      { params: Promise.resolve({ systemName: "alon prod" }) })
+    const first = await call()
+    await call()
+    expect(fetchMock).toHaveBeenCalledTimes(calls)
+    expect(first.headers.get("cache-control")).toBe(header)
+  })
+
+  it("a refresh (_) always reaches the backend, even over a cacheable answer", async () => {
+    const fetchMock = vi.fn().mockImplementation(withCacheControl("public, max-age=300"))
+    vi.stubGlobal("fetch", fetchMock)
+    const { GET } = await import("@/app/api/proxy/egress/system/[systemName]/route")
+    const call = (query: string) => GET(new NextRequest(`https://cyntro.example/api/proxy/egress/system/x?${query}`),
+      { params: Promise.resolve({ systemName: "x" }) })
+    await call("days=30&top_n=20")
+    await call("days=30&top_n=20&_=1")
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+})
+
 describe("systemChoiceDetail", () => {
   it("keeps code, name and each candidate's key / name / account; refuses anything else", () => {
     const { body } = capture(AMBIGUOUS)
