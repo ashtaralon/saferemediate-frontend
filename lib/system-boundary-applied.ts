@@ -118,7 +118,10 @@ export function appliedSentence(answer: ParsedApplied, revision: number | null):
   }
   if (answer.kind === "unavailable") return `Whether the save is applied could not be read (${answer.reasonCode ?? "unavailable"}).`
   if (answer.kind === "not_initialized") return "Saving is not initialized on this install."
-  if (answer.kind === "not_applied") {
+  // Only "not_applied" and "applied" are left here. Testing against "applied" (not "not_applied") lets TypeScript narrow what
+  // follows to AppliedAnswer: an earlier `=== "unavailable"` / `=== "refused"` never removes AppliedUnavailable, whose kind
+  // is the union of both.
+  if (answer.kind !== "applied") {
     if (answer.reasonCode === "NO_SERVED_COHORT") return "No membership is served for this account yet."
     return "Saved. Cyntro has not yet published the membership built from it."
   }
