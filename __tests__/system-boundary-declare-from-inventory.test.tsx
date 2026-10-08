@@ -38,6 +38,10 @@ const PUBLICATION: PublicationIdentity = {
 // The person's own grant, as the real /authoring-grants/self answered (producer golden). Nothing here reaches a network:
 // the resume store is the no-storage one (resume is the resume suite's), and any fetch not stubbed by a test fails it.
 const readGrant = async (): Promise<ReadResult<OwnGrant>> => ({ kind: "OK", value: golden("grant_self").body })
+// The wizard capability the toolbar reads on mount, as the real GET /api/system-boundary/wizard/capability answered
+// (backend capture, wizard off): injected, so it reaches no network either.
+const CAPABILITY = JSON.parse(readFileSync(resolve(process.cwd(), "__tests__/fixtures/system-boundary-captures/capability.json"), "utf8"))
+const readCapability = async (): Promise<{ status: number; body: unknown }> => ({ status: CAPABILITY.status, body: CAPABILITY.body })
 
 function mount(readDeclarations: () => Promise<ReadResult<DeclarationsView>>, accountId = "111122223333") {
   const handed: (InventorySelection | undefined)[] = []
@@ -47,7 +51,7 @@ function mount(readDeclarations: () => Promise<ReadResult<DeclarationsView>>, ac
   }
   const store = pendingStore(null)
   const utils = render(<DeclareFromInventory accountId={accountId} customerId="acme" renderInventory={renderInventory}
-    readDeclarations={readDeclarations} readGrant={readGrant} store={store} />)
+    readDeclarations={readDeclarations} readGrant={readGrant} readCapability={readCapability} store={store} />)
   return { handed, latest: () => handed[handed.length - 1], utils, renderInventory, store }
 }
 
@@ -142,7 +146,7 @@ describe("declaring from the inventory", () => {
     await settle()
     await act(async () => latest()!.onToggle(ROW, PUBLICATION))
     utils.rerender(<DeclareFromInventory accountId="444455556666" customerId="acme" renderInventory={renderInventory} readDeclarations={read}
-      readGrant={readGrant} store={store} />)
+      readGrant={readGrant} readCapability={readCapability} store={store} />)
     await settle()
     expect(latest()!.selected.size).toBe(0)
   })
