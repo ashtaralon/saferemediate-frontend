@@ -45,9 +45,10 @@ export function TopAccountsCard({
       ) : (
         <div className="flex flex-col">
           <div className="flex flex-col divide-y divide-slate-100">
-            {visible.map((s) => (
+            {visible.map((s, index) => (
               <AccountRow
-                key={s.name}
+                // A7 B5: two rows may share a name (two systems), so the name is never a React key.
+                key={s.row_key || `${s.name}-${index}`}
                 system={s}
                 active={s.name === activeSystem}
                 onSelect={() => onSelect(s.name)}

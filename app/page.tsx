@@ -48,7 +48,13 @@ import { HomeDashboardV3 } from "@/components/dashboard/v3/home-dashboard-v3"
 import { DASHBOARD_V3_ENABLED } from "@/lib/dashboard-release"
 import { readJsonCache, writeJsonCache } from "@/lib/browser-cache"
 import { normalizeFindingIdentities } from "@/lib/security-finding-identity"
-import { catalogSystemName, unrepeatedLabels, useScopedSystemCatalog } from "@/lib/scoped-system-catalog"
+import {
+  catalogEntries,
+  catalogSystemName,
+  selectCatalogSystem,
+  unrepeatedLabels,
+  useScopedSystemCatalog,
+} from "@/lib/scoped-system-catalog"
 
 // V2 is the default home. Set NEXT_PUBLIC_DASHBOARD_V2=false in Vercel to
 // roll back to the legacy home without a code redeploy.
@@ -114,6 +120,10 @@ export default function HomePage() {
   const searchParams = useSearchParams()
   const systemsCatalog = useScopedSystemCatalog()
   const systemFromUrl = searchParams.get('system')
+  // A7 B5: on a v2 install a link carries the system's KEY (and, for a tag / source key, its account): the name alone may
+  // stand for several systems.
+  const systemKeyFromUrl = searchParams.get('system_key') || null
+  const systemAccountFromUrl = systemKeyFromUrl ? searchParams.get('account_id') || null : null
   // Refresh now always lands on Home (matches the 2026-04-30 rollback
   // intent). Reading ?section= on mount was masking the fact that
   // dashboard "View all" buttons + a stale V3 link were quietly
@@ -223,6 +233,15 @@ export default function HomePage() {
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (aborted || !data) return
+        if (systemKeyFromUrl) {
+          // B5: exactly the identity the URL names, or nothing -- never another system that shares its name.
+          const selection = selectCatalogSystem(
+            { system: systemFromUrl, systemKey: systemKeyFromUrl, accountId: systemAccountFromUrl },
+            catalogEntries(data, systemsCatalog.customerId),
+          )
+          setSelectedSystem(selection.kind === "SELECTED" ? selection.entry.name : null)
+          return
+        }
         const list: any[] = Array.isArray(data?.systems) ? data.systems : []
         const candidates = list
           .filter((s) => typeof s?.name === 'string' && s.name.length > 0)
@@ -247,7 +266,8 @@ export default function HomePage() {
     return () => {
       aborted = true
     }
-  }, [activeSection, systemFromUrl, selectedSystem, systemsCatalog.ready, systemsCatalog.url])
+  }, [activeSection, systemFromUrl, systemKeyFromUrl, systemAccountFromUrl, selectedSystem, systemsCatalog.ready,
+      systemsCatalog.url, systemsCatalog.customerId])
 
   const loadData = useCallback(async (isBackgroundRefresh = false) => {
     // Only show loading spinner on initial load when no cached data exists
@@ -503,7 +523,7 @@ export default function HomePage() {
   const removableGapPercent = gapRemovablePercent(gapData)
   const lastRefreshLabel = lastRefresh.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
 
-  const handleSystemSelect = (systemName: string) => {
+  const handleSystemSelect = (systemName: string, systemKey?: string | null, systemAccountId?: string | null) => {
     // Selecting a system means "show me this system's detail view".
     // The detail-view short-circuit below only fires when activeSection
     // is "home", so we switch there too. Without this, clicking "View"
@@ -519,7 +539,12 @@ export default function HomePage() {
     // selection).
     setSelectedSystem(systemName)
     setActiveSection("home")
-    router.replace(`/?system=${encodeURIComponent(systemName)}`, { scroll: false })
+    // B5: the key (and a tag / source key's account) rides with the name, so a refresh reopens exactly this system.
+    const key = systemKey
+      ? `&system_key=${encodeURIComponent(systemKey)}` +
+        (systemAccountId ? `&account_id=${encodeURIComponent(systemAccountId)}` : "")
+      : ""
+    router.replace(`/?system=${encodeURIComponent(systemName)}${key}`, { scroll: false })
   }
 
   const handleBackFromSystem = () => {
@@ -558,6 +583,8 @@ export default function HomePage() {
       <ErrorBoundary componentName="System Dashboard">
         <SystemDetailDashboard
           systemName={selectedSystem}
+          systemKey={systemKeyFromUrl}
+          systemAccountId={systemAccountFromUrl}
           initialTab={vulnerabilityDeepLink ? "vulnerabilities" : attackPathDeepLink ? "attack-paths" : undefined}
           initialAttackPathMode={
             mode || (attackPathDeepLink ? "attack-path" : undefined)

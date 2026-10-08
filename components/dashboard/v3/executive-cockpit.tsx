@@ -453,16 +453,20 @@ export function ExecutiveCockpit({
   )
 
   const scopedSystems = useMemo(() => {
-    const byCanonicalName = new Map<string, string>()
+    // One entry per system IDENTITY (A7 B5): a v2 row's row_key; a v1 answer's rows are one per canonical name, as before.
+    // Two v2 systems that share a name are two systems here, so the single-system snapshot below never opens for either.
+    const byIdentity = new Map<string, string>()
     for (const system of systemsCatalog.data?.systems || []) {
       const name = system.SystemName || system.name
       if (typeof name !== "string" || !name.trim()) continue
       const trimmed = name.trim()
-      if (!byCanonicalName.has(trimmed.toLocaleLowerCase())) {
-        byCanonicalName.set(trimmed.toLocaleLowerCase(), trimmed)
+      const rowKey = (system as { row_key?: unknown }).row_key
+      const identity = typeof rowKey === "string" && rowKey ? `row:${rowKey}` : trimmed.toLocaleLowerCase()
+      if (!byIdentity.has(identity)) {
+        byIdentity.set(identity, trimmed)
       }
     }
-    return Array.from(byCanonicalName.values())
+    return Array.from(byIdentity.values())
   }, [systemsCatalog.data])
   // When the SCOPED catalog is empty while a narrowing filter is active, probe
   // the same endpoint with the filters lifted so the card can say what the

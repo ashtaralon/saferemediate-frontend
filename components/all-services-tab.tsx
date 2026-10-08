@@ -757,15 +757,20 @@ export function AllServicesTab({ systemName, systemKey = null, systemAccountId =
           className="rounded-md border border-[var(--border,#374151)] px-4 py-3 text-sm"
         >
           <p className="mb-2">
-            {ambiguous.length} systems are named &ldquo;{systemName}&rdquo;. Choose one to see its services:
+            &ldquo;{systemName}&rdquo; stands for {ambiguous.length} systems. Choose one to see its services:
           </p>
           <ul className="list-disc pl-5 space-y-1">
             {ambiguous.map((candidate) => (
-              <li key={candidate.systemKey}>
-                <Link className="underline" href={systemDetailHref(candidate.systemName || systemName, candidate.systemKey)}>
+              <li key={`${candidate.systemKey}|${candidate.accountId ?? ""}`}>
+                <Link
+                  className="underline"
+                  href={systemDetailHref(candidate.systemName || systemName, candidate.systemKey, candidate.accountId)}
+                >
                   {candidate.systemName || systemName}
                 </Link>{" "}
-                <span className="text-[var(--muted-foreground,#9ca3af)]">({candidate.systemKey})</span>
+                <span className="text-[var(--muted-foreground,#9ca3af)]">
+                  ({candidate.accountId ? `account ${candidate.accountId}` : candidate.systemKey})
+                </span>
               </li>
             ))}
           </ul>

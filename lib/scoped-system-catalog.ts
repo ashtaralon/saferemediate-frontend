@@ -62,12 +62,15 @@ export type CatalogIdentity = {
 /**
  * IDENTIFIED: a valid identity for this scope. LEGACY: no identity at all (a backend that still merges by name -- name-only,
  * exactly as before). MALFORMED: an identity is present but cannot be trusted; such a row is never selectable or linked, and
- * never degrades to the legacy shape.
+ * never degrades to the legacy shape. MEMBERSHIP (A7 B5, a systems_list_read/v2 answer): the row is one membership system
+ * identity -- its key, and for a tag / source key its account -- selected and linked by that, never by the name alone.
  */
 export type CatalogEntry = {
   name: string
-  status: "IDENTIFIED" | "LEGACY" | "MALFORMED"
+  status: "IDENTIFIED" | "LEGACY" | "MALFORMED" | "MEMBERSHIP"
   identity: CatalogIdentity | null
+  /** The v2 identity (MEMBERSHIP entries only). */
+  membership?: SystemRowIdentity | null
   /** The label is served by more than one row of this catalogue answer. */
   repeated: boolean
 }
@@ -91,16 +94,23 @@ function validIdentity(raw: unknown, name: string, scopeCustomerId: string | nul
   }
 }
 
-/** The catalogue answer's rows as entries, judged against the scope's tenant. */
+/** The catalogue answer's rows as entries, judged against the scope's tenant. An answer of a Systems list contract this
+ *  frontend does not know has no entries (the reading hook reports it unavailable). */
 export function catalogEntries(body: unknown, scopeCustomerId: string | null | undefined): CatalogEntry[] {
+  const level = systemsListLevel(body)
   const rows = (body && typeof body === "object" ? (body as { systems?: unknown }).systems : null)
-  if (!Array.isArray(rows)) return []
+  if (level === null || !Array.isArray(rows)) return []
   const entries: CatalogEntry[] = []
   for (const row of rows) {
     if (!row || typeof row !== "object") continue
     const record = row as Record<string, unknown>
     const name = String(record.name || record.SystemName || "").trim()
     if (!name) continue
+    if (level === 2) {
+      const membership = systemRowIdentity(record)
+      entries.push({ name, identity: null, membership, status: membership ? "MEMBERSHIP" : "MALFORMED", repeated: false })
+      continue
+    }
     const present = record.catalog_identity !== undefined && record.catalog_identity !== null
     const identity = present ? validIdentity(record.catalog_identity, name, scopeCustomerId) : null
     entries.push({ name, identity, status: !present ? "LEGACY" : identity ? "IDENTIFIED" : "MALFORMED", repeated: false })
@@ -134,18 +144,24 @@ function narrowing(value: string | null | undefined): string | null {
  * A LEGACY row carries no account or region to compare: the catalogue request was already narrowed by the same scope.
  */
 export function selectCatalogSystem(
-  requested: { system?: string | null; accountId?: string | null; region?: string | null },
+  requested: { system?: string | null; accountId?: string | null; region?: string | null; systemKey?: string | null },
   entries: readonly CatalogEntry[],
 ): CatalogSelection {
   const wanted = labelKey(requested.system)
-  if (!wanted) {
+  const key = String(requested.systemKey || "").trim()
+  if (!wanted && !key) {
     const first = entries.find((entry) => !entry.repeated && entry.status !== "MALFORMED")
     return first ? { kind: "SELECTED", entry: first } : { kind: "NONE" }
   }
   const account = narrowing(requested.accountId)
   const region = narrowing(requested.region)
+  // A MEMBERSHIP row is narrowed by account only when it IS one account's (a tag / source key); an authored key spans them.
+  const inAccount = (entry: CatalogEntry) =>
+    !account || entry.membership!.accountId === null || entry.membership!.accountId === account
   const matches = entries.filter((entry) => {
+    if (key) return entry.status === "MEMBERSHIP" && entry.membership!.systemKey === key && inAccount(entry)
     if (labelKey(entry.name) !== wanted) return false
+    if (entry.status === "MEMBERSHIP") return inAccount(entry)
     if (entry.status !== "IDENTIFIED") return true
     return (!account || entry.identity!.account_id === account) && (!region || entry.identity!.region === region)
   })
@@ -171,12 +187,17 @@ export function catalogEntryHref(
   // The page's other parameters (a tab, a mode) are kept; the system tuple is always rewritten whole, so a stale account or
   // region from the current URL can never ride along with another row's label.
   const query = new URLSearchParams(keep ? keep.toString() : "")
-  for (const name of [param, "customer_id", "account_id", "region"]) query.delete(name)
+  for (const name of [param, "customer_id", "account_id", "region", "system_key"]) query.delete(name)
   query.set(param, entry.status === "IDENTIFIED" ? entry.identity!.label : entry.name)
   if (entry.status === "IDENTIFIED") {
     query.set("customer_id", entry.identity!.customer_id)
     query.set("account_id", entry.identity!.account_id)
     query.set("region", entry.identity!.region)
+  }
+  if (entry.status === "MEMBERSHIP") {
+    // B5: the key names the system; a tag / source key's row also names its account (one system per account).
+    query.set("system_key", entry.membership!.systemKey)
+    if (entry.membership!.accountId) query.set("account_id", entry.membership!.accountId)
   }
   return `${path}?${query.toString()}`
 }
@@ -244,26 +265,40 @@ export function systemRowIdentity(row: unknown): SystemRowIdentity | null {
   return { systemKey: record.system_key, rowKey: expectedRowKey, accountId: identityAccount as string | null, deployments }
 }
 
-/** One system a NAME may stand for when two identities share it. */
-export type SystemCandidate = { systemKey: string; systemName: string }
+/** One system a request may stand for: by key, and for a tag / source key (one system per account) its account. */
+export type SystemCandidate = { systemKey: string; systemName: string; accountId: string | null }
+
+/** The two 409 answers a person resolves by choosing (Phase 2 M3): a NAME several identities share, and a tag / source KEY
+ *  asked without the account it has members in more than one of. */
+export const SYSTEM_CHOICE_CODES = ["SYSTEM_NAME_AMBIGUOUS", "SYSTEM_KEY_NEEDS_ACCOUNT"] as const
 
 /**
- * The systems a name stands for, from the backend's 409 ``SYSTEM_NAME_AMBIGUOUS`` answer (``detail.candidate_keys``), or
- * null for any other answer. A person chooses among them; the first is never taken. Fewer than two valid candidates is not
- * an ambiguity this page can resolve: null, and the caller shows the answer as the error it is.
+ * The systems a request stands for, from the backend's 409 answer (``detail.candidate_keys``, code in SYSTEM_CHOICE_CODES),
+ * or null for any other answer. A person chooses among them; the first is never taken. Fewer than two valid candidates is not
+ * a choice this page can offer: null, and the caller shows the answer as the error it is.
  */
 export function ambiguousSystemCandidates(status: number, body: unknown): SystemCandidate[] | null {
   if (status !== 409 || !body || typeof body !== "object") return null
   const detail = (body as { detail?: unknown }).detail
   if (!detail || typeof detail !== "object" || Array.isArray(detail)) return null
   const record = detail as Record<string, unknown>
-  if (record.code !== "SYSTEM_NAME_AMBIGUOUS" || !Array.isArray(record.candidate_keys)) return null
+  if (!(SYSTEM_CHOICE_CODES as readonly unknown[]).includes(record.code) || !Array.isArray(record.candidate_keys)) {
+    return null
+  }
   const candidates: SystemCandidate[] = []
   for (const raw of record.candidate_keys) {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null
     const candidate = raw as Record<string, unknown>
     if (typeof candidate.system_key !== "string" || !candidate.system_key.trim()) return null
-    candidates.push({ systemKey: candidate.system_key, systemName: String(candidate.system_name || "").trim() })
+    const account = candidate.account_id
+    if (!(account === undefined || account === null || (typeof account === "string" && ACCOUNT_ID.test(account)))) {
+      return null
+    }
+    candidates.push({
+      systemKey: candidate.system_key,
+      systemName: String(candidate.system_name || "").trim(),
+      accountId: typeof account === "string" ? account : null,
+    })
   }
   return candidates.length >= 2 ? candidates : null
 }
@@ -369,6 +404,8 @@ export function useScopedSystemCatalogEntries(): CatalogReading {
         const response = await fetch(url, { cache: "no-store" })
         if (!response.ok) throw new Error(String(response.status))
         const body = await response.json()
+        // A Systems list contract this frontend does not read is an unreadable catalogue, never an empty one (B5).
+        if (systemsListLevel(body) === null) throw new Error("SYSTEMS_LIST_CONTRACT_UNKNOWN")
         if (!cancelled) setReading({ url, entries: catalogEntries(body, scope.customerId) })
       } catch {
         if (!cancelled) setReading({ url, failed: true })
@@ -390,7 +427,7 @@ export function useScopedSystemCatalogEntries(): CatalogReading {
   return { state: "ready", entries: reading.entries, scopeKey: catalog.scopeKey, retry }
 }
 
-export type SystemRequest = { system: string | null; accountId: string | null; region: string | null }
+export type SystemRequest = { system: string | null; accountId: string | null; region: string | null; systemKey: string | null }
 
 /**
  * The system the URL asks for, with the account and region it was linked under PINNED for as long as the label stays the
@@ -404,14 +441,16 @@ export function usePinnedSystemRequest(): SystemRequest {
   const system = searchParams?.get("system") ?? null
   const accountId = narrowing(searchParams?.get("account_id"))
   const region = narrowing(searchParams?.get("region"))
+  // B5: the key a v2 link carries; a different key is a different system, so it starts a new request like a new label.
+  const systemKey = String(searchParams?.get("system_key") || "").trim() || null
   const pin = useRef<SystemRequest | null>(null)
   const current = pin.current
-  if (!current || labelKey(current.system) !== labelKey(system)) {
-    pin.current = { system, accountId, region }
+  if (!current || labelKey(current.system) !== labelKey(system) || current.systemKey !== systemKey) {
+    pin.current = { system, accountId, region, systemKey }
   } else if (accountId && accountId !== current.accountId) {
-    pin.current = { system, accountId, region }
+    pin.current = { system, accountId, region, systemKey }
   } else if (accountId || region) {
-    pin.current = { system, accountId: accountId ?? current.accountId, region: region ?? current.region }
+    pin.current = { system, accountId: accountId ?? current.accountId, region: region ?? current.region, systemKey }
   }
   return pin.current!
 }

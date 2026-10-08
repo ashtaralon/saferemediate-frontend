@@ -34,6 +34,15 @@ function GuardMessage({ title, children, back = true }: { title: string; childre
   )
 }
 
+/** How a v2 system identity is told apart from another of the same name (A7 B5): its account for a tag / source key (one
+ *  system per account), else its key and the accounts its deployments are in. */
+function membershipLabel(entry: CatalogEntry): string {
+  const membership = entry.membership!
+  if (membership.accountId) return `account ${membership.accountId}`
+  const accounts = Array.from(new Set(membership.deployments.map((d) => d.accountId))).sort()
+  return accounts.length ? `${membership.systemKey} · ${accounts.join(", ")}` : membership.systemKey
+}
+
 /**
  * Guard component that only renders children for ONE system of the scoped catalogue.
  *
@@ -106,20 +115,28 @@ export function CatalogSelectionNotice({
   keep?: URLSearchParams | null
 }) {
   if (selection.kind === "AMBIGUOUS") {
+    // A7 B5: on a v2 answer the rows are system IDENTITIES (several may share a name), not one label's accounts.
+    const identities = selection.entries.some((entry) => entry.status === "MEMBERSHIP")
     return (
-      <GuardMessage title="Choose an account" back={back}>
+      <GuardMessage title={identities ? "Choose a system" : "Choose an account"} back={back}>
         <span>
-          <strong>{systemName}</strong> is served by {selection.entries.length} accounts in this scope. Choose the one to open:
+          {identities ? (
+            <><strong>{systemName}</strong> stands for {selection.entries.length} systems in this scope. Choose the one to open:</>
+          ) : (
+            <><strong>{systemName}</strong> is served by {selection.entries.length} accounts in this scope. Choose the one to open:</>
+          )}
         </span>
-        <ul className="mt-2 space-y-1" aria-label="Accounts serving this system">
+        <ul className="mt-2 space-y-1" aria-label={identities ? "Systems with this name" : "Accounts serving this system"}>
           {selection.entries.map((entry, index) => {
             const href = catalogEntryHref(pathname, entry, "system", keep)
             const label = entry.identity
               ? `${entry.identity.account_id} · ${entry.identity.region}`
-              : entry.name
+              : entry.membership
+                ? membershipLabel(entry)
+                : entry.name
             return (
               <li key={`${label}-${index}`}>
-                {href && entry.status === "IDENTIFIED" ? (
+                {href && (entry.status === "IDENTIFIED" || entry.status === "MEMBERSHIP") ? (
                   <a href={href} className="underline font-medium">{label}</a>
                 ) : (
                   <span title="This row's identity is unavailable, so it cannot be opened on its own">
@@ -169,12 +186,15 @@ export function AccountLinks({ name, entries, path, param = "system" }: {
 }) {
   return (
     <span className="mt-0.5 flex flex-wrap gap-x-2 text-[11px] text-slate-500" aria-label={`Accounts serving ${name}`}>
-      <span>in {entries.length} accounts:</span>
+      <span>
+        {entries.some((entry) => entry.status === "MEMBERSHIP") ? `${entries.length} systems:` : `in ${entries.length} accounts:`}
+      </span>
       {entries.map((entry, index) => {
-        const href = entry.status === "IDENTIFIED" ? catalogEntryHref(path, entry, param) : null
+        const href =
+          entry.status === "IDENTIFIED" || entry.status === "MEMBERSHIP" ? catalogEntryHref(path, entry, param) : null
         return href ? (
           <a key={index} href={href} className="underline hover:text-blue-700">
-            {entry.identity!.account_id} · {entry.identity!.region}
+            {entry.identity ? `${entry.identity.account_id} · ${entry.identity.region}` : membershipLabel(entry)}
           </a>
         ) : (
           <span key={index} title="This row's identity is unavailable, so it cannot be opened on its own">identity unavailable</span>
