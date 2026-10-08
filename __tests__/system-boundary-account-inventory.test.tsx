@@ -8,7 +8,8 @@
  * "checkout-api" (an IAM role and a k8s deployment): each box is named with its type. The save itself runs on the real
  * goldens in system-boundary-declare-from-inventory.test.tsx; here, the wiring up to the reviewed declaration. The account
  * census around it (A7 S1c) answers with the REAL census route's captures (fixtures/account-census-captures): census not
- * enabled, unless a test serves a published census.
+ * enabled, unless a test serves a published census. The wizard capability the toolbar reads answers with the REAL route's
+ * capture (fixtures/system-boundary-captures/capability: wizard off).
  */
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
@@ -67,6 +68,11 @@ function serve({ inventory, declarations, census = { listed_only: "not_published
       return json(declarations)
     }
     if (url.startsWith("/api/proxy/system-boundary/authoring-grants/self")) return json(fixture("system-boundary", "grant_self").body)
+    if (url === "/api/proxy/system-boundary/wizard/capability") {
+      // The declare toolbar reads the wizard capability on mount: the REAL route's capture, wizard off on this install.
+      const captured = fixture("system-boundary-captures", "capability")
+      return json(captured.body, captured.status)
+    }
     unexpected.push(url)
     return json({ detail: `unexpected ${url}` }, 404)
   }))
